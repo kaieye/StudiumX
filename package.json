@@ -1,0 +1,42 @@
+{
+  "name": "ai-teaching-system",
+  "version": "0.1.0",
+  "description": "Personal AI teaching workspace built with Electron, React, TypeScript, Vite, and Tailwind CSS.",
+  "main": "out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "tsc --noEmit && electron-vite build",
+    "preview": "electron-vite preview",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "lucide-react": "^1.21.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@swc/core": "1.15.43",
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/node": "^26.0.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "5.2.0",
+    "electron": "^42.5.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^6.0.3",
+    "vite": "7.3.6"
+  },
+  "build": {
+    "appId": "com.local.ai-teaching-system",
+    "productName": "AI Teaching System",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ]
+  }
+}
