@@ -96,15 +96,21 @@ function createWindow(): void {
     height: 860,
     minWidth: 1100,
     minHeight: 720,
-    title: 'AI Teaching System',
-    backgroundColor: '#ffffff',
+    title: 'TeachOS',
+    backgroundColor: '#f7f9fe',
     frame: false,
+    show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
+  })
+
+  // Avoid white flash: show window once content is ready
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
