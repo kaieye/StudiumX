@@ -18,6 +18,8 @@ import {
   Home,
   LibraryBig,
   Loader2,
+  Maximize2,
+  Minus,
   PanelLeft,
   PenLine,
   Play,
@@ -30,6 +32,7 @@ import {
   Star,
   Target,
   Upload,
+  X,
   Zap
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -289,8 +292,10 @@ function App() {
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? active?.lessons[0] ?? null
   const workflowSteps = useMemo(() => buildWorkflowSteps(active, generating), [active, generating])
 
+  const platform = window.teachingSystem?.platform ?? 'win32'
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell platform-${platform}`}>
       <WindowChrome />
       <aside className="sidebar" aria-label="主导航">
         <div className="brand">
@@ -637,35 +642,69 @@ function App() {
 }
 
 function WindowChrome() {
+  const platform = window.teachingSystem?.platform ?? 'win32'
+  const isMac = platform === 'darwin'
   const controlWindow = (action: WindowControlAction): void => {
     void window.teachingSystem?.controlWindow(action)
   }
 
   return (
-    <div className="window-chrome" aria-label="窗口控制">
-      <div className="traffic-lights">
-        <button
-          className="traffic-light is-close"
-          type="button"
-          aria-label="关闭窗口"
-          title="关闭窗口"
-          onClick={() => controlWindow('close')}
-        />
-        <button
-          className="traffic-light is-minimize"
-          type="button"
-          aria-label="最小化窗口"
-          title="最小化窗口"
-          onClick={() => controlWindow('minimize')}
-        />
-        <button
-          className="traffic-light is-maximize"
-          type="button"
-          aria-label="最大化或还原窗口"
-          title="最大化或还原窗口"
-          onClick={() => controlWindow('toggle-maximize')}
-        />
-      </div>
+    <div className={`window-chrome ${isMac ? 'is-mac' : 'is-desktop'}`} role="group" aria-label="窗口控制">
+      {isMac ? (
+        <div className="mac-window-lights">
+          <button
+            className="mac-window-light is-close"
+            type="button"
+            aria-label="关闭窗口"
+            title="关闭窗口"
+            onClick={() => controlWindow('close')}
+          />
+          <button
+            className="mac-window-light is-minimize"
+            type="button"
+            aria-label="最小化窗口"
+            title="最小化窗口"
+            onClick={() => controlWindow('minimize')}
+          />
+          <button
+            className="mac-window-light is-maximize"
+            type="button"
+            aria-label="最大化或还原窗口"
+            title="最大化或还原窗口"
+            onClick={() => controlWindow('toggle-maximize')}
+          />
+        </div>
+      ) : (
+        <div className="window-controls">
+          <button
+            className="window-control is-minimize"
+            type="button"
+            aria-label="最小化窗口"
+            title="最小化窗口"
+            onClick={() => controlWindow('minimize')}
+          >
+            <Minus size={15} strokeWidth={1.8} />
+          </button>
+          <button
+            className="window-control is-maximize"
+            type="button"
+            aria-label="最大化或还原窗口"
+            title="最大化或还原窗口"
+            onClick={() => controlWindow('toggle-maximize')}
+          >
+            <Maximize2 size={13} strokeWidth={1.8} />
+          </button>
+          <button
+            className="window-control is-close"
+            type="button"
+            aria-label="关闭窗口"
+            title="关闭窗口"
+            onClick={() => controlWindow('close')}
+          >
+            <X size={16} strokeWidth={1.8} />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

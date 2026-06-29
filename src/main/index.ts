@@ -119,27 +119,47 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
-  registerTeachingIpc(
-    new TeachingWorkspaceService({
-      registryPath: join(app.getPath('userData'), 'teachos-workspaces.json'),
-      defaultRoot: join(app.getPath('documents'), 'TeachOS Workspaces')
-    })
-  )
-  createWindow()
+function focusExistingWindow(): void {
+  const existingWindow = BrowserWindow.getAllWindows()[0]
+  if (!existingWindow) return
+  if (existingWindow.isMinimized()) {
+    existingWindow.restore()
+  }
+  existingWindow.show()
+  existingWindow.focus()
+}
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.whenReady().then(() => {
+    registerTeachingIpc(
+      new TeachingWorkspaceService({
+        registryPath: join(app.getPath('userData'), 'teachos-workspaces.json'),
+        defaultRoot: join(app.getPath('documents'), 'TeachOS Workspaces')
+      })
+    )
+    createWindow()
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow()
+      }
+    })
+  })
+
+  app.on('second-instance', () => {
+    focusExistingWindow()
+  })
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit()
     }
   })
-})
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
-})
+}
 
 function parseCreateWorkspacePayload(payload: unknown): CreateWorkspacePayload {
   const record = requireRecord(payload)
