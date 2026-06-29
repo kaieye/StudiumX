@@ -3,6 +3,7 @@ out/
 release/
 dist/
 build/
+ref_project/
 
 *.log
 npm-debug.log*

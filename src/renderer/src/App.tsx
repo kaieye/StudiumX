@@ -1,5 +1,5 @@
 import {
-  Archive,
+  AlertCircle,
   ArrowUpRight,
   Bell,
   BookOpen,
@@ -16,10 +16,8 @@ import {
   GraduationCap,
   History,
   Home,
-  Layers3,
   LibraryBig,
   Loader2,
-  MessageSquareText,
   PanelLeft,
   PenLine,
   Play,
@@ -29,127 +27,266 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
-  SquareTerminal,
   Star,
   Target,
   Upload,
   Zap
 } from 'lucide-react'
-import { useMemo } from 'react'
+import type { LucideIcon } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
+import type {
+  LessonSummary,
+  TeachingAppState,
+  TeachingRuntimeState,
+  TeachingWorkspaceSummary,
+  WorkspaceView
+} from '../../shared/teaching-types'
 
-type WorkspaceView = 'overview' | 'lessons' | 'resources'
-
-type AppState = {
-  view: WorkspaceView
-  setView: (view: WorkspaceView) => void
+type WorkflowCard = {
+  label: string
+  status: string
+  icon: LucideIcon
+  tone: 'green' | 'blue' | 'amber' | 'rose'
 }
 
-const useAppStore = create<AppState>((set) => ({
-  view: 'overview',
-  setView: (view) => set({ view })
-}))
+type StoreState = {
+  view: WorkspaceView
+  loading: boolean
+  generating: boolean
+  error: string | null
+  searchQuery: string
+  taskPrompt: string
+  appState: TeachingAppState
+  setView: (view: WorkspaceView) => void
+  setSearchQuery: (query: string) => void
+  setTaskPrompt: (prompt: string) => void
+  initialize: () => Promise<void>
+  selectWorkspace: (workspaceId: string) => Promise<void>
+  createWorkspace: () => Promise<void>
+  importWorkspace: () => Promise<void>
+  updateMission: () => Promise<void>
+  generateLesson: () => Promise<void>
+  loadLesson: (lesson: LessonSummary) => Promise<void>
+  openPath: (path: string) => Promise<void>
+}
 
 const navItems = [
   { id: 'overview', label: '工作台', icon: Home },
   { id: 'lessons', label: '课程', icon: BookOpen },
   { id: 'resources', label: '资源', icon: LibraryBig }
-] satisfies Array<{ id: WorkspaceView; label: string; icon: typeof Home }>
+] satisfies Array<{ id: WorkspaceView; label: string; icon: LucideIcon }>
 
-const workflowSteps = [
-  {
-    label: '目标对齐',
-    status: '已完成',
-    icon: Target,
-    tone: 'green'
-  },
-  {
-    label: '资源校验',
-    status: '进行中',
-    icon: ShieldCheck,
-    tone: 'blue'
-  },
-  {
-    label: '结构输出',
-    status: '等待',
-    icon: Database,
-    tone: 'amber'
-  },
-  {
-    label: 'HTML 生成',
-    status: '等待',
-    icon: FileCheck2,
-    tone: 'rose'
-  }
-]
+const defaultRuntime: TeachingRuntimeState = {
+  status: 'idle',
+  currentStep: 'ready',
+  queuedTasks: 0,
+  providerLabel: 'Local structured generator'
+}
 
-const lessonPlan = [
-  {
-    id: '0001',
-    title: '把学习目标写成 MISSION.md',
-    meta: '12 分钟 · 检索练习',
-    state: '可生成',
-    icon: Target
-  },
-  {
-    id: '0002',
-    title: '从资源清单提炼第一节课',
-    meta: '18 分钟 · 引用校验',
-    state: '草稿',
-    icon: LibraryBig
-  },
-  {
-    id: '0003',
-    title: '把知识点压缩成速查页',
-    meta: '10 分钟 · 打印优化',
-    state: '待排期',
-    icon: Archive
-  }
-]
+const emptyAppState: TeachingAppState = {
+  workspaces: [],
+  activeWorkspace: null,
+  previewHtml: '',
+  selectedLessonPath: null,
+  runtime: defaultRuntime
+}
 
-const resourceRows = [
-  {
-    title: 'teach/SKILL.md',
-    detail: '课程结构、记录、reference 与 assets 约定',
-    tag: '本地规范'
-  },
-  {
-    title: 'teaching-system-tech-stack.md',
-    detail: 'Electron、React、Tailwind、SQLite 技术路线',
-    tag: '架构'
-  },
-  {
-    title: 'RESOURCES.md',
-    detail: '等待首个工作区生成资源索引',
-    tag: '待创建'
-  }
-]
+const defaultPrompt =
+  '我想先学习如何把 teach 技能包的 MISSION、RESOURCES 和 lessons 组织成一个 Electron 桌面应用的 MVP。'
 
-const records = [
-  {
-    title: '学习资产以文件为真相来源',
-    date: '今天',
-    icon: FileText
+const nextPrompt = '基于当前 mission，生成下一节短小、可复习、带检索练习的 HTML lesson。'
+
+const useAppStore = create<StoreState>((set, get) => ({
+  view: 'overview',
+  loading: true,
+  generating: false,
+  error: null,
+  searchQuery: '',
+  taskPrompt: defaultPrompt,
+  appState: emptyAppState,
+  setView: (view) => set({ view }),
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setTaskPrompt: (taskPrompt) => set({ taskPrompt }),
+  initialize: async () => {
+    set({ loading: true, error: null })
+    try {
+      const state = await window.teachingSystem.getState()
+      set({
+        appState: state,
+        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+        loading: false
+      })
+    } catch (error) {
+      set({ loading: false, error: errorMessage(error) })
+    }
   },
-  {
-    title: 'Lesson 输出应是静态 HTML',
-    date: '今天',
-    icon: BookOpen
+  selectWorkspace: async (workspaceId) => {
+    set({ loading: true, error: null })
+    try {
+      const state = await window.teachingSystem.selectWorkspace(workspaceId)
+      set({
+        appState: state,
+        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+        loading: false
+      })
+    } catch (error) {
+      set({ loading: false, error: errorMessage(error) })
+    }
   },
-  {
-    title: 'AI 先产 JSON，再由模板渲染',
-    date: '今天',
-    icon: SquareTerminal
+  createWorkspace: async () => {
+    const name = window.prompt('工作区名称', 'learn')
+    if (!name) return
+    const prompt = window.prompt('学习使命', `我想学习 ${name}，并生成可复习的 HTML 课程。`)
+    if (!prompt) return
+    set({ loading: true, error: null })
+    try {
+      const state = await window.teachingSystem.createWorkspace({ name, prompt })
+      set({ appState: state, taskPrompt: defaultPrompt, loading: false })
+    } catch (error) {
+      set({ loading: false, error: errorMessage(error) })
+    }
+  },
+  importWorkspace: async () => {
+    set({ loading: true, error: null })
+    try {
+      const result = await window.teachingSystem.importWorkspace()
+      if (result.canceled || !result.state) {
+        set({ loading: false })
+        return
+      }
+      set({
+        appState: result.state,
+        taskPrompt: result.state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+        loading: false
+      })
+    } catch (error) {
+      set({ loading: false, error: errorMessage(error) })
+    }
+  },
+  updateMission: async () => {
+    const workspace = get().appState.activeWorkspace
+    if (!workspace) return
+    const prompt = window.prompt('更新学习使命', workspace.missionExcerpt)
+    if (!prompt) return
+    set({ loading: true, error: null })
+    try {
+      const state = await window.teachingSystem.updateMission({ workspaceId: workspace.id, prompt })
+      set({ appState: state, loading: false })
+    } catch (error) {
+      set({ loading: false, error: errorMessage(error) })
+    }
+  },
+  generateLesson: async () => {
+    const workspace = get().appState.activeWorkspace
+    const prompt = get().taskPrompt.trim()
+    if (!workspace || !prompt) return
+    set({
+      generating: true,
+      error: null,
+      appState: {
+        ...get().appState,
+        runtime: {
+          status: 'working',
+          currentStep: 'rendering lesson',
+          queuedTasks: 1,
+          providerLabel: 'Local structured generator'
+        }
+      }
+    })
+    try {
+      const result = await window.teachingSystem.generateLesson({ workspaceId: workspace.id, prompt })
+      set({
+        appState: result.state,
+        taskPrompt: nextPrompt,
+        generating: false
+      })
+    } catch (error) {
+      set({
+        generating: false,
+        error: errorMessage(error),
+        appState: { ...get().appState, runtime: { ...defaultRuntime, status: 'error' } }
+      })
+    }
+  },
+  loadLesson: async (lesson) => {
+    const workspace = get().appState.activeWorkspace
+    if (!workspace) return
+    set({
+      appState: {
+        ...get().appState,
+        selectedLessonPath: lesson.absolutePath,
+        previewHtml: loadingPreviewHtml(workspace)
+      }
+    })
+    try {
+      const result = await window.teachingSystem.readLesson({
+        workspaceId: workspace.id,
+        lessonPath: lesson.absolutePath
+      })
+      set({ appState: { ...get().appState, selectedLessonPath: lesson.absolutePath, previewHtml: result.html } })
+    } catch (error) {
+      set({ error: errorMessage(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace) } })
+    }
+  },
+  openPath: async (path) => {
+    try {
+      const result = await window.teachingSystem.openPath(path)
+      if (!result.ok) {
+        set({ error: result.message ?? '无法打开路径。' })
+      }
+    } catch (error) {
+      set({ error: errorMessage(error) })
+    }
   }
-]
+}))
 
 function App() {
-  const { view, setView } = useAppStore()
+  const {
+    view,
+    loading,
+    generating,
+    error,
+    searchQuery,
+    taskPrompt,
+    appState,
+    setView,
+    setSearchQuery,
+    setTaskPrompt,
+    initialize,
+    selectWorkspace,
+    createWorkspace,
+    importWorkspace,
+    updateMission,
+    generateLesson,
+    loadLesson,
+    openPath
+  } = useAppStore()
 
+  useEffect(() => {
+    void initialize()
+  }, [initialize])
+
+  const active = appState.activeWorkspace
   const activeLabel = useMemo(
     () => navItems.find((item) => item.id === view)?.label ?? '工作台',
     [view]
   )
+  const query = searchQuery.trim().toLowerCase()
+  const lessons = useMemo(
+    () => filterLessons(active?.lessons ?? [], query),
+    [active?.lessons, query]
+  )
+  const resources = useMemo(
+    () => (active?.resources ?? []).filter((resource) => matchesQuery([resource.title, resource.detail, resource.tag], query)),
+    [active?.resources, query]
+  )
+  const records = useMemo(
+    () => (active?.records ?? []).filter((record) => matchesQuery([record.title, record.relativePath], query)),
+    [active?.records, query]
+  )
+  const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? active?.lessons[0] ?? null
+  const workflowSteps = useMemo(() => buildWorkflowSteps(active, generating), [active, generating])
 
   return (
     <div className="app-shell">
@@ -166,7 +303,12 @@ function App() {
 
         <label className="search-box">
           <Search size={16} />
-          <input aria-label="搜索工作区" placeholder="搜索课程、资源、记录" />
+          <input
+            aria-label="搜索工作区"
+            placeholder="搜索课程、资源、记录"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
         </label>
 
         <nav className="nav-list">
@@ -189,20 +331,22 @@ function App() {
         <div className="sidebar-section">
           <div className="section-heading">
             <span>教学工作区</span>
-            <button className="icon-button" type="button" aria-label="新建工作区">
+            <button className="icon-button" type="button" aria-label="新建工作区" onClick={createWorkspace}>
               <Plus size={15} />
             </button>
           </div>
-          <button className="workspace-item is-selected" type="button">
-            <FolderOpen size={17} />
-            <span>learn</span>
-            <small>本地</small>
-          </button>
-          <button className="workspace-item" type="button">
-            <Layers3 size={17} />
-            <span>前端工程课</span>
-            <small>草稿</small>
-          </button>
+          {appState.workspaces.map((workspace) => (
+            <button
+              className={`workspace-item ${workspace.id === active?.id ? 'is-selected' : ''}`}
+              key={workspace.id}
+              type="button"
+              onClick={() => void selectWorkspace(workspace.id)}
+            >
+              <FolderOpen size={17} />
+              <span>{workspace.name}</span>
+              <small>{workspace.lessons.length} 课</small>
+            </button>
+          ))}
         </div>
 
         <div className="sidebar-section grow">
@@ -211,18 +355,18 @@ function App() {
             <ChevronDown size={15} />
           </div>
           <div className="artifact-list">
-            <span>
+            <button type="button" onClick={() => active && void openPath(active.rootPath)}>
               <FileText size={15} />
               MISSION.md
-            </span>
-            <span>
+            </button>
+            <button type="button" onClick={() => active && void openPath(active.rootPath)}>
               <BookOpen size={15} />
-              lessons/*.html
-            </span>
-            <span>
+              lessons/{active?.lessons.length ?? 0}
+            </button>
+            <button type="button" onClick={() => active && void openPath(active.rootPath)}>
               <History size={15} />
               learning-records
-            </span>
+            </button>
           </div>
         </div>
 
@@ -246,21 +390,28 @@ function App() {
             <button className="icon-button" type="button" aria-label="折叠侧边栏">
               <PanelLeft size={17} />
             </button>
-            <span>learn</span>
+            <span>{active?.name ?? 'workspace'}</span>
             <CircleDot size={9} />
             <span>{activeLabel}</span>
           </div>
           <div className="topbar-actions">
-            <button className="ghost-button" type="button">
+            <button className="ghost-button" type="button" onClick={importWorkspace} disabled={loading || generating}>
               <Upload size={16} />
               导入
             </button>
-            <button className="primary-button" type="button">
-              <Play size={16} />
+            <button className="primary-button" type="button" onClick={generateLesson} disabled={!active || generating}>
+              {generating ? <Loader2 className="spin" size={16} /> : <Play size={16} />}
               生成第一课
             </button>
           </div>
         </header>
+
+        {error && (
+          <div className="inline-alert" role="alert">
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+        )}
 
         <section className="workspace-hero" aria-labelledby="workspace-title">
           <div className="hero-copy">
@@ -268,10 +419,8 @@ function App() {
               <Sparkles size={16} />
               本地 AI 教学编排
             </div>
-            <h1 id="workspace-title">把一次对话变成可复习的课程资产</h1>
-            <p>
-              当前工作区会产出 MISSION、RESOURCES、lesson HTML、reference 和 learning records。
-            </p>
+            <h1 id="workspace-title">{active?.missionTitle ?? '加载教学工作区'}</h1>
+            <p>{active?.missionExcerpt ?? '正在读取本地 TeachOS 工作区。'}</p>
           </div>
           <div className="mission-strip" aria-label="当前使命">
             <div className="mission-icon">
@@ -279,9 +428,9 @@ function App() {
             </div>
             <div>
               <span>当前 Mission</span>
-              <strong>搭建个人化 AI 教学系统的第一版工作流</strong>
+              <strong>{active?.missionTitle ?? '未选择工作区'}</strong>
             </div>
-            <button className="icon-button" type="button" aria-label="编辑使命">
+            <button className="icon-button" type="button" aria-label="编辑使命" onClick={updateMission} disabled={!active}>
               <PenLine size={16} />
             </button>
           </div>
@@ -291,33 +440,34 @@ function App() {
           <div className="composer-header">
             <div>
               <span>新教学任务</span>
-              <strong>生成一节可保存、可打印、可互动的 HTML 课程</strong>
+              <strong>{selectedLesson ? '生成下一节可保存、可打印、可互动的 HTML 课程' : '生成第一节可保存、可打印、可互动的 HTML 课程'}</strong>
             </div>
             <button className="icon-button soft" type="button" aria-label="模型设置">
               <Command size={16} />
             </button>
           </div>
           <textarea
-            defaultValue="我想先学习如何把 teach 技能包的 MISSION、RESOURCES 和 lessons 组织成一个 Electron 桌面应用的 MVP。"
+            value={taskPrompt}
             aria-label="教学任务"
+            onChange={(event) => setTaskPrompt(event.target.value)}
           />
           <div className="composer-footer">
             <div className="tool-pills">
-              <button type="button">
+              <button type="button" onClick={() => active && void openPath(active.rootPath)}>
                 <FolderOpen size={15} />
-                learn
+                {active?.name ?? 'workspace'}
               </button>
-              <button type="button">
+              <button type="button" onClick={() => active && void openPath(active.rootPath)}>
                 <FileText size={15} />
-                teach/SKILL.md
+                MISSION.md
               </button>
               <button type="button">
                 <Zap size={15} />
                 structured JSON
               </button>
             </div>
-            <button className="send-button" type="button" aria-label="发送任务">
-              <SendHorizontal size={18} />
+            <button className="send-button" type="button" aria-label="发送任务" onClick={generateLesson} disabled={!active || generating}>
+              {generating ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
             </button>
           </div>
         </section>
@@ -342,62 +492,61 @@ function App() {
             <div className="section-title-row">
               <div>
                 <span>课程计划</span>
-                <h2>下一组 lesson</h2>
+                <h2>{view === 'lessons' ? '全部 lesson' : '下一组 lesson'}</h2>
               </div>
-              <button className="ghost-button" type="button">
+              <button className="ghost-button" type="button" onClick={() => active && void openPath(active.rootPath)} disabled={!active}>
                 <ArrowUpRight size={16} />
                 打开目录
               </button>
             </div>
 
             <div className="lesson-list">
-              {lessonPlan.map((lesson) => {
-                const Icon = lesson.icon
-                return (
-                  <article className="lesson-card" key={lesson.id}>
-                    <div className="lesson-id">{lesson.id}</div>
-                    <div className="lesson-icon">
-                      <Icon size={18} />
-                    </div>
-                    <div className="lesson-body">
-                      <h3>{lesson.title}</h3>
-                      <p>{lesson.meta}</p>
-                    </div>
-                    <span className="state-chip">{lesson.state}</span>
-                  </article>
-                )
-              })}
+              {lessons.length === 0 ? (
+                <EmptyState icon={BookOpen} title="暂无课程" detail="生成后会写入 lessons/ 并显示在这里。" />
+              ) : (
+                lessons.map((lesson) => {
+                  const isSelected = lesson.absolutePath === appState.selectedLessonPath
+                  return (
+                    <article className={`lesson-card ${isSelected ? 'is-selected' : ''}`} key={lesson.absolutePath} onClick={() => void loadLesson(lesson)}>
+                      <div className="lesson-id">{lesson.id}</div>
+                      <div className="lesson-icon">
+                        <BookOpen size={18} />
+                      </div>
+                      <div className="lesson-body">
+                        <h3>{lesson.title}</h3>
+                        <p>{lesson.durationMinutes} 分钟 · {lesson.relativePath}</p>
+                      </div>
+                      <span className="state-chip">{isSelected ? '预览中' : '已生成'}</span>
+                    </article>
+                  )
+                })
+              )}
             </div>
           </div>
 
           <aside className="preview-panel" aria-label="Lesson 预览">
             <div className="preview-toolbar">
               <div>
-                <span>lessons/0001-mission.html</span>
+                <span>{selectedLesson?.relativePath ?? 'lessons/0001-lesson.html'}</span>
                 <strong>静态课程预览</strong>
               </div>
-              <button className="icon-button" type="button" aria-label="打开预览">
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="打开预览"
+                onClick={() => appState.selectedLessonPath && void openPath(appState.selectedLessonPath)}
+                disabled={!appState.selectedLessonPath}
+              >
                 <ArrowUpRight size={15} />
               </button>
             </div>
             <div className="lesson-preview">
-              <div className="preview-paper">
-                <span className="eyebrow">Lesson 0001</span>
-                <h3>写出可执行的学习使命</h3>
-                <p>
-                  将模糊兴趣压缩成一段能驱动资源选择、练习设计和复习节奏的 Mission。
-                </p>
-                <div className="callout">
-                  <CheckCircle2 size={16} />
-                  <span>完成后得到 MISSION.md 初稿</span>
-                </div>
-                <div className="mini-quiz">
-                  <span>快速检索</span>
-                  <button type="button">目标</button>
-                  <button type="button">约束</button>
-                  <button type="button">动机</button>
-                </div>
-              </div>
+              <iframe
+                className="preview-frame"
+                title="Lesson preview"
+                sandbox="allow-scripts"
+                srcDoc={appState.previewHtml}
+              />
             </div>
           </aside>
         </section>
@@ -409,13 +558,13 @@ function App() {
                 <span>可信资源</span>
                 <h2>资源索引</h2>
               </div>
-              <button className="icon-button" type="button" aria-label="添加资源">
+              <button className="icon-button" type="button" aria-label="打开资源" onClick={() => active && void openPath(active.rootPath)} disabled={!active}>
                 <Plus size={16} />
               </button>
             </div>
             <div className="resource-list">
-              {resourceRows.map((resource) => (
-                <article className="resource-row" key={resource.title}>
+              {resources.map((resource) => (
+                <article className="resource-row" key={`${resource.tag}-${resource.title}`}>
                   <div>
                     <h3>{resource.title}</h3>
                     <p>{resource.detail}</p>
@@ -432,23 +581,24 @@ function App() {
                 <span>学习记录</span>
                 <h2>近期洞察</h2>
               </div>
-              <button className="icon-button" type="button" aria-label="查看记录">
+              <button className="icon-button" type="button" aria-label="查看记录" onClick={() => active && void openPath(active.rootPath)} disabled={!active}>
                 <History size={16} />
               </button>
             </div>
             <div className="record-list">
-              {records.map((record) => {
-                const Icon = record.icon
-                return (
-                  <article className="record-row" key={record.title}>
-                    <Icon size={17} />
+              {records.length === 0 ? (
+                <EmptyState icon={History} title="暂无记录" detail="生成 lesson 时会同步写入 learning-records/。" />
+              ) : (
+                records.map((record) => (
+                  <article className="record-row" key={record.absolutePath} onClick={() => void openPath(record.absolutePath)}>
+                    <FileText size={17} />
                     <div>
                       <h3>{record.title}</h3>
                       <p>{record.date}</p>
                     </div>
                   </article>
-                )
-              })}
+                ))
+              )}
             </div>
           </div>
 
@@ -457,24 +607,24 @@ function App() {
               <BrainCircuit size={20} />
               <div>
                 <span>AI Runtime</span>
-                <strong>DeepSeek · OpenAI-compatible · SSE</strong>
+                <strong>{appState.runtime.providerLabel}</strong>
               </div>
             </div>
             <div className="runtime-meter">
-              <div />
+              <div style={{ width: active?.lessons.length ? '72%' : generating ? '48%' : '24%' }} />
             </div>
             <div className="runtime-stats">
               <span>
                 <Clock3 size={15} />
-                4 个队列任务
+                {appState.runtime.queuedTasks} 个队列任务
               </span>
               <span>
-                <Loader2 size={15} />
-                校验中
+                {generating ? <Loader2 className="spin" size={15} /> : <CheckCircle2 size={15} />}
+                {appState.runtime.currentStep}
               </span>
               <span>
                 <Star size={15} />
-                Zod schema
+                {active?.referenceCount ?? 0} references
               </span>
             </div>
           </div>
@@ -482,6 +632,85 @@ function App() {
       </main>
     </div>
   )
+}
+
+function EmptyState({ icon: Icon, title, detail }: { icon: LucideIcon; title: string; detail: string }) {
+  return (
+    <div className="empty-state">
+      <Icon size={18} />
+      <div>
+        <h3>{title}</h3>
+        <p>{detail}</p>
+      </div>
+    </div>
+  )
+}
+
+function buildWorkflowSteps(active: TeachingWorkspaceSummary | null, generating: boolean): WorkflowCard[] {
+  return [
+    {
+      label: '目标对齐',
+      status: active ? '已完成' : '等待',
+      icon: Target,
+      tone: 'green'
+    },
+    {
+      label: '资源校验',
+      status: active?.resources.length ? '已完成' : '待补充',
+      icon: ShieldCheck,
+      tone: 'blue'
+    },
+    {
+      label: '结构输出',
+      status: active?.records.length ? '已完成' : generating ? '进行中' : '等待',
+      icon: Database,
+      tone: 'amber'
+    },
+    {
+      label: 'HTML 生成',
+      status: active?.lessons.length ? '已完成' : generating ? '进行中' : '等待',
+      icon: FileCheck2,
+      tone: 'rose'
+    }
+  ]
+}
+
+function filterLessons(lessons: LessonSummary[], query: string): LessonSummary[] {
+  if (!query) return lessons
+  return lessons.filter((lesson) =>
+    matchesQuery([lesson.title, lesson.objective, lesson.prompt, lesson.relativePath], query)
+  )
+}
+
+function matchesQuery(values: string[], query: string): boolean {
+  if (!query) return true
+  return values.some((value) => value.toLowerCase().includes(query))
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function emptyPreviewHtml(workspace: TeachingWorkspaceSummary): string {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" /><style>
+body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
+main{max-width:680px;margin:0 auto;padding:46px 34px}p{color:#68778f;line-height:1.8}.badge{color:#4f7cf5;font-size:12px;font-weight:800;text-transform:uppercase}
+</style></head><body><main><div class="badge">TeachOS</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(workspace.missionExcerpt)}</p><p>点击生成按钮后，第一节静态 HTML lesson 会保存到 lessons/ 并在这里预览。</p></main></body></html>`
+}
+
+function loadingPreviewHtml(workspace: TeachingWorkspaceSummary): string {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" /><style>
+body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
+main{display:grid;place-items:center;min-height:360px;padding:34px}p{color:#68778f}
+</style></head><body><main><div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>正在读取 lesson 预览。</p></div></main></body></html>`
 }
 
 export { App }

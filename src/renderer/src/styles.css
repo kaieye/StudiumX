@@ -58,6 +58,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
@@ -340,11 +345,21 @@ button {
   font-size: 13px;
 }
 
-.artifact-list span {
+.artifact-list span,
+.artifact-list button {
   display: flex;
   align-items: center;
   min-width: 0;
   gap: 9px;
+}
+
+.artifact-list button {
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
 
 .sidebar-footer {
@@ -404,6 +419,22 @@ button {
 
 .topbar-actions {
   gap: 10px;
+}
+
+.inline-alert {
+  display: flex;
+  align-items: center;
+  max-width: 1180px;
+  min-height: 38px;
+  gap: 9px;
+  margin: 10px auto 0;
+  padding: 9px 12px;
+  color: #9c384e;
+  border: 1px solid #ffd4de;
+  border-radius: 13px;
+  background: #fff5f7;
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .ghost-button,
@@ -745,6 +776,15 @@ button {
   box-shadow: var(--shadow);
 }
 
+.lesson-card {
+  cursor: pointer;
+}
+
+.lesson-card.is-selected {
+  border-color: #c9d9ff;
+  box-shadow: 0 14px 38px rgba(79, 124, 245, 0.12);
+}
+
 .lesson-id {
   display: grid;
   place-items: center;
@@ -831,6 +871,44 @@ button {
     linear-gradient(90deg, #eef2f7 1px, transparent 1px),
     #fbfcff;
   background-size: 24px 24px;
+}
+
+.preview-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 362px;
+  border: 0;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 76px;
+  padding: 15px;
+  color: var(--accent);
+  border: 1px dashed #ced9ee;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.empty-state div {
+  min-width: 0;
+}
+
+.empty-state h3 {
+  margin: 0;
+  color: #24324a;
+  font-size: 14px;
+}
+
+.empty-state p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .preview-paper {
@@ -1001,6 +1079,16 @@ button {
   background: rgba(255, 255, 255, 0.08);
   font-size: 12px;
   font-weight: 650;
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 1180px) {
