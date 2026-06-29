@@ -5,7 +5,7 @@
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Microsoft YaHei", sans-serif;
   color: #24324a;
-  background: #f8f9fc;
+  background: #ffffff;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -39,12 +39,13 @@
 html,
 body,
 #root {
-  min-width: 100%;
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
   margin: 0;
 }
 
 body {
+  background: #ffffff;
   overflow: hidden;
 }
 
@@ -52,6 +53,13 @@ button,
 input,
 textarea {
   font: inherit;
+}
+
+button,
+input,
+textarea,
+iframe {
+  -webkit-app-region: no-drag;
 }
 
 button {
@@ -64,27 +72,77 @@ button:disabled {
 }
 
 .app-shell {
+  position: relative;
   display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-columns: 268px minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
-  padding: 12px;
-  gap: 18px;
-  background:
-    radial-gradient(circle at 76% 12%, rgba(79, 124, 245, 0.1), transparent 26%),
-    linear-gradient(135deg, #fbfcff 0%, #f5f7fb 48%, #fbfcff 100%);
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.window-chrome {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  height: 54px;
+  padding: 0 20px;
+  pointer-events: none;
+}
+
+.traffic-lights {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+.traffic-light {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.36);
+  transition:
+    filter 160ms ease,
+    transform 160ms ease;
+}
+
+.traffic-light:hover {
+  filter: brightness(0.95) saturate(1.08);
+}
+
+.traffic-light:active {
+  transform: scale(0.92);
+}
+
+.traffic-light.is-close {
+  background: #ff5f57;
+}
+
+.traffic-light.is-minimize {
+  background: #ffbd2e;
+}
+
+.traffic-light.is-maximize {
+  background: #28c840;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 18px 16px;
-  border: 1px solid rgba(145, 160, 190, 0.16);
-  border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(20px);
+  padding: 70px 12px 16px;
+  border-right: 1px solid #dedfe3;
+  background: #f0f1f3;
+  -webkit-app-region: drag;
 }
 
 .brand,
@@ -174,6 +232,7 @@ button:disabled {
     border-color 180ms ease,
     background 180ms ease,
     box-shadow 180ms ease;
+  -webkit-app-region: no-drag;
 }
 
 .search-box:focus-within {
@@ -396,18 +455,21 @@ button:disabled {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 8px 18px 34px 0;
+  padding: 0 0 34px;
+  background: #ffffff;
 }
 
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 25;
   justify-content: space-between;
-  min-height: 54px;
-  padding: 3px 2px 12px;
-  background: linear-gradient(180deg, rgba(248, 249, 252, 0.94), rgba(248, 249, 252, 0));
-  backdrop-filter: blur(10px);
+  min-height: 58px;
+  padding: 0 28px;
+  border-bottom: 1px solid rgba(29, 34, 43, 0.06);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(18px);
+  -webkit-app-region: drag;
 }
 
 .crumb {
@@ -419,6 +481,7 @@ button:disabled {
 
 .topbar-actions {
   gap: 10px;
+  -webkit-app-region: no-drag;
 }
 
 .inline-alert {
@@ -1093,8 +1156,8 @@ button:disabled {
 
 @media (max-width: 1180px) {
   .app-shell {
-    grid-template-columns: 224px minmax(0, 1fr);
-    gap: 14px;
+    grid-template-columns: 244px minmax(0, 1fr);
+    gap: 0;
   }
 
   .workspace-hero,
@@ -1143,7 +1206,7 @@ button:disabled {
 
 @media (max-width: 640px) {
   .app-shell {
-    padding: 8px;
+    padding: 0;
   }
 
   .topbar,

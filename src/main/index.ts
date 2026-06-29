@@ -6,7 +6,8 @@ import type {
   CreateWorkspacePayload,
   GenerateLessonPayload,
   ReadLessonPayload,
-  UpdateMissionPayload
+  UpdateMissionPayload,
+  WindowControlAction
 } from '../shared/teaching-types'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -67,6 +68,26 @@ function registerTeachingIpc(service: TeachingWorkspaceService): void {
     const message = await shell.openPath(target)
     return { ok: message.length === 0, message: message || undefined }
   })
+
+  ipcMain.handle('teach:window-control', (event, rawAction: unknown) => {
+    const targetWindow = BrowserWindow.fromWebContents(event.sender)
+    if (!targetWindow) return
+
+    const action = requireWindowControlAction(rawAction)
+    if (action === 'minimize') {
+      targetWindow.minimize()
+      return
+    }
+    if (action === 'toggle-maximize') {
+      if (targetWindow.isMaximized()) {
+        targetWindow.unmaximize()
+      } else {
+        targetWindow.maximize()
+      }
+      return
+    }
+    targetWindow.close()
+  })
 }
 
 function createWindow(): void {
@@ -76,8 +97,8 @@ function createWindow(): void {
     minWidth: 1100,
     minHeight: 720,
     title: 'AI Teaching System',
-    backgroundColor: '#f8f9fc',
-    titleBarStyle: 'hiddenInset',
+    backgroundColor: '#ffffff',
+    frame: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -164,6 +185,13 @@ function requireString(value: unknown, key: string): string {
     throw new Error(`IPC payload field "${key}" must be a string.`)
   }
   return value
+}
+
+function requireWindowControlAction(value: unknown): WindowControlAction {
+  if (value === 'minimize' || value === 'toggle-maximize' || value === 'close') {
+    return value
+  }
+  throw new Error('Unsupported window control action.')
 }
 
 function isInside(rootPath: string, targetPath: string): boolean {

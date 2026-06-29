@@ -40,6 +40,7 @@ import type {
   TeachingAppState,
   TeachingRuntimeState,
   TeachingWorkspaceSummary,
+  WindowControlAction,
   WorkspaceView
 } from '../../shared/teaching-types'
 
@@ -290,6 +291,7 @@ function App() {
 
   return (
     <div className="app-shell">
+      <WindowChrome />
       <aside className="sidebar" aria-label="主导航">
         <div className="brand">
           <div className="brand-mark">
@@ -630,6 +632,40 @@ function App() {
           </div>
         </section>
       </main>
+    </div>
+  )
+}
+
+function WindowChrome() {
+  const controlWindow = (action: WindowControlAction): void => {
+    void window.teachingSystem?.controlWindow(action)
+  }
+
+  return (
+    <div className="window-chrome" aria-label="窗口控制">
+      <div className="traffic-lights">
+        <button
+          className="traffic-light is-close"
+          type="button"
+          aria-label="关闭窗口"
+          title="关闭窗口"
+          onClick={() => controlWindow('close')}
+        />
+        <button
+          className="traffic-light is-minimize"
+          type="button"
+          aria-label="最小化窗口"
+          title="最小化窗口"
+          onClick={() => controlWindow('minimize')}
+        />
+        <button
+          className="traffic-light is-maximize"
+          type="button"
+          aria-label="最大化或还原窗口"
+          title="最大化或还原窗口"
+          onClick={() => controlWindow('toggle-maximize')}
+        />
+      </div>
     </div>
   )
 }

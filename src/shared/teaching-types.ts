@@ -91,6 +91,8 @@ export type OpenPathResult = {
   message?: string
 }
 
+export type WindowControlAction = 'minimize' | 'toggle-maximize' | 'close'
+
 export type TeachingSystemApi = {
   platform: NodeJS.Platform
   getState: () => Promise<TeachingAppState>
@@ -101,4 +103,5 @@ export type TeachingSystemApi = {
   generateLesson: (payload: GenerateLessonPayload) => Promise<GenerateLessonResult>
   readLesson: (payload: ReadLessonPayload) => Promise<{ html: string }>
   openPath: (path: string) => Promise<OpenPathResult>
+  controlWindow: (action: WindowControlAction) => Promise<void>
 }

@@ -10,7 +10,8 @@ const api: TeachingSystemApi = {
   updateMission: (payload) => ipcRenderer.invoke('teach:update-mission', payload),
   generateLesson: (payload) => ipcRenderer.invoke('teach:generate-lesson', payload),
   readLesson: (payload) => ipcRenderer.invoke('teach:read-lesson', payload),
-  openPath: (path) => ipcRenderer.invoke('teach:open-path', path)
+  openPath: (path) => ipcRenderer.invoke('teach:open-path', path),
+  controlWindow: (action) => ipcRenderer.invoke('teach:window-control', action)
 }
 
 contextBridge.exposeInMainWorld('teachingSystem', api)
