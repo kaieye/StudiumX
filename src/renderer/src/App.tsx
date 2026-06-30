@@ -88,6 +88,7 @@ import {
   type TeachingGitBranchesResult,
   type TeachingGitBranchRow,
   type TeachingGitWorktreesResult,
+  type TeachingClarificationResult,
   type TeachingMemoryDiagnostics,
   type TeachingMemoryRecord,
   type TeachingMemoryScope,
@@ -906,6 +907,18 @@ const useAppStore = create<StoreState>((set, get) => ({
         prompt,
         courseName: suggestedCourseName(workspace, prompt)
       })
+      if (result.kind === 'clarification') {
+        set({
+          view: 'overview',
+          overviewDialogMode: 'chat',
+          lessonReaderOpen: false,
+          appState: result.state,
+          agentTurns: appendClarificationTurns(get().agentTurns, prompt, result.clarification),
+          agentStatus: '',
+          generating: false
+        })
+        return
+      }
       set({
         view: 'lessons',
         lessonReaderOpen: true,
@@ -991,7 +1004,20 @@ const useAppStore = create<StoreState>((set, get) => ({
         }
         return
       }
-      if (!('error' in done)) {
+      if (!('error' in done) && done.kind === 'clarification') {
+        set({
+          view: 'overview',
+          overviewDialogMode: 'chat',
+          lessonReaderOpen: false,
+          selectedCoursePreviewFile: null,
+          appState: done.state,
+          agentTurns: appendClarificationTurns(get().agentTurns, prompt, done.clarification),
+          agentStatus: '',
+          generating: false
+        })
+        return
+      }
+      if (!('error' in done) && done.kind === 'lesson') {
         set({
           view: 'lessons',
           lessonReaderOpen: true,
@@ -5104,6 +5130,39 @@ function reconcileAgentTurnsWithLocalProcess(
     if (!localTurn?.processEvents?.length) return turn
     return { ...turn, processEvents: localTurn.processEvents }
   })
+}
+
+function appendClarificationTurns(
+  turns: AgentChatTurn[],
+  userInput: string,
+  clarification: TeachingClarificationResult
+): AgentChatTurn[] {
+  const createdAt = new Date().toISOString()
+  return [
+    ...turns,
+    {
+      id: `u-${Date.now()}-clarify`,
+      role: 'user',
+      content: userInput,
+      createdAt
+    },
+    {
+      id: `a-${Date.now()}-clarify`,
+      role: 'assistant',
+      content: clarification.assistantMessage,
+      processEvents: [
+        {
+          id: createAgentProcessEventId('clarify'),
+          kind: 'status',
+          status: 'done',
+          title: '继续澄清学习任务',
+          detail: clarification.summary,
+          createdAt
+        }
+      ],
+      createdAt
+    }
+  ]
 }
 
 function prettyJson(value: string): string {

@@ -135,7 +135,7 @@ function registerTeachingIpc(
         onChunk: (chunk) => safeSend(sender, 'teach:generate-lesson-chunk', chunk),
         onStatus: (status) => safeSend(sender, 'teach:generate-lesson-status', status)
       })
-      return { streamId, state: result.state, lesson: result.lesson, source: result.source, reason: result.reason }
+      return { streamId, ...result }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       logger?.error(`Lesson stream failed: ${message}`)

@@ -445,6 +445,19 @@ export type GenerateLessonPayload = {
   courseName?: string
 }
 
+export type TeachingWorkflowStage = 'clarifying' | 'ready'
+
+export type TeachingClarificationResult = {
+  stage: TeachingWorkflowStage
+  assistantMessage: string
+  summary: string
+  learnerProfile: string[]
+  learningGoals: string[]
+  openQuestions: string[]
+  lessonPrompt: string
+  missingSignals: Array<'topic' | 'background' | 'goal' | 'constraints' | 'firstAction'>
+}
+
 export type UpdateMissionPayload = {
   workspaceId: string
   prompt: string
@@ -465,12 +478,19 @@ export type ImportWorkspaceResult = {
   state: TeachingAppState | null
 }
 
-export type GenerateLessonResult = {
-  state: TeachingAppState
-  lesson: LessonSummary
-  source: 'ai' | 'fallback'
-  reason?: string
-}
+export type GenerateLessonResult =
+  | {
+      kind: 'lesson'
+      state: TeachingAppState
+      lesson: LessonSummary
+      source: 'ai' | 'fallback'
+      reason?: string
+    }
+  | {
+      kind: 'clarification'
+      state: TeachingAppState
+      clarification: TeachingClarificationResult
+    }
 
 export type OpenPathResult = {
   ok: boolean
@@ -511,7 +531,8 @@ export type LessonStreamStatus = {
 }
 
 export type LessonStreamDone =
-  | { streamId: string; state: TeachingAppState; lesson: LessonSummary; source: 'ai' | 'fallback'; reason?: string }
+  | { streamId: string; kind: 'lesson'; state: TeachingAppState; lesson: LessonSummary; source: 'ai' | 'fallback'; reason?: string }
+  | { streamId: string; kind: 'clarification'; state: TeachingAppState; clarification: TeachingClarificationResult }
   | { streamId: string; error: true; message: string }
 
 export type GenerateLessonStreamPayload = GenerateLessonPayload
@@ -638,6 +659,7 @@ export type AgentChatStreamDone =
       iterations: number
       toolsSupported: boolean
       degradedReason?: string
+      teachingAssessment?: TeachingClarificationResult
     }
   | { streamId: string; error: true; message: string }
 
@@ -650,6 +672,7 @@ export type AgentChatStreamResult =
       iterations: number
       toolsSupported: boolean
       degradedReason?: string
+      teachingAssessment?: TeachingClarificationResult
     }
   | { error: true; message: string }
 

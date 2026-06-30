@@ -14,6 +14,7 @@ import {
   renderLearningRecordFromPlan
 } from './ai/lesson-renderer'
 import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
+import { assessTeachingReadiness, isContinuationLessonRequest, isLearningSetupRequest } from '../shared/teaching-workflow'
 import type {
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
@@ -47,6 +48,7 @@ import type {
   SaveAgentConversationResult,
   TeachingMemoryDiagnostics,
   TeachingMemoryRecord,
+  TeachingClarificationResult,
   TeachingAppState,
   TeachingCourseSummary,
   TeachingRuntimeState,
@@ -246,7 +248,7 @@ export class TeachingWorkspaceService {
       onChunk: (chunk: LessonStreamChunk) => void
       onStatus: (status: LessonStreamStatus) => void
     }
-  ): Promise<{ state: TeachingAppState; lesson: LessonSummary; source: LessonPlanSource; reason?: string }> {
+  ): Promise<GenerateLessonResult> {
     return this.runLessonGeneration(payload, stream)
   }
 
@@ -270,13 +272,43 @@ export class TeachingWorkspaceService {
     }
     const settings = await this.loadSettings()
     const provider = resolveActiveProvider(settings)
+
+    const registryState = payload.workspaceId ? await this.ensureRegistry() : null
+    const workspace = payload.workspaceId && registryState
+      ? findWorkspace(registryState, payload.workspaceId)
+      : null
+    const workspaceRoot = workspace?.rootPath
+    const teachingAssessment = workspace
+      ? await this.assessTeachingRequest({
+          workspace,
+          userInput,
+          messages: payload.messages ?? []
+        })
+      : null
+
+    if (teachingAssessment?.stage === 'clarifying' && isLearningSetupRequest(userInput)) {
+      const finalText = teachingAssessment.assistantMessage
+      stream.onStatus({ streamId: stream.streamId, status: 'answering' })
+      stream.onChunk({ streamId: stream.streamId, delta: finalText })
+      stream.onStatus({ streamId: stream.streamId, status: 'done' })
+      const turns = toAgentTurns([
+        ...(payload.messages ?? []).map(toChatMessage).filter((message) => message.role !== 'system'),
+        { role: 'user', content: userInput },
+        { role: 'assistant', content: finalText }
+      ])
+      return {
+        turns,
+        finalText,
+        iterations: 0,
+        toolsSupported: toolsSupportedForFormat(settings.generator.endpointFormat),
+        teachingAssessment
+      }
+    }
+
     if (!provider || !provider.apiKey.trim()) {
       return { error: true, message: '未配置 API Key。' }
     }
 
-    const workspaceRoot = payload.workspaceId
-      ? findWorkspace(await this.ensureRegistry(), payload.workspaceId).rootPath
-      : undefined
     const ctx = buildToolContext(settings, { workspaceRoot })
     const registry = settings.tools.enabled ? buildDefaultRegistry(settings, { workspaceRoot }) : new ToolRegistry()
 
@@ -326,7 +358,8 @@ export class TeachingWorkspaceService {
       finalText: result.finalText,
       iterations: result.iterations,
       toolsSupported: result.toolsSupported,
-      degradedReason: result.degradedReason
+      degradedReason: result.degradedReason,
+      teachingAssessment: teachingAssessment ?? undefined
     }
   }
 
@@ -477,8 +510,25 @@ export class TeachingWorkspaceService {
     const sequence = await this.nextLessonNumber(workspace.rootPath, index.lessons)
     const lessonId = String(sequence).padStart(4, '0')
     const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
+    const generationAssessment = await this.assessTeachingRequest({
+      workspace,
+      userInput: prompt,
+      messages: []
+    })
+    if (
+      generationAssessment.stage === 'clarifying' &&
+      !isContinuationLessonRequest(prompt)
+    ) {
+      if (stream) stream.onStatus({ streamId: stream.streamId, step: 'done' })
+      return {
+        kind: 'clarification',
+        state: await this.buildState(registry, workspace.id, null),
+        clarification: generationAssessment
+      }
+    }
+    const lessonPrompt = generationAssessment.lessonPrompt || prompt
     const recalledMemories = await this.memoryStore.retrieve({
-      query: `${mission.title}\n${mission.excerpt}\n${prompt}`,
+      query: `${mission.title}\n${mission.excerpt}\n${lessonPrompt}`,
       workspaceRoot: workspace.rootPath,
       limit: settings.memory.maxInjected
     })
@@ -495,7 +545,7 @@ export class TeachingWorkspaceService {
     const { plan, source, reason } = await this.produceLessonPlan({
       workspace,
       mission,
-      prompt,
+      prompt: lessonPrompt,
       settings,
       sequence,
       recalledMemories,
@@ -503,12 +553,12 @@ export class TeachingWorkspaceService {
     })
 
     const title = clampTitle(plan.title)
-    const objective = cleanText(plan.objective) || `把「${deriveTopic(prompt, mission.title)}」压缩成一次可保存、可复习的学习动作。`
+    const objective = cleanText(plan.objective) || `把「${deriveTopic(lessonPrompt, mission.title)}」压缩成一次可保存、可复习的学习动作。`
     const artifacts = this.buildLessonArtifactPaths({
       workspace,
       sequence,
       title,
-      prompt,
+      prompt: lessonPrompt,
       requestedCourseName: payload.courseName,
       includeReference: settings.generator.generateReference,
       includeLearningRecord: settings.generator.generateLearningRecord,
@@ -519,7 +569,7 @@ export class TeachingWorkspaceService {
       id: lessonId,
       title,
       objective,
-      prompt,
+      prompt: lessonPrompt,
       createdAt: now,
       durationMinutes: plan.durationMinutes || settings.generator.lessonDurationMinutes,
       courseId: artifacts.courseId,
@@ -559,7 +609,7 @@ export class TeachingWorkspaceService {
       kind: 'lesson_generated',
       timestamp: now,
       workspaceId: workspace.id,
-      prompt,
+      prompt: lessonPrompt,
       paths: [
         artifacts.lessonRelativePath,
         artifacts.referenceRelativePath,
@@ -573,6 +623,7 @@ export class TeachingWorkspaceService {
     await this.saveRegistry(nextRegistry)
     if (stream) stream.onStatus({ streamId: stream.streamId, step: 'done' })
     return {
+      kind: 'lesson',
       state: await this.buildState(nextRegistry, workspace.id, artifacts.lessonAbsolutePath),
       lesson,
       source,
@@ -1180,6 +1231,20 @@ export class TeachingWorkspaceService {
     } catch {
       return DEFAULT_RUNTIME
     }
+  }
+
+  private async assessTeachingRequest(options: {
+    workspace: RegistryWorkspace
+    userInput: string
+    messages: AgentChatMessage[]
+  }): Promise<TeachingClarificationResult> {
+    const mission = await this.readMissionSummary(options.workspace.rootPath, options.workspace.name)
+    return assessTeachingReadiness({
+      userInput: options.userInput,
+      messages: options.messages,
+      missionTitle: mission.title,
+      missionExcerpt: mission.excerpt
+    })
   }
 
   private async nextLessonNumber(rootPath: string, lessons: LessonSummary[]): Promise<number> {
