@@ -65,6 +65,7 @@ import remarkGfm from 'remark-gfm'
 import { create } from 'zustand'
 import i18n from './i18n'
 import { classifyProviderError } from '../../shared/provider-error'
+import { deriveWorkspaceRemovalUiPatch } from '../../shared/workspace-removal-state'
 import {
   TEACHING_MODEL_PROVIDER_PRESETS,
   type AgentChatProcessEvent,
@@ -1265,24 +1266,29 @@ const useAppStore = create<StoreState>((set, get) => ({
     if (!api) return
     const workspace = get().appState.activeWorkspace
     if (!workspace) return
+    const removalSnapshot = {
+      activeConversationId: get().activeConversationId,
+      selectedCoursePreviewFile: get().selectedCoursePreviewFile,
+      selectedCourseRelativePath: get().selectedCourseRelativePath
+    }
     try {
       const state = await api.removeWorkspaceItem({
         workspaceId: workspace.id,
         relativePath: payload.relativePath,
         kind: payload.kind
       })
-      // If the removed item was the active conversation, clear the chat panel.
-      const removedConversationMd = payload.kind === 'conversation' ? payload.relativePath : null
-      const activeCleared =
-        removedConversationMd &&
-        get().appState.activeWorkspace?.conversations.some(
-          (c) => c.relativePath === removedConversationMd && c.id === get().activeConversationId
-        )
+      const uiPatch = deriveWorkspaceRemovalUiPatch(payload, removalSnapshot, state)
       set({
         appState: state,
         error: null,
-        ...(activeCleared
-          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentToolsSupported: null, agentChatBusy: false }
+        ...(uiPatch.clearActiveConversation
+          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false }
+          : {}),
+        ...(uiPatch.clearSelectedCoursePreview
+          ? { lessonReaderOpen: false, selectedCoursePreviewFile: null }
+          : {}),
+        ...(uiPatch.clearSelectedCourseFolder
+          ? { selectedCourseRelativePath: null }
           : {})
       })
     } catch (error) {

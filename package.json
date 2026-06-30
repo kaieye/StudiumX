@@ -8,6 +8,7 @@
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
     "check:provider-errors": "node scripts/check-provider-errors.mjs",
+    "check:workspace-removal": "node scripts/check-workspace-removal-state.mjs",
     "check:workflow": "node scripts/check-teaching-workflow.mjs",
     "preview": "electron-vite preview",
     "dist": "npm run build && electron-builder"
