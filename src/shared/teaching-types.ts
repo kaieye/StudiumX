@@ -210,8 +210,34 @@ export type LessonSummary = {
   prompt: string
   createdAt: string
   durationMinutes: number
+  courseId: string
+  courseName: string
+  courseRelativePath: string
+  courseAbsolutePath: string
+  sessionId: string
+  sessionName: string
+  sessionRelativePath: string
+  sessionAbsolutePath: string
   relativePath: string
   absolutePath: string
+}
+
+export type TeachingSessionSummary = {
+  id: string
+  name: string
+  relativePath: string
+  absolutePath: string
+  lesson: LessonSummary
+}
+
+export type TeachingCourseSummary = {
+  id: string
+  name: string
+  relativePath: string
+  absolutePath: string
+  lessonCount: number
+  sessionCount: number
+  sessions: TeachingSessionSummary[]
 }
 
 export type TeachingWorkspaceSummary = {
@@ -228,6 +254,7 @@ export type TeachingWorkspaceSummary = {
   updatedAt: string
   missionTitle: string
   missionExcerpt: string
+  courses: TeachingCourseSummary[]
   resources: ResourceSummary[]
   records: LearningRecordSummary[]
   lessons: LessonSummary[]
@@ -269,6 +296,41 @@ export type TeachingGitWorktreesResult =
 export type RemoveTeachingGitWorktreePayload = {
   workspaceRoot: string
   worktreePath: string
+}
+
+export type TeachingGitBranchRow = {
+  name: string
+  current: boolean
+  /**
+   * Absolute path of another worktree that already has this branch checked
+   * out. Git only allows a branch to live in one worktree at a time, so when
+   * this is set an in-place `git switch` would fail. Unset when the branch is
+   * free to be checked out in the current workspace.
+   */
+  worktreePath?: string
+  /** True when {@link worktreePath} is the repository's primary (main) worktree. */
+  worktreePrimary?: boolean
+}
+
+export type TeachingGitBranchesResult =
+  | {
+      ok: true
+      repositoryRoot: string
+      /** Absolute path of the repository's primary (main) worktree. */
+      primaryRepositoryRoot: string
+      currentBranch: string | null
+      branches: TeachingGitBranchRow[]
+      dirtyCount: number
+    }
+  | {
+      ok: false
+      reason: 'no_workspace' | 'not_git_repo' | 'git_unavailable' | 'error'
+      message: string
+    }
+
+export type GitBranchPayload = {
+  workspaceRoot: string
+  branch: string
 }
 
 export type TeachingMemoryRecord = {
@@ -333,6 +395,7 @@ export type CreateWorkspacePayload = {
 export type GenerateLessonPayload = {
   workspaceId: string
   prompt: string
+  courseName?: string
 }
 
 export type UpdateMissionPayload = {
@@ -467,6 +530,9 @@ export type TeachingSystemApi = {
   getProgress: (workspaceId: string) => Promise<GetProgressResult>
   listGitWorktrees: (workspaceRoot: string) => Promise<TeachingGitWorktreesResult>
   removeGitWorktree: (payload: RemoveTeachingGitWorktreePayload) => Promise<OpenPathResult>
+  listGitBranches: (workspaceRoot: string) => Promise<TeachingGitBranchesResult>
+  switchGitBranch: (payload: GitBranchPayload) => Promise<TeachingGitBranchesResult>
+  createGitBranch: (payload: GitBranchPayload) => Promise<TeachingGitBranchesResult>
   listMemory: (workspaceRoot?: string) => Promise<TeachingMemoryRecord[]>
   getMemoryDiagnostics: () => Promise<TeachingMemoryDiagnostics>
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>

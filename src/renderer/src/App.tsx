@@ -3,9 +3,11 @@ import {
   AlertTriangle,
   ArrowUpRight,
   Bell,
+  BookCopy,
   BookOpen,
   Bot,
   BrainCircuit,
+  Check,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -14,8 +16,11 @@ import {
   ExternalLink,
   FileCheck2,
   FileText,
+  Folder,
   FolderOpen,
+  FolderPlus,
   GitBranch,
+  GitFork,
   History,
   Home,
   Info,
@@ -44,15 +49,16 @@ import {
   X,
   Zap
 } from 'lucide-react'
-import type { CSSProperties, ErrorInfo, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import type { CSSProperties, ErrorInfo, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Component, useEffect, useId, useRef, useState } from 'react'
+import { Component, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { create } from 'zustand'
 import i18n from './i18n'
 import {
   TEACHING_MODEL_PROVIDER_PRESETS,
   type CreateTeachingMemoryPayload,
+  type GitBranchPayload,
   type LessonStreamChunk,
   type LessonStreamStatus,
   type LessonSummary,
@@ -63,6 +69,8 @@ import {
   type RemoveTeachingGitWorktreePayload,
   type ReviewCard,
   type SettingsSection,
+  type TeachingGitBranchesResult,
+  type TeachingGitBranchRow,
   type TeachingGitWorktreesResult,
   type TeachingMemoryDiagnostics,
   type TeachingMemoryRecord,
@@ -221,6 +229,59 @@ const emptySettings: TeachingSettingsV1 = {
   log: {
     enabled: true,
     retentionDays: 14
+  }
+}
+
+function normalizeRendererSettings(input: TeachingSettingsPatch | TeachingSettingsV1 | null | undefined): TeachingSettingsV1 {
+  const settings = input ?? {}
+
+  return {
+    ...emptySettings,
+    ...settings,
+    provider: {
+      ...emptySettings.provider,
+      ...(settings.provider ?? {}),
+      proxy: {
+        ...emptySettings.provider.proxy,
+        ...(settings.provider?.proxy ?? {})
+      },
+      providers:
+        Array.isArray(settings.provider?.providers) && settings.provider.providers.length > 0
+          ? settings.provider.providers
+          : emptySettings.provider.providers
+    },
+    generator: {
+      ...emptySettings.generator,
+      ...(settings.generator ?? {})
+    },
+    workspace: {
+      ...emptySettings.workspace,
+      ...(settings.workspace ?? {})
+    },
+    worktree: {
+      ...emptySettings.worktree,
+      ...(settings.worktree ?? {})
+    },
+    memory: {
+      ...emptySettings.memory,
+      ...(settings.memory ?? {})
+    },
+    notifications: {
+      ...emptySettings.notifications,
+      ...(settings.notifications ?? {})
+    },
+    privacy: {
+      ...emptySettings.privacy,
+      ...(settings.privacy ?? {})
+    },
+    appBehavior: {
+      ...emptySettings.appBehavior,
+      ...(settings.appBehavior ?? {})
+    },
+    log: {
+      ...emptySettings.log,
+      ...(settings.log ?? {})
+    }
   }
 }
 
@@ -473,10 +534,11 @@ const useAppStore = create<StoreState>((set, get) => ({
       return
     }
     try {
-      const [state, settings] = await Promise.all([
+      const [state, rawSettings] = await Promise.all([
         api.getState(),
         api.getSettings()
       ])
+      const settings = normalizeRendererSettings(rawSettings)
       applySettingsSideEffects(settings)
       set({
         appState: state,
@@ -492,7 +554,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     const api = window.teachingSystem
     if (!api) return
     try {
-      const settings = await api.updateSettings(patch)
+      const settings = normalizeRendererSettings(await api.updateSettings(patch))
       applySettingsSideEffects(settings)
       set({ settings, error: null })
     } catch (error) {
@@ -611,7 +673,11 @@ const useAppStore = create<StoreState>((set, get) => ({
       }
     })
     try {
-      const result = await api.generateLesson({ workspaceId: workspace.id, prompt })
+      const result = await api.generateLesson({
+        workspaceId: workspace.id,
+        prompt,
+        courseName: suggestedCourseName(workspace, prompt)
+      })
       set({
         appState: result.state,
         taskPrompt: nextPrompt,
@@ -667,7 +733,11 @@ const useAppStore = create<StoreState>((set, get) => ({
     let liveText = ''
     try {
       const done = await api.generateLessonStream(
-        { workspaceId: workspace.id, prompt },
+        {
+          workspaceId: workspace.id,
+          prompt,
+          courseName: suggestedCourseName(workspace, prompt)
+        },
         (chunk: LessonStreamChunk) => {
           liveText += chunk.delta
           set({ appState: { ...get().appState, previewHtml: streamingPreviewHtml(liveText, workspace) } })
@@ -1111,6 +1181,7 @@ function Sidebar() {
   } = useAppStore()
 
   const active = appState.activeWorkspace
+  const selectedLessonPath = appState.selectedLessonPath
 
   return (
     <aside className={`sidebar${sidebarCollapsed ? ' is-collapsed' : ''}`} aria-label={t('sidebar.aria')}>
@@ -1139,17 +1210,13 @@ function Sidebar() {
           </button>
         </div>
         {appState.workspaces.map((workspace) => (
-          <button
-            className={`workspace-item ${workspace.id === active?.id ? 'is-selected' : ''}`}
+          <WorkspaceTree
             key={workspace.id}
-            type="button"
-            onClick={() => void selectWorkspace(workspace.id)}
-            title={workspace.name}
-          >
-            <FolderOpen size={17} />
-            <span className="collapsible-label">{workspace.name}</span>
-            <small>{t('sidebar.lessonsCount', { count: workspace.lessons.length })}</small>
-          </button>
+            workspace={workspace}
+            activeWorkspaceId={active?.id ?? null}
+            selectedLessonPath={selectedLessonPath}
+            onSelectWorkspace={(workspaceId) => void selectWorkspace(workspaceId)}
+          />
         ))}
       </div>
 
@@ -1174,6 +1241,481 @@ function Sidebar() {
         </button>
       </div>
     </aside>
+  )
+}
+
+function WorkspaceTree({
+  workspace,
+  activeWorkspaceId,
+  selectedLessonPath,
+  onSelectWorkspace
+}: {
+  workspace: TeachingWorkspaceSummary
+  activeWorkspaceId: string | null
+  selectedLessonPath: string | null
+  onSelectWorkspace: (workspaceId: string) => void
+}) {
+  const { t } = useTranslation()
+  const loadLesson = useAppStore((s) => s.loadLesson)
+  const setView = useAppStore((s) => s.setView)
+  const isActive = workspace.id === activeWorkspaceId
+
+  return (
+    <div className={`workspace-tree ${isActive ? 'is-active' : ''}`}>
+      <button
+        className={`workspace-item ${isActive ? 'is-selected' : ''}`}
+        type="button"
+        onClick={() => onSelectWorkspace(workspace.id)}
+        title={workspace.name}
+      >
+        <FolderOpen size={17} />
+        <span className="collapsible-label">{workspace.name}</span>
+        <small>{t('sidebar.lessonsCount', { count: workspace.lessons.length })}</small>
+      </button>
+
+      {isActive && workspace.courses.length > 0 ? (
+        <div className="course-tree">
+          {workspace.courses.map((course) => (
+            <div className="course-node" key={course.id}>
+              <div className="course-item" title={course.relativePath}>
+                <BookCopy size={14} />
+                <span className="collapsible-label">{course.name}</span>
+                <small>{course.sessionCount}</small>
+              </div>
+              <div className="session-list">
+                {course.sessions.map((session) => {
+                  const isSelected = session.lesson.absolutePath === selectedLessonPath
+                  return (
+                    <button
+                      key={session.id}
+                      className={`session-item ${isSelected ? 'is-selected' : ''}`}
+                      type="button"
+                      title={session.relativePath}
+                      onClick={() => {
+                        setView('lessons')
+                        void loadLesson(session.lesson)
+                      }}
+                    >
+                      <History size={13} />
+                      <span className="collapsible-label">{session.name}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// ================================================================
+// Overview pickers: project folder + git branch
+// ================================================================
+
+/** Parent folder name, shown muted to disambiguate same-named projects. */
+function workspaceContextLabel(rootPath: string, name: string): string {
+  const parts = rootPath.replace(/[/\\]+$/, '').split(/[/\\]/).filter(Boolean)
+  if (parts.length < 2) return ''
+  const parent = parts[parts.length - 2] ?? ''
+  return !parent || parent.toLowerCase() === name.toLowerCase() ? '' : parent
+}
+
+/** Truncate the middle of a string so long branch names fit the trigger button. */
+function middleEllipsize(value: string, max: number): string {
+  if (value.length <= max) return value
+  if (max <= 1) return '…'
+  const keep = max - 1
+  const head = Math.ceil(keep / 2)
+  const tail = Math.floor(keep / 2)
+  return `${value.slice(0, head)}…${value.slice(value.length - tail)}`
+}
+
+function usePickerOutsideClose(open: boolean, wrapRef: RefObject<HTMLDivElement | null>, setOpen: (v: boolean) => void): void {
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (target instanceof Node && wrapRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => window.removeEventListener('pointerdown', onPointerDown)
+  }, [open, wrapRef, setOpen])
+}
+
+function ProjectFolderPicker() {
+  const { t } = useTranslation()
+  const workspaces = useAppStore((s) => s.appState.workspaces)
+  const active = useAppStore((s) => s.appState.activeWorkspace)
+  const selectWorkspace = useAppStore((s) => s.selectWorkspace)
+  const importWorkspace = useAppStore((s) => s.importWorkspace)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [acting, setActing] = useState(false)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  usePickerOutsideClose(open, wrapRef, setOpen)
+
+  const showSearch = workspaces.length > 5
+  useEffect(() => {
+    if (open && showSearch) window.setTimeout(() => inputRef.current?.focus(), 0)
+  }, [open, showSearch])
+
+  const filtered = useMemo(() => {
+    const list = workspaces.map((w) => ({
+      id: w.id,
+      name: w.name,
+      rootPath: w.rootPath,
+      context: workspaceContextLabel(w.rootPath, w.name)
+    }))
+    const q = query.trim().toLowerCase()
+    if (!q) return list
+    return list.filter((w) => w.name.toLowerCase().includes(q) || w.rootPath.toLowerCase().includes(q))
+  }, [workspaces, query])
+
+  const label = active?.name ?? t('overview.selectWorkspace')
+
+  const handleSelect = async (id: string): Promise<void> => {
+    if (acting) return
+    if (id === active?.id) {
+      setOpen(false)
+      return
+    }
+    setActing(true)
+    try {
+      await selectWorkspace(id)
+      setOpen(false)
+      setQuery('')
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const handleAdd = async (): Promise<void> => {
+    if (acting) return
+    setActing(true)
+    try {
+      await importWorkspace()
+      setOpen(false)
+      setQuery('')
+    } finally {
+      setActing(false)
+    }
+  }
+
+  return (
+    <div ref={wrapRef} className="overview-picker overview-project-picker">
+      <button
+        type="button"
+        className="overview-picker-trigger"
+        onClick={() => setOpen((v) => !v)}
+        title={active?.rootPath ?? t('overview.importWorkspace')}
+        disabled={acting}
+      >
+        <Folder size={15} strokeWidth={1.8} />
+        <span className="overview-picker-label">{label}</span>
+        {acting ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+      </button>
+
+      {open ? (
+        <div className="overview-picker-menu" role="listbox">
+          {showSearch ? (
+            <div className="overview-picker-search">
+              <Search size={14} strokeWidth={1.8} />
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setOpen(false)
+                  }
+                }}
+                placeholder={t('overview.searchWorkspaces')}
+              />
+            </div>
+          ) : null}
+
+          <div className="overview-picker-list">
+            <div className="overview-picker-group-label">{t('overview.workspaces')}</div>
+            {filtered.map((w) => {
+              const isCurrent = w.id === active?.id
+              return (
+                <button
+                  key={w.id}
+                  type="button"
+                  className={`overview-picker-option${isCurrent ? ' is-current' : ''}`}
+                  onClick={() => void handleSelect(w.id)}
+                  disabled={acting}
+                  title={w.rootPath}
+                >
+                  <Folder size={14} strokeWidth={1.8} className="overview-picker-option-icon" />
+                  <span className="overview-picker-option-body">
+                    <span className="overview-picker-option-title">{w.name}</span>
+                    {w.context ? <span className="overview-picker-option-context">{w.context}</span> : null}
+                  </span>
+                  {isCurrent ? <Check size={15} /> : null}
+                </button>
+              )
+            })}
+            {filtered.length === 0 ? (
+              <div className="overview-picker-empty">
+                {workspaces.length === 0 ? t('overview.noWorkspaces') : t('overview.noMatch')}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="overview-picker-footer">
+            <button
+              type="button"
+              className="overview-picker-option"
+              onClick={() => void handleAdd()}
+              disabled={acting}
+            >
+              <FolderPlus size={14} strokeWidth={1.9} className="overview-picker-option-icon" />
+              <span className="overview-picker-option-title">{t('overview.importWorkspace')}</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
+  const { t } = useTranslation()
+  const root = workspaceRoot.trim()
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [result, setResult] = useState<TeachingGitBranchesResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [acting, setActing] = useState<string | null>(null)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  // Reload branches whenever the workspace changes (incl. right after an
+  // import/select switches the active workspace) and on mount. The cancel
+  // guard keeps a stale fetch from overwriting a newer one.
+  useEffect(() => {
+    setOpen(false)
+    setQuery('')
+    setActing(null)
+    if (!root) {
+      setResult(null)
+      setLoading(false)
+      return
+    }
+    const api = window.teachingSystem
+    if (!api) return
+    let cancelled = false
+    setLoading(true)
+    api
+      .listGitBranches(root)
+      .then((next) => {
+        if (!cancelled) setResult(next)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [root])
+
+  // Refresh + focus when the dropdown opens.
+  useEffect(() => {
+    if (!open || !root) return
+    const api = window.teachingSystem
+    if (!api) return
+    setLoading(true)
+    api
+      .listGitBranches(root)
+      .then(setResult)
+      .finally(() => setLoading(false))
+    window.setTimeout(() => inputRef.current?.focus(), 0)
+  }, [open, root])
+
+  usePickerOutsideClose(open, wrapRef, setOpen)
+
+  const branches = useMemo<TeachingGitBranchRow[]>(
+    () => (result?.ok ? result.branches : []),
+    [result]
+  )
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return branches
+    return branches.filter((b) => b.name.toLowerCase().includes(q))
+  }, [branches, query])
+
+  const trimmed = query.trim()
+  const exactExists = branches.some((b) => b.name === trimmed)
+  const canCreate = trimmed.length > 0 && !exactExists
+  const currentBranch = result?.ok ? result.currentBranch : null
+
+  const label = !root
+    ? t('overview.gitNoWorkspace')
+    : !result || loading
+      ? t('overview.gitLoading')
+      : result?.ok
+        ? (currentBranch ?? t('overview.gitDetached'))
+        : result?.reason === 'not_git_repo'
+          ? t('overview.gitNotRepo')
+          : result?.reason === 'git_unavailable'
+            ? t('overview.gitUnavailable')
+            : t('overview.gitError')
+
+  const switchBranch = async (branch: string): Promise<void> => {
+    const api = window.teachingSystem
+    if (!api || !root || !branch || acting) return
+    setActing(branch)
+    try {
+      const next = await api.switchGitBranch({ workspaceRoot: root, branch })
+      setResult(next)
+      if (next.ok) {
+        setOpen(false)
+        setQuery('')
+      }
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const createBranch = async (): Promise<void> => {
+    const api = window.teachingSystem
+    const branch = query.trim()
+    if (!api || !root || !branch || acting) return
+    setActing(branch)
+    try {
+      const next = await api.createGitBranch({ workspaceRoot: root, branch })
+      setResult(next)
+      if (next.ok) {
+        setOpen(false)
+        setQuery('')
+      }
+    } finally {
+      setActing(null)
+    }
+  }
+
+  if (!root) return null
+
+  return (
+    <div ref={wrapRef} className="overview-picker overview-git-picker">
+      <button
+        type="button"
+        className="overview-picker-trigger"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={label}
+        title={label}
+        disabled={acting != null}
+      >
+        <GitBranch size={15} strokeWidth={1.8} />
+        <span className="overview-picker-label">{middleEllipsize(label, 32)}</span>
+        {loading ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+      </button>
+
+      {open ? (
+        <div className="overview-picker-menu overview-git-menu">
+          <div className="overview-picker-search">
+            <Search size={14} strokeWidth={1.8} />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setOpen(false)
+                }
+                if (e.key === 'Enter') {
+                  if (canCreate) {
+                    e.preventDefault()
+                    void createBranch()
+                  } else {
+                    const match = branches.find((b) => b.name === trimmed)
+                    if (match) {
+                      e.preventDefault()
+                      void switchBranch(match.name)
+                    }
+                  }
+                }
+              }}
+              placeholder={t('overview.gitSearchBranches')}
+            />
+          </div>
+
+          <div className="overview-picker-list">
+            <div className="overview-picker-group-label">{t('overview.gitBranches')}</div>
+
+            {loading && !result ? (
+              <div className="overview-picker-loading">
+                <Loader2 size={14} className="spin" />
+                <span>{t('overview.gitLoading')}</span>
+              </div>
+            ) : null}
+
+            {result && !result.ok ? (
+              <div className="overview-picker-error">
+                <AlertCircle size={14} />
+                <span>{result.message}</span>
+              </div>
+            ) : null}
+
+            {filtered.map((b) => {
+              const isActing = acting === b.name
+              return (
+                <button
+                  key={b.name}
+                  type="button"
+                  className={`overview-picker-option${b.current ? ' is-current' : ''}`}
+                  onClick={() => void switchBranch(b.name)}
+                  disabled={acting != null || b.current}
+                  title={b.worktreePath ? t('overview.gitCheckedOutInWorktree') : b.name}
+                >
+                  <GitBranch size={14} strokeWidth={1.8} className="overview-picker-option-icon" />
+                  <span className="overview-picker-option-body">
+                    <span className="overview-picker-option-title">{middleEllipsize(b.name, 42)}</span>
+                    {b.current && result?.ok && result.dirtyCount > 0 ? (
+                      <span className="overview-picker-option-context">
+                        {t('overview.gitDirty', { count: result.dirtyCount })}
+                      </span>
+                    ) : b.worktreePath ? (
+                      <span className="overview-picker-option-context">{t('overview.gitCheckedOutInWorktree')}</span>
+                    ) : null}
+                  </span>
+                  {isActing ? <Loader2 size={14} className="spin" /> : b.current ? <Check size={15} /> : null}
+                </button>
+              )
+            })}
+
+            {!loading && result?.ok && filtered.length === 0 ? (
+              <div className="overview-picker-empty">{t('overview.gitNoBranches')}</div>
+            ) : null}
+          </div>
+
+          {canCreate ? (
+            <div className="overview-picker-footer">
+              <button
+                type="button"
+                className="overview-picker-option"
+                onClick={() => void createBranch()}
+                disabled={acting != null}
+                title={t('overview.gitCreateNamed', { branch: trimmed })}
+              >
+                <Plus size={14} strokeWidth={1.9} className="overview-picker-option-icon" />
+                <span className="overview-picker-option-title">
+                  {t('overview.gitCreateNamed', { branch: middleEllipsize(trimmed, 34) })}
+                </span>
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -1216,6 +1758,7 @@ function MainArea() {
 
   const active = appState.activeWorkspace
   const lessons = active?.lessons ?? []
+  const courses = active?.courses ?? []
   const records = active?.records ?? []
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? active?.lessons[0] ?? null
   const canGenerate = Boolean(active && taskPrompt.trim() && !generating)
@@ -1286,20 +1829,6 @@ function MainArea() {
                 onChange={(event) => setTaskPrompt(event.target.value)}
               />
               <div className="overview-dialog-footer">
-                <div className="overview-dialog-tools">
-                  <button className="overview-dialog-icon" type="button" aria-label={t('overview.newWorkspace')} title={t('overview.newWorkspace')} onClick={createWorkspace}>
-                    <Plus size={16} />
-                  </button>
-                  <button
-                    className={`overview-dialog-access ${active ? 'is-active' : ''}`}
-                    type="button"
-                    title={active?.rootPath ?? t('overview.importWorkspace')}
-                    onClick={() => active ? void openPath(active.rootPath) : void importWorkspace()}
-                  >
-                    <ShieldCheck size={15} />
-                    <span>{active ? t('overview.fullAccess') : t('overview.selectWorkspace')}</span>
-                  </button>
-                </div>
                 <div className="overview-dialog-actions">
                   <button className="overview-dialog-model" type="button" onClick={() => openSettings('model')}>
                     <span>{runtimeProviderLabel(settings)}</span>
@@ -1312,33 +1841,9 @@ function MainArea() {
               </div>
             </div>
             <div className="overview-dialog-statusbar" aria-label={t('overview.runtimeEnv')}>
-              <div className="overview-dialog-status-group">
-                <span className="overview-dialog-status-item">
-                  <Bot size={14} />
-                  <span>TeachOS</span>
-                </span>
-                <span className="overview-dialog-status-item">
-                  <FolderOpen size={14} />
-                  <span>{active?.name ?? t('overview.noWorkspace')}</span>
-                </span>
-              </div>
-              <div className="overview-dialog-status-group">
-                <button
-                  className={`overview-dialog-status-item overview-dialog-status-button ${settings.generator.structuredOutput ? 'is-active' : ''}`}
-                  type="button"
-                  onClick={() => void updateSettings({ generator: { structuredOutput: !settings.generator.structuredOutput } })}
-                >
-                  <Zap size={14} />
-                  <span>{settings.generator.structuredOutput ? 'Structured' : 'Plain'}</span>
-                </button>
-                <span className="overview-dialog-status-item">
-                  <Monitor size={14} />
-                  <span>{settings.generator.streaming ? t('overview.streamingMode') : t('overview.localMode')}</span>
-                </span>
-                <span className="overview-dialog-status-item">
-                  <Command size={14} />
-                  <span>main</span>
-                </span>
+              <div className="overview-dialog-status-group overview-dialog-pickers">
+                <ProjectFolderPicker />
+                <GitBranchPicker workspaceRoot={active?.rootPath ?? ''} />
               </div>
             </div>
           </form>
@@ -1446,22 +1951,34 @@ function MainArea() {
                 action={active ? { label: t('lessons.emptyAction'), onClick: generateLesson } : undefined}
               />
             ) : (
-              lessons.map((lesson) => {
-                const isSelected = lesson.absolutePath === appState.selectedLessonPath
-                return (
-                  <article className={`lesson-card ${isSelected ? 'is-selected' : ''}`} key={lesson.absolutePath} onClick={() => void loadLesson(lesson)}>
-                    <div className="lesson-id">{lesson.id}</div>
-                    <div className="lesson-icon">
-                      <BookOpen size={18} />
+              courses.map((course) => (
+                <section className="course-group" key={course.id}>
+                  <div className="course-group-header">
+                    <div className="course-group-title">
+                      <BookCopy size={16} />
+                      <strong>{course.name}</strong>
                     </div>
-                    <div className="lesson-body">
-                      <h3>{lesson.title}</h3>
-                      <p>{t('lessons.duration', { count: lesson.durationMinutes })} · {lesson.relativePath}</p>
-                    </div>
-                    <span className="state-chip">{isSelected ? t('lessons.chipPreviewing') : t('lessons.chipGenerated')}</span>
-                  </article>
-                )
-              })
+                    <span>{course.sessionCount} sessions</span>
+                  </div>
+                  {course.sessions.map((session) => {
+                    const lesson = session.lesson
+                    const isSelected = lesson.absolutePath === appState.selectedLessonPath
+                    return (
+                      <article className={`lesson-card ${isSelected ? 'is-selected' : ''}`} key={lesson.absolutePath} onClick={() => void loadLesson(lesson)}>
+                        <div className="lesson-id">{lesson.id}</div>
+                        <div className="lesson-icon">
+                          <History size={18} />
+                        </div>
+                        <div className="lesson-body">
+                          <h3>{session.name}</h3>
+                          <p>{t('lessons.duration', { count: lesson.durationMinutes })} · {lesson.relativePath}</p>
+                        </div>
+                        <span className="state-chip">{isSelected ? t('lessons.chipPreviewing') : t('lessons.chipGenerated')}</span>
+                      </article>
+                    )
+                  })}
+                </section>
+              ))
             )}
           </div>
         </div>
@@ -1645,6 +2162,7 @@ function SettingsView({
   onOpenAppDataDir: () => Promise<void>
 }) {
   const { t } = useTranslation()
+  const worktreeRootPath = settings.worktree?.rootPath ?? ''
   const providersById = new Map(settings.provider.providers.map((provider) => [provider.id, provider]))
   const visibleModelProviders = modelSettingsProviderIds.map((id) => {
     const preset = TEACHING_MODEL_PROVIDER_PRESETS.find((item) => item.id === id)!
@@ -1680,7 +2198,7 @@ function SettingsView({
       return
     }
     void refreshWorktrees()
-  }, [section, activeWorkspace?.rootPath, settings.worktree.rootPath])
+  }, [section, activeWorkspace?.rootPath, worktreeRootPath])
 
   const probeActiveProvider = async (): Promise<void> => {
     setProviderBusy(true)
@@ -2211,9 +2729,9 @@ function SettingsView({
             subtitle={t('worktree.subtitle')}
           >
             <SettingsCard>
-              <SettingsRow label={t('worktree.root.label')} detail={settings.worktree.rootPath || t('worktree.root.none')}>
+              <SettingsRow label={t('worktree.root.label')} detail={worktreeRootPath || t('worktree.root.none')}>
                 <div className="settings-actions">
-                  <button className="ghost-button" type="button" onClick={() => void onOpenPath(settings.worktree.rootPath)} disabled={!settings.worktree.rootPath}>
+                  <button className="ghost-button" type="button" onClick={() => void onOpenPath(worktreeRootPath)} disabled={!worktreeRootPath}>
                     <ArrowUpRight size={15} />
                     {t('worktree.root.open')}
                   </button>
@@ -2901,6 +3419,20 @@ function runtimeMeterWidth(
   if (active?.lessons.length) return '64%'
   if (active) return '28%'
   return '16%'
+}
+
+function suggestedCourseName(workspace: TeachingWorkspaceSummary, prompt: string): string {
+  const topic = prompt
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^我想(先)?学习/, '')
+    .replace(/^学习/, '')
+    .replace(/^如何/, '')
+    .split(/[。.!?？\n]/)[0]
+    ?.trim()
+
+  if (topic) return topic.slice(0, 32)
+  return workspace.courses[0]?.name ?? workspace.name
 }
 
 function escapeHtml(value: string): string {

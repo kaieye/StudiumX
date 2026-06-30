@@ -18,6 +18,7 @@ export function renderLessonHtmlFromPlan(opts: {
   generator: TeachingSettingsV1['generator']
 }): string {
   const { plan, lesson, mission, workspaceName, recordRelativePath, referenceRelativePath, generator } = opts
+  const assetBase = relativeAssetBase(lesson.relativePath)
   const sections = plan.sections
     .map(
       (section) => `      <section>
@@ -91,8 +92,8 @@ ${plan.quiz.map((item) => renderQuizCard(item)).join('\n')}
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(plan.title)} · ${escapeHtml(workspaceName)}</title>
-  <link rel="stylesheet" href="../assets/lesson.css" />
-  <link rel="stylesheet" href="../assets/flashcards.css" />
+  <link rel="stylesheet" href="${assetBase}assets/lesson.css" />
+  <link rel="stylesheet" href="${assetBase}assets/flashcards.css" />
 </head>
 <body>
   <main class="lesson-page">
@@ -121,8 +122,8 @@ ${quiz}
     </footer>
   </main>
 ${metadata}
-  <script src="../assets/quiz.js"></script>
-  <script src="../assets/flashcards.js"></script>
+  <script src="${assetBase}assets/quiz.js"></script>
+  <script src="${assetBase}assets/flashcards.js"></script>
 </body>
 </html>
 `
@@ -135,6 +136,7 @@ export function renderReferenceHtmlFromPlan(opts: {
   workspaceName: string
 }): string {
   const { plan, lesson, mission, workspaceName } = opts
+  const assetBase = relativeAssetBase(lesson.relativePath)
   const notes = plan.referenceNotes
     ? renderMarkdown(plan.referenceNotes)
     : `<p>本节速查：${escapeHtml(plan.objective)}</p>`
@@ -149,7 +151,7 @@ ${plan.keyPoints.map((point) => `  <li>${escapeHtml(point)}</li>`).join('\n')}
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(plan.title)} Reference · ${escapeHtml(workspaceName)}</title>
-  <link rel="stylesheet" href="../assets/lesson.css" />
+  <link rel="stylesheet" href="${assetBase}assets/lesson.css" />
 </head>
 <body>
   <main class="lesson-page reference-page">
@@ -380,4 +382,10 @@ function safeJsonScript(value: unknown): string {
     .replace(/&/g, '\\u0026')
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029')
+}
+
+function relativeAssetBase(relativeLessonPath: string): string {
+  const parts = relativeLessonPath.split('/').filter(Boolean)
+  const depth = Math.max(0, parts.length - 1)
+  return depth === 0 ? './' : '../'.repeat(depth)
 }

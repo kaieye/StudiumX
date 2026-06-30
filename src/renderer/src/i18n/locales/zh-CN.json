@@ -50,7 +50,23 @@
     "runtimeEnv": "运行环境",
     "noWorkspace": "未选择工作区",
     "streamingMode": "流式模式",
-    "localMode": "本地模式"
+    "localMode": "本地模式",
+    "searchWorkspaces": "搜索工作区",
+    "workspaces": "工作区",
+    "noWorkspaces": "暂无工作区",
+    "noMatch": "没有匹配的工作区",
+    "gitNoWorkspace": "无工作区",
+    "gitLoading": "正在读取 Git…",
+    "gitDetached": "分离头指针",
+    "gitNotRepo": "非 Git 仓库",
+    "gitUnavailable": "未检测到 Git",
+    "gitError": "Git 错误",
+    "gitSearchBranches": "搜索或创建分支",
+    "gitBranches": "分支",
+    "gitDirty": "{{count}} 处未提交改动",
+    "gitCheckedOutInWorktree": "已在其他 worktree 检出",
+    "gitNoBranches": "无分支",
+    "gitCreateNamed": "创建分支 {{branch}}"
   },
   "lessons": {
     "composerAria": "教学任务输入",
@@ -117,7 +133,7 @@
     "title": "近期洞察",
     "open": "查看学习记录目录",
     "emptyTitle": "暂无记录",
-    "emptyDetail": "生成 lesson 时会同步写入 learning-records/，下次查看时此处会显示最新记录。"
+    "emptyDetail": "生成 lesson 时会同步写入对应课程的 session 记录文件，下次查看时此处会显示最新记录。"
   },
   "runtime": {
     "title": "AI Runtime",
@@ -304,7 +320,7 @@
   "preview": {
     "streamingHint": "正在接收模型输出，完成后会渲染为正式 lesson。",
     "streamingPlaceholder": "等待第一个 token...",
-    "emptyHint": "点击生成按钮后，第一节静态 HTML lesson 会保存到 lessons/ 并在这里预览。",
+    "emptyHint": "点击生成按钮后，静态 HTML lesson 会保存到对应课程的 session 文件夹，并在这里预览。",
     "loadingHint": "正在读取 lesson 预览。"
   }
 }

@@ -3,7 +3,13 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TeachingSettingsService } from './teaching-settings'
 import { TeachingWorkspaceService } from './teaching-workspace'
-import { listGitWorktreesForWorkspace, removeGitWorktreeForWorkspace } from './teaching-git'
+import {
+  createAndSwitchGitBranchForWorkspace,
+  getGitBranchesForWorkspace,
+  listGitWorktreesForWorkspace,
+  removeGitWorktreeForWorkspace,
+  switchGitBranchForWorkspace
+} from './teaching-git'
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
@@ -12,6 +18,7 @@ import type {
   CreateTeachingMemoryPayload,
   GenerateLessonPayload,
   GenerateLessonStreamPayload,
+  GitBranchPayload,
   ListUpstreamModelsResult,
   ModelEndpointFormat,
   NotificationPayload,
@@ -211,6 +218,20 @@ function registerTeachingIpc(
       worktreePath: request.worktreePath,
       worktreeRoot: settings.worktree.rootPath
     })
+  })
+
+  ipcMain.handle('teach:list-git-branches', async (_, workspaceRootRaw: unknown) =>
+    getGitBranchesForWorkspace(requireString(workspaceRootRaw, 'workspaceRoot'))
+  )
+
+  ipcMain.handle('teach:switch-git-branch', async (_, payload: unknown) => {
+    const request = parseGitBranchPayload(payload)
+    return switchGitBranchForWorkspace(request.workspaceRoot, request.branch)
+  })
+
+  ipcMain.handle('teach:create-git-branch', async (_, payload: unknown) => {
+    const request = parseGitBranchPayload(payload)
+    return createAndSwitchGitBranchForWorkspace(request.workspaceRoot, request.branch)
   })
 
   ipcMain.handle('teach:list-memory', async (_, workspaceRootRaw: unknown) =>
@@ -425,7 +446,8 @@ function parseGenerateLessonPayload(payload: unknown): GenerateLessonPayload {
   const record = requireRecord(payload)
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
-    prompt: requireString(record.prompt, 'prompt')
+    prompt: requireString(record.prompt, 'prompt'),
+    courseName: optionalString(record.courseName)
   }
 }
 
@@ -494,6 +516,14 @@ function parseRemoveGitWorktreePayload(payload: unknown): RemoveTeachingGitWorkt
   return {
     workspaceRoot: requireString(record.workspaceRoot, 'workspaceRoot'),
     worktreePath: requireString(record.worktreePath, 'worktreePath')
+  }
+}
+
+function parseGitBranchPayload(payload: unknown): GitBranchPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceRoot: requireString(record.workspaceRoot, 'workspaceRoot'),
+    branch: requireString(record.branch, 'branch')
   }
 }
 

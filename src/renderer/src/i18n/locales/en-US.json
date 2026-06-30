@@ -50,7 +50,23 @@
     "runtimeEnv": "Runtime",
     "noWorkspace": "No workspace selected",
     "streamingMode": "Streaming mode",
-    "localMode": "Local mode"
+    "localMode": "Local mode",
+    "searchWorkspaces": "Search workspaces",
+    "workspaces": "Workspaces",
+    "noWorkspaces": "No workspaces yet",
+    "noMatch": "No matching workspace",
+    "gitNoWorkspace": "No workspace",
+    "gitLoading": "Reading Git…",
+    "gitDetached": "Detached HEAD",
+    "gitNotRepo": "Not a Git repository",
+    "gitUnavailable": "Git not found",
+    "gitError": "Git error",
+    "gitSearchBranches": "Search or create branch",
+    "gitBranches": "Branches",
+    "gitDirty": "{{count}} uncommitted changes",
+    "gitCheckedOutInWorktree": "Checked out in another worktree",
+    "gitNoBranches": "No branches",
+    "gitCreateNamed": "Create branch {{branch}}"
   },
   "lessons": {
     "composerAria": "Teaching task input",
@@ -117,7 +133,7 @@
     "title": "Recent insights",
     "open": "Open learning-records folder",
     "emptyTitle": "No records yet",
-    "emptyDetail": "Learning records are written to learning-records/ when a lesson is generated; the latest will appear here next time."
+    "emptyDetail": "When a lesson is generated, a session record is written into the matching course folder; the latest entries appear here."
   },
   "runtime": {
     "title": "AI Runtime",
@@ -304,7 +320,7 @@
   "preview": {
     "streamingHint": "Receiving model output; it'll be rendered as a finished lesson once complete.",
     "streamingPlaceholder": "Waiting for the first token...",
-    "emptyHint": "After you click generate, the first static HTML lesson is saved to lessons/ and previewed here.",
+    "emptyHint": "After you click generate, the static HTML lesson is saved into the matching course session folder and previewed here.",
     "loadingHint": "Loading lesson preview."
   }
 }

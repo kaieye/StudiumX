@@ -33,7 +33,9 @@ import type {
   TeachingMemoryDiagnostics,
   TeachingMemoryRecord,
   TeachingAppState,
+  TeachingCourseSummary,
   TeachingRuntimeState,
+  TeachingSessionSummary,
   TeachingSettingsV1,
   TeachingWorkspaceSummary,
   UpdateTeachingMemoryPayload,
@@ -60,6 +62,25 @@ type WorkspaceIndex = {
   createdAt: string
   updatedAt: string
   lessons: LessonSummary[]
+}
+
+type LessonArtifactPaths = {
+  courseId: string
+  courseName: string
+  courseRelativePath: string
+  courseAbsolutePath: string
+  sessionId: string
+  sessionName: string
+  sessionRelativePath: string
+  sessionAbsolutePath: string
+  lessonRelativePath: string
+  lessonAbsolutePath: string
+  referenceRelativePath: string | null
+  referenceAbsolutePath: string | null
+  recordRelativePath: string | null
+  recordAbsolutePath: string | null
+  reviewsRelativePath: string | null
+  reviewsAbsolutePath: string | null
 }
 
 type SessionEvent = {
@@ -255,21 +276,16 @@ export class TeachingWorkspaceService {
 
     const title = clampTitle(plan.title)
     const objective = cleanText(plan.objective) || `把「${deriveTopic(prompt, mission.title)}」压缩成一次可保存、可复习的学习动作。`
-    const filename = `${lessonId}-${slugify(title, 'lesson')}.html`
-    const relativePath = workspaceRelativePath('lessons', filename)
-    const absolutePath = join(workspace.rootPath, 'lessons', filename)
-    const referenceRelativePath = settings.generator.generateReference
-      ? workspaceRelativePath('reference', `${lessonId}-${slugify(title, 'reference')}.html`)
-      : null
-    const referenceAbsolutePath = referenceRelativePath ? join(workspace.rootPath, referenceRelativePath) : null
-    const recordRelativePath = settings.generator.generateLearningRecord
-      ? workspaceRelativePath('learning-records', `${lessonId}-${slugify(title, 'lesson')}.md`)
-      : null
-    const recordAbsolutePath = recordRelativePath ? join(workspace.rootPath, recordRelativePath) : null
-    const reviewsRelativePath = plan.flashcards.length
-      ? workspaceRelativePath('reviews', `${lessonId}-${slugify(title, 'flashcards')}.json`)
-      : null
-    const reviewsAbsolutePath = reviewsRelativePath ? join(workspace.rootPath, reviewsRelativePath) : null
+    const artifacts = this.buildLessonArtifactPaths({
+      workspace,
+      sequence,
+      title,
+      prompt,
+      requestedCourseName: payload.courseName,
+      includeReference: settings.generator.generateReference,
+      includeLearningRecord: settings.generator.generateLearningRecord,
+      includeReviews: plan.flashcards.length > 0
+    })
 
     const lesson: LessonSummary = {
       id: lessonId,
@@ -278,8 +294,16 @@ export class TeachingWorkspaceService {
       prompt,
       createdAt: now,
       durationMinutes: plan.durationMinutes || settings.generator.lessonDurationMinutes,
-      relativePath,
-      absolutePath
+      courseId: artifacts.courseId,
+      courseName: artifacts.courseName,
+      courseRelativePath: artifacts.courseRelativePath,
+      courseAbsolutePath: artifacts.courseAbsolutePath,
+      sessionId: artifacts.sessionId,
+      sessionName: artifacts.sessionName,
+      sessionRelativePath: artifacts.sessionRelativePath,
+      sessionAbsolutePath: artifacts.sessionAbsolutePath,
+      relativePath: artifacts.lessonRelativePath,
+      absolutePath: artifacts.lessonAbsolutePath
     }
 
     if (stream) stream.onStatus({ streamId: stream.streamId, step: 'rendering' })
@@ -288,12 +312,12 @@ export class TeachingWorkspaceService {
       lesson,
       mission,
       workspaceName: workspace.name,
-      recordRelativePath,
-      recordAbsolutePath,
-      referenceRelativePath,
-      referenceAbsolutePath,
-      reviewsRelativePath,
-      reviewsAbsolutePath,
+      recordRelativePath: artifacts.recordRelativePath,
+      recordAbsolutePath: artifacts.recordAbsolutePath,
+      referenceRelativePath: artifacts.referenceRelativePath,
+      referenceAbsolutePath: artifacts.referenceAbsolutePath,
+      reviewsRelativePath: artifacts.reviewsRelativePath,
+      reviewsAbsolutePath: artifacts.reviewsAbsolutePath,
       generator: settings.generator
     })
 
@@ -308,7 +332,12 @@ export class TeachingWorkspaceService {
       timestamp: now,
       workspaceId: workspace.id,
       prompt,
-      paths: [relativePath, referenceRelativePath, recordRelativePath, reviewsRelativePath].filter((path): path is string => Boolean(path)),
+      paths: [
+        artifacts.lessonRelativePath,
+        artifacts.referenceRelativePath,
+        artifacts.recordRelativePath,
+        artifacts.reviewsRelativePath
+      ].filter((path): path is string => Boolean(path)),
       meta: { source, reason, model: settings.generator.model || undefined }
     })
 
@@ -316,7 +345,7 @@ export class TeachingWorkspaceService {
     await this.saveRegistry(nextRegistry)
     if (stream) stream.onStatus({ streamId: stream.streamId, step: 'done' })
     return {
-      state: await this.buildState(nextRegistry, workspace.id, absolutePath),
+      state: await this.buildState(nextRegistry, workspace.id, artifacts.lessonAbsolutePath),
       lesson,
       source,
       reason
@@ -429,6 +458,59 @@ export class TeachingWorkspaceService {
     }
   }
 
+  private buildLessonArtifactPaths(options: {
+    workspace: RegistryWorkspace
+    sequence: number
+    title: string
+    prompt: string
+    requestedCourseName?: string
+    includeReference: boolean
+    includeLearningRecord: boolean
+    includeReviews: boolean
+  }): LessonArtifactPaths {
+    const courseName = clampTitle(
+      cleanText(options.requestedCourseName) || deriveCourseName(options.prompt, options.title, options.workspace.name)
+    )
+    const courseId = slugify(courseName, 'course')
+    const courseRelativePath = workspaceRelativePath('courses', courseId)
+    const courseAbsolutePath = join(options.workspace.rootPath, courseRelativePath)
+    const sessionId = `session-${String(options.sequence).padStart(4, '0')}`
+    const sessionName = `${String(options.sequence).padStart(4, '0')} ${options.title}`
+    const sessionRelativePath = workspaceRelativePath(courseRelativePath, 'sessions', sessionId)
+    const sessionAbsolutePath = join(options.workspace.rootPath, sessionRelativePath)
+    const fileSlug = slugify(options.title, 'lesson')
+    const lessonRelativePath = workspaceRelativePath(sessionRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.html`)
+    const lessonAbsolutePath = join(options.workspace.rootPath, lessonRelativePath)
+    const referenceRelativePath = options.includeReference
+      ? workspaceRelativePath(sessionRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-reference.html`)
+      : null
+    const recordRelativePath = options.includeLearningRecord
+      ? workspaceRelativePath(sessionRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.md`)
+      : null
+    const reviewsRelativePath = options.includeReviews
+      ? workspaceRelativePath(sessionRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-flashcards.json`)
+      : null
+
+    return {
+      courseId,
+      courseName,
+      courseRelativePath,
+      courseAbsolutePath,
+      sessionId,
+      sessionName,
+      sessionRelativePath,
+      sessionAbsolutePath,
+      lessonRelativePath,
+      lessonAbsolutePath,
+      referenceRelativePath,
+      referenceAbsolutePath: referenceRelativePath ? join(options.workspace.rootPath, referenceRelativePath) : null,
+      recordRelativePath,
+      recordAbsolutePath: recordRelativePath ? join(options.workspace.rootPath, recordRelativePath) : null,
+      reviewsRelativePath,
+      reviewsAbsolutePath: reviewsRelativePath ? join(options.workspace.rootPath, reviewsRelativePath) : null
+    }
+  }
+
   /**
    * Aggregate flashcards from every lesson's review file (and from lesson
    * metadata) for the review deck.
@@ -436,12 +518,10 @@ export class TeachingWorkspaceService {
   async listReviewCards(workspaceId: string): Promise<ListReviewCardsResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, workspaceId)
-    const dir = join(workspace.rootPath, 'reviews')
-    const files = await readdir(dir).catch(() => [])
+    const files = await collectTeachingFiles(workspace.rootPath, (file) => file.toLowerCase().endsWith('-flashcards.json'))
     const cards: ReviewCard[] = []
-    for (const file of files) {
-      if (!file.toLowerCase().endsWith('.json')) continue
-      const content = await readFile(join(dir, file), 'utf8').catch(() => '')
+    for (const filePath of files) {
+      const content = await readFile(filePath, 'utf8').catch(() => '')
       const parsed = safeJsonParse(content)
       if (!parsed || typeof parsed !== 'object') continue
       const lessonId = String((parsed as { lessonId?: unknown }).lessonId ?? '')
@@ -600,6 +680,7 @@ export class TeachingWorkspaceService {
     const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
     const index = await this.loadWorkspaceIndex(workspace)
     const lessons = await this.mergeLessonIndexWithDisk(workspace.rootPath, index.lessons)
+    const courses = buildCourseSummaries(lessons)
     if (lessons.length !== index.lessons.length) {
       await this.saveWorkspaceIndex(workspace.rootPath, { ...index, lessons, updatedAt: new Date().toISOString() })
     }
@@ -609,18 +690,19 @@ export class TeachingWorkspaceService {
       rootPath: workspace.rootPath,
       missionPath: join(workspace.rootPath, 'MISSION.md'),
       resourcesPath: join(workspace.rootPath, 'RESOURCES.md'),
-      lessonsDir: join(workspace.rootPath, 'lessons'),
-      recordsDir: join(workspace.rootPath, 'learning-records'),
-      referenceDir: join(workspace.rootPath, 'reference'),
-      reviewsDir: join(workspace.rootPath, 'reviews'),
+      lessonsDir: join(workspace.rootPath, 'courses'),
+      recordsDir: join(workspace.rootPath, 'courses'),
+      referenceDir: join(workspace.rootPath, 'courses'),
+      reviewsDir: join(workspace.rootPath, 'courses'),
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
       missionTitle: mission.title,
       missionExcerpt: mission.excerpt,
+      courses,
       resources: await this.readResourceSummary(workspace.rootPath),
       records: await this.readLearningRecords(workspace.rootPath),
       lessons,
-      referenceCount: await countFiles(join(workspace.rootPath, 'reference'), '.html'),
+      referenceCount: (await collectTeachingFiles(workspace.rootPath, (file) => file.toLowerCase().endsWith('-reference.html'))).length,
       assetsReady: await fileExists(join(workspace.rootPath, 'assets', 'lesson.css')),
       git: await inspectGitWorkspace(workspace.rootPath)
     }
@@ -667,6 +749,7 @@ export class TeachingWorkspaceService {
   private async ensureWorkspaceStructure(workspace: RegistryWorkspace): Promise<void> {
     await mkdir(workspace.rootPath, { recursive: true })
     await Promise.all([
+      mkdir(join(workspace.rootPath, 'courses'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'lessons'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'reference'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'learning-records'), { recursive: true }),
@@ -711,7 +794,11 @@ export class TeachingWorkspaceService {
         rootPath: workspace.rootPath,
         createdAt: parsed.createdAt ?? workspace.createdAt,
         updatedAt: parsed.updatedAt ?? workspace.updatedAt,
-        lessons: Array.isArray(parsed.lessons) ? parsed.lessons.filter(isLessonSummary) : []
+        lessons: Array.isArray(parsed.lessons)
+          ? parsed.lessons
+              .filter(isLessonSummary)
+              .map((lesson) => normalizeLessonSummary(workspace.rootPath, lesson))
+          : []
       }
     } catch {
       return {
@@ -793,21 +880,28 @@ export class TeachingWorkspaceService {
 
   private async nextLessonNumber(rootPath: string, lessons: LessonSummary[]): Promise<number> {
     const fromIndex = lessons.map((lesson) => Number.parseInt(lesson.id, 10)).filter(Number.isFinite)
-    const fromDisk = await readdir(join(rootPath, 'lessons'))
-      .then((files) => files.map((file) => Number.parseInt(file.slice(0, 4), 10)).filter(Number.isFinite))
-      .catch(() => [])
+    const files = await collectTeachingFiles(rootPath, (file) => file.toLowerCase().endsWith('.html'))
+    const fromDisk = files
+      .map((file) => Number.parseInt(basename(file).slice(0, 4), 10))
+      .filter(Number.isFinite)
     return Math.max(0, ...fromIndex, ...fromDisk) + 1
   }
 
   private async mergeLessonIndexWithDisk(rootPath: string, indexedLessons: LessonSummary[]): Promise<LessonSummary[]> {
     const indexedByPath = new Map(indexedLessons.map((lesson) => [resolve(lesson.absolutePath).toLowerCase(), lesson]))
-    const files = await readdir(join(rootPath, 'lessons')).catch(() => [])
+    const files = await collectTeachingFiles(rootPath, (filePath) => {
+      const lower = filePath.toLowerCase()
+      if (!lower.endsWith('.html')) return false
+      if (lower.endsWith('-reference.html')) return false
+      return true
+    })
     return files
-      .filter((file) => file.toLowerCase().endsWith('.html'))
-      .map((file) => {
-        const absolutePath = join(rootPath, 'lessons', file)
+      .map((absolutePath) => {
         const existing = indexedByPath.get(resolve(absolutePath).toLowerCase())
         if (existing) return existing
+        const file = basename(absolutePath)
+        const relativePath = toWorkspaceRelativePath(rootPath, absolutePath)
+        const placement = deriveLessonPlacementFromPath(rootPath, absolutePath)
         const idMatch = /^(\d{4})-/.exec(file)
         return {
           id: idMatch?.[1] ?? '0000',
@@ -816,7 +910,15 @@ export class TeachingWorkspaceService {
           prompt: '',
           createdAt: new Date(0).toISOString(),
           durationMinutes: 12,
-          relativePath: workspaceRelativePath('lessons', file),
+          courseId: placement.courseId,
+          courseName: placement.courseName,
+          courseRelativePath: placement.courseRelativePath,
+          courseAbsolutePath: placement.courseAbsolutePath,
+          sessionId: placement.sessionId,
+          sessionName: placement.sessionName,
+          sessionRelativePath: placement.sessionRelativePath,
+          sessionAbsolutePath: placement.sessionAbsolutePath,
+          relativePath,
           absolutePath
         } satisfies LessonSummary
       })
@@ -855,22 +957,23 @@ export class TeachingWorkspaceService {
   }
 
   private async readLearningRecords(rootPath: string): Promise<TeachingWorkspaceSummary['records']> {
-    const dir = join(rootPath, 'learning-records')
-    const files = await readdir(dir).catch(() => [])
+    const files = await collectTeachingFiles(
+      rootPath,
+      (file) => file.toLowerCase().endsWith('.md') && !basename(file).startsWith('MISSION') && !basename(file).startsWith('RESOURCES')
+    )
     return Promise.all(
       files
-        .filter((file) => file.toLowerCase().endsWith('.md'))
         .sort()
         .reverse()
         .slice(0, 8)
-        .map(async (file) => {
-          const absolutePath = join(dir, file)
+        .map(async (absolutePath) => {
+          const file = basename(absolutePath)
           const content = await readFile(absolutePath, 'utf8').catch(() => '')
           const info = await stat(absolutePath).catch(() => null)
           return {
             title: cleanText(/^#\s+(.+)$/m.exec(content)?.[1] ?? titleFromFilename(file)),
             date: formatDate(info?.mtime ?? new Date()),
-            relativePath: workspaceRelativePath('learning-records', file),
+            relativePath: toWorkspaceRelativePath(rootPath, absolutePath),
             absolutePath
           }
         })
@@ -912,8 +1015,8 @@ function upsertLesson(lessons: LessonSummary[], lesson: LessonSummary): LessonSu
 
 function resolveLessonPath(rootPath: string, lessonPath: string): string {
   const target = isAbsolute(lessonPath) ? resolve(lessonPath) : resolve(rootPath, lessonPath)
-  const lessonsRoot = resolve(rootPath, 'lessons')
-  if (!isInside(lessonsRoot, target)) {
+  const allowedRoots = [resolve(rootPath, 'courses'), resolve(rootPath, 'lessons')]
+  if (!allowedRoots.some((base) => isInside(base, target))) {
     throw new Error('Lesson path is outside the workspace lessons directory.')
   }
   return target
@@ -955,6 +1058,39 @@ async function countFiles(path: string, extension: string): Promise<number> {
     .catch(() => 0)
 }
 
+async function countFilesRecursive(path: string, extension: string): Promise<number> {
+  const files = await walkFiles(path, (file) => file.toLowerCase().endsWith(extension))
+  return files.length
+}
+
+async function collectTeachingFiles(rootPath: string, predicate: (filePath: string) => boolean): Promise<string[]> {
+  const roots = [join(rootPath, 'courses'), join(rootPath, 'lessons'), join(rootPath, 'learning-records'), join(rootPath, 'reviews'), join(rootPath, 'reference')]
+  const results = await Promise.all(roots.map((path) => walkFiles(path, predicate)))
+  return results.flat()
+}
+
+async function walkFiles(rootPath: string, predicate: (filePath: string) => boolean): Promise<string[]> {
+  if (!(await directoryExists(rootPath))) return []
+  const result: string[] = []
+  const stack = [rootPath]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current) continue
+    const entries = await readdir(current, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      const nextPath = join(current, entry.name)
+      if (entry.isDirectory()) {
+        stack.push(nextPath)
+        continue
+      }
+      if (entry.isFile() && predicate(nextPath)) {
+        result.push(nextPath)
+      }
+    }
+  }
+  return result
+}
+
 function cleanText(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
 }
@@ -978,6 +1114,116 @@ function clampTitle(value: string): string {
   const trimmed = cleanText(value)
   if (!trimmed) return '学习任务'
   return trimmed.length > 48 ? `${trimmed.slice(0, 48)}...` : trimmed
+}
+
+function deriveCourseName(prompt: string, title: string, fallback: string): string {
+  const topic = deriveTopic(prompt, title || fallback)
+  return topic || cleanText(fallback) || '默认课程'
+}
+
+function toWorkspaceRelativePath(rootPath: string, absolutePath: string): string {
+  return relative(rootPath, absolutePath).replace(/\\/g, '/')
+}
+
+function deriveLessonPlacementFromPath(
+  rootPath: string,
+  absolutePath: string
+): Pick<
+  LessonSummary,
+  | 'courseId'
+  | 'courseName'
+  | 'courseRelativePath'
+  | 'courseAbsolutePath'
+  | 'sessionId'
+  | 'sessionName'
+  | 'sessionRelativePath'
+  | 'sessionAbsolutePath'
+> {
+  const relativePath = toWorkspaceRelativePath(rootPath, absolutePath)
+  const parts = relativePath.split('/').filter(Boolean)
+  if (parts[0] === 'courses' && parts.length >= 4) {
+    const courseId = parts[1] ?? 'course'
+    const sessionId = parts[3] ?? 'session'
+    return {
+      courseId,
+      courseName: titleFromFilename(courseId),
+      courseRelativePath: workspaceRelativePath('courses', courseId),
+      courseAbsolutePath: join(rootPath, 'courses', courseId),
+      sessionId,
+      sessionName: titleFromFilename(sessionId),
+      sessionRelativePath: workspaceRelativePath('courses', courseId, 'sessions', sessionId),
+      sessionAbsolutePath: join(rootPath, 'courses', courseId, 'sessions', sessionId)
+    }
+  }
+  const courseId = 'legacy-lessons'
+  const sessionId = `session-${parts[1]?.slice(0, 4) || '0000'}`
+  return {
+    courseId,
+    courseName: 'Legacy Lessons',
+    courseRelativePath: workspaceRelativePath('lessons'),
+    courseAbsolutePath: join(rootPath, 'lessons'),
+    sessionId,
+    sessionName: titleFromFilename(sessionId),
+    sessionRelativePath: workspaceRelativePath('lessons'),
+    sessionAbsolutePath: join(rootPath, 'lessons')
+  }
+}
+
+function buildCourseSummaries(lessons: LessonSummary[]): TeachingCourseSummary[] {
+  const courseMap = new Map<string, TeachingCourseSummary>()
+  for (const lesson of lessons) {
+    const session: TeachingSessionSummary = {
+      id: lesson.sessionId,
+      name: lesson.sessionName,
+      relativePath: lesson.sessionRelativePath,
+      absolutePath: lesson.sessionAbsolutePath,
+      lesson
+    }
+    const existing = courseMap.get(lesson.courseId)
+    if (existing) {
+      existing.sessions.push(session)
+      existing.lessonCount += 1
+      existing.sessionCount = existing.sessions.length
+      continue
+    }
+    courseMap.set(lesson.courseId, {
+      id: lesson.courseId,
+      name: lesson.courseName,
+      relativePath: lesson.courseRelativePath,
+      absolutePath: lesson.courseAbsolutePath,
+      lessonCount: 1,
+      sessionCount: 1,
+      sessions: [session]
+    })
+  }
+  return Array.from(courseMap.values())
+    .map((course) => ({
+      ...course,
+      sessions: [...course.sessions].sort((left, right) => right.lesson.id.localeCompare(left.lesson.id))
+    }))
+    .sort((left, right) => {
+      const leftNewest = left.sessions[0]?.lesson.id ?? ''
+      const rightNewest = right.sessions[0]?.lesson.id ?? ''
+      return rightNewest.localeCompare(leftNewest)
+    })
+}
+
+function normalizeLessonSummary(rootPath: string, lesson: LessonSummary): LessonSummary {
+  if (lesson.courseId && lesson.sessionId && lesson.courseRelativePath && lesson.sessionRelativePath) {
+    return lesson
+  }
+  const placement = deriveLessonPlacementFromPath(rootPath, lesson.absolutePath)
+  return {
+    ...lesson,
+    courseId: placement.courseId,
+    courseName: placement.courseName,
+    courseRelativePath: placement.courseRelativePath,
+    courseAbsolutePath: placement.courseAbsolutePath,
+    sessionId: placement.sessionId,
+    sessionName: placement.sessionName,
+    sessionRelativePath: placement.sessionRelativePath,
+    sessionAbsolutePath: placement.sessionAbsolutePath
+  }
 }
 
 function adapterReason(error: ProviderAdapterError): string {
@@ -1073,7 +1319,7 @@ function localFallbackPlan(
       },
       {
         heading: '把任务拆成文件',
-        body: '- [MISSION.md](../MISSION.md) — 学习罗盘\n- [RESOURCES.md](../RESOURCES.md) — 可信来源\n- reference/*.html — 速查材料\n- learning-records/*.md — 学习证据'
+        body: '- [MISSION.md](../MISSION.md) — 学习罗盘\n- [RESOURCES.md](../RESOURCES.md) — 可信来源\n- courses/<course>/sessions/<session>/*.html — 课程讲义与速查材料\n- courses/<course>/sessions/<session>/*.md — 学习证据'
       }
     ],
     keyPoints: ['文件系统是真相来源', '每节 lesson 短小且可复习', '本地优先，AI 可选'],
@@ -1087,7 +1333,7 @@ function localFallbackPlan(
         }]
       : [],
     flashcards: [],
-    referenceNotes: '先写 mission，再决定第一课；课程输出到 lessons/*.html；非显而易见的理解写入 learning-records/*.md。',
+    referenceNotes: '先写 mission，再决定第一课；课程输出到 courses/<course>/sessions/*.html；非显而易见的理解写入对应 session 的记录文件。',
     learningRecordNote: `本节围绕「${mission.title}」建立了可复用的 TeachOS 学习闭环。`
   }
 }
@@ -1209,7 +1455,7 @@ function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
     <div class="badge">TeachOS</div>
     <h1>${escapeHtml(workspace.missionTitle)}</h1>
     <p>${escapeHtml(workspace.missionExcerpt)}</p>
-    <p>点击生成按钮后，第一节静态 HTML lesson 会保存到 lessons/ 并在这里预览。</p>
+    <p>点击生成按钮后，静态 HTML lesson 会保存到对应课程的 session 文件夹，并在这里预览。</p>
   </main>
 </body>
 </html>`

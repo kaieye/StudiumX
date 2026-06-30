@@ -4,6 +4,8 @@ import { isAbsolute, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type {
   OpenPathResult,
+  TeachingGitBranchesResult,
+  TeachingGitBranchRow,
   TeachingGitWorkspaceInfo,
   TeachingGitWorktreeRow,
   TeachingGitWorktreesResult
@@ -89,6 +91,110 @@ export async function removeGitWorktreeForWorkspace(input: {
   }
 }
 
+/**
+ * List every local branch of the repository that contains `workspaceRoot`,
+ * along with the current branch and a dirty-file count for the working tree.
+ * Branches already checked out in another worktree carry that worktree's path
+ * so the UI can navigate there instead of attempting a doomed `git switch`.
+ */
+export async function getGitBranchesForWorkspace(
+  workspaceRoot: string
+): Promise<TeachingGitBranchesResult> {
+  const trimmed = workspaceRoot.trim()
+  if (!trimmed) {
+    return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
+  }
+  try {
+    const repositoryRoot = (await runGit(trimmed, ['rev-parse', '--show-toplevel'])).trim()
+    const currentRaw = (await runGit(trimmed, ['branch', '--show-current'])).trim()
+    const currentBranch = currentRaw || null
+    const branchLines = (await runGit(trimmed, ['branch', '--format=%(refname:short)']))
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+    const branchSet = new Set(branchLines)
+    if (currentBranch && !branchSet.has(currentBranch)) branchSet.add(currentBranch)
+
+    const worktreeRows = await listWorktreesInternal(trimmed)
+    const primaryRepositoryRoot = worktreeRows[0]?.path ?? repositoryRoot
+    const worktreeByBranch = new Map<string, { path: string; primary: boolean }>()
+    for (const row of worktreeRows) {
+      if (row.branch && !worktreeByBranch.has(row.branch)) {
+        worktreeByBranch.set(row.branch, {
+          path: row.path,
+          primary: samePath(row.path, primaryRepositoryRoot)
+        })
+      }
+    }
+
+    const branches: TeachingGitBranchRow[] = [...branchSet].map((name) => {
+      // A branch checked out in *another* worktree cannot be switched to here.
+      // (The current branch lives in this worktree, so it is never "elsewhere".)
+      const elsewhere = name === currentBranch ? undefined : worktreeByBranch.get(name)
+      const offsite = elsewhere && !samePath(elsewhere.path, repositoryRoot) ? elsewhere : undefined
+      return {
+        name,
+        current: currentBranch === name,
+        ...(offsite ? { worktreePath: offsite.path, worktreePrimary: offsite.primary } : {})
+      }
+    })
+
+    const dirtyCount = (await runGit(trimmed, ['status', '--porcelain=v1']))
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0).length
+
+    return { ok: true, repositoryRoot, primaryRepositoryRoot, currentBranch, branches, dirtyCount }
+  } catch (error) {
+    return mapGitBranchError(error)
+  }
+}
+
+/** Switch the workspace's working tree to an existing local branch. */
+export async function switchGitBranchForWorkspace(
+  workspaceRoot: string,
+  branchName: string
+): Promise<TeachingGitBranchesResult> {
+  const branch = branchName.trim()
+  if (!workspaceRoot.trim()) {
+    return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
+  }
+  if (!branch) return { ok: false, reason: 'error', message: 'Branch name is required.' }
+  try {
+    try {
+      await runGit(workspaceRoot, ['switch', branch], 20_000)
+    } catch {
+      // Older git (< 2.23) has no `switch`; fall back to `checkout`.
+      await runGit(workspaceRoot, ['checkout', branch], 20_000)
+    }
+    return getGitBranchesForWorkspace(workspaceRoot)
+  } catch (error) {
+    return mapGitBranchError(error)
+  }
+}
+
+/** Create a new local branch from HEAD and check it out in the workspace. */
+export async function createAndSwitchGitBranchForWorkspace(
+  workspaceRoot: string,
+  branchName: string
+): Promise<TeachingGitBranchesResult> {
+  const branch = branchName.trim()
+  if (!workspaceRoot.trim()) {
+    return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
+  }
+  if (!branch) return { ok: false, reason: 'error', message: 'Branch name is required.' }
+  try {
+    await runGit(workspaceRoot, ['check-ref-format', '--branch', branch])
+    try {
+      await runGit(workspaceRoot, ['switch', '-c', branch], 20_000)
+    } catch {
+      await runGit(workspaceRoot, ['checkout', '-b', branch], 20_000)
+    }
+    return getGitBranchesForWorkspace(workspaceRoot)
+  } catch (error) {
+    return mapGitBranchError(error)
+  }
+}
+
 async function resolveRepositoryRoot(workspaceRoot: string): Promise<string> {
   return (await runGit(workspaceRoot, ['rev-parse', '--show-toplevel'])).trim()
 }
@@ -141,16 +247,31 @@ async function readCreatedAt(path: string): Promise<string | null> {
   }
 }
 
-async function runGit(workspaceRoot: string, args: string[]): Promise<string> {
+async function runGit(workspaceRoot: string, args: string[], timeout?: number): Promise<string> {
   const cwd = resolve(workspaceRoot)
   const { stdout } = await execFile('git', ['-C', cwd, ...args], {
     windowsHide: true,
-    maxBuffer: 1024 * 1024
+    maxBuffer: 1024 * 1024,
+    // Force a C locale so git emits English diagnostics — keeps the error
+    // classification below stable regardless of the user's system language.
+    env: { ...process.env, LC_ALL: 'C', LANG: 'C' },
+    ...(timeout ? { timeout } : {})
   })
   return stdout
 }
 
 function mapGitError(error: unknown): TeachingGitWorktreesResult {
+  const message = error instanceof Error ? error.message : String(error)
+  if (/not a git repository/i.test(message)) {
+    return { ok: false, reason: 'not_git_repo', message: 'Current workspace is not a Git repository.' }
+  }
+  if (/spawn git ENOENT/i.test(message) || /'git' is not recognized/i.test(message)) {
+    return { ok: false, reason: 'git_unavailable', message: 'Git is not available in PATH.' }
+  }
+  return { ok: false, reason: 'error', message }
+}
+
+function mapGitBranchError(error: unknown): TeachingGitBranchesResult {
   const message = error instanceof Error ? error.message : String(error)
   if (/not a git repository/i.test(message)) {
     return { ok: false, reason: 'not_git_repo', message: 'Current workspace is not a Git repository.' }
