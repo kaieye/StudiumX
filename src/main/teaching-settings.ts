@@ -126,7 +126,8 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
     workspace: {
       defaultRoot,
       confirmBeforeGenerating: false,
-      autoOpenGeneratedLesson: false
+      autoOpenGeneratedLesson: false,
+      showAllCourseFiles: false
     },
     worktree: {
       rootPath: join(defaultRoot, '.worktrees')
@@ -283,7 +284,8 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
     workspace: {
       defaultRoot: normalizeString(workspaceInput.defaultRoot) || fallbackDefaultRoot,
       confirmBeforeGenerating: workspaceInput.confirmBeforeGenerating === true,
-      autoOpenGeneratedLesson: workspaceInput.autoOpenGeneratedLesson === true
+      autoOpenGeneratedLesson: workspaceInput.autoOpenGeneratedLesson === true,
+      showAllCourseFiles: workspaceInput.showAllCourseFiles === true
     },
     worktree: {
       rootPath: normalizeString(worktreeInput.rootPath) || join(fallbackDefaultRoot, '.worktrees')

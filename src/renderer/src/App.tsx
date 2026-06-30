@@ -120,6 +120,12 @@ type UserError = {
 
 type DialogMode = 'chat' | 'teaching'
 
+type CoursePreviewFile = {
+  title: string
+  relativePath: string
+  absolutePath: string
+}
+
 type StoreState = {
   view: WorkspaceView
   settingsSection: SettingsSection
@@ -131,6 +137,7 @@ type StoreState = {
   taskPrompt: string
   overviewDialogMode: DialogMode
   lessonReaderOpen: boolean
+  selectedCoursePreviewFile: CoursePreviewFile | null
   selectedCourseRelativePath: string | null
   appState: TeachingAppState
   settings: TeachingSettingsV1
@@ -154,6 +161,7 @@ type StoreState = {
   generateLesson: () => Promise<void>
   generateLessonStream: () => Promise<void>
   loadLesson: (lesson: LessonSummary) => Promise<void>
+  loadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
   openPath: (path: string) => Promise<void>
   openExternal: (url: string) => Promise<void>
   showNotification: (title: string, body: string) => Promise<void>
@@ -247,7 +255,8 @@ const emptySettings: TeachingSettingsV1 = {
   workspace: {
     defaultRoot: '',
     confirmBeforeGenerating: false,
-    autoOpenGeneratedLesson: false
+    autoOpenGeneratedLesson: false,
+    showAllCourseFiles: false
   },
   worktree: {
     rootPath: ''
@@ -643,6 +652,7 @@ const useAppStore = create<StoreState>((set, get) => ({
   taskPrompt: defaultPrompt,
   overviewDialogMode: 'chat',
   lessonReaderOpen: false,
+  selectedCoursePreviewFile: null,
   selectedCourseRelativePath: null,
   appState: emptyAppState,
   settings: emptySettings,
@@ -692,11 +702,11 @@ const useAppStore = create<StoreState>((set, get) => ({
     set({ gitBranchesRoot: root, gitBranchesResult, gitBranchesLoading: false })
   },
   setView: (view) => {
-    set({ view, ...(view === 'lessons' ? { lessonReaderOpen: false } : {}) })
+    set({ view })
     if (view === 'review') void get().loadReviewCards()
   },
   setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
-  openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false }),
+  openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null }),
   selectCourseFolder: (selectedCourseRelativePath) => {
     const hasLessons = selectedCourseRelativePath
       ? Boolean(get().appState.activeWorkspace?.courses.some((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath) && course.sessions.length > 0))
@@ -705,6 +715,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       view: hasLessons ? 'lessons' : 'overview',
       overviewDialogMode: hasLessons ? get().overviewDialogMode : 'chat',
       lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
       selectedCourseRelativePath,
       ...(!hasLessons
         ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false }
@@ -773,6 +784,8 @@ const useAppStore = create<StoreState>((set, get) => ({
       const state = await api.selectWorkspace(workspaceId)
       set({
         appState: state,
+        lessonReaderOpen: false,
+        selectedCoursePreviewFile: null,
         selectedCourseRelativePath: null,
         taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
         agentTurns: [],
@@ -795,7 +808,18 @@ const useAppStore = create<StoreState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const state = await api.createWorkspace({ name, prompt })
-      set({ appState: state, selectedCourseRelativePath: null, taskPrompt: defaultPrompt, agentTurns: [], activeConversationId: null, agentStatus: '', agentToolsSupported: null, loading: false })
+      set({
+        appState: state,
+        lessonReaderOpen: false,
+        selectedCoursePreviewFile: null,
+        selectedCourseRelativePath: null,
+        taskPrompt: defaultPrompt,
+        agentTurns: [],
+        activeConversationId: null,
+        agentStatus: '',
+        agentToolsSupported: null,
+        loading: false
+      })
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -812,6 +836,8 @@ const useAppStore = create<StoreState>((set, get) => ({
       }
       set({
         appState: result.state,
+        lessonReaderOpen: false,
+        selectedCoursePreviewFile: null,
         selectedCourseRelativePath: null,
         taskPrompt: result.state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
         agentTurns: [],
@@ -882,8 +908,9 @@ const useAppStore = create<StoreState>((set, get) => ({
       })
       set({
         view: 'lessons',
-        lessonReaderOpen: false,
+        lessonReaderOpen: true,
         selectedCourseRelativePath: result.lesson.courseRelativePath,
+        selectedCoursePreviewFile: lessonToCoursePreviewFile(result.lesson),
         appState: result.state,
         taskPrompt: nextPrompt,
         generating: false
@@ -965,7 +992,15 @@ const useAppStore = create<StoreState>((set, get) => ({
         return
       }
       if (!('error' in done)) {
-        set({ view: 'lessons', lessonReaderOpen: false, selectedCourseRelativePath: done.lesson.courseRelativePath, appState: done.state, taskPrompt: nextPrompt, generating: false })
+        set({
+          view: 'lessons',
+          lessonReaderOpen: true,
+          selectedCourseRelativePath: done.lesson.courseRelativePath,
+          selectedCoursePreviewFile: lessonToCoursePreviewFile(done.lesson),
+          appState: done.state,
+          taskPrompt: nextPrompt,
+          generating: false
+        })
         if (settings.workspace.autoOpenGeneratedLesson) {
           void get().openPath(done.lesson.absolutePath)
         }
@@ -1204,6 +1239,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     set({
       view: 'lessons',
       lessonReaderOpen: true,
+      selectedCoursePreviewFile: lessonToCoursePreviewFile(lesson),
       appState: {
         ...get().appState,
         selectedLessonPath: lesson.absolutePath,
@@ -1217,6 +1253,35 @@ const useAppStore = create<StoreState>((set, get) => ({
         lessonPath: lesson.absolutePath
       })
       set({ appState: { ...get().appState, selectedLessonPath: lesson.absolutePath, previewHtml: result.html } })
+    } catch (error) {
+      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace) } })
+    }
+  },
+  loadCourseHtmlFile: async (file) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    if (!workspace) return
+    set({
+      view: 'lessons',
+      lessonReaderOpen: true,
+      selectedCoursePreviewFile: file,
+      appState: {
+        ...get().appState,
+        selectedLessonPath: file.absolutePath,
+        previewHtml: loadingPreviewHtml(workspace)
+      },
+      selectedCourseRelativePath: courseRelativePathForFile(file.relativePath)
+    })
+    try {
+      const result = await api.readLesson({
+        workspaceId: workspace.id,
+        lessonPath: file.absolutePath
+      })
+      set({
+        appState: { ...get().appState, selectedLessonPath: file.absolutePath, previewHtml: result.html },
+        selectedCoursePreviewFile: file
+      })
     } catch (error) {
       set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace) } })
     }
@@ -1682,11 +1747,15 @@ function WorkspaceCourseSection({
 }) {
   const { t } = useTranslation()
   const loadLesson = useAppStore((s) => s.loadLesson)
+  const loadCourseHtmlFile = useAppStore((s) => s.loadCourseHtmlFile)
   const openPath = useAppStore((s) => s.openPath)
-  const setView = useAppStore((s) => s.setView)
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
+  const showAllCourseFiles = useAppStore((s) => s.settings.workspace.showAllCourseFiles)
   const courseTree = useMemo(() => workspace?.fileTree.find((node) => sameRelativePath(node.relativePath, 'courses')) ?? null, [workspace])
-  const courseNodes = courseTree?.children ?? []
+  const courseNodes = useMemo(() => {
+    const nodes = courseTree?.children ?? []
+    return showAllCourseFiles || !workspace ? nodes : filterCourseTreeToLessons(nodes, workspace.lessons)
+  }, [courseTree, showAllCourseFiles, workspace])
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(['courses']))
 
   useEffect(() => {
@@ -1745,9 +1814,9 @@ function WorkspaceCourseSection({
                   onToggle={togglePath}
                   onEnsureWorkspaceSelected={async () => {}}
                   onOpenPath={(path) => void openPath(path)}
+                  onOpenHtmlFile={(file) => void loadCourseHtmlFile(file)}
                   onOpenCourse={(relativePath) => selectCourseFolder(relativePath)}
                   onOpenLesson={(lesson) => {
-                    setView('lessons')
                     void loadLesson(lesson)
                   }}
                   onOpenConversation={() => {}}
@@ -2034,6 +2103,7 @@ function WorkspaceFileNodeRow({
   onToggle,
   onEnsureWorkspaceSelected,
   onOpenPath,
+  onOpenHtmlFile,
   onOpenCourse,
   onOpenLesson,
   onOpenConversation
@@ -2049,6 +2119,7 @@ function WorkspaceFileNodeRow({
   onToggle: (relativePath: string) => void
   onEnsureWorkspaceSelected: () => Promise<void>
   onOpenPath: (path: string) => void
+  onOpenHtmlFile?: (file: CoursePreviewFile) => void
   onOpenCourse?: (relativePath: string) => void
   onOpenLesson: (lesson: LessonSummary) => void
   onOpenConversation: (conversationId: string) => void
@@ -2094,6 +2165,14 @@ function WorkspaceFileNodeRow({
     }
     if (conversation) {
       onOpenConversation(conversation.id)
+      return
+    }
+    if (treeRoot === 'courses' && onOpenHtmlFile && node.name.toLowerCase().endsWith('.html')) {
+      onOpenHtmlFile({
+        title: titleFromFileName(node.name),
+        relativePath: node.relativePath,
+        absolutePath: node.absolutePath
+      })
       return
     }
     onOpenPath(node.absolutePath)
@@ -2167,6 +2246,7 @@ function WorkspaceFileNodeRow({
                 onToggle={onToggle}
                 onEnsureWorkspaceSelected={onEnsureWorkspaceSelected}
                 onOpenPath={onOpenPath}
+                onOpenHtmlFile={onOpenHtmlFile}
                 onOpenCourse={onOpenCourse}
                 onOpenLesson={onOpenLesson}
                 onOpenConversation={onOpenConversation}
@@ -2193,6 +2273,53 @@ function workspaceContextLabel(rootPath: string, name: string): string {
 
 function sameRelativePath(left: string, right: string): boolean {
   return left.replace(/\\/g, '/') === right.replace(/\\/g, '/')
+}
+
+function normalizeRelativePath(value: string): string {
+  return value.replace(/\\/g, '/')
+}
+
+function filterCourseTreeToLessons(nodes: WorkspaceFileNode[], lessons: LessonSummary[]): WorkspaceFileNode[] {
+  const lessonPaths = new Set(lessons.map((lesson) => normalizeRelativePath(lesson.relativePath)))
+
+  return nodes
+    .map((node): WorkspaceFileNode | null => {
+      if (node.kind === 'file') {
+        return lessonPaths.has(normalizeRelativePath(node.relativePath)) ? node : null
+      }
+      const children = filterCourseTreeToLessons(node.children ?? [], lessons)
+      if (children.length === 0) return null
+      return { ...node, children }
+    })
+    .filter((node): node is WorkspaceFileNode => Boolean(node))
+}
+
+function titleFromFileName(fileName: string): string {
+  const stem = fileName
+    .replace(/\.[^.]+$/, '')
+    .replace(/^\d{4}-/, '')
+    .replace(/-reference$/i, '')
+  const title = stem
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(' ')
+  return title || fileName
+}
+
+function courseRelativePathForFile(relativePath: string): string | null {
+  const parts = normalizeRelativePath(relativePath).split('/').filter(Boolean)
+  if (parts[0] === 'courses' && parts[1]) return `courses/${parts[1]}`
+  if (parts[0] === 'lessons') return 'lessons'
+  return null
+}
+
+function lessonToCoursePreviewFile(lesson: LessonSummary): CoursePreviewFile {
+  return {
+    title: lesson.sessionName || lesson.title,
+    relativePath: lesson.relativePath,
+    absolutePath: lesson.absolutePath
+  }
 }
 
 /** Truncate the middle of a string so long branch names fit the trigger button. */
@@ -2755,6 +2882,7 @@ function MainArea() {
     settings,
     overviewDialogMode,
     lessonReaderOpen,
+    selectedCoursePreviewFile,
     setView,
     setSidebarCollapsed,
     openSettings,
@@ -2787,7 +2915,9 @@ function MainArea() {
   const visibleLessonCount = selectedCourse
     ? selectedCourse.sessions.length
     : lessons.length
-  const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? active?.lessons[0] ?? null
+  const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? null
+  const selectedPreviewFile = selectedCoursePreviewFile ?? (selectedLesson ? lessonToCoursePreviewFile(selectedLesson) : null)
+  const readingCourseHtml = Boolean(lessonReaderOpen && selectedPreviewFile)
 
   // Show skeleton during initial load
   if (loading && !active) {
@@ -2885,7 +3015,7 @@ function MainArea() {
       {view === 'lessons' && (
         <section className="lesson-course-view" aria-label={t('nav.lessons')}>
           <div className="lesson-course-stage">
-            {lessonReaderOpen && selectedLesson ? (
+            {readingCourseHtml && selectedPreviewFile ? (
               <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
                 <div className="lesson-reader-toolbar">
                   <button className="ghost-button lesson-reader-back" type="button" onClick={openLessonLibrary}>
@@ -2893,14 +3023,14 @@ function MainArea() {
                     {t('lessons.backToCards')}
                   </button>
                   <div className="lesson-reader-title">
-                    <h2>{selectedLesson.sessionName || selectedLesson.title}</h2>
-                    <span>{selectedLesson.relativePath}</span>
+                    <h2>{selectedPreviewFile.title}</h2>
+                    <span>{selectedPreviewFile.relativePath}</span>
                   </div>
                 </div>
                 <div className="lesson-reader-frame-wrap">
                   <iframe
                     className="lesson-reader-frame"
-                    title={selectedLesson.title}
+                    title={selectedPreviewFile.title}
                     sandbox="allow-scripts"
                     srcDoc={appState.previewHtml}
                   />
@@ -2969,7 +3099,7 @@ function MainArea() {
               </section>
             )}
           </div>
-          <OverviewLessonComposer active={active} className="lesson-bottom-composer" showModeSwitch={false} />
+          {!readingCourseHtml && <OverviewLessonComposer active={active} className="lesson-bottom-composer" showModeSwitch={false} />}
         </section>
       )}
 
@@ -4106,6 +4236,12 @@ function SettingsView({
                 <ToggleSwitch
                   checked={settings.workspace.autoOpenGeneratedLesson}
                   onChange={(autoOpenGeneratedLesson) => void onUpdateSettings({ workspace: { autoOpenGeneratedLesson } })}
+                />
+              </SettingsRow>
+              <SettingsRow label={t('workspace.showAllCourseFiles.label')} detail={t('workspace.showAllCourseFiles.detail')}>
+                <ToggleSwitch
+                  checked={settings.workspace.showAllCourseFiles}
+                  onChange={(showAllCourseFiles) => void onUpdateSettings({ workspace: { showAllCourseFiles } })}
                 />
               </SettingsRow>
               <SettingsRow label={t('workspace.current.label')} detail={activeWorkspace?.rootPath ?? t('workspace.current.none')}>

@@ -145,6 +145,7 @@ export type TeachingSettingsV1 = {
     defaultRoot: string
     confirmBeforeGenerating: boolean
     autoOpenGeneratedLesson: boolean
+    showAllCourseFiles: boolean
   }
   worktree: {
     rootPath: string

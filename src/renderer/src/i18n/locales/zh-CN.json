@@ -260,6 +260,7 @@
     "defaultRoot": { "label": "默认工作区根目录", "none": "未设置", "choose": "选择", "open": "打开" },
     "confirm": { "label": "生成前确认", "detail": "发送任务前要求二次确认。" },
     "autoOpen": { "label": "生成后打开 lesson", "detail": "生成完成后调用系统默认程序打开 HTML。" },
+    "showAllCourseFiles": { "label": "显示所有课程文件", "detail": "开启后在课程树中显示 reference、学习记录和复习数据等伴随文件。" },
     "current": { "label": "当前工作区", "none": "未选择", "create": "新建", "import": "导入", "open": "打开" }
   },
   "worktree": {

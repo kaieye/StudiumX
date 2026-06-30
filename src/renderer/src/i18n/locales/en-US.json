@@ -260,6 +260,7 @@
     "defaultRoot": { "label": "Default workspace root", "none": "Not set", "choose": "Choose", "open": "Open" },
     "confirm": { "label": "Confirm before generating", "detail": "Require a second confirmation before sending a task." },
     "autoOpen": { "label": "Open lesson after generating", "detail": "Open the HTML with the system default app after generation." },
+    "showAllCourseFiles": { "label": "Show all course files", "detail": "Show reference HTML, learning records, review data, and other companion files in the course tree." },
     "current": { "label": "Current workspace", "none": "Not selected", "create": "New", "import": "Import", "open": "Open" }
   },
   "worktree": {
