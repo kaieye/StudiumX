@@ -218,7 +218,7 @@ async function applyAppBehavior(settings: TeachingSettingsV1): Promise<void> {
   } catch (error) {
     logger?.warn(`Failed to set login item: ${errorMessage(error)}`)
   }
-  tray.configure(settings.appBehavior.closeAction)
+  tray.configure(settings.appBehavior.closeAction, settings.locale)
   logger.configure(settings.log.enabled, settings.log.retentionDays)
 }
 

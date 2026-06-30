@@ -6,6 +6,13 @@ import type { Logger } from './logger'
 const TRAY_ICON_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mN4+P+/HgAFDwIAB6s5FQAAAABJRU5ErkJggg=='
 
+type TrayLocale = 'zh-CN' | 'en-US'
+
+const TRAY_LABELS: Record<TrayLocale, { show: string; quit: string }> = {
+  'zh-CN': { show: '显示 TeachOS', quit: '退出' },
+  'en-US': { show: 'Show TeachOS', quit: 'Quit' }
+}
+
 /**
  * Manages the system tray icon and the close-to-tray behavior. When
  * closeAction === 'tray', the main window's close event is intercepted to
@@ -15,6 +22,7 @@ export class TrayManager {
   private tray: Tray | null = null
   private window: BrowserWindow | null = null
   private closeAction: 'quit' | 'tray' = 'quit'
+  private locale: TrayLocale = 'zh-CN'
   private readonly logger: Logger | null
 
   constructor(logger: Logger | null = null) {
@@ -31,10 +39,12 @@ export class TrayManager {
     })
   }
 
-  configure(closeAction: 'quit' | 'tray'): void {
+  configure(closeAction: 'quit' | 'tray', locale: TrayLocale = this.locale): void {
     this.closeAction = closeAction
+    this.locale = locale
     if (closeAction === 'tray') {
       this.ensureTray()
+      this.rebuildMenu()
     } else if (this.tray) {
       this.tray.destroy()
       this.tray = null
@@ -45,15 +55,20 @@ export class TrayManager {
     if (this.tray) return
     this.tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON_DATA_URL))
     this.tray.setToolTip('TeachOS')
-    this.tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: '显示 TeachOS', click: () => this.show() },
-        { type: 'separator' },
-        { label: '退出', click: () => this.quit() }
-      ])
-    )
     this.tray.on('click', () => this.show())
     this.logger?.info('Tray initialized')
+  }
+
+  private rebuildMenu(): void {
+    if (!this.tray) return
+    const labels = TRAY_LABELS[this.locale]
+    this.tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: labels.show, click: () => this.show() },
+        { type: 'separator' },
+        { label: labels.quit, click: () => this.quit() }
+      ])
+    )
   }
 
   private show(): void {

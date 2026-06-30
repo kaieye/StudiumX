@@ -46,7 +46,9 @@ import {
 import type { CSSProperties, ErrorInfo, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Component, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { create } from 'zustand'
+import i18n from './i18n'
 import {
   MODEL_ENDPOINT_FORMATS,
   TEACHING_MODEL_PROVIDER_PRESETS,
@@ -126,9 +128,9 @@ type StoreState = {
 // ================================================================
 
 const navItems = [
-  { id: 'overview', label: '概览', icon: Home },
-  { id: 'resources', label: '资源', icon: LibraryBig }
-] satisfies Array<{ id: WorkspaceView; label: string; icon: LucideIcon }>
+  { id: 'overview', icon: Home },
+  { id: 'resources', icon: LibraryBig }
+] satisfies Array<{ id: WorkspaceView; icon: LucideIcon }>
 
 const defaultRuntime: TeachingRuntimeState = {
   status: 'idle',
@@ -246,6 +248,7 @@ function applySettingsSideEffects(settings: TeachingSettingsV1): void {
   root.dataset.theme = settings.theme
   root.dataset.density = settings.density
   root.style.fontSize = `${settings.uiFontScale * 100}%`
+  void i18n.changeLanguage(settings.locale)
 }
 
 // ================================================================
