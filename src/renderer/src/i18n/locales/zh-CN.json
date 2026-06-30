@@ -1,0 +1,228 @@
+{
+  "common": {
+    "auto": "auto",
+    "modelProvider": "Model provider",
+    "lessonsUnit": "lessons",
+    "cancel": "取消",
+    "open": "打开",
+    "choose": "选择"
+  },
+  "nav": {
+    "overview": "概览",
+    "resources": "资源"
+  },
+  "sidebar": {
+    "aria": "主导航",
+    "workspace": "工作区",
+    "newWorkspace": "新建工作区",
+    "lessonsCount": "{{count}} 课",
+    "notifications": "通知",
+    "settings": "设置",
+    "notificationCenterTitle": "TeachOS 通知中心",
+    "notificationCenterOn": "通知设置已打开。",
+    "notificationCenterOff": "通知已关闭，可在这里重新启用。"
+  },
+  "sidebarResizer": {
+    "aria": "调整侧边栏宽度"
+  },
+  "titlebar": {
+    "group": "窗口控制",
+    "minimize": "最小化窗口",
+    "maximize": "最大化或还原窗口",
+    "close": "关闭窗口"
+  },
+  "main": {
+    "expandSidebar": "展开侧边栏",
+    "collapseSidebar": "折叠侧边栏",
+    "dismissAlert": "关闭提示"
+  },
+  "overview": {
+    "aria": "概览",
+    "formAria": "教学任务输入",
+    "taskAria": "教学任务",
+    "placeholderActive": "输入教学任务，生成下一节可复习课程...",
+    "placeholderEmpty": "先新建或导入教学工作区...",
+    "newWorkspace": "新建工作区",
+    "selectWorkspace": "选择工作区",
+    "generate": "生成课程"
+  },
+  "lessons": {
+    "composerAria": "教学任务输入",
+    "composerTitle": "教学任务",
+    "modelSettings": "模型设置",
+    "composerPlaceholder": "描述你想让 AI 生成的教学内容...",
+    "rootDir": "根目录",
+    "send": "生成课程",
+    "plan": "课程计划",
+    "all": "全部 lesson",
+    "next": "下一组 lesson",
+    "openDir": "打开目录",
+    "emptyTitle": "暂无课程",
+    "emptyDetail": "在上方输入教学任务，点击生成按钮创建可复习的 HTML 课程。",
+    "emptyAction": "生成课程",
+    "duration": "{{count}} 分钟",
+    "chipPreviewing": "预览中",
+    "chipGenerated": "已生成",
+    "previewAria": "Lesson 预览",
+    "previewTitle": "静态课程预览",
+    "openPreview": "打开预览"
+  },
+  "resources": {
+    "trusted": "可信资源",
+    "title": "资源索引",
+    "open": "打开 RESOURCES.md",
+    "emptyTitle": "暂无资源",
+    "emptyDetail": "在 RESOURCES.md 中添加可信学习来源后，会显示在这里。"
+  },
+  "records": {
+    "label": "学习记录",
+    "title": "近期洞察",
+    "open": "查看学习记录目录",
+    "emptyTitle": "暂无记录",
+    "emptyDetail": "生成 lesson 时会同步写入 learning-records/，下次查看时此处会显示最新记录。"
+  },
+  "runtime": {
+    "title": "AI Runtime",
+    "queued": "{{count}} 个队列任务",
+    "references": "references",
+    "localGenerator": "Local structured generator"
+  },
+  "settings": {
+    "aria": "设置",
+    "close": "关闭设置",
+    "navAria": "设置分类",
+    "navHeading": "Settings"
+  },
+  "settingsSection": {
+    "general": { "label": "通用", "detail": "应用行为、日志" },
+    "appearance": { "label": "外观", "detail": "主题、语言、密度、字体" },
+    "model": { "label": "模型", "detail": "Provider 与密钥" },
+    "generation": { "label": "生成", "detail": "课程输出策略" },
+    "workspace": { "label": "工作区", "detail": "默认目录和文件行为" },
+    "notifications": { "label": "通知", "detail": "桌面提醒" },
+    "privacy": { "label": "隐私", "detail": "链接和密钥显示" },
+    "about": { "label": "关于", "detail": "版本、日志、数据目录" }
+  },
+  "general": {
+    "title": "通用",
+    "subtitle": "本地偏好会保存到 TeachOS 的应用数据目录。",
+    "theme": { "label": "主题", "detail": "跟随系统、浅色或深色。", "system": "系统", "light": "浅色", "dark": "深色" },
+    "language": { "label": "语言", "detail": "界面显示语言。", "zh": "中文", "en": "English" },
+    "density": { "label": "界面密度", "detail": "紧凑模式会减少行高和面板间距。", "comfortable": "舒适", "compact": "紧凑" },
+    "fontScale": { "label": "字体缩放" },
+    "closeAction": { "label": "关闭行为", "detailQuit": "直接退出", "detailTray": "关闭到托盘", "quit": "退出", "tray": "托盘" },
+    "openAtLogin": { "label": "开机启动", "detail": "由 Electron login item 设置控制。" },
+    "startMinimized": { "label": "启动时最小化", "detail": "开机启动时仅显示托盘图标。" },
+    "log": { "label": "日志", "enabled": "已启用", "disabled": "已关闭", "detail": "{{state}} · 保留 {{days}} 天" }
+  },
+  "appearance": {
+    "title": "外观",
+    "subtitle": "Codex 风格的紧凑卡片布局会立即应用到当前窗口。"
+  },
+  "model": {
+    "title": "模型",
+    "subtitle": "Provider 预设来自 Kun 的模型设置组织方式，字段会完整保存并供生成配置读取。",
+    "providerName": "Provider 名称",
+    "apiKey": { "label": "API Key", "filled": "已填写", "empty": "未填写", "placeholder": "sk-..." },
+    "baseUrl": "Base URL",
+    "endpointFormat": "Endpoint format",
+    "models": { "label": "模型列表", "detail": "{{count}} 个模型" },
+    "actions": { "label": "Provider 操作", "detailDefault": "测试连接、同步模型列表、打开官方文档或恢复内置预设。", "test": "测试", "pull": "拉取模型", "docs": "文档", "key": "Key", "reset": "重置" },
+    "statusConnecting": "正在连接 provider...",
+    "statusOk": "连接成功：{{latency}}ms，发现 {{count}} 个模型。",
+    "statusPulling": "正在拉取模型列表...",
+    "statusSynced": "已同步 {{count}} 个模型。"
+  },
+  "generation": {
+    "title": "生成",
+    "subtitle": "这些设置会直接影响后续 lesson 文件和伴随产物。",
+    "provider": "生成 Provider",
+    "model": { "label": "模型", "none": "未选择" },
+    "temperature": "Temperature",
+    "maxTokens": "最大输出 Tokens",
+    "duration": { "label": "课程时长", "detail": "{{count}} 分钟" },
+    "retrieval": { "label": "检索练习", "detail": "写入 lesson 内的交互练习。" },
+    "reference": { "label": "Reference HTML", "detail": "生成 reference/*.html 速查材料。" },
+    "learningRecord": { "label": "Learning record", "detail": "生成 learning-records/*.md 学习记录。" },
+    "structured": { "label": "Structured JSON", "detail": "在 lesson HTML 内嵌结构化元数据。" },
+    "streaming": { "label": "流式生成", "detail": "打开后使用 SSE/流式预览；失败会回退到非流式或本地计划。" },
+    "timeout": { "label": "请求超时", "detail": "{{seconds}} 秒" }
+  },
+  "workspace": {
+    "title": "工作区",
+    "subtitle": "新建、导入和打开路径均走 Electron 主进程的受控文件访问。",
+    "defaultRoot": { "label": "默认工作区根目录", "none": "未设置", "choose": "选择", "open": "打开" },
+    "confirm": { "label": "生成前确认", "detail": "发送任务前要求二次确认。" },
+    "autoOpen": { "label": "生成后打开 lesson", "detail": "生成完成后调用系统默认程序打开 HTML。" },
+    "current": { "label": "当前工作区", "none": "未选择", "create": "新建", "import": "导入", "open": "打开" }
+  },
+  "notifications": {
+    "title": "通知",
+    "subtitle": "通知通过 Electron 原生 Notification 发出。",
+    "enabled": { "label": "启用通知", "on": "已启用", "off": "已关闭" },
+    "lesson": { "label": "课程生成完成", "detail": "lesson 保存成功后提醒。" },
+    "imported": { "label": "工作区导入", "detail": "导入成功后提醒。" },
+    "errors": { "label": "错误提醒", "detail": "生成或导入失败时提醒。" },
+    "test": { "label": "测试通知", "detail": "发送一条本地测试通知。", "button": "发送测试" }
+  },
+  "privacy": {
+    "title": "隐私",
+    "subtitle": "TeachOS 默认本地优先，设置、工作区索引和课程文件都存放在本机。",
+    "maskKey": { "label": "隐藏 API Key", "detail": "设置页用密码输入框显示密钥。" },
+    "externalLinks": { "label": "允许打开外部链接", "detail": "控制 provider 文档和 Key 页面按钮。" },
+    "proxy": { "label": "Provider Proxy", "on": "已启用", "off": "未启用", "placeholder": "http://127.0.0.1:7890" }
+  },
+  "about": {
+    "title": "关于 TeachOS",
+    "subtitle": "诊断入口和当前运行时信息，便于检查迁移后的完整链路。",
+    "runtime": "当前 Runtime",
+    "streaming": "Streaming",
+    "oneShot": "One-shot",
+    "currentWorkspace": { "label": "当前工作区", "none": "未选择工作区", "open": "打开" },
+    "logFile": { "label": "日志文件", "detail": "保留 {{days}} 天", "open": "打开日志" },
+    "appData": { "label": "应用数据目录", "detail": "settings、workspace registry 和日志所在位置。", "open": "打开目录" }
+  },
+  "errors": {
+    "missingField": { "message": "操作参数不完整", "detail": "缺少必要字段：{{field}}。请检查输入后重试。", "fallbackField": "参数" },
+    "badPayload": { "message": "请求格式有误", "detail": "内部通信数据格式异常，请刷新页面后重试。" },
+    "windowControl": { "message": "窗口操作不支持", "detail": "该窗口操作在当前平台不可用。" },
+    "workspaceNotFound": { "message": "工作区未找到", "detail": "该工作区可能已被移动或删除，请重新导入。" },
+    "invalidPath": { "message": "路径无效", "detail": "请选择一个有效的文件夹作为教学工作区。" },
+    "emptyMission": { "message": "请输入学习使命", "detail": "学习使命不能为空，请简要描述你想学习的内容。" },
+    "emptyTask": { "message": "请输入教学任务", "detail": "请在上方输入框中描述你想生成的课程主题。" },
+    "pathRestricted": { "message": "路径访问受限", "detail": "仅允许访问教学工作区内的文件。" },
+    "fileNotFound": { "message": "文件未找到", "detail": "所选文件可能已被移动或删除。" },
+    "accessDenied": { "message": "文件访问被拒绝", "detail": "没有权限访问该文件，请检查文件权限设置。" },
+    "generic": { "message": "操作未成功", "detail": "请稍后重试。如果问题持续出现，请联系支持。" },
+    "openPath": "无法打开路径。",
+    "openExternal": "无法打开链接。",
+    "openLog": "无法打开日志文件。",
+    "openAppData": "无法打开应用数据目录。"
+  },
+  "errorBoundary": {
+    "badge": "应用异常",
+    "fallbackDetail": "应用遇到了意外错误，请尝试重新加载。",
+    "reload": "重新加载"
+  },
+  "dialogs": {
+    "createNameTitle": "工作区名称",
+    "createNameDefault": "learn",
+    "createMissionTitle": "学习使命",
+    "createMissionDefault": "我想学习 {{name}}，并生成可复习的 HTML 课程。",
+    "updateMissionTitle": "更新学习使命",
+    "confirmGenerate": "将根据当前任务生成 lesson、reference 和 learning record。继续吗？"
+  },
+  "notify": {
+    "imported": { "title": "工作区已导入", "body": "{{name}} 已加入 TeachOS。", "fallbackName": "教学工作区" },
+    "importFailed": { "title": "导入失败" },
+    "lessonGenerated": { "title": "课程已生成", "body": "{{title}} 已保存到 {{path}}{{suffix}}", "fallbackWithReason": "（本地回退：{{reason}}）", "fallbackNoReason": "（本地回退）" },
+    "generateFailed": { "title": "生成失败" },
+    "test": { "title": "TeachOS 通知测试", "body": "通知设置已正确连接。" }
+  },
+  "preview": {
+    "streamingHint": "正在接收模型输出，完成后会渲染为正式 lesson。",
+    "streamingPlaceholder": "等待第一个 token...",
+    "emptyHint": "点击生成按钮后，第一节静态 HTML lesson 会保存到 lessons/ 并在这里预览。",
+    "loadingHint": "正在读取 lesson 预览。"
+  }
+}

@@ -1,0 +1,228 @@
+{
+  "common": {
+    "auto": "auto",
+    "modelProvider": "Model provider",
+    "lessonsUnit": "lessons",
+    "cancel": "Cancel",
+    "open": "Open",
+    "choose": "Choose"
+  },
+  "nav": {
+    "overview": "Overview",
+    "resources": "Resources"
+  },
+  "sidebar": {
+    "aria": "Main navigation",
+    "workspace": "Workspaces",
+    "newWorkspace": "New workspace",
+    "lessonsCount": "{{count}} lessons",
+    "notifications": "Notifications",
+    "settings": "Settings",
+    "notificationCenterTitle": "TeachOS Notifications",
+    "notificationCenterOn": "Notification settings opened.",
+    "notificationCenterOff": "Notifications are off — re-enable them here."
+  },
+  "sidebarResizer": {
+    "aria": "Resize sidebar"
+  },
+  "titlebar": {
+    "group": "Window controls",
+    "minimize": "Minimize window",
+    "maximize": "Maximize or restore window",
+    "close": "Close window"
+  },
+  "main": {
+    "expandSidebar": "Expand sidebar",
+    "collapseSidebar": "Collapse sidebar",
+    "dismissAlert": "Dismiss alert"
+  },
+  "overview": {
+    "aria": "Overview",
+    "formAria": "Teaching task input",
+    "taskAria": "Teaching task",
+    "placeholderActive": "Enter a teaching task to generate the next reviewable lesson...",
+    "placeholderEmpty": "Create or import a teaching workspace first...",
+    "newWorkspace": "New workspace",
+    "selectWorkspace": "Select workspace",
+    "generate": "Generate lesson"
+  },
+  "lessons": {
+    "composerAria": "Teaching task input",
+    "composerTitle": "Teaching task",
+    "modelSettings": "Model settings",
+    "composerPlaceholder": "Describe the teaching content you want AI to generate...",
+    "rootDir": "Root folder",
+    "send": "Generate lesson",
+    "plan": "Lesson plan",
+    "all": "All lessons",
+    "next": "Next lessons",
+    "openDir": "Open folder",
+    "emptyTitle": "No lessons yet",
+    "emptyDetail": "Enter a teaching task above and click generate to create a reviewable HTML lesson.",
+    "emptyAction": "Generate lesson",
+    "duration": "{{count}} min",
+    "chipPreviewing": "Previewing",
+    "chipGenerated": "Generated",
+    "previewAria": "Lesson preview",
+    "previewTitle": "Static lesson preview",
+    "openPreview": "Open preview"
+  },
+  "resources": {
+    "trusted": "Trusted resources",
+    "title": "Resource index",
+    "open": "Open RESOURCES.md",
+    "emptyTitle": "No resources yet",
+    "emptyDetail": "Add trusted learning sources to RESOURCES.md and they'll appear here."
+  },
+  "records": {
+    "label": "Learning records",
+    "title": "Recent insights",
+    "open": "Open learning-records folder",
+    "emptyTitle": "No records yet",
+    "emptyDetail": "Learning records are written to learning-records/ when a lesson is generated; the latest will appear here next time."
+  },
+  "runtime": {
+    "title": "AI Runtime",
+    "queued": "{{count}} queued",
+    "references": "references",
+    "localGenerator": "Local structured generator"
+  },
+  "settings": {
+    "aria": "Settings",
+    "close": "Close settings",
+    "navAria": "Settings categories",
+    "navHeading": "Settings"
+  },
+  "settingsSection": {
+    "general": { "label": "General", "detail": "App behavior, logs" },
+    "appearance": { "label": "Appearance", "detail": "Theme, language, density, font" },
+    "model": { "label": "Model", "detail": "Provider & API keys" },
+    "generation": { "label": "Generation", "detail": "Lesson output strategy" },
+    "workspace": { "label": "Workspace", "detail": "Default folder & file behavior" },
+    "notifications": { "label": "Notifications", "detail": "Desktop alerts" },
+    "privacy": { "label": "Privacy", "detail": "Links & key display" },
+    "about": { "label": "About", "detail": "Version, logs, data folder" }
+  },
+  "general": {
+    "title": "General",
+    "subtitle": "Local preferences are saved to TeachOS's app data folder.",
+    "theme": { "label": "Theme", "detail": "Follow system, light, or dark.", "system": "System", "light": "Light", "dark": "Dark" },
+    "language": { "label": "Language", "detail": "Interface display language.", "zh": "中文", "en": "English" },
+    "density": { "label": "Density", "detail": "Compact mode reduces row height and panel spacing.", "comfortable": "Comfortable", "compact": "Compact" },
+    "fontScale": { "label": "Font scale" },
+    "closeAction": { "label": "Close behavior", "detailQuit": "Quit", "detailTray": "Close to tray", "quit": "Quit", "tray": "Tray" },
+    "openAtLogin": { "label": "Open at login", "detail": "Controlled by Electron login item settings." },
+    "startMinimized": { "label": "Start minimized", "detail": "Show only the tray icon when starting at login." },
+    "log": { "label": "Logs", "enabled": "Enabled", "disabled": "Disabled", "detail": "{{state}} · Retain {{days}} days" }
+  },
+  "appearance": {
+    "title": "Appearance",
+    "subtitle": "The Codex-style compact card layout applies to the current window immediately."
+  },
+  "model": {
+    "title": "Model",
+    "subtitle": "Provider presets follow Kun's model-settings organization; fields are fully saved and read by the generation config.",
+    "providerName": "Provider name",
+    "apiKey": { "label": "API Key", "filled": "Filled", "empty": "Not filled", "placeholder": "sk-..." },
+    "baseUrl": "Base URL",
+    "endpointFormat": "Endpoint format",
+    "models": { "label": "Model list", "detail": "{{count}} models" },
+    "actions": { "label": "Provider actions", "detailDefault": "Test connection, sync models, open docs, or restore the built-in preset.", "test": "Test", "pull": "Pull models", "docs": "Docs", "key": "Key", "reset": "Reset" },
+    "statusConnecting": "Connecting to provider...",
+    "statusOk": "Connected: {{latency}}ms, found {{count}} models.",
+    "statusPulling": "Pulling model list...",
+    "statusSynced": "Synced {{count}} models."
+  },
+  "generation": {
+    "title": "Generation",
+    "subtitle": "These settings directly affect subsequent lesson files and accompanying artifacts.",
+    "provider": "Generation provider",
+    "model": { "label": "Model", "none": "Not selected" },
+    "temperature": "Temperature",
+    "maxTokens": "Max output tokens",
+    "duration": { "label": "Lesson duration", "detail": "{{count}} min" },
+    "retrieval": { "label": "Retrieval practice", "detail": "Interactive exercises embedded in the lesson." },
+    "reference": { "label": "Reference HTML", "detail": "Generate reference/*.html cheat sheets." },
+    "learningRecord": { "label": "Learning record", "detail": "Generate learning-records/*.md study logs." },
+    "structured": { "label": "Structured JSON", "detail": "Embed structured metadata in the lesson HTML." },
+    "streaming": { "label": "Streaming", "detail": "Use SSE/streaming preview; falls back to non-streaming or a local plan on failure." },
+    "timeout": { "label": "Request timeout", "detail": "{{seconds}}s" }
+  },
+  "workspace": {
+    "title": "Workspace",
+    "subtitle": "Creating, importing, and opening paths all go through the main process's controlled file access.",
+    "defaultRoot": { "label": "Default workspace root", "none": "Not set", "choose": "Choose", "open": "Open" },
+    "confirm": { "label": "Confirm before generating", "detail": "Require a second confirmation before sending a task." },
+    "autoOpen": { "label": "Open lesson after generating", "detail": "Open the HTML with the system default app after generation." },
+    "current": { "label": "Current workspace", "none": "Not selected", "create": "New", "import": "Import", "open": "Open" }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "subtitle": "Notifications are sent via Electron's native Notification.",
+    "enabled": { "label": "Enable notifications", "on": "Enabled", "off": "Disabled" },
+    "lesson": { "label": "Lesson generated", "detail": "Notify when a lesson is saved successfully." },
+    "imported": { "label": "Workspace imported", "detail": "Notify after a successful import." },
+    "errors": { "label": "Error alerts", "detail": "Notify on generation or import failures." },
+    "test": { "label": "Test notification", "detail": "Send a local test notification.", "button": "Send test" }
+  },
+  "privacy": {
+    "title": "Privacy",
+    "subtitle": "TeachOS is local-first by default; settings, the workspace index, and lesson files all stay on this machine.",
+    "maskKey": { "label": "Mask API key", "detail": "Show keys in a password field on the settings page." },
+    "externalLinks": { "label": "Allow external links", "detail": "Controls the provider docs and key-page buttons." },
+    "proxy": { "label": "Provider Proxy", "on": "Enabled", "off": "Disabled", "placeholder": "http://127.0.0.1:7890" }
+  },
+  "about": {
+    "title": "About TeachOS",
+    "subtitle": "Diagnostics entry and current runtime info, to verify the full chain after migration.",
+    "runtime": "Current runtime",
+    "streaming": "Streaming",
+    "oneShot": "One-shot",
+    "currentWorkspace": { "label": "Current workspace", "none": "No workspace selected", "open": "Open" },
+    "logFile": { "label": "Log file", "detail": "Retain {{days}} days", "open": "Open log" },
+    "appData": { "label": "App data folder", "detail": "Where settings, the workspace registry, and logs live.", "open": "Open folder" }
+  },
+  "errors": {
+    "missingField": { "message": "Incomplete parameters", "detail": "Missing required field: {{field}}. Please check your input and try again.", "fallbackField": "parameter" },
+    "badPayload": { "message": "Bad request format", "detail": "Internal communication data is malformed; refresh the page and try again." },
+    "windowControl": { "message": "Window action unsupported", "detail": "This window action is unavailable on the current platform." },
+    "workspaceNotFound": { "message": "Workspace not found", "detail": "This workspace may have been moved or deleted; please re-import it." },
+    "invalidPath": { "message": "Invalid path", "detail": "Please choose a valid folder as the teaching workspace." },
+    "emptyMission": { "message": "Please enter a learning mission", "detail": "The learning mission can't be empty; briefly describe what you want to learn." },
+    "emptyTask": { "message": "Please enter a teaching task", "detail": "Describe the lesson topic you want to generate in the input above." },
+    "pathRestricted": { "message": "Path access restricted", "detail": "Only files inside the teaching workspace are accessible." },
+    "fileNotFound": { "message": "File not found", "detail": "The selected file may have been moved or deleted." },
+    "accessDenied": { "message": "File access denied", "detail": "No permission to access this file; check the file permissions." },
+    "generic": { "message": "Operation failed", "detail": "Please try again shortly. If the problem persists, contact support." },
+    "openPath": "Couldn't open the path.",
+    "openExternal": "Couldn't open the link.",
+    "openLog": "Couldn't open the log file.",
+    "openAppData": "Couldn't open the app data folder."
+  },
+  "errorBoundary": {
+    "badge": "App error",
+    "fallbackDetail": "The app hit an unexpected error; try reloading.",
+    "reload": "Reload"
+  },
+  "dialogs": {
+    "createNameTitle": "Workspace name",
+    "createNameDefault": "learn",
+    "createMissionTitle": "Learning mission",
+    "createMissionDefault": "I want to learn {{name}} and generate reviewable HTML lessons.",
+    "updateMissionTitle": "Update learning mission",
+    "confirmGenerate": "This will generate a lesson, reference, and learning record from the current task. Continue?"
+  },
+  "notify": {
+    "imported": { "title": "Workspace imported", "body": "{{name}} has been added to TeachOS.", "fallbackName": "Teaching workspace" },
+    "importFailed": { "title": "Import failed" },
+    "lessonGenerated": { "title": "Lesson generated", "body": "{{title}} saved to {{path}}{{suffix}}", "fallbackWithReason": "(local fallback: {{reason}})", "fallbackNoReason": "(local fallback)" },
+    "generateFailed": { "title": "Generation failed" },
+    "test": { "title": "TeachOS notification test", "body": "Notification settings are wired up correctly." }
+  },
+  "preview": {
+    "streamingHint": "Receiving model output; it'll be rendered as a finished lesson once complete.",
+    "streamingPlaceholder": "Waiting for the first token...",
+    "emptyHint": "After you click generate, the first static HTML lesson is saved to lessons/ and previewed here.",
+    "loadingHint": "Loading lesson preview."
+  }
+}
