@@ -131,11 +131,13 @@ type StoreState = {
   taskPrompt: string
   overviewDialogMode: DialogMode
   lessonReaderOpen: boolean
+  selectedCourseRelativePath: string | null
   appState: TeachingAppState
   settings: TeachingSettingsV1
   setView: (view: WorkspaceView) => void
   setOverviewDialogMode: (mode: DialogMode) => void
   openLessonLibrary: () => void
+  selectCourseFolder: (relativePath: string | null) => void
   setSettingsSection: (section: SettingsSection) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   openSettings: (section?: SettingsSection) => void
@@ -641,6 +643,7 @@ const useAppStore = create<StoreState>((set, get) => ({
   taskPrompt: defaultPrompt,
   overviewDialogMode: 'chat',
   lessonReaderOpen: false,
+  selectedCourseRelativePath: null,
   appState: emptyAppState,
   settings: emptySettings,
   reviewCards: [],
@@ -694,6 +697,20 @@ const useAppStore = create<StoreState>((set, get) => ({
   },
   setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
   openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false }),
+  selectCourseFolder: (selectedCourseRelativePath) => {
+    const hasLessons = selectedCourseRelativePath
+      ? Boolean(get().appState.activeWorkspace?.courses.some((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath) && course.sessions.length > 0))
+      : Boolean(get().appState.activeWorkspace?.lessons.length)
+    set({
+      view: hasLessons ? 'lessons' : 'overview',
+      overviewDialogMode: hasLessons ? get().overviewDialogMode : 'chat',
+      lessonReaderOpen: false,
+      selectedCourseRelativePath,
+      ...(!hasLessons
+        ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false }
+        : {})
+    })
+  },
   setSettingsSection: (settingsSection) => set({ settingsSection }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
   openSettings: (section = 'general') => set({ view: 'settings', settingsSection: section }),
@@ -756,6 +773,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       const state = await api.selectWorkspace(workspaceId)
       set({
         appState: state,
+        selectedCourseRelativePath: null,
         taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
         agentTurns: [],
         activeConversationId: null,
@@ -777,7 +795,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const state = await api.createWorkspace({ name, prompt })
-      set({ appState: state, taskPrompt: defaultPrompt, agentTurns: [], activeConversationId: null, agentStatus: '', agentToolsSupported: null, loading: false })
+      set({ appState: state, selectedCourseRelativePath: null, taskPrompt: defaultPrompt, agentTurns: [], activeConversationId: null, agentStatus: '', agentToolsSupported: null, loading: false })
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -794,6 +812,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       }
       set({
         appState: result.state,
+        selectedCourseRelativePath: null,
         taskPrompt: result.state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
         agentTurns: [],
         activeConversationId: null,
@@ -864,6 +883,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       set({
         view: 'lessons',
         lessonReaderOpen: false,
+        selectedCourseRelativePath: result.lesson.courseRelativePath,
         appState: result.state,
         taskPrompt: nextPrompt,
         generating: false
@@ -945,7 +965,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         return
       }
       if (!('error' in done)) {
-        set({ view: 'lessons', lessonReaderOpen: false, appState: done.state, taskPrompt: nextPrompt, generating: false })
+        set({ view: 'lessons', lessonReaderOpen: false, selectedCourseRelativePath: done.lesson.courseRelativePath, appState: done.state, taskPrompt: nextPrompt, generating: false })
         if (settings.workspace.autoOpenGeneratedLesson) {
           void get().openPath(done.lesson.absolutePath)
         }
@@ -1188,7 +1208,8 @@ const useAppStore = create<StoreState>((set, get) => ({
         ...get().appState,
         selectedLessonPath: lesson.absolutePath,
         previewHtml: loadingPreviewHtml(workspace)
-      }
+      },
+      selectedCourseRelativePath: lesson.courseRelativePath
     })
     try {
       const result = await api.readLesson({
@@ -1578,6 +1599,7 @@ function Sidebar() {
 
   const active = appState.activeWorkspace
   const selectedLessonPath = appState.selectedLessonPath
+  const selectedCourseRelativePath = useAppStore((s) => s.selectedCourseRelativePath)
   const [coursesExpanded, setCoursesExpanded] = useState(true)
   const [conversationsExpanded, setConversationsExpanded] = useState(true)
 
@@ -1611,6 +1633,7 @@ function Sidebar() {
           workspace={active}
           expanded={coursesExpanded}
           selectedLessonPath={selectedLessonPath}
+          selectedCourseRelativePath={selectedCourseRelativePath}
           onToggle={() => setCoursesExpanded((expanded) => !expanded)}
         />
         <SidebarConversationSection
@@ -1648,17 +1671,20 @@ function WorkspaceCourseSection({
   workspace,
   expanded,
   selectedLessonPath,
+  selectedCourseRelativePath,
   onToggle
 }: {
   workspace: TeachingWorkspaceSummary | null
   expanded: boolean
   selectedLessonPath: string | null
+  selectedCourseRelativePath: string | null
   onToggle: () => void
 }) {
   const { t } = useTranslation()
   const loadLesson = useAppStore((s) => s.loadLesson)
   const openPath = useAppStore((s) => s.openPath)
   const setView = useAppStore((s) => s.setView)
+  const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
   const courseTree = useMemo(() => workspace?.fileTree.find((node) => sameRelativePath(node.relativePath, 'courses')) ?? null, [workspace])
   const courseNodes = courseTree?.children ?? []
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(['courses']))
@@ -1697,33 +1723,42 @@ function WorkspaceCourseSection({
           <span className="collapsible-label">{t('sidebar.courses')}</span>
         </button>
       </div>
-      {expanded ? (
-        workspace && courseNodes.length > 0 ? (
-          <div className="workspace-file-tree workspace-file-tree--courses">
-            {courseNodes.map((node) => (
-              <WorkspaceFileNodeRow
-                key={node.relativePath}
-                node={node}
-                workspace={workspace}
-                level={0}
-                expandedPaths={expandedPaths}
-                selectedLessonPath={selectedLessonPath}
-                activeConversationId={null}
-                onToggle={togglePath}
-                onEnsureWorkspaceSelected={async () => {}}
-                onOpenPath={(path) => void openPath(path)}
-                onOpenLesson={(lesson) => {
-                  setView('lessons')
-                  void loadLesson(lesson)
-                }}
-                onOpenConversation={() => {}}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="workspace-conversation-empty">{t('sidebar.emptyCourses')}</div>
-        )
-      ) : null}
+      <div
+        className={`sidebar-disclosure${expanded ? ' is-open' : ''}`}
+        aria-hidden={!expanded}
+        inert={!expanded ? true : undefined}
+      >
+        <div className="sidebar-disclosure-inner">
+          {workspace && courseNodes.length > 0 ? (
+            <div className="workspace-file-tree workspace-file-tree--courses" role="tree">
+              {courseNodes.map((node) => (
+                <WorkspaceFileNodeRow
+                  key={node.relativePath}
+                  node={node}
+                  workspace={workspace}
+                  level={0}
+                  treeRoot="courses"
+                  expandedPaths={expandedPaths}
+                  selectedLessonPath={selectedLessonPath}
+                  selectedCourseRelativePath={selectedCourseRelativePath}
+                  activeConversationId={null}
+                  onToggle={togglePath}
+                  onEnsureWorkspaceSelected={async () => {}}
+                  onOpenPath={(path) => void openPath(path)}
+                  onOpenCourse={(relativePath) => selectCourseFolder(relativePath)}
+                  onOpenLesson={(lesson) => {
+                    setView('lessons')
+                    void loadLesson(lesson)
+                  }}
+                  onOpenConversation={() => {}}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="workspace-conversation-empty">{t('sidebar.emptyCourses')}</div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -1758,23 +1793,29 @@ function SidebarConversationSection({
           <span className="collapsible-label">{t('sidebar.conversations')}</span>
         </button>
       </div>
-      {expanded ? (
-        <div className="workspace-conversation-list is-flat">
-          {conversations.length === 0 ? (
-            <div className="workspace-conversation-empty">{t('sidebar.emptyConversations')}</div>
-          ) : (
-            conversations.map((conversation) => (
-              <ConversationListRow
-                key={conversation.id}
-                conversation={conversation}
-                isActiveConversation={conversation.id === activeConversationId}
-                onEnsureSelected={ensureActiveWorkspace}
-                onOpen={() => void loadAgentConversation(conversation.id)}
-              />
-            ))
-          )}
+      <div
+        className={`sidebar-disclosure${expanded ? ' is-open' : ''}`}
+        aria-hidden={!expanded}
+        inert={!expanded ? true : undefined}
+      >
+        <div className="sidebar-disclosure-inner">
+          <div className="workspace-conversation-list is-flat">
+            {conversations.length === 0 ? (
+              <div className="workspace-conversation-empty">{t('sidebar.emptyConversations')}</div>
+            ) : (
+              conversations.map((conversation) => (
+                <ConversationListRow
+                  key={conversation.id}
+                  conversation={conversation}
+                  isActiveConversation={conversation.id === activeConversationId}
+                  onEnsureSelected={ensureActiveWorkspace}
+                  onOpen={() => void loadAgentConversation(conversation.id)}
+                />
+              ))
+            )}
+          </div>
         </div>
-      ) : null}
+      </div>
     </div>
   )
 }
@@ -1985,24 +2026,30 @@ function WorkspaceFileNodeRow({
   node,
   workspace,
   level,
+  treeRoot,
   expandedPaths,
   selectedLessonPath,
+  selectedCourseRelativePath,
   activeConversationId,
   onToggle,
   onEnsureWorkspaceSelected,
   onOpenPath,
+  onOpenCourse,
   onOpenLesson,
   onOpenConversation
 }: {
   node: WorkspaceFileNode
   workspace: TeachingWorkspaceSummary
   level: number
+  treeRoot?: 'courses'
   expandedPaths: Set<string>
   selectedLessonPath: string | null
+  selectedCourseRelativePath?: string | null
   activeConversationId: string | null
   onToggle: (relativePath: string) => void
   onEnsureWorkspaceSelected: () => Promise<void>
   onOpenPath: (path: string) => void
+  onOpenCourse?: (relativePath: string) => void
   onOpenLesson: (lesson: LessonSummary) => void
   onOpenConversation: (conversationId: string) => void
 }) {
@@ -2013,9 +2060,11 @@ function WorkspaceFileNodeRow({
   const isExpanded = expandedPaths.has(node.relativePath)
   const lesson = (workspace.lessons ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
   const conversation = (workspace.conversations ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
+  const isCourseFolder = treeRoot === 'courses' && level === 0 && isDirectory
   const isSelected = Boolean(
     (lesson && lesson.absolutePath === selectedLessonPath) ||
-    (conversation && conversation.id === activeConversationId)
+    (conversation && conversation.id === activeConversationId) ||
+    (isCourseFolder && selectedCourseRelativePath && sameRelativePath(selectedCourseRelativePath, node.relativePath))
   )
   const itemKind: WorkspaceItemKind = conversation ? 'conversation' : isDirectory ? 'directory' : 'file'
   const itemLabel = conversation?.title ?? lesson?.title ?? node.name
@@ -2029,6 +2078,12 @@ function WorkspaceFileNodeRow({
 
   const handleOpen = async (): Promise<void> => {
     if (isDirectory) {
+      if (isCourseFolder) {
+        await onEnsureWorkspaceSelected()
+        onOpenCourse?.(node.relativePath)
+        if (!isExpanded) onToggle(node.relativePath)
+        return
+      }
       onToggle(node.relativePath)
       return
     }
@@ -2061,8 +2116,10 @@ function WorkspaceFileNodeRow({
   return (
     <div className="workspace-node">
       <div
-        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${conversation ? 'is-conversation' : ''}`}
+        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${conversation ? 'is-conversation' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
         style={{ paddingLeft: 4 + level * 12 }}
+        role="treeitem"
+        aria-expanded={isDirectory ? isExpanded : undefined}
       >
         {isDirectory ? (
           <button
@@ -2089,24 +2146,33 @@ function WorkspaceFileNodeRow({
           onRemove={() => void handleRemove()}
         />
       </div>
-      {isDirectory && isExpanded && node.children?.length ? (
-        <div className="workspace-node-children">
-          {node.children.map((child) => (
-            <WorkspaceFileNodeRow
-              key={child.relativePath}
-              node={child}
-              workspace={workspace}
-              level={level + 1}
-              expandedPaths={expandedPaths}
-              selectedLessonPath={selectedLessonPath}
-              activeConversationId={activeConversationId}
-              onToggle={onToggle}
-              onEnsureWorkspaceSelected={onEnsureWorkspaceSelected}
-              onOpenPath={onOpenPath}
-              onOpenLesson={onOpenLesson}
-              onOpenConversation={onOpenConversation}
-            />
-          ))}
+      {isDirectory && node.children?.length ? (
+        <div
+          className={`workspace-node-children${isExpanded ? ' is-open' : ''}${isCourseFolder ? ' is-course-children' : ''}`}
+          aria-hidden={!isExpanded}
+          inert={!isExpanded ? true : undefined}
+        >
+          <div className="workspace-node-children-inner">
+            {node.children.map((child) => (
+              <WorkspaceFileNodeRow
+                key={child.relativePath}
+                node={child}
+                workspace={workspace}
+                level={level + 1}
+                treeRoot={treeRoot}
+                expandedPaths={expandedPaths}
+                selectedLessonPath={selectedLessonPath}
+                selectedCourseRelativePath={selectedCourseRelativePath}
+                activeConversationId={activeConversationId}
+                onToggle={onToggle}
+                onEnsureWorkspaceSelected={onEnsureWorkspaceSelected}
+                onOpenPath={onOpenPath}
+                onOpenCourse={onOpenCourse}
+                onOpenLesson={onOpenLesson}
+                onOpenConversation={onOpenConversation}
+              />
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
@@ -2713,6 +2779,14 @@ function MainArea() {
   const lessons = active?.lessons ?? []
   const courses = active?.courses ?? []
   const records = active?.records ?? []
+  const selectedCourseRelativePath = useAppStore((s) => s.selectedCourseRelativePath)
+  const selectedCourse = selectedCourseRelativePath
+    ? courses.find((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)) ?? null
+    : null
+  const visibleCourses = selectedCourse ? [selectedCourse] : courses
+  const visibleLessonCount = selectedCourse
+    ? selectedCourse.sessions.length
+    : lessons.length
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? active?.lessons[0] ?? null
 
   // Show skeleton during initial load
@@ -2836,8 +2910,8 @@ function MainArea() {
               <section className="lesson-course-library" aria-label={t('lessons.libraryTitle')}>
                 <div className="lesson-library-header">
                   <div>
-                    <span>{active?.missionTitle ?? t('overview.noWorkspace')}</span>
-                    <h2>{t('lessons.libraryTitle')}</h2>
+                    <span>{selectedCourse ? t('lessons.selectedCourseFolder') : active?.missionTitle ?? t('overview.noWorkspace')}</span>
+                    <h2>{selectedCourse?.name ?? t('lessons.libraryTitle')}</h2>
                   </div>
                   <button className="ghost-button" type="button" onClick={() => active && void openPath(active.lessonsDir)} disabled={!active}>
                     <FolderOpen size={16} />
@@ -2845,7 +2919,7 @@ function MainArea() {
                   </button>
                 </div>
 
-                {lessons.length === 0 ? (
+                {visibleLessonCount === 0 ? (
                   <EmptyState
                     icon={BookOpen}
                     title={t('lessons.emptyTitle')}
@@ -2853,7 +2927,7 @@ function MainArea() {
                     action={active ? { label: t('lessons.emptyAction'), onClick: generateLesson } : undefined}
                   />
                 ) : (
-                  courses.map((course) => (
+                  visibleCourses.map((course) => (
                     <section className="lesson-course-group" key={course.id}>
                       <div className="lesson-course-group-header">
                         <div className="lesson-course-group-title">

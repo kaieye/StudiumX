@@ -109,6 +109,7 @@
     "emptyDetail": "Enter a teaching task above and click generate to create a reviewable HTML lesson.",
     "emptyAction": "Generate lesson",
     "libraryTitle": "Courses",
+    "selectedCourseFolder": "Selected course folder",
     "backToCards": "Back to courses",
     "sessionCount": "{{count}} sessions",
     "duration": "{{count}} min",

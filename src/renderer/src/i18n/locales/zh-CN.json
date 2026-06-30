@@ -109,6 +109,7 @@
     "emptyDetail": "在上方输入教学任务，点击生成按钮创建可复习的 HTML 课程。",
     "emptyAction": "生成课程",
     "libraryTitle": "课程",
+    "selectedCourseFolder": "当前课程文件夹",
     "backToCards": "返回课程",
     "sessionCount": "{{count}} 节",
     "duration": "{{count}} 分钟",
