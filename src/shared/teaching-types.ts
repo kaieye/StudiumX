@@ -429,6 +429,7 @@ export type TeachingAppState = {
   workspaces: TeachingWorkspaceSummary[]
   activeWorkspace: TeachingWorkspaceSummary | null
   previewHtml: string
+  previewUrl: string
   selectedLessonPath: string | null
   runtime: TeachingRuntimeState
 }
@@ -452,6 +453,11 @@ export type UpdateMissionPayload = {
 export type ReadLessonPayload = {
   workspaceId: string
   lessonPath: string
+}
+
+export type ReadLessonResult = {
+  html: string
+  url: string
 }
 
 export type ImportWorkspaceResult = {
@@ -695,7 +701,7 @@ export type TeachingSystemApi = {
   pickDirectory: (defaultPath?: string) => Promise<PickDirectoryResult>
   updateMission: (payload: UpdateMissionPayload) => Promise<TeachingAppState>
   generateLesson: (payload: GenerateLessonPayload) => Promise<GenerateLessonResult>
-  readLesson: (payload: ReadLessonPayload) => Promise<{ html: string }>
+  readLesson: (payload: ReadLessonPayload) => Promise<ReadLessonResult>
   openPath: (path: string) => Promise<OpenPathResult>
   openExternal: (url: string) => Promise<OpenPathResult>
   showNotification: (payload: NotificationPayload) => Promise<void>

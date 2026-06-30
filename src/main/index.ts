@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, protocol, shell } from 'electron'
+import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TeachingSettingsService } from './teaching-settings'
@@ -44,9 +45,22 @@ import type {
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL)
+const PREVIEW_PROTOCOL = 'teachos-preview'
 
 let logger: Logger
 let tray: TrayManager
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: PREVIEW_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: false
+    }
+  }
+])
 
 function registerTeachingIpc(
   service: TeachingWorkspaceService,
@@ -312,6 +326,32 @@ function registerTeachingIpc(
   })
 }
 
+function registerPreviewProtocol(service: TeachingWorkspaceService): void {
+  protocol.handle(PREVIEW_PROTOCOL, async (request) => {
+    try {
+      const url = new URL(request.url)
+      const workspaceId = decodeURIComponent(url.hostname)
+      const relativePath = url.pathname
+        .split('/')
+        .filter(Boolean)
+        .map((part) => decodeURIComponent(part))
+        .join('/')
+      const file = await service.resolvePreviewFile(workspaceId, relativePath)
+      if (!file) return new Response('Not found', { status: 404 })
+      const body = await readFile(file.absolutePath)
+      return new Response(body, {
+        headers: {
+          'Content-Type': file.mimeType,
+          'Cache-Control': 'no-store'
+        }
+      })
+    } catch (error) {
+      logger?.warn(`Preview protocol failed: ${errorMessage(error)}`)
+      return new Response('Preview unavailable', { status: 500 })
+    }
+  })
+}
+
 function safeSend(sender: Electron.WebContents, channel: string, payload: unknown): void {
   if (!sender.isDestroyed()) sender.send(channel, payload)
 }
@@ -416,6 +456,7 @@ if (!hasSingleInstanceLock) {
       settingsProvider: () => settingsService.load()
     })
 
+    registerPreviewProtocol(workspaceService)
     registerTeachingIpc(workspaceService, settingsService)
 
     const startHidden = initialSettings.appBehavior.startMinimized || process.argv.includes('--hidden')

@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
 import { inspectGitWorkspace } from './teaching-git'
@@ -29,6 +28,7 @@ import type {
   ProgressSummary,
   QuizResultEntry,
   ReadLessonPayload,
+  ReadLessonResult,
   RecordProgressPayload,
   ResourceSummary,
   ReviewCard,
@@ -103,6 +103,11 @@ type LessonArtifactPaths = {
   recordAbsolutePath: string | null
   reviewsRelativePath: string | null
   reviewsAbsolutePath: string | null
+}
+
+export type WorkspacePreviewFile = {
+  absolutePath: string
+  mimeType: string
 }
 
 type SessionEvent = {
@@ -863,11 +868,31 @@ export class TeachingWorkspaceService {
     }
   }
 
-  async readLesson(payload: ReadLessonPayload): Promise<{ html: string }> {
+  async readLesson(payload: ReadLessonPayload): Promise<ReadLessonResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
     const target = resolveLessonPath(workspace.rootPath, payload.lessonPath)
-    return { html: withPreviewBase(await readFile(target, 'utf8'), target) }
+    const relativePath = toWorkspaceRelativePath(workspace.rootPath, target)
+    const previewUrl = toPreviewUrl(workspace.id, relativePath)
+    return {
+      html: withPreviewBase(await readFile(target, 'utf8'), previewUrl),
+      url: previewUrl
+    }
+  }
+
+  async resolvePreviewFile(workspaceId: string, relativePath: string): Promise<WorkspacePreviewFile | null> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, workspaceId)
+    const normalizedRelativePath = normalizeWorkspaceRelativePath(relativePath)
+    if (!normalizedRelativePath) return null
+    const target = resolve(join(workspace.rootPath, normalizedRelativePath))
+    const allowedRoots = [resolve(workspace.rootPath, 'courses'), resolve(workspace.rootPath, 'lessons'), resolve(workspace.rootPath, 'assets')]
+    if (!allowedRoots.some((base) => isInside(base, target))) return null
+    if (!(await fileExists(target))) return null
+    return {
+      absolutePath: target,
+      mimeType: mimeTypeForPath(target)
+    }
   }
 
   async listMemory(workspaceRoot?: string): Promise<TeachingMemoryRecord[]> {
@@ -941,6 +966,7 @@ export class TeachingWorkspaceService {
       workspaces: summaries,
       activeWorkspace,
       previewHtml,
+      previewUrl: activeWorkspace && lessonPath ? toPreviewUrl(activeWorkspace.id, toWorkspaceRelativePath(activeWorkspace.rootPath, lessonPath)) : '',
       selectedLessonPath: lessonPath,
       runtime
     }
@@ -2147,10 +2173,30 @@ function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
 </html>`
 }
 
-function withPreviewBase(html: string, filePath: string): string {
-  const baseTag = `<base href="${pathToFileURL(filePath).href}" />`
+function withPreviewBase(html: string, baseHref: string): string {
+  const baseTag = `<base href="${baseHref}" />`
   if (/<base\s/i.test(html)) return html
   return html.replace(/<head([^>]*)>/i, `<head$1>\n  ${baseTag}`)
+}
+
+function toPreviewUrl(workspaceId: string, relativePath: string): string {
+  return `teachos-preview://${encodeURIComponent(workspaceId)}/${relativePath.split('/').map(encodeURIComponent).join('/')}`
+}
+
+function mimeTypeForPath(path: string): string {
+  const lower = path.toLowerCase()
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html; charset=utf-8'
+  if (lower.endsWith('.css')) return 'text/css; charset=utf-8'
+  if (lower.endsWith('.js')) return 'text/javascript; charset=utf-8'
+  if (lower.endsWith('.json')) return 'application/json; charset=utf-8'
+  if (lower.endsWith('.svg')) return 'image/svg+xml'
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  if (lower.endsWith('.gif')) return 'image/gif'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  if (lower.endsWith('.woff2')) return 'font/woff2'
+  if (lower.endsWith('.woff')) return 'font/woff'
+  return 'application/octet-stream'
 }
 
 function isRegistryWorkspace(value: unknown): value is RegistryWorkspace {

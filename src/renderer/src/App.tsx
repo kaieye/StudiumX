@@ -11,7 +11,6 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   Clock3,
   Database,
@@ -219,6 +218,7 @@ const emptyAppState: TeachingAppState = {
   workspaces: [],
   activeWorkspace: null,
   previewHtml: '',
+  previewUrl: '',
   selectedLessonPath: null,
   runtime: defaultRuntime
 }
@@ -972,7 +972,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         },
         (chunk: LessonStreamChunk) => {
           liveText += chunk.delta
-          set({ appState: { ...get().appState, previewHtml: streamingPreviewHtml(liveText, workspace) } })
+          set({ appState: { ...get().appState, previewHtml: streamingPreviewHtml(liveText, workspace), previewUrl: '' } })
         },
         (status: LessonStreamStatus) => {
           set({
@@ -1243,7 +1243,8 @@ const useAppStore = create<StoreState>((set, get) => ({
       appState: {
         ...get().appState,
         selectedLessonPath: lesson.absolutePath,
-        previewHtml: loadingPreviewHtml(workspace)
+        previewHtml: loadingPreviewHtml(workspace),
+        previewUrl: ''
       },
       selectedCourseRelativePath: lesson.courseRelativePath
     })
@@ -1252,9 +1253,9 @@ const useAppStore = create<StoreState>((set, get) => ({
         workspaceId: workspace.id,
         lessonPath: lesson.absolutePath
       })
-      set({ appState: { ...get().appState, selectedLessonPath: lesson.absolutePath, previewHtml: result.html } })
+      set({ appState: { ...get().appState, selectedLessonPath: lesson.absolutePath, previewHtml: result.html, previewUrl: result.url } })
     } catch (error) {
-      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace) } })
+      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
     }
   },
   loadCourseHtmlFile: async (file) => {
@@ -1269,7 +1270,8 @@ const useAppStore = create<StoreState>((set, get) => ({
       appState: {
         ...get().appState,
         selectedLessonPath: file.absolutePath,
-        previewHtml: loadingPreviewHtml(workspace)
+        previewHtml: loadingPreviewHtml(workspace),
+        previewUrl: ''
       },
       selectedCourseRelativePath: courseRelativePathForFile(file.relativePath)
     })
@@ -1279,11 +1281,11 @@ const useAppStore = create<StoreState>((set, get) => ({
         lessonPath: file.absolutePath
       })
       set({
-        appState: { ...get().appState, selectedLessonPath: file.absolutePath, previewHtml: result.html },
+        appState: { ...get().appState, selectedLessonPath: file.absolutePath, previewHtml: result.html, previewUrl: result.url },
         selectedCoursePreviewFile: file
       })
     } catch (error) {
-      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace) } })
+      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
     }
   },
   openPath: async (path) => {
@@ -2937,8 +2939,8 @@ function MainArea() {
   }
 
   return (
-    <main className="main-area" data-view={view}>
-      <header className="topbar">
+    <main className="main-area" data-view={view} data-reading-html={readingCourseHtml ? 'true' : undefined}>
+      {!readingCourseHtml && <header className="topbar">
         <div className="crumb">
           <button
             className="icon-button"
@@ -2949,7 +2951,7 @@ function MainArea() {
             <PanelLeft size={17} />
           </button>
         </div>
-      </header>
+      </header>}
 
       {error && (
         <div className="inline-alert" role="alert" data-severity={error.severity}>
@@ -3013,26 +3015,17 @@ function MainArea() {
       )}
 
       {view === 'lessons' && (
-        <section className="lesson-course-view" aria-label={t('nav.lessons')}>
-          <div className="lesson-course-stage">
+        <section className="lesson-course-view" aria-label={t('nav.lessons')} data-reading-html={readingCourseHtml ? 'true' : undefined}>
+          <div className="lesson-course-stage" data-reading-html={readingCourseHtml ? 'true' : undefined}>
             {readingCourseHtml && selectedPreviewFile ? (
               <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
-                <div className="lesson-reader-toolbar">
-                  <button className="ghost-button lesson-reader-back" type="button" onClick={openLessonLibrary}>
-                    <ChevronLeft size={16} />
-                    {t('lessons.backToCards')}
-                  </button>
-                  <div className="lesson-reader-title">
-                    <h2>{selectedPreviewFile.title}</h2>
-                    <span>{selectedPreviewFile.relativePath}</span>
-                  </div>
-                </div>
                 <div className="lesson-reader-frame-wrap">
                   <iframe
                     className="lesson-reader-frame"
                     title={selectedPreviewFile.title}
-                    sandbox="allow-scripts"
-                    srcDoc={appState.previewHtml}
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                    src={appState.previewUrl || undefined}
+                    srcDoc={appState.previewUrl ? undefined : appState.previewHtml}
                   />
                 </div>
               </section>
