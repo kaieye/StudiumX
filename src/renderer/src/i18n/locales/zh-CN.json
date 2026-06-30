@@ -23,7 +23,10 @@
     "settings": "设置",
     "notificationCenterTitle": "TeachOS 通知中心",
     "notificationCenterOn": "通知设置已打开。",
-    "notificationCenterOff": "通知已关闭，可在这里重新启用。"
+    "notificationCenterOff": "通知已关闭，可在这里重新启用。",
+    "conversations": "对话记录",
+    "emptyConversations": "暂无对话",
+    "messageCount": "{{count}} 条消息"
   },
   "sidebarResizer": {
     "aria": "调整侧边栏宽度"
@@ -69,7 +72,14 @@
     "gitDirty": "{{count}} 处未提交改动",
     "gitCheckedOutInWorktree": "已在其他 worktree 检出",
     "gitNoBranches": "无分支",
-    "gitCreateNamed": "创建分支 {{branch}}"
+    "gitCreateNamed": "创建分支 {{branch}}",
+    "modelEmpty": "该提供商暂无可用模型",
+    "modelManage": "管理模型设置",
+    "mode": {
+      "aria": "对话框模式",
+      "chat": "对话",
+      "teaching": "教学"
+    }
   },
   "lessons": {
     "composerAria": "教学任务输入",
@@ -189,6 +199,28 @@
     "statusOk": "连接成功：{{latency}}ms，发现 {{count}} 个模型。",
     "statusPulling": "正在拉取模型列表...",
     "statusSynced": "已同步 {{count}} 个模型。"
+  },
+  "reasoning": {
+    "title": "推理强度",
+    "settingsDetail": "按当前 provider 映射为 reasoning_effort、thinking 或 output_config。",
+    "effort": {
+      "auto": "自动",
+      "off": "关闭",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "xhigh": "极高",
+      "max": "最大"
+    },
+    "description": {
+      "auto": "使用当前模型或 provider 的默认推理设置。",
+      "off": "尽量关闭额外思考；DeepSeek 会映射为默认高强度。",
+      "low": "更快、成本更低，适合简单问答。",
+      "medium": "平衡速度与推理质量。",
+      "high": "更深推理，适合课程设计和复杂解释。",
+      "xhigh": "更高强度；不支持时会映射到最接近档位。",
+      "max": "最高强度；DeepSeek 使用 max，OpenAI-compatible 映射到 high。"
+    }
   },
   "generation": {
     "title": "生成",

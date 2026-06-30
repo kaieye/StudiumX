@@ -2,8 +2,10 @@ import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
   MODEL_ENDPOINT_FORMATS,
+  MODEL_REASONING_EFFORTS,
   TEACHING_MODEL_PROVIDER_PRESETS,
   type ModelEndpointFormat,
+  type ModelReasoningEffort,
   type TeachingModelProviderProfile,
   type TeachingSettingsPatch,
   type TeachingSettingsV1
@@ -118,6 +120,7 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
       generateLearningRecord: true,
       structuredOutput: true,
       streaming: false,
+      reasoningEffort: 'auto',
       requestTimeoutMs: 60_000
     },
     workspace: {
@@ -273,6 +276,7 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       generateLearningRecord: generatorInput.generateLearningRecord !== false,
       structuredOutput: generatorInput.structuredOutput !== false,
       streaming: generatorInput.streaming === true,
+      reasoningEffort: normalizeReasoningEffort(generatorInput.reasoningEffort, defaults.generator.reasoningEffort),
       requestTimeoutMs: Math.round(clampNumber(generatorInput.requestTimeoutMs, 5_000, 300_000, defaults.generator.requestTimeoutMs))
     },
     workspace: {
@@ -370,6 +374,12 @@ function normalizeModels(input: unknown, fallback: string[]): string[] {
 function normalizeEndpointFormat(input: unknown, fallback: ModelEndpointFormat): ModelEndpointFormat {
   return typeof input === 'string' && MODEL_ENDPOINT_FORMATS.includes(input as ModelEndpointFormat)
     ? input as ModelEndpointFormat
+    : fallback
+}
+
+function normalizeReasoningEffort(input: unknown, fallback: ModelReasoningEffort): ModelReasoningEffort {
+  return typeof input === 'string' && MODEL_REASONING_EFFORTS.includes(input as ModelReasoningEffort)
+    ? input as ModelReasoningEffort
     : fallback
 }
 

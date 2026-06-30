@@ -1,5 +1,6 @@
 import type {
   ModelEndpointFormat,
+  ModelReasoningEffort,
   TeachingModelProviderProfile,
   TeachingSettingsV1
 } from '../../shared/teaching-types'
@@ -102,6 +103,106 @@ function resolveProxyUrl(settings: TeachingSettingsV1): string {
   return settings.provider.proxy.enabled ? settings.provider.proxy.url.trim() : ''
 }
 
+function lowerHost(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).hostname.toLowerCase()
+  } catch {
+    return baseUrl.toLowerCase()
+  }
+}
+
+function isDeepSeekReasoningProvider(provider: TeachingModelProviderProfile, model: string): boolean {
+  const host = lowerHost(provider.baseUrl)
+  return provider.id === 'deepseek' || host.includes('deepseek.com') || /^deepseek[-_.]/i.test(model)
+}
+
+function isMiniMaxOpenAiProvider(provider: TeachingModelProviderProfile): boolean {
+  const host = lowerHost(provider.baseUrl)
+  return host.includes('minimaxi.com') && !provider.baseUrl.toLowerCase().includes('/anthropic')
+}
+
+function supportsOpenAiReasoningEffort(provider: TeachingModelProviderProfile, model: string): boolean {
+  const host = lowerHost(provider.baseUrl)
+  return (
+    provider.id === 'custom' ||
+    provider.id === 'xiaomi' ||
+    host.includes('openai.com') ||
+    host.includes('xiaomimimo.com') ||
+    /^mimo[-_.]/i.test(model) ||
+    /^o\d/i.test(model) ||
+    /^gpt-\d/i.test(model)
+  )
+}
+
+function normalizeDeepSeekReasoningEffort(effort: ModelReasoningEffort): 'high' | 'max' {
+  return effort === 'max' || effort === 'xhigh' ? 'max' : 'high'
+}
+
+function normalizeOpenAiReasoningEffort(effort: ModelReasoningEffort): 'low' | 'medium' | 'high' | '' {
+  switch (effort) {
+    case 'low':
+    case 'medium':
+    case 'high':
+      return effort
+    case 'xhigh':
+    case 'max':
+      return 'high'
+    default:
+      return ''
+  }
+}
+
+function normalizeAnthropicReasoningEffort(effort: ModelReasoningEffort): 'low' | 'medium' | 'high' | 'xhigh' | 'max' | '' {
+  switch (effort) {
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+    case 'max':
+      return effort
+    case 'auto':
+      return 'high'
+    default:
+      return ''
+  }
+}
+
+function normalizeMiniMaxThinkingType(effort: ModelReasoningEffort): 'adaptive' | 'disabled' {
+  switch (effort) {
+    case 'off':
+    case 'xhigh':
+    case 'max':
+      return 'disabled'
+    default:
+      return 'adaptive'
+  }
+}
+
+function reasoningRequestOptions(
+  format: ModelEndpointFormat,
+  provider: TeachingModelProviderProfile,
+  generator: TeachingSettingsV1['generator']
+): Record<string, unknown> {
+  const effort = generator.reasoningEffort ?? 'auto'
+  if (format === 'messages') return anthropicGenerationOptions(provider, generator)
+  if (format === 'responses') {
+    const openAiEffort = normalizeOpenAiReasoningEffort(effort)
+    return openAiEffort ? { reasoning: { effort: openAiEffort } } : {}
+  }
+  if (isDeepSeekReasoningProvider(provider, generator.model)) {
+    return {
+      thinking: { type: 'enabled' },
+      reasoning_effort: normalizeDeepSeekReasoningEffort(effort)
+    }
+  }
+  if (isMiniMaxOpenAiProvider(provider)) {
+    return { thinking: { type: normalizeMiniMaxThinkingType(effort) } }
+  }
+  if (!supportsOpenAiReasoningEffort(provider, generator.model)) return {}
+  const openAiEffort = normalizeOpenAiReasoningEffort(effort)
+  return openAiEffort ? { reasoning_effort: openAiEffort } : {}
+}
+
 function buildRequest(
   format: ModelEndpointFormat,
   opts: {
@@ -128,6 +229,7 @@ function buildRequest(
             temperature: generator.temperature,
             max_tokens: generator.maxOutputTokens,
             stream,
+            ...reasoningRequestOptions(format, provider, generator),
             ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
           })
         }
@@ -144,7 +246,8 @@ function buildRequest(
             input: request.userPrompt,
             temperature: generator.temperature,
             max_output_tokens: generator.maxOutputTokens,
-            stream
+            stream,
+            ...reasoningRequestOptions(format, provider, generator)
           })
         }
       }
@@ -179,6 +282,7 @@ function buildRequest(
             temperature: generator.temperature,
             max_tokens: generator.maxOutputTokens,
             stream,
+            ...reasoningRequestOptions(format, provider, generator),
             ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
           })
         }
@@ -195,9 +299,12 @@ function anthropicGenerationOptions(
   generator: TeachingSettingsV1['generator']
 ): Record<string, unknown> {
   if (isAnthropicClaudeProvider(provider, generator.model)) {
+    const effort = generator.reasoningEffort ?? 'auto'
+    if (effort === 'off') return {}
+    const normalizedEffort = normalizeAnthropicReasoningEffort(effort)
     return {
       thinking: { type: 'adaptive' },
-      output_config: { effort: 'high' }
+      ...(normalizedEffort ? { output_config: { effort: normalizedEffort } } : {})
     }
   }
   return { temperature: generator.temperature }
@@ -469,6 +576,7 @@ function buildChatRequest(
     temperature: generator.temperature,
     max_tokens: generator.maxOutputTokens,
     stream,
+    ...reasoningRequestOptions(format, provider, generator),
     ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
   }
   if (includeTools && request.tools && request.tools.length > 0) {

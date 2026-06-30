@@ -17,6 +17,7 @@ export type ThemePreference = 'system' | 'light' | 'dark'
 export type UiDensity = 'comfortable' | 'compact'
 export type LocalePreference = 'zh-CN' | 'en-US'
 export type ModelEndpointFormat = 'chat_completions' | 'responses' | 'messages' | 'custom_endpoint'
+export type ModelReasoningEffort = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export type AppCloseAction = 'quit' | 'tray'
 
@@ -28,6 +29,16 @@ export const MODEL_ENDPOINT_FORMATS = [
   'responses',
   'messages',
   'custom_endpoint'
+] as const
+
+export const MODEL_REASONING_EFFORTS = [
+  'auto',
+  'off',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max'
 ] as const
 
 export type TeachingModelProviderPreset = {
@@ -127,6 +138,7 @@ export type TeachingSettingsV1 = {
     generateLearningRecord: boolean
     structuredOutput: boolean
     streaming: boolean
+    reasoningEffort: ModelReasoningEffort
     requestTimeoutMs: number
   }
   workspace: {

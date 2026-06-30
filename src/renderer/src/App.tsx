@@ -68,6 +68,7 @@ import {
   type AgentChatStreamToolEvent,
   type AgentChatTurn,
   type AgentChatMessage,
+  type AgentConversationSummary,
   type CreateTeachingMemoryPayload,
   type GitBranchPayload,
   type LessonStreamChunk,
@@ -87,6 +88,7 @@ import {
   type TeachingMemoryRecord,
   type TeachingMemoryScope,
   type TeachingModelProviderProfile,
+  type ModelReasoningEffort,
   type TeachingAppState,
   type TeachingRuntimeState,
   type TeachingSettingsPatch,
@@ -109,6 +111,8 @@ type UserError = {
   severity: ErrorSeverity
   detail?: string
 }
+
+type DialogMode = 'chat' | 'teaching'
 
 type StoreState = {
   view: WorkspaceView
@@ -219,6 +223,7 @@ const emptySettings: TeachingSettingsV1 = {
     generateLearningRecord: true,
     structuredOutput: true,
     streaming: false,
+    reasoningEffort: 'auto',
     requestTimeoutMs: 60_000
   },
   workspace: {
@@ -368,6 +373,64 @@ function runtimeProviderLabel(settings: TeachingSettingsV1): string {
   const provider = activeModelProvider(settings)
   const model = settings.generator.model || i18n.t('common.auto')
   return `${provider?.name ?? i18n.t('common.modelProvider')} · ${model}`
+}
+
+function providerHost(provider: TeachingModelProviderProfile): string {
+  try {
+    return new URL(provider.baseUrl).hostname.toLowerCase()
+  } catch {
+    return provider.baseUrl.toLowerCase()
+  }
+}
+
+function isDeepSeekReasoningProvider(provider: TeachingModelProviderProfile, model: string): boolean {
+  const host = providerHost(provider)
+  return provider.id === 'deepseek' || host.includes('deepseek.com') || /^deepseek[-_.]/i.test(model)
+}
+
+function isClaudeReasoningProvider(provider: TeachingModelProviderProfile, model: string): boolean {
+  return provider.id === 'anthropic' || /^claude-(opus|sonnet|haiku|fable|mythos)/i.test(model)
+}
+
+function isMiniMaxOpenAiProvider(provider: TeachingModelProviderProfile): boolean {
+  const host = providerHost(provider)
+  return host.includes('minimaxi.com') && !provider.baseUrl.toLowerCase().includes('/anthropic')
+}
+
+function supportsOpenAiReasoningEffort(provider: TeachingModelProviderProfile, model: string): boolean {
+  const host = providerHost(provider)
+  return (
+    provider.id === 'custom' ||
+    provider.id === 'xiaomi' ||
+    host.includes('openai.com') ||
+    host.includes('xiaomimimo.com') ||
+    /^mimo[-_.]/i.test(model) ||
+    /^o\d/i.test(model) ||
+    /^gpt-5/i.test(model)
+  )
+}
+
+function reasoningEffortOptionsForSettings(settings: TeachingSettingsV1): ModelReasoningEffort[] {
+  const provider = activeModelProvider(settings)
+  const model = settings.generator.model
+  if (isDeepSeekReasoningProvider(provider, model)) return ['auto', 'high', 'max']
+  if (isClaudeReasoningProvider(provider, model)) return ['auto', 'off', 'low', 'medium', 'high', 'xhigh', 'max']
+  if (isMiniMaxOpenAiProvider(provider)) return ['auto', 'off', 'high']
+  if (supportsOpenAiReasoningEffort(provider, model)) return ['auto', 'off', 'low', 'medium', 'high']
+  return ['auto']
+}
+
+function selectedReasoningEffort(settings: TeachingSettingsV1): ModelReasoningEffort {
+  const value = settings.generator.reasoningEffort ?? 'auto'
+  return reasoningEffortOptionsForSettings(settings).includes(value) ? value : 'auto'
+}
+
+function reasoningEffortLabel(effort: ModelReasoningEffort): string {
+  return i18n.t(`reasoning.effort.${effort}`)
+}
+
+function reasoningEffortDescription(effort: ModelReasoningEffort): string {
+  return i18n.t(`reasoning.description.${effort}`)
 }
 
 function applySettingsSideEffects(settings: TeachingSettingsV1): void {
@@ -551,7 +614,7 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 // ================================================================
 
 const useAppStore = create<StoreState>((set, get) => ({
-  view: 'overview',
+  view: 'agent',
   settingsSection: 'general',
   sidebarCollapsed: false,
   loading: true,
@@ -1413,6 +1476,8 @@ function Sidebar() {
 
   const active = appState.activeWorkspace
   const selectedLessonPath = appState.selectedLessonPath
+  // 概览页 = 教学模式（显示教学文件夹）；对话页 = 对话模式（显示对话 sessions）。
+  const dialogMode: DialogMode = view === 'agent' ? 'chat' : 'teaching'
 
   return (
     <aside className={`sidebar${sidebarCollapsed ? ' is-collapsed' : ''}`} aria-label={t('sidebar.aria')}>
@@ -1444,6 +1509,7 @@ function Sidebar() {
           <WorkspaceTree
             key={workspace.id}
             workspace={workspace}
+            dialogMode={dialogMode}
             activeWorkspaceId={active?.id ?? null}
             selectedLessonPath={selectedLessonPath}
             onSelectWorkspace={(workspaceId) => selectWorkspace(workspaceId)}
@@ -1477,11 +1543,13 @@ function Sidebar() {
 
 function WorkspaceTree({
   workspace,
+  dialogMode,
   activeWorkspaceId,
   selectedLessonPath,
   onSelectWorkspace
 }: {
   workspace: TeachingWorkspaceSummary
+  dialogMode: DialogMode
   activeWorkspaceId: string | null
   selectedLessonPath: string | null
   onSelectWorkspace: (workspaceId: string) => Promise<void>
@@ -1494,6 +1562,7 @@ function WorkspaceTree({
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const isActive = workspace.id === activeWorkspaceId
   const fileTree = workspace.fileTree ?? []
+  const conversations = workspace.conversations ?? []
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
@@ -1520,6 +1589,8 @@ function WorkspaceTree({
     if (!isActive) await onSelectWorkspace(workspace.id)
   }
 
+  const showConversations = dialogMode === 'chat'
+
   return (
     <div className={`workspace-tree ${isActive ? 'is-active' : ''}`}>
       <div className={`workspace-item ${isActive ? 'is-selected' : ''}`}>
@@ -1529,21 +1600,41 @@ function WorkspaceTree({
           onClick={() => void onSelectWorkspace(workspace.id)}
           title={workspace.rootPath}
         >
-          {rootExpanded ? <FolderOpen size={17} /> : <Folder size={17} />}
+          {showConversations ? <MessageSquare size={17} /> : rootExpanded ? <FolderOpen size={17} /> : <Folder size={17} />}
           <span className="collapsible-label">{workspace.name}</span>
         </button>
-        <button
-          className="workspace-toggle-button"
-          type="button"
-          aria-label={rootExpanded ? t('sidebar.collapseFolder') : t('sidebar.expandFolder')}
-          title={rootExpanded ? t('sidebar.collapseFolder') : t('sidebar.expandFolder')}
-          onClick={() => togglePath('')}
-        >
-          {rootExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-        </button>
+        {!showConversations && (
+          <button
+            className="workspace-toggle-button"
+            type="button"
+            aria-label={rootExpanded ? t('sidebar.collapseFolder') : t('sidebar.expandFolder')}
+            title={rootExpanded ? t('sidebar.collapseFolder') : t('sidebar.expandFolder')}
+            onClick={() => togglePath('')}
+          >
+            {rootExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+          </button>
+        )}
       </div>
 
-      {rootExpanded && fileTree.length > 0 ? (
+      {showConversations ? (
+        <div className="workspace-conversation-list">
+          {conversations.length === 0 ? (
+            <div className="workspace-conversation-empty">{t('sidebar.emptyConversations')}</div>
+          ) : (
+            conversations.map((conversation) => (
+              <ConversationListRow
+                key={conversation.id}
+                conversation={conversation}
+                isActiveConversation={conversation.id === activeConversationId}
+                onOpen={() => {
+                  void ensureWorkspaceSelected()
+                  void loadAgentConversation(conversation.id)
+                }}
+              />
+            ))
+          )}
+        </div>
+      ) : rootExpanded && fileTree.length > 0 ? (
         <div className="workspace-file-tree">
           {fileTree.map((node) => (
             <WorkspaceFileNodeRow
@@ -1567,6 +1658,34 @@ function WorkspaceTree({
         </div>
       ) : null}
     </div>
+  )
+}
+
+function ConversationListRow({
+  conversation,
+  isActiveConversation,
+  onOpen
+}: {
+  conversation: AgentConversationSummary
+  isActiveConversation: boolean
+  onOpen: () => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <button
+      type="button"
+      className={`workspace-conversation-row ${isActiveConversation ? 'is-selected' : ''}`}
+      title={conversation.absolutePath}
+      onClick={onOpen}
+    >
+      <MessageSquare size={13} />
+      <span className="workspace-conversation-body">
+        <span className="workspace-conversation-title">{conversation.title}</span>
+        <span className="workspace-conversation-meta">
+          {t('sidebar.messageCount', { count: conversation.messageCount })}
+        </span>
+      </span>
+    </button>
   )
 }
 
@@ -2090,6 +2209,169 @@ function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
   )
 }
 
+function OverviewModelPicker() {
+  const { t } = useTranslation()
+  const settings = useAppStore((s) => s.settings)
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const openSettings = useAppStore((s) => s.openSettings)
+  const [open, setOpen] = useState(false)
+  const [acting, setActing] = useState(false)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  usePickerOutsideClose(open, wrapRef, setOpen)
+
+  const provider = activeModelProvider(settings)
+  const models = provider?.models ?? []
+  const current = settings.generator.model
+  const label = current || i18n.t('common.auto')
+
+  const handleSelect = async (model: string): Promise<void> => {
+    if (acting) return
+    if (model === current) {
+      setOpen(false)
+      return
+    }
+    setActing(true)
+    try {
+      await updateSettings({ generator: { providerId: provider?.id, model } })
+      setOpen(false)
+    } finally {
+      setActing(false)
+    }
+  }
+
+  return (
+    <div ref={wrapRef} className="overview-picker overview-model-picker">
+      <button
+        type="button"
+        className="overview-dialog-model"
+        onClick={() => setOpen((v) => !v)}
+        disabled={acting}
+        title={label}
+      >
+        <span>{label}</span>
+        {acting ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+      </button>
+
+      {open ? (
+        <div className="overview-picker-menu overview-model-menu" role="listbox">
+          <div className="overview-picker-list">
+            <div className="overview-picker-group-label">{provider?.name ?? t('common.modelProvider')}</div>
+            {models.length === 0 ? (
+              <div className="overview-picker-empty">{t('overview.modelEmpty')}</div>
+            ) : (
+              models.map((model) => {
+                const isCurrent = model === current
+                return (
+                  <button
+                    key={model}
+                    type="button"
+                    className={`overview-picker-option${isCurrent ? ' is-current' : ''}`}
+                    onClick={() => void handleSelect(model)}
+                    disabled={acting || isCurrent}
+                    title={model}
+                  >
+                    <span className="overview-picker-option-body">
+                      <span className="overview-picker-option-title">{model}</span>
+                    </span>
+                    {isCurrent ? <Check size={15} /> : null}
+                  </button>
+                )
+              })
+            )}
+          </div>
+          <div className="overview-picker-footer">
+            <button
+              type="button"
+              className="overview-picker-option"
+              onClick={() => {
+                setOpen(false)
+                openSettings('model')
+              }}
+              title={t('overview.modelManage')}
+            >
+              <SlidersHorizontal size={14} strokeWidth={1.9} className="overview-picker-option-icon" />
+              <span className="overview-picker-option-title">{t('overview.modelManage')}</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function OverviewReasoningPicker() {
+  const { t } = useTranslation()
+  const settings = useAppStore((s) => s.settings)
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const [open, setOpen] = useState(false)
+  const [acting, setActing] = useState(false)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  usePickerOutsideClose(open, wrapRef, setOpen)
+
+  const options = reasoningEffortOptionsForSettings(settings)
+  const current = selectedReasoningEffort(settings)
+  const label = reasoningEffortLabel(current)
+
+  const handleSelect = async (reasoningEffort: ModelReasoningEffort): Promise<void> => {
+    if (acting) return
+    if (reasoningEffort === current && settings.generator.reasoningEffort === current) {
+      setOpen(false)
+      return
+    }
+    setActing(true)
+    try {
+      await updateSettings({ generator: { reasoningEffort } })
+      setOpen(false)
+    } finally {
+      setActing(false)
+    }
+  }
+
+  return (
+    <div ref={wrapRef} className="overview-picker overview-reasoning-picker">
+      <button
+        type="button"
+        className="overview-dialog-model overview-dialog-reasoning"
+        onClick={() => setOpen((v) => !v)}
+        disabled={acting}
+        title={`${t('reasoning.title')}: ${label}`}
+      >
+        <BrainCircuit size={14} />
+        <span>{label}</span>
+        {acting ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+      </button>
+
+      {open ? (
+        <div className="overview-picker-menu overview-reasoning-menu" role="listbox">
+          <div className="overview-picker-list">
+            <div className="overview-picker-group-label">{t('reasoning.title')}</div>
+            {options.map((effort) => {
+              const isCurrent = effort === current
+              return (
+                <button
+                  key={effort}
+                  type="button"
+                  className={`overview-picker-option${isCurrent ? ' is-current' : ''}`}
+                  onClick={() => void handleSelect(effort)}
+                  disabled={acting || (isCurrent && settings.generator.reasoningEffort === current)}
+                  title={reasoningEffortDescription(effort)}
+                >
+                  <BrainCircuit size={14} strokeWidth={1.8} className="overview-picker-option-icon" />
+                  <span className="overview-picker-option-body">
+                    <span className="overview-picker-option-title">{reasoningEffortLabel(effort)}</span>
+                    <span className="overview-picker-option-context">{reasoningEffortDescription(effort)}</span>
+                  </span>
+                  {isCurrent ? <Check size={15} /> : null}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 // ================================================================
 // Main Content Area
 // ================================================================
@@ -2181,11 +2463,11 @@ function MainArea() {
       )}
 
       {view === 'overview' && (
-        <OverviewChat active={active} />
+        <OverviewLessonComposer active={active} />
       )}
 
       {view === 'agent' && (
-        <AgentChatPanel />
+        <OverviewChat active={active} />
       )}
 
       {view === 'settings' && (
@@ -2446,17 +2728,126 @@ function MainArea() {
 // Settings View
 // ================================================================
 
+function DialogModeSwitch() {
+  const { t } = useTranslation()
+  const view = useAppStore((s) => s.view)
+  const setView = useAppStore((s) => s.setView)
+  // 与左侧导航对应：概览 = 教学，对话 = 对话。
+  const mode: DialogMode = view === 'agent' ? 'chat' : 'teaching'
+  const handleChange = (next: DialogMode): void => {
+    setView(next === 'chat' ? 'agent' : 'overview')
+  }
+  const options: Array<{ id: DialogMode; label: string; icon: LucideIcon }> = [
+    { id: 'chat', label: t('overview.mode.chat'), icon: MessageSquare },
+    { id: 'teaching', label: t('overview.mode.teaching'), icon: BookOpen }
+  ]
+  return (
+    <div className="dialog-mode-switch" role="tablist" aria-label={t('overview.mode.aria')}>
+      {options.map((option) => {
+        const Icon = option.icon
+        const isActive = mode === option.id
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            className={`dialog-mode-switch-btn ${isActive ? 'is-active' : ''}`}
+            onClick={() => handleChange(option.id)}
+          >
+            <Icon size={14} />
+            <span>{option.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function OverviewLessonComposer({ active }: { active: TeachingWorkspaceSummary | null }) {
+  const { t } = useTranslation()
+  const {
+    taskPrompt,
+    setTaskPrompt,
+    generating,
+    settings,
+    generateLesson,
+    generateLessonStream,
+    openPath,
+    updateSettings,
+    openSettings
+  } = useAppStore()
+  const canSend = Boolean(active && taskPrompt.trim().length > 0 && !generating)
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    if (!canSend) return
+    void (settings.generator.streaming ? generateLessonStream() : generateLesson())
+  }
+  return (
+    <section className="overview-dialog-shell" aria-label={t('lessons.composerAria')}>
+      <DialogModeSwitch />
+      <form className="overview-dialog-stack" onSubmit={onSubmit}>
+        <div className="overview-dialog-card overview-dialog-card--composer">
+          <textarea
+            value={taskPrompt}
+            aria-label={t('overview.taskAria')}
+            placeholder={active ? t('lessons.composerPlaceholder') : t('overview.placeholderEmpty')}
+            onChange={(event) => setTaskPrompt(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                if (canSend) void (settings.generator.streaming ? generateLessonStream() : generateLesson())
+              }
+            }}
+          />
+          <div className="overview-dialog-footer">
+            <div className="overview-dialog-actions">
+              <div className="tool-pills">
+                <button type="button" onClick={() => active && void openPath(active.missionPath)} disabled={!active}>
+                  <FileText size={14} />
+                  MISSION.md
+                </button>
+                <button
+                  className={settings.generator.structuredOutput ? 'is-active' : ''}
+                  type="button"
+                  onClick={() => void updateSettings({ generator: { structuredOutput: !settings.generator.structuredOutput } })}
+                >
+                  <Zap size={14} />
+                  structured JSON
+                </button>
+                <button type="button" onClick={() => openSettings('model')} aria-label={t('lessons.modelSettings')}>
+                  <Command size={14} />
+                </button>
+              </div>
+              <OverviewReasoningPicker />
+              <button className="send-button overview-dialog-send" type="submit" aria-label={t('lessons.send')} disabled={!canSend}>
+                {generating ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="overview-dialog-statusbar" aria-label={t('overview.runtimeEnv')}>
+          <div className="overview-dialog-status-group overview-dialog-pickers">
+            <ProjectFolderPicker />
+            <GitBranchPicker workspaceRoot={active?.rootPath ?? ''} />
+          </div>
+          <div className="overview-dialog-status-group">
+            {generating ? <span className="overview-dialog-status-text">{t('lessons.composerTitle')}</span> : null}
+          </div>
+        </div>
+      </form>
+    </section>
+  )
+}
+
 function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const { t } = useTranslation()
   const {
-    settings,
     agentTurns,
     agentChatBusy,
     agentStatus,
     agentInput,
-    setView,
     setAgentInput,
-    openSettings,
     agentChat
   } = useAppStore()
   const canSendChat = Boolean(active && agentInput.trim() && !agentChatBusy)
@@ -2479,6 +2870,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     >
       {hasConversation ? (
         <div ref={scrollRef} className="overview-dialog-thread">
+          <div className="overview-dialog-thread-inner">
           {agentTurns.map((turn) => {
             const isBusyTurn = activeAssistantTurnId === turn.id
             const hasProcess =
@@ -2496,9 +2888,11 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
               </div>
             )
           })}
+          </div>
         </div>
       ) : null}
 
+      <DialogModeSwitch />
       <form
         className="overview-dialog-stack"
         aria-label={t('overview.formAria')}
@@ -2508,13 +2902,6 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         }}
       >
         <div className="overview-dialog-card">
-          {!hasConversation ? (
-            <div className="overview-dialog-hint">
-              {active
-                ? '先把你的背景、目标和当前困难告诉教学助手，它会逐步追问，再决定下一节课该怎么生成。'
-                : t('overview.placeholderEmpty')}
-            </div>
-          ) : null}
           <textarea
             value={agentInput}
             aria-label={t('overview.taskAria')}
@@ -2529,19 +2916,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           />
           <div className="overview-dialog-footer">
             <div className="overview-dialog-actions">
-              <button className="overview-dialog-model" type="button" onClick={() => openSettings('model')}>
-                <span>{runtimeProviderLabel(settings)}</span>
-                <ChevronDown size={13} />
-              </button>
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={() => setView('agent')}
-                disabled={agentChatBusy}
-              >
-                <Bot size={15} />
-                进入完整对话
-              </button>
+              <OverviewModelPicker />
+              <OverviewReasoningPicker />
               <button className="send-button overview-dialog-send" type="submit" aria-label="发送消息" disabled={!canSendChat}>
                 {agentChatBusy ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
               </button>
@@ -2559,112 +2935,6 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         </div>
       </form>
     </section>
-  )
-}
-
-function AgentChatPanel() {
-  const {
-    appState,
-    agentTurns,
-    agentChatBusy,
-    agentStatus,
-    agentInput,
-    agentToolsSupported,
-    settings,
-    setAgentInput,
-    clearAgentChat,
-    agentChat,
-    openSettings
-  } = useAppStore()
-  const { t } = useTranslation()
-  const scrollRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [agentTurns, agentStatus])
-  const endpointFormat = settings.generator.endpointFormat
-  const toolsSupported = endpointFormat === 'chat_completions' || endpointFormat === 'custom_endpoint'
-  const active = appState.activeWorkspace
-  const canSend = Boolean(active && agentInput.trim().length > 0 && !agentChatBusy)
-  const activeAssistantTurnId = agentChatBusy
-    ? [...agentTurns].reverse().find((turn) => turn.role === 'assistant')?.id
-    : null
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault()
-    if (canSend) void agentChat()
-  }
-  return (
-    <section className="composer-tool" aria-label="TeachOS Agent" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div className="composer-header">
-        <div>
-          <strong>TeachOS Agent</strong>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {agentToolsSupported === false && (
-            <span style={{ fontSize: 11, color: '#b07b00', background: '#fff7e0', padding: '2px 8px', borderRadius: 8 }}>
-              当前端点不支持工具调用，已降级为纯文本
-            </span>
-          )}
-          <button className="icon-button soft" type="button" onClick={() => openSettings('tools')} aria-label="工具设置">
-            <Wrench size={16} />
-          </button>
-          <button className="icon-button soft" type="button" onClick={clearAgentChat} aria-label="清空对话" disabled={agentChatBusy}>
-            <RefreshCw size={15} />
-          </button>
-        </div>
-      </div>
-      <div ref={scrollRef} className="agent-thread" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {agentTurns.length === 0 && (
-          <div style={{ margin: 'auto', color: '#68778f', textAlign: 'center', maxWidth: 420, lineHeight: 1.7 }}>
-            {active ? '向 TeachOS Agent 提问任意知识点。开启工具后，Agent 可调用 web_search 检索最新信息再作答。' : t('overview.placeholderEmpty')}
-            {!toolsSupported && <div style={{ marginTop: 8, fontSize: 12, color: '#b07b00' }}>提示：当前模型端点格式不支持工具调用，将仅以纯文本对话。</div>}
-          </div>
-        )}
-        {agentTurns.map((turn) => (
-          <AgentTurnView key={turn.id} turn={turn} busy={activeAssistantTurnId === turn.id} />
-        ))}
-      </div>
-      <form className="composer-footer" onSubmit={onSubmit} style={{ borderTop: '1px solid var(--ds-border, #e8edf5)', padding: '12px 16px', display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-        <textarea
-          value={agentInput}
-          placeholder={active ? (t('overview.placeholderActive') || '向 Agent 提问…') : t('overview.placeholderEmpty')}
-          onChange={(e) => setAgentInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              if (canSend) void agentChat()
-            }
-          }}
-          rows={2}
-          style={{ flex: 1, resize: 'none', border: '1px solid var(--ds-border, #e8edf5)', borderRadius: 12, padding: '10px 12px', fontFamily: 'inherit', fontSize: 14, outline: 'none' }}
-        />
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-          <button className="send-button" type="submit" disabled={!canSend} aria-label="发送">
-            {agentChatBusy ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
-          </button>
-          {agentStatus && <span style={{ fontSize: 11, color: '#68778f' }}>{agentStatus}</span>}
-        </div>
-      </form>
-    </section>
-  )
-}
-
-function AgentTurnView({ turn, busy }: { turn: AgentChatTurn; busy: boolean }) {
-  const isUser = turn.role === 'user'
-  const empty =
-    !turn.content &&
-    (!turn.toolCalls || turn.toolCalls.length === 0) &&
-    (!turn.processEvents || turn.processEvents.length === 0)
-  return (
-    <div className={`agent-turn ${isUser ? 'is-user' : 'is-assistant'}`}>
-      <div className="agent-turn-stack">
-        {!isUser && <AgentProcessPanel turn={turn} busy={busy} />}
-        {empty && !isUser && busy ? (
-          <div className="agent-thinking-placeholder">正在生成…</div>
-        ) : turn.content ? (
-          <MarkdownMessage content={turn.content} tone={turn.role} />
-        ) : null}
-      </div>
-    </div>
   )
 }
 
@@ -3274,6 +3544,17 @@ function SettingsView({
                     }}
                   />
                 </SettingsRow>
+                <SettingsRow label={t('reasoning.title')} detail={t('reasoning.settingsDetail')}>
+                  <SegmentedControl
+                    value={selectedReasoningEffort(settings)}
+                    options={reasoningEffortOptionsForSettings(settings).map((effort) => ({
+                      value: effort,
+                      label: reasoningEffortLabel(effort),
+                      icon: BrainCircuit
+                    }))}
+                    onChange={(reasoningEffort) => void onUpdateSettings({ generator: { reasoningEffort } })}
+                  />
+                </SettingsRow>
                 <SettingsRow label={t('model.actions.label')}>
                   <div className="settings-actions">
                     <button className="ghost-button" type="button" onClick={() => void probeActiveProvider()} disabled={providerBusy}>
@@ -3323,6 +3604,17 @@ function SettingsView({
                   value={settings.generator.model}
                   options={activeProvider.models.map((model) => ({ value: model, label: model }))}
                   onChange={(model) => void onUpdateSettings({ generator: { model } })}
+                />
+              </SettingsRow>
+              <SettingsRow label={t('reasoning.title')} detail={reasoningEffortDescription(selectedReasoningEffort(settings))}>
+                <SegmentedControl
+                  value={selectedReasoningEffort(settings)}
+                  options={reasoningEffortOptionsForSettings(settings).map((effort) => ({
+                    value: effort,
+                    label: reasoningEffortLabel(effort),
+                    icon: BrainCircuit
+                  }))}
+                  onChange={(reasoningEffort) => void onUpdateSettings({ generator: { reasoningEffort } })}
                 />
               </SettingsRow>
               <SettingsRow label={t('generation.temperature')} detail={settings.generator.temperature.toFixed(2)}>

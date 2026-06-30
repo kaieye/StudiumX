@@ -23,7 +23,10 @@
     "settings": "Settings",
     "notificationCenterTitle": "TeachOS Notifications",
     "notificationCenterOn": "Notification settings opened.",
-    "notificationCenterOff": "Notifications are off — re-enable them here."
+    "notificationCenterOff": "Notifications are off — re-enable them here.",
+    "conversations": "Conversations",
+    "emptyConversations": "No conversations",
+    "messageCount": "{{count}} messages"
   },
   "sidebarResizer": {
     "aria": "Resize sidebar"
@@ -69,7 +72,14 @@
     "gitDirty": "{{count}} uncommitted changes",
     "gitCheckedOutInWorktree": "Checked out in another worktree",
     "gitNoBranches": "No branches",
-    "gitCreateNamed": "Create branch {{branch}}"
+    "gitCreateNamed": "Create branch {{branch}}",
+    "modelEmpty": "No models available for this provider",
+    "modelManage": "Manage model settings",
+    "mode": {
+      "aria": "Dialog mode",
+      "chat": "Chat",
+      "teaching": "Teaching"
+    }
   },
   "lessons": {
     "composerAria": "Teaching task input",
@@ -189,6 +199,28 @@
     "statusOk": "Connected: {{latency}}ms, found {{count}} models.",
     "statusPulling": "Pulling model list...",
     "statusSynced": "Synced {{count}} models."
+  },
+  "reasoning": {
+    "title": "Reasoning effort",
+    "settingsDetail": "Mapped per provider to reasoning_effort, thinking, or output_config.",
+    "effort": {
+      "auto": "Auto",
+      "off": "Off",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "xhigh": "Extra high",
+      "max": "Max"
+    },
+    "description": {
+      "auto": "Use the current model or provider default.",
+      "off": "Try to disable extra thinking; DeepSeek maps this to its default high effort.",
+      "low": "Faster and cheaper for simple questions.",
+      "medium": "Balances speed and reasoning quality.",
+      "high": "Deeper reasoning for lesson design and complex explanations.",
+      "xhigh": "Higher effort; unsupported providers map it to the closest valid level.",
+      "max": "Maximum effort; DeepSeek uses max, OpenAI-compatible providers map it to high."
+    }
   },
   "generation": {
     "title": "Generation",

@@ -1957,7 +1957,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 .overview-dialog-stack {
   display: grid;
-  width: min(100%, 700px);
+  width: min(100%, 820px);
   flex: 0 0 auto;
   gap: 0;
 }
@@ -1966,30 +1966,40 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .overview-dialog-statusbar {
   border: 1px solid rgba(20, 20, 20, 0.045);
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.035),
-    0 12px 26px rgba(0, 0, 0, 0.052);
+    0 1px 2px rgba(0, 0, 0, 0.03),
+    0 6px 14px rgba(0, 0, 0, 0.04);
 }
 
 .overview-dialog-card {
   display: flex;
-  min-height: 180px;
+  min-height: 108px;
   flex-direction: column;
   justify-content: space-between;
-  padding: 20px 18px 16px;
-  border-radius: 30px 30px 0 0;
+  padding: 14px 18px 12px;
+  border-radius: 24px 24px 0 0;
   background: #ffffff;
 }
 
+/* Full-width scroll container so the scrollbar sits at the app's right edge;
+   the centered message column lives inside .overview-dialog-thread-inner. */
 .overview-dialog-thread {
   display: flex;
-  width: min(100%, 700px);
+  width: 100%;
   flex: 1 1 auto;
   min-height: 0;
   flex-direction: column;
-  gap: 14px;
-  padding: 24px 24px 16px;
+  padding: 24px 0 16px;
   overflow-y: auto;
   scroll-behavior: smooth;
+}
+
+.overview-dialog-thread-inner {
+  display: flex;
+  width: min(100%, 820px);
+  margin-inline: auto;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 24px;
 }
 
 .overview-dialog-thread::-webkit-scrollbar {
@@ -2043,10 +2053,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .overview-dialog-card textarea {
   display: block;
   width: 100%;
-  min-height: 92px;
-  max-height: 210px;
+  min-height: 52px;
+  max-height: 180px;
   resize: none;
-  padding: 4px 2px 18px;
+  padding: 4px 2px 14px;
   color: #2e2e2e;
   border: 0;
   outline: 0;
@@ -2075,6 +2085,124 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   justify-content: flex-end;
   min-height: 40px;
   gap: 16px;
+}
+
+/* Teaching-mode composer: pills on the left, send button on the right. */
+.overview-dialog-card--composer .overview-dialog-footer {
+  justify-content: space-between;
+}
+
+.overview-dialog-card--composer .tool-pills {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+
+.overview-dialog-card--composer .tool-pills button {
+  height: 30px;
+  font-size: 12px;
+}
+
+/* Mode switch (segmented control) above the overview dialog. */
+.dialog-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  margin: 0 auto 6px;
+  width: fit-content;
+  border-radius: var(--radius-full, 999px);
+  background: rgba(20, 20, 20, 0.045);
+  border: 1px solid rgba(20, 20, 20, 0.04);
+}
+
+.dialog-mode-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 14px;
+  color: #68778f;
+  border: 0;
+  border-radius: var(--radius-full, 999px);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.dialog-mode-switch-btn:hover {
+  color: #2e2e2e;
+}
+
+.dialog-mode-switch-btn.is-active {
+  color: #1f2a3d;
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* Conversation session list (chat-mode sidebar). */
+.workspace-conversation-list {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+  padding-left: 4px;
+}
+
+.workspace-conversation-empty {
+  padding: 8px 10px;
+  color: #98a4b5;
+  font-size: 12px;
+}
+
+.workspace-conversation-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  color: #68778f;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.workspace-conversation-row:hover,
+.workspace-conversation-row.is-selected {
+  color: #22324b;
+  background: rgba(47, 155, 115, 0.12);
+}
+
+.workspace-conversation-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.workspace-conversation-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.workspace-conversation-meta {
+  font-size: 11px;
+  color: #9aa6b6;
 }
 
 .overview-dialog-tools,
@@ -2164,6 +2292,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .overview-dialog-model:hover {
   color: #333333;
   background: #f5f5f5;
+}
+
+.overview-dialog-reasoning {
+  max-width: 160px;
+}
+
+.overview-dialog-reasoning svg {
+  flex: 0 0 auto;
 }
 
 .overview-dialog-send {
@@ -2346,6 +2482,19 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 .overview-git-menu {
   width: min(420px, calc(100vw - 48px));
+}
+
+/* Model picker: open right-aligned so the menu stays inside the composer card. */
+.overview-model-menu {
+  right: 0;
+  left: auto;
+  width: min(320px, calc(100vw - 48px));
+}
+
+.overview-reasoning-menu {
+  right: 0;
+  left: auto;
+  width: min(340px, calc(100vw - 48px));
 }
 
 .overview-picker-search {
@@ -3411,7 +3560,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
   .overview-dialog-card {
     border-radius: 18px 18px 0 0;
-    min-height: 164px;
+    min-height: 96px;
   }
 
   .overview-dialog-footer,
