@@ -208,15 +208,15 @@ const defaultPrompt =
 const nextPrompt = '基于当前 mission，生成下一节短小、可复习、带检索练习的 HTML lesson。'
 
 const settingsNavItems = [
-  { id: 'general', label: '通用', detail: '应用行为、日志', icon: Settings },
-  { id: 'appearance', label: '外观', detail: '主题、语言、密度、字体', icon: Palette },
-  { id: 'model', label: '模型', detail: 'Provider 与密钥', icon: Bot },
-  { id: 'generation', label: '生成', detail: '课程输出策略', icon: SlidersHorizontal },
-  { id: 'workspace', label: '工作区', detail: '默认目录和文件行为', icon: FolderOpen },
-  { id: 'notifications', label: '通知', detail: '桌面提醒', icon: Bell },
-  { id: 'privacy', label: '隐私', detail: '链接和密钥显示', icon: Lock },
-  { id: 'about', label: '关于', detail: '版本、日志、数据目录', icon: Info }
-] satisfies Array<{ id: SettingsSection; label: string; detail: string; icon: LucideIcon }>
+  { id: 'general', icon: Settings },
+  { id: 'appearance', icon: Palette },
+  { id: 'model', icon: Bot },
+  { id: 'generation', icon: SlidersHorizontal },
+  { id: 'workspace', icon: FolderOpen },
+  { id: 'notifications', icon: Bell },
+  { id: 'privacy', icon: Lock },
+  { id: 'about', icon: Info }
+] satisfies Array<{ id: SettingsSection; icon: LucideIcon }>
 
 const endpointFormatLabels: Record<TeachingSettingsV1['generator']['endpointFormat'], string> = {
   chat_completions: 'OpenAI Chat Completions',
@@ -975,6 +975,7 @@ function MacTrafficLights() {
 // ================================================================
 
 function Sidebar() {
+  const { t } = useTranslation()
   const {
     view,
     sidebarCollapsed,
@@ -1002,7 +1003,7 @@ function Sidebar() {
               onClick={() => setView(item.id)}
             >
               <Icon size={17} />
-          <span className="collapsible-label">{item.label}</span>
+              <span className="collapsible-label">{t(`nav.${item.id}`)}</span>
             </button>
           )
         })}
@@ -1473,6 +1474,7 @@ function SettingsView({
   onOpenLogFile: () => Promise<void>
   onOpenAppDataDir: () => Promise<void>
 }) {
+  const { t } = useTranslation()
   const activeProvider = activeModelProvider(settings)
   const [providerStatus, setProviderStatus] = useState<string>('')
   const [providerBusy, setProviderBusy] = useState(false)
@@ -1541,12 +1543,12 @@ function SettingsView({
     <div className="settings-floating-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose()
     }}>
-      <section className="settings-view" aria-label="设置" role="dialog" aria-modal="true">
-        <button className="settings-close-button" type="button" aria-label="关闭设置" onClick={onClose}>
+      <section className="settings-view" aria-label={t('settings.aria')} role="dialog" aria-modal="true">
+        <button className="settings-close-button" type="button" aria-label={t('settings.close')} onClick={onClose}>
           <X size={17} />
         </button>
-        <aside className="settings-nav" aria-label="设置分类">
-        <div className="settings-nav-heading">Settings</div>
+        <aside className="settings-nav" aria-label={t('settings.navAria')}>
+        <div className="settings-nav-heading">{t('settings.navHeading')}</div>
         {settingsNavItems.map((item) => {
           const Icon = item.icon
           return (
@@ -1558,8 +1560,8 @@ function SettingsView({
             >
               <Icon size={17} />
               <span>
-                <strong>{item.label}</strong>
-                <small>{item.detail}</small>
+                <strong>{t(`settingsSection.${item.id}.label`)}</strong>
+                <small>{t(`settingsSection.${item.id}.detail`)}</small>
               </span>
             </button>
           )
