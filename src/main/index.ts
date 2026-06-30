@@ -29,6 +29,9 @@ import type {
   ReadAgentConversationPayload,
   ReadLessonPayload,
   RemoveTeachingGitWorktreePayload,
+  WorkspaceItemKind,
+  WorkspaceItemMetaPayload,
+  WorkspaceItemRemovePayload,
   RecordProgressPayload,
   SaveAgentConversationPayload,
   TeachingSettingsPatch,
@@ -154,6 +157,14 @@ function registerTeachingIpc(
 
   ipcMain.handle('teach:read-agent-conversation', async (_, payload: unknown) =>
     service.readAgentConversation(parseReadAgentConversationPayload(payload))
+  )
+
+  ipcMain.handle('teach:set-workspace-item-meta', async (_, payload: unknown) =>
+    service.setWorkspaceItemMeta(parseWorkspaceItemMetaPayload(payload))
+  )
+
+  ipcMain.handle('teach:remove-workspace-item', async (_, payload: unknown) =>
+    service.removeWorkspaceItem(parseWorkspaceItemRemovePayload(payload))
   )
 
   ipcMain.handle('teach:read-lesson', async (_, payload: unknown) =>
@@ -540,6 +551,29 @@ function parseReadAgentConversationPayload(payload: unknown): ReadAgentConversat
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     conversationId: requireString(record.conversationId, 'conversationId')
+  }
+}
+
+function parseWorkspaceItemMetaPayload(payload: unknown): WorkspaceItemMetaPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    relativePath: requireString(record.relativePath, 'relativePath'),
+    pinned: record.pinned === null ? null : typeof record.pinned === 'boolean' ? record.pinned : undefined,
+    archived: record.archived === null ? null : typeof record.archived === 'boolean' ? record.archived : undefined
+  }
+}
+
+function parseWorkspaceItemRemovePayload(payload: unknown): WorkspaceItemRemovePayload {
+  const record = requireRecord(payload)
+  const kind = requireString(record.kind, 'kind') as WorkspaceItemKind
+  if (kind !== 'conversation' && kind !== 'file' && kind !== 'directory') {
+    throw new Error('IPC payload field "kind" must be one of: conversation, file, directory.')
+  }
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    relativePath: requireString(record.relativePath, 'relativePath'),
+    kind
   }
 }
 

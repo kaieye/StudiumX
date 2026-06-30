@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { defaultSettings } from './teaching-settings'
@@ -54,6 +54,9 @@ import type {
   TeachingSettingsV1,
   TeachingWorkspaceSummary,
   WorkspaceFileNode,
+  WorkspaceItemKind,
+  WorkspaceItemMetaPayload,
+  WorkspaceItemRemovePayload,
   UpdateTeachingMemoryPayload,
   UpdateMissionPayload
 } from '../shared/teaching-types'
@@ -71,6 +74,8 @@ type WorkspaceRegistry = {
   workspaces: RegistryWorkspace[]
 }
 
+type WorkspacePathMeta = { pinned?: boolean; archived?: boolean }
+
 type WorkspaceIndex = {
   id: string
   name: string
@@ -78,6 +83,7 @@ type WorkspaceIndex = {
   createdAt: string
   updatedAt: string
   lessons: LessonSummary[]
+  pathMeta?: Record<string, WorkspacePathMeta>
 }
 
 type LessonArtifactPaths = {
@@ -263,8 +269,11 @@ export class TeachingWorkspaceService {
       return { error: true, message: '未配置 API Key。' }
     }
 
-    const ctx = buildToolContext(settings)
-    const registry = settings.tools.enabled ? buildDefaultRegistry(settings) : new ToolRegistry()
+    const workspaceRoot = payload.workspaceId
+      ? findWorkspace(await this.ensureRegistry(), payload.workspaceId).rootPath
+      : undefined
+    const ctx = buildToolContext(settings, { workspaceRoot })
+    const registry = settings.tools.enabled ? buildDefaultRegistry(settings, { workspaceRoot }) : new ToolRegistry()
 
     const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
     const messages: ChatMessage[] = [
@@ -363,6 +372,78 @@ export class TeachingWorkspaceService {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
     return readAgentConversationRecord(workspace.rootPath, payload.conversationId)
+  }
+
+  async setWorkspaceItemMeta(payload: WorkspaceItemMetaPayload): Promise<TeachingAppState> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const relativePath = normalizeWorkspaceRelativePath(payload.relativePath)
+    if (!relativePath) throw new Error('relativePath is required.')
+    const index = await this.loadWorkspaceIndex(workspace)
+    const pathMeta = { ...(index.pathMeta ?? {}) }
+    const existing = pathMeta[relativePath] ?? {}
+    const merged: WorkspacePathMeta = { ...existing }
+    if (payload.pinned === null) delete merged.pinned
+    else if (payload.pinned !== undefined) merged.pinned = payload.pinned
+    if (payload.archived === null) delete merged.archived
+    else if (payload.archived !== undefined) merged.archived = payload.archived
+    if (merged.pinned === undefined && merged.archived === undefined) {
+      delete pathMeta[relativePath]
+    } else {
+      pathMeta[relativePath] = merged
+    }
+    await this.saveWorkspaceIndex(workspace.rootPath, { ...index, pathMeta, updatedAt: new Date().toISOString() })
+    return this.buildState(registry, workspace.id, null)
+  }
+
+  async removeWorkspaceItem(payload: WorkspaceItemRemovePayload): Promise<TeachingAppState> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const relativePath = normalizeWorkspaceRelativePath(payload.relativePath)
+    if (!relativePath) throw new Error('relativePath is required.')
+    const absolutePath = resolve(join(workspace.rootPath, relativePath))
+    if (!isInside(workspace.rootPath, absolutePath)) {
+      throw new Error('Path is outside the workspace.')
+    }
+
+    const index = await this.loadWorkspaceIndex(workspace)
+
+    if (payload.kind === 'conversation') {
+      const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
+      const jsonPath = join(workspace.rootPath, agentConversationJsonRelativePath(id))
+      const mdPath = join(workspace.rootPath, agentConversationMarkdownRelativePath(id))
+      await unlink(jsonPath).catch(() => {})
+      await unlink(mdPath).catch(() => {})
+    } else if (payload.kind === 'directory') {
+      await rm(absolutePath, { recursive: true, force: true })
+    } else {
+      await unlink(absolutePath).catch(() => {})
+      // If this is an indexed lesson, also clear its sibling artifacts and index entry.
+      const lessonMatch = index.lessons.find(
+        (lesson) => resolve(lesson.absolutePath).toLowerCase() === absolutePath.toLowerCase()
+      )
+      if (lessonMatch) {
+        const dir = dirname(lessonMatch.absolutePath)
+        const base = basename(lessonMatch.absolutePath).replace(/\.html$/i, '')
+        for (const suffix of ['-reference.html', '.md', '-flashcards.json']) {
+          await unlink(join(dir, `${base}${suffix}`)).catch(() => {})
+        }
+      }
+    }
+
+    // Drop the index entry for a removed lesson, and prune pathMeta for this path + descendants.
+    const remainingLessons = index.lessons.filter(
+      (lesson) => resolve(lesson.absolutePath).toLowerCase() !== absolutePath.toLowerCase()
+    )
+    const prunedMeta = prunePathMeta(index.pathMeta, relativePath)
+    await this.saveWorkspaceIndex(workspace.rootPath, {
+      ...index,
+      lessons: remainingLessons,
+      pathMeta: prunedMeta,
+      updatedAt: new Date().toISOString()
+    })
+
+    return this.buildState(registry, workspace.id, null)
   }
 
   /**
@@ -532,17 +613,18 @@ export class TeachingWorkspaceService {
       memories: recalledMemories
     })
 
-    // Tool-augmented path: let the model research (web_search) before emitting
-    // the LessonPlan JSON. Only for chat_completions / custom_endpoint formats.
+    // Tool-augmented path: let the model inspect the workspace and/or research
+    // before emitting the LessonPlan JSON. Only for chat_completions /
+    // custom_endpoint formats.
     const useTools =
       settings.tools.enabled &&
-      settings.tools.webSearch &&
-      toolsSupportedForFormat(settings.generator.endpointFormat)
+      toolsSupportedForFormat(settings.generator.endpointFormat) &&
+      buildDefaultRegistry(settings, { workspaceRoot: workspace.rootPath }).definitions().length > 0
     if (useTools) {
       try {
         const researchSystemPrompt = `${LESSON_RESEARCH_PREFIX}\n\n${systemPrompt}`
-        const ctx = buildToolContext(settings)
-        const registry = buildDefaultRegistry(settings)
+        const ctx = buildToolContext(settings, { workspaceRoot: workspace.rootPath })
+        const registry = buildDefaultRegistry(settings, { workspaceRoot: workspace.rootPath })
         const loopResult = await runAgentLoop({
           settings,
           provider,
@@ -868,10 +950,11 @@ export class TeachingWorkspaceService {
     await this.ensureWorkspaceStructure(workspace)
     const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
     const index = await this.loadWorkspaceIndex(workspace)
-    const lessons = await this.mergeLessonIndexWithDisk(workspace.rootPath, index.lessons)
+    const pathMeta = index.pathMeta ?? {}
+    const lessons = await this.mergeLessonIndexWithDisk(workspace.rootPath, index.lessons, pathMeta)
     const courses = buildCourseSummaries(lessons)
-    const conversations = await listAgentConversations(workspace.rootPath)
-    const fileTree = await buildWorkspaceFileTree(workspace.rootPath)
+    const conversations = await listAgentConversations(workspace.rootPath, pathMeta)
+    const fileTree = await buildWorkspaceFileTree(workspace.rootPath, pathMeta)
     if (lessons.length !== index.lessons.length) {
       await this.saveWorkspaceIndex(workspace.rootPath, { ...index, lessons, updatedAt: new Date().toISOString() })
     }
@@ -992,7 +1075,8 @@ export class TeachingWorkspaceService {
           ? parsed.lessons
               .filter(isLessonSummary)
               .map((lesson) => normalizeLessonSummary(workspace.rootPath, lesson))
-          : []
+          : [],
+        pathMeta: normalizePathMeta(parsed.pathMeta)
       }
     } catch {
       return {
@@ -1081,7 +1165,11 @@ export class TeachingWorkspaceService {
     return Math.max(0, ...fromIndex, ...fromDisk) + 1
   }
 
-  private async mergeLessonIndexWithDisk(rootPath: string, indexedLessons: LessonSummary[]): Promise<LessonSummary[]> {
+  private async mergeLessonIndexWithDisk(
+    rootPath: string,
+    indexedLessons: LessonSummary[],
+    pathMeta: Record<string, WorkspacePathMeta> = {}
+  ): Promise<LessonSummary[]> {
     const indexedByPath = new Map(indexedLessons.map((lesson) => [resolve(lesson.absolutePath).toLowerCase(), lesson]))
     const files = await collectTeachingFiles(rootPath, (filePath) => {
       const lower = filePath.toLowerCase()
@@ -1116,7 +1204,14 @@ export class TeachingWorkspaceService {
           absolutePath
         } satisfies LessonSummary
       })
-      .sort((a, b) => b.id.localeCompare(a.id))
+      .map((lesson) => ({ ...lesson, pinned: Boolean(pathMeta[lesson.relativePath]?.pinned) }))
+      .filter((lesson) => !pathMeta[lesson.relativePath]?.archived)
+      .sort((a, b) => {
+        const aPinned = a.pinned ? 1 : 0
+        const bPinned = b.pinned ? 1 : 0
+        if (aPinned !== bPinned) return bPinned - aPinned
+        return b.id.localeCompare(a.id)
+      })
   }
 
   private async readMissionSummary(rootPath: string, fallbackName: string): Promise<{ title: string; excerpt: string }> {
@@ -1274,20 +1369,33 @@ const WORKSPACE_TREE_IGNORED_DIRS = new Set([
   'release'
 ])
 
-async function buildWorkspaceFileTree(rootPath: string): Promise<WorkspaceFileNode[]> {
-  return readWorkspaceTreeDirectory(rootPath, '', 0)
+async function buildWorkspaceFileTree(
+  rootPath: string,
+  pathMeta: Record<string, WorkspacePathMeta> = {}
+): Promise<WorkspaceFileNode[]> {
+  return readWorkspaceTreeDirectory(rootPath, '', 0, pathMeta)
 }
 
 async function readWorkspaceTreeDirectory(
   rootPath: string,
   relativeDir: string,
-  depth: number
+  depth: number,
+  pathMeta: Record<string, WorkspacePathMeta>
 ): Promise<WorkspaceFileNode[]> {
   const absoluteDir = relativeDir ? join(rootPath, relativeDir) : rootPath
   const entries = await readdir(absoluteDir, { withFileTypes: true }).catch(() => [])
   const visibleEntries = entries
     .filter((entry) => !shouldHideWorkspaceTreeEntry(relativeDir, entry.name, entry.isDirectory()))
+    .filter((entry) => {
+      const relativePath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), entry.name)
+      return !pathMeta[relativePath]?.archived
+    })
     .sort((left, right) => {
+      const leftPath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), left.name)
+      const rightPath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), right.name)
+      const leftPinned = pathMeta[leftPath]?.pinned ? 1 : 0
+      const rightPinned = pathMeta[rightPath]?.pinned ? 1 : 0
+      if (leftPinned !== rightPinned) return rightPinned - leftPinned
       if (left.isDirectory() !== right.isDirectory()) return left.isDirectory() ? -1 : 1
       return left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
     })
@@ -1298,6 +1406,7 @@ async function readWorkspaceTreeDirectory(
       if (!entry.isDirectory() && !entry.isFile()) return null
       const relativePath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), entry.name)
       const absolutePath = join(rootPath, relativePath)
+      const pinned = Boolean(pathMeta[relativePath]?.pinned)
       if (entry.isDirectory()) {
         const atDepthLimit = depth + 1 >= WORKSPACE_TREE_MAX_DEPTH
         return {
@@ -1305,15 +1414,17 @@ async function readWorkspaceTreeDirectory(
           kind: 'directory',
           relativePath,
           absolutePath,
-          children: atDepthLimit ? [] : await readWorkspaceTreeDirectory(rootPath, relativePath, depth + 1),
-          truncated: atDepthLimit || entries.length > WORKSPACE_TREE_MAX_ENTRIES_PER_DIR || undefined
+          children: atDepthLimit ? [] : await readWorkspaceTreeDirectory(rootPath, relativePath, depth + 1, pathMeta),
+          truncated: atDepthLimit || entries.length > WORKSPACE_TREE_MAX_ENTRIES_PER_DIR || undefined,
+          pinned
         }
       }
       return {
         name: entry.name,
         kind: 'file',
         relativePath,
-        absolutePath
+        absolutePath,
+        pinned
       }
     })
   )
@@ -1328,7 +1439,10 @@ function shouldHideWorkspaceTreeEntry(relativeDir: string, name: string, isDirec
   return false
 }
 
-async function listAgentConversations(rootPath: string): Promise<AgentConversationSummary[]> {
+async function listAgentConversations(
+  rootPath: string,
+  pathMeta: Record<string, WorkspacePathMeta> = {}
+): Promise<AgentConversationSummary[]> {
   const conversationsDir = join(rootPath, 'conversations')
   const entries = await readdir(conversationsDir, { withFileTypes: true }).catch(() => [])
   const records = await Promise.all(
@@ -1338,8 +1452,14 @@ async function listAgentConversations(rootPath: string): Promise<AgentConversati
   )
   return records
     .filter((record): record is AgentConversationRecord => Boolean(record))
-    .map(toAgentConversationSummary)
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .map((record) => toAgentConversationSummary(record, pathMeta))
+    .filter((summary) => !pathMeta[summary.relativePath]?.archived)
+    .sort((left, right) => {
+      const leftPinned = left.pinned ? 1 : 0
+      const rightPinned = right.pinned ? 1 : 0
+      if (leftPinned !== rightPinned) return rightPinned - leftPinned
+      return right.updatedAt.localeCompare(left.updatedAt)
+    })
 }
 
 async function nextAgentConversationId(rootPath: string, title: string, timestamp: string): Promise<string> {
@@ -1506,7 +1626,10 @@ function formatConversationTimestamp(date: Date): string {
   return `${safeDate.getFullYear()}${pad(safeDate.getMonth() + 1)}${pad(safeDate.getDate())}-${pad(safeDate.getHours())}${pad(safeDate.getMinutes())}${pad(safeDate.getSeconds())}`
 }
 
-function toAgentConversationSummary(record: AgentConversationRecord): AgentConversationSummary {
+function toAgentConversationSummary(
+  record: AgentConversationRecord,
+  pathMeta: Record<string, WorkspacePathMeta> = {}
+): AgentConversationSummary {
   return {
     id: record.id,
     title: record.title,
@@ -1514,7 +1637,8 @@ function toAgentConversationSummary(record: AgentConversationRecord): AgentConve
     updatedAt: record.updatedAt,
     relativePath: record.relativePath,
     absolutePath: record.absolutePath,
-    messageCount: record.messageCount
+    messageCount: record.messageCount,
+    pinned: Boolean(pathMeta[record.relativePath]?.pinned)
   }
 }
 
@@ -1701,7 +1825,8 @@ function adapterReason(error: ProviderAdapterError): string {
 }
 
 const LESSON_RESEARCH_PREFIX =
-  '在生成课程计划之前，你可以调用 web_search 工具检索最新或课程之外的事实性信息以丰富内容（例如最新版本号、时效性事件、权威定义）。' +
+  '在生成课程计划之前，你可以调用工作区只读工具读取 MISSION.md、RESOURCES.md、courses、reference 和 learning-records 中的上下文；' +
+  '也可以调用 web_search 工具检索最新或课程之外的事实性信息以丰富内容（例如最新版本号、时效性事件、权威定义）。' +
   '完成必要的检索后，仍必须严格只输出一个符合下方格式的 JSON 课程计划对象，不要输出任何额外说明或 markdown 围栏。'
 
 const AGENT_CHAT_SYSTEM_PROMPT =
@@ -1710,6 +1835,7 @@ const AGENT_CHAT_SYSTEM_PROMPT =
   '先用 1 到 3 个具体问题摸清用户的背景、当前水平、真实目标、限制条件和希望第一节课完成的动作；' +
   '只有当这些信息已经足够清晰时，才总结你的理解并建议下一步。' +
   '回答使用简洁、准确的中文。' +
+  '当用户询问当前教学工作区、mission、resources、课程文件、参考资料或学习记录时，优先调用 list_workspace、read_workspace_file、search_workspace 或 glob_workspace 读取本地文件后再回答；' +
   '当问题涉及时效性、最新动态或课程库之外的事实性信息时，调用 web_search 工具检索后再作答；' +
   '必要时可用 web_fetch 深入阅读某条结果。回答中适度引用信息来源链接。' +
   '若未配置工具或当前模型不支持工具调用，直接依据自身知识作答即可。'
@@ -1883,6 +2009,45 @@ function titleFromFilename(file: string): string {
 
 function workspaceRelativePath(...parts: string[]): string {
   return parts.filter(Boolean).join('/')
+}
+
+/** Normalize a stored relative path key: forward slashes, no leading slash, no `./`. */
+function normalizeWorkspaceRelativePath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '').replace(/\/+$/, '')
+}
+
+function normalizePathMeta(value: unknown): Record<string, WorkspacePathMeta> {
+  if (!value || typeof value !== 'object') return {}
+  const source = value as Record<string, unknown>
+  const result: Record<string, WorkspacePathMeta> = {}
+  for (const [key, entry] of Object.entries(source)) {
+    if (!entry || typeof entry !== 'object') continue
+    const meta = entry as { pinned?: unknown; archived?: unknown }
+    const normalized: WorkspacePathMeta = {}
+    if (meta.pinned === true) normalized.pinned = true
+    if (meta.archived === true) normalized.archived = true
+    const normalizedKey = normalizeWorkspaceRelativePath(key)
+    if (!normalizedKey) continue
+    result[normalizedKey] = normalized
+  }
+  return result
+}
+
+/** Remove a path's meta entry and any descendant entries (for folder removal). */
+function prunePathMeta(
+  value: Record<string, WorkspacePathMeta> | undefined,
+  relativePath: string
+): Record<string, WorkspacePathMeta> {
+  if (!value) return {}
+  const key = normalizeWorkspaceRelativePath(relativePath)
+  const prefix = key ? `${key}/` : ''
+  const result: Record<string, WorkspacePathMeta> = {}
+  for (const [entryKey, meta] of Object.entries(value)) {
+    if (entryKey === key) continue
+    if (prefix && (entryKey === prefix.slice(0, -1) || entryKey.startsWith(prefix))) continue
+    result[entryKey] = meta
+  }
+  return result
 }
 
 function compactMarkdown(value: string): string {

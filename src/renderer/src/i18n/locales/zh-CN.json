@@ -8,8 +8,9 @@
     "choose": "选择"
   },
   "nav": {
-    "overview": "概览",
+    "overview": "新对话",
     "agent": "对话",
+    "lessons": "课程",
     "resources": "资源"
   },
   "sidebar": {
@@ -18,15 +19,27 @@
     "newWorkspace": "新建工作区",
     "expandFolder": "展开文件夹",
     "collapseFolder": "收起文件夹",
+    "courses": "课程",
+    "expandCourses": "展开课程",
+    "collapseCourses": "收起课程",
+    "emptyCourses": "暂无课程",
     "lessonsCount": "{{count}} 课",
     "notifications": "通知",
     "settings": "设置",
     "notificationCenterTitle": "TeachOS 通知中心",
     "notificationCenterOn": "通知设置已打开。",
     "notificationCenterOff": "通知已关闭，可在这里重新启用。",
-    "conversations": "对话记录",
+    "conversations": "对话",
+    "expandConversations": "展开对话",
+    "collapseConversations": "收起对话",
     "emptyConversations": "暂无对话",
-    "messageCount": "{{count}} 条消息"
+    "messageCount": "{{count}} 条消息",
+    "rowActions": "更多操作",
+    "pin": "置顶",
+    "unpin": "取消置顶",
+    "archive": "归档",
+    "remove": "删除",
+    "confirmRemove": "确定要删除“{{name}}”吗？"
   },
   "sidebarResizer": {
     "aria": "调整侧边栏宽度"
@@ -95,6 +108,9 @@
     "emptyTitle": "暂无课程",
     "emptyDetail": "在上方输入教学任务，点击生成按钮创建可复习的 HTML 课程。",
     "emptyAction": "生成课程",
+    "libraryTitle": "课程",
+    "backToCards": "返回课程",
+    "sessionCount": "{{count}} 节",
     "duration": "{{count}} 分钟",
     "chipPreviewing": "预览中",
     "chipGenerated": "已生成",

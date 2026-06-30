@@ -137,6 +137,7 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
     },
     tools: {
       enabled: false,
+      workspaceRead: true,
       webSearch: true,
       webFetch: false,
       maxIterations: 4
@@ -293,6 +294,7 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
     },
     tools: {
       enabled: toolsInput.enabled === true,
+      workspaceRead: toolsInput.workspaceRead !== false,
       webSearch: toolsInput.webSearch !== false,
       webFetch: toolsInput.webFetch === true,
       maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 1, 10, defaults.tools.maxIterations))

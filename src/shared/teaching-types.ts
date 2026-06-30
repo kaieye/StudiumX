@@ -155,6 +155,7 @@ export type TeachingSettingsV1 = {
   }
   tools: {
     enabled: boolean
+    workspaceRead: boolean
     webSearch: boolean
     webFetch: boolean
     maxIterations: number
@@ -230,6 +231,7 @@ export type WorkspaceFileNode = {
   absolutePath: string
   children?: WorkspaceFileNode[]
   truncated?: boolean
+  pinned?: boolean
 }
 
 export type AgentConversationSummary = {
@@ -240,6 +242,7 @@ export type AgentConversationSummary = {
   relativePath: string
   absolutePath: string
   messageCount: number
+  pinned?: boolean
 }
 
 export type LessonSummary = {
@@ -259,6 +262,7 @@ export type LessonSummary = {
   sessionAbsolutePath: string
   relativePath: string
   absolutePath: string
+  pinned?: boolean
 }
 
 export type TeachingSessionSummary = {
@@ -663,6 +667,22 @@ export type ReadAgentConversationPayload = {
   conversationId: string
 }
 
+export type WorkspaceItemKind = 'conversation' | 'file' | 'directory'
+
+export type WorkspaceItemMetaPayload = {
+  workspaceId: string
+  relativePath: string
+  /** null 清除该标志，省略则不变。 */
+  pinned?: boolean | null
+  archived?: boolean | null
+}
+
+export type WorkspaceItemRemovePayload = {
+  workspaceId: string
+  relativePath: string
+  kind: WorkspaceItemKind
+}
+
 export type TeachingSystemApi = {
   platform: NodeJS.Platform
   getState: () => Promise<TeachingAppState>
@@ -699,6 +719,8 @@ export type TeachingSystemApi = {
   onAgentChatTool: (handler: (event: AgentChatStreamToolEvent) => void) => () => void
   saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>
   readAgentConversation: (payload: ReadAgentConversationPayload) => Promise<AgentConversationRecord>
+  setWorkspaceItemMeta: (payload: WorkspaceItemMetaPayload) => Promise<TeachingAppState>
+  removeWorkspaceItem: (payload: WorkspaceItemRemovePayload) => Promise<TeachingAppState>
   listReviewCards: (workspaceId: string) => Promise<ListReviewCardsResult>
   recordProgress: (payload: RecordProgressPayload) => Promise<GetProgressResult>
   getProgress: (workspaceId: string) => Promise<GetProgressResult>

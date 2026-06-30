@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   AlertTriangle,
+  Archive,
   ArrowUpRight,
   Bell,
   BookCopy,
@@ -10,9 +11,9 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Clock3,
-  Command,
   Database,
   ExternalLink,
   FileCheck2,
@@ -23,7 +24,6 @@ import {
   GitBranch,
   GitFork,
   History,
-  Home,
   Info,
   KeyRound,
   LibraryBig,
@@ -34,8 +34,11 @@ import {
   Minus,
   Monitor,
   Moon,
+  MoreHorizontal,
   PanelLeft,
   Palette,
+  Pin,
+  PinOff,
   Plus,
   RefreshCw,
   Search,
@@ -48,13 +51,15 @@ import {
   Play,
   SendHorizontal,
   Upload,
+  Trash2,
   X,
   Wrench,
   Zap
 } from 'lucide-react'
 import type { CSSProperties, ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Component, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Component, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -97,6 +102,7 @@ import {
   type UpdateTeachingMemoryPayload,
   type WindowControlAction,
   type WorkspaceFileNode,
+  type WorkspaceItemKind,
   type WorkspaceView
 } from '../../shared/teaching-types'
 
@@ -123,9 +129,13 @@ type StoreState = {
   error: UserError | null
   searchQuery: string
   taskPrompt: string
+  overviewDialogMode: DialogMode
+  lessonReaderOpen: boolean
   appState: TeachingAppState
   settings: TeachingSettingsV1
   setView: (view: WorkspaceView) => void
+  setOverviewDialogMode: (mode: DialogMode) => void
+  openLessonLibrary: () => void
   setSettingsSection: (section: SettingsSection) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   openSettings: (section?: SettingsSection) => void
@@ -166,10 +176,17 @@ type StoreState = {
   agentStatus: string
   agentInput: string
   agentToolsSupported: boolean | null
+  gitBranchesRoot: string
+  gitBranchesResult: TeachingGitBranchesResult | null
+  gitBranchesLoading: boolean
   setAgentInput: (input: string) => void
   clearAgentChat: () => void
+  loadGitBranches: (workspaceRoot: string, options?: { force?: boolean }) => Promise<void>
+  setGitBranchesResult: (workspaceRoot: string, result: TeachingGitBranchesResult) => void
   loadAgentConversation: (conversationId: string) => Promise<void>
   agentChat: () => Promise<void>
+  setWorkspaceItemMeta: (payload: { relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
+  removeWorkspaceItem: (payload: { relativePath: string; kind: WorkspaceItemKind }) => Promise<void>
 }
 
 // ================================================================
@@ -177,8 +194,7 @@ type StoreState = {
 // ================================================================
 
 const navItems = [
-  { id: 'overview', icon: Home },
-  { id: 'agent', icon: Bot },
+  { id: 'overview', icon: Bot },
   { id: 'resources', icon: LibraryBig }
 ] satisfies Array<{ id: WorkspaceView; icon: LucideIcon }>
 
@@ -240,6 +256,7 @@ const emptySettings: TeachingSettingsV1 = {
   },
   tools: {
     enabled: false,
+    workspaceRead: true,
     webSearch: true,
     webFetch: false,
     maxIterations: 4
@@ -622,6 +639,8 @@ const useAppStore = create<StoreState>((set, get) => ({
   error: null,
   searchQuery: '',
   taskPrompt: defaultPrompt,
+  overviewDialogMode: 'chat',
+  lessonReaderOpen: false,
   appState: emptyAppState,
   settings: emptySettings,
   reviewCards: [],
@@ -634,12 +653,47 @@ const useAppStore = create<StoreState>((set, get) => ({
   agentStatus: '',
   agentInput: '',
   agentToolsSupported: null,
+  gitBranchesRoot: '',
+  gitBranchesResult: null,
+  gitBranchesLoading: false,
   setAgentInput: (agentInput) => set({ agentInput }),
-  clearAgentChat: () => set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentToolsSupported: null, agentChatBusy: false }),
+  clearAgentChat: () => set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false }),
+  loadGitBranches: async (workspaceRoot, options) => {
+    const root = workspaceRoot.trim()
+    const api = window.teachingSystem
+    if (!root || !api) {
+      set({ gitBranchesRoot: '', gitBranchesResult: null, gitBranchesLoading: false })
+      return
+    }
+    const current = get()
+    if (!options?.force && current.gitBranchesRoot === root && (current.gitBranchesResult || current.gitBranchesLoading)) return
+
+    set({
+      gitBranchesRoot: root,
+      gitBranchesLoading: true,
+      ...(current.gitBranchesRoot === root ? {} : { gitBranchesResult: null })
+    })
+    try {
+      const result = await api.listGitBranches(root)
+      if (get().gitBranchesRoot === root) {
+        set({ gitBranchesResult: result, gitBranchesLoading: false })
+      }
+    } catch (error) {
+      if (get().gitBranchesRoot === root) {
+        set({ gitBranchesLoading: false, error: toUserError(error) })
+      }
+    }
+  },
+  setGitBranchesResult: (workspaceRoot, gitBranchesResult) => {
+    const root = workspaceRoot.trim()
+    set({ gitBranchesRoot: root, gitBranchesResult, gitBranchesLoading: false })
+  },
   setView: (view) => {
-    set({ view })
+    set({ view, ...(view === 'lessons' ? { lessonReaderOpen: false } : {}) })
     if (view === 'review') void get().loadReviewCards()
   },
+  setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
+  openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false }),
   setSettingsSection: (settingsSection) => set({ settingsSection }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
   openSettings: (section = 'general') => set({ view: 'settings', settingsSection: section }),
@@ -808,6 +862,8 @@ const useAppStore = create<StoreState>((set, get) => ({
         courseName: suggestedCourseName(workspace, prompt)
       })
       set({
+        view: 'lessons',
+        lessonReaderOpen: false,
         appState: result.state,
         taskPrompt: nextPrompt,
         generating: false
@@ -889,7 +945,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         return
       }
       if (!('error' in done)) {
-        set({ appState: done.state, taskPrompt: nextPrompt, generating: false })
+        set({ view: 'lessons', lessonReaderOpen: false, appState: done.state, taskPrompt: nextPrompt, generating: false })
         if (settings.workspace.autoOpenGeneratedLesson) {
           void get().openPath(done.lesson.absolutePath)
         }
@@ -1074,12 +1130,60 @@ const useAppStore = create<StoreState>((set, get) => ({
       })
     }
   },
+  setWorkspaceItemMeta: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    if (!workspace) return
+    try {
+      const state = await api.setWorkspaceItemMeta({
+        workspaceId: workspace.id,
+        relativePath: payload.relativePath,
+        pinned: payload.pinned,
+        archived: payload.archived
+      })
+      set({ appState: state, error: null })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  removeWorkspaceItem: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    if (!workspace) return
+    try {
+      const state = await api.removeWorkspaceItem({
+        workspaceId: workspace.id,
+        relativePath: payload.relativePath,
+        kind: payload.kind
+      })
+      // If the removed item was the active conversation, clear the chat panel.
+      const removedConversationMd = payload.kind === 'conversation' ? payload.relativePath : null
+      const activeCleared =
+        removedConversationMd &&
+        get().appState.activeWorkspace?.conversations.some(
+          (c) => c.relativePath === removedConversationMd && c.id === get().activeConversationId
+        )
+      set({
+        appState: state,
+        error: null,
+        ...(activeCleared
+          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentToolsSupported: null, agentChatBusy: false }
+          : {})
+      })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
   loadLesson: async (lesson) => {
     const api = window.teachingSystem
     if (!api) return
     const workspace = get().appState.activeWorkspace
     if (!workspace) return
     set({
+      view: 'lessons',
+      lessonReaderOpen: true,
       appState: {
         ...get().appState,
         selectedLessonPath: lesson.absolutePath,
@@ -1469,15 +1573,13 @@ function Sidebar() {
     appState,
     setView,
     openSettings,
-    selectWorkspace,
-    createWorkspace,
     showNotification
   } = useAppStore()
 
   const active = appState.activeWorkspace
   const selectedLessonPath = appState.selectedLessonPath
-  // 概览页 = 教学模式（显示教学文件夹）；对话页 = 对话模式（显示对话 sessions）。
-  const dialogMode: DialogMode = view === 'agent' ? 'chat' : 'teaching'
+  const [coursesExpanded, setCoursesExpanded] = useState(true)
+  const [conversationsExpanded, setConversationsExpanded] = useState(true)
 
   return (
     <aside className={`sidebar${sidebarCollapsed ? ' is-collapsed' : ''}`} aria-label={t('sidebar.aria')}>
@@ -1489,7 +1591,13 @@ function Sidebar() {
               key={item.id}
               className={`nav-item ${view === item.id ? 'is-active' : ''}`}
               type="button"
-              onClick={() => setView(item.id)}
+              onClick={() => {
+                if (item.id === 'overview') {
+                  useAppStore.getState().clearAgentChat()
+                  useAppStore.getState().setOverviewDialogMode('chat')
+                }
+                setView(item.id)
+              }}
             >
               <Icon size={17} />
               <span className="collapsible-label">{t(`nav.${item.id}`)}</span>
@@ -1498,23 +1606,18 @@ function Sidebar() {
         })}
       </nav>
 
-      <div className="sidebar-section">
-        <div className="section-heading">
-          <span className="collapsible-label">{t('sidebar.workspace')}</span>
-          <button className="icon-button" type="button" aria-label={t('sidebar.newWorkspace')} onClick={createWorkspace}>
-            <Plus size={15} />
-          </button>
-        </div>
-        {appState.workspaces.map((workspace) => (
-          <WorkspaceTree
-            key={workspace.id}
-            workspace={workspace}
-            dialogMode={dialogMode}
-            activeWorkspaceId={active?.id ?? null}
-            selectedLessonPath={selectedLessonPath}
-            onSelectWorkspace={(workspaceId) => selectWorkspace(workspaceId)}
-          />
-        ))}
+      <div className="sidebar-content">
+        <WorkspaceCourseSection
+          workspace={active}
+          expanded={coursesExpanded}
+          selectedLessonPath={selectedLessonPath}
+          onToggle={() => setCoursesExpanded((expanded) => !expanded)}
+        />
+        <SidebarConversationSection
+          workspace={active}
+          expanded={conversationsExpanded}
+          onToggle={() => setConversationsExpanded((expanded) => !expanded)}
+        />
       </div>
 
       <div className="sidebar-footer">
@@ -1541,41 +1644,35 @@ function Sidebar() {
   )
 }
 
-function WorkspaceTree({
+function WorkspaceCourseSection({
   workspace,
-  dialogMode,
-  activeWorkspaceId,
+  expanded,
   selectedLessonPath,
-  onSelectWorkspace
+  onToggle
 }: {
-  workspace: TeachingWorkspaceSummary
-  dialogMode: DialogMode
-  activeWorkspaceId: string | null
+  workspace: TeachingWorkspaceSummary | null
+  expanded: boolean
   selectedLessonPath: string | null
-  onSelectWorkspace: (workspaceId: string) => Promise<void>
+  onToggle: () => void
 }) {
   const { t } = useTranslation()
   const loadLesson = useAppStore((s) => s.loadLesson)
-  const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
   const openPath = useAppStore((s) => s.openPath)
   const setView = useAppStore((s) => s.setView)
-  const activeConversationId = useAppStore((s) => s.activeConversationId)
-  const isActive = workspace.id === activeWorkspaceId
-  const fileTree = workspace.fileTree ?? []
-  const conversations = workspace.conversations ?? []
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
+  const courseTree = useMemo(() => workspace?.fileTree.find((node) => sameRelativePath(node.relativePath, 'courses')) ?? null, [workspace])
+  const courseNodes = courseTree?.children ?? []
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(['courses']))
 
   useEffect(() => {
-    if (!isActive) return
+    if (!expanded || !workspace) return
     setExpandedPaths((current) => {
-      if (current.has('')) return current
+      if (current.has('courses')) return current
       const next = new Set(current)
-      next.add('')
+      next.add('courses')
       return next
     })
-  }, [isActive])
+  }, [expanded, workspace?.id])
 
-  const rootExpanded = expandedPaths.has('')
   const togglePath = (relativePath: string): void => {
     setExpandedPaths((current) => {
       const next = new Set(current)
@@ -1585,39 +1682,84 @@ function WorkspaceTree({
     })
   }
 
-  const ensureWorkspaceSelected = async (): Promise<void> => {
-    if (!isActive) await onSelectWorkspace(workspace.id)
-  }
+  return (
+    <div className="sidebar-section sidebar-section--courses">
+      <div className="section-heading section-heading--folder">
+        <button
+          className="section-folder-button"
+          type="button"
+          aria-expanded={expanded}
+          aria-label={expanded ? t('sidebar.collapseCourses') : t('sidebar.expandCourses')}
+          title={expanded ? t('sidebar.collapseCourses') : t('sidebar.expandCourses')}
+          onClick={onToggle}
+        >
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <span className="collapsible-label">{t('sidebar.courses')}</span>
+        </button>
+      </div>
+      {expanded ? (
+        workspace && courseNodes.length > 0 ? (
+          <div className="workspace-file-tree workspace-file-tree--courses">
+            {courseNodes.map((node) => (
+              <WorkspaceFileNodeRow
+                key={node.relativePath}
+                node={node}
+                workspace={workspace}
+                level={0}
+                expandedPaths={expandedPaths}
+                selectedLessonPath={selectedLessonPath}
+                activeConversationId={null}
+                onToggle={togglePath}
+                onEnsureWorkspaceSelected={async () => {}}
+                onOpenPath={(path) => void openPath(path)}
+                onOpenLesson={(lesson) => {
+                  setView('lessons')
+                  void loadLesson(lesson)
+                }}
+                onOpenConversation={() => {}}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="workspace-conversation-empty">{t('sidebar.emptyCourses')}</div>
+        )
+      ) : null}
+    </div>
+  )
+}
 
-  const showConversations = dialogMode === 'chat'
+function SidebarConversationSection({
+  workspace,
+  expanded,
+  onToggle
+}: {
+  workspace: TeachingWorkspaceSummary | null
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const { t } = useTranslation()
+  const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
+  const activeConversationId = useAppStore((s) => s.activeConversationId)
+  const conversations = workspace?.conversations ?? []
+  const ensureActiveWorkspace = async (): Promise<void> => {}
 
   return (
-    <div className={`workspace-tree ${isActive ? 'is-active' : ''}`}>
-      <div className={`workspace-item ${isActive ? 'is-selected' : ''}`}>
+    <div className="sidebar-section sidebar-section--conversations" aria-label={t('sidebar.conversations')}>
+      <div className="section-heading section-heading--folder sidebar-conversation-heading">
         <button
-          className="workspace-main-button"
+          className="section-folder-button"
           type="button"
-          onClick={() => void onSelectWorkspace(workspace.id)}
-          title={workspace.rootPath}
+          aria-expanded={expanded}
+          aria-label={expanded ? t('sidebar.collapseConversations') : t('sidebar.expandConversations')}
+          title={expanded ? t('sidebar.collapseConversations') : t('sidebar.expandConversations')}
+          onClick={onToggle}
         >
-          {showConversations ? <MessageSquare size={17} /> : rootExpanded ? <FolderOpen size={17} /> : <Folder size={17} />}
-          <span className="collapsible-label">{workspace.name}</span>
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <span className="collapsible-label">{t('sidebar.conversations')}</span>
         </button>
-        {!showConversations && (
-          <button
-            className="workspace-toggle-button"
-            type="button"
-            aria-label={rootExpanded ? t('sidebar.collapseFolder') : t('sidebar.expandFolder')}
-            title={rootExpanded ? t('sidebar.collapseFolder') : t('sidebar.expandFolder')}
-            onClick={() => togglePath('')}
-          >
-            {rootExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-          </button>
-        )}
       </div>
-
-      {showConversations ? (
-        <div className="workspace-conversation-list">
+      {expanded ? (
+        <div className="workspace-conversation-list is-flat">
           {conversations.length === 0 ? (
             <div className="workspace-conversation-empty">{t('sidebar.emptyConversations')}</div>
           ) : (
@@ -1626,36 +1768,161 @@ function WorkspaceTree({
                 key={conversation.id}
                 conversation={conversation}
                 isActiveConversation={conversation.id === activeConversationId}
-                onOpen={() => {
-                  void ensureWorkspaceSelected()
-                  void loadAgentConversation(conversation.id)
-                }}
+                onEnsureSelected={ensureActiveWorkspace}
+                onOpen={() => void loadAgentConversation(conversation.id)}
               />
             ))
           )}
         </div>
-      ) : rootExpanded && fileTree.length > 0 ? (
-        <div className="workspace-file-tree">
-          {fileTree.map((node) => (
-            <WorkspaceFileNodeRow
-              key={node.relativePath}
-              node={node}
-              workspace={workspace}
-              level={0}
-              expandedPaths={expandedPaths}
-              selectedLessonPath={selectedLessonPath}
-              activeConversationId={activeConversationId}
-              onToggle={togglePath}
-              onEnsureWorkspaceSelected={ensureWorkspaceSelected}
-              onOpenPath={(path) => void openPath(path)}
-              onOpenLesson={(lesson) => {
-                setView('lessons')
-                void loadLesson(lesson)
-              }}
-              onOpenConversation={(conversationId) => void loadAgentConversation(conversationId)}
-            />
-          ))}
-        </div>
+      ) : null}
+    </div>
+  )
+}
+
+type RowContextMenuPoint = { left: number; top: number }
+
+const ROW_CONTEXT_MENU_EDGE_GAP = 8
+const ROW_CONTEXT_MENU_MIN_WIDTH = 164
+const ROW_CONTEXT_MENU_ESTIMATED_HEIGHT = 118
+
+function clampRowContextMenuPoint(left: number, top: number, width: number, height: number): RowContextMenuPoint {
+  return {
+    left: Math.min(Math.max(ROW_CONTEXT_MENU_EDGE_GAP, left), Math.max(ROW_CONTEXT_MENU_EDGE_GAP, window.innerWidth - width - ROW_CONTEXT_MENU_EDGE_GAP)),
+    top: Math.min(Math.max(ROW_CONTEXT_MENU_EDGE_GAP, top), Math.max(ROW_CONTEXT_MENU_EDGE_GAP, window.innerHeight - height - ROW_CONTEXT_MENU_EDGE_GAP))
+  }
+}
+
+function sameRowContextMenuPoint(left: RowContextMenuPoint, right: RowContextMenuPoint): boolean {
+  return Math.abs(left.left - right.left) < 0.5 && Math.abs(left.top - right.top) < 0.5
+}
+
+function RowContextMenu({
+  pinned,
+  onTogglePin,
+  onArchive,
+  onRemove
+}: {
+  pinned: boolean
+  onTogglePin: () => void
+  onArchive: () => void
+  onRemove: () => void
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [menuPoint, setMenuPoint] = useState<RowContextMenuPoint | null>(null)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  const close = (): void => setOpen(false)
+  const openMenu = (trigger: HTMLButtonElement): void => {
+    const rect = trigger.getBoundingClientRect()
+    setMenuPoint(
+      clampRowContextMenuPoint(
+        rect.right - ROW_CONTEXT_MENU_MIN_WIDTH,
+        rect.bottom + 6,
+        ROW_CONTEXT_MENU_MIN_WIDTH,
+        ROW_CONTEXT_MENU_ESTIMATED_HEIGHT
+      )
+    )
+    setOpen(true)
+  }
+  const run = (action: () => void): void => {
+    close()
+    action()
+  }
+
+  useLayoutEffect(() => {
+    if (!open || !menuPoint) return
+    const rect = menuRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const nextPoint = clampRowContextMenuPoint(menuPoint.left, menuPoint.top, rect.width, rect.height)
+    setMenuPoint((current) => {
+      if (!current) return nextPoint
+      if (sameRowContextMenuPoint(current, nextPoint)) return current
+      return nextPoint
+    })
+  }, [menuPoint, open])
+
+  useEffect(() => {
+    if (!open) return
+
+    const closeMenu = (): void => setOpen(false)
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (wrapRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      closeMenu()
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeMenu()
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown, true)
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true)
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
+    }
+  }, [open])
+
+  return (
+    <div ref={wrapRef} className={`row-context-menu${open ? ' is-open' : ''}`}>
+      <button
+        type="button"
+        className="row-context-menu-trigger"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={t('sidebar.rowActions')}
+        title={t('sidebar.rowActions')}
+        onClick={(event) => {
+          event.stopPropagation()
+          if (open) close()
+          else openMenu(event.currentTarget)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            close()
+          }
+        }}
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      {open && menuPoint ? createPortal(
+        <div
+          ref={menuRef}
+          className="row-context-menu-dropdown"
+          role="menu"
+          style={{ left: menuPoint.left, top: menuPoint.top, minWidth: ROW_CONTEXT_MENU_MIN_WIDTH }}
+          onMouseDown={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+        >
+          <button type="button" role="menuitem" className="row-context-menu-item" onClick={() => run(onTogglePin)}>
+            {pinned ? <PinOff size={13} /> : <Pin size={13} />}
+            <span>{pinned ? t('sidebar.unpin') : t('sidebar.pin')}</span>
+          </button>
+          <button type="button" role="menuitem" className="row-context-menu-item" onClick={() => run(onArchive)}>
+            <Archive size={13} />
+            <span>{t('sidebar.archive')}</span>
+          </button>
+          <div className="row-context-menu-separator" role="separator" />
+          <button type="button" role="menuitem" className="row-context-menu-item is-danger" onClick={() => run(onRemove)}>
+            <Trash2 size={13} />
+            <span>{t('sidebar.remove')}</span>
+          </button>
+        </div>,
+        document.body
       ) : null}
     </div>
   )
@@ -1664,28 +1931,53 @@ function WorkspaceTree({
 function ConversationListRow({
   conversation,
   isActiveConversation,
-  onOpen
+  onOpen,
+  onEnsureSelected
 }: {
   conversation: AgentConversationSummary
   isActiveConversation: boolean
   onOpen: () => void
+  onEnsureSelected: () => Promise<void>
 }) {
   const { t } = useTranslation()
+  const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
+  const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
+
+  const handlePin = async (): Promise<void> => {
+    await onEnsureSelected()
+    void setWorkspaceItemMeta({ relativePath: conversation.relativePath, pinned: !conversation.pinned })
+  }
+  const handleArchive = async (): Promise<void> => {
+    await onEnsureSelected()
+    void setWorkspaceItemMeta({ relativePath: conversation.relativePath, archived: true })
+  }
+  const handleRemove = async (): Promise<void> => {
+    if (!window.confirm(t('sidebar.confirmRemove', { name: conversation.title }))) return
+    await onEnsureSelected()
+    void removeWorkspaceItem({ relativePath: conversation.relativePath, kind: 'conversation' })
+  }
+
   return (
-    <button
-      type="button"
+    <div
       className={`workspace-conversation-row ${isActiveConversation ? 'is-selected' : ''}`}
       title={conversation.absolutePath}
-      onClick={onOpen}
     >
-      <MessageSquare size={13} />
-      <span className="workspace-conversation-body">
-        <span className="workspace-conversation-title">{conversation.title}</span>
-        <span className="workspace-conversation-meta">
-          {t('sidebar.messageCount', { count: conversation.messageCount })}
+      <button type="button" className="workspace-conversation-main" onClick={onOpen}>
+        {conversation.pinned ? <Pin size={11} className="row-pin-indicator" /> : <MessageSquare size={13} />}
+        <span className="workspace-conversation-body">
+          <span className="workspace-conversation-title">{conversation.title}</span>
+          <span className="workspace-conversation-meta">
+            {t('sidebar.messageCount', { count: conversation.messageCount })}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+      <RowContextMenu
+        pinned={!!conversation.pinned}
+        onTogglePin={() => void handlePin()}
+        onArchive={() => void handleArchive()}
+        onRemove={() => void handleRemove()}
+      />
+    </div>
   )
 }
 
@@ -1715,6 +2007,8 @@ function WorkspaceFileNodeRow({
   onOpenConversation: (conversationId: string) => void
 }) {
   const { t } = useTranslation()
+  const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
+  const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
   const isDirectory = node.kind === 'directory'
   const isExpanded = expandedPaths.has(node.relativePath)
   const lesson = (workspace.lessons ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
@@ -1723,6 +2017,8 @@ function WorkspaceFileNodeRow({
     (lesson && lesson.absolutePath === selectedLessonPath) ||
     (conversation && conversation.id === activeConversationId)
   )
+  const itemKind: WorkspaceItemKind = conversation ? 'conversation' : isDirectory ? 'directory' : 'file'
+  const itemLabel = conversation?.title ?? lesson?.title ?? node.name
   const Icon = isDirectory
     ? isExpanded
       ? FolderOpen
@@ -1748,6 +2044,20 @@ function WorkspaceFileNodeRow({
     onOpenPath(node.absolutePath)
   }
 
+  const handlePin = async (): Promise<void> => {
+    await onEnsureWorkspaceSelected()
+    void setWorkspaceItemMeta({ relativePath: node.relativePath, pinned: !node.pinned })
+  }
+  const handleArchive = async (): Promise<void> => {
+    await onEnsureWorkspaceSelected()
+    void setWorkspaceItemMeta({ relativePath: node.relativePath, archived: true })
+  }
+  const handleRemove = async (): Promise<void> => {
+    if (!window.confirm(t('sidebar.confirmRemove', { name: itemLabel }))) return
+    await onEnsureWorkspaceSelected()
+    void removeWorkspaceItem({ relativePath: node.relativePath, kind: itemKind })
+  }
+
   return (
     <div className="workspace-node">
       <div
@@ -1769,8 +2079,15 @@ function WorkspaceFileNodeRow({
         )}
         <button className="workspace-node-button" type="button" title={node.absolutePath} onClick={() => void handleOpen()}>
           <Icon size={13} />
+          {node.pinned ? <Pin size={10} className="row-pin-indicator" /> : null}
           <span className="collapsible-label">{conversation?.title ?? lesson?.sessionName ?? node.name}</span>
         </button>
+        <RowContextMenu
+          pinned={!!node.pinned}
+          onTogglePin={() => void handlePin()}
+          onArchive={() => void handleArchive()}
+          onRemove={() => void handleRemove()}
+        />
       </div>
       {isDirectory && isExpanded && node.children?.length ? (
         <div className="workspace-node-children">
@@ -1979,13 +2296,20 @@ function ProjectFolderPicker() {
 function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
   const { t } = useTranslation()
   const root = workspaceRoot.trim()
+  const {
+    gitBranchesRoot,
+    gitBranchesResult,
+    gitBranchesLoading,
+    loadGitBranches,
+    setGitBranchesResult
+  } = useAppStore()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [result, setResult] = useState<TeachingGitBranchesResult | null>(null)
-  const [loading, setLoading] = useState(false)
   const [acting, setActing] = useState<string | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const result = gitBranchesRoot === root ? gitBranchesResult : null
+  const loading = gitBranchesRoot === root ? gitBranchesLoading : false
 
   // Reload branches whenever the workspace changes (incl. right after an
   // import/select switches the active workspace) and on mount. The cancel
@@ -1994,40 +2318,15 @@ function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
     setOpen(false)
     setQuery('')
     setActing(null)
-    if (!root) {
-      setResult(null)
-      setLoading(false)
-      return
-    }
-    const api = window.teachingSystem
-    if (!api) return
-    let cancelled = false
-    setLoading(true)
-    api
-      .listGitBranches(root)
-      .then((next) => {
-        if (!cancelled) setResult(next)
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [root])
+    void loadGitBranches(root)
+  }, [loadGitBranches, root])
 
   // Refresh + focus when the dropdown opens.
   useEffect(() => {
     if (!open || !root) return
-    const api = window.teachingSystem
-    if (!api) return
-    setLoading(true)
-    api
-      .listGitBranches(root)
-      .then(setResult)
-      .finally(() => setLoading(false))
+    void loadGitBranches(root, { force: true })
     window.setTimeout(() => inputRef.current?.focus(), 0)
-  }, [open, root])
+  }, [loadGitBranches, open, root])
 
   usePickerOutsideClose(open, wrapRef, setOpen)
 
@@ -2048,7 +2347,7 @@ function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
 
   const label = !root
     ? t('overview.gitNoWorkspace')
-    : !result || loading
+    : !result
       ? t('overview.gitLoading')
       : result?.ok
         ? (currentBranch ?? t('overview.gitDetached'))
@@ -2057,6 +2356,7 @@ function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
           : result?.reason === 'git_unavailable'
             ? t('overview.gitUnavailable')
             : t('overview.gitError')
+  const triggerLoading = loading && !result
 
   const switchBranch = async (branch: string): Promise<void> => {
     const api = window.teachingSystem
@@ -2064,7 +2364,7 @@ function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
     setActing(branch)
     try {
       const next = await api.switchGitBranch({ workspaceRoot: root, branch })
-      setResult(next)
+      setGitBranchesResult(root, next)
       if (next.ok) {
         setOpen(false)
         setQuery('')
@@ -2081,7 +2381,7 @@ function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
     setActing(branch)
     try {
       const next = await api.createGitBranch({ workspaceRoot: root, branch })
-      setResult(next)
+      setGitBranchesResult(root, next)
       if (next.ok) {
         setOpen(false)
         setQuery('')
@@ -2105,7 +2405,7 @@ function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
       >
         <GitBranch size={15} strokeWidth={1.8} />
         <span className="overview-picker-label">{middleEllipsize(label, 32)}</span>
-        {loading ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+        {triggerLoading ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
       </button>
 
       {open ? (
@@ -2387,20 +2687,20 @@ function MainArea() {
     error,
     appState,
     settings,
-    taskPrompt,
+    overviewDialogMode,
+    lessonReaderOpen,
     setView,
     setSidebarCollapsed,
-    setTaskPrompt,
     openSettings,
-    updateSettings,
     pickDefaultRoot,
     initialize,
+    updateSettings,
     createWorkspace,
     importWorkspace,
     updateMission,
     generateLesson,
-    generateLessonStream,
     loadLesson,
+    openLessonLibrary,
     openPath,
     clearError
   } = useAppStore()
@@ -2463,7 +2763,9 @@ function MainArea() {
       )}
 
       {view === 'overview' && (
-        <OverviewLessonComposer active={active} />
+        overviewDialogMode === 'chat'
+          ? <OverviewChat active={active} />
+          : <OverviewLessonComposer active={active} />
       )}
 
       {view === 'agent' && (
@@ -2507,128 +2809,94 @@ function MainArea() {
       )}
 
       {view === 'lessons' && (
-        <section className="composer-tool" aria-label={t('lessons.composerAria')}>
-          <div className="composer-header">
-            <div>
-              <strong>{t('lessons.composerTitle')}</strong>
-            </div>
-            <button className="icon-button soft" type="button" aria-label={t('lessons.modelSettings')} onClick={() => openSettings('model')}>
-              <Command size={16} />
-            </button>
-          </div>
-          <textarea
-            value={taskPrompt}
-            aria-label={t('overview.taskAria')}
-            placeholder={t('lessons.composerPlaceholder')}
-            onChange={(event) => setTaskPrompt(event.target.value)}
-          />
-          <div className="composer-footer">
-            <div className="tool-pills">
-              <button type="button" onClick={() => active && void openPath(active.rootPath)} disabled={!active}>
-                <FolderOpen size={15} />
-                {t('lessons.rootDir')}
-              </button>
-              <button type="button" onClick={() => active && void openPath(active.missionPath)} disabled={!active}>
-                <FileText size={15} />
-                MISSION.md
-              </button>
-              <button
-                className={settings.generator.structuredOutput ? 'is-active' : ''}
-                type="button"
-                onClick={() => void updateSettings({ generator: { structuredOutput: !settings.generator.structuredOutput } })}
-              >
-                <Zap size={15} />
-                structured JSON
-              </button>
-            </div>
-            <button className="send-button" type="button" aria-label={t('lessons.send')} onClick={settings.generator.streaming ? generateLessonStream : generateLesson} disabled={!active || generating}>
-              {generating ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
-            </button>
-          </div>
-        </section>
-      )}
-
-      {view === 'lessons' && (
-      <section className="content-grid">
-        <div className="lesson-column">
-          <div className="section-title-row">
-            <div>
-              <span>{t('lessons.plan')}</span>
-              <h2>{view === 'lessons' ? t('lessons.all') : t('lessons.next')}</h2>
-            </div>
-            <button className="ghost-button" type="button" onClick={() => active && void openPath(active.lessonsDir)} disabled={!active}>
-              <ArrowUpRight size={16} />
-              {t('lessons.openDir')}
-            </button>
-          </div>
-
-          <div className="lesson-list">
-            {lessons.length === 0 ? (
-              <EmptyState
-                icon={BookOpen}
-                title={t('lessons.emptyTitle')}
-                detail={t('lessons.emptyDetail')}
-                action={active ? { label: t('lessons.emptyAction'), onClick: generateLesson } : undefined}
-              />
-            ) : (
-              courses.map((course) => (
-                <section className="course-group" key={course.id}>
-                  <div className="course-group-header">
-                    <div className="course-group-title">
-                      <BookCopy size={16} />
-                      <strong>{course.name}</strong>
-                    </div>
-                    <span>{course.sessionCount} sessions</span>
+        <section className="lesson-course-view" aria-label={t('nav.lessons')}>
+          <div className="lesson-course-stage">
+            {lessonReaderOpen && selectedLesson ? (
+              <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
+                <div className="lesson-reader-toolbar">
+                  <button className="ghost-button lesson-reader-back" type="button" onClick={openLessonLibrary}>
+                    <ChevronLeft size={16} />
+                    {t('lessons.backToCards')}
+                  </button>
+                  <div className="lesson-reader-title">
+                    <h2>{selectedLesson.sessionName || selectedLesson.title}</h2>
+                    <span>{selectedLesson.relativePath}</span>
                   </div>
-                  {course.sessions.map((session) => {
-                    const lesson = session.lesson
-                    const isSelected = lesson.absolutePath === appState.selectedLessonPath
-                    return (
-                      <article className={`lesson-card ${isSelected ? 'is-selected' : ''}`} key={lesson.absolutePath} onClick={() => void loadLesson(lesson)}>
-                        <div className="lesson-id">{lesson.id}</div>
-                        <div className="lesson-icon">
-                          <History size={18} />
+                </div>
+                <div className="lesson-reader-frame-wrap">
+                  <iframe
+                    className="lesson-reader-frame"
+                    title={selectedLesson.title}
+                    sandbox="allow-scripts"
+                    srcDoc={appState.previewHtml}
+                  />
+                </div>
+              </section>
+            ) : (
+              <section className="lesson-course-library" aria-label={t('lessons.libraryTitle')}>
+                <div className="lesson-library-header">
+                  <div>
+                    <span>{active?.missionTitle ?? t('overview.noWorkspace')}</span>
+                    <h2>{t('lessons.libraryTitle')}</h2>
+                  </div>
+                  <button className="ghost-button" type="button" onClick={() => active && void openPath(active.lessonsDir)} disabled={!active}>
+                    <FolderOpen size={16} />
+                    {t('lessons.openDir')}
+                  </button>
+                </div>
+
+                {lessons.length === 0 ? (
+                  <EmptyState
+                    icon={BookOpen}
+                    title={t('lessons.emptyTitle')}
+                    detail={t('lessons.emptyDetail')}
+                    action={active ? { label: t('lessons.emptyAction'), onClick: generateLesson } : undefined}
+                  />
+                ) : (
+                  courses.map((course) => (
+                    <section className="lesson-course-group" key={course.id}>
+                      <div className="lesson-course-group-header">
+                        <div className="lesson-course-group-title">
+                          <BookCopy size={16} />
+                          <strong>{course.name}</strong>
                         </div>
-                        <div className="lesson-body">
-                          <h3>{session.name}</h3>
-                          <p>{t('lessons.duration', { count: lesson.durationMinutes })} · {lesson.relativePath}</p>
-                        </div>
-                        <span className="state-chip">{isSelected ? t('lessons.chipPreviewing') : t('lessons.chipGenerated')}</span>
-                      </article>
-                    )
-                  })}
-                </section>
-              ))
+                        <span className="lesson-session-count">{t('lessons.sessionCount', { count: course.sessionCount })}</span>
+                      </div>
+                      <div className="lesson-card-grid">
+                        {course.sessions.map((session) => {
+                          const lesson = session.lesson
+                          const isSelected = lesson.absolutePath === appState.selectedLessonPath
+                          return (
+                            <button
+                              className={`lesson-course-card${isSelected ? ' is-selected' : ''}`}
+                              key={lesson.absolutePath}
+                              type="button"
+                              onClick={() => void loadLesson(lesson)}
+                            >
+                              <div className="lesson-card-number">{lesson.id}</div>
+                              <div className="lesson-card-content">
+                                <h3>{session.name}</h3>
+                                <p>{lesson.objective || lesson.prompt || lesson.relativePath}</p>
+                              </div>
+                              <div className="lesson-card-footer">
+                                <span className="lesson-card-duration">
+                                  <Clock3 size={12} />
+                                  {t('lessons.duration', { count: lesson.durationMinutes })}
+                                </span>
+                                <span className="lesson-card-course">{lesson.courseName}</span>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  ))
+                )}
+              </section>
             )}
           </div>
-        </div>
-
-        <aside className="preview-panel" aria-label={t('lessons.previewAria')}>
-          <div className="preview-toolbar">
-            <div>
-              <span>{selectedLesson?.relativePath ?? 'lessons/0001-lesson.html'}</span>
-              <strong>{t('lessons.previewTitle')}</strong>
-            </div>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label={t('lessons.openPreview')}
-              onClick={() => appState.selectedLessonPath && void openPath(appState.selectedLessonPath)}
-              disabled={!appState.selectedLessonPath}
-            >
-              <ArrowUpRight size={15} />
-            </button>
-          </div>
-          <div className="lesson-preview">
-            <iframe
-              className="preview-frame"
-              title="Lesson preview"
-              sandbox="allow-scripts"
-              srcDoc={appState.previewHtml}
-            />
-          </div>
-        </aside>
-      </section>
+          <OverviewLessonComposer active={active} className="lesson-bottom-composer" showModeSwitch={false} />
+        </section>
       )}
 
       {view === 'resources' && (
@@ -2731,11 +2999,19 @@ function MainArea() {
 function DialogModeSwitch() {
   const { t } = useTranslation()
   const view = useAppStore((s) => s.view)
+  const overviewDialogMode = useAppStore((s) => s.overviewDialogMode)
+  const setOverviewDialogMode = useAppStore((s) => s.setOverviewDialogMode)
   const setView = useAppStore((s) => s.setView)
-  // 与左侧导航对应：概览 = 教学，对话 = 对话。
-  const mode: DialogMode = view === 'agent' ? 'chat' : 'teaching'
+  const mode: DialogMode = view === 'agent' ? 'chat' : overviewDialogMode
   const handleChange = (next: DialogMode): void => {
-    setView(next === 'chat' ? 'agent' : 'overview')
+    if (view === 'agent') {
+      if (next === 'teaching') {
+        setOverviewDialogMode('teaching')
+        setView('overview')
+      }
+      return
+    }
+    setOverviewDialogMode(next)
   }
   const options: Array<{ id: DialogMode; label: string; icon: LucideIcon }> = [
     { id: 'chat', label: t('overview.mode.chat'), icon: MessageSquare },
@@ -2764,7 +3040,15 @@ function DialogModeSwitch() {
   )
 }
 
-function OverviewLessonComposer({ active }: { active: TeachingWorkspaceSummary | null }) {
+function OverviewLessonComposer({
+  active,
+  className = '',
+  showModeSwitch = true
+}: {
+  active: TeachingWorkspaceSummary | null
+  className?: string
+  showModeSwitch?: boolean
+}) {
   const { t } = useTranslation()
   const {
     taskPrompt,
@@ -2772,10 +3056,7 @@ function OverviewLessonComposer({ active }: { active: TeachingWorkspaceSummary |
     generating,
     settings,
     generateLesson,
-    generateLessonStream,
-    openPath,
-    updateSettings,
-    openSettings
+    generateLessonStream
   } = useAppStore()
   const canSend = Boolean(active && taskPrompt.trim().length > 0 && !generating)
   const onSubmit = (event: FormEvent) => {
@@ -2784,10 +3065,10 @@ function OverviewLessonComposer({ active }: { active: TeachingWorkspaceSummary |
     void (settings.generator.streaming ? generateLessonStream() : generateLesson())
   }
   return (
-    <section className="overview-dialog-shell" aria-label={t('lessons.composerAria')}>
-      <DialogModeSwitch />
+    <section className={`overview-dialog-shell${className ? ` ${className}` : ''}`} aria-label={t('lessons.composerAria')}>
+      {showModeSwitch ? <DialogModeSwitch /> : null}
       <form className="overview-dialog-stack" onSubmit={onSubmit}>
-        <div className="overview-dialog-card overview-dialog-card--composer">
+        <div className="overview-dialog-card">
           <textarea
             value={taskPrompt}
             aria-label={t('overview.taskAria')}
@@ -2802,23 +3083,7 @@ function OverviewLessonComposer({ active }: { active: TeachingWorkspaceSummary |
           />
           <div className="overview-dialog-footer">
             <div className="overview-dialog-actions">
-              <div className="tool-pills">
-                <button type="button" onClick={() => active && void openPath(active.missionPath)} disabled={!active}>
-                  <FileText size={14} />
-                  MISSION.md
-                </button>
-                <button
-                  className={settings.generator.structuredOutput ? 'is-active' : ''}
-                  type="button"
-                  onClick={() => void updateSettings({ generator: { structuredOutput: !settings.generator.structuredOutput } })}
-                >
-                  <Zap size={14} />
-                  structured JSON
-                </button>
-                <button type="button" onClick={() => openSettings('model')} aria-label={t('lessons.modelSettings')}>
-                  <Command size={14} />
-                </button>
-              </div>
+              <OverviewModelPicker />
               <OverviewReasoningPicker />
               <button className="send-button overview-dialog-send" type="submit" aria-label={t('lessons.send')} disabled={!canSend}>
                 {generating ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
@@ -2868,7 +3133,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       className={`overview-dialog-shell${hasConversation ? ' has-conversation' : ''}`}
       aria-label={t('overview.aria')}
     >
-      {hasConversation ? (
+      {hasConversation && (
         <div ref={scrollRef} className="overview-dialog-thread">
           <div className="overview-dialog-thread-inner">
           {agentTurns.map((turn) => {
@@ -2890,7 +3155,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           })}
           </div>
         </div>
-      ) : null}
+      )}
 
       <DialogModeSwitch />
       <form
@@ -3697,6 +3962,12 @@ function SettingsView({
                 <ToggleSwitch
                   checked={settings.tools.enabled}
                   onChange={(enabled) => void onUpdateSettings({ tools: { enabled } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="工作区只读工具" detail="允许 Agent 列出、读取、搜索当前教学工作区文件">
+                <ToggleSwitch
+                  checked={settings.tools.workspaceRead}
+                  onChange={(workspaceRead) => void onUpdateSettings({ tools: { workspaceRead } } as TeachingSettingsPatch)}
                 />
               </SettingsRow>
               <SettingsRow label="web_search（DuckDuckGo）" detail="免费、无需 API Key；检索最新或课程外信息">

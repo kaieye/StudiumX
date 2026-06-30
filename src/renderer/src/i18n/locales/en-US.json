@@ -8,8 +8,9 @@
     "choose": "Choose"
   },
   "nav": {
-    "overview": "Overview",
+    "overview": "New chat",
     "agent": "Chat",
+    "lessons": "Lessons",
     "resources": "Resources"
   },
   "sidebar": {
@@ -18,6 +19,10 @@
     "newWorkspace": "New workspace",
     "expandFolder": "Expand folder",
     "collapseFolder": "Collapse folder",
+    "courses": "Courses",
+    "expandCourses": "Expand courses",
+    "collapseCourses": "Collapse courses",
+    "emptyCourses": "No courses",
     "lessonsCount": "{{count}} lessons",
     "notifications": "Notifications",
     "settings": "Settings",
@@ -25,8 +30,16 @@
     "notificationCenterOn": "Notification settings opened.",
     "notificationCenterOff": "Notifications are off — re-enable them here.",
     "conversations": "Conversations",
+    "expandConversations": "Expand conversations",
+    "collapseConversations": "Collapse conversations",
     "emptyConversations": "No conversations",
-    "messageCount": "{{count}} messages"
+    "messageCount": "{{count}} messages",
+    "rowActions": "More actions",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "archive": "Archive",
+    "remove": "Delete",
+    "confirmRemove": "Delete \"{{name}}\"?"
   },
   "sidebarResizer": {
     "aria": "Resize sidebar"
@@ -95,6 +108,9 @@
     "emptyTitle": "No lessons yet",
     "emptyDetail": "Enter a teaching task above and click generate to create a reviewable HTML lesson.",
     "emptyAction": "Generate lesson",
+    "libraryTitle": "Courses",
+    "backToCards": "Back to courses",
+    "sessionCount": "{{count}} sessions",
     "duration": "{{count}} min",
     "chipPreviewing": "Previewing",
     "chipGenerated": "Generated",

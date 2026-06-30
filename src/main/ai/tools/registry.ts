@@ -2,10 +2,12 @@ import type { ToolDefinition } from '../provider-adapter'
 import type { TeachingSettingsV1 } from '../../../shared/teaching-types'
 import { webSearchTool } from './web_search'
 import { webFetchTool } from './web_fetch'
+import { workspaceTools } from './workspace'
 
 export type ToolContext = {
   settings: TeachingSettingsV1
   proxyUrl: string
+  workspaceRoot?: string
 }
 
 /** A tool handler with its ToolContext already bound (ctx curried in). */
@@ -38,13 +40,23 @@ export class ToolRegistry {
   }
 }
 
-export function buildToolContext(settings: TeachingSettingsV1): ToolContext {
+export function buildToolContext(
+  settings: TeachingSettingsV1,
+  options: { workspaceRoot?: string | null } = {}
+): ToolContext {
   const proxyUrl = settings.provider.proxy.enabled ? settings.provider.proxy.url.trim() : ''
-  return { settings, proxyUrl }
+  const workspaceRoot = options.workspaceRoot?.trim() || undefined
+  return { settings, proxyUrl, workspaceRoot }
 }
 
-export function buildDefaultRegistry(settings: TeachingSettingsV1): ToolRegistry {
+export function buildDefaultRegistry(
+  settings: TeachingSettingsV1,
+  options: { workspaceRoot?: string | null } = {}
+): ToolRegistry {
   const registry = new ToolRegistry()
+  if (settings.tools.workspaceRead && options.workspaceRoot) {
+    for (const tool of workspaceTools) registry.register(tool)
+  }
   if (settings.tools.webSearch) registry.register(webSearchTool)
   if (settings.tools.webFetch) registry.register(webFetchTool)
   return registry
