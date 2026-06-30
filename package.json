@@ -11,9 +11,13 @@
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
+    "i18next": "^26.3.3",
     "lucide-react": "^1.21.0",
+    "proxy-agent": "^6.5.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-i18next": "^17.0.8",
+    "zod": "^3.25.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

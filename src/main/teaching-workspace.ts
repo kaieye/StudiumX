@@ -2,15 +2,34 @@ import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { defaultSettings } from './teaching-settings'
+import { callProvider, streamProvider, resolveActiveProvider, ProviderAdapterError, type AdapterCallbacks } from './ai/provider-adapter'
+import { buildLessonSystemPrompt, buildLessonUserPrompt } from './ai/lesson-prompts'
+import {
+  renderLessonHtmlFromPlan,
+  renderReferenceHtmlFromPlan,
+  renderLearningRecordFromPlan
+} from './ai/lesson-renderer'
+import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
 import type {
   CreateWorkspacePayload,
   GenerateLessonPayload,
   GenerateLessonResult,
+  GenerateLessonStreamPayload,
+  GetProgressResult,
+  LessonStreamChunk,
+  LessonStreamStatus,
   LessonSummary,
+  ListReviewCardsResult,
+  ProgressSummary,
+  QuizResultEntry,
   ReadLessonPayload,
+  RecordProgressPayload,
   ResourceSummary,
+  ReviewCard,
   TeachingAppState,
   TeachingRuntimeState,
+  TeachingSettingsV1,
   TeachingWorkspaceSummary,
   UpdateMissionPayload
 } from '../shared/teaching-types'
@@ -44,6 +63,7 @@ type SessionEvent = {
   workspaceId: string
   prompt?: string
   paths?: string[]
+  meta?: { source?: LessonPlanSource; reason?: string; model?: string }
 }
 
 const DEFAULT_RUNTIME: TeachingRuntimeState = {
@@ -61,10 +81,16 @@ const EMPTY_REGISTRY: WorkspaceRegistry = {
 export class TeachingWorkspaceService {
   private readonly registryPath: string
   private readonly defaultRoot: string
+  private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
 
-  constructor(options: { registryPath: string; defaultRoot: string }) {
+  constructor(options: {
+    registryPath: string
+    defaultRoot: string
+    settingsProvider?: () => Promise<TeachingSettingsV1>
+  }) {
     this.registryPath = options.registryPath
     this.defaultRoot = options.defaultRoot
+    this.settingsProvider = options.settingsProvider
   }
 
   async getState(options: {
@@ -151,6 +177,33 @@ export class TeachingWorkspaceService {
   }
 
   async generateLesson(payload: GenerateLessonPayload): Promise<GenerateLessonResult> {
+    return this.runLessonGeneration(payload, null)
+  }
+
+  async generateLessonStream(
+    payload: GenerateLessonStreamPayload,
+    stream: {
+      streamId: string
+      onChunk: (chunk: LessonStreamChunk) => void
+      onStatus: (status: LessonStreamStatus) => void
+    }
+  ): Promise<{ state: TeachingAppState; lesson: LessonSummary; source: LessonPlanSource; reason?: string }> {
+    return this.runLessonGeneration(payload, stream)
+  }
+
+  /**
+   * Shared generation core for both the non-streaming and streaming IPC paths.
+   * Calls the configured provider, validates the structured plan with Zod, and
+   * falls back to a local plan on any failure — generation never hard-fails.
+   */
+  private async runLessonGeneration(
+    payload: GenerateLessonPayload,
+    stream: {
+      streamId: string
+      onChunk: (chunk: LessonStreamChunk) => void
+      onStatus: (status: LessonStreamStatus) => void
+    } | null
+  ): Promise<GenerateLessonResult> {
     const prompt = cleanText(payload.prompt)
     if (!prompt) throw new Error('Lesson prompt is required.')
 
@@ -158,20 +211,48 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     await this.ensureWorkspaceStructure(workspace)
 
+    const settings = await this.loadSettings()
     const now = new Date().toISOString()
     const index = await this.loadWorkspaceIndex(workspace)
     const sequence = await this.nextLessonNumber(workspace.rootPath, index.lessons)
     const lessonId = String(sequence).padStart(4, '0')
     const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
-    const title = sequence === 1 ? '写出可执行的学习使命' : deriveLessonTitle(prompt, sequence)
-    const objective = `把「${deriveTopic(prompt, mission.title)}」压缩成一次可保存、可复习的学习动作。`
+
+    const callbacks: AdapterCallbacks = {
+      onToken: (delta) => {
+        if (stream) stream.onChunk({ streamId: stream.streamId, delta })
+      },
+      onStatus: (step) => {
+        if (stream) stream.onStatus({ streamId: stream.streamId, step })
+      }
+    }
+
+    const { plan, source, reason } = await this.produceLessonPlan({
+      workspace,
+      mission,
+      prompt,
+      settings,
+      sequence,
+      callbacks
+    })
+
+    const title = clampTitle(plan.title)
+    const objective = cleanText(plan.objective) || `把「${deriveTopic(prompt, mission.title)}」压缩成一次可保存、可复习的学习动作。`
     const filename = `${lessonId}-${slugify(title, 'lesson')}.html`
     const relativePath = workspaceRelativePath('lessons', filename)
     const absolutePath = join(workspace.rootPath, 'lessons', filename)
-    const referenceRelativePath = workspaceRelativePath('reference', `${lessonId}-${slugify(title, 'reference')}.html`)
-    const referenceAbsolutePath = join(workspace.rootPath, 'reference', `${lessonId}-${slugify(title, 'reference')}.html`)
-    const recordRelativePath = workspaceRelativePath('learning-records', `${lessonId}-${slugify(title, 'lesson')}.md`)
-    const recordAbsolutePath = join(workspace.rootPath, 'learning-records', `${lessonId}-${slugify(title, 'lesson')}.md`)
+    const referenceRelativePath = settings.generator.generateReference
+      ? workspaceRelativePath('reference', `${lessonId}-${slugify(title, 'reference')}.html`)
+      : null
+    const referenceAbsolutePath = referenceRelativePath ? join(workspace.rootPath, referenceRelativePath) : null
+    const recordRelativePath = settings.generator.generateLearningRecord
+      ? workspaceRelativePath('learning-records', `${lessonId}-${slugify(title, 'lesson')}.md`)
+      : null
+    const recordAbsolutePath = recordRelativePath ? join(workspace.rootPath, recordRelativePath) : null
+    const reviewsRelativePath = plan.flashcards.length
+      ? workspaceRelativePath('reviews', `${lessonId}-${slugify(title, 'flashcards')}.json`)
+      : null
+    const reviewsAbsolutePath = reviewsRelativePath ? join(workspace.rootPath, reviewsRelativePath) : null
 
     const lesson: LessonSummary = {
       id: lessonId,
@@ -179,21 +260,25 @@ export class TeachingWorkspaceService {
       objective,
       prompt,
       createdAt: now,
-      durationMinutes: sequence === 1 ? 12 : 15,
+      durationMinutes: plan.durationMinutes || settings.generator.lessonDurationMinutes,
       relativePath,
       absolutePath
     }
 
-    await mkdir(dirname(absolutePath), { recursive: true })
-    await mkdir(dirname(referenceAbsolutePath), { recursive: true })
-    await mkdir(dirname(recordAbsolutePath), { recursive: true })
-    await writeFile(
-      absolutePath,
-      renderLessonHtml({ lesson, mission, workspaceName: workspace.name, recordRelativePath, referenceRelativePath }),
-      'utf8'
-    )
-    await writeFile(referenceAbsolutePath, renderReferenceHtml({ lesson, mission, workspaceName: workspace.name }), 'utf8')
-    await writeFile(recordAbsolutePath, renderLearningRecord({ lesson, mission }), 'utf8')
+    if (stream) stream.onStatus({ streamId: stream.streamId, step: 'rendering' })
+    await this.writeLessonArtifacts({
+      plan,
+      lesson,
+      mission,
+      workspaceName: workspace.name,
+      recordRelativePath,
+      recordAbsolutePath,
+      referenceRelativePath,
+      referenceAbsolutePath,
+      reviewsRelativePath,
+      reviewsAbsolutePath,
+      generator: settings.generator
+    })
 
     await this.saveWorkspaceIndex(workspace.rootPath, {
       ...index,
@@ -206,14 +291,200 @@ export class TeachingWorkspaceService {
       timestamp: now,
       workspaceId: workspace.id,
       prompt,
-      paths: [relativePath, referenceRelativePath, recordRelativePath]
+      paths: [relativePath, referenceRelativePath, recordRelativePath, reviewsRelativePath].filter((path): path is string => Boolean(path)),
+      meta: { source, reason, model: settings.generator.model || undefined }
     })
 
     const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
     await this.saveRegistry(nextRegistry)
+    if (stream) stream.onStatus({ streamId: stream.streamId, step: 'done' })
     return {
       state: await this.buildState(nextRegistry, workspace.id, absolutePath),
-      lesson
+      lesson,
+      source,
+      reason
+    }
+  }
+
+  /**
+   * Produce a validated LessonPlan. Tries the AI provider; on any failure
+   * (no key, network error, bad JSON, schema rejection) returns a local
+   * fallback plan with source='fallback'. Never throws.
+   */
+  private async produceLessonPlan(opts: {
+    workspace: RegistryWorkspace
+    mission: { title: string; excerpt: string }
+    prompt: string
+    settings: TeachingSettingsV1
+    sequence: number
+    callbacks: AdapterCallbacks
+  }): Promise<{ plan: LessonPlan; source: LessonPlanSource; reason?: string }> {
+    const { workspace, mission, prompt, settings, sequence, callbacks } = opts
+    const provider = resolveActiveProvider(settings)
+
+    if (!provider || !provider.apiKey.trim()) {
+      return { plan: localFallbackPlan(prompt, mission, sequence, settings), source: 'fallback', reason: '未配置 API Key' }
+    }
+
+    const systemPrompt = buildLessonSystemPrompt({
+      missionTitle: mission.title,
+      missionExcerpt: mission.excerpt,
+      durationMinutes: settings.generator.lessonDurationMinutes,
+      includeRetrievalPractice: settings.generator.includeRetrievalPractice,
+      generateReference: settings.generator.generateReference,
+      generateLearningRecord: settings.generator.generateLearningRecord,
+      generator: settings.generator
+    })
+    const userPrompt = buildLessonUserPrompt({ prompt, sequence, missionTitle: mission.title })
+
+    try {
+      const result = settings.generator.streaming
+        ? await streamProvider({ settings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
+        : await callProvider({ settings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
+      callbacks.onStatus?.('validating')
+      const plan = parsePlan(result.text)
+      if (!plan) {
+        return { plan: localFallbackPlan(prompt, mission, sequence, settings), source: 'fallback', reason: 'AI 输出未通过结构校验' }
+      }
+      return { plan, source: 'ai' }
+    } catch (error) {
+      const reason = error instanceof ProviderAdapterError ? adapterReason(error) : (error instanceof Error ? error.message : '未知错误')
+      console.warn(`[TeachOS] Lesson generation fell back to local generator: ${reason}`)
+      return { plan: localFallbackPlan(prompt, mission, sequence, settings), source: 'fallback', reason }
+    }
+  }
+
+  private async writeLessonArtifacts(opts: {
+    plan: LessonPlan
+    lesson: LessonSummary
+    mission: { title: string; excerpt: string }
+    workspaceName: string
+    recordRelativePath: string | null
+    recordAbsolutePath: string | null
+    referenceRelativePath: string | null
+    referenceAbsolutePath: string | null
+    reviewsRelativePath: string | null
+    reviewsAbsolutePath: string | null
+    generator: TeachingSettingsV1['generator']
+  }): Promise<void> {
+    const {
+      plan, lesson, mission, workspaceName,
+      recordRelativePath, recordAbsolutePath,
+      referenceRelativePath, referenceAbsolutePath,
+      reviewsRelativePath, reviewsAbsolutePath,
+      generator
+    } = opts
+
+    await mkdir(dirname(lesson.absolutePath), { recursive: true })
+    if (referenceAbsolutePath) await mkdir(dirname(referenceAbsolutePath), { recursive: true })
+    if (recordAbsolutePath) await mkdir(dirname(recordAbsolutePath), { recursive: true })
+    if (reviewsAbsolutePath) await mkdir(dirname(reviewsAbsolutePath), { recursive: true })
+
+    await writeFile(
+      lesson.absolutePath,
+      renderLessonHtmlFromPlan({ plan, lesson, mission, workspaceName, recordRelativePath, referenceRelativePath, generator }),
+      'utf8'
+    )
+    if (referenceAbsolutePath) {
+      await writeFile(referenceAbsolutePath, renderReferenceHtmlFromPlan({ plan, lesson, mission, workspaceName }), 'utf8')
+    }
+    if (recordAbsolutePath) {
+      await writeFile(recordAbsolutePath, renderLearningRecordFromPlan({ plan, lesson, mission }), 'utf8')
+    }
+    if (reviewsAbsolutePath && plan.flashcards.length) {
+      await writeFile(
+        reviewsAbsolutePath,
+        `${JSON.stringify({
+          lessonId: lesson.id,
+          lessonTitle: lesson.title,
+          relativePath: reviewsRelativePath,
+          cards: plan.flashcards
+        }, null, 2)}\n`,
+        'utf8'
+      )
+    }
+  }
+
+  /**
+   * Aggregate flashcards from every lesson's review file (and from lesson
+   * metadata) for the review deck.
+   */
+  async listReviewCards(workspaceId: string): Promise<ListReviewCardsResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, workspaceId)
+    const dir = join(workspace.rootPath, 'reviews')
+    const files = await readdir(dir).catch(() => [])
+    const cards: ReviewCard[] = []
+    for (const file of files) {
+      if (!file.toLowerCase().endsWith('.json')) continue
+      const content = await readFile(join(dir, file), 'utf8').catch(() => '')
+      const parsed = safeJsonParse(content)
+      if (!parsed || typeof parsed !== 'object') continue
+      const lessonId = String((parsed as { lessonId?: unknown }).lessonId ?? '')
+      const lessonTitle = String((parsed as { lessonTitle?: unknown }).lessonTitle ?? '')
+      const cardList = (parsed as { cards?: unknown }).cards
+      if (!Array.isArray(cardList)) continue
+      for (const item of cardList) {
+        const front = String((item as { front?: unknown }).front ?? '')
+        const back = String((item as { back?: unknown }).back ?? '')
+        if (front && back) cards.push({ lessonId, lessonTitle, front, back })
+      }
+    }
+    return { cards }
+  }
+
+  async recordProgress(payload: RecordProgressPayload): Promise<GetProgressResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const progressPath = join(workspace.rootPath, '.teachos', 'progress.json')
+    const existing = await this.readProgressFile(progressPath)
+    const byLesson = { ...existing.byLesson }
+    const lessonKey = payload.lessonId
+    const prev = byLesson[lessonKey] ?? { answered: 0, correct: 0 }
+    const merged = {
+      answered: prev.answered + payload.results.length,
+      correct: prev.correct + payload.results.filter((r) => r.correct).length
+    }
+    byLesson[lessonKey] = merged
+    const summary: ProgressSummary = {
+      totalAnswered: Object.values(byLesson).reduce((sum, entry) => sum + entry.answered, 0),
+      correct: Object.values(byLesson).reduce((sum, entry) => sum + entry.correct, 0),
+      byLesson
+    }
+    await atomicWriteFile(progressPath, `${JSON.stringify(summary, null, 2)}\n`)
+    return { workspaceId: workspace.id, progress: summary }
+  }
+
+  async getProgress(workspaceId: string): Promise<GetProgressResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, workspaceId)
+    const progressPath = join(workspace.rootPath, '.teachos', 'progress.json')
+    const progress = await this.readProgressFile(progressPath)
+    return { workspaceId: workspace.id, progress }
+  }
+
+  private async readProgressFile(progressPath: string): Promise<ProgressSummary> {
+    const content = await readFile(progressPath, 'utf8').catch(() => '')
+    const parsed = safeJsonParse(content)
+    if (!parsed || typeof parsed !== 'object') {
+      return { totalAnswered: 0, correct: 0, byLesson: {} }
+    }
+    const byLessonRaw = (parsed as { byLesson?: unknown }).byLesson
+    const byLesson: ProgressSummary['byLesson'] = {}
+    if (byLessonRaw && typeof byLessonRaw === 'object') {
+      for (const [key, value] of Object.entries(byLessonRaw as Record<string, unknown>)) {
+        if (value && typeof value === 'object') {
+          byLesson[key] = {
+            answered: Number((value as { answered?: unknown }).answered ?? 0) || 0,
+            correct: Number((value as { correct?: unknown }).correct ?? 0) || 0
+          }
+        }
+      }
+    }
+    return {
+      totalAnswered: Number((parsed as { totalAnswered?: unknown }).totalAnswered ?? 0) || 0,
+      correct: Number((parsed as { correct?: unknown }).correct ?? 0) || 0,
+      byLesson
     }
   }
 
@@ -267,13 +538,14 @@ export class TeachingWorkspaceService {
         : activeWorkspace
           ? renderEmptyPreview(activeWorkspace)
           : ''
+    const runtime = await this.runtimeState()
 
     return {
       workspaces: summaries,
       activeWorkspace,
       previewHtml,
       selectedLessonPath: lessonPath,
-      runtime: DEFAULT_RUNTIME
+      runtime
     }
   }
 
@@ -289,6 +561,12 @@ export class TeachingWorkspaceService {
       id: workspace.id,
       name: workspace.name,
       rootPath: workspace.rootPath,
+      missionPath: join(workspace.rootPath, 'MISSION.md'),
+      resourcesPath: join(workspace.rootPath, 'RESOURCES.md'),
+      lessonsDir: join(workspace.rootPath, 'lessons'),
+      recordsDir: join(workspace.rootPath, 'learning-records'),
+      referenceDir: join(workspace.rootPath, 'reference'),
+      reviewsDir: join(workspace.rootPath, 'reviews'),
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
       missionTitle: mission.title,
@@ -345,11 +623,14 @@ export class TeachingWorkspaceService {
       mkdir(join(workspace.rootPath, 'lessons'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'reference'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'learning-records'), { recursive: true }),
+      mkdir(join(workspace.rootPath, 'reviews'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'assets'), { recursive: true }),
       mkdir(join(workspace.rootPath, '.teachos'), { recursive: true })
     ])
     await writeIfMissing(join(workspace.rootPath, 'assets', 'lesson.css'), LESSON_CSS)
     await writeIfMissing(join(workspace.rootPath, 'assets', 'quiz.js'), QUIZ_JS)
+    await writeIfMissing(join(workspace.rootPath, 'assets', 'flashcards.css'), FLASHCARD_CSS)
+    await writeIfMissing(join(workspace.rootPath, 'assets', 'flashcards.js'), FLASHCARD_JS)
     await writeIfMissing(join(workspace.rootPath, 'RESOURCES.md'), renderResources(workspace.name))
     await writeIfMissing(join(workspace.rootPath, 'MISSION.md'), renderMission(workspace.name, `学习 ${workspace.name}`))
   }
@@ -422,15 +703,45 @@ export class TeachingWorkspaceService {
   }
 
   private async nextWorkspacePath(name: string): Promise<string> {
-    await mkdir(this.defaultRoot, { recursive: true })
+    const defaultRoot = await this.resolveDefaultRoot()
+    await mkdir(defaultRoot, { recursive: true })
     const base = slugify(name, 'workspace')
-    let candidate = join(this.defaultRoot, base)
+    let candidate = join(defaultRoot, base)
     let suffix = 2
     while (await directoryExists(candidate)) {
-      candidate = join(this.defaultRoot, `${base}-${suffix}`)
+      candidate = join(defaultRoot, `${base}-${suffix}`)
       suffix += 1
     }
     return candidate
+  }
+
+  private async resolveDefaultRoot(): Promise<string> {
+    try {
+      return (await this.loadSettings()).workspace.defaultRoot || this.defaultRoot
+    } catch {
+      return this.defaultRoot
+    }
+  }
+
+  private async loadSettings(): Promise<TeachingSettingsV1> {
+    if (this.settingsProvider) return this.settingsProvider()
+    return defaultSettings(this.defaultRoot)
+  }
+
+  private async runtimeState(): Promise<TeachingRuntimeState> {
+    try {
+      const settings = await this.loadSettings()
+      const provider =
+        settings.provider.providers.find((item) => item.id === settings.generator.providerId) ??
+        settings.provider.providers.find((item) => item.id === settings.provider.activeProviderId)
+      const modelLabel = settings.generator.model || 'auto'
+      return {
+        ...DEFAULT_RUNTIME,
+        providerLabel: `${provider?.name ?? 'Model provider'} · ${modelLabel}`
+      }
+    } catch {
+      return DEFAULT_RUNTIME
+    }
   }
 
   private async nextLessonNumber(rootPath: string, lessons: LessonSummary[]): Promise<number> {
@@ -616,6 +927,124 @@ function deriveLessonTitle(prompt: string, sequence: number): string {
   return topic.length > 18 ? `${topic.slice(0, 18)}...` : topic
 }
 
+function clampTitle(value: string): string {
+  const trimmed = cleanText(value)
+  if (!trimmed) return '学习任务'
+  return trimmed.length > 48 ? `${trimmed.slice(0, 48)}...` : trimmed
+}
+
+function adapterReason(error: ProviderAdapterError): string {
+  switch (error.kind) {
+    case 'no_api_key':
+      return '未配置 API Key'
+    case 'network':
+      return '网络错误'
+    case 'http':
+      return `Provider 错误：${error.message}`
+    case 'parse':
+      return '响应解析失败'
+    case 'timeout':
+      return '请求超时'
+    case 'unsupported':
+      return '不支持的 endpoint 格式'
+    default:
+      return error.message
+  }
+}
+
+/**
+ * Parse + Zod-validate the model's text into a LessonPlan. Strips markdown
+ * fences and extracts the outermost JSON object if the model wrapped it in
+ * prose. Returns null on any failure (caller falls back to local plan).
+ */
+function parsePlan(text: string): LessonPlan | null {
+  const raw = extractJsonText(text)
+  if (!raw) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  const result = lessonPlanSchema.safeParse(parsed)
+  if (!result.success) {
+    console.warn('[TeachOS] Lesson plan schema validation failed:', result.error.issues[0]?.message)
+    return null
+  }
+  return sanitizePlan(result.data)
+}
+
+function extractJsonText(text: string): string {
+  const trimmed = text.trim()
+  // Strip ```json ... ``` fences
+  const fenceMatch = /^```(?:json)?\s*([\s\S]*?)```$/i.exec(trimmed)
+  if (fenceMatch) return fenceMatch[1]!.trim()
+  // If it starts with { assume pure JSON
+  if (trimmed.startsWith('{')) return trimmed
+  // Otherwise extract the last balanced { ... } block
+  const start = trimmed.lastIndexOf('{')
+  const end = trimmed.indexOf('}', start)
+  if (start >= 0 && end > start) {
+    // Greedy: take from first { to last }
+    const first = trimmed.indexOf('{')
+    const last = trimmed.lastIndexOf('}')
+    if (first >= 0 && last > first) return trimmed.slice(first, last + 1)
+  }
+  return ''
+}
+
+function safeJsonParse(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Local fallback plan — used when no provider is configured or the AI call
+ * fails. Mirrors the original templated lesson content so the fallback path
+ * stays educational rather than empty.
+ */
+function localFallbackPlan(
+  prompt: string,
+  mission: { title: string; excerpt: string },
+  sequence: number,
+  settings: TeachingSettingsV1
+): LessonPlan {
+  const topic = deriveTopic(prompt, mission.title)
+  const title = sequence === 1 ? '写出可执行的学习使命' : deriveLessonTitle(prompt, sequence)
+  const includeQuiz = settings.generator.includeRetrievalPractice
+  return {
+    title,
+    objective: `把「${topic}」压缩成一次可保存、可复习的学习动作。`,
+    durationMinutes: sequence === 1 ? Math.min(12, settings.generator.lessonDurationMinutes) : settings.generator.lessonDurationMinutes,
+    sections: [
+      {
+        heading: '这节课完成什么',
+        body: '先把输入的学习愿望整理成一个小闭环：使命、可信资源、可复习 lesson、learning record。这个闭环比一次性聊天更有价值，因为它能在文件系统里持续演进。\n\n1. **使命** — 说明为什么学，以及成功是什么样子。\n2. **课程** — 只教一个足够小的动作，并保存为静态 HTML。\n3. **记录** — 把已经建立的理解写入 learning-records，供下次生成使用。'
+      },
+      {
+        heading: '把任务拆成文件',
+        body: '- [MISSION.md](../MISSION.md) — 学习罗盘\n- [RESOURCES.md](../RESOURCES.md) — 可信来源\n- reference/*.html — 速查材料\n- learning-records/*.md — 学习证据'
+      }
+    ],
+    keyPoints: ['文件系统是真相来源', '每节 lesson 短小且可复习', '本地优先，AI 可选'],
+    quiz: includeQuiz
+      ? [{
+          type: 'single',
+          question: 'TeachOS 里最应该长期保存的真相来源是什么？',
+          choices: ['运行时内存状态', '工作区文件资产', '单次聊天窗口'],
+          answer: 1,
+          explanation: '工作区文件能脱离 App 长期保存。'
+        }]
+      : [],
+    flashcards: [],
+    referenceNotes: '先写 mission，再决定第一课；课程输出到 lessons/*.html；非显而易见的理解写入 learning-records/*.md。',
+    learningRecordNote: `本节围绕「${mission.title}」建立了可复用的 TeachOS 学习闭环。`
+  }
+}
+
 function slugify(value: string, fallback: string): string {
   const slug = value
     .normalize('NFKD')
@@ -712,124 +1141,6 @@ function renderResources(topic: string): string {
 ## Gaps
 
 - 还需要为具体学习主题补充高信任外部资料。
-`
-}
-
-function renderLessonHtml(options: {
-  lesson: LessonSummary
-  mission: { title: string; excerpt: string }
-  workspaceName: string
-  recordRelativePath: string
-  referenceRelativePath: string
-}): string {
-  const { lesson, mission, workspaceName, recordRelativePath, referenceRelativePath } = options
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(lesson.title)} · ${escapeHtml(workspaceName)}</title>
-  <link rel="stylesheet" href="../assets/lesson.css" />
-</head>
-<body>
-  <main class="lesson-page">
-    <header class="lesson-hero">
-      <p class="kicker">Lesson ${escapeHtml(lesson.id)} · ${escapeHtml(String(lesson.durationMinutes))} min</p>
-      <h1>${escapeHtml(lesson.title)}</h1>
-      <p>${escapeHtml(lesson.objective)}</p>
-    </header>
-
-    <section class="mission-card">
-      <span>Mission</span>
-      <strong>${escapeHtml(mission.title)}</strong>
-      <p>${escapeHtml(mission.excerpt)}</p>
-    </section>
-
-    <section>
-      <h2>这节课完成什么</h2>
-      <p>先把输入的学习愿望整理成一个小闭环：使命、可信资源、可复习 lesson、learning record。这个闭环比一次性聊天更有价值，因为它能在文件系统里持续演进。</p>
-      <ol class="steps">
-        <li><strong>使命</strong><span>说明为什么学，以及成功是什么样子。</span></li>
-        <li><strong>课程</strong><span>只教一个足够小的动作，并保存为静态 HTML。</span></li>
-        <li><strong>记录</strong><span>把已经建立的理解写入 learning-records，供下次生成使用。</span></li>
-      </ol>
-    </section>
-
-    <section>
-      <h2>把任务拆成文件</h2>
-      <div class="file-grid">
-        <a href="../MISSION.md"><span>MISSION.md</span><strong>学习罗盘</strong></a>
-        <a href="../RESOURCES.md"><span>RESOURCES.md</span><strong>可信来源</strong></a>
-        <a href="../${escapeHtml(referenceRelativePath)}"><span>reference</span><strong>速查材料</strong></a>
-        <a href="../${escapeHtml(recordRelativePath)}"><span>records</span><strong>学习证据</strong></a>
-      </div>
-    </section>
-
-    <section class="practice">
-      <h2>检索练习</h2>
-      <article class="quiz-card" data-answer="b">
-        <p>TeachOS 里最应该长期保存的真相来源是什么？</p>
-        <button type="button" data-choice="a">运行时内存状态</button>
-        <button type="button" data-choice="b">工作区文件资产</button>
-        <button type="button" data-choice="c">单次聊天窗口</button>
-        <output aria-live="polite"></output>
-      </article>
-    </section>
-
-    <footer>
-      <p>下一步：把不清楚的地方继续问教学助手，并把新的理解沉淀成 learning record。</p>
-    </footer>
-  </main>
-  <script src="../assets/quiz.js"></script>
-</body>
-</html>
-`
-}
-
-function renderReferenceHtml(options: {
-  lesson: LessonSummary
-  mission: { title: string; excerpt: string }
-  workspaceName: string
-}): string {
-  const { lesson, mission, workspaceName } = options
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(lesson.title)} Reference · ${escapeHtml(workspaceName)}</title>
-  <link rel="stylesheet" href="../assets/lesson.css" />
-</head>
-<body>
-  <main class="lesson-page reference-page">
-    <header class="lesson-hero">
-      <p class="kicker">Reference · Lesson ${escapeHtml(lesson.id)}</p>
-      <h1>${escapeHtml(lesson.title)} 速查</h1>
-      <p>${escapeHtml(mission.title)}：${escapeHtml(mission.excerpt)}</p>
-    </header>
-    <section>
-      <h2>最小闭环</h2>
-      <ul class="compact-list">
-        <li>先写 mission，再决定第一课。</li>
-        <li>课程输出到 lessons/*.html，样式复用 assets/lesson.css。</li>
-        <li>非显而易见的理解写入 learning-records/*.md。</li>
-        <li>资源索引只保留高信任来源。</li>
-      </ul>
-    </section>
-  </main>
-</body>
-</html>
-`
-}
-
-function renderLearningRecord(options: {
-  lesson: LessonSummary
-  mission: { title: string; excerpt: string }
-}): string {
-  const { lesson, mission } = options
-  return `# ${lesson.title}
-
-本节课建立了一个可复用的 TeachOS 学习闭环：从「${mission.title}」出发，把任务保存为 mission、lesson、reference 和 learning record。以后生成课程时，应继续优先维护这些文件资产，而不是只依赖一次性聊天上下文。
 `
 }
 
@@ -935,20 +1246,78 @@ footer { margin-top: 38px; padding-top: 18px; border-top: 1px solid #e3e8f2; }
 `
 
 const QUIZ_JS = `document.querySelectorAll('.quiz-card').forEach((card) => {
-  const answer = card.getAttribute('data-answer');
+  const type = card.getAttribute('data-type') || 'single';
+  const answer = card.getAttribute('data-answer') || '';
   const output = card.querySelector('output');
+  const explanation = card.querySelector('.quiz-explanation');
+  const report = (correct, msg) => {
+    if (output) output.textContent = msg;
+    if (explanation) explanation.style.display = correct ? 'block' : 'none';
+    // Notify the TeachOS host so progress can be recorded.
+    try { window.parent.postMessage({ source: 'teachos-lesson', kind: 'quiz', question: card.querySelector('p')?.textContent || '', correct }, '*'); } catch {}
+  };
+
+  if (type === 'fill') {
+    const input = card.querySelector('input[type="text"]');
+    const submit = card.querySelector('button[data-choice="submit"]');
+    const normalize = (s) => s.trim().toLowerCase().replace(/\\s+/g, ' ').replace(/[。.,，！!？?]/g, '');
+    const check = () => {
+      const value = input?.value || '';
+      const isCorrect = Boolean(value.trim()) && normalize(value) === normalize(answer);
+      if (input) input.classList.toggle('is-correct', isCorrect), input.classList.toggle('is-wrong', !isCorrect && value.trim().length > 0);
+      report(isCorrect, isCorrect ? '正确！' : '再想想，或查看解析。');
+    };
+    submit?.addEventListener('click', check);
+    input?.addEventListener('keydown', (e) => { if (e.key === 'Enter') check(); });
+    return;
+  }
+
+  const answers = type === 'multi' ? answer.split(',').map((s) => s.trim()) : [answer];
   card.querySelectorAll('button[data-choice]').forEach((button) => {
     button.addEventListener('click', () => {
-      card.querySelectorAll('button[data-choice]').forEach((item) => {
-        item.classList.remove('is-correct', 'is-wrong');
-      });
-      const isCorrect = button.getAttribute('data-choice') === answer;
-      button.classList.add(isCorrect ? 'is-correct' : 'is-wrong');
-      if (output) {
-        output.textContent = isCorrect
-          ? '正确：TeachOS 的长期资产是本地工作区文件。'
-          : '再试一次：想想哪些内容能脱离 App 长期保存。';
+      if (type === 'multi') {
+        button.classList.toggle('is-selected');
+        const selected = Array.from(card.querySelectorAll('button[data-choice].is-selected')).map((b) => b.getAttribute('data-choice'));
+        const isCorrect = selected.length === answers.length && selected.every((c) => answers.includes(c)) && answers.every((c) => selected.includes(c));
+        report(isCorrect, isCorrect ? '全部正确！' : '选择还不完整或不正确，再看看。');
+      } else {
+        card.querySelectorAll('button[data-choice]').forEach((item) => item.classList.remove('is-correct', 'is-wrong'));
+        const isCorrect = button.getAttribute('data-choice') === answer;
+        button.classList.add(isCorrect ? 'is-correct' : 'is-wrong');
+        report(isCorrect, isCorrect ? '正确！' : '再试一次。');
       }
+    });
+  });
+});
+`
+
+const FLASHCARD_CSS = `.flashcards { display: grid; gap: 12px; }
+.flashcard { position: relative; min-height: 120px; perspective: 1000px; cursor: pointer; border: 1px solid #e3e8f2; border-radius: 12px; background: #fff; }
+.flashcard-face { display: grid; place-items: center; padding: 22px; text-align: center; backface-visibility: hidden; }
+.flashcard-front { color: #24324a; font-weight: 600; }
+.flashcard-back { position: absolute; inset: 0; transform: rotateY(180deg); color: #536278; background: #f8fafc; border-radius: 12px; }
+.flashcard.is-flipped .flashcard-front { opacity: 0; }
+.flashcard.is-flipped .flashcard-back { transform: rotateY(0deg); }
+.flashcard-self { display: flex; gap: 8px; margin-top: 10px; justify-content: center; }
+.flashcard-self button { border: 1px solid #dfe7f4; border-radius: 8px; background: #f8fafc; color: #2d3d56; font: inherit; padding: 6px 12px; cursor: pointer; }
+.flashcard-self button:hover { background: #eef4ff; }
+.quiz-choices { display: grid; gap: 8px; }
+.quiz-choices button.is-selected { border-color: #4f7cf5; background: #edf4ff; }
+.quiz-fill { display: flex; gap: 8px; }
+.quiz-fill input { flex: 1; min-height: 40px; border: 1px solid #dfe7f4; border-radius: 8px; padding: 0 12px; font: inherit; }
+.quiz-fill input.is-correct { border-color: #68b692; background: #eaf8f2; }
+.quiz-fill input.is-wrong { border-color: #e5a0af; background: #fff0f4; }
+.quiz-explanation { display: none; margin: 6px 0 0; color: #65748a; font-size: 14px; }
+`
+
+const FLASHCARD_JS = `document.querySelectorAll('.flashcard').forEach((card) => {
+  const flip = () => card.classList.toggle('is-flipped');
+  card.addEventListener('click', flip);
+  card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+  card.querySelectorAll('.flashcard-self button').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      try { window.parent.postMessage({ source: 'teachos-lesson', kind: 'flashcard', rating: btn.getAttribute('data-rating') }, '*'); } catch {}
     });
   });
 });
