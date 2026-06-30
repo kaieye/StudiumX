@@ -1,4 +1,4 @@
-import type { TeachingSettingsV1 } from '../../shared/teaching-types'
+import type { TeachingMemoryRecord, TeachingSettingsV1 } from '../../shared/teaching-types'
 
 /**
  * System prompt — instructs the model to return ONLY a JSON object matching
@@ -13,6 +13,7 @@ export function buildLessonSystemPrompt(opts: {
   includeRetrievalPractice: boolean
   generateReference: boolean
   generateLearningRecord: boolean
+  memories: TeachingMemoryRecord[]
   generator: TeachingSettingsV1['generator']
 }): string {
   const includeQuiz = opts.includeRetrievalPractice
@@ -53,9 +54,13 @@ export function buildLessonSystemPrompt(opts: {
 - 标题：${opts.missionTitle}
 - 说明：${opts.missionExcerpt}
 
-# 要求
+${opts.memories.length > 0 ? `# 可用长期记忆
+${opts.memories.map((memory, index) => `- [${index + 1}] (${memory.scope}) ${memory.content}`).join('\n')}
+
+` : ''}# 要求
 - 全部用中文，内容贴合 Mission 和用户输入。
 - 时长目标：${opts.durationMinutes} 分钟，只教一个足够小的可观察动作。
+- 如果长期记忆与本次课程相关，优先保持术语、偏好和上下文连续。
 - sections 的 body 用 markdown，不要输出 HTML。
 - 题目答案必须与 choices 对应，索引从 0 开始。
 - 不要输出 JSON 以外的任何字符。`
@@ -65,11 +70,15 @@ export function buildLessonUserPrompt(opts: {
   prompt: string
   sequence: number
   missionTitle: string
+  memories: TeachingMemoryRecord[]
 }): string {
   return `当前是第 ${opts.sequence} 节课程。Mission：${opts.missionTitle}。
 
 用户的学习请求：
 ${opts.prompt}
 
-请按系统约定的 JSON 结构输出本节课程。`
+${opts.memories.length > 0 ? `相关长期记忆：
+${opts.memories.map((memory, index) => `${index + 1}. ${memory.content}`).join('\n')}
+
+` : ''}请按系统约定的 JSON 结构输出本节课程。`
 }

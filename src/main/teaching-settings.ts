@@ -125,6 +125,13 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
       confirmBeforeGenerating: false,
       autoOpenGeneratedLesson: false
     },
+    worktree: {
+      rootPath: join(defaultRoot, '.worktrees')
+    },
+    memory: {
+      enabled: true,
+      maxInjected: 4
+    },
     notifications: {
       enabled: true,
       lessonGenerated: true,
@@ -169,6 +176,14 @@ export function mergeSettings(current: TeachingSettingsV1, patch: TeachingSettin
       ...current.workspace,
       ...(patch.workspace ?? {})
     },
+    worktree: {
+      ...current.worktree,
+      ...(patch.worktree ?? {})
+    },
+    memory: {
+      ...current.memory,
+      ...(patch.memory ?? {})
+    },
     notifications: {
       ...current.notifications,
       ...(patch.notifications ?? {})
@@ -208,6 +223,8 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       ? generatorModel
       : generatorProvider.models[0] ?? generatorModel
   const workspaceInput = isRecord(record.workspace) ? record.workspace : {}
+  const worktreeInput = isRecord(record.worktree) ? record.worktree : {}
+  const memoryInput = isRecord(record.memory) ? record.memory : {}
   const notificationsInput = isRecord(record.notifications) ? record.notifications : {}
   const privacyInput = isRecord(record.privacy) ? record.privacy : {}
   const appBehaviorInput = isRecord(record.appBehavior) ? record.appBehavior : {}
@@ -251,6 +268,13 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       defaultRoot: normalizeString(workspaceInput.defaultRoot) || fallbackDefaultRoot,
       confirmBeforeGenerating: workspaceInput.confirmBeforeGenerating === true,
       autoOpenGeneratedLesson: workspaceInput.autoOpenGeneratedLesson === true
+    },
+    worktree: {
+      rootPath: normalizeString(worktreeInput.rootPath) || join(fallbackDefaultRoot, '.worktrees')
+    },
+    memory: {
+      enabled: memoryInput.enabled !== false,
+      maxInjected: Math.round(clampNumber(memoryInput.maxInjected, 1, 12, defaults.memory.maxInjected))
     },
     notifications: {
       enabled: notificationsInput.enabled !== false,

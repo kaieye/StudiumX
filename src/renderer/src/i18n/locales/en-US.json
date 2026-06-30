@@ -44,7 +44,13 @@
     "placeholderEmpty": "Create or import a teaching workspace first...",
     "newWorkspace": "New workspace",
     "selectWorkspace": "Select workspace",
-    "generate": "Generate lesson"
+    "importWorkspace": "Import teaching workspace",
+    "fullAccess": "Full access",
+    "generate": "Generate lesson",
+    "runtimeEnv": "Runtime",
+    "noWorkspace": "No workspace selected",
+    "streamingMode": "Streaming mode",
+    "localMode": "Local mode"
   },
   "lessons": {
     "composerAria": "Teaching task input",
@@ -68,11 +74,43 @@
     "openPreview": "Open preview"
   },
   "resources": {
-    "trusted": "Trusted resources",
-    "title": "Resource index",
+    "trusted": "Built-in tutorials",
+    "title": "Tutorial center",
     "open": "Open RESOURCES.md",
     "emptyTitle": "No resources yet",
-    "emptyDetail": "Add trusted learning sources to RESOURCES.md and they'll appear here."
+    "emptyDetail": "Add trusted learning sources to RESOURCES.md and they'll appear here.",
+    "tutorials": {
+      "start": {
+        "title": "Getting started",
+        "detail": "Learn the basics and get up to speed with TeachOS.",
+        "tag": "Beginner"
+      },
+      "concepts": {
+        "title": "Core concepts",
+        "detail": "Master workspaces, lessons, and skill packs.",
+        "tag": "Basics"
+      },
+      "practice": {
+        "title": "Hands-on practice",
+        "detail": "Follow step-by-step guidance to finish your first task.",
+        "tag": "Practice"
+      },
+      "advanced": {
+        "title": "Advanced tips",
+        "detail": "Explore advanced usage of the generator and settings.",
+        "tag": "Advanced"
+      },
+      "cases": {
+        "title": "Case studies",
+        "detail": "Understand teaching design patterns through real examples.",
+        "tag": "Cases"
+      },
+      "faq": {
+        "title": "FAQ",
+        "detail": "Find answers to common questions and troubleshooting.",
+        "tag": "Reference"
+      }
+    }
   },
   "records": {
     "label": "Learning records",
@@ -99,6 +137,8 @@
     "model": { "label": "Model", "detail": "Provider & API keys" },
     "generation": { "label": "Generation", "detail": "Lesson output strategy" },
     "workspace": { "label": "Workspace", "detail": "Default folder & file behavior" },
+    "worktree": { "label": "Worktree", "detail": "Git worktree pool & cleanup" },
+    "memory": { "label": "Memory", "detail": "Long-term context injection" },
     "notifications": { "label": "Notifications", "detail": "Desktop alerts" },
     "privacy": { "label": "Privacy", "detail": "Links & key display" },
     "about": { "label": "About", "detail": "Version, logs, data folder" }
@@ -122,12 +162,10 @@
   "model": {
     "title": "Model",
     "subtitle": "Provider presets follow Kun's model-settings organization; fields are fully saved and read by the generation config.",
-    "providerName": "Provider name",
     "apiKey": { "label": "API Key", "filled": "Filled", "empty": "Not filled", "placeholder": "sk-..." },
     "baseUrl": "Base URL",
-    "endpointFormat": "Endpoint format",
-    "models": { "label": "Model list", "detail": "{{count}} models" },
-    "actions": { "label": "Provider actions", "detailDefault": "Test connection, sync models, open docs, or restore the built-in preset.", "test": "Test", "pull": "Pull models", "docs": "Docs", "key": "Key", "reset": "Reset" },
+    "models": { "label": "Default model" },
+    "actions": { "label": "Provider actions", "test": "Test", "pull": "Pull models", "docs": "Docs", "key": "Key", "reset": "Reset" },
     "statusConnecting": "Connecting to provider...",
     "statusOk": "Connected: {{latency}}ms, found {{count}} models.",
     "statusPulling": "Pulling model list...",
@@ -155,6 +193,50 @@
     "confirm": { "label": "Confirm before generating", "detail": "Require a second confirmation before sending a task." },
     "autoOpen": { "label": "Open lesson after generating", "detail": "Open the HTML with the system default app after generation." },
     "current": { "label": "Current workspace", "none": "Not selected", "create": "New", "import": "Import", "open": "Open" }
+  },
+  "worktree": {
+    "title": "Worktree",
+    "subtitle": "Inspect Git worktrees for the current teaching workspace repository and remove managed copies.",
+    "root": { "label": "Worktree pool root", "none": "Not set", "open": "Open" },
+    "current": { "label": "Current repository", "none": "Current workspace is not a Git repository", "notGit": "Non-Git workspace" },
+    "refresh": "Refresh",
+    "empty": "No worktrees to display.",
+    "detached": "DETACHED",
+    "primary": "Primary worktree",
+    "linked": "Linked worktree",
+    "remove": "Remove"
+  },
+  "memory": {
+    "title": "Memory",
+    "subtitle": "Persist reusable long-term context and inject it into lesson generation when relevant.",
+    "enable": { "label": "Enable long-term memory", "detail": "When disabled, no memory is injected into generation." },
+    "maxInjected": { "label": "Max injected records", "detail": "Inject up to {{count}} records per generation." },
+    "diagnostics": { "label": "Memory diagnostics", "detail": "{{active}} active, {{deleted}} deleted", "loading": "Loading diagnostics..." },
+    "refresh": "Refresh",
+    "create": "New memory",
+    "empty": "No memory records yet.",
+    "view": "View",
+    "edit": "Edit",
+    "disable": "Disable",
+    "delete": "Delete",
+    "disabled": "Disabled",
+    "confidence": "Confidence {{value}}",
+    "scope": {
+      "all": "All",
+      "user": "User",
+      "workspace": "Workspace",
+      "project": "Project"
+    },
+    "dialog": {
+      "create": "Create memory",
+      "edit": "Edit memory",
+      "view": "Memory details",
+      "close": "Close",
+      "cancel": "Cancel",
+      "save": "Save",
+      "contentPlaceholder": "Record a fact, preference, or constraint that future lesson generation should remember.",
+      "tagsPlaceholder": "Tags, comma-separated"
+    }
   },
   "notifications": {
     "title": "Notifications",
@@ -193,7 +275,7 @@
     "pathRestricted": { "message": "Path access restricted", "detail": "Only files inside the teaching workspace are accessible." },
     "fileNotFound": { "message": "File not found", "detail": "The selected file may have been moved or deleted." },
     "accessDenied": { "message": "File access denied", "detail": "No permission to access this file; check the file permissions." },
-    "generic": { "message": "Operation failed", "detail": "Please try again shortly. If the problem persists, contact support." },
+    "generic": { "message": "Operation failed", "detail": "Please try again shortly. If the problem persists, contact support.", "stackDetail": "The app hit an unexpected error. If it persists, restart the app." },
     "openPath": "Couldn't open the path.",
     "openExternal": "Couldn't open the link.",
     "openLog": "Couldn't open the log file.",

@@ -3,6 +3,8 @@ import { appendFile, mkdir, readFile, readdir, rename, stat, writeFile } from 'n
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { defaultSettings } from './teaching-settings'
+import { TeachingMemoryStore } from './teaching-memory'
+import { inspectGitWorkspace } from './teaching-git'
 import { callProvider, streamProvider, resolveActiveProvider, ProviderAdapterError, type AdapterCallbacks } from './ai/provider-adapter'
 import { buildLessonSystemPrompt, buildLessonUserPrompt } from './ai/lesson-prompts'
 import {
@@ -13,6 +15,7 @@ import {
 import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
 import type {
   CreateWorkspacePayload,
+  CreateTeachingMemoryPayload,
   GenerateLessonPayload,
   GenerateLessonResult,
   GenerateLessonStreamPayload,
@@ -27,10 +30,13 @@ import type {
   RecordProgressPayload,
   ResourceSummary,
   ReviewCard,
+  TeachingMemoryDiagnostics,
+  TeachingMemoryRecord,
   TeachingAppState,
   TeachingRuntimeState,
   TeachingSettingsV1,
   TeachingWorkspaceSummary,
+  UpdateTeachingMemoryPayload,
   UpdateMissionPayload
 } from '../shared/teaching-types'
 
@@ -82,6 +88,7 @@ export class TeachingWorkspaceService {
   private readonly registryPath: string
   private readonly defaultRoot: string
   private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
+  private readonly memoryStore: TeachingMemoryStore
 
   constructor(options: {
     registryPath: string
@@ -91,6 +98,10 @@ export class TeachingWorkspaceService {
     this.registryPath = options.registryPath
     this.defaultRoot = options.defaultRoot
     this.settingsProvider = options.settingsProvider
+    this.memoryStore = new TeachingMemoryStore({
+      rootDir: join(dirname(this.registryPath), 'memory'),
+      settingsProvider: () => this.loadSettings()
+    })
   }
 
   async getState(options: {
@@ -217,6 +228,11 @@ export class TeachingWorkspaceService {
     const sequence = await this.nextLessonNumber(workspace.rootPath, index.lessons)
     const lessonId = String(sequence).padStart(4, '0')
     const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
+    const recalledMemories = await this.memoryStore.retrieve({
+      query: `${mission.title}\n${mission.excerpt}\n${prompt}`,
+      workspaceRoot: workspace.rootPath,
+      limit: settings.memory.maxInjected
+    })
 
     const callbacks: AdapterCallbacks = {
       onToken: (delta) => {
@@ -233,6 +249,7 @@ export class TeachingWorkspaceService {
       prompt,
       settings,
       sequence,
+      recalledMemories,
       callbacks
     })
 
@@ -317,9 +334,10 @@ export class TeachingWorkspaceService {
     prompt: string
     settings: TeachingSettingsV1
     sequence: number
+    recalledMemories: TeachingMemoryRecord[]
     callbacks: AdapterCallbacks
   }): Promise<{ plan: LessonPlan; source: LessonPlanSource; reason?: string }> {
-    const { workspace, mission, prompt, settings, sequence, callbacks } = opts
+    const { workspace, mission, prompt, settings, sequence, recalledMemories, callbacks } = opts
     const provider = resolveActiveProvider(settings)
 
     if (!provider || !provider.apiKey.trim()) {
@@ -333,9 +351,15 @@ export class TeachingWorkspaceService {
       includeRetrievalPractice: settings.generator.includeRetrievalPractice,
       generateReference: settings.generator.generateReference,
       generateLearningRecord: settings.generator.generateLearningRecord,
+      memories: recalledMemories,
       generator: settings.generator
     })
-    const userPrompt = buildLessonUserPrompt({ prompt, sequence, missionTitle: mission.title })
+    const userPrompt = buildLessonUserPrompt({
+      prompt,
+      sequence,
+      missionTitle: mission.title,
+      memories: recalledMemories
+    })
 
     try {
       const result = settings.generator.streaming
@@ -495,6 +519,28 @@ export class TeachingWorkspaceService {
     return { html: withPreviewBase(await readFile(target, 'utf8'), target) }
   }
 
+  async listMemory(workspaceRoot?: string): Promise<TeachingMemoryRecord[]> {
+    return this.memoryStore.list(workspaceRoot)
+  }
+
+  async getMemoryDiagnostics(): Promise<TeachingMemoryDiagnostics> {
+    return this.memoryStore.diagnostics()
+  }
+
+  async createMemory(payload: CreateTeachingMemoryPayload): Promise<TeachingMemoryRecord> {
+    return this.memoryStore.create(payload)
+  }
+
+  async updateMemory(memoryId: string, patch: UpdateTeachingMemoryPayload): Promise<TeachingMemoryRecord> {
+    return this.memoryStore.update(memoryId, patch, {
+      workspaceRoot: patch.workspaceRoot
+    })
+  }
+
+  async deleteMemory(memoryId: string, workspaceRoot?: string): Promise<void> {
+    await this.memoryStore.delete(memoryId, { workspaceRoot })
+  }
+
   private async ensureRegistry(): Promise<WorkspaceRegistry> {
     const registry = await this.loadRegistry()
     const existing = await this.existingRegistryWorkspaces(registry.workspaces)
@@ -575,7 +621,8 @@ export class TeachingWorkspaceService {
       records: await this.readLearningRecords(workspace.rootPath),
       lessons,
       referenceCount: await countFiles(join(workspace.rootPath, 'reference'), '.html'),
-      assetsReady: await fileExists(join(workspace.rootPath, 'assets', 'lesson.css'))
+      assetsReady: await fileExists(join(workspace.rootPath, 'assets', 'lesson.css')),
+      git: await inspectGitWorkspace(workspace.rootPath)
     }
   }
 

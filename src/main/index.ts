@@ -3,11 +3,13 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TeachingSettingsService } from './teaching-settings'
 import { TeachingWorkspaceService } from './teaching-workspace'
+import { listGitWorktreesForWorkspace, removeGitWorktreeForWorkspace } from './teaching-git'
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
 import type {
   CreateWorkspacePayload,
+  CreateTeachingMemoryPayload,
   GenerateLessonPayload,
   GenerateLessonStreamPayload,
   ListUpstreamModelsResult,
@@ -15,9 +17,11 @@ import type {
   NotificationPayload,
   ProbeProviderPayload,
   ReadLessonPayload,
+  RemoveTeachingGitWorktreePayload,
   RecordProgressPayload,
   TeachingSettingsPatch,
   TeachingSettingsV1,
+  UpdateTeachingMemoryPayload,
   UpdateMissionPayload,
   WindowControlAction
 } from '../shared/teaching-types'
@@ -117,7 +121,10 @@ function registerTeachingIpc(
   ipcMain.handle('teach:open-path', async (_, rawPath: unknown) => {
     const target = resolve(String(rawPath ?? ''))
     const state = await service.getState()
-    const allowed = state.workspaces.some((workspace) => isInside(workspace.rootPath, target))
+    const settings = await settingsService.load()
+    const allowed =
+      state.workspaces.some((workspace) => isInside(workspace.rootPath, target)) ||
+      isInside(settings.worktree.rootPath, target)
     if (!allowed) {
       return { ok: false, message: 'Path is outside registered teaching workspaces.' }
     }
@@ -186,6 +193,44 @@ function registerTeachingIpc(
 
   ipcMain.handle('teach:get-progress', async (_, workspaceIdRaw: unknown) =>
     service.getProgress(requireString(workspaceIdRaw, 'workspaceId'))
+  )
+
+  ipcMain.handle('teach:list-git-worktrees', async (_, workspaceRootRaw: unknown) => {
+    const settings = await settingsService.load()
+    return listGitWorktreesForWorkspace(
+      requireString(workspaceRootRaw, 'workspaceRoot'),
+      settings.worktree.rootPath
+    )
+  })
+
+  ipcMain.handle('teach:remove-git-worktree', async (_, payload: unknown) => {
+    const settings = await settingsService.load()
+    const request = parseRemoveGitWorktreePayload(payload)
+    return removeGitWorktreeForWorkspace({
+      workspaceRoot: request.workspaceRoot,
+      worktreePath: request.worktreePath,
+      worktreeRoot: settings.worktree.rootPath
+    })
+  })
+
+  ipcMain.handle('teach:list-memory', async (_, workspaceRootRaw: unknown) =>
+    service.listMemory(optionalString(workspaceRootRaw))
+  )
+
+  ipcMain.handle('teach:get-memory-diagnostics', async () =>
+    service.getMemoryDiagnostics()
+  )
+
+  ipcMain.handle('teach:create-memory', async (_, payload: unknown) =>
+    service.createMemory(parseCreateMemoryPayload(payload))
+  )
+
+  ipcMain.handle('teach:update-memory', async (_, memoryIdRaw: unknown, patchRaw: unknown) =>
+    service.updateMemory(requireString(memoryIdRaw, 'memoryId'), parseUpdateMemoryPayload(patchRaw))
+  )
+
+  ipcMain.handle('teach:delete-memory', async (_, memoryIdRaw: unknown, workspaceRootRaw: unknown) =>
+    service.deleteMemory(requireString(memoryIdRaw, 'memoryId'), optionalString(workspaceRootRaw))
   )
 
   // ---- Logging + diagnostics ----
@@ -418,8 +463,38 @@ function parseRecordProgressPayload(payload: unknown): RecordProgressPayload {
   }
 }
 
+function parseCreateMemoryPayload(payload: unknown): CreateTeachingMemoryPayload {
+  const record = requireRecord(payload)
+  return {
+    content: requireString(record.content, 'content'),
+    scope: requireMemoryScope(record.scope),
+    tags: Array.isArray(record.tags) ? record.tags.map((tag) => String(tag)) : [],
+    confidence: typeof record.confidence === 'number' ? record.confidence : Number(record.confidence),
+    workspaceRoot: optionalString(record.workspaceRoot)
+  }
+}
+
+function parseUpdateMemoryPayload(payload: unknown): UpdateTeachingMemoryPayload {
+  const record = requireRecord(payload)
+  return {
+    ...(record.content !== undefined ? { content: requireString(record.content, 'content') } : {}),
+    ...(record.tags !== undefined ? { tags: Array.isArray(record.tags) ? record.tags.map((tag) => String(tag)) : [] } : {}),
+    ...(record.confidence !== undefined ? { confidence: typeof record.confidence === 'number' ? record.confidence : Number(record.confidence) } : {}),
+    ...(record.disabled !== undefined ? { disabled: record.disabled === true } : {}),
+    ...(record.workspaceRoot !== undefined ? { workspaceRoot: optionalString(record.workspaceRoot) } : {})
+  }
+}
+
 function parseSettingsPatch(payload: unknown): TeachingSettingsPatch {
   return requireRecord(payload) as TeachingSettingsPatch
+}
+
+function parseRemoveGitWorktreePayload(payload: unknown): RemoveTeachingGitWorktreePayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceRoot: requireString(record.workspaceRoot, 'workspaceRoot'),
+    worktreePath: requireString(record.worktreePath, 'worktreePath')
+  }
 }
 
 function parseNotificationPayload(payload: unknown): NotificationPayload {
@@ -467,6 +542,15 @@ function requireString(value: unknown, key: string): string {
     throw new Error(`IPC payload field "${key}" must be a string.`)
   }
   return value
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function requireMemoryScope(value: unknown): 'user' | 'workspace' | 'project' {
+  if (value === 'user' || value === 'workspace' || value === 'project') return value
+  throw new Error('IPC payload field "scope" must be a valid memory scope.')
 }
 
 function requireWindowControlAction(value: unknown): WindowControlAction {

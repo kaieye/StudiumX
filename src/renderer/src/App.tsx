@@ -15,6 +15,7 @@ import {
   FileCheck2,
   FileText,
   FolderOpen,
+  GitBranch,
   History,
   Home,
   Info,
@@ -45,29 +46,34 @@ import {
 } from 'lucide-react'
 import type { CSSProperties, ErrorInfo, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Component, useEffect, useState } from 'react'
+import { Component, useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { create } from 'zustand'
 import i18n from './i18n'
 import {
-  MODEL_ENDPOINT_FORMATS,
   TEACHING_MODEL_PROVIDER_PRESETS,
+  type CreateTeachingMemoryPayload,
   type LessonStreamChunk,
   type LessonStreamStatus,
   type LessonSummary,
   type ListUpstreamModelsResult,
-  type ModelEndpointFormat,
   type ProgressSummary,
   type ProbeProviderPayload,
   type ProbeProviderResult,
+  type RemoveTeachingGitWorktreePayload,
   type ReviewCard,
   type SettingsSection,
+  type TeachingGitWorktreesResult,
+  type TeachingMemoryDiagnostics,
+  type TeachingMemoryRecord,
+  type TeachingMemoryScope,
   type TeachingModelProviderProfile,
   type TeachingAppState,
   type TeachingRuntimeState,
   type TeachingSettingsPatch,
   type TeachingSettingsV1,
   type TeachingWorkspaceSummary,
+  type UpdateTeachingMemoryPayload,
   type WindowControlAction,
   type WorkspaceView
 } from '../../shared/teaching-types'
@@ -117,10 +123,19 @@ type StoreState = {
   showNotification: (title: string, body: string) => Promise<void>
   probeProvider: (payload: ProbeProviderPayload) => Promise<ProbeProviderResult>
   listUpstreamModels: (providerId: string) => Promise<ListUpstreamModelsResult>
+  listGitWorktrees: (workspaceRoot: string) => Promise<TeachingGitWorktreesResult>
+  removeGitWorktree: (payload: RemoveTeachingGitWorktreePayload) => Promise<void>
+  listMemory: (workspaceRoot?: string) => Promise<void>
+  createMemory: (payload: CreateTeachingMemoryPayload) => Promise<boolean>
+  updateMemory: (memoryId: string, patch: UpdateTeachingMemoryPayload) => Promise<boolean>
+  deleteMemory: (memoryId: string, workspaceRoot?: string) => Promise<void>
+  loadMemoryDiagnostics: () => Promise<void>
   loadReviewCards: () => Promise<void>
   recordProgress: (lessonId: string, results: Array<{ lessonId: string; question: string; correct: boolean }>) => Promise<void>
   reviewCards: ReviewCard[]
   progress: ProgressSummary | null
+  memoryRecords: TeachingMemoryRecord[]
+  memoryDiagnostics: TeachingMemoryDiagnostics | null
 }
 
 // ================================================================
@@ -180,6 +195,13 @@ const emptySettings: TeachingSettingsV1 = {
     confirmBeforeGenerating: false,
     autoOpenGeneratedLesson: false
   },
+  worktree: {
+    rootPath: ''
+  },
+  memory: {
+    enabled: true,
+    maxInjected: 4
+  },
   notifications: {
     enabled: true,
     lessonGenerated: true,
@@ -213,17 +235,27 @@ const settingsNavItems = [
   { id: 'model', icon: Bot },
   { id: 'generation', icon: SlidersHorizontal },
   { id: 'workspace', icon: FolderOpen },
+  { id: 'worktree', icon: GitBranch },
+  { id: 'memory', icon: BrainCircuit },
   { id: 'notifications', icon: Bell },
   { id: 'privacy', icon: Lock },
   { id: 'about', icon: Info }
 ] satisfies Array<{ id: SettingsSection; icon: LucideIcon }>
 
-const endpointFormatLabels: Record<TeachingSettingsV1['generator']['endpointFormat'], string> = {
-  chat_completions: 'OpenAI Chat Completions',
-  responses: 'OpenAI Responses',
-  messages: 'Anthropic Messages',
-  custom_endpoint: 'Custom Endpoint'
-}
+const modelSettingsProviderIds = ['deepseek', 'glm', 'custom'] as const
+
+// ================================================================
+// Preset tutorial cards — built-in placeholders for future tutorials
+// ================================================================
+
+const PRESET_TUTORIALS: { icon: LucideIcon; titleKey: string; detailKey: string; tagKey: string }[] = [
+  { icon: BookOpen, titleKey: 'resources.tutorials.start.title', detailKey: 'resources.tutorials.start.detail', tagKey: 'resources.tutorials.start.tag' },
+  { icon: BrainCircuit, titleKey: 'resources.tutorials.concepts.title', detailKey: 'resources.tutorials.concepts.detail', tagKey: 'resources.tutorials.concepts.tag' },
+  { icon: Play, titleKey: 'resources.tutorials.practice.title', detailKey: 'resources.tutorials.practice.detail', tagKey: 'resources.tutorials.practice.tag' },
+  { icon: Sparkles, titleKey: 'resources.tutorials.advanced.title', detailKey: 'resources.tutorials.advanced.detail', tagKey: 'resources.tutorials.advanced.tag' },
+  { icon: Database, titleKey: 'resources.tutorials.cases.title', detailKey: 'resources.tutorials.cases.detail', tagKey: 'resources.tutorials.cases.tag' },
+  { icon: Info, titleKey: 'resources.tutorials.faq.title', detailKey: 'resources.tutorials.faq.detail', tagKey: 'resources.tutorials.faq.tag' }
+]
 
 // ================================================================
 // Settings helpers — resolve active provider, runtime label, theme side effects
@@ -239,8 +271,8 @@ function activeModelProvider(settings: TeachingSettingsV1): TeachingModelProvide
 
 function runtimeProviderLabel(settings: TeachingSettingsV1): string {
   const provider = activeModelProvider(settings)
-  const model = settings.generator.model || 'auto'
-  return `${provider?.name ?? 'Model provider'} · ${model}`
+  const model = settings.generator.model || i18n.t('common.auto')
+  return `${provider?.name ?? i18n.t('common.modelProvider')} · ${model}`
 }
 
 function applySettingsSideEffects(settings: TeachingSettingsV1): void {
@@ -260,101 +292,101 @@ function toUserError(error: unknown): UserError {
 
   // IPC validation errors
   if (raw.includes('IPC payload field')) {
-    const field = raw.match(/"([^"]+)"/)?.[1] ?? '参数'
+    const field = raw.match(/"([^"]+)"/)?.[1] ?? i18n.t('errors.missingField.fallbackField')
     return {
-      message: `操作参数不完整`,
+      message: i18n.t('errors.missingField.message'),
       severity: 'warning',
-      detail: `缺少必要字段：${field}。请检查输入后重试。`
+      detail: i18n.t('errors.missingField.detail', { field })
     }
   }
 
   if (raw.includes('IPC payload must be an object')) {
     return {
-      message: '请求格式有误',
+      message: i18n.t('errors.badPayload.message'),
       severity: 'warning',
-      detail: '内部通信数据格式异常，请刷新页面后重试。'
+      detail: i18n.t('errors.badPayload.detail')
     }
   }
 
   if (raw.includes('Unsupported window control action')) {
     return {
-      message: '窗口操作不支持',
+      message: i18n.t('errors.windowControl.message'),
       severity: 'info',
-      detail: '该窗口操作在当前平台不可用。'
+      detail: i18n.t('errors.windowControl.detail')
     }
   }
 
   // Workspace errors
   if (raw.includes('Workspace not found')) {
     return {
-      message: '工作区未找到',
+      message: i18n.t('errors.workspaceNotFound.message'),
       severity: 'warning',
-      detail: '该工作区可能已被移动或删除，请重新导入。'
+      detail: i18n.t('errors.workspaceNotFound.detail')
     }
   }
 
   if (raw.includes('not a directory') || raw.includes('Selected path')) {
     return {
-      message: '路径无效',
+      message: i18n.t('errors.invalidPath.message'),
       severity: 'warning',
-      detail: '请选择一个有效的文件夹作为教学工作区。'
+      detail: i18n.t('errors.invalidPath.detail')
     }
   }
 
   if (raw.includes('Mission prompt is required')) {
     return {
-      message: '请输入学习使命',
+      message: i18n.t('errors.emptyMission.message'),
       severity: 'info',
-      detail: '学习使命不能为空，请简要描述你想学习的内容。'
+      detail: i18n.t('errors.emptyMission.detail')
     }
   }
 
   if (raw.includes('Lesson prompt is required')) {
     return {
-      message: '请输入教学任务',
+      message: i18n.t('errors.emptyTask.message'),
       severity: 'info',
-      detail: '请在上方输入框中描述你想生成的课程主题。'
+      detail: i18n.t('errors.emptyTask.detail')
     }
   }
 
   if (raw.includes('outside the workspace lessons directory') || raw.includes('Path is outside')) {
     return {
-      message: '路径访问受限',
+      message: i18n.t('errors.pathRestricted.message'),
       severity: 'warning',
-      detail: '仅允许访问教学工作区内的文件。'
+      detail: i18n.t('errors.pathRestricted.detail')
     }
   }
 
   // File system errors
   if (raw.includes('ENOENT') || raw.includes('no such file')) {
     return {
-      message: '文件未找到',
+      message: i18n.t('errors.fileNotFound.message'),
       severity: 'warning',
-      detail: '所选文件可能已被移动或删除。'
+      detail: i18n.t('errors.fileNotFound.detail')
     }
   }
 
   if (raw.includes('EACCES') || raw.includes('permission denied')) {
     return {
-      message: '文件访问被拒绝',
+      message: i18n.t('errors.accessDenied.message'),
       severity: 'error',
-      detail: '没有权限访问该文件，请检查文件权限设置。'
+      detail: i18n.t('errors.accessDenied.detail')
     }
   }
 
   // Generic fallback — don't expose raw stack traces
   if (raw.includes('Error:') || raw.includes('TypeError:') || raw.includes('at ')) {
     return {
-      message: '操作未成功',
+      message: i18n.t('errors.generic.message'),
       severity: 'error',
-      detail: '应用遇到意外错误。如果问题持续出现，请重启应用。'
+      detail: i18n.t('errors.generic.stackDetail')
     }
   }
 
   return {
-    message: raw || '操作未成功',
+    message: raw || i18n.t('errors.generic.message'),
     severity: 'error',
-    detail: '请稍后重试。如果问题持续出现，请联系支持。'
+    detail: i18n.t('errors.generic.detail')
   }
 }
 
@@ -389,13 +421,13 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
         <div className="error-boundary-card">
           <div className="assistant-badge" style={{ margin: '0 auto 16px' }}>
             <AlertTriangle size={16} />
-            应用异常
+            {i18n.t('errorBoundary.badge')}
           </div>
           <h2>{userError.message}</h2>
-          <p>{userError.detail ?? '应用遇到了意外错误，请尝试重新加载。'}</p>
+          <p>{userError.detail ?? i18n.t('errorBoundary.fallbackDetail')}</p>
           <button type="button" onClick={this.handleReload}>
             <RefreshCw size={15} />
-            重新加载
+            {i18n.t('errorBoundary.reload')}
           </button>
         </div>
       </div>
@@ -420,6 +452,8 @@ const useAppStore = create<StoreState>((set, get) => ({
   settings: emptySettings,
   reviewCards: [],
   progress: null,
+  memoryRecords: [],
+  memoryDiagnostics: null,
   setView: (view) => {
     set({ view })
     if (view === 'review') void get().loadReviewCards()
@@ -495,9 +529,9 @@ const useAppStore = create<StoreState>((set, get) => ({
   createWorkspace: async () => {
     const api = window.teachingSystem
     if (!api) return
-    const name = window.prompt('工作区名称', 'learn')
+    const name = window.prompt(i18n.t('dialogs.createNameTitle'), i18n.t('dialogs.createNameDefault'))
     if (!name) return
-    const prompt = window.prompt('学习使命', `我想学习 ${name}，并生成可复习的 HTML 课程。`)
+    const prompt = window.prompt(i18n.t('dialogs.createMissionTitle'), i18n.t('dialogs.createMissionDefault', { name }))
     if (!prompt) return
     set({ loading: true, error: null })
     try {
@@ -524,13 +558,14 @@ const useAppStore = create<StoreState>((set, get) => ({
       })
       const settings = get().settings
       if (settings.notifications.enabled && settings.notifications.workspaceImported) {
-        void get().showNotification('工作区已导入', `${result.state.activeWorkspace?.name ?? '教学工作区'} 已加入 TeachOS。`)
+        const wsName = result.state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
+        void get().showNotification(i18n.t('notify.imported.title'), i18n.t('notify.imported.body', { name: wsName }))
       }
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
       const settings = get().settings
       if (settings.notifications.enabled && settings.notifications.errors) {
-        void get().showNotification('导入失败', toUserError(error).message)
+        void get().showNotification(i18n.t('notify.importFailed.title'), toUserError(error).message)
       }
     }
   },
@@ -539,7 +574,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     if (!api) return
     const workspace = get().appState.activeWorkspace
     if (!workspace) return
-    const newPrompt = window.prompt('更新学习使命', workspace.missionExcerpt)
+    const newPrompt = window.prompt(i18n.t('dialogs.updateMissionTitle'), workspace.missionExcerpt)
     if (!newPrompt) return
     set({ loading: true, error: null })
     try {
@@ -558,7 +593,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     if (!workspace || !prompt) return
     if (
       settings.workspace.confirmBeforeGenerating &&
-      !window.confirm('将根据当前任务生成 lesson、reference 和 learning record。继续吗？')
+      !window.confirm(i18n.t('dialogs.confirmGenerate'))
     ) {
       return
     }
@@ -586,8 +621,10 @@ const useAppStore = create<StoreState>((set, get) => ({
         void get().openPath(result.lesson.absolutePath)
       }
       if (settings.notifications.enabled && settings.notifications.lessonGenerated) {
-        const suffix = result.source === 'fallback' ? `（本地回退${result.reason ? `：${result.reason}` : ''}）` : ''
-        void get().showNotification('课程已生成', `${result.lesson.title} 已保存到 ${result.lesson.relativePath}${suffix}`)
+        const suffix = result.source === 'fallback'
+          ? (result.reason ? i18n.t('notify.lessonGenerated.fallbackWithReason', { reason: result.reason }) : i18n.t('notify.lessonGenerated.fallbackNoReason'))
+          : ''
+        void get().showNotification(i18n.t('notify.lessonGenerated.title'), i18n.t('notify.lessonGenerated.body', { title: result.lesson.title, path: result.lesson.relativePath, suffix }))
       }
     } catch (error) {
       const userError = toUserError(error)
@@ -597,7 +634,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         appState: { ...get().appState, runtime: { ...defaultRuntime, status: 'error' } }
       })
       if (settings.notifications.enabled && settings.notifications.errors) {
-        void get().showNotification('生成失败', userError.message)
+        void get().showNotification(i18n.t('notify.generateFailed.title'), userError.message)
       }
     }
   },
@@ -610,7 +647,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     if (!workspace || !prompt) return
     if (
       settings.workspace.confirmBeforeGenerating &&
-      !window.confirm('将根据当前任务生成 lesson、reference 和 learning record。继续吗？')
+      !window.confirm(i18n.t('dialogs.confirmGenerate'))
     ) {
       return
     }
@@ -648,7 +685,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         const userError = toUserError(new Error(done.message))
         set({ generating: false, error: userError })
         if (settings.notifications.enabled && settings.notifications.errors) {
-          void get().showNotification('生成失败', userError.message)
+          void get().showNotification(i18n.t('notify.generateFailed.title'), userError.message)
         }
         return
       }
@@ -658,8 +695,10 @@ const useAppStore = create<StoreState>((set, get) => ({
           void get().openPath(done.lesson.absolutePath)
         }
         if (settings.notifications.enabled && settings.notifications.lessonGenerated) {
-          const suffix = done.source === 'fallback' ? `（本地回退${done.reason ? `：${done.reason}` : ''}）` : ''
-          void get().showNotification('课程已生成', `${done.lesson.title} 已保存到 ${done.lesson.relativePath}${suffix}`)
+          const suffix = done.source === 'fallback'
+            ? (done.reason ? i18n.t('notify.lessonGenerated.fallbackWithReason', { reason: done.reason }) : i18n.t('notify.lessonGenerated.fallbackNoReason'))
+            : ''
+          void get().showNotification(i18n.t('notify.lessonGenerated.title'), i18n.t('notify.lessonGenerated.body', { title: done.lesson.title, path: done.lesson.relativePath, suffix }))
         }
       }
     } catch (error) {
@@ -699,7 +738,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     try {
       const result = await api.openPath(path)
       if (!result.ok) {
-        set({ error: toUserError(new Error(result.message ?? '无法打开路径。')) })
+        set({ error: toUserError(new Error(result.message ?? i18n.t('errors.openPath'))) })
       }
     } catch (error) {
       set({ error: toUserError(error) })
@@ -711,7 +750,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     try {
       const result = await api.openExternal(url)
       if (!result.ok) {
-        set({ error: toUserError(new Error(result.message ?? '无法打开链接。')) })
+        set({ error: toUserError(new Error(result.message ?? i18n.t('errors.openExternal'))) })
       }
     } catch (error) {
       set({ error: toUserError(error) })
@@ -742,6 +781,86 @@ const useAppStore = create<StoreState>((set, get) => ({
       return await api.listUpstreamModels(providerId)
     } catch (error) {
       return { ok: false, message: toUserError(error).message }
+    }
+  },
+  listGitWorktrees: async (workspaceRoot) => {
+    const api = window.teachingSystem
+    if (!api) return { ok: false, reason: 'error', message: 'TeachOS preload API unavailable.' }
+    try {
+      return await api.listGitWorktrees(workspaceRoot)
+    } catch (error) {
+      return { ok: false, reason: 'error', message: toUserError(error).message }
+    }
+  },
+  removeGitWorktree: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const result = await api.removeGitWorktree(payload)
+      if (!result.ok) {
+        set({ error: toUserError(new Error(result.message ?? 'Failed to remove worktree.')) })
+      }
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  listMemory: async (workspaceRoot) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const memoryRecords = await api.listMemory(workspaceRoot)
+      set({ memoryRecords })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  createMemory: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return false
+    try {
+      const memory = await api.createMemory(payload)
+      set((state) => ({ memoryRecords: [memory, ...state.memoryRecords.filter((item) => item.id !== memory.id)] }))
+      void get().loadMemoryDiagnostics()
+      return true
+    } catch (error) {
+      set({ error: toUserError(error) })
+      return false
+    }
+  },
+  updateMemory: async (memoryId, patch) => {
+    const api = window.teachingSystem
+    if (!api) return false
+    try {
+      const memory = await api.updateMemory(memoryId, patch)
+      set((state) => ({
+        memoryRecords: state.memoryRecords.map((item) => (item.id === memoryId ? memory : item))
+      }))
+      void get().loadMemoryDiagnostics()
+      return true
+    } catch (error) {
+      set({ error: toUserError(error) })
+      return false
+    }
+  },
+  deleteMemory: async (memoryId, workspaceRoot) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      await api.deleteMemory(memoryId, workspaceRoot)
+      set((state) => ({ memoryRecords: state.memoryRecords.filter((item) => item.id !== memoryId) }))
+      void get().loadMemoryDiagnostics()
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  loadMemoryDiagnostics: async () => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const memoryDiagnostics = await api.getMemoryDiagnostics()
+      set({ memoryDiagnostics })
+    } catch (error) {
+      set({ error: toUserError(error) })
     }
   },
   loadReviewCards: async () => {
@@ -826,6 +945,7 @@ function SidebarResizer({
   onResize: (width: number) => void
   width: number
 }) {
+  const { t } = useTranslation()
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (disabled) return
 
@@ -870,7 +990,7 @@ function SidebarResizer({
 
   return (
     <div
-      aria-label="调整侧边栏宽度"
+      aria-label={t('sidebarResizer.aria')}
       aria-orientation="vertical"
       aria-valuemax={MAX_SIDEBAR_WIDTH}
       aria-valuemin={MIN_SIDEBAR_WIDTH}
@@ -889,18 +1009,19 @@ function SidebarResizer({
 // ================================================================
 
 function WindowTitlebar() {
+  const { t } = useTranslation()
   const controlWindow = (action: WindowControlAction): void => {
     void window.teachingSystem?.controlWindow(action)
   }
 
   return (
-    <div className="window-titlebar" role="group" aria-label="窗口控制">
+    <div className="window-titlebar" role="group" aria-label={t('titlebar.group')}>
       <div className="window-controls">
         <button
           className="window-control-btn"
           type="button"
-          aria-label="最小化窗口"
-          title="最小化窗口"
+          aria-label={t('titlebar.minimize')}
+          title={t('titlebar.minimize')}
           onClick={() => controlWindow('minimize')}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
@@ -910,8 +1031,8 @@ function WindowTitlebar() {
         <button
           className="window-control-btn"
           type="button"
-          aria-label="最大化或还原窗口"
-          title="最大化或还原窗口"
+          aria-label={t('titlebar.maximize')}
+          title={t('titlebar.maximize')}
           onClick={() => controlWindow('toggle-maximize')}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
@@ -921,8 +1042,8 @@ function WindowTitlebar() {
         <button
           className="window-control-btn window-control-btn--close"
           type="button"
-          aria-label="关闭窗口"
-          title="关闭窗口"
+          aria-label={t('titlebar.close')}
+          title={t('titlebar.close')}
           onClick={() => controlWindow('close')}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
@@ -939,31 +1060,32 @@ function WindowTitlebar() {
 // ================================================================
 
 function MacTrafficLights() {
+  const { t } = useTranslation()
   const controlWindow = (action: WindowControlAction): void => {
     void window.teachingSystem?.controlWindow(action)
   }
 
   return (
-    <div className="mac-traffic-lights" role="group" aria-label="窗口控制">
+    <div className="mac-traffic-lights" role="group" aria-label={t('titlebar.group')}>
       <button
         className="mac-traffic-light mac-traffic-light--close"
         type="button"
-        aria-label="关闭窗口"
-        title="关闭窗口"
+        aria-label={t('titlebar.close')}
+        title={t('titlebar.close')}
         onClick={() => controlWindow('close')}
       />
       <button
         className="mac-traffic-light mac-traffic-light--minimize"
         type="button"
-        aria-label="最小化窗口"
-        title="最小化窗口"
+        aria-label={t('titlebar.minimize')}
+        title={t('titlebar.minimize')}
         onClick={() => controlWindow('minimize')}
       />
       <button
         className="mac-traffic-light mac-traffic-light--maximize"
         type="button"
-        aria-label="最大化或还原窗口"
-        title="最大化或还原窗口"
+        aria-label={t('titlebar.maximize')}
+        title={t('titlebar.maximize')}
         onClick={() => controlWindow('toggle-maximize')}
       />
     </div>
@@ -991,7 +1113,7 @@ function Sidebar() {
   const active = appState.activeWorkspace
 
   return (
-    <aside className={`sidebar${sidebarCollapsed ? ' is-collapsed' : ''}`} aria-label="主导航">
+    <aside className={`sidebar${sidebarCollapsed ? ' is-collapsed' : ''}`} aria-label={t('sidebar.aria')}>
       <nav className="nav-list">
         {navItems.map((item) => {
           const Icon = item.icon
@@ -1011,8 +1133,8 @@ function Sidebar() {
 
       <div className="sidebar-section">
         <div className="section-heading">
-          <span className="collapsible-label">工作区</span>
-          <button className="icon-button" type="button" aria-label="新建工作区" onClick={createWorkspace}>
+          <span className="collapsible-label">{t('sidebar.workspace')}</span>
+          <button className="icon-button" type="button" aria-label={t('sidebar.newWorkspace')} onClick={createWorkspace}>
             <Plus size={15} />
           </button>
         </div>
@@ -1026,7 +1148,7 @@ function Sidebar() {
           >
             <FolderOpen size={17} />
             <span className="collapsible-label">{workspace.name}</span>
-            <small>{workspace.lessons.length} 课</small>
+            <small>{t('sidebar.lessonsCount', { count: workspace.lessons.length })}</small>
           </button>
         ))}
       </div>
@@ -1038,16 +1160,16 @@ function Sidebar() {
         <button
           className={`icon-button${settings.notifications.enabled ? '' : ' is-muted'}`}
           type="button"
-          aria-label="通知"
+          aria-label={t('sidebar.notifications')}
           onClick={() => {
             openSettings('notifications')
-            void showNotification('TeachOS 通知中心', settings.notifications.enabled ? '通知设置已打开。' : '通知已关闭，可在这里重新启用。')
+            void showNotification(t('sidebar.notificationCenterTitle'), settings.notifications.enabled ? t('sidebar.notificationCenterOn') : t('sidebar.notificationCenterOff'))
           }}
-          title="通知"
+          title={t('sidebar.notifications')}
         >
           <Bell size={16} />
         </button>
-        <button className="icon-button" type="button" aria-label="设置" onClick={() => openSettings('model')} title="设置">
+        <button className="icon-button" type="button" aria-label={t('sidebar.settings')} onClick={() => openSettings('model')} title={t('sidebar.settings')}>
           <Settings size={16} />
         </button>
       </div>
@@ -1060,6 +1182,7 @@ function Sidebar() {
 // ================================================================
 
 function MainArea() {
+  const { t } = useTranslation()
   const {
     view,
     settingsSection,
@@ -1093,7 +1216,6 @@ function MainArea() {
 
   const active = appState.activeWorkspace
   const lessons = active?.lessons ?? []
-  const resources = active?.resources ?? []
   const records = active?.records ?? []
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? active?.lessons[0] ?? null
   const canGenerate = Boolean(active && taskPrompt.trim() && !generating)
@@ -1123,7 +1245,7 @@ function MainArea() {
           <button
             className="icon-button"
             type="button"
-            aria-label={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
+            aria-label={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           >
             <PanelLeft size={17} />
@@ -1140,17 +1262,17 @@ function MainArea() {
             <strong>{error.message}</strong>
             {error.detail && <span style={{ display: 'block', marginTop: 2, fontSize: 12, fontWeight: 400, opacity: 0.8 }}>{error.detail}</span>}
           </div>
-          <button className="alert-dismiss" type="button" aria-label="关闭提示" onClick={clearError}>
+          <button className="alert-dismiss" type="button" aria-label={t('main.dismissAlert')} onClick={clearError}>
             <X size={14} />
           </button>
         </div>
       )}
 
       {view === 'overview' && (
-        <section className="overview-dialog-shell" aria-label="概览">
+        <section className="overview-dialog-shell" aria-label={t('overview.aria')}>
           <form
             className="overview-dialog-stack"
-            aria-label="教学任务输入"
+            aria-label={t('overview.formAria')}
             onSubmit={(event) => {
               event.preventDefault()
               if (canGenerate) void generateCurrentLesson()
@@ -1159,23 +1281,23 @@ function MainArea() {
             <div className="overview-dialog-card">
               <textarea
                 value={taskPrompt}
-                aria-label="教学任务"
-                placeholder={active ? '输入教学任务，生成下一节可复习课程...' : '先新建或导入教学工作区...'}
+                aria-label={t('overview.taskAria')}
+                placeholder={active ? t('overview.placeholderActive') : t('overview.placeholderEmpty')}
                 onChange={(event) => setTaskPrompt(event.target.value)}
               />
               <div className="overview-dialog-footer">
                 <div className="overview-dialog-tools">
-                  <button className="overview-dialog-icon" type="button" aria-label="新建工作区" title="新建工作区" onClick={createWorkspace}>
+                  <button className="overview-dialog-icon" type="button" aria-label={t('overview.newWorkspace')} title={t('overview.newWorkspace')} onClick={createWorkspace}>
                     <Plus size={16} />
                   </button>
                   <button
                     className={`overview-dialog-access ${active ? 'is-active' : ''}`}
                     type="button"
-                    title={active?.rootPath ?? '导入教学工作区'}
+                    title={active?.rootPath ?? t('overview.importWorkspace')}
                     onClick={() => active ? void openPath(active.rootPath) : void importWorkspace()}
                   >
                     <ShieldCheck size={15} />
-                    <span>{active ? '完全访问' : '选择工作区'}</span>
+                    <span>{active ? t('overview.fullAccess') : t('overview.selectWorkspace')}</span>
                   </button>
                 </div>
                 <div className="overview-dialog-actions">
@@ -1183,13 +1305,13 @@ function MainArea() {
                     <span>{runtimeProviderLabel(settings)}</span>
                     <ChevronDown size={13} />
                   </button>
-                  <button className="send-button overview-dialog-send" type="submit" aria-label="生成课程" disabled={!canGenerate}>
+                  <button className="send-button overview-dialog-send" type="submit" aria-label={t('overview.generate')} disabled={!canGenerate}>
                     {generating ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
                   </button>
                 </div>
               </div>
             </div>
-            <div className="overview-dialog-statusbar" aria-label="运行环境">
+            <div className="overview-dialog-statusbar" aria-label={t('overview.runtimeEnv')}>
               <div className="overview-dialog-status-group">
                 <span className="overview-dialog-status-item">
                   <Bot size={14} />
@@ -1197,7 +1319,7 @@ function MainArea() {
                 </span>
                 <span className="overview-dialog-status-item">
                   <FolderOpen size={14} />
-                  <span>{active?.name ?? '未选择工作区'}</span>
+                  <span>{active?.name ?? t('overview.noWorkspace')}</span>
                 </span>
               </div>
               <div className="overview-dialog-status-group">
@@ -1211,7 +1333,7 @@ function MainArea() {
                 </button>
                 <span className="overview-dialog-status-item">
                   <Monitor size={14} />
-                  <span>{settings.generator.streaming ? '流式模式' : '本地模式'}</span>
+                  <span>{settings.generator.streaming ? t('overview.streamingMode') : t('overview.localMode')}</span>
                 </span>
                 <span className="overview-dialog-status-item">
                   <Command size={14} />
@@ -1236,41 +1358,50 @@ function MainArea() {
           onImportWorkspace={importWorkspace}
           onOpenPath={openPath}
           onOpenExternal={useAppStore.getState().openExternal}
-          onTestNotification={() => useAppStore.getState().showNotification('TeachOS 通知测试', '通知设置已正确连接。')}
+          onTestNotification={() => useAppStore.getState().showNotification(t('notify.test.title'), t('notify.test.body'))}
           onProbeProvider={useAppStore.getState().probeProvider}
           onListUpstreamModels={useAppStore.getState().listUpstreamModels}
+          onListGitWorktrees={useAppStore.getState().listGitWorktrees}
+          onRemoveGitWorktree={useAppStore.getState().removeGitWorktree}
+          memoryRecords={useAppStore.getState().memoryRecords}
+          memoryDiagnostics={useAppStore.getState().memoryDiagnostics}
+          onListMemory={useAppStore.getState().listMemory}
+          onCreateMemory={useAppStore.getState().createMemory}
+          onUpdateMemory={useAppStore.getState().updateMemory}
+          onDeleteMemory={useAppStore.getState().deleteMemory}
+          onLoadMemoryDiagnostics={useAppStore.getState().loadMemoryDiagnostics}
           onOpenLogFile={async () => {
             const result = await window.teachingSystem?.openLogFile()
-            if (!result?.ok) throw new Error(result?.message ?? '无法打开日志文件。')
+            if (!result?.ok) throw new Error(result?.message ?? i18n.t('errors.openLog'))
           }}
           onOpenAppDataDir={async () => {
             const result = await window.teachingSystem?.openAppDataDir()
-            if (!result?.ok) throw new Error(result?.message ?? '无法打开应用数据目录。')
+            if (!result?.ok) throw new Error(result?.message ?? i18n.t('errors.openAppData'))
           }}
         />
       )}
 
       {view === 'lessons' && (
-        <section className="composer-tool" aria-label="教学任务输入">
+        <section className="composer-tool" aria-label={t('lessons.composerAria')}>
           <div className="composer-header">
             <div>
-              <strong>教学任务</strong>
+              <strong>{t('lessons.composerTitle')}</strong>
             </div>
-            <button className="icon-button soft" type="button" aria-label="模型设置" onClick={() => openSettings('model')}>
+            <button className="icon-button soft" type="button" aria-label={t('lessons.modelSettings')} onClick={() => openSettings('model')}>
               <Command size={16} />
             </button>
           </div>
           <textarea
             value={taskPrompt}
-            aria-label="教学任务"
-            placeholder="描述你想让 AI 生成的教学内容..."
+            aria-label={t('overview.taskAria')}
+            placeholder={t('lessons.composerPlaceholder')}
             onChange={(event) => setTaskPrompt(event.target.value)}
           />
           <div className="composer-footer">
             <div className="tool-pills">
               <button type="button" onClick={() => active && void openPath(active.rootPath)} disabled={!active}>
                 <FolderOpen size={15} />
-                根目录
+                {t('lessons.rootDir')}
               </button>
               <button type="button" onClick={() => active && void openPath(active.missionPath)} disabled={!active}>
                 <FileText size={15} />
@@ -1285,7 +1416,7 @@ function MainArea() {
                 structured JSON
               </button>
             </div>
-            <button className="send-button" type="button" aria-label="生成课程" onClick={settings.generator.streaming ? generateLessonStream : generateLesson} disabled={!active || generating}>
+            <button className="send-button" type="button" aria-label={t('lessons.send')} onClick={settings.generator.streaming ? generateLessonStream : generateLesson} disabled={!active || generating}>
               {generating ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
             </button>
           </div>
@@ -1297,12 +1428,12 @@ function MainArea() {
         <div className="lesson-column">
           <div className="section-title-row">
             <div>
-              <span>课程计划</span>
-              <h2>{view === 'lessons' ? '全部 lesson' : '下一组 lesson'}</h2>
+              <span>{t('lessons.plan')}</span>
+              <h2>{view === 'lessons' ? t('lessons.all') : t('lessons.next')}</h2>
             </div>
             <button className="ghost-button" type="button" onClick={() => active && void openPath(active.lessonsDir)} disabled={!active}>
               <ArrowUpRight size={16} />
-              打开目录
+              {t('lessons.openDir')}
             </button>
           </div>
 
@@ -1310,9 +1441,9 @@ function MainArea() {
             {lessons.length === 0 ? (
               <EmptyState
                 icon={BookOpen}
-                title="暂无课程"
-                detail="在上方输入教学任务，点击生成按钮创建可复习的 HTML 课程。"
-                action={active ? { label: '生成课程', onClick: generateLesson } : undefined}
+                title={t('lessons.emptyTitle')}
+                detail={t('lessons.emptyDetail')}
+                action={active ? { label: t('lessons.emptyAction'), onClick: generateLesson } : undefined}
               />
             ) : (
               lessons.map((lesson) => {
@@ -1325,9 +1456,9 @@ function MainArea() {
                     </div>
                     <div className="lesson-body">
                       <h3>{lesson.title}</h3>
-                      <p>{lesson.durationMinutes} 分钟 · {lesson.relativePath}</p>
+                      <p>{t('lessons.duration', { count: lesson.durationMinutes })} · {lesson.relativePath}</p>
                     </div>
-                    <span className="state-chip">{isSelected ? '预览中' : '已生成'}</span>
+                    <span className="state-chip">{isSelected ? t('lessons.chipPreviewing') : t('lessons.chipGenerated')}</span>
                   </article>
                 )
               })
@@ -1335,16 +1466,16 @@ function MainArea() {
           </div>
         </div>
 
-        <aside className="preview-panel" aria-label="Lesson 预览">
+        <aside className="preview-panel" aria-label={t('lessons.previewAria')}>
           <div className="preview-toolbar">
             <div>
               <span>{selectedLesson?.relativePath ?? 'lessons/0001-lesson.html'}</span>
-              <strong>静态课程预览</strong>
+              <strong>{t('lessons.previewTitle')}</strong>
             </div>
             <button
               className="icon-button"
               type="button"
-              aria-label="打开预览"
+              aria-label={t('lessons.openPreview')}
               onClick={() => appState.selectedLessonPath && void openPath(appState.selectedLessonPath)}
               disabled={!appState.selectedLessonPath}
             >
@@ -1364,45 +1495,41 @@ function MainArea() {
       )}
 
       {view === 'resources' && (
-      <section className="lower-grid">
-        <div className="resource-panel">
+      <section className="resource-page">
+        <div className="resource-panel resource-panel--tutorials">
           <div className="section-title-row compact">
             <div>
-              <span>可信资源</span>
-              <h2>资源索引</h2>
+              <span>{t('resources.trusted')}</span>
+              <h2>{t('resources.title')}</h2>
             </div>
-            <button className="icon-button" type="button" aria-label="打开 RESOURCES.md" onClick={() => active && void openPath(active.resourcesPath)} disabled={!active}>
-              <Plus size={16} />
-            </button>
           </div>
-          <div className="resource-list">
-            {resources.length === 0 ? (
-              <EmptyState
-                icon={LibraryBig}
-                title="暂无资源"
-                detail="在 RESOURCES.md 中添加可信学习来源后，会显示在这里。"
-              />
-            ) : (
-              resources.map((resource) => (
-                <article className="resource-row" key={`${resource.tag}-${resource.title}`}>
-                  <div>
-                    <h3>{resource.title}</h3>
-                    <p>{resource.detail}</p>
+          <div className="tutorial-grid">
+            {PRESET_TUTORIALS.map((tutorial) => {
+              const Icon = tutorial.icon
+              return (
+                <article className="tutorial-card" key={tutorial.titleKey}>
+                  <span className="tutorial-card-icon">
+                    <Icon size={20} />
+                  </span>
+                  <div className="tutorial-card-body">
+                    <h3>{t(tutorial.titleKey)}</h3>
+                    <p>{t(tutorial.detailKey)}</p>
                   </div>
-                  <span>{resource.tag}</span>
+                  <span className="tutorial-tag">{t(tutorial.tagKey)}</span>
                 </article>
-              ))
-            )}
+              )
+            })}
           </div>
         </div>
 
+        <div className="resource-page-secondary">
         <div className="records-panel">
           <div className="section-title-row compact">
             <div>
-              <span>学习记录</span>
-              <h2>近期洞察</h2>
+              <span>{t('records.label')}</span>
+              <h2>{t('records.title')}</h2>
             </div>
-            <button className="icon-button" type="button" aria-label="查看学习记录目录" onClick={() => active && void openPath(active.recordsDir)} disabled={!active}>
+            <button className="icon-button" type="button" aria-label={t('records.open')} onClick={() => active && void openPath(active.recordsDir)} disabled={!active}>
               <History size={16} />
             </button>
           </div>
@@ -1410,8 +1537,8 @@ function MainArea() {
             {records.length === 0 ? (
               <EmptyState
                 icon={History}
-                title="暂无记录"
-                detail="生成 lesson 时会同步写入 learning-records/，下次查看时此处会显示最新记录。"
+                title={t('records.emptyTitle')}
+                detail={t('records.emptyDetail')}
               />
             ) : (
               records.map((record) => (
@@ -1431,7 +1558,7 @@ function MainArea() {
           <div className="runtime-header">
             <BrainCircuit size={20} />
             <div>
-              <span>AI Runtime</span>
+              <span>{t('runtime.title')}</span>
               <strong>{runtimeProviderLabel(settings)}</strong>
             </div>
           </div>
@@ -1441,7 +1568,7 @@ function MainArea() {
           <div className="runtime-stats">
             <span>
               <Clock3 size={15} />
-              {appState.runtime.queuedTasks} 个队列任务
+              {t('runtime.queued', { count: appState.runtime.queuedTasks })}
             </span>
             <span>
               {generating ? <Loader2 className="spin" size={15} /> : <CheckCircle2 size={15} />}
@@ -1452,6 +1579,7 @@ function MainArea() {
               {active?.referenceCount ?? 0} references
             </span>
           </div>
+        </div>
         </div>
       </section>
       )}
@@ -1478,6 +1606,15 @@ function SettingsView({
   onTestNotification,
   onProbeProvider,
   onListUpstreamModels,
+  onListGitWorktrees,
+  onRemoveGitWorktree,
+  memoryRecords,
+  memoryDiagnostics,
+  onListMemory,
+  onCreateMemory,
+  onUpdateMemory,
+  onDeleteMemory,
+  onLoadMemoryDiagnostics,
   onOpenLogFile,
   onOpenAppDataDir
 }: {
@@ -1495,45 +1632,94 @@ function SettingsView({
   onTestNotification: () => Promise<void>
   onProbeProvider: (payload: ProbeProviderPayload) => Promise<ProbeProviderResult>
   onListUpstreamModels: (providerId: string) => Promise<ListUpstreamModelsResult>
+  onListGitWorktrees: (workspaceRoot: string) => Promise<TeachingGitWorktreesResult>
+  onRemoveGitWorktree: (payload: RemoveTeachingGitWorktreePayload) => Promise<void>
+  memoryRecords: TeachingMemoryRecord[]
+  memoryDiagnostics: TeachingMemoryDiagnostics | null
+  onListMemory: (workspaceRoot?: string) => Promise<void>
+  onCreateMemory: (payload: CreateTeachingMemoryPayload) => Promise<boolean>
+  onUpdateMemory: (memoryId: string, patch: UpdateTeachingMemoryPayload) => Promise<boolean>
+  onDeleteMemory: (memoryId: string, workspaceRoot?: string) => Promise<void>
+  onLoadMemoryDiagnostics: () => Promise<void>
   onOpenLogFile: () => Promise<void>
   onOpenAppDataDir: () => Promise<void>
 }) {
   const { t } = useTranslation()
+  const providersById = new Map(settings.provider.providers.map((provider) => [provider.id, provider]))
+  const visibleModelProviders = modelSettingsProviderIds.map((id) => {
+    const preset = TEACHING_MODEL_PROVIDER_PRESETS.find((item) => item.id === id)!
+    return providersById.get(id) ?? { ...preset, apiKey: '' }
+  })
   const activeProvider = activeModelProvider(settings)
+  const activeModelSettingsProvider =
+    visibleModelProviders.find((provider) => provider.id === activeProvider.id) ?? visibleModelProviders[0]!
   const [providerStatus, setProviderStatus] = useState<string>('')
   const [providerBusy, setProviderBusy] = useState(false)
+  const [worktreeResult, setWorktreeResult] = useState<TeachingGitWorktreesResult | null>(null)
+  const [worktreeBusyPath, setWorktreeBusyPath] = useState<string | null>(null)
+  const [worktreeLoading, setWorktreeLoading] = useState(false)
+  const [memoryScopeFilter, setMemoryScopeFilter] = useState<'all' | TeachingMemoryScope>('all')
+  const [memoryDialog, setMemoryDialog] = useState<null | { mode: 'create' } | { mode: 'edit' | 'view'; memory: TeachingMemoryRecord }>(null)
+  const [memoryDraft, setMemoryDraft] = useState<{ content: string; scope: TeachingMemoryScope; tags: string; confidence: number }>({
+    content: '',
+    scope: 'workspace',
+    tags: '',
+    confidence: 1
+  })
+
+  useEffect(() => {
+    if (section !== 'memory') return
+    void onListMemory(activeWorkspace?.rootPath)
+    void onLoadMemoryDiagnostics()
+  }, [section, activeWorkspace?.rootPath, onListMemory, onLoadMemoryDiagnostics])
+
+  useEffect(() => {
+    if (section !== 'worktree') return
+    if (!activeWorkspace?.rootPath) {
+      setWorktreeResult(null)
+      return
+    }
+    void refreshWorktrees()
+  }, [section, activeWorkspace?.rootPath, settings.worktree.rootPath])
 
   const probeActiveProvider = async (): Promise<void> => {
     setProviderBusy(true)
-    setProviderStatus('正在连接 provider...')
+    setProviderStatus(t('model.statusConnecting'))
     const result = await onProbeProvider({
-      baseUrl: activeProvider.baseUrl,
-      apiKey: activeProvider.apiKey,
-      endpointFormat: activeProvider.endpointFormat
+      baseUrl: activeModelSettingsProvider.baseUrl,
+      apiKey: activeModelSettingsProvider.apiKey,
+      endpointFormat: activeModelSettingsProvider.endpointFormat
     })
     setProviderBusy(false)
-    setProviderStatus(result.ok ? `连接成功：${result.latencyMs}ms，发现 ${result.modelIds.length} 个模型。` : result.message)
+    setProviderStatus(result.ok ? t('model.statusOk', { latency: result.latencyMs, count: result.modelIds.length }) : result.message)
   }
 
   const pullActiveProviderModels = async (): Promise<void> => {
     setProviderBusy(true)
-    setProviderStatus('正在拉取模型列表...')
-    const result = await onListUpstreamModels(activeProvider.id)
+    setProviderStatus(t('model.statusPulling'))
+    const result = await onListUpstreamModels(activeModelSettingsProvider.id)
     setProviderBusy(false)
     if (!result.ok) {
       setProviderStatus(result.message)
       return
     }
     updateProvider({ models: result.modelIds })
-    setProviderStatus(`已同步 ${result.modelIds.length} 个模型。`)
+    if (settings.generator.providerId === activeModelSettingsProvider.id && result.modelIds.length > 0) {
+      void onUpdateSettings({ generator: { model: result.modelIds[0] } })
+    }
+    setProviderStatus(t('model.statusSynced', { count: result.modelIds.length }))
   }
 
   const updateProvider = (patch: Partial<TeachingModelProviderProfile>): void => {
+    const currentProvider = settings.provider.providers.find((provider) => provider.id === activeModelSettingsProvider.id)
+    const providers = currentProvider
+      ? settings.provider.providers.map((provider) =>
+          provider.id === activeModelSettingsProvider.id ? { ...provider, ...patch } : provider
+        )
+      : [...settings.provider.providers, { ...activeModelSettingsProvider, ...patch }]
     void onUpdateSettings({
       provider: {
-        providers: settings.provider.providers.map((provider) =>
-          provider.id === activeProvider.id ? { ...provider, ...patch } : provider
-        )
+        providers
       }
     })
   }
@@ -1550,10 +1736,26 @@ function SettingsView({
     })
   }
 
+  const selectModelProvider = (providerId: string): void => {
+    const provider = visibleModelProviders.find((item) => item.id === providerId) ?? activeModelSettingsProvider
+    const hasProvider = settings.provider.providers.some((item) => item.id === provider.id)
+    void onUpdateSettings({
+      provider: {
+        activeProviderId: provider.id,
+        providers: hasProvider ? settings.provider.providers : [...settings.provider.providers, provider]
+      },
+      generator: {
+        providerId: provider.id,
+        model: provider.models[0] ?? '',
+        endpointFormat: provider.endpointFormat
+      }
+    })
+  }
+
   const resetActiveProviderToPreset = (): void => {
-    const preset = TEACHING_MODEL_PROVIDER_PRESETS.find((item) => item.id === activeProvider.id)
+    const preset = TEACHING_MODEL_PROVIDER_PRESETS.find((item) => item.id === activeModelSettingsProvider.id)
     if (!preset) return
-    updateProvider({ ...preset, apiKey: activeProvider.apiKey })
+    updateProvider({ ...preset, apiKey: activeModelSettingsProvider.apiKey })
     void onUpdateSettings({
       generator: {
         providerId: preset.id,
@@ -1561,6 +1763,62 @@ function SettingsView({
         endpointFormat: preset.endpointFormat
       }
     })
+  }
+
+  const refreshWorktrees = async (): Promise<void> => {
+    if (!activeWorkspace?.rootPath) return
+    setWorktreeLoading(true)
+    try {
+      const result = await onListGitWorktrees(activeWorkspace.rootPath)
+      setWorktreeResult(result)
+    } finally {
+      setWorktreeLoading(false)
+    }
+  }
+
+  const removeWorktree = async (path: string): Promise<void> => {
+    if (!activeWorkspace?.rootPath) return
+    setWorktreeBusyPath(path)
+    try {
+      await onRemoveGitWorktree({ workspaceRoot: activeWorkspace.rootPath, worktreePath: path })
+      await refreshWorktrees()
+    } finally {
+      setWorktreeBusyPath(null)
+    }
+  }
+
+  const filteredMemoryRecords = memoryScopeFilter === 'all'
+    ? memoryRecords
+    : memoryRecords.filter((record) => record.scope === memoryScopeFilter)
+
+  const beginCreateMemory = (): void => {
+    setMemoryDraft({ content: '', scope: 'workspace', tags: '', confidence: 1 })
+    setMemoryDialog({ mode: 'create' })
+  }
+
+  const beginEditMemory = (memory: TeachingMemoryRecord): void => {
+    setMemoryDraft({
+      content: memory.content,
+      scope: memory.scope,
+      tags: memory.tags.join(', '),
+      confidence: memory.confidence ?? 1
+    })
+    setMemoryDialog({ mode: 'edit', memory })
+  }
+
+  const saveMemoryDraft = async (): Promise<void> => {
+    const payload = {
+      content: memoryDraft.content.trim(),
+      scope: memoryDraft.scope,
+      tags: memoryDraft.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+      confidence: memoryDraft.confidence,
+      workspaceRoot: activeWorkspace?.rootPath
+    } satisfies CreateTeachingMemoryPayload
+    if (!payload.content) return
+    const ok = memoryDialog?.mode === 'edit'
+      ? await onUpdateMemory(memoryDialog.memory.id, payload)
+      : await onCreateMemory(payload)
+    if (ok) setMemoryDialog(null)
   }
 
   return (
@@ -1595,42 +1853,42 @@ function SettingsView({
       <div className="settings-content">
         {section === 'general' && (
           <SettingsPanel
-            title="通用"
-            subtitle="本地偏好会保存到 TeachOS 的应用数据目录。"
+            title={t('general.title')}
+            subtitle={t('general.subtitle')}
           >
             <SettingsCard>
-              <SettingsRow label="主题" detail="跟随系统、浅色或深色。">
+              <SettingsRow label={t('general.theme.label')} detail={t('general.theme.detail')}>
                 <SegmentedControl
                   value={settings.theme}
                   options={[
-                    { value: 'system', label: '系统', icon: Monitor },
-                    { value: 'light', label: '浅色', icon: Sun },
-                    { value: 'dark', label: '深色', icon: Moon }
+                    { value: 'system', label: t('general.theme.system'), icon: Monitor },
+                    { value: 'light', label: t('general.theme.light'), icon: Sun },
+                    { value: 'dark', label: t('general.theme.dark'), icon: Moon }
                   ]}
                   onChange={(theme) => void onUpdateSettings({ theme })}
                 />
               </SettingsRow>
-              <SettingsRow label="语言" detail="当前界面默认使用中文内容。">
+              <SettingsRow label={t('general.language.label')} detail={t('general.language.detail')}>
                 <SegmentedControl
                   value={settings.locale}
                   options={[
-                    { value: 'zh-CN', label: '中文' },
-                    { value: 'en-US', label: 'English' }
+                    { value: 'zh-CN', label: t('general.language.zh') },
+                    { value: 'en-US', label: t('general.language.en') }
                   ]}
                   onChange={(locale) => void onUpdateSettings({ locale })}
                 />
               </SettingsRow>
-              <SettingsRow label="界面密度" detail="紧凑模式会减少行高和面板间距。">
+              <SettingsRow label={t('general.density.label')} detail={t('general.density.detail')}>
                 <SegmentedControl
                   value={settings.density}
                   options={[
-                    { value: 'comfortable', label: '舒适' },
-                    { value: 'compact', label: '紧凑' }
+                    { value: 'comfortable', label: t('general.density.comfortable') },
+                    { value: 'compact', label: t('general.density.compact') }
                   ]}
                   onChange={(density) => void onUpdateSettings({ density })}
                 />
               </SettingsRow>
-              <SettingsRow label="字体缩放" detail={`${Math.round(settings.uiFontScale * 100)}%`}>
+              <SettingsRow label={t('general.fontScale.label')} detail={`${Math.round(settings.uiFontScale * 100)}%`}>
                 <input
                   className="settings-range"
                   min="0.8"
@@ -1641,29 +1899,29 @@ function SettingsView({
                   onChange={(event) => void onUpdateSettings({ uiFontScale: Number(event.target.value) })}
                 />
               </SettingsRow>
-              <SettingsRow label="关闭行为" detail={settings.appBehavior.closeAction === 'tray' ? '关闭到托盘' : '直接退出'}>
+              <SettingsRow label={t('general.closeAction.label')} detail={settings.appBehavior.closeAction === 'tray' ? t('general.closeAction.detailTray') : t('general.closeAction.detailQuit')}>
                 <SegmentedControl
                   value={settings.appBehavior.closeAction}
                   options={[
-                    { value: 'quit', label: '退出' },
-                    { value: 'tray', label: '托盘' }
+                    { value: 'quit', label: t('general.closeAction.quit') },
+                    { value: 'tray', label: t('general.closeAction.tray') }
                   ]}
                   onChange={(closeAction) => void onUpdateSettings({ appBehavior: { closeAction, closeToTray: closeAction === 'tray' } })}
                 />
               </SettingsRow>
-              <SettingsRow label="开机启动" detail="由 Electron login item 设置控制。">
+              <SettingsRow label={t('general.openAtLogin.label')} detail={t('general.openAtLogin.detail')}>
                 <ToggleSwitch
                   checked={settings.appBehavior.openAtLogin}
                   onChange={(openAtLogin) => void onUpdateSettings({ appBehavior: { openAtLogin } })}
                 />
               </SettingsRow>
-              <SettingsRow label="启动时最小化" detail="开机启动时仅显示托盘图标。">
+              <SettingsRow label={t('general.startMinimized.label')} detail={t('general.startMinimized.detail')}>
                 <ToggleSwitch
                   checked={settings.appBehavior.startMinimized}
                   onChange={(startMinimized) => void onUpdateSettings({ appBehavior: { startMinimized } })}
                 />
               </SettingsRow>
-              <SettingsRow label="日志" detail={`${settings.log.enabled ? '已启用' : '已关闭'} · 保留 ${settings.log.retentionDays} 天`}>
+              <SettingsRow label={t('general.log.label')} detail={t('general.log.detail', { state: settings.log.enabled ? t('general.log.enabled') : t('general.log.disabled'), days: settings.log.retentionDays })}>
                 <div className="settings-inline-group">
                   <ToggleSwitch
                     checked={settings.log.enabled}
@@ -1684,32 +1942,32 @@ function SettingsView({
 
         {section === 'appearance' && (
           <SettingsPanel
-            title="外观"
-            subtitle="Codex 风格的紧凑卡片布局会立即应用到当前窗口。"
+            title={t('appearance.title')}
+            subtitle={t('appearance.subtitle')}
           >
             <SettingsCard>
-              <SettingsRow label="主题" detail="跟随系统、浅色或深色。">
+              <SettingsRow label={t('general.theme.label')} detail={t('general.theme.detail')}>
                 <SegmentedControl
                   value={settings.theme}
                   options={[
-                    { value: 'system', label: '系统', icon: Monitor },
-                    { value: 'light', label: '浅色', icon: Sun },
-                    { value: 'dark', label: '深色', icon: Moon }
+                    { value: 'system', label: t('general.theme.system'), icon: Monitor },
+                    { value: 'light', label: t('general.theme.light'), icon: Sun },
+                    { value: 'dark', label: t('general.theme.dark'), icon: Moon }
                   ]}
                   onChange={(theme) => void onUpdateSettings({ theme })}
                 />
               </SettingsRow>
-              <SettingsRow label="界面密度" detail={settings.density === 'compact' ? '紧凑' : '舒适'}>
+              <SettingsRow label={t('general.density.label')} detail={settings.density === 'compact' ? t('general.density.compact') : t('general.density.comfortable')}>
                 <SegmentedControl
                   value={settings.density}
                   options={[
-                    { value: 'comfortable', label: '舒适' },
-                    { value: 'compact', label: '紧凑' }
+                    { value: 'comfortable', label: t('general.density.comfortable') },
+                    { value: 'compact', label: t('general.density.compact') }
                   ]}
                   onChange={(density) => void onUpdateSettings({ density })}
                 />
               </SettingsRow>
-              <SettingsRow label="字体缩放" detail={`${Math.round(settings.uiFontScale * 100)}%`}>
+              <SettingsRow label={t('general.fontScale.label')} detail={`${Math.round(settings.uiFontScale * 100)}%`}>
                 <input
                   className="settings-range"
                   min="0.8"
@@ -1726,107 +1984,91 @@ function SettingsView({
 
         {section === 'model' && (
           <SettingsPanel
-            title="模型"
-            subtitle="Provider 预设来自 Kun 的模型设置组织方式，字段会完整保存并供生成配置读取。"
+            title={t('model.title')}
+            subtitle={t('model.subtitle')}
           >
-            <div className="provider-layout">
-              <SettingsCard className="provider-list-card">
-                {settings.provider.providers.map((provider) => (
-                  <button
-                    className={`provider-option ${provider.id === activeProvider.id ? 'is-active' : ''}`}
-                    key={provider.id}
-                    type="button"
-                    onClick={() => selectProvider(provider.id)}
-                  >
-                    <Bot size={16} />
-                    <span>
-                      <strong>{provider.name}</strong>
-                      <small>{provider.models[0] ?? provider.endpointFormat}</small>
-                    </span>
-                    {provider.apiKey.trim() && <CheckCircle2 size={15} />}
-                  </button>
-                ))}
-              </SettingsCard>
-
-              <SettingsCard>
-                <SettingsRow label="Provider 名称" detail={activeProvider.id}>
-                  <SettingsTextInput
-                    value={activeProvider.name}
-                    onChange={(name) => updateProvider({ name })}
+            <SettingsCard>
+                <SettingsRow label="Provider">
+                  <SettingsSelect
+                    value={activeModelSettingsProvider.id}
+                    options={visibleModelProviders.map((provider) => ({
+                      value: provider.id,
+                      label: provider.id === 'custom' ? 'Custom' : provider.name
+                    }))}
+                    onChange={selectModelProvider}
                   />
                 </SettingsRow>
-                <SettingsRow label="API Key" detail={activeProvider.apiKey ? '已填写' : '未填写'}>
+                <SettingsRow label={t('model.apiKey.label')}>
                   <SettingsTextInput
                     type={settings.privacy.maskApiKeys ? 'password' : 'text'}
-                    value={activeProvider.apiKey}
-                    placeholder="sk-..."
+                    value={activeModelSettingsProvider.apiKey}
+                    placeholder={t('model.apiKey.placeholder')}
                     onChange={(apiKey) => updateProvider({ apiKey })}
                   />
                 </SettingsRow>
-                <SettingsRow label="Base URL" detail={activeProvider.endpointFormat}>
+                <SettingsRow label={t('model.baseUrl')}>
                   <SettingsTextInput
-                    value={activeProvider.baseUrl}
+                    value={activeModelSettingsProvider.baseUrl}
                     onChange={(baseUrl) => updateProvider({ baseUrl })}
                   />
                 </SettingsRow>
-                <SettingsRow label="Endpoint format" detail={endpointFormatLabels[activeProvider.endpointFormat]}>
+                <SettingsRow label={t('model.models.label')}>
                   <SettingsSelect
-                    value={activeProvider.endpointFormat}
-                    options={MODEL_ENDPOINT_FORMATS.map((format) => ({
-                      value: format,
-                      label: endpointFormatLabels[format]
-                    }))}
-                    onChange={(endpointFormat) => {
-                      updateProvider({ endpointFormat })
-                      if (settings.generator.providerId === activeProvider.id) {
-                        void onUpdateSettings({ generator: { endpointFormat } })
+                    value={
+                      activeModelSettingsProvider.models.includes(settings.generator.model)
+                        ? settings.generator.model
+                        : (activeModelSettingsProvider.models[0] ?? '')
+                    }
+                    options={activeModelSettingsProvider.models.map((model) => ({ value: model, label: model }))}
+                    onChange={(model) => {
+                      if (settings.generator.providerId === activeModelSettingsProvider.id) {
+                        void onUpdateSettings({ generator: { model } })
+                        return
                       }
+                      updateProvider({
+                        models: [
+                          model,
+                          ...activeModelSettingsProvider.models.filter((item) => item !== model)
+                        ]
+                      })
                     }}
                   />
                 </SettingsRow>
-                <SettingsRow label="模型列表" detail={`${activeProvider.models.length} 个模型`}>
-                  <textarea
-                    className="settings-textarea"
-                    value={activeProvider.models.join('\n')}
-                    onChange={(event) => updateProvider({ models: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) })}
-                  />
-                </SettingsRow>
-                <SettingsRow label="Provider 操作" detail={providerStatus || '测试连接、同步模型列表、打开官方文档或恢复内置预设。'}>
+                <SettingsRow label={t('model.actions.label')}>
                   <div className="settings-actions">
                     <button className="ghost-button" type="button" onClick={() => void probeActiveProvider()} disabled={providerBusy}>
                       {providerBusy ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} />}
-                      测试
+                      {t('model.actions.test')}
                     </button>
-                    <button className="ghost-button" type="button" onClick={() => void pullActiveProviderModels()} disabled={providerBusy || activeProvider.endpointFormat === 'custom_endpoint'}>
+                    <button className="ghost-button" type="button" onClick={() => void pullActiveProviderModels()} disabled={providerBusy || activeModelSettingsProvider.endpointFormat === 'custom_endpoint'}>
                       <RefreshCw size={15} />
-                      拉取模型
+                      {t('model.actions.pull')}
                     </button>
-                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeProvider.docsUrl)} disabled={!activeProvider.docsUrl}>
+                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeModelSettingsProvider.docsUrl)} disabled={!activeModelSettingsProvider.docsUrl}>
                       <ExternalLink size={15} />
-                      文档
+                      {t('model.actions.docs')}
                     </button>
-                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeProvider.apiKeyUrl)} disabled={!activeProvider.apiKeyUrl}>
+                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeModelSettingsProvider.apiKeyUrl)} disabled={!activeModelSettingsProvider.apiKeyUrl}>
                       <KeyRound size={15} />
-                      Key
+                      {t('model.actions.key')}
                     </button>
                     <button className="ghost-button" type="button" onClick={resetActiveProviderToPreset}>
                       <RefreshCw size={15} />
-                      重置
+                      {t('model.actions.reset')}
                     </button>
                   </div>
                 </SettingsRow>
               </SettingsCard>
-            </div>
           </SettingsPanel>
         )}
 
         {section === 'generation' && (
           <SettingsPanel
-            title="生成"
-            subtitle="这些设置会直接影响后续 lesson 文件和伴随产物。"
+            title={t('generation.title')}
+            subtitle={t('generation.subtitle')}
           >
             <SettingsCard>
-              <SettingsRow label="生成 Provider" detail={activeProvider.name}>
+              <SettingsRow label={t('generation.provider')} detail={activeProvider.name}>
                 <SettingsSelect
                   value={settings.generator.providerId}
                   options={settings.provider.providers.map((provider) => ({
@@ -1836,14 +2078,14 @@ function SettingsView({
                   onChange={selectProvider}
                 />
               </SettingsRow>
-              <SettingsRow label="模型" detail={settings.generator.model || '未选择'}>
+              <SettingsRow label={t('generation.model.label')} detail={settings.generator.model || t('generation.model.none')}>
                 <SettingsSelect
                   value={settings.generator.model}
                   options={activeProvider.models.map((model) => ({ value: model, label: model }))}
                   onChange={(model) => void onUpdateSettings({ generator: { model } })}
                 />
               </SettingsRow>
-              <SettingsRow label="Temperature" detail={settings.generator.temperature.toFixed(2)}>
+              <SettingsRow label={t('generation.temperature')} detail={settings.generator.temperature.toFixed(2)}>
                 <NumberInput
                   max={2}
                   min={0}
@@ -1852,7 +2094,7 @@ function SettingsView({
                   onChange={(temperature) => void onUpdateSettings({ generator: { temperature } })}
                 />
               </SettingsRow>
-              <SettingsRow label="最大输出 Tokens" detail={`${settings.generator.maxOutputTokens}`}>
+              <SettingsRow label={t('generation.maxTokens')} detail={`${settings.generator.maxOutputTokens}`}>
                 <NumberInput
                   max={32768}
                   min={512}
@@ -1861,7 +2103,7 @@ function SettingsView({
                   onChange={(maxOutputTokens) => void onUpdateSettings({ generator: { maxOutputTokens } })}
                 />
               </SettingsRow>
-              <SettingsRow label="课程时长" detail={`${settings.generator.lessonDurationMinutes} 分钟`}>
+              <SettingsRow label={t('generation.duration.label')} detail={t('generation.duration.detail', { count: settings.generator.lessonDurationMinutes })}>
                 <NumberInput
                   max={60}
                   min={5}
@@ -1870,37 +2112,37 @@ function SettingsView({
                   onChange={(lessonDurationMinutes) => void onUpdateSettings({ generator: { lessonDurationMinutes } })}
                 />
               </SettingsRow>
-              <SettingsRow label="检索练习" detail="写入 lesson 内的交互练习。">
+              <SettingsRow label={t('generation.retrieval.label')} detail={t('generation.retrieval.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.includeRetrievalPractice}
                   onChange={(includeRetrievalPractice) => void onUpdateSettings({ generator: { includeRetrievalPractice } })}
                 />
               </SettingsRow>
-              <SettingsRow label="Reference HTML" detail="生成 reference/*.html 速查材料。">
+              <SettingsRow label={t('generation.reference.label')} detail={t('generation.reference.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.generateReference}
                   onChange={(generateReference) => void onUpdateSettings({ generator: { generateReference } })}
                 />
               </SettingsRow>
-              <SettingsRow label="Learning record" detail="生成 learning-records/*.md 学习记录。">
+              <SettingsRow label={t('generation.learningRecord.label')} detail={t('generation.learningRecord.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.generateLearningRecord}
                   onChange={(generateLearningRecord) => void onUpdateSettings({ generator: { generateLearningRecord } })}
                 />
               </SettingsRow>
-              <SettingsRow label="Structured JSON" detail="在 lesson HTML 内嵌结构化元数据。">
+              <SettingsRow label={t('generation.structured.label')} detail={t('generation.structured.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.structuredOutput}
                   onChange={(structuredOutput) => void onUpdateSettings({ generator: { structuredOutput } })}
                 />
               </SettingsRow>
-              <SettingsRow label="流式生成" detail="打开后使用 SSE/流式预览；失败会回退到非流式或本地计划。">
+              <SettingsRow label={t('generation.streaming.label')} detail={t('generation.streaming.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.streaming}
                   onChange={(streaming) => void onUpdateSettings({ generator: { streaming } })}
                 />
               </SettingsRow>
-              <SettingsRow label="请求超时" detail={`${Math.round(settings.generator.requestTimeoutMs / 1000)} 秒`}>
+              <SettingsRow label={t('generation.timeout.label')} detail={t('generation.timeout.detail', { seconds: Math.round(settings.generator.requestTimeoutMs / 1000) })}>
                 <NumberInput
                   max={300000}
                   min={5000}
@@ -1915,47 +2157,47 @@ function SettingsView({
 
         {section === 'workspace' && (
           <SettingsPanel
-            title="工作区"
-            subtitle="新建、导入和打开路径均走 Electron 主进程的受控文件访问。"
+            title={t('workspace.title')}
+            subtitle={t('workspace.subtitle')}
           >
             <SettingsCard>
-              <SettingsRow label="默认工作区根目录" detail={settings.workspace.defaultRoot || '未设置'}>
+              <SettingsRow label={t('workspace.defaultRoot.label')} detail={settings.workspace.defaultRoot || t('workspace.defaultRoot.none')}>
                 <div className="settings-actions">
                   <button className="ghost-button" type="button" onClick={() => void onPickDefaultRoot()}>
                     <FolderOpen size={15} />
-                    选择
+                    {t('workspace.defaultRoot.choose')}
                   </button>
                   <button className="ghost-button" type="button" onClick={() => void onOpenPath(settings.workspace.defaultRoot)} disabled={!settings.workspace.defaultRoot}>
                     <ArrowUpRight size={15} />
-                    打开
+                    {t('workspace.defaultRoot.open')}
                   </button>
                 </div>
               </SettingsRow>
-              <SettingsRow label="生成前确认" detail="发送任务前要求二次确认。">
+              <SettingsRow label={t('workspace.confirm.label')} detail={t('workspace.confirm.detail')}>
                 <ToggleSwitch
                   checked={settings.workspace.confirmBeforeGenerating}
                   onChange={(confirmBeforeGenerating) => void onUpdateSettings({ workspace: { confirmBeforeGenerating } })}
                 />
               </SettingsRow>
-              <SettingsRow label="生成后打开 lesson" detail="生成完成后调用系统默认程序打开 HTML。">
+              <SettingsRow label={t('workspace.autoOpen.label')} detail={t('workspace.autoOpen.detail')}>
                 <ToggleSwitch
                   checked={settings.workspace.autoOpenGeneratedLesson}
                   onChange={(autoOpenGeneratedLesson) => void onUpdateSettings({ workspace: { autoOpenGeneratedLesson } })}
                 />
               </SettingsRow>
-              <SettingsRow label="当前工作区" detail={activeWorkspace?.rootPath ?? '未选择'}>
+              <SettingsRow label={t('workspace.current.label')} detail={activeWorkspace?.rootPath ?? t('workspace.current.none')}>
                 <div className="settings-actions">
                   <button className="ghost-button" type="button" onClick={() => void onCreateWorkspace()}>
                     <Plus size={15} />
-                    新建
+                    {t('workspace.current.create')}
                   </button>
                   <button className="ghost-button" type="button" onClick={() => void onImportWorkspace()}>
                     <Upload size={15} />
-                    导入
+                    {t('workspace.current.import')}
                   </button>
                   <button className="ghost-button" type="button" onClick={() => activeWorkspace && void onOpenPath(activeWorkspace.rootPath)} disabled={!activeWorkspace}>
                     <ArrowUpRight size={15} />
-                    打开
+                    {t('workspace.current.open')}
                   </button>
                 </div>
               </SettingsRow>
@@ -1963,40 +2205,199 @@ function SettingsView({
           </SettingsPanel>
         )}
 
-        {section === 'notifications' && (
+        {section === 'worktree' && (
           <SettingsPanel
-            title="通知"
-            subtitle="通知通过 Electron 原生 Notification 发出。"
+            title={t('worktree.title')}
+            subtitle={t('worktree.subtitle')}
           >
             <SettingsCard>
-              <SettingsRow label="启用通知" detail={settings.notifications.enabled ? '已启用' : '已关闭'}>
+              <SettingsRow label={t('worktree.root.label')} detail={settings.worktree.rootPath || t('worktree.root.none')}>
+                <div className="settings-actions">
+                  <button className="ghost-button" type="button" onClick={() => void onOpenPath(settings.worktree.rootPath)} disabled={!settings.worktree.rootPath}>
+                    <ArrowUpRight size={15} />
+                    {t('worktree.root.open')}
+                  </button>
+                </div>
+              </SettingsRow>
+              <SettingsRow label={t('worktree.current.label')} detail={activeWorkspace?.git?.repositoryRoot ?? t('worktree.current.none')}>
+                <div className="settings-inline-group">
+                  <span className="settings-status-badge">
+                    {activeWorkspace?.git?.currentBranch ?? t('worktree.current.notGit')}
+                  </span>
+                  <button className="ghost-button" type="button" onClick={() => void refreshWorktrees()} disabled={!activeWorkspace || worktreeLoading}>
+                    {worktreeLoading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
+                    {t('worktree.refresh')}
+                  </button>
+                </div>
+              </SettingsRow>
+            </SettingsCard>
+
+            <SettingsCard>
+              {worktreeResult?.ok === false ? (
+                <div className="settings-empty-note">{worktreeResult.message}</div>
+              ) : !worktreeResult?.ok || worktreeResult.worktrees.length === 0 ? (
+                <div className="settings-empty-note">{t('worktree.empty')}</div>
+              ) : (
+                worktreeResult.worktrees.map((worktree) => (
+                  <div className="settings-list-row" key={worktree.path}>
+                    <div className="settings-list-copy">
+                      <strong>{worktree.branch ?? t('worktree.detached')}</strong>
+                      <span>{worktree.path}</span>
+                      <span>
+                        {worktree.isPrimary ? t('worktree.primary') : t('worktree.linked')}
+                        {worktree.createdAt ? ` · ${new Date(worktree.createdAt).toLocaleString(settings.locale)}` : ''}
+                      </span>
+                    </div>
+                    <div className="settings-row-control">
+                      <button
+                        className="ghost-button danger"
+                        type="button"
+                        disabled={worktree.isPrimary || worktreeBusyPath === worktree.path}
+                        onClick={() => void removeWorktree(worktree.path)}
+                      >
+                        {worktreeBusyPath === worktree.path ? <Loader2 className="spin" size={15} /> : <X size={15} />}
+                        {t('worktree.remove')}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </SettingsCard>
+          </SettingsPanel>
+        )}
+
+        {section === 'memory' && (
+          <SettingsPanel
+            title={t('memory.title')}
+            subtitle={t('memory.subtitle')}
+          >
+            <SettingsCard>
+              <SettingsRow label={t('memory.enable.label')} detail={t('memory.enable.detail')}>
+                <ToggleSwitch
+                  checked={settings.memory.enabled}
+                  onChange={(enabled) => void onUpdateSettings({ memory: { enabled } })}
+                />
+              </SettingsRow>
+              <SettingsRow label={t('memory.maxInjected.label')} detail={t('memory.maxInjected.detail', { count: settings.memory.maxInjected })}>
+                <NumberInput
+                  min={1}
+                  max={12}
+                  step={1}
+                  value={settings.memory.maxInjected}
+                  onChange={(maxInjected) => void onUpdateSettings({ memory: { maxInjected } })}
+                />
+              </SettingsRow>
+              <SettingsRow label={t('memory.diagnostics.label')} detail={memoryDiagnostics ? t('memory.diagnostics.detail', { active: memoryDiagnostics.activeCount, deleted: memoryDiagnostics.tombstoneCount }) : t('memory.diagnostics.loading')}>
+                <button className="ghost-button" type="button" onClick={() => void onLoadMemoryDiagnostics()}>
+                  <RefreshCw size={15} />
+                  {t('memory.refresh')}
+                </button>
+              </SettingsRow>
+            </SettingsCard>
+
+            <SettingsCard>
+              <div className="settings-toolbar">
+                <div className="settings-filter-group">
+                  {(['all', 'user', 'workspace', 'project'] as const).map((scope) => (
+                    <button
+                      key={scope}
+                      className={memoryScopeFilter === scope ? 'is-active' : ''}
+                      type="button"
+                      onClick={() => setMemoryScopeFilter(scope)}
+                    >
+                      {t(`memory.scope.${scope}`)}
+                    </button>
+                  ))}
+                </div>
+                <button className="ghost-button strong" type="button" onClick={beginCreateMemory}>
+                  <Plus size={15} />
+                  {t('memory.create')}
+                </button>
+              </div>
+
+              {filteredMemoryRecords.length === 0 ? (
+                <div className="settings-empty-note">{t('memory.empty')}</div>
+              ) : (
+                filteredMemoryRecords.map((memory) => (
+                  <div className="settings-list-row" key={memory.id}>
+                    <div className="settings-list-copy">
+                      <strong>{memory.content}</strong>
+                      <span>{[memory.scope, ...(memory.tags ?? [])].join(' · ')}</span>
+                      <span>{memory.disabledAt ? t('memory.disabled') : t('memory.confidence', { value: memory.confidence.toFixed(2) })}</span>
+                    </div>
+                    <div className="settings-row-control">
+                      <div className="settings-actions">
+                        <button className="ghost-button" type="button" onClick={() => setMemoryDialog({ mode: 'view', memory })}>
+                          <Info size={15} />
+                          {t('memory.view')}
+                        </button>
+                        <button className="ghost-button" type="button" onClick={() => beginEditMemory(memory)}>
+                          <FileCheck2 size={15} />
+                          {t('memory.edit')}
+                        </button>
+                        <button className="ghost-button" type="button" disabled={Boolean(memory.disabledAt)} onClick={() => void onUpdateMemory(memory.id, { disabled: true, workspaceRoot: activeWorkspace?.rootPath })}>
+                          <Minus size={15} />
+                          {t('memory.disable')}
+                        </button>
+                        <button className="ghost-button danger" type="button" onClick={() => void onDeleteMemory(memory.id, activeWorkspace?.rootPath)}>
+                          <X size={15} />
+                          {t('memory.delete')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </SettingsCard>
+
+            {memoryDialog && (
+              <MemoryDialog
+                dialog={memoryDialog}
+                draft={memoryDraft}
+                locale={settings.locale}
+                onChange={setMemoryDraft}
+                onClose={() => setMemoryDialog(null)}
+                onSave={() => void saveMemoryDraft()}
+                t={t}
+              />
+            )}
+          </SettingsPanel>
+        )}
+
+        {section === 'notifications' && (
+          <SettingsPanel
+            title={t('notifications.title')}
+            subtitle={t('notifications.subtitle')}
+          >
+            <SettingsCard>
+              <SettingsRow label={t('notifications.enabled.label')} detail={settings.notifications.enabled ? t('notifications.enabled.on') : t('notifications.enabled.off')}>
                 <ToggleSwitch
                   checked={settings.notifications.enabled}
                   onChange={(enabled) => void onUpdateSettings({ notifications: { enabled } })}
                 />
               </SettingsRow>
-              <SettingsRow label="课程生成完成" detail="lesson 保存成功后提醒。">
+              <SettingsRow label={t('notifications.lesson.label')} detail={t('notifications.lesson.detail')}>
                 <ToggleSwitch
                   checked={settings.notifications.lessonGenerated}
                   onChange={(lessonGenerated) => void onUpdateSettings({ notifications: { lessonGenerated } })}
                 />
               </SettingsRow>
-              <SettingsRow label="工作区导入" detail="导入成功后提醒。">
+              <SettingsRow label={t('notifications.imported.label')} detail={t('notifications.imported.detail')}>
                 <ToggleSwitch
                   checked={settings.notifications.workspaceImported}
                   onChange={(workspaceImported) => void onUpdateSettings({ notifications: { workspaceImported } })}
                 />
               </SettingsRow>
-              <SettingsRow label="错误提醒" detail="生成或导入失败时提醒。">
+              <SettingsRow label={t('notifications.errors.label')} detail={t('notifications.errors.detail')}>
                 <ToggleSwitch
                   checked={settings.notifications.errors}
                   onChange={(errors) => void onUpdateSettings({ notifications: { errors } })}
                 />
               </SettingsRow>
-              <SettingsRow label="测试通知" detail="发送一条本地测试通知。">
+              <SettingsRow label={t('notifications.test.label')} detail={t('notifications.test.detail')}>
                 <button className="ghost-button" type="button" onClick={() => void onTestNotification()}>
                   <Bell size={15} />
-                  发送测试
+                  {t('notifications.test.button')}
                 </button>
               </SettingsRow>
             </SettingsCard>
@@ -2005,23 +2406,23 @@ function SettingsView({
 
         {section === 'privacy' && (
           <SettingsPanel
-            title="隐私"
-            subtitle="TeachOS 默认本地优先，设置、工作区索引和课程文件都存放在本机。"
+            title={t('privacy.title')}
+            subtitle={t('privacy.subtitle')}
           >
             <SettingsCard>
-              <SettingsRow label="隐藏 API Key" detail="设置页用密码输入框显示密钥。">
+              <SettingsRow label={t('privacy.maskKey.label')} detail={t('privacy.maskKey.detail')}>
                 <ToggleSwitch
                   checked={settings.privacy.maskApiKeys}
                   onChange={(maskApiKeys) => void onUpdateSettings({ privacy: { maskApiKeys } })}
                 />
               </SettingsRow>
-              <SettingsRow label="允许打开外部链接" detail="控制 provider 文档和 Key 页面按钮。">
+              <SettingsRow label={t('privacy.externalLinks.label')} detail={t('privacy.externalLinks.detail')}>
                 <ToggleSwitch
                   checked={settings.privacy.allowExternalLinks}
                   onChange={(allowExternalLinks) => void onUpdateSettings({ privacy: { allowExternalLinks } })}
                 />
               </SettingsRow>
-              <SettingsRow label="Provider Proxy" detail={settings.provider.proxy.enabled ? settings.provider.proxy.url || '已启用' : '未启用'}>
+              <SettingsRow label={t('privacy.proxy.label')} detail={settings.provider.proxy.enabled ? (settings.provider.proxy.url || t('privacy.proxy.on')) : t('privacy.proxy.off')}>
                 <div className="settings-inline-group">
                   <ToggleSwitch
                     checked={settings.provider.proxy.enabled}
@@ -2029,7 +2430,7 @@ function SettingsView({
                   />
                   <SettingsTextInput
                     value={settings.provider.proxy.url}
-                    placeholder="http://127.0.0.1:7890"
+                    placeholder={t('privacy.proxy.placeholder')}
                     onChange={(url) => void onUpdateSettings({ provider: { proxy: { url } } })}
                   />
                 </div>
@@ -2040,29 +2441,29 @@ function SettingsView({
 
         {section === 'about' && (
           <SettingsPanel
-            title="关于 TeachOS"
-            subtitle="诊断入口和当前运行时信息，便于检查迁移后的完整链路。"
+            title={t('about.title')}
+            subtitle={t('about.subtitle')}
           >
             <SettingsCard>
-              <SettingsRow label="当前 Runtime" detail={runtimeProviderLabel(settings)}>
-                <span className="settings-status-badge">{settings.generator.streaming ? 'Streaming' : 'One-shot'}</span>
+              <SettingsRow label={t('about.runtime')} detail={runtimeProviderLabel(settings)}>
+                <span className="settings-status-badge">{settings.generator.streaming ? t('about.streaming') : t('about.oneShot')}</span>
               </SettingsRow>
-              <SettingsRow label="当前工作区" detail={activeWorkspace?.rootPath ?? '未选择工作区'}>
+              <SettingsRow label={t('about.currentWorkspace.label')} detail={activeWorkspace?.rootPath ?? t('about.currentWorkspace.none')}>
                 <button className="ghost-button" type="button" onClick={() => activeWorkspace && void onOpenPath(activeWorkspace.rootPath)} disabled={!activeWorkspace}>
                   <FolderOpen size={15} />
-                  打开
+                  {t('about.currentWorkspace.open')}
                 </button>
               </SettingsRow>
-              <SettingsRow label="日志文件" detail={`保留 ${settings.log.retentionDays} 天`}>
+              <SettingsRow label={t('about.logFile.label')} detail={t('about.logFile.detail', { days: settings.log.retentionDays })}>
                 <button className="ghost-button" type="button" onClick={() => void onOpenLogFile()}>
                   <FileText size={15} />
-                  打开日志
+                  {t('about.logFile.open')}
                 </button>
               </SettingsRow>
-              <SettingsRow label="应用数据目录" detail="settings、workspace registry 和日志所在位置。">
+              <SettingsRow label={t('about.appData.label')} detail={t('about.appData.detail')}>
                 <button className="ghost-button" type="button" onClick={() => void onOpenAppDataDir()}>
                   <ArrowUpRight size={15} />
-                  打开目录
+                  {t('about.appData.open')}
                 </button>
               </SettingsRow>
             </SettingsCard>
@@ -2205,14 +2606,128 @@ function SettingsSelect<T extends string>({
   options: Array<{ value: T; label: string }>
   onChange: (value: T) => void
 }) {
+  const [open, setOpen] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(() => Math.max(0, options.findIndex((option) => option.value === value)))
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const listId = useId()
+  const selectedOption = options.find((option) => option.value === value) ?? options[0]
+
+  useEffect(() => {
+    setHighlightedIndex(Math.max(0, options.findIndex((option) => option.value === value)))
+  }, [options, value])
+
+  useEffect(() => {
+    if (!open) return
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [open])
+
+  const toggleOpen = (): void => {
+    if (!options.length) return
+    setOpen((current) => !current)
+  }
+
+  const selectOption = (nextValue: T): void => {
+    onChange(nextValue)
+    setOpen(false)
+  }
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
+    if (!options.length) return
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      if (open) {
+        const option = options[highlightedIndex] ?? selectedOption
+        if (option) selectOption(option.value)
+        return
+      }
+      setOpen(true)
+      return
+    }
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (!open) setOpen(true)
+      const direction = event.key === 'ArrowDown' ? 1 : -1
+      setHighlightedIndex((current) => {
+        const baseIndex = current < 0 ? Math.max(0, options.findIndex((option) => option.value === value)) : current
+        return (baseIndex + direction + options.length) % options.length
+      })
+      return
+    }
+
+    if (event.key === 'Home') {
+      event.preventDefault()
+      setOpen(true)
+      setHighlightedIndex(0)
+      return
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault()
+      setOpen(true)
+      setHighlightedIndex(Math.max(0, options.length - 1))
+    }
+  }
+
   return (
-    <select className="settings-select" value={value} onChange={(event) => onChange(event.target.value as T)}>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+    <div className={`settings-select ${open ? 'is-open' : ''}`} ref={rootRef}>
+      <button
+        aria-controls={listId}
+        aria-expanded={open}
+        className="settings-select-trigger"
+        type="button"
+        onClick={toggleOpen}
+        onKeyDown={handleKeyDown}
+      >
+        <span className="settings-select-trigger-copy">
+          <span className="settings-select-trigger-value">{selectedOption?.label ?? ''}</span>
+        </span>
+        <ChevronDown className="settings-select-trigger-icon" size={15} />
+      </button>
+
+      {open && (
+        <div className="settings-select-menu" id={listId} role="listbox" aria-activedescendant={`${listId}-${highlightedIndex}`}>
+          {options.map((option, index) => {
+            const selected = option.value === value
+            const highlighted = index === highlightedIndex
+            return (
+              <button
+                aria-selected={selected}
+                className={`settings-select-option ${selected ? 'is-selected' : ''} ${highlighted ? 'is-highlighted' : ''}`}
+                id={`${listId}-${index}`}
+                key={option.value}
+                role="option"
+                type="button"
+                onMouseEnter={() => setHighlightedIndex(index)}
+                onClick={() => selectOption(option.value)}
+              >
+                <span>{option.label}</span>
+                {selected && <CheckCircle2 size={14} />}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -2239,6 +2754,103 @@ function NumberInput({
       value={value}
       onChange={(event) => onChange(Number(event.target.value))}
     />
+  )
+}
+
+function MemoryDialog({
+  dialog,
+  draft,
+  locale,
+  onChange,
+  onClose,
+  onSave,
+  t
+}: {
+  dialog: { mode: 'create' } | { mode: 'edit' | 'view'; memory: TeachingMemoryRecord }
+  draft: { content: string; scope: TeachingMemoryScope; tags: string; confidence: number }
+  locale: string
+  onChange: (draft: { content: string; scope: TeachingMemoryScope; tags: string; confidence: number }) => void
+  onClose: () => void
+  onSave: () => void
+  t: (key: string, options?: Record<string, unknown>) => string
+}) {
+  const editable = dialog.mode !== 'view'
+  const memory = dialog.mode === 'create' ? null : dialog.memory
+  const title = dialog.mode === 'create'
+    ? t('memory.dialog.create')
+    : dialog.mode === 'edit'
+      ? t('memory.dialog.edit')
+      : t('memory.dialog.view')
+
+  return (
+    <div className="memory-dialog-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <section className="memory-dialog" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="memory-dialog-header">
+          <div>
+            <strong>{title}</strong>
+            {memory && (
+              <span>
+                {memory.scope} · {new Date(memory.updatedAt).toLocaleString(locale)}
+              </span>
+            )}
+          </div>
+          <button className="settings-close-button" type="button" onClick={onClose} aria-label={t('memory.dialog.close')}>
+            <X size={16} />
+          </button>
+        </div>
+        <div className="memory-dialog-body">
+          {editable ? (
+            <>
+              <textarea
+                className="settings-textarea"
+                value={draft.content}
+                placeholder={t('memory.dialog.contentPlaceholder')}
+                onChange={(event) => onChange({ ...draft, content: event.target.value })}
+              />
+              <div className="settings-inline-group">
+                {dialog.mode === 'create' && (
+                  <SettingsSelect
+                    value={draft.scope}
+                    options={[
+                      { value: 'workspace', label: t('memory.scope.workspace') },
+                      { value: 'project', label: t('memory.scope.project') },
+                      { value: 'user', label: t('memory.scope.user') }
+                    ]}
+                    onChange={(scope) => onChange({ ...draft, scope })}
+                  />
+                )}
+                <SettingsTextInput
+                  value={draft.tags}
+                  placeholder={t('memory.dialog.tagsPlaceholder')}
+                  onChange={(tags) => onChange({ ...draft, tags })}
+                />
+                <NumberInput
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  value={draft.confidence}
+                  onChange={(confidence) => onChange({ ...draft, confidence })}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="memory-dialog-readonly">{memory?.content}</div>
+          )}
+        </div>
+        <div className="memory-dialog-footer">
+          <button className="ghost-button" type="button" onClick={onClose}>
+            {t('memory.dialog.cancel')}
+          </button>
+          {editable ? (
+            <button className="ghost-button strong" type="button" onClick={onSave} disabled={!draft.content.trim()}>
+              {t('memory.dialog.save')}
+            </button>
+          ) : null}
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -2313,24 +2925,24 @@ function stepLabel(step: LessonStreamStatus['step']): string {
 }
 
 function streamingPreviewHtml(liveText: string, workspace: TeachingWorkspaceSummary): string {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" /><style>
+  return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
 body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
 main{max-width:760px;margin:0 auto;padding:38px 30px}.badge{color:#4f7cf5;font-size:12px;font-weight:800;text-transform:uppercase}pre{white-space:pre-wrap;line-height:1.7;color:#40506a;background:#f4f7fb;border:1px solid #e8edf5;border-radius:16px;padding:18px;min-height:180px}
-</style></head><body><main><div class="badge">TeachOS · Streaming</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>正在接收模型输出，完成后会渲染为正式 lesson。</p><pre>${escapeHtml(liveText || '等待第一个 token...')}</pre></main></body></html>`
+</style></head><body><main><div class="badge">TeachOS · Streaming</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(i18n.t('preview.streamingHint'))}</p><pre>${escapeHtml(liveText || i18n.t('preview.streamingPlaceholder'))}</pre></main></body></html>`
 }
 
 function emptyPreviewHtml(workspace: TeachingWorkspaceSummary): string {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" /><style>
+  return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
 body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
 main{max-width:680px;margin:0 auto;padding:46px 34px}p{color:#68778f;line-height:1.8}.badge{color:#4f7cf5;font-size:12px;font-weight:800;text-transform:uppercase}
-</style></head><body><main><div class="badge">TeachOS</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(workspace.missionExcerpt)}</p><p>点击生成按钮后，第一节静态 HTML lesson 会保存到 lessons/ 并在这里预览。</p></main></body></html>`
+</style></head><body><main><div class="badge">TeachOS</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(workspace.missionExcerpt)}</p><p>${escapeHtml(i18n.t('preview.emptyHint'))}</p></main></body></html>`
 }
 
 function loadingPreviewHtml(workspace: TeachingWorkspaceSummary): string {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" /><style>
+  return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
 body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
 main{display:grid;place-items:center;min-height:360px;padding:34px}p{color:#68778f}
-</style></head><body><main><div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>正在读取 lesson 预览。</p></div></main></body></html>`
+</style></head><body><main><div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(i18n.t('preview.loadingHint'))}</p></div></main></body></html>`
 }
 
 export { App, AppErrorBoundary }

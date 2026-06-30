@@ -6,6 +6,8 @@ export type SettingsSection =
   | 'model'
   | 'generation'
   | 'workspace'
+  | 'worktree'
+  | 'memory'
   | 'notifications'
   | 'privacy'
   | 'about'
@@ -18,6 +20,7 @@ export type ModelEndpointFormat = 'chat_completions' | 'responses' | 'messages' 
 export type AppCloseAction = 'quit' | 'tray'
 
 export type QuizType = 'single' | 'multi' | 'truefalse' | 'fill'
+export type TeachingMemoryScope = 'user' | 'workspace' | 'project'
 
 export const MODEL_ENDPOINT_FORMATS = [
   'chat_completions',
@@ -45,6 +48,15 @@ export const TEACHING_MODEL_PROVIDER_PRESETS = [
     models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
     docsUrl: 'https://api-docs.deepseek.com',
     apiKeyUrl: 'https://platform.deepseek.com/api_keys'
+  },
+  {
+    id: 'glm',
+    name: 'GLM',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    endpointFormat: 'chat_completions',
+    models: ['glm-4.5', 'glm-4.5-air', 'glm-4-flash'],
+    docsUrl: 'https://docs.bigmodel.cn',
+    apiKeyUrl: 'https://www.bigmodel.cn/usercenter/proj-mgmt/apikeys'
   },
   {
     id: 'xiaomi',
@@ -121,6 +133,13 @@ export type TeachingSettingsV1 = {
     confirmBeforeGenerating: boolean
     autoOpenGeneratedLesson: boolean
   }
+  worktree: {
+    rootPath: string
+  }
+  memory: {
+    enabled: boolean
+    maxInjected: number
+  }
   notifications: {
     enabled: boolean
     lessonGenerated: boolean
@@ -144,13 +163,15 @@ export type TeachingSettingsV1 = {
 }
 
 export type TeachingSettingsPatch = Partial<
-  Omit<TeachingSettingsV1, 'provider' | 'generator' | 'workspace' | 'notifications' | 'privacy' | 'appBehavior' | 'log'>
+  Omit<TeachingSettingsV1, 'provider' | 'generator' | 'workspace' | 'worktree' | 'memory' | 'notifications' | 'privacy' | 'appBehavior' | 'log'>
 > & {
   provider?: Partial<Omit<TeachingSettingsV1['provider'], 'proxy'>> & {
     proxy?: Partial<TeachingSettingsV1['provider']['proxy']>
   }
   generator?: Partial<TeachingSettingsV1['generator']>
   workspace?: Partial<TeachingSettingsV1['workspace']>
+  worktree?: Partial<TeachingSettingsV1['worktree']>
+  memory?: Partial<TeachingSettingsV1['memory']>
   notifications?: Partial<TeachingSettingsV1['notifications']>
   privacy?: Partial<TeachingSettingsV1['privacy']>
   appBehavior?: Partial<TeachingSettingsV1['appBehavior']>
@@ -212,6 +233,81 @@ export type TeachingWorkspaceSummary = {
   lessons: LessonSummary[]
   referenceCount: number
   assetsReady: boolean
+  git: TeachingGitWorkspaceInfo | null
+}
+
+export type TeachingGitWorkspaceInfo = {
+  repositoryRoot: string
+  primaryWorktreePath: string
+  currentBranch: string | null
+  isWorktree: boolean
+}
+
+export type TeachingGitWorktreeRow = {
+  path: string
+  branch: string | null
+  head: string
+  isPrimary: boolean
+  isManaged: boolean
+  createdAt: string | null
+}
+
+export type TeachingGitWorktreesResult =
+  | {
+      ok: true
+      repositoryRoot: string
+      primaryWorktreePath: string
+      worktreeRoot: string
+      worktrees: TeachingGitWorktreeRow[]
+    }
+  | {
+      ok: false
+      reason: 'no_workspace' | 'not_git_repo' | 'git_unavailable' | 'error'
+      message: string
+    }
+
+export type RemoveTeachingGitWorktreePayload = {
+  workspaceRoot: string
+  worktreePath: string
+}
+
+export type TeachingMemoryRecord = {
+  id: string
+  content: string
+  scope: TeachingMemoryScope
+  workspace?: string
+  project?: string
+  sourceLessonId?: string
+  tags: string[]
+  confidence: number
+  createdAt: string
+  updatedAt: string
+  disabledAt?: string
+  deletedAt?: string
+}
+
+export type TeachingMemoryDiagnostics = {
+  enabled: boolean
+  rootDir: string
+  activeCount: number
+  tombstoneCount: number
+  lastInjectedIds: string[]
+}
+
+export type CreateTeachingMemoryPayload = {
+  content: string
+  scope: TeachingMemoryScope
+  tags?: string[]
+  confidence?: number
+  workspaceRoot?: string
+}
+
+export type UpdateTeachingMemoryPayload = {
+  content?: string
+  tags?: string[]
+  confidence?: number
+  disabled?: boolean
+  workspaceRoot?: string
 }
 
 export type TeachingRuntimeState = {
@@ -369,6 +465,13 @@ export type TeachingSystemApi = {
   listReviewCards: (workspaceId: string) => Promise<ListReviewCardsResult>
   recordProgress: (payload: RecordProgressPayload) => Promise<GetProgressResult>
   getProgress: (workspaceId: string) => Promise<GetProgressResult>
+  listGitWorktrees: (workspaceRoot: string) => Promise<TeachingGitWorktreesResult>
+  removeGitWorktree: (payload: RemoveTeachingGitWorktreePayload) => Promise<OpenPathResult>
+  listMemory: (workspaceRoot?: string) => Promise<TeachingMemoryRecord[]>
+  getMemoryDiagnostics: () => Promise<TeachingMemoryDiagnostics>
+  createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
+  updateMemory: (memoryId: string, patch: UpdateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
+  deleteMemory: (memoryId: string, workspaceRoot?: string) => Promise<void>
   openLogFile: () => Promise<OpenPathResult>
   openAppDataDir: () => Promise<OpenPathResult>
 }

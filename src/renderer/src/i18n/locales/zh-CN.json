@@ -44,7 +44,13 @@
     "placeholderEmpty": "先新建或导入教学工作区...",
     "newWorkspace": "新建工作区",
     "selectWorkspace": "选择工作区",
-    "generate": "生成课程"
+    "importWorkspace": "导入教学工作区",
+    "fullAccess": "完全访问",
+    "generate": "生成课程",
+    "runtimeEnv": "运行环境",
+    "noWorkspace": "未选择工作区",
+    "streamingMode": "流式模式",
+    "localMode": "本地模式"
   },
   "lessons": {
     "composerAria": "教学任务输入",
@@ -68,11 +74,43 @@
     "openPreview": "打开预览"
   },
   "resources": {
-    "trusted": "可信资源",
-    "title": "资源索引",
+    "trusted": "内置教程",
+    "title": "教程中心",
     "open": "打开 RESOURCES.md",
     "emptyTitle": "暂无资源",
-    "emptyDetail": "在 RESOURCES.md 中添加可信学习来源后，会显示在这里。"
+    "emptyDetail": "在 RESOURCES.md 中添加可信学习来源后，会显示在这里。",
+    "tutorials": {
+      "start": {
+        "title": "入门指南",
+        "detail": "了解 TeachOS 的基本概念与上手流程。",
+        "tag": "入门"
+      },
+      "concepts": {
+        "title": "核心概念",
+        "detail": "掌握工作区、课程与技能包的关键术语。",
+        "tag": "基础"
+      },
+      "practice": {
+        "title": "实战练习",
+        "detail": "跟随分步指引动手完成第一个任务。",
+        "tag": "实战"
+      },
+      "advanced": {
+        "title": "进阶技巧",
+        "detail": "探索生成器与配置的高级用法。",
+        "tag": "进阶"
+      },
+      "cases": {
+        "title": "案例参考",
+        "detail": "通过真实示例理解教学设计模式。",
+        "tag": "案例"
+      },
+      "faq": {
+        "title": "常见问题",
+        "detail": "查看高频问题与排错建议。",
+        "tag": "参考"
+      }
+    }
   },
   "records": {
     "label": "学习记录",
@@ -99,6 +137,8 @@
     "model": { "label": "模型", "detail": "Provider 与密钥" },
     "generation": { "label": "生成", "detail": "课程输出策略" },
     "workspace": { "label": "工作区", "detail": "默认目录和文件行为" },
+    "worktree": { "label": "工作树", "detail": "Git worktree 池与清理" },
+    "memory": { "label": "记忆", "detail": "长期上下文与注入" },
     "notifications": { "label": "通知", "detail": "桌面提醒" },
     "privacy": { "label": "隐私", "detail": "链接和密钥显示" },
     "about": { "label": "关于", "detail": "版本、日志、数据目录" }
@@ -122,12 +162,10 @@
   "model": {
     "title": "模型",
     "subtitle": "Provider 预设来自 Kun 的模型设置组织方式，字段会完整保存并供生成配置读取。",
-    "providerName": "Provider 名称",
     "apiKey": { "label": "API Key", "filled": "已填写", "empty": "未填写", "placeholder": "sk-..." },
     "baseUrl": "Base URL",
-    "endpointFormat": "Endpoint format",
-    "models": { "label": "模型列表", "detail": "{{count}} 个模型" },
-    "actions": { "label": "Provider 操作", "detailDefault": "测试连接、同步模型列表、打开官方文档或恢复内置预设。", "test": "测试", "pull": "拉取模型", "docs": "文档", "key": "Key", "reset": "重置" },
+    "models": { "label": "默认模型" },
+    "actions": { "label": "Provider 操作", "test": "测试", "pull": "拉取模型", "docs": "文档", "key": "Key", "reset": "重置" },
     "statusConnecting": "正在连接 provider...",
     "statusOk": "连接成功：{{latency}}ms，发现 {{count}} 个模型。",
     "statusPulling": "正在拉取模型列表...",
@@ -155,6 +193,50 @@
     "confirm": { "label": "生成前确认", "detail": "发送任务前要求二次确认。" },
     "autoOpen": { "label": "生成后打开 lesson", "detail": "生成完成后调用系统默认程序打开 HTML。" },
     "current": { "label": "当前工作区", "none": "未选择", "create": "新建", "import": "导入", "open": "打开" }
+  },
+  "worktree": {
+    "title": "工作树",
+    "subtitle": "查看当前教学工作区所在仓库的 Git worktrees，并清理受管副本。",
+    "root": { "label": "工作树池目录", "none": "未设置", "open": "打开" },
+    "current": { "label": "当前仓库", "none": "当前工作区不是 Git 仓库", "notGit": "非 Git 工作区" },
+    "refresh": "刷新",
+    "empty": "暂无可显示的工作树。",
+    "detached": "DETACHED",
+    "primary": "主工作区",
+    "linked": "附加工作树",
+    "remove": "移除"
+  },
+  "memory": {
+    "title": "记忆",
+    "subtitle": "持久化可复用的长期上下文，并在生成课程时按相关性注入。",
+    "enable": { "label": "启用长期记忆", "detail": "关闭后不会向生成请求注入记忆。" },
+    "maxInjected": { "label": "最大注入条数", "detail": "每次生成最多注入 {{count}} 条。" },
+    "diagnostics": { "label": "记忆诊断", "detail": "活跃 {{active}} 条，已删除 {{deleted}} 条", "loading": "读取诊断中..." },
+    "refresh": "刷新",
+    "create": "新建记忆",
+    "empty": "还没有记忆记录。",
+    "view": "查看",
+    "edit": "编辑",
+    "disable": "禁用",
+    "delete": "删除",
+    "disabled": "已禁用",
+    "confidence": "置信度 {{value}}",
+    "scope": {
+      "all": "全部",
+      "user": "用户",
+      "workspace": "工作区",
+      "project": "项目"
+    },
+    "dialog": {
+      "create": "新建记忆",
+      "edit": "编辑记忆",
+      "view": "记忆详情",
+      "close": "关闭",
+      "cancel": "取消",
+      "save": "保存",
+      "contentPlaceholder": "记录一个未来生成课程时应该记得的事实、偏好或约束。",
+      "tagsPlaceholder": "标签，使用逗号分隔"
+    }
   },
   "notifications": {
     "title": "通知",
@@ -193,7 +275,7 @@
     "pathRestricted": { "message": "路径访问受限", "detail": "仅允许访问教学工作区内的文件。" },
     "fileNotFound": { "message": "文件未找到", "detail": "所选文件可能已被移动或删除。" },
     "accessDenied": { "message": "文件访问被拒绝", "detail": "没有权限访问该文件，请检查文件权限设置。" },
-    "generic": { "message": "操作未成功", "detail": "请稍后重试。如果问题持续出现，请联系支持。" },
+    "generic": { "message": "操作未成功", "detail": "请稍后重试。如果问题持续出现，请联系支持。", "stackDetail": "应用遇到意外错误。如果问题持续出现，请重启应用。" },
     "openPath": "无法打开路径。",
     "openExternal": "无法打开链接。",
     "openLog": "无法打开日志文件。",

@@ -49,6 +49,13 @@ const api: TeachingSystemApi = {
   listReviewCards: (workspaceId) => ipcRenderer.invoke('teach:list-review-cards', workspaceId),
   recordProgress: (payload) => ipcRenderer.invoke('teach:record-progress', payload),
   getProgress: (workspaceId) => ipcRenderer.invoke('teach:get-progress', workspaceId),
+  listGitWorktrees: (workspaceRoot) => ipcRenderer.invoke('teach:list-git-worktrees', workspaceRoot),
+  removeGitWorktree: (payload) => ipcRenderer.invoke('teach:remove-git-worktree', payload),
+  listMemory: (workspaceRoot) => ipcRenderer.invoke('teach:list-memory', workspaceRoot),
+  getMemoryDiagnostics: () => ipcRenderer.invoke('teach:get-memory-diagnostics'),
+  createMemory: (payload) => ipcRenderer.invoke('teach:create-memory', payload),
+  updateMemory: (memoryId, patch) => ipcRenderer.invoke('teach:update-memory', memoryId, patch),
+  deleteMemory: (memoryId, workspaceRoot) => ipcRenderer.invoke('teach:delete-memory', memoryId, workspaceRoot),
   openLogFile: () => ipcRenderer.invoke('teach:open-log'),
   openAppDataDir: () => ipcRenderer.invoke('teach:open-app-data-dir')
 }
