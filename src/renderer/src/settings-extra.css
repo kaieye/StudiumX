@@ -17,14 +17,14 @@
 .settings-view {
   position: relative;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 196px minmax(0, 1fr);
   width: min(960px, calc(100vw - 80px));
   height: min(680px, calc(100vh - 80px));
   max-height: min(680px, calc(100vh - 80px));
   overflow: hidden;
-  gap: 18px;
+  gap: 0;
   margin: 0;
-  padding: 18px;
+  padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 26px;
   background: rgba(255, 255, 255, 0.94);
@@ -52,18 +52,19 @@
 }
 
 .settings-nav {
-  align-self: start;
   display: grid;
+  align-content: start;
   gap: 6px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
+  min-height: 100%;
+  padding: 24px 12px;
+  border: 0;
+  border-radius: 0;
   background: var(--surface-subtle);
-  box-shadow: var(--shadow-card);
+  box-shadow: none;
 }
 
 .settings-nav-heading {
-  padding: 4px 8px 8px;
+  padding: 0 12px 18px;
   color: var(--text-soft);
   font-size: 11px;
   font-weight: 800;
@@ -75,11 +76,11 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  min-height: 42px;
-  padding: 7px 9px;
+  min-height: 38px;
+  padding: 7px 12px;
   color: var(--text-muted);
   border: 0;
-  border-radius: 13px;
+  border-radius: 10px;
   background: transparent;
   text-align: left;
 }
@@ -88,7 +89,7 @@
 .settings-nav-item.is-active {
   color: var(--text);
   background: #fff;
-  box-shadow: inset 0 0 0 1px var(--line);
+  box-shadow: none;
 }
 
 .settings-nav-item span {
@@ -110,7 +111,7 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 4px 44px 4px 0;
+  padding: 24px 48px 24px;
 }
 
 .settings-panel-heading {
@@ -361,6 +362,7 @@
   }
 
   .settings-nav {
+    min-height: auto;
     position: static;
   }
 
