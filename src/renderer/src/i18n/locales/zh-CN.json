@@ -9,12 +9,15 @@
   },
   "nav": {
     "overview": "概览",
+    "agent": "对话",
     "resources": "资源"
   },
   "sidebar": {
     "aria": "主导航",
     "workspace": "工作区",
     "newWorkspace": "新建工作区",
+    "expandFolder": "展开文件夹",
+    "collapseFolder": "收起文件夹",
     "lessonsCount": "{{count}} 课",
     "notifications": "通知",
     "settings": "设置",
@@ -281,6 +284,8 @@
     "appData": { "label": "应用数据目录", "detail": "settings、workspace registry 和日志所在位置。", "open": "打开目录" }
   },
   "errors": {
+    "ipcHandlerMissing": { "message": "需要重启应用", "detail": "当前窗口连接的是旧版 Electron main 进程。请重启 TeachOS 以加载最新的通信处理器。" },
+    "noApiKey": { "message": "需要配置 API Key", "detail": "请打开模型设置并填写 API Key，然后再使用对话。" },
     "missingField": { "message": "操作参数不完整", "detail": "缺少必要字段：{{field}}。请检查输入后重试。", "fallbackField": "参数" },
     "badPayload": { "message": "请求格式有误", "detail": "内部通信数据格式异常，请刷新页面后重试。" },
     "windowControl": { "message": "窗口操作不支持", "detail": "该窗口操作在当前平台不可用。" },

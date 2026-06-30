@@ -5,7 +5,9 @@ import { pathToFileURL } from 'node:url'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
 import { inspectGitWorkspace } from './teaching-git'
-import { callProvider, streamProvider, resolveActiveProvider, ProviderAdapterError, type AdapterCallbacks } from './ai/provider-adapter'
+import { callProvider, streamProvider, resolveActiveProvider, ProviderAdapterError, toolsSupportedForFormat, type AdapterCallbacks, type ChatMessage } from './ai/provider-adapter'
+import { runAgentLoop } from './ai/agent-loop'
+import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
 import { buildLessonSystemPrompt, buildLessonUserPrompt } from './ai/lesson-prompts'
 import {
   renderLessonHtmlFromPlan,
@@ -30,6 +32,19 @@ import type {
   RecordProgressPayload,
   ResourceSummary,
   ReviewCard,
+  AgentConversationRecord,
+  AgentConversationSummary,
+  AgentChatMessage,
+  AgentChatProcessEvent,
+  AgentChatStreamChunk,
+  AgentChatStreamPayload,
+  AgentChatStreamResult,
+  AgentChatStreamStatus,
+  AgentChatStreamToolEvent,
+  AgentChatTurn,
+  ReadAgentConversationPayload,
+  SaveAgentConversationPayload,
+  SaveAgentConversationResult,
   TeachingMemoryDiagnostics,
   TeachingMemoryRecord,
   TeachingAppState,
@@ -38,6 +53,7 @@ import type {
   TeachingSessionSummary,
   TeachingSettingsV1,
   TeachingWorkspaceSummary,
+  WorkspaceFileNode,
   UpdateTeachingMemoryPayload,
   UpdateMissionPayload
 } from '../shared/teaching-types'
@@ -85,7 +101,7 @@ type LessonArtifactPaths = {
 
 type SessionEvent = {
   id: string
-  kind: 'workspace_created' | 'workspace_imported' | 'mission_updated' | 'lesson_generated'
+  kind: 'workspace_created' | 'workspace_imported' | 'mission_updated' | 'lesson_generated' | 'agent_conversation_recorded'
   timestamp: string
   workspaceId: string
   prompt?: string
@@ -221,6 +237,132 @@ export class TeachingWorkspaceService {
     }
   ): Promise<{ state: TeachingAppState; lesson: LessonSummary; source: LessonPlanSource; reason?: string }> {
     return this.runLessonGeneration(payload, stream)
+  }
+
+  /**
+   * Conversational agent with tool-calling (web_search etc.). Runs the agent
+   * loop and streams status / tool events / final answer back to the renderer.
+   * Returns the reconciled transcript turns plus loop metadata.
+   */
+  async agentChatStream(
+    payload: AgentChatStreamPayload,
+    stream: {
+      streamId: string
+      onChunk: (chunk: AgentChatStreamChunk) => void
+      onStatus: (status: AgentChatStreamStatus) => void
+      onTool: (event: AgentChatStreamToolEvent) => void
+    }
+  ): Promise<AgentChatStreamResult> {
+    const userInput = payload.userInput.trim()
+    if (!userInput) {
+      return { error: true, message: '消息不能为空。' }
+    }
+    const settings = await this.loadSettings()
+    const provider = resolveActiveProvider(settings)
+    if (!provider || !provider.apiKey.trim()) {
+      return { error: true, message: '未配置 API Key。' }
+    }
+
+    const ctx = buildToolContext(settings)
+    const registry = settings.tools.enabled ? buildDefaultRegistry(settings) : new ToolRegistry()
+
+    const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
+    const messages: ChatMessage[] = [
+      { role: 'system', content: AGENT_CHAT_SYSTEM_PROMPT },
+      ...priorMessages.filter((m) => m.role !== 'system'),
+      { role: 'user', content: userInput }
+    ]
+
+    const result = await runAgentLoop({
+      settings,
+      provider,
+      messages,
+      tools: registry.definitions(),
+      toolHandlers: registry.handlerMap(ctx),
+      maxIterations: settings.tools.maxIterations,
+      callbacks: {
+        onEvent: (e) => {
+          const streamId = stream.streamId
+          if (e.type === 'status') {
+            stream.onStatus({ streamId, status: e.status, message: e.message })
+          } else if (e.type === 'token') {
+            stream.onChunk({ streamId, delta: e.delta })
+          } else if (e.type === 'tool_call') {
+            stream.onTool({
+              streamId,
+              toolCall: { id: e.toolCall.id, name: e.toolCall.function.name, arguments: e.toolCall.function.arguments }
+            })
+          } else if (e.type === 'tool_result') {
+            stream.onTool({
+              streamId,
+              toolCall: { id: e.toolCallId, name: e.name, arguments: '' },
+              result: e.result,
+              isError: e.isError
+            })
+          }
+        }
+      }
+    })
+
+    if (result.error) {
+      return { error: true, message: result.error }
+    }
+    return {
+      turns: toAgentTurns(result.messages),
+      finalText: result.finalText,
+      iterations: result.iterations,
+      toolsSupported: result.toolsSupported,
+      degradedReason: result.degradedReason
+    }
+  }
+
+  async saveAgentConversation(payload: SaveAgentConversationPayload): Promise<SaveAgentConversationResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    await this.ensureWorkspaceStructure(workspace)
+
+    const turns = normalizeAgentConversationTurns(payload.turns)
+    if (turns.length === 0) throw new Error('Conversation is empty.')
+
+    const now = new Date().toISOString()
+    const existing = payload.conversationId
+      ? await readAgentConversationRecord(workspace.rootPath, payload.conversationId).catch(() => null)
+      : null
+    const title = existing?.title ?? deriveConversationTitle(turns, now)
+    const id = existing?.id ?? await nextAgentConversationId(workspace.rootPath, title, now)
+    const record: AgentConversationRecord = {
+      id,
+      title,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      relativePath: agentConversationMarkdownRelativePath(id),
+      absolutePath: join(workspace.rootPath, agentConversationMarkdownRelativePath(id)),
+      messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
+      turns
+    }
+
+    await writeAgentConversationRecord(workspace, record)
+    await this.appendSessionEvent(workspace.rootPath, {
+      id: randomUUID(),
+      kind: 'agent_conversation_recorded',
+      timestamp: now,
+      workspaceId: workspace.id,
+      prompt: title,
+      paths: [record.relativePath, agentConversationJsonRelativePath(id)]
+    })
+
+    const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
+    await this.saveRegistry(nextRegistry)
+    return {
+      state: await this.buildState(nextRegistry, workspace.id, payload.selectedLessonPath ?? null),
+      conversation: toAgentConversationSummary(record)
+    }
+  }
+
+  async readAgentConversation(payload: ReadAgentConversationPayload): Promise<AgentConversationRecord> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    return readAgentConversationRecord(workspace.rootPath, payload.conversationId)
   }
 
   /**
@@ -389,6 +531,53 @@ export class TeachingWorkspaceService {
       missionTitle: mission.title,
       memories: recalledMemories
     })
+
+    // Tool-augmented path: let the model research (web_search) before emitting
+    // the LessonPlan JSON. Only for chat_completions / custom_endpoint formats.
+    const useTools =
+      settings.tools.enabled &&
+      settings.tools.webSearch &&
+      toolsSupportedForFormat(settings.generator.endpointFormat)
+    if (useTools) {
+      try {
+        const researchSystemPrompt = `${LESSON_RESEARCH_PREFIX}\n\n${systemPrompt}`
+        const ctx = buildToolContext(settings)
+        const registry = buildDefaultRegistry(settings)
+        const loopResult = await runAgentLoop({
+          settings,
+          provider,
+          messages: [
+            { role: 'system', content: researchSystemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          tools: registry.definitions(),
+          toolHandlers: registry.handlerMap(ctx),
+          maxIterations: settings.tools.maxIterations,
+          callbacks: {
+            onEvent: (e) => {
+              if (e.type === 'status') {
+                if (e.status === 'thinking') callbacks.onStatus?.('calling')
+                else if (e.status === 'tool_running' || e.status === 'tool_done' || e.status === 'answering') {
+                  callbacks.onStatus?.('streaming')
+                }
+              } else if (e.type === 'token') {
+                callbacks.onToken?.(e.delta)
+              }
+            }
+          }
+        })
+        callbacks.onStatus?.('validating')
+        const plan = parsePlan(loopResult.finalText)
+        if (!plan) {
+          return { plan: localFallbackPlan(prompt, mission, sequence, settings), source: 'fallback', reason: 'AI 输出未通过结构校验' }
+        }
+        return { plan, source: 'ai' }
+      } catch (error) {
+        const reason = error instanceof ProviderAdapterError ? adapterReason(error) : (error instanceof Error ? error.message : '未知错误')
+        console.warn(`[TeachOS] Tool-augmented lesson generation fell back to single-shot: ${reason}`)
+        // fall through to the single-shot path below
+      }
+    }
 
     try {
       const result = settings.generator.streaming
@@ -681,6 +870,8 @@ export class TeachingWorkspaceService {
     const index = await this.loadWorkspaceIndex(workspace)
     const lessons = await this.mergeLessonIndexWithDisk(workspace.rootPath, index.lessons)
     const courses = buildCourseSummaries(lessons)
+    const conversations = await listAgentConversations(workspace.rootPath)
+    const fileTree = await buildWorkspaceFileTree(workspace.rootPath)
     if (lessons.length !== index.lessons.length) {
       await this.saveWorkspaceIndex(workspace.rootPath, { ...index, lessons, updatedAt: new Date().toISOString() })
     }
@@ -699,6 +890,8 @@ export class TeachingWorkspaceService {
       missionTitle: mission.title,
       missionExcerpt: mission.excerpt,
       courses,
+      fileTree,
+      conversations,
       resources: await this.readResourceSummary(workspace.rootPath),
       records: await this.readLearningRecords(workspace.rootPath),
       lessons,
@@ -754,6 +947,7 @@ export class TeachingWorkspaceService {
       mkdir(join(workspace.rootPath, 'reference'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'learning-records'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'reviews'), { recursive: true }),
+      mkdir(join(workspace.rootPath, 'conversations'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'assets'), { recursive: true }),
       mkdir(join(workspace.rootPath, '.teachos'), { recursive: true })
     ])
@@ -1069,6 +1263,267 @@ async function collectTeachingFiles(rootPath: string, predicate: (filePath: stri
   return results.flat()
 }
 
+const WORKSPACE_TREE_MAX_DEPTH = 5
+const WORKSPACE_TREE_MAX_ENTRIES_PER_DIR = 80
+const WORKSPACE_TREE_IGNORED_DIRS = new Set([
+  '.git',
+  '.teachos',
+  'node_modules',
+  'out',
+  'dist',
+  'release'
+])
+
+async function buildWorkspaceFileTree(rootPath: string): Promise<WorkspaceFileNode[]> {
+  return readWorkspaceTreeDirectory(rootPath, '', 0)
+}
+
+async function readWorkspaceTreeDirectory(
+  rootPath: string,
+  relativeDir: string,
+  depth: number
+): Promise<WorkspaceFileNode[]> {
+  const absoluteDir = relativeDir ? join(rootPath, relativeDir) : rootPath
+  const entries = await readdir(absoluteDir, { withFileTypes: true }).catch(() => [])
+  const visibleEntries = entries
+    .filter((entry) => !shouldHideWorkspaceTreeEntry(relativeDir, entry.name, entry.isDirectory()))
+    .sort((left, right) => {
+      if (left.isDirectory() !== right.isDirectory()) return left.isDirectory() ? -1 : 1
+      return left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
+    })
+    .slice(0, WORKSPACE_TREE_MAX_ENTRIES_PER_DIR)
+
+  const nodes = await Promise.all(
+    visibleEntries.map(async (entry): Promise<WorkspaceFileNode | null> => {
+      if (!entry.isDirectory() && !entry.isFile()) return null
+      const relativePath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), entry.name)
+      const absolutePath = join(rootPath, relativePath)
+      if (entry.isDirectory()) {
+        const atDepthLimit = depth + 1 >= WORKSPACE_TREE_MAX_DEPTH
+        return {
+          name: entry.name,
+          kind: 'directory',
+          relativePath,
+          absolutePath,
+          children: atDepthLimit ? [] : await readWorkspaceTreeDirectory(rootPath, relativePath, depth + 1),
+          truncated: atDepthLimit || entries.length > WORKSPACE_TREE_MAX_ENTRIES_PER_DIR || undefined
+        }
+      }
+      return {
+        name: entry.name,
+        kind: 'file',
+        relativePath,
+        absolutePath
+      }
+    })
+  )
+
+  return nodes.filter((node): node is WorkspaceFileNode => Boolean(node))
+}
+
+function shouldHideWorkspaceTreeEntry(relativeDir: string, name: string, isDirectory: boolean): boolean {
+  if (isDirectory && WORKSPACE_TREE_IGNORED_DIRS.has(name)) return true
+  const normalizedDir = relativeDir.replace(/\\/g, '/')
+  if (normalizedDir === 'conversations' && name.toLowerCase().endsWith('.json')) return true
+  return false
+}
+
+async function listAgentConversations(rootPath: string): Promise<AgentConversationSummary[]> {
+  const conversationsDir = join(rootPath, 'conversations')
+  const entries = await readdir(conversationsDir, { withFileTypes: true }).catch(() => [])
+  const records = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.json'))
+      .map((entry) => readAgentConversationRecord(rootPath, entry.name.replace(/\.json$/i, '')).catch(() => null))
+  )
+  return records
+    .filter((record): record is AgentConversationRecord => Boolean(record))
+    .map(toAgentConversationSummary)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+}
+
+async function nextAgentConversationId(rootPath: string, title: string, timestamp: string): Promise<string> {
+  const base = `chat-${formatConversationTimestamp(new Date(timestamp))}-${slugify(title, 'conversation')}`.slice(0, 96)
+  let id = requireSafeAgentConversationId(base)
+  let suffix = 2
+  while (await fileExists(join(rootPath, agentConversationJsonRelativePath(id)))) {
+    id = requireSafeAgentConversationId(`${base.slice(0, 88)}-${suffix}`)
+    suffix += 1
+  }
+  return id
+}
+
+async function readAgentConversationRecord(rootPath: string, conversationId: string): Promise<AgentConversationRecord> {
+  const id = requireSafeAgentConversationId(conversationId)
+  const jsonRelativePath = agentConversationJsonRelativePath(id)
+  const jsonPath = join(rootPath, jsonRelativePath)
+  if (!isInside(rootPath, jsonPath)) throw new Error('Conversation path is outside the workspace.')
+  const parsed = safeJsonParse(await readFile(jsonPath, 'utf8'))
+  if (!parsed || typeof parsed !== 'object') throw new Error('Conversation record is invalid.')
+  const record = parsed as Record<string, unknown>
+  const turns = normalizeAgentConversationTurns(record.turns)
+  const createdAt = typeof record.createdAt === 'string' ? record.createdAt : new Date().toISOString()
+  const updatedAt = typeof record.updatedAt === 'string' ? record.updatedAt : createdAt
+  const title = cleanText(record.title) || deriveConversationTitle(turns, createdAt)
+  return {
+    id,
+    title,
+    createdAt,
+    updatedAt,
+    relativePath: agentConversationMarkdownRelativePath(id),
+    absolutePath: join(rootPath, agentConversationMarkdownRelativePath(id)),
+    messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
+    turns
+  }
+}
+
+async function writeAgentConversationRecord(
+  workspace: RegistryWorkspace,
+  record: AgentConversationRecord
+): Promise<void> {
+  await mkdir(join(workspace.rootPath, 'conversations'), { recursive: true })
+  await atomicWriteFile(
+    join(workspace.rootPath, agentConversationJsonRelativePath(record.id)),
+    `${JSON.stringify({
+      version: 1,
+      workspaceId: workspace.id,
+      id: record.id,
+      title: record.title,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      relativePath: record.relativePath,
+      turns: record.turns
+    }, null, 2)}\n`
+  )
+  await atomicWriteFile(
+    join(workspace.rootPath, agentConversationMarkdownRelativePath(record.id)),
+    renderAgentConversationMarkdown(workspace, record)
+  )
+}
+
+function renderAgentConversationMarkdown(workspace: RegistryWorkspace, record: AgentConversationRecord): string {
+  const lines = [
+    `# ${record.title}`,
+    '',
+    `Workspace: ${workspace.name}`,
+    `Created: ${record.createdAt}`,
+    `Updated: ${record.updatedAt}`,
+    ''
+  ]
+  for (const turn of record.turns) {
+    lines.push(`## ${turn.role === 'user' ? 'User' : 'Assistant'}`, '')
+    lines.push(turn.content.trim() || '(empty)', '')
+    if (turn.toolCalls?.length) {
+      lines.push('Tool calls:', '')
+      for (const tool of turn.toolCalls) {
+        lines.push(`- ${tool.name || 'tool'}: ${compactTextForMarkdown(tool.result || tool.arguments || '', 240)}`)
+      }
+      lines.push('')
+    }
+  }
+  return `${lines.join('\n').replace(/\n{4,}/g, '\n\n\n').trim()}\n`
+}
+
+function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[] {
+  if (!Array.isArray(turns)) return []
+  const now = new Date().toISOString()
+  const normalized: AgentChatTurn[] = []
+  for (const [index, item] of turns.entries()) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const role = record.role === 'assistant' ? 'assistant' : record.role === 'user' ? 'user' : null
+    if (!role) continue
+    const toolCalls = Array.isArray(record.toolCalls)
+      ? record.toolCalls.map((raw, toolIndex) => {
+          const tool = (raw ?? {}) as Record<string, unknown>
+          return {
+            id: typeof tool.id === 'string' && tool.id ? tool.id : `tool-${index}-${toolIndex}`,
+            name: typeof tool.name === 'string' ? tool.name : '',
+            arguments: typeof tool.arguments === 'string' ? tool.arguments : '',
+            result: typeof tool.result === 'string' ? tool.result : undefined,
+            isError: tool.isError === true
+          }
+        })
+      : undefined
+    const processEvents: AgentChatProcessEvent[] | undefined = Array.isArray(record.processEvents)
+      ? record.processEvents
+          .filter((event): event is Record<string, unknown> => Boolean(event) && typeof event === 'object')
+          .map((event, eventIndex): AgentChatProcessEvent => {
+            const kind: AgentChatProcessEvent['kind'] =
+              event.kind === 'tool_call' || event.kind === 'tool_result' ? event.kind : 'status'
+            return {
+              id: typeof event.id === 'string' && event.id ? event.id : `event-${index}-${eventIndex}`,
+              kind,
+              title: typeof event.title === 'string' ? event.title : '',
+              detail: typeof event.detail === 'string' ? event.detail : undefined,
+              status: typeof event.status === 'string' ? event.status as NonNullable<AgentChatTurn['processEvents']>[number]['status'] : undefined,
+              toolCallId: typeof event.toolCallId === 'string' ? event.toolCallId : undefined,
+              toolName: typeof event.toolName === 'string' ? event.toolName : undefined,
+              isError: event.isError === true,
+              createdAt: typeof event.createdAt === 'string' ? event.createdAt : now
+            }
+          })
+      : undefined
+    normalized.push({
+      id: typeof record.id === 'string' && record.id ? record.id : `${role}-${index}`,
+      role,
+      content: typeof record.content === 'string' ? record.content : '',
+      toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
+      processEvents: processEvents && processEvents.length > 0 ? processEvents : undefined,
+      createdAt: typeof record.createdAt === 'string' ? record.createdAt : now
+    })
+  }
+  return normalized
+}
+
+function deriveConversationTitle(turns: AgentChatTurn[], timestamp: string): string {
+  const firstUserContent = cleanText(turns.find((turn) => turn.role === 'user')?.content)
+  if (firstUserContent) return firstUserContent.length > 48 ? `${firstUserContent.slice(0, 48)}...` : firstUserContent
+  return `Conversation ${formatDate(new Date(timestamp))}`
+}
+
+function agentConversationJsonRelativePath(id: string): string {
+  return workspaceRelativePath('conversations', `${id}.json`)
+}
+
+function agentConversationMarkdownRelativePath(id: string): string {
+  return workspaceRelativePath('conversations', `${id}.md`)
+}
+
+function requireSafeAgentConversationId(value: string): string {
+  const id = cleanText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100)
+  if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(id)) throw new Error('Conversation id is invalid.')
+  return id
+}
+
+function formatConversationTimestamp(date: Date): string {
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${safeDate.getFullYear()}${pad(safeDate.getMonth() + 1)}${pad(safeDate.getDate())}-${pad(safeDate.getHours())}${pad(safeDate.getMinutes())}${pad(safeDate.getSeconds())}`
+}
+
+function toAgentConversationSummary(record: AgentConversationRecord): AgentConversationSummary {
+  return {
+    id: record.id,
+    title: record.title,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    relativePath: record.relativePath,
+    absolutePath: record.absolutePath,
+    messageCount: record.messageCount
+  }
+}
+
+function compactTextForMarkdown(value: string, maxLength: number): string {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (!compact) return '(empty)'
+  return compact.length > maxLength ? `${compact.slice(0, maxLength - 1)}...` : compact
+}
+
 async function walkFiles(rootPath: string, predicate: (filePath: string) => boolean): Promise<string[]> {
   if (!(await directoryExists(rootPath))) return []
   const result: string[] = []
@@ -1243,6 +1698,72 @@ function adapterReason(error: ProviderAdapterError): string {
     default:
       return error.message
   }
+}
+
+const LESSON_RESEARCH_PREFIX =
+  '在生成课程计划之前，你可以调用 web_search 工具检索最新或课程之外的事实性信息以丰富内容（例如最新版本号、时效性事件、权威定义）。' +
+  '完成必要的检索后，仍必须严格只输出一个符合下方格式的 JSON 课程计划对象，不要输出任何额外说明或 markdown 围栏。'
+
+const AGENT_CHAT_SYSTEM_PROMPT =
+  '你是 TeachOS 的学习助手，也是一个会先澄清再教学的老师。' +
+  '当用户在描述想学什么、想做什么项目、或希望生成课程时，不要直接跳到结论或直接输出课程。' +
+  '先用 1 到 3 个具体问题摸清用户的背景、当前水平、真实目标、限制条件和希望第一节课完成的动作；' +
+  '只有当这些信息已经足够清晰时，才总结你的理解并建议下一步。' +
+  '回答使用简洁、准确的中文。' +
+  '当问题涉及时效性、最新动态或课程库之外的事实性信息时，调用 web_search 工具检索后再作答；' +
+  '必要时可用 web_fetch 深入阅读某条结果。回答中适度引用信息来源链接。' +
+  '若未配置工具或当前模型不支持工具调用，直接依据自身知识作答即可。'
+
+function toChatMessage(m: AgentChatMessage): ChatMessage {
+  if (m.role === 'tool') {
+    return { role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content ?? '' }
+  }
+  if (m.role === 'assistant') {
+    const toolCalls =
+      m.toolCalls && m.toolCalls.length > 0
+        ? m.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: { name: tc.name, arguments: tc.arguments }
+          }))
+        : undefined
+    return { role: 'assistant', content: m.content, tool_calls: toolCalls }
+  }
+  if (m.role === 'user') return { role: 'user', content: m.content ?? '' }
+  return { role: 'system', content: m.content ?? '' }
+}
+
+function toAgentTurns(messages: ChatMessage[]): AgentChatTurn[] {
+  const turns: AgentChatTurn[] = []
+  let counter = 0
+  const createdAt = new Date().toISOString()
+  for (const m of messages) {
+    if (m.role === 'user') {
+      turns.push({ id: `t${counter++}`, role: 'user', content: m.content ?? '', createdAt })
+    } else if (m.role === 'assistant') {
+      const toolCalls = m.tool_calls?.map((tc) => {
+        const resultMsg = messages.find(
+          (x) => x.role === 'tool' && x.tool_call_id === tc.id
+        )
+        const content = resultMsg ? resultMsg.content : undefined
+        return {
+          id: tc.id,
+          name: tc.function.name,
+          arguments: tc.function.arguments,
+          result: content ?? undefined,
+          isError: content ? /\berror\b/i.test(content) : undefined
+        }
+      })
+      turns.push({
+        id: `t${counter++}`,
+        role: 'assistant',
+        content: m.content ?? '',
+        toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
+        createdAt
+      })
+    }
+  }
+  return turns
 }
 
 /**

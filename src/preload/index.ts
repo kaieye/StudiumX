@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { TeachingSystemApi } from '../shared/teaching-types'
 import type {
+  AgentChatStreamChunk,
+  AgentChatStreamDone,
+  AgentChatStreamStatus,
+  AgentChatStreamToolEvent,
   LessonStreamChunk,
   LessonStreamDone,
   LessonStreamStatus
@@ -46,6 +50,23 @@ const api: TeachingSystemApi = {
   },
   onLessonStreamChunk: (handler) => registerIpcListener<LessonStreamChunk>('teach:generate-lesson-chunk', handler),
   onLessonStreamStatus: (handler) => registerIpcListener<LessonStreamStatus>('teach:generate-lesson-status', handler),
+  agentChatStream: (payload, onChunk, onStatus, onTool) => {
+    const offChunk = registerIpcListener<AgentChatStreamChunk>('teach:agent-chat-chunk', onChunk)
+    const offStatus = registerIpcListener<AgentChatStreamStatus>('teach:agent-chat-status', onStatus)
+    const offTool = registerIpcListener<AgentChatStreamToolEvent>('teach:agent-chat-tool', onTool)
+    return ipcRenderer
+      .invoke('teach:agent-chat-stream', payload)
+      .finally(() => {
+        offChunk()
+        offStatus()
+        offTool()
+      }) as Promise<AgentChatStreamDone>
+  },
+  onAgentChatChunk: (handler) => registerIpcListener<AgentChatStreamChunk>('teach:agent-chat-chunk', handler),
+  onAgentChatStatus: (handler) => registerIpcListener<AgentChatStreamStatus>('teach:agent-chat-status', handler),
+  onAgentChatTool: (handler) => registerIpcListener<AgentChatStreamToolEvent>('teach:agent-chat-tool', handler),
+  saveAgentConversation: (payload) => ipcRenderer.invoke('teach:save-agent-conversation', payload),
+  readAgentConversation: (payload) => ipcRenderer.invoke('teach:read-agent-conversation', payload),
   listReviewCards: (workspaceId) => ipcRenderer.invoke('teach:list-review-cards', workspaceId),
   recordProgress: (payload) => ipcRenderer.invoke('teach:record-progress', payload),
   getProgress: (workspaceId) => ipcRenderer.invoke('teach:get-progress', workspaceId),

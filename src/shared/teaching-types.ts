@@ -1,10 +1,11 @@
-export type WorkspaceView = 'overview' | 'lessons' | 'resources' | 'review' | 'settings'
+export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'review' | 'settings'
 
 export type SettingsSection =
   | 'general'
   | 'appearance'
   | 'model'
   | 'generation'
+  | 'tools'
   | 'workspace'
   | 'worktree'
   | 'memory'
@@ -140,6 +141,12 @@ export type TeachingSettingsV1 = {
     enabled: boolean
     maxInjected: number
   }
+  tools: {
+    enabled: boolean
+    webSearch: boolean
+    webFetch: boolean
+    maxIterations: number
+  }
   notifications: {
     enabled: boolean
     lessonGenerated: boolean
@@ -163,7 +170,7 @@ export type TeachingSettingsV1 = {
 }
 
 export type TeachingSettingsPatch = Partial<
-  Omit<TeachingSettingsV1, 'provider' | 'generator' | 'workspace' | 'worktree' | 'memory' | 'notifications' | 'privacy' | 'appBehavior' | 'log'>
+  Omit<TeachingSettingsV1, 'provider' | 'generator' | 'workspace' | 'worktree' | 'memory' | 'tools' | 'notifications' | 'privacy' | 'appBehavior' | 'log'>
 > & {
   provider?: Partial<Omit<TeachingSettingsV1['provider'], 'proxy'>> & {
     proxy?: Partial<TeachingSettingsV1['provider']['proxy']>
@@ -172,6 +179,7 @@ export type TeachingSettingsPatch = Partial<
   workspace?: Partial<TeachingSettingsV1['workspace']>
   worktree?: Partial<TeachingSettingsV1['worktree']>
   memory?: Partial<TeachingSettingsV1['memory']>
+  tools?: Partial<TeachingSettingsV1['tools']>
   notifications?: Partial<TeachingSettingsV1['notifications']>
   privacy?: Partial<TeachingSettingsV1['privacy']>
   appBehavior?: Partial<TeachingSettingsV1['appBehavior']>
@@ -201,6 +209,25 @@ export type LearningRecordSummary = {
   date: string
   relativePath: string
   absolutePath: string
+}
+
+export type WorkspaceFileNode = {
+  name: string
+  kind: 'directory' | 'file'
+  relativePath: string
+  absolutePath: string
+  children?: WorkspaceFileNode[]
+  truncated?: boolean
+}
+
+export type AgentConversationSummary = {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  relativePath: string
+  absolutePath: string
+  messageCount: number
 }
 
 export type LessonSummary = {
@@ -255,6 +282,8 @@ export type TeachingWorkspaceSummary = {
   missionTitle: string
   missionExcerpt: string
   courses: TeachingCourseSummary[]
+  fileTree: WorkspaceFileNode[]
+  conversations: AgentConversationSummary[]
   resources: ResourceSummary[]
   records: LearningRecordSummary[]
   lessons: LessonSummary[]
@@ -500,6 +529,128 @@ export type GetProgressResult = {
   progress: ProgressSummary
 }
 
+// ---- Agent tool-calling chat ----
+
+export type AgentChatRole = 'system' | 'user' | 'assistant' | 'tool'
+
+export type AgentChatToolCall = {
+  id: string
+  name: string
+  arguments: string
+}
+
+export type AgentChatMessage = {
+  role: AgentChatRole
+  content: string | null
+  toolCalls?: AgentChatToolCall[]
+  toolCallId?: string
+}
+
+export type AgentChatToolCallView = {
+  id: string
+  name: string
+  arguments: string
+  result?: string
+  isError?: boolean
+}
+
+export type AgentChatProcessEvent = {
+  id: string
+  kind: 'status' | 'tool_call' | 'tool_result'
+  title: string
+  detail?: string
+  status?: AgentLoopStatus
+  toolCallId?: string
+  toolName?: string
+  isError?: boolean
+  createdAt: string
+}
+
+export type AgentChatTurn = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  toolCalls?: AgentChatToolCallView[]
+  processEvents?: AgentChatProcessEvent[]
+  createdAt: string
+}
+
+export type AgentLoopStatus =
+  | 'thinking'
+  | 'tool_running'
+  | 'tool_done'
+  | 'answering'
+  | 'done'
+  | 'error'
+
+export type AgentChatStreamPayload = {
+  workspaceId?: string
+  messages: AgentChatMessage[]
+  userInput: string
+}
+
+export type AgentChatStreamChunk = {
+  streamId: string
+  delta: string
+}
+
+export type AgentChatStreamStatus = {
+  streamId: string
+  status: AgentLoopStatus
+  message?: string
+}
+
+export type AgentChatStreamToolEvent = {
+  streamId: string
+  toolCall: { id: string; name: string; arguments: string }
+  result?: string
+  isError?: boolean
+}
+
+export type AgentChatStreamDone =
+  | {
+      streamId: string
+      turns: AgentChatTurn[]
+      finalText: string
+      iterations: number
+      toolsSupported: boolean
+      degradedReason?: string
+    }
+  | { streamId: string; error: true; message: string }
+
+/** The non-streamId portion of {@link AgentChatStreamDone}, as a clean
+ *  discriminated union (avoids Omit-over-union narrowing quirks). */
+export type AgentChatStreamResult =
+  | {
+      turns: AgentChatTurn[]
+      finalText: string
+      iterations: number
+      toolsSupported: boolean
+      degradedReason?: string
+    }
+  | { error: true; message: string }
+
+export type AgentConversationRecord = AgentConversationSummary & {
+  turns: AgentChatTurn[]
+}
+
+export type SaveAgentConversationPayload = {
+  workspaceId: string
+  conversationId?: string | null
+  selectedLessonPath?: string | null
+  turns: AgentChatTurn[]
+}
+
+export type SaveAgentConversationResult = {
+  state: TeachingAppState
+  conversation: AgentConversationSummary
+}
+
+export type ReadAgentConversationPayload = {
+  workspaceId: string
+  conversationId: string
+}
+
 export type TeachingSystemApi = {
   platform: NodeJS.Platform
   getState: () => Promise<TeachingAppState>
@@ -525,6 +676,17 @@ export type TeachingSystemApi = {
   ) => Promise<LessonStreamDone>
   onLessonStreamChunk: (handler: (chunk: LessonStreamChunk) => void) => () => void
   onLessonStreamStatus: (handler: (status: LessonStreamStatus) => void) => () => void
+  agentChatStream: (
+    payload: AgentChatStreamPayload,
+    onChunk: (chunk: AgentChatStreamChunk) => void,
+    onStatus: (status: AgentChatStreamStatus) => void,
+    onTool: (event: AgentChatStreamToolEvent) => void
+  ) => Promise<AgentChatStreamDone>
+  onAgentChatChunk: (handler: (chunk: AgentChatStreamChunk) => void) => () => void
+  onAgentChatStatus: (handler: (status: AgentChatStreamStatus) => void) => () => void
+  onAgentChatTool: (handler: (event: AgentChatStreamToolEvent) => void) => () => void
+  saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>
+  readAgentConversation: (payload: ReadAgentConversationPayload) => Promise<AgentConversationRecord>
   listReviewCards: (workspaceId: string) => Promise<ListReviewCardsResult>
   recordProgress: (payload: RecordProgressPayload) => Promise<GetProgressResult>
   getProgress: (workspaceId: string) => Promise<GetProgressResult>

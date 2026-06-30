@@ -21,6 +21,53 @@ export type AdapterRequest = {
 
 export type AdapterResult = { text: string }
 
+// ---- Tool-calling (chat) types ----
+
+export type ToolFunctionSchema = {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+export type ToolDefinition = {
+  type: 'function'
+  function: ToolFunctionSchema
+}
+
+export type ToolCall = {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+export type ChatMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
+  | { role: 'tool'; tool_call_id: string; content: string }
+
+export type ToolChoice = 'auto' | 'none' | { type: 'function'; function: { name: string } }
+
+export type ChatAdapterRequest = {
+  messages: ChatMessage[]
+  tools?: ToolDefinition[]
+  toolChoice?: ToolChoice
+  jsonMode?: boolean
+}
+
+export type ChatAdapterResult = {
+  text: string
+  toolCalls: ToolCall[]
+  toolsSupported: boolean
+  degradedReason?: string
+}
+
+export type ChatAdapterCallbacks = {
+  onToken?: (delta: string) => void
+  onToolCalls?: (calls: ToolCall[]) => void
+  onStatus?: (step: AdapterStep) => void
+}
+
 export type AdapterStep = 'calling' | 'streaming' | 'validating' | 'rendering'
 
 export type AdapterCallbacks = {
@@ -381,4 +428,293 @@ function networkMessage(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error)
   if (/aborted|timeout/i.test(raw)) return '请求超时。'
   return `网络错误：${raw}`
+}
+
+// ================================================================
+// Tool-calling (chat) path — additive; legacy single-shot functions above
+// are intentionally left untouched to avoid regressing the messages/responses
+// branches. Tool calls are only carried on chat_completions / custom_endpoint.
+// ================================================================
+
+export function toolsSupportedForFormat(format: ModelEndpointFormat): boolean {
+  return format === 'chat_completions' || format === 'custom_endpoint'
+}
+
+function buildChatRequest(
+  format: ModelEndpointFormat,
+  opts: {
+    provider: TeachingModelProviderProfile
+    generator: TeachingSettingsV1['generator']
+    request: ChatAdapterRequest
+    stream: boolean
+    includeTools: boolean
+  }
+): { url: string; init: RequestInit } {
+  const { provider, generator, request, stream, includeTools } = opts
+  // Only called for chat_completions / custom_endpoint (see toolsSupportedForFormat).
+  const url =
+    format === 'custom_endpoint'
+      ? upstreamOpenAiCustomEndpointUrl(provider.baseUrl)
+      : upstreamOpenAiChatCompletionsUrl(provider.baseUrl)
+  const messages = request.messages.map((m) => {
+    if (m.role === 'tool') return { role: 'tool', tool_call_id: m.tool_call_id, content: m.content }
+    if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+      return { role: 'assistant', content: m.content ?? '', tool_calls: m.tool_calls }
+    }
+    return m
+  })
+  const body: Record<string, unknown> = {
+    model: generator.model,
+    messages,
+    temperature: generator.temperature,
+    max_tokens: generator.maxOutputTokens,
+    stream,
+    ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
+  }
+  if (includeTools && request.tools && request.tools.length > 0) {
+    body.tools = request.tools
+    body.tool_choice = request.toolChoice ?? 'auto'
+  }
+  return {
+    url,
+    init: {
+      method: 'POST',
+      headers: adapterAuthHeaders('chat_completions', provider.apiKey),
+      body: JSON.stringify(body)
+    }
+  }
+}
+
+function extractToolCalls(format: ModelEndpointFormat, body: unknown): ToolCall[] {
+  if (!toolsSupportedForFormat(format)) return []
+  const choices = (body as { choices?: unknown })?.choices
+  if (!Array.isArray(choices) || choices.length === 0) return []
+  const msg = (choices[0] as { message?: { tool_calls?: unknown } })?.message
+  const calls = msg?.tool_calls
+  if (!Array.isArray(calls)) return []
+  return calls
+    .map((c): ToolCall | null => {
+      const fn = (c as { function?: { name?: string; arguments?: string } })?.function
+      const id = (c as { id?: string })?.id
+      if (!fn || !fn.name || !id) return null
+      return { id, type: 'function', function: { name: fn.name, arguments: fn.arguments ?? '{}' } }
+    })
+    .filter((c): c is ToolCall => c !== null)
+}
+
+function isToolRejection(error: unknown): boolean {
+  if (!(error instanceof ProviderAdapterError) || error.kind !== 'http') return false
+  // Message shape: "Provider 返回 400 ...：..." — match a 4xx status + tool/function mention.
+  return /\b4\d\d\b/.test(error.message) && /tool|function/i.test(error.message)
+}
+
+/** Non-streaming chat call. Returns text + assembled tool_calls. If the provider
+ *  rejects the `tools` field with a 4xx, retries once without tools (degraded). */
+export async function callChatProvider(opts: {
+  settings: TeachingSettingsV1
+  provider: TeachingModelProviderProfile
+  request: ChatAdapterRequest
+  callbacks?: ChatAdapterCallbacks
+}): Promise<ChatAdapterResult> {
+  const { settings, provider, request, callbacks } = opts
+  if (!provider.apiKey.trim()) {
+    throw new ProviderAdapterError('no_api_key', '未配置 API Key。')
+  }
+  const format = settings.generator.endpointFormat
+  const supported = toolsSupportedForFormat(format)
+  const includeTools = supported && Boolean(request.tools && request.tools.length > 0)
+  callbacks?.onStatus?.('calling')
+
+  const doFetch = async (withTools: boolean): Promise<unknown> => {
+    const { url, init } = buildChatRequest(format, {
+      provider,
+      generator: settings.generator,
+      request,
+      stream: false,
+      includeTools: withTools
+    })
+    let res: Response
+    try {
+      res = await fetchWithOptionalProxy(
+        url,
+        { ...init, signal: AbortSignal.timeout(settings.generator.requestTimeoutMs) },
+        resolveProxyUrl(settings)
+      )
+    } catch (e) {
+      throw new ProviderAdapterError('network', networkMessage(e))
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new ProviderAdapterError('http', `Provider 返回 ${res.status} ${res.statusText}${body ? `：${body.slice(0, 240)}` : ''}`)
+    }
+    try {
+      return await res.json()
+    } catch {
+      throw new ProviderAdapterError('parse', 'Provider 响应不是有效 JSON。')
+    }
+  }
+
+  let parsed: unknown
+  let degradedReason: string | undefined
+  try {
+    parsed = await doFetch(includeTools)
+  } catch (e) {
+    if (includeTools && isToolRejection(e)) {
+      degradedReason = 'provider_rejected_tools'
+      parsed = await doFetch(false)
+    } else {
+      throw e
+    }
+  }
+
+  const text = extractText(format, parsed)
+  const toolCalls = extractToolCalls(format, parsed)
+  if (!text && toolCalls.length === 0) {
+    throw new ProviderAdapterError('parse', 'Provider 响应未包含可用的文本内容或工具调用。')
+  }
+  if (toolCalls.length > 0) callbacks?.onToolCalls?.(toolCalls)
+  return { text, toolCalls, toolsSupported: supported, degradedReason }
+}
+
+type ToolCallFragment = {
+  index: number
+  id?: string
+  name?: string
+  arguments?: string
+}
+
+function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
+  content?: string
+  toolCalls?: ToolCallFragment[]
+} {
+  if (!event || typeof event !== 'object') return {}
+  if (!toolsSupportedForFormat(format)) {
+    const content = extractDelta(format, event)
+    return content ? { content } : {}
+  }
+  const choices = (event as { choices?: unknown }).choices
+  if (!Array.isArray(choices) || choices.length === 0) return {}
+  const delta = (choices[0] as { delta?: { content?: string; tool_calls?: unknown } })?.delta
+  if (!delta) return {}
+  const out: { content?: string; toolCalls?: ToolCallFragment[] } = {}
+  if (typeof delta.content === 'string') out.content = delta.content
+  if (Array.isArray(delta.tool_calls)) {
+    out.toolCalls = delta.tool_calls.map((f) => {
+      const fn = (f as { function?: { name?: string; arguments?: string } }).function ?? {}
+      return {
+        index: typeof (f as { index?: number }).index === 'number' ? (f as { index: number }).index : 0,
+        id: (f as { id?: string }).id,
+        name: fn.name,
+        arguments: fn.arguments
+      }
+    })
+  }
+  return out
+}
+
+function assembleStream(
+  textAcc: string,
+  toolAcc: Map<number, { index: number; id?: string; name?: string; arguments: string }>
+): { text: string; toolCalls: ToolCall[] } {
+  const toolCalls: ToolCall[] = []
+  for (const slot of toolAcc.values()) {
+    if (!slot.id || !slot.name) continue
+    toolCalls.push({
+      id: slot.id,
+      type: 'function',
+      function: { name: slot.name, arguments: slot.arguments || '{}' }
+    })
+  }
+  return { text: textAcc, toolCalls }
+}
+
+async function readChatSseStream(
+  body: ReadableStream<Uint8Array>,
+  format: ModelEndpointFormat,
+  onToken?: (delta: string) => void
+): Promise<{ text: string; toolCalls: ToolCall[] }> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let textAcc = ''
+  const toolAcc = new Map<number, { index: number; id?: string; name?: string; arguments: string }>()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('data:')) continue
+      const data = trimmed.slice(5).trim()
+      if (data === '[DONE]') return assembleStream(textAcc, toolAcc)
+      if (!data) continue
+      const delta = extractChatDelta(format, safeJsonParse(data))
+      if (delta.content) {
+        textAcc += delta.content
+        onToken?.(delta.content)
+      }
+      if (delta.toolCalls) {
+        for (const f of delta.toolCalls) {
+          const slot = toolAcc.get(f.index) ?? { index: f.index, arguments: '' }
+          if (f.id) slot.id = f.id
+          if (f.name) slot.name = f.name
+          if (typeof f.arguments === 'string') slot.arguments += f.arguments
+          toolAcc.set(f.index, slot)
+        }
+      }
+    }
+  }
+  return assembleStream(textAcc, toolAcc)
+}
+
+/** Streaming chat call. Accumulates text deltas AND tool_call fragments. Falls
+ *  back to non-streaming on first-token timeout (mirrors streamProvider). */
+export async function streamChatProvider(opts: {
+  settings: TeachingSettingsV1
+  provider: TeachingModelProviderProfile
+  request: ChatAdapterRequest
+  callbacks: ChatAdapterCallbacks
+}): Promise<ChatAdapterResult> {
+  const { settings, provider, request, callbacks } = opts
+  if (!provider.apiKey.trim()) {
+    throw new ProviderAdapterError('no_api_key', '未配置 API Key。')
+  }
+  const format = settings.generator.endpointFormat
+  const supported = toolsSupportedForFormat(format)
+  const includeTools = supported && Boolean(request.tools && request.tools.length > 0)
+  callbacks.onStatus?.('calling')
+  const { url, init } = buildChatRequest(format, {
+    provider,
+    generator: settings.generator,
+    request,
+    stream: true,
+    includeTools
+  })
+  let res: Response
+  try {
+    res = await fetchWithOptionalProxy(
+      url,
+      { ...init, signal: AbortSignal.timeout(settings.generator.requestTimeoutMs) },
+      resolveProxyUrl(settings)
+    )
+  } catch (e) {
+    if (isAbortTimeout(e)) {
+      const result = await callChatProvider({ settings, provider, request, callbacks })
+      callbacks.onStatus?.('streaming')
+      if (result.text) callbacks.onToken?.(result.text)
+      if (result.toolCalls.length > 0) callbacks.onToolCalls?.(result.toolCalls)
+      return result
+    }
+    throw new ProviderAdapterError('network', networkMessage(e))
+  }
+  if (!res.ok || !res.body) {
+    const body = await res.text().catch(() => '')
+    throw new ProviderAdapterError('http', `Provider 返回 ${res.status} ${res.statusText}${body ? `：${body.slice(0, 240)}` : ''}`)
+  }
+  callbacks.onStatus?.('streaming')
+  const { text, toolCalls } = await readChatSseStream(res.body, format, (d) => callbacks.onToken?.(d))
+  if (toolCalls.length > 0) callbacks.onToolCalls?.(toolCalls)
+  return { text, toolCalls, toolsSupported: supported }
 }

@@ -14,6 +14,9 @@ import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
 import type {
+  AgentChatMessage,
+  AgentChatStreamPayload,
+  AgentChatTurn,
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
   GenerateLessonPayload,
@@ -23,9 +26,11 @@ import type {
   ModelEndpointFormat,
   NotificationPayload,
   ProbeProviderPayload,
+  ReadAgentConversationPayload,
   ReadLessonPayload,
   RemoveTeachingGitWorktreePayload,
   RecordProgressPayload,
+  SaveAgentConversationPayload,
   TeachingSettingsPatch,
   TeachingSettingsV1,
   UpdateTeachingMemoryPayload,
@@ -120,6 +125,36 @@ function registerTeachingIpc(
       return { streamId, error: true as const, message }
     }
   })
+
+  ipcMain.handle('teach:agent-chat-stream', async (event, payload: unknown) => {
+    const parsed = parseAgentChatStreamPayload(payload)
+    const streamId = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const sender = event.sender
+    try {
+      const result = await service.agentChatStream(parsed, {
+        streamId,
+        onChunk: (chunk) => safeSend(sender, 'teach:agent-chat-chunk', chunk),
+        onStatus: (status) => safeSend(sender, 'teach:agent-chat-status', status),
+        onTool: (toolEvent) => safeSend(sender, 'teach:agent-chat-tool', toolEvent)
+      })
+      if ('error' in result) {
+        return { streamId, error: true as const, message: result.message }
+      }
+      return { streamId, ...result }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger?.error(`Agent chat stream failed: ${message}`)
+      return { streamId, error: true as const, message }
+    }
+  })
+
+  ipcMain.handle('teach:save-agent-conversation', async (_, payload: unknown) =>
+    service.saveAgentConversation(parseSaveAgentConversationPayload(payload))
+  )
+
+  ipcMain.handle('teach:read-agent-conversation', async (_, payload: unknown) =>
+    service.readAgentConversation(parseReadAgentConversationPayload(payload))
+  )
 
   ipcMain.handle('teach:read-lesson', async (_, payload: unknown) =>
     service.readLesson(parseReadLessonPayload(payload))
@@ -448,6 +483,63 @@ function parseGenerateLessonPayload(payload: unknown): GenerateLessonPayload {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     prompt: requireString(record.prompt, 'prompt'),
     courseName: optionalString(record.courseName)
+  }
+}
+
+function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPayload {
+  const record = requireRecord(payload)
+  const rawMessages = Array.isArray(record.messages) ? record.messages : []
+  const messages: AgentChatMessage[] = []
+  for (const item of rawMessages) {
+    if (!item || typeof item !== 'object') continue
+    const m = item as Record<string, unknown>
+    const role = m.role
+    if (role !== 'user' && role !== 'assistant' && role !== 'system' && role !== 'tool') continue
+    messages.push({
+      role,
+      content: typeof m.content === 'string' ? m.content : m.content === null ? null : '',
+      toolCallId: typeof m.toolCallId === 'string' ? m.toolCallId : undefined,
+      toolCalls: Array.isArray(m.toolCalls)
+        ? m.toolCalls.map((tc) => {
+            const t = (tc ?? {}) as Record<string, unknown>
+            return {
+              id: typeof t.id === 'string' ? t.id : '',
+              name: typeof t.name === 'string' ? t.name : '',
+              arguments: typeof t.arguments === 'string' ? t.arguments : ''
+            }
+          })
+        : undefined
+    })
+  }
+  return {
+    workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
+    messages,
+    userInput: requireString(record.userInput, 'userInput')
+  }
+}
+
+function parseSaveAgentConversationPayload(payload: unknown): SaveAgentConversationPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    conversationId: optionalString(record.conversationId) ?? null,
+    selectedLessonPath:
+      typeof record.selectedLessonPath === 'string'
+        ? record.selectedLessonPath
+        : record.selectedLessonPath === null
+          ? null
+          : undefined,
+    turns: Array.isArray(record.turns)
+      ? record.turns.filter((turn): turn is AgentChatTurn => Boolean(turn) && typeof turn === 'object') as AgentChatTurn[]
+      : []
+  }
+}
+
+function parseReadAgentConversationPayload(payload: unknown): ReadAgentConversationPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    conversationId: requireString(record.conversationId, 'conversationId')
   }
 }
 

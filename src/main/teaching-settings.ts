@@ -132,6 +132,12 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
       enabled: true,
       maxInjected: 4
     },
+    tools: {
+      enabled: false,
+      webSearch: true,
+      webFetch: false,
+      maxIterations: 4
+    },
     notifications: {
       enabled: true,
       lessonGenerated: true,
@@ -184,6 +190,10 @@ export function mergeSettings(current: TeachingSettingsV1, patch: TeachingSettin
       ...current.memory,
       ...(patch.memory ?? {})
     },
+    tools: {
+      ...current.tools,
+      ...(patch.tools ?? {})
+    },
     notifications: {
       ...current.notifications,
       ...(patch.notifications ?? {})
@@ -225,6 +235,7 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
   const workspaceInput = isRecord(record.workspace) ? record.workspace : {}
   const worktreeInput = isRecord(record.worktree) ? record.worktree : {}
   const memoryInput = isRecord(record.memory) ? record.memory : {}
+  const toolsInput = isRecord(record.tools) ? record.tools : {}
   const notificationsInput = isRecord(record.notifications) ? record.notifications : {}
   const privacyInput = isRecord(record.privacy) ? record.privacy : {}
   const appBehaviorInput = isRecord(record.appBehavior) ? record.appBehavior : {}
@@ -275,6 +286,12 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
     memory: {
       enabled: memoryInput.enabled !== false,
       maxInjected: Math.round(clampNumber(memoryInput.maxInjected, 1, 12, defaults.memory.maxInjected))
+    },
+    tools: {
+      enabled: toolsInput.enabled === true,
+      webSearch: toolsInput.webSearch !== false,
+      webFetch: toolsInput.webFetch === true,
+      maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 1, 10, defaults.tools.maxIterations))
     },
     notifications: {
       enabled: notificationsInput.enabled !== false,

@@ -9,12 +9,15 @@
   },
   "nav": {
     "overview": "Overview",
+    "agent": "Chat",
     "resources": "Resources"
   },
   "sidebar": {
     "aria": "Main navigation",
     "workspace": "Workspaces",
     "newWorkspace": "New workspace",
+    "expandFolder": "Expand folder",
+    "collapseFolder": "Collapse folder",
     "lessonsCount": "{{count}} lessons",
     "notifications": "Notifications",
     "settings": "Settings",
@@ -281,6 +284,8 @@
     "appData": { "label": "App data folder", "detail": "Where settings, the workspace registry, and logs live.", "open": "Open folder" }
   },
   "errors": {
+    "ipcHandlerMissing": { "message": "Restart required", "detail": "TeachOS is running an older main process than this window. Restart the app to load the latest handlers." },
+    "noApiKey": { "message": "API key required", "detail": "Open Model settings and add an API key before using chat." },
     "missingField": { "message": "Incomplete parameters", "detail": "Missing required field: {{field}}. Please check your input and try again.", "fallbackField": "parameter" },
     "badPayload": { "message": "Bad request format", "detail": "Internal communication data is malformed; refresh the page and try again." },
     "windowControl": { "message": "Window action unsupported", "detail": "This window action is unavailable on the current platform." },
