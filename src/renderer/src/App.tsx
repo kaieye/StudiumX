@@ -2920,6 +2920,9 @@ function MainArea() {
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? null
   const selectedPreviewFile = selectedCoursePreviewFile ?? (selectedLesson ? lessonToCoursePreviewFile(selectedLesson) : null)
   const readingCourseHtml = Boolean(lessonReaderOpen && selectedPreviewFile)
+  const lessonFrameKey = selectedPreviewFile
+    ? appState.previewUrl || `${appState.selectedLessonPath ?? selectedPreviewFile.relativePath}:${appState.previewHtml.length}`
+    : 'empty-preview'
 
   // Show skeleton during initial load
   if (loading && !active) {
@@ -3021,11 +3024,12 @@ function MainArea() {
               <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
                 <div className="lesson-reader-frame-wrap">
                   <iframe
+                    key={lessonFrameKey}
                     className="lesson-reader-frame"
                     title={selectedPreviewFile.title}
                     sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                     src={appState.previewUrl || undefined}
-                    srcDoc={appState.previewUrl ? undefined : appState.previewHtml}
+                    srcDoc={appState.previewUrl ? undefined : appState.previewHtml || undefined}
                   />
                 </div>
               </section>
