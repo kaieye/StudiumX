@@ -64,6 +64,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { create } from 'zustand'
 import i18n from './i18n'
+import { classifyProviderError } from '../../shared/provider-error'
 import {
   TEACHING_MODEL_PROVIDER_PRESETS,
   type AgentChatProcessEvent,
@@ -491,6 +492,37 @@ function toUserError(error: unknown): UserError {
       message: i18n.t('errors.noApiKey.message'),
       severity: 'warning',
       detail: i18n.t('errors.noApiKey.detail')
+    }
+  }
+
+  const providerError = classifyProviderError(raw)
+  if (providerError) {
+    const suffix = providerError.providerMessage ? ` ${providerError.providerMessage}` : ''
+    if (providerError.kind === 'insufficient_balance') {
+      return {
+        message: i18n.t('errors.providerInsufficientBalance.message'),
+        severity: 'warning',
+        detail: `${i18n.t('errors.providerInsufficientBalance.detail')}${suffix}`
+      }
+    }
+    if (providerError.kind === 'authentication') {
+      return {
+        message: i18n.t('errors.providerAuth.message'),
+        severity: 'warning',
+        detail: `${i18n.t('errors.providerAuth.detail')}${suffix}`
+      }
+    }
+    if (providerError.kind === 'rate_limit') {
+      return {
+        message: i18n.t('errors.providerRateLimit.message'),
+        severity: 'warning',
+        detail: `${i18n.t('errors.providerRateLimit.detail')}${suffix}`
+      }
+    }
+    return {
+      message: i18n.t('errors.providerHttp.message'),
+      severity: 'warning',
+      detail: `${i18n.t('errors.providerHttp.detail', { status: providerError.status ?? '-' })}${suffix}`
     }
   }
 
@@ -5043,12 +5075,13 @@ function createAgentStatusProcessEvent(
   status: AgentChatStreamStatus['status'],
   message?: string
 ): AgentChatProcessEvent {
+  const userError = status === 'error' && message ? toUserError(new Error(message)) : null
   return {
     id: createAgentProcessEventId('status'),
     kind: 'status',
     status,
-    title: agentProcessStatusTitle(status),
-    detail: message,
+    title: userError?.message ?? agentProcessStatusTitle(status),
+    detail: userError?.detail ?? message,
     createdAt: new Date().toISOString()
   }
 }

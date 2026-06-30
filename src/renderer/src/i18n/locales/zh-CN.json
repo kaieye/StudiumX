@@ -336,6 +336,10 @@
   "errors": {
     "ipcHandlerMissing": { "message": "需要重启应用", "detail": "当前窗口连接的是旧版 Electron main 进程。请重启 TeachOS 以加载最新的通信处理器。" },
     "noApiKey": { "message": "需要配置 API Key", "detail": "请打开模型设置并填写 API Key，然后再使用对话。" },
+    "providerInsufficientBalance": { "message": "Provider 余额不足", "detail": "上游模型服务返回 402 Payment Required。请充值、切换 provider 或换用可用模型。" },
+    "providerAuth": { "message": "Provider 认证失败", "detail": "请检查当前 provider 的 API Key、Base URL 和端点格式。" },
+    "providerRateLimit": { "message": "Provider 速率限制", "detail": "上游模型服务暂时限制请求。请稍后重试，或切换 provider/model。" },
+    "providerHttp": { "message": "Provider 请求失败", "detail": "上游模型服务返回 HTTP {{status}}。请检查 provider 设置或稍后重试。" },
     "missingField": { "message": "操作参数不完整", "detail": "缺少必要字段：{{field}}。请检查输入后重试。", "fallbackField": "参数" },
     "badPayload": { "message": "请求格式有误", "detail": "内部通信数据格式异常，请刷新页面后重试。" },
     "windowControl": { "message": "窗口操作不支持", "detail": "该窗口操作在当前平台不可用。" },

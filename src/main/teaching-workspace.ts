@@ -15,6 +15,7 @@ import {
 } from './ai/lesson-renderer'
 import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
 import { assessTeachingReadiness, isContinuationLessonRequest, isLearningSetupRequest } from '../shared/teaching-workflow'
+import { classifyProviderError, providerErrorReason } from '../shared/provider-error'
 import type {
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
@@ -1903,7 +1904,7 @@ function adapterReason(error: ProviderAdapterError): string {
     case 'network':
       return '网络错误'
     case 'http':
-      return `Provider 错误：${error.message}`
+      return providerErrorReason(classifyProviderError(error.message) ?? { kind: 'http' })
     case 'parse':
       return '响应解析失败'
     case 'timeout':
