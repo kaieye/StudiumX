@@ -1149,50 +1149,74 @@ function MainArea() {
       {view === 'overview' && (
         <section className="overview-dialog-shell" aria-label="概览">
           <form
-            className="overview-dialog"
+            className="overview-dialog-stack"
             aria-label="教学任务输入"
             onSubmit={(event) => {
               event.preventDefault()
               if (canGenerate) void generateCurrentLesson()
             }}
           >
-            <textarea
-              value={taskPrompt}
-              aria-label="教学任务"
-              placeholder={active ? '输入教学任务，生成下一节可复习课程...' : '先新建或导入教学工作区...'}
-              onChange={(event) => setTaskPrompt(event.target.value)}
-            />
-            <div className="overview-dialog-footer">
-              <div className="overview-dialog-tools">
-                <button className="overview-dialog-icon" type="button" aria-label="新建工作区" title="新建工作区" onClick={createWorkspace}>
-                  <Plus size={16} />
-                </button>
+            <div className="overview-dialog-card">
+              <textarea
+                value={taskPrompt}
+                aria-label="教学任务"
+                placeholder={active ? '输入教学任务，生成下一节可复习课程...' : '先新建或导入教学工作区...'}
+                onChange={(event) => setTaskPrompt(event.target.value)}
+              />
+              <div className="overview-dialog-footer">
+                <div className="overview-dialog-tools">
+                  <button className="overview-dialog-icon" type="button" aria-label="新建工作区" title="新建工作区" onClick={createWorkspace}>
+                    <Plus size={16} />
+                  </button>
+                  <button
+                    className={`overview-dialog-access ${active ? 'is-active' : ''}`}
+                    type="button"
+                    title={active?.rootPath ?? '导入教学工作区'}
+                    onClick={() => active ? void openPath(active.rootPath) : void importWorkspace()}
+                  >
+                    <ShieldCheck size={15} />
+                    <span>{active ? '完全访问' : '选择工作区'}</span>
+                  </button>
+                </div>
+                <div className="overview-dialog-actions">
+                  <button className="overview-dialog-model" type="button" onClick={() => openSettings('model')}>
+                    <span>{runtimeProviderLabel(settings)}</span>
+                    <ChevronDown size={13} />
+                  </button>
+                  <button className="send-button overview-dialog-send" type="submit" aria-label="生成课程" disabled={!canGenerate}>
+                    {generating ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="overview-dialog-statusbar" aria-label="运行环境">
+              <div className="overview-dialog-status-group">
+                <span className="overview-dialog-status-item">
+                  <Bot size={14} />
+                  <span>TeachOS</span>
+                </span>
+                <span className="overview-dialog-status-item">
+                  <FolderOpen size={14} />
+                  <span>{active?.name ?? '未选择工作区'}</span>
+                </span>
+              </div>
+              <div className="overview-dialog-status-group">
                 <button
-                  className="overview-dialog-pill"
-                  type="button"
-                  onClick={() => active ? void openPath(active.rootPath) : void importWorkspace()}
-                >
-                  <FolderOpen size={15} />
-                  <span>{active?.name ?? '选择工作区'}</span>
-                  <ChevronDown size={13} />
-                </button>
-                <button
-                  className={`overview-dialog-pill ${settings.generator.structuredOutput ? 'is-active' : ''}`}
+                  className={`overview-dialog-status-item overview-dialog-status-button ${settings.generator.structuredOutput ? 'is-active' : ''}`}
                   type="button"
                   onClick={() => void updateSettings({ generator: { structuredOutput: !settings.generator.structuredOutput } })}
                 >
-                  <Zap size={15} />
-                  <span>Structured JSON</span>
+                  <Zap size={14} />
+                  <span>{settings.generator.structuredOutput ? 'Structured' : 'Plain'}</span>
                 </button>
-              </div>
-              <div className="overview-dialog-actions">
-                <button className="overview-dialog-model" type="button" onClick={() => openSettings('model')}>
-                  <span>{runtimeProviderLabel(settings)}</span>
-                  <ChevronDown size={13} />
-                </button>
-                <button className="send-button overview-dialog-send" type="submit" aria-label="生成课程" disabled={!canGenerate}>
-                  {generating ? <Loader2 className="spin" size={17} /> : <SendHorizontal size={17} />}
-                </button>
+                <span className="overview-dialog-status-item">
+                  <Monitor size={14} />
+                  <span>{settings.generator.streaming ? '流式模式' : '本地模式'}</span>
+                </span>
+                <span className="overview-dialog-status-item">
+                  <Command size={14} />
+                  <span>main</span>
+                </span>
               </div>
             </div>
           </form>
