@@ -344,6 +344,7 @@ function normalizeProviderProfile(input: unknown): TeachingModelProviderProfile 
   if (!isRecord(input)) return null
   const id = normalizeProviderId(input.id)
   if (!id) return null
+  const isCustomProvider = id === 'custom'
   const preset = TEACHING_MODEL_PROVIDER_PRESETS.find((item) => item.id === id)
   const base: TeachingModelProviderProfile = {
     ...(preset ?? {
@@ -364,8 +365,8 @@ function normalizeProviderProfile(input: unknown): TeachingModelProviderProfile 
     baseUrl: normalizeString(input.baseUrl) || base.baseUrl,
     endpointFormat: normalizeEndpointFormat(input.endpointFormat, base.endpointFormat),
     models: normalizeModels(input.models, base.models),
-    docsUrl: normalizeString(input.docsUrl) || base.docsUrl,
-    apiKeyUrl: normalizeString(input.apiKeyUrl) || base.apiKeyUrl
+    docsUrl: isCustomProvider ? '' : normalizeString(input.docsUrl) || base.docsUrl,
+    apiKeyUrl: isCustomProvider ? '' : normalizeString(input.apiKeyUrl) || base.apiKeyUrl
   }
 }
 

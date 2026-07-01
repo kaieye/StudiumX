@@ -12,7 +12,7 @@ const MODEL_REPLY = 'MODEL_REPLY_FROM_PROVIDER'
 const requests: Array<{
   method: string | undefined
   url: string | undefined
-  body: { messages?: Array<{ role: string; content?: string }> }
+  body: { model?: string; messages?: Array<{ role: string; content?: string }> }
 }> = []
 
 const server = createServer(async (req, res) => {
@@ -63,19 +63,22 @@ try {
   tempRoot = await mkdtemp(join(tmpdir(), 'teachos-agent-chat-'))
   const defaultRoot = join(tempRoot, 'workspaces')
   const settings = defaultSettings(defaultRoot)
-  settings.provider.activeProviderId = 'custom'
-  settings.generator.providerId = 'custom'
-  settings.generator.model = 'fake-chat-model'
+  settings.provider.activeProviderId = 'deepseek'
+  settings.generator.providerId = 'deepseek'
+  settings.generator.model = 'deepseek-v4-flash'
   settings.generator.endpointFormat = 'chat_completions'
   settings.generator.requestTimeoutMs = 5000
-  settings.tools.enabled = false
+  settings.tools.enabled = true
+  settings.tools.workspaceRead = true
+  settings.tools.webSearch = false
+  settings.tools.webFetch = false
   settings.provider.providers = settings.provider.providers.map((provider) =>
-    provider.id === 'custom'
+    provider.id === 'deepseek'
       ? {
           ...provider,
           baseUrl: `http://127.0.0.1:${address.port}/v1`,
           apiKey: 'test-key',
-          models: ['fake-chat-model']
+          models: ['deepseek-v4-flash']
         }
       : provider
   )
@@ -107,6 +110,7 @@ try {
 
   assert.equal(requests.length, 1, 'teaching-mode chat must call the configured model provider')
   assert.equal(requests[0]?.url, '/v1/chat/completions')
+  assert.equal(requests[0]?.body.model, 'deepseek-v4-flash')
   assert.ok(!('error' in result), 'agent chat should return the provider response')
   assert.equal(result.finalText, MODEL_REPLY)
   assert.equal(chunks.join(''), MODEL_REPLY)
@@ -119,8 +123,72 @@ try {
   assert.match(sentMessages[0]?.content ?? '', /Teaching Workspace/)
   assert.match(sentMessages[0]?.content ?? '', /teaching-readiness-hints/)
   assert.match(sentMessages[0]?.content ?? '', /do not treat readiness hints as a canned assistant answer/)
+  assert.doesNotMatch(sentMessages[0]?.content ?? '', /Claude|Anthropic/)
   assert.equal(sentMessages.at(-1)?.role, 'user')
   assert.equal(sentMessages.at(-1)?.content, '我想学习 RAG')
+
+  const identityChunks: string[] = []
+  const identityStatuses: string[] = []
+  const identityResult = await service.agentChatStream(
+    {
+      workspaceId: workspace.id,
+      messages: [],
+      userInput: '你是什么模型？'
+    },
+    {
+      streamId: 'identity-stream',
+      onChunk: (chunk) => identityChunks.push(chunk.delta),
+      onStatus: (status) => identityStatuses.push(status.status),
+      onTool: () => {}
+    }
+  )
+
+  assert.equal(
+    requests.length,
+    2,
+    'model identity questions should still be answered by the configured model provider'
+  )
+  assert.ok(!('error' in identityResult), 'model identity response should return the provider response')
+  assert.equal(identityResult.finalText, MODEL_REPLY)
+  assert.equal(identityChunks.join(''), MODEL_REPLY)
+  assert.deepEqual(identityStatuses, ['thinking', 'done'])
+
+  const identityMessages = requests[1]?.body.messages ?? []
+  assert.equal(identityMessages[0]?.role, 'system')
+  assert.match(identityMessages[0]?.content ?? '', /configuredProvider: DeepSeek/)
+  assert.match(identityMessages[0]?.content ?? '', /configuredModelId: deepseek-v4-flash/)
+  assert.match(identityMessages[0]?.content ?? '', /endpointFormat: chat_completions/)
+  assert.doesNotMatch(identityMessages[0]?.content ?? '', /Claude|Anthropic/)
+  assert.equal(identityMessages.at(-1)?.role, 'user')
+  assert.equal(identityMessages.at(-1)?.content, '你是什么模型？')
+
+  const temporaryResult = await service.agentChatStream(
+    {
+      workspaceId: workspace.id,
+      mode: 'temporary',
+      messages: [],
+      userInput: '我有哪些课程？'
+    },
+    {
+      streamId: 'temporary-stream',
+      onChunk: () => {},
+      onStatus: () => {},
+      onTool: () => {}
+    }
+  )
+
+  assert.equal(requests.length, 3, 'temporary chat should call the configured model provider')
+  assert.ok(!('error' in temporaryResult), 'temporary chat should return the provider response')
+  const temporaryBody = requests[2]?.body ?? {}
+  const temporaryMessages = temporaryBody.messages ?? []
+  assert.equal(temporaryMessages[0]?.role, 'system')
+  assert.match(temporaryMessages[0]?.content ?? '', /当前是临时会话/)
+  assert.match(temporaryMessages[0]?.content ?? '', /学习者画像和课程概览/)
+  assert.doesNotMatch(temporaryMessages[0]?.content ?? '', /automatically loaded/)
+  assert.doesNotMatch(temporaryMessages[0]?.content ?? '', /Teaching Workspace/)
+  assert.doesNotMatch(JSON.stringify(temporaryBody), /list_workspace|read_workspace_file|search_workspace|glob_workspace/)
+  assert.equal(temporaryMessages.at(-1)?.role, 'user')
+  assert.equal(temporaryMessages.at(-1)?.content, '我有哪些课程？')
 
   console.log('agent chat model routing ok')
 } finally {

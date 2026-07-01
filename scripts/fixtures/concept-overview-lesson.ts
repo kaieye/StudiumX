@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -23,6 +23,7 @@ try {
   const state = await service.createWorkspace({ name: 'learn', prompt: '学习目标、可信资源、课程讲义和复习记录沉淀为本地文件。' })
   const workspace = state.activeWorkspace
   assert.ok(workspace)
+  assert.equal(await stat(join(workspace.rootPath, 'courses')).then(() => true).catch(() => false), false)
 
   const result = await service.generateLesson({
     workspaceId: workspace.id,
@@ -40,7 +41,7 @@ try {
   if (result.kind === 'lesson') {
     assert.match(result.lesson.prompt, /springboot|Spring Boot/i)
     assert.match(result.lesson.prompt, /概念/)
-    assert.match(result.lesson.relativePath, /^courses\//)
+    assert.match(result.lesson.relativePath, /^lessons\//)
     const html = await readFile(result.lesson.absolutePath, 'utf8')
     assert.match(html, /<!doctype html>/i)
   }

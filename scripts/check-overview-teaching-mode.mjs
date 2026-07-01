@@ -11,7 +11,7 @@ assert.match(
 
 assert.match(
   app,
-  /const isTeachingMode = overviewDialogMode === 'teaching'/,
+  /const isTeachingMode = view !== 'agent' && overviewDialogMode === 'teaching'/,
   'OverviewChat should know when the switch is in teaching mode'
 )
 

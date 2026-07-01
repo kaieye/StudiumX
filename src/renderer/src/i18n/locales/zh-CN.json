@@ -70,6 +70,8 @@
     "noWorkspace": "未选择工作区",
     "streamingMode": "流式模式",
     "localMode": "本地模式",
+    "temporarySession": "临时会话",
+    "temporarySessionTitle": "临时会话：只使用用户画像和课程概览，不读取工作区文件",
     "searchWorkspaces": "搜索工作区",
     "workspaces": "工作区",
     "noWorkspaces": "暂无工作区",
@@ -187,6 +189,7 @@
     "memory": { "label": "记忆", "detail": "长期上下文与注入" },
     "notifications": { "label": "通知", "detail": "桌面提醒" },
     "privacy": { "label": "隐私", "detail": "链接和密钥显示" },
+    "tools": { "label": "工具", "detail": "工作区与网络工具" },
     "about": { "label": "关于", "detail": "版本、日志、数据目录" }
   },
   "general": {
@@ -208,14 +211,15 @@
   "model": {
     "title": "模型",
     "subtitle": "Provider 预设来自 Kun 的模型设置组织方式，字段会完整保存并供生成配置读取。",
-    "apiKey": { "label": "API Key", "filled": "已填写", "empty": "未填写", "placeholder": "sk-..." },
+    "apiKey": { "label": "API Key", "filled": "已填写", "empty": "未填写", "placeholder": "sk-...", "show": "显示 API Key", "hide": "隐藏 API Key" },
     "baseUrl": "Base URL",
     "models": { "label": "默认模型" },
     "actions": { "label": "Provider 操作", "test": "测试", "pull": "拉取模型", "docs": "文档", "key": "Key", "reset": "重置" },
     "statusConnecting": "正在连接 provider...",
     "statusOk": "连接成功：{{latency}}ms，发现 {{count}} 个模型。",
     "statusPulling": "正在拉取模型列表...",
-    "statusSynced": "已同步 {{count}} 个模型。"
+    "statusSynced": "已同步 {{count}} 个模型。",
+    "statusReset": "已重置为 provider 预设。"
   },
   "reasoning": {
     "title": "推理强度",
@@ -379,7 +383,7 @@
   "preview": {
     "streamingHint": "正在接收模型输出，完成后会渲染为正式 lesson。",
     "streamingPlaceholder": "等待第一个 token...",
-    "emptyHint": "点击生成按钮后，静态 HTML lesson 会保存到对应课程的 session 文件夹，并在这里预览。",
+    "emptyHint": "点击生成按钮后，静态 HTML lesson 会保存到当前课程的 lessons 文件夹，并在这里预览。",
     "loadingHint": "正在读取 lesson 预览。"
   }
 }

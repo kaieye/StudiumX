@@ -14,7 +14,12 @@
     "check:teaching-mode": "node scripts/check-overview-teaching-mode.mjs",
     "check:concept-overview": "node scripts/check-concept-overview-lesson.mjs",
     "check:provider-errors": "node scripts/check-provider-errors.mjs",
+    "check:model-settings-custom-provider": "node scripts/check-model-settings-custom-provider.mjs",
+    "check:provider-actions": "node scripts/check-provider-actions.mjs",
+    "check:dialog-ime": "node scripts/check-dialog-ime-composition.mjs",
+    "check:workspace-import-course": "node scripts/check-workspace-import-course.mjs",
     "check:workspace-removal": "node scripts/check-workspace-removal-state.mjs",
+    "check:memory-capture": "node scripts/check-memory-capture.mjs",
     "check:workflow": "node scripts/check-teaching-workflow.mjs",
     "preview": "electron-vite preview",
     "dist": "npm run build && electron-builder"

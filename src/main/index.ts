@@ -23,7 +23,6 @@ import type {
   GenerateLessonPayload,
   GenerateLessonStreamPayload,
   GitBranchPayload,
-  ListUpstreamModelsResult,
   ModelEndpointFormat,
   NotificationPayload,
   ProbeProviderPayload,
@@ -241,12 +240,11 @@ function registerTeachingIpc(
     return probeModelProvider(request, resolveProxyUrl(settings))
   })
 
-  ipcMain.handle('teach:list-upstream-models', async (_, providerIdRaw: unknown) => {
+  ipcMain.handle('teach:list-upstream-models', async (_, payload: unknown) => {
     const settings = await settingsService.load()
-    const providerId = requireString(providerIdRaw, 'providerId')
-    const provider = settings.provider.providers.find((item) => item.id === providerId)
-    if (!provider) return { ok: false, message: '未找到该 provider。' } satisfies ListUpstreamModelsResult
-    return fetchUpstreamModels(provider, resolveProxyUrl(settings))
+    const request = parseListUpstreamModelsPayload(payload, settings.provider.providers)
+    if (!request) return { ok: false, message: '未找到该 provider。' }
+    return fetchUpstreamModels(request, resolveProxyUrl(settings))
   })
 
   // ---- Review cards + progress ----
@@ -570,6 +568,7 @@ function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPayload {
   const record = requireRecord(payload)
   return {
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
+    mode: record.mode === 'teaching' ? 'teaching' : record.mode === 'temporary' ? 'temporary' : undefined,
     messages: parseAgentChatMessages(record.messages),
     userInput: requireString(record.userInput, 'userInput')
   }
@@ -645,6 +644,30 @@ function parseProbeProviderPayload(payload: unknown): ProbeProviderPayload {
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : '',
     endpointFormat: requireEndpointFormat(record.endpointFormat)
   }
+}
+
+function parseListUpstreamModelsPayload(
+  payload: unknown,
+  providers: Array<{ id: string; baseUrl: string; apiKey: string; endpointFormat: ModelEndpointFormat }>
+): ProbeProviderPayload | null {
+  const providerIdPayload = payload && typeof payload === 'object'
+    ? payload as { providerId?: unknown }
+    : null
+  const providerId = typeof payload === 'string'
+    ? payload
+    : typeof providerIdPayload?.providerId === 'string'
+      ? providerIdPayload.providerId
+      : ''
+  if (providerId) {
+    const provider = providers.find((item) => item.id === providerId)
+    if (!provider) return null
+    return {
+      baseUrl: provider.baseUrl,
+      apiKey: provider.apiKey,
+      endpointFormat: provider.endpointFormat
+    }
+  }
+  return parseProbeProviderPayload(payload)
 }
 
 function parseRecordProgressPayload(payload: unknown): RecordProgressPayload {

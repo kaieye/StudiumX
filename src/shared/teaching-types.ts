@@ -23,6 +23,7 @@ export type AppCloseAction = 'quit' | 'tray'
 
 export type QuizType = 'single' | 'multi' | 'truefalse' | 'fill'
 export type TeachingMemoryScope = 'user' | 'workspace' | 'project'
+export type AgentChatMode = 'temporary' | 'teaching'
 
 export const MODEL_ENDPOINT_FORMATS = [
   'chat_completions',
@@ -100,11 +101,11 @@ export const TEACHING_MODEL_PROVIDER_PRESETS = [
   {
     id: 'custom',
     name: 'OpenAI Compatible',
-    baseUrl: 'http://localhost:4000/v1',
+    baseUrl: '',
     endpointFormat: 'chat_completions',
-    models: ['gpt-4.1', 'gpt-4.1-mini'],
-    docsUrl: 'https://platform.openai.com/docs',
-    apiKeyUrl: 'https://platform.openai.com/api-keys'
+    models: [],
+    docsUrl: '',
+    apiKeyUrl: ''
   }
 ] satisfies TeachingModelProviderPreset[]
 
@@ -459,6 +460,12 @@ export type TeachingClarificationResult = {
   missingSignals: Array<'topic' | 'background' | 'goal' | 'constraints' | 'firstAction'>
 }
 
+export type TeachingMemoryCaptureResult = {
+  action: 'created' | 'requested_consent' | 'approved' | 'rejected' | 'none'
+  candidateContent?: string
+  memoryId?: string
+}
+
 export type UpdateMissionPayload = {
   workspaceId: string
   prompt: string
@@ -630,6 +637,7 @@ export type AgentLoopStatus =
 
 export type AgentChatStreamPayload = {
   workspaceId?: string
+  mode?: AgentChatMode
   messages: AgentChatMessage[]
   userInput: string
 }
@@ -661,6 +669,7 @@ export type AgentChatStreamDone =
       toolsSupported: boolean
       degradedReason?: string
       teachingAssessment?: TeachingClarificationResult
+      memoryCapture?: TeachingMemoryCaptureResult
     }
   | { streamId: string; error: true; message: string }
 
@@ -674,6 +683,7 @@ export type AgentChatStreamResult =
       toolsSupported: boolean
       degradedReason?: string
       teachingAssessment?: TeachingClarificationResult
+      memoryCapture?: TeachingMemoryCaptureResult
     }
   | { error: true; message: string }
 
@@ -733,7 +743,7 @@ export type TeachingSystemApi = {
   showNotification: (payload: NotificationPayload) => Promise<void>
   controlWindow: (action: WindowControlAction) => Promise<void>
   probeProvider: (payload: ProbeProviderPayload) => Promise<ProbeProviderResult>
-  listUpstreamModels: (providerId: string) => Promise<ListUpstreamModelsResult>
+  listUpstreamModels: (payload: ProbeProviderPayload) => Promise<ListUpstreamModelsResult>
   generateLessonStream: (
     payload: GenerateLessonStreamPayload,
     onChunk: (chunk: LessonStreamChunk) => void,

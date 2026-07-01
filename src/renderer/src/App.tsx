@@ -14,6 +14,8 @@ import {
   ChevronRight,
   Clock3,
   Database,
+  Eye,
+  EyeOff,
   ExternalLink,
   FileCheck2,
   FileText,
@@ -65,6 +67,7 @@ import remarkGfm from 'remark-gfm'
 import { create } from 'zustand'
 import i18n from './i18n'
 import { buildAgentProcessTimeline } from './agent-process-timeline'
+import { listSidebarCourseFolders } from '../../shared/course-sidebar'
 import { classifyProviderError } from '../../shared/provider-error'
 import { deriveWorkspaceRemovalUiPatch } from '../../shared/workspace-removal-state'
 import {
@@ -73,6 +76,7 @@ import {
   type AgentChatStreamChunk,
   type AgentChatStreamStatus,
   type AgentChatStreamToolEvent,
+  type AgentChatMode,
   type AgentChatTurn,
   type AgentChatMessage,
   type AgentConversationSummary,
@@ -152,12 +156,13 @@ type StoreState = {
   lessonReaderOpen: boolean
   selectedCoursePreviewFile: CoursePreviewFile | null
   selectedCourseRelativePath: string | null
+  selectedCourseWorkspaceId: string | null
   appState: TeachingAppState
   settings: TeachingSettingsV1
   setView: (view: WorkspaceView) => void
   setOverviewDialogMode: (mode: DialogMode) => void
   openLessonLibrary: () => void
-  selectCourseFolder: (relativePath: string | null) => void
+  selectCourseFolder: (relativePath: string | null, workspaceId?: string | null) => void
   setSettingsSection: (section: SettingsSection) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   openSettings: (section?: SettingsSection) => void
@@ -179,7 +184,7 @@ type StoreState = {
   openExternal: (url: string) => Promise<void>
   showNotification: (title: string, body: string) => Promise<void>
   probeProvider: (payload: ProbeProviderPayload) => Promise<ProbeProviderResult>
-  listUpstreamModels: (providerId: string) => Promise<ListUpstreamModelsResult>
+  listUpstreamModels: (payload: ProbeProviderPayload) => Promise<ListUpstreamModelsResult>
   listGitWorktrees: (workspaceRoot: string) => Promise<TeachingGitWorktreesResult>
   removeGitWorktree: (payload: RemoveTeachingGitWorktreePayload) => Promise<void>
   listMemory: (workspaceRoot?: string) => Promise<void>
@@ -209,7 +214,7 @@ type StoreState = {
   loadGitBranches: (workspaceRoot: string, options?: { force?: boolean }) => Promise<void>
   setGitBranchesResult: (workspaceRoot: string, result: TeachingGitBranchesResult) => void
   loadAgentConversation: (conversationId: string) => Promise<void>
-  agentChat: (inputOverride?: string) => Promise<void>
+  agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode }) => Promise<void>
   setWorkspaceItemMeta: (payload: { relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
   removeWorkspaceItem: (payload: { relativePath: string; kind: WorkspaceItemKind }) => Promise<void>
 }
@@ -387,6 +392,11 @@ const settingsNavItems = [
 ] satisfies Array<{ id: SettingsSection; icon: LucideIcon }>
 
 const modelSettingsProviderIds = ['deepseek', 'glm', 'custom'] as const
+
+function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
+  const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number }
+  return Boolean(nativeEvent.isComposing || nativeEvent.keyCode === 229)
+}
 
 // ================================================================
 // Preset tutorial cards — built-in placeholders for future tutorials
@@ -701,6 +711,7 @@ const useAppStore = create<StoreState>((set, get) => ({
   lessonReaderOpen: false,
   selectedCoursePreviewFile: null,
   selectedCourseRelativePath: null,
+  selectedCourseWorkspaceId: null,
   appState: emptyAppState,
   settings: emptySettings,
   reviewCards: [],
@@ -772,16 +783,20 @@ const useAppStore = create<StoreState>((set, get) => ({
   },
   setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
   openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null }),
-  selectCourseFolder: (selectedCourseRelativePath) => {
+  selectCourseFolder: (selectedCourseRelativePath, workspaceId) => {
+    const targetWorkspace = workspaceId
+      ? get().appState.workspaces.find((workspace) => workspace.id === workspaceId) ?? null
+      : get().appState.activeWorkspace
     const hasCourse = selectedCourseRelativePath
-      ? Boolean(get().appState.activeWorkspace?.courses.some((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)))
-      : Boolean(get().appState.activeWorkspace?.lessons.length)
+      ? Boolean(targetWorkspace?.courses.some((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)))
+      : Boolean(targetWorkspace?.lessons.length)
     set({
       view: hasCourse ? 'lessons' : 'overview',
       overviewDialogMode: hasCourse ? get().overviewDialogMode : 'teaching',
       lessonReaderOpen: false,
       selectedCoursePreviewFile: null,
       selectedCourseRelativePath,
+      selectedCourseWorkspaceId: hasCourse ? targetWorkspace?.id ?? null : null,
       ...(!hasCourse
         ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
         : {})
@@ -852,6 +867,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         lessonReaderOpen: false,
         selectedCoursePreviewFile: null,
         selectedCourseRelativePath: null,
+        selectedCourseWorkspaceId: null,
         taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
         agentTurns: [],
         activeConversationId: null,
@@ -879,6 +895,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         lessonReaderOpen: false,
         selectedCoursePreviewFile: null,
         selectedCourseRelativePath: null,
+        selectedCourseWorkspaceId: null,
         taskPrompt: defaultPrompt,
         agentTurns: [],
         activeConversationId: null,
@@ -906,6 +923,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         lessonReaderOpen: false,
         selectedCoursePreviewFile: null,
         selectedCourseRelativePath: null,
+        selectedCourseWorkspaceId: null,
         taskPrompt: result.state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
         agentTurns: [],
         activeConversationId: null,
@@ -984,13 +1002,14 @@ const useAppStore = create<StoreState>((set, get) => ({
           generating: false,
           taskPrompt: prompt
         })
-        void get().agentChat(prompt)
+        void get().agentChat(prompt, { mode: 'teaching' })
         return
       }
       set({
         view: 'lessons',
         lessonReaderOpen: true,
         selectedCourseRelativePath: result.lesson.courseRelativePath,
+        selectedCourseWorkspaceId: workspace.id,
         selectedCoursePreviewFile: lessonToCoursePreviewFile(result.lesson),
         appState: result.state,
         taskPrompt: nextPrompt,
@@ -1078,12 +1097,13 @@ const useAppStore = create<StoreState>((set, get) => ({
           overviewDialogMode: 'teaching',
           lessonReaderOpen: false,
           selectedCoursePreviewFile: null,
+          selectedCourseWorkspaceId: null,
           appState: done.state,
           agentStatus: '',
           generating: false,
           taskPrompt: prompt
         })
-        void get().agentChat(prompt)
+        void get().agentChat(prompt, { mode: 'teaching' })
         return
       }
       if (!('error' in done) && done.kind === 'lesson') {
@@ -1091,6 +1111,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           view: 'lessons',
           lessonReaderOpen: true,
           selectedCourseRelativePath: done.lesson.courseRelativePath,
+          selectedCourseWorkspaceId: workspace.id,
           selectedCoursePreviewFile: lessonToCoursePreviewFile(done.lesson),
           appState: done.state,
           taskPrompt: nextPrompt,
@@ -1133,23 +1154,25 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentToolsSupported: null,
         agentInput: '',
         selectedCourseRelativePath: conversationCourseRelativePath,
+        selectedCourseWorkspaceId: conversationCourseRelativePath ? workspace.id : null,
         taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
       })
     } catch (error) {
       set({ error: toUserError(error) })
     }
   },
-  agentChat: async (inputOverride) => {
+  agentChat: async (inputOverride, options) => {
     const api = window.teachingSystem
     if (!api) return
     const workspace = get().appState.activeWorkspace
     const input = (inputOverride ?? get().agentInput).trim()
     if (!workspace || !input || get().agentChatBusy) return
+    const mode: AgentChatMode = options?.mode ?? (get().overviewDialogMode === 'teaching' ? 'teaching' : 'temporary')
     const settings = get().settings
     const createdAt = new Date().toISOString()
     const pendingConversationId = `pending-${Date.now()}`
     const sourceConversationId = get().activeConversationId?.startsWith('pending-') ? null : get().activeConversationId
-    const selectedCourseRelativePath = sourceConversationId ? null : get().selectedCourseRelativePath
+    const selectedCourseRelativePath = sourceConversationId || mode === 'temporary' ? null : get().selectedCourseRelativePath
     const selectedLessonPath = !sourceConversationId && selectedCourseRelativePath ? get().appState.selectedLessonPath : null
     const userTurn: AgentChatTurn = {
       id: `u-${Date.now()}`,
@@ -1216,7 +1239,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     })
     try {
       const done = await api.agentChatStream(
-        { workspaceId: workspace.id, messages: priorMessages, userInput: input },
+        { workspaceId: workspace.id, mode, messages: priorMessages, userInput: input },
         (chunk: AgentChatStreamChunk) => {
           const turns = [...(get().pendingAgentConversation?.turns ?? [])]
           const idx = turns.findIndex((t) => t.id === assistantId)
@@ -1396,7 +1419,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           ? { lessonReaderOpen: false, selectedCoursePreviewFile: null }
           : {}),
         ...(uiPatch.clearSelectedCourseFolder
-          ? { selectedCourseRelativePath: null }
+          ? { selectedCourseRelativePath: null, selectedCourseWorkspaceId: null }
           : {})
       })
     } catch (error) {
@@ -1418,7 +1441,8 @@ const useAppStore = create<StoreState>((set, get) => ({
         previewHtml: loadingPreviewHtml(workspace),
         previewUrl: ''
       },
-      selectedCourseRelativePath: lesson.courseRelativePath
+      selectedCourseRelativePath: lesson.courseRelativePath,
+      selectedCourseWorkspaceId: workspace.id
     })
     try {
       const result = await api.readLesson({
@@ -1445,7 +1469,8 @@ const useAppStore = create<StoreState>((set, get) => ({
         previewHtml: loadingPreviewHtml(workspace),
         previewUrl: ''
       },
-      selectedCourseRelativePath: courseRelativePathForFile(file.relativePath)
+      selectedCourseRelativePath: courseRelativePathForFile(file.relativePath),
+      selectedCourseWorkspaceId: workspace.id
     })
     try {
       const result = await api.readLesson({
@@ -1502,11 +1527,11 @@ const useAppStore = create<StoreState>((set, get) => ({
       return { ok: false, message: toUserError(error).message }
     }
   },
-  listUpstreamModels: async (providerId) => {
+  listUpstreamModels: async (payload) => {
     const api = window.teachingSystem
     if (!api) return { ok: false, message: 'TeachOS preload API unavailable.' }
     try {
-      return await api.listUpstreamModels(providerId)
+      return await api.listUpstreamModels(payload)
     } catch (error) {
       return { ok: false, message: toUserError(error).message }
     }
@@ -1839,6 +1864,7 @@ function Sidebar() {
   const active = appState.activeWorkspace
   const selectedLessonPath = appState.selectedLessonPath
   const selectedCourseRelativePath = useAppStore((s) => s.selectedCourseRelativePath)
+  const selectedCourseWorkspaceId = useAppStore((s) => s.selectedCourseWorkspaceId)
   const [coursesExpanded, setCoursesExpanded] = useState(true)
   const [conversationsExpanded, setConversationsExpanded] = useState(true)
 
@@ -1858,6 +1884,7 @@ function Sidebar() {
                   useAppStore.getState().clearAgentChat()
                   useAppStore.setState({
                     selectedCourseRelativePath: null,
+                    selectedCourseWorkspaceId: null,
                     lessonReaderOpen: false,
                     selectedCoursePreviewFile: null
                   })
@@ -1874,10 +1901,12 @@ function Sidebar() {
 
       <div className="sidebar-content">
         <WorkspaceCourseSection
-          workspace={active}
+          workspaces={appState.workspaces}
+          activeWorkspaceId={active?.id ?? null}
           expanded={coursesExpanded}
           selectedLessonPath={selectedLessonPath}
           selectedCourseRelativePath={selectedCourseRelativePath}
+          selectedCourseWorkspaceId={selectedCourseWorkspaceId}
           onToggle={() => setCoursesExpanded((expanded) => !expanded)}
         />
         <SidebarConversationSection
@@ -1912,19 +1941,24 @@ function Sidebar() {
 }
 
 function WorkspaceCourseSection({
-  workspace,
+  workspaces,
+  activeWorkspaceId,
   expanded,
   selectedLessonPath,
   selectedCourseRelativePath,
+  selectedCourseWorkspaceId,
   onToggle
 }: {
-  workspace: TeachingWorkspaceSummary | null
+  workspaces: TeachingWorkspaceSummary[]
+  activeWorkspaceId: string | null
   expanded: boolean
   selectedLessonPath: string | null
   selectedCourseRelativePath: string | null
+  selectedCourseWorkspaceId: string | null
   onToggle: () => void
 }) {
   const { t } = useTranslation()
+  const selectWorkspace = useAppStore((s) => s.selectWorkspace)
   const loadLesson = useAppStore((s) => s.loadLesson)
   const loadCourseHtmlFile = useAppStore((s) => s.loadCourseHtmlFile)
   const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
@@ -1932,30 +1966,30 @@ function WorkspaceCourseSection({
   const openPath = useAppStore((s) => s.openPath)
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
   const showAllCourseFiles = useAppStore((s) => s.settings.workspace.showAllCourseFiles)
-  const courseTree = useMemo(() => workspace?.fileTree.find((node) => sameRelativePath(node.relativePath, 'courses')) ?? null, [workspace])
-  const courseNodes = useMemo(() => {
-    const nodes = courseTree?.children ?? []
-    return showAllCourseFiles || !workspace ? nodes : filterCourseTreeToLessons(nodes, workspace.lessons, 0)
-  }, [courseTree, showAllCourseFiles, workspace])
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(['courses']))
+  const courseFolders = useMemo(
+    () => listSidebarCourseFolders(workspaces, showAllCourseFiles),
+    [showAllCourseFiles, workspaces]
+  )
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
-    if (!expanded || !workspace) return
-    setExpandedPaths((current) => {
-      if (current.has('courses')) return current
-      const next = new Set(current)
-      next.add('courses')
-      return next
-    })
-  }, [expanded, workspace?.id])
+    if (!expanded) setExpandedPaths(new Set())
+  }, [expanded])
 
-  const togglePath = (relativePath: string): void => {
+  const togglePath = (workspaceId: string, relativePath: string): void => {
+    const key = workspaceNodeKey(workspaceId, relativePath)
     setExpandedPaths((current) => {
       const next = new Set(current)
-      if (next.has(relativePath)) next.delete(relativePath)
-      else next.add(relativePath)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
+  }
+
+  const ensureWorkspaceSelected = async (workspaceId: string): Promise<void> => {
+    if (workspaceId !== activeWorkspaceId) {
+      await selectWorkspace(workspaceId)
+    }
   }
 
   return (
@@ -1979,11 +2013,11 @@ function WorkspaceCourseSection({
         inert={!expanded ? true : undefined}
       >
         <div className="sidebar-disclosure-inner">
-          {workspace && courseNodes.length > 0 ? (
+          {courseFolders.length > 0 ? (
             <div className="workspace-file-tree workspace-file-tree--courses" role="tree">
-              {courseNodes.map((node) => (
+              {courseFolders.map(({ workspace, node }) => (
                 <WorkspaceFileNodeRow
-                  key={node.relativePath}
+                  key={workspaceNodeKey(workspace.id, node.relativePath)}
                   node={node}
                   workspace={workspace}
                   level={0}
@@ -1991,12 +2025,13 @@ function WorkspaceCourseSection({
                   expandedPaths={expandedPaths}
                   selectedLessonPath={selectedLessonPath}
                   selectedCourseRelativePath={selectedCourseRelativePath}
+                  selectedCourseWorkspaceId={selectedCourseWorkspaceId}
                   activeConversationId={activeConversationId}
                   onToggle={togglePath}
-                  onEnsureWorkspaceSelected={async () => {}}
+                  onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
                   onOpenPath={(path) => void openPath(path)}
                   onOpenHtmlFile={(file) => void loadCourseHtmlFile(file)}
-                  onOpenCourse={(relativePath) => selectCourseFolder(relativePath)}
+                  onOpenCourse={(relativePath) => selectCourseFolder(relativePath, workspace.id)}
                   onOpenLesson={(lesson) => {
                     void loadLesson(lesson)
                   }}
@@ -2286,6 +2321,7 @@ function WorkspaceFileNodeRow({
   expandedPaths,
   selectedLessonPath,
   selectedCourseRelativePath,
+  selectedCourseWorkspaceId,
   activeConversationId,
   onToggle,
   onEnsureWorkspaceSelected,
@@ -2302,12 +2338,13 @@ function WorkspaceFileNodeRow({
   expandedPaths: Set<string>
   selectedLessonPath: string | null
   selectedCourseRelativePath?: string | null
+  selectedCourseWorkspaceId?: string | null
   activeConversationId: string | null
-  onToggle: (relativePath: string) => void
+  onToggle: (workspaceId: string, relativePath: string) => void
   onEnsureWorkspaceSelected: () => Promise<void>
   onOpenPath: (path: string) => void
   onOpenHtmlFile?: (file: CoursePreviewFile) => void
-  onOpenCourse?: (relativePath: string) => void
+  onOpenCourse?: (relativePath: string, workspaceId: string) => void
   onOpenLesson: (lesson: LessonSummary) => void
   onOpenConversation: (conversationId: string) => void
 }) {
@@ -2315,14 +2352,18 @@ function WorkspaceFileNodeRow({
   const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
   const isDirectory = node.kind === 'directory'
-  const isExpanded = expandedPaths.has(node.relativePath)
+  const nodeKey = workspaceNodeKey(workspace.id, node.relativePath)
+  const isExpanded = expandedPaths.has(nodeKey)
   const lesson = (workspace.lessons ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
   const conversation = (workspace.conversations ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
   const isCourseFolder = treeRoot === 'courses' && level === 0 && isDirectory
   const isSelected = Boolean(
     (lesson && lesson.absolutePath === selectedLessonPath) ||
     (conversation && conversation.id === activeConversationId) ||
-    (isCourseFolder && selectedCourseRelativePath && sameRelativePath(selectedCourseRelativePath, node.relativePath))
+    (isCourseFolder &&
+      selectedCourseWorkspaceId === workspace.id &&
+      selectedCourseRelativePath &&
+      sameRelativePath(selectedCourseRelativePath, node.relativePath))
   )
   const itemKind: WorkspaceItemKind = conversation ? 'conversation' : isDirectory ? 'directory' : 'file'
   const itemLabel = conversation?.title ?? lesson?.title ?? node.name
@@ -2338,11 +2379,11 @@ function WorkspaceFileNodeRow({
     if (isDirectory) {
       if (isCourseFolder) {
         await onEnsureWorkspaceSelected()
-        onOpenCourse?.(node.relativePath)
-        if (!isExpanded) onToggle(node.relativePath)
+        onOpenCourse?.(node.relativePath, workspace.id)
+        if (!isExpanded) onToggle(workspace.id, node.relativePath)
         return
       }
-      onToggle(node.relativePath)
+      onToggle(workspace.id, node.relativePath)
       return
     }
     await onEnsureWorkspaceSelected()
@@ -2393,7 +2434,7 @@ function WorkspaceFileNodeRow({
             type="button"
             aria-label={isExpanded ? t('sidebar.collapseFolder') : t('sidebar.expandFolder')}
             title={isExpanded ? t('sidebar.collapseFolder') : t('sidebar.expandFolder')}
-            onClick={() => onToggle(node.relativePath)}
+            onClick={() => onToggle(workspace.id, node.relativePath)}
           >
             {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           </button>
@@ -2421,7 +2462,7 @@ function WorkspaceFileNodeRow({
           <div className="workspace-node-children-inner">
             {node.children.map((child) => (
               <WorkspaceFileNodeRow
-                key={child.relativePath}
+                key={workspaceNodeKey(workspace.id, child.relativePath)}
                 node={child}
                 workspace={workspace}
                 level={level + 1}
@@ -2429,6 +2470,7 @@ function WorkspaceFileNodeRow({
                 expandedPaths={expandedPaths}
                 selectedLessonPath={selectedLessonPath}
                 selectedCourseRelativePath={selectedCourseRelativePath}
+                selectedCourseWorkspaceId={selectedCourseWorkspaceId}
                 activeConversationId={activeConversationId}
                 onToggle={onToggle}
                 onEnsureWorkspaceSelected={onEnsureWorkspaceSelected}
@@ -2474,27 +2516,14 @@ function isCourseConversationPath(relativePath: string): boolean {
   return /^courses\/[^/]+\/conversations\/[^/]+\.md$/i.test(normalizeRelativePath(relativePath))
 }
 
+function workspaceNodeKey(workspaceId: string, relativePath: string): string {
+  return `${workspaceId}:${normalizeRelativePath(relativePath)}`
+}
+
 function courseRelativePathForConversation(relativePath: string): string | null {
   const parts = normalizeRelativePath(relativePath).split('/').filter(Boolean)
   if (parts.length === 4 && parts[0] === 'courses' && parts[2] === 'conversations') return `courses/${parts[1]}`
   return null
-}
-
-function filterCourseTreeToLessons(nodes: WorkspaceFileNode[], lessons: LessonSummary[], level = 0): WorkspaceFileNode[] {
-  const lessonPaths = new Set(lessons.map((lesson) => normalizeRelativePath(lesson.relativePath)))
-
-  return nodes
-    .map((node): WorkspaceFileNode | null => {
-      if (node.kind === 'file') {
-        const relativePath = normalizeRelativePath(node.relativePath)
-        return lessonPaths.has(relativePath) || isCourseConversationPath(relativePath) ? node : null
-      }
-      const children = filterCourseTreeToLessons(node.children ?? [], lessons, level + 1)
-      if (level === 0) return { ...node, children }
-      if (children.length === 0) return null
-      return { ...node, children }
-    })
-    .filter((node): node is WorkspaceFileNode => Boolean(node))
 }
 
 function titleFromFileName(fileName: string): string {
@@ -2548,7 +2577,7 @@ function usePickerOutsideClose(open: boolean, wrapRef: RefObject<HTMLDivElement 
   }, [open, wrapRef, setOpen])
 }
 
-function ProjectFolderPicker() {
+function ProjectFolderPicker({ mode = 'workspace' }: { mode?: 'workspace' | 'temporary' }) {
   const { t } = useTranslation()
   const workspaces = useAppStore((s) => s.appState.workspaces)
   const active = useAppStore((s) => s.appState.activeWorkspace)
@@ -2580,6 +2609,22 @@ function ProjectFolderPicker() {
   }, [workspaces, query])
 
   const label = active?.name ?? t('overview.selectWorkspace')
+
+  if (mode === 'temporary') {
+    return (
+      <div className="overview-picker overview-project-picker">
+        <button
+          type="button"
+          className="overview-picker-trigger"
+          title={t('overview.temporarySessionTitle')}
+          disabled
+        >
+          <MessageSquare size={15} strokeWidth={1.8} />
+          <span className="overview-picker-label">{t('overview.temporarySession')}</span>
+        </button>
+      </div>
+    )
+  }
 
   const handleSelect = async (id: string): Promise<void> => {
     if (acting) return
@@ -3106,8 +3151,12 @@ function MainArea() {
   }, [initialize])
 
   const active = appState.activeWorkspace
-  const lessons = active?.lessons ?? []
-  const courses = active?.courses ?? []
+  const selectedCourseWorkspaceId = useAppStore((s) => s.selectedCourseWorkspaceId)
+  const selectedCourseWorkspace = selectedCourseWorkspaceId
+    ? appState.workspaces.find((workspace) => workspace.id === selectedCourseWorkspaceId) ?? active
+    : active
+  const lessons = selectedCourseWorkspace?.lessons ?? []
+  const courses = selectedCourseWorkspace?.courses ?? []
   const records = active?.records ?? []
   const selectedCourseRelativePath = useAppStore((s) => s.selectedCourseRelativePath)
   const selectedCourse = selectedCourseRelativePath
@@ -3475,6 +3524,7 @@ function OverviewLessonComposer({
             onChange={(event) => setTaskPrompt(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
+                if (isInputComposing(event)) return
                 event.preventDefault()
                 if (canSend) void (settings.generator.streaming ? generateLessonStream() : generateLesson())
               }
@@ -3519,8 +3569,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     generateLessonStream,
     agentChat
   } = useAppStore()
+  const view = useAppStore((s) => s.view)
   const overviewDialogMode = useAppStore((s) => s.overviewDialogMode)
-  const isTeachingMode = overviewDialogMode === 'teaching'
+  const isTeachingMode = view !== 'agent' && overviewDialogMode === 'teaching'
   const inputValue = agentInput
   const busy = isTeachingMode ? generating : agentChatBusy
   const canSend = Boolean(active && inputValue.trim() && !busy)
@@ -3539,7 +3590,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const submitChatPrompt = (value: string): void => {
     const prompt = value.trim()
     if (!prompt) return
-    void agentChat(prompt)
+    void agentChat(prompt, { mode: 'temporary' })
   }
   const submitCurrentMode = (): void => {
     if (!canSend) return
@@ -3605,6 +3656,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             onChange={(event) => setAgentInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
+                if (isInputComposing(event)) return
                 event.preventDefault()
                 submitCurrentMode()
               }
@@ -3622,8 +3674,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         </div>
         <div className="overview-dialog-statusbar" aria-label={t('overview.runtimeEnv')}>
           <div className="overview-dialog-status-group overview-dialog-pickers">
-            <ProjectFolderPicker />
-            <GitBranchPicker workspaceRoot={active?.rootPath ?? ''} />
+            <ProjectFolderPicker mode={isTeachingMode ? 'workspace' : 'temporary'} />
+            {isTeachingMode ? <GitBranchPicker workspaceRoot={active?.rootPath ?? ''} /> : null}
           </div>
           <div className="overview-dialog-status-group">
             {isTeachingMode && generating ? <span className="overview-dialog-status-text">{t('lessons.composerTitle')}</span> : null}
@@ -3885,7 +3937,7 @@ function SettingsView({
   onOpenExternal: (url: string) => Promise<void>
   onTestNotification: () => Promise<void>
   onProbeProvider: (payload: ProbeProviderPayload) => Promise<ProbeProviderResult>
-  onListUpstreamModels: (providerId: string) => Promise<ListUpstreamModelsResult>
+  onListUpstreamModels: (payload: ProbeProviderPayload) => Promise<ListUpstreamModelsResult>
   onListGitWorktrees: (workspaceRoot: string) => Promise<TeachingGitWorktreesResult>
   onRemoveGitWorktree: (payload: RemoveTeachingGitWorktreePayload) => Promise<void>
   memoryRecords: TeachingMemoryRecord[]
@@ -3908,8 +3960,16 @@ function SettingsView({
   const activeProvider = activeModelProvider(settings)
   const activeModelSettingsProvider =
     visibleModelProviders.find((provider) => provider.id === activeProvider.id) ?? visibleModelProviders[0]!
+  const isCustomModelProvider = activeModelSettingsProvider.id === 'custom'
+  const activeModelValue = activeModelSettingsProvider.models[0] ?? ''
+  const activeProviderProbePayload = {
+    baseUrl: activeModelSettingsProvider.baseUrl,
+    apiKey: activeModelSettingsProvider.apiKey,
+    endpointFormat: activeModelSettingsProvider.endpointFormat
+  } satisfies ProbeProviderPayload
   const [providerStatus, setProviderStatus] = useState<string>('')
   const [providerBusy, setProviderBusy] = useState(false)
+  const [apiKeyVisible, setApiKeyVisible] = useState(() => !settings.privacy.maskApiKeys)
   const [worktreeResult, setWorktreeResult] = useState<TeachingGitWorktreesResult | null>(null)
   const [worktreeBusyPath, setWorktreeBusyPath] = useState<string | null>(null)
   const [worktreeLoading, setWorktreeLoading] = useState(false)
@@ -3937,14 +3997,15 @@ function SettingsView({
     void refreshWorktrees()
   }, [section, activeWorkspace?.rootPath, worktreeRootPath])
 
+  useEffect(() => {
+    setProviderStatus('')
+    setApiKeyVisible(!settings.privacy.maskApiKeys)
+  }, [activeModelSettingsProvider.id, settings.privacy.maskApiKeys])
+
   const probeActiveProvider = async (): Promise<void> => {
     setProviderBusy(true)
     setProviderStatus(t('model.statusConnecting'))
-    const result = await onProbeProvider({
-      baseUrl: activeModelSettingsProvider.baseUrl,
-      apiKey: activeModelSettingsProvider.apiKey,
-      endpointFormat: activeModelSettingsProvider.endpointFormat
-    })
+    const result = await onProbeProvider(activeProviderProbePayload)
     setProviderBusy(false)
     setProviderStatus(result.ok ? t('model.statusOk', { latency: result.latencyMs, count: result.modelIds.length }) : result.message)
   }
@@ -3952,16 +4013,13 @@ function SettingsView({
   const pullActiveProviderModels = async (): Promise<void> => {
     setProviderBusy(true)
     setProviderStatus(t('model.statusPulling'))
-    const result = await onListUpstreamModels(activeModelSettingsProvider.id)
+    const result = await onListUpstreamModels(activeProviderProbePayload)
     setProviderBusy(false)
     if (!result.ok) {
       setProviderStatus(result.message)
       return
     }
-    updateProvider({ models: result.modelIds })
-    if (settings.generator.providerId === activeModelSettingsProvider.id && result.modelIds.length > 0) {
-      void onUpdateSettings({ generator: { model: result.modelIds[0] } })
-    }
+    updateProviderModels(result.modelIds, result.modelIds.length > 0)
     setProviderStatus(t('model.statusSynced', { count: result.modelIds.length }))
   }
 
@@ -3976,6 +4034,23 @@ function SettingsView({
       provider: {
         providers
       }
+    })
+  }
+
+  const updateProviderModels = (models: string[], syncGeneratorModel = true): void => {
+    const currentProvider = settings.provider.providers.find((provider) => provider.id === activeModelSettingsProvider.id)
+    const providers = currentProvider
+      ? settings.provider.providers.map((provider) =>
+          provider.id === activeModelSettingsProvider.id ? { ...provider, models } : provider
+        )
+      : [...settings.provider.providers, { ...activeModelSettingsProvider, models }]
+    void onUpdateSettings({
+      provider: {
+        providers
+      },
+      ...(syncGeneratorModel && settings.generator.providerId === activeModelSettingsProvider.id
+        ? { generator: { model: models[0] ?? '' } }
+        : {})
     })
   }
 
@@ -4007,17 +4082,27 @@ function SettingsView({
     })
   }
 
-  const resetActiveProviderToPreset = (): void => {
+  const resetActiveProviderToPreset = async (): Promise<void> => {
     const preset = TEACHING_MODEL_PROVIDER_PRESETS.find((item) => item.id === activeModelSettingsProvider.id)
     if (!preset) return
-    updateProvider({ ...preset, apiKey: activeModelSettingsProvider.apiKey })
-    void onUpdateSettings({
+    const resetProvider = { ...preset, apiKey: activeModelSettingsProvider.apiKey }
+    const providers = settings.provider.providers.some((provider) => provider.id === resetProvider.id)
+      ? settings.provider.providers.map((provider) =>
+          provider.id === resetProvider.id ? resetProvider : provider
+        )
+      : [...settings.provider.providers, resetProvider]
+    await onUpdateSettings({
+      provider: {
+        activeProviderId: resetProvider.id,
+        providers
+      },
       generator: {
-        providerId: preset.id,
-        model: preset.models[0] ?? '',
-        endpointFormat: preset.endpointFormat
+        providerId: resetProvider.id,
+        model: resetProvider.models[0] ?? '',
+        endpointFormat: resetProvider.endpointFormat
       }
     })
+    setProviderStatus(t('model.statusReset'))
   }
 
   const refreshWorktrees = async (): Promise<void> => {
@@ -4243,7 +4328,7 @@ function SettingsView({
             subtitle={t('model.subtitle')}
           >
             <SettingsCard>
-                <SettingsRow label="Provider">
+              <SettingsRow label="Provider">
                   <SettingsSelect
                     value={activeModelSettingsProvider.id}
                     options={visibleModelProviders.map((provider) => ({
@@ -4254,12 +4339,23 @@ function SettingsView({
                   />
                 </SettingsRow>
                 <SettingsRow label={t('model.apiKey.label')}>
-                  <SettingsTextInput
-                    type={settings.privacy.maskApiKeys ? 'password' : 'text'}
-                    value={activeModelSettingsProvider.apiKey}
-                    placeholder={t('model.apiKey.placeholder')}
-                    onChange={(apiKey) => updateProvider({ apiKey })}
-                  />
+                  <div className="settings-inline-group">
+                    <SettingsTextInput
+                      type={apiKeyVisible ? 'text' : 'password'}
+                      value={activeModelSettingsProvider.apiKey}
+                      placeholder={t('model.apiKey.placeholder')}
+                      onChange={(apiKey) => updateProvider({ apiKey })}
+                    />
+                    <button
+                      className="icon-button soft"
+                      type="button"
+                      aria-label={apiKeyVisible ? t('model.apiKey.hide') : t('model.apiKey.show')}
+                      title={apiKeyVisible ? t('model.apiKey.hide') : t('model.apiKey.show')}
+                      onClick={() => setApiKeyVisible((visible) => !visible)}
+                    >
+                      {apiKeyVisible ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
                 </SettingsRow>
                 <SettingsRow label={t('model.baseUrl')}>
                   <SettingsTextInput
@@ -4268,26 +4364,27 @@ function SettingsView({
                   />
                 </SettingsRow>
                 <SettingsRow label={t('model.models.label')}>
-                  <SettingsSelect
-                    value={
-                      activeModelSettingsProvider.models.includes(settings.generator.model)
-                        ? settings.generator.model
-                        : (activeModelSettingsProvider.models[0] ?? '')
-                    }
-                    options={activeModelSettingsProvider.models.map((model) => ({ value: model, label: model }))}
-                    onChange={(model) => {
-                      if (settings.generator.providerId === activeModelSettingsProvider.id) {
-                        void onUpdateSettings({ generator: { model } })
-                        return
+                  {isCustomModelProvider ? (
+                    <SettingsTextInput
+                      value={activeModelValue}
+                      onChange={(model) => updateProviderModels(model ? [model] : [])}
+                    />
+                  ) : (
+                    <SettingsSelect
+                      value={
+                        activeModelSettingsProvider.models.includes(settings.generator.model)
+                          ? settings.generator.model
+                          : (activeModelSettingsProvider.models[0] ?? '')
                       }
-                      updateProvider({
-                        models: [
+                      options={activeModelSettingsProvider.models.map((model) => ({ value: model, label: model }))}
+                      onChange={(model) => {
+                        updateProviderModels([
                           model,
                           ...activeModelSettingsProvider.models.filter((item) => item !== model)
-                        ]
-                      })
-                    }}
-                  />
+                        ])
+                      }}
+                    />
+                  )}
                 </SettingsRow>
                 <SettingsRow label={t('reasoning.title')} detail={t('reasoning.settingsDetail')}>
                   <SegmentedControl
@@ -4310,20 +4407,25 @@ function SettingsView({
                       <RefreshCw size={15} />
                       {t('model.actions.pull')}
                     </button>
-                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeModelSettingsProvider.docsUrl)} disabled={!activeModelSettingsProvider.docsUrl}>
+                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeModelSettingsProvider.docsUrl)} disabled={isCustomModelProvider || !activeModelSettingsProvider.docsUrl}>
                       <ExternalLink size={15} />
                       {t('model.actions.docs')}
                     </button>
-                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeModelSettingsProvider.apiKeyUrl)} disabled={!activeModelSettingsProvider.apiKeyUrl}>
+                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeModelSettingsProvider.apiKeyUrl)} disabled={isCustomModelProvider || !activeModelSettingsProvider.apiKeyUrl}>
                       <KeyRound size={15} />
                       {t('model.actions.key')}
                     </button>
-                    <button className="ghost-button" type="button" onClick={resetActiveProviderToPreset}>
+                    <button className="ghost-button" type="button" onClick={() => void resetActiveProviderToPreset()}>
                       <RefreshCw size={15} />
                       {t('model.actions.reset')}
                     </button>
                   </div>
                 </SettingsRow>
+                {providerStatus ? (
+                  <div className="settings-empty-note" role="status" aria-live="polite">
+                    {providerStatus}
+                  </div>
+                ) : null}
               </SettingsCard>
           </SettingsPanel>
         )}

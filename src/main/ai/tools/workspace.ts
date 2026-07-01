@@ -475,7 +475,7 @@ export const globWorkspaceTool: ToolEntry = {
       parameters: {
         type: 'object',
         properties: {
-          pattern: { type: 'string', description: 'Glob 模式，例如 "**/*.md"、"courses/**/*.html"' }
+          pattern: { type: 'string', description: 'Glob 模式，例如 "**/*.md"、"lessons/**/*.html"' }
         },
         required: ['pattern']
       }

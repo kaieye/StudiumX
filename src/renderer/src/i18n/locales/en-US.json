@@ -70,6 +70,8 @@
     "noWorkspace": "No workspace selected",
     "streamingMode": "Streaming mode",
     "localMode": "Local mode",
+    "temporarySession": "Temporary session",
+    "temporarySessionTitle": "Temporary session: only learner profile and course overview are visible; workspace files are not read",
     "searchWorkspaces": "Search workspaces",
     "workspaces": "Workspaces",
     "noWorkspaces": "No workspaces yet",
@@ -187,6 +189,7 @@
     "memory": { "label": "Memory", "detail": "Long-term context injection" },
     "notifications": { "label": "Notifications", "detail": "Desktop alerts" },
     "privacy": { "label": "Privacy", "detail": "Links & key display" },
+    "tools": { "label": "Tools", "detail": "Workspace and web tools" },
     "about": { "label": "About", "detail": "Version, logs, data folder" }
   },
   "general": {
@@ -208,14 +211,15 @@
   "model": {
     "title": "Model",
     "subtitle": "Provider presets follow Kun's model-settings organization; fields are fully saved and read by the generation config.",
-    "apiKey": { "label": "API Key", "filled": "Filled", "empty": "Not filled", "placeholder": "sk-..." },
+    "apiKey": { "label": "API Key", "filled": "Filled", "empty": "Not filled", "placeholder": "sk-...", "show": "Show API key", "hide": "Hide API key" },
     "baseUrl": "Base URL",
     "models": { "label": "Default model" },
     "actions": { "label": "Provider actions", "test": "Test", "pull": "Pull models", "docs": "Docs", "key": "Key", "reset": "Reset" },
     "statusConnecting": "Connecting to provider...",
     "statusOk": "Connected: {{latency}}ms, found {{count}} models.",
     "statusPulling": "Pulling model list...",
-    "statusSynced": "Synced {{count}} models."
+    "statusSynced": "Synced {{count}} models.",
+    "statusReset": "Reset to provider preset."
   },
   "reasoning": {
     "title": "Reasoning effort",
@@ -379,7 +383,7 @@
   "preview": {
     "streamingHint": "Receiving model output; it'll be rendered as a finished lesson once complete.",
     "streamingPlaceholder": "Waiting for the first token...",
-    "emptyHint": "After you click generate, the static HTML lesson is saved into the matching course session folder and previewed here.",
+    "emptyHint": "After you click generate, the static HTML lesson is saved into the current course's lessons folder and previewed here.",
     "loadingHint": "Loading lesson preview."
   }
 }

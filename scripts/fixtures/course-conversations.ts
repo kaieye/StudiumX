@@ -22,7 +22,7 @@ try {
   const workspace = state.activeWorkspace
   assert.ok(workspace)
 
-  const selectedCourseRelativePath = 'courses/rag'
+  const selectedCourseRelativePath = 'lessons'
   await mkdir(join(workspace.rootPath, selectedCourseRelativePath), { recursive: true })
 
   const saved = await service.saveAgentConversation({
@@ -34,20 +34,19 @@ try {
     ]
   })
 
-  assert.equal(saved.conversation.relativePath.startsWith(`${selectedCourseRelativePath}/conversations/`), true)
+  assert.equal(saved.conversation.relativePath.startsWith('conversations/'), true)
   assert.equal(saved.state.activeWorkspace?.conversations.some((item) => item.id === saved.conversation.id), true)
   assert.equal(
     saved.state.activeWorkspace?.courses.some((course) => course.relativePath === selectedCourseRelativePath),
     true,
-    'selected empty course folder should be visible in the course list after saving a teaching conversation'
+    'workspace course should be visible in the course list after saving a teaching conversation'
   )
 
-  const courseTree = saved.state.activeWorkspace?.fileTree.find((node) => node.relativePath === 'courses')
-  const selectedCourseNode = courseTree?.children?.find((node) => node.relativePath === selectedCourseRelativePath)
+  const selectedCourseNode = saved.state.activeWorkspace?.fileTree.find((node) => node.relativePath === selectedCourseRelativePath)
   assert.ok(selectedCourseNode)
-  const courseConversationFolder = selectedCourseNode.children?.find((node) => node.relativePath === `${selectedCourseRelativePath}/conversations`)
-  assert.ok(courseConversationFolder)
-  assert.equal(courseConversationFolder.children?.some((node) => node.relativePath === saved.conversation.relativePath), true)
+  const conversationFolder = saved.state.activeWorkspace?.fileTree.find((node) => node.relativePath === 'conversations')
+  assert.ok(conversationFolder)
+  assert.equal(conversationFolder.children?.some((node) => node.relativePath === saved.conversation.relativePath), true)
 
   const loaded = await service.readAgentConversation({
     workspaceId: workspace.id,

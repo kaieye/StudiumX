@@ -18,6 +18,8 @@ assert.equal(isContinuationLessonRequest('我想学习RAG'), false)
 assert.ok(vague.missingSignals.includes('background'))
 assert.ok(vague.missingSignals.includes('goal'))
 assert.ok(vague.assistantMessage.includes('我先不生成 lesson'))
+assert.ok(vague.assistantMessage.includes('你的相关基础或当前身份是什么'))
+assert.equal(vague.assistantMessage.includes('编程、机器学习、LLM 应用、向量数据库'), false)
 
 const terse = assessTeachingReadiness({
   userInput: 'RAG',

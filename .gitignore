@@ -19,3 +19,4 @@ pnpm-debug.log*
 Thumbs.db
 
 .teachos/
+conversations/

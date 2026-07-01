@@ -2,8 +2,7 @@ import type {
   ListUpstreamModelsResult,
   ModelEndpointFormat,
   ProbeProviderPayload,
-  ProbeProviderResult,
-  TeachingModelProviderProfile
+  ProbeProviderResult
 } from '../shared/teaching-types'
 import {
   upstreamAnthropicMessagesUrl,
@@ -107,7 +106,7 @@ export async function probeModelProvider(
 
 /** Fetch the model list for a configured provider (Settings > 模型 > 拉取模型列表). */
 export async function fetchUpstreamModels(
-  provider: TeachingModelProviderProfile,
+  provider: ProbeProviderPayload,
   proxyUrl: string,
   fetcher: ProviderProbeFetch = fetchWithOptionalProxy
 ): Promise<ListUpstreamModelsResult> {

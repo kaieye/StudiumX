@@ -59,11 +59,11 @@ const CONTINUATION_PATTERNS = [
 ]
 
 const QUESTION_COPY: Record<SignalKey, string> = {
-  topic: '你说的主题具体指什么范围？例如 RAG 是想学概念、工程实现、评估，还是和现有项目结合？',
-  background: '你现在的背景是什么？比如编程、机器学习、LLM 应用、向量数据库分别到什么程度？',
-  goal: '你学这个是为了解决什么真实问题，或者最终要做出什么东西？',
-  constraints: '你的时间、工具和环境有什么限制？例如每天可投入多久、准备用 Python 还是 TypeScript、是否已有数据。',
-  firstAction: '你希望第一节课先完成什么可观察动作？例如跑通一个最小 RAG demo、画清检索链路，或设计数据切分方案。'
+  topic: '你说的主题具体指什么范围？例如先了解概念、掌握方法、完成练习，还是结合某个真实场景应用？',
+  background: '你的相关基础或当前身份是什么？例如零基础、学生、从业者、已有经验，或已经试过哪些材料/工具。',
+  goal: '你学这个是为了解决什么真实问题、完成什么任务，或者达到什么水平？',
+  constraints: '你的时间、资源和环境有什么限制？例如每周可投入多久、使用什么设备/材料、有没有考试/工作/项目截止时间。',
+  firstAction: '你希望第一节课先完成什么可观察动作？例如讲清一个概念、做一道练习、完成一个草稿，或把下一步行动定下来。'
 }
 
 const SUMMARY_LABELS: Record<SignalKey, string> = {

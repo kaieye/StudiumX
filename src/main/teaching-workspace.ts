@@ -15,6 +15,15 @@ import {
 } from './ai/lesson-renderer'
 import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
 import { assessTeachingReadiness, isContinuationLessonRequest } from '../shared/teaching-workflow'
+import {
+  buildLearnerMemoryCandidate,
+  buildMemoryConsentPrompt,
+  classifyMemoryConsentResponse,
+  extractPendingLearnerMemoryCandidate,
+  isBareMemoryConsentResponse,
+  isLearnerProfileMemory,
+  planLearnerMemoryCapture
+} from '../shared/teaching-memory-capture'
 import { classifyProviderError, providerErrorReason } from '../shared/provider-error'
 import type {
   CreateWorkspacePayload,
@@ -44,11 +53,13 @@ import type {
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
   AgentChatTurn,
+  AgentChatMode,
   ReadAgentConversationPayload,
   SaveAgentConversationPayload,
   SaveAgentConversationResult,
   TeachingMemoryDiagnostics,
   TeachingMemoryRecord,
+  TeachingMemoryCaptureResult,
   TeachingClarificationResult,
   TeachingAppState,
   TeachingCourseSummary,
@@ -278,8 +289,53 @@ export class TeachingWorkspaceService {
     const workspace = payload.workspaceId && registryState
       ? findWorkspace(registryState, payload.workspaceId)
       : null
-    const workspaceRoot = workspace?.rootPath
-    const teachingAssessment = workspace
+    const isTeachingConversation = (payload.mode ?? 'teaching') === 'teaching'
+    const chatMode: AgentChatMode = isTeachingConversation ? 'teaching' : 'temporary'
+    const workspaceRoot = isTeachingConversation ? workspace?.rootPath : undefined
+    const memoryWorkspaceRoot = workspace?.rootPath
+    const existingMemories = await this.memoryStore.list(memoryWorkspaceRoot)
+    const pendingMemoryCandidate = extractPendingLearnerMemoryCandidate(
+      latestAssistantContent(payload.messages ?? [])
+    )
+    const directConsentOnly = pendingMemoryCandidate && isBareMemoryConsentResponse(userInput)
+    const consentDecision = directConsentOnly ? classifyMemoryConsentResponse(userInput) : null
+    if (memoryWorkspaceRoot && pendingMemoryCandidate && consentDecision) {
+      if (consentDecision === 'approve') {
+        const memory = await this.memoryStore.create({
+          content: pendingMemoryCandidate.content,
+          scope: 'user',
+          tags: pendingMemoryCandidate.tags,
+          confidence: pendingMemoryCandidate.confidence,
+          workspaceRoot: memoryWorkspaceRoot
+        })
+        const finalText = '已记录到用户记忆。后续课程会把这条信息作为长期背景使用。'
+        const turns = directAgentTurns(payload.messages ?? [], userInput, finalText)
+        return {
+          turns,
+          finalText,
+          iterations: 0,
+          toolsSupported: false,
+          memoryCapture: {
+            action: 'approved',
+            candidateContent: pendingMemoryCandidate.content,
+            memoryId: memory.id
+          }
+        }
+      }
+      const finalText = '好的，这条信息不会记录到用户记忆。'
+      const turns = directAgentTurns(payload.messages ?? [], userInput, finalText)
+      return {
+        turns,
+        finalText,
+        iterations: 0,
+        toolsSupported: false,
+        memoryCapture: {
+          action: 'rejected',
+          candidateContent: pendingMemoryCandidate.content
+        }
+      }
+    }
+    const teachingAssessment = isTeachingConversation && workspace
       ? await this.assessTeachingRequest({
           workspace,
           userInput,
@@ -292,12 +348,31 @@ export class TeachingWorkspaceService {
     }
 
     const ctx = buildToolContext(settings, { workspaceRoot })
-    const registry = settings.tools.enabled ? buildDefaultRegistry(settings, { workspaceRoot }) : new ToolRegistry()
+    const registry = settings.tools.enabled && isTeachingConversation
+      ? buildDefaultRegistry(settings, { workspaceRoot })
+      : new ToolRegistry()
 
     const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
-    const teachSkillReference = await readTeachSkillReference(workspaceRoot)
+    const teachSkillReference = isTeachingConversation ? await readTeachSkillReference(workspaceRoot) : null
+    const capturePlan = settings.memory.enabled && memoryWorkspaceRoot && !directConsentOnly
+      ? planLearnerMemoryCapture(buildLearnerMemoryCandidate(userInput), existingMemories)
+      : ({ action: 'none', reason: 'no_candidate' } as const)
+    const temporaryContext = chatMode === 'temporary' && workspace
+      ? await this.buildTemporaryChatContext(workspace, existingMemories)
+      : null
     const messages: ChatMessage[] = [
-      { role: 'system', content: buildAgentChatSystemPrompt(teachingAssessment, teachSkillReference) },
+      {
+        role: 'system',
+        content: buildAgentChatSystemPrompt({
+          mode: isTeachingConversation ? 'teaching' : 'temporary',
+          teachingAssessment,
+          teachSkillReference,
+          memoryCapturePlan: capturePlan,
+          settings,
+          provider,
+          temporaryContext
+        })
+      },
       ...priorMessages.filter((m) => m.role !== 'system'),
       { role: 'user', content: userInput }
     ]
@@ -336,13 +411,40 @@ export class TeachingWorkspaceService {
     if (result.error) {
       return { error: true, message: result.error }
     }
+    let finalText = result.finalText
+    let messagesWithMemory = result.messages
+    let memoryCapture: TeachingMemoryCaptureResult | undefined
+    if (memoryWorkspaceRoot && capturePlan.action === 'create') {
+      const memory = await this.memoryStore.create({
+        content: capturePlan.candidate.content,
+        scope: 'user',
+        tags: capturePlan.candidate.tags,
+        confidence: capturePlan.candidate.confidence,
+        workspaceRoot: memoryWorkspaceRoot
+      })
+      memoryCapture = {
+        action: 'created',
+        candidateContent: capturePlan.candidate.content,
+        memoryId: memory.id
+      }
+    } else if (capturePlan.action === 'request_consent') {
+      const consentPrompt = buildMemoryConsentPrompt(capturePlan.candidate)
+      finalText = `${finalText}${consentPrompt}`
+      messagesWithMemory = appendToLastAssistantMessage(result.messages, consentPrompt)
+      stream.onChunk({ streamId: stream.streamId, delta: consentPrompt })
+      memoryCapture = {
+        action: 'requested_consent',
+        candidateContent: capturePlan.candidate.content
+      }
+    }
     return {
-      turns: toAgentTurns(result.messages),
-      finalText: result.finalText,
+      turns: toAgentTurns(messagesWithMemory),
+      finalText,
       iterations: result.iterations,
       toolsSupported: result.toolsSupported,
       degradedReason: result.degradedReason,
-      teachingAssessment: teachingAssessment ?? undefined
+      teachingAssessment: teachingAssessment ?? undefined,
+      memoryCapture
     }
   }
 
@@ -782,27 +884,25 @@ export class TeachingWorkspaceService {
     includeLearningRecord: boolean
     includeReviews: boolean
   }): LessonArtifactPaths {
-    const courseName = clampTitle(
-      cleanText(options.requestedCourseName) || deriveCourseName(options.prompt, options.title, options.workspace.name)
-    )
+    const courseName = clampTitle(options.workspace.name)
     const courseId = slugify(courseName, 'course')
-    const courseRelativePath = workspaceRelativePath('courses', courseId)
+    const courseRelativePath = workspaceRelativePath('lessons')
     const courseAbsolutePath = join(options.workspace.rootPath, courseRelativePath)
-    const sessionId = `session-${String(options.sequence).padStart(4, '0')}`
+    const sessionId = `lesson-${String(options.sequence).padStart(4, '0')}`
     const sessionName = `${String(options.sequence).padStart(4, '0')} ${options.title}`
-    const sessionRelativePath = workspaceRelativePath(courseRelativePath, 'sessions', sessionId)
+    const sessionRelativePath = courseRelativePath
     const sessionAbsolutePath = join(options.workspace.rootPath, sessionRelativePath)
     const fileSlug = slugify(options.title, 'lesson')
-    const lessonRelativePath = workspaceRelativePath(sessionRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.html`)
+    const lessonRelativePath = workspaceRelativePath(courseRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.html`)
     const lessonAbsolutePath = join(options.workspace.rootPath, lessonRelativePath)
     const referenceRelativePath = options.includeReference
-      ? workspaceRelativePath(sessionRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-reference.html`)
+      ? workspaceRelativePath(courseRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-reference.html`)
       : null
     const recordRelativePath = options.includeLearningRecord
-      ? workspaceRelativePath(sessionRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.md`)
+      ? workspaceRelativePath(courseRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.md`)
       : null
     const reviewsRelativePath = options.includeReviews
-      ? workspaceRelativePath(sessionRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-flashcards.json`)
+      ? workspaceRelativePath(courseRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-flashcards.json`)
       : null
 
     return {
@@ -1015,10 +1115,10 @@ export class TeachingWorkspaceService {
     const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
     const index = await this.loadWorkspaceIndex(workspace)
     const pathMeta = index.pathMeta ?? {}
-    const lessons = await this.mergeLessonIndexWithDisk(workspace.rootPath, index.lessons, pathMeta)
+    const lessons = await this.mergeLessonIndexWithDisk(workspace.rootPath, workspace.name, index.lessons, pathMeta)
     const conversations = await listAgentConversations(workspace.rootPath, pathMeta)
     const fileTree = await buildWorkspaceFileTree(workspace.rootPath, pathMeta)
-    const courses = buildCourseSummaries(lessons, fileTree)
+    const courses = buildCourseSummaries(workspace, lessons)
     if (lessons.length !== index.lessons.length) {
       await this.saveWorkspaceIndex(workspace.rootPath, { ...index, lessons, updatedAt: new Date().toISOString() })
     }
@@ -1028,10 +1128,10 @@ export class TeachingWorkspaceService {
       rootPath: workspace.rootPath,
       missionPath: join(workspace.rootPath, 'MISSION.md'),
       resourcesPath: join(workspace.rootPath, 'RESOURCES.md'),
-      lessonsDir: join(workspace.rootPath, 'courses'),
-      recordsDir: join(workspace.rootPath, 'courses'),
-      referenceDir: join(workspace.rootPath, 'courses'),
-      reviewsDir: join(workspace.rootPath, 'courses'),
+      lessonsDir: join(workspace.rootPath, 'lessons'),
+      recordsDir: join(workspace.rootPath, 'lessons'),
+      referenceDir: join(workspace.rootPath, 'lessons'),
+      reviewsDir: join(workspace.rootPath, 'lessons'),
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
       missionTitle: mission.title,
@@ -1046,6 +1146,25 @@ export class TeachingWorkspaceService {
       assetsReady: await fileExists(join(workspace.rootPath, 'assets', 'lesson.css')),
       git: await inspectGitWorkspace(workspace.rootPath)
     }
+  }
+
+  private async buildTemporaryChatContext(
+    workspace: RegistryWorkspace,
+    memories: TeachingMemoryRecord[]
+  ): Promise<TemporaryChatContext> {
+    const index = await this.loadWorkspaceIndex(workspace).catch(() => null)
+    const lessons = index?.lessons ?? []
+    const courses = buildCourseSummaries(workspace, lessons).map((course) => ({
+      name: course.name,
+      lessonCount: course.lessonCount,
+      sessionCount: course.sessionCount
+    }))
+    const learnerProfiles = memories
+      .filter((memory) => memory.scope === 'user' && !memory.disabledAt && !memory.deletedAt && isLearnerProfileMemory(memory))
+      .map((memory) => cleanText(memory.content))
+      .filter(Boolean)
+      .slice(0, 8)
+    return { learnerProfiles, courses }
   }
 
   private async initializeWorkspace(options: {
@@ -1089,7 +1208,6 @@ export class TeachingWorkspaceService {
   private async ensureWorkspaceStructure(workspace: RegistryWorkspace): Promise<void> {
     await mkdir(workspace.rootPath, { recursive: true })
     await Promise.all([
-      mkdir(join(workspace.rootPath, 'courses'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'lessons'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'reference'), { recursive: true }),
       mkdir(join(workspace.rootPath, 'learning-records'), { recursive: true }),
@@ -1138,7 +1256,7 @@ export class TeachingWorkspaceService {
         lessons: Array.isArray(parsed.lessons)
           ? parsed.lessons
               .filter(isLessonSummary)
-              .map((lesson) => normalizeLessonSummary(workspace.rootPath, lesson))
+              .map((lesson) => normalizeLessonSummary(workspace.rootPath, workspace.name, lesson))
           : [],
         pathMeta: normalizePathMeta(parsed.pathMeta)
       }
@@ -1245,6 +1363,7 @@ export class TeachingWorkspaceService {
 
   private async mergeLessonIndexWithDisk(
     rootPath: string,
+    workspaceName: string,
     indexedLessons: LessonSummary[],
     pathMeta: Record<string, WorkspacePathMeta> = {}
   ): Promise<LessonSummary[]> {
@@ -1261,7 +1380,7 @@ export class TeachingWorkspaceService {
         if (existing) return existing
         const file = basename(absolutePath)
         const relativePath = toWorkspaceRelativePath(rootPath, absolutePath)
-        const placement = deriveLessonPlacementFromPath(rootPath, absolutePath)
+        const placement = deriveLessonPlacementFromPath(rootPath, workspaceName, absolutePath)
         const idMatch = /^(\d{4})-/.exec(file)
         return {
           id: idMatch?.[1] ?? '0000',
@@ -1747,6 +1866,7 @@ function agentConversationDirectoryRelativePath(payload: SaveAgentConversationPa
 
 function courseRelativePathFromWorkspacePath(relativePath: string): string | null {
   const parts = normalizeWorkspaceRelativePath(relativePath).split('/').filter(Boolean)
+  if (parts[0] === 'lessons') return 'lessons'
   if (parts[0] === 'courses' && parts[1]) return workspaceRelativePath('courses', parts[1])
   return null
 }
@@ -1886,6 +2006,7 @@ function toWorkspaceRelativePath(rootPath: string, absolutePath: string): string
 
 function deriveLessonPlacementFromPath(
   rootPath: string,
+  workspaceName: string,
   absolutePath: string
 ): Pick<
   LessonSummary,
@@ -1900,93 +2021,47 @@ function deriveLessonPlacementFromPath(
 > {
   const relativePath = toWorkspaceRelativePath(rootPath, absolutePath)
   const parts = relativePath.split('/').filter(Boolean)
-  if (parts[0] === 'courses' && parts.length >= 4) {
-    const courseId = parts[1] ?? 'course'
-    const sessionId = parts[3] ?? 'session'
-    return {
-      courseId,
-      courseName: titleFromFilename(courseId),
-      courseRelativePath: workspaceRelativePath('courses', courseId),
-      courseAbsolutePath: join(rootPath, 'courses', courseId),
-      sessionId,
-      sessionName: titleFromFilename(sessionId),
-      sessionRelativePath: workspaceRelativePath('courses', courseId, 'sessions', sessionId),
-      sessionAbsolutePath: join(rootPath, 'courses', courseId, 'sessions', sessionId)
-    }
-  }
-  const courseId = 'legacy-lessons'
-  const sessionId = `session-${parts[1]?.slice(0, 4) || '0000'}`
+  const file = basename(absolutePath)
+  const courseName = clampTitle(workspaceName)
+  const courseId = slugify(courseName, 'course')
+  const idMatch = /^(\d{4})-/.exec(file)
+  const sessionId = idMatch?.[1] ? `lesson-${idMatch[1]}` : `lesson-${parts.at(-1)?.slice(0, 4) || '0000'}`
+  const sessionRelativePath = dirname(relativePath).replace(/\\/g, '/')
   return {
     courseId,
-    courseName: 'Legacy Lessons',
+    courseName,
     courseRelativePath: workspaceRelativePath('lessons'),
     courseAbsolutePath: join(rootPath, 'lessons'),
     sessionId,
-    sessionName: titleFromFilename(sessionId),
-    sessionRelativePath: workspaceRelativePath('lessons'),
-    sessionAbsolutePath: join(rootPath, 'lessons')
+    sessionName: titleFromFilename(file),
+    sessionRelativePath,
+    sessionAbsolutePath: join(rootPath, sessionRelativePath)
   }
 }
 
-function buildCourseSummaries(lessons: LessonSummary[], fileTree: WorkspaceFileNode[] = []): TeachingCourseSummary[] {
-  const courseMap = new Map<string, TeachingCourseSummary>()
-  for (const lesson of lessons) {
-    const session: TeachingSessionSummary = {
-      id: lesson.sessionId,
-      name: lesson.sessionName,
-      relativePath: lesson.sessionRelativePath,
-      absolutePath: lesson.sessionAbsolutePath,
-      lesson
-    }
-    const existing = courseMap.get(lesson.courseId)
-    if (existing) {
-      existing.sessions.push(session)
-      existing.lessonCount += 1
-      existing.sessionCount = existing.sessions.length
-      continue
-    }
-    courseMap.set(lesson.courseId, {
-      id: lesson.courseId,
-      name: lesson.courseName,
-      relativePath: lesson.courseRelativePath,
-      absolutePath: lesson.courseAbsolutePath,
-      lessonCount: 1,
-      sessionCount: 1,
-      sessions: [session]
-    })
-  }
-  const coursesRoot = fileTree.find((node) => node.kind === 'directory' && node.relativePath === 'courses')
-  for (const node of coursesRoot?.children ?? []) {
-    if (node.kind !== 'directory') continue
-    if (courseMap.has(node.name)) continue
-    courseMap.set(node.name, {
-      id: node.name,
-      name: titleFromFilename(node.name),
-      relativePath: node.relativePath,
-      absolutePath: node.absolutePath,
-      lessonCount: 0,
-      sessionCount: 0,
-      sessions: []
-    })
-  }
-  return Array.from(courseMap.values())
-    .map((course) => ({
-      ...course,
-      sessions: [...course.sessions].sort((left, right) => right.lesson.id.localeCompare(left.lesson.id))
-    }))
-    .sort((left, right) => {
-      const leftNewest = left.sessions[0]?.lesson.id ?? ''
-      const rightNewest = right.sessions[0]?.lesson.id ?? ''
-      if (leftNewest !== rightNewest) return rightNewest.localeCompare(leftNewest)
-      return left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
-    })
+function buildCourseSummaries(workspace: RegistryWorkspace, lessons: LessonSummary[]): TeachingCourseSummary[] {
+  const courseName = clampTitle(workspace.name)
+  const sessions = lessons.map((lesson): TeachingSessionSummary => ({
+    id: lesson.sessionId,
+    name: lesson.sessionName,
+    relativePath: lesson.sessionRelativePath,
+    absolutePath: lesson.sessionAbsolutePath,
+    lesson
+  }))
+  const sortedSessions = sessions.sort((left, right) => right.lesson.id.localeCompare(left.lesson.id))
+  return [{
+    id: slugify(courseName, 'course'),
+    name: courseName,
+    relativePath: workspaceRelativePath('lessons'),
+    absolutePath: join(workspace.rootPath, 'lessons'),
+    lessonCount: sortedSessions.length,
+    sessionCount: sortedSessions.length,
+    sessions: sortedSessions
+  }]
 }
 
-function normalizeLessonSummary(rootPath: string, lesson: LessonSummary): LessonSummary {
-  if (lesson.courseId && lesson.sessionId && lesson.courseRelativePath && lesson.sessionRelativePath) {
-    return lesson
-  }
-  const placement = deriveLessonPlacementFromPath(rootPath, lesson.absolutePath)
+function normalizeLessonSummary(rootPath: string, workspaceName: string, lesson: LessonSummary): LessonSummary {
+  const placement = deriveLessonPlacementFromPath(rootPath, workspaceName, lesson.absolutePath)
   return {
     ...lesson,
     courseId: placement.courseId,
@@ -2027,16 +2102,28 @@ const LESSON_RESEARCH_PREFIX =
 const AGENT_CHAT_SYSTEM_PROMPT =
   '你是 TeachOS 的学习助手。' +
   '用户进入“教学”对话时，等价于在发送真实需求的同时引用了 teach skill：把它当作教学工作区方法论和可用上下文，而不是必须照本宣科的固定流程。' +
-  '保持主动判断：可以先回答、先澄清、读取工作区、建议下一步或生成课程计划；只有在背景、目标、约束或第一步动作确实会影响教学质量时，才问 1 到 3 个具体问题。' +
+  '保持主动判断：可以先回答、先澄清、读取工作区、建议下一步或生成课程计划；只有在学习者基础/身份、目标、约束或第一步动作确实会影响教学质量时，才问 1 到 3 个具体问题。' +
+  '不要默认用户属于编程、AI、学生或任何固定人群；问题示例必须跟随用户当前主题、身份和场景。' +
   '回答使用简洁、准确的中文。' +
   '当用户询问当前教学工作区、mission、resources、课程文件、参考资料或学习记录时，优先调用 list_workspace、read_workspace_file、search_workspace 或 glob_workspace 读取本地文件后再回答；' +
   '当问题涉及时效性、最新动态或课程库之外的事实性信息时，调用 web_search 工具检索后再作答；' +
   '必要时可用 web_fetch 深入阅读某条结果。回答中适度引用信息来源链接。' +
   '若未配置工具或当前模型不支持工具调用，直接依据自身知识作答即可。'
 
+const TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT =
+  '你是 TeachOS 的临时会话助手。' +
+  '回答使用简洁、准确的中文。' +
+  '当前不会提供工作区文件访问，也不会提供教学工作区工具；不要声称自己查看了本地文件、课程正文、mission、resources 或学习记录。' +
+  '当用户询问现有课程时，只能基于已注入的课程概览回答；当用户要基于具体工作区文件继续学习时，提示其切换到教学对话。'
+
 type TeachSkillReference = {
   source: string
   content: string
+}
+
+type TemporaryChatContext = {
+  learnerProfiles: string[]
+  courses: Array<{ name: string; lessonCount: number; sessionCount: number }>
 }
 
 async function readTeachSkillReference(workspaceRoot?: string): Promise<TeachSkillReference | null> {
@@ -2056,10 +2143,24 @@ async function readTeachSkillReference(workspaceRoot?: string): Promise<TeachSki
   return null
 }
 
-function buildAgentChatSystemPrompt(
-  teachingAssessment: TeachingClarificationResult | null,
+function buildAgentChatSystemPrompt(options: {
+  mode: AgentChatMode
+  teachingAssessment: TeachingClarificationResult | null
   teachSkillReference: TeachSkillReference | null
-): string {
+  memoryCapturePlan?: ReturnType<typeof planLearnerMemoryCapture>
+  settings?: TeachingSettingsV1
+  provider?: ReturnType<typeof resolveActiveProvider>
+  temporaryContext?: TemporaryChatContext | null
+}): string {
+  const {
+    mode,
+    teachingAssessment,
+    teachSkillReference,
+    memoryCapturePlan = { action: 'none', reason: 'no_candidate' },
+    settings,
+    provider,
+    temporaryContext
+  } = options
   const skillReference = teachSkillReference
     ? [
         `<teach-skill-reference source="${escapePromptAttribute(teachSkillReference.source)}">`,
@@ -2075,7 +2176,19 @@ function buildAgentChatSystemPrompt(
         '</teach-skill-reference>'
       ].join('\n')
 
-  if (!teachingAssessment) return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${skillReference}`
+  const memoryLines = buildMemoryCapturePromptLines(memoryCapturePlan)
+  const runtimeLines = buildModelRuntimePromptLines(settings, provider)
+  const modeLines = mode === 'temporary'
+    ? buildTemporaryChatPromptLines(temporaryContext)
+    : ''
+
+  if (mode === 'temporary') {
+    return `${TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
+  }
+
+  if (!teachingAssessment) {
+    return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${skillReference}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
+  }
 
   const assessmentLines = [
     '<teaching-readiness-hints>',
@@ -2090,7 +2203,68 @@ function buildAgentChatSystemPrompt(
     '</teaching-readiness-hints>'
   ].filter(Boolean)
 
-  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${skillReference}\n\n${assessmentLines.join('\n')}`
+  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${skillReference}${modeLines ? `\n\n${modeLines}` : ''}\n\n${assessmentLines.join('\n')}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
+}
+
+function buildTemporaryChatPromptLines(context?: TemporaryChatContext | null): string {
+  const learnerProfiles = context?.learnerProfiles ?? []
+  const courses = context?.courses ?? []
+  const profileLines = learnerProfiles.length
+    ? learnerProfiles.map((line, index) => `${index + 1}. ${line}`).join('\n')
+    : 'none'
+  const courseLines = courses.length
+    ? courses.map((course, index) => `${index + 1}. ${course.name} (${course.lessonCount} lessons, ${course.sessionCount} sessions)`).join('\n')
+    : 'none'
+  return [
+    '<temporary-chat-context>',
+    '当前是临时会话，不是教学对话。不要查看、列出、读取、搜索或推断工作区文件内容；不要声称已经检查了 MISSION.md、RESOURCES.md、lessons、courses、reference 或 learning-records。',
+    '你只能使用下方已注入的学习者画像和课程概览作为本地上下文；如果用户想基于工作区文件学习，提示其切换到教学对话。',
+    '<learner-profiles>',
+    profileLines,
+    '</learner-profiles>',
+    '<course-overview>',
+    courseLines,
+    '</course-overview>',
+    '</temporary-chat-context>'
+  ].join('\n')
+}
+
+function buildModelRuntimePromptLines(
+  settings?: TeachingSettingsV1,
+  provider?: ReturnType<typeof resolveActiveProvider>
+): string {
+  if (!settings) return ''
+  const providerName = cleanText(provider?.name) || '未配置'
+  const model = cleanText(settings.generator.model) || '未选择'
+  return [
+    '<model-runtime>',
+    `configuredProvider: ${providerName}`,
+    `configuredModelId: ${model}`,
+    `endpointFormat: ${settings.generator.endpointFormat}`,
+    '如果用户询问你是什么模型、由谁提供或当前使用哪个模型，回答必须基于这些运行时配置；不要根据训练数据、接口兼容格式或上游服务名称推断身份。',
+    '</model-runtime>'
+  ].join('\n')
+}
+
+function buildMemoryCapturePromptLines(memoryCapturePlan: ReturnType<typeof planLearnerMemoryCapture>): string {
+  if (memoryCapturePlan.action === 'create') {
+    return [
+      '<memory-capture-policy>',
+      '系统将在本轮回复后首次自动记录这条用户画像到 user memory；你不需要征求同意，也不要声称自己手动写入了记忆。',
+      `pendingMemory: ${memoryCapturePlan.candidate.content}`,
+      '</memory-capture-policy>'
+    ].join('\n')
+  }
+  if (memoryCapturePlan.action === 'request_consent') {
+    return [
+      '<memory-capture-policy>',
+      '本应用已经有用户画像记忆。若要新增或更新类似长期记忆，必须先请求用户同意。',
+      '系统会在本轮回复后追加固定确认问题；你不要自己重复询问，也不要声称已经记录。',
+      `pendingMemory: ${memoryCapturePlan.candidate.content}`,
+      '</memory-capture-policy>'
+    ].join('\n')
+  }
+  return ''
 }
 
 function formatTeachSkillForPrompt(content: string): string {
@@ -2161,6 +2335,39 @@ function toAgentTurns(messages: ChatMessage[]): AgentChatTurn[] {
     }
   }
   return turns
+}
+
+function latestAssistantContent(messages: AgentChatMessage[]): string {
+  return [...messages].reverse().find((message) => message.role === 'assistant')?.content ?? ''
+}
+
+function directAgentTurns(messages: AgentChatMessage[], userInput: string, assistantText: string): AgentChatTurn[] {
+  const createdAt = new Date().toISOString()
+  const prior = messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map((message, index): AgentChatTurn => ({
+      id: `t${index}`,
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: message.content ?? '',
+      createdAt
+    }))
+  return [
+    ...prior,
+    { id: `t${prior.length}`, role: 'user', content: userInput, createdAt },
+    { id: `t${prior.length + 1}`, role: 'assistant', content: assistantText, createdAt }
+  ]
+}
+
+function appendToLastAssistantMessage(messages: ChatMessage[], extra: string): ChatMessage[] {
+  const next = [...messages]
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    const message = next[index]
+    if (message?.role === 'assistant') {
+      next[index] = { ...message, content: `${message.content ?? ''}${extra}` }
+      return next
+    }
+  }
+  return [...next, { role: 'assistant', content: extra }]
 }
 
 /**
@@ -2237,7 +2444,7 @@ function localFallbackPlan(
       },
       {
         heading: '把任务拆成文件',
-        body: '- [MISSION.md](../MISSION.md) — 学习罗盘\n- [RESOURCES.md](../RESOURCES.md) — 可信来源\n- courses/<course>/sessions/<session>/*.html — 课程讲义与速查材料\n- courses/<course>/sessions/<session>/*.md — 学习证据'
+        body: '- [MISSION.md](../MISSION.md) — 学习罗盘\n- [RESOURCES.md](../RESOURCES.md) — 可信来源\n- lessons/*.html — 课程讲义与速查材料\n- lessons/*.md — 学习证据'
       }
     ],
     keyPoints: ['文件系统是真相来源', '每节 lesson 短小且可复习', '本地优先，AI 可选'],
@@ -2251,7 +2458,7 @@ function localFallbackPlan(
         }]
       : [],
     flashcards: [],
-    referenceNotes: '先写 mission，再决定第一课；课程输出到 courses/<course>/sessions/*.html；非显而易见的理解写入对应 session 的记录文件。',
+    referenceNotes: '先写 mission，再决定第一课；课程输出到 lessons/*.html；非显而易见的理解写入同名 lesson 记录文件。',
     learningRecordNote: `本节围绕「${mission.title}」建立了可复用的 TeachOS 学习闭环。`
   }
 }
@@ -2412,7 +2619,7 @@ function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
     <div class="badge">TeachOS</div>
     <h1>${escapeHtml(workspace.missionTitle)}</h1>
     <p>${escapeHtml(workspace.missionExcerpt)}</p>
-    <p>点击生成按钮后，静态 HTML lesson 会保存到对应课程的 session 文件夹，并在这里预览。</p>
+    <p>点击生成按钮后，静态 HTML lesson 会保存到当前课程的 lessons 文件夹，并在这里预览。</p>
   </main>
 </body>
 </html>`
