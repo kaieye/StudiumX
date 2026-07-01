@@ -27,6 +27,25 @@ const terse = assessTeachingReadiness({
 
 assert.equal(terse.stage, 'clarifying')
 
+const conceptOverview = assessTeachingReadiness({
+  userInput: '我只需要了解一下概念就行了',
+  messages: [
+    { role: 'user', content: '我想学习springboot' },
+    {
+      role: 'assistant',
+      content:
+        '请回答背景、目标和约束，以便生成第一节课。'
+    }
+  ],
+  missionTitle: 'learn',
+  missionExcerpt: '学习目标、可信资源、课程讲义和复习记录沉淀为本地文件。'
+})
+
+assert.equal(conceptOverview.stage, 'ready')
+assert.equal(conceptOverview.missingSignals.length, 0)
+assert.match(conceptOverview.lessonPrompt, /Spring Boot|springboot/i)
+assert.match(conceptOverview.lessonPrompt, /概念/)
+
 const ready = assessTeachingReadiness({
   userInput:
     '我想学习 RAG。我是会 Python 的后端工程师，做过简单 LLM API 调用。目标是在公司知识库里做一个可评估的问答 demo。每天 1 小时，准备用 Python、OpenAI compatible API 和本地 Markdown 文档。第一节课先跑通最小检索链路并写出评估样例。',

@@ -1,5 +1,17 @@
 import type { ToolEntry, ToolContext } from './registry'
 import { fetchWithOptionalProxy } from '../../proxy-fetch'
+import { searchMany } from './web_search'
+import {
+  buildWeChatFallbackQueries,
+  buildWeChatRestrictedText,
+  extractWeChatArticleHtml,
+  extractWeChatMetadata,
+  fetchWeChatArticleHtml,
+  isWeChatAccessRestricted,
+  normalizeWeChatArticleUrl,
+  WECHAT_RESTRICTED_GUIDANCE,
+  WECHAT_RESTRICTED_REASON
+} from './wechat'
 
 const MAX_BODY_CHARS = 6000
 const MAX_REDIRECTS = 3
@@ -44,6 +56,60 @@ async function fetchUrlText(targetUrl: string, ctx: ToolContext): Promise<string
     return raw.slice(0, MAX_BODY_CHARS)
   }
   throw new Error('重定向次数过多。')
+}
+
+async function fetchWeChatUrlText(targetUrl: string, ctx: ToolContext): Promise<string> {
+  try {
+    const fetched = await fetchWeChatArticleHtml(targetUrl, ctx)
+    const articleHtml = extractWeChatArticleHtml(fetched.html)
+    const articleText = articleHtml ? htmlToText(articleHtml) : ''
+    if (articleText.length >= 120 && !isWeChatAccessRestricted(fetched.html, articleText)) {
+      const text = articleText.slice(0, MAX_BODY_CHARS)
+      return JSON.stringify({ url: targetUrl, resolvedUrl: fetched.url, length: text.length, text })
+    }
+    const metadata = extractWeChatMetadata(fetched.html)
+    return buildRestrictedWeChatFetchPayload({
+      targetUrl,
+      resolvedUrl: fetched.url,
+      metadata,
+      ctx
+    })
+  } catch (e) {
+    return buildRestrictedWeChatFetchPayload({
+      targetUrl,
+      resolvedUrl: targetUrl,
+      metadata: {},
+      fetchError: e instanceof Error ? e.message : String(e),
+      ctx
+    })
+  }
+}
+
+async function buildRestrictedWeChatFetchPayload(opts: {
+  targetUrl: string
+  resolvedUrl: string
+  metadata: ReturnType<typeof extractWeChatMetadata>
+  fetchError?: string
+  ctx: ToolContext
+}): Promise<string> {
+  const { targetUrl, resolvedUrl, metadata, fetchError, ctx } = opts
+  const fallbackQueries = buildWeChatFallbackQueries(resolvedUrl, metadata)
+  const results = await searchMany(fallbackQueries, 5, ctx)
+  const text = buildWeChatRestrictedText(metadata, results)
+  return JSON.stringify({
+    url: targetUrl,
+    resolvedUrl,
+    access: 'restricted',
+    reason: WECHAT_RESTRICTED_REASON,
+    guidance: WECHAT_RESTRICTED_GUIDANCE,
+    metadata,
+    ...(fetchError ? { fetchError } : {}),
+    fallbackQueries,
+    count: results.length,
+    results,
+    length: text.length,
+    text
+  })
 }
 
 function assertSafeUrl(input: string): string {
@@ -103,7 +169,7 @@ export const webFetchTool: ToolEntry = {
     function: {
       name: 'web_fetch',
       description:
-        '抓取指定 URL 的正文文本（最多约 6000 字符）。用于深入阅读某条 web_search 结果。仅支持 http/https 公网地址。',
+        '抓取指定 URL 的正文文本（最多约 6000 字符）。用于深入阅读某条 web_search 结果。仅支持 http/https 公网地址。微信公众号链接若遇到微信登录墙，会返回可见元数据和公开搜索线索，不能绕过登录墙读取原文全文。',
       parameters: {
         type: 'object',
         properties: {
@@ -117,6 +183,8 @@ export const webFetchTool: ToolEntry = {
     const { url } = (args ?? {}) as { url?: string }
     if (!url || !url.trim()) return JSON.stringify({ error: '缺少参数 url。' })
     try {
+      const wechatUrl = normalizeWeChatArticleUrl(url.trim())
+      if (wechatUrl) return await fetchWeChatUrlText(wechatUrl, ctx)
       const text = await fetchUrlText(url.trim(), ctx)
       return JSON.stringify({ url, length: text.length, text })
     } catch (e) {

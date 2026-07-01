@@ -64,6 +64,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { create } from 'zustand'
 import i18n from './i18n'
+import { buildAgentProcessTimeline } from './agent-process-timeline'
 import { classifyProviderError } from '../../shared/provider-error'
 import { deriveWorkspaceRemovalUiPatch } from '../../shared/workspace-removal-state'
 import {
@@ -90,7 +91,6 @@ import {
   type TeachingGitBranchesResult,
   type TeachingGitBranchRow,
   type TeachingGitWorktreesResult,
-  type TeachingClarificationResult,
   type TeachingMemoryDiagnostics,
   type TeachingMemoryRecord,
   type TeachingMemoryScope,
@@ -127,6 +127,17 @@ type CoursePreviewFile = {
   relativePath: string
   absolutePath: string
 }
+
+type PendingAgentConversation = {
+  workspaceId: string
+  sourceConversationId: string | null
+  summary: AgentConversationSummary & { pending: true }
+  turns: AgentChatTurn[]
+  status: string
+  toolsSupported: boolean | null
+}
+
+type SidebarConversationSummary = AgentConversationSummary & { pending?: true }
 
 type StoreState = {
   view: WorkspaceView
@@ -188,15 +199,17 @@ type StoreState = {
   agentStatus: string
   agentInput: string
   agentToolsSupported: boolean | null
+  pendingAgentConversation: PendingAgentConversation | null
   gitBranchesRoot: string
   gitBranchesResult: TeachingGitBranchesResult | null
   gitBranchesLoading: boolean
   setAgentInput: (input: string) => void
   clearAgentChat: () => void
+  restorePendingAgentConversation: () => void
   loadGitBranches: (workspaceRoot: string, options?: { force?: boolean }) => Promise<void>
   setGitBranchesResult: (workspaceRoot: string, result: TeachingGitBranchesResult) => void
   loadAgentConversation: (conversationId: string) => Promise<void>
-  agentChat: () => Promise<void>
+  agentChat: (inputOverride?: string) => Promise<void>
   setWorkspaceItemMeta: (payload: { relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
   removeWorkspaceItem: (payload: { relativePath: string; kind: WorkspaceItemKind }) => Promise<void>
 }
@@ -700,11 +713,29 @@ const useAppStore = create<StoreState>((set, get) => ({
   agentStatus: '',
   agentInput: '',
   agentToolsSupported: null,
+  pendingAgentConversation: null,
   gitBranchesRoot: '',
   gitBranchesResult: null,
   gitBranchesLoading: false,
   setAgentInput: (agentInput) => set({ agentInput }),
-  clearAgentChat: () => set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false }),
+  clearAgentChat: () => {
+    if (get().agentChatBusy && get().pendingAgentConversation) {
+      set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null })
+      return
+    }
+    set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null })
+  },
+  restorePendingAgentConversation: () => {
+    const pending = get().pendingAgentConversation
+    if (!pending) return
+    set({
+      view: 'agent',
+      agentTurns: pending.turns,
+      activeConversationId: pending.summary.id,
+      agentStatus: pending.status,
+      agentToolsSupported: pending.toolsSupported
+    })
+  },
   loadGitBranches: async (workspaceRoot, options) => {
     const root = workspaceRoot.trim()
     const api = window.teachingSystem
@@ -742,17 +773,17 @@ const useAppStore = create<StoreState>((set, get) => ({
   setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
   openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null }),
   selectCourseFolder: (selectedCourseRelativePath) => {
-    const hasLessons = selectedCourseRelativePath
-      ? Boolean(get().appState.activeWorkspace?.courses.some((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath) && course.sessions.length > 0))
+    const hasCourse = selectedCourseRelativePath
+      ? Boolean(get().appState.activeWorkspace?.courses.some((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)))
       : Boolean(get().appState.activeWorkspace?.lessons.length)
     set({
-      view: hasLessons ? 'lessons' : 'overview',
-      overviewDialogMode: hasLessons ? get().overviewDialogMode : 'chat',
+      view: hasCourse ? 'lessons' : 'overview',
+      overviewDialogMode: hasCourse ? get().overviewDialogMode : 'teaching',
       lessonReaderOpen: false,
       selectedCoursePreviewFile: null,
       selectedCourseRelativePath,
-      ...(!hasLessons
-        ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false }
+      ...(!hasCourse
+        ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
         : {})
     })
   },
@@ -826,6 +857,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         activeConversationId: null,
         agentStatus: '',
         agentToolsSupported: null,
+        pendingAgentConversation: null,
         loading: false
       })
     } catch (error) {
@@ -852,6 +884,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         activeConversationId: null,
         agentStatus: '',
         agentToolsSupported: null,
+        pendingAgentConversation: null,
         loading: false
       })
     } catch (error) {
@@ -878,6 +911,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         activeConversationId: null,
         agentStatus: '',
         agentToolsSupported: null,
+        pendingAgentConversation: null,
         loading: false
       })
       const settings = get().settings
@@ -943,13 +977,14 @@ const useAppStore = create<StoreState>((set, get) => ({
       if (result.kind === 'clarification') {
         set({
           view: 'overview',
-          overviewDialogMode: 'chat',
+          overviewDialogMode: 'teaching',
           lessonReaderOpen: false,
           appState: result.state,
-          agentTurns: appendClarificationTurns(get().agentTurns, prompt, result.clarification),
           agentStatus: '',
-          generating: false
+          generating: false,
+          taskPrompt: prompt
         })
+        void get().agentChat(prompt)
         return
       }
       set({
@@ -1040,14 +1075,15 @@ const useAppStore = create<StoreState>((set, get) => ({
       if (!('error' in done) && done.kind === 'clarification') {
         set({
           view: 'overview',
-          overviewDialogMode: 'chat',
+          overviewDialogMode: 'teaching',
           lessonReaderOpen: false,
           selectedCoursePreviewFile: null,
           appState: done.state,
-          agentTurns: appendClarificationTurns(get().agentTurns, prompt, done.clarification),
           agentStatus: '',
-          generating: false
+          generating: false,
+          taskPrompt: prompt
         })
+        void get().agentChat(prompt)
         return
       }
       if (!('error' in done) && done.kind === 'lesson') {
@@ -1088,28 +1124,33 @@ const useAppStore = create<StoreState>((set, get) => ({
     try {
       const conversation = await api.readAgentConversation({ workspaceId: workspace.id, conversationId })
       const latestUserTurn = [...conversation.turns].reverse().find((turn) => turn.role === 'user')
+      const conversationCourseRelativePath = courseRelativePathForConversation(conversation.relativePath)
       set({
         view: 'agent',
         agentTurns: conversation.turns,
         activeConversationId: conversation.id,
-        agentChatBusy: false,
         agentStatus: '',
         agentToolsSupported: null,
         agentInput: '',
+        selectedCourseRelativePath: conversationCourseRelativePath,
         taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
       })
     } catch (error) {
       set({ error: toUserError(error) })
     }
   },
-  agentChat: async () => {
+  agentChat: async (inputOverride) => {
     const api = window.teachingSystem
     if (!api) return
     const workspace = get().appState.activeWorkspace
-    const input = get().agentInput.trim()
+    const input = (inputOverride ?? get().agentInput).trim()
     if (!workspace || !input || get().agentChatBusy) return
     const settings = get().settings
     const createdAt = new Date().toISOString()
+    const pendingConversationId = `pending-${Date.now()}`
+    const sourceConversationId = get().activeConversationId?.startsWith('pending-') ? null : get().activeConversationId
+    const selectedCourseRelativePath = sourceConversationId ? null : get().selectedCourseRelativePath
+    const selectedLessonPath = !sourceConversationId && selectedCourseRelativePath ? get().appState.selectedLessonPath : null
     const userTurn: AgentChatTurn = {
       id: `u-${Date.now()}`,
       role: 'user',
@@ -1128,29 +1169,67 @@ const useAppStore = create<StoreState>((set, get) => ({
       processEvents: [createAgentStatusProcessEvent('thinking')],
       createdAt
     }
+    const initialTurns = [...get().agentTurns, userTurn, assistantTurn]
+    const syncPendingConversation = (
+      patch: Partial<Omit<PendingAgentConversation, 'workspaceId' | 'sourceConversationId' | 'summary'>>
+    ): void => {
+      const pending = get().pendingAgentConversation
+      if (!pending || pending.summary.id !== pendingConversationId) return
+      const nextPending: PendingAgentConversation = {
+        ...pending,
+        ...patch,
+        summary: {
+          ...pending.summary,
+          updatedAt: new Date().toISOString(),
+          messageCount: patch.turns?.length ?? pending.summary.messageCount
+        }
+      }
+      const visiblePatch = get().activeConversationId === pendingConversationId
+        ? {
+            agentTurns: nextPending.turns,
+            agentStatus: nextPending.status,
+            agentToolsSupported: nextPending.toolsSupported
+          }
+        : {}
+      set({ pendingAgentConversation: nextPending, ...visiblePatch })
+    }
     set({
       agentChatBusy: true,
       agentInput: '',
       agentStatus: '思考中…',
       agentToolsSupported: null,
-      agentTurns: [...get().agentTurns, userTurn, assistantTurn]
+      agentTurns: initialTurns,
+      activeConversationId: pendingConversationId,
+      pendingAgentConversation: {
+        workspaceId: workspace.id,
+        sourceConversationId,
+        summary: createPendingAgentConversationSummary({
+          id: pendingConversationId,
+          titleSource: input,
+          createdAt,
+          turns: initialTurns
+        }),
+        turns: initialTurns,
+        status: '思考中…',
+        toolsSupported: null
+      }
     })
     try {
       const done = await api.agentChatStream(
         { workspaceId: workspace.id, messages: priorMessages, userInput: input },
         (chunk: AgentChatStreamChunk) => {
-          const turns = [...get().agentTurns]
+          const turns = [...(get().pendingAgentConversation?.turns ?? [])]
           const idx = turns.findIndex((t) => t.id === assistantId)
           if (idx >= 0) {
             turns[idx] = { ...turns[idx], content: turns[idx].content + chunk.delta }
-            set({ agentTurns: turns })
+            syncPendingConversation({ turns })
           }
         },
         (status: AgentChatStreamStatus) => {
           const label = agentStatusLabel(status.status)
-          set({
-            agentStatus: status.message ? `${label} ${status.message}` : label,
-            agentTurns: updateAgentAssistantTurn(get().agentTurns, assistantId, (turn) => ({
+          syncPendingConversation({
+            status: status.message ? `${label} ${status.message}` : label,
+            turns: updateAgentAssistantTurn(get().pendingAgentConversation?.turns ?? [], assistantId, (turn) => ({
               ...turn,
               processEvents: appendAgentProcessEvent(
                 turn.processEvents,
@@ -1160,7 +1239,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           })
         },
         (event: AgentChatStreamToolEvent) => {
-          const turns = [...get().agentTurns]
+          const turns = [...(get().pendingAgentConversation?.turns ?? [])]
           const idx = turns.findIndex((t) => t.id === assistantId)
           if (idx < 0) return
           const existing = turns[idx].toolCalls ?? []
@@ -1198,49 +1277,78 @@ const useAppStore = create<StoreState>((set, get) => ({
                 : createAgentToolCallProcessEvent(event)
             )
           }
-          set({ agentTurns: turns })
+          syncPendingConversation({ turns })
         }
       )
       if ('error' in done && done.error) {
         const userError = toUserError(new Error(done.message))
-        set({ agentChatBusy: false, agentStatus: '', error: userError })
+        const nextTurns = (get().pendingAgentConversation?.turns ?? []).filter((t) => t.id !== assistantId)
+        const visiblePatch = get().activeConversationId === pendingConversationId
+          ? { agentTurns: nextTurns, activeConversationId: null, agentStatus: '', agentToolsSupported: null }
+          : {}
+        set({
+          agentChatBusy: false,
+          pendingAgentConversation: null,
+          error: userError,
+          ...visiblePatch
+        })
         return
       }
       if (!('error' in done)) {
         const latestUserTurn = [...done.turns].reverse().find((turn) => turn.role === 'user')
-        const currentTurns = get().agentTurns
+        const currentTurns = get().pendingAgentConversation?.turns ?? get().agentTurns
         const reconciledTurns = reconcileAgentTurnsWithLocalProcess(done.turns, currentTurns)
         // Reconcile with the server-authoritative transcript.
+        syncPendingConversation({
+          turns: reconciledTurns,
+          status: '保存对话…',
+          toolsSupported: done.toolsSupported
+        })
         set({
-          agentTurns: reconciledTurns,
-          agentStatus: '保存对话…',
-          agentToolsSupported: done.toolsSupported,
           taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
         })
         try {
+          const pending = get().pendingAgentConversation
           const saved = await api.saveAgentConversation({
             workspaceId: workspace.id,
-            conversationId: get().activeConversationId,
-            selectedLessonPath: get().appState.selectedLessonPath,
+            conversationId: pending?.sourceConversationId ?? null,
+            selectedLessonPath,
+            selectedCourseRelativePath,
             turns: reconciledTurns
           })
+          const visiblePatch = get().activeConversationId === pendingConversationId
+            ? {
+                agentTurns: reconciledTurns,
+                activeConversationId: saved.conversation.id,
+                agentStatus: '',
+                agentToolsSupported: done.toolsSupported
+              }
+            : {}
           set({
             appState: saved.state,
-            activeConversationId: saved.conversation.id
+            pendingAgentConversation: null,
+            ...visiblePatch
           })
         } catch (saveError) {
           set({ error: toUserError(saveError) })
         } finally {
-          set({ agentChatBusy: false, agentStatus: '' })
+          const visiblePatch = get().activeConversationId === pendingConversationId
+            ? { agentStatus: '' }
+            : {}
+          set({ agentChatBusy: false, ...visiblePatch })
         }
       }
     } catch (error) {
       const userError = toUserError(error)
+      const nextTurns = (get().pendingAgentConversation?.turns ?? []).filter((t) => t.id !== assistantId)
+      const visiblePatch = get().activeConversationId === pendingConversationId
+        ? { agentTurns: nextTurns, activeConversationId: null, agentStatus: '', agentToolsSupported: null }
+        : {}
       set({
         agentChatBusy: false,
-        agentStatus: '',
+        pendingAgentConversation: null,
         error: userError,
-        agentTurns: get().agentTurns.filter((t) => t.id !== assistantId)
+        ...visiblePatch
       })
     }
   },
@@ -1282,7 +1390,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         appState: state,
         error: null,
         ...(uiPatch.clearActiveConversation
-          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false }
+          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
           : {}),
         ...(uiPatch.clearSelectedCoursePreview
           ? { lessonReaderOpen: false, selectedCoursePreviewFile: null }
@@ -1746,8 +1854,13 @@ function Sidebar() {
               type="button"
               onClick={() => {
                 if (item.id === 'overview') {
-                  useAppStore.getState().clearAgentChat()
                   useAppStore.getState().setOverviewDialogMode('chat')
+                  useAppStore.getState().clearAgentChat()
+                  useAppStore.setState({
+                    selectedCourseRelativePath: null,
+                    lessonReaderOpen: false,
+                    selectedCoursePreviewFile: null
+                  })
                 }
                 setView(item.id)
               }}
@@ -1814,13 +1927,15 @@ function WorkspaceCourseSection({
   const { t } = useTranslation()
   const loadLesson = useAppStore((s) => s.loadLesson)
   const loadCourseHtmlFile = useAppStore((s) => s.loadCourseHtmlFile)
+  const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
+  const activeConversationId = useAppStore((s) => s.activeConversationId)
   const openPath = useAppStore((s) => s.openPath)
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
   const showAllCourseFiles = useAppStore((s) => s.settings.workspace.showAllCourseFiles)
   const courseTree = useMemo(() => workspace?.fileTree.find((node) => sameRelativePath(node.relativePath, 'courses')) ?? null, [workspace])
   const courseNodes = useMemo(() => {
     const nodes = courseTree?.children ?? []
-    return showAllCourseFiles || !workspace ? nodes : filterCourseTreeToLessons(nodes, workspace.lessons)
+    return showAllCourseFiles || !workspace ? nodes : filterCourseTreeToLessons(nodes, workspace.lessons, 0)
   }, [courseTree, showAllCourseFiles, workspace])
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(['courses']))
 
@@ -1876,7 +1991,7 @@ function WorkspaceCourseSection({
                   expandedPaths={expandedPaths}
                   selectedLessonPath={selectedLessonPath}
                   selectedCourseRelativePath={selectedCourseRelativePath}
-                  activeConversationId={null}
+                  activeConversationId={activeConversationId}
                   onToggle={togglePath}
                   onEnsureWorkspaceSelected={async () => {}}
                   onOpenPath={(path) => void openPath(path)}
@@ -1885,7 +2000,7 @@ function WorkspaceCourseSection({
                   onOpenLesson={(lesson) => {
                     void loadLesson(lesson)
                   }}
-                  onOpenConversation={() => {}}
+                  onOpenConversation={(conversationId) => void loadAgentConversation(conversationId)}
                 />
               ))}
             </div>
@@ -1909,8 +2024,12 @@ function SidebarConversationSection({
 }) {
   const { t } = useTranslation()
   const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
+  const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
-  const conversations = workspace?.conversations ?? []
+  const storedPendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
+  const conversations = (workspace?.conversations ?? []).filter(isTemporaryConversation)
+  const pendingAgentConversation = storedPendingAgentConversation?.workspaceId === workspace?.id ? storedPendingAgentConversation : null
+  const conversationsWithPending: SidebarConversationSummary[] = pendingAgentConversation ? [pendingAgentConversation.summary, ...conversations] : conversations
   const ensureActiveWorkspace = async (): Promise<void> => {}
 
   return (
@@ -1935,16 +2054,16 @@ function SidebarConversationSection({
       >
         <div className="sidebar-disclosure-inner">
           <div className="workspace-conversation-list is-flat">
-            {conversations.length === 0 ? (
+            {conversationsWithPending.length === 0 ? (
               <div className="workspace-conversation-empty">{t('sidebar.emptyConversations')}</div>
             ) : (
-              conversations.map((conversation) => (
+              conversationsWithPending.map((conversation) => (
                 <ConversationListRow
                   key={conversation.id}
                   conversation={conversation}
                   isActiveConversation={conversation.id === activeConversationId}
                   onEnsureSelected={ensureActiveWorkspace}
-                  onOpen={() => void loadAgentConversation(conversation.id)}
+                  onOpen={() => conversation.pending ? restorePendingAgentConversation() : void loadAgentConversation(conversation.id)}
                 />
               ))
             )}
@@ -2110,7 +2229,7 @@ function ConversationListRow({
   onOpen,
   onEnsureSelected
 }: {
-  conversation: AgentConversationSummary
+  conversation: SidebarConversationSummary
   isActiveConversation: boolean
   onOpen: () => void
   onEnsureSelected: () => Promise<void>
@@ -2135,24 +2254,26 @@ function ConversationListRow({
 
   return (
     <div
-      className={`workspace-conversation-row ${isActiveConversation ? 'is-selected' : ''}`}
+      className={`workspace-conversation-row ${isActiveConversation ? 'is-selected' : ''}${conversation.pending ? ' is-pending' : ''}`}
       title={conversation.absolutePath}
     >
       <button type="button" className="workspace-conversation-main" onClick={onOpen}>
-        {conversation.pinned ? <Pin size={11} className="row-pin-indicator" /> : <MessageSquare size={13} />}
+        {conversation.pending ? <Loader2 className="spin" size={13} /> : conversation.pinned ? <Pin size={11} className="row-pin-indicator" /> : <MessageSquare size={13} />}
         <span className="workspace-conversation-body">
           <span className="workspace-conversation-title">{conversation.title}</span>
           <span className="workspace-conversation-meta">
-            {t('sidebar.messageCount', { count: conversation.messageCount })}
+            {conversation.pending ? '进行中' : t('sidebar.messageCount', { count: conversation.messageCount })}
           </span>
         </span>
       </button>
-      <RowContextMenu
-        pinned={!!conversation.pinned}
-        onTogglePin={() => void handlePin()}
-        onArchive={() => void handleArchive()}
-        onRemove={() => void handleRemove()}
-      />
+      {!conversation.pending && (
+        <RowContextMenu
+          pinned={!!conversation.pinned}
+          onTogglePin={() => void handlePin()}
+          onArchive={() => void handleArchive()}
+          onRemove={() => void handleRemove()}
+        />
+      )}
     </div>
   )
 }
@@ -2345,15 +2466,31 @@ function normalizeRelativePath(value: string): string {
   return value.replace(/\\/g, '/')
 }
 
-function filterCourseTreeToLessons(nodes: WorkspaceFileNode[], lessons: LessonSummary[]): WorkspaceFileNode[] {
+function isTemporaryConversation(conversation: AgentConversationSummary): boolean {
+  return /^conversations\/[^/]+\.md$/i.test(normalizeRelativePath(conversation.relativePath))
+}
+
+function isCourseConversationPath(relativePath: string): boolean {
+  return /^courses\/[^/]+\/conversations\/[^/]+\.md$/i.test(normalizeRelativePath(relativePath))
+}
+
+function courseRelativePathForConversation(relativePath: string): string | null {
+  const parts = normalizeRelativePath(relativePath).split('/').filter(Boolean)
+  if (parts.length === 4 && parts[0] === 'courses' && parts[2] === 'conversations') return `courses/${parts[1]}`
+  return null
+}
+
+function filterCourseTreeToLessons(nodes: WorkspaceFileNode[], lessons: LessonSummary[], level = 0): WorkspaceFileNode[] {
   const lessonPaths = new Set(lessons.map((lesson) => normalizeRelativePath(lesson.relativePath)))
 
   return nodes
     .map((node): WorkspaceFileNode | null => {
       if (node.kind === 'file') {
-        return lessonPaths.has(normalizeRelativePath(node.relativePath)) ? node : null
+        const relativePath = normalizeRelativePath(node.relativePath)
+        return lessonPaths.has(relativePath) || isCourseConversationPath(relativePath) ? node : null
       }
-      const children = filterCourseTreeToLessons(node.children ?? [], lessons)
+      const children = filterCourseTreeToLessons(node.children ?? [], lessons, level + 1)
+      if (level === 0) return { ...node, children }
       if (children.length === 0) return null
       return { ...node, children }
     })
@@ -2946,7 +3083,6 @@ function MainArea() {
     error,
     appState,
     settings,
-    overviewDialogMode,
     lessonReaderOpen,
     selectedCoursePreviewFile,
     setView,
@@ -3036,9 +3172,7 @@ function MainArea() {
       )}
 
       {view === 'overview' && (
-        overviewDialogMode === 'chat'
-          ? <OverviewChat active={active} />
-          : <OverviewLessonComposer active={active} />
+        <OverviewChat active={active} />
       )}
 
       {view === 'agent' && (
@@ -3378,18 +3512,47 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     agentStatus,
     agentInput,
     setAgentInput,
+    setTaskPrompt,
+    generating,
+    settings,
+    generateLesson,
+    generateLessonStream,
     agentChat
   } = useAppStore()
-  const canSendChat = Boolean(active && agentInput.trim() && !agentChatBusy)
+  const overviewDialogMode = useAppStore((s) => s.overviewDialogMode)
+  const isTeachingMode = overviewDialogMode === 'teaching'
+  const inputValue = agentInput
+  const busy = isTeachingMode ? generating : agentChatBusy
+  const canSend = Boolean(active && inputValue.trim() && !busy)
   const hasConversation = agentTurns.length > 0
   const scrollRef = useRef<HTMLDivElement>(null)
+  const activeConversationId = useAppStore((s) => s.activeConversationId)
+  const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
+  const viewingBusyPendingConversation = agentChatBusy && activeConversationId === pendingAgentConversation?.summary.id
+  const submitTeachingPrompt = (value: string): void => {
+    const prompt = value.trim()
+    if (!prompt) return
+    setTaskPrompt(prompt)
+    setAgentInput('')
+    void (settings.generator.streaming ? generateLessonStream() : generateLesson())
+  }
+  const submitChatPrompt = (value: string): void => {
+    const prompt = value.trim()
+    if (!prompt) return
+    void agentChat(prompt)
+  }
+  const submitCurrentMode = (): void => {
+    if (!canSend) return
+    if (isTeachingMode) submitTeachingPrompt(inputValue)
+    else submitChatPrompt(inputValue)
+  }
 
   useEffect(() => {
     const node = scrollRef.current
     if (!node) return
     node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
   }, [agentTurns, agentStatus])
-  const activeAssistantTurnId = agentChatBusy
+  const activeAssistantTurnId = viewingBusyPendingConversation
     ? [...agentTurns].reverse().find((turn) => turn.role === 'assistant')?.id
     : null
 
@@ -3412,7 +3575,6 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
                 key={turn.id}
                 className={`overview-dialog-message ${turn.role === 'user' ? 'is-user' : 'is-assistant'}`}
               >
-                <span>{turn.role === 'user' ? '你' : '助手'}</span>
                 {turn.role === 'assistant' && <AgentProcessPanel turn={turn} busy={isBusyTurn} compact />}
                 {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
               </div>
@@ -3428,19 +3590,23 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         aria-label={t('overview.formAria')}
         onSubmit={(event) => {
           event.preventDefault()
-          if (canSendChat) void agentChat()
+          submitCurrentMode()
         }}
       >
         <div className="overview-dialog-card">
           <textarea
-            value={agentInput}
+            value={inputValue}
             aria-label={t('overview.taskAria')}
-            placeholder={active ? '先说说你想学什么、你现在的水平，以及希望先解决什么问题…' : t('overview.placeholderEmpty')}
+            placeholder={active
+              ? isTeachingMode
+                ? '说说你想学什么、当前基础，以及希望先解决什么问题…'
+                : '输入对话内容...'
+              : t('overview.placeholderEmpty')}
             onChange={(event) => setAgentInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
-                if (canSendChat) void agentChat()
+                submitCurrentMode()
               }
             }}
           />
@@ -3448,8 +3614,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             <div className="overview-dialog-actions">
               <OverviewModelPicker />
               <OverviewReasoningPicker />
-              <button className="send-button overview-dialog-send" type="submit" aria-label="发送消息" disabled={!canSendChat}>
-                {agentChatBusy ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
+              <button className="send-button overview-dialog-send" type="submit" aria-label="发送消息" disabled={!canSend}>
+                {busy ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
               </button>
             </div>
           </div>
@@ -3460,7 +3626,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             <GitBranchPicker workspaceRoot={active?.rootPath ?? ''} />
           </div>
           <div className="overview-dialog-status-group">
-            {agentStatus ? <span className="overview-dialog-status-text">{agentStatus}</span> : null}
+            {isTeachingMode && generating ? <span className="overview-dialog-status-text">{t('lessons.composerTitle')}</span> : null}
+            {!isTeachingMode && agentStatus ? <span className="overview-dialog-status-text">{agentStatus}</span> : null}
           </div>
         </div>
       </form>
@@ -3522,6 +3689,7 @@ function AgentProcessPanel({
 }) {
   const events = turn.processEvents ?? []
   const toolCalls = turn.toolCalls ?? []
+  const timeline = buildAgentProcessTimeline(turn)
   if (events.length === 0 && toolCalls.length === 0) return null
   return (
     <div className={`agent-process-panel${compact ? ' is-compact' : ''}`}>
@@ -3530,44 +3698,91 @@ function AgentProcessPanel({
         <strong>思考过程</strong>
         {busy ? <span>进行中</span> : <span>已记录</span>}
       </div>
-      {events.length > 0 && (
-        <div className="agent-process-list">
-          {events.map((event, index) => (
+      <div className="agent-process-list">
+        {timeline.map((item, index) => (
+          item.kind === 'event' ? (
             <AgentProcessEventRow
-              key={event.id}
-              event={event}
-              active={busy && index === events.length - 1 && event.status !== 'done'}
-            />
-          ))}
-        </div>
-      )}
-      {toolCalls.length > 0 && (
-        <div className="agent-process-tools">
-          {toolCalls.map((toolCall) => (
-            <ToolCallCard key={toolCall.id} toolCall={toolCall} />
-          ))}
-        </div>
-      )}
+              key={item.event.id}
+              event={item.event}
+              active={busy && index === timeline.length - 1 && item.event.status !== 'done'}
+            >
+              <AgentProcessToolDetail event={item.event} toolCall={item.toolCall} />
+            </AgentProcessEventRow>
+          ) : (
+            <ToolCallCard key={item.toolCall.id} toolCall={item.toolCall} />
+          )
+        ))}
+      </div>
     </div>
   )
 }
 
 function AgentProcessEventRow({
   event,
-  active
+  active,
+  children
 }: {
   event: AgentChatProcessEvent
   active: boolean
+  children?: ReactNode
 }) {
   return (
     <div className={`agent-process-event${event.isError ? ' is-error' : ''}${active ? ' is-active' : ''}`}>
       <span className="agent-process-event-icon">
         <AgentProcessIcon event={event} active={active} />
       </span>
-      <span className="agent-process-event-copy">
+      <div className="agent-process-event-copy">
         <strong>{event.title}</strong>
         {event.detail ? <small>{event.detail}</small> : null}
-      </span>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function AgentProcessToolDetail({
+  event,
+  toolCall
+}: {
+  event: AgentChatProcessEvent
+  toolCall?: NonNullable<AgentChatTurn['toolCalls']>[number]
+}) {
+  const [open, setOpen] = useState(false)
+  if (event.kind !== 'tool_call' && event.kind !== 'tool_result') return null
+
+  const argsPretty = toolCall?.arguments ? prettyJson(toolCall.arguments) : ''
+  const hasResult = event.kind === 'tool_result' && (toolCall?.result !== undefined || Boolean(event.detail))
+  const resultPretty = toolCall?.result !== undefined ? prettyJson(toolCall.result ?? '') : (event.kind === 'tool_result' ? event.detail ?? '' : '')
+  const hasExpandableDetail = Boolean(argsPretty || resultPretty)
+  if (!hasExpandableDetail) return null
+
+  return (
+    <div className="agent-process-tool-detail">
+      <button
+        aria-expanded={open}
+        className="agent-process-tool-detail-trigger"
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{hasResult ? '查看工具结果' : '查看工具参数'}</span>
+        <ChevronDown className={open ? 'is-open' : ''} size={12} />
+      </button>
+      {open && (
+        <div className="tool-call-body is-inline">
+          {argsPretty && (
+            <div className="tool-call-section">
+              <div>参数</div>
+              <pre>{argsPretty}</pre>
+            </div>
+          )}
+          {hasResult && resultPretty && (
+            <div className="tool-call-section">
+              <div>结果</div>
+              <pre>{resultPretty}</pre>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -5171,39 +5386,6 @@ function reconcileAgentTurnsWithLocalProcess(
   })
 }
 
-function appendClarificationTurns(
-  turns: AgentChatTurn[],
-  userInput: string,
-  clarification: TeachingClarificationResult
-): AgentChatTurn[] {
-  const createdAt = new Date().toISOString()
-  return [
-    ...turns,
-    {
-      id: `u-${Date.now()}-clarify`,
-      role: 'user',
-      content: userInput,
-      createdAt
-    },
-    {
-      id: `a-${Date.now()}-clarify`,
-      role: 'assistant',
-      content: clarification.assistantMessage,
-      processEvents: [
-        {
-          id: createAgentProcessEventId('clarify'),
-          kind: 'status',
-          status: 'done',
-          title: '继续澄清学习任务',
-          detail: clarification.summary,
-          createdAt
-        }
-      ],
-      createdAt
-    }
-  ]
-}
-
 function prettyJson(value: string): string {
   if (!value) return ''
   try {
@@ -5217,6 +5399,29 @@ function compactText(value: string, maxLength: number): string {
   const normalized = value.replace(/\s+/g, ' ').trim()
   if (!normalized) return ''
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized
+}
+
+function createPendingAgentConversationSummary({
+  id,
+  titleSource,
+  createdAt,
+  turns
+}: {
+  id: string
+  titleSource: string
+  createdAt: string
+  turns: AgentChatTurn[]
+}): AgentConversationSummary & { pending: true } {
+  return {
+    id,
+    title: compactText(titleSource, 48) || '新对话',
+    createdAt,
+    updatedAt: createdAt,
+    relativePath: '',
+    absolutePath: '',
+    messageCount: turns.length,
+    pending: true
+  }
 }
 
 function streamingPreviewHtml(liveText: string, workspace: TeachingWorkspaceSummary): string {

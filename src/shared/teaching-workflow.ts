@@ -38,7 +38,13 @@ const CONSTRAINT_PATTERNS = [
 
 const FIRST_ACTION_PATTERNS = [
   /(?:第一节|先|首先|第一步|最小|小目标|练习|实操|动手|案例|demo|原型|任务|动作|产出|交付|今天|这节课)/,
-  /(?:搭建|写出|画出|实现|跑通|复现|配置|评估|对比|总结)/
+  /(?:搭建|写出|画出|实现|跑通|复现|配置|评估|对比|总结)/,
+  /(?:概念|概览|是什么|基本原理|核心思想|入门介绍|快速了解)/
+]
+
+const CONCEPT_OVERVIEW_PATTERNS = [
+  /(?:只需要|只想|先|先简单)?\s*(?:了解|看懂|搞懂|认识).{0,12}(?:概念|概览|是什么|基本原理|核心思想)/,
+  /(?:概念|概览|是什么|基本原理|核心思想).{0,12}(?:就行|即可|就够|速览|入门)/
 ]
 
 const LEARNING_SETUP_PATTERNS = [
@@ -139,13 +145,45 @@ function collectSignals(
 ): TeachingSignals {
   const text = transcript.join('\n')
   const missionText = `${missionTitle ?? ''}\n${missionExcerpt ?? ''}`
-  return {
+  const signals: TeachingSignals = {
     topic: detectSignal(`${text}\n${missionText}`, TOPIC_PATTERNS, () => inferTopicEvidence(text, missionTitle)),
     background: detectSignal(text, BACKGROUND_PATTERNS),
     goal: detectSignal(text, GOAL_PATTERNS),
     constraints: detectSignal(text, CONSTRAINT_PATTERNS),
     firstAction: detectSignal(text, FIRST_ACTION_PATTERNS)
   }
+  if (isConceptOverviewRequest(text) && signals.topic.present) {
+    if (!signals.background.present) {
+      signals.background = {
+        present: true,
+        evidence: ['用户只需要概念概览，默认不要求实操背景']
+      }
+    }
+    if (!signals.goal.present) {
+      signals.goal = {
+        present: true,
+        evidence: ['先建立对主题的核心概念理解']
+      }
+    }
+    if (!signals.constraints.present) {
+      signals.constraints = {
+        present: true,
+        evidence: ['短小概念课，不依赖本地开发环境']
+      }
+    }
+    if (!signals.firstAction.present) {
+      signals.firstAction = {
+        present: true,
+        evidence: ['生成一节核心概念速览 lesson']
+      }
+    }
+  }
+  return signals
+}
+
+function isConceptOverviewRequest(text: string): boolean {
+  const normalized = cleanText(text)
+  return CONCEPT_OVERVIEW_PATTERNS.some((pattern) => pattern.test(normalized))
 }
 
 function detectSignal(

@@ -353,9 +353,9 @@ function extractText(format: ModelEndpointFormat, body: unknown): string {
   if (Array.isArray(choices) && choices.length > 0) {
     const message = (choices[0] as { message?: { content?: unknown } })?.message
     const content = message?.content
-    if (typeof content === 'string') return content
+    if (typeof content === 'string') return stripDsmlToolCallBlocks(content)
     if (Array.isArray(content)) {
-      return content.map((block) => (block as { text?: string })?.text ?? '').join('')
+      return stripDsmlToolCallBlocks(content.map((block) => (block as { text?: string })?.text ?? '').join(''))
     }
   }
   return ''
@@ -597,17 +597,106 @@ function extractToolCalls(format: ModelEndpointFormat, body: unknown): ToolCall[
   if (!toolsSupportedForFormat(format)) return []
   const choices = (body as { choices?: unknown })?.choices
   if (!Array.isArray(choices) || choices.length === 0) return []
-  const msg = (choices[0] as { message?: { tool_calls?: unknown } })?.message
+  const msg = (choices[0] as { message?: { content?: unknown; tool_calls?: unknown } })?.message
   const calls = msg?.tool_calls
-  if (!Array.isArray(calls)) return []
+  const nativeCalls = Array.isArray(calls)
+    ? calls
+        .map((c): ToolCall | null => {
+          const fn = (c as { function?: { name?: string; arguments?: string } })?.function
+          const id = (c as { id?: string })?.id
+          if (!fn || !fn.name || !id) return null
+          return { id, type: 'function', function: { name: fn.name, arguments: fn.arguments ?? '{}' } }
+        })
+        .filter((c): c is ToolCall => c !== null)
+    : []
+  const content = msg?.content
+  const text = typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content.map((block) => (block as { text?: string })?.text ?? '').join('')
+      : ''
+  return [...nativeCalls, ...parseDsmlToolCalls(text)]
+}
+
+const DSML_TOOL_CALLS_RE = /<｜｜DSML｜｜tool_calls>([\s\S]*?)<\/｜｜DSML｜｜tool_calls>/gi
+const DSML_INVOKE_RE = /<｜｜DSML｜｜invoke\s+([^>]*)>([\s\S]*?)<\/｜｜DSML｜｜invoke>/gi
+const DSML_PARAMETER_RE = /<｜｜DSML｜｜parameter\s+([^>]*)>([\s\S]*?)<\/｜｜DSML｜｜parameter>/gi
+
+function stripDsmlToolCallBlocks(text: string): string {
+  return text.replace(DSML_TOOL_CALLS_RE, '').trim()
+}
+
+function parseDsmlToolCalls(text: string): ToolCall[] {
+  if (!text || !text.includes('DSML')) return []
+  const calls: ToolCall[] = []
+  let blockMatch: RegExpExecArray | null
+  DSML_TOOL_CALLS_RE.lastIndex = 0
+  while ((blockMatch = DSML_TOOL_CALLS_RE.exec(text)) !== null) {
+    const block = blockMatch[1] ?? ''
+    let invokeMatch: RegExpExecArray | null
+    DSML_INVOKE_RE.lastIndex = 0
+    while ((invokeMatch = DSML_INVOKE_RE.exec(block)) !== null) {
+      const name = readDsmlAttribute(invokeMatch[1] ?? '', 'name')
+      if (!name) continue
+      const args: Record<string, unknown> = {}
+      const parameterBlock = invokeMatch[2] ?? ''
+      let parameterMatch: RegExpExecArray | null
+      DSML_PARAMETER_RE.lastIndex = 0
+      while ((parameterMatch = DSML_PARAMETER_RE.exec(parameterBlock)) !== null) {
+        const parameterAttrs = parameterMatch[1] ?? ''
+        const parameterName = readDsmlAttribute(parameterAttrs, 'name')
+        if (!parameterName) continue
+        const stringAttr = readDsmlAttribute(parameterAttrs, 'string')
+        const rawValue = decodeDsmlText(parameterMatch[2] ?? '')
+        args[parameterName] = coerceDsmlParameterValue(rawValue, stringAttr === 'true')
+      }
+      const argText = JSON.stringify(args)
+      calls.push({
+        id: `dsml_${calls.length}_${stableHash(`${name}:${argText}`)}`,
+        type: 'function',
+        function: { name, arguments: argText }
+      })
+    }
+  }
   return calls
-    .map((c): ToolCall | null => {
-      const fn = (c as { function?: { name?: string; arguments?: string } })?.function
-      const id = (c as { id?: string })?.id
-      if (!fn || !fn.name || !id) return null
-      return { id, type: 'function', function: { name: fn.name, arguments: fn.arguments ?? '{}' } }
-    })
-    .filter((c): c is ToolCall => c !== null)
+}
+
+function readDsmlAttribute(attrs: string, name: string): string {
+  const pattern = new RegExp(`${name}\\s*=\\s*"([^"]*)"`, 'i')
+  return decodeDsmlText(attrs.match(pattern)?.[1] ?? '').trim()
+}
+
+function decodeDsmlText(value: string): string {
+  return value
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .trim()
+}
+
+function coerceDsmlParameterValue(value: string, forceString: boolean): unknown {
+  if (forceString) return value
+  if (/^-?\d+(?:\.\d+)?$/.test(value)) return Number(value)
+  if (/^(true|false)$/i.test(value)) return value.toLowerCase() === 'true'
+  if (/^null$/i.test(value)) return null
+  if ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']'))) {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return value
+    }
+  }
+  return value
+}
+
+function stableHash(value: string): string {
+  let hash = 0
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0
+  }
+  return Math.abs(hash).toString(36)
 }
 
 function isToolRejection(error: unknown): boolean {

@@ -534,13 +534,13 @@ function parseGenerateLessonPayload(payload: unknown): GenerateLessonPayload {
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     prompt: requireString(record.prompt, 'prompt'),
-    courseName: optionalString(record.courseName)
+    courseName: optionalString(record.courseName),
+    messages: parseAgentChatMessages(record.messages)
   }
 }
 
-function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPayload {
-  const record = requireRecord(payload)
-  const rawMessages = Array.isArray(record.messages) ? record.messages : []
+function parseAgentChatMessages(value: unknown): AgentChatMessage[] {
+  const rawMessages = Array.isArray(value) ? value : []
   const messages: AgentChatMessage[] = []
   for (const item of rawMessages) {
     if (!item || typeof item !== 'object') continue
@@ -563,9 +563,14 @@ function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPayload {
         : undefined
     })
   }
+  return messages
+}
+
+function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPayload {
+  const record = requireRecord(payload)
   return {
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
-    messages,
+    messages: parseAgentChatMessages(record.messages),
     userInput: requireString(record.userInput, 'userInput')
   }
 }
@@ -581,6 +586,13 @@ function parseSaveAgentConversationPayload(payload: unknown): SaveAgentConversat
         : record.selectedLessonPath === null
           ? null
           : undefined,
+    selectedCourseRelativePath:
+      typeof record.selectedCourseRelativePath === 'string'
+        ? record.selectedCourseRelativePath
+        : record.selectedCourseRelativePath === null
+          ? null
+          : undefined,
+    courseName: optionalString(record.courseName),
     turns: Array.isArray(record.turns)
       ? record.turns.filter((turn): turn is AgentChatTurn => Boolean(turn) && typeof turn === 'object') as AgentChatTurn[]
       : []

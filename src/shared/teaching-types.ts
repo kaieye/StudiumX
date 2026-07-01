@@ -443,6 +443,7 @@ export type GenerateLessonPayload = {
   workspaceId: string
   prompt: string
   courseName?: string
+  messages?: AgentChatMessage[]
 }
 
 export type TeachingWorkflowStage = 'clarifying' | 'ready'
@@ -684,6 +685,8 @@ export type SaveAgentConversationPayload = {
   workspaceId: string
   conversationId?: string | null
   selectedLessonPath?: string | null
+  selectedCourseRelativePath?: string | null
+  courseName?: string
   turns: AgentChatTurn[]
 }
 

@@ -7,6 +7,12 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
+    "check:agent-chat": "node scripts/check-agent-chat-model-routing.mjs",
+    "check:course-conversations": "node scripts/check-course-conversations.mjs",
+    "check:agent-process-timeline": "node scripts/check-agent-process-timeline.mjs",
+    "check:dsml-tool-calls": "node scripts/check-dsml-tool-calls.mjs",
+    "check:teaching-mode": "node scripts/check-overview-teaching-mode.mjs",
+    "check:concept-overview": "node scripts/check-concept-overview-lesson.mjs",
     "check:provider-errors": "node scripts/check-provider-errors.mjs",
     "check:workspace-removal": "node scripts/check-workspace-removal-state.mjs",
     "check:workflow": "node scripts/check-teaching-workflow.mjs",

@@ -1,5 +1,14 @@
 import type { ToolEntry, ToolContext } from './registry'
 import { fetchWithOptionalProxy } from '../../proxy-fetch'
+import {
+  buildWeChatFallbackQueries,
+  extractWeChatMetadata,
+  fetchWeChatArticleHtml,
+  isWeChatAccessRestricted,
+  normalizeWeChatArticleUrl,
+  WECHAT_RESTRICTED_GUIDANCE,
+  WECHAT_RESTRICTED_REASON
+} from './wechat'
 
 export type SearchResult = {
   title: string
@@ -15,7 +24,7 @@ const MAX_SNIPPET_CHARS = 200
  * Requests run in the Electron main process (no CORS). Defensive parsing —
  * any failure returns an empty result set so the agent loop never crashes.
  */
-async function search(query: string, maxResults: number, ctx: ToolContext): Promise<SearchResult[]> {
+export async function search(query: string, maxResults: number, ctx: ToolContext): Promise<SearchResult[]> {
   const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}&kl=wt-wt`
   const fetchOnce = async (): Promise<string> => {
     const res = await fetchWithOptionalProxy(
@@ -145,7 +154,7 @@ export const webSearchTool: ToolEntry = {
     function: {
       name: 'web_search',
       description:
-        '在网络上搜索信息并返回结果摘要（标题、链接、片段）。用于补充课程内容或回答事实性、时效性问题。最多返回 5 条结果。',
+        '在网络上搜索信息并返回结果摘要（标题、链接、片段）。用于补充课程内容或回答事实性、时效性问题。最多返回 5 条结果。若 query 是微信公众号文章链接，会尝试提取可见元数据并搜索公开转载/索引线索；这不能绕过微信登录墙读取原文全文。',
       parameters: {
         type: 'object',
         properties: {
@@ -159,7 +168,84 @@ export const webSearchTool: ToolEntry = {
   handler: async (args: unknown, ctx: ToolContext): Promise<string> => {
     const { query, maxResults = 5 } = (args ?? {}) as { query?: string; maxResults?: number }
     if (!query || !query.trim()) return JSON.stringify({ error: '缺少搜索关键词 query。' })
-    const results = await search(query.trim(), Math.min(Math.max(1, maxResults), 10), ctx)
+    const normalizedQuery = query.trim()
+    const cappedMax = Math.min(Math.max(1, maxResults), 10)
+    const wechatUrl = normalizeWeChatArticleUrl(normalizedQuery)
+    if (wechatUrl) {
+      const fallback = await searchWeChatArticle(wechatUrl, cappedMax, ctx)
+      return JSON.stringify({ query, count: fallback.results.length, ...fallback })
+    }
+    const results = await search(normalizedQuery, cappedMax, ctx)
     return JSON.stringify({ query, count: results.length, results })
+  }
+}
+
+async function searchWeChatArticle(
+  url: string,
+  maxResults: number,
+  ctx: ToolContext
+): Promise<{
+  results: SearchResult[]
+  wechat: {
+    url: string
+    access: 'restricted' | 'unknown'
+    reason: string
+    guidance: string
+    metadata: ReturnType<typeof extractWeChatMetadata>
+    fallbackQueries: string[]
+    fetchError?: string
+  }
+}> {
+  let metadata: ReturnType<typeof extractWeChatMetadata> = {}
+  let access: 'restricted' | 'unknown' = 'unknown'
+  let fetchError: string | undefined
+
+  try {
+    const fetched = await fetchWeChatArticleHtml(url, ctx)
+    metadata = extractWeChatMetadata(fetched.html)
+    if (isWeChatAccessRestricted(fetched.html)) access = 'restricted'
+  } catch (e) {
+    fetchError = e instanceof Error ? e.message : String(e)
+  }
+
+  const fallbackQueries = buildWeChatFallbackQueries(url, metadata)
+  const results = await searchMany(fallbackQueries, maxResults, ctx)
+  return {
+    results,
+    wechat: {
+      url,
+      access,
+      reason: WECHAT_RESTRICTED_REASON,
+      guidance: WECHAT_RESTRICTED_GUIDANCE,
+      metadata,
+      fallbackQueries,
+      ...(fetchError ? { fetchError } : {})
+    }
+  }
+}
+
+export async function searchMany(queries: string[], maxResults: number, ctx: ToolContext): Promise<SearchResult[]> {
+  const seen = new Set<string>()
+  const results: SearchResult[] = []
+  for (const query of queries) {
+    const batch = await search(query, maxResults, ctx)
+    for (const result of batch) {
+      const key = normalizeResultUrlKey(result.url)
+      if (seen.has(key)) continue
+      seen.add(key)
+      results.push(result)
+      if (results.length >= maxResults) return results
+    }
+  }
+  return results
+}
+
+function normalizeResultUrlKey(url: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.hash = ''
+    return parsed.toString()
+  } catch {
+    return url
   }
 }
