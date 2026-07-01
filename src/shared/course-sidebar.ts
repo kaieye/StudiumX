@@ -9,21 +9,30 @@ export function listSidebarCourseFolders(
   workspaces: TeachingWorkspaceSummary[],
   showAllCourseFiles: boolean
 ): SidebarCourseFolder[] {
-  return workspaces.map((workspace) => {
-    const lessonsTree = workspace.fileTree.find((node) => node.kind === 'directory' && sameRelativePath(node.relativePath, 'lessons'))
-    const children = lessonsTree?.children ?? []
+  return workspaces.flatMap((workspace) => workspace.courses.map((course) => {
+    const courseTree = findWorkspaceNode(workspace.fileTree, course.relativePath)
+    const children = courseTree?.children ?? []
     const visibleChildren = showAllCourseFiles ? children : filterCourseTreeToLessons(children, workspace.lessons, 1)
     return {
       workspace,
       node: {
-        name: workspace.name,
+        name: course.name,
         kind: 'directory',
-        relativePath: 'lessons',
-        absolutePath: workspace.lessonsDir,
+        relativePath: course.relativePath,
+        absolutePath: course.absolutePath,
         children: visibleChildren
       }
     }
-  })
+  }))
+}
+
+function findWorkspaceNode(nodes: WorkspaceFileNode[], relativePath: string): WorkspaceFileNode | null {
+  for (const node of nodes) {
+    if (sameRelativePath(node.relativePath, relativePath)) return node
+    const child = node.kind === 'directory' ? findWorkspaceNode(node.children ?? [], relativePath) : null
+    if (child) return child
+  }
+  return null
 }
 
 function filterCourseTreeToLessons(nodes: WorkspaceFileNode[], lessons: LessonSummary[], level = 0): WorkspaceFileNode[] {
@@ -44,7 +53,9 @@ function filterCourseTreeToLessons(nodes: WorkspaceFileNode[], lessons: LessonSu
 }
 
 function isCourseConversationPath(relativePath: string): boolean {
-  return /^courses\/[^/]+\/conversations\/[^/]+\.md$/i.test(normalizeRelativePath(relativePath))
+  const normalized = normalizeRelativePath(relativePath)
+  return /^lessons\/conversations\/[^/]+\.md$/i.test(normalized) ||
+    /^courses\/[^/]+\/conversations\/[^/]+\.md$/i.test(normalized)
 }
 
 function sameRelativePath(left: string, right: string): boolean {

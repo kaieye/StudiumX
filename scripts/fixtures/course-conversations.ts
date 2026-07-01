@@ -27,6 +27,7 @@ try {
 
   const saved = await service.saveAgentConversation({
     workspaceId: workspace.id,
+    mode: 'teaching',
     selectedCourseRelativePath,
     turns: [
       { id: 'u1', role: 'user', content: '我想学习 RAG 检索', createdAt: '2026-07-01T00:00:00.000Z' },
@@ -34,8 +35,16 @@ try {
     ]
   })
 
-  assert.equal(saved.conversation.relativePath.startsWith('conversations/'), true)
+  assert.equal(saved.conversation.relativePath.startsWith('lessons/conversations/'), true)
   assert.equal(saved.state.activeWorkspace?.conversations.some((item) => item.id === saved.conversation.id), true)
+  assert.equal(
+    saved.state.activeWorkspace?.courses.some((course) =>
+      course.relativePath === selectedCourseRelativePath &&
+      course.conversations.some((conversation) => conversation.id === saved.conversation.id)
+    ),
+    true,
+    'workspace course should list saved teaching conversations as sessions'
+  )
   assert.equal(
     saved.state.activeWorkspace?.courses.some((course) => course.relativePath === selectedCourseRelativePath),
     true,
@@ -44,7 +53,7 @@ try {
 
   const selectedCourseNode = saved.state.activeWorkspace?.fileTree.find((node) => node.relativePath === selectedCourseRelativePath)
   assert.ok(selectedCourseNode)
-  const conversationFolder = saved.state.activeWorkspace?.fileTree.find((node) => node.relativePath === 'conversations')
+  const conversationFolder = selectedCourseNode.children?.find((node) => node.relativePath === 'lessons/conversations')
   assert.ok(conversationFolder)
   assert.equal(conversationFolder.children?.some((node) => node.relativePath === saved.conversation.relativePath), true)
 
@@ -56,12 +65,15 @@ try {
 
   const temporary = await service.saveAgentConversation({
     workspaceId: workspace.id,
+    mode: 'temporary',
     turns: [
       { id: 'tu1', role: 'user', content: '这只是临时聊天', createdAt: '2026-07-01T00:00:02.000Z' },
       { id: 'ta1', role: 'assistant', content: '不会进入课程文件夹。', createdAt: '2026-07-01T00:00:03.000Z' }
     ]
   })
   assert.equal(temporary.conversation.relativePath.startsWith('conversations/'), true)
+  assert.equal(temporary.conversation.absolutePath.startsWith(join(tempRoot, 'user-data', 'conversations')), true)
+  assert.equal(temporary.state.temporaryConversations.some((item) => item.id === temporary.conversation.id), true)
   assert.equal(temporary.conversation.relativePath.startsWith(`${selectedCourseRelativePath}/`), false)
 
   console.log('course and temporary conversation placement ok')

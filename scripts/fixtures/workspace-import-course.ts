@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -66,6 +66,65 @@ try {
     selectedVisibleCourseKeys.has(`${active.id}:lessons`),
     true,
     'switching workspaces should not clear course folders from the left course list'
+  )
+
+  const removableCoursePath = 'courses/indexed-course'
+  const removableLessonPath = join(current.rootPath, removableCoursePath, '0001-indexed.html')
+  await mkdir(join(current.rootPath, removableCoursePath), { recursive: true })
+  await writeFile(removableLessonPath, '<!doctype html><title>Indexed</title>', 'utf8')
+  const indexedState = await service.selectWorkspace(current.id)
+  const indexedSidebarFolders = listSidebarCourseFolders(indexedState.workspaces, false)
+  assert.equal(
+    indexedSidebarFolders.some(({ workspace, node }) =>
+      workspace.id === current.id && node.relativePath === removableCoursePath
+    ),
+    true,
+    'left course folder list should include a course discovered from disk'
+  )
+
+  const removedFromList = await service.removeWorkspaceItem({
+    workspaceId: current.id,
+    relativePath: removableCoursePath,
+    kind: 'directory',
+    mode: 'list'
+  })
+  const afterListRemovalFolders = listSidebarCourseFolders(removedFromList.workspaces, false)
+  assert.equal(
+    afterListRemovalFolders.some(({ workspace, node }) =>
+      workspace.id === current.id && node.relativePath === removableCoursePath
+    ),
+    false,
+    'removing a course from the list should hide it from the left course folder list'
+  )
+  assert.equal(
+    await stat(removableLessonPath).then(() => true).catch(() => false),
+    true,
+    'removing a course from the list should keep its files on disk'
+  )
+
+  const diskCoursePath = 'courses/disk-course'
+  const diskLessonPath = join(current.rootPath, diskCoursePath, '0001-disk.html')
+  await mkdir(join(current.rootPath, diskCoursePath), { recursive: true })
+  await writeFile(diskLessonPath, '<!doctype html><title>Disk</title>', 'utf8')
+  await service.selectWorkspace(current.id)
+  const removedFromDisk = await service.removeWorkspaceItem({
+    workspaceId: current.id,
+    relativePath: diskCoursePath,
+    kind: 'directory',
+    mode: 'disk'
+  })
+  const afterDiskRemovalFolders = listSidebarCourseFolders(removedFromDisk.workspaces, false)
+  assert.equal(
+    afterDiskRemovalFolders.some(({ workspace, node }) =>
+      workspace.id === current.id && node.relativePath === diskCoursePath
+    ),
+    false,
+    'removing a course from disk should hide it from the left course folder list'
+  )
+  assert.equal(
+    await stat(diskLessonPath).then(() => true).catch(() => false),
+    false,
+    'removing a course from disk should delete its files'
   )
 
   console.log('workspace course sidebar aggregation ok')

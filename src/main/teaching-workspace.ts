@@ -100,6 +100,16 @@ type WorkspaceIndex = {
   pathMeta?: Record<string, WorkspacePathMeta>
 }
 
+type ConversationIndex = {
+  pathMeta?: Record<string, WorkspacePathMeta>
+}
+
+type AgentConversationLocation = {
+  record: AgentConversationRecord
+  rootPath: string
+  global: boolean
+}
+
 type LessonArtifactPaths = {
   courseId: string
   courseName: string
@@ -148,6 +158,7 @@ const EMPTY_REGISTRY: WorkspaceRegistry = {
 
 export class TeachingWorkspaceService {
   private readonly registryPath: string
+  private readonly appDataRoot: string
   private readonly defaultRoot: string
   private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
   private readonly memoryStore: TeachingMemoryStore
@@ -158,12 +169,82 @@ export class TeachingWorkspaceService {
     settingsProvider?: () => Promise<TeachingSettingsV1>
   }) {
     this.registryPath = options.registryPath
+    this.appDataRoot = dirname(this.registryPath)
     this.defaultRoot = options.defaultRoot
     this.settingsProvider = options.settingsProvider
     this.memoryStore = new TeachingMemoryStore({
-      rootDir: join(dirname(this.registryPath), 'memory'),
+      rootDir: join(this.appDataRoot, 'memory'),
       settingsProvider: () => this.loadSettings()
     })
+  }
+
+  private async ensureTemporaryConversationStructure(): Promise<void> {
+    await mkdir(join(this.appDataRoot, 'conversations'), { recursive: true })
+  }
+
+  private async loadTemporaryConversationIndex(): Promise<ConversationIndex> {
+    const indexPath = join(this.appDataRoot, 'conversations', '.index.json')
+    const parsed = safeJsonParse(await readFile(indexPath, 'utf8').catch(() => ''))
+    if (!parsed || typeof parsed !== 'object') return {}
+    const pathMetaRaw = (parsed as { pathMeta?: unknown }).pathMeta
+    const pathMeta: Record<string, WorkspacePathMeta> = {}
+    if (pathMetaRaw && typeof pathMetaRaw === 'object') {
+      for (const [key, rawMeta] of Object.entries(pathMetaRaw as Record<string, unknown>)) {
+        if (!rawMeta || typeof rawMeta !== 'object') continue
+        const relativePath = normalizeWorkspaceRelativePath(key)
+        if (!isRootAgentConversationMarkdownRelativePath(relativePath)) continue
+        const meta = rawMeta as WorkspacePathMeta
+        pathMeta[relativePath] = {
+          ...(meta.pinned === true ? { pinned: true } : {}),
+          ...(meta.archived === true ? { archived: true } : {})
+        }
+      }
+    }
+    return { pathMeta }
+  }
+
+  private async saveTemporaryConversationIndex(index: ConversationIndex): Promise<void> {
+    await this.ensureTemporaryConversationStructure()
+    await atomicWriteFile(join(this.appDataRoot, 'conversations', '.index.json'), `${JSON.stringify(index, null, 2)}\n`)
+  }
+
+  private async listTemporaryConversations(registry: WorkspaceRegistry): Promise<AgentConversationSummary[]> {
+    await this.ensureTemporaryConversationStructure()
+    const temporaryIndex = await this.loadTemporaryConversationIndex()
+    const globalConversations = await listAgentConversations(
+      this.appDataRoot,
+      temporaryIndex.pathMeta ?? {},
+      { includeRoot: true, includeLessons: false, includeCourses: false }
+    )
+    const legacyWorkspaceConversations = (await Promise.all(
+      registry.workspaces.map(async (workspace) => {
+        const index = await this.loadWorkspaceIndex(workspace).catch(() => ({ pathMeta: {} }) as WorkspaceIndex)
+        return listAgentConversations(
+          workspace.rootPath,
+          index.pathMeta ?? {},
+          { includeRoot: true, includeLessons: false, includeCourses: false, fallbackWorkspaceId: workspace.id }
+        )
+      })
+    )).flat()
+    const deduped = new Map<string, AgentConversationSummary>()
+    for (const conversation of [...globalConversations, ...legacyWorkspaceConversations]) {
+      deduped.set(`${conversation.workspaceId ?? ''}:${conversation.id}:${conversation.relativePath}`, conversation)
+    }
+    return sortAgentConversationSummaries([...deduped.values()])
+  }
+
+  private async findAgentConversationLocation(workspaceRoot: string, conversationId: string): Promise<AgentConversationLocation> {
+    const id = requireSafeAgentConversationId(conversationId)
+    const globalRecord = await readAgentConversationRecord(this.appDataRoot, id).catch(() => null)
+    if (globalRecord) {
+      return { record: globalRecord, rootPath: this.appDataRoot, global: true }
+    }
+    const workspaceRecord = await readAgentConversationRecord(workspaceRoot, id)
+    return { record: workspaceRecord, rootPath: workspaceRoot, global: false }
+  }
+
+  private async hasTemporaryConversation(id: string): Promise<boolean> {
+    return readAgentConversationRecord(this.appDataRoot, id).then(() => true).catch(() => false)
   }
 
   async getState(options: {
@@ -457,47 +538,56 @@ export class TeachingWorkspaceService {
     if (turns.length === 0) throw new Error('Conversation is empty.')
 
     const now = new Date().toISOString()
-    const existing = payload.conversationId
-      ? await readAgentConversationRecord(workspace.rootPath, payload.conversationId).catch(() => null)
+    const existingLocation = payload.conversationId
+      ? await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId).catch(() => null)
       : null
+    const existing = existingLocation?.record ?? null
+    const isTemporaryConversation = existingLocation?.global === true || payload.mode === 'temporary'
+    const storageRoot = isTemporaryConversation ? this.appDataRoot : workspace.rootPath
+    if (isTemporaryConversation) await this.ensureTemporaryConversationStructure()
     const title = existing?.title ?? deriveConversationTitle(turns, now)
-    const id = existing?.id ?? await nextAgentConversationId(workspace.rootPath, title, now)
+    const id = existing?.id ?? await nextAgentConversationId(storageRoot, title, now)
     const conversationDir = existing
       ? normalizeAgentConversationDirectory(dirname(existing.relativePath).replace(/\\/g, '/'))
+      : isTemporaryConversation
+        ? 'conversations'
       : agentConversationDirectoryRelativePath(payload)
     const record: AgentConversationRecord = {
       id,
+      workspaceId: existing?.workspaceId ?? workspace.id,
       title,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       relativePath: agentConversationMarkdownRelativePath(id, conversationDir),
-      absolutePath: join(workspace.rootPath, agentConversationMarkdownRelativePath(id, conversationDir)),
+      absolutePath: join(storageRoot, agentConversationMarkdownRelativePath(id, conversationDir)),
       messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
       turns
     }
 
-    await writeAgentConversationRecord(workspace, record)
-    await this.appendSessionEvent(workspace.rootPath, {
-      id: randomUUID(),
-      kind: 'agent_conversation_recorded',
-      timestamp: now,
-      workspaceId: workspace.id,
-      prompt: title,
-      paths: [record.relativePath, agentConversationJsonRelativePathForMarkdown(record.relativePath)]
-    })
+    await writeAgentConversationRecord({ ...workspace, rootPath: storageRoot }, record)
+    if (!isTemporaryConversation) {
+      await this.appendSessionEvent(workspace.rootPath, {
+        id: randomUUID(),
+        kind: 'agent_conversation_recorded',
+        timestamp: now,
+        workspaceId: workspace.id,
+        prompt: title,
+        paths: [record.relativePath, agentConversationJsonRelativePathForMarkdown(record.relativePath)]
+      })
+    }
 
-    const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
-    await this.saveRegistry(nextRegistry)
+    const nextRegistry = isTemporaryConversation ? registry : touchRegistryWorkspace(registry, workspace.id, now)
+    if (!isTemporaryConversation) await this.saveRegistry(nextRegistry)
     return {
       state: await this.buildState(nextRegistry, workspace.id, payload.selectedLessonPath ?? null),
-      conversation: toAgentConversationSummary(record)
+      conversation: toAgentConversationSummary(record, {}, workspace.id)
     }
   }
 
   async readAgentConversation(payload: ReadAgentConversationPayload): Promise<AgentConversationRecord> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    return readAgentConversationRecord(workspace.rootPath, payload.conversationId)
+    return (await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId)).record
   }
 
   async setWorkspaceItemMeta(payload: WorkspaceItemMetaPayload): Promise<TeachingAppState> {
@@ -505,6 +595,26 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     const relativePath = normalizeWorkspaceRelativePath(payload.relativePath)
     if (!relativePath) throw new Error('relativePath is required.')
+    if (isRootAgentConversationMarkdownRelativePath(relativePath)) {
+      const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
+      if (await this.hasTemporaryConversation(id)) {
+        const index = await this.loadTemporaryConversationIndex()
+        const pathMeta = { ...(index.pathMeta ?? {}) }
+        const existing = pathMeta[relativePath] ?? {}
+        const merged: WorkspacePathMeta = { ...existing }
+        if (payload.pinned === null) delete merged.pinned
+        else if (payload.pinned !== undefined) merged.pinned = payload.pinned
+        if (payload.archived === null) delete merged.archived
+        else if (payload.archived !== undefined) merged.archived = payload.archived
+        if (merged.pinned === undefined && merged.archived === undefined) {
+          delete pathMeta[relativePath]
+        } else {
+          pathMeta[relativePath] = merged
+        }
+        await this.saveTemporaryConversationIndex({ ...index, pathMeta })
+        return this.buildState(registry, workspace.id, null)
+      }
+    }
     const index = await this.loadWorkspaceIndex(workspace)
     const pathMeta = { ...(index.pathMeta ?? {}) }
     const existing = pathMeta[relativePath] ?? {}
@@ -532,10 +642,26 @@ export class TeachingWorkspaceService {
       throw new Error('Path is outside the workspace.')
     }
 
+    if ((payload.mode ?? 'disk') === 'list') {
+      return this.archiveWorkspaceItem(registry, workspace, relativePath, payload.kind)
+    }
+
     const index = await this.loadWorkspaceIndex(workspace)
 
     if (payload.kind === 'conversation') {
       const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
+      if (isRootAgentConversationMarkdownRelativePath(relativePath) && await this.hasTemporaryConversation(id)) {
+        const index = await this.loadTemporaryConversationIndex()
+        const jsonPath = join(this.appDataRoot, agentConversationJsonRelativePath(id, 'conversations'))
+        const mdPath = join(this.appDataRoot, agentConversationMarkdownRelativePath(id, 'conversations'))
+        await unlink(jsonPath).catch(() => {})
+        await unlink(mdPath).catch(() => {})
+        await this.saveTemporaryConversationIndex({
+          ...index,
+          pathMeta: prunePathMeta(index.pathMeta, relativePath)
+        })
+        return this.buildState(registry, workspace.id, null)
+      }
       const conversationDir = dirname(relativePath).replace(/\\/g, '/')
       const jsonPath = join(workspace.rootPath, agentConversationJsonRelativePath(id, conversationDir))
       const mdPath = join(workspace.rootPath, agentConversationMarkdownRelativePath(id, conversationDir))
@@ -560,16 +686,47 @@ export class TeachingWorkspaceService {
 
     // Drop the index entry for a removed lesson, and prune pathMeta for this path + descendants.
     const remainingLessons = index.lessons.filter(
-      (lesson) => resolve(lesson.absolutePath).toLowerCase() !== absolutePath.toLowerCase()
+      (lesson) => !pathRemovedByWorkspaceItem(payload.kind, relativePath, lesson.relativePath)
     )
     const prunedMeta = prunePathMeta(index.pathMeta, relativePath)
+    const nextPathMeta = payload.kind === 'directory' && relativePath === 'lessons'
+      ? { ...prunedMeta, [relativePath]: { archived: true } }
+      : prunedMeta
     await this.saveWorkspaceIndex(workspace.rootPath, {
       ...index,
       lessons: remainingLessons,
-      pathMeta: prunedMeta,
+      pathMeta: nextPathMeta,
       updatedAt: new Date().toISOString()
     })
 
+    return this.buildState(registry, workspace.id, null)
+  }
+
+  private async archiveWorkspaceItem(
+    registry: WorkspaceRegistry,
+    workspace: RegistryWorkspace,
+    relativePath: string,
+    kind: WorkspaceItemKind
+  ): Promise<TeachingAppState> {
+    if (kind === 'conversation') {
+      const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
+      if (isRootAgentConversationMarkdownRelativePath(relativePath) && await this.hasTemporaryConversation(id)) {
+        const index = await this.loadTemporaryConversationIndex()
+        const pathMeta = { ...(index.pathMeta ?? {}) }
+        pathMeta[relativePath] = { ...(pathMeta[relativePath] ?? {}), archived: true }
+        await this.saveTemporaryConversationIndex({ ...index, pathMeta })
+        return this.buildState(registry, workspace.id, null)
+      }
+    }
+
+    const index = await this.loadWorkspaceIndex(workspace)
+    const pathMeta = { ...(index.pathMeta ?? {}) }
+    pathMeta[relativePath] = { ...(pathMeta[relativePath] ?? {}), archived: true }
+    await this.saveWorkspaceIndex(workspace.rootPath, {
+      ...index,
+      pathMeta,
+      updatedAt: new Date().toISOString()
+    })
     return this.buildState(registry, workspace.id, null)
   }
 
@@ -1089,6 +1246,7 @@ export class TeachingWorkspaceService {
     selectedLessonPath?: string | null
   ): Promise<TeachingAppState> {
     const summaries = await Promise.all(registry.workspaces.map((workspace) => this.summarizeWorkspace(workspace)))
+    const temporaryConversations = await this.listTemporaryConversations(registry)
     const activeId = activeWorkspaceId ?? registry.activeWorkspaceId ?? summaries[0]?.id ?? null
     const activeWorkspace = summaries.find((workspace) => workspace.id === activeId) ?? summaries[0] ?? null
     const lessonPath = selectedLessonPath ?? activeWorkspace?.lessons[0]?.absolutePath ?? null
@@ -1103,6 +1261,7 @@ export class TeachingWorkspaceService {
     return {
       workspaces: summaries,
       activeWorkspace,
+      temporaryConversations,
       previewHtml,
       previewUrl: activeWorkspace && lessonPath ? toPreviewUrl(activeWorkspace.id, toWorkspaceRelativePath(activeWorkspace.rootPath, lessonPath)) : '',
       selectedLessonPath: lessonPath,
@@ -1118,7 +1277,7 @@ export class TeachingWorkspaceService {
     const lessons = await this.mergeLessonIndexWithDisk(workspace.rootPath, workspace.name, index.lessons, pathMeta)
     const conversations = await listAgentConversations(workspace.rootPath, pathMeta)
     const fileTree = await buildWorkspaceFileTree(workspace.rootPath, pathMeta)
-    const courses = buildCourseSummaries(workspace, lessons)
+    const courses = buildCourseSummaries(workspace, lessons, conversations, pathMeta)
     if (lessons.length !== index.lessons.length) {
       await this.saveWorkspaceIndex(workspace.rootPath, { ...index, lessons, updatedAt: new Date().toISOString() })
     }
@@ -1154,7 +1313,7 @@ export class TeachingWorkspaceService {
   ): Promise<TemporaryChatContext> {
     const index = await this.loadWorkspaceIndex(workspace).catch(() => null)
     const lessons = index?.lessons ?? []
-    const courses = buildCourseSummaries(workspace, lessons).map((course) => ({
+    const courses = buildCourseSummaries(workspace, lessons, [], index?.pathMeta ?? {}).map((course) => ({
       name: course.name,
       lessonCount: course.lessonCount,
       sessionCount: course.sessionCount
@@ -1402,7 +1561,7 @@ export class TeachingWorkspaceService {
         } satisfies LessonSummary
       })
       .map((lesson) => ({ ...lesson, pinned: Boolean(pathMeta[lesson.relativePath]?.pinned) }))
-      .filter((lesson) => !pathMeta[lesson.relativePath]?.archived)
+      .filter((lesson) => !isPathArchived(pathMeta, lesson.relativePath))
       .sort((a, b) => {
         const aPinned = a.pinned ? 1 : 0
         const bPinned = b.pinned ? 1 : 0
@@ -1585,7 +1744,7 @@ async function readWorkspaceTreeDirectory(
     .filter((entry) => !shouldHideWorkspaceTreeEntry(relativeDir, entry.name, entry.isDirectory()))
     .filter((entry) => {
       const relativePath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), entry.name)
-      return !pathMeta[relativePath]?.archived
+      return !isPathArchived(pathMeta, relativePath)
     })
     .sort((left, right) => {
       const leftPath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), left.name)
@@ -1633,28 +1792,30 @@ function shouldHideWorkspaceTreeEntry(relativeDir: string, name: string, isDirec
   if (isDirectory && WORKSPACE_TREE_IGNORED_DIRS.has(name)) return true
   const normalizedDir = relativeDir.replace(/\\/g, '/')
   if (normalizedDir === 'conversations' && name.toLowerCase().endsWith('.json')) return true
+  if (normalizedDir === 'lessons/conversations' && name.toLowerCase().endsWith('.json')) return true
   if (normalizedDir.startsWith('courses/') && normalizedDir.endsWith('/conversations') && name.toLowerCase().endsWith('.json')) return true
   return false
 }
 
 async function listAgentConversations(
   rootPath: string,
-  pathMeta: Record<string, WorkspacePathMeta> = {}
+  pathMeta: Record<string, WorkspacePathMeta> = {},
+  options: {
+    includeRoot?: boolean
+    includeLessons?: boolean
+    includeCourses?: boolean
+    fallbackWorkspaceId?: string
+  } = {}
 ): Promise<AgentConversationSummary[]> {
-  const jsonRelativePaths = await collectAgentConversationJsonRelativePaths(rootPath)
+  const jsonRelativePaths = await collectAgentConversationJsonRelativePaths(rootPath, options)
   const records = await Promise.all(
     jsonRelativePaths.map((relativePath) => readAgentConversationRecordAt(rootPath, relativePath).catch(() => null))
   )
-  return records
+  return sortAgentConversationSummaries(records
     .filter((record): record is AgentConversationRecord => Boolean(record))
-    .map((record) => toAgentConversationSummary(record, pathMeta))
-    .filter((summary) => !pathMeta[summary.relativePath]?.archived)
-    .sort((left, right) => {
-      const leftPinned = left.pinned ? 1 : 0
-      const rightPinned = right.pinned ? 1 : 0
-      if (leftPinned !== rightPinned) return rightPinned - leftPinned
-      return right.updatedAt.localeCompare(left.updatedAt)
-    })
+    .map((record) => toAgentConversationSummary(record, pathMeta, options.fallbackWorkspaceId))
+    .filter((summary) => !isPathArchived(pathMeta, summary.relativePath))
+  )
 }
 
 async function nextAgentConversationId(rootPath: string, title: string, timestamp: string): Promise<string> {
@@ -1695,6 +1856,7 @@ async function readAgentConversationRecordAt(rootPath: string, jsonRelativePath:
     : agentConversationMarkdownRelativePath(id, conversationDir)
   return {
     id,
+    workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
     title,
     createdAt,
     updatedAt,
@@ -1718,7 +1880,7 @@ async function writeAgentConversationRecord(
     join(workspace.rootPath, jsonRelativePath),
     `${JSON.stringify({
       version: 1,
-      workspaceId: workspace.id,
+      workspaceId: record.workspaceId ?? workspace.id,
       id: record.id,
       title: record.title,
       createdAt: record.createdAt,
@@ -1814,14 +1976,31 @@ function deriveConversationTitle(turns: AgentChatTurn[], timestamp: string): str
   return `Conversation ${formatDate(new Date(timestamp))}`
 }
 
-async function collectAgentConversationJsonRelativePaths(rootPath: string): Promise<string[]> {
+async function collectAgentConversationJsonRelativePaths(
+  rootPath: string,
+  options: { includeRoot?: boolean; includeLessons?: boolean; includeCourses?: boolean } = {}
+): Promise<string[]> {
+  const includeRoot = options.includeRoot ?? true
+  const includeLessons = options.includeLessons ?? true
+  const includeCourses = options.includeCourses ?? true
   const result: string[] = []
-  const rootEntries = await readdir(join(rootPath, 'conversations'), { withFileTypes: true }).catch(() => [])
-  for (const entry of rootEntries) {
-    if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
-      result.push(workspaceRelativePath('conversations', entry.name))
+  if (includeRoot) {
+    const rootEntries = await readdir(join(rootPath, 'conversations'), { withFileTypes: true }).catch(() => [])
+    for (const entry of rootEntries) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
+        result.push(workspaceRelativePath('conversations', entry.name))
+      }
     }
   }
+  if (includeLessons) {
+    const lessonEntries = await readdir(join(rootPath, 'lessons', 'conversations'), { withFileTypes: true }).catch(() => [])
+    for (const entry of lessonEntries) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
+        result.push(workspaceRelativePath('lessons', 'conversations', entry.name))
+      }
+    }
+  }
+  if (!includeCourses) return result
   const courseEntries = await readdir(join(rootPath, 'courses'), { withFileTypes: true }).catch(() => [])
   for (const courseEntry of courseEntries) {
     if (!courseEntry.isDirectory()) continue
@@ -1853,13 +2032,15 @@ async function findAgentConversationJsonRelativePath(rootPath: string, id: strin
 
 function agentConversationDirectoryRelativePath(payload: SaveAgentConversationPayload): string {
   const selected = normalizeWorkspaceRelativePath(payload.selectedCourseRelativePath ?? '')
-  if (selected && /^courses\/[^/]+$/.test(selected)) {
+  if (selected && isCourseRelativePath(selected)) {
     return workspaceRelativePath(selected, 'conversations')
   }
 
   const lessonPath = normalizeWorkspaceRelativePath(payload.selectedLessonPath ?? '')
   const lessonCourse = courseRelativePathFromWorkspacePath(lessonPath)
   if (lessonCourse) return workspaceRelativePath(lessonCourse, 'conversations')
+
+  if (payload.mode === 'teaching') return workspaceRelativePath('lessons', 'conversations')
 
   return 'conversations'
 }
@@ -1869,6 +2050,18 @@ function courseRelativePathFromWorkspacePath(relativePath: string): string | nul
   if (parts[0] === 'lessons') return 'lessons'
   if (parts[0] === 'courses' && parts[1]) return workspaceRelativePath('courses', parts[1])
   return null
+}
+
+function courseRelativePathFromConversationPath(relativePath: string): string | null {
+  const parts = normalizeWorkspaceRelativePath(relativePath).split('/').filter(Boolean)
+  if (parts.length === 3 && parts[0] === 'lessons' && parts[1] === 'conversations') return 'lessons'
+  if (parts.length === 4 && parts[0] === 'courses' && parts[2] === 'conversations') return workspaceRelativePath('courses', parts[1])
+  return null
+}
+
+function isCourseRelativePath(relativePath: string): boolean {
+  const normalized = normalizeWorkspaceRelativePath(relativePath)
+  return normalized === 'lessons' || /^courses\/[^/]+$/.test(normalized)
 }
 
 function agentConversationJsonRelativePath(id: string, conversationDir = 'conversations'): string {
@@ -1888,6 +2081,7 @@ function isAgentConversationJsonRelativePath(relativePath: string): boolean {
   if (!normalized.toLowerCase().endsWith('.json')) return false
   const parts = normalized.split('/').filter(Boolean)
   if (parts.length === 2 && parts[0] === 'conversations') return true
+  if (parts.length === 3 && parts[0] === 'lessons' && parts[1] === 'conversations') return true
   return parts.length === 4 && parts[0] === 'courses' && parts[2] === 'conversations'
 }
 
@@ -1896,7 +2090,15 @@ function isAgentConversationMarkdownRelativePath(relativePath: string): boolean 
   if (!normalized.toLowerCase().endsWith('.md')) return false
   const parts = normalized.split('/').filter(Boolean)
   if (parts.length === 2 && parts[0] === 'conversations') return true
+  if (parts.length === 3 && parts[0] === 'lessons' && parts[1] === 'conversations') return true
   return parts.length === 4 && parts[0] === 'courses' && parts[2] === 'conversations'
+}
+
+function isRootAgentConversationMarkdownRelativePath(relativePath: string): boolean {
+  const normalized = normalizeWorkspaceRelativePath(relativePath)
+  if (!normalized.toLowerCase().endsWith('.md')) return false
+  const parts = normalized.split('/').filter(Boolean)
+  return parts.length === 2 && parts[0] === 'conversations'
 }
 
 function agentConversationMarkdownRelativePath(id: string, conversationDir = 'conversations'): string {
@@ -1906,6 +2108,7 @@ function agentConversationMarkdownRelativePath(id: string, conversationDir = 'co
 function normalizeAgentConversationDirectory(conversationDir: string): string {
   const normalized = normalizeWorkspaceRelativePath(conversationDir)
   if (!normalized || normalized === 'conversations') return 'conversations'
+  if (normalized === 'lessons/conversations') return normalized
   if (/^courses\/[^/]+\/conversations$/.test(normalized)) return normalized
   return 'conversations'
 }
@@ -1928,10 +2131,12 @@ function formatConversationTimestamp(date: Date): string {
 
 function toAgentConversationSummary(
   record: AgentConversationRecord,
-  pathMeta: Record<string, WorkspacePathMeta> = {}
+  pathMeta: Record<string, WorkspacePathMeta> = {},
+  fallbackWorkspaceId?: string
 ): AgentConversationSummary {
   return {
     id: record.id,
+    workspaceId: record.workspaceId ?? fallbackWorkspaceId,
     title: record.title,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -1940,6 +2145,15 @@ function toAgentConversationSummary(
     messageCount: record.messageCount,
     pinned: Boolean(pathMeta[record.relativePath]?.pinned)
   }
+}
+
+function sortAgentConversationSummaries(conversations: AgentConversationSummary[]): AgentConversationSummary[] {
+  return conversations.sort((left, right) => {
+    const leftPinned = left.pinned ? 1 : 0
+    const rightPinned = right.pinned ? 1 : 0
+    if (leftPinned !== rightPinned) return rightPinned - leftPinned
+    return right.updatedAt.localeCompare(left.updatedAt)
+  })
 }
 
 function compactTextForMarkdown(value: string, maxLength: number): string {
@@ -2022,7 +2236,12 @@ function deriveLessonPlacementFromPath(
   const relativePath = toWorkspaceRelativePath(rootPath, absolutePath)
   const parts = relativePath.split('/').filter(Boolean)
   const file = basename(absolutePath)
-  const courseName = clampTitle(workspaceName)
+  const courseRelativePath = parts[0] === 'courses' && parts[1]
+    ? workspaceRelativePath('courses', parts[1])
+    : workspaceRelativePath('lessons')
+  const courseName = courseRelativePath === 'lessons'
+    ? clampTitle(workspaceName)
+    : titleFromFilename(parts[1] ?? workspaceName)
   const courseId = slugify(courseName, 'course')
   const idMatch = /^(\d{4})-/.exec(file)
   const sessionId = idMatch?.[1] ? `lesson-${idMatch[1]}` : `lesson-${parts.at(-1)?.slice(0, 4) || '0000'}`
@@ -2030,8 +2249,8 @@ function deriveLessonPlacementFromPath(
   return {
     courseId,
     courseName,
-    courseRelativePath: workspaceRelativePath('lessons'),
-    courseAbsolutePath: join(rootPath, 'lessons'),
+    courseRelativePath,
+    courseAbsolutePath: join(rootPath, courseRelativePath),
     sessionId,
     sessionName: titleFromFilename(file),
     sessionRelativePath,
@@ -2039,25 +2258,78 @@ function deriveLessonPlacementFromPath(
   }
 }
 
-function buildCourseSummaries(workspace: RegistryWorkspace, lessons: LessonSummary[]): TeachingCourseSummary[] {
-  const courseName = clampTitle(workspace.name)
-  const sessions = lessons.map((lesson): TeachingSessionSummary => ({
-    id: lesson.sessionId,
-    name: lesson.sessionName,
-    relativePath: lesson.sessionRelativePath,
-    absolutePath: lesson.sessionAbsolutePath,
-    lesson
-  }))
-  const sortedSessions = sessions.sort((left, right) => right.lesson.id.localeCompare(left.lesson.id))
-  return [{
-    id: slugify(courseName, 'course'),
-    name: courseName,
-    relativePath: workspaceRelativePath('lessons'),
-    absolutePath: join(workspace.rootPath, 'lessons'),
-    lessonCount: sortedSessions.length,
-    sessionCount: sortedSessions.length,
-    sessions: sortedSessions
-  }]
+function buildCourseSummaries(
+  workspace: RegistryWorkspace,
+  lessons: LessonSummary[],
+  conversations: AgentConversationSummary[] = [],
+  pathMeta: Record<string, WorkspacePathMeta> = {}
+): TeachingCourseSummary[] {
+  const courseMap = new Map<string, {
+    id: string
+    name: string
+    relativePath: string
+    absolutePath: string
+    sessions: TeachingSessionSummary[]
+    conversations: AgentConversationSummary[]
+  }>()
+  const ensureCourse = (relativePath: string): NonNullable<ReturnType<typeof courseMap.get>> => {
+    const normalized = normalizeWorkspaceRelativePath(relativePath) || 'lessons'
+    const existing = courseMap.get(normalized)
+    if (existing) return existing
+    const name = normalized === 'lessons' ? clampTitle(workspace.name) : titleFromFilename(basename(normalized))
+    const course = {
+      id: slugify(name, 'course'),
+      name,
+      relativePath: normalized,
+      absolutePath: join(workspace.rootPath, normalized),
+      sessions: [],
+      conversations: []
+    }
+    courseMap.set(normalized, course)
+    return course
+  }
+
+  if (!isPathArchived(pathMeta, 'lessons')) {
+    ensureCourse('lessons')
+  }
+  for (const lesson of lessons) {
+    if (isPathArchived(pathMeta, lesson.courseRelativePath)) continue
+    ensureCourse(lesson.courseRelativePath).sessions.push({
+      id: lesson.sessionId,
+      name: lesson.sessionName,
+      relativePath: lesson.sessionRelativePath,
+      absolutePath: lesson.sessionAbsolutePath,
+      lesson
+    })
+  }
+  for (const conversation of conversations) {
+    const courseRelativePath = courseRelativePathFromConversationPath(conversation.relativePath)
+    if (!courseRelativePath) continue
+    if (isPathArchived(pathMeta, courseRelativePath)) continue
+    ensureCourse(courseRelativePath).conversations.push(conversation)
+  }
+
+  return [...courseMap.values()]
+    .filter((course) => !isPathArchived(pathMeta, course.relativePath))
+    .map((course): TeachingCourseSummary => {
+      const sortedSessions = course.sessions.sort((left, right) => right.lesson.id.localeCompare(left.lesson.id))
+      const sortedConversations = sortAgentConversationSummaries(course.conversations)
+      return {
+        id: course.id,
+        name: course.name,
+        relativePath: course.relativePath,
+        absolutePath: course.absolutePath,
+        lessonCount: sortedSessions.length,
+        sessionCount: sortedSessions.length + sortedConversations.length,
+        sessions: sortedSessions,
+        conversations: sortedConversations
+      }
+    })
+    .sort((left, right) => {
+      if (left.relativePath === 'lessons') return -1
+      if (right.relativePath === 'lessons') return 1
+      return left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
+    })
 }
 
 function normalizeLessonSummary(rootPath: string, workspaceName: string, lesson: LessonSummary): LessonSummary {
@@ -2509,6 +2781,28 @@ function normalizePathMeta(value: unknown): Record<string, WorkspacePathMeta> {
     result[normalizedKey] = normalized
   }
   return result
+}
+
+function isPathArchived(pathMeta: Record<string, WorkspacePathMeta>, relativePath: string): boolean {
+  const path = normalizeWorkspaceRelativePath(relativePath)
+  if (!path) return false
+  return Object.entries(pathMeta).some(([key, meta]) => {
+    if (!meta.archived) return false
+    const archivedPath = normalizeWorkspaceRelativePath(key)
+    return path === archivedPath || path.startsWith(`${archivedPath}/`)
+  })
+}
+
+function pathRemovedByWorkspaceItem(
+  kind: WorkspaceItemKind,
+  removedRelativePath: string,
+  currentRelativePath: string
+): boolean {
+  const removed = normalizeWorkspaceRelativePath(removedRelativePath)
+  const current = normalizeWorkspaceRelativePath(currentRelativePath)
+  if (!removed || !current) return false
+  if (kind === 'directory') return current === removed || current.startsWith(`${removed}/`)
+  return current === removed
 }
 
 /** Remove a path's meta entry and any descendant entries (for folder removal). */

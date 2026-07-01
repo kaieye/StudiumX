@@ -578,6 +578,7 @@ function parseSaveAgentConversationPayload(payload: unknown): SaveAgentConversat
   const record = requireRecord(payload)
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    mode: record.mode === 'teaching' ? 'teaching' : record.mode === 'temporary' ? 'temporary' : undefined,
     conversationId: optionalString(record.conversationId) ?? null,
     selectedLessonPath:
       typeof record.selectedLessonPath === 'string'
@@ -622,10 +623,15 @@ function parseWorkspaceItemRemovePayload(payload: unknown): WorkspaceItemRemoveP
   if (kind !== 'conversation' && kind !== 'file' && kind !== 'directory') {
     throw new Error('IPC payload field "kind" must be one of: conversation, file, directory.')
   }
+  const mode = typeof record.mode === 'string' ? record.mode : 'disk'
+  if (mode !== 'list' && mode !== 'disk') {
+    throw new Error('IPC payload field "mode" must be one of: list, disk.')
+  }
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     relativePath: requireString(record.relativePath, 'relativePath'),
-    kind
+    kind,
+    mode
   }
 }
 

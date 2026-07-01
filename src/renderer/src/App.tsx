@@ -109,6 +109,7 @@ import {
   type WindowControlAction,
   type WorkspaceFileNode,
   type WorkspaceItemKind,
+  type WorkspaceItemRemoveMode,
   type WorkspaceView
 } from '../../shared/teaching-types'
 
@@ -213,10 +214,10 @@ type StoreState = {
   restorePendingAgentConversation: () => void
   loadGitBranches: (workspaceRoot: string, options?: { force?: boolean }) => Promise<void>
   setGitBranchesResult: (workspaceRoot: string, result: TeachingGitBranchesResult) => void
-  loadAgentConversation: (conversationId: string) => Promise<void>
+  loadAgentConversation: (conversationId: string, workspaceId?: string | null) => Promise<void>
   agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode }) => Promise<void>
-  setWorkspaceItemMeta: (payload: { relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
-  removeWorkspaceItem: (payload: { relativePath: string; kind: WorkspaceItemKind }) => Promise<void>
+  setWorkspaceItemMeta: (payload: { workspaceId?: string | null; relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
+  removeWorkspaceItem: (payload: { workspaceId?: string | null; relativePath: string; kind: WorkspaceItemKind; mode?: WorkspaceItemRemoveMode }) => Promise<void>
 }
 
 // ================================================================
@@ -238,6 +239,7 @@ const defaultRuntime: TeachingRuntimeState = {
 const emptyAppState: TeachingAppState = {
   workspaces: [],
   activeWorkspace: null,
+  temporaryConversations: [],
   previewHtml: '',
   previewUrl: '',
   selectedLessonPath: null,
@@ -1136,10 +1138,13 @@ const useAppStore = create<StoreState>((set, get) => ({
       })
     }
   },
-  loadAgentConversation: async (conversationId) => {
+  loadAgentConversation: async (conversationId, workspaceId) => {
     const api = window.teachingSystem
     if (!api) return
-    const workspace = get().appState.activeWorkspace
+    const requestedWorkspaceId = workspaceId ?? get().appState.activeWorkspace?.id ?? null
+    const workspace = requestedWorkspaceId
+      ? get().appState.workspaces.find((item) => item.id === requestedWorkspaceId) ?? get().appState.activeWorkspace
+      : get().appState.activeWorkspace
     if (!workspace) return
     set({ error: null })
     try {
@@ -1147,6 +1152,9 @@ const useAppStore = create<StoreState>((set, get) => ({
       const latestUserTurn = [...conversation.turns].reverse().find((turn) => turn.role === 'user')
       const conversationCourseRelativePath = courseRelativePathForConversation(conversation.relativePath)
       set({
+        appState: workspace.id === get().appState.activeWorkspace?.id
+          ? get().appState
+          : await api.selectWorkspace(workspace.id),
         view: 'agent',
         agentTurns: conversation.turns,
         activeConversationId: conversation.id,
@@ -1334,6 +1342,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           const pending = get().pendingAgentConversation
           const saved = await api.saveAgentConversation({
             workspaceId: workspace.id,
+            mode,
             conversationId: pending?.sourceConversationId ?? null,
             selectedLessonPath,
             selectedCourseRelativePath,
@@ -1378,7 +1387,9 @@ const useAppStore = create<StoreState>((set, get) => ({
   setWorkspaceItemMeta: async (payload) => {
     const api = window.teachingSystem
     if (!api) return
-    const workspace = get().appState.activeWorkspace
+    const workspace = payload.workspaceId
+      ? get().appState.workspaces.find((item) => item.id === payload.workspaceId) ?? get().appState.activeWorkspace
+      : get().appState.activeWorkspace
     if (!workspace) return
     try {
       const state = await api.setWorkspaceItemMeta({
@@ -1395,7 +1406,9 @@ const useAppStore = create<StoreState>((set, get) => ({
   removeWorkspaceItem: async (payload) => {
     const api = window.teachingSystem
     if (!api) return
-    const workspace = get().appState.activeWorkspace
+    const workspace = payload.workspaceId
+      ? get().appState.workspaces.find((item) => item.id === payload.workspaceId) ?? get().appState.activeWorkspace
+      : get().appState.activeWorkspace
     if (!workspace) return
     const removalSnapshot = {
       activeConversationId: get().activeConversationId,
@@ -1406,7 +1419,8 @@ const useAppStore = create<StoreState>((set, get) => ({
       const state = await api.removeWorkspaceItem({
         workspaceId: workspace.id,
         relativePath: payload.relativePath,
-        kind: payload.kind
+        kind: payload.kind,
+        mode: payload.mode ?? 'disk'
       })
       const uiPatch = deriveWorkspaceRemovalUiPatch(payload, removalSnapshot, state)
       set({
@@ -1911,6 +1925,7 @@ function Sidebar() {
         />
         <SidebarConversationSection
           workspace={active}
+          conversations={appState.temporaryConversations}
           expanded={conversationsExpanded}
           onToggle={() => setConversationsExpanded((expanded) => !expanded)}
         />
@@ -2050,10 +2065,12 @@ function WorkspaceCourseSection({
 
 function SidebarConversationSection({
   workspace,
+  conversations,
   expanded,
   onToggle
 }: {
   workspace: TeachingWorkspaceSummary | null
+  conversations: AgentConversationSummary[]
   expanded: boolean
   onToggle: () => void
 }) {
@@ -2062,7 +2079,6 @@ function SidebarConversationSection({
   const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const storedPendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
-  const conversations = (workspace?.conversations ?? []).filter(isTemporaryConversation)
   const pendingAgentConversation = storedPendingAgentConversation?.workspaceId === workspace?.id ? storedPendingAgentConversation : null
   const conversationsWithPending: SidebarConversationSummary[] = pendingAgentConversation ? [pendingAgentConversation.summary, ...conversations] : conversations
   const ensureActiveWorkspace = async (): Promise<void> => {}
@@ -2098,7 +2114,7 @@ function SidebarConversationSection({
                   conversation={conversation}
                   isActiveConversation={conversation.id === activeConversationId}
                   onEnsureSelected={ensureActiveWorkspace}
-                  onOpen={() => conversation.pending ? restorePendingAgentConversation() : void loadAgentConversation(conversation.id)}
+                  onOpen={() => conversation.pending ? restorePendingAgentConversation() : void loadAgentConversation(conversation.id, conversation.workspaceId)}
                 />
               ))
             )}
@@ -2258,6 +2274,91 @@ function RowContextMenu({
   )
 }
 
+function RemoveWorkspaceItemDialog({
+  itemName,
+  itemKind,
+  onClose,
+  onRemoveFromList,
+  onRemoveFromDisk
+}: {
+  itemName: string
+  itemKind: WorkspaceItemKind
+  onClose: () => void
+  onRemoveFromList: () => void
+  onRemoveFromDisk: () => void
+}) {
+  const { t } = useTranslation()
+  const titleId = useId()
+  const descriptionId = useId()
+  const kindLabel = itemKind === 'conversation'
+    ? t('sidebar.removeDialog.kindConversation')
+    : itemKind === 'directory'
+      ? t('sidebar.removeDialog.kindFolder')
+      : t('sidebar.removeDialog.kindFile')
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [onClose])
+
+  return createPortal(
+    <div
+      className="remove-dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <section className="remove-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+        <div className="remove-dialog-header">
+          <span className="remove-dialog-icon" aria-hidden="true">
+            <AlertTriangle size={18} />
+          </span>
+          <div>
+            <span>{kindLabel}</span>
+            <h2 id={titleId}>{t('sidebar.removeDialog.title', { name: itemName })}</h2>
+          </div>
+          <button type="button" className="settings-close-button" onClick={onClose} aria-label={t('sidebar.removeDialog.close')}>
+            <X size={16} />
+          </button>
+        </div>
+        <p id={descriptionId} className="remove-dialog-detail">
+          {t('sidebar.removeDialog.detail')}
+        </p>
+        <div className="remove-dialog-options">
+          <button type="button" className="remove-dialog-option" onClick={onRemoveFromList}>
+            <span className="remove-dialog-option-icon">
+              <Archive size={17} />
+            </span>
+            <span>
+              <strong>{t('sidebar.removeDialog.listTitle')}</strong>
+              <small>{t('sidebar.removeDialog.listDetail')}</small>
+            </span>
+          </button>
+          <button type="button" className="remove-dialog-option is-danger" onClick={onRemoveFromDisk}>
+            <span className="remove-dialog-option-icon">
+              <Trash2 size={17} />
+            </span>
+            <span>
+              <strong>{t('sidebar.removeDialog.diskTitle')}</strong>
+              <small>{t('sidebar.removeDialog.diskDetail')}</small>
+            </span>
+          </button>
+        </div>
+        <div className="remove-dialog-footer">
+          <button className="ghost-button" type="button" onClick={onClose}>
+            {t('common.cancel')}
+          </button>
+        </div>
+      </section>
+    </div>,
+    document.body
+  )
+}
+
 function ConversationListRow({
   conversation,
   isActiveConversation,
@@ -2272,19 +2373,25 @@ function ConversationListRow({
   const { t } = useTranslation()
   const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
 
   const handlePin = async (): Promise<void> => {
     await onEnsureSelected()
-    void setWorkspaceItemMeta({ relativePath: conversation.relativePath, pinned: !conversation.pinned })
+    void setWorkspaceItemMeta({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, pinned: !conversation.pinned })
   }
   const handleArchive = async (): Promise<void> => {
     await onEnsureSelected()
-    void setWorkspaceItemMeta({ relativePath: conversation.relativePath, archived: true })
+    void setWorkspaceItemMeta({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, archived: true })
   }
-  const handleRemove = async (): Promise<void> => {
-    if (!window.confirm(t('sidebar.confirmRemove', { name: conversation.title }))) return
+  const handleRemoveFromList = async (): Promise<void> => {
+    setRemoveDialogOpen(false)
     await onEnsureSelected()
-    void removeWorkspaceItem({ relativePath: conversation.relativePath, kind: 'conversation' })
+    void removeWorkspaceItem({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, kind: 'conversation', mode: 'list' })
+  }
+  const handleRemoveFromDisk = async (): Promise<void> => {
+    setRemoveDialogOpen(false)
+    await onEnsureSelected()
+    void removeWorkspaceItem({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, kind: 'conversation', mode: 'disk' })
   }
 
   return (
@@ -2306,9 +2413,18 @@ function ConversationListRow({
           pinned={!!conversation.pinned}
           onTogglePin={() => void handlePin()}
           onArchive={() => void handleArchive()}
-          onRemove={() => void handleRemove()}
+          onRemove={() => setRemoveDialogOpen(true)}
         />
       )}
+      {removeDialogOpen ? (
+        <RemoveWorkspaceItemDialog
+          itemName={conversation.title}
+          itemKind="conversation"
+          onClose={() => setRemoveDialogOpen(false)}
+          onRemoveFromList={() => void handleRemoveFromList()}
+          onRemoveFromDisk={() => void handleRemoveFromDisk()}
+        />
+      ) : null}
     </div>
   )
 }
@@ -2351,6 +2467,7 @@ function WorkspaceFileNodeRow({
   const { t } = useTranslation()
   const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
   const isDirectory = node.kind === 'directory'
   const nodeKey = workspaceNodeKey(workspace.id, node.relativePath)
   const isExpanded = expandedPaths.has(nodeKey)
@@ -2408,16 +2525,21 @@ function WorkspaceFileNodeRow({
 
   const handlePin = async (): Promise<void> => {
     await onEnsureWorkspaceSelected()
-    void setWorkspaceItemMeta({ relativePath: node.relativePath, pinned: !node.pinned })
+    void setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: node.relativePath, pinned: !node.pinned })
   }
   const handleArchive = async (): Promise<void> => {
     await onEnsureWorkspaceSelected()
-    void setWorkspaceItemMeta({ relativePath: node.relativePath, archived: true })
+    void setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: node.relativePath, archived: true })
   }
-  const handleRemove = async (): Promise<void> => {
-    if (!window.confirm(t('sidebar.confirmRemove', { name: itemLabel }))) return
+  const handleRemoveFromList = async (): Promise<void> => {
+    setRemoveDialogOpen(false)
     await onEnsureWorkspaceSelected()
-    void removeWorkspaceItem({ relativePath: node.relativePath, kind: itemKind })
+    void removeWorkspaceItem({ workspaceId: workspace.id, relativePath: node.relativePath, kind: itemKind, mode: 'list' })
+  }
+  const handleRemoveFromDisk = async (): Promise<void> => {
+    setRemoveDialogOpen(false)
+    await onEnsureWorkspaceSelected()
+    void removeWorkspaceItem({ workspaceId: workspace.id, relativePath: node.relativePath, kind: itemKind, mode: 'disk' })
   }
 
   return (
@@ -2450,8 +2572,17 @@ function WorkspaceFileNodeRow({
           pinned={!!node.pinned}
           onTogglePin={() => void handlePin()}
           onArchive={() => void handleArchive()}
-          onRemove={() => void handleRemove()}
+          onRemove={() => setRemoveDialogOpen(true)}
         />
+        {removeDialogOpen ? (
+          <RemoveWorkspaceItemDialog
+            itemName={itemLabel}
+            itemKind={itemKind}
+            onClose={() => setRemoveDialogOpen(false)}
+            onRemoveFromList={() => void handleRemoveFromList()}
+            onRemoveFromDisk={() => void handleRemoveFromDisk()}
+          />
+        ) : null}
       </div>
       {isDirectory && node.children?.length ? (
         <div
@@ -2513,7 +2644,9 @@ function isTemporaryConversation(conversation: AgentConversationSummary): boolea
 }
 
 function isCourseConversationPath(relativePath: string): boolean {
-  return /^courses\/[^/]+\/conversations\/[^/]+\.md$/i.test(normalizeRelativePath(relativePath))
+  const normalized = normalizeRelativePath(relativePath)
+  return /^lessons\/conversations\/[^/]+\.md$/i.test(normalized) ||
+    /^courses\/[^/]+\/conversations\/[^/]+\.md$/i.test(normalized)
 }
 
 function workspaceNodeKey(workspaceId: string, relativePath: string): string {
@@ -2522,6 +2655,7 @@ function workspaceNodeKey(workspaceId: string, relativePath: string): string {
 
 function courseRelativePathForConversation(relativePath: string): string | null {
   const parts = normalizeRelativePath(relativePath).split('/').filter(Boolean)
+  if (parts.length === 3 && parts[0] === 'lessons' && parts[1] === 'conversations') return 'lessons'
   if (parts.length === 4 && parts[0] === 'courses' && parts[2] === 'conversations') return `courses/${parts[1]}`
   return null
 }
@@ -3130,6 +3264,7 @@ function MainArea() {
     settings,
     lessonReaderOpen,
     selectedCoursePreviewFile,
+    activeConversationId,
     setView,
     setSidebarCollapsed,
     openSettings,
@@ -3141,6 +3276,7 @@ function MainArea() {
     updateMission,
     generateLesson,
     loadLesson,
+    loadAgentConversation,
     openLessonLibrary,
     openPath,
     clearError
@@ -3164,8 +3300,8 @@ function MainArea() {
     : null
   const visibleCourses = selectedCourse ? [selectedCourse] : courses
   const visibleLessonCount = selectedCourse
-    ? selectedCourse.sessions.length
-    : lessons.length
+    ? selectedCourse.sessionCount
+    : lessons.length + courses.reduce((sum, course) => sum + course.conversations.length, 0)
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? null
   const selectedPreviewFile = selectedCoursePreviewFile ?? (selectedLesson ? lessonToCoursePreviewFile(selectedLesson) : null)
   const readingCourseHtml = Boolean(lessonReaderOpen && selectedPreviewFile)
@@ -3332,6 +3468,32 @@ function MainArea() {
                                   {t('lessons.duration', { count: lesson.durationMinutes })}
                                 </span>
                                 <span className="lesson-card-course">{lesson.courseName}</span>
+                              </div>
+                            </button>
+                          )
+                        })}
+                        {course.conversations.map((conversation) => {
+                          const isSelected = conversation.id === activeConversationId
+                          return (
+                            <button
+                              className={`lesson-course-card${isSelected ? ' is-selected' : ''}`}
+                              key={conversation.id}
+                              type="button"
+                              onClick={() => void loadAgentConversation(conversation.id, selectedCourseWorkspace?.id)}
+                            >
+                              <div className="lesson-card-number">
+                                <MessageSquare size={15} />
+                              </div>
+                              <div className="lesson-card-content">
+                                <h3>{conversation.title}</h3>
+                                <p>{conversation.relativePath}</p>
+                              </div>
+                              <div className="lesson-card-footer">
+                                <span className="lesson-card-duration">
+                                  <MessageSquare size={12} />
+                                  {t('sidebar.messageCount', { count: conversation.messageCount })}
+                                </span>
+                                <span className="lesson-card-course">{course.name}</span>
                               </div>
                             </button>
                           )

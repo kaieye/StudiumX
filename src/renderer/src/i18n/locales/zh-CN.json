@@ -39,7 +39,19 @@
     "unpin": "取消置顶",
     "archive": "归档",
     "remove": "删除",
-    "confirmRemove": "确定要删除“{{name}}”吗？"
+    "confirmRemove": "确定要删除“{{name}}”吗？",
+    "removeDialog": {
+      "title": "删除“{{name}}”",
+      "detail": "选择这次删除的范围。仅从列表移除会保留本地文件；从磁盘移除会删除对应文件或文件夹。",
+      "close": "关闭删除确认",
+      "kindConversation": "对话",
+      "kindFolder": "文件夹",
+      "kindFile": "文件",
+      "listTitle": "仅从列表中移除",
+      "listDetail": "隐藏这项内容，磁盘文件保持不变。",
+      "diskTitle": "从磁盘中移除",
+      "diskDetail": "删除本地文件，无法从 TeachOS 内撤销。"
+    }
   },
   "sidebarResizer": {
     "aria": "调整侧边栏宽度"

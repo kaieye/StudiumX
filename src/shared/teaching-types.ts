@@ -238,6 +238,7 @@ export type WorkspaceFileNode = {
 
 export type AgentConversationSummary = {
   id: string
+  workspaceId?: string
   title: string
   createdAt: string
   updatedAt: string
@@ -283,6 +284,7 @@ export type TeachingCourseSummary = {
   lessonCount: number
   sessionCount: number
   sessions: TeachingSessionSummary[]
+  conversations: AgentConversationSummary[]
 }
 
 export type TeachingWorkspaceSummary = {
@@ -429,6 +431,7 @@ export type TeachingRuntimeState = {
 export type TeachingAppState = {
   workspaces: TeachingWorkspaceSummary[]
   activeWorkspace: TeachingWorkspaceSummary | null
+  temporaryConversations: AgentConversationSummary[]
   previewHtml: string
   previewUrl: string
   selectedLessonPath: string | null
@@ -693,6 +696,7 @@ export type AgentConversationRecord = AgentConversationSummary & {
 
 export type SaveAgentConversationPayload = {
   workspaceId: string
+  mode?: AgentChatMode
   conversationId?: string | null
   selectedLessonPath?: string | null
   selectedCourseRelativePath?: string | null
@@ -711,6 +715,7 @@ export type ReadAgentConversationPayload = {
 }
 
 export type WorkspaceItemKind = 'conversation' | 'file' | 'directory'
+export type WorkspaceItemRemoveMode = 'list' | 'disk'
 
 export type WorkspaceItemMetaPayload = {
   workspaceId: string
@@ -724,6 +729,7 @@ export type WorkspaceItemRemovePayload = {
   workspaceId: string
   relativePath: string
   kind: WorkspaceItemKind
+  mode?: WorkspaceItemRemoveMode
 }
 
 export type TeachingSystemApi = {
