@@ -2,7 +2,7 @@ import type { ToolDefinition } from '../provider-adapter'
 import type { TeachingSettingsV1 } from '../../../shared/teaching-types'
 import { webSearchTool } from './web_search'
 import { webFetchTool } from './web_fetch'
-import { workspaceTools } from './workspace'
+import { workspaceReadTools, writeWorkspaceFileTool } from './workspace'
 
 export type ToolContext = {
   settings: TeachingSettingsV1
@@ -51,11 +51,12 @@ export function buildToolContext(
 
 export function buildDefaultRegistry(
   settings: TeachingSettingsV1,
-  options: { workspaceRoot?: string | null } = {}
+  options: { workspaceRoot?: string | null; workspaceWrite?: boolean } = {}
 ): ToolRegistry {
   const registry = new ToolRegistry()
   if (settings.tools.workspaceRead && options.workspaceRoot) {
-    for (const tool of workspaceTools) registry.register(tool)
+    for (const tool of workspaceReadTools) registry.register(tool)
+    if (options.workspaceWrite === true) registry.register(writeWorkspaceFileTool)
   }
   if (settings.tools.webSearch) registry.register(webSearchTool)
   if (settings.tools.webFetch) registry.register(webFetchTool)

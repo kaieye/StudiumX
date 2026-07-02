@@ -1,10 +1,11 @@
-import { readFile, readdir, realpath, stat } from 'node:fs/promises'
-import { extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { Dirent } from 'node:fs'
 import type { ToolEntry, ToolContext } from './registry'
 
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_READ_CHARS = 24_000
+const MAX_WRITE_BYTES = 1024 * 1024
 const DEFAULT_READ_LIMIT = 240
 const MAX_READ_LIMIT = 800
 const MAX_LIST_ENTRIES = 500
@@ -394,6 +395,68 @@ export const readWorkspaceFileTool: ToolEntry = {
   }
 }
 
+export const writeWorkspaceFileTool: ToolEntry = {
+  definition: {
+    type: 'function',
+    function: {
+      name: 'write_workspace_file',
+      description:
+        '写入当前 TeachOS 教学工作区内的文本文件。限定在当前工作区内；会自动创建父目录；默认不覆盖已有文件。适合保存 lessons/*.html、reference/*.html、*.md、*.json 等课程产物。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '相对工作区文件路径，例如 "lessons/0001-rag.html"' },
+          content: { type: 'string', description: '要写入的完整文本内容' },
+          overwrite: { type: 'boolean', description: '是否允许覆盖已有文件，默认 false' }
+        },
+        required: ['path', 'content']
+      }
+    }
+  },
+  handler: async (args: unknown, ctx: ToolContext): Promise<string> => {
+    try {
+      const input = (args ?? {}) as { path?: string; content?: unknown; overwrite?: boolean }
+      if (!input.path?.trim()) throw new Error('缺少参数 path。')
+      if (typeof input.content !== 'string') throw new Error('缺少参数 content，且必须是字符串。')
+      const target = resolveWorkspacePath(ctx, input.path)
+      if (isProtectedWorkspaceRelativePath(target.relativePath)) {
+        throw new Error('该路径属于隐藏、构建或敏感文件范围，已拒绝写入。')
+      }
+      if (!isLikelyTextPath(target.relativePath)) {
+        throw new Error('仅允许写入文本文件类型。')
+      }
+      const bytes = Buffer.byteLength(input.content, 'utf8')
+      if (bytes > MAX_WRITE_BYTES) {
+        throw new Error(`写入内容过大（${bytes} bytes），已超过 ${MAX_WRITE_BYTES} bytes 上限。`)
+      }
+
+      const existing = await stat(target.absolutePath).catch(() => null)
+      if (existing?.isDirectory()) throw new Error('目标路径是目录，不能写入为文件。')
+      if (existing?.isFile()) {
+        await assertRealPathInside(target.root, target.absolutePath)
+        if (input.overwrite !== true) {
+          throw new Error('文件已存在；如需覆盖请传 overwrite: true。')
+        }
+      }
+
+      await mkdir(dirname(target.absolutePath), { recursive: true })
+      await assertRealPathInside(target.root, dirname(target.absolutePath))
+      await writeFile(target.absolutePath, input.content, 'utf8')
+      await assertRealPathInside(target.root, target.absolutePath)
+
+      return jsonResult({
+        path: target.relativePath,
+        bytes,
+        created: existing === null,
+        overwritten: existing?.isFile() === true,
+        message: `已写入 ${target.relativePath}`
+      })
+    } catch (error) {
+      return jsonError('write_workspace_file', error)
+    }
+  }
+}
+
 export const searchWorkspaceTool: ToolEntry = {
   definition: {
     type: 'function',
@@ -506,9 +569,14 @@ export const globWorkspaceTool: ToolEntry = {
   }
 }
 
-export const workspaceTools = [
+export const workspaceReadTools = [
   listWorkspaceTool,
   readWorkspaceFileTool,
   searchWorkspaceTool,
   globWorkspaceTool
+] satisfies ToolEntry[]
+
+export const workspaceTools = [
+  ...workspaceReadTools,
+  writeWorkspaceFileTool
 ] satisfies ToolEntry[]

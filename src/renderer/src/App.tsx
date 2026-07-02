@@ -4980,7 +4980,7 @@ function SettingsView({
                   onChange={(enabled) => void onUpdateSettings({ tools: { enabled } } as TeachingSettingsPatch)}
                 />
               </SettingsRow>
-              <SettingsRow label="工作区只读工具" detail="允许 Agent 列出、读取、搜索当前教学工作区文件">
+              <SettingsRow label="工作区文件工具" detail="允许 Agent 列出、读取、搜索、写入当前教学工作区文件">
                 <ToggleSwitch
                   checked={settings.tools.workspaceRead}
                   onChange={(workspaceRead) => void onUpdateSettings({ tools: { workspaceRead } } as TeachingSettingsPatch)}

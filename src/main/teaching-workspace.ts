@@ -465,7 +465,7 @@ export class TeachingWorkspaceService {
 
     const ctx = buildToolContext(settings, { workspaceRoot })
     const registry = settings.tools.enabled && isTeachingConversation
-      ? buildDefaultRegistry(settings, { workspaceRoot })
+      ? buildDefaultRegistry(settings, { workspaceRoot, workspaceWrite: true })
       : new ToolRegistry()
 
     const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
@@ -2571,6 +2571,7 @@ const AGENT_CHAT_SYSTEM_PROMPT =
   '不要默认用户属于编程、AI、学生或任何固定人群；问题示例必须跟随用户当前主题、身份和场景。' +
   '回答使用简洁、准确的中文。' +
   '当用户询问当前教学工作区、mission、resources、课程文件、参考资料或学习记录时，优先调用 list_workspace、read_workspace_file、search_workspace 或 glob_workspace 读取本地文件后再回答；' +
+  '当用户要求制作、保存或更新 HTML/Markdown/JSON/课程文件时，优先调用 write_workspace_file 写入当前工作区；默认保存 lesson 到 lessons/*.html，并在回复中只给出保存路径、简短摘要和下一步建议，不要把完整文件内容粘贴进聊天；' +
   '当问题涉及时效性、最新动态或课程库之外的事实性信息时，调用 web_search 工具检索后再作答；' +
   '必要时可用 web_fetch 深入阅读某条结果。回答中适度引用信息来源链接。' +
   '若未配置工具或当前模型不支持工具调用，直接依据自身知识作答即可。'
