@@ -46,9 +46,6 @@
       "title": "Delete \"{{name}}\"",
       "detail": "Choose the removal scope. Removing from the list keeps local files; removing from disk deletes the matching file or folder.",
       "close": "Close delete confirmation",
-      "folderTitle": "Remove {{name}}?",
-      "folderDetail": "This will remove this project from StudiumX. Files on disk will not be deleted.",
-      "confirm": "Remove",
       "kindConversation": "Conversation",
       "kindFolder": "Folder",
       "kindFile": "File",
@@ -283,6 +280,16 @@
     "autoOpen": { "label": "Open lesson after generating", "detail": "Open the HTML with the system default app after generation." },
     "showAllCourseFiles": { "label": "Show all course files", "detail": "Show reference HTML, learning records, review data, and other companion files in the course tree." },
     "current": { "label": "Current workspace", "none": "Not selected", "create": "New", "import": "Import", "open": "Open" }
+  },
+  "workspaceImport": {
+    "title": "Add project",
+    "eyebrow": "Project folder",
+    "close": "Close add project",
+    "pathLabel": "Folder path",
+    "pathPlaceholder": "Enter or paste a folder path",
+    "choose": "Choose folder",
+    "manage": "Open file manager",
+    "import": "Import"
   },
   "worktree": {
     "title": "Worktree",

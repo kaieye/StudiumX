@@ -41,7 +41,7 @@ assert.doesNotMatch(
 
 assert.match(
   app,
-  /const conversations = \(workspace\?\.conversations \?\? \[\]\)\.filter\(isTemporaryConversation\)/,
+  /<SidebarConversationSection[\s\S]*conversations=\{appState\.temporaryConversations\}/,
   'root conversation sidebar should only show temporary conversations'
 )
 

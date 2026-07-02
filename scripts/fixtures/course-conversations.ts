@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { listSidebarCourseFolders, listSidebarWorkspaceFolders } from '../../src/shared/course-sidebar'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 
@@ -23,7 +24,7 @@ try {
   assert.ok(workspace)
 
   const selectedCourseRelativePath = 'lessons'
-  await mkdir(join(workspace.rootPath, selectedCourseRelativePath), { recursive: true })
+  await mkdir(join(workspace.rootPath, 'conversations'), { recursive: true })
 
   const saved = await service.saveAgentConversation({
     workspaceId: workspace.id,
@@ -35,8 +36,12 @@ try {
     ]
   })
 
-  assert.equal(saved.conversation.relativePath.startsWith('lessons/conversations/'), true)
+  assert.equal(saved.conversation.relativePath.startsWith('conversation/'), true)
+  assert.equal(await stat(join(workspace.rootPath, 'lessons')).then((info) => info.isDirectory()).catch(() => false), true)
+  assert.equal(await stat(join(workspace.rootPath, 'conversation')).then((info) => info.isDirectory()).catch(() => false), true)
+  assert.equal(await stat(join(workspace.rootPath, 'lessons', 'conversation')).then(() => true).catch(() => false), false)
   assert.equal(saved.state.activeWorkspace?.conversations.some((item) => item.id === saved.conversation.id), true)
+  assert.equal(saved.state.temporaryConversations.some((item) => item.id === saved.conversation.id), false)
   assert.equal(
     saved.state.activeWorkspace?.courses.some((course) =>
       course.relativePath === selectedCourseRelativePath &&
@@ -51,11 +56,36 @@ try {
     'workspace course should be visible in the course list after saving a teaching conversation'
   )
 
-  const selectedCourseNode = saved.state.activeWorkspace?.fileTree.find((node) => node.relativePath === selectedCourseRelativePath)
+  const selectedCourseNode = listSidebarCourseFolders(saved.state.workspaces, false)
+    .find(({ workspace, node }) => workspace.id === saved.state.activeWorkspace?.id && node.relativePath === selectedCourseRelativePath)
+    ?.node
   assert.ok(selectedCourseNode)
-  const conversationFolder = selectedCourseNode.children?.find((node) => node.relativePath === 'lessons/conversations')
+  assert.deepEqual(
+    selectedCourseNode.children?.map((node) => node.name).sort(),
+    ['conversation', 'lessons'],
+    'course folders should expose lessons and conversation directories'
+  )
+  const conversationFolder = selectedCourseNode.children?.find((node) => node.relativePath === 'conversation')
   assert.ok(conversationFolder)
   assert.equal(conversationFolder.children?.some((node) => node.relativePath === saved.conversation.relativePath), true)
+  const selectedCourseNodeWithAllFiles = listSidebarCourseFolders(saved.state.workspaces, true)
+    .find(({ workspace, node }) => workspace.id === saved.state.activeWorkspace?.id && node.relativePath === selectedCourseRelativePath)
+    ?.node
+  assert.ok(selectedCourseNodeWithAllFiles)
+  assert.deepEqual(
+    selectedCourseNodeWithAllFiles.children?.map((node) => node.name).sort(),
+    ['conversation', 'lessons'],
+    'course folders should keep the lessons/conversation display shape when all course files are shown'
+  )
+  const selectedWorkspaceNode = listSidebarWorkspaceFolders(saved.state.workspaces, false)
+    .find(({ workspace }) => workspace.id === saved.state.activeWorkspace?.id)
+    ?.node
+  assert.ok(selectedWorkspaceNode)
+  assert.deepEqual(
+    selectedWorkspaceNode.children?.map((node) => node.name).sort(),
+    ['conversation', 'lessons'],
+    'imported workspace folders should display lessons and conversation directly under the tutorial root'
+  )
 
   const loaded = await service.readAgentConversation({
     workspaceId: workspace.id,

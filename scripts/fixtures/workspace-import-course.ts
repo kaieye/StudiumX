@@ -61,6 +61,18 @@ try {
     true,
     'left course directory should include the imported workspace folder immediately after import'
   )
+  const importedWorkspaceNode = sidebarWorkspaceFolders.find(({ workspace }) => workspace.id === active.id)?.node
+  assert.ok(importedWorkspaceNode)
+  assert.deepEqual(
+    importedWorkspaceNode.children?.map((node) => node.name).sort(),
+    ['conversation', 'lessons'],
+    'imported tutorial folder should expose lessons and conversation directly under the workspace root'
+  )
+  assert.equal(
+    await stat(join(sourceRoot, 'conversation')).then((info) => info.isDirectory()).catch(() => false),
+    true,
+    'importing a tutorial folder should create the root conversation directory'
+  )
   assert.equal(
     visibleCourseKeys.has(`${current.id}:lessons`),
     true,

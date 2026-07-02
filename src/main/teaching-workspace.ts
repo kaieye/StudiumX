@@ -161,10 +161,10 @@ const EMPTY_REGISTRY: WorkspaceRegistry = {
 
 const WORKSPACE_SCAFFOLD_DIRECTORIES = new Set([
   'lessons',
+  'conversation',
   'reference',
   'learning-records',
   'reviews',
-  'conversations',
   'assets'
 ])
 
@@ -235,7 +235,7 @@ export class TeachingWorkspaceService {
     const globalConversations = await listAgentConversations(
       this.appDataRoot,
       temporaryIndex.pathMeta ?? {},
-      { includeRoot: true, includeLessons: false, includeCourses: false }
+      { includeRoot: true, includeRootConversation: false, includeLegacyRootConversations: true, includeLessons: false, includeCourses: false }
     )
     const legacyWorkspaceConversations = (await Promise.all(
       registry.workspaces.map(async (workspace) => {
@@ -243,7 +243,14 @@ export class TeachingWorkspaceService {
         return listAgentConversations(
           workspace.rootPath,
           index.pathMeta ?? {},
-          { includeRoot: true, includeLessons: false, includeCourses: false, fallbackWorkspaceId: workspace.id }
+          {
+            includeRoot: true,
+            includeRootConversation: false,
+            includeLegacyRootConversations: true,
+            includeLessons: false,
+            includeCourses: false,
+            fallbackWorkspaceId: workspace.id
+          }
         )
       })
     )).flat()
@@ -580,6 +587,7 @@ export class TeachingWorkspaceService {
       : isTemporaryConversation
         ? 'conversations'
       : agentConversationDirectoryRelativePath(payload)
+    if (!isTemporaryConversation) await ensureTeachingContentDirectories(workspace.rootPath)
     const record: AgentConversationRecord = {
       id,
       workspaceId: existing?.workspaceId ?? workspace.id,
@@ -1063,6 +1071,7 @@ export class TeachingWorkspaceService {
     } = opts
 
     await mkdir(dirname(lesson.absolutePath), { recursive: true })
+    await mkdir(join(dirname(dirname(lesson.absolutePath)), 'conversation'), { recursive: true })
     if (referenceAbsolutePath) await mkdir(dirname(referenceAbsolutePath), { recursive: true })
     if (recordAbsolutePath) await mkdir(dirname(recordAbsolutePath), { recursive: true })
     if (reviewsAbsolutePath) await mkdir(dirname(reviewsAbsolutePath), { recursive: true })
@@ -1108,19 +1117,20 @@ export class TeachingWorkspaceService {
     const courseAbsolutePath = join(options.workspace.rootPath, courseRelativePath)
     const sessionId = `lesson-${String(options.sequence).padStart(4, '0')}`
     const sessionName = `${String(options.sequence).padStart(4, '0')} ${options.title}`
-    const sessionRelativePath = courseRelativePath
+    const lessonDirRelativePath = courseRelativePath
+    const sessionRelativePath = lessonDirRelativePath
     const sessionAbsolutePath = join(options.workspace.rootPath, sessionRelativePath)
     const fileSlug = slugify(options.title, 'lesson')
-    const lessonRelativePath = workspaceRelativePath(courseRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.html`)
+    const lessonRelativePath = workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.html`)
     const lessonAbsolutePath = join(options.workspace.rootPath, lessonRelativePath)
     const referenceRelativePath = options.includeReference
-      ? workspaceRelativePath(courseRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-reference.html`)
+      ? workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-reference.html`)
       : null
     const recordRelativePath = options.includeLearningRecord
-      ? workspaceRelativePath(courseRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.md`)
+      ? workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.md`)
       : null
     const reviewsRelativePath = options.includeReviews
-      ? workspaceRelativePath(courseRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-flashcards.json`)
+      ? workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-flashcards.json`)
       : null
 
     return {
@@ -1343,7 +1353,11 @@ export class TeachingWorkspaceService {
     await this.ensureWorkspaceStructure(workspace, pathMeta)
     const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
     const lessons = await this.mergeLessonIndexWithDisk(workspace.rootPath, workspace.name, index.lessons, pathMeta)
-    const conversations = await listAgentConversations(workspace.rootPath, pathMeta)
+    const conversations = await listAgentConversations(
+      workspace.rootPath,
+      pathMeta,
+      { includeRoot: true, includeRootConversation: true, includeLegacyRootConversations: false }
+    )
     const fileTree = await buildWorkspaceFileTree(workspace.rootPath, pathMeta)
     const courses = buildCourseSummaries(workspace, lessons, conversations, pathMeta)
     if (lessons.length !== index.lessons.length) {
@@ -1679,7 +1693,11 @@ export class TeachingWorkspaceService {
   private async readLearningRecords(rootPath: string): Promise<TeachingWorkspaceSummary['records']> {
     const files = await collectTeachingFiles(
       rootPath,
-      (file) => file.toLowerCase().endsWith('.md') && !basename(file).startsWith('MISSION') && !basename(file).startsWith('RESOURCES')
+      (file) => {
+        if (!file.toLowerCase().endsWith('.md')) return false
+        if (basename(file).startsWith('MISSION') || basename(file).startsWith('RESOURCES')) return false
+        return !isAgentConversationMarkdownRelativePath(toWorkspaceRelativePath(rootPath, file))
+      }
     )
     return Promise.all(
       files
@@ -1924,9 +1942,12 @@ async function readWorkspaceTreeDirectory(
 function shouldHideWorkspaceTreeEntry(relativeDir: string, name: string, isDirectory: boolean): boolean {
   if (isDirectory && WORKSPACE_TREE_IGNORED_DIRS.has(name)) return true
   const normalizedDir = relativeDir.replace(/\\/g, '/')
+  if (normalizedDir === 'conversation' && name.toLowerCase().endsWith('.json')) return true
   if (normalizedDir === 'conversations' && name.toLowerCase().endsWith('.json')) return true
+  if (normalizedDir === 'lessons/conversation' && name.toLowerCase().endsWith('.json')) return true
   if (normalizedDir === 'lessons/conversations' && name.toLowerCase().endsWith('.json')) return true
   if (normalizedDir.startsWith('courses/') && normalizedDir.endsWith('/conversations') && name.toLowerCase().endsWith('.json')) return true
+  if (normalizedDir.startsWith('courses/') && normalizedDir.endsWith('/conversation') && name.toLowerCase().endsWith('.json')) return true
   return false
 }
 
@@ -1935,6 +1956,8 @@ async function listAgentConversations(
   pathMeta: Record<string, WorkspacePathMeta> = {},
   options: {
     includeRoot?: boolean
+    includeRootConversation?: boolean
+    includeLegacyRootConversations?: boolean
     includeLessons?: boolean
     includeCourses?: boolean
     fallbackWorkspaceId?: string
@@ -2111,13 +2134,29 @@ function deriveConversationTitle(turns: AgentChatTurn[], timestamp: string): str
 
 async function collectAgentConversationJsonRelativePaths(
   rootPath: string,
-  options: { includeRoot?: boolean; includeLessons?: boolean; includeCourses?: boolean } = {}
+  options: {
+    includeRoot?: boolean
+    includeRootConversation?: boolean
+    includeLegacyRootConversations?: boolean
+    includeLessons?: boolean
+    includeCourses?: boolean
+  } = {}
 ): Promise<string[]> {
   const includeRoot = options.includeRoot ?? true
+  const includeRootConversation = options.includeRootConversation ?? true
+  const includeLegacyRootConversations = options.includeLegacyRootConversations ?? true
   const includeLessons = options.includeLessons ?? true
   const includeCourses = options.includeCourses ?? true
   const result: string[] = []
-  if (includeRoot) {
+  if (includeRoot && includeRootConversation) {
+    const rootCourseEntries = await readdir(join(rootPath, 'conversation'), { withFileTypes: true }).catch(() => [])
+    for (const entry of rootCourseEntries) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
+        result.push(workspaceRelativePath('conversation', entry.name))
+      }
+    }
+  }
+  if (includeRoot && includeLegacyRootConversations) {
     const rootEntries = await readdir(join(rootPath, 'conversations'), { withFileTypes: true }).catch(() => [])
     for (const entry of rootEntries) {
       if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
@@ -2126,8 +2165,14 @@ async function collectAgentConversationJsonRelativePaths(
     }
   }
   if (includeLessons) {
-    const lessonEntries = await readdir(join(rootPath, 'lessons', 'conversations'), { withFileTypes: true }).catch(() => [])
-    for (const entry of lessonEntries) {
+    const lessonConversationEntries = await readdir(join(rootPath, 'lessons', 'conversation'), { withFileTypes: true }).catch(() => [])
+    for (const entry of lessonConversationEntries) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
+        result.push(workspaceRelativePath('lessons', 'conversation', entry.name))
+      }
+    }
+    const legacyLessonConversationEntries = await readdir(join(rootPath, 'lessons', 'conversations'), { withFileTypes: true }).catch(() => [])
+    for (const entry of legacyLessonConversationEntries) {
       if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
         result.push(workspaceRelativePath('lessons', 'conversations', entry.name))
       }
@@ -2137,8 +2182,14 @@ async function collectAgentConversationJsonRelativePaths(
   const courseEntries = await readdir(join(rootPath, 'courses'), { withFileTypes: true }).catch(() => [])
   for (const courseEntry of courseEntries) {
     if (!courseEntry.isDirectory()) continue
-    const conversationEntries = await readdir(join(rootPath, 'courses', courseEntry.name, 'conversations'), { withFileTypes: true }).catch(() => [])
+    const conversationEntries = await readdir(join(rootPath, 'courses', courseEntry.name, 'conversation'), { withFileTypes: true }).catch(() => [])
     for (const entry of conversationEntries) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
+        result.push(workspaceRelativePath('courses', courseEntry.name, 'conversation', entry.name))
+      }
+    }
+    const legacyConversationEntries = await readdir(join(rootPath, 'courses', courseEntry.name, 'conversations'), { withFileTypes: true }).catch(() => [])
+    for (const entry of legacyConversationEntries) {
       if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
         result.push(workspaceRelativePath('courses', courseEntry.name, 'conversations', entry.name))
       }
@@ -2165,17 +2216,22 @@ async function findAgentConversationJsonRelativePath(rootPath: string, id: strin
 
 function agentConversationDirectoryRelativePath(payload: SaveAgentConversationPayload): string {
   const selected = normalizeWorkspaceRelativePath(payload.selectedCourseRelativePath ?? '')
-  if (selected && isCourseRelativePath(selected)) {
-    return workspaceRelativePath(selected, 'conversations')
-  }
+  if (selected && isCourseRelativePath(selected)) return 'conversation'
 
   const lessonPath = normalizeWorkspaceRelativePath(payload.selectedLessonPath ?? '')
   const lessonCourse = courseRelativePathFromWorkspacePath(lessonPath)
-  if (lessonCourse) return workspaceRelativePath(lessonCourse, 'conversations')
+  if (lessonCourse) return 'conversation'
 
-  if (payload.mode === 'teaching') return workspaceRelativePath('lessons', 'conversations')
+  if (payload.mode === 'teaching') return 'conversation'
 
   return 'conversations'
+}
+
+async function ensureTeachingContentDirectories(rootPath: string): Promise<void> {
+  await Promise.all([
+    mkdir(join(rootPath, 'lessons'), { recursive: true }),
+    mkdir(join(rootPath, 'conversation'), { recursive: true })
+  ])
 }
 
 function courseRelativePathFromWorkspacePath(relativePath: string): string | null {
@@ -2187,8 +2243,9 @@ function courseRelativePathFromWorkspacePath(relativePath: string): string | nul
 
 function courseRelativePathFromConversationPath(relativePath: string): string | null {
   const parts = normalizeWorkspaceRelativePath(relativePath).split('/').filter(Boolean)
-  if (parts.length === 3 && parts[0] === 'lessons' && parts[1] === 'conversations') return 'lessons'
-  if (parts.length === 4 && parts[0] === 'courses' && parts[2] === 'conversations') return workspaceRelativePath('courses', parts[1])
+  if (parts.length === 2 && parts[0] === 'conversation') return 'lessons'
+  if (parts.length === 3 && parts[0] === 'lessons' && (parts[1] === 'conversation' || parts[1] === 'conversations')) return 'lessons'
+  if (parts.length === 4 && parts[0] === 'courses' && (parts[2] === 'conversation' || parts[2] === 'conversations')) return workspaceRelativePath('courses', parts[1])
   return null
 }
 
@@ -2213,18 +2270,20 @@ function isAgentConversationJsonRelativePath(relativePath: string): boolean {
   const normalized = normalizeWorkspaceRelativePath(relativePath)
   if (!normalized.toLowerCase().endsWith('.json')) return false
   const parts = normalized.split('/').filter(Boolean)
+  if (parts.length === 2 && parts[0] === 'conversation') return true
   if (parts.length === 2 && parts[0] === 'conversations') return true
-  if (parts.length === 3 && parts[0] === 'lessons' && parts[1] === 'conversations') return true
-  return parts.length === 4 && parts[0] === 'courses' && parts[2] === 'conversations'
+  if (parts.length === 3 && parts[0] === 'lessons' && (parts[1] === 'conversation' || parts[1] === 'conversations')) return true
+  return parts.length === 4 && parts[0] === 'courses' && (parts[2] === 'conversation' || parts[2] === 'conversations')
 }
 
 function isAgentConversationMarkdownRelativePath(relativePath: string): boolean {
   const normalized = normalizeWorkspaceRelativePath(relativePath)
   if (!normalized.toLowerCase().endsWith('.md')) return false
   const parts = normalized.split('/').filter(Boolean)
+  if (parts.length === 2 && parts[0] === 'conversation') return true
   if (parts.length === 2 && parts[0] === 'conversations') return true
-  if (parts.length === 3 && parts[0] === 'lessons' && parts[1] === 'conversations') return true
-  return parts.length === 4 && parts[0] === 'courses' && parts[2] === 'conversations'
+  if (parts.length === 3 && parts[0] === 'lessons' && (parts[1] === 'conversation' || parts[1] === 'conversations')) return true
+  return parts.length === 4 && parts[0] === 'courses' && (parts[2] === 'conversation' || parts[2] === 'conversations')
 }
 
 function isRootAgentConversationMarkdownRelativePath(relativePath: string): boolean {
@@ -2240,9 +2299,10 @@ function agentConversationMarkdownRelativePath(id: string, conversationDir = 'co
 
 function normalizeAgentConversationDirectory(conversationDir: string): string {
   const normalized = normalizeWorkspaceRelativePath(conversationDir)
+  if (normalized === 'conversation') return 'conversation'
   if (!normalized || normalized === 'conversations') return 'conversations'
-  if (normalized === 'lessons/conversations') return normalized
-  if (/^courses\/[^/]+\/conversations$/.test(normalized)) return normalized
+  if (normalized === 'lessons/conversation' || normalized === 'lessons/conversations') return normalized
+  if (/^courses\/[^/]+\/conversation$/.test(normalized) || /^courses\/[^/]+\/conversations$/.test(normalized)) return normalized
   return 'conversations'
 }
 
@@ -2500,7 +2560,7 @@ function adapterReason(error: ProviderAdapterError): string {
 }
 
 const LESSON_RESEARCH_PREFIX =
-  '在生成课程计划之前，你可以调用工作区只读工具读取 MISSION.md、RESOURCES.md、courses、reference 和 learning-records 中的上下文；' +
+  '在生成课程计划之前，你可以调用工作区只读工具读取 MISSION.md、RESOURCES.md、lessons、reference 和 learning-records 中的上下文；' +
   '也可以调用 web_search 工具检索最新或课程之外的事实性信息以丰富内容（例如最新版本号、时效性事件、权威定义）。' +
   '完成必要的检索后，仍必须严格只输出一个符合下方格式的 JSON 课程计划对象，不要输出任何额外说明或 markdown 围栏。'
 
@@ -2849,7 +2909,7 @@ function localFallbackPlan(
       },
       {
         heading: '把任务拆成文件',
-        body: '- [MISSION.md](../MISSION.md) — 学习罗盘\n- [RESOURCES.md](../RESOURCES.md) — 可信来源\n- lessons/*.html — 课程讲义与速查材料\n- lessons/*.md — 学习证据'
+        body: '- [MISSION.md](../MISSION.md) — 学习罗盘\n- [RESOURCES.md](../RESOURCES.md) — 可信来源\n- lessons/*.html — 课程讲义与速查材料\n- lessons/*.md — 学习证据\n- conversation/*.md — 对话记录'
       }
     ],
     keyPoints: ['文件系统是真相来源', '每节 lesson 短小且可复习', '本地优先，AI 可选'],
@@ -2863,7 +2923,7 @@ function localFallbackPlan(
         }]
       : [],
     flashcards: [],
-    referenceNotes: '先写 mission，再决定第一课；课程输出到 lessons/*.html；非显而易见的理解写入同名 lesson 记录文件。',
+    referenceNotes: '先写 mission，再决定第一课；课程输出到 lessons/*.html；对话记录写入 conversation/*.md。',
     learningRecordNote: `本节围绕「${mission.title}」建立了可复用的 TeachOS 学习闭环。`
   }
 }

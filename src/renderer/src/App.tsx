@@ -175,13 +175,15 @@ type StoreState = {
   pickDefaultRoot: () => Promise<void>
   selectWorkspace: (workspaceId: string) => Promise<void>
   createWorkspace: () => Promise<void>
-  importWorkspace: () => Promise<void>
+  importWorkspace: () => Promise<boolean>
+  importWorkspacePath: (rootPath: string) => Promise<boolean>
   updateMission: () => Promise<void>
   generateLesson: () => Promise<void>
   generateLessonStream: () => Promise<void>
   loadLesson: (lesson: LessonSummary) => Promise<void>
   loadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
   openPath: (path: string) => Promise<void>
+  openImportLocation: (path?: string) => Promise<void>
   openExternal: (url: string) => Promise<void>
   showNotification: (title: string, body: string) => Promise<void>
   probeProvider: (payload: ProbeProviderPayload) => Promise<ProbeProviderResult>
@@ -913,13 +915,13 @@ const useAppStore = create<StoreState>((set, get) => ({
   },
   importWorkspace: async () => {
     const api = window.teachingSystem
-    if (!api) return
+    if (!api) return false
     set({ loading: true, error: null })
     try {
       const result = await api.importWorkspace()
       if (result.canceled || !result.state) {
         set({ loading: false })
-        return
+        return false
       }
       set({
         appState: result.state,
@@ -940,12 +942,67 @@ const useAppStore = create<StoreState>((set, get) => ({
         const wsName = result.state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
         void get().showNotification(i18n.t('notify.imported.title'), i18n.t('notify.imported.body', { name: wsName }))
       }
+      return true
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
       const settings = get().settings
       if (settings.notifications.enabled && settings.notifications.errors) {
         void get().showNotification(i18n.t('notify.importFailed.title'), toUserError(error).message)
       }
+      return false
+    }
+  },
+  importWorkspacePath: async (rootPath) => {
+    const api = window.teachingSystem
+    if (!api) return false
+    const path = rootPath.trim()
+    if (!path) {
+      set({ error: { message: i18n.t('errors.invalidPath.message'), severity: 'warning', detail: i18n.t('errors.invalidPath.detail') } })
+      return false
+    }
+    set({ loading: true, error: null })
+    try {
+      const state = await api.importWorkspacePath(path)
+      set({
+        appState: state,
+        lessonReaderOpen: false,
+        selectedCoursePreviewFile: null,
+        selectedCourseRelativePath: null,
+        selectedCourseWorkspaceId: null,
+        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+        agentTurns: [],
+        activeConversationId: null,
+        agentStatus: '',
+        agentToolsSupported: null,
+        pendingAgentConversation: null,
+        loading: false
+      })
+      const settings = get().settings
+      if (settings.notifications.enabled && settings.notifications.workspaceImported) {
+        const wsName = state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
+        void get().showNotification(i18n.t('notify.imported.title'), i18n.t('notify.imported.body', { name: wsName }))
+      }
+      return true
+    } catch (error) {
+      const userError = toUserError(error)
+      set({ loading: false, error: userError })
+      const settings = get().settings
+      if (settings.notifications.enabled && settings.notifications.errors) {
+        void get().showNotification(i18n.t('notify.importFailed.title'), userError.message)
+      }
+      return false
+    }
+  },
+  openImportLocation: async (path) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const result = await api.openImportLocation(path)
+      if (!result.ok) {
+        set({ error: { message: i18n.t('errors.openPath'), severity: 'warning', detail: result.message } })
+      }
+    } catch (error) {
+      set({ error: toUserError(error) })
     }
   },
   updateMission: async () => {
@@ -2046,13 +2103,13 @@ function WorkspaceCourseSection({
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const openPath = useAppStore((s) => s.openPath)
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
-  const importWorkspace = useAppStore((s) => s.importWorkspace)
   const showAllCourseFiles = useAppStore((s) => s.settings.workspace.showAllCourseFiles)
   const workspaceFolders = useMemo(
     () => listSidebarWorkspaceFolders(workspaces, showAllCourseFiles),
     [showAllCourseFiles, workspaces]
   )
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
 
   useEffect(() => {
     if (!expanded) setExpandedPaths(new Set())
@@ -2075,73 +2132,166 @@ function WorkspaceCourseSection({
   }
 
   return (
-    <div className="sidebar-section sidebar-section--courses">
-      <div className="section-heading section-heading--folder">
-        <button
-          className="section-folder-button"
-          type="button"
-          aria-expanded={expanded}
-          aria-label={expanded ? t('sidebar.collapseCourses') : t('sidebar.expandCourses')}
-          title={expanded ? t('sidebar.collapseCourses') : t('sidebar.expandCourses')}
-          onClick={onToggle}
+    <>
+      <div className="sidebar-section sidebar-section--courses">
+        <div className="section-heading section-heading--folder">
+          <button
+            className="section-folder-button"
+            type="button"
+            aria-expanded={expanded}
+            aria-label={expanded ? t('sidebar.collapseCourses') : t('sidebar.expandCourses')}
+            title={expanded ? t('sidebar.collapseCourses') : t('sidebar.expandCourses')}
+            onClick={onToggle}
+          >
+            <span className="collapsible-label">{t('sidebar.courses')}</span>
+            <span className="section-folder-chevron" aria-hidden="true">
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </span>
+          </button>
+          <button
+            className="section-add-button"
+            type="button"
+            aria-label={t('sidebar.addCourseProject')}
+            title={t('sidebar.addCourseProject')}
+            onClick={(event) => {
+              event.stopPropagation()
+              setImportDialogOpen(true)
+            }}
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+        <div
+          className={`sidebar-disclosure${expanded ? ' is-open' : ''}`}
+          aria-hidden={!expanded}
+          inert={!expanded ? true : undefined}
         >
-          <span className="collapsible-label">{t('sidebar.courses')}</span>
-          <span className="section-folder-chevron" aria-hidden="true">
-            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </span>
-        </button>
-        <button
-          className="section-add-button"
-          type="button"
-          aria-label={t('sidebar.addCourseProject')}
-          title={t('sidebar.addCourseProject')}
-          onClick={(event) => {
-            event.stopPropagation()
-            void importWorkspace()
-          }}
-        >
-          <Plus size={14} />
-        </button>
-      </div>
-      <div
-        className={`sidebar-disclosure${expanded ? ' is-open' : ''}`}
-        aria-hidden={!expanded}
-        inert={!expanded ? true : undefined}
-      >
-        <div className="sidebar-disclosure-inner">
-          {workspaceFolders.length > 0 ? (
-            <div className="workspace-file-tree workspace-file-tree--courses" role="tree">
-              {workspaceFolders.map(({ workspace, node }) => (
-                <WorkspaceFileNodeRow
-                  key={workspaceNodeKey(workspace.id, node.relativePath)}
-                  node={node}
-                  workspace={workspace}
-                  level={0}
-                  treeRoot="courses"
-                  expandedPaths={expandedPaths}
-                  activeWorkspaceId={activeWorkspaceId}
-                  selectedLessonPath={selectedLessonPath}
-                  selectedCourseRelativePath={selectedCourseRelativePath}
-                  selectedCourseWorkspaceId={selectedCourseWorkspaceId}
-                  activeConversationId={activeConversationId}
-                  onToggle={togglePath}
-                  onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
-                  onOpenPath={(path) => void openPath(path)}
-                  onOpenHtmlFile={(file) => void loadCourseHtmlFile(file)}
-                  onOpenCourse={(relativePath) => selectCourseFolder(relativePath, workspace.id)}
-                  onOpenLesson={(lesson) => {
-                    void loadLesson(lesson)
-                  }}
-                  onOpenConversation={(conversationId) => void loadAgentConversation(conversationId, workspace.id)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="workspace-conversation-empty">{t('sidebar.emptyCourses')}</div>
-          )}
+          <div className="sidebar-disclosure-inner">
+            {workspaceFolders.length > 0 ? (
+              <div className="workspace-file-tree workspace-file-tree--courses" role="tree">
+                {workspaceFolders.map(({ workspace, node }) => (
+                  <WorkspaceFileNodeRow
+                    key={workspaceNodeKey(workspace.id, node.relativePath)}
+                    node={node}
+                    workspace={workspace}
+                    level={0}
+                    treeRoot="courses"
+                    expandedPaths={expandedPaths}
+                    activeWorkspaceId={activeWorkspaceId}
+                    selectedLessonPath={selectedLessonPath}
+                    selectedCourseRelativePath={selectedCourseRelativePath}
+                    selectedCourseWorkspaceId={selectedCourseWorkspaceId}
+                    activeConversationId={activeConversationId}
+                    onToggle={togglePath}
+                    onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
+                    onOpenPath={(path) => void openPath(path)}
+                    onOpenHtmlFile={(file) => void loadCourseHtmlFile(file)}
+                    onOpenCourse={(relativePath) => selectCourseFolder(relativePath, workspace.id)}
+                    onOpenLesson={(lesson) => {
+                      void loadLesson(lesson)
+                    }}
+                    onOpenConversation={(conversationId) => void loadAgentConversation(conversationId, workspace.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="workspace-conversation-empty">{t('sidebar.emptyCourses')}</div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+      {importDialogOpen ? <ImportWorkspaceDialog onClose={() => setImportDialogOpen(false)} /> : null}
+    </>
+  )
+}
+
+function ImportWorkspaceDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
+  const titleId = useId()
+  const settings = useAppStore((s) => s.settings)
+  const activeWorkspace = useAppStore((s) => s.appState.activeWorkspace)
+  const loading = useAppStore((s) => s.loading)
+  const importWorkspace = useAppStore((s) => s.importWorkspace)
+  const importWorkspacePath = useAppStore((s) => s.importWorkspacePath)
+  const openImportLocation = useAppStore((s) => s.openImportLocation)
+  const [path, setPath] = useState(settings.workspace.defaultRoot || activeWorkspace?.rootPath || '')
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [onClose])
+
+  const handleChoose = async (): Promise<void> => {
+    if (await importWorkspace()) onClose()
+  }
+
+  const handleImportPath = async (): Promise<void> => {
+    if (await importWorkspacePath(path)) onClose()
+  }
+
+  const handleOpenManager = (): void => {
+    void openImportLocation(path.trim() || undefined)
+  }
+
+  return createPortal(
+    <div
+      className="import-dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <section className="import-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div className="import-dialog-header">
+          <div>
+            <span>{t('workspaceImport.eyebrow')}</span>
+            <h2 id={titleId}>{t('workspaceImport.title')}</h2>
+          </div>
+          <button type="button" className="settings-close-button" onClick={onClose} aria-label={t('workspaceImport.close')}>
+            <X size={16} />
+          </button>
+        </div>
+        <label className="import-dialog-field">
+          <span>{t('workspaceImport.pathLabel')}</span>
+          <input
+            autoFocus
+            type="text"
+            value={path}
+            placeholder={t('workspaceImport.pathPlaceholder')}
+            onChange={(event) => setPath(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                void handleImportPath()
+              }
+            }}
+          />
+        </label>
+        <div className="import-dialog-tools">
+          <button type="button" className="ghost-button" onClick={() => void handleChoose()} disabled={loading}>
+            <FolderOpen size={15} />
+            {t('workspaceImport.choose')}
+          </button>
+          <button type="button" className="ghost-button" onClick={handleOpenManager} disabled={loading}>
+            <ArrowUpRight size={15} />
+            {t('workspaceImport.manage')}
+          </button>
+        </div>
+        <div className="import-dialog-footer">
+          <button type="button" className="ghost-button" onClick={onClose}>
+            {t('common.cancel')}
+          </button>
+          <button type="button" className="primary-button" onClick={() => void handleImportPath()} disabled={loading || !path.trim()}>
+            <Upload size={15} />
+            {t('workspaceImport.import')}
+          </button>
+        </div>
+      </section>
+    </div>,
+    document.body
   )
 }
 
@@ -2391,43 +2541,10 @@ function RemoveWorkspaceItemDialog({
     return () => document.removeEventListener('keydown', handleEscape)
   }, [onClose])
 
-  if (itemKind === 'directory') {
-    return createPortal(
-      <div
-        className="remove-dialog-backdrop remove-dialog-backdrop--folder"
-        role="presentation"
-        onMouseDown={(event) => {
-          if (event.target === event.currentTarget) onClose()
-        }}
-      >
-        <section className="remove-folder-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
-          <button type="button" className="remove-folder-dialog-close" onClick={onClose} aria-label={t('sidebar.removeDialog.close')}>
-            <X size={16} />
-          </button>
-          <div className="remove-folder-dialog-copy">
-            <h2 id={titleId} className="remove-folder-dialog-title">
-              {t('sidebar.removeDialog.folderTitle', { name: itemName })}
-            </h2>
-            <p id={descriptionId} className="remove-folder-dialog-detail">
-              {t('sidebar.removeDialog.folderDetail')}
-            </p>
-          </div>
-          <div className="remove-folder-dialog-actions">
-            <button type="button" className="remove-folder-dialog-cancel" onClick={onClose}>
-              {t('common.cancel')}
-            </button>
-            <button type="button" className="remove-folder-dialog-remove" onClick={onRemoveFromList}>
-              {t('sidebar.removeDialog.confirm')}
-            </button>
-          </div>
-        </section>
-      </div>,
-      document.body
-    )
-  }
-
   const kindLabel = itemKind === 'conversation'
     ? t('sidebar.removeDialog.kindConversation')
+    : itemKind === 'directory'
+      ? t('sidebar.removeDialog.kindFolder')
     : t('sidebar.removeDialog.kindFile')
 
   return createPortal(
@@ -2793,8 +2910,9 @@ function isTemporaryConversation(conversation: AgentConversationSummary): boolea
 
 function isCourseConversationPath(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath)
-  return /^lessons\/conversations\/[^/]+\.md$/i.test(normalized) ||
-    /^courses\/[^/]+\/conversations\/[^/]+\.md$/i.test(normalized)
+  return /^conversation\/[^/]+\.md$/i.test(normalized) ||
+    /^lessons\/conversations?\/[^/]+\.md$/i.test(normalized) ||
+    /^courses\/[^/]+\/conversations?\/[^/]+\.md$/i.test(normalized)
 }
 
 function workspaceNodeKey(workspaceId: string, relativePath: string): string {
@@ -2808,8 +2926,9 @@ function isSidebarCourseFolderPath(relativePath: string): boolean {
 
 function courseRelativePathForConversation(relativePath: string): string | null {
   const parts = normalizeRelativePath(relativePath).split('/').filter(Boolean)
-  if (parts.length === 3 && parts[0] === 'lessons' && parts[1] === 'conversations') return 'lessons'
-  if (parts.length === 4 && parts[0] === 'courses' && parts[2] === 'conversations') return `courses/${parts[1]}`
+  if (parts.length === 2 && parts[0] === 'conversation') return 'lessons'
+  if (parts.length === 3 && parts[0] === 'lessons' && (parts[1] === 'conversation' || parts[1] === 'conversations')) return 'lessons'
+  if (parts.length === 4 && parts[0] === 'courses' && (parts[2] === 'conversation' || parts[2] === 'conversations')) return `courses/${parts[1]}`
   return null
 }
 
@@ -4247,7 +4366,7 @@ function SettingsView({
   onUpdateSettings: (patch: TeachingSettingsPatch) => Promise<void>
   onPickDefaultRoot: () => Promise<void>
   onCreateWorkspace: () => Promise<void>
-  onImportWorkspace: () => Promise<void>
+  onImportWorkspace: () => Promise<boolean>
   onOpenPath: (path: string) => Promise<void>
   onOpenExternal: (url: string) => Promise<void>
   onTestNotification: () => Promise<void>

@@ -46,9 +46,6 @@
       "title": "删除“{{name}}”",
       "detail": "选择这次删除的范围。仅从列表移除会保留本地文件；从磁盘移除会删除对应文件或文件夹。",
       "close": "关闭删除确认",
-      "folderTitle": "移除 {{name}}?",
-      "folderDetail": "这将从 StudiumX 中移除该项目。磁盘上的文件不会被删除。",
-      "confirm": "移除",
       "kindConversation": "对话",
       "kindFolder": "文件夹",
       "kindFile": "文件",
@@ -283,6 +280,16 @@
     "autoOpen": { "label": "生成后打开 lesson", "detail": "生成完成后调用系统默认程序打开 HTML。" },
     "showAllCourseFiles": { "label": "显示所有课程文件", "detail": "开启后在课程树中显示 reference、学习记录和复习数据等伴随文件。" },
     "current": { "label": "当前工作区", "none": "未选择", "create": "新建", "import": "导入", "open": "打开" }
+  },
+  "workspaceImport": {
+    "title": "添加项目",
+    "eyebrow": "项目目录",
+    "close": "关闭添加项目",
+    "pathLabel": "文件夹路径",
+    "pathPlaceholder": "输入或粘贴文件夹路径",
+    "choose": "选择文件夹",
+    "manage": "打开文件管理器",
+    "import": "导入"
   },
   "worktree": {
     "title": "工作树",

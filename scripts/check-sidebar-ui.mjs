@@ -16,8 +16,32 @@ assert.match(
 
 assert.match(
   app,
-  /className="section-add-button"[\s\S]*aria-label=\{t\('sidebar\.addCourseProject'\)\}[\s\S]*void importWorkspace\(\)/,
-  'course section plus button should open the folder import picker'
+  /className="section-add-button"[\s\S]*aria-label=\{t\('sidebar\.addCourseProject'\)\}/,
+  'course section plus button should keep the add project affordance'
+)
+
+assert.match(
+  app,
+  /function ImportWorkspaceDialog\(/,
+  'add project should render an import dialog instead of only opening the restricted native folder picker'
+)
+
+assert.match(
+  app,
+  /const \[importDialogOpen, setImportDialogOpen\] = useState\(false\)/,
+  'course section should keep local state for the import dialog'
+)
+
+assert.match(
+  app,
+  /setImportDialogOpen\(true\)/,
+  'course section plus button should open the import dialog'
+)
+
+assert.match(
+  app,
+  /const openImportLocation = useAppStore\(\(s\) => s\.openImportLocation\)/,
+  'import dialog should expose a system file manager action for managing folders'
 )
 
 assert.match(
@@ -54,6 +78,18 @@ assert.match(
   app,
   /<button[\s\S]*className="workspace-node-button"[\s\S]*aria-expanded=\{isDirectory \? isExpanded : undefined\}[\s\S]*onClick=\{\(\) => void handleOpen\(\)\}[\s\S]*<span className="collapsible-label">[\s\S]*\{isDirectory \? \([\s\S]*<span className="workspace-node-chevron"/,
   'workspace tree folder rows should use one full row button for the label and chevron'
+)
+
+assert.doesNotMatch(
+  app,
+  /if \(itemKind === 'directory'\)/,
+  'folder removal should use the full delete dialog with both list and disk actions'
+)
+
+assert.match(
+  app,
+  /itemKind === 'directory'\s*\?\s*t\('sidebar\.removeDialog\.kindFolder'\)/,
+  'folder removal dialog should label directory targets as folders'
 )
 
 assert.doesNotMatch(
@@ -124,5 +160,7 @@ assert.match(
 
 assert.match(zh, /"addCourseProject": "添加项目"/, 'Chinese locale should label the add project button')
 assert.match(en, /"addCourseProject": "Add project"/, 'English locale should label the add project button')
+assert.doesNotMatch(zh, /StudiumX/, 'Chinese removal copy should use the current TeachOS product name')
+assert.doesNotMatch(en, /StudiumX/, 'English removal copy should use the current TeachOS product name')
 
 console.log('sidebar ui behavior ok')

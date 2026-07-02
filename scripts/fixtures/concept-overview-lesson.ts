@@ -23,6 +23,8 @@ try {
   const state = await service.createWorkspace({ name: 'learn', prompt: '学习目标、可信资源、课程讲义和复习记录沉淀为本地文件。' })
   const workspace = state.activeWorkspace
   assert.ok(workspace)
+  assert.equal(await stat(join(workspace.rootPath, 'lessons')).then((info) => info.isDirectory()).catch(() => false), true)
+  assert.equal(await stat(join(workspace.rootPath, 'conversation')).then((info) => info.isDirectory()).catch(() => false), true)
   assert.equal(await stat(join(workspace.rootPath, 'courses')).then(() => true).catch(() => false), false)
 
   const result = await service.generateLesson({
@@ -41,7 +43,7 @@ try {
   if (result.kind === 'lesson') {
     assert.match(result.lesson.prompt, /springboot|Spring Boot/i)
     assert.match(result.lesson.prompt, /概念/)
-    assert.match(result.lesson.relativePath, /^lessons\//)
+    assert.match(result.lesson.relativePath, /^lessons\/[^/]+\.html$/)
     const html = await readFile(result.lesson.absolutePath, 'utf8')
     assert.match(html, /<!doctype html>/i)
   }

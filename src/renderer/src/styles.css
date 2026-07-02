@@ -1312,6 +1312,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   transform: scale(0.98);
 }
 
+.ghost-button:disabled,
+.primary-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+  box-shadow: none;
+  transform: none;
+}
+
 /* ================================================================
    Alert Banners
    ================================================================ */
@@ -2679,6 +2687,105 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: rgba(20, 47, 95, 0.08);
 }
 
+/* ----- Workspace import dialog ----- */
+
+.import-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 175;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(20, 47, 95, 0.18);
+  backdrop-filter: blur(12px);
+  -webkit-app-region: no-drag;
+}
+
+.import-dialog {
+  display: grid;
+  width: min(480px, calc(100vw - 32px));
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid rgba(20, 47, 95, 0.12);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 253, 0.98)),
+    #ffffff;
+  box-shadow:
+    0 24px 70px rgba(20, 47, 95, 0.2),
+    0 2px 12px rgba(20, 47, 95, 0.08);
+}
+
+.import-dialog-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: start;
+  gap: 12px;
+}
+
+.import-dialog-header span {
+  display: block;
+  color: #68778f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.import-dialog-header h2 {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  color: #182235;
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.import-dialog-field {
+  display: grid;
+  gap: 7px;
+}
+
+.import-dialog-field span {
+  color: #43516a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.import-dialog-field input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  color: #182235;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.import-dialog-field input:focus {
+  border-color: rgba(63, 101, 181, 0.48);
+  box-shadow: 0 0 0 3px rgba(63, 101, 181, 0.12);
+}
+
+.import-dialog-tools,
+.import-dialog-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.import-dialog-tools {
+  justify-content: flex-start;
+}
+
+.import-dialog-footer {
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
 /* ----- Remove confirmation dialog ----- */
 
 .remove-dialog-backdrop {
@@ -2691,117 +2798,6 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: rgba(20, 47, 95, 0.18);
   backdrop-filter: blur(12px);
   -webkit-app-region: no-drag;
-}
-
-.remove-dialog-backdrop--folder {
-  padding: 24px;
-  background: rgba(242, 242, 242, 0.72);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.remove-folder-dialog {
-  position: relative;
-  display: grid;
-  grid-template-rows: 1fr auto;
-  width: min(460px, calc(100vw - 40px));
-  min-height: 170px;
-  padding: 22px 24px 20px;
-  border: 0;
-  border-radius: 24px;
-  background: #ffffff;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
-}
-
-.remove-folder-dialog-close {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  display: inline-grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  padding: 0;
-  color: #a1a1a1;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  transition:
-    background 140ms ease,
-    color 140ms ease;
-}
-
-.remove-folder-dialog-close:hover,
-.remove-folder-dialog-close:focus-visible {
-  color: #5f5f5f;
-  background: #f5f5f5;
-  outline: none;
-}
-
-.remove-folder-dialog-copy {
-  min-width: 0;
-  padding-right: 38px;
-}
-
-.remove-folder-dialog-title {
-  margin: 0;
-  overflow-wrap: anywhere;
-  color: #222222;
-  font-size: 24px;
-  line-height: 1.18;
-  font-weight: 650;
-  letter-spacing: 0;
-}
-
-.remove-folder-dialog-detail {
-  margin: 13px 0 0;
-  color: #8a8a8a;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.remove-folder-dialog-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 24px;
-  align-self: end;
-  margin-top: 26px;
-}
-
-.remove-folder-dialog-cancel,
-.remove-folder-dialog-remove {
-  min-width: 56px;
-  height: 34px;
-  padding: 0 15px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  font-size: 14px;
-  font-weight: 560;
-  letter-spacing: 0;
-}
-
-.remove-folder-dialog-cancel {
-  color: #777777;
-}
-
-.remove-folder-dialog-cancel:hover,
-.remove-folder-dialog-cancel:focus-visible {
-  color: #444444;
-  background: #f5f5f5;
-  outline: none;
-}
-
-.remove-folder-dialog-remove {
-  color: #e53935;
-  background: #fdecec;
-}
-
-.remove-folder-dialog-remove:hover,
-.remove-folder-dialog-remove:focus-visible {
-  background: #fbdede;
-  outline: none;
 }
 
 .remove-dialog {

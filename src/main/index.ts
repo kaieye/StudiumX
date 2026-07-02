@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, protocol, shell } from 'electron'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TeachingSettingsService } from './teaching-settings'
@@ -103,6 +103,10 @@ function registerTeachingIpc(
     }
   })
 
+  ipcMain.handle('teach:import-workspace-path', async (_, rootPathRaw: unknown) =>
+    service.importWorkspace(requireString(rootPathRaw, 'rootPath').trim())
+  )
+
   ipcMain.handle('teach:pick-directory', async (_, defaultPath: unknown) => {
     const mainWindow = BrowserWindow.getFocusedWindow()
     const options: Electron.OpenDialogOptions = {
@@ -115,6 +119,18 @@ function registerTeachingIpc(
       : await dialog.showOpenDialog(options)
     const path = result.filePaths[0] ?? null
     return { canceled: result.canceled || !path, path }
+  })
+
+  ipcMain.handle('teach:open-import-location', async (_, rawPath: unknown) => {
+    const settings = await settingsService.load()
+    const requestedPath = optionalString(rawPath)
+    const basePath = requestedPath ?? (settings.workspace.defaultRoot || app.getPath('documents'))
+    const target = resolve(basePath)
+    if (!requestedPath) {
+      await mkdir(target, { recursive: true }).catch(() => {})
+    }
+    const message = await shell.openPath(target)
+    return { ok: message.length === 0, message: message || undefined }
   })
 
   ipcMain.handle('teach:update-mission', async (_, payload: unknown) =>
@@ -195,7 +211,8 @@ function registerTeachingIpc(
     const settings = await settingsService.load()
     const allowed =
       state.workspaces.some((workspace) => isInside(workspace.rootPath, target)) ||
-      isInside(settings.worktree.rootPath, target)
+      isInsideConfigured(settings.worktree.rootPath, target) ||
+      isInsideConfigured(settings.workspace.defaultRoot, target)
     if (!allowed) {
       return { ok: false, message: 'Path is outside registered teaching workspaces.' }
     }
@@ -818,4 +835,8 @@ function requireWindowControlAction(value: unknown): WindowControlAction {
 function isInside(rootPath: string, targetPath: string): boolean {
   const relation = relative(resolve(rootPath), resolve(targetPath))
   return relation === '' || (!relation.startsWith('..') && !isAbsolute(relation))
+}
+
+function isInsideConfigured(rootPath: string, targetPath: string): boolean {
+  return rootPath.trim().length > 0 && isInside(rootPath, targetPath)
 }
