@@ -209,12 +209,14 @@ type StoreState = {
   agentChatBusy: boolean
   agentStatus: string
   agentInput: string
+  agentInputHistory: string[]
   agentToolsSupported: boolean | null
   pendingAgentConversation: PendingAgentConversation | null
   gitBranchesRoot: string
   gitBranchesResult: TeachingGitBranchesResult | null
   gitBranchesLoading: boolean
   setAgentInput: (input: string) => void
+  rememberAgentInput: (input: string) => void
   clearAgentChat: () => void
   cancelAgentChat: () => Promise<void>
   restorePendingAgentConversation: () => void
@@ -731,12 +733,16 @@ const useAppStore = create<StoreState>((set, get) => ({
   agentChatBusy: false,
   agentStatus: '',
   agentInput: '',
+  agentInputHistory: [],
   agentToolsSupported: null,
   pendingAgentConversation: null,
   gitBranchesRoot: '',
   gitBranchesResult: null,
   gitBranchesLoading: false,
   setAgentInput: (agentInput) => set({ agentInput }),
+  rememberAgentInput: (input) => {
+    set({ agentInputHistory: appendAgentInputHistory(get().agentInputHistory, input) })
+  },
   clearAgentChat: () => {
     if (get().agentChatBusy && get().pendingAgentConversation) {
       set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null })
@@ -1063,6 +1069,14 @@ const useAppStore = create<StoreState>((set, get) => ({
     const prompt = get().taskPrompt.trim()
     const settings = get().settings
     if (!workspace || !prompt) return
+    const lessonMessages = activeTeachingConversationSummary({
+      state: get().appState,
+      workspaceId: workspace.id,
+      activeConversationId: get().activeConversationId,
+      pendingAgentConversation: get().pendingAgentConversation
+    })
+      ? agentTurnsToMessages(get().agentTurns)
+      : []
     if (
       settings.workspace.confirmBeforeGenerating &&
       !window.confirm(i18n.t('dialogs.confirmGenerate'))
@@ -1086,7 +1100,8 @@ const useAppStore = create<StoreState>((set, get) => ({
       const result = await api.generateLesson({
         workspaceId: workspace.id,
         prompt,
-        courseName: suggestedCourseName(workspace, prompt)
+        courseName: suggestedCourseName(workspace, prompt),
+        messages: lessonMessages
       })
       if (result.kind === 'clarification') {
         set({
@@ -1139,6 +1154,14 @@ const useAppStore = create<StoreState>((set, get) => ({
     const prompt = get().taskPrompt.trim()
     const settings = get().settings
     if (!workspace || !prompt) return
+    const lessonMessages = activeTeachingConversationSummary({
+      state: get().appState,
+      workspaceId: workspace.id,
+      activeConversationId: get().activeConversationId,
+      pendingAgentConversation: get().pendingAgentConversation
+    })
+      ? agentTurnsToMessages(get().agentTurns)
+      : []
     if (
       settings.workspace.confirmBeforeGenerating &&
       !window.confirm(i18n.t('dialogs.confirmGenerate'))
@@ -1164,7 +1187,8 @@ const useAppStore = create<StoreState>((set, get) => ({
         {
           workspaceId: workspace.id,
           prompt,
-          courseName: suggestedCourseName(workspace, prompt)
+          courseName: suggestedCourseName(workspace, prompt),
+          messages: lessonMessages
         },
         (chunk: LessonStreamChunk) => {
           liveText += chunk.delta
@@ -1287,9 +1311,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       createdAt
     }
     // Build the prior transcript (text-only) to send back for multi-turn context.
-    const priorMessages: AgentChatMessage[] = get().agentTurns
-      .filter((turn) => turn.role === 'user' || turn.role === 'assistant')
-      .map((turn) => ({ role: turn.role, content: turn.content }))
+    const priorMessages = agentTurnsToMessages(get().agentTurns)
     const assistantId = `a-${Date.now()}`
     const assistantTurn: AgentChatTurn = {
       id: assistantId,
@@ -2987,6 +3009,31 @@ function findConversationSummary(
     null
 }
 
+function activeTeachingConversationSummary({
+  state,
+  workspaceId,
+  activeConversationId,
+  pendingAgentConversation
+}: {
+  state: TeachingAppState
+  workspaceId: string | null | undefined
+  activeConversationId: string | null
+  pendingAgentConversation: PendingAgentConversation | null
+}): AgentConversationSummary | null {
+  if (!workspaceId || !activeConversationId) return null
+  const conversation = pendingAgentConversation?.workspaceId === workspaceId &&
+    pendingAgentConversation.summary.id === activeConversationId
+    ? pendingAgentConversation.summary
+    : findConversationSummary(state, workspaceId, activeConversationId)
+  return conversation && !isTemporaryConversation(conversation) ? conversation : null
+}
+
+function agentTurnsToMessages(turns: AgentChatTurn[]): AgentChatMessage[] {
+  return turns
+    .filter((turn) => turn.role === 'user' || turn.role === 'assistant')
+    .map((turn) => ({ role: turn.role, content: turn.content }))
+}
+
 function isPendingConversationSummary(
   conversation: AgentConversationSummary | null | undefined
 ): conversation is SidebarConversationSummary & { pending: true } {
@@ -3067,6 +3114,25 @@ function courseRelativePathForConversation(relativePath: string): string | null 
   if (parts.length === 3 && parts[0] === 'lessons' && (parts[1] === 'conversation' || parts[1] === 'conversations')) return 'lessons'
   if (parts.length === 4 && parts[0] === 'courses' && (parts[2] === 'conversation' || parts[2] === 'conversations')) return `courses/${parts[1]}`
   return null
+}
+
+const MAX_AGENT_INPUT_HISTORY = 80
+
+function appendAgentInputHistory(history: string[], input: string): string[] {
+  const value = input.trim()
+  if (!value) return history
+  const withoutCurrent = history.filter((item) => item !== value)
+  return [...withoutCurrent, value].slice(-MAX_AGENT_INPUT_HISTORY)
+}
+
+function mergeAgentInputHistory(...sources: Array<string[] | undefined>): string[] {
+  return sources.flat().reduce<string[]>((history, input) => appendAgentInputHistory(history, input ?? ''), [])
+}
+
+function userTurnInputHistory(turns: AgentChatTurn[]): string[] {
+  return turns
+    .filter((turn) => turn.role === 'user')
+    .map((turn) => turn.content)
 }
 
 function pendingAgentConversationRelativePath({
@@ -4162,6 +4228,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     agentStatus,
     agentInput,
     setAgentInput,
+    agentInputHistory,
+    rememberAgentInput,
     setTaskPrompt,
     generating,
     settings,
@@ -4172,19 +4240,43 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   } = useAppStore()
   const view = useAppStore((s) => s.view)
   const overviewDialogMode = useAppStore((s) => s.overviewDialogMode)
+  const appState = useAppStore((s) => s.appState)
   const isTeachingMode = view !== 'agent' && overviewDialogMode === 'teaching'
   const inputValue = agentInput
   const busy = isTeachingMode ? generating || agentChatBusy : agentChatBusy
   const canSend = Boolean(active && inputValue.trim() && !busy)
   const hasConversation = agentTurns.length > 0
   const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [inputHistoryIndex, setInputHistoryIndex] = useState<number | null>(null)
+  const [inputHistoryDraft, setInputHistoryDraft] = useState('')
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
   const viewingBusyPendingConversation = agentChatBusy && activeConversationId === pendingAgentConversation?.summary.id
   const canCancelAgentChat = agentChatBusy && Boolean(pendingAgentConversation)
+  const sentInputHistory = useMemo(
+    () => mergeAgentInputHistory(agentInputHistory, userTurnInputHistory(agentTurns)),
+    [agentInputHistory, agentTurns]
+  )
+  const activeConversationSummary = useMemo(() => activeTeachingConversationSummary({
+    state: appState,
+    workspaceId: active?.id,
+    activeConversationId,
+    pendingAgentConversation
+  }), [active?.id, activeConversationId, appState, pendingAgentConversation])
+  const continueTeachingConversation = isTeachingMode && Boolean(
+    activeConversationSummary
+  )
   const submitTeachingPrompt = (value: string): void => {
     const prompt = value.trim()
     if (!prompt) return
+    rememberAgentInput(prompt)
+    setInputHistoryIndex(null)
+    setInputHistoryDraft('')
+    if (continueTeachingConversation) {
+      void agentChat(prompt, { mode: 'teaching' })
+      return
+    }
     setTaskPrompt(prompt)
     setAgentInput('')
     void (settings.generator.streaming ? generateLessonStream() : generateLesson())
@@ -4192,12 +4284,56 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const submitChatPrompt = (value: string): void => {
     const prompt = value.trim()
     if (!prompt) return
+    rememberAgentInput(prompt)
+    setInputHistoryIndex(null)
+    setInputHistoryDraft('')
     void agentChat(prompt, { mode: 'temporary' })
   }
   const submitCurrentMode = (): void => {
     if (!canSend) return
     if (isTeachingMode) submitTeachingPrompt(inputValue)
     else submitChatPrompt(inputValue)
+  }
+  const setInputFromHistory = (value: string): void => {
+    setAgentInput(value)
+    window.requestAnimationFrame(() => {
+      const node = inputRef.current
+      if (!node) return
+      node.setSelectionRange(value.length, value.length)
+    })
+  }
+  const navigateSentInputHistory = (event: ReactKeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return false
+    if (isInputComposing(event) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false
+    if (sentInputHistory.length === 0) return false
+
+    const { selectionStart, selectionEnd, value } = event.currentTarget
+    if (selectionStart !== selectionEnd) return false
+    if (event.key === 'ArrowUp' && selectionStart !== 0) return false
+    if (event.key === 'ArrowDown' && selectionStart !== value.length) return false
+
+    event.preventDefault()
+    if (event.key === 'ArrowUp') {
+      const nextIndex = inputHistoryIndex === null
+        ? sentInputHistory.length - 1
+        : Math.max(0, inputHistoryIndex - 1)
+      if (inputHistoryIndex === null) setInputHistoryDraft(value)
+      setInputHistoryIndex(nextIndex)
+      setInputFromHistory(sentInputHistory[nextIndex] ?? '')
+      return true
+    }
+
+    if (inputHistoryIndex === null) return true
+    const nextIndex = inputHistoryIndex + 1
+    if (nextIndex >= sentInputHistory.length) {
+      setInputHistoryIndex(null)
+      setInputFromHistory(inputHistoryDraft)
+      setInputHistoryDraft('')
+      return true
+    }
+    setInputHistoryIndex(nextIndex)
+    setInputFromHistory(sentInputHistory[nextIndex] ?? '')
+    return true
   }
 
   useEffect(() => {
@@ -4248,6 +4384,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       >
         <div className="overview-dialog-card">
           <textarea
+            ref={inputRef}
             value={inputValue}
             aria-label={t('overview.taskAria')}
             placeholder={active
@@ -4255,8 +4392,13 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
                 ? '说说你想学什么、当前基础，以及希望先解决什么问题…'
                 : '输入对话内容...'
               : t('overview.placeholderEmpty')}
-            onChange={(event) => setAgentInput(event.target.value)}
+            onChange={(event) => {
+              setAgentInput(event.target.value)
+              setInputHistoryIndex(null)
+              setInputHistoryDraft('')
+            }}
             onKeyDown={(event) => {
+              if (navigateSentInputHistory(event)) return
               if (event.key === 'Enter' && !event.shiftKey) {
                 if (isInputComposing(event)) return
                 event.preventDefault()

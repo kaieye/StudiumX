@@ -65,26 +65,50 @@ assert.match(
 
 assert.match(
   app,
-  /submitTeachingPrompt\(inputValue\)/,
-  'teaching-mode submit should send the teaching input through lesson generation'
+  /const continueTeachingConversation = isTeachingMode && Boolean/,
+  'teaching-mode composer should detect when the visible chat is an existing teaching conversation'
 )
 
 assert.match(
   app,
-  /settings\.generator\.streaming \? generateLessonStream\(\) : generateLesson\(\)/,
-  'teaching-mode submit should route through the configured lesson generator'
+  /if \(continueTeachingConversation\) \{\s*void agentChat\(prompt, \{ mode: 'teaching' \}\)\s*return\s*\}/,
+  'teaching-mode follow-up answers should continue the teaching conversation before any lesson generation'
+)
+
+assert.match(
+  app,
+  /submitTeachingPrompt\(inputValue\)/,
+  'teaching-mode submit should keep using the teaching submit handler'
+)
+
+assert.match(
+  app,
+  /void \(settings\.generator\.streaming \? generateLessonStream\(\) : generateLesson\(\)\)/,
+  'new teaching prompts without an active teaching conversation should still route through the configured lesson generator'
+)
+
+assert.match(
+  app,
+  /const lessonMessages = activeTeachingConversationSummary\(/,
+  'lesson generation should derive context only from an active teaching conversation'
+)
+
+assert.match(
+  app,
+  /messages: lessonMessages/,
+  'lesson generation should send active teaching conversation history to the generator'
 )
 
 assert.doesNotMatch(
   app,
   /agentChat\(isTeachingMode \? inputValue : undefined\)/,
-  'teaching-mode submit must not route concept learning requests through agent chat'
+  'teaching-mode submit must not indiscriminately route every concept learning request through temporary agent chat'
 )
 
 assert.doesNotMatch(
   app,
-  /generateLesson(?:Stream)?\([\s\S]*messages:\s*get\(\)\.agentTurns/,
-  'lesson generation must not inject temporary chat history into course design'
+  /messages:\s*get\(\)\.agentTurns/,
+  'lesson generation must not inject raw or temporary chat history into course design'
 )
 
 assert.match(

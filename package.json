@@ -10,6 +10,7 @@
     "check:agent-chat": "node scripts/check-agent-chat-model-routing.mjs",
     "check:agent-chat-cancel": "node scripts/check-agent-chat-cancel.mjs",
     "check:course-conversations": "node scripts/check-course-conversations.mjs",
+    "check:message-history-keyboard": "node scripts/check-message-history-keyboard.mjs",
     "check:agent-process-timeline": "node scripts/check-agent-process-timeline.mjs",
     "check:dsml-tool-calls": "node scripts/check-dsml-tool-calls.mjs",
     "check:teaching-mode": "node scripts/check-overview-teaching-mode.mjs",

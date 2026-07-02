@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -92,6 +92,32 @@ try {
     conversationId: saved.conversation.id
   })
   assert.equal(loaded.relativePath, saved.conversation.relativePath)
+
+  const continued = await service.saveAgentConversation({
+    workspaceId: workspace.id,
+    mode: 'teaching',
+    conversationId: saved.conversation.id,
+    turns: [
+      ...loaded.turns,
+      {
+        id: 'u2',
+        role: 'user',
+        content: '我是后端工程师，想用公司 Markdown 文档做 RAG 问答 demo。',
+        createdAt: '2026-07-01T00:00:02.000Z'
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        content: '已把你的背景和目标纳入这条课程对话。',
+        createdAt: '2026-07-01T00:00:03.000Z'
+      }
+    ]
+  })
+  assert.equal(continued.conversation.id, saved.conversation.id)
+  assert.equal(continued.conversation.relativePath, saved.conversation.relativePath)
+  assert.equal(continued.conversation.messageCount, 4)
+  const continuedMarkdown = await readFile(join(workspace.rootPath, continued.conversation.relativePath), 'utf8')
+  assert.match(continuedMarkdown, /我是后端工程师，想用公司 Markdown 文档做 RAG 问答 demo。/)
 
   const customCourseRelativePath = 'courses/rag-project'
   const customCourseConversation = await service.saveAgentConversation({
