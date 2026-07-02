@@ -2046,6 +2046,7 @@ function WorkspaceCourseSection({
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const openPath = useAppStore((s) => s.openPath)
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
+  const importWorkspace = useAppStore((s) => s.importWorkspace)
   const showAllCourseFiles = useAppStore((s) => s.settings.workspace.showAllCourseFiles)
   const workspaceFolders = useMemo(
     () => listSidebarWorkspaceFolders(workspaces, showAllCourseFiles),
@@ -2084,8 +2085,22 @@ function WorkspaceCourseSection({
           title={expanded ? t('sidebar.collapseCourses') : t('sidebar.expandCourses')}
           onClick={onToggle}
         >
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           <span className="collapsible-label">{t('sidebar.courses')}</span>
+          <span className="section-folder-chevron" aria-hidden="true">
+            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </span>
+        </button>
+        <button
+          className="section-add-button"
+          type="button"
+          aria-label={t('sidebar.addCourseProject')}
+          title={t('sidebar.addCourseProject')}
+          onClick={(event) => {
+            event.stopPropagation()
+            void importWorkspace()
+          }}
+        >
+          <Plus size={14} />
         </button>
       </div>
       <div
@@ -2161,8 +2176,10 @@ function SidebarConversationSection({
           title={expanded ? t('sidebar.collapseConversations') : t('sidebar.expandConversations')}
           onClick={onToggle}
         >
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           <span className="collapsible-label">{t('sidebar.conversations')}</span>
+          <span className="section-folder-chevron" aria-hidden="true">
+            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </span>
         </button>
       </div>
       <div
@@ -2365,11 +2382,6 @@ function RemoveWorkspaceItemDialog({
   const { t } = useTranslation()
   const titleId = useId()
   const descriptionId = useId()
-  const kindLabel = itemKind === 'conversation'
-    ? t('sidebar.removeDialog.kindConversation')
-    : itemKind === 'directory'
-      ? t('sidebar.removeDialog.kindFolder')
-      : t('sidebar.removeDialog.kindFile')
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent): void => {
@@ -2378,6 +2390,45 @@ function RemoveWorkspaceItemDialog({
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
   }, [onClose])
+
+  if (itemKind === 'directory') {
+    return createPortal(
+      <div
+        className="remove-dialog-backdrop remove-dialog-backdrop--folder"
+        role="presentation"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose()
+        }}
+      >
+        <section className="remove-folder-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+          <button type="button" className="remove-folder-dialog-close" onClick={onClose} aria-label={t('sidebar.removeDialog.close')}>
+            <X size={16} />
+          </button>
+          <div className="remove-folder-dialog-copy">
+            <h2 id={titleId} className="remove-folder-dialog-title">
+              {t('sidebar.removeDialog.folderTitle', { name: itemName })}
+            </h2>
+            <p id={descriptionId} className="remove-folder-dialog-detail">
+              {t('sidebar.removeDialog.folderDetail')}
+            </p>
+          </div>
+          <div className="remove-folder-dialog-actions">
+            <button type="button" className="remove-folder-dialog-cancel" onClick={onClose}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" className="remove-folder-dialog-remove" onClick={onRemoveFromList}>
+              {t('sidebar.removeDialog.confirm')}
+            </button>
+          </div>
+        </section>
+      </div>,
+      document.body
+    )
+  }
+
+  const kindLabel = itemKind === 'conversation'
+    ? t('sidebar.removeDialog.kindConversation')
+    : t('sidebar.removeDialog.kindFile')
 
   return createPortal(
     <div
@@ -2478,9 +2529,7 @@ function ConversationListRow({
         {conversation.pending ? <Loader2 className="spin" size={13} /> : conversation.pinned ? <Pin size={11} className="row-pin-indicator" /> : <MessageSquare size={13} />}
         <span className="workspace-conversation-body">
           <span className="workspace-conversation-title">{conversation.title}</span>
-          <span className="workspace-conversation-meta">
-            {conversation.pending ? '进行中' : t('sidebar.messageCount', { count: conversation.messageCount })}
-          </span>
+          {conversation.pending ? <span className="workspace-conversation-meta">{t('sidebar.pendingConversation')}</span> : null}
         </span>
       </button>
       {!conversation.pending && (
@@ -2541,7 +2590,6 @@ function WorkspaceFileNodeRow({
   onOpenLesson: (lesson: LessonSummary) => void
   onOpenConversation: (conversationId: string) => void
 }) {
-  const { t } = useTranslation()
   const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
   const removeWorkspace = useAppStore((s) => s.removeWorkspace)
@@ -2576,13 +2624,13 @@ function WorkspaceFileNodeRow({
     if (isDirectory) {
       if (isWorkspaceFolder) {
         await onEnsureWorkspaceSelected()
-        if (!isExpanded) onToggle(workspace.id, node.relativePath)
+        onToggle(workspace.id, node.relativePath)
         return
       }
       if (isCourseFolder) {
         await onEnsureWorkspaceSelected()
         onOpenCourse?.(node.relativePath, workspace.id)
-        if (!isExpanded) onToggle(workspace.id, node.relativePath)
+        onToggle(workspace.id, node.relativePath)
         return
       }
       onToggle(workspace.id, node.relativePath)
@@ -2646,28 +2694,26 @@ function WorkspaceFileNodeRow({
   return (
     <div className="workspace-node">
       <div
-        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${conversation ? 'is-conversation' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
+        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${conversation ? 'is-conversation' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
         style={{ paddingLeft: 4 + level * 12 }}
         role="treeitem"
         aria-expanded={isDirectory ? isExpanded : undefined}
       >
-        {isDirectory ? (
-          <button
-            className="workspace-node-toggle"
-            type="button"
-            aria-label={isExpanded ? t('sidebar.collapseFolder') : t('sidebar.expandFolder')}
-            title={isExpanded ? t('sidebar.collapseFolder') : t('sidebar.expandFolder')}
-            onClick={() => onToggle(workspace.id, node.relativePath)}
-          >
-            {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          </button>
-        ) : (
-          <span className="workspace-node-toggle-placeholder" />
-        )}
-        <button className="workspace-node-button" type="button" title={node.absolutePath} onClick={() => void handleOpen()}>
+        <button
+          className="workspace-node-button"
+          type="button"
+          title={node.absolutePath}
+          aria-expanded={isDirectory ? isExpanded : undefined}
+          onClick={() => void handleOpen()}
+        >
           <Icon size={13} />
           {node.pinned ? <Pin size={10} className="row-pin-indicator" /> : null}
           <span className="collapsible-label">{conversation?.title ?? lesson?.sessionName ?? node.name}</span>
+          {isDirectory ? (
+            <span className="workspace-node-chevron" aria-hidden="true">
+              {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </span>
+          ) : null}
         </button>
         <RowContextMenu
           pinned={!!node.pinned}

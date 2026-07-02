@@ -326,7 +326,7 @@ body.is-sidebar-resizing .app-shell {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 4px 10px 12px;
+  padding: 4px 4px 12px 10px;
   border-right: 0;
   background:
     linear-gradient(180deg, rgba(246, 249, 254, 0.98), rgba(237, 243, 252, 0.98));
@@ -616,12 +616,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 .section-heading--folder {
   padding: 0 3px;
+  gap: 4px;
 }
 
 .section-folder-button {
   display: inline-flex;
   align-items: center;
-  width: 100%;
+  flex: 1 1 auto;
+  width: auto;
   min-width: 0;
   min-height: 30px;
   gap: 6px;
@@ -640,13 +642,50 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 .section-folder-button:hover {
   color: #526174;
-  background: rgba(108, 162, 221, 0.1);
+  background: transparent;
 }
 
-.section-folder-button svg {
+.section-folder-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  width: 14px;
   color: #94a1b3;
-  transition: transform 180ms ease;
+  opacity: 0;
+  transform: translateX(-2px);
+  transition:
+    opacity 120ms ease,
+    transform 160ms ease;
+}
+
+.section-folder-button:hover .section-folder-chevron,
+.section-folder-button:focus-visible .section-folder-chevron {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.section-add-button {
+  display: inline-grid;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  color: #637188;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.section-add-button:hover,
+.section-add-button:focus-visible {
+  color: #26344b;
+  background: rgba(108, 162, 221, 0.13);
+  outline: none;
 }
 
 .sidebar-disclosure {
@@ -760,7 +799,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .workspace-main-button span,
-.workspace-node-button span {
+.workspace-node-button > .collapsible-label {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -842,13 +881,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .workspace-node-row:hover,
-.workspace-node-row.is-selected {
+.workspace-node-row.is-selected:not(.is-course-folder):not(.is-conversation) {
   color: #22324b;
   background: rgba(79, 124, 245, 0.1);
 }
 
 .workspace-node-row.is-conversation.is-selected {
-  background: rgba(47, 155, 115, 0.12);
+  color: #68778f;
+  background: transparent;
 }
 
 .workspace-node-row.is-workspace-folder,
@@ -876,8 +916,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: rgba(79, 124, 245, 0.2);
 }
 
-.workspace-node-row.is-workspace-folder.is-selected,
-.workspace-node-row.is-course-folder.is-selected {
+.workspace-node-row.is-workspace-folder.is-selected {
   color: #1f2d44;
   background: #ffffff;
   box-shadow:
@@ -885,35 +924,37 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     0 8px 20px rgba(20, 47, 95, 0.055);
 }
 
-.workspace-node-toggle,
-.workspace-node-toggle-placeholder {
-  flex: 0 0 20px;
-  width: 20px;
+.workspace-node-row.is-course-folder.is-selected {
+  color: #3f4d64;
+  background: rgba(255, 255, 255, 0.48);
+  box-shadow: inset 0 0 0 1px rgba(216, 226, 240, 0.7);
 }
 
-.workspace-node-toggle {
+.workspace-node-chevron {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
+  flex: 0 0 auto;
+  width: 14px;
   color: #96a3b6;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
+  opacity: 0;
+  transform: translateX(-2px);
   transition:
-    background 140ms ease,
     color 140ms ease,
-    transform 180ms ease;
+    opacity 120ms ease,
+    transform 160ms ease;
 }
 
-.workspace-node-toggle:hover {
-  color: #26344b;
-  background: rgba(108, 162, 221, 0.13);
+.workspace-node-row:hover .workspace-node-chevron,
+.workspace-node-row:focus-within .workspace-node-chevron {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .workspace-node-button {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   flex: 1;
   min-width: 0;
   height: 28px;
@@ -926,6 +967,15 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-size: 12px;
   font-weight: 560;
   text-align: left;
+}
+
+.workspace-node-row.is-directory .workspace-node-button {
+  flex: 1 1 auto;
+  max-width: none;
+}
+
+.workspace-node-row.is-directory .workspace-node-button > .collapsible-label {
+  flex: 0 1 auto;
 }
 
 .workspace-node-button svg {
@@ -2419,11 +2469,11 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   display: flex;
   align-items: center;
   min-width: 0;
-  min-height: 36px;
-  padding: 2px 4px 2px 6px;
+  min-height: 32px;
+  padding: 1px 4px 1px 6px;
   color: #657286;
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   background: transparent;
   text-align: left;
   transition: none;
@@ -2439,24 +2489,13 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .workspace-conversation-row.is-selected {
-  color: #1f2d44;
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: inset 0 0 0 1px rgba(20, 47, 95, 0.07);
+  color: #657286;
+  background: transparent;
+  box-shadow: none;
 }
 
 .workspace-conversation-row.is-pending {
   color: #2e405d;
-}
-
-.workspace-conversation-row.is-selected::before {
-  content: "";
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 0;
-  width: 3px;
-  border-radius: 999px;
-  background: #4f7cf5;
 }
 
 .workspace-conversation-main {
@@ -2464,7 +2503,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 32px;
+  min-height: 28px;
   gap: 8px;
   padding: 0 30px 0 5px;
   color: inherit;
@@ -2481,8 +2520,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .workspace-conversation-row:hover .workspace-conversation-main svg,
-.workspace-conversation-row:focus-within .workspace-conversation-main svg,
-.workspace-conversation-row.is-selected .workspace-conversation-main svg {
+.workspace-conversation-row:focus-within .workspace-conversation-main svg {
   color: #4f6178;
 }
 
@@ -2653,6 +2691,117 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: rgba(20, 47, 95, 0.18);
   backdrop-filter: blur(12px);
   -webkit-app-region: no-drag;
+}
+
+.remove-dialog-backdrop--folder {
+  padding: 24px;
+  background: rgba(242, 242, 242, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.remove-folder-dialog {
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  width: min(460px, calc(100vw - 40px));
+  min-height: 170px;
+  padding: 22px 24px 20px;
+  border: 0;
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+.remove-folder-dialog-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  color: #a1a1a1;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.remove-folder-dialog-close:hover,
+.remove-folder-dialog-close:focus-visible {
+  color: #5f5f5f;
+  background: #f5f5f5;
+  outline: none;
+}
+
+.remove-folder-dialog-copy {
+  min-width: 0;
+  padding-right: 38px;
+}
+
+.remove-folder-dialog-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #222222;
+  font-size: 24px;
+  line-height: 1.18;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.remove-folder-dialog-detail {
+  margin: 13px 0 0;
+  color: #8a8a8a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.remove-folder-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 24px;
+  align-self: end;
+  margin-top: 26px;
+}
+
+.remove-folder-dialog-cancel,
+.remove-folder-dialog-remove {
+  min-width: 56px;
+  height: 34px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 560;
+  letter-spacing: 0;
+}
+
+.remove-folder-dialog-cancel {
+  color: #777777;
+}
+
+.remove-folder-dialog-cancel:hover,
+.remove-folder-dialog-cancel:focus-visible {
+  color: #444444;
+  background: #f5f5f5;
+  outline: none;
+}
+
+.remove-folder-dialog-remove {
+  color: #e53935;
+  background: #fdecec;
+}
+
+.remove-folder-dialog-remove:hover,
+.remove-folder-dialog-remove:focus-visible {
+  background: #fbdede;
+  outline: none;
 }
 
 .remove-dialog {

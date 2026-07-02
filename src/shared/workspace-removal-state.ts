@@ -24,12 +24,15 @@ export type WorkspaceRemovalUiPatch = {
 export function deriveWorkspaceRemovalUiPatch(
   target: WorkspaceRemovalTarget,
   snapshot: WorkspaceRemovalUiSnapshot,
-  nextState: Pick<TeachingAppState, 'activeWorkspace'>
+  nextState: Pick<TeachingAppState, 'activeWorkspace' | 'temporaryConversations'>
 ): WorkspaceRemovalUiPatch {
   return {
     clearActiveConversation: shouldClearActiveConversation(
       snapshot.activeConversationId,
-      nextState.activeWorkspace?.conversations ?? []
+      [
+        ...(nextState.activeWorkspace?.conversations ?? []),
+        ...(nextState.temporaryConversations ?? [])
+      ]
     ),
     clearSelectedCoursePreview: pathRemovedByTarget(
       target,

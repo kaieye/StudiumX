@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 const { deriveWorkspaceRemovalUiPatch, pathRemovedByTarget } = await import('../src/shared/workspace-removal-state.ts')
 
 const conversation = (id, relativePath) => ({ id, relativePath })
-const stateWithConversations = (conversations) => ({
+const stateWithConversations = (conversations, temporaryConversations = []) => ({
   activeWorkspace: {
     conversations
-  }
+  },
+  temporaryConversations
 })
 
 assert.deepEqual(
@@ -31,6 +32,18 @@ assert.equal(
     ])
   ).clearActiveConversation,
   false
+)
+
+assert.equal(
+  deriveWorkspaceRemovalUiPatch(
+    { relativePath: 'lessons', kind: 'directory' },
+    { activeConversationId: 'temporary' },
+    stateWithConversations([], [
+      conversation('temporary', 'conversations/temporary.md')
+    ])
+  ).clearActiveConversation,
+  false,
+  'removing a course folder should not clear the active temporary conversation'
 )
 
 assert.equal(
