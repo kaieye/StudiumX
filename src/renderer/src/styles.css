@@ -851,6 +851,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: rgba(47, 155, 115, 0.12);
 }
 
+.workspace-node-row.is-workspace-folder,
 .workspace-node-row.is-course-folder {
   min-height: 32px;
   margin: 1px 0 2px;
@@ -858,6 +859,11 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: rgba(255, 255, 255, 0.48);
   box-shadow: inset 0 0 0 1px rgba(216, 226, 240, 0.7);
   font-weight: 650;
+}
+
+.workspace-node-row.is-workspace-folder {
+  color: #26344b;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .workspace-node-row.is-course-folder::before {
@@ -870,6 +876,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: rgba(79, 124, 245, 0.2);
 }
 
+.workspace-node-row.is-workspace-folder.is-selected,
 .workspace-node-row.is-course-folder.is-selected {
   color: #1f2d44;
   background: #ffffff;

@@ -71,6 +71,7 @@ import type {
   WorkspaceItemKind,
   WorkspaceItemMetaPayload,
   WorkspaceItemRemovePayload,
+  WorkspaceRemovePayload,
   UpdateTeachingMemoryPayload,
   UpdateMissionPayload
 } from '../shared/teaching-types'
@@ -81,6 +82,8 @@ type RegistryWorkspace = {
   rootPath: string
   createdAt: string
   updatedAt: string
+  pinned?: boolean
+  archived?: boolean
 }
 
 type WorkspaceRegistry = {
@@ -155,6 +158,24 @@ const EMPTY_REGISTRY: WorkspaceRegistry = {
   activeWorkspaceId: null,
   workspaces: []
 }
+
+const WORKSPACE_SCAFFOLD_DIRECTORIES = new Set([
+  'lessons',
+  'reference',
+  'learning-records',
+  'reviews',
+  'conversations',
+  'assets'
+])
+
+const WORKSPACE_SCAFFOLD_FILES = new Set([
+  'MISSION.md',
+  'RESOURCES.md',
+  'assets/lesson.css',
+  'assets/quiz.js',
+  'assets/flashcards.css',
+  'assets/flashcards.js'
+])
 
 export class TeachingWorkspaceService {
   private readonly registryPath: string
@@ -290,7 +311,14 @@ export class TeachingWorkspaceService {
     const registry = await this.loadRegistry()
     const existing = registry.workspaces.find((workspace) => samePath(workspace.rootPath, normalizedRoot))
     if (existing) {
-      const nextRegistry = { ...registry, activeWorkspaceId: existing.id }
+      const nextRegistry = {
+        activeWorkspaceId: existing.id,
+        workspaces: orderRegistryWorkspaces(registry.workspaces.map((workspace) =>
+          workspace.id === existing.id
+            ? { ...workspace, archived: false, updatedAt: now }
+            : workspace
+        ))
+      }
       await this.saveRegistry(nextRegistry)
       return this.buildState(nextRegistry, existing.id, null)
     }
@@ -594,7 +622,20 @@ export class TeachingWorkspaceService {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
     const relativePath = normalizeWorkspaceRelativePath(payload.relativePath)
-    if (!relativePath) throw new Error('relativePath is required.')
+    if (!relativePath) {
+      const workspaces = orderRegistryWorkspaces(registry.workspaces.map((entry) =>
+        entry.id === workspace.id
+          ? applyRegistryWorkspaceMeta(entry, payload)
+          : entry
+      ))
+      const visible = visibleRegistryWorkspaces(workspaces)
+      const activeWorkspaceId = registry.activeWorkspaceId && visible.some((entry) => entry.id === registry.activeWorkspaceId)
+        ? registry.activeWorkspaceId
+        : visible[0]?.id ?? null
+      const nextRegistry = { activeWorkspaceId, workspaces }
+      await this.saveRegistry(nextRegistry)
+      return this.buildState(nextRegistry, activeWorkspaceId, null)
+    }
     if (isRootAgentConversationMarkdownRelativePath(relativePath)) {
       const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
       if (await this.hasTemporaryConversation(id)) {
@@ -689,7 +730,7 @@ export class TeachingWorkspaceService {
       (lesson) => !pathRemovedByWorkspaceItem(payload.kind, relativePath, lesson.relativePath)
     )
     const prunedMeta = prunePathMeta(index.pathMeta, relativePath)
-    const nextPathMeta = payload.kind === 'directory' && relativePath === 'lessons'
+    const nextPathMeta = isWorkspaceScaffoldPath(payload.kind, relativePath)
       ? { ...prunedMeta, [relativePath]: { archived: true } }
       : prunedMeta
     await this.saveWorkspaceIndex(workspace.rootPath, {
@@ -700,6 +741,26 @@ export class TeachingWorkspaceService {
     })
 
     return this.buildState(registry, workspace.id, null)
+  }
+
+  async removeWorkspace(payload: WorkspaceRemovePayload): Promise<TeachingAppState> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const mode = payload.mode ?? 'disk'
+    if (mode === 'disk') {
+      assertSafeWorkspaceRootForRemoval(workspace.rootPath)
+      await rm(workspace.rootPath, { recursive: true, force: true })
+    }
+    const workspaces = orderRegistryWorkspaces(registry.workspaces.filter((entry) => entry.id !== workspace.id))
+    const visible = visibleRegistryWorkspaces(workspaces)
+    const activeWorkspaceId = registry.activeWorkspaceId === workspace.id
+      ? visible[0]?.id ?? null
+      : registry.activeWorkspaceId && visible.some((entry) => entry.id === registry.activeWorkspaceId)
+        ? registry.activeWorkspaceId
+        : visible[0]?.id ?? null
+    const nextRegistry = { activeWorkspaceId, workspaces }
+    await this.saveRegistry(nextRegistry)
+    return this.buildState(nextRegistry, activeWorkspaceId, null)
   }
 
   private async archiveWorkspaceItem(
@@ -1216,11 +1277,17 @@ export class TeachingWorkspaceService {
     const registry = await this.loadRegistry()
     const existing = await this.existingRegistryWorkspaces(registry.workspaces)
     if (existing.length > 0) {
-      const activeWorkspaceId = existing.some((item) => item.id === registry.activeWorkspaceId)
+      const orderedExisting = orderRegistryWorkspaces(existing)
+      const visible = visibleRegistryWorkspaces(orderedExisting)
+      const activeWorkspaceId = visible.some((item) => item.id === registry.activeWorkspaceId)
         ? registry.activeWorkspaceId
-        : existing[0]!.id
-      const nextRegistry = { activeWorkspaceId, workspaces: existing }
-      if (nextRegistry.workspaces.length !== registry.workspaces.length || nextRegistry.activeWorkspaceId !== registry.activeWorkspaceId) {
+        : visible[0]?.id ?? null
+      const nextRegistry = { activeWorkspaceId, workspaces: orderedExisting }
+      if (
+        nextRegistry.workspaces.length !== registry.workspaces.length ||
+        nextRegistry.activeWorkspaceId !== registry.activeWorkspaceId ||
+        !sameRegistryWorkspaceOrder(nextRegistry.workspaces, registry.workspaces)
+      ) {
         await this.saveRegistry(nextRegistry)
       }
       return nextRegistry
@@ -1245,7 +1312,8 @@ export class TeachingWorkspaceService {
     activeWorkspaceId?: string | null,
     selectedLessonPath?: string | null
   ): Promise<TeachingAppState> {
-    const summaries = await Promise.all(registry.workspaces.map((workspace) => this.summarizeWorkspace(workspace)))
+    const visibleWorkspaces = visibleRegistryWorkspaces(orderRegistryWorkspaces(registry.workspaces))
+    const summaries = await Promise.all(visibleWorkspaces.map((workspace) => this.summarizeWorkspace(workspace)))
     const temporaryConversations = await this.listTemporaryConversations(registry)
     const activeId = activeWorkspaceId ?? registry.activeWorkspaceId ?? summaries[0]?.id ?? null
     const activeWorkspace = summaries.find((workspace) => workspace.id === activeId) ?? summaries[0] ?? null
@@ -1270,10 +1338,10 @@ export class TeachingWorkspaceService {
   }
 
   private async summarizeWorkspace(workspace: RegistryWorkspace): Promise<TeachingWorkspaceSummary> {
-    await this.ensureWorkspaceStructure(workspace)
-    const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
     const index = await this.loadWorkspaceIndex(workspace)
     const pathMeta = index.pathMeta ?? {}
+    await this.ensureWorkspaceStructure(workspace, pathMeta)
+    const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
     const lessons = await this.mergeLessonIndexWithDisk(workspace.rootPath, workspace.name, index.lessons, pathMeta)
     const conversations = await listAgentConversations(workspace.rootPath, pathMeta)
     const fileTree = await buildWorkspaceFileTree(workspace.rootPath, pathMeta)
@@ -1293,6 +1361,7 @@ export class TeachingWorkspaceService {
       reviewsDir: join(workspace.rootPath, 'lessons'),
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
+      pinned: workspace.pinned,
       missionTitle: mission.title,
       missionExcerpt: mission.excerpt,
       courses,
@@ -1364,23 +1433,24 @@ export class TeachingWorkspaceService {
     return entry
   }
 
-  private async ensureWorkspaceStructure(workspace: RegistryWorkspace): Promise<void> {
+  private async ensureWorkspaceStructure(
+    workspace: RegistryWorkspace,
+    pathMeta?: Record<string, WorkspacePathMeta>
+  ): Promise<void> {
+    const effectivePathMeta = pathMeta ?? (await this.loadWorkspaceIndex(workspace).then((index) => index.pathMeta ?? {}).catch(() => ({})))
     await mkdir(workspace.rootPath, { recursive: true })
     await Promise.all([
-      mkdir(join(workspace.rootPath, 'lessons'), { recursive: true }),
-      mkdir(join(workspace.rootPath, 'reference'), { recursive: true }),
-      mkdir(join(workspace.rootPath, 'learning-records'), { recursive: true }),
-      mkdir(join(workspace.rootPath, 'reviews'), { recursive: true }),
-      mkdir(join(workspace.rootPath, 'conversations'), { recursive: true }),
-      mkdir(join(workspace.rootPath, 'assets'), { recursive: true }),
+      ...Array.from(WORKSPACE_SCAFFOLD_DIRECTORIES)
+        .filter((relativePath) => !isPathArchived(effectivePathMeta, relativePath))
+        .map((relativePath) => mkdir(join(workspace.rootPath, relativePath), { recursive: true })),
       mkdir(join(workspace.rootPath, '.teachos'), { recursive: true })
     ])
-    await writeIfMissing(join(workspace.rootPath, 'assets', 'lesson.css'), LESSON_CSS)
-    await writeIfMissing(join(workspace.rootPath, 'assets', 'quiz.js'), QUIZ_JS)
-    await writeIfMissing(join(workspace.rootPath, 'assets', 'flashcards.css'), FLASHCARD_CSS)
-    await writeIfMissing(join(workspace.rootPath, 'assets', 'flashcards.js'), FLASHCARD_JS)
-    await writeIfMissing(join(workspace.rootPath, 'RESOURCES.md'), renderResources(workspace.name))
-    await writeIfMissing(join(workspace.rootPath, 'MISSION.md'), renderMission(workspace.name, `学习 ${workspace.name}`))
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/lesson.css', LESSON_CSS)
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/quiz.js', QUIZ_JS)
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.css', FLASHCARD_CSS)
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.js', FLASHCARD_JS)
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'RESOURCES.md', renderResources(workspace.name))
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'MISSION.md', renderMission(workspace.name, `学习 ${workspace.name}`))
   }
 
   private async loadRegistry(): Promise<WorkspaceRegistry> {
@@ -1390,8 +1460,13 @@ export class TeachingWorkspaceService {
       return {
         activeWorkspaceId: typeof parsed.activeWorkspaceId === 'string' ? parsed.activeWorkspaceId : null,
         workspaces: parsed.workspaces.filter(isRegistryWorkspace).map((workspace) => ({
-          ...workspace,
-          rootPath: resolve(workspace.rootPath)
+          id: workspace.id,
+          name: workspace.name,
+          rootPath: resolve(workspace.rootPath),
+          createdAt: workspace.createdAt,
+          updatedAt: workspace.updatedAt,
+          ...(workspace.pinned === true ? { pinned: true } : {}),
+          ...(workspace.archived === true ? { archived: true } : {})
         }))
       }
     } catch {
@@ -1632,7 +1707,7 @@ function upsertRegistryWorkspace(
   activeWorkspaceId: string
 ): WorkspaceRegistry {
   const others = registry.workspaces.filter((workspace) => workspace.id !== entry.id)
-  return { activeWorkspaceId, workspaces: [entry, ...others] }
+  return { activeWorkspaceId, workspaces: orderRegistryWorkspaces([entry, ...others]) }
 }
 
 function touchRegistryWorkspace(
@@ -1642,10 +1717,43 @@ function touchRegistryWorkspace(
 ): WorkspaceRegistry {
   return {
     activeWorkspaceId: workspaceId,
-    workspaces: registry.workspaces.map((workspace) =>
+    workspaces: orderRegistryWorkspaces(registry.workspaces.map((workspace) =>
       workspace.id === workspaceId ? { ...workspace, updatedAt } : workspace
-    )
+    ))
   }
+}
+
+function orderRegistryWorkspaces(workspaces: RegistryWorkspace[]): RegistryWorkspace[] {
+  return workspaces
+    .map((workspace, index) => ({ workspace, index }))
+    .sort((left, right) => {
+      const leftPinned = left.workspace.pinned ? 1 : 0
+      const rightPinned = right.workspace.pinned ? 1 : 0
+      if (leftPinned !== rightPinned) return rightPinned - leftPinned
+      return left.index - right.index
+    })
+    .map(({ workspace }) => workspace)
+}
+
+function visibleRegistryWorkspaces(workspaces: RegistryWorkspace[]): RegistryWorkspace[] {
+  return workspaces.filter((workspace) => !workspace.archived)
+}
+
+function applyRegistryWorkspaceMeta(
+  workspace: RegistryWorkspace,
+  patch: Pick<WorkspaceItemMetaPayload, 'pinned' | 'archived'>
+): RegistryWorkspace {
+  const next = { ...workspace }
+  if (patch.pinned === null) delete next.pinned
+  else if (patch.pinned !== undefined) next.pinned = patch.pinned
+  if (patch.archived === null) delete next.archived
+  else if (patch.archived !== undefined) next.archived = patch.archived
+  return next
+}
+
+function sameRegistryWorkspaceOrder(left: RegistryWorkspace[], right: RegistryWorkspace[]): boolean {
+  if (left.length !== right.length) return false
+  return left.every((workspace, index) => workspace.id === right[index]?.id)
 }
 
 function findWorkspace(registry: WorkspaceRegistry, workspaceId: string): RegistryWorkspace {
@@ -1676,6 +1784,13 @@ function samePath(left: string, right: string): boolean {
   return resolve(left).toLowerCase() === resolve(right).toLowerCase()
 }
 
+function assertSafeWorkspaceRootForRemoval(rootPath: string): void {
+  const root = resolve(rootPath)
+  if (samePath(root, dirname(root))) {
+    throw new Error('Cannot remove a filesystem root as a workspace.')
+  }
+}
+
 async function atomicWriteFile(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
@@ -1687,6 +1802,24 @@ async function writeIfMissing(path: string, content: string): Promise<void> {
   if (await fileExists(path)) return
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, content, 'utf8')
+}
+
+async function writeWorkspaceScaffoldFileIfMissing(
+  rootPath: string,
+  pathMeta: Record<string, WorkspacePathMeta>,
+  relativePath: string,
+  content: string
+): Promise<void> {
+  if (isPathArchived(pathMeta, relativePath)) return
+  await writeIfMissing(join(rootPath, relativePath), content)
+}
+
+function isWorkspaceScaffoldPath(kind: WorkspaceItemKind, relativePath: string): boolean {
+  const path = normalizeWorkspaceRelativePath(relativePath)
+  if (!path) return false
+  if (kind === 'directory') return WORKSPACE_SCAFFOLD_DIRECTORIES.has(path)
+  if (kind === 'file') return WORKSPACE_SCAFFOLD_FILES.has(path)
+  return false
 }
 
 async function fileExists(path: string): Promise<boolean> {

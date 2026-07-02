@@ -5,6 +5,31 @@ export type SidebarCourseFolder = {
   node: WorkspaceFileNode
 }
 
+export type SidebarWorkspaceFolder = {
+  workspace: TeachingWorkspaceSummary
+  node: WorkspaceFileNode
+}
+
+export function listSidebarWorkspaceFolders(
+  workspaces: TeachingWorkspaceSummary[],
+  showAllCourseFiles: boolean
+): SidebarWorkspaceFolder[] {
+  return workspaces.map((workspace) => ({
+    workspace,
+    node: {
+      name: workspace.name,
+      kind: 'directory',
+      relativePath: '',
+      absolutePath: workspace.rootPath,
+      pinned: workspace.pinned,
+      children: listSidebarCourseFolders([workspace], showAllCourseFiles).map(({ node }) => ({
+        ...node,
+        name: sidebarCourseNodeName(node)
+      }))
+    }
+  }))
+}
+
 export function listSidebarCourseFolders(
   workspaces: TeachingWorkspaceSummary[],
   showAllCourseFiles: boolean
@@ -50,6 +75,11 @@ function filterCourseTreeToLessons(nodes: WorkspaceFileNode[], lessons: LessonSu
       return { ...node, children }
     })
     .filter((node): node is WorkspaceFileNode => Boolean(node))
+}
+
+function sidebarCourseNodeName(node: WorkspaceFileNode): string {
+  const relativePath = normalizeRelativePath(node.relativePath)
+  return relativePath === 'lessons' ? 'lessons' : node.name
 }
 
 function isCourseConversationPath(relativePath: string): boolean {

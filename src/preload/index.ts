@@ -69,6 +69,7 @@ const api: TeachingSystemApi = {
   readAgentConversation: (payload) => ipcRenderer.invoke('teach:read-agent-conversation', payload),
   setWorkspaceItemMeta: (payload) => ipcRenderer.invoke('teach:set-workspace-item-meta', payload),
   removeWorkspaceItem: (payload) => ipcRenderer.invoke('teach:remove-workspace-item', payload),
+  removeWorkspace: (payload) => ipcRenderer.invoke('teach:remove-workspace', payload),
   listReviewCards: (workspaceId) => ipcRenderer.invoke('teach:list-review-cards', workspaceId),
   recordProgress: (payload) => ipcRenderer.invoke('teach:record-progress', payload),
   getProgress: (workspaceId) => ipcRenderer.invoke('teach:get-progress', workspaceId),

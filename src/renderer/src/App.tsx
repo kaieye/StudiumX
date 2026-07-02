@@ -67,7 +67,7 @@ import remarkGfm from 'remark-gfm'
 import { create } from 'zustand'
 import i18n from './i18n'
 import { buildAgentProcessTimeline } from './agent-process-timeline'
-import { listSidebarCourseFolders } from '../../shared/course-sidebar'
+import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
 import { classifyProviderError } from '../../shared/provider-error'
 import { deriveWorkspaceRemovalUiPatch } from '../../shared/workspace-removal-state'
 import {
@@ -218,6 +218,7 @@ type StoreState = {
   agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode }) => Promise<void>
   setWorkspaceItemMeta: (payload: { workspaceId?: string | null; relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
   removeWorkspaceItem: (payload: { workspaceId?: string | null; relativePath: string; kind: WorkspaceItemKind; mode?: WorkspaceItemRemoveMode }) => Promise<void>
+  removeWorkspace: (payload: { workspaceId: string; mode?: WorkspaceItemRemoveMode }) => Promise<void>
 }
 
 // ================================================================
@@ -1398,7 +1399,32 @@ const useAppStore = create<StoreState>((set, get) => ({
         pinned: payload.pinned,
         archived: payload.archived
       })
-      set({ appState: state, error: null })
+      const archivesWorkspaceRoot = normalizeRelativePath(payload.relativePath) === '' && payload.archived === true
+      const clearsCurrentContext =
+        archivesWorkspaceRoot &&
+        (get().appState.activeWorkspace?.id === workspace.id ||
+          get().selectedCourseWorkspaceId === workspace.id ||
+          get().pendingAgentConversation?.workspaceId === workspace.id)
+      set({
+        appState: state,
+        error: null,
+        ...(clearsCurrentContext
+          ? {
+              lessonReaderOpen: false,
+              selectedCoursePreviewFile: null,
+              selectedCourseRelativePath: null,
+              selectedCourseWorkspaceId: null,
+              taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+              agentTurns: [],
+              activeConversationId: null,
+              agentStatus: '',
+              agentInput: '',
+              agentToolsSupported: null,
+              agentChatBusy: false,
+              pendingAgentConversation: null
+            }
+          : {})
+      })
     } catch (error) {
       set({ error: toUserError(error) })
     }
@@ -1434,6 +1460,46 @@ const useAppStore = create<StoreState>((set, get) => ({
           : {}),
         ...(uiPatch.clearSelectedCourseFolder
           ? { selectedCourseRelativePath: null, selectedCourseWorkspaceId: null }
+          : {})
+      })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  removeWorkspace: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.workspaces.find((item) => item.id === payload.workspaceId)
+    if (!workspace) return
+    const previous = get()
+    const clearsCurrentContext =
+      previous.appState.activeWorkspace?.id === workspace.id ||
+      previous.selectedCourseWorkspaceId === workspace.id ||
+      previous.pendingAgentConversation?.workspaceId === workspace.id
+    try {
+      const state = await api.removeWorkspace({
+        workspaceId: workspace.id,
+        mode: payload.mode ?? 'disk'
+      })
+      set({
+        appState: state,
+        error: null,
+        ...(clearsCurrentContext
+          ? {
+              view: state.activeWorkspace ? previous.view : 'overview',
+              lessonReaderOpen: false,
+              selectedCoursePreviewFile: null,
+              selectedCourseRelativePath: null,
+              selectedCourseWorkspaceId: null,
+              taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+              agentTurns: [],
+              activeConversationId: null,
+              agentStatus: '',
+              agentInput: '',
+              agentToolsSupported: null,
+              agentChatBusy: false,
+              pendingAgentConversation: null
+            }
           : {})
       })
     } catch (error) {
@@ -1981,8 +2047,8 @@ function WorkspaceCourseSection({
   const openPath = useAppStore((s) => s.openPath)
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
   const showAllCourseFiles = useAppStore((s) => s.settings.workspace.showAllCourseFiles)
-  const courseFolders = useMemo(
-    () => listSidebarCourseFolders(workspaces, showAllCourseFiles),
+  const workspaceFolders = useMemo(
+    () => listSidebarWorkspaceFolders(workspaces, showAllCourseFiles),
     [showAllCourseFiles, workspaces]
   )
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
@@ -2028,9 +2094,9 @@ function WorkspaceCourseSection({
         inert={!expanded ? true : undefined}
       >
         <div className="sidebar-disclosure-inner">
-          {courseFolders.length > 0 ? (
+          {workspaceFolders.length > 0 ? (
             <div className="workspace-file-tree workspace-file-tree--courses" role="tree">
-              {courseFolders.map(({ workspace, node }) => (
+              {workspaceFolders.map(({ workspace, node }) => (
                 <WorkspaceFileNodeRow
                   key={workspaceNodeKey(workspace.id, node.relativePath)}
                   node={node}
@@ -2038,6 +2104,7 @@ function WorkspaceCourseSection({
                   level={0}
                   treeRoot="courses"
                   expandedPaths={expandedPaths}
+                  activeWorkspaceId={activeWorkspaceId}
                   selectedLessonPath={selectedLessonPath}
                   selectedCourseRelativePath={selectedCourseRelativePath}
                   selectedCourseWorkspaceId={selectedCourseWorkspaceId}
@@ -2050,7 +2117,7 @@ function WorkspaceCourseSection({
                   onOpenLesson={(lesson) => {
                     void loadLesson(lesson)
                   }}
-                  onOpenConversation={(conversationId) => void loadAgentConversation(conversationId)}
+                  onOpenConversation={(conversationId) => void loadAgentConversation(conversationId, workspace.id)}
                 />
               ))}
             </div>
@@ -2146,12 +2213,16 @@ function RowContextMenu({
   pinned,
   onTogglePin,
   onArchive,
-  onRemove
+  onRemove,
+  showPin = true,
+  showArchive = true
 }: {
   pinned: boolean
   onTogglePin: () => void
   onArchive: () => void
   onRemove: () => void
+  showPin?: boolean
+  showArchive?: boolean
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -2254,15 +2325,19 @@ function RowContextMenu({
             event.stopPropagation()
           }}
         >
-          <button type="button" role="menuitem" className="row-context-menu-item" onClick={() => run(onTogglePin)}>
-            {pinned ? <PinOff size={13} /> : <Pin size={13} />}
-            <span>{pinned ? t('sidebar.unpin') : t('sidebar.pin')}</span>
-          </button>
-          <button type="button" role="menuitem" className="row-context-menu-item" onClick={() => run(onArchive)}>
-            <Archive size={13} />
-            <span>{t('sidebar.archive')}</span>
-          </button>
-          <div className="row-context-menu-separator" role="separator" />
+          {showPin ? (
+            <button type="button" role="menuitem" className="row-context-menu-item" onClick={() => run(onTogglePin)}>
+              {pinned ? <PinOff size={13} /> : <Pin size={13} />}
+              <span>{pinned ? t('sidebar.unpin') : t('sidebar.pin')}</span>
+            </button>
+          ) : null}
+          {showArchive ? (
+            <button type="button" role="menuitem" className="row-context-menu-item" onClick={() => run(onArchive)}>
+              <Archive size={13} />
+              <span>{t('sidebar.archive')}</span>
+            </button>
+          ) : null}
+          {showPin || showArchive ? <div className="row-context-menu-separator" role="separator" /> : null}
           <button type="button" role="menuitem" className="row-context-menu-item is-danger" onClick={() => run(onRemove)}>
             <Trash2 size={13} />
             <span>{t('sidebar.remove')}</span>
@@ -2435,6 +2510,7 @@ function WorkspaceFileNodeRow({
   level,
   treeRoot,
   expandedPaths,
+  activeWorkspaceId,
   selectedLessonPath,
   selectedCourseRelativePath,
   selectedCourseWorkspaceId,
@@ -2452,6 +2528,7 @@ function WorkspaceFileNodeRow({
   level: number
   treeRoot?: 'courses'
   expandedPaths: Set<string>
+  activeWorkspaceId: string | null
   selectedLessonPath: string | null
   selectedCourseRelativePath?: string | null
   selectedCourseWorkspaceId?: string | null
@@ -2467,16 +2544,19 @@ function WorkspaceFileNodeRow({
   const { t } = useTranslation()
   const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
+  const removeWorkspace = useAppStore((s) => s.removeWorkspace)
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
   const isDirectory = node.kind === 'directory'
   const nodeKey = workspaceNodeKey(workspace.id, node.relativePath)
   const isExpanded = expandedPaths.has(nodeKey)
   const lesson = (workspace.lessons ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
   const conversation = (workspace.conversations ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
-  const isCourseFolder = treeRoot === 'courses' && level === 0 && isDirectory
+  const isWorkspaceFolder = treeRoot === 'courses' && level === 0 && isDirectory && normalizeRelativePath(node.relativePath) === ''
+  const isCourseFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && isSidebarCourseFolderPath(node.relativePath)
   const isSelected = Boolean(
     (lesson && lesson.absolutePath === selectedLessonPath) ||
     (conversation && conversation.id === activeConversationId) ||
+    (isWorkspaceFolder && workspace.id === activeWorkspaceId) ||
     (isCourseFolder &&
       selectedCourseWorkspaceId === workspace.id &&
       selectedCourseRelativePath &&
@@ -2494,6 +2574,11 @@ function WorkspaceFileNodeRow({
 
   const handleOpen = async (): Promise<void> => {
     if (isDirectory) {
+      if (isWorkspaceFolder) {
+        await onEnsureWorkspaceSelected()
+        if (!isExpanded) onToggle(workspace.id, node.relativePath)
+        return
+      }
       if (isCourseFolder) {
         await onEnsureWorkspaceSelected()
         onOpenCourse?.(node.relativePath, workspace.id)
@@ -2524,20 +2609,36 @@ function WorkspaceFileNodeRow({
   }
 
   const handlePin = async (): Promise<void> => {
+    if (isWorkspaceFolder) {
+      void setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: '', pinned: !node.pinned })
+      return
+    }
     await onEnsureWorkspaceSelected()
     void setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: node.relativePath, pinned: !node.pinned })
   }
   const handleArchive = async (): Promise<void> => {
+    if (isWorkspaceFolder) {
+      void setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: '', archived: true })
+      return
+    }
     await onEnsureWorkspaceSelected()
     void setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: node.relativePath, archived: true })
   }
   const handleRemoveFromList = async (): Promise<void> => {
     setRemoveDialogOpen(false)
+    if (isWorkspaceFolder) {
+      void removeWorkspace({ workspaceId: workspace.id, mode: 'list' })
+      return
+    }
     await onEnsureWorkspaceSelected()
     void removeWorkspaceItem({ workspaceId: workspace.id, relativePath: node.relativePath, kind: itemKind, mode: 'list' })
   }
   const handleRemoveFromDisk = async (): Promise<void> => {
     setRemoveDialogOpen(false)
+    if (isWorkspaceFolder) {
+      void removeWorkspace({ workspaceId: workspace.id, mode: 'disk' })
+      return
+    }
     await onEnsureWorkspaceSelected()
     void removeWorkspaceItem({ workspaceId: workspace.id, relativePath: node.relativePath, kind: itemKind, mode: 'disk' })
   }
@@ -2545,7 +2646,7 @@ function WorkspaceFileNodeRow({
   return (
     <div className="workspace-node">
       <div
-        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${conversation ? 'is-conversation' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
+        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${conversation ? 'is-conversation' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
         style={{ paddingLeft: 4 + level * 12 }}
         role="treeitem"
         aria-expanded={isDirectory ? isExpanded : undefined}
@@ -2586,7 +2687,7 @@ function WorkspaceFileNodeRow({
       </div>
       {isDirectory && node.children?.length ? (
         <div
-          className={`workspace-node-children${isExpanded ? ' is-open' : ''}${isCourseFolder ? ' is-course-children' : ''}`}
+          className={`workspace-node-children${isExpanded ? ' is-open' : ''}${isWorkspaceFolder || isCourseFolder ? ' is-course-children' : ''}`}
           aria-hidden={!isExpanded}
           inert={!isExpanded ? true : undefined}
         >
@@ -2599,6 +2700,7 @@ function WorkspaceFileNodeRow({
                 level={level + 1}
                 treeRoot={treeRoot}
                 expandedPaths={expandedPaths}
+                activeWorkspaceId={activeWorkspaceId}
                 selectedLessonPath={selectedLessonPath}
                 selectedCourseRelativePath={selectedCourseRelativePath}
                 selectedCourseWorkspaceId={selectedCourseWorkspaceId}
@@ -2651,6 +2753,11 @@ function isCourseConversationPath(relativePath: string): boolean {
 
 function workspaceNodeKey(workspaceId: string, relativePath: string): string {
   return `${workspaceId}:${normalizeRelativePath(relativePath)}`
+}
+
+function isSidebarCourseFolderPath(relativePath: string): boolean {
+  const normalized = normalizeRelativePath(relativePath)
+  return normalized === 'lessons' || /^courses\/[^/]+$/i.test(normalized)
 }
 
 function courseRelativePathForConversation(relativePath: string): string | null {

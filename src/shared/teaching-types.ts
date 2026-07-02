@@ -299,6 +299,7 @@ export type TeachingWorkspaceSummary = {
   reviewsDir: string
   createdAt: string
   updatedAt: string
+  pinned?: boolean
   missionTitle: string
   missionExcerpt: string
   courses: TeachingCourseSummary[]
@@ -732,6 +733,11 @@ export type WorkspaceItemRemovePayload = {
   mode?: WorkspaceItemRemoveMode
 }
 
+export type WorkspaceRemovePayload = {
+  workspaceId: string
+  mode?: WorkspaceItemRemoveMode
+}
+
 export type TeachingSystemApi = {
   platform: NodeJS.Platform
   getState: () => Promise<TeachingAppState>
@@ -770,6 +776,7 @@ export type TeachingSystemApi = {
   readAgentConversation: (payload: ReadAgentConversationPayload) => Promise<AgentConversationRecord>
   setWorkspaceItemMeta: (payload: WorkspaceItemMetaPayload) => Promise<TeachingAppState>
   removeWorkspaceItem: (payload: WorkspaceItemRemovePayload) => Promise<TeachingAppState>
+  removeWorkspace: (payload: WorkspaceRemovePayload) => Promise<TeachingAppState>
   listReviewCards: (workspaceId: string) => Promise<ListReviewCardsResult>
   recordProgress: (payload: RecordProgressPayload) => Promise<GetProgressResult>
   getProgress: (workspaceId: string) => Promise<GetProgressResult>

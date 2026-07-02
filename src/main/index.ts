@@ -32,6 +32,7 @@ import type {
   WorkspaceItemKind,
   WorkspaceItemMetaPayload,
   WorkspaceItemRemovePayload,
+  WorkspaceRemovePayload,
   RecordProgressPayload,
   SaveAgentConversationPayload,
   TeachingSettingsPatch,
@@ -178,6 +179,10 @@ function registerTeachingIpc(
 
   ipcMain.handle('teach:remove-workspace-item', async (_, payload: unknown) =>
     service.removeWorkspaceItem(parseWorkspaceItemRemovePayload(payload))
+  )
+
+  ipcMain.handle('teach:remove-workspace', async (_, payload: unknown) =>
+    service.removeWorkspace(parseWorkspaceRemovePayload(payload))
   )
 
   ipcMain.handle('teach:read-lesson', async (_, payload: unknown) =>
@@ -631,6 +636,18 @@ function parseWorkspaceItemRemovePayload(payload: unknown): WorkspaceItemRemoveP
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     relativePath: requireString(record.relativePath, 'relativePath'),
     kind,
+    mode
+  }
+}
+
+function parseWorkspaceRemovePayload(payload: unknown): WorkspaceRemovePayload {
+  const record = requireRecord(payload)
+  const mode = typeof record.mode === 'string' ? record.mode : 'disk'
+  if (mode !== 'list' && mode !== 'disk') {
+    throw new Error('IPC payload field "mode" must be one of: list, disk.')
+  }
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
     mode
   }
 }
