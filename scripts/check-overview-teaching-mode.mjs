@@ -3,6 +3,12 @@ import { readFile } from 'node:fs/promises'
 
 const app = await readFile('src/renderer/src/App.tsx', 'utf8')
 
+assert.doesNotMatch(
+  app,
+  /我想先学习如何把 teach 技能包的 MISSION、RESOURCES 和 lessons 组织成一个 Electron 桌面应用的 MVP/,
+  'overview composer should not prefill the old TeachOS MVP learning prompt'
+)
+
 assert.match(
   app,
   /\{view === 'overview' && \(\s*<OverviewChat active=\{active\} \/>\s*\)\}/s,
@@ -13,6 +19,48 @@ assert.match(
   app,
   /const isTeachingMode = view !== 'agent' && overviewDialogMode === 'teaching'/,
   'OverviewChat should know when the switch is in teaching mode'
+)
+
+assert.match(
+  app,
+  /setOverviewDialogMode\('teaching'\)[\s\S]*clearAgentChat\(\)/,
+  'new conversation navigation should open the overview composer in teaching mode'
+)
+
+assert.match(
+  app,
+  /selectCourseFolder:[\s\S]*overviewDialogMode:\s*'teaching'/,
+  'opening a course folder should switch the composer back to teaching mode'
+)
+
+assert.match(
+  app,
+  /const hasCourseContent = selectedCourseRelativePath[\s\S]*selectedCourse\.sessionCount > 0[\s\S]*view: hasCourseContent \? 'lessons' : 'overview'/,
+  'empty course folders should open the teaching dialog instead of the empty lesson library'
+)
+
+assert.match(
+  app,
+  /const handleOpen = async \(\): Promise<void> => \{\s*if \(treeRoot === 'courses'\) \{\s*setOverviewDialogMode\('teaching'\)/,
+  'opening any row in the course tree should switch the composer back to teaching mode'
+)
+
+assert.match(
+  app,
+  /openWorkspaceTeachingMode:[\s\S]*view:\s*'overview'[\s\S]*overviewDialogMode:\s*'teaching'/,
+  'opening a workspace folder should enter the overview teaching dialog, not stay in chat mode'
+)
+
+assert.match(
+  app,
+  /if \(isWorkspaceFolder\) \{\s*await onEnsureWorkspaceSelected\(\)\s*openWorkspaceTeachingMode\(\)/,
+  'clicking the imported workspace root folder should activate teaching mode before toggling the folder'
+)
+
+assert.match(
+  app,
+  /loadCourseHtmlFile: async \(file\) => \{[\s\S]*overviewDialogMode:\s*'teaching'/,
+  'opening a course HTML file should keep the composer in teaching mode'
 )
 
 assert.match(

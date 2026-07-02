@@ -165,6 +165,7 @@ type StoreState = {
   setView: (view: WorkspaceView) => void
   setOverviewDialogMode: (mode: DialogMode) => void
   openLessonLibrary: () => void
+  openWorkspaceTeachingMode: () => void
   selectCourseFolder: (relativePath: string | null, workspaceId?: string | null) => void
   setSettingsSection: (section: SettingsSection) => void
   setSidebarCollapsed: (collapsed: boolean) => void
@@ -380,8 +381,7 @@ function normalizeRendererSettings(input: TeachingSettingsPatch | TeachingSettin
   }
 }
 
-const defaultPrompt =
-  '我想先学习如何把 teach 技能包的 MISSION、RESOURCES 和 lessons 组织成一个 Electron 桌面应用的 MVP。'
+const defaultPrompt = ''
 
 const nextPrompt = '基于当前 mission，生成下一节短小、可复习、带检索练习的 HTML lesson。'
 
@@ -810,21 +810,35 @@ const useAppStore = create<StoreState>((set, get) => ({
   },
   setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
   openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null }),
+  openWorkspaceTeachingMode: () => {
+    get().clearAgentChat()
+    set({
+      view: 'overview',
+      overviewDialogMode: 'teaching',
+      lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
+      selectedCourseRelativePath: null,
+      selectedCourseWorkspaceId: null
+    })
+  },
   selectCourseFolder: (selectedCourseRelativePath, workspaceId) => {
     const targetWorkspace = workspaceId
       ? get().appState.workspaces.find((workspace) => workspace.id === workspaceId) ?? null
       : get().appState.activeWorkspace
-    const hasCourse = selectedCourseRelativePath
-      ? Boolean(targetWorkspace?.courses.some((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)))
+    const selectedCourse = selectedCourseRelativePath
+      ? targetWorkspace?.courses.find((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)) ?? null
+      : null
+    const hasCourseContent = selectedCourseRelativePath
+      ? Boolean(selectedCourse && selectedCourse.sessionCount > 0)
       : Boolean(targetWorkspace?.lessons.length)
     set({
-      view: hasCourse ? 'lessons' : 'overview',
-      overviewDialogMode: hasCourse ? get().overviewDialogMode : 'teaching',
+      view: hasCourseContent ? 'lessons' : 'overview',
+      overviewDialogMode: 'teaching',
       lessonReaderOpen: false,
       selectedCoursePreviewFile: null,
       selectedCourseRelativePath,
-      selectedCourseWorkspaceId: hasCourse ? targetWorkspace?.id ?? null : null,
-      ...(!hasCourse
+      selectedCourseWorkspaceId: selectedCourse ? targetWorkspace?.id ?? null : null,
+      ...(!hasCourseContent
         ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
         : {})
     })
@@ -1236,6 +1250,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           ? get().appState
           : await api.selectWorkspace(workspace.id),
         view: 'agent',
+        overviewDialogMode: conversationCourseRelativePath ? 'teaching' : get().overviewDialogMode,
         agentTurns: conversation.turns,
         activeConversationId: conversation.id,
         agentStatus: '',
@@ -1620,6 +1635,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     if (!workspace) return
     set({
       view: 'lessons',
+      overviewDialogMode: 'teaching',
       lessonReaderOpen: true,
       selectedCoursePreviewFile: lessonToCoursePreviewFile(lesson),
       appState: {
@@ -1648,6 +1664,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     if (!workspace) return
     set({
       view: 'lessons',
+      overviewDialogMode: 'teaching',
       lessonReaderOpen: true,
       selectedCoursePreviewFile: file,
       appState: {
@@ -2050,8 +2067,7 @@ function Sidebar() {
 
   const active = appState.activeWorkspace
   const selectedLessonPath = appState.selectedLessonPath
-  const selectedCourseRelativePath = useAppStore((s) => s.selectedCourseRelativePath)
-  const selectedCourseWorkspaceId = useAppStore((s) => s.selectedCourseWorkspaceId)
+  const lessonReaderOpen = useAppStore((s) => s.lessonReaderOpen)
   const [coursesExpanded, setCoursesExpanded] = useState(true)
   const [conversationsExpanded, setConversationsExpanded] = useState(true)
 
@@ -2067,7 +2083,7 @@ function Sidebar() {
               type="button"
               onClick={() => {
                 if (item.id === 'overview') {
-                  useAppStore.getState().setOverviewDialogMode('chat')
+                  useAppStore.getState().setOverviewDialogMode('teaching')
                   useAppStore.getState().clearAgentChat()
                   useAppStore.setState({
                     selectedCourseRelativePath: null,
@@ -2091,9 +2107,7 @@ function Sidebar() {
           workspaces={appState.workspaces}
           activeWorkspaceId={active?.id ?? null}
           expanded={coursesExpanded}
-          selectedLessonPath={selectedLessonPath}
-          selectedCourseRelativePath={selectedCourseRelativePath}
-          selectedCourseWorkspaceId={selectedCourseWorkspaceId}
+          selectedLessonPath={view === 'lessons' && lessonReaderOpen ? selectedLessonPath : null}
           onToggle={() => setCoursesExpanded((expanded) => !expanded)}
         />
         <SidebarConversationSection
@@ -2133,16 +2147,12 @@ function WorkspaceCourseSection({
   activeWorkspaceId,
   expanded,
   selectedLessonPath,
-  selectedCourseRelativePath,
-  selectedCourseWorkspaceId,
   onToggle
 }: {
   workspaces: TeachingWorkspaceSummary[]
   activeWorkspaceId: string | null
   expanded: boolean
   selectedLessonPath: string | null
-  selectedCourseRelativePath: string | null
-  selectedCourseWorkspaceId: string | null
   onToggle: () => void
 }) {
   const { t } = useTranslation()
@@ -2150,6 +2160,7 @@ function WorkspaceCourseSection({
   const loadLesson = useAppStore((s) => s.loadLesson)
   const loadCourseHtmlFile = useAppStore((s) => s.loadCourseHtmlFile)
   const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
+  const view = useAppStore((s) => s.view)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const openPath = useAppStore((s) => s.openPath)
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
@@ -2232,11 +2243,8 @@ function WorkspaceCourseSection({
                     level={0}
                     treeRoot="courses"
                     expandedPaths={expandedPaths}
-                    activeWorkspaceId={activeWorkspaceId}
                     selectedLessonPath={selectedLessonPath}
-                    selectedCourseRelativePath={selectedCourseRelativePath}
-                    selectedCourseWorkspaceId={selectedCourseWorkspaceId}
-                    activeConversationId={activeConversationId}
+                    activeConversationId={view === 'agent' ? activeConversationId : null}
                     onToggle={togglePath}
                     onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
                     onOpenPath={(path) => void openPath(path)}
@@ -2364,6 +2372,7 @@ function SidebarConversationSection({
   const { t } = useTranslation()
   const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
   const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
+  const view = useAppStore((s) => s.view)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const storedPendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
   const pendingAgentConversation = storedPendingAgentConversation &&
@@ -2405,7 +2414,7 @@ function SidebarConversationSection({
                 <ConversationListRow
                   key={conversation.id}
                   conversation={conversation}
-                  isActiveConversation={conversation.id === activeConversationId}
+                  isActiveConversation={view === 'agent' && conversation.id === activeConversationId}
                   onEnsureSelected={ensureActiveWorkspace}
                   onOpen={() => conversation.pending ? restorePendingAgentConversation() : void loadAgentConversation(conversation.id, conversation.workspaceId)}
                 />
@@ -2735,10 +2744,7 @@ function WorkspaceFileNodeRow({
   level,
   treeRoot,
   expandedPaths,
-  activeWorkspaceId,
   selectedLessonPath,
-  selectedCourseRelativePath,
-  selectedCourseWorkspaceId,
   activeConversationId,
   onToggle,
   onEnsureWorkspaceSelected,
@@ -2753,10 +2759,7 @@ function WorkspaceFileNodeRow({
   level: number
   treeRoot?: 'courses'
   expandedPaths: Set<string>
-  activeWorkspaceId: string | null
   selectedLessonPath: string | null
-  selectedCourseRelativePath?: string | null
-  selectedCourseWorkspaceId?: string | null
   activeConversationId: string | null
   onToggle: (workspaceId: string, relativePath: string) => void
   onEnsureWorkspaceSelected: () => Promise<void>
@@ -2770,6 +2773,8 @@ function WorkspaceFileNodeRow({
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
   const removeWorkspace = useAppStore((s) => s.removeWorkspace)
   const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
+  const setOverviewDialogMode = useAppStore((s) => s.setOverviewDialogMode)
+  const openWorkspaceTeachingMode = useAppStore((s) => s.openWorkspaceTeachingMode)
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
   const isDirectory = node.kind === 'directory'
   const nodeKey = workspaceNodeKey(workspace.id, node.relativePath)
@@ -2779,14 +2784,10 @@ function WorkspaceFileNodeRow({
   const isPendingConversation = isPendingConversationSummary(conversation)
   const isWorkspaceFolder = treeRoot === 'courses' && level === 0 && isDirectory && normalizeRelativePath(node.relativePath) === ''
   const isCourseFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && isSidebarCourseFolderPath(node.relativePath)
+  const isHtmlFile = !isDirectory && node.name.toLowerCase().endsWith('.html')
   const isSelected = Boolean(
-    (lesson && lesson.absolutePath === selectedLessonPath) ||
-    (conversation && conversation.id === activeConversationId) ||
-    (isWorkspaceFolder && workspace.id === activeWorkspaceId) ||
-    (isCourseFolder &&
-      selectedCourseWorkspaceId === workspace.id &&
-      selectedCourseRelativePath &&
-      sameRelativePath(selectedCourseRelativePath, node.relativePath))
+    (((lesson || (treeRoot === 'courses' && isHtmlFile)) && node.absolutePath === selectedLessonPath) ||
+      (conversation && conversation.id === activeConversationId))
   )
   const itemKind: WorkspaceItemKind = conversation ? 'conversation' : isDirectory ? 'directory' : 'file'
   const itemLabel = conversation?.title ?? lesson?.title ?? node.name
@@ -2799,9 +2800,13 @@ function WorkspaceFileNodeRow({
       : FileText
 
   const handleOpen = async (): Promise<void> => {
+    if (treeRoot === 'courses') {
+      setOverviewDialogMode('teaching')
+    }
     if (isDirectory) {
       if (isWorkspaceFolder) {
         await onEnsureWorkspaceSelected()
+        openWorkspaceTeachingMode()
         onToggle(workspace.id, node.relativePath)
         return
       }
@@ -2873,7 +2878,7 @@ function WorkspaceFileNodeRow({
   return (
     <div className="workspace-node">
       <div
-        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
+        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
         style={{ paddingLeft: 4 + level * 12 }}
         role="treeitem"
         aria-expanded={isDirectory ? isExpanded : undefined}
@@ -2927,10 +2932,7 @@ function WorkspaceFileNodeRow({
                 level={level + 1}
                 treeRoot={treeRoot}
                 expandedPaths={expandedPaths}
-                activeWorkspaceId={activeWorkspaceId}
                 selectedLessonPath={selectedLessonPath}
-                selectedCourseRelativePath={selectedCourseRelativePath}
-                selectedCourseWorkspaceId={selectedCourseWorkspaceId}
                 activeConversationId={activeConversationId}
                 onToggle={onToggle}
                 onEnsureWorkspaceSelected={onEnsureWorkspaceSelected}

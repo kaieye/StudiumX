@@ -123,21 +123,39 @@ assert.match(
 )
 
 assert.match(
-  css,
-  /\.workspace-node-row\.is-selected:not\(\.is-course-folder\):not\(\.is-conversation\)/,
-  'selected styling should exclude course folders and conversations'
+  app,
+  /selectedLessonPath=\{view === 'lessons' && lessonReaderOpen \? selectedLessonPath : null\}/,
+  'sidebar HTML selection should only be active while the lesson reader is visible'
+)
+
+assert.match(
+  app,
+  /const isHtmlFile = !isDirectory && node\.name\.toLowerCase\(\)\.endsWith\('\.html'\)/,
+  'workspace tree should identify HTML files as selectable session rows'
 )
 
 assert.match(
   css,
-  /\.workspace-node-row\.is-course-folder\.is-selected \{[\s\S]*background: rgba\(255, 255, 255, 0\.48\);/,
-  'selected course folders should keep the normal course-folder background'
+  /\.workspace-node-row\.is-selected\.is-html-file,[\s\S]*\.workspace-node-row\.is-selected\.is-conversation \{[\s\S]*box-shadow:/,
+  'only selected HTML files and course conversations should receive selected-row shadow styling'
+)
+
+assert.doesNotMatch(
+  app,
+  /isWorkspaceFolder && workspace\.id === activeWorkspaceId/,
+  'workspace folders should not participate in selected-row highlighting'
 )
 
 assert.match(
   css,
-  /\.workspace-conversation-row\.is-selected \{[\s\S]*background: transparent;/,
-  'selected temporary conversations should not keep a highlight background'
+  /\.workspace-node-row\.is-workspace-folder,[\s\S]*\.workspace-node-row\.is-course-folder \{[\s\S]*box-shadow: none;/,
+  'workspace and course folders should not have sidebar row shadows'
+)
+
+assert.match(
+  css,
+  /\.workspace-conversation-row\.is-selected \{[\s\S]*background: rgba\(79, 124, 245, 0\.1\);[\s\S]*box-shadow:/,
+  'selected temporary conversations should receive the selected-row highlight and shadow'
 )
 
 assert.match(
