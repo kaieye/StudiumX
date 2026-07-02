@@ -708,6 +708,49 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 // Zustand Store
 // ================================================================
 
+const AGENT_INPUT_HISTORY_STORAGE_KEY = 'teachos:agent-input-history'
+const MAX_AGENT_INPUT_HISTORY = 20
+
+function appendAgentInputHistory(history: string[], input: string): string[] {
+  const value = input.trim()
+  if (!value) return history
+  const withoutCurrent = history.filter((item) => item !== value)
+  return [...withoutCurrent, value].slice(-MAX_AGENT_INPUT_HISTORY)
+}
+
+function mergeAgentInputHistory(...sources: Array<string[] | undefined>): string[] {
+  return sources.flat().reduce<string[]>((history, input) => appendAgentInputHistory(history, input ?? ''), [])
+}
+
+function normalizeAgentInputHistory(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  return input.reduce<string[]>((history, item) => {
+    if (typeof item !== 'string') return history
+    return appendAgentInputHistory(history, item)
+  }, [])
+}
+
+function readPersistedAgentInputHistory(): string[] {
+  try {
+    const stored = window.localStorage.getItem(AGENT_INPUT_HISTORY_STORAGE_KEY)
+    if (!stored) return []
+    return normalizeAgentInputHistory(JSON.parse(stored))
+  } catch {
+    return []
+  }
+}
+
+function persistAgentInputHistory(history: string[]): void {
+  try {
+    window.localStorage.setItem(
+      AGENT_INPUT_HISTORY_STORAGE_KEY,
+      JSON.stringify(history.slice(-MAX_AGENT_INPUT_HISTORY))
+    )
+  } catch {
+    // Input history is a convenience feature; storage failures should not block sending.
+  }
+}
+
 const useAppStore = create<StoreState>((set, get) => ({
   view: 'agent',
   settingsSection: 'general',
@@ -733,7 +776,7 @@ const useAppStore = create<StoreState>((set, get) => ({
   agentChatBusy: false,
   agentStatus: '',
   agentInput: '',
-  agentInputHistory: [],
+  agentInputHistory: readPersistedAgentInputHistory(),
   agentToolsSupported: null,
   pendingAgentConversation: null,
   gitBranchesRoot: '',
@@ -741,7 +784,9 @@ const useAppStore = create<StoreState>((set, get) => ({
   gitBranchesLoading: false,
   setAgentInput: (agentInput) => set({ agentInput }),
   rememberAgentInput: (input) => {
-    set({ agentInputHistory: appendAgentInputHistory(get().agentInputHistory, input) })
+    const nextHistory = appendAgentInputHistory(get().agentInputHistory, input)
+    set({ agentInputHistory: nextHistory })
+    persistAgentInputHistory(nextHistory)
   },
   clearAgentChat: () => {
     if (get().agentChatBusy && get().pendingAgentConversation) {
@@ -3119,19 +3164,6 @@ function courseRelativePathForConversation(relativePath: string): string | null 
   if (parts.length === 3 && parts[0] === 'lessons' && (parts[1] === 'conversation' || parts[1] === 'conversations')) return 'lessons'
   if (parts.length === 4 && parts[0] === 'courses' && (parts[2] === 'conversation' || parts[2] === 'conversations')) return `courses/${parts[1]}`
   return null
-}
-
-const MAX_AGENT_INPUT_HISTORY = 80
-
-function appendAgentInputHistory(history: string[], input: string): string[] {
-  const value = input.trim()
-  if (!value) return history
-  const withoutCurrent = history.filter((item) => item !== value)
-  return [...withoutCurrent, value].slice(-MAX_AGENT_INPUT_HISTORY)
-}
-
-function mergeAgentInputHistory(...sources: Array<string[] | undefined>): string[] {
-  return sources.flat().reduce<string[]>((history, input) => appendAgentInputHistory(history, input ?? ''), [])
 }
 
 function userTurnInputHistory(turns: AgentChatTurn[]): string[] {
