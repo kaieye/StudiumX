@@ -93,6 +93,26 @@ try {
   })
   assert.equal(loaded.relativePath, saved.conversation.relativePath)
 
+  const customCourseRelativePath = 'courses/rag-project'
+  const customCourseConversation = await service.saveAgentConversation({
+    workspaceId: workspace.id,
+    mode: 'teaching',
+    selectedCourseRelativePath: customCourseRelativePath,
+    turns: [
+      { id: 'cu1', role: 'user', content: '继续 RAG 项目课', createdAt: '2026-07-01T00:00:01.500Z' },
+      { id: 'ca1', role: 'assistant', content: '我们放到自定义课程下。', createdAt: '2026-07-01T00:00:01.600Z' }
+    ]
+  })
+  assert.equal(customCourseConversation.conversation.relativePath.startsWith(`${customCourseRelativePath}/conversation/`), true)
+  assert.equal(
+    customCourseConversation.state.activeWorkspace?.courses.some((course) =>
+      course.relativePath === customCourseRelativePath &&
+      course.conversations.some((conversation) => conversation.id === customCourseConversation.conversation.id)
+    ),
+    true,
+    'selected custom courses should keep teaching conversations inside their conversation folder'
+  )
+
   const temporary = await service.saveAgentConversation({
     workspaceId: workspace.id,
     mode: 'temporary',

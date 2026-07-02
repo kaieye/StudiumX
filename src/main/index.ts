@@ -66,6 +66,8 @@ function registerTeachingIpc(
   service: TeachingWorkspaceService,
   settingsService: TeachingSettingsService
 ): void {
+  const activeAgentChatStreams = new Map<string, AbortController>()
+
   ipcMain.handle('teach:get-state', async () => service.getState())
   ipcMain.handle('teach:get-settings', async () => settingsService.load())
   ipcMain.handle('teach:update-settings', async (_, payload: unknown) => {
@@ -161,24 +163,46 @@ function registerTeachingIpc(
 
   ipcMain.handle('teach:agent-chat-stream', async (event, payload: unknown) => {
     const parsed = parseAgentChatStreamPayload(payload)
-    const streamId = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const streamId = parsed.streamId ?? `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     const sender = event.sender
+    const controller = new AbortController()
+    activeAgentChatStreams.set(streamId, controller)
     try {
       const result = await service.agentChatStream(parsed, {
         streamId,
+        signal: controller.signal,
         onChunk: (chunk) => safeSend(sender, 'teach:agent-chat-chunk', chunk),
         onStatus: (status) => safeSend(sender, 'teach:agent-chat-status', status),
         onTool: (toolEvent) => safeSend(sender, 'teach:agent-chat-tool', toolEvent)
       })
+      if ('canceled' in result) {
+        return { streamId, canceled: true as const }
+      }
       if ('error' in result) {
         return { streamId, error: true as const, message: result.message }
       }
       return { streamId, ...result }
     } catch (error) {
+      if (controller.signal.aborted) {
+        return { streamId, canceled: true as const }
+      }
       const message = error instanceof Error ? error.message : String(error)
       logger?.error(`Agent chat stream failed: ${message}`)
       return { streamId, error: true as const, message }
+    } finally {
+      if (activeAgentChatStreams.get(streamId) === controller) {
+        activeAgentChatStreams.delete(streamId)
+      }
     }
+  })
+
+  ipcMain.handle('teach:cancel-agent-chat-stream', async (_, rawStreamId: unknown) => {
+    const streamId = requireStreamId(rawStreamId)
+    const controller = activeAgentChatStreams.get(streamId)
+    if (!controller) return { canceled: false }
+    controller.abort()
+    activeAgentChatStreams.delete(streamId)
+    return { canceled: true }
   })
 
   ipcMain.handle('teach:save-agent-conversation', async (_, payload: unknown) =>
@@ -589,6 +613,7 @@ function parseAgentChatMessages(value: unknown): AgentChatMessage[] {
 function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPayload {
   const record = requireRecord(payload)
   return {
+    streamId: optionalStreamId(record.streamId),
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
     mode: record.mode === 'teaching' ? 'teaching' : record.mode === 'temporary' ? 'temporary' : undefined,
     messages: parseAgentChatMessages(record.messages),
@@ -814,6 +839,23 @@ function requireString(value: unknown, key: string): string {
     throw new Error(`IPC payload field "${key}" must be a string.`)
   }
   return value
+}
+
+function optionalStreamId(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined
+  return parseStreamId(value)
+}
+
+function requireStreamId(value: unknown): string {
+  return parseStreamId(requireString(value, 'streamId'))
+}
+
+function parseStreamId(value: string): string {
+  const streamId = value.trim()
+  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(streamId)) {
+    throw new Error('IPC payload field "streamId" must be a valid stream id.')
+  }
+  return streamId
 }
 
 function optionalString(value: unknown): string | undefined {

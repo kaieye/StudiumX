@@ -48,6 +48,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Star,
+  Square,
   Sun,
   Play,
   SendHorizontal,
@@ -136,6 +137,7 @@ type CoursePreviewFile = {
 type PendingAgentConversation = {
   workspaceId: string
   sourceConversationId: string | null
+  mode: AgentChatMode
   summary: AgentConversationSummary & { pending: true }
   turns: AgentChatTurn[]
   status: string
@@ -213,6 +215,7 @@ type StoreState = {
   gitBranchesLoading: boolean
   setAgentInput: (input: string) => void
   clearAgentChat: () => void
+  cancelAgentChat: () => Promise<void>
   restorePendingAgentConversation: () => void
   loadGitBranches: (workspaceRoot: string, options?: { force?: boolean }) => Promise<void>
   setGitBranchesResult: (workspaceRoot: string, result: TeachingGitBranchesResult) => void
@@ -741,15 +744,34 @@ const useAppStore = create<StoreState>((set, get) => ({
     }
     set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null })
   },
+  cancelAgentChat: async () => {
+    const api = window.teachingSystem
+    const pending = get().pendingAgentConversation
+    if (!pending || !get().agentChatBusy) return
+    const turns = markLatestAssistantTurnCanceled(pending.turns)
+    set({
+      agentChatBusy: false,
+      pendingAgentConversation: null,
+      agentTurns: get().activeConversationId === pending.summary.id ? turns : get().agentTurns,
+      activeConversationId: get().activeConversationId === pending.summary.id ? null : get().activeConversationId,
+      agentStatus: '',
+      agentToolsSupported: pending.toolsSupported
+    })
+    await api?.cancelAgentChatStream(pending.summary.id).catch(() => undefined)
+  },
   restorePendingAgentConversation: () => {
     const pending = get().pendingAgentConversation
     if (!pending) return
+    const courseRelativePath = courseRelativePathForConversation(pending.summary.relativePath)
     set({
       view: 'agent',
+      overviewDialogMode: pending.mode === 'teaching' ? 'teaching' : get().overviewDialogMode,
       agentTurns: pending.turns,
       activeConversationId: pending.summary.id,
       agentStatus: pending.status,
-      agentToolsSupported: pending.toolsSupported
+      agentToolsSupported: pending.toolsSupported,
+      selectedCourseRelativePath: courseRelativePath,
+      selectedCourseWorkspaceId: courseRelativePath ? pending.workspaceId : null
     })
   },
   loadGitBranches: async (workspaceRoot, options) => {
@@ -1238,6 +1260,9 @@ const useAppStore = create<StoreState>((set, get) => ({
     const createdAt = new Date().toISOString()
     const pendingConversationId = `pending-${Date.now()}`
     const sourceConversationId = get().activeConversationId?.startsWith('pending-') ? null : get().activeConversationId
+    const sourceConversation = sourceConversationId
+      ? findConversationSummary(get().appState, workspace.id, sourceConversationId)
+      : null
     const selectedCourseRelativePath = sourceConversationId || mode === 'temporary' ? null : get().selectedCourseRelativePath
     const selectedLessonPath = !sourceConversationId && selectedCourseRelativePath ? get().appState.selectedLessonPath : null
     const userTurn: AgentChatTurn = {
@@ -1292,11 +1317,16 @@ const useAppStore = create<StoreState>((set, get) => ({
       pendingAgentConversation: {
         workspaceId: workspace.id,
         sourceConversationId,
+        mode,
         summary: createPendingAgentConversationSummary({
           id: pendingConversationId,
-          titleSource: input,
+          titleSource: sourceConversation?.title ?? input,
           createdAt,
-          turns: initialTurns
+          turns: initialTurns,
+          mode,
+          selectedCourseRelativePath,
+          sourceConversation,
+          workspaceRootPath: workspace.rootPath
         }),
         turns: initialTurns,
         status: '思考中…',
@@ -1305,8 +1335,9 @@ const useAppStore = create<StoreState>((set, get) => ({
     })
     try {
       const done = await api.agentChatStream(
-        { workspaceId: workspace.id, mode, messages: priorMessages, userInput: input },
+        { streamId: pendingConversationId, workspaceId: workspace.id, mode, messages: priorMessages, userInput: input },
         (chunk: AgentChatStreamChunk) => {
+          if (chunk.streamId !== pendingConversationId) return
           const turns = [...(get().pendingAgentConversation?.turns ?? [])]
           const idx = turns.findIndex((t) => t.id === assistantId)
           if (idx >= 0) {
@@ -1315,6 +1346,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           }
         },
         (status: AgentChatStreamStatus) => {
+          if (status.streamId !== pendingConversationId) return
           const label = agentStatusLabel(status.status)
           syncPendingConversation({
             status: status.message ? `${label} ${status.message}` : label,
@@ -1328,6 +1360,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           })
         },
         (event: AgentChatStreamToolEvent) => {
+          if (event.streamId !== pendingConversationId) return
           const turns = [...(get().pendingAgentConversation?.turns ?? [])]
           const idx = turns.findIndex((t) => t.id === assistantId)
           if (idx < 0) return
@@ -1369,7 +1402,21 @@ const useAppStore = create<StoreState>((set, get) => ({
           syncPendingConversation({ turns })
         }
       )
+      if ('canceled' in done) {
+        if (get().pendingAgentConversation?.summary.id !== pendingConversationId) return
+        const nextTurns = markLatestAssistantTurnCanceled(get().pendingAgentConversation?.turns ?? get().agentTurns)
+        const visiblePatch = get().activeConversationId === pendingConversationId
+          ? { agentTurns: nextTurns, activeConversationId: null, agentStatus: '', agentToolsSupported: null }
+          : {}
+        set({
+          agentChatBusy: false,
+          pendingAgentConversation: null,
+          ...visiblePatch
+        })
+        return
+      }
       if ('error' in done && done.error) {
+        if (get().pendingAgentConversation?.summary.id !== pendingConversationId) return
         const userError = toUserError(new Error(done.message))
         const nextTurns = (get().pendingAgentConversation?.turns ?? []).filter((t) => t.id !== assistantId)
         const visiblePatch = get().activeConversationId === pendingConversationId
@@ -1384,6 +1431,8 @@ const useAppStore = create<StoreState>((set, get) => ({
         return
       }
       if (!('error' in done)) {
+        const pending = get().pendingAgentConversation
+        if (!pending || pending.summary.id !== pendingConversationId) return
         const latestUserTurn = [...done.turns].reverse().find((turn) => turn.role === 'user')
         const currentTurns = get().pendingAgentConversation?.turns ?? get().agentTurns
         const reconciledTurns = reconcileAgentTurnsWithLocalProcess(done.turns, currentTurns)
@@ -1397,7 +1446,6 @@ const useAppStore = create<StoreState>((set, get) => ({
           taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
         })
         try {
-          const pending = get().pendingAgentConversation
           const saved = await api.saveAgentConversation({
             workspaceId: workspace.id,
             mode,
@@ -1422,6 +1470,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         } catch (saveError) {
           set({ error: toUserError(saveError) })
         } finally {
+          if (get().pendingAgentConversation?.summary.id && get().pendingAgentConversation?.summary.id !== pendingConversationId) return
           const visiblePatch = get().activeConversationId === pendingConversationId
             ? { agentStatus: '' }
             : {}
@@ -1429,6 +1478,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         }
       }
     } catch (error) {
+      if (get().pendingAgentConversation?.summary.id !== pendingConversationId) return
       const userError = toUserError(error)
       const nextTurns = (get().pendingAgentConversation?.turns ?? []).filter((t) => t.id !== assistantId)
       const visiblePatch = get().activeConversationId === pendingConversationId
@@ -2104,9 +2154,14 @@ function WorkspaceCourseSection({
   const openPath = useAppStore((s) => s.openPath)
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
   const showAllCourseFiles = useAppStore((s) => s.settings.workspace.showAllCourseFiles)
+  const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
+  const workspacesWithPending = useMemo(
+    () => withPendingCourseConversation(workspaces, pendingAgentConversation),
+    [pendingAgentConversation, workspaces]
+  )
   const workspaceFolders = useMemo(
-    () => listSidebarWorkspaceFolders(workspaces, showAllCourseFiles),
-    [showAllCourseFiles, workspaces]
+    () => listSidebarWorkspaceFolders(workspacesWithPending, showAllCourseFiles),
+    [showAllCourseFiles, workspacesWithPending]
   )
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [importDialogOpen, setImportDialogOpen] = useState(false)
@@ -2311,8 +2366,12 @@ function SidebarConversationSection({
   const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const storedPendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
-  const pendingAgentConversation = storedPendingAgentConversation?.workspaceId === workspace?.id ? storedPendingAgentConversation : null
-  const conversationsWithPending: SidebarConversationSummary[] = pendingAgentConversation ? [pendingAgentConversation.summary, ...conversations] : conversations
+  const pendingAgentConversation = storedPendingAgentConversation &&
+    storedPendingAgentConversation.workspaceId === workspace?.id &&
+    !isCourseConversationPath(storedPendingAgentConversation.summary.relativePath)
+    ? storedPendingAgentConversation
+    : null
+  const conversationsWithPending: SidebarConversationSummary[] = pendingAgentConversation ? [pendingAgentConversation.summary, ...conversations.filter((conversation) => !sameRelativePath(conversation.relativePath, pendingAgentConversation.summary.relativePath))] : conversations
   const ensureActiveWorkspace = async (): Promise<void> => {}
 
   return (
@@ -2710,12 +2769,14 @@ function WorkspaceFileNodeRow({
   const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
   const removeWorkspace = useAppStore((s) => s.removeWorkspace)
+  const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
   const isDirectory = node.kind === 'directory'
   const nodeKey = workspaceNodeKey(workspace.id, node.relativePath)
   const isExpanded = expandedPaths.has(nodeKey)
   const lesson = (workspace.lessons ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
   const conversation = (workspace.conversations ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
+  const isPendingConversation = isPendingConversationSummary(conversation)
   const isWorkspaceFolder = treeRoot === 'courses' && level === 0 && isDirectory && normalizeRelativePath(node.relativePath) === ''
   const isCourseFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && isSidebarCourseFolderPath(node.relativePath)
   const isSelected = Boolean(
@@ -2759,7 +2820,8 @@ function WorkspaceFileNodeRow({
       return
     }
     if (conversation) {
-      onOpenConversation(conversation.id)
+      if (isPendingConversation) restorePendingAgentConversation()
+      else onOpenConversation(conversation.id)
       return
     }
     if (treeRoot === 'courses' && onOpenHtmlFile && node.name.toLowerCase().endsWith('.html')) {
@@ -2811,7 +2873,7 @@ function WorkspaceFileNodeRow({
   return (
     <div className="workspace-node">
       <div
-        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${conversation ? 'is-conversation' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
+        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
         style={{ paddingLeft: 4 + level * 12 }}
         role="treeitem"
         aria-expanded={isDirectory ? isExpanded : undefined}
@@ -2823,7 +2885,7 @@ function WorkspaceFileNodeRow({
           aria-expanded={isDirectory ? isExpanded : undefined}
           onClick={() => void handleOpen()}
         >
-          <Icon size={13} />
+          {isPendingConversation ? <Loader2 className="spin" size={13} /> : <Icon size={13} />}
           {node.pinned ? <Pin size={10} className="row-pin-indicator" /> : null}
           <span className="collapsible-label">{conversation?.title ?? lesson?.sessionName ?? node.name}</span>
           {isDirectory ? (
@@ -2832,12 +2894,14 @@ function WorkspaceFileNodeRow({
             </span>
           ) : null}
         </button>
-        <RowContextMenu
-          pinned={!!node.pinned}
-          onTogglePin={() => void handlePin()}
-          onArchive={() => void handleArchive()}
-          onRemove={() => setRemoveDialogOpen(true)}
-        />
+        {!isPendingConversation ? (
+          <RowContextMenu
+            pinned={!!node.pinned}
+            onTogglePin={() => void handlePin()}
+            onArchive={() => void handleArchive()}
+            onRemove={() => setRemoveDialogOpen(true)}
+          />
+        ) : null}
         {removeDialogOpen ? (
           <RemoveWorkspaceItemDialog
             itemName={itemLabel}
@@ -2904,6 +2968,77 @@ function normalizeRelativePath(value: string): string {
   return value.replace(/\\/g, '/')
 }
 
+function findConversationSummary(
+  state: TeachingAppState,
+  workspaceId: string,
+  conversationId: string
+): AgentConversationSummary | null {
+  const workspace = state.workspaces.find((item) => item.id === workspaceId) ?? state.activeWorkspace
+  const workspaceConversations = workspace
+    ? [
+        ...workspace.conversations,
+        ...workspace.courses.flatMap((course) => course.conversations)
+      ]
+    : []
+  return workspaceConversations.find((conversation) => conversation.id === conversationId) ??
+    state.temporaryConversations.find((conversation) => conversation.id === conversationId) ??
+    null
+}
+
+function isPendingConversationSummary(
+  conversation: AgentConversationSummary | null | undefined
+): conversation is SidebarConversationSummary & { pending: true } {
+  return Boolean((conversation as SidebarConversationSummary | null | undefined)?.pending)
+}
+
+function withPendingCourseConversation(
+  workspaces: TeachingWorkspaceSummary[],
+  pendingAgentConversation: PendingAgentConversation | null
+): TeachingWorkspaceSummary[] {
+  if (!pendingAgentConversation || !isCourseConversationPath(pendingAgentConversation.summary.relativePath)) return workspaces
+  const courseRelativePath = courseRelativePathForConversation(pendingAgentConversation.summary.relativePath)
+  if (!courseRelativePath) return workspaces
+
+  let changed = false
+  const nextWorkspaces = workspaces.map((workspace) => {
+    if (workspace.id !== pendingAgentConversation.workspaceId) return workspace
+    let workspaceChanged = false
+    const conversations = upsertConversationSummary(workspace.conversations, pendingAgentConversation.summary)
+    if (conversations !== workspace.conversations) workspaceChanged = true
+    const courses = workspace.courses.map((course) => {
+      if (!sameRelativePath(course.relativePath, courseRelativePath)) return course
+      const courseConversations = upsertConversationSummary(course.conversations, pendingAgentConversation.summary)
+      if (courseConversations === course.conversations) return course
+      workspaceChanged = true
+      return {
+        ...course,
+        conversations: courseConversations,
+        sessionCount: course.sessions.length + courseConversations.length
+      }
+    })
+    if (!workspaceChanged) return workspace
+    changed = true
+    return {
+      ...workspace,
+      conversations,
+      courses
+    }
+  })
+
+  return changed ? nextWorkspaces : workspaces
+}
+
+function upsertConversationSummary(
+  conversations: AgentConversationSummary[],
+  conversation: AgentConversationSummary
+): AgentConversationSummary[] {
+  const withoutCurrent = conversations.filter((item) =>
+    item.id !== conversation.id && !sameRelativePath(item.relativePath, conversation.relativePath)
+  )
+  if (withoutCurrent.length === conversations.length && conversations[0]?.id === conversation.id) return conversations
+  return [conversation, ...withoutCurrent]
+}
+
 function isTemporaryConversation(conversation: AgentConversationSummary): boolean {
   return /^conversations\/[^/]+\.md$/i.test(normalizeRelativePath(conversation.relativePath))
 }
@@ -2930,6 +3065,25 @@ function courseRelativePathForConversation(relativePath: string): string | null 
   if (parts.length === 3 && parts[0] === 'lessons' && (parts[1] === 'conversation' || parts[1] === 'conversations')) return 'lessons'
   if (parts.length === 4 && parts[0] === 'courses' && (parts[2] === 'conversation' || parts[2] === 'conversations')) return `courses/${parts[1]}`
   return null
+}
+
+function pendingAgentConversationRelativePath({
+  id,
+  mode,
+  selectedCourseRelativePath
+}: {
+  id: string
+  mode: AgentChatMode
+  selectedCourseRelativePath: string | null
+}): string {
+  if (mode === 'temporary') return `conversations/${id}.md`
+  const courseRelativePath = normalizeRelativePath(selectedCourseRelativePath ?? '').replace(/^\/+|\/+$/g, '')
+  if (/^courses\/[^/]+$/i.test(courseRelativePath)) return `${courseRelativePath}/conversation/${id}.md`
+  return `conversation/${id}.md`
+}
+
+function pendingAgentConversationAbsolutePath(workspaceRootPath: string, relativePath: string): string {
+  return `${workspaceRootPath.replace(/[\\/]+$/, '')}/${normalizeRelativePath(relativePath)}`
 }
 
 function titleFromFileName(fileName: string): string {
@@ -3549,6 +3703,7 @@ function MainArea() {
     generateLesson,
     loadLesson,
     loadAgentConversation,
+    restorePendingAgentConversation,
     openLessonLibrary,
     openPath,
     clearError
@@ -3560,9 +3715,17 @@ function MainArea() {
 
   const active = appState.activeWorkspace
   const selectedCourseWorkspaceId = useAppStore((s) => s.selectedCourseWorkspaceId)
+  const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
+  const workspacesWithPending = useMemo(
+    () => withPendingCourseConversation(appState.workspaces, pendingAgentConversation),
+    [appState.workspaces, pendingAgentConversation]
+  )
+  const activeWithPending = active
+    ? workspacesWithPending.find((workspace) => workspace.id === active.id) ?? active
+    : null
   const selectedCourseWorkspace = selectedCourseWorkspaceId
-    ? appState.workspaces.find((workspace) => workspace.id === selectedCourseWorkspaceId) ?? active
-    : active
+    ? workspacesWithPending.find((workspace) => workspace.id === selectedCourseWorkspaceId) ?? activeWithPending
+    : activeWithPending
   const lessons = selectedCourseWorkspace?.lessons ?? []
   const courses = selectedCourseWorkspace?.courses ?? []
   const records = active?.records ?? []
@@ -3746,15 +3909,16 @@ function MainArea() {
                         })}
                         {course.conversations.map((conversation) => {
                           const isSelected = conversation.id === activeConversationId
+                          const isPending = isPendingConversationSummary(conversation)
                           return (
                             <button
-                              className={`lesson-course-card${isSelected ? ' is-selected' : ''}`}
+                              className={`lesson-course-card${isSelected ? ' is-selected' : ''}${isPending ? ' is-pending' : ''}`}
                               key={conversation.id}
                               type="button"
-                              onClick={() => void loadAgentConversation(conversation.id, selectedCourseWorkspace?.id)}
+                              onClick={() => isPending ? restorePendingAgentConversation() : void loadAgentConversation(conversation.id, selectedCourseWorkspace?.id)}
                             >
                               <div className="lesson-card-number">
-                                <MessageSquare size={15} />
+                                {isPending ? <Loader2 className="spin" size={15} /> : <MessageSquare size={15} />}
                               </div>
                               <div className="lesson-card-content">
                                 <h3>{conversation.title}</h3>
@@ -4001,19 +4165,21 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     settings,
     generateLesson,
     generateLessonStream,
-    agentChat
+    agentChat,
+    cancelAgentChat
   } = useAppStore()
   const view = useAppStore((s) => s.view)
   const overviewDialogMode = useAppStore((s) => s.overviewDialogMode)
   const isTeachingMode = view !== 'agent' && overviewDialogMode === 'teaching'
   const inputValue = agentInput
-  const busy = isTeachingMode ? generating : agentChatBusy
+  const busy = isTeachingMode ? generating || agentChatBusy : agentChatBusy
   const canSend = Boolean(active && inputValue.trim() && !busy)
   const hasConversation = agentTurns.length > 0
   const scrollRef = useRef<HTMLDivElement>(null)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
   const viewingBusyPendingConversation = agentChatBusy && activeConversationId === pendingAgentConversation?.summary.id
+  const canCancelAgentChat = agentChatBusy && Boolean(pendingAgentConversation)
   const submitTeachingPrompt = (value: string): void => {
     const prompt = value.trim()
     if (!prompt) return
@@ -4100,8 +4266,15 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             <div className="overview-dialog-actions">
               <OverviewModelPicker />
               <OverviewReasoningPicker />
-              <button className="send-button overview-dialog-send" type="submit" aria-label="发送消息" disabled={!canSend}>
-                {busy ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
+              <button
+                className="send-button overview-dialog-send"
+                type={canCancelAgentChat ? 'button' : 'submit'}
+                aria-label={canCancelAgentChat ? '中断对话' : '发送消息'}
+                title={canCancelAgentChat ? '中断对话' : '发送消息'}
+                disabled={canCancelAgentChat ? false : !canSend}
+                onClick={canCancelAgentChat ? () => void cancelAgentChat() : undefined}
+              >
+                {canCancelAgentChat ? <Square size={16} /> : busy ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
               </button>
             </div>
           </div>
@@ -5816,6 +5989,7 @@ function agentStatusLabel(status: AgentChatStreamStatus['status']): string {
     tool_done: '工具调用完成',
     answering: '生成答复…',
     done: '完成',
+    canceled: '已中断',
     error: '出错'
   }
   return labels[status]
@@ -5877,6 +6051,7 @@ function agentProcessStatusTitle(status: AgentChatStreamStatus['status']): strin
     tool_done: '整理工具返回结果',
     answering: '生成最终答复',
     done: '答复完成',
+    canceled: '对话已中断',
     error: '过程出错'
   }
   return labels[status]
@@ -5905,6 +6080,23 @@ function updateAgentAssistantTurn(
   updater: (turn: AgentChatTurn) => AgentChatTurn
 ): AgentChatTurn[] {
   return turns.map((turn) => (turn.id === assistantId ? updater(turn) : turn))
+}
+
+function markLatestAssistantTurnCanceled(turns: AgentChatTurn[]): AgentChatTurn[] {
+  const index = [...turns].reverse().findIndex((turn) => turn.role === 'assistant')
+  if (index < 0) return turns
+  const assistantIndex = turns.length - 1 - index
+  return turns.map((turn, idx) =>
+    idx === assistantIndex
+      ? {
+          ...turn,
+          processEvents: appendAgentProcessEvent(
+            turn.processEvents,
+            createAgentStatusProcessEvent('canceled')
+          )
+        }
+      : turn
+  )
 }
 
 function reconcileAgentTurnsWithLocalProcess(
@@ -5941,20 +6133,33 @@ function createPendingAgentConversationSummary({
   id,
   titleSource,
   createdAt,
-  turns
+  turns,
+  mode,
+  selectedCourseRelativePath,
+  sourceConversation,
+  workspaceRootPath
 }: {
   id: string
   titleSource: string
   createdAt: string
   turns: AgentChatTurn[]
+  mode: AgentChatMode
+  selectedCourseRelativePath: string | null
+  sourceConversation?: AgentConversationSummary | null
+  workspaceRootPath: string
 }): AgentConversationSummary & { pending: true } {
+  const relativePath = sourceConversation?.relativePath ?? pendingAgentConversationRelativePath({
+    id,
+    mode,
+    selectedCourseRelativePath
+  })
   return {
     id,
     title: compactText(titleSource, 48) || '新对话',
-    createdAt,
+    createdAt: sourceConversation?.createdAt ?? createdAt,
     updatedAt: createdAt,
-    relativePath: '',
-    absolutePath: '',
+    relativePath,
+    absolutePath: sourceConversation?.absolutePath ?? (mode === 'temporary' ? '' : pendingAgentConversationAbsolutePath(workspaceRootPath, relativePath)),
     messageCount: turns.length,
     pending: true
   }

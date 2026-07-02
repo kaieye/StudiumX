@@ -17,13 +17,31 @@ assert.match(
 
 assert.match(
   app,
-  /pendingAgentConversation \? \[pendingAgentConversation\.summary, \.\.\.conversations\] : conversations/,
-  'sidebar conversation list should include the pending conversation before it is saved'
+  /pendingAgentConversation \? \[pendingAgentConversation\.summary, \.\.\.conversations\.filter\(\(conversation\) => !sameRelativePath\(conversation\.relativePath, pendingAgentConversation\.summary\.relativePath\)\)\] : conversations/,
+  'sidebar conversation list should include only temporary pending conversations before they are saved'
 )
 
 assert.match(
   app,
-  /conversation\.pending\s*\?\s*restorePendingAgentConversation\(\)\s*:\s*void loadAgentConversation\(conversation\.id\)/,
+  /!isCourseConversationPath\(storedPendingAgentConversation\.summary\.relativePath\)/,
+  'course-scoped pending conversations should stay out of the flat conversation section'
+)
+
+assert.match(
+  app,
+  /withPendingCourseConversation\(workspaces, pendingAgentConversation\)/,
+  'course sidebar should merge course-scoped pending conversations into the course tree'
+)
+
+assert.match(
+  app,
+  /withPendingCourseConversation\(appState\.workspaces, pendingAgentConversation\)/,
+  'course library should merge course-scoped pending conversations before rendering course cards'
+)
+
+assert.match(
+  app,
+  /conversation\.pending\s*\?\s*restorePendingAgentConversation\(\)\s*:\s*void loadAgentConversation\(conversation\.id,\s*conversation\.workspaceId\)/,
   'clicking the pending sidebar row should restore local streaming turns instead of reading from disk'
 )
 

@@ -389,6 +389,7 @@ export class TeachingWorkspaceService {
     payload: AgentChatStreamPayload,
     stream: {
       streamId: string
+      signal?: AbortSignal
       onChunk: (chunk: AgentChatStreamChunk) => void
       onStatus: (status: AgentChatStreamStatus) => void
       onTool: (event: AgentChatStreamToolEvent) => void
@@ -397,6 +398,9 @@ export class TeachingWorkspaceService {
     const userInput = payload.userInput.trim()
     if (!userInput) {
       return { error: true, message: '消息不能为空。' }
+    }
+    if (stream.signal?.aborted) {
+      return { canceled: true }
     }
     const settings = await this.loadSettings()
     const provider = resolveActiveProvider(settings)
@@ -500,6 +504,7 @@ export class TeachingWorkspaceService {
       tools: registry.definitions(),
       toolHandlers: registry.handlerMap(ctx),
       maxIterations: settings.tools.maxIterations,
+      signal: stream.signal,
       callbacks: {
         onEvent: (e) => {
           const streamId = stream.streamId
@@ -524,8 +529,14 @@ export class TeachingWorkspaceService {
       }
     })
 
+    if (result.stopReason === 'canceled') {
+      return { canceled: true }
+    }
     if (result.error) {
       return { error: true, message: result.error }
+    }
+    if (stream.signal?.aborted) {
+      return { canceled: true }
     }
     let finalText = result.finalText
     let messagesWithMemory = result.messages
@@ -2216,11 +2227,13 @@ async function findAgentConversationJsonRelativePath(rootPath: string, id: strin
 
 function agentConversationDirectoryRelativePath(payload: SaveAgentConversationPayload): string {
   const selected = normalizeWorkspaceRelativePath(payload.selectedCourseRelativePath ?? '')
-  if (selected && isCourseRelativePath(selected)) return 'conversation'
+  if (selected && isCourseRelativePath(selected)) {
+    return selected === 'lessons' ? 'conversation' : workspaceRelativePath(selected, 'conversation')
+  }
 
   const lessonPath = normalizeWorkspaceRelativePath(payload.selectedLessonPath ?? '')
   const lessonCourse = courseRelativePathFromWorkspacePath(lessonPath)
-  if (lessonCourse) return 'conversation'
+  if (lessonCourse) return lessonCourse === 'lessons' ? 'conversation' : workspaceRelativePath(lessonCourse, 'conversation')
 
   if (payload.mode === 'teaching') return 'conversation'
 

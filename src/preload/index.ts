@@ -64,6 +64,7 @@ const api: TeachingSystemApi = {
         offTool()
       }) as Promise<AgentChatStreamDone>
   },
+  cancelAgentChatStream: (streamId) => ipcRenderer.invoke('teach:cancel-agent-chat-stream', streamId),
   onAgentChatChunk: (handler) => registerIpcListener<AgentChatStreamChunk>('teach:agent-chat-chunk', handler),
   onAgentChatStatus: (handler) => registerIpcListener<AgentChatStreamStatus>('teach:agent-chat-status', handler),
   onAgentChatTool: (handler) => registerIpcListener<AgentChatStreamToolEvent>('teach:agent-chat-tool', handler),

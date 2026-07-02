@@ -637,9 +637,11 @@ export type AgentLoopStatus =
   | 'tool_done'
   | 'answering'
   | 'done'
+  | 'canceled'
   | 'error'
 
 export type AgentChatStreamPayload = {
+  streamId?: string
   workspaceId?: string
   mode?: AgentChatMode
   messages: AgentChatMessage[]
@@ -675,6 +677,7 @@ export type AgentChatStreamDone =
       teachingAssessment?: TeachingClarificationResult
       memoryCapture?: TeachingMemoryCaptureResult
     }
+  | { streamId: string; canceled: true }
   | { streamId: string; error: true; message: string }
 
 /** The non-streamId portion of {@link AgentChatStreamDone}, as a clean
@@ -689,6 +692,7 @@ export type AgentChatStreamResult =
       teachingAssessment?: TeachingClarificationResult
       memoryCapture?: TeachingMemoryCaptureResult
     }
+  | { canceled: true }
   | { error: true; message: string }
 
 export type AgentConversationRecord = AgentConversationSummary & {
@@ -771,6 +775,7 @@ export type TeachingSystemApi = {
     onStatus: (status: AgentChatStreamStatus) => void,
     onTool: (event: AgentChatStreamToolEvent) => void
   ) => Promise<AgentChatStreamDone>
+  cancelAgentChatStream: (streamId: string) => Promise<{ canceled: boolean }>
   onAgentChatChunk: (handler: (chunk: AgentChatStreamChunk) => void) => () => void
   onAgentChatStatus: (handler: (status: AgentChatStreamStatus) => void) => () => void
   onAgentChatTool: (handler: (event: AgentChatStreamToolEvent) => void) => () => void

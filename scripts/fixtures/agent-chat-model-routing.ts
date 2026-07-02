@@ -190,6 +190,27 @@ try {
   assert.equal(temporaryMessages.at(-1)?.role, 'user')
   assert.equal(temporaryMessages.at(-1)?.content, '我有哪些课程？')
 
+  const canceledController = new AbortController()
+  canceledController.abort()
+  const canceledStatuses: string[] = []
+  const canceledResult = await service.agentChatStream(
+    {
+      workspaceId: workspace.id,
+      messages: [],
+      userInput: '这条会被中断'
+    },
+    {
+      streamId: 'canceled-stream',
+      signal: canceledController.signal,
+      onChunk: () => {},
+      onStatus: (status) => canceledStatuses.push(status.status),
+      onTool: () => {}
+    }
+  )
+  assert.equal('canceled' in canceledResult, true, 'aborted agent chat should return a canceled result')
+  assert.equal(requests.length, 3, 'aborted agent chat should not call the provider')
+  assert.deepEqual(canceledStatuses, [])
+
   console.log('agent chat model routing ok')
 } finally {
   await close(server).catch(() => {})

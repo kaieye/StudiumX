@@ -367,8 +367,9 @@ export async function callProvider(opts: {
   provider: TeachingModelProviderProfile
   request: AdapterRequest
   callbacks?: AdapterCallbacks
+  signal?: AbortSignal
 }): Promise<AdapterResult> {
-  const { settings, provider, request, callbacks } = opts
+  const { settings, provider, request, callbacks, signal } = opts
   if (!provider.apiKey.trim()) {
     throw new ProviderAdapterError('no_api_key', '未配置 API Key。')
   }
@@ -384,7 +385,7 @@ export async function callProvider(opts: {
   try {
     res = await fetchWithOptionalProxy(
       url,
-      { ...init, signal: AbortSignal.timeout(settings.generator.requestTimeoutMs) },
+      { ...init, signal: composeAbortSignal(settings.generator.requestTimeoutMs, signal) },
       resolveProxyUrl(settings)
     )
   } catch (e) {
@@ -413,8 +414,9 @@ export async function streamProvider(opts: {
   provider: TeachingModelProviderProfile
   request: AdapterRequest
   callbacks: AdapterCallbacks
+  signal?: AbortSignal
 }): Promise<AdapterResult> {
-  const { settings, provider, request, callbacks } = opts
+  const { settings, provider, request, callbacks, signal } = opts
   if (!provider.apiKey.trim()) {
     throw new ProviderAdapterError('no_api_key', '未配置 API Key。')
   }
@@ -433,14 +435,14 @@ export async function streamProvider(opts: {
     // once streaming starts we rely on the stream's own liveness.
     res = await fetchWithOptionalProxy(
       url,
-      { ...init, signal: AbortSignal.timeout(settings.generator.requestTimeoutMs) },
+      { ...init, signal: composeAbortSignal(settings.generator.requestTimeoutMs, signal) },
       resolveProxyUrl(settings)
     )
   } catch (e) {
     // Some providers/endpoints don't actually support SSE; fall back to a
     // single-shot non-streaming call and emit the whole text as one token.
-    if (isAbortTimeout(e)) {
-      return callProvider({ settings, provider, request, callbacks }).then((result) => {
+    if (!signal?.aborted && isAbortTimeout(e)) {
+      return callProvider({ settings, provider, request, callbacks, signal }).then((result) => {
         callbacks.onStatus?.('streaming')
         callbacks.onToken?.(result.text)
         return result
@@ -529,6 +531,12 @@ function safeJsonParse(data: string): unknown {
 function isAbortTimeout(error: unknown): boolean {
   const raw = error instanceof Error ? error.message : String(error)
   return /aborted|timeout/i.test(raw)
+}
+
+function composeAbortSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs)
+  if (!signal) return timeoutSignal
+  return AbortSignal.any([signal, timeoutSignal])
 }
 
 function networkMessage(error: unknown): string {
@@ -712,8 +720,9 @@ export async function callChatProvider(opts: {
   provider: TeachingModelProviderProfile
   request: ChatAdapterRequest
   callbacks?: ChatAdapterCallbacks
+  signal?: AbortSignal
 }): Promise<ChatAdapterResult> {
-  const { settings, provider, request, callbacks } = opts
+  const { settings, provider, request, callbacks, signal } = opts
   if (!provider.apiKey.trim()) {
     throw new ProviderAdapterError('no_api_key', '未配置 API Key。')
   }
@@ -734,7 +743,7 @@ export async function callChatProvider(opts: {
     try {
       res = await fetchWithOptionalProxy(
         url,
-        { ...init, signal: AbortSignal.timeout(settings.generator.requestTimeoutMs) },
+        { ...init, signal: composeAbortSignal(settings.generator.requestTimeoutMs, signal) },
         resolveProxyUrl(settings)
       )
     } catch (e) {
@@ -873,8 +882,9 @@ export async function streamChatProvider(opts: {
   provider: TeachingModelProviderProfile
   request: ChatAdapterRequest
   callbacks: ChatAdapterCallbacks
+  signal?: AbortSignal
 }): Promise<ChatAdapterResult> {
-  const { settings, provider, request, callbacks } = opts
+  const { settings, provider, request, callbacks, signal } = opts
   if (!provider.apiKey.trim()) {
     throw new ProviderAdapterError('no_api_key', '未配置 API Key。')
   }
@@ -893,12 +903,12 @@ export async function streamChatProvider(opts: {
   try {
     res = await fetchWithOptionalProxy(
       url,
-      { ...init, signal: AbortSignal.timeout(settings.generator.requestTimeoutMs) },
+      { ...init, signal: composeAbortSignal(settings.generator.requestTimeoutMs, signal) },
       resolveProxyUrl(settings)
     )
   } catch (e) {
-    if (isAbortTimeout(e)) {
-      const result = await callChatProvider({ settings, provider, request, callbacks })
+    if (!signal?.aborted && isAbortTimeout(e)) {
+      const result = await callChatProvider({ settings, provider, request, callbacks, signal })
       callbacks.onStatus?.('streaming')
       if (result.text) callbacks.onToken?.(result.text)
       if (result.toolCalls.length > 0) callbacks.onToolCalls?.(result.toolCalls)

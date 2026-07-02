@@ -16,7 +16,7 @@ import type {
 } from '../../shared/teaching-types'
 import type { AgentLoopStatus } from '../../shared/teaching-types'
 
-export type AgentLoopStopReason = 'final_answer' | 'max_iterations' | 'error' | 'degraded'
+export type AgentLoopStopReason = 'final_answer' | 'max_iterations' | 'error' | 'degraded' | 'canceled'
 
 export type AgentLoopEvent =
   | { type: 'status'; status: AgentLoopStatus; message?: string }
@@ -32,6 +32,7 @@ export type RunAgentLoopOptions = {
   tools: ToolDefinition[]
   toolHandlers: ToolHandlerMap
   maxIterations?: number
+  signal?: AbortSignal
   callbacks?: { onEvent?: (e: AgentLoopEvent) => void }
 }
 
@@ -62,16 +63,34 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
   const emit = (e: AgentLoopEvent): void => {
     opts.callbacks?.onEvent?.(e)
   }
+  let degradedReason: string | undefined
+  let iterations = 0
+  const isCanceled = (): boolean => opts.signal?.aborted === true
+  const canceledResult = (toolsSupported: boolean): RunAgentLoopResult => {
+    emit({ type: 'status', status: 'canceled' })
+    return {
+      messages: transcript,
+      finalText: '',
+      iterations,
+      toolsSupported,
+      degradedReason,
+      stopReason: 'canceled'
+    }
+  }
 
   // Degraded path: endpoint format can't carry tools.
   if (!supported) {
+    if (isCanceled()) return canceledResult(false)
+    iterations = 1
     emit({ type: 'status', status: 'answering', message: '当前端点格式不支持工具调用，已降级为纯文本生成。' })
     try {
       const result = await callProvider({
         settings: opts.settings,
         provider: opts.provider,
-        request: legacyRequestFromMessages(transcript)
+        request: legacyRequestFromMessages(transcript),
+        signal: opts.signal
       })
+      if (isCanceled()) return canceledResult(false)
       const assistantMsg: ChatMessage = { role: 'assistant', content: result.text }
       transcript.push(assistantMsg)
       emit({ type: 'assistant_message', message: assistantMsg })
@@ -86,6 +105,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         stopReason: 'degraded'
       }
     } catch (e) {
+      if (isCanceled()) return canceledResult(false)
       const message = e instanceof Error ? e.message : String(e)
       emit({ type: 'status', status: 'error', message })
       return {
@@ -100,10 +120,8 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     }
   }
 
-  let degradedReason: string | undefined
-  let iterations = 0
-
   for (let i = 0; i < maxIter; i++) {
+    if (isCanceled()) return canceledResult(true)
     iterations = i + 1
     emit({ type: 'status', status: 'thinking' })
     let result: ChatAdapterResult
@@ -115,9 +133,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
           messages: transcript,
           tools: opts.tools,
           toolChoice: 'auto'
-        }
+        },
+        signal: opts.signal
       })
     } catch (e) {
+      if (isCanceled()) return canceledResult(true)
       const message = e instanceof Error ? e.message : String(e)
       emit({ type: 'status', status: 'error', message })
       return {
@@ -130,6 +150,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         error: message
       }
     }
+    if (isCanceled()) return canceledResult(true)
     degradedReason ??= result.degradedReason
 
     const assistantMsg: ChatMessage = {
@@ -157,6 +178,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
 
     emit({ type: 'status', status: 'tool_running' })
     for (const call of result.toolCalls) {
+      if (isCanceled()) return canceledResult(true)
       emit({ type: 'tool_call', toolCall: call })
       let payload: string
       let isError = false
@@ -169,6 +191,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         isError = true
         payload = JSON.stringify({ error: e instanceof Error ? e.message : String(e) })
       }
+      if (isCanceled()) return canceledResult(true)
       transcript.push({ role: 'tool', tool_call_id: call.id, content: payload })
       emit({
         type: 'tool_result',
@@ -184,11 +207,14 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
   // Budget exhausted: force one final no-tools turn to produce an answer.
   emit({ type: 'status', status: 'answering', message: '达到工具调用上限，生成最终答复。' })
   try {
+    if (isCanceled()) return canceledResult(true)
     const final = await callChatProvider({
       settings: opts.settings,
       provider: opts.provider,
-      request: { messages: transcript, tools: [], toolChoice: 'none' }
+      request: { messages: transcript, tools: [], toolChoice: 'none' },
+      signal: opts.signal
     })
+    if (isCanceled()) return canceledResult(true)
     degradedReason ??= final.degradedReason
     const assistantMsg: ChatMessage = { role: 'assistant', content: final.text || null }
     transcript.push(assistantMsg)
@@ -204,6 +230,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       stopReason: 'max_iterations'
     }
   } catch (e) {
+    if (isCanceled()) return canceledResult(true)
     const message = e instanceof Error ? e.message : String(e)
     emit({ type: 'status', status: 'error', message })
     return {
