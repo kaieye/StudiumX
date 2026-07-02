@@ -770,8 +770,10 @@ const useAppStore = create<StoreState>((set, get) => ({
     if (!pending) return
     const courseRelativePath = courseRelativePathForConversation(pending.summary.relativePath)
     set({
-      view: 'agent',
+      view: pending.mode === 'teaching' ? 'overview' : 'agent',
       overviewDialogMode: pending.mode === 'teaching' ? 'teaching' : get().overviewDialogMode,
+      lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
       agentTurns: pending.turns,
       activeConversationId: pending.summary.id,
       agentStatus: pending.status,
@@ -1269,12 +1271,15 @@ const useAppStore = create<StoreState>((set, get) => ({
       const conversation = await api.readAgentConversation({ workspaceId: workspace.id, conversationId })
       const latestUserTurn = [...conversation.turns].reverse().find((turn) => turn.role === 'user')
       const conversationCourseRelativePath = courseRelativePathForConversation(conversation.relativePath)
+      const isTeachingConversation = Boolean(conversationCourseRelativePath)
       set({
         appState: workspace.id === get().appState.activeWorkspace?.id
           ? get().appState
           : await api.selectWorkspace(workspace.id),
-        view: 'agent',
-        overviewDialogMode: conversationCourseRelativePath ? 'teaching' : get().overviewDialogMode,
+        view: isTeachingConversation ? 'overview' : 'agent',
+        overviewDialogMode: isTeachingConversation ? 'teaching' : get().overviewDialogMode,
+        lessonReaderOpen: false,
+        selectedCoursePreviewFile: null,
         agentTurns: conversation.turns,
         activeConversationId: conversation.id,
         agentStatus: '',

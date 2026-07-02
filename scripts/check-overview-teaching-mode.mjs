@@ -65,6 +65,18 @@ assert.match(
 
 assert.match(
   app,
+  /loadAgentConversation: async \(conversationId, workspaceId\) => \{[\s\S]*const isTeachingConversation = Boolean\(conversationCourseRelativePath\)[\s\S]*view:\s*isTeachingConversation \? 'overview' : 'agent'[\s\S]*overviewDialogMode:\s*isTeachingConversation \? 'teaching' : get\(\)\.overviewDialogMode/,
+  'opening a course conversation should enter the overview teaching dialog, not the normal chat view'
+)
+
+assert.match(
+  app,
+  /restorePendingAgentConversation:[\s\S]*view:\s*pending\.mode === 'teaching' \? 'overview' : 'agent'/,
+  'restoring a pending teaching conversation should keep the teaching dialog mode'
+)
+
+assert.match(
+  app,
   /const continueTeachingConversation = isTeachingMode && Boolean/,
   'teaching-mode composer should detect when the visible chat is an existing teaching conversation'
 )
