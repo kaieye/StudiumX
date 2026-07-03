@@ -39,13 +39,13 @@ const duckDuckGoHtml = `
     <table>
       <tr>
         <td>
-          <a class="result-link" href="//duckduckgo.com/l/?uddg=${encodeURIComponent(fallbackUrl)}">
+          <a rel="nofollow" href="//duckduckgo.com/l/?uddg=${encodeURIComponent(fallbackUrl)}&amp;rut=test" class='result-link'>
             AI 教学系统优化实战 - 转载
           </a>
         </td>
       </tr>
       <tr>
-        <td class="result-snippet">
+        <td class='result-snippet'>
           TeachOS研究所发布的微信文章摘要，讲解 web_search 如何处理受限页面。
         </td>
       </tr>

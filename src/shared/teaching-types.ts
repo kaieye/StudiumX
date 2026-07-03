@@ -6,6 +6,7 @@ export type SettingsSection =
   | 'model'
   | 'generation'
   | 'tools'
+  | 'search'
   | 'workspace'
   | 'worktree'
   | 'memory'
@@ -20,6 +21,18 @@ export type ModelEndpointFormat = 'chat_completions' | 'responses' | 'messages' 
 export type ModelReasoningEffort = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export type AppCloseAction = 'quit' | 'tray'
+export type WebSearchBackend =
+  | 'auto'
+  | 'firecrawl'
+  | 'parallel'
+  | 'tavily'
+  | 'exa'
+  | 'searxng'
+  | 'brave'
+  | 'ddgs'
+  | 'duckduckgo'
+  | 'xai'
+export type ParallelSearchMode = 'agentic' | 'fast' | 'one-shot'
 
 export type QuizType = 'single' | 'multi' | 'truefalse' | 'fill'
 export type TeachingMemoryScope = 'user' | 'workspace' | 'project'
@@ -40,6 +53,25 @@ export const MODEL_REASONING_EFFORTS = [
   'high',
   'xhigh',
   'max'
+] as const
+
+export const WEB_SEARCH_BACKENDS = [
+  'auto',
+  'firecrawl',
+  'parallel',
+  'tavily',
+  'exa',
+  'searxng',
+  'brave',
+  'ddgs',
+  'duckduckgo',
+  'xai'
+] as const
+
+export const PARALLEL_SEARCH_MODES = [
+  'agentic',
+  'fast',
+  'one-shot'
 ] as const
 
 export type TeachingModelProviderPreset = {
@@ -162,6 +194,21 @@ export type TeachingSettingsV1 = {
     webFetch: boolean
     maxIterations: number
   }
+  webSearch: {
+    backend: WebSearchBackend
+    fallbackEnabled: boolean
+    maxResults: number
+    searxngUrl: string
+    braveApiKey: string
+    firecrawlApiKey: string
+    firecrawlApiUrl: string
+    tavilyApiKey: string
+    exaApiKey: string
+    parallelApiKey: string
+    parallelSearchMode: ParallelSearchMode
+    xaiApiKey: string
+    xaiModel: string
+  }
   notifications: {
     enabled: boolean
     lessonGenerated: boolean
@@ -195,6 +242,7 @@ export type TeachingSettingsPatch = Partial<
   worktree?: Partial<TeachingSettingsV1['worktree']>
   memory?: Partial<TeachingSettingsV1['memory']>
   tools?: Partial<TeachingSettingsV1['tools']>
+  webSearch?: Partial<TeachingSettingsV1['webSearch']>
   notifications?: Partial<TeachingSettingsV1['notifications']>
   privacy?: Partial<TeachingSettingsV1['privacy']>
   appBehavior?: Partial<TeachingSettingsV1['appBehavior']>

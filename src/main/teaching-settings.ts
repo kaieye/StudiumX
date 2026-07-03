@@ -3,12 +3,16 @@ import { dirname, join } from 'node:path'
 import {
   MODEL_ENDPOINT_FORMATS,
   MODEL_REASONING_EFFORTS,
+  PARALLEL_SEARCH_MODES,
   TEACHING_MODEL_PROVIDER_PRESETS,
+  WEB_SEARCH_BACKENDS,
   type ModelEndpointFormat,
   type ModelReasoningEffort,
+  type ParallelSearchMode,
   type TeachingModelProviderProfile,
   type TeachingSettingsPatch,
-  type TeachingSettingsV1
+  type TeachingSettingsV1,
+  type WebSearchBackend
 } from '../shared/teaching-types'
 
 const SETTINGS_FILE_NAME = 'teachos-settings.json'
@@ -143,6 +147,21 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
       webFetch: false,
       maxIterations: 4
     },
+    webSearch: {
+      backend: 'auto',
+      fallbackEnabled: true,
+      maxResults: 5,
+      searxngUrl: '',
+      braveApiKey: '',
+      firecrawlApiKey: '',
+      firecrawlApiUrl: '',
+      tavilyApiKey: '',
+      exaApiKey: '',
+      parallelApiKey: '',
+      parallelSearchMode: 'agentic',
+      xaiApiKey: '',
+      xaiModel: 'grok-4.3'
+    },
     notifications: {
       enabled: true,
       lessonGenerated: true,
@@ -199,6 +218,10 @@ export function mergeSettings(current: TeachingSettingsV1, patch: TeachingSettin
       ...current.tools,
       ...(patch.tools ?? {})
     },
+    webSearch: {
+      ...current.webSearch,
+      ...(patch.webSearch ?? {})
+    },
     notifications: {
       ...current.notifications,
       ...(patch.notifications ?? {})
@@ -241,6 +264,7 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
   const worktreeInput = isRecord(record.worktree) ? record.worktree : {}
   const memoryInput = isRecord(record.memory) ? record.memory : {}
   const toolsInput = isRecord(record.tools) ? record.tools : {}
+  const webSearchInput = isRecord(record.webSearch) ? record.webSearch : {}
   const notificationsInput = isRecord(record.notifications) ? record.notifications : {}
   const privacyInput = isRecord(record.privacy) ? record.privacy : {}
   const appBehaviorInput = isRecord(record.appBehavior) ? record.appBehavior : {}
@@ -300,6 +324,21 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       webSearch: toolsInput.webSearch !== false,
       webFetch: toolsInput.webFetch === true,
       maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 1, 10, defaults.tools.maxIterations))
+    },
+    webSearch: {
+      backend: normalizeWebSearchBackend(webSearchInput.backend, defaults.webSearch.backend),
+      fallbackEnabled: webSearchInput.fallbackEnabled !== false,
+      maxResults: Math.round(clampNumber(webSearchInput.maxResults, 1, 20, defaults.webSearch.maxResults)),
+      searxngUrl: normalizeString(webSearchInput.searxngUrl),
+      braveApiKey: normalizeString(webSearchInput.braveApiKey),
+      firecrawlApiKey: normalizeString(webSearchInput.firecrawlApiKey),
+      firecrawlApiUrl: normalizeString(webSearchInput.firecrawlApiUrl),
+      tavilyApiKey: normalizeString(webSearchInput.tavilyApiKey),
+      exaApiKey: normalizeString(webSearchInput.exaApiKey),
+      parallelApiKey: normalizeString(webSearchInput.parallelApiKey),
+      parallelSearchMode: normalizeParallelSearchMode(webSearchInput.parallelSearchMode, defaults.webSearch.parallelSearchMode),
+      xaiApiKey: normalizeString(webSearchInput.xaiApiKey),
+      xaiModel: normalizeString(webSearchInput.xaiModel) || defaults.webSearch.xaiModel
     },
     notifications: {
       enabled: notificationsInput.enabled !== false,
@@ -385,6 +424,18 @@ function normalizeEndpointFormat(input: unknown, fallback: ModelEndpointFormat):
 function normalizeReasoningEffort(input: unknown, fallback: ModelReasoningEffort): ModelReasoningEffort {
   return typeof input === 'string' && MODEL_REASONING_EFFORTS.includes(input as ModelReasoningEffort)
     ? input as ModelReasoningEffort
+    : fallback
+}
+
+function normalizeWebSearchBackend(input: unknown, fallback: WebSearchBackend): WebSearchBackend {
+  return typeof input === 'string' && WEB_SEARCH_BACKENDS.includes(input as WebSearchBackend)
+    ? input as WebSearchBackend
+    : fallback
+}
+
+function normalizeParallelSearchMode(input: unknown, fallback: ParallelSearchMode): ParallelSearchMode {
+  return typeof input === 'string' && PARALLEL_SEARCH_MODES.includes(input as ParallelSearchMode)
+    ? input as ParallelSearchMode
     : fallback
 }
 

@@ -93,7 +93,9 @@ import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
 import { classifyProviderError } from '../../shared/provider-error'
 import { deriveWorkspaceRemovalUiPatch } from '../../shared/workspace-removal-state'
 import {
+  PARALLEL_SEARCH_MODES,
   TEACHING_MODEL_PROVIDER_PRESETS,
+  WEB_SEARCH_BACKENDS,
   type AgentChatProcessEvent,
   type AgentChatStreamChunk,
   type AgentChatStreamStatus,
@@ -127,6 +129,7 @@ import {
   type TeachingSettingsV1,
   type TeachingWorkspaceSummary,
   type UpdateTeachingMemoryPayload,
+  type WebSearchBackend,
   type WindowControlAction,
   type WorkspaceFileNode,
   type WorkspaceItemKind,
@@ -312,6 +315,21 @@ const emptySettings: TeachingSettingsV1 = {
     webFetch: false,
     maxIterations: 4
   },
+  webSearch: {
+    backend: 'auto',
+    fallbackEnabled: true,
+    maxResults: 5,
+    searxngUrl: '',
+    braveApiKey: '',
+    firecrawlApiKey: '',
+    firecrawlApiUrl: '',
+    tavilyApiKey: '',
+    exaApiKey: '',
+    parallelApiKey: '',
+    parallelSearchMode: 'agentic',
+    xaiApiKey: '',
+    xaiModel: 'grok-4.3'
+  },
   notifications: {
     enabled: true,
     lessonGenerated: true,
@@ -372,6 +390,10 @@ function normalizeRendererSettings(input: TeachingSettingsPatch | TeachingSettin
       ...emptySettings.tools,
       ...(settings.tools ?? {})
     },
+    webSearch: {
+      ...emptySettings.webSearch,
+      ...(settings.webSearch ?? {})
+    },
     notifications: {
       ...emptySettings.notifications,
       ...(settings.notifications ?? {})
@@ -401,6 +423,7 @@ const settingsNavItems = [
   { id: 'model', icon: Bot },
   { id: 'generation', icon: SlidersHorizontal },
   { id: 'tools', icon: Wrench },
+  { id: 'search', icon: Search },
   { id: 'workspace', icon: FolderOpen },
   { id: 'worktree', icon: GitBranch },
   { id: 'memory', icon: BrainCircuit },
@@ -409,7 +432,40 @@ const settingsNavItems = [
   { id: 'about', icon: Info }
 ] satisfies Array<{ id: SettingsSection; icon: LucideIcon }>
 
+const webSearchBackendOptions = WEB_SEARCH_BACKENDS
+  .filter((backend) => backend !== 'duckduckgo')
+  .map((backend) => ({ value: backend, label: webSearchBackendLabel(backend) }))
+
+const parallelSearchModeOptions = PARALLEL_SEARCH_MODES.map((mode) => ({
+  value: mode,
+  label: mode
+}))
+
 const modelSettingsProviderIds = ['deepseek', 'glm', 'custom'] as const
+
+function webSearchBackendLabel(backend: WebSearchBackend): string {
+  switch (backend) {
+    case 'auto':
+      return 'Auto'
+    case 'firecrawl':
+      return 'Firecrawl'
+    case 'parallel':
+      return 'Parallel'
+    case 'tavily':
+      return 'Tavily'
+    case 'exa':
+      return 'Exa'
+    case 'searxng':
+      return 'SearXNG'
+    case 'brave':
+      return 'Brave Search'
+    case 'ddgs':
+    case 'duckduckgo':
+      return 'DDGS / DuckDuckGo'
+    case 'xai':
+      return 'xAI Grok'
+  }
+}
 
 function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
   const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number }
@@ -5168,7 +5224,7 @@ function SettingsView({
                   onChange={(workspaceRead) => void onUpdateSettings({ tools: { workspaceRead } } as TeachingSettingsPatch)}
                 />
               </SettingsRow>
-              <SettingsRow label="web_search（DuckDuckGo）" detail="免费、无需 API Key；检索最新或课程外信息">
+              <SettingsRow label="web_search（多后端）" detail="自动使用 SearXNG、Brave Search 或 DuckDuckGo Lite 检索最新和课程外信息">
                 <ToggleSwitch
                   checked={settings.tools.webSearch}
                   onChange={(webSearch) => void onUpdateSettings({ tools: { webSearch } } as TeachingSettingsPatch)}
@@ -5197,6 +5253,117 @@ function SettingsView({
                 <span style={{ fontSize: 13, color: '#68778f' }}>
                   {settings.generator.endpointFormat}
                 </span>
+              </SettingsRow>
+            </SettingsCard>
+          </SettingsPanel>
+        )}
+
+        {section === 'search' && (
+          <SettingsPanel
+            title="搜索配置"
+            subtitle="选择 web_search 的后端，并配置 Firecrawl、Parallel、Tavily、Exa、SearXNG、Brave、DDGS 或 xAI。"
+          >
+            <SettingsCard>
+              <SettingsRow label="搜索后端" detail={`当前：${webSearchBackendLabel(settings.webSearch.backend)}`}>
+                <SettingsSelect<WebSearchBackend>
+                  value={settings.webSearch.backend}
+                  options={webSearchBackendOptions}
+                  onChange={(backend) => void onUpdateSettings({ webSearch: { backend } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="失败自动回退" detail="Auto 模式下某个后端失败或返回空结果时继续尝试下一个。">
+                <ToggleSwitch
+                  checked={settings.webSearch.fallbackEnabled}
+                  onChange={(fallbackEnabled) => void onUpdateSettings({ webSearch: { fallbackEnabled } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="默认结果数" detail={`${settings.webSearch.maxResults} 条`}>
+                <NumberInput
+                  max={20}
+                  min={1}
+                  step={1}
+                  value={settings.webSearch.maxResults}
+                  onChange={(maxResults) => void onUpdateSettings({ webSearch: { maxResults } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+            </SettingsCard>
+
+            <SettingsCard>
+              <SettingsRow label="Firecrawl API Key" detail="用于 Firecrawl 云端搜索。自托管实例可只填 API URL。">
+                <SettingsTextInput
+                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
+                  value={settings.webSearch.firecrawlApiKey}
+                  placeholder="fc-..."
+                  onChange={(firecrawlApiKey) => void onUpdateSettings({ webSearch: { firecrawlApiKey } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="Firecrawl API URL" detail="留空使用 https://api.firecrawl.dev；自托管时填写实例地址。">
+                <SettingsTextInput
+                  value={settings.webSearch.firecrawlApiUrl}
+                  placeholder="http://localhost:3002"
+                  onChange={(firecrawlApiUrl) => void onUpdateSettings({ webSearch: { firecrawlApiUrl } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="Parallel API Key" detail="agentic 会映射到 pro processor；fast / one-shot 映射到 base。">
+                <SettingsTextInput
+                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
+                  value={settings.webSearch.parallelApiKey}
+                  placeholder="Parallel API Key"
+                  onChange={(parallelApiKey) => void onUpdateSettings({ webSearch: { parallelApiKey } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="Parallel 搜索模式" detail={settings.webSearch.parallelSearchMode}>
+                <SettingsSelect
+                  value={settings.webSearch.parallelSearchMode}
+                  options={parallelSearchModeOptions}
+                  onChange={(parallelSearchMode) => void onUpdateSettings({ webSearch: { parallelSearchMode } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="Tavily API Key" detail="用于 Tavily Search API。">
+                <SettingsTextInput
+                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
+                  value={settings.webSearch.tavilyApiKey}
+                  placeholder="tvly-..."
+                  onChange={(tavilyApiKey) => void onUpdateSettings({ webSearch: { tavilyApiKey } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="Exa API Key" detail="用于 Exa 语义搜索。">
+                <SettingsTextInput
+                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
+                  value={settings.webSearch.exaApiKey}
+                  placeholder="Exa API Key"
+                  onChange={(exaApiKey) => void onUpdateSettings({ webSearch: { exaApiKey } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="SearXNG URL" detail="自托管或可信实例地址；需要启用 JSON format。">
+                <SettingsTextInput
+                  value={settings.webSearch.searxngUrl}
+                  placeholder="http://localhost:8888"
+                  onChange={(searxngUrl) => void onUpdateSettings({ webSearch: { searxngUrl } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="Brave Search API Key" detail="Brave Search Data API。">
+                <SettingsTextInput
+                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
+                  value={settings.webSearch.braveApiKey}
+                  placeholder="Brave Search API Key"
+                  onChange={(braveApiKey) => void onUpdateSettings({ webSearch: { braveApiKey } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="xAI API Key" detail="显式选择 xAI 后通过 Grok server-side web_search 搜索。">
+                <SettingsTextInput
+                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
+                  value={settings.webSearch.xaiApiKey}
+                  placeholder="xai-..."
+                  onChange={(xaiApiKey) => void onUpdateSettings({ webSearch: { xaiApiKey } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="xAI 模型" detail="用于 Responses API 的 Grok 模型。">
+                <SettingsTextInput
+                  value={settings.webSearch.xaiModel}
+                  placeholder="grok-4.3"
+                  onChange={(xaiModel) => void onUpdateSettings({ webSearch: { xaiModel } } as TeachingSettingsPatch)}
+                />
               </SettingsRow>
             </SettingsCard>
           </SettingsPanel>

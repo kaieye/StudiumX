@@ -204,6 +204,7 @@
     "notifications": { "label": "通知", "detail": "桌面提醒" },
     "privacy": { "label": "隐私", "detail": "链接和密钥显示" },
     "tools": { "label": "工具", "detail": "工作区与网络工具" },
+    "search": { "label": "搜索", "detail": "Web search 后端" },
     "about": { "label": "关于", "detail": "版本、日志、数据目录" }
   },
   "general": {

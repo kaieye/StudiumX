@@ -204,6 +204,7 @@
     "notifications": { "label": "Notifications", "detail": "Desktop alerts" },
     "privacy": { "label": "Privacy", "detail": "Links & key display" },
     "tools": { "label": "Tools", "detail": "Workspace and web tools" },
+    "search": { "label": "Search", "detail": "Web search backends" },
     "about": { "label": "About", "detail": "Version, logs, data folder" }
   },
   "general": {
