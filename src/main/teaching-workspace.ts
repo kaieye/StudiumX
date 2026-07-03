@@ -4,10 +4,12 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
 import { inspectGitWorkspace } from './teaching-git'
-import { callProvider, streamProvider, resolveActiveProvider, ProviderAdapterError, toolsSupportedForFormat, type AdapterCallbacks, type ChatMessage } from './ai/provider-adapter'
+import { isPathInsideRoot } from './path-access'
+import { callProvider, streamProvider, resolveActiveProvider, ProviderAdapterError, toolsSupportedForFormat, type AdapterCallbacks } from './ai/provider-adapter'
 import { runAgentLoop } from './ai/agent-loop'
-import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
+import { buildDefaultRegistry, buildToolContext } from './ai/tools/registry'
 import { buildLessonSystemPrompt, buildLessonUserPrompt } from './ai/lesson-prompts'
+import { runTeachingConversationTurn, type TemporaryChatContext } from './teaching-conversation-runtime'
 import {
   renderLessonHtmlFromPlan,
   renderReferenceHtmlFromPlan,
@@ -16,14 +18,21 @@ import {
 import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
 import { assessTeachingReadiness, isContinuationLessonRequest } from '../shared/teaching-workflow'
 import {
-  buildLearnerMemoryCandidate,
-  buildMemoryConsentPrompt,
-  classifyMemoryConsentResponse,
-  extractPendingLearnerMemoryCandidate,
-  isBareMemoryConsentResponse,
-  isLearnerProfileMemory,
-  planLearnerMemoryCapture
+  isLearnerProfileMemory
 } from '../shared/teaching-memory-capture'
+import {
+  agentConversationCourseJsonScanDirectories,
+  agentConversationDirectoryRelativePath,
+  agentConversationJsonRelativePath,
+  agentConversationJsonRelativePathForMarkdown,
+  agentConversationJsonScanDirectories,
+  agentConversationMarkdownRelativePath,
+  courseRelativePathForAgentConversation as courseRelativePathFromConversationPath,
+  isAgentConversationJsonRelativePath,
+  isAgentConversationMarkdownRelativePath,
+  isRootAgentConversationMarkdownRelativePath,
+  normalizeAgentConversationDirectory
+} from '../shared/agent-conversation-catalog'
 import { classifyProviderError, providerErrorReason } from '../shared/provider-error'
 import type {
   CreateWorkspacePayload,
@@ -53,13 +62,11 @@ import type {
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
   AgentChatTurn,
-  AgentChatMode,
   ReadAgentConversationPayload,
   SaveAgentConversationPayload,
   SaveAgentConversationResult,
   TeachingMemoryDiagnostics,
   TeachingMemoryRecord,
-  TeachingMemoryCaptureResult,
   TeachingClarificationResult,
   TeachingAppState,
   TeachingCourseSummary,
@@ -395,184 +402,17 @@ export class TeachingWorkspaceService {
       onTool: (event: AgentChatStreamToolEvent) => void
     }
   ): Promise<AgentChatStreamResult> {
-    const userInput = payload.userInput.trim()
-    if (!userInput) {
-      return { error: true, message: '消息不能为空。' }
-    }
-    if (stream.signal?.aborted) {
-      return { canceled: true }
-    }
-    const settings = await this.loadSettings()
-    const provider = resolveActiveProvider(settings)
-
     const registryState = payload.workspaceId ? await this.ensureRegistry() : null
     const workspace = payload.workspaceId && registryState
       ? findWorkspace(registryState, payload.workspaceId)
       : null
-    const isTeachingConversation = (payload.mode ?? 'teaching') === 'teaching'
-    const chatMode: AgentChatMode = isTeachingConversation ? 'teaching' : 'temporary'
-    const workspaceRoot = isTeachingConversation ? workspace?.rootPath : undefined
-    const memoryWorkspaceRoot = workspace?.rootPath
-    const existingMemories = await this.memoryStore.list(memoryWorkspaceRoot)
-    const pendingMemoryCandidate = extractPendingLearnerMemoryCandidate(
-      latestAssistantContent(payload.messages ?? [])
-    )
-    const directConsentOnly = pendingMemoryCandidate && isBareMemoryConsentResponse(userInput)
-    const consentDecision = directConsentOnly ? classifyMemoryConsentResponse(userInput) : null
-    if (memoryWorkspaceRoot && pendingMemoryCandidate && consentDecision) {
-      if (consentDecision === 'approve') {
-        const memory = await this.memoryStore.create({
-          content: pendingMemoryCandidate.content,
-          scope: 'user',
-          tags: pendingMemoryCandidate.tags,
-          confidence: pendingMemoryCandidate.confidence,
-          workspaceRoot: memoryWorkspaceRoot
-        })
-        const finalText = '已记录到用户记忆。后续课程会把这条信息作为长期背景使用。'
-        const turns = directAgentTurns(payload.messages ?? [], userInput, finalText)
-        return {
-          turns,
-          finalText,
-          iterations: 0,
-          toolsSupported: false,
-          memoryCapture: {
-            action: 'approved',
-            candidateContent: pendingMemoryCandidate.content,
-            memoryId: memory.id
-          }
-        }
-      }
-      const finalText = '好的，这条信息不会记录到用户记忆。'
-      const turns = directAgentTurns(payload.messages ?? [], userInput, finalText)
-      return {
-        turns,
-        finalText,
-        iterations: 0,
-        toolsSupported: false,
-        memoryCapture: {
-          action: 'rejected',
-          candidateContent: pendingMemoryCandidate.content
-        }
-      }
-    }
-    const teachingAssessment = isTeachingConversation && workspace
-      ? await this.assessTeachingRequest({
-          workspace,
-          userInput,
-          messages: payload.messages ?? []
-        })
-      : null
-
-    if (!provider || !provider.apiKey.trim()) {
-      return { error: true, message: '未配置 API Key。' }
-    }
-
-    const ctx = buildToolContext(settings, { workspaceRoot })
-    const registry = settings.tools.enabled && isTeachingConversation
-      ? buildDefaultRegistry(settings, { workspaceRoot, workspaceWrite: true })
-      : new ToolRegistry()
-
-    const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
-    const teachSkillReference = isTeachingConversation ? await readTeachSkillReference(workspaceRoot) : null
-    const capturePlan = settings.memory.enabled && memoryWorkspaceRoot && !directConsentOnly
-      ? planLearnerMemoryCapture(buildLearnerMemoryCandidate(userInput), existingMemories)
-      : ({ action: 'none', reason: 'no_candidate' } as const)
-    const temporaryContext = chatMode === 'temporary' && workspace
-      ? await this.buildTemporaryChatContext(workspace, existingMemories)
-      : null
-    const messages: ChatMessage[] = [
-      {
-        role: 'system',
-        content: buildAgentChatSystemPrompt({
-          mode: isTeachingConversation ? 'teaching' : 'temporary',
-          teachingAssessment,
-          teachSkillReference,
-          memoryCapturePlan: capturePlan,
-          settings,
-          provider,
-          temporaryContext
-        })
-      },
-      ...priorMessages.filter((m) => m.role !== 'system'),
-      { role: 'user', content: userInput }
-    ]
-
-    const result = await runAgentLoop({
-      settings,
-      provider,
-      messages,
-      tools: registry.definitions(),
-      toolHandlers: registry.handlerMap(ctx),
-      maxIterations: settings.tools.maxIterations,
-      signal: stream.signal,
-      callbacks: {
-        onEvent: (e) => {
-          const streamId = stream.streamId
-          if (e.type === 'status') {
-            stream.onStatus({ streamId, status: e.status, message: e.message })
-          } else if (e.type === 'token') {
-            stream.onChunk({ streamId, delta: e.delta })
-          } else if (e.type === 'tool_call') {
-            stream.onTool({
-              streamId,
-              toolCall: { id: e.toolCall.id, name: e.toolCall.function.name, arguments: e.toolCall.function.arguments }
-            })
-          } else if (e.type === 'tool_result') {
-            stream.onTool({
-              streamId,
-              toolCall: { id: e.toolCallId, name: e.name, arguments: '' },
-              result: e.result,
-              isError: e.isError
-            })
-          }
-        }
-      }
+    return runTeachingConversationTurn(payload, stream, workspace, {
+      loadSettings: () => this.loadSettings(),
+      listMemories: (workspaceRoot) => this.memoryStore.list(workspaceRoot),
+      createMemory: (memoryPayload) => this.memoryStore.create(memoryPayload),
+      assessTeachingRequest: (options) => this.assessTeachingRequest(options),
+      buildTemporaryChatContext: (runtimeWorkspace, memories) => this.buildTemporaryChatContext(runtimeWorkspace, memories)
     })
-
-    if (result.stopReason === 'canceled') {
-      return { canceled: true }
-    }
-    if (result.error) {
-      return { error: true, message: result.error }
-    }
-    if (stream.signal?.aborted) {
-      return { canceled: true }
-    }
-    let finalText = result.finalText
-    let messagesWithMemory = result.messages
-    let memoryCapture: TeachingMemoryCaptureResult | undefined
-    if (memoryWorkspaceRoot && capturePlan.action === 'create') {
-      const memory = await this.memoryStore.create({
-        content: capturePlan.candidate.content,
-        scope: 'user',
-        tags: capturePlan.candidate.tags,
-        confidence: capturePlan.candidate.confidence,
-        workspaceRoot: memoryWorkspaceRoot
-      })
-      memoryCapture = {
-        action: 'created',
-        candidateContent: capturePlan.candidate.content,
-        memoryId: memory.id
-      }
-    } else if (capturePlan.action === 'request_consent') {
-      const consentPrompt = buildMemoryConsentPrompt(capturePlan.candidate)
-      finalText = `${finalText}${consentPrompt}`
-      messagesWithMemory = appendToLastAssistantMessage(result.messages, consentPrompt)
-      stream.onChunk({ streamId: stream.streamId, delta: consentPrompt })
-      memoryCapture = {
-        action: 'requested_consent',
-        candidateContent: capturePlan.candidate.content
-      }
-    }
-    return {
-      turns: toAgentTurns(messagesWithMemory),
-      finalText,
-      iterations: result.iterations,
-      toolsSupported: result.toolsSupported,
-      degradedReason: result.degradedReason,
-      teachingAssessment: teachingAssessment ?? undefined,
-      memoryCapture
-    }
   }
 
   async saveAgentConversation(payload: SaveAgentConversationPayload): Promise<SaveAgentConversationResult> {
@@ -698,7 +538,7 @@ export class TeachingWorkspaceService {
     const relativePath = normalizeWorkspaceRelativePath(payload.relativePath)
     if (!relativePath) throw new Error('relativePath is required.')
     const absolutePath = resolve(join(workspace.rootPath, relativePath))
-    if (!isInside(workspace.rootPath, absolutePath)) {
+    if (!isPathInsideRoot(workspace.rootPath, absolutePath)) {
       throw new Error('Path is outside the workspace.')
     }
 
@@ -1264,7 +1104,7 @@ export class TeachingWorkspaceService {
     if (!normalizedRelativePath) return null
     const target = resolve(join(workspace.rootPath, normalizedRelativePath))
     const allowedRoots = [resolve(workspace.rootPath, 'courses'), resolve(workspace.rootPath, 'lessons'), resolve(workspace.rootPath, 'assets')]
-    if (!allowedRoots.some((base) => isInside(base, target))) return null
+    if (!allowedRoots.some((base) => isPathInsideRoot(base, target))) return null
     if (!(await fileExists(target))) return null
     return {
       absolutePath: target,
@@ -1798,15 +1638,10 @@ function upsertLesson(lessons: LessonSummary[], lesson: LessonSummary): LessonSu
 function resolveLessonPath(rootPath: string, lessonPath: string): string {
   const target = isAbsolute(lessonPath) ? resolve(lessonPath) : resolve(rootPath, lessonPath)
   const allowedRoots = [resolve(rootPath, 'courses'), resolve(rootPath, 'lessons')]
-  if (!allowedRoots.some((base) => isInside(base, target))) {
+  if (!allowedRoots.some((base) => isPathInsideRoot(base, target))) {
     throw new Error('Lesson path is outside the workspace lessons directory.')
   }
   return target
-}
-
-function isInside(rootPath: string, targetPath: string): boolean {
-  const relation = relative(resolve(rootPath), resolve(targetPath))
-  return relation === '' || (!relation.startsWith('..') && !isAbsolute(relation))
 }
 
 function samePath(left: string, right: string): boolean {
@@ -1953,12 +1788,7 @@ async function readWorkspaceTreeDirectory(
 function shouldHideWorkspaceTreeEntry(relativeDir: string, name: string, isDirectory: boolean): boolean {
   if (isDirectory && WORKSPACE_TREE_IGNORED_DIRS.has(name)) return true
   const normalizedDir = relativeDir.replace(/\\/g, '/')
-  if (normalizedDir === 'conversation' && name.toLowerCase().endsWith('.json')) return true
-  if (normalizedDir === 'conversations' && name.toLowerCase().endsWith('.json')) return true
-  if (normalizedDir === 'lessons/conversation' && name.toLowerCase().endsWith('.json')) return true
-  if (normalizedDir === 'lessons/conversations' && name.toLowerCase().endsWith('.json')) return true
-  if (normalizedDir.startsWith('courses/') && normalizedDir.endsWith('/conversations') && name.toLowerCase().endsWith('.json')) return true
-  if (normalizedDir.startsWith('courses/') && normalizedDir.endsWith('/conversation') && name.toLowerCase().endsWith('.json')) return true
+  if (name.toLowerCase().endsWith('.json') && isAgentConversationJsonRelativePath(workspaceRelativePath(normalizedDir, name))) return true
   return false
 }
 
@@ -2006,7 +1836,7 @@ async function readAgentConversationRecordAt(rootPath: string, jsonRelativePath:
   const normalizedJsonRelativePath = normalizeWorkspaceRelativePath(jsonRelativePath)
   const id = requireSafeAgentConversationId(basename(normalizedJsonRelativePath).replace(/\.json$/i, ''))
   const jsonPath = join(rootPath, jsonRelativePath)
-  if (!isInside(rootPath, jsonPath)) throw new Error('Conversation path is outside the workspace.')
+  if (!isPathInsideRoot(rootPath, jsonPath)) throw new Error('Conversation path is outside the workspace.')
   const parsed = safeJsonParse(await readFile(jsonPath, 'utf8'))
   if (!parsed || typeof parsed !== 'object') throw new Error('Conversation record is invalid.')
   const record = parsed as Record<string, unknown>
@@ -2153,39 +1983,13 @@ async function collectAgentConversationJsonRelativePaths(
     includeCourses?: boolean
   } = {}
 ): Promise<string[]> {
-  const includeRoot = options.includeRoot ?? true
-  const includeRootConversation = options.includeRootConversation ?? true
-  const includeLegacyRootConversations = options.includeLegacyRootConversations ?? true
-  const includeLessons = options.includeLessons ?? true
   const includeCourses = options.includeCourses ?? true
   const result: string[] = []
-  if (includeRoot && includeRootConversation) {
-    const rootCourseEntries = await readdir(join(rootPath, 'conversation'), { withFileTypes: true }).catch(() => [])
-    for (const entry of rootCourseEntries) {
+  for (const directory of agentConversationJsonScanDirectories(options)) {
+    const entries = await readdir(join(rootPath, directory), { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
       if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
-        result.push(workspaceRelativePath('conversation', entry.name))
-      }
-    }
-  }
-  if (includeRoot && includeLegacyRootConversations) {
-    const rootEntries = await readdir(join(rootPath, 'conversations'), { withFileTypes: true }).catch(() => [])
-    for (const entry of rootEntries) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
-        result.push(workspaceRelativePath('conversations', entry.name))
-      }
-    }
-  }
-  if (includeLessons) {
-    const lessonConversationEntries = await readdir(join(rootPath, 'lessons', 'conversation'), { withFileTypes: true }).catch(() => [])
-    for (const entry of lessonConversationEntries) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
-        result.push(workspaceRelativePath('lessons', 'conversation', entry.name))
-      }
-    }
-    const legacyLessonConversationEntries = await readdir(join(rootPath, 'lessons', 'conversations'), { withFileTypes: true }).catch(() => [])
-    for (const entry of legacyLessonConversationEntries) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
-        result.push(workspaceRelativePath('lessons', 'conversations', entry.name))
+        result.push(workspaceRelativePath(directory, entry.name))
       }
     }
   }
@@ -2193,16 +1997,12 @@ async function collectAgentConversationJsonRelativePaths(
   const courseEntries = await readdir(join(rootPath, 'courses'), { withFileTypes: true }).catch(() => [])
   for (const courseEntry of courseEntries) {
     if (!courseEntry.isDirectory()) continue
-    const conversationEntries = await readdir(join(rootPath, 'courses', courseEntry.name, 'conversation'), { withFileTypes: true }).catch(() => [])
-    for (const entry of conversationEntries) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
-        result.push(workspaceRelativePath('courses', courseEntry.name, 'conversation', entry.name))
-      }
-    }
-    const legacyConversationEntries = await readdir(join(rootPath, 'courses', courseEntry.name, 'conversations'), { withFileTypes: true }).catch(() => [])
-    for (const entry of legacyConversationEntries) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
-        result.push(workspaceRelativePath('courses', courseEntry.name, 'conversations', entry.name))
+    for (const directory of agentConversationCourseJsonScanDirectories(courseEntry.name)) {
+      const entries = await readdir(join(rootPath, directory), { withFileTypes: true }).catch(() => [])
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
+          result.push(workspaceRelativePath(directory, entry.name))
+        }
       }
     }
   }
@@ -2225,98 +2025,11 @@ async function findAgentConversationJsonRelativePath(rootPath: string, id: strin
   return first
 }
 
-function agentConversationDirectoryRelativePath(payload: SaveAgentConversationPayload): string {
-  const selected = normalizeWorkspaceRelativePath(payload.selectedCourseRelativePath ?? '')
-  if (selected && isCourseRelativePath(selected)) {
-    return selected === 'lessons' ? 'conversation' : workspaceRelativePath(selected, 'conversation')
-  }
-
-  const lessonPath = normalizeWorkspaceRelativePath(payload.selectedLessonPath ?? '')
-  const lessonCourse = courseRelativePathFromWorkspacePath(lessonPath)
-  if (lessonCourse) return lessonCourse === 'lessons' ? 'conversation' : workspaceRelativePath(lessonCourse, 'conversation')
-
-  if (payload.mode === 'teaching') return 'conversation'
-
-  return 'conversations'
-}
-
 async function ensureTeachingContentDirectories(rootPath: string): Promise<void> {
   await Promise.all([
     mkdir(join(rootPath, 'lessons'), { recursive: true }),
     mkdir(join(rootPath, 'conversation'), { recursive: true })
   ])
-}
-
-function courseRelativePathFromWorkspacePath(relativePath: string): string | null {
-  const parts = normalizeWorkspaceRelativePath(relativePath).split('/').filter(Boolean)
-  if (parts[0] === 'lessons') return 'lessons'
-  if (parts[0] === 'courses' && parts[1]) return workspaceRelativePath('courses', parts[1])
-  return null
-}
-
-function courseRelativePathFromConversationPath(relativePath: string): string | null {
-  const parts = normalizeWorkspaceRelativePath(relativePath).split('/').filter(Boolean)
-  if (parts.length === 2 && parts[0] === 'conversation') return 'lessons'
-  if (parts.length === 3 && parts[0] === 'lessons' && (parts[1] === 'conversation' || parts[1] === 'conversations')) return 'lessons'
-  if (parts.length === 4 && parts[0] === 'courses' && (parts[2] === 'conversation' || parts[2] === 'conversations')) return workspaceRelativePath('courses', parts[1])
-  return null
-}
-
-function isCourseRelativePath(relativePath: string): boolean {
-  const normalized = normalizeWorkspaceRelativePath(relativePath)
-  return normalized === 'lessons' || /^courses\/[^/]+$/.test(normalized)
-}
-
-function agentConversationJsonRelativePath(id: string, conversationDir = 'conversations'): string {
-  return workspaceRelativePath(normalizeAgentConversationDirectory(conversationDir), `${id}.json`)
-}
-
-function agentConversationJsonRelativePathForMarkdown(markdownRelativePath: string): string {
-  const normalized = normalizeWorkspaceRelativePath(markdownRelativePath)
-  if (!isAgentConversationMarkdownRelativePath(normalized)) {
-    throw new Error('Conversation path is outside a conversations directory.')
-  }
-  return workspaceRelativePath(dirname(normalized).replace(/\\/g, '/'), `${basename(normalized).replace(/\.md$/i, '')}.json`)
-}
-
-function isAgentConversationJsonRelativePath(relativePath: string): boolean {
-  const normalized = normalizeWorkspaceRelativePath(relativePath)
-  if (!normalized.toLowerCase().endsWith('.json')) return false
-  const parts = normalized.split('/').filter(Boolean)
-  if (parts.length === 2 && parts[0] === 'conversation') return true
-  if (parts.length === 2 && parts[0] === 'conversations') return true
-  if (parts.length === 3 && parts[0] === 'lessons' && (parts[1] === 'conversation' || parts[1] === 'conversations')) return true
-  return parts.length === 4 && parts[0] === 'courses' && (parts[2] === 'conversation' || parts[2] === 'conversations')
-}
-
-function isAgentConversationMarkdownRelativePath(relativePath: string): boolean {
-  const normalized = normalizeWorkspaceRelativePath(relativePath)
-  if (!normalized.toLowerCase().endsWith('.md')) return false
-  const parts = normalized.split('/').filter(Boolean)
-  if (parts.length === 2 && parts[0] === 'conversation') return true
-  if (parts.length === 2 && parts[0] === 'conversations') return true
-  if (parts.length === 3 && parts[0] === 'lessons' && (parts[1] === 'conversation' || parts[1] === 'conversations')) return true
-  return parts.length === 4 && parts[0] === 'courses' && (parts[2] === 'conversation' || parts[2] === 'conversations')
-}
-
-function isRootAgentConversationMarkdownRelativePath(relativePath: string): boolean {
-  const normalized = normalizeWorkspaceRelativePath(relativePath)
-  if (!normalized.toLowerCase().endsWith('.md')) return false
-  const parts = normalized.split('/').filter(Boolean)
-  return parts.length === 2 && parts[0] === 'conversations'
-}
-
-function agentConversationMarkdownRelativePath(id: string, conversationDir = 'conversations'): string {
-  return workspaceRelativePath(normalizeAgentConversationDirectory(conversationDir), `${id}.md`)
-}
-
-function normalizeAgentConversationDirectory(conversationDir: string): string {
-  const normalized = normalizeWorkspaceRelativePath(conversationDir)
-  if (normalized === 'conversation') return 'conversation'
-  if (!normalized || normalized === 'conversations') return 'conversations'
-  if (normalized === 'lessons/conversation' || normalized === 'lessons/conversations') return normalized
-  if (/^courses\/[^/]+\/conversation$/.test(normalized) || /^courses\/[^/]+\/conversations$/.test(normalized)) return normalized
-  return 'conversations'
 }
 
 function requireSafeAgentConversationId(value: string): string {
@@ -2576,278 +2289,6 @@ const LESSON_RESEARCH_PREFIX =
   '在生成课程计划之前，你可以调用工作区只读工具读取 MISSION.md、RESOURCES.md、lessons、reference 和 learning-records 中的上下文；' +
   '也可以调用 web_search 工具检索最新或课程之外的事实性信息以丰富内容（例如最新版本号、时效性事件、权威定义）。' +
   '完成必要的检索后，仍必须严格只输出一个符合下方格式的 JSON 课程计划对象，不要输出任何额外说明或 markdown 围栏。'
-
-const AGENT_CHAT_SYSTEM_PROMPT =
-  '你是 TeachOS 的学习助手。' +
-  '用户进入“教学”对话时，等价于在发送真实需求的同时引用了 teach skill：把它当作教学工作区方法论和可用上下文，而不是必须照本宣科的固定流程。' +
-  '保持主动判断：可以先回答、先澄清、读取工作区、建议下一步或生成课程计划；只有在学习者基础/身份、目标、约束或第一步动作确实会影响教学质量时，才问 1 到 3 个具体问题。' +
-  '不要默认用户属于编程、AI、学生或任何固定人群；问题示例必须跟随用户当前主题、身份和场景。' +
-  '回答使用简洁、准确的中文。' +
-  '当用户询问当前教学工作区、mission、resources、课程文件、参考资料或学习记录时，优先调用 list_workspace、read_workspace_file、search_workspace 或 glob_workspace 读取本地文件后再回答；' +
-  '当用户要求制作、保存或更新 HTML/Markdown/JSON/课程文件时，优先调用 write_workspace_file 写入当前工作区；默认保存 lesson 到 lessons/*.html，并在回复中只给出保存路径、简短摘要和下一步建议，不要把完整文件内容粘贴进聊天；' +
-  '当问题涉及时效性、最新动态或课程库之外的事实性信息时，调用 web_search 工具检索后再作答；' +
-  '必要时可用 web_fetch 深入阅读某条结果。回答中适度引用信息来源链接。' +
-  '若未配置工具或当前模型不支持工具调用，直接依据自身知识作答即可。'
-
-const TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT =
-  '你是 TeachOS 的临时会话助手。' +
-  '回答使用简洁、准确的中文。' +
-  '当前不会提供工作区文件访问，也不会提供教学工作区工具；不要声称自己查看了本地文件、课程正文、mission、resources 或学习记录。' +
-  '当用户询问现有课程时，只能基于已注入的课程概览回答；当用户要基于具体工作区文件继续学习时，提示其切换到教学对话。'
-
-type TeachSkillReference = {
-  source: string
-  content: string
-}
-
-type TemporaryChatContext = {
-  learnerProfiles: string[]
-  courses: Array<{ name: string; lessonCount: number; sessionCount: number }>
-}
-
-async function readTeachSkillReference(workspaceRoot?: string): Promise<TeachSkillReference | null> {
-  const candidates = [
-    workspaceRoot ? join(workspaceRoot, 'teach', 'SKILL.md') : '',
-    join(process.cwd(), 'teach', 'SKILL.md')
-  ].filter(Boolean)
-  const seen = new Set<string>()
-  for (const candidate of candidates) {
-    const resolved = resolve(candidate)
-    const key = resolved.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    const content = cleanText(await readFile(resolved, 'utf8').catch(() => ''))
-    if (content) return { source: resolved, content }
-  }
-  return null
-}
-
-function buildAgentChatSystemPrompt(options: {
-  mode: AgentChatMode
-  teachingAssessment: TeachingClarificationResult | null
-  teachSkillReference: TeachSkillReference | null
-  memoryCapturePlan?: ReturnType<typeof planLearnerMemoryCapture>
-  settings?: TeachingSettingsV1
-  provider?: ReturnType<typeof resolveActiveProvider>
-  temporaryContext?: TemporaryChatContext | null
-}): string {
-  const {
-    mode,
-    teachingAssessment,
-    teachSkillReference,
-    memoryCapturePlan = { action: 'none', reason: 'no_candidate' },
-    settings,
-    provider,
-    temporaryContext
-  } = options
-  const skillReference = teachSkillReference
-    ? [
-        `<teach-skill-reference source="${escapePromptAttribute(teachSkillReference.source)}">`,
-        'The teach skill has been automatically loaded for this turn. Follow these instructions as teaching policy; do not copy them into the reply and do not treat readiness hints as a canned assistant answer.',
-        formatTeachSkillForPrompt(teachSkillReference.content),
-        '</teach-skill-reference>'
-      ].join('\n')
-    : [
-        '<teach-skill-reference source="fallback">',
-        'The user has referenced the teach skill in addition to their visible message. Use it as progressive, on-demand guidance: default to the one-line intent here, and consult workspace files/tools only when they are useful.',
-        'Core intent: teach within this workspace, ground lessons in MISSION.md / RESOURCES.md / learning-records, keep lessons focused and reviewable, and prefer retrieval practice when designing exercises.',
-        'Do not treat the local assessment below as a prewritten assistant reply. It is only a hint for your own judgment.',
-        '</teach-skill-reference>'
-      ].join('\n')
-
-  const memoryLines = buildMemoryCapturePromptLines(memoryCapturePlan)
-  const runtimeLines = buildModelRuntimePromptLines(settings, provider)
-  const modeLines = mode === 'temporary'
-    ? buildTemporaryChatPromptLines(temporaryContext)
-    : ''
-
-  if (mode === 'temporary') {
-    return `${TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
-  }
-
-  if (!teachingAssessment) {
-    return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${skillReference}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
-  }
-
-  const assessmentLines = [
-    '<teaching-readiness-hints>',
-    `stage: ${teachingAssessment.stage}`,
-    teachingAssessment.summary ? `summary: ${teachingAssessment.summary}` : '',
-    teachingAssessment.missingSignals.length
-      ? `missingSignals: ${teachingAssessment.missingSignals.join(', ')}`
-      : 'missingSignals: none',
-    teachingAssessment.openQuestions.length
-      ? `possibleQuestions: ${teachingAssessment.openQuestions.slice(0, 3).join(' | ')}`
-      : '',
-    '</teaching-readiness-hints>'
-  ].filter(Boolean)
-
-  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${skillReference}${modeLines ? `\n\n${modeLines}` : ''}\n\n${assessmentLines.join('\n')}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
-}
-
-function buildTemporaryChatPromptLines(context?: TemporaryChatContext | null): string {
-  const learnerProfiles = context?.learnerProfiles ?? []
-  const courses = context?.courses ?? []
-  const profileLines = learnerProfiles.length
-    ? learnerProfiles.map((line, index) => `${index + 1}. ${line}`).join('\n')
-    : 'none'
-  const courseLines = courses.length
-    ? courses.map((course, index) => `${index + 1}. ${course.name} (${course.lessonCount} lessons, ${course.sessionCount} sessions)`).join('\n')
-    : 'none'
-  return [
-    '<temporary-chat-context>',
-    '当前是临时会话，不是教学对话。不要查看、列出、读取、搜索或推断工作区文件内容；不要声称已经检查了 MISSION.md、RESOURCES.md、lessons、courses、reference 或 learning-records。',
-    '你只能使用下方已注入的学习者画像和课程概览作为本地上下文；如果用户想基于工作区文件学习，提示其切换到教学对话。',
-    '<learner-profiles>',
-    profileLines,
-    '</learner-profiles>',
-    '<course-overview>',
-    courseLines,
-    '</course-overview>',
-    '</temporary-chat-context>'
-  ].join('\n')
-}
-
-function buildModelRuntimePromptLines(
-  settings?: TeachingSettingsV1,
-  provider?: ReturnType<typeof resolveActiveProvider>
-): string {
-  if (!settings) return ''
-  const providerName = cleanText(provider?.name) || '未配置'
-  const model = cleanText(settings.generator.model) || '未选择'
-  return [
-    '<model-runtime>',
-    `configuredProvider: ${providerName}`,
-    `configuredModelId: ${model}`,
-    `endpointFormat: ${settings.generator.endpointFormat}`,
-    '如果用户询问你是什么模型、由谁提供或当前使用哪个模型，回答必须基于这些运行时配置；不要根据训练数据、接口兼容格式或上游服务名称推断身份。',
-    '</model-runtime>'
-  ].join('\n')
-}
-
-function buildMemoryCapturePromptLines(memoryCapturePlan: ReturnType<typeof planLearnerMemoryCapture>): string {
-  if (memoryCapturePlan.action === 'create') {
-    return [
-      '<memory-capture-policy>',
-      '系统将在本轮回复后首次自动记录这条用户画像到 user memory；你不需要征求同意，也不要声称自己手动写入了记忆。',
-      `pendingMemory: ${memoryCapturePlan.candidate.content}`,
-      '</memory-capture-policy>'
-    ].join('\n')
-  }
-  if (memoryCapturePlan.action === 'request_consent') {
-    return [
-      '<memory-capture-policy>',
-      '本应用已经有用户画像记忆。若要新增或更新类似长期记忆，必须先请求用户同意。',
-      '系统会在本轮回复后追加固定确认问题；你不要自己重复询问，也不要声称已经记录。',
-      `pendingMemory: ${memoryCapturePlan.candidate.content}`,
-      '</memory-capture-policy>'
-    ].join('\n')
-  }
-  return ''
-}
-
-function formatTeachSkillForPrompt(content: string): string {
-  const withoutFrontmatter = stripFrontmatter(content)
-  const maxLength = 14_000
-  if (withoutFrontmatter.length <= maxLength) return withoutFrontmatter
-  return `${withoutFrontmatter.slice(0, maxLength).trim()}\n\n[teach skill truncated for prompt length]`
-}
-
-function stripFrontmatter(content: string): string {
-  const normalized = content.replace(/\r\n/g, '\n').trim()
-  if (!normalized.startsWith('---\n')) return normalized
-  const end = normalized.indexOf('\n---', 4)
-  return end >= 0 ? normalized.slice(end + 4).trim() : normalized
-}
-
-function escapePromptAttribute(value: string): string {
-  return value.replace(/"/g, "'")
-}
-
-function toChatMessage(m: AgentChatMessage): ChatMessage {
-  if (m.role === 'tool') {
-    return { role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content ?? '' }
-  }
-  if (m.role === 'assistant') {
-    const toolCalls =
-      m.toolCalls && m.toolCalls.length > 0
-        ? m.toolCalls.map((tc) => ({
-            id: tc.id,
-            type: 'function' as const,
-            function: { name: tc.name, arguments: tc.arguments }
-          }))
-        : undefined
-    return { role: 'assistant', content: m.content, tool_calls: toolCalls }
-  }
-  if (m.role === 'user') return { role: 'user', content: m.content ?? '' }
-  return { role: 'system', content: m.content ?? '' }
-}
-
-function toAgentTurns(messages: ChatMessage[]): AgentChatTurn[] {
-  const turns: AgentChatTurn[] = []
-  let counter = 0
-  const createdAt = new Date().toISOString()
-  for (const m of messages) {
-    if (m.role === 'user') {
-      turns.push({ id: `t${counter++}`, role: 'user', content: m.content ?? '', createdAt })
-    } else if (m.role === 'assistant') {
-      const toolCalls = m.tool_calls?.map((tc) => {
-        const resultMsg = messages.find(
-          (x) => x.role === 'tool' && x.tool_call_id === tc.id
-        )
-        const content = resultMsg ? resultMsg.content : undefined
-        return {
-          id: tc.id,
-          name: tc.function.name,
-          arguments: tc.function.arguments,
-          result: content ?? undefined,
-          isError: content ? /\berror\b/i.test(content) : undefined
-        }
-      })
-      turns.push({
-        id: `t${counter++}`,
-        role: 'assistant',
-        content: m.content ?? '',
-        toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
-        createdAt
-      })
-    }
-  }
-  return turns
-}
-
-function latestAssistantContent(messages: AgentChatMessage[]): string {
-  return [...messages].reverse().find((message) => message.role === 'assistant')?.content ?? ''
-}
-
-function directAgentTurns(messages: AgentChatMessage[], userInput: string, assistantText: string): AgentChatTurn[] {
-  const createdAt = new Date().toISOString()
-  const prior = messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map((message, index): AgentChatTurn => ({
-      id: `t${index}`,
-      role: message.role === 'assistant' ? 'assistant' : 'user',
-      content: message.content ?? '',
-      createdAt
-    }))
-  return [
-    ...prior,
-    { id: `t${prior.length}`, role: 'user', content: userInput, createdAt },
-    { id: `t${prior.length + 1}`, role: 'assistant', content: assistantText, createdAt }
-  ]
-}
-
-function appendToLastAssistantMessage(messages: ChatMessage[], extra: string): ChatMessage[] {
-  const next = [...messages]
-  for (let index = next.length - 1; index >= 0; index -= 1) {
-    const message = next[index]
-    if (message?.role === 'assistant') {
-      next[index] = { ...message, content: `${message.content ?? ''}${extra}` }
-      return next
-    }
-  }
-  return [...next, { role: 'assistant', content: extra }]
-}
 
 /**
  * Parse + Zod-validate the model's text into a LessonPlan. Strips markdown
@@ -3180,93 +2621,679 @@ function isLessonSummary(value: unknown): value is LessonSummary {
 }
 
 const LESSON_CSS = `:root {
-  color: #24324a;
-  background: #f7f8fb;
+  color: #263044;
+  background: #f3f5f8;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 16px;
+  line-height: 1.75;
+  --page-max: 920px;
+  --ink: #172033;
+  --muted: #5f6f86;
+  --soft: #f7f9fc;
+  --panel: #ffffff;
+  --line: #dde5f0;
+  --accent: #3468d8;
+  --accent-soft: #eaf1ff;
+  --green: #167a58;
+  --green-soft: #eaf7f1;
+  --amber: #a05f00;
+  --amber-soft: #fff6df;
+  --rose: #b23857;
+  --rose-soft: #fff0f4;
+  --shadow: 0 16px 40px rgba(23, 32, 51, 0.08);
 }
-* { box-sizing: border-box; }
-body { margin: 0; }
-.lesson-page { max-width: 820px; margin: 0 auto; padding: 46px 28px 64px; }
-.lesson-hero { margin-bottom: 30px; padding-bottom: 24px; border-bottom: 1px solid #e3e8f2; }
-.kicker { margin: 0 0 10px; color: #4f7cf5; font-size: 12px; font-weight: 800; letter-spacing: 0; text-transform: uppercase; }
-h1 { margin: 0; color: #162033; font-size: 38px; line-height: 1.14; letter-spacing: 0; }
-h2 { margin: 34px 0 12px; color: #1f2d44; font-size: 22px; letter-spacing: 0; }
-p, li { color: #536278; font-size: 16px; line-height: 1.75; }
-a { color: inherit; text-decoration: none; }
-.mission-card { padding: 18px; border: 1px solid #dfe7f4; border-radius: 8px; background: #fff; }
-.mission-card span, .file-grid span { display: block; color: #8b98aa; font-size: 12px; font-weight: 800; }
-.mission-card strong { display: block; margin-top: 6px; color: #20304a; font-size: 18px; }
-.steps { display: grid; gap: 10px; padding: 0; list-style: none; }
-.steps li, .file-grid a, .quiz-card, .compact-list li { border: 1px solid #e3e8f2; border-radius: 8px; background: #fff; }
-.steps li { display: grid; grid-template-columns: 90px 1fr; gap: 12px; padding: 14px 16px; }
-.steps strong { color: #24324a; }
-.steps span { color: #65748a; }
-.file-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.file-grid a { display: block; padding: 16px; }
-.file-grid strong { display: block; margin-top: 6px; color: #25354f; }
-.practice { margin-top: 8px; }
-.quiz-card { display: grid; gap: 10px; padding: 18px; }
-.quiz-card p { margin: 0 0 4px; }
-.quiz-card button { min-height: 40px; border: 1px solid #dfe7f4; border-radius: 8px; background: #f8fafc; color: #2d3d56; font: inherit; cursor: pointer; }
-.quiz-card button:hover { background: #eef4ff; }
-.quiz-card button.is-correct { border-color: #68b692; background: #eaf8f2; }
-.quiz-card button.is-wrong { border-color: #e5a0af; background: #fff0f4; }
-output { min-height: 24px; color: #2f9b73; font-weight: 700; }
-footer { margin-top: 38px; padding-top: 18px; border-top: 1px solid #e3e8f2; }
-.compact-list { display: grid; gap: 10px; padding: 0; list-style: none; }
-.compact-list li { padding: 12px 14px; }
-@media (max-width: 640px) {
-  .lesson-page { padding: 30px 18px 48px; }
-  h1 { font-size: 30px; }
-  .file-grid { grid-template-columns: 1fr; }
-  .steps li { grid-template-columns: 1fr; }
+
+* {
+  box-sizing: border-box;
 }
-`
 
-const QUIZ_JS = `document.querySelectorAll('.quiz-card').forEach((card) => {
-  const type = card.getAttribute('data-type') || 'single';
-  const answer = card.getAttribute('data-answer') || '';
-  const output = card.querySelector('output');
-  const explanation = card.querySelector('.quiz-explanation');
-  const report = (correct, msg) => {
-    if (output) output.textContent = msg;
-    if (explanation) explanation.style.display = correct ? 'block' : 'none';
-    // Notify the TeachOS host so progress can be recorded.
-    try { window.parent.postMessage({ source: 'teachos-lesson', kind: 'quiz', question: card.querySelector('p')?.textContent || '', correct }, '*'); } catch {}
-  };
+html {
+  background: #f3f5f8;
+}
 
-  if (type === 'fill') {
-    const input = card.querySelector('input[type="text"]');
-    const submit = card.querySelector('button[data-choice="submit"]');
-    const normalize = (s) => s.trim().toLowerCase().replace(/\\s+/g, ' ').replace(/[。.,，！!？?]/g, '');
-    const check = () => {
-      const value = input?.value || '';
-      const isCorrect = Boolean(value.trim()) && normalize(value) === normalize(answer);
-      if (input) input.classList.toggle('is-correct', isCorrect), input.classList.toggle('is-wrong', !isCorrect && value.trim().length > 0);
-      report(isCorrect, isCorrect ? '正确！' : '再想想，或查看解析。');
-    };
-    submit?.addEventListener('click', check);
-    input?.addEventListener('keydown', (e) => { if (e.key === 'Enter') check(); });
-    return;
+body {
+  min-height: 100vh;
+  margin: 0;
+  padding: 0 0 56px;
+  color: var(--ink);
+  background: #f3f5f8;
+}
+
+body > header,
+body > main,
+body > section,
+body > article,
+body > footer {
+  width: min(calc(100% - 48px), var(--page-max));
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.lesson-page {
+  width: min(calc(100% - 48px), var(--page-max));
+  max-width: none;
+  margin: 0 auto;
+  padding: 0;
+}
+
+body > header,
+.lesson-hero {
+  margin-top: 32px;
+  margin-bottom: 28px;
+  padding: 38px 42px 40px;
+  color: #ffffff;
+  border: 1px solid #202a3f;
+  border-radius: 8px;
+  background: #172033;
+  box-shadow: var(--shadow);
+}
+
+.lesson-hero {
+  border-bottom: 0;
+}
+
+.kicker,
+body > header .kicker {
+  margin: 0 0 10px;
+  color: #96b7ff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.22;
+  letter-spacing: 0;
+}
+
+body > header h1,
+.lesson-hero h1 {
+  max-width: 760px;
+  color: #ffffff;
+  font-size: 40px;
+  line-height: 1.16;
+}
+
+body > header p,
+.lesson-hero p {
+  max-width: 720px;
+  margin: 14px 0 0;
+  color: #d7e2f6;
+  font-size: 17px;
+}
+
+.subtitle {
+  color: #b8c9e8;
+  font-weight: 700;
+}
+
+section,
+article {
+  margin-top: 24px;
+}
+
+section > h2,
+.lesson-page > section > h2 {
+  margin: 0 0 14px;
+  padding-top: 10px;
+  color: #1e2a3d;
+  font-size: 24px;
+}
+
+h3 {
+  font-size: 19px;
+}
+
+p,
+li,
+td,
+th {
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.78;
+}
+
+p {
+  margin: 10px 0;
+}
+
+strong {
+  color: #1d293d;
+  font-weight: 800;
+}
+
+a {
+  color: #245fc8;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(36, 95, 200, 0.28);
+}
+
+a:hover {
+  color: #143f8f;
+  border-bottom-color: currentColor;
+}
+
+ul,
+ol {
+  margin: 10px 0 0;
+  padding-left: 1.35rem;
+}
+
+li + li {
+  margin-top: 8px;
+}
+
+code {
+  color: #20304a;
+  border: 1px solid #d7e0ee;
+  border-radius: 6px;
+  background: #eef3fb;
+  padding: 0.12em 0.38em;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.92em;
+}
+
+pre {
+  overflow: auto;
+  margin: 14px 0 0;
+  padding: 16px;
+  color: #e8eef9;
+  border-radius: 8px;
+  background: #151d2c;
+}
+
+pre code {
+  color: inherit;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+blockquote {
+  margin: 16px 0 0;
+  padding: 16px 18px;
+  border-left: 4px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--accent-soft);
+}
+
+blockquote p:first-child {
+  margin-top: 0;
+}
+
+blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+hr {
+  height: 1px;
+  margin: 18px 0;
+  border: 0;
+  background: var(--line);
+}
+
+table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  margin: 16px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  border-spacing: 0;
+  border-collapse: separate;
+  background: var(--panel);
+}
+
+thead {
+  background: #172033;
+}
+
+th,
+td {
+  min-width: 150px;
+  padding: 12px 14px;
+  text-align: left;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+th {
+  color: #ffffff;
+  font-weight: 800;
+}
+
+tr:last-child td {
+  border-bottom: 0;
+}
+
+th:last-child,
+td:last-child {
+  border-right: 0;
+}
+
+tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.mission-card,
+.qa-block,
+.quiz-card,
+.flashcard,
+.summary,
+.teachos-generated-quiz {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 10px 28px rgba(23, 32, 51, 0.06);
+}
+
+.mission-card {
+  padding: 18px 20px;
+  border-left: 4px solid var(--green);
+}
+
+.mission-card span,
+.file-grid span {
+  display: block;
+  color: #748197;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mission-card strong {
+  display: block;
+  margin-top: 6px;
+  color: #20304a;
+  font-size: 18px;
+}
+
+.mission-card p {
+  margin-bottom: 0;
+}
+
+.qa-block {
+  overflow: hidden;
+}
+
+.qa-block h3 {
+  padding: 18px 22px;
+  color: #172033;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcff;
+}
+
+.answer {
+  padding: 18px 22px 22px;
+}
+
+.answer > :first-child {
+  margin-top: 0;
+}
+
+.answer > :last-child {
+  margin-bottom: 0;
+}
+
+.tip {
+  margin-top: 14px;
+  padding: 13px 15px;
+  color: #6f4300;
+  border: 1px solid #f0d99b;
+  border-left: 4px solid #d99016;
+  border-radius: 8px;
+  background: var(--amber-soft);
+}
+
+.tip strong {
+  color: #5c3700;
+}
+
+.summary {
+  padding: 22px;
+  border-color: #cfd9e8;
+  background: #fbfcff;
+}
+
+.summary h2 {
+  padding-top: 0;
+}
+
+.summary blockquote {
+  border-left-color: var(--green);
+  background: var(--green-soft);
+}
+
+.steps,
+.compact-list {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li,
+.compact-list li {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+}
+
+.steps strong {
+  color: #24324a;
+}
+
+.steps span {
+  color: #65748a;
+}
+
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.file-grid a {
+  display: block;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.file-grid strong {
+  display: block;
+  margin-top: 6px;
+  color: #25354f;
+}
+
+.practice,
+.teachos-generated-quiz {
+  margin-top: 28px;
+}
+
+.teachos-generated-quiz {
+  padding: 20px;
+}
+
+.quiz-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  box-shadow: none;
+}
+
+.quiz-card + .quiz-card {
+  margin-top: 12px;
+}
+
+.quiz-card p {
+  margin: 0;
+}
+
+.quiz-choices,
+.quiz-fill {
+  display: grid;
+  gap: 8px;
+}
+
+.quiz-fill {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.quiz-card button,
+.quiz-fill input {
+  min-height: 40px;
+  border: 1px solid #cfd9e8;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.quiz-card button {
+  background: #f8fafc;
+  color: #2d3d56;
+  cursor: pointer;
+}
+
+.quiz-card button:hover {
+  background: #eef4ff;
+}
+
+.quiz-card button.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.quiz-card button.is-correct,
+.quiz-fill input.is-correct {
+  border-color: #68b692;
+  background: var(--green-soft);
+}
+
+.quiz-card button.is-wrong,
+.quiz-fill input.is-wrong {
+  border-color: #e5a0af;
+  background: var(--rose-soft);
+}
+
+.quiz-fill input {
+  width: 100%;
+  padding: 0 12px;
+  color: var(--ink);
+  background: #ffffff;
+}
+
+output {
+  min-height: 24px;
+  color: var(--green);
+  font-weight: 800;
+}
+
+.quiz-explanation {
+  display: none;
+  margin: 0;
+  color: #65748a;
+  font-size: 14px;
+}
+
+footer,
+body > footer {
+  margin-top: 38px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+footer p {
+  color: #65748a;
+}
+
+@media (max-width: 700px) {
+  body {
+    padding-bottom: 36px;
   }
 
-  const answers = type === 'multi' ? answer.split(',').map((s) => s.trim()) : [answer];
-  card.querySelectorAll('button[data-choice]').forEach((button) => {
-    button.addEventListener('click', () => {
-      if (type === 'multi') {
-        button.classList.toggle('is-selected');
-        const selected = Array.from(card.querySelectorAll('button[data-choice].is-selected')).map((b) => b.getAttribute('data-choice'));
-        const isCorrect = selected.length === answers.length && selected.every((c) => answers.includes(c)) && answers.every((c) => selected.includes(c));
-        report(isCorrect, isCorrect ? '全部正确！' : '选择还不完整或不正确，再看看。');
-      } else {
-        card.querySelectorAll('button[data-choice]').forEach((item) => item.classList.remove('is-correct', 'is-wrong'));
-        const isCorrect = button.getAttribute('data-choice') === answer;
-        button.classList.add(isCorrect ? 'is-correct' : 'is-wrong');
-        report(isCorrect, isCorrect ? '正确！' : '再试一次。');
-      }
+  body > header,
+  body > main,
+  body > section,
+  body > article,
+  body > footer,
+  .lesson-page {
+    width: min(calc(100% - 28px), var(--page-max));
+  }
+
+  body > header,
+  .lesson-hero {
+    margin-top: 18px;
+    padding: 28px 22px;
+  }
+
+  body > header h1,
+  .lesson-hero h1 {
+    font-size: 30px;
+  }
+
+  section > h2,
+  .lesson-page > section > h2 {
+    font-size: 21px;
+  }
+
+  .qa-block h3,
+  .answer,
+  .summary,
+  .teachos-generated-quiz {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .file-grid,
+  .quiz-fill {
+    grid-template-columns: 1fr;
+  }
+
+  .steps li {
+    grid-template-columns: 1fr;
+  }
+}
+`
+const QUIZ_JS = `function setupTeachOsQuizCards(root = document) {
+  root.querySelectorAll('.quiz-card').forEach((card) => {
+    if (card.dataset.quizReady === 'true') return;
+    card.dataset.quizReady = 'true';
+
+    const type = card.getAttribute('data-type') || 'single';
+    const answer = card.getAttribute('data-answer') || '';
+    const output = card.querySelector('output');
+    const explanation = card.querySelector('.quiz-explanation');
+    const report = (correct, msg) => {
+      if (output) output.textContent = msg;
+      if (explanation) explanation.style.display = correct ? 'block' : 'none';
+      try {
+        window.parent.postMessage({
+          source: 'teachos-lesson',
+          kind: 'quiz',
+          question: card.querySelector('p')?.textContent || '',
+          correct
+        }, '*');
+      } catch {}
+    };
+
+    if (type === 'fill') {
+      const input = card.querySelector('input[type="text"]');
+      const submit = card.querySelector('button[data-choice="submit"]');
+      const normalize = (s) => s.trim().toLowerCase().replace(/\\s+/g, ' ').replace(/[。.,，！!？?]/g, '');
+      const check = () => {
+        const value = input?.value || '';
+        const isCorrect = Boolean(value.trim()) && normalize(value) === normalize(answer);
+        if (input) {
+          input.classList.toggle('is-correct', isCorrect);
+          input.classList.toggle('is-wrong', !isCorrect && value.trim().length > 0);
+        }
+        report(isCorrect, isCorrect ? '正确！' : '再想想，或查看解析。');
+      };
+      submit?.addEventListener('click', check);
+      input?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') check();
+      });
+      return;
+    }
+
+    const answers = type === 'multi' ? answer.split(',').map((s) => s.trim()) : [answer];
+    card.querySelectorAll('button[data-choice]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (type === 'multi') {
+          button.classList.toggle('is-selected');
+          const selected = Array.from(card.querySelectorAll('button[data-choice].is-selected'))
+            .map((b) => b.getAttribute('data-choice'));
+          const isCorrect = selected.length === answers.length &&
+            selected.every((c) => answers.includes(c)) &&
+            answers.every((c) => selected.includes(c));
+          report(isCorrect, isCorrect ? '全部正确！' : '选择还不完整或不正确，再看看。');
+        } else {
+          card.querySelectorAll('button[data-choice]').forEach((item) => item.classList.remove('is-correct', 'is-wrong'));
+          const isCorrect = button.getAttribute('data-choice') === answer;
+          button.classList.add(isCorrect ? 'is-correct' : 'is-wrong');
+          report(isCorrect, isCorrect ? '正确！' : '再试一次。');
+        }
+      });
     });
   });
-});
+}
+
+function appendFillQuizCard(container, item, index) {
+  const card = document.createElement('article');
+  card.className = 'quiz-card';
+  card.dataset.type = 'fill';
+  card.dataset.answer = String(item.answer ?? '');
+
+  const question = document.createElement('p');
+  question.textContent = \`\${index + 1}. \${String(item.question ?? '请作答')}\`;
+
+  const fill = document.createElement('div');
+  fill.className = 'quiz-fill';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = '输入你的答案';
+  input.setAttribute('aria-label', '答案输入');
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.dataset.choice = 'submit';
+  button.textContent = '提交';
+
+  const output = document.createElement('output');
+  output.setAttribute('aria-live', 'polite');
+
+  const explanation = document.createElement('p');
+  explanation.className = 'quiz-explanation';
+  explanation.textContent = item.explanation ? String(item.explanation) : \`参考答案：\${String(item.answer ?? '')}\`;
+
+  fill.append(input, button);
+  card.append(question, fill, output, explanation);
+  container.append(card);
+}
+
+window.Quiz = class Quiz {
+  constructor(items = [], options = {}) {
+    const mount = typeof options.mount === 'string' ? document.querySelector(options.mount) : options.mount;
+    const section = mount || document.createElement('section');
+    section.classList.add('practice', 'teachos-generated-quiz');
+
+    if (!mount) {
+      const title = document.createElement('h2');
+      title.textContent = options.title || '小测验';
+      section.append(title);
+    }
+
+    items.forEach((item, index) => appendFillQuizCard(section, item, index));
+
+    if (!mount) {
+      const anchor = document.currentScript;
+      if (anchor?.parentNode) anchor.parentNode.insertBefore(section, anchor);
+      else document.body.append(section);
+    }
+
+    setupTeachOsQuizCards(section);
+  }
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => setupTeachOsQuizCards());
+} else {
+  setupTeachOsQuizCards();
+}
 `
 
 const FLASHCARD_CSS = `.flashcards { display: grid; gap: 12px; }

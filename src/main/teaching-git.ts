@@ -1,7 +1,8 @@
 import { stat } from 'node:fs/promises'
 import { execFile as execFileCallback } from 'node:child_process'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { promisify } from 'node:util'
+import { isPathInsideRoot } from './path-access'
 import type {
   OpenPathResult,
   TeachingGitBranchesResult,
@@ -50,7 +51,7 @@ export async function listGitWorktreesForWorkspace(
         branch: worktree.branch,
         head: worktree.head,
         isPrimary: samePath(worktree.path, primaryWorktreePath),
-        isManaged: isInside(worktreeRoot, worktree.path),
+        isManaged: isPathInsideRoot(worktreeRoot, worktree.path),
         createdAt: await readCreatedAt(worktree.path)
       }))
     )
@@ -289,9 +290,4 @@ function samePath(left: string, right: string): boolean {
 function normalizePath(path: string): string {
   const resolved = resolve(path)
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
-}
-
-function isInside(rootPath: string, targetPath: string): boolean {
-  const relation = relative(resolve(rootPath), resolve(targetPath))
-  return relation === '' || (!relation.startsWith('..') && !isAbsolute(relation))
 }

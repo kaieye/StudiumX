@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 
 const app = await readFile('src/renderer/src/App.tsx', 'utf8')
 const main = await readFile('src/main/index.ts', 'utf8')
+const commands = await readFile('src/main/teaching-ipc-commands.ts', 'utf8')
 const preload = await readFile('src/preload/index.ts', 'utf8')
 const providerConnection = await readFile('src/main/provider-connection.ts', 'utf8')
 
@@ -26,7 +27,7 @@ assert.doesNotMatch(app, /updateProvider\(\{ \.\.\.preset, apiKey: activeModelSe
 
 assert.match(preload, /listUpstreamModels: \(payload\) => ipcRenderer\.invoke\('teach:list-upstream-models', payload\)/)
 assert.match(main, /ipcMain\.handle\('teach:list-upstream-models', async \(_, payload: unknown\) => \{[\s\S]*const request = parseListUpstreamModelsPayload\(payload, settings\.provider\.providers\)[\s\S]*return fetchUpstreamModels\(request, resolveProxyUrl\(settings\)\)/)
-assert.match(main, /function parseListUpstreamModelsPayload\([\s\S]*const providerIdPayload = payload && typeof payload === 'object'[\s\S]*typeof payload === 'string'[\s\S]*providerIdPayload\?\.providerId[\s\S]*return parseProbeProviderPayload\(payload\)/)
+assert.match(commands, /export function parseListUpstreamModelsPayload\([\s\S]*const providerIdPayload = payload && typeof payload === 'object'[\s\S]*typeof payload === 'string'[\s\S]*providerIdPayload\?\.providerId[\s\S]*return parseProbeProviderPayload\(payload\)/)
 assert.match(main, /ipcMain\.handle\('teach:open-external'[\s\S]*privacy\.allowExternalLinks[\s\S]*shell\.openExternal\(url\)/)
 assert.match(providerConnection, /export async function fetchUpstreamModels\(\s*provider: ProbeProviderPayload/)
 

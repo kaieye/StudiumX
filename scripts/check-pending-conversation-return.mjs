@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const app = await readFile('src/renderer/src/App.tsx', 'utf8')
+const stateModule = await readFile('src/renderer/src/agent-conversation-state.ts', 'utf8')
 
 assert.match(
   app,
@@ -23,7 +24,7 @@ assert.match(
 
 assert.match(
   app,
-  /!isCourseConversationPath\(storedPendingAgentConversation\.summary\.relativePath\)/,
+  /!isCourseAgentConversationPath\(storedPendingAgentConversation\.summary\.relativePath\)/,
   'course-scoped pending conversations should stay out of the flat conversation section'
 )
 
@@ -46,20 +47,20 @@ assert.match(
 )
 
 assert.match(
-  app,
-  /pendingAgentConversation:\s*\{[\s\S]*summary:\s*createPendingAgentConversationSummary/,
-  'agentChat should create a pending sidebar summary as soon as a stream starts'
+  stateModule,
+  /const pendingConversation:\s*PendingAgentConversation\s*=\s*\{[\s\S]*summary:\s*createPendingAgentConversationSummary/,
+  'agent conversation state module should create a pending sidebar summary as soon as a stream starts'
 )
 
 assert.match(
-  app,
+  stateModule,
   /pendingAgentConversation:\s*null/,
-  'saving a conversation should clear the pending local sidebar entry'
+  'pending lifecycle helpers should clear the pending local sidebar entry'
 )
 
 assert.match(
-  app,
-  /get\(\)\.activeConversationId === pendingConversationId[\s\S]*activeConversationId:\s*saved\.conversation\.id/,
+  stateModule,
+  /activeConversationId === pending\.summary\.id[\s\S]*activeConversationId:\s*savedConversationId/,
   'saving should replace the pending active id with the persisted id only when the pending conversation is still active'
 )
 

@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/pro
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { Dirent } from 'node:fs'
 import type { ToolEntry, ToolContext } from './registry'
+import { isPathInsideRoot } from '../../path-access'
 
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_READ_CHARS = 24_000
@@ -101,7 +102,7 @@ function resolveWorkspacePath(ctx: ToolContext, rawPath: unknown, fallback = '.'
   const input = typeof rawPath === 'string' && rawPath.trim() ? rawPath.trim() : fallback
   if (isAbsolute(input)) throw new Error('请使用相对工作区路径，不允许传入绝对路径。')
   const absolutePath = resolve(root, input)
-  if (!isInside(root, absolutePath)) {
+  if (!isPathInsideRoot(root, absolutePath)) {
     throw new Error('路径超出当前教学工作区。')
   }
   const relativePath = toPosixPath(relative(root, absolutePath)) || '.'
@@ -110,14 +111,9 @@ function resolveWorkspacePath(ctx: ToolContext, rawPath: unknown, fallback = '.'
 
 async function assertRealPathInside(rootPath: string, targetPath: string): Promise<void> {
   const [realRoot, realTarget] = await Promise.all([realpath(rootPath), realpath(targetPath)])
-  if (!isInside(realRoot, realTarget)) {
+  if (!isPathInsideRoot(realRoot, realTarget)) {
     throw new Error('路径经过符号链接后超出当前教学工作区。')
   }
-}
-
-function isInside(rootPath: string, targetPath: string): boolean {
-  const relation = relative(resolve(rootPath), resolve(targetPath))
-  return relation === '' || (!relation.startsWith('..') && !isAbsolute(relation))
 }
 
 function toPosixPath(value: string): string {

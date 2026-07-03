@@ -1,4 +1,8 @@
 import type { AgentConversationSummary, LessonSummary, TeachingCourseSummary, TeachingWorkspaceSummary, WorkspaceFileNode } from './teaching-types'
+import {
+  agentConversationDirectoryRelativePathsForCourse,
+  primaryAgentConversationDirectoryRelativePathForCourse
+} from './agent-conversation-catalog'
 
 export type SidebarCourseFolder = {
   workspace: TeachingWorkspaceSummary
@@ -93,8 +97,7 @@ function buildCourseContentFolders(
     : course.sessions.map((session) => lessonNode(session.lesson, nodeByPath))
   const conversationChildren = showAllCourseFiles
     ? mergeUniqueNodes([
-        ...conversationFolderChildren(workspaceTree, courseTree, course, 'conversation'),
-        ...conversationFolderChildren(workspaceTree, courseTree, course, 'conversations'),
+        ...conversationFolderChildren(workspaceTree, course),
         ...course.conversations.map((conversation) => conversationNode(conversation, nodeByPath))
       ])
     : course.conversations.map((conversation) => conversationNode(conversation, nodeByPath))
@@ -142,13 +145,18 @@ function findCourseContentFolder(
   course: TeachingCourseSummary,
   name: 'lessons' | 'lesson' | 'conversation'
 ): WorkspaceFileNode | null {
+  if (name === 'conversation') {
+    for (const relativePath of agentConversationDirectoryRelativePathsForCourse(course.relativePath)) {
+      const folder = findWorkspaceNode(workspaceTree, relativePath)
+      if (folder) return folder
+    }
+  }
   if (sameRelativePath(course.relativePath, 'lessons')) {
     return findWorkspaceNode(workspaceTree, contentFolderRelativePath(course, name))
   }
   const children = courseTree?.children ?? []
   const current = findWorkspaceNode(children, joinRelativePath(course.relativePath, name))
   if (current) return current
-  if (name === 'conversation') return findWorkspaceNode(children, joinRelativePath(course.relativePath, 'conversations'))
   return null
 }
 
@@ -163,21 +171,21 @@ function lessonFolderChildren(
 
 function conversationFolderChildren(
   workspaceTree: WorkspaceFileNode[],
-  courseTree: WorkspaceFileNode | null,
-  course: TeachingCourseSummary,
-  name: 'conversation' | 'conversations'
+  course: TeachingCourseSummary
 ): WorkspaceFileNode[] {
-  const folder = sameRelativePath(course.relativePath, 'lessons')
-    ? findWorkspaceNode(workspaceTree, name)
-    : findWorkspaceNode(courseTree?.children ?? [], joinRelativePath(course.relativePath, name))
-  return folder?.kind === 'directory' ? folder.children ?? [] : []
+  return agentConversationDirectoryRelativePathsForCourse(course.relativePath).flatMap((relativePath) => {
+    const folder = findWorkspaceNode(workspaceTree, relativePath)
+    return folder?.kind === 'directory' ? folder.children ?? [] : []
+  })
 }
 
 function contentFolderRelativePath(course: TeachingCourseSummary, name: 'lessons' | 'lesson' | 'conversation'): string {
   if (sameRelativePath(course.relativePath, 'lessons')) {
-    return name === 'conversation' ? 'conversation' : 'lessons'
+    return name === 'conversation' ? primaryAgentConversationDirectoryRelativePathForCourse(course.relativePath) : 'lessons'
   }
-  return joinRelativePath(course.relativePath, name)
+  return name === 'conversation'
+    ? primaryAgentConversationDirectoryRelativePathForCourse(course.relativePath)
+    : joinRelativePath(course.relativePath, name)
 }
 
 function legacyCourseRootLessonNodes(
