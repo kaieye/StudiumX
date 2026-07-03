@@ -1,10 +1,44 @@
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { appendFile, mkdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
 import { inspectGitWorkspace } from './teaching-git'
 import { isPathInsideRoot } from './path-access'
+import {
+  buildCourseSummaries,
+  buildWorkspaceCatalog,
+  normalizeLessonSummary,
+  readMissionSummary
+} from './teaching-workspace-catalog'
+import {
+  clampTitle,
+  cleanText,
+  collectTeachingFiles,
+  directoryExists,
+  fileExists,
+  isPathArchived,
+  normalizePathMeta,
+  normalizeWorkspaceRelativePath,
+  pathRemovedByWorkspaceItem,
+  prunePathMeta,
+  slugify,
+  toWorkspaceRelativePath,
+  workspaceRelativePath,
+  type WorkspacePathMeta
+} from './teaching-workspace-paths'
+import {
+  deriveConversationTitle,
+  ensureTeachingContentDirectories,
+  listAgentConversations,
+  nextAgentConversationId,
+  normalizeAgentConversationTurns,
+  readAgentConversationRecord,
+  requireSafeAgentConversationId,
+  sortAgentConversationSummaries,
+  toAgentConversationSummary,
+  writeAgentConversationRecord
+} from './teaching-agent-conversations'
 import { callProvider, streamProvider, resolveActiveProvider, ProviderAdapterError, toolsSupportedForFormat, type AdapterCallbacks } from './ai/provider-adapter'
 import { runAgentLoop } from './ai/agent-loop'
 import { buildDefaultRegistry, buildToolContext } from './ai/tools/registry'
@@ -21,15 +55,10 @@ import {
   isLearnerProfileMemory
 } from '../shared/teaching-memory-capture'
 import {
-  agentConversationCourseJsonScanDirectories,
   agentConversationDirectoryRelativePath,
   agentConversationJsonRelativePath,
   agentConversationJsonRelativePathForMarkdown,
-  agentConversationJsonScanDirectories,
   agentConversationMarkdownRelativePath,
-  courseRelativePathForAgentConversation as courseRelativePathFromConversationPath,
-  isAgentConversationJsonRelativePath,
-  isAgentConversationMarkdownRelativePath,
   isRootAgentConversationMarkdownRelativePath,
   normalizeAgentConversationDirectory
 } from '../shared/agent-conversation-catalog'
@@ -50,18 +79,15 @@ import type {
   ReadLessonPayload,
   ReadLessonResult,
   RecordProgressPayload,
-  ResourceSummary,
   ReviewCard,
   AgentConversationRecord,
   AgentConversationSummary,
   AgentChatMessage,
-  AgentChatProcessEvent,
   AgentChatStreamChunk,
   AgentChatStreamPayload,
   AgentChatStreamResult,
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
-  AgentChatTurn,
   ReadAgentConversationPayload,
   SaveAgentConversationPayload,
   SaveAgentConversationResult,
@@ -69,12 +95,9 @@ import type {
   TeachingMemoryRecord,
   TeachingClarificationResult,
   TeachingAppState,
-  TeachingCourseSummary,
   TeachingRuntimeState,
-  TeachingSessionSummary,
   TeachingSettingsV1,
   TeachingWorkspaceSummary,
-  WorkspaceFileNode,
   WorkspaceItemKind,
   WorkspaceItemMetaPayload,
   WorkspaceItemRemovePayload,
@@ -97,8 +120,6 @@ type WorkspaceRegistry = {
   activeWorkspaceId: string | null
   workspaces: RegistryWorkspace[]
 }
-
-type WorkspacePathMeta = { pinned?: boolean; archived?: boolean }
 
 type WorkspaceIndex = {
   id: string
@@ -675,7 +696,7 @@ export class TeachingWorkspaceService {
     const index = await this.loadWorkspaceIndex(workspace)
     const sequence = await this.nextLessonNumber(workspace.rootPath, index.lessons)
     const lessonId = String(sequence).padStart(4, '0')
-    const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
+    const mission = await readMissionSummary(workspace.rootPath, workspace.name)
     const generationAssessment = await this.assessTeachingRequest({
       workspace,
       userInput: prompt,
@@ -1202,41 +1223,18 @@ export class TeachingWorkspaceService {
     const index = await this.loadWorkspaceIndex(workspace)
     const pathMeta = index.pathMeta ?? {}
     await this.ensureWorkspaceStructure(workspace, pathMeta)
-    const mission = await this.readMissionSummary(workspace.rootPath, workspace.name)
-    const lessons = await this.mergeLessonIndexWithDisk(workspace.rootPath, workspace.name, index.lessons, pathMeta)
-    const conversations = await listAgentConversations(
-      workspace.rootPath,
-      pathMeta,
-      { includeRoot: true, includeRootConversation: true, includeLegacyRootConversations: false }
-    )
-    const fileTree = await buildWorkspaceFileTree(workspace.rootPath, pathMeta)
-    const courses = buildCourseSummaries(workspace, lessons, conversations, pathMeta)
-    if (lessons.length !== index.lessons.length) {
-      await this.saveWorkspaceIndex(workspace.rootPath, { ...index, lessons, updatedAt: new Date().toISOString() })
+    const { lessonIndexChanged, ...catalog } = await buildWorkspaceCatalog(workspace, index)
+    if (lessonIndexChanged) {
+      await this.saveWorkspaceIndex(workspace.rootPath, { ...index, lessons: catalog.lessons, updatedAt: new Date().toISOString() })
     }
     return {
       id: workspace.id,
       name: workspace.name,
       rootPath: workspace.rootPath,
-      missionPath: join(workspace.rootPath, 'MISSION.md'),
-      resourcesPath: join(workspace.rootPath, 'RESOURCES.md'),
-      lessonsDir: join(workspace.rootPath, 'lessons'),
-      recordsDir: join(workspace.rootPath, 'lessons'),
-      referenceDir: join(workspace.rootPath, 'lessons'),
-      reviewsDir: join(workspace.rootPath, 'lessons'),
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
       pinned: workspace.pinned,
-      missionTitle: mission.title,
-      missionExcerpt: mission.excerpt,
-      courses,
-      fileTree,
-      conversations,
-      resources: await this.readResourceSummary(workspace.rootPath),
-      records: await this.readLearningRecords(workspace.rootPath),
-      lessons,
-      referenceCount: (await collectTeachingFiles(workspace.rootPath, (file) => file.toLowerCase().endsWith('-reference.html'))).length,
-      assetsReady: await fileExists(join(workspace.rootPath, 'assets', 'lesson.css')),
+      ...catalog,
       git: await inspectGitWorkspace(workspace.rootPath)
     }
   }
@@ -1442,7 +1440,7 @@ export class TeachingWorkspaceService {
     userInput: string
     messages: AgentChatMessage[]
   }): Promise<TeachingClarificationResult> {
-    const mission = await this.readMissionSummary(options.workspace.rootPath, options.workspace.name)
+    const mission = await readMissionSummary(options.workspace.rootPath, options.workspace.name)
     return assessTeachingReadiness({
       userInput: options.userInput,
       messages: options.messages,
@@ -1460,114 +1458,6 @@ export class TeachingWorkspaceService {
     return Math.max(0, ...fromIndex, ...fromDisk) + 1
   }
 
-  private async mergeLessonIndexWithDisk(
-    rootPath: string,
-    workspaceName: string,
-    indexedLessons: LessonSummary[],
-    pathMeta: Record<string, WorkspacePathMeta> = {}
-  ): Promise<LessonSummary[]> {
-    const indexedByPath = new Map(indexedLessons.map((lesson) => [resolve(lesson.absolutePath).toLowerCase(), lesson]))
-    const files = await collectTeachingFiles(rootPath, (filePath) => {
-      const lower = filePath.toLowerCase()
-      if (!lower.endsWith('.html')) return false
-      if (lower.endsWith('-reference.html')) return false
-      return true
-    })
-    return files
-      .map((absolutePath) => {
-        const existing = indexedByPath.get(resolve(absolutePath).toLowerCase())
-        if (existing) return existing
-        const file = basename(absolutePath)
-        const relativePath = toWorkspaceRelativePath(rootPath, absolutePath)
-        const placement = deriveLessonPlacementFromPath(rootPath, workspaceName, absolutePath)
-        const idMatch = /^(\d{4})-/.exec(file)
-        return {
-          id: idMatch?.[1] ?? '0000',
-          title: titleFromFilename(file),
-          objective: '从本地 lesson 文件恢复的课程。',
-          prompt: '',
-          createdAt: new Date(0).toISOString(),
-          durationMinutes: 12,
-          courseId: placement.courseId,
-          courseName: placement.courseName,
-          courseRelativePath: placement.courseRelativePath,
-          courseAbsolutePath: placement.courseAbsolutePath,
-          sessionId: placement.sessionId,
-          sessionName: placement.sessionName,
-          sessionRelativePath: placement.sessionRelativePath,
-          sessionAbsolutePath: placement.sessionAbsolutePath,
-          relativePath,
-          absolutePath
-        } satisfies LessonSummary
-      })
-      .map((lesson) => ({ ...lesson, pinned: Boolean(pathMeta[lesson.relativePath]?.pinned) }))
-      .filter((lesson) => !isPathArchived(pathMeta, lesson.relativePath))
-      .sort((a, b) => {
-        const aPinned = a.pinned ? 1 : 0
-        const bPinned = b.pinned ? 1 : 0
-        if (aPinned !== bPinned) return bPinned - aPinned
-        return b.id.localeCompare(a.id)
-      })
-  }
-
-  private async readMissionSummary(rootPath: string, fallbackName: string): Promise<{ title: string; excerpt: string }> {
-    const content = await readFile(join(rootPath, 'MISSION.md'), 'utf8').catch(() => '')
-    const title = /^#\s+Mission:\s*(.+)$/m.exec(content)?.[1] ?? /^#\s+(.+)$/m.exec(content)?.[1] ?? fallbackName
-    const excerpt = /##\s+Why\s+([\s\S]*?)(?:\n##\s+|$)/m.exec(content)?.[1] ?? content
-    return {
-      title: cleanText(title),
-      excerpt: compactMarkdown(excerpt) || '等待补充学习使命。'
-    }
-  }
-
-  private async readResourceSummary(rootPath: string): Promise<ResourceSummary[]> {
-    const content = await readFile(join(rootPath, 'RESOURCES.md'), 'utf8').catch(() => '')
-    const rows: ResourceSummary[] = []
-    let currentSection = '资源'
-    for (const line of content.split(/\r?\n/)) {
-      const heading = /^##\s+(.+)$/.exec(line)
-      if (heading) {
-        currentSection = heading[1]!.trim()
-        continue
-      }
-      if (!line.startsWith('- ')) continue
-      const item = line.slice(2).trim()
-      const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)\s*(.*)$/.exec(item)
-      const localMatch = /^([^:]+):\s*(.+)$/.exec(item)
-      const title = linkMatch?.[1] ?? localMatch?.[1] ?? item.split(' — ')[0] ?? item
-      const detail = compactMarkdown(linkMatch?.[3] ?? localMatch?.[2] ?? item.split(' — ').slice(1).join(' — ')) || '已记录在资源索引中。'
-      rows.push({ title: cleanText(title), detail, tag: currentSection })
-    }
-    return rows.length > 0 ? rows.slice(0, 8) : [{ title: 'RESOURCES.md', detail: '等待添加首批可信资源。', tag: 'Gaps' }]
-  }
-
-  private async readLearningRecords(rootPath: string): Promise<TeachingWorkspaceSummary['records']> {
-    const files = await collectTeachingFiles(
-      rootPath,
-      (file) => {
-        if (!file.toLowerCase().endsWith('.md')) return false
-        if (basename(file).startsWith('MISSION') || basename(file).startsWith('RESOURCES')) return false
-        return !isAgentConversationMarkdownRelativePath(toWorkspaceRelativePath(rootPath, file))
-      }
-    )
-    return Promise.all(
-      files
-        .sort()
-        .reverse()
-        .slice(0, 8)
-        .map(async (absolutePath) => {
-          const file = basename(absolutePath)
-          const content = await readFile(absolutePath, 'utf8').catch(() => '')
-          const info = await stat(absolutePath).catch(() => null)
-          return {
-            title: cleanText(/^#\s+(.+)$/m.exec(content)?.[1] ?? titleFromFilename(file)),
-            date: formatDate(info?.mtime ?? new Date()),
-            relativePath: toWorkspaceRelativePath(rootPath, absolutePath),
-            absolutePath
-          }
-        })
-    )
-  }
 }
 
 function upsertRegistryWorkspace(
@@ -1686,427 +1576,6 @@ function isWorkspaceScaffoldPath(kind: WorkspaceItemKind, relativePath: string):
   return false
 }
 
-async function fileExists(path: string): Promise<boolean> {
-  return stat(path).then((info) => info.isFile()).catch(() => false)
-}
-
-async function directoryExists(path: string): Promise<boolean> {
-  return stat(path).then((info) => info.isDirectory()).catch(() => false)
-}
-
-async function countFiles(path: string, extension: string): Promise<number> {
-  return readdir(path)
-    .then((files) => files.filter((file) => file.toLowerCase().endsWith(extension)).length)
-    .catch(() => 0)
-}
-
-async function countFilesRecursive(path: string, extension: string): Promise<number> {
-  const files = await walkFiles(path, (file) => file.toLowerCase().endsWith(extension))
-  return files.length
-}
-
-async function collectTeachingFiles(rootPath: string, predicate: (filePath: string) => boolean): Promise<string[]> {
-  const roots = [join(rootPath, 'courses'), join(rootPath, 'lessons'), join(rootPath, 'learning-records'), join(rootPath, 'reviews'), join(rootPath, 'reference')]
-  const results = await Promise.all(roots.map((path) => walkFiles(path, predicate)))
-  return results.flat()
-}
-
-const WORKSPACE_TREE_MAX_DEPTH = 5
-const WORKSPACE_TREE_MAX_ENTRIES_PER_DIR = 80
-const WORKSPACE_TREE_IGNORED_DIRS = new Set([
-  '.git',
-  '.teachos',
-  'node_modules',
-  'out',
-  'dist',
-  'release'
-])
-
-async function buildWorkspaceFileTree(
-  rootPath: string,
-  pathMeta: Record<string, WorkspacePathMeta> = {}
-): Promise<WorkspaceFileNode[]> {
-  return readWorkspaceTreeDirectory(rootPath, '', 0, pathMeta)
-}
-
-async function readWorkspaceTreeDirectory(
-  rootPath: string,
-  relativeDir: string,
-  depth: number,
-  pathMeta: Record<string, WorkspacePathMeta>
-): Promise<WorkspaceFileNode[]> {
-  const absoluteDir = relativeDir ? join(rootPath, relativeDir) : rootPath
-  const entries = await readdir(absoluteDir, { withFileTypes: true }).catch(() => [])
-  const visibleEntries = entries
-    .filter((entry) => !shouldHideWorkspaceTreeEntry(relativeDir, entry.name, entry.isDirectory()))
-    .filter((entry) => {
-      const relativePath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), entry.name)
-      return !isPathArchived(pathMeta, relativePath)
-    })
-    .sort((left, right) => {
-      const leftPath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), left.name)
-      const rightPath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), right.name)
-      const leftPinned = pathMeta[leftPath]?.pinned ? 1 : 0
-      const rightPinned = pathMeta[rightPath]?.pinned ? 1 : 0
-      if (leftPinned !== rightPinned) return rightPinned - leftPinned
-      if (left.isDirectory() !== right.isDirectory()) return left.isDirectory() ? -1 : 1
-      return left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
-    })
-    .slice(0, WORKSPACE_TREE_MAX_ENTRIES_PER_DIR)
-
-  const nodes = await Promise.all(
-    visibleEntries.map(async (entry): Promise<WorkspaceFileNode | null> => {
-      if (!entry.isDirectory() && !entry.isFile()) return null
-      const relativePath = workspaceRelativePath(relativeDir.replace(/\\/g, '/'), entry.name)
-      const absolutePath = join(rootPath, relativePath)
-      const pinned = Boolean(pathMeta[relativePath]?.pinned)
-      if (entry.isDirectory()) {
-        const atDepthLimit = depth + 1 >= WORKSPACE_TREE_MAX_DEPTH
-        return {
-          name: entry.name,
-          kind: 'directory',
-          relativePath,
-          absolutePath,
-          children: atDepthLimit ? [] : await readWorkspaceTreeDirectory(rootPath, relativePath, depth + 1, pathMeta),
-          truncated: atDepthLimit || entries.length > WORKSPACE_TREE_MAX_ENTRIES_PER_DIR || undefined,
-          pinned
-        }
-      }
-      return {
-        name: entry.name,
-        kind: 'file',
-        relativePath,
-        absolutePath,
-        pinned
-      }
-    })
-  )
-
-  return nodes.filter((node): node is WorkspaceFileNode => Boolean(node))
-}
-
-function shouldHideWorkspaceTreeEntry(relativeDir: string, name: string, isDirectory: boolean): boolean {
-  if (isDirectory && WORKSPACE_TREE_IGNORED_DIRS.has(name)) return true
-  const normalizedDir = relativeDir.replace(/\\/g, '/')
-  if (name.toLowerCase().endsWith('.json') && isAgentConversationJsonRelativePath(workspaceRelativePath(normalizedDir, name))) return true
-  return false
-}
-
-async function listAgentConversations(
-  rootPath: string,
-  pathMeta: Record<string, WorkspacePathMeta> = {},
-  options: {
-    includeRoot?: boolean
-    includeRootConversation?: boolean
-    includeLegacyRootConversations?: boolean
-    includeLessons?: boolean
-    includeCourses?: boolean
-    fallbackWorkspaceId?: string
-  } = {}
-): Promise<AgentConversationSummary[]> {
-  const jsonRelativePaths = await collectAgentConversationJsonRelativePaths(rootPath, options)
-  const records = await Promise.all(
-    jsonRelativePaths.map((relativePath) => readAgentConversationRecordAt(rootPath, relativePath).catch(() => null))
-  )
-  return sortAgentConversationSummaries(records
-    .filter((record): record is AgentConversationRecord => Boolean(record))
-    .map((record) => toAgentConversationSummary(record, pathMeta, options.fallbackWorkspaceId))
-    .filter((summary) => !isPathArchived(pathMeta, summary.relativePath))
-  )
-}
-
-async function nextAgentConversationId(rootPath: string, title: string, timestamp: string): Promise<string> {
-  const base = `chat-${formatConversationTimestamp(new Date(timestamp))}-${slugify(title, 'conversation')}`.slice(0, 96)
-  let id = requireSafeAgentConversationId(base)
-  let suffix = 2
-  while (await agentConversationIdExists(rootPath, id)) {
-    id = requireSafeAgentConversationId(`${base.slice(0, 88)}-${suffix}`)
-    suffix += 1
-  }
-  return id
-}
-
-async function readAgentConversationRecord(rootPath: string, conversationId: string): Promise<AgentConversationRecord> {
-  const id = requireSafeAgentConversationId(conversationId)
-  const jsonRelativePath = await findAgentConversationJsonRelativePath(rootPath, id)
-  return readAgentConversationRecordAt(rootPath, jsonRelativePath)
-}
-
-async function readAgentConversationRecordAt(rootPath: string, jsonRelativePath: string): Promise<AgentConversationRecord> {
-  const normalizedJsonRelativePath = normalizeWorkspaceRelativePath(jsonRelativePath)
-  const id = requireSafeAgentConversationId(basename(normalizedJsonRelativePath).replace(/\.json$/i, ''))
-  const jsonPath = join(rootPath, jsonRelativePath)
-  if (!isPathInsideRoot(rootPath, jsonPath)) throw new Error('Conversation path is outside the workspace.')
-  const parsed = safeJsonParse(await readFile(jsonPath, 'utf8'))
-  if (!parsed || typeof parsed !== 'object') throw new Error('Conversation record is invalid.')
-  const record = parsed as Record<string, unknown>
-  const turns = normalizeAgentConversationTurns(record.turns)
-  const createdAt = typeof record.createdAt === 'string' ? record.createdAt : new Date().toISOString()
-  const updatedAt = typeof record.updatedAt === 'string' ? record.updatedAt : createdAt
-  const title = cleanText(record.title) || deriveConversationTitle(turns, createdAt)
-  const storedMarkdownRelativePath = typeof record.relativePath === 'string'
-    ? normalizeWorkspaceRelativePath(record.relativePath)
-    : ''
-  const conversationDir = dirname(normalizedJsonRelativePath).replace(/\\/g, '/')
-  const relativePath = isAgentConversationMarkdownRelativePath(storedMarkdownRelativePath)
-    ? storedMarkdownRelativePath
-    : agentConversationMarkdownRelativePath(id, conversationDir)
-  return {
-    id,
-    workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
-    title,
-    createdAt,
-    updatedAt,
-    relativePath,
-    absolutePath: join(rootPath, relativePath),
-    messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
-    turns
-  }
-}
-
-async function writeAgentConversationRecord(
-  workspace: RegistryWorkspace,
-  record: AgentConversationRecord
-): Promise<void> {
-  const jsonRelativePath = agentConversationJsonRelativePathForMarkdown(record.relativePath)
-  const markdownRelativePath = normalizeWorkspaceRelativePath(record.relativePath)
-  if (!isAgentConversationMarkdownRelativePath(markdownRelativePath)) {
-    throw new Error('Conversation markdown path is outside a conversations directory.')
-  }
-  await atomicWriteFile(
-    join(workspace.rootPath, jsonRelativePath),
-    `${JSON.stringify({
-      version: 1,
-      workspaceId: record.workspaceId ?? workspace.id,
-      id: record.id,
-      title: record.title,
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-      relativePath: record.relativePath,
-      turns: record.turns
-    }, null, 2)}\n`
-  )
-  await atomicWriteFile(
-    join(workspace.rootPath, markdownRelativePath),
-    renderAgentConversationMarkdown(workspace, record)
-  )
-}
-
-function renderAgentConversationMarkdown(workspace: RegistryWorkspace, record: AgentConversationRecord): string {
-  const lines = [
-    `# ${record.title}`,
-    '',
-    `Workspace: ${workspace.name}`,
-    `Created: ${record.createdAt}`,
-    `Updated: ${record.updatedAt}`,
-    ''
-  ]
-  for (const turn of record.turns) {
-    lines.push(`## ${turn.role === 'user' ? 'User' : 'Assistant'}`, '')
-    lines.push(turn.content.trim() || '(empty)', '')
-    if (turn.toolCalls?.length) {
-      lines.push('Tool calls:', '')
-      for (const tool of turn.toolCalls) {
-        lines.push(`- ${tool.name || 'tool'}: ${compactTextForMarkdown(tool.result || tool.arguments || '', 240)}`)
-      }
-      lines.push('')
-    }
-  }
-  return `${lines.join('\n').replace(/\n{4,}/g, '\n\n\n').trim()}\n`
-}
-
-function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[] {
-  if (!Array.isArray(turns)) return []
-  const now = new Date().toISOString()
-  const normalized: AgentChatTurn[] = []
-  for (const [index, item] of turns.entries()) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const role = record.role === 'assistant' ? 'assistant' : record.role === 'user' ? 'user' : null
-    if (!role) continue
-    const toolCalls = Array.isArray(record.toolCalls)
-      ? record.toolCalls.map((raw, toolIndex) => {
-          const tool = (raw ?? {}) as Record<string, unknown>
-          return {
-            id: typeof tool.id === 'string' && tool.id ? tool.id : `tool-${index}-${toolIndex}`,
-            name: typeof tool.name === 'string' ? tool.name : '',
-            arguments: typeof tool.arguments === 'string' ? tool.arguments : '',
-            result: typeof tool.result === 'string' ? tool.result : undefined,
-            isError: tool.isError === true
-          }
-        })
-      : undefined
-    const processEvents: AgentChatProcessEvent[] | undefined = Array.isArray(record.processEvents)
-      ? record.processEvents
-          .filter((event): event is Record<string, unknown> => Boolean(event) && typeof event === 'object')
-          .map((event, eventIndex): AgentChatProcessEvent => {
-            const kind: AgentChatProcessEvent['kind'] =
-              event.kind === 'tool_call' || event.kind === 'tool_result' ? event.kind : 'status'
-            return {
-              id: typeof event.id === 'string' && event.id ? event.id : `event-${index}-${eventIndex}`,
-              kind,
-              title: typeof event.title === 'string' ? event.title : '',
-              detail: typeof event.detail === 'string' ? event.detail : undefined,
-              status: typeof event.status === 'string' ? event.status as NonNullable<AgentChatTurn['processEvents']>[number]['status'] : undefined,
-              toolCallId: typeof event.toolCallId === 'string' ? event.toolCallId : undefined,
-              toolName: typeof event.toolName === 'string' ? event.toolName : undefined,
-              isError: event.isError === true,
-              createdAt: typeof event.createdAt === 'string' ? event.createdAt : now
-            }
-          })
-      : undefined
-    normalized.push({
-      id: typeof record.id === 'string' && record.id ? record.id : `${role}-${index}`,
-      role,
-      content: typeof record.content === 'string' ? record.content : '',
-      toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
-      processEvents: processEvents && processEvents.length > 0 ? processEvents : undefined,
-      createdAt: typeof record.createdAt === 'string' ? record.createdAt : now
-    })
-  }
-  return normalized
-}
-
-function deriveConversationTitle(turns: AgentChatTurn[], timestamp: string): string {
-  const firstUserContent = cleanText(turns.find((turn) => turn.role === 'user')?.content)
-  if (firstUserContent) return firstUserContent.length > 48 ? `${firstUserContent.slice(0, 48)}...` : firstUserContent
-  return `Conversation ${formatDate(new Date(timestamp))}`
-}
-
-async function collectAgentConversationJsonRelativePaths(
-  rootPath: string,
-  options: {
-    includeRoot?: boolean
-    includeRootConversation?: boolean
-    includeLegacyRootConversations?: boolean
-    includeLessons?: boolean
-    includeCourses?: boolean
-  } = {}
-): Promise<string[]> {
-  const includeCourses = options.includeCourses ?? true
-  const result: string[] = []
-  for (const directory of agentConversationJsonScanDirectories(options)) {
-    const entries = await readdir(join(rootPath, directory), { withFileTypes: true }).catch(() => [])
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
-        result.push(workspaceRelativePath(directory, entry.name))
-      }
-    }
-  }
-  if (!includeCourses) return result
-  const courseEntries = await readdir(join(rootPath, 'courses'), { withFileTypes: true }).catch(() => [])
-  for (const courseEntry of courseEntries) {
-    if (!courseEntry.isDirectory()) continue
-    for (const directory of agentConversationCourseJsonScanDirectories(courseEntry.name)) {
-      const entries = await readdir(join(rootPath, directory), { withFileTypes: true }).catch(() => [])
-      for (const entry of entries) {
-        if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
-          result.push(workspaceRelativePath(directory, entry.name))
-        }
-      }
-    }
-  }
-  return result
-}
-
-async function agentConversationIdExists(rootPath: string, id: string): Promise<boolean> {
-  return findAgentConversationJsonRelativePath(rootPath, id)
-    .then(() => true)
-    .catch(() => false)
-}
-
-async function findAgentConversationJsonRelativePath(rootPath: string, id: string): Promise<string> {
-  const safeId = requireSafeAgentConversationId(id)
-  const matches = (await collectAgentConversationJsonRelativePaths(rootPath))
-    .filter((relativePath) => basename(relativePath).replace(/\.json$/i, '') === safeId)
-    .sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true, sensitivity: 'base' }))
-  const first = matches[0]
-  if (!first) throw new Error('Conversation not found.')
-  return first
-}
-
-async function ensureTeachingContentDirectories(rootPath: string): Promise<void> {
-  await Promise.all([
-    mkdir(join(rootPath, 'lessons'), { recursive: true }),
-    mkdir(join(rootPath, 'conversation'), { recursive: true })
-  ])
-}
-
-function requireSafeAgentConversationId(value: string): string {
-  const id = cleanText(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 100)
-  if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(id)) throw new Error('Conversation id is invalid.')
-  return id
-}
-
-function formatConversationTimestamp(date: Date): string {
-  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${safeDate.getFullYear()}${pad(safeDate.getMonth() + 1)}${pad(safeDate.getDate())}-${pad(safeDate.getHours())}${pad(safeDate.getMinutes())}${pad(safeDate.getSeconds())}`
-}
-
-function toAgentConversationSummary(
-  record: AgentConversationRecord,
-  pathMeta: Record<string, WorkspacePathMeta> = {},
-  fallbackWorkspaceId?: string
-): AgentConversationSummary {
-  return {
-    id: record.id,
-    workspaceId: record.workspaceId ?? fallbackWorkspaceId,
-    title: record.title,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-    relativePath: record.relativePath,
-    absolutePath: record.absolutePath,
-    messageCount: record.messageCount,
-    pinned: Boolean(pathMeta[record.relativePath]?.pinned)
-  }
-}
-
-function sortAgentConversationSummaries(conversations: AgentConversationSummary[]): AgentConversationSummary[] {
-  return conversations.sort((left, right) => {
-    const leftPinned = left.pinned ? 1 : 0
-    const rightPinned = right.pinned ? 1 : 0
-    if (leftPinned !== rightPinned) return rightPinned - leftPinned
-    return right.updatedAt.localeCompare(left.updatedAt)
-  })
-}
-
-function compactTextForMarkdown(value: string, maxLength: number): string {
-  const compact = value.replace(/\s+/g, ' ').trim()
-  if (!compact) return '(empty)'
-  return compact.length > maxLength ? `${compact.slice(0, maxLength - 1)}...` : compact
-}
-
-async function walkFiles(rootPath: string, predicate: (filePath: string) => boolean): Promise<string[]> {
-  if (!(await directoryExists(rootPath))) return []
-  const result: string[] = []
-  const stack = [rootPath]
-  while (stack.length > 0) {
-    const current = stack.pop()
-    if (!current) continue
-    const entries = await readdir(current, { withFileTypes: true }).catch(() => [])
-    for (const entry of entries) {
-      const nextPath = join(current, entry.name)
-      if (entry.isDirectory()) {
-        stack.push(nextPath)
-        continue
-      }
-      if (entry.isFile() && predicate(nextPath)) {
-        result.push(nextPath)
-      }
-    }
-  }
-  return result
-}
-
-function cleanText(value: unknown): string {
-  return String(value ?? '').replace(/\s+/g, ' ').trim()
-}
-
 function deriveTopic(prompt: string, fallback: string): string {
   const cleaned = cleanText(prompt)
     .replace(/^我想(先)?学习/, '')
@@ -2120,150 +1589,6 @@ function deriveTopic(prompt: string, fallback: string): string {
 function deriveLessonTitle(prompt: string, sequence: number): string {
   const topic = deriveTopic(prompt, `第 ${sequence} 节`)
   return topic.length > 18 ? `${topic.slice(0, 18)}...` : topic
-}
-
-function clampTitle(value: string): string {
-  const trimmed = cleanText(value)
-  if (!trimmed) return '学习任务'
-  return trimmed.length > 48 ? `${trimmed.slice(0, 48)}...` : trimmed
-}
-
-function deriveCourseName(prompt: string, title: string, fallback: string): string {
-  const topic = deriveTopic(prompt, title || fallback)
-  return topic || cleanText(fallback) || '默认课程'
-}
-
-function toWorkspaceRelativePath(rootPath: string, absolutePath: string): string {
-  return relative(rootPath, absolutePath).replace(/\\/g, '/')
-}
-
-function deriveLessonPlacementFromPath(
-  rootPath: string,
-  workspaceName: string,
-  absolutePath: string
-): Pick<
-  LessonSummary,
-  | 'courseId'
-  | 'courseName'
-  | 'courseRelativePath'
-  | 'courseAbsolutePath'
-  | 'sessionId'
-  | 'sessionName'
-  | 'sessionRelativePath'
-  | 'sessionAbsolutePath'
-> {
-  const relativePath = toWorkspaceRelativePath(rootPath, absolutePath)
-  const parts = relativePath.split('/').filter(Boolean)
-  const file = basename(absolutePath)
-  const courseRelativePath = parts[0] === 'courses' && parts[1]
-    ? workspaceRelativePath('courses', parts[1])
-    : workspaceRelativePath('lessons')
-  const courseName = courseRelativePath === 'lessons'
-    ? clampTitle(workspaceName)
-    : titleFromFilename(parts[1] ?? workspaceName)
-  const courseId = slugify(courseName, 'course')
-  const idMatch = /^(\d{4})-/.exec(file)
-  const sessionId = idMatch?.[1] ? `lesson-${idMatch[1]}` : `lesson-${parts.at(-1)?.slice(0, 4) || '0000'}`
-  const sessionRelativePath = dirname(relativePath).replace(/\\/g, '/')
-  return {
-    courseId,
-    courseName,
-    courseRelativePath,
-    courseAbsolutePath: join(rootPath, courseRelativePath),
-    sessionId,
-    sessionName: titleFromFilename(file),
-    sessionRelativePath,
-    sessionAbsolutePath: join(rootPath, sessionRelativePath)
-  }
-}
-
-function buildCourseSummaries(
-  workspace: RegistryWorkspace,
-  lessons: LessonSummary[],
-  conversations: AgentConversationSummary[] = [],
-  pathMeta: Record<string, WorkspacePathMeta> = {}
-): TeachingCourseSummary[] {
-  const courseMap = new Map<string, {
-    id: string
-    name: string
-    relativePath: string
-    absolutePath: string
-    sessions: TeachingSessionSummary[]
-    conversations: AgentConversationSummary[]
-  }>()
-  const ensureCourse = (relativePath: string): NonNullable<ReturnType<typeof courseMap.get>> => {
-    const normalized = normalizeWorkspaceRelativePath(relativePath) || 'lessons'
-    const existing = courseMap.get(normalized)
-    if (existing) return existing
-    const name = normalized === 'lessons' ? clampTitle(workspace.name) : titleFromFilename(basename(normalized))
-    const course = {
-      id: slugify(name, 'course'),
-      name,
-      relativePath: normalized,
-      absolutePath: join(workspace.rootPath, normalized),
-      sessions: [],
-      conversations: []
-    }
-    courseMap.set(normalized, course)
-    return course
-  }
-
-  if (!isPathArchived(pathMeta, 'lessons')) {
-    ensureCourse('lessons')
-  }
-  for (const lesson of lessons) {
-    if (isPathArchived(pathMeta, lesson.courseRelativePath)) continue
-    ensureCourse(lesson.courseRelativePath).sessions.push({
-      id: lesson.sessionId,
-      name: lesson.sessionName,
-      relativePath: lesson.sessionRelativePath,
-      absolutePath: lesson.sessionAbsolutePath,
-      lesson
-    })
-  }
-  for (const conversation of conversations) {
-    const courseRelativePath = courseRelativePathFromConversationPath(conversation.relativePath)
-    if (!courseRelativePath) continue
-    if (isPathArchived(pathMeta, courseRelativePath)) continue
-    ensureCourse(courseRelativePath).conversations.push(conversation)
-  }
-
-  return [...courseMap.values()]
-    .filter((course) => !isPathArchived(pathMeta, course.relativePath))
-    .map((course): TeachingCourseSummary => {
-      const sortedSessions = course.sessions.sort((left, right) => right.lesson.id.localeCompare(left.lesson.id))
-      const sortedConversations = sortAgentConversationSummaries(course.conversations)
-      return {
-        id: course.id,
-        name: course.name,
-        relativePath: course.relativePath,
-        absolutePath: course.absolutePath,
-        lessonCount: sortedSessions.length,
-        sessionCount: sortedSessions.length + sortedConversations.length,
-        sessions: sortedSessions,
-        conversations: sortedConversations
-      }
-    })
-    .sort((left, right) => {
-      if (left.relativePath === 'lessons') return -1
-      if (right.relativePath === 'lessons') return 1
-      return left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
-    })
-}
-
-function normalizeLessonSummary(rootPath: string, workspaceName: string, lesson: LessonSummary): LessonSummary {
-  const placement = deriveLessonPlacementFromPath(rootPath, workspaceName, lesson.absolutePath)
-  return {
-    ...lesson,
-    courseId: placement.courseId,
-    courseName: placement.courseName,
-    courseRelativePath: placement.courseRelativePath,
-    courseAbsolutePath: placement.courseAbsolutePath,
-    sessionId: placement.sessionId,
-    sessionName: placement.sessionName,
-    sessionRelativePath: placement.sessionRelativePath,
-    sessionAbsolutePath: placement.sessionAbsolutePath
-  }
 }
 
 function adapterReason(error: ProviderAdapterError): string {
@@ -2381,111 +1706,6 @@ function localFallbackPlan(
     referenceNotes: '先写 mission，再决定第一课；课程输出到 lessons/*.html；对话记录写入 conversation/*.md。',
     learningRecordNote: `本节围绕「${mission.title}」建立了可复用的 TeachOS 学习闭环。`
   }
-}
-
-function slugify(value: string, fallback: string): string {
-  const slug = value
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return slug || fallback
-}
-
-function titleFromFilename(file: string): string {
-  return (
-    file
-      .replace(/\.[^.]+$/, '')
-      .replace(/^\d{4}-/, '')
-      .split('-')
-      .filter(Boolean)
-      .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-      .join(' ') || file
-  )
-}
-
-function workspaceRelativePath(...parts: string[]): string {
-  return parts.filter(Boolean).join('/')
-}
-
-/** Normalize a stored relative path key: forward slashes, no leading slash, no `./`. */
-function normalizeWorkspaceRelativePath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '').replace(/\/+$/, '')
-}
-
-function normalizePathMeta(value: unknown): Record<string, WorkspacePathMeta> {
-  if (!value || typeof value !== 'object') return {}
-  const source = value as Record<string, unknown>
-  const result: Record<string, WorkspacePathMeta> = {}
-  for (const [key, entry] of Object.entries(source)) {
-    if (!entry || typeof entry !== 'object') continue
-    const meta = entry as { pinned?: unknown; archived?: unknown }
-    const normalized: WorkspacePathMeta = {}
-    if (meta.pinned === true) normalized.pinned = true
-    if (meta.archived === true) normalized.archived = true
-    const normalizedKey = normalizeWorkspaceRelativePath(key)
-    if (!normalizedKey) continue
-    result[normalizedKey] = normalized
-  }
-  return result
-}
-
-function isPathArchived(pathMeta: Record<string, WorkspacePathMeta>, relativePath: string): boolean {
-  const path = normalizeWorkspaceRelativePath(relativePath)
-  if (!path) return false
-  return Object.entries(pathMeta).some(([key, meta]) => {
-    if (!meta.archived) return false
-    const archivedPath = normalizeWorkspaceRelativePath(key)
-    return path === archivedPath || path.startsWith(`${archivedPath}/`)
-  })
-}
-
-function pathRemovedByWorkspaceItem(
-  kind: WorkspaceItemKind,
-  removedRelativePath: string,
-  currentRelativePath: string
-): boolean {
-  const removed = normalizeWorkspaceRelativePath(removedRelativePath)
-  const current = normalizeWorkspaceRelativePath(currentRelativePath)
-  if (!removed || !current) return false
-  if (kind === 'directory') return current === removed || current.startsWith(`${removed}/`)
-  return current === removed
-}
-
-/** Remove a path's meta entry and any descendant entries (for folder removal). */
-function prunePathMeta(
-  value: Record<string, WorkspacePathMeta> | undefined,
-  relativePath: string
-): Record<string, WorkspacePathMeta> {
-  if (!value) return {}
-  const key = normalizeWorkspaceRelativePath(relativePath)
-  const prefix = key ? `${key}/` : ''
-  const result: Record<string, WorkspacePathMeta> = {}
-  for (const [entryKey, meta] of Object.entries(value)) {
-    if (entryKey === key) continue
-    if (prefix && (entryKey === prefix.slice(0, -1) || entryKey.startsWith(prefix))) continue
-    result[entryKey] = meta
-  }
-  return result
-}
-
-function compactMarkdown(value: string): string {
-  return cleanText(
-    value
-      .replace(/^#+\s+/gm, '')
-      .replace(/^-+\s*/gm, '')
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-  )
-}
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
 }
 
 function escapeHtml(value: string): string {
