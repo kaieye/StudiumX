@@ -3679,7 +3679,6 @@ function MainArea() {
     settings,
     lessonReaderOpen,
     selectedCoursePreviewFile,
-    activeConversationId,
     setView,
     setSidebarCollapsed,
     openSettings,
@@ -3691,8 +3690,6 @@ function MainArea() {
     updateMission,
     generateLesson,
     loadLesson,
-    loadAgentConversation,
-    restorePendingAgentConversation,
     openLessonLibrary,
     openPath,
     clearError
@@ -3715,17 +3712,14 @@ function MainArea() {
   const selectedCourseWorkspace = selectedCourseWorkspaceId
     ? workspacesWithPending.find((workspace) => workspace.id === selectedCourseWorkspaceId) ?? activeWithPending
     : activeWithPending
-  const lessons = selectedCourseWorkspace?.lessons ?? []
   const courses = selectedCourseWorkspace?.courses ?? []
   const records = active?.records ?? []
   const selectedCourseRelativePath = useAppStore((s) => s.selectedCourseRelativePath)
   const selectedCourse = selectedCourseRelativePath
     ? courses.find((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)) ?? null
     : null
-  const visibleCourses = selectedCourse ? [selectedCourse] : courses
-  const visibleLessonCount = selectedCourse
-    ? selectedCourse.sessionCount
-    : lessons.length + courses.reduce((sum, course) => sum + course.conversations.length, 0)
+  const visibleCourses = selectedCourse ? [selectedCourse] : courses.filter((course) => course.sessions.length > 0)
+  const visibleLessonCount = visibleCourses.reduce((sum, course) => sum + course.sessions.length, 0)
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? null
   const selectedPreviewFile = selectedCoursePreviewFile ?? (selectedLesson ? lessonToCoursePreviewFile(selectedLesson) : null)
   const readingCourseHtml = Boolean(lessonReaderOpen && selectedPreviewFile)
@@ -3868,7 +3862,7 @@ function MainArea() {
                           <BookCopy size={16} />
                           <strong>{course.name}</strong>
                         </div>
-                        <span className="lesson-session-count">{t('lessons.sessionCount', { count: course.sessionCount })}</span>
+                        <span className="lesson-session-count">{t('lessons.sessionCount', { count: course.sessions.length })}</span>
                       </div>
                       <div className="lesson-card-grid">
                         {course.sessions.map((session) => {
@@ -3892,33 +3886,6 @@ function MainArea() {
                                   {t('lessons.duration', { count: lesson.durationMinutes })}
                                 </span>
                                 <span className="lesson-card-course">{lesson.courseName}</span>
-                              </div>
-                            </button>
-                          )
-                        })}
-                        {course.conversations.map((conversation) => {
-                          const isSelected = conversation.id === activeConversationId
-                          const isPending = isPendingConversationSummary(conversation)
-                          return (
-                            <button
-                              className={`lesson-course-card${isSelected ? ' is-selected' : ''}${isPending ? ' is-pending' : ''}`}
-                              key={conversation.id}
-                              type="button"
-                              onClick={() => isPending ? restorePendingAgentConversation() : void loadAgentConversation(conversation.id, selectedCourseWorkspace?.id)}
-                            >
-                              <div className="lesson-card-number">
-                                {isPending ? <Loader2 className="spin" size={15} /> : <MessageSquare size={15} />}
-                              </div>
-                              <div className="lesson-card-content">
-                                <h3>{conversation.title}</h3>
-                                <p>{conversation.relativePath}</p>
-                              </div>
-                              <div className="lesson-card-footer">
-                                <span className="lesson-card-duration">
-                                  <MessageSquare size={12} />
-                                  {t('sidebar.messageCount', { count: conversation.messageCount })}
-                                </span>
-                                <span className="lesson-card-course">{course.name}</span>
                               </div>
                             </button>
                           )
