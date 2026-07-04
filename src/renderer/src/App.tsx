@@ -163,6 +163,12 @@ type CoursePreviewFile = {
   absolutePath: string
 }
 
+type ResourcePreviewFile = {
+  id: string
+  title: string
+  html: string
+}
+
 type StoreState = {
   view: WorkspaceView
   settingsSection: SettingsSection
@@ -175,6 +181,7 @@ type StoreState = {
   overviewDialogMode: DialogMode
   lessonReaderOpen: boolean
   selectedCoursePreviewFile: CoursePreviewFile | null
+  selectedResourcePreviewFile: ResourcePreviewFile | null
   selectedCourseRelativePath: string | null
   selectedCourseWorkspaceId: string | null
   appState: TeachingAppState
@@ -203,6 +210,8 @@ type StoreState = {
   generateLessonStream: () => Promise<void>
   loadLesson: (lesson: LessonSummary) => Promise<void>
   loadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
+  openResourceHtmlPreview: (file: ResourcePreviewFile) => void
+  closeResourceHtmlPreview: () => void
   openPath: (path: string) => Promise<void>
   openImportLocation: (path?: string) => Promise<void>
   openExternal: (url: string) => Promise<void>
@@ -822,6 +831,7 @@ const useAppStore = create<StoreState>((set, get) => ({
   overviewDialogMode: 'chat',
   lessonReaderOpen: false,
   selectedCoursePreviewFile: null,
+  selectedResourcePreviewFile: null,
   selectedCourseRelativePath: null,
   selectedCourseWorkspaceId: null,
   appState: emptyAppState,
@@ -913,11 +923,11 @@ const useAppStore = create<StoreState>((set, get) => ({
     set({ gitBranchesRoot: root, gitBranchesResult, gitBranchesLoading: false })
   },
   setView: (view) => {
-    set({ view })
+    set(view === 'resources' ? { view, selectedResourcePreviewFile: null } : { view })
     if (view === 'review') void get().loadReviewCards()
   },
   setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
-  openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null }),
+  openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null, selectedResourcePreviewFile: null }),
   openWorkspaceTeachingMode: () => {
     get().clearAgentChat()
     set({
@@ -925,6 +935,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       overviewDialogMode: 'teaching',
       lessonReaderOpen: false,
       selectedCoursePreviewFile: null,
+      selectedResourcePreviewFile: null,
       selectedCourseRelativePath: null,
       selectedCourseWorkspaceId: null
     })
@@ -944,6 +955,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       overviewDialogMode: 'teaching',
       lessonReaderOpen: false,
       selectedCoursePreviewFile: null,
+      selectedResourcePreviewFile: null,
       selectedCourseRelativePath,
       selectedCourseWorkspaceId: selectedCourse ? targetWorkspace?.id ?? null : null,
       ...(!hasCourseContent
@@ -1689,6 +1701,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       overviewDialogMode: 'teaching',
       lessonReaderOpen: true,
       selectedCoursePreviewFile: lessonToCoursePreviewFile(lesson),
+      selectedResourcePreviewFile: null,
       appState: {
         ...get().appState,
         selectedLessonPath: lesson.absolutePath,
@@ -1718,6 +1731,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       overviewDialogMode: 'teaching',
       lessonReaderOpen: true,
       selectedCoursePreviewFile: file,
+      selectedResourcePreviewFile: null,
       appState: {
         ...get().appState,
         selectedLessonPath: file.absolutePath,
@@ -1740,6 +1754,15 @@ const useAppStore = create<StoreState>((set, get) => ({
       set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
     }
   },
+  openResourceHtmlPreview: (selectedResourcePreviewFile) => {
+    set({
+      view: 'resources',
+      lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
+      selectedResourcePreviewFile
+    })
+  },
+  closeResourceHtmlPreview: () => set({ selectedResourcePreviewFile: null }),
   openPath: async (path) => {
     const api = window.teachingSystem
     if (!api) return
@@ -2140,8 +2163,12 @@ function Sidebar() {
                     selectedCourseRelativePath: null,
                     selectedCourseWorkspaceId: null,
                     lessonReaderOpen: false,
-                    selectedCoursePreviewFile: null
+                    selectedCoursePreviewFile: null,
+                    selectedResourcePreviewFile: null
                   })
+                }
+                if (item.id === 'resources') {
+                  useAppStore.getState().closeResourceHtmlPreview()
                 }
                 setView(item.id)
               }}
@@ -3688,6 +3715,7 @@ function MainArea() {
     settings,
     lessonReaderOpen,
     selectedCoursePreviewFile,
+    selectedResourcePreviewFile,
     setView,
     setSidebarCollapsed,
     openSettings,
@@ -3731,9 +3759,14 @@ function MainArea() {
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? null
   const selectedPreviewFile = selectedCoursePreviewFile ?? (selectedLesson ? lessonToCoursePreviewFile(selectedLesson) : null)
   const readingCourseHtml = Boolean(lessonReaderOpen && selectedPreviewFile)
+  const readingResourceHtml = view === 'resources' && Boolean(selectedResourcePreviewFile)
+  const readingHtml = readingCourseHtml || readingResourceHtml
   const lessonFrameKey = selectedPreviewFile
     ? appState.previewUrl || `${appState.selectedLessonPath ?? selectedPreviewFile.relativePath}:${appState.previewHtml.length}`
     : 'empty-preview'
+  const resourceFrameKey = selectedResourcePreviewFile
+    ? `${selectedResourcePreviewFile.id}:${selectedResourcePreviewFile.html.length}`
+    : 'empty-resource-preview'
 
   // Show skeleton during initial load
   if (loading && !active) {
@@ -3753,8 +3786,8 @@ function MainArea() {
   }
 
   return (
-    <main className="main-area" data-view={view} data-reading-html={readingCourseHtml ? 'true' : undefined}>
-      {!readingCourseHtml && <header className="topbar">
+    <main className="main-area" data-view={view} data-reading-html={readingHtml ? 'true' : undefined}>
+      {!readingHtml && <header className="topbar">
         <div className="crumb">
           <button
             className="icon-button"
@@ -3910,8 +3943,22 @@ function MainArea() {
       )}
 
       {view === 'resources' && (
-        <section className="resource-page">
-          <LessonStyleGallery />
+        <section className="resource-page" data-reading-html={readingResourceHtml ? 'true' : undefined}>
+          {readingResourceHtml && selectedResourcePreviewFile ? (
+            <section className="lesson-reader-panel" aria-label={selectedResourcePreviewFile.title}>
+              <div className="lesson-reader-frame-wrap">
+                <iframe
+                  key={resourceFrameKey}
+                  className="lesson-reader-frame"
+                  title={selectedResourcePreviewFile.title}
+                  sandbox="allow-scripts allow-forms"
+                  srcDoc={selectedResourcePreviewFile.html}
+                />
+              </div>
+            </section>
+          ) : (
+            <LessonStyleGallery />
+          )}
         </section>
       )}
     </main>
@@ -3924,97 +3971,73 @@ function MainArea() {
 
 function LessonStyleGallery() {
   const { t } = useTranslation()
-  const activeWorkspace = useAppStore((s) => s.appState.activeWorkspace)
   const savedStyleId = useAppStore((s) => s.settings.workspace.lessonStyleId)
   const applyLessonStyle = useAppStore((s) => s.applyLessonStyle)
+  const openResourceHtmlPreview = useAppStore((s) => s.openResourceHtmlPreview)
   const currentStyleId = normalizeLessonStyleId(savedStyleId)
-  const [selectedStyleId, setSelectedStyleId] = useState<LessonStyleId | null>(null)
-  const [applying, setApplying] = useState(false)
-  const sampleHtml = useMemo(() => (selectedStyleId ? buildLessonStyleSampleHtml(selectedStyleId) : ''), [selectedStyleId])
+  const [applyingStyleId, setApplyingStyleId] = useState<LessonStyleId | null>(null)
 
-  const applySelected = async (): Promise<void> => {
-    if (!selectedStyleId) return
-    setApplying(true)
+  const applyStyle = async (styleId: LessonStyleId): Promise<void> => {
+    setApplyingStyleId(styleId)
     try {
-      await applyLessonStyle(selectedStyleId)
+      await applyLessonStyle(styleId)
     } finally {
-      setApplying(false)
+      setApplyingStyleId(null)
     }
   }
 
   return (
-    <div className={`style-gallery${selectedStyleId ? ' has-preview' : ' is-card-only'}`}>
-      {selectedStyleId ? (
-        <div className="style-gallery-preview">
-          <div className="style-gallery-preview-head">
-            <div className="style-gallery-preview-title">
-              <span>{t('resources.styles.previewLabel')}</span>
-              <strong>{t(`resources.styles.items.${selectedStyleId}.name`)}</strong>
-            </div>
-            <div className="style-gallery-preview-actions">
-              {currentStyleId === selectedStyleId ? (
-                <span className="style-gallery-current">
-                  <CheckCircle2 size={15} />
-                  {t('resources.styles.applied')}
-                </span>
-              ) : (
-                <button className="primary-button style-gallery-apply" type="button" disabled={applying} onClick={() => void applySelected()}>
-                  {applying ? <Loader2 className="spin" size={15} /> : <Check size={15} />}
-                  {t('resources.styles.apply')}
-                </button>
-              )}
-              <button className="icon-button style-gallery-close" type="button" aria-label={t('resources.styles.closePreview')} onClick={() => setSelectedStyleId(null)}>
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-          <div className="style-gallery-frame-wrap">
-            <iframe
-              className="style-gallery-frame"
-              title={t('resources.styles.previewLabel')}
-              sandbox="allow-scripts"
-              srcDoc={sampleHtml}
-            />
-          </div>
-          <p className="style-gallery-hint">
-            {activeWorkspace
-              ? t('resources.styles.applyHint', { workspace: activeWorkspace.name })
-              : t('resources.styles.applyHintNoWorkspace')}
-          </p>
-        </div>
-      ) : null}
+    <div className="style-gallery is-card-only">
       <div className="style-gallery-cards">
         {LESSON_STYLES.map((style) => {
-          const isSelected = style.id === selectedStyleId
           const isCurrent = style.id === currentStyleId
+          const isApplying = applyingStyleId === style.id
           const { tokens } = style
           return (
-            <button
-              className={`style-card${isSelected ? ' is-selected' : ''}`}
+            <article
+              className={`style-card${isCurrent ? ' is-selected' : ''}`}
               key={style.id}
-              type="button"
-              aria-pressed={isSelected}
-              onClick={() => setSelectedStyleId(style.id)}
             >
-              <span aria-hidden className="style-card-thumb" style={{ background: tokens.pageBg }}>
-                <span className="style-card-thumb-hero" style={{ background: tokens.heroBg }} />
-                <span className="style-card-thumb-line" style={{ background: tokens.ink, width: '58%' }} />
-                <span className="style-card-thumb-line" style={{ background: tokens.muted, width: '84%' }} />
-                <span className="style-card-thumb-panel" style={{ background: tokens.panel, borderColor: tokens.line }}>
-                  <span style={{ background: tokens.accent }} />
+              <button
+                className="style-card-preview"
+                type="button"
+                aria-pressed={isCurrent}
+                onClick={() => openResourceHtmlPreview({
+                  id: `style-${style.id}`,
+                  title: t(`resources.styles.items.${style.id}.name`),
+                  html: buildLessonStyleSampleHtml(style.id)
+                })}
+              >
+                <span aria-hidden className="style-card-thumb" style={{ background: tokens.pageBg }}>
+                  <span className="style-card-thumb-hero" style={{ background: tokens.heroBg }} />
+                  <span className="style-card-thumb-line" style={{ background: tokens.ink, width: '58%' }} />
+                  <span className="style-card-thumb-line" style={{ background: tokens.muted, width: '84%' }} />
+                  <span className="style-card-thumb-panel" style={{ background: tokens.panel, borderColor: tokens.line }}>
+                    <span style={{ background: tokens.accent }} />
+                  </span>
                 </span>
-              </span>
-              <span className="style-card-body">
-                <strong>{t(`resources.styles.items.${style.id}.name`)}</strong>
-                <span>{t(`resources.styles.items.${style.id}.detail`)}</span>
-              </span>
-              {isCurrent && (
+                <span className="style-card-body">
+                  <strong>{t(`resources.styles.items.${style.id}.name`)}</strong>
+                  <span>{t(`resources.styles.items.${style.id}.detail`)}</span>
+                </span>
+              </button>
+              {isCurrent ? (
                 <span className="style-card-badge">
                   <CheckCircle2 size={13} />
                   {t('resources.styles.applied')}
                 </span>
+              ) : (
+                <button
+                  className="style-card-apply"
+                  type="button"
+                  disabled={isApplying}
+                  onClick={() => void applyStyle(style.id)}
+                >
+                  {isApplying ? <Loader2 className="spin" size={13} /> : <Check size={13} />}
+                  {t('resources.styles.apply')}
+                </button>
               )}
-            </button>
+            </article>
           )
         })}
       </div>
