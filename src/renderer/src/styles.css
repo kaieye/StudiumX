@@ -36,6 +36,11 @@
   --accent-soft: #edf4ff;
   --accent-hover: #3f6ee8;
 
+  /* ----- Scrollbars ----- */
+  --scrollbar-track: #eef3fb;
+  --scrollbar-thumb: rgba(104, 119, 143, 0.38);
+  --scrollbar-thumb-hover: rgba(104, 119, 143, 0.56);
+
   /* ----- Semantic ----- */
   --green: #2f9b73;
   --green-soft: #eaf8f2;
@@ -74,12 +79,72 @@
   --topbar-height: 56px;
 }
 
+:root[data-resolved-theme="dark"] {
+  --surface: rgba(22, 29, 40, 0.84);
+  --surface-solid: #171d28;
+  --surface-muted: #1d2532;
+  --surface-subtle: #111821;
+  --surface-hover: rgba(131, 167, 255, 0.13);
+
+  --line: rgba(148, 163, 184, 0.2);
+  --line-strong: rgba(166, 183, 210, 0.28);
+  --line-muted: rgba(148, 163, 184, 0.14);
+
+  --text: #e7edf7;
+  --text-muted: #a8b4c7;
+  --text-soft: #7f8da3;
+  --text-faint: #627086;
+
+  --accent: #83a7ff;
+  --accent-soft: rgba(93, 134, 255, 0.16);
+  --accent-hover: #a2bbff;
+
+  --scrollbar-track: #10151e;
+  --scrollbar-thumb: rgba(148, 163, 184, 0.34);
+  --scrollbar-thumb-hover: rgba(166, 183, 210, 0.52);
+
+  --green: #66c29a;
+  --green-soft: rgba(102, 194, 154, 0.14);
+  --amber: #e1a95a;
+  --amber-soft: rgba(225, 169, 90, 0.14);
+  --rose: #e889a1;
+  --rose-soft: rgba(232, 137, 161, 0.14);
+  --red: #ff7a70;
+
+  --shadow-card: 0 12px 34px rgba(0, 0, 0, 0.24);
+  --shadow-card-hover: 0 16px 42px rgba(0, 0, 0, 0.32);
+  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.28);
+  --shadow-composer: 0 18px 46px rgba(0, 0, 0, 0.34);
+  --shadow-float: 0 24px 62px rgba(0, 0, 0, 0.34);
+}
+
 /* ================================================================
    Reset & Base
    ================================================================ */
 
 * {
   box-sizing: border-box;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 html,
@@ -1231,9 +1296,28 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 .main-area[data-reading-html='true'] {
   padding: 0;
+  position: relative;
 }
 
 /* ----- Topbar ----- */
+
+.reader-sidebar-toggle {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  z-index: 35;
+  color: #24324a;
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  -webkit-app-region: no-drag;
+}
+
+.reader-sidebar-toggle:hover {
+  background: #fff;
+}
 
 .topbar {
   position: sticky;
@@ -4394,46 +4478,122 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   cursor: pointer;
 }
 
+/* Style card thumbnail: a miniature brand board (palette chip with hex,
+   type specimen rendered in the theme's own heading font, component
+   samples and a tonal scale strip). */
 .style-card-thumb {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  height: 88px;
-  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  grid-template-areas:
+    'color color'
+    'type ui'
+    'scale scale';
+  gap: 7px;
+  padding: 9px;
   border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 11px;
+  border-radius: 12px;
   overflow: hidden;
 }
 
-.style-card-thumb-hero {
-  display: block;
-  height: 26px;
-  border-radius: 6px;
-}
-
-.style-card-thumb-line {
-  display: block;
-  height: 5px;
-  border-radius: 999px;
-  opacity: 0.72;
-}
-
-.style-card-thumb-panel {
+.style-card-chip {
   display: flex;
-  align-items: center;
-  flex: 1;
-  gap: 6px;
-  padding: 0 8px;
-  border: 1px solid;
-  border-radius: 7px;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
 }
 
-.style-card-thumb-panel > span {
+.style-card-chip-color {
+  grid-area: color;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  height: 46px;
+  padding: 7px 10px;
+}
+
+.style-card-chip-label,
+.style-card-chip-hex,
+.style-card-chip-font {
+  font-family: 'Cascadia Code', Consolas, 'SFMono-Regular', monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.style-card-chip-hex {
+  opacity: 0.85;
+}
+
+.style-card-chip-type {
+  grid-area: type;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  height: 66px;
+  padding: 6px 9px 7px;
+}
+
+.style-card-chip-aa {
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.style-card-chip-font {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.style-card-chip-ui {
+  grid-area: ui;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  height: 66px;
+  padding: 8px 10px;
+}
+
+.style-card-chip-buttons {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 2px;
+}
+
+.style-card-chip-btn {
   display: block;
-  width: 34%;
-  height: 5px;
+  width: 30px;
+  height: 11px;
+  border-radius: 4px;
+}
+
+.style-card-chip-btn.is-outline {
+  border: 1px solid;
+  background: transparent;
+  opacity: 0.75;
+}
+
+.style-card-chip-line {
+  display: block;
+  height: 3px;
   border-radius: 999px;
+  opacity: 0.8;
+}
+
+.style-card-scale {
+  grid-area: scale;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  height: 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.style-card-scale > span {
+  display: block;
 }
 
 .style-card-body {
@@ -4940,4 +5100,227 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   .overview-dialog-send {
     align-self: flex-end;
   }
+}
+
+/* ================================================================
+   Dark theme runtime overrides
+   ================================================================ */
+
+:root[data-resolved-theme="dark"] body,
+:root[data-resolved-theme="dark"] .app-frame {
+  background: #0f141c;
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .window-titlebar {
+  background:
+    linear-gradient(180deg, rgba(19, 25, 35, 0.96), rgba(15, 20, 28, 0.92)),
+    #0f141c;
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .app-shell,
+:root[data-resolved-theme="dark"] .main-area,
+:root[data-resolved-theme="dark"] .overview-dialog-shell {
+  background: #10151e;
+}
+
+:root[data-resolved-theme="dark"] .sidebar,
+:root[data-resolved-theme="dark"] .sidebar-resizer {
+  background:
+    linear-gradient(180deg, rgba(19, 26, 36, 0.98), rgba(15, 21, 30, 0.98));
+}
+
+:root[data-resolved-theme="dark"] .sidebar-resizer::before {
+  background: rgba(148, 163, 184, 0.14);
+}
+
+:root[data-resolved-theme="dark"] .topbar {
+  background: rgba(16, 21, 30, 0.86);
+}
+
+:root[data-resolved-theme="dark"] .search-box,
+:root[data-resolved-theme="dark"] .search-box:focus-within,
+:root[data-resolved-theme="dark"] .ghost-button,
+:root[data-resolved-theme="dark"] .icon-button:hover,
+:root[data-resolved-theme="dark"] .composer-tool,
+:root[data-resolved-theme="dark"] .overview-dialog-card,
+:root[data-resolved-theme="dark"] .lesson-card,
+:root[data-resolved-theme="dark"] .preview-panel,
+:root[data-resolved-theme="dark"] .resource-panel,
+:root[data-resolved-theme="dark"] .records-panel,
+:root[data-resolved-theme="dark"] .runtime-panel,
+:root[data-resolved-theme="dark"] .resource-row,
+:root[data-resolved-theme="dark"] .style-gallery-preview,
+:root[data-resolved-theme="dark"] .empty-state,
+:root[data-resolved-theme="dark"] .row-context-menu-dropdown,
+:root[data-resolved-theme="dark"] .import-dialog,
+:root[data-resolved-theme="dark"] .remove-dialog {
+  border-color: var(--line);
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-resolved-theme="dark"] .brand-title,
+:root[data-resolved-theme="dark"] .overview-copy h1,
+:root[data-resolved-theme="dark"] .composer-header strong,
+:root[data-resolved-theme="dark"] .lesson-body h3,
+:root[data-resolved-theme="dark"] .empty-state h3,
+:root[data-resolved-theme="dark"] .resource-row h3,
+:root[data-resolved-theme="dark"] .style-gallery-preview-title strong,
+:root[data-resolved-theme="dark"] .course-group-title,
+:root[data-resolved-theme="dark"] .import-dialog-header h2,
+:root[data-resolved-theme="dark"] .import-dialog-field input,
+:root[data-resolved-theme="dark"] .overview-dialog-message.is-assistant > .markdown-message {
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .nav-item,
+:root[data-resolved-theme="dark"] .workspace-item,
+:root[data-resolved-theme="dark"] .workspace-node-row,
+:root[data-resolved-theme="dark"] .workspace-conversation-row,
+:root[data-resolved-theme="dark"] .overview-dialog-hint,
+:root[data-resolved-theme="dark"] .overview-dialog-icon,
+:root[data-resolved-theme="dark"] .overview-dialog-access,
+:root[data-resolved-theme="dark"] .overview-dialog-model,
+:root[data-resolved-theme="dark"] .row-context-menu-item,
+:root[data-resolved-theme="dark"] .import-dialog-header span,
+:root[data-resolved-theme="dark"] .import-dialog-field span {
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .nav-item:hover,
+:root[data-resolved-theme="dark"] .workspace-item:hover,
+:root[data-resolved-theme="dark"] .workspace-node-row:hover,
+:root[data-resolved-theme="dark"] .workspace-conversation-row:hover,
+:root[data-resolved-theme="dark"] .workspace-conversation-row:focus-within,
+:root[data-resolved-theme="dark"] .overview-dialog-icon:hover,
+:root[data-resolved-theme="dark"] .overview-dialog-access:hover,
+:root[data-resolved-theme="dark"] .overview-dialog-model:hover,
+:root[data-resolved-theme="dark"] .row-context-menu-item:hover,
+:root[data-resolved-theme="dark"] .row-context-menu-item:focus-visible {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+:root[data-resolved-theme="dark"] .nav-item.is-active,
+:root[data-resolved-theme="dark"] .workspace-item.is-selected,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-html-file,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-conversation,
+:root[data-resolved-theme="dark"] .workspace-conversation-row.is-selected,
+:root[data-resolved-theme="dark"] .dialog-mode-switch-btn.is-active {
+  color: var(--text);
+  background: rgba(131, 167, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(131, 167, 255, 0.18);
+}
+
+:root[data-resolved-theme="dark"] .workspace-node-row.is-workspace-folder,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-workspace-folder.is-selected,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-course-folder,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-course-folder.is-selected {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+:root[data-resolved-theme="dark"] .reader-sidebar-toggle,
+:root[data-resolved-theme="dark"] .overview-dialog-statusbar,
+:root[data-resolved-theme="dark"] .dialog-mode-switch,
+:root[data-resolved-theme="dark"] .markdown-message,
+:root[data-resolved-theme="dark"] .agent-process-panel,
+:root[data-resolved-theme="dark"] .lesson-id,
+:root[data-resolved-theme="dark"] .resource-row span,
+:root[data-resolved-theme="dark"] .style-gallery-preview-head,
+:root[data-resolved-theme="dark"] .style-gallery-hint {
+  border-color: var(--line);
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .markdown-message--assistant,
+:root[data-resolved-theme="dark"] .overview-dialog-message.is-assistant > .markdown-message {
+  background: transparent;
+  border-color: transparent;
+}
+
+:root[data-resolved-theme="dark"] .markdown-message--user,
+:root[data-resolved-theme="dark"] .overview-dialog-message.is-user > .markdown-message {
+  color: var(--text);
+  background: #232b38;
+}
+
+:root[data-resolved-theme="dark"] .markdown-message pre,
+:root[data-resolved-theme="dark"] .markdown-message--user pre {
+  border-color: var(--line);
+  background: #0c1118;
+  color: #e7edf7;
+}
+
+:root[data-resolved-theme="dark"] .markdown-message :not(pre) > code,
+:root[data-resolved-theme="dark"] .markdown-message--user :not(pre) > code {
+  background: rgba(231, 237, 247, 0.1);
+  color: #dce7ff;
+}
+
+:root[data-resolved-theme="dark"] .overview-dialog-card textarea,
+:root[data-resolved-theme="dark"] .composer-tool textarea,
+:root[data-resolved-theme="dark"] .search-box input {
+  color: var(--text);
+  caret-color: var(--accent);
+}
+
+:root[data-resolved-theme="dark"] .overview-dialog-card textarea::placeholder,
+:root[data-resolved-theme="dark"] .composer-tool textarea::placeholder,
+:root[data-resolved-theme="dark"] .search-box input::placeholder {
+  color: var(--text-soft);
+}
+
+:root[data-resolved-theme="dark"] .tool-pills button,
+:root[data-resolved-theme="dark"] .assistant-badge,
+:root[data-resolved-theme="dark"] .state-chip,
+:root[data-resolved-theme="dark"] .empty-state-action,
+:root[data-resolved-theme="dark"] .overview-dialog-access.is-active {
+  border-color: rgba(131, 167, 255, 0.24);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+:root[data-resolved-theme="dark"] .primary-button,
+:root[data-resolved-theme="dark"] .overview-dialog-send {
+  color: #0f141c;
+  background: #e7edf7;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+}
+
+:root[data-resolved-theme="dark"] .primary-button:hover,
+:root[data-resolved-theme="dark"] .overview-dialog-send:hover:not(:disabled) {
+  color: #0f141c;
+  background: #ffffff;
+}
+
+:root[data-resolved-theme="dark"] .import-dialog-field input {
+  border-color: var(--line);
+  background: #111821;
+}
+
+:root[data-resolved-theme="dark"] .import-dialog-backdrop,
+:root[data-resolved-theme="dark"] .remove-dialog-backdrop {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+:root[data-resolved-theme="dark"] .skeleton {
+  background: linear-gradient(90deg, #192231 25%, #243044 37%, #192231 63%);
+}
+
+:root[data-resolved-theme="dark"] *::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+:root[data-resolved-theme="dark"] *::-webkit-scrollbar-thumb {
+  border-color: var(--scrollbar-track);
+  background: var(--scrollbar-thumb);
+}
+
+:root[data-resolved-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }

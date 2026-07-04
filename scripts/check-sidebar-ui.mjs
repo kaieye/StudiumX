@@ -128,6 +128,30 @@ assert.match(
   'sidebar HTML selection should only be active while the lesson reader is visible'
 )
 
+assert.doesNotMatch(
+  app,
+  /\{!readingHtml && <header className="topbar">/,
+  'HTML reader views should keep the sidebar collapse button visible'
+)
+
+assert.match(
+  app,
+  /\{readingHtml \? \(\s*renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\s*\) : \(\s*<header className="topbar">/,
+  'HTML reader views should render the sidebar toggle as a floating button instead of a topbar'
+)
+
+assert.match(
+  css,
+  /\.main-area\[data-reading-html='true'\] \{[\s\S]*position: relative;/,
+  'HTML reader views should establish a positioning context for the floating sidebar toggle'
+)
+
+assert.match(
+  css,
+  /\.reader-sidebar-toggle \{[\s\S]*position: absolute;[\s\S]*z-index: 35;[\s\S]*-webkit-app-region: no-drag;/,
+  'HTML reader sidebar toggle should float above the lesson or resource iframe'
+)
+
 assert.match(
   app,
   /const isHtmlFile = !isDirectory && node\.name\.toLowerCase\(\)\.endsWith\('\.html'\)/,

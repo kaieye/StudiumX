@@ -158,8 +158,8 @@ assert.match(
 
 assert.match(
   app,
-  /className="resource-page"[\s\S]{0,120}<LessonStyleGallery \/>/,
-  'the resources page should only mount the style gallery'
+  /className="resource-page"[\s\S]{0,900}<LessonStyleGallery \/>/,
+  'the resources page should mount the style gallery when not reading a preview'
 )
 
 for (const removedResourceContent of ['PRESET_TUTORIALS', 'tutorial-grid', 'resource-page-secondary']) {
@@ -172,25 +172,25 @@ for (const removedResourceContent of ['PRESET_TUTORIALS', 'tutorial-grid', 'reso
 assert.match(
   app,
   /useState<LessonStyleId \| null>\(null\)/,
-  'the gallery should start without a selected style so it does not render immediately'
+  'the gallery should track which style is being applied'
 )
 
 assert.match(
   app,
-  /onClick=\{\(\) => setSelectedStyleId\(style\.id\)\}/,
-  'clicking a style card should switch the previewed style'
+  /onClick=\{\(\) => openResourceHtmlPreview\(\{/,
+  'clicking a style card should open the rendered sample preview'
 )
 
 assert.match(
   app,
-  /className="style-gallery-frame"[\s\S]{0,200}srcDoc=\{sampleHtml\}/,
-  'the iframe should render the sample page after a style is selected'
+  /html: buildLessonStyleSampleHtml\(style\.id\)/,
+  'the style card preview should render the sample page for that style'
 )
 
 assert.match(
   app,
-  /selectedStyleId \? buildLessonStyleSampleHtml\(selectedStyleId\) : ''/,
-  'the sample html should only be built after a style card is selected'
+  /className="style-card-chip-aa"/,
+  'style cards should render the brand-board type specimen (Aa) chip'
 )
 
 assert.match(
@@ -207,6 +207,8 @@ assert.match(
 
 assert.match(css, /\.style-gallery \{/, 'styles.css should lay out the gallery')
 assert.match(css, /\.style-card\.is-selected/, 'styles.css should highlight the selected style card')
+assert.match(css, /\.style-card-chip-aa \{/, 'styles.css should style the type specimen chip')
+assert.match(css, /\.style-card-scale \{/, 'styles.css should style the tonal scale strip')
 
 // ----- i18n -----
 

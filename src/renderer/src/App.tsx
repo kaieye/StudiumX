@@ -93,7 +93,8 @@ import {
   DEFAULT_LESSON_STYLE_ID,
   LESSON_STYLES,
   normalizeLessonStyleId,
-  type LessonStyleId
+  type LessonStyleId,
+  type LessonStyleTokens
 } from '../../shared/lesson-styles'
 import { buildLessonStyleSampleHtml } from './lesson-style-sample'
 import { classifyProviderError } from '../../shared/provider-error'
@@ -493,6 +494,9 @@ function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
 // Settings helpers — resolve active provider, runtime label, theme side effects
 // ================================================================
 
+const DARK_THEME_MEDIA_QUERY = '(prefers-color-scheme: dark)'
+type ResolvedTheme = 'light' | 'dark'
+
 function activeModelProvider(settings: TeachingSettingsV1): TeachingModelProviderProfile {
   const provider =
     settings.provider.providers.find((item) => item.id === settings.generator.providerId) ??
@@ -565,11 +569,23 @@ function reasoningEffortDescription(effort: ModelReasoningEffort): string {
   return i18n.t(`reasoning.description.${effort}`)
 }
 
+function systemThemePreference(): ResolvedTheme {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light'
+  return window.matchMedia(DARK_THEME_MEDIA_QUERY).matches ? 'dark' : 'light'
+}
+
+function resolveThemePreference(theme: TeachingSettingsV1['theme']): ResolvedTheme {
+  return theme === 'system' ? systemThemePreference() : theme
+}
+
 function applySettingsSideEffects(settings: TeachingSettingsV1): void {
   const root = document.documentElement
+  const resolvedTheme = resolveThemePreference(settings.theme)
   root.dataset.theme = settings.theme
+  root.dataset.resolvedTheme = resolvedTheme
   root.dataset.density = settings.density
   root.style.fontSize = `${settings.uiFontScale * 100}%`
+  root.style.colorScheme = resolvedTheme
   void i18n.changeLanguage(settings.locale)
 }
 
@@ -1942,6 +1958,12 @@ function App() {
 
   useEffect(() => {
     applySettingsSideEffects(settings)
+    if (settings.theme !== 'system' || typeof window.matchMedia !== 'function') return
+
+    const themeMedia = window.matchMedia(DARK_THEME_MEDIA_QUERY)
+    const handleThemeChange = (): void => applySettingsSideEffects(settings)
+    themeMedia.addEventListener('change', handleThemeChange)
+    return () => themeMedia.removeEventListener('change', handleThemeChange)
   }, [settings])
 
   return (
@@ -3767,6 +3789,16 @@ function MainArea() {
   const resourceFrameKey = selectedResourcePreviewFile
     ? `${selectedResourcePreviewFile.id}:${selectedResourcePreviewFile.html.length}`
     : 'empty-resource-preview'
+  const renderSidebarToggle = (className = 'icon-button') => (
+    <button
+      className={className}
+      type="button"
+      aria-label={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
+      onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+    >
+      <PanelLeft size={17} />
+    </button>
+  )
 
   // Show skeleton during initial load
   if (loading && !active) {
@@ -3787,18 +3819,13 @@ function MainArea() {
 
   return (
     <main className="main-area" data-view={view} data-reading-html={readingHtml ? 'true' : undefined}>
-      {!readingHtml && <header className="topbar">
-        <div className="crumb">
-          <button
-            className="icon-button"
-            type="button"
-            aria-label={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          >
-            <PanelLeft size={17} />
-          </button>
-        </div>
-      </header>}
+      {readingHtml ? (
+        renderSidebarToggle('icon-button reader-sidebar-toggle')
+      ) : (
+        <header className="topbar">
+          <div className="crumb">{renderSidebarToggle()}</div>
+        </header>
+      )}
 
       {error && (
         <div className="inline-alert" role="alert" data-severity={error.severity}>
@@ -3969,6 +3996,27 @@ function MainArea() {
 // Lesson style gallery (resources page)
 // ================================================================
 
+/** Perceived luminance check so text stays readable on the accent chip. */
+function isLightColor(color: string): boolean {
+  const hex = color.trim().match(/^#([0-9a-f]{6})$/i)?.[1]
+  if (!hex) return false
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62
+}
+
+/** Heading font stack of a theme ('inherit' falls back to the body stack). */
+function styleCardFontStack(tokens: LessonStyleTokens): string {
+  return tokens.fontHeading === 'inherit' ? tokens.fontBody : tokens.fontHeading
+}
+
+/** First family of the heading stack, shown as the specimen label. */
+function styleCardFontLabel(tokens: LessonStyleTokens): string {
+  const first = styleCardFontStack(tokens).split(',')[0]?.replace(/["']/g, '').trim()
+  return first || 'System'
+}
+
 function LessonStyleGallery() {
   const { t } = useTranslation()
   const savedStyleId = useAppStore((s) => s.settings.workspace.lessonStyleId)
@@ -4008,12 +4056,40 @@ function LessonStyleGallery() {
                   html: buildLessonStyleSampleHtml(style.id)
                 })}
               >
-                <span aria-hidden className="style-card-thumb" style={{ background: tokens.pageBg }}>
-                  <span className="style-card-thumb-hero" style={{ background: tokens.heroBg }} />
-                  <span className="style-card-thumb-line" style={{ background: tokens.ink, width: '58%' }} />
-                  <span className="style-card-thumb-line" style={{ background: tokens.muted, width: '84%' }} />
-                  <span className="style-card-thumb-panel" style={{ background: tokens.panel, borderColor: tokens.line }}>
-                    <span style={{ background: tokens.accent }} />
+                <span aria-hidden className="style-card-thumb" style={{ background: tokens.pageBg, borderColor: tokens.line }}>
+                  <span
+                    className="style-card-chip style-card-chip-color"
+                    style={{ background: tokens.accent, color: isLightColor(tokens.accent) ? '#20242a' : '#ffffff' }}
+                  >
+                    <span className="style-card-chip-label">Primary</span>
+                    <span className="style-card-chip-hex">
+                      {tokens.accent.startsWith('#') ? tokens.accent.toUpperCase() : ''}
+                    </span>
+                  </span>
+                  <span className="style-card-chip style-card-chip-type" style={{ background: tokens.panel, borderColor: tokens.line }}>
+                    <span
+                      className="style-card-chip-aa"
+                      style={{ color: tokens.heading, fontFamily: styleCardFontStack(tokens) }}
+                    >
+                      Aa
+                    </span>
+                    <span className="style-card-chip-font" style={{ color: tokens.muted }}>
+                      {styleCardFontLabel(tokens)}
+                    </span>
+                  </span>
+                  <span className="style-card-chip style-card-chip-ui" style={{ background: tokens.panel, borderColor: tokens.line }}>
+                    <span className="style-card-chip-buttons">
+                      <span className="style-card-chip-btn" style={{ background: tokens.accent }} />
+                      <span className="style-card-chip-btn is-outline" style={{ borderColor: tokens.muted }} />
+                    </span>
+                    <span className="style-card-chip-line" style={{ background: tokens.accent, width: '54%' }} />
+                    <span className="style-card-chip-line" style={{ background: tokens.muted, width: '88%' }} />
+                    <span className="style-card-chip-line" style={{ background: tokens.muted, width: '68%' }} />
+                  </span>
+                  <span className="style-card-scale" style={{ borderColor: tokens.line }}>
+                    {[tokens.ink, tokens.muted, tokens.accent, tokens.soft, tokens.panel, tokens.pageBg].map((swatch, index) => (
+                      <span key={index} style={{ background: swatch }} />
+                    ))}
                   </span>
                 </span>
                 <span className="style-card-body">
