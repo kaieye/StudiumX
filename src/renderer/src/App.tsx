@@ -13,7 +13,6 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
-  Database,
   Eye,
   EyeOff,
   ExternalLink,
@@ -90,6 +89,13 @@ import {
   type SidebarConversationSummary
 } from './agent-conversation-state'
 import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
+import {
+  DEFAULT_LESSON_STYLE_ID,
+  LESSON_STYLES,
+  normalizeLessonStyleId,
+  type LessonStyleId
+} from '../../shared/lesson-styles'
+import { buildLessonStyleSampleHtml } from './lesson-style-sample'
 import { classifyProviderError } from '../../shared/provider-error'
 import { deriveWorkspaceRemovalUiPatch } from '../../shared/workspace-removal-state'
 import {
@@ -192,6 +198,7 @@ type StoreState = {
   importWorkspace: () => Promise<boolean>
   importWorkspacePath: (rootPath: string) => Promise<boolean>
   updateMission: () => Promise<void>
+  applyLessonStyle: (styleId: LessonStyleId) => Promise<void>
   generateLesson: () => Promise<void>
   generateLessonStream: () => Promise<void>
   loadLesson: (lesson: LessonSummary) => Promise<void>
@@ -299,7 +306,8 @@ const emptySettings: TeachingSettingsV1 = {
     defaultRoot: '',
     confirmBeforeGenerating: false,
     autoOpenGeneratedLesson: false,
-    showAllCourseFiles: false
+    showAllCourseFiles: false,
+    lessonStyleId: DEFAULT_LESSON_STYLE_ID
   },
   worktree: {
     rootPath: ''
@@ -471,19 +479,6 @@ function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
   const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number }
   return Boolean(nativeEvent.isComposing || nativeEvent.keyCode === 229)
 }
-
-// ================================================================
-// Preset tutorial cards — built-in placeholders for future tutorials
-// ================================================================
-
-const PRESET_TUTORIALS: { icon: LucideIcon; titleKey: string; detailKey: string; tagKey: string }[] = [
-  { icon: BookOpen, titleKey: 'resources.tutorials.start.title', detailKey: 'resources.tutorials.start.detail', tagKey: 'resources.tutorials.start.tag' },
-  { icon: BrainCircuit, titleKey: 'resources.tutorials.concepts.title', detailKey: 'resources.tutorials.concepts.detail', tagKey: 'resources.tutorials.concepts.tag' },
-  { icon: Play, titleKey: 'resources.tutorials.practice.title', detailKey: 'resources.tutorials.practice.detail', tagKey: 'resources.tutorials.practice.tag' },
-  { icon: Sparkles, titleKey: 'resources.tutorials.advanced.title', detailKey: 'resources.tutorials.advanced.detail', tagKey: 'resources.tutorials.advanced.tag' },
-  { icon: Database, titleKey: 'resources.tutorials.cases.title', detailKey: 'resources.tutorials.cases.detail', tagKey: 'resources.tutorials.cases.tag' },
-  { icon: Info, titleKey: 'resources.tutorials.faq.title', detailKey: 'resources.tutorials.faq.detail', tagKey: 'resources.tutorials.faq.tag' }
-]
 
 // ================================================================
 // Settings helpers — resolve active provider, runtime label, theme side effects
@@ -1167,6 +1162,20 @@ const useAppStore = create<StoreState>((set, get) => ({
       set({ appState: state, loading: false })
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
+    }
+  },
+  applyLessonStyle: async (styleId) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const workspace = get().appState.activeWorkspace
+      if (workspace) {
+        const state = await api.applyLessonStyle({ workspaceId: workspace.id, styleId })
+        set({ appState: state })
+      }
+      await get().updateSettings({ workspace: { lessonStyleId: styleId } })
+    } catch (error) {
+      set({ error: toUserError(error) })
     }
   },
   generateLesson: async () => {
@@ -3713,7 +3722,6 @@ function MainArea() {
     ? workspacesWithPending.find((workspace) => workspace.id === selectedCourseWorkspaceId) ?? activeWithPending
     : activeWithPending
   const courses = selectedCourseWorkspace?.courses ?? []
-  const records = active?.records ?? []
   const selectedCourseRelativePath = useAppStore((s) => s.selectedCourseRelativePath)
   const selectedCourse = selectedCourseRelativePath
     ? courses.find((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)) ?? null
@@ -3902,95 +3910,115 @@ function MainArea() {
       )}
 
       {view === 'resources' && (
-      <section className="resource-page">
-        <div className="resource-panel resource-panel--tutorials">
-          <div className="section-title-row compact">
-            <div>
-              <span>{t('resources.trusted')}</span>
-              <h2>{t('resources.title')}</h2>
-            </div>
-          </div>
-          <div className="tutorial-grid">
-            {PRESET_TUTORIALS.map((tutorial) => {
-              const Icon = tutorial.icon
-              return (
-                <article className="tutorial-card" key={tutorial.titleKey}>
-                  <span className="tutorial-card-icon">
-                    <Icon size={20} />
-                  </span>
-                  <div className="tutorial-card-body">
-                    <h3>{t(tutorial.titleKey)}</h3>
-                    <p>{t(tutorial.detailKey)}</p>
-                  </div>
-                  <span className="tutorial-tag">{t(tutorial.tagKey)}</span>
-                </article>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="resource-page-secondary">
-        <div className="records-panel">
-          <div className="section-title-row compact">
-            <div>
-              <span>{t('records.label')}</span>
-              <h2>{t('records.title')}</h2>
-            </div>
-            <button className="icon-button" type="button" aria-label={t('records.open')} onClick={() => active && void openPath(active.recordsDir)} disabled={!active}>
-              <History size={16} />
-            </button>
-          </div>
-          <div className="record-list">
-            {records.length === 0 ? (
-              <EmptyState
-                icon={History}
-                title={t('records.emptyTitle')}
-                detail={t('records.emptyDetail')}
-              />
-            ) : (
-              records.map((record) => (
-                <article className="record-row" key={record.absolutePath} onClick={() => void openPath(record.absolutePath)}>
-                  <FileText size={17} />
-                  <div>
-                    <h3>{record.title}</h3>
-                    <p>{record.date}</p>
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="runtime-panel">
-          <div className="runtime-header">
-            <BrainCircuit size={20} />
-            <div>
-              <span>{t('runtime.title')}</span>
-              <strong>{runtimeProviderLabel(settings)}</strong>
-            </div>
-          </div>
-          <div className="runtime-meter">
-            <div style={{ width: runtimeMeterWidth(appState.runtime, active, generating) }} />
-          </div>
-          <div className="runtime-stats">
-            <span>
-              <Clock3 size={15} />
-              {t('runtime.queued', { count: appState.runtime.queuedTasks })}
-            </span>
-            <span>
-              {generating ? <Loader2 className="spin" size={15} /> : <CheckCircle2 size={15} />}
-              {appState.runtime.currentStep}
-            </span>
-            <span>
-              <Star size={15} />
-              {active?.referenceCount ?? 0} references
-            </span>
-          </div>
-        </div>
-        </div>
-      </section>
+        <section className="resource-page">
+          <LessonStyleGallery />
+        </section>
       )}
     </main>
+  )
+}
+
+// ================================================================
+// Lesson style gallery (resources page)
+// ================================================================
+
+function LessonStyleGallery() {
+  const { t } = useTranslation()
+  const activeWorkspace = useAppStore((s) => s.appState.activeWorkspace)
+  const savedStyleId = useAppStore((s) => s.settings.workspace.lessonStyleId)
+  const applyLessonStyle = useAppStore((s) => s.applyLessonStyle)
+  const currentStyleId = normalizeLessonStyleId(savedStyleId)
+  const [selectedStyleId, setSelectedStyleId] = useState<LessonStyleId | null>(null)
+  const [applying, setApplying] = useState(false)
+  const sampleHtml = useMemo(() => (selectedStyleId ? buildLessonStyleSampleHtml(selectedStyleId) : ''), [selectedStyleId])
+
+  const applySelected = async (): Promise<void> => {
+    if (!selectedStyleId) return
+    setApplying(true)
+    try {
+      await applyLessonStyle(selectedStyleId)
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  return (
+    <div className={`style-gallery${selectedStyleId ? ' has-preview' : ' is-card-only'}`}>
+      {selectedStyleId ? (
+        <div className="style-gallery-preview">
+          <div className="style-gallery-preview-head">
+            <div className="style-gallery-preview-title">
+              <span>{t('resources.styles.previewLabel')}</span>
+              <strong>{t(`resources.styles.items.${selectedStyleId}.name`)}</strong>
+            </div>
+            <div className="style-gallery-preview-actions">
+              {currentStyleId === selectedStyleId ? (
+                <span className="style-gallery-current">
+                  <CheckCircle2 size={15} />
+                  {t('resources.styles.applied')}
+                </span>
+              ) : (
+                <button className="primary-button style-gallery-apply" type="button" disabled={applying} onClick={() => void applySelected()}>
+                  {applying ? <Loader2 className="spin" size={15} /> : <Check size={15} />}
+                  {t('resources.styles.apply')}
+                </button>
+              )}
+              <button className="icon-button style-gallery-close" type="button" aria-label={t('resources.styles.closePreview')} onClick={() => setSelectedStyleId(null)}>
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+          <div className="style-gallery-frame-wrap">
+            <iframe
+              className="style-gallery-frame"
+              title={t('resources.styles.previewLabel')}
+              sandbox="allow-scripts"
+              srcDoc={sampleHtml}
+            />
+          </div>
+          <p className="style-gallery-hint">
+            {activeWorkspace
+              ? t('resources.styles.applyHint', { workspace: activeWorkspace.name })
+              : t('resources.styles.applyHintNoWorkspace')}
+          </p>
+        </div>
+      ) : null}
+      <div className="style-gallery-cards">
+        {LESSON_STYLES.map((style) => {
+          const isSelected = style.id === selectedStyleId
+          const isCurrent = style.id === currentStyleId
+          const { tokens } = style
+          return (
+            <button
+              className={`style-card${isSelected ? ' is-selected' : ''}`}
+              key={style.id}
+              type="button"
+              aria-pressed={isSelected}
+              onClick={() => setSelectedStyleId(style.id)}
+            >
+              <span aria-hidden className="style-card-thumb" style={{ background: tokens.pageBg }}>
+                <span className="style-card-thumb-hero" style={{ background: tokens.heroBg }} />
+                <span className="style-card-thumb-line" style={{ background: tokens.ink, width: '58%' }} />
+                <span className="style-card-thumb-line" style={{ background: tokens.muted, width: '84%' }} />
+                <span className="style-card-thumb-panel" style={{ background: tokens.panel, borderColor: tokens.line }}>
+                  <span style={{ background: tokens.accent }} />
+                </span>
+              </span>
+              <span className="style-card-body">
+                <strong>{t(`resources.styles.items.${style.id}.name`)}</strong>
+                <span>{t(`resources.styles.items.${style.id}.detail`)}</span>
+              </span>
+              {isCurrent && (
+                <span className="style-card-badge">
+                  <CheckCircle2 size={13} />
+                  {t('resources.styles.applied')}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 

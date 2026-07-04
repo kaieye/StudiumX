@@ -32,6 +32,7 @@ const api: TeachingSystemApi = {
   pickDirectory: (defaultPath) => ipcRenderer.invoke('teach:pick-directory', defaultPath),
   openImportLocation: (path) => ipcRenderer.invoke('teach:open-import-location', path),
   updateMission: (payload) => ipcRenderer.invoke('teach:update-mission', payload),
+  applyLessonStyle: (payload) => ipcRenderer.invoke('teach:apply-lesson-style', payload),
   generateLesson: (payload) => ipcRenderer.invoke('teach:generate-lesson', payload),
   readLesson: (payload) => ipcRenderer.invoke('teach:read-lesson', payload),
   openPath: (path) => ipcRenderer.invoke('teach:open-path', path),

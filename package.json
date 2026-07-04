@@ -19,6 +19,7 @@
     "check:dsml-tool-calls": "node scripts/check-dsml-tool-calls.mjs",
     "check:teaching-mode": "node scripts/check-overview-teaching-mode.mjs",
     "check:concept-overview": "node scripts/check-concept-overview-lesson.mjs",
+    "check:lesson-styles": "node scripts/check-lesson-styles.mjs",
     "check:provider-errors": "node scripts/check-provider-errors.mjs",
     "check:model-settings-custom-provider": "node scripts/check-model-settings-custom-provider.mjs",
     "check:provider-actions": "node scripts/check-provider-actions.mjs",

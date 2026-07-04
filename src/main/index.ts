@@ -18,6 +18,7 @@ import { isPathInsideConfiguredRoot, isPathInsideRoot } from './path-access'
 import {
   optionalString,
   parseAgentChatStreamPayload,
+  parseApplyLessonStylePayload,
   parseCreateMemoryPayload,
   parseCreateWorkspacePayload,
   parseGenerateLessonPayload,
@@ -138,6 +139,10 @@ function registerTeachingIpc(
 
   ipcMain.handle('teach:update-mission', async (_, payload: unknown) =>
     service.updateMission(parseUpdateMissionPayload(payload))
+  )
+
+  ipcMain.handle('teach:apply-lesson-style', async (_, payload: unknown) =>
+    service.applyLessonStyle(parseApplyLessonStylePayload(payload))
   )
 
   ipcMain.handle('teach:generate-lesson', async (_, payload: unknown) =>

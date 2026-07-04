@@ -4206,37 +4206,147 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-weight: 750;
 }
 
-/* ----- Resource page: preset tutorial cards ----- */
+/* ----- Resource page: lesson style gallery ----- */
 
 .resource-page {
-  display: grid;
-  gap: 22px;
+  display: block;
   max-width: 1180px;
   margin: 22px auto 0;
 }
 
-.resource-page-secondary {
+.style-gallery {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.86fr);
-  gap: 22px;
-}
-
-.tutorial-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 16px;
-  align-items: stretch;
+  align-items: start;
 }
 
-.tutorial-card {
+.style-gallery.has-preview {
+  grid-template-columns: minmax(0, 1.55fr) minmax(250px, 1fr);
+}
+
+.style-gallery.is-card-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.style-gallery-preview {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-height: 168px;
-  padding: 18px;
+  min-width: 0;
+  min-height: 540px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #fff;
+  overflow: hidden;
+}
+
+.style-gallery-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfe;
+}
+
+.style-gallery-preview-title {
+  min-width: 0;
+}
+
+.style-gallery-preview-title span {
+  display: block;
+  color: #8a97ac;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.style-gallery-preview-title strong {
+  display: block;
+  margin-top: 2px;
+  color: #24324a;
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.style-gallery-preview-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.style-gallery-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  color: #167a58;
+  border-radius: var(--radius-full);
+  background: #eaf7f1;
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.style-gallery-apply {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.style-gallery-close {
+  flex: 0 0 auto;
+}
+
+.style-gallery-frame-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+.style-gallery-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.style-gallery-hint {
+  margin: 0;
+  padding: 10px 16px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--line);
+  background: #fbfcfe;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.style-gallery-cards {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+}
+
+.style-gallery.is-card-only .style-gallery-cards {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.style-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  font: inherit;
   cursor: pointer;
   transition:
     transform 180ms ease,
@@ -4244,55 +4354,95 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     box-shadow 180ms ease;
 }
 
-.tutorial-card:hover {
+.style-card:hover {
   transform: translateY(-2px);
   border-color: #d7e1f1;
   box-shadow: var(--shadow-card-hover);
 }
 
-.tutorial-card-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  color: #3a5bd9;
-  background: #eef3fb;
+.style-card.is-selected {
+  border-color: #3a5bd9;
+  box-shadow: 0 0 0 3px rgba(58, 91, 217, 0.14);
 }
 
-.tutorial-card-body {
+.style-card-thumb {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  height: 88px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 11px;
+  overflow: hidden;
+}
+
+.style-card-thumb-hero {
+  display: block;
+  height: 26px;
+  border-radius: 6px;
+}
+
+.style-card-thumb-line {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  opacity: 0.72;
+}
+
+.style-card-thumb-panel {
+  display: flex;
+  align-items: center;
   flex: 1;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid;
+  border-radius: 7px;
+}
+
+.style-card-thumb-panel > span {
+  display: block;
+  width: 34%;
+  height: 5px;
+  border-radius: 999px;
+}
+
+.style-card-body {
   min-width: 0;
 }
 
-.tutorial-card h3 {
-  margin: 0;
-  overflow-wrap: anywhere;
+.style-card-body strong {
+  display: block;
   color: #24324a;
   font-size: 14px;
+  font-weight: 760;
   line-height: 1.35;
-  font-weight: 740;
 }
 
-.tutorial-card p {
-  margin: 6px 0 0;
+.style-card-body > span {
+  display: block;
+  margin-top: 4px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1.5;
 }
 
-.tutorial-tag {
-  align-self: flex-start;
+.style-card-badge {
+  position: absolute;
+  top: 18px;
+  right: 18px;
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   height: 24px;
-  padding: 0 10px;
-  color: #6c7a91;
+  padding: 0 9px;
+  color: #167a58;
   border-radius: var(--radius-full);
-  background: #f4f6fa;
+  background: rgba(234, 247, 241, 0.94);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
   font-size: 11px;
   font-weight: 750;
+  white-space: nowrap;
 }
 
 /* ----- Record rows ----- */
@@ -4531,13 +4681,18 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     max-width: 900px;
   }
 
-  .resource-page-secondary {
+  .style-gallery.has-preview,
+  .style-gallery.is-card-only {
     grid-template-columns: 1fr;
-    max-width: 900px;
   }
 
-  .tutorial-grid {
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  .style-gallery-preview {
+    min-height: 460px;
+  }
+
+  .style-gallery.has-preview .style-gallery-cards,
+  .style-gallery.is-card-only .style-gallery-cards {
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   }
 
   .workspace-hero,

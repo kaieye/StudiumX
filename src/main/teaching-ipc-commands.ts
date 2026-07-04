@@ -2,6 +2,7 @@ import type {
   AgentChatMessage,
   AgentChatStreamPayload,
   AgentChatTurn,
+  ApplyLessonStylePayload,
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
   GenerateLessonPayload,
@@ -23,6 +24,7 @@ import type {
   UpdateMissionPayload,
   WindowControlAction
 } from '../shared/teaching-types'
+import { isLessonStyleId } from '../shared/lesson-styles'
 
 export function parseCreateWorkspacePayload(payload: unknown): CreateWorkspacePayload {
   const record = requireRecord(payload)
@@ -37,6 +39,18 @@ export function parseUpdateMissionPayload(payload: unknown): UpdateMissionPayloa
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     prompt: requireString(record.prompt, 'prompt')
+  }
+}
+
+export function parseApplyLessonStylePayload(payload: unknown): ApplyLessonStylePayload {
+  const record = requireRecord(payload)
+  const styleId = requireString(record.styleId, 'styleId')
+  if (!isLessonStyleId(styleId)) {
+    throw new Error('IPC payload field "styleId" must be a known lesson style id.')
+  }
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    styleId
   }
 }
 

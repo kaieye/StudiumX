@@ -141,6 +141,25 @@
     "open": "Open RESOURCES.md",
     "emptyTitle": "No resources yet",
     "emptyDetail": "Add trusted learning sources to RESOURCES.md and they'll appear here.",
+    "styles": {
+      "label": "Lesson styles",
+      "title": "Style gallery",
+      "detail": "Pick a visual style for generated lesson pages: click a style card to open the rendered sample preview.",
+      "previewLabel": "Style preview",
+      "apply": "Apply this style",
+      "applied": "In use",
+      "closePreview": "Close style preview",
+      "applyHint": "Applying updates assets/lesson.css in workspace \"{{workspace}}\", so existing and future lesson pages switch to this style immediately.",
+      "applyHintNoWorkspace": "No active workspace: applying saves this as the default style for newly created workspaces.",
+      "items": {
+        "classic": { "name": "Crisp academic", "detail": "Light academic look with white cards and a deep blue hero." },
+        "nightfall": { "name": "Nightfall focus", "detail": "Low-glare dark theme that is easy on the eyes at night." },
+        "paper": { "name": "Paper journal", "detail": "Warm paper tones and serif type, like reading a printed book." },
+        "vivid": { "name": "Vivid gradient", "detail": "Bright gradients and large radii for a playful mood." },
+        "mono": { "name": "Minimal mono", "detail": "Black-and-white editorial layout with serif headings." },
+        "terminal": { "name": "Terminal hacker", "detail": "Monospace type and terminal green, built for programmers." }
+      }
+    },
     "tutorials": {
       "start": {
         "title": "Getting started",

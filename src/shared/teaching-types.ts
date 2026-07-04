@@ -179,6 +179,7 @@ export type TeachingSettingsV1 = {
     confirmBeforeGenerating: boolean
     autoOpenGeneratedLesson: boolean
     showAllCourseFiles: boolean
+    lessonStyleId: string
   }
   worktree: {
     rootPath: string
@@ -523,6 +524,11 @@ export type UpdateMissionPayload = {
   prompt: string
 }
 
+export type ApplyLessonStylePayload = {
+  workspaceId: string
+  styleId: string
+}
+
 export type ReadLessonPayload = {
   workspaceId: string
   lessonPath: string
@@ -802,6 +808,7 @@ export type TeachingSystemApi = {
   pickDirectory: (defaultPath?: string) => Promise<PickDirectoryResult>
   openImportLocation: (path?: string) => Promise<OpenPathResult>
   updateMission: (payload: UpdateMissionPayload) => Promise<TeachingAppState>
+  applyLessonStyle: (payload: ApplyLessonStylePayload) => Promise<TeachingAppState>
   generateLesson: (payload: GenerateLessonPayload) => Promise<GenerateLessonResult>
   readLesson: (payload: ReadLessonPayload) => Promise<ReadLessonResult>
   openPath: (path: string) => Promise<OpenPathResult>

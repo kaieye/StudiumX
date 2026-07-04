@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { DEFAULT_LESSON_STYLE_ID, normalizeLessonStyleId } from '../shared/lesson-styles'
 import {
   MODEL_ENDPOINT_FORMATS,
   MODEL_REASONING_EFFORTS,
@@ -131,7 +132,8 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
       defaultRoot,
       confirmBeforeGenerating: false,
       autoOpenGeneratedLesson: false,
-      showAllCourseFiles: false
+      showAllCourseFiles: false,
+      lessonStyleId: DEFAULT_LESSON_STYLE_ID
     },
     worktree: {
       rootPath: join(defaultRoot, '.worktrees')
@@ -309,7 +311,8 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       defaultRoot: normalizeString(workspaceInput.defaultRoot) || fallbackDefaultRoot,
       confirmBeforeGenerating: workspaceInput.confirmBeforeGenerating === true,
       autoOpenGeneratedLesson: workspaceInput.autoOpenGeneratedLesson === true,
-      showAllCourseFiles: workspaceInput.showAllCourseFiles === true
+      showAllCourseFiles: workspaceInput.showAllCourseFiles === true,
+      lessonStyleId: normalizeLessonStyleId(workspaceInput.lessonStyleId)
     },
     worktree: {
       rootPath: normalizeString(worktreeInput.rootPath) || join(fallbackDefaultRoot, '.worktrees')

@@ -141,6 +141,25 @@
     "open": "打开 RESOURCES.md",
     "emptyTitle": "暂无资源",
     "emptyDetail": "在 RESOURCES.md 中添加可信学习来源后，会显示在这里。",
+    "styles": {
+      "label": "课程风格",
+      "title": "风格样式库",
+      "detail": "为生成的课程页面挑选一套视觉风格：点击样式卡片后再打开课程页面样例预览。",
+      "previewLabel": "样式预览",
+      "apply": "应用此风格",
+      "applied": "使用中",
+      "closePreview": "关闭样式预览",
+      "applyHint": "应用后会更新工作区「{{workspace}}」的 assets/lesson.css，已有与新生成的课程页面都会立即使用该风格。",
+      "applyHintNoWorkspace": "当前没有活动工作区：应用后将作为默认风格，创建工作区时自动生效。",
+      "items": {
+        "classic": { "name": "清爽学术", "detail": "浅色学术风：白卡片、深蓝题头，适合日常阅读。" },
+        "nightfall": { "name": "暗夜专注", "detail": "低光深色界面，夜间学习不刺眼。" },
+        "paper": { "name": "纸质书卷", "detail": "米黄纸面与衬线字体，还原纸书阅读感。" },
+        "vivid": { "name": "活力渐变", "detail": "明快渐变与大圆角，学习氛围更轻松。" },
+        "mono": { "name": "极简黑白", "detail": "黑白排版与衬线标题，报刊式极简风格。" },
+        "terminal": { "name": "终端极客", "detail": "等宽字体与终端绿，属于程序员的味道。" }
+      }
+    },
     "tutorials": {
       "start": {
         "title": "入门指南",

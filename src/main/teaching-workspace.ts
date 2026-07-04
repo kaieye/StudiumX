@@ -41,6 +41,13 @@ import {
 import { resolveActiveProvider } from './ai/provider-adapter'
 import { runTeachingConversationTurn, type TemporaryChatContext } from './teaching-conversation-runtime'
 import type { LessonPlanSource } from '../shared/lesson-schema'
+import {
+  LESSON_FLASHCARD_CSS,
+  LESSON_FLASHCARD_JS,
+  LESSON_QUIZ_JS,
+  lessonStyleCss,
+  normalizeLessonStyleId
+} from '../shared/lesson-styles'
 import { assessTeachingReadiness } from '../shared/teaching-workflow'
 import {
   isLearnerProfileMemory
@@ -54,6 +61,7 @@ import {
   normalizeAgentConversationDirectory
 } from '../shared/agent-conversation-catalog'
 import type {
+  ApplyLessonStylePayload,
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
   GenerateLessonPayload,
@@ -138,12 +146,12 @@ export type WorkspacePreviewFile = {
 
 type SessionEvent = {
   id: string
-  kind: 'workspace_created' | 'workspace_imported' | 'mission_updated' | 'lesson_generated' | 'agent_conversation_recorded'
+  kind: 'workspace_created' | 'workspace_imported' | 'mission_updated' | 'lesson_generated' | 'lesson_style_applied' | 'agent_conversation_recorded'
   timestamp: string
   workspaceId: string
   prompt?: string
   paths?: string[]
-  meta?: { source?: LessonPlanSource; reason?: string; model?: string }
+  meta?: { source?: LessonPlanSource; reason?: string; model?: string; styleId?: string }
 }
 
 const DEFAULT_RUNTIME: TeachingRuntimeState = {
@@ -366,6 +374,29 @@ export class TeachingWorkspaceService {
 
   async generateLesson(payload: GenerateLessonPayload): Promise<GenerateLessonResult> {
     return this.runLessonGeneration(payload, null)
+  }
+
+  /**
+   * Overwrites the workspace's `assets/lesson.css` with the selected theme so
+   * every existing and future lesson page picks up the style immediately.
+   */
+  async applyLessonStyle(payload: ApplyLessonStylePayload): Promise<TeachingAppState> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const styleId = normalizeLessonStyleId(payload.styleId)
+    const now = new Date().toISOString()
+    await atomicWriteFile(join(workspace.rootPath, 'assets', 'lesson.css'), lessonStyleCss(styleId))
+    await this.appendSessionEvent(workspace.rootPath, {
+      id: randomUUID(),
+      kind: 'lesson_style_applied',
+      timestamp: now,
+      workspaceId: workspace.id,
+      paths: ['assets/lesson.css'],
+      meta: { styleId }
+    })
+    const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
+    await this.saveRegistry(nextRegistry)
+    return this.buildState(nextRegistry, workspace.id, null)
   }
 
   async generateLessonStream(
@@ -1005,10 +1036,13 @@ export class TeachingWorkspaceService {
         .map((relativePath) => mkdir(join(workspace.rootPath, relativePath), { recursive: true })),
       mkdir(join(workspace.rootPath, '.teachos'), { recursive: true })
     ])
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/lesson.css', LESSON_CSS)
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/quiz.js', QUIZ_JS)
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.css', FLASHCARD_CSS)
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.js', FLASHCARD_JS)
+    const lessonStyleId = normalizeLessonStyleId(
+      await this.loadSettings().then((settings) => settings.workspace.lessonStyleId).catch(() => undefined)
+    )
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/lesson.css', lessonStyleCss(lessonStyleId))
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/quiz.js', LESSON_QUIZ_JS)
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.css', LESSON_FLASHCARD_CSS)
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.js', LESSON_FLASHCARD_JS)
     await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'RESOURCES.md', renderResources(workspace.name))
     await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'MISSION.md', renderMission(workspace.name, `学习 ${workspace.name}`))
   }
@@ -1413,711 +1447,3 @@ function isLessonSummary(value: unknown): value is LessonSummary {
     typeof record.absolutePath === 'string'
   )
 }
-
-const LESSON_CSS = `:root {
-  color: #263044;
-  background: #f3f5f8;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
-  font-size: 16px;
-  line-height: 1.75;
-  --page-max: 920px;
-  --ink: #172033;
-  --muted: #5f6f86;
-  --soft: #f7f9fc;
-  --panel: #ffffff;
-  --line: #dde5f0;
-  --accent: #3468d8;
-  --accent-soft: #eaf1ff;
-  --green: #167a58;
-  --green-soft: #eaf7f1;
-  --amber: #a05f00;
-  --amber-soft: #fff6df;
-  --rose: #b23857;
-  --rose-soft: #fff0f4;
-  --shadow: 0 16px 40px rgba(23, 32, 51, 0.08);
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html {
-  background: #f3f5f8;
-}
-
-body {
-  min-height: 100vh;
-  margin: 0;
-  padding: 0 0 56px;
-  color: var(--ink);
-  background: #f3f5f8;
-}
-
-body > header,
-body > main,
-body > section,
-body > article,
-body > footer {
-  width: min(calc(100% - 48px), var(--page-max));
-  margin-right: auto;
-  margin-left: auto;
-}
-
-.lesson-page {
-  width: min(calc(100% - 48px), var(--page-max));
-  max-width: none;
-  margin: 0 auto;
-  padding: 0;
-}
-
-body > header,
-.lesson-hero {
-  margin-top: 32px;
-  margin-bottom: 28px;
-  padding: 38px 42px 40px;
-  color: #ffffff;
-  border: 1px solid #202a3f;
-  border-radius: 8px;
-  background: #172033;
-  box-shadow: var(--shadow);
-}
-
-.lesson-hero {
-  border-bottom: 0;
-}
-
-.kicker,
-body > header .kicker {
-  margin: 0 0 10px;
-  color: #96b7ff;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-h1,
-h2,
-h3 {
-  margin: 0;
-  color: var(--ink);
-  line-height: 1.22;
-  letter-spacing: 0;
-}
-
-body > header h1,
-.lesson-hero h1 {
-  max-width: 760px;
-  color: #ffffff;
-  font-size: 40px;
-  line-height: 1.16;
-}
-
-body > header p,
-.lesson-hero p {
-  max-width: 720px;
-  margin: 14px 0 0;
-  color: #d7e2f6;
-  font-size: 17px;
-}
-
-.subtitle {
-  color: #b8c9e8;
-  font-weight: 700;
-}
-
-section,
-article {
-  margin-top: 24px;
-}
-
-section > h2,
-.lesson-page > section > h2 {
-  margin: 0 0 14px;
-  padding-top: 10px;
-  color: #1e2a3d;
-  font-size: 24px;
-}
-
-h3 {
-  font-size: 19px;
-}
-
-p,
-li,
-td,
-th {
-  color: var(--muted);
-  font-size: 16px;
-  line-height: 1.78;
-}
-
-p {
-  margin: 10px 0;
-}
-
-strong {
-  color: #1d293d;
-  font-weight: 800;
-}
-
-a {
-  color: #245fc8;
-  text-decoration: none;
-  border-bottom: 1px solid rgba(36, 95, 200, 0.28);
-}
-
-a:hover {
-  color: #143f8f;
-  border-bottom-color: currentColor;
-}
-
-ul,
-ol {
-  margin: 10px 0 0;
-  padding-left: 1.35rem;
-}
-
-li + li {
-  margin-top: 8px;
-}
-
-code {
-  color: #20304a;
-  border: 1px solid #d7e0ee;
-  border-radius: 6px;
-  background: #eef3fb;
-  padding: 0.12em 0.38em;
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.92em;
-}
-
-pre {
-  overflow: auto;
-  margin: 14px 0 0;
-  padding: 16px;
-  color: #e8eef9;
-  border-radius: 8px;
-  background: #151d2c;
-}
-
-pre code {
-  color: inherit;
-  border: 0;
-  background: transparent;
-  padding: 0;
-}
-
-blockquote {
-  margin: 16px 0 0;
-  padding: 16px 18px;
-  border-left: 4px solid var(--accent);
-  border-radius: 0 8px 8px 0;
-  background: var(--accent-soft);
-}
-
-blockquote p:first-child {
-  margin-top: 0;
-}
-
-blockquote p:last-child {
-  margin-bottom: 0;
-}
-
-hr {
-  height: 1px;
-  margin: 18px 0;
-  border: 0;
-  background: var(--line);
-}
-
-table {
-  display: block;
-  width: 100%;
-  overflow-x: auto;
-  margin: 16px 0 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  border-spacing: 0;
-  border-collapse: separate;
-  background: var(--panel);
-}
-
-thead {
-  background: #172033;
-}
-
-th,
-td {
-  min-width: 150px;
-  padding: 12px 14px;
-  text-align: left;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-}
-
-th {
-  color: #ffffff;
-  font-weight: 800;
-}
-
-tr:last-child td {
-  border-bottom: 0;
-}
-
-th:last-child,
-td:last-child {
-  border-right: 0;
-}
-
-tbody tr:nth-child(even) {
-  background: #f8fafc;
-}
-
-.mission-card,
-.qa-block,
-.quiz-card,
-.flashcard,
-.summary,
-.teachos-generated-quiz {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow: 0 10px 28px rgba(23, 32, 51, 0.06);
-}
-
-.mission-card {
-  padding: 18px 20px;
-  border-left: 4px solid var(--green);
-}
-
-.mission-card span,
-.file-grid span {
-  display: block;
-  color: #748197;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.mission-card strong {
-  display: block;
-  margin-top: 6px;
-  color: #20304a;
-  font-size: 18px;
-}
-
-.mission-card p {
-  margin-bottom: 0;
-}
-
-.qa-block {
-  overflow: hidden;
-}
-
-.qa-block h3 {
-  padding: 18px 22px;
-  color: #172033;
-  border-bottom: 1px solid var(--line);
-  background: #fbfcff;
-}
-
-.answer {
-  padding: 18px 22px 22px;
-}
-
-.answer > :first-child {
-  margin-top: 0;
-}
-
-.answer > :last-child {
-  margin-bottom: 0;
-}
-
-.tip {
-  margin-top: 14px;
-  padding: 13px 15px;
-  color: #6f4300;
-  border: 1px solid #f0d99b;
-  border-left: 4px solid #d99016;
-  border-radius: 8px;
-  background: var(--amber-soft);
-}
-
-.tip strong {
-  color: #5c3700;
-}
-
-.summary {
-  padding: 22px;
-  border-color: #cfd9e8;
-  background: #fbfcff;
-}
-
-.summary h2 {
-  padding-top: 0;
-}
-
-.summary blockquote {
-  border-left-color: var(--green);
-  background: var(--green-soft);
-}
-
-.steps,
-.compact-list {
-  display: grid;
-  gap: 10px;
-  padding: 0;
-  list-style: none;
-}
-
-.steps li,
-.compact-list li {
-  margin: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-
-.steps li {
-  display: grid;
-  grid-template-columns: 96px 1fr;
-  gap: 12px;
-}
-
-.steps strong {
-  color: #24324a;
-}
-
-.steps span {
-  color: #65748a;
-}
-
-.file-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.file-grid a {
-  display: block;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-
-.file-grid strong {
-  display: block;
-  margin-top: 6px;
-  color: #25354f;
-}
-
-.practice,
-.teachos-generated-quiz {
-  margin-top: 28px;
-}
-
-.teachos-generated-quiz {
-  padding: 20px;
-}
-
-.quiz-card {
-  display: grid;
-  gap: 12px;
-  padding: 18px;
-  box-shadow: none;
-}
-
-.quiz-card + .quiz-card {
-  margin-top: 12px;
-}
-
-.quiz-card p {
-  margin: 0;
-}
-
-.quiz-choices,
-.quiz-fill {
-  display: grid;
-  gap: 8px;
-}
-
-.quiz-fill {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.quiz-card button,
-.quiz-fill input {
-  min-height: 40px;
-  border: 1px solid #cfd9e8;
-  border-radius: 8px;
-  font: inherit;
-}
-
-.quiz-card button {
-  background: #f8fafc;
-  color: #2d3d56;
-  cursor: pointer;
-}
-
-.quiz-card button:hover {
-  background: #eef4ff;
-}
-
-.quiz-card button.is-selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.quiz-card button.is-correct,
-.quiz-fill input.is-correct {
-  border-color: #68b692;
-  background: var(--green-soft);
-}
-
-.quiz-card button.is-wrong,
-.quiz-fill input.is-wrong {
-  border-color: #e5a0af;
-  background: var(--rose-soft);
-}
-
-.quiz-fill input {
-  width: 100%;
-  padding: 0 12px;
-  color: var(--ink);
-  background: #ffffff;
-}
-
-output {
-  min-height: 24px;
-  color: var(--green);
-  font-weight: 800;
-}
-
-.quiz-explanation {
-  display: none;
-  margin: 0;
-  color: #65748a;
-  font-size: 14px;
-}
-
-footer,
-body > footer {
-  margin-top: 38px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
-}
-
-footer p {
-  color: #65748a;
-}
-
-@media (max-width: 700px) {
-  body {
-    padding-bottom: 36px;
-  }
-
-  body > header,
-  body > main,
-  body > section,
-  body > article,
-  body > footer,
-  .lesson-page {
-    width: min(calc(100% - 28px), var(--page-max));
-  }
-
-  body > header,
-  .lesson-hero {
-    margin-top: 18px;
-    padding: 28px 22px;
-  }
-
-  body > header h1,
-  .lesson-hero h1 {
-    font-size: 30px;
-  }
-
-  section > h2,
-  .lesson-page > section > h2 {
-    font-size: 21px;
-  }
-
-  .qa-block h3,
-  .answer,
-  .summary,
-  .teachos-generated-quiz {
-    padding-right: 16px;
-    padding-left: 16px;
-  }
-
-  .file-grid,
-  .quiz-fill {
-    grid-template-columns: 1fr;
-  }
-
-  .steps li {
-    grid-template-columns: 1fr;
-  }
-}
-`
-const QUIZ_JS = `function setupTeachOsQuizCards(root = document) {
-  root.querySelectorAll('.quiz-card').forEach((card) => {
-    if (card.dataset.quizReady === 'true') return;
-    card.dataset.quizReady = 'true';
-
-    const type = card.getAttribute('data-type') || 'single';
-    const answer = card.getAttribute('data-answer') || '';
-    const output = card.querySelector('output');
-    const explanation = card.querySelector('.quiz-explanation');
-    const report = (correct, msg) => {
-      if (output) output.textContent = msg;
-      if (explanation) explanation.style.display = correct ? 'block' : 'none';
-      try {
-        window.parent.postMessage({
-          source: 'teachos-lesson',
-          kind: 'quiz',
-          question: card.querySelector('p')?.textContent || '',
-          correct
-        }, '*');
-      } catch {}
-    };
-
-    if (type === 'fill') {
-      const input = card.querySelector('input[type="text"]');
-      const submit = card.querySelector('button[data-choice="submit"]');
-      const normalize = (s) => s.trim().toLowerCase().replace(/\\s+/g, ' ').replace(/[。.,，！!？?]/g, '');
-      const check = () => {
-        const value = input?.value || '';
-        const isCorrect = Boolean(value.trim()) && normalize(value) === normalize(answer);
-        if (input) {
-          input.classList.toggle('is-correct', isCorrect);
-          input.classList.toggle('is-wrong', !isCorrect && value.trim().length > 0);
-        }
-        report(isCorrect, isCorrect ? '正确！' : '再想想，或查看解析。');
-      };
-      submit?.addEventListener('click', check);
-      input?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') check();
-      });
-      return;
-    }
-
-    const answers = type === 'multi' ? answer.split(',').map((s) => s.trim()) : [answer];
-    card.querySelectorAll('button[data-choice]').forEach((button) => {
-      button.addEventListener('click', () => {
-        if (type === 'multi') {
-          button.classList.toggle('is-selected');
-          const selected = Array.from(card.querySelectorAll('button[data-choice].is-selected'))
-            .map((b) => b.getAttribute('data-choice'));
-          const isCorrect = selected.length === answers.length &&
-            selected.every((c) => answers.includes(c)) &&
-            answers.every((c) => selected.includes(c));
-          report(isCorrect, isCorrect ? '全部正确！' : '选择还不完整或不正确，再看看。');
-        } else {
-          card.querySelectorAll('button[data-choice]').forEach((item) => item.classList.remove('is-correct', 'is-wrong'));
-          const isCorrect = button.getAttribute('data-choice') === answer;
-          button.classList.add(isCorrect ? 'is-correct' : 'is-wrong');
-          report(isCorrect, isCorrect ? '正确！' : '再试一次。');
-        }
-      });
-    });
-  });
-}
-
-function appendFillQuizCard(container, item, index) {
-  const card = document.createElement('article');
-  card.className = 'quiz-card';
-  card.dataset.type = 'fill';
-  card.dataset.answer = String(item.answer ?? '');
-
-  const question = document.createElement('p');
-  question.textContent = \`\${index + 1}. \${String(item.question ?? '请作答')}\`;
-
-  const fill = document.createElement('div');
-  fill.className = 'quiz-fill';
-
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.placeholder = '输入你的答案';
-  input.setAttribute('aria-label', '答案输入');
-
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.dataset.choice = 'submit';
-  button.textContent = '提交';
-
-  const output = document.createElement('output');
-  output.setAttribute('aria-live', 'polite');
-
-  const explanation = document.createElement('p');
-  explanation.className = 'quiz-explanation';
-  explanation.textContent = item.explanation ? String(item.explanation) : \`参考答案：\${String(item.answer ?? '')}\`;
-
-  fill.append(input, button);
-  card.append(question, fill, output, explanation);
-  container.append(card);
-}
-
-window.Quiz = class Quiz {
-  constructor(items = [], options = {}) {
-    const mount = typeof options.mount === 'string' ? document.querySelector(options.mount) : options.mount;
-    const section = mount || document.createElement('section');
-    section.classList.add('practice', 'teachos-generated-quiz');
-
-    if (!mount) {
-      const title = document.createElement('h2');
-      title.textContent = options.title || '小测验';
-      section.append(title);
-    }
-
-    items.forEach((item, index) => appendFillQuizCard(section, item, index));
-
-    if (!mount) {
-      const anchor = document.currentScript;
-      if (anchor?.parentNode) anchor.parentNode.insertBefore(section, anchor);
-      else document.body.append(section);
-    }
-
-    setupTeachOsQuizCards(section);
-  }
-};
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => setupTeachOsQuizCards());
-} else {
-  setupTeachOsQuizCards();
-}
-`
-
-const FLASHCARD_CSS = `.flashcards { display: grid; gap: 12px; }
-.flashcard { position: relative; min-height: 120px; perspective: 1000px; cursor: pointer; border: 1px solid #e3e8f2; border-radius: 12px; background: #fff; }
-.flashcard-face { display: grid; place-items: center; padding: 22px; text-align: center; backface-visibility: hidden; }
-.flashcard-front { color: #24324a; font-weight: 600; }
-.flashcard-back { position: absolute; inset: 0; transform: rotateY(180deg); color: #536278; background: #f8fafc; border-radius: 12px; }
-.flashcard.is-flipped .flashcard-front { opacity: 0; }
-.flashcard.is-flipped .flashcard-back { transform: rotateY(0deg); }
-.flashcard-self { display: flex; gap: 8px; margin-top: 10px; justify-content: center; }
-.flashcard-self button { border: 1px solid #dfe7f4; border-radius: 8px; background: #f8fafc; color: #2d3d56; font: inherit; padding: 6px 12px; cursor: pointer; }
-.flashcard-self button:hover { background: #eef4ff; }
-.quiz-choices { display: grid; gap: 8px; }
-.quiz-choices button.is-selected { border-color: #4f7cf5; background: #edf4ff; }
-.quiz-fill { display: flex; gap: 8px; }
-.quiz-fill input { flex: 1; min-height: 40px; border: 1px solid #dfe7f4; border-radius: 8px; padding: 0 12px; font: inherit; }
-.quiz-fill input.is-correct { border-color: #68b692; background: #eaf8f2; }
-.quiz-fill input.is-wrong { border-color: #e5a0af; background: #fff0f4; }
-.quiz-explanation { display: none; margin: 6px 0 0; color: #65748a; font-size: 14px; }
-`
-
-const FLASHCARD_JS = `document.querySelectorAll('.flashcard').forEach((card) => {
-  const flip = () => card.classList.toggle('is-flipped');
-  card.addEventListener('click', flip);
-  card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
-  card.querySelectorAll('.flashcard-self button').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      try { window.parent.postMessage({ source: 'teachos-lesson', kind: 'flashcard', rating: btn.getAttribute('data-rating') }, '*'); } catch {}
-    });
-  });
-});
-`
