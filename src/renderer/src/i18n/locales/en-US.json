@@ -152,6 +152,11 @@
       "applyHint": "Applying updates assets/lesson.css in workspace \"{{workspace}}\", so existing and future lesson pages switch to this style immediately.",
       "applyHintNoWorkspace": "No active workspace: applying saves this as the default style for newly created workspaces.",
       "items": {
+        "manuscript": { "name": "Manuscript", "detail": "Composition-grid paper with vermilion teacher's marks, kaiti headings and a seal-style kicker." },
+        "chalkboard": { "name": "Chalkboard", "detail": "Deep-green board in a wooden rim, chalk handwriting and dashed chalk frames." },
+        "editorial": { "name": "Feature story", "detail": "Ink-blue and signal-orange magazine layout with serif display, drop caps and pull quotes." },
+        "blueprint": { "name": "Blueprint", "detail": "Prussian-blue drafting sheet with white linework and an engineer's title block." },
+        "poster": { "name": "Classroom poster", "detail": "Retro teaching chart: bold outlines, hard shadows, lake blue, mustard and tomato." },
         "classic": { "name": "Crisp academic", "detail": "Light academic look with white cards and a deep blue hero." },
         "nightfall": { "name": "Nightfall focus", "detail": "Low-glare dark theme that is easy on the eyes at night." },
         "paper": { "name": "Paper journal", "detail": "Warm paper tones and serif type, like reading a printed book." },

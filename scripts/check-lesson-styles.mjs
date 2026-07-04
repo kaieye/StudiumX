@@ -1,8 +1,38 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const [styles, workspace, settings, ipcCommands, mainIndex, preload, app, css, zh, en] = await Promise.all([
+const STYLE_IDS = [
+  'manuscript',
+  'chalkboard',
+  'editorial',
+  'blueprint',
+  'poster',
+  'classic',
+  'nightfall',
+  'paper',
+  'vivid',
+  'mono',
+  'terminal'
+]
+
+const [
+  styles,
+  baseStyles,
+  sharedAssets,
+  workspace,
+  settings,
+  ipcCommands,
+  mainIndex,
+  preload,
+  app,
+  css,
+  zh,
+  en,
+  themeEntries
+] = await Promise.all([
   readFile('src/shared/lesson-styles.ts', 'utf8'),
+  readFile('src/shared/lesson-style-themes/base.ts', 'utf8'),
+  readFile('src/shared/lesson-style-themes/assets.ts', 'utf8'),
   readFile('src/main/teaching-workspace.ts', 'utf8'),
   readFile('src/main/teaching-settings.ts', 'utf8'),
   readFile('src/main/teaching-ipc-commands.ts', 'utf8'),
@@ -11,39 +41,61 @@ const [styles, workspace, settings, ipcCommands, mainIndex, preload, app, css, z
   readFile('src/renderer/src/App.tsx', 'utf8'),
   readFile('src/renderer/src/styles.css', 'utf8'),
   readFile('src/renderer/src/i18n/locales/zh-CN.json', 'utf8'),
-  readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8')
+  readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8'),
+  Promise.all(
+    STYLE_IDS.map(async (id) => [
+      id,
+      await readFile(`src/shared/lesson-style-themes/${id}.ts`, 'utf8')
+    ])
+  )
 ])
 
-// ----- shared theme module -----
+const themeSources = Object.fromEntries(themeEntries)
 
-const STYLE_IDS = ['classic', 'nightfall', 'paper', 'vivid', 'mono', 'terminal']
+// ----- shared theme modules -----
 
 for (const id of STYLE_IDS) {
+  const symbol = id.toUpperCase()
   assert.match(
     styles,
+    new RegExp(`${symbol}_STYLE`),
+    `lesson style registry should include the "${id}" theme module`
+  )
+  assert.match(
+    themeSources[id],
     new RegExp(`id: '${id}'`),
-    `lesson style registry should define the "${id}" theme`
+    `lesson style file should define the "${id}" theme`
+  )
+  assert.match(
+    themeSources[id],
+    new RegExp(`export const ${symbol}_TOKENS`),
+    `lesson style file should export "${symbol}_TOKENS"`
   )
 }
 
 for (const selector of ['.lesson-hero', '.mission-card', '.quiz-card', '.compact-list', 'blockquote', 'thead']) {
   assert.ok(
-    styles.includes(selector),
+    baseStyles.includes(selector),
     `buildLessonCss should keep styling the shared lesson markup (${selector})`
   )
 }
 
 assert.match(
-  styles,
+  baseStyles,
   /\.flashcards \.flashcard \{/,
   'themes should override flashcards.css (loaded after lesson.css) with higher-specificity rules'
 )
 
 for (const name of ['LESSON_QUIZ_JS', 'LESSON_FLASHCARD_CSS', 'LESSON_FLASHCARD_JS']) {
   assert.match(
-    styles,
+    sharedAssets,
     new RegExp(`export const ${name}`),
-    `${name} should live in the shared module so main and renderer reuse one copy`
+    `${name} should live in the shared assets module so main and renderer reuse one copy`
+  )
+  assert.match(
+    styles,
+    new RegExp(name),
+    `${name} should be re-exported by the public lesson-styles module`
   )
 }
 

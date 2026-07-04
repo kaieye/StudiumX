@@ -152,6 +152,11 @@
       "applyHint": "应用后会更新工作区「{{workspace}}」的 assets/lesson.css，已有与新生成的课程页面都会立即使用该风格。",
       "applyHintNoWorkspace": "当前没有活动工作区：应用后将作为默认风格，创建工作区时自动生效。",
       "items": {
+        "manuscript": { "name": "稿纸批注", "detail": "作文稿纸的方格与朱笔批注，楷体标题与印章题签，最有课堂味的一套。" },
+        "chalkboard": { "name": "晚自习黑板", "detail": "墨绿板面配木质包边，粉笔手写标题与虚线粉笔框。" },
+        "editorial": { "name": "特稿排版", "detail": "墨蓝与信号橘的杂志特稿版式：衬线大标题、首字下沉与拉引。" },
+        "blueprint": { "name": "蓝晒图纸", "detail": "普鲁士蓝图纸、白色线稿与工程标题栏，理工课程的气质。" },
+        "poster": { "name": "教室海报", "detail": "复古教育挂图：厚描边、硬阴影，湖蓝、芥末与番茄三色。" },
         "classic": { "name": "清爽学术", "detail": "浅色学术风：白卡片、深蓝题头，适合日常阅读。" },
         "nightfall": { "name": "暗夜专注", "detail": "低光深色界面，夜间学习不刺眼。" },
         "paper": { "name": "纸质书卷", "detail": "米黄纸面与衬线字体，还原纸书阅读感。" },
