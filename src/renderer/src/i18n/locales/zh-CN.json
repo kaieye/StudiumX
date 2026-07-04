@@ -146,9 +146,10 @@
       "title": "风格样式库",
       "detail": "为生成的课程页面挑选一套视觉风格：点击样式卡片后再打开课程页面样例预览。",
       "previewLabel": "样式预览",
-      "apply": "应用此风格",
-      "applied": "使用中",
+      "apply": "应用",
+      "applied": "应用中",
       "closePreview": "关闭样式预览",
+      "backToStyles": "返回风格列表",
       "applyHint": "应用后会更新工作区「{{workspace}}」的 assets/lesson.css，已有与新生成的课程页面都会立即使用该风格。",
       "applyHintNoWorkspace": "当前没有活动工作区：应用后将作为默认风格，创建工作区时自动生效。",
       "items": {

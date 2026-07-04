@@ -146,9 +146,10 @@
       "title": "Style gallery",
       "detail": "Pick a visual style for generated lesson pages: click a style card to open the rendered sample preview.",
       "previewLabel": "Style preview",
-      "apply": "Apply this style",
-      "applied": "In use",
+      "apply": "Apply",
+      "applied": "Applied",
       "closePreview": "Close style preview",
+      "backToStyles": "Back to styles",
       "applyHint": "Applying updates assets/lesson.css in workspace \"{{workspace}}\", so existing and future lesson pages switch to this style immediately.",
       "applyHintNoWorkspace": "No active workspace: applying saves this as the default style for newly created workspaces.",
       "items": {

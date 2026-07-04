@@ -189,8 +189,32 @@ assert.match(
 
 assert.match(
   app,
+  /className="icon-button reader-preview-back"[\s\S]*aria-label=\{t\('resources\.styles\.backToStyles'\)\}[\s\S]*onClick=\{closeResourceHtmlPreview\}/,
+  'resource style previews should expose a floating back button'
+)
+
+assert.match(
+  app,
   /className="style-card-chip-aa"/,
   'style cards should render the brand-board type specimen (Aa) chip'
+)
+
+assert.doesNotMatch(
+  app,
+  /className="style-card-badge"/,
+  'the selected style card should not show a top-right in-use badge'
+)
+
+assert.match(
+  app,
+  /className=\{`style-card-apply\$\{isCurrent \? ' is-current' : ''\}`\}/,
+  'the selected style should use the apply button as its status control'
+)
+
+assert.match(
+  app,
+  /disabled=\{isCurrent \|\| isApplying\}/,
+  'the selected style apply button should be disabled while showing the current status'
 )
 
 assert.match(
@@ -209,6 +233,9 @@ assert.match(css, /\.style-gallery \{/, 'styles.css should lay out the gallery')
 assert.match(css, /\.style-card\.is-selected/, 'styles.css should highlight the selected style card')
 assert.match(css, /\.style-card-chip-aa \{/, 'styles.css should style the type specimen chip')
 assert.match(css, /\.style-card-scale \{/, 'styles.css should style the tonal scale strip')
+assert.doesNotMatch(css, /\.style-card-badge/, 'styles.css should not keep styling a removed style card badge')
+assert.match(css, /\.reader-preview-back \{/, 'styles.css should position the resource preview back button')
+assert.match(css, /\.style-card-apply\.is-current/, 'styles.css should style the current style apply button')
 
 // ----- i18n -----
 
@@ -216,8 +243,15 @@ for (const [locale, source] of [['zh-CN', zh], ['en-US', en]]) {
   const parsed = JSON.parse(source)
   const stylesNode = parsed.resources?.styles
   assert.ok(stylesNode, `${locale} should translate resources.styles`)
-  for (const key of ['label', 'title', 'detail', 'previewLabel', 'apply', 'applied', 'closePreview', 'applyHint', 'applyHintNoWorkspace']) {
+  for (const key of ['label', 'title', 'detail', 'previewLabel', 'apply', 'applied', 'closePreview', 'backToStyles', 'applyHint', 'applyHintNoWorkspace']) {
     assert.ok(typeof stylesNode[key] === 'string' && stylesNode[key].length > 0, `${locale} resources.styles.${key} should be translated`)
+  }
+  if (locale === 'zh-CN') {
+    assert.equal(stylesNode.apply, '应用', 'Chinese apply copy should be concise')
+    assert.equal(stylesNode.applied, '应用中', 'Chinese current-style button should say 应用中')
+  } else {
+    assert.equal(stylesNode.apply, 'Apply', 'English apply copy should be concise')
+    assert.equal(stylesNode.applied, 'Applied', 'English current-style button should say Applied')
   }
   for (const id of STYLE_IDS) {
     assert.ok(stylesNode.items?.[id]?.name, `${locale} should name the "${id}" style`)

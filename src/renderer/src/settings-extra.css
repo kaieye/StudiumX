@@ -642,7 +642,7 @@
 :root[data-resolved-theme="dark"] .settings-view,
 :root[data-resolved-theme="dark"] .memory-dialog {
   border-color: var(--line);
-  background: rgba(18, 24, 34, 0.98);
+  background: rgba(18, 18, 19, 0.98);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.46);
 }
 
@@ -677,7 +677,7 @@
 
 :root[data-resolved-theme="dark"] .segmented-control {
   border-color: var(--line);
-  background: #0f141c;
+  background: #0f0f10;
 }
 
 :root[data-resolved-theme="dark"] .segmented-control button {
@@ -685,11 +685,11 @@
 }
 
 :root[data-resolved-theme="dark"] .toggle-switch {
-  background: #344055;
+  background: #3a3a3f;
 }
 
 :root[data-resolved-theme="dark"] .toggle-switch span {
-  background: #e7edf7;
+  background: #f2f2f3;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
@@ -704,7 +704,7 @@
 
 :root[data-resolved-theme="dark"] .settings-select-menu {
   border-color: var(--line);
-  background: rgba(20, 27, 38, 0.98);
+  background: rgba(20, 20, 22, 0.98);
   box-shadow: 0 24px 58px rgba(0, 0, 0, 0.42);
 }
 
@@ -721,7 +721,7 @@
 :root[data-resolved-theme="dark"] .settings-select-option.is-selected,
 :root[data-resolved-theme="dark"] .settings-status-badge {
   color: var(--accent);
-  border-color: rgba(131, 167, 255, 0.24);
+  border-color: rgba(138, 180, 255, 0.24);
   background: var(--accent-soft);
 }
 
@@ -731,9 +731,9 @@
 }
 
 :root[data-resolved-theme="dark"] .ghost-button.strong {
-  color: #0f141c;
-  background: #e7edf7;
-  border-color: #e7edf7;
+  color: #111111;
+  background: #f2f2f3;
+  border-color: #f2f2f3;
 }
 
 :root[data-resolved-theme="dark"] .ghost-button.danger {

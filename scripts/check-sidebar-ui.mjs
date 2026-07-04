@@ -136,8 +136,14 @@ assert.doesNotMatch(
 
 assert.match(
   app,
-  /\{readingHtml \? \(\s*renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\s*\) : \(\s*<header className="topbar">/,
-  'HTML reader views should render the sidebar toggle as a floating button instead of a topbar'
+  /\{readingResourceHtml \? \([\s\S]*renderSidebarToggle\('icon-button reader-sidebar-toggle'\)[\s\S]*className="icon-button reader-preview-back"[\s\S]*onClick=\{closeResourceHtmlPreview\}/,
+  'resource HTML reader views should render floating sidebar and back buttons instead of a topbar'
+)
+
+assert.match(
+  app,
+  /\) : readingCourseHtml \? \(\s*renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\s*\) : \(\s*<header className="topbar">/,
+  'lesson HTML reader views should keep the floating sidebar toggle without a topbar'
 )
 
 assert.match(
@@ -150,6 +156,12 @@ assert.match(
   css,
   /\.reader-sidebar-toggle \{[\s\S]*position: absolute;[\s\S]*z-index: 35;[\s\S]*-webkit-app-region: no-drag;/,
   'HTML reader sidebar toggle should float above the lesson or resource iframe'
+)
+
+assert.match(
+  css,
+  /\.reader-preview-back \{[\s\S]*position: absolute;[\s\S]*left: 58px;[\s\S]*z-index: 35;[\s\S]*-webkit-app-region: no-drag;/,
+  'resource preview back button should float next to the sidebar toggle'
 )
 
 assert.match(

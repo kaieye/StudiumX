@@ -80,28 +80,28 @@
 }
 
 :root[data-resolved-theme="dark"] {
-  --surface: rgba(22, 29, 40, 0.84);
-  --surface-solid: #171d28;
-  --surface-muted: #1d2532;
-  --surface-subtle: #111821;
-  --surface-hover: rgba(131, 167, 255, 0.13);
+  --surface: rgba(24, 24, 27, 0.86);
+  --surface-solid: #18181b;
+  --surface-muted: #202124;
+  --surface-subtle: #111113;
+  --surface-hover: rgba(255, 255, 255, 0.075);
 
-  --line: rgba(148, 163, 184, 0.2);
-  --line-strong: rgba(166, 183, 210, 0.28);
-  --line-muted: rgba(148, 163, 184, 0.14);
+  --line: rgba(245, 245, 245, 0.16);
+  --line-strong: rgba(245, 245, 245, 0.24);
+  --line-muted: rgba(245, 245, 245, 0.1);
 
-  --text: #e7edf7;
-  --text-muted: #a8b4c7;
-  --text-soft: #7f8da3;
-  --text-faint: #627086;
+  --text: #f2f2f3;
+  --text-muted: #b6b6bb;
+  --text-soft: #85858d;
+  --text-faint: #66666d;
 
-  --accent: #83a7ff;
-  --accent-soft: rgba(93, 134, 255, 0.16);
-  --accent-hover: #a2bbff;
+  --accent: #8ab4ff;
+  --accent-soft: rgba(80, 132, 255, 0.16);
+  --accent-hover: #abc8ff;
 
-  --scrollbar-track: #10151e;
-  --scrollbar-thumb: rgba(148, 163, 184, 0.34);
-  --scrollbar-thumb-hover: rgba(166, 183, 210, 0.52);
+  --scrollbar-track: #101010;
+  --scrollbar-thumb: rgba(180, 180, 185, 0.34);
+  --scrollbar-thumb-hover: rgba(205, 205, 210, 0.52);
 
   --green: #66c29a;
   --green-soft: rgba(102, 194, 154, 0.14);
@@ -1316,6 +1316,24 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .reader-sidebar-toggle:hover {
+  background: #fff;
+}
+
+.reader-preview-back {
+  position: absolute;
+  top: 12px;
+  left: 58px;
+  z-index: 35;
+  color: #24324a;
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  -webkit-app-region: no-drag;
+}
+
+.reader-preview-back:hover {
   background: #fff;
 }
 
@@ -4616,24 +4634,6 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   line-height: 1.5;
 }
 
-.style-card-badge {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 9px;
-  color: #167a58;
-  border-radius: var(--radius-full);
-  background: rgba(234, 247, 241, 0.94);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
-  font-size: 11px;
-  font-weight: 750;
-  white-space: nowrap;
-}
-
 .style-card-apply {
   align-self: flex-start;
   display: inline-flex;
@@ -4656,9 +4656,20 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: #edf4ff;
 }
 
+.style-card-apply.is-current,
+.style-card-apply.is-current:hover {
+  color: #167a58;
+  border-color: #c9ecd9;
+  background: #eaf7f1;
+}
+
 .style-card-apply:disabled {
   cursor: default;
   opacity: 0.68;
+}
+
+.style-card-apply.is-current:disabled {
+  opacity: 1;
 }
 
 /* ----- Record rows ----- */
@@ -5108,27 +5119,27 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 :root[data-resolved-theme="dark"] body,
 :root[data-resolved-theme="dark"] .app-frame {
-  background: #0f141c;
+  background: #0f0f10;
   color: var(--text);
 }
 
 :root[data-resolved-theme="dark"] .window-titlebar {
   background:
-    linear-gradient(180deg, rgba(19, 25, 35, 0.96), rgba(15, 20, 28, 0.92)),
-    #0f141c;
+    linear-gradient(180deg, rgba(18, 18, 20, 0.96), rgba(15, 15, 16, 0.92)),
+    #0f0f10;
   color: var(--text);
 }
 
 :root[data-resolved-theme="dark"] .app-shell,
 :root[data-resolved-theme="dark"] .main-area,
 :root[data-resolved-theme="dark"] .overview-dialog-shell {
-  background: #10151e;
+  background: #101010;
 }
 
 :root[data-resolved-theme="dark"] .sidebar,
 :root[data-resolved-theme="dark"] .sidebar-resizer {
   background:
-    linear-gradient(180deg, rgba(19, 26, 36, 0.98), rgba(15, 21, 30, 0.98));
+    linear-gradient(180deg, rgba(21, 21, 23, 0.98), rgba(15, 15, 16, 0.98));
 }
 
 :root[data-resolved-theme="dark"] .sidebar-resizer::before {
@@ -5136,7 +5147,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 :root[data-resolved-theme="dark"] .topbar {
-  background: rgba(16, 21, 30, 0.86);
+  background: rgba(17, 17, 18, 0.86);
 }
 
 :root[data-resolved-theme="dark"] .search-box,
@@ -5152,6 +5163,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .runtime-panel,
 :root[data-resolved-theme="dark"] .resource-row,
 :root[data-resolved-theme="dark"] .style-gallery-preview,
+:root[data-resolved-theme="dark"] .style-card,
 :root[data-resolved-theme="dark"] .empty-state,
 :root[data-resolved-theme="dark"] .row-context-menu-dropdown,
 :root[data-resolved-theme="dark"] .import-dialog,
@@ -5169,6 +5181,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .empty-state h3,
 :root[data-resolved-theme="dark"] .resource-row h3,
 :root[data-resolved-theme="dark"] .style-gallery-preview-title strong,
+:root[data-resolved-theme="dark"] .style-card-body strong,
 :root[data-resolved-theme="dark"] .course-group-title,
 :root[data-resolved-theme="dark"] .import-dialog-header h2,
 :root[data-resolved-theme="dark"] .import-dialog-field input,
@@ -5211,8 +5224,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .workspace-conversation-row.is-selected,
 :root[data-resolved-theme="dark"] .dialog-mode-switch-btn.is-active {
   color: var(--text);
-  background: rgba(131, 167, 255, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(131, 167, 255, 0.18);
+  background: rgba(138, 180, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(138, 180, 255, 0.18);
 }
 
 :root[data-resolved-theme="dark"] .workspace-node-row.is-workspace-folder,
@@ -5224,6 +5237,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 :root[data-resolved-theme="dark"] .reader-sidebar-toggle,
+:root[data-resolved-theme="dark"] .reader-preview-back,
 :root[data-resolved-theme="dark"] .overview-dialog-statusbar,
 :root[data-resolved-theme="dark"] .dialog-mode-switch,
 :root[data-resolved-theme="dark"] .markdown-message,
@@ -5246,20 +5260,77 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .markdown-message--user,
 :root[data-resolved-theme="dark"] .overview-dialog-message.is-user > .markdown-message {
   color: var(--text);
-  background: #232b38;
+  background: #2a2a2d;
 }
 
 :root[data-resolved-theme="dark"] .markdown-message pre,
 :root[data-resolved-theme="dark"] .markdown-message--user pre {
   border-color: var(--line);
-  background: #0c1118;
-  color: #e7edf7;
+  background: #0b0b0c;
+  color: #f2f2f3;
 }
 
 :root[data-resolved-theme="dark"] .markdown-message :not(pre) > code,
 :root[data-resolved-theme="dark"] .markdown-message--user :not(pre) > code {
   background: rgba(231, 237, 247, 0.1);
   color: #dce7ff;
+}
+
+:root[data-resolved-theme="dark"] .agent-process-header {
+  border-bottom-color: var(--line);
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .agent-process-header strong,
+:root[data-resolved-theme="dark"] .agent-process-event-copy strong,
+:root[data-resolved-theme="dark"] .tool-call-trigger strong,
+:root[data-resolved-theme="dark"] .tool-call-section pre {
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .agent-process-header span,
+:root[data-resolved-theme="dark"] .agent-process-event-copy small,
+:root[data-resolved-theme="dark"] .agent-process-tool-detail-trigger svg {
+  color: var(--text-soft);
+}
+
+:root[data-resolved-theme="dark"] .agent-process-event-icon {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .agent-process-tool-detail-trigger {
+  border-color: var(--line);
+  background: #252528;
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .agent-process-tool-detail-trigger:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .tool-call-card,
+:root[data-resolved-theme="dark"] .tool-call-body.is-inline {
+  border-color: var(--line);
+  background: #151517;
+}
+
+:root[data-resolved-theme="dark"] .tool-call-card.is-error {
+  border-color: rgba(255, 122, 112, 0.32);
+  background: rgba(255, 122, 112, 0.08);
+}
+
+:root[data-resolved-theme="dark"] .tool-call-trigger,
+:root[data-resolved-theme="dark"] .tool-call-body,
+:root[data-resolved-theme="dark"] .tool-call-section > div {
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .tool-call-section pre {
+  border-color: var(--line);
+  background: #0b0b0c;
 }
 
 :root[data-resolved-theme="dark"] .overview-dialog-card textarea,
@@ -5279,28 +5350,72 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .assistant-badge,
 :root[data-resolved-theme="dark"] .state-chip,
 :root[data-resolved-theme="dark"] .empty-state-action,
+:root[data-resolved-theme="dark"] .style-card-apply,
 :root[data-resolved-theme="dark"] .overview-dialog-access.is-active {
-  border-color: rgba(131, 167, 255, 0.24);
+  border-color: rgba(138, 180, 255, 0.24);
   background: var(--accent-soft);
   color: var(--accent);
 }
 
+:root[data-resolved-theme="dark"] .style-card:hover {
+  border-color: var(--line-strong);
+}
+
+:root[data-resolved-theme="dark"] .style-card-apply:hover {
+  background: rgba(80, 132, 255, 0.22);
+}
+
+:root[data-resolved-theme="dark"] .style-card-apply.is-current,
+:root[data-resolved-theme="dark"] .style-card-apply.is-current:hover {
+  border-color: rgba(102, 194, 154, 0.24);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+:root[data-resolved-theme="dark"] .remove-dialog-option {
+  border-color: var(--line);
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .remove-dialog-option:hover,
+:root[data-resolved-theme="dark"] .remove-dialog-option:focus-visible {
+  border-color: var(--line-strong);
+  background: #252528;
+}
+
+:root[data-resolved-theme="dark"] .remove-dialog-option.is-danger:hover,
+:root[data-resolved-theme="dark"] .remove-dialog-option.is-danger:focus-visible {
+  border-color: rgba(255, 122, 112, 0.32);
+  background: rgba(255, 122, 112, 0.1);
+}
+
+:root[data-resolved-theme="dark"] .remove-dialog-option-icon {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+:root[data-resolved-theme="dark"] .remove-dialog-option.is-danger .remove-dialog-option-icon {
+  color: var(--red);
+  background: rgba(255, 122, 112, 0.14);
+}
+
 :root[data-resolved-theme="dark"] .primary-button,
 :root[data-resolved-theme="dark"] .overview-dialog-send {
-  color: #0f141c;
-  background: #e7edf7;
+  color: #111111;
+  background: #f2f2f3;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
 }
 
 :root[data-resolved-theme="dark"] .primary-button:hover,
 :root[data-resolved-theme="dark"] .overview-dialog-send:hover:not(:disabled) {
-  color: #0f141c;
+  color: #111111;
   background: #ffffff;
 }
 
 :root[data-resolved-theme="dark"] .import-dialog-field input {
   border-color: var(--line);
-  background: #111821;
+  background: #141414;
 }
 
 :root[data-resolved-theme="dark"] .import-dialog-backdrop,

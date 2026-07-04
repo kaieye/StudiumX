@@ -2,6 +2,7 @@ import {
   AlertCircle,
   AlertTriangle,
   Archive,
+  ArrowLeft,
   ArrowUpRight,
   Bell,
   BookCopy,
@@ -103,6 +104,7 @@ import {
   PARALLEL_SEARCH_MODES,
   TEACHING_MODEL_PROVIDER_PRESETS,
   WEB_SEARCH_BACKENDS,
+  type AgentChatMessage,
   type AgentChatProcessEvent,
   type AgentChatStreamChunk,
   type AgentChatStreamStatus,
@@ -170,6 +172,11 @@ type ResourcePreviewFile = {
   html: string
 }
 
+type LessonGenerationOptions = {
+  prompt?: string
+  messages?: AgentChatMessage[]
+}
+
 type StoreState = {
   view: WorkspaceView
   settingsSection: SettingsSection
@@ -207,8 +214,9 @@ type StoreState = {
   importWorkspacePath: (rootPath: string) => Promise<boolean>
   updateMission: () => Promise<void>
   applyLessonStyle: (styleId: LessonStyleId) => Promise<void>
-  generateLesson: () => Promise<void>
-  generateLessonStream: () => Promise<void>
+  setPendingLessonClarificationPrompt: (prompt: string | null) => void
+  generateLesson: (options?: LessonGenerationOptions) => Promise<void>
+  generateLessonStream: (options?: LessonGenerationOptions) => Promise<void>
   loadLesson: (lesson: LessonSummary) => Promise<void>
   loadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
   openResourceHtmlPreview: (file: ResourcePreviewFile) => void
@@ -240,6 +248,7 @@ type StoreState = {
   agentInputHistory: string[]
   agentToolsSupported: boolean | null
   pendingAgentConversation: PendingAgentConversation | null
+  pendingLessonClarificationPrompt: string | null
   gitBranchesRoot: string
   gitBranchesResult: TeachingGitBranchesResult | null
   gitBranchesLoading: boolean
@@ -864,10 +873,12 @@ const useAppStore = create<StoreState>((set, get) => ({
   agentInputHistory: readPersistedAgentInputHistory(),
   agentToolsSupported: null,
   pendingAgentConversation: null,
+  pendingLessonClarificationPrompt: null,
   gitBranchesRoot: '',
   gitBranchesResult: null,
   gitBranchesLoading: false,
   setAgentInput: (agentInput) => set({ agentInput }),
+  setPendingLessonClarificationPrompt: (prompt) => set({ pendingLessonClarificationPrompt: prompt }),
   rememberAgentInput: (input) => {
     const nextHistory = appendAgentInputHistory(get().agentInputHistory, input)
     set({ agentInputHistory: nextHistory })
@@ -875,10 +886,10 @@ const useAppStore = create<StoreState>((set, get) => ({
   },
   clearAgentChat: () => {
     if (get().agentChatBusy && get().pendingAgentConversation) {
-      set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null })
+      set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, pendingLessonClarificationPrompt: null })
       return
     }
-    set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null })
+    set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null, pendingLessonClarificationPrompt: null })
   },
   cancelAgentChat: async () => {
     const api = window.teachingSystem
@@ -942,7 +953,10 @@ const useAppStore = create<StoreState>((set, get) => ({
     set(view === 'resources' ? { view, selectedResourcePreviewFile: null } : { view })
     if (view === 'review') void get().loadReviewCards()
   },
-  setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
+  setOverviewDialogMode: (overviewDialogMode) => set({
+    overviewDialogMode,
+    ...(overviewDialogMode === 'chat' ? { pendingLessonClarificationPrompt: null } : {})
+  }),
   openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null, selectedResourcePreviewFile: null }),
   openWorkspaceTeachingMode: () => {
     get().clearAgentChat()
@@ -975,7 +989,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       selectedCourseRelativePath,
       selectedCourseWorkspaceId: selectedCourse ? targetWorkspace?.id ?? null : null,
       ...(!hasCourseContent
-        ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
+        ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null, pendingLessonClarificationPrompt: null }
         : {})
     })
   },
@@ -1051,6 +1065,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentStatus: '',
         agentToolsSupported: null,
         pendingAgentConversation: null,
+        pendingLessonClarificationPrompt: null,
         loading: false
       })
     } catch (error) {
@@ -1079,6 +1094,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentStatus: '',
         agentToolsSupported: null,
         pendingAgentConversation: null,
+        pendingLessonClarificationPrompt: null,
         loading: false
       })
     } catch (error) {
@@ -1107,6 +1123,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentStatus: '',
         agentToolsSupported: null,
         pendingAgentConversation: null,
+        pendingLessonClarificationPrompt: null,
         loading: false
       })
       const settings = get().settings
@@ -1147,6 +1164,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentStatus: '',
         agentToolsSupported: null,
         pendingAgentConversation: null,
+        pendingLessonClarificationPrompt: null,
         loading: false
       })
       const settings = get().settings
@@ -1206,21 +1224,23 @@ const useAppStore = create<StoreState>((set, get) => ({
       set({ error: toUserError(error) })
     }
   },
-  generateLesson: async () => {
+  generateLesson: async (options) => {
     const api = window.teachingSystem
     if (!api) return
     const workspace = get().appState.activeWorkspace
-    const prompt = get().taskPrompt.trim()
+    const prompt = (options?.prompt ?? get().taskPrompt).trim()
     const settings = get().settings
     if (!workspace || !prompt) return
-    const lessonMessages = activeTeachingConversationSummary({
-      state: get().appState,
-      workspaceId: workspace.id,
-      activeConversationId: get().activeConversationId,
-      pendingAgentConversation: get().pendingAgentConversation
-    })
-      ? agentTurnsToMessages(get().agentTurns)
-      : []
+    const lessonMessages = options?.messages ?? (
+      activeTeachingConversationSummary({
+        state: get().appState,
+        workspaceId: workspace.id,
+        activeConversationId: get().activeConversationId,
+        pendingAgentConversation: get().pendingAgentConversation
+      })
+        ? agentTurnsToMessages(get().agentTurns)
+        : []
+    )
     if (
       settings.workspace.confirmBeforeGenerating &&
       !window.confirm(i18n.t('dialogs.confirmGenerate'))
@@ -1255,6 +1275,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           appState: result.state,
           agentStatus: '',
           generating: false,
+          pendingLessonClarificationPrompt: prompt,
           taskPrompt: prompt
         })
         void get().agentChat(prompt, { mode: 'teaching' })
@@ -1267,6 +1288,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         selectedCourseWorkspaceId: workspace.id,
         selectedCoursePreviewFile: lessonToCoursePreviewFile(result.lesson),
         appState: result.state,
+        pendingLessonClarificationPrompt: null,
         taskPrompt: nextPrompt,
         generating: false
       })
@@ -1291,21 +1313,23 @@ const useAppStore = create<StoreState>((set, get) => ({
       }
     }
   },
-  generateLessonStream: async () => {
+  generateLessonStream: async (options) => {
     const api = window.teachingSystem
     if (!api) return
     const workspace = get().appState.activeWorkspace
-    const prompt = get().taskPrompt.trim()
+    const prompt = (options?.prompt ?? get().taskPrompt).trim()
     const settings = get().settings
     if (!workspace || !prompt) return
-    const lessonMessages = activeTeachingConversationSummary({
-      state: get().appState,
-      workspaceId: workspace.id,
-      activeConversationId: get().activeConversationId,
-      pendingAgentConversation: get().pendingAgentConversation
-    })
-      ? agentTurnsToMessages(get().agentTurns)
-      : []
+    const lessonMessages = options?.messages ?? (
+      activeTeachingConversationSummary({
+        state: get().appState,
+        workspaceId: workspace.id,
+        activeConversationId: get().activeConversationId,
+        pendingAgentConversation: get().pendingAgentConversation
+      })
+        ? agentTurnsToMessages(get().agentTurns)
+        : []
+    )
     if (
       settings.workspace.confirmBeforeGenerating &&
       !window.confirm(i18n.t('dialogs.confirmGenerate'))
@@ -1365,6 +1389,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           appState: done.state,
           agentStatus: '',
           generating: false,
+          pendingLessonClarificationPrompt: prompt,
           taskPrompt: prompt
         })
         void get().agentChat(prompt, { mode: 'teaching' })
@@ -1378,6 +1403,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           selectedCourseWorkspaceId: workspace.id,
           selectedCoursePreviewFile: lessonToCoursePreviewFile(done.lesson),
           appState: done.state,
+          pendingLessonClarificationPrompt: null,
           taskPrompt: nextPrompt,
           generating: false
         })
@@ -1427,6 +1453,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentStatus: '',
         agentToolsSupported: null,
         agentInput: '',
+        pendingLessonClarificationPrompt: null,
         selectedCourseRelativePath: conversationCourseRelativePath,
         selectedCourseWorkspaceId: conversationCourseRelativePath ? workspace.id : null,
         taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
@@ -1622,7 +1649,8 @@ const useAppStore = create<StoreState>((set, get) => ({
               agentInput: '',
               agentToolsSupported: null,
               agentChatBusy: false,
-              pendingAgentConversation: null
+              pendingAgentConversation: null,
+              pendingLessonClarificationPrompt: null
             }
           : {})
       })
@@ -1654,7 +1682,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         appState: state,
         error: null,
         ...(uiPatch.clearActiveConversation
-          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
+          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null, pendingLessonClarificationPrompt: null }
           : {}),
         ...(uiPatch.clearSelectedCoursePreview
           ? { lessonReaderOpen: false, selectedCoursePreviewFile: null }
@@ -1699,7 +1727,8 @@ const useAppStore = create<StoreState>((set, get) => ({
               agentInput: '',
               agentToolsSupported: null,
               agentChatBusy: false,
-              pendingAgentConversation: null
+              pendingAgentConversation: null,
+              pendingLessonClarificationPrompt: null
             }
           : {})
       })
@@ -3741,6 +3770,7 @@ function MainArea() {
     setView,
     setSidebarCollapsed,
     openSettings,
+    closeResourceHtmlPreview,
     pickDefaultRoot,
     initialize,
     updateSettings,
@@ -3819,7 +3849,19 @@ function MainArea() {
 
   return (
     <main className="main-area" data-view={view} data-reading-html={readingHtml ? 'true' : undefined}>
-      {readingHtml ? (
+      {readingResourceHtml ? (
+        <>
+          {renderSidebarToggle('icon-button reader-sidebar-toggle')}
+          <button
+            className="icon-button reader-preview-back"
+            type="button"
+            aria-label={t('resources.styles.backToStyles')}
+            onClick={closeResourceHtmlPreview}
+          >
+            <ArrowLeft size={17} />
+          </button>
+        </>
+      ) : readingCourseHtml ? (
         renderSidebarToggle('icon-button reader-sidebar-toggle')
       ) : (
         <header className="topbar">
@@ -4097,22 +4139,16 @@ function LessonStyleGallery() {
                   <span>{t(`resources.styles.items.${style.id}.detail`)}</span>
                 </span>
               </button>
-              {isCurrent ? (
-                <span className="style-card-badge">
-                  <CheckCircle2 size={13} />
-                  {t('resources.styles.applied')}
-                </span>
-              ) : (
-                <button
-                  className="style-card-apply"
-                  type="button"
-                  disabled={isApplying}
-                  onClick={() => void applyStyle(style.id)}
-                >
-                  {isApplying ? <Loader2 className="spin" size={13} /> : <Check size={13} />}
-                  {t('resources.styles.apply')}
-                </button>
-              )}
+              <button
+                className={`style-card-apply${isCurrent ? ' is-current' : ''}`}
+                type="button"
+                aria-current={isCurrent ? 'true' : undefined}
+                disabled={isCurrent || isApplying}
+                onClick={() => void applyStyle(style.id)}
+              >
+                {isApplying ? <Loader2 className="spin" size={13} /> : isCurrent ? <CheckCircle2 size={13} /> : <Check size={13} />}
+                {isCurrent ? t('resources.styles.applied') : t('resources.styles.apply')}
+              </button>
             </article>
           )
         })}
@@ -4251,7 +4287,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     generateLesson,
     generateLessonStream,
     agentChat,
-    cancelAgentChat
+    cancelAgentChat,
+    pendingLessonClarificationPrompt,
+    setPendingLessonClarificationPrompt
   } = useAppStore()
   const view = useAppStore((s) => s.view)
   const overviewDialogMode = useAppStore((s) => s.overviewDialogMode)
@@ -4288,6 +4326,19 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     rememberAgentInput(prompt)
     setInputHistoryIndex(null)
     setInputHistoryDraft('')
+    if (continueTeachingConversation && pendingLessonClarificationPrompt) {
+      const lessonMessages: AgentChatMessage[] = [
+        ...agentTurnsToMessages(agentTurns),
+        { role: 'user', content: prompt }
+      ]
+      setTaskPrompt(pendingLessonClarificationPrompt)
+      setAgentInput('')
+      setPendingLessonClarificationPrompt(null)
+      void (settings.generator.streaming
+        ? generateLessonStream({ prompt: pendingLessonClarificationPrompt, messages: lessonMessages })
+        : generateLesson({ prompt: pendingLessonClarificationPrompt, messages: lessonMessages }))
+      return
+    }
     if (continueTeachingConversation) {
       void agentChat(prompt, { mode: 'teaching' })
       return

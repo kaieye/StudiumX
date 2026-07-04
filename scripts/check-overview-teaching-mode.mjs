@@ -83,8 +83,14 @@ assert.match(
 
 assert.match(
   app,
-  /if \(continueTeachingConversation\) \{\s*void agentChat\(prompt, \{ mode: 'teaching' \}\)\s*return\s*\}/,
-  'teaching-mode follow-up answers should continue the teaching conversation before any lesson generation'
+  /pendingLessonClarificationPrompt:\s*string\s*\|\s*null/,
+  'renderer should track when a teaching conversation is waiting for a lesson clarification answer'
+)
+
+assert.match(
+  app,
+  /if \(continueTeachingConversation && pendingLessonClarificationPrompt\) \{[\s\S]*generateLesson(?:Stream)?\(\{ prompt: pendingLessonClarificationPrompt, messages: lessonMessages \}\)[\s\S]*return\s*\}\s*if \(continueTeachingConversation\) \{\s*void agentChat\(prompt, \{ mode: 'teaching' \}\)/,
+  'lesson clarification follow-up answers should resume lesson generation before ordinary teaching chat continuation'
 )
 
 assert.match(
@@ -101,8 +107,8 @@ assert.match(
 
 assert.match(
   app,
-  /const lessonMessages = activeTeachingConversationSummary\(/,
-  'lesson generation should derive context only from an active teaching conversation'
+  /const lessonMessages = options\?\.messages \?\? \(\s*activeTeachingConversationSummary\(/,
+  'lesson generation should use explicit clarification messages or derive context from an active teaching conversation'
 )
 
 assert.match(
