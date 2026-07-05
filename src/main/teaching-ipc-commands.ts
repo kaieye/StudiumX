@@ -13,6 +13,7 @@ import type {
   ProbeProviderPayload,
   ReadAgentConversationPayload,
   ReadLessonPayload,
+  ReadWorkspaceMarkdownPayload,
   RemoveTeachingGitWorktreePayload,
   WorkspaceItemKind,
   WorkspaceItemMetaPayload,
@@ -20,6 +21,7 @@ import type {
   WorkspaceRemovePayload,
   RecordProgressPayload,
   SaveAgentConversationPayload,
+  SaveWorkspaceMarkdownPayload,
   TeachingSettingsPatch,
   UpdateTeachingMemoryPayload,
   UpdateMissionPayload,
@@ -202,6 +204,23 @@ export function parseReadLessonPayload(payload: unknown): ReadLessonPayload {
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     lessonPath: requireString(record.lessonPath, 'lessonPath')
+  }
+}
+
+export function parseReadWorkspaceMarkdownPayload(payload: unknown): ReadWorkspaceMarkdownPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    documentPath: requireString(record.documentPath, 'documentPath')
+  }
+}
+
+export function parseSaveWorkspaceMarkdownPayload(payload: unknown): SaveWorkspaceMarkdownPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    documentPath: requireString(record.documentPath, 'documentPath'),
+    content: requireString(record.content, 'content')
   }
 }
 

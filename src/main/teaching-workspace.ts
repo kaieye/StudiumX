@@ -76,6 +76,7 @@ import type {
   QuizResultEntry,
   ReadLessonPayload,
   ReadLessonResult,
+  ReadWorkspaceMarkdownPayload,
   RecordProgressPayload,
   ReviewCard,
   AgentConversationRecord,
@@ -89,6 +90,8 @@ import type {
   ReadAgentConversationPayload,
   SaveAgentConversationPayload,
   SaveAgentConversationResult,
+  SaveWorkspaceMarkdownPayload,
+  SaveWorkspaceMarkdownResult,
   TeachingMemoryDiagnostics,
   TeachingMemoryRecord,
   TeachingAppState,
@@ -96,6 +99,7 @@ import type {
   TeachingSettingsV1,
   TeachingWorkspaceSummary,
   WorkspaceItemKind,
+  WorkspaceMarkdownDocument,
   WorkspaceItemMetaPayload,
   WorkspaceItemRemovePayload,
   WorkspaceRemovePayload,
@@ -184,6 +188,22 @@ const WORKSPACE_SCAFFOLD_FILES = new Set([
   'assets/flashcards.css',
   'assets/flashcards.js'
 ])
+
+const ROOT_MARKDOWN_DOCUMENTS = new Set([
+  'MISSION.md',
+  'RESOURCES.md',
+  'GLOSSARY.md',
+  'NOTES.md'
+])
+
+const MARKDOWN_DOCUMENT_DIRECTORIES = [
+  'courses',
+  'lessons',
+  'learning-records',
+  'reviews',
+  'reference',
+  'conversation'
+]
 
 export class TeachingWorkspaceService {
   private readonly registryPath: string
@@ -896,14 +916,34 @@ export class TeachingWorkspaceService {
     }
   }
 
+  async readWorkspaceMarkdown(payload: ReadWorkspaceMarkdownPayload): Promise<WorkspaceMarkdownDocument> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const target = resolveWorkspaceMarkdownPath(workspace.rootPath, payload.documentPath)
+    return readWorkspaceMarkdownDocument(workspace.rootPath, target)
+  }
+
+  async saveWorkspaceMarkdown(payload: SaveWorkspaceMarkdownPayload): Promise<SaveWorkspaceMarkdownResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const target = resolveWorkspaceMarkdownPath(workspace.rootPath, payload.documentPath)
+    await atomicWriteFile(target, payload.content)
+    const now = new Date().toISOString()
+    const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
+    await this.saveRegistry(nextRegistry)
+    return {
+      state: await this.buildState(nextRegistry, workspace.id, target),
+      document: await readWorkspaceMarkdownDocument(workspace.rootPath, target)
+    }
+  }
+
   async resolvePreviewFile(workspaceId: string, relativePath: string): Promise<WorkspacePreviewFile | null> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, workspaceId)
     const normalizedRelativePath = normalizeWorkspaceRelativePath(relativePath)
     if (!normalizedRelativePath) return null
     const target = resolve(join(workspace.rootPath, normalizedRelativePath))
-    const allowedRoots = [resolve(workspace.rootPath, 'courses'), resolve(workspace.rootPath, 'lessons'), resolve(workspace.rootPath, 'assets')]
-    if (!allowedRoots.some((base) => isPathInsideRoot(base, target))) return null
+    if (!isPreviewFilePathAllowed(workspace.rootPath, target)) return null
     if (!(await fileExists(target))) return null
     return {
       absolutePath: target,
@@ -1310,6 +1350,36 @@ function resolveLessonPath(rootPath: string, lessonPath: string): string {
   return target
 }
 
+function resolveWorkspaceMarkdownPath(rootPath: string, documentPath: string): string {
+  const target = isAbsolute(documentPath) ? resolve(documentPath) : resolve(rootPath, documentPath)
+  if (!isWorkspaceMarkdownPathAllowed(rootPath, target)) {
+    throw new Error('Markdown path is outside the allowed workspace documents.')
+  }
+  return target
+}
+
+function isWorkspaceMarkdownPathAllowed(rootPath: string, targetPath: string): boolean {
+  const relativePath = normalizeWorkspaceRelativePath(toWorkspaceRelativePath(rootPath, targetPath))
+  if (!relativePath || relativePath.includes('../')) return false
+  if (!targetPath.toLowerCase().endsWith('.md')) return false
+  if (ROOT_MARKDOWN_DOCUMENTS.has(relativePath)) return true
+  return MARKDOWN_DOCUMENT_DIRECTORIES.some((dir) => {
+    const base = resolve(rootPath, dir)
+    return isPathInsideRoot(base, targetPath)
+  })
+}
+
+function isPreviewFilePathAllowed(rootPath: string, targetPath: string): boolean {
+  const normalizedTarget = resolve(targetPath)
+  const allowedRoots = [
+    resolve(rootPath, 'courses'),
+    resolve(rootPath, 'lessons'),
+    resolve(rootPath, 'assets')
+  ]
+  if (allowedRoots.some((base) => isPathInsideRoot(base, normalizedTarget))) return true
+  return isWorkspaceMarkdownPathAllowed(rootPath, normalizedTarget)
+}
+
 function samePath(left: string, right: string): boolean {
   return resolve(left).toLowerCase() === resolve(right).toLowerCase()
 }
@@ -1368,6 +1438,30 @@ function safeJsonParse(text: string): unknown {
   } catch {
     return null
   }
+}
+
+async function readWorkspaceMarkdownDocument(
+  rootPath: string,
+  absolutePath: string
+): Promise<WorkspaceMarkdownDocument> {
+  const [content, info] = await Promise.all([
+    readFile(absolutePath, 'utf8'),
+    stat(absolutePath).catch(() => null)
+  ])
+  const relativePath = normalizeWorkspaceRelativePath(toWorkspaceRelativePath(rootPath, absolutePath))
+  return {
+    title: cleanText(/^#\s+(.+)$/m.exec(content)?.[1] ?? titleFromMarkdownPath(relativePath)),
+    relativePath,
+    absolutePath,
+    content,
+    updatedAt: info?.mtime ? info.mtime.toISOString() : null
+  }
+}
+
+function titleFromMarkdownPath(relativePath: string): string {
+  const name = basename(relativePath)
+  if (ROOT_MARKDOWN_DOCUMENTS.has(name)) return name.replace(/\.md$/i, '')
+  return name.replace(/\.md$/i, '').replace(/[-_]+/g, ' ')
 }
 
 function escapeHtml(value: string): string {
@@ -1502,6 +1596,7 @@ function toPreviewUrl(workspaceId: string, relativePath: string): string {
 function mimeTypeForPath(path: string): string {
   const lower = path.toLowerCase()
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html; charset=utf-8'
+  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'text/markdown; charset=utf-8'
   if (lower.endsWith('.css')) return 'text/css; charset=utf-8'
   if (lower.endsWith('.js')) return 'text/javascript; charset=utf-8'
   if (lower.endsWith('.json')) return 'application/json; charset=utf-8'

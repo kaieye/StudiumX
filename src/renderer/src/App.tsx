@@ -51,6 +51,7 @@ import {
   Star,
   Square,
   Sun,
+  Save,
   Play,
   SendHorizontal,
   Upload,
@@ -69,6 +70,8 @@ import remarkGfm from 'remark-gfm'
 import { create } from 'zustand'
 import i18n from './i18n'
 import { buildAgentProcessTimeline } from './agent-process-timeline'
+import { MarkdownEditor } from './markdown-editor'
+import { MarkdownPreview } from './markdown-preview'
 import {
   courseRelativePathForAgentConversation,
   isCourseAgentConversationPath
@@ -149,6 +152,7 @@ import {
   type WorkspaceFileNode,
   type WorkspaceItemKind,
   type WorkspaceItemRemoveMode,
+  type WorkspaceMarkdownDocument,
   type WorkspaceView
 } from '../../shared/teaching-types'
 
@@ -178,6 +182,8 @@ type ResourcePreviewFile = {
   html: string
 }
 
+type MarkdownEditorMode = 'split' | 'preview' | 'edit'
+
 type LessonGenerationOptions = {
   prompt?: string
   messages?: AgentChatMessage[]
@@ -196,6 +202,10 @@ type StoreState = {
   lessonReaderOpen: boolean
   selectedCoursePreviewFile: CoursePreviewFile | null
   selectedResourcePreviewFile: ResourcePreviewFile | null
+  selectedMarkdownDocument: WorkspaceMarkdownDocument | null
+  markdownDraft: string
+  markdownMode: MarkdownEditorMode
+  markdownSaving: boolean
   selectedCourseRelativePath: string | null
   selectedCourseWorkspaceId: string | null
   appState: TeachingAppState
@@ -225,6 +235,10 @@ type StoreState = {
   generateLessonStream: (options?: LessonGenerationOptions) => Promise<void>
   loadLesson: (lesson: LessonSummary) => Promise<void>
   loadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
+  loadWorkspaceMarkdownFile: (file: CoursePreviewFile, workspaceId?: string | null) => Promise<void>
+  setMarkdownDraft: (content: string) => void
+  setMarkdownMode: (mode: MarkdownEditorMode) => void
+  saveMarkdownDocument: () => Promise<void>
   openResourceHtmlPreview: (file: ResourcePreviewFile) => void
   closeResourceHtmlPreview: () => void
   openPath: (path: string) => Promise<void>
@@ -381,6 +395,18 @@ const emptySettings: TeachingSettingsV1 = {
   log: {
     enabled: true,
     retentionDays: 14
+  }
+}
+
+function clearMarkdownDocumentPatch(): Pick<
+  StoreState,
+  'selectedMarkdownDocument' | 'markdownDraft' | 'markdownMode' | 'markdownSaving'
+> {
+  return {
+    selectedMarkdownDocument: null,
+    markdownDraft: '',
+    markdownMode: 'split',
+    markdownSaving: false
   }
 }
 
@@ -874,6 +900,10 @@ const useAppStore = create<StoreState>((set, get) => ({
   lessonReaderOpen: false,
   selectedCoursePreviewFile: null,
   selectedResourcePreviewFile: null,
+  selectedMarkdownDocument: null,
+  markdownDraft: '',
+  markdownMode: 'split',
+  markdownSaving: false,
   selectedCourseRelativePath: null,
   selectedCourseWorkspaceId: null,
   appState: emptyAppState,
@@ -965,17 +995,22 @@ const useAppStore = create<StoreState>((set, get) => ({
     set({ gitBranchesRoot: root, gitBranchesResult, gitBranchesLoading: false })
   },
   setView: (view) => {
-    set(view === 'resources' ? { view, selectedResourcePreviewFile: null } : { view })
+    set(view === 'lessons'
+      ? { view }
+      : view === 'resources'
+        ? { view, selectedResourcePreviewFile: null, ...clearMarkdownDocumentPatch() }
+        : { view, ...clearMarkdownDocumentPatch() })
     if (view === 'review') void get().loadReviewCards()
   },
   setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
-  openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null, selectedResourcePreviewFile: null }),
+  openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null, selectedResourcePreviewFile: null, ...clearMarkdownDocumentPatch() }),
   openTeachingConversationView: () => set({
     view: 'overview',
     overviewDialogMode: 'teaching',
     lessonReaderOpen: false,
     selectedCoursePreviewFile: null,
-    selectedResourcePreviewFile: null
+    selectedResourcePreviewFile: null,
+    ...clearMarkdownDocumentPatch()
   }),
   openWorkspaceTeachingMode: () => {
     get().clearAgentChat()
@@ -985,6 +1020,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       lessonReaderOpen: false,
       selectedCoursePreviewFile: null,
       selectedResourcePreviewFile: null,
+      ...clearMarkdownDocumentPatch(),
       selectedCourseRelativePath: null,
       selectedCourseWorkspaceId: null
     })
@@ -1005,6 +1041,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       lessonReaderOpen: false,
       selectedCoursePreviewFile: null,
       selectedResourcePreviewFile: null,
+      ...clearMarkdownDocumentPatch(),
       selectedCourseRelativePath,
       selectedCourseWorkspaceId: selectedCourse ? targetWorkspace?.id ?? null : null,
       ...(!hasCourseContent
@@ -1017,6 +1054,8 @@ const useAppStore = create<StoreState>((set, get) => ({
   openSettings: (section = 'general') => set({ view: 'settings', settingsSection: section }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setTaskPrompt: (taskPrompt) => set({ taskPrompt }),
+  setMarkdownDraft: (markdownDraft) => set({ markdownDraft }),
+  setMarkdownMode: (markdownMode) => set({ markdownMode }),
   clearError: () => set({ error: null }),
   initialize: async () => {
     set({ loading: true, error: null })
@@ -1076,6 +1115,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         appState: state,
         lessonReaderOpen: false,
         selectedCoursePreviewFile: null,
+        ...clearMarkdownDocumentPatch(),
         selectedCourseRelativePath: null,
         selectedCourseWorkspaceId: null,
         taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
@@ -1104,6 +1144,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         appState: state,
         lessonReaderOpen: false,
         selectedCoursePreviewFile: null,
+        ...clearMarkdownDocumentPatch(),
         selectedCourseRelativePath: null,
         selectedCourseWorkspaceId: null,
         taskPrompt: defaultPrompt,
@@ -1132,6 +1173,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         appState: result.state,
         lessonReaderOpen: false,
         selectedCoursePreviewFile: null,
+        ...clearMarkdownDocumentPatch(),
         selectedCourseRelativePath: null,
         selectedCourseWorkspaceId: null,
         taskPrompt: result.state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
@@ -1172,6 +1214,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         appState: state,
         lessonReaderOpen: false,
         selectedCoursePreviewFile: null,
+        ...clearMarkdownDocumentPatch(),
         selectedCourseRelativePath: null,
         selectedCourseWorkspaceId: null,
         taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
@@ -1288,6 +1331,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         selectedCourseRelativePath: result.lesson.courseRelativePath,
         selectedCourseWorkspaceId: workspace.id,
         selectedCoursePreviewFile: lessonToCoursePreviewFile(result.lesson),
+        ...clearMarkdownDocumentPatch(),
         appState: result.state,
         taskPrompt: nextPrompt,
         generating: false
@@ -1386,6 +1430,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           selectedCourseRelativePath: done.lesson.courseRelativePath,
           selectedCourseWorkspaceId: workspace.id,
           selectedCoursePreviewFile: lessonToCoursePreviewFile(done.lesson),
+          ...clearMarkdownDocumentPatch(),
           appState: done.state,
           taskPrompt: nextPrompt,
           generating: false
@@ -1429,9 +1474,10 @@ const useAppStore = create<StoreState>((set, get) => ({
           : await api.selectWorkspace(workspace.id),
         view: isTeachingConversation ? 'overview' : 'agent',
         overviewDialogMode: isTeachingConversation ? 'teaching' : get().overviewDialogMode,
-        lessonReaderOpen: false,
-        selectedCoursePreviewFile: null,
-        agentTurns: conversation.turns,
+      lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
+      ...clearMarkdownDocumentPatch(),
+      agentTurns: conversation.turns,
         activeConversationId: conversation.id,
         agentStatus: '',
         agentToolsSupported: null,
@@ -1640,6 +1686,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           ? {
               lessonReaderOpen: false,
               selectedCoursePreviewFile: null,
+              ...clearMarkdownDocumentPatch(),
               selectedCourseRelativePath: null,
               selectedCourseWorkspaceId: null,
               taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
@@ -1666,7 +1713,7 @@ const useAppStore = create<StoreState>((set, get) => ({
     if (!workspace) return
     const removalSnapshot = {
       activeConversationId: get().activeConversationId,
-      selectedCoursePreviewFile: get().selectedCoursePreviewFile,
+      selectedCoursePreviewFile: get().selectedCoursePreviewFile ?? get().selectedMarkdownDocument,
       selectedCourseRelativePath: get().selectedCourseRelativePath
     }
     try {
@@ -1684,7 +1731,7 @@ const useAppStore = create<StoreState>((set, get) => ({
           ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
           : {}),
         ...(uiPatch.clearSelectedCoursePreview
-          ? { lessonReaderOpen: false, selectedCoursePreviewFile: null }
+          ? { lessonReaderOpen: false, selectedCoursePreviewFile: null, ...clearMarkdownDocumentPatch() }
           : {}),
         ...(uiPatch.clearSelectedCourseFolder
           ? { selectedCourseRelativePath: null, selectedCourseWorkspaceId: null }
@@ -1717,6 +1764,7 @@ const useAppStore = create<StoreState>((set, get) => ({
               view: state.activeWorkspace ? previous.view : 'overview',
               lessonReaderOpen: false,
               selectedCoursePreviewFile: null,
+              ...clearMarkdownDocumentPatch(),
               selectedCourseRelativePath: null,
               selectedCourseWorkspaceId: null,
               taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
@@ -1745,6 +1793,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       lessonReaderOpen: true,
       selectedCoursePreviewFile: lessonToCoursePreviewFile(lesson),
       selectedResourcePreviewFile: null,
+      ...clearMarkdownDocumentPatch(),
       appState: {
         ...get().appState,
         selectedLessonPath: lesson.absolutePath,
@@ -1775,6 +1824,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       lessonReaderOpen: true,
       selectedCoursePreviewFile: file,
       selectedResourcePreviewFile: null,
+      ...clearMarkdownDocumentPatch(),
       appState: {
         ...get().appState,
         selectedLessonPath: file.absolutePath,
@@ -1797,11 +1847,83 @@ const useAppStore = create<StoreState>((set, get) => ({
       set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
     }
   },
+  loadWorkspaceMarkdownFile: async (file, workspaceId) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = workspaceId
+      ? get().appState.workspaces.find((item) => item.id === workspaceId) ?? get().appState.activeWorkspace
+      : get().appState.activeWorkspace
+    if (!workspace) return
+    set({
+      view: 'lessons',
+      overviewDialogMode: 'teaching',
+      lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
+      selectedResourcePreviewFile: null,
+      selectedMarkdownDocument: {
+        title: file.title,
+        relativePath: file.relativePath,
+        absolutePath: file.absolutePath,
+        content: '',
+        updatedAt: null
+      },
+      markdownDraft: '',
+      markdownMode: 'split',
+      markdownSaving: false,
+      appState: {
+        ...get().appState,
+        selectedLessonPath: file.absolutePath,
+        previewHtml: '',
+        previewUrl: ''
+      },
+      selectedCourseRelativePath: courseRelativePathForFile(file.relativePath),
+      selectedCourseWorkspaceId: workspace.id
+    })
+    try {
+      const document = await api.readWorkspaceMarkdown({
+        workspaceId: workspace.id,
+        documentPath: file.absolutePath
+      })
+      set({
+        selectedMarkdownDocument: document,
+        markdownDraft: document.content,
+        appState: { ...get().appState, selectedLessonPath: document.absolutePath }
+      })
+    } catch (error) {
+      set({ error: toUserError(error), ...clearMarkdownDocumentPatch() })
+    }
+  },
+  saveMarkdownDocument: async () => {
+    const api = window.teachingSystem
+    if (!api) return
+    const document = get().selectedMarkdownDocument
+    const workspace = get().selectedCourseWorkspaceId
+      ? get().appState.workspaces.find((item) => item.id === get().selectedCourseWorkspaceId) ?? get().appState.activeWorkspace
+      : get().appState.activeWorkspace
+    if (!document || !workspace) return
+    set({ markdownSaving: true, error: null })
+    try {
+      const result = await api.saveWorkspaceMarkdown({
+        workspaceId: workspace.id,
+        documentPath: document.absolutePath,
+        content: get().markdownDraft
+      })
+      set({
+        appState: result.state,
+        selectedMarkdownDocument: result.document,
+        markdownDraft: result.document.content,
+        markdownSaving: false
+      })
+    } catch (error) {
+      set({ error: toUserError(error), markdownSaving: false })
+    }
+  },
   openResourceHtmlPreview: (selectedResourcePreviewFile) => {
     set({
       view: 'resources',
       lessonReaderOpen: false,
       selectedCoursePreviewFile: null,
+      ...clearMarkdownDocumentPatch(),
       selectedResourcePreviewFile
     })
   },
@@ -2191,6 +2313,7 @@ function Sidebar() {
   const active = appState.activeWorkspace
   const selectedLessonPath = appState.selectedLessonPath
   const lessonReaderOpen = useAppStore((s) => s.lessonReaderOpen)
+  const selectedMarkdownDocument = useAppStore((s) => s.selectedMarkdownDocument)
   const [coursesExpanded, setCoursesExpanded] = useState(true)
   const [conversationsExpanded, setConversationsExpanded] = useState(true)
 
@@ -2213,7 +2336,8 @@ function Sidebar() {
                     selectedCourseWorkspaceId: null,
                     lessonReaderOpen: false,
                     selectedCoursePreviewFile: null,
-                    selectedResourcePreviewFile: null
+                    selectedResourcePreviewFile: null,
+                    ...clearMarkdownDocumentPatch()
                   })
                 }
                 if (item.id === 'resources') {
@@ -2234,7 +2358,7 @@ function Sidebar() {
           workspaces={appState.workspaces}
           activeWorkspaceId={active?.id ?? null}
           expanded={coursesExpanded}
-          selectedLessonPath={view === 'lessons' && lessonReaderOpen ? selectedLessonPath : null}
+          selectedLessonPath={view === 'lessons' && (lessonReaderOpen || selectedMarkdownDocument) ? selectedLessonPath : null}
           onToggle={() => setCoursesExpanded((expanded) => !expanded)}
         />
         <SidebarConversationSection
@@ -2286,6 +2410,7 @@ function WorkspaceCourseSection({
   const selectWorkspace = useAppStore((s) => s.selectWorkspace)
   const loadLesson = useAppStore((s) => s.loadLesson)
   const loadCourseHtmlFile = useAppStore((s) => s.loadCourseHtmlFile)
+  const loadWorkspaceMarkdownFile = useAppStore((s) => s.loadWorkspaceMarkdownFile)
   const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
   const view = useAppStore((s) => s.view)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
@@ -2376,6 +2501,7 @@ function WorkspaceCourseSection({
                     onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
                     onOpenPath={(path) => void openPath(path)}
                     onOpenHtmlFile={(file) => void loadCourseHtmlFile(file)}
+                    onOpenMarkdownFile={(file) => void loadWorkspaceMarkdownFile(file, workspace.id)}
                     onOpenCourse={(relativePath) => selectCourseFolder(relativePath, workspace.id)}
                     onOpenLesson={(lesson) => {
                       void loadLesson(lesson)
@@ -2877,6 +3003,7 @@ function WorkspaceFileNodeRow({
   onEnsureWorkspaceSelected,
   onOpenPath,
   onOpenHtmlFile,
+  onOpenMarkdownFile,
   onOpenCourse,
   onOpenLesson,
   onOpenConversation
@@ -2892,6 +3019,7 @@ function WorkspaceFileNodeRow({
   onEnsureWorkspaceSelected: () => Promise<void>
   onOpenPath: (path: string) => void
   onOpenHtmlFile?: (file: CoursePreviewFile) => void
+  onOpenMarkdownFile?: (file: CoursePreviewFile) => void
   onOpenCourse?: (relativePath: string, workspaceId: string) => void
   onOpenLesson: (lesson: LessonSummary) => void
   onOpenConversation: (conversationId: string) => void
@@ -2912,8 +3040,9 @@ function WorkspaceFileNodeRow({
   const isWorkspaceFolder = treeRoot === 'courses' && level === 0 && isDirectory && normalizeRelativePath(node.relativePath) === ''
   const isCourseFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && isSidebarCourseFolderPath(node.relativePath)
   const isHtmlFile = !isDirectory && node.name.toLowerCase().endsWith('.html')
+  const isMarkdownFile = !isDirectory && node.name.toLowerCase().endsWith('.md')
   const isSelected = Boolean(
-    (((lesson || (treeRoot === 'courses' && isHtmlFile)) && node.absolutePath === selectedLessonPath) ||
+    (((lesson || (treeRoot === 'courses' && (isHtmlFile || isMarkdownFile))) && node.absolutePath === selectedLessonPath) ||
       (conversation && conversation.id === activeConversationId))
   )
   const itemKind: WorkspaceItemKind = conversation ? 'conversation' : isDirectory ? 'directory' : 'file'
@@ -2956,8 +3085,16 @@ function WorkspaceFileNodeRow({
       else onOpenConversation(conversation.id)
       return
     }
-    if (treeRoot === 'courses' && onOpenHtmlFile && node.name.toLowerCase().endsWith('.html')) {
+    if (treeRoot === 'courses' && onOpenHtmlFile && isHtmlFile) {
       onOpenHtmlFile({
+        title: titleFromFileName(node.name),
+        relativePath: node.relativePath,
+        absolutePath: node.absolutePath
+      })
+      return
+    }
+    if (treeRoot === 'courses' && onOpenMarkdownFile && isMarkdownFile) {
+      onOpenMarkdownFile({
         title: titleFromFileName(node.name),
         relativePath: node.relativePath,
         absolutePath: node.absolutePath
@@ -3005,7 +3142,7 @@ function WorkspaceFileNodeRow({
   return (
     <div className="workspace-node">
       <div
-        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
+        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${isMarkdownFile ? 'is-markdown-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
         style={{ paddingLeft: 4 + level * 12 }}
         role="treeitem"
         aria-expanded={isDirectory ? isExpanded : undefined}
@@ -3065,6 +3202,7 @@ function WorkspaceFileNodeRow({
                 onEnsureWorkspaceSelected={onEnsureWorkspaceSelected}
                 onOpenPath={onOpenPath}
                 onOpenHtmlFile={onOpenHtmlFile}
+                onOpenMarkdownFile={onOpenMarkdownFile}
                 onOpenCourse={onOpenCourse}
                 onOpenLesson={onOpenLesson}
                 onOpenConversation={onOpenConversation}
@@ -3186,6 +3324,86 @@ function lessonToCoursePreviewFile(lesson: LessonSummary): CoursePreviewFile {
     relativePath: lesson.relativePath,
     absolutePath: lesson.absolutePath
   }
+}
+
+function MarkdownDocumentPanel({
+  document,
+  draft,
+  mode,
+  saving,
+  workspaceId,
+  onDraftChange,
+  onModeChange,
+  onSave,
+  onOpenPath,
+  onOpenExternal
+}: {
+  document: WorkspaceMarkdownDocument
+  draft: string
+  mode: MarkdownEditorMode
+  saving: boolean
+  workspaceId: string | null
+  onDraftChange: (content: string) => void
+  onModeChange: (mode: MarkdownEditorMode) => void
+  onSave: () => void
+  onOpenPath: () => void
+  onOpenExternal: (href: string) => void
+}) {
+  const { t } = useTranslation()
+  const dirty = draft !== document.content
+  const updatedAt = document.updatedAt
+    ? new Date(document.updatedAt).toLocaleString(i18n.language)
+    : null
+
+  return (
+    <section className="markdown-document-panel" aria-label={document.title}>
+      <header className="markdown-document-toolbar">
+        <div className="markdown-document-title">
+          <FileText size={16} />
+          <div>
+            <strong>{document.title || titleFromFileName(document.relativePath)}</strong>
+            <span>{document.relativePath}{updatedAt ? ` · ${updatedAt}` : ''}</span>
+          </div>
+        </div>
+        <div className="markdown-document-actions">
+          <SegmentedControl
+            value={mode}
+            options={[
+              { value: 'split', label: t('markdown.split'), icon: PanelLeft },
+              { value: 'preview', label: t('markdown.preview'), icon: Eye },
+              { value: 'edit', label: t('markdown.edit'), icon: PenLine }
+            ]}
+            onChange={onModeChange}
+          />
+          <button className="ghost-button" type="button" onClick={onOpenPath}>
+            <ExternalLink size={15} />
+            {t('markdown.openFile')}
+          </button>
+          <button className="ghost-button strong" type="button" onClick={onSave} disabled={!dirty || saving}>
+            {saving ? <Loader2 className="spin" size={15} /> : <Save size={15} />}
+            {dirty ? t('markdown.save') : t('markdown.saved')}
+          </button>
+        </div>
+      </header>
+      <div className="markdown-document-body" data-mode={mode}>
+        <div className="markdown-document-editor" aria-hidden={mode === 'preview' ? true : undefined}>
+          <div className="markdown-pane-label">{t('markdown.source')}</div>
+          <MarkdownEditor value={draft} onChange={onDraftChange} onSave={onSave} />
+        </div>
+        <div className="markdown-document-preview">
+          <div className="markdown-pane-label">{t('markdown.rendered')}</div>
+          <MarkdownPreview
+            source={draft}
+            workspaceId={workspaceId}
+            documentRelativePath={document.relativePath}
+            emptyTitle={t('markdown.emptyTitle')}
+            emptyHint={t('markdown.emptyHint')}
+            onOpenExternal={onOpenExternal}
+          />
+        </div>
+      </div>
+    </section>
+  )
 }
 
 /** Truncate the middle of a string so long branch names fit the trigger button. */
@@ -3765,6 +3983,10 @@ function MainArea() {
     lessonReaderOpen,
     selectedCoursePreviewFile,
     selectedResourcePreviewFile,
+    selectedMarkdownDocument,
+    markdownDraft,
+    markdownMode,
+    markdownSaving,
     setView,
     setSidebarCollapsed,
     openSettings,
@@ -3777,8 +3999,12 @@ function MainArea() {
     updateMission,
     generateLesson,
     loadLesson,
+    setMarkdownDraft,
+    setMarkdownMode,
+    saveMarkdownDocument,
     openLessonLibrary,
     openPath,
+    openExternal,
     clearError
   } = useAppStore()
 
@@ -3809,6 +4035,7 @@ function MainArea() {
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? null
   const selectedPreviewFile = selectedCoursePreviewFile ?? (selectedLesson ? lessonToCoursePreviewFile(selectedLesson) : null)
   const readingCourseHtml = Boolean(lessonReaderOpen && selectedPreviewFile)
+  const readingMarkdown = view === 'lessons' && Boolean(selectedMarkdownDocument)
   const readingResourceHtml = view === 'resources' && Boolean(selectedResourcePreviewFile)
   const readingHtml = readingCourseHtml || readingResourceHtml
   const lessonFrameKey = selectedPreviewFile
@@ -3859,7 +4086,7 @@ function MainArea() {
             <ArrowLeft size={17} />
           </button>
         </>
-      ) : readingCourseHtml ? (
+      ) : readingCourseHtml || readingMarkdown ? (
         renderSidebarToggle('icon-button reader-sidebar-toggle')
       ) : (
         <header className="topbar">
@@ -3927,8 +4154,17 @@ function MainArea() {
       )}
 
       {view === 'lessons' && (
-        <section className="lesson-course-view" aria-label={t('nav.lessons')} data-reading-html={readingCourseHtml ? 'true' : undefined}>
-          <div className="lesson-course-stage" data-reading-html={readingCourseHtml ? 'true' : undefined}>
+        <section
+          className="lesson-course-view"
+          aria-label={t('nav.lessons')}
+          data-reading-html={readingCourseHtml ? 'true' : undefined}
+          data-reading-markdown={readingMarkdown ? 'true' : undefined}
+        >
+          <div
+            className="lesson-course-stage"
+            data-reading-html={readingCourseHtml ? 'true' : undefined}
+            data-reading-markdown={readingMarkdown ? 'true' : undefined}
+          >
             {readingCourseHtml && selectedPreviewFile ? (
               <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
                 <div className="lesson-reader-frame-wrap">
@@ -3942,6 +4178,19 @@ function MainArea() {
                   />
                 </div>
               </section>
+            ) : readingMarkdown && selectedMarkdownDocument ? (
+              <MarkdownDocumentPanel
+                document={selectedMarkdownDocument}
+                draft={markdownDraft}
+                mode={markdownMode}
+                saving={markdownSaving}
+                workspaceId={selectedCourseWorkspaceId}
+                onDraftChange={setMarkdownDraft}
+                onModeChange={setMarkdownMode}
+                onSave={() => void saveMarkdownDocument()}
+                onOpenPath={() => void openPath(selectedMarkdownDocument.absolutePath)}
+                onOpenExternal={(href) => void openExternal(href)}
+              />
             ) : (
               <section className="lesson-course-library" aria-label={t('lessons.libraryTitle')}>
                 <div className="lesson-library-header">

@@ -65,8 +65,16 @@ try {
   assert.ok(importedWorkspaceNode)
   assert.deepEqual(
     importedWorkspaceNode.children?.map((node) => node.name).sort(),
-    ['conversation', 'lessons'],
-    'imported tutorial folder should expose lessons and conversation directly under the workspace root'
+    ['GLOSSARY.md', 'MISSION.md', 'RESOURCES.md', 'conversation', 'lessons'],
+    'imported tutorial folder should expose mission, glossary, resources, lessons, and conversation directly under the workspace root'
+  )
+  assert.deepEqual(
+    importedWorkspaceNode.children
+      ?.filter((node) => node.kind === 'file' && node.name.endsWith('.md'))
+      .map((node) => node.relativePath)
+      .sort(),
+    ['GLOSSARY.md', 'MISSION.md', 'RESOURCES.md'],
+    'workspace root teaching markdown files should be selectable from the course sidebar'
   )
   assert.equal(
     await stat(join(sourceRoot, 'conversation')).then((info) => info.isDirectory()).catch(() => false),

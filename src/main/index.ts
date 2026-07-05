@@ -30,9 +30,11 @@ import {
   parseProbeProviderPayload,
   parseReadAgentConversationPayload,
   parseReadLessonPayload,
+  parseReadWorkspaceMarkdownPayload,
   parseRecordProgressPayload,
   parseRemoveGitWorktreePayload,
   parseSaveAgentConversationPayload,
+  parseSaveWorkspaceMarkdownPayload,
   parseSettingsPatch,
   parseUpdateMemoryPayload,
   parseUpdateMissionPayload,
@@ -244,6 +246,14 @@ function registerTeachingIpc(
 
   ipcMain.handle('teach:read-lesson', async (_, payload: unknown) =>
     service.readLesson(parseReadLessonPayload(payload))
+  )
+
+  ipcMain.handle('teach:read-workspace-markdown', async (_, payload: unknown) =>
+    service.readWorkspaceMarkdown(parseReadWorkspaceMarkdownPayload(payload))
+  )
+
+  ipcMain.handle('teach:save-workspace-markdown', async (_, payload: unknown) =>
+    service.saveWorkspaceMarkdown(parseSaveWorkspaceMarkdownPayload(payload))
   )
 
   ipcMain.handle('teach:open-path', async (_, rawPath: unknown) => {

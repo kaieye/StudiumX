@@ -124,8 +124,8 @@ assert.match(
 
 assert.match(
   app,
-  /selectedLessonPath=\{view === 'lessons' && lessonReaderOpen \? selectedLessonPath : null\}/,
-  'sidebar HTML selection should only be active while the lesson reader is visible'
+  /selectedLessonPath=\{view === 'lessons' && \(lessonReaderOpen \|\| selectedMarkdownDocument\) \? selectedLessonPath : null\}/,
+  'sidebar file selection should only be active while the lesson HTML reader or markdown reader is visible'
 )
 
 assert.doesNotMatch(
@@ -142,8 +142,8 @@ assert.match(
 
 assert.match(
   app,
-  /\) : readingCourseHtml \? \(\s*renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\s*\) : \(\s*<header className="topbar">/,
-  'lesson HTML reader views should keep the floating sidebar toggle without a topbar'
+  /\) : readingCourseHtml \|\| readingMarkdown \? \(\s*renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\s*\) : \(\s*<header className="topbar">/,
+  'lesson HTML and Markdown reader views should keep the floating sidebar toggle without a topbar'
 )
 
 assert.match(
@@ -171,9 +171,69 @@ assert.match(
 )
 
 assert.match(
+  app,
+  /const isMarkdownFile = !isDirectory && node\.name\.toLowerCase\(\)\.endsWith\('\.md'\)/,
+  'workspace tree should identify Markdown files as selectable document rows'
+)
+
+assert.match(
+  app,
+  /onOpenMarkdownFile=\{\(file\) => void loadWorkspaceMarkdownFile\(file, workspace\.id\)\}/,
+  'course sidebar should route Markdown files into the in-app markdown document reader'
+)
+
+assert.match(
+  app,
+  /type MarkdownEditorMode = 'split' \| 'preview' \| 'edit'/,
+  'markdown documents should support split, preview, and edit modes'
+)
+
+assert.match(
+  app,
+  /markdownMode: 'split'/,
+  'markdown documents should open in split mode by default'
+)
+
+assert.match(
+  app,
+  /className="markdown-document-editor"[\s\S]*<MarkdownEditor[\s\S]*className="markdown-document-preview"[\s\S]*<MarkdownPreview/,
+  'markdown document panel should render CodeMirror editor and rendered preview panes together'
+)
+
+assert.match(
+  app,
+  /import \{ MarkdownEditor \} from '\.\/markdown-editor'/,
+  'markdown document panel should use the dedicated CodeMirror editor component'
+)
+
+assert.match(
+  app,
+  /import \{ MarkdownPreview \} from '\.\/markdown-preview'/,
+  'markdown document panel should use the dedicated markdown-it preview component'
+)
+
+assert.match(
+  await readFile('src/renderer/src/markdown-editor.tsx', 'utf8'),
+  /markdown\(\)[\s\S]*EditorView\.lineWrapping[\s\S]*updateListener/,
+  'markdown editor should enable CodeMirror markdown editing with live updates'
+)
+
+assert.match(
+  await readFile('src/renderer/src/markdown-preview.tsx', 'utf8'),
+  /new MarkdownIt\([\s\S]*html: false[\s\S]*linkify: true[\s\S]*markdownItTaskLists[\s\S]*markdownItMark/,
+  'markdown preview should render through a markdown-it pipeline with GFM-like basics'
+)
+
+assert.match(
   css,
-  /\.workspace-node-row\.is-selected\.is-html-file,[\s\S]*\.workspace-node-row\.is-selected\.is-conversation \{[\s\S]*box-shadow:/,
-  'only selected HTML files and course conversations should receive selected-row shadow styling'
+  /\.markdown-document-body \{[\s\S]*grid-template-columns: minmax\(300px, 0\.9fr\) minmax\(0, 1\.1fr\);/,
+  'markdown split view should use a side-by-side editor/preview layout on desktop'
+)
+
+assert.match(
+  css,
+  /\.workspace-node-row\.is-selected\.is-html-file,[\s\S]*\.workspace-node-row\.is-selected\.is-markdown-file,[\s\S]*\.workspace-node-row\.is-selected\.is-conversation \{[\s\S]*box-shadow:/,
+  'selected HTML files, Markdown documents, and course conversations should receive selected-row shadow styling'
 )
 
 assert.doesNotMatch(

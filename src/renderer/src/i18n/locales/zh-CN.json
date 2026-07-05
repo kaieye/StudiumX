@@ -145,6 +145,18 @@
     "previewTitle": "静态课程预览",
     "openPreview": "打开预览"
   },
+  "markdown": {
+    "split": "分屏",
+    "preview": "预览",
+    "edit": "编辑",
+    "source": "源码",
+    "rendered": "渲染",
+    "emptyTitle": "暂无可预览内容",
+    "emptyHint": "在左侧编辑器输入 Markdown 后会实时渲染。",
+    "openFile": "打开文件",
+    "save": "保存",
+    "saved": "已保存"
+  },
   "resources": {
     "trusted": "内置教程",
     "title": "教程中心",

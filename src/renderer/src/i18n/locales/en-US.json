@@ -145,6 +145,18 @@
     "previewTitle": "Static lesson preview",
     "openPreview": "Open preview"
   },
+  "markdown": {
+    "split": "Split",
+    "preview": "Preview",
+    "edit": "Edit",
+    "source": "Source",
+    "rendered": "Rendered",
+    "emptyTitle": "Nothing to preview",
+    "emptyHint": "Markdown typed in the editor renders here live.",
+    "openFile": "Open file",
+    "save": "Save",
+    "saved": "Saved"
+  },
   "resources": {
     "trusted": "Built-in tutorials",
     "title": "Tutorial center",

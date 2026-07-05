@@ -526,6 +526,28 @@ export type ReadLessonResult = {
   url: string
 }
 
+export type ReadWorkspaceMarkdownPayload = {
+  workspaceId: string
+  documentPath: string
+}
+
+export type WorkspaceMarkdownDocument = {
+  title: string
+  relativePath: string
+  absolutePath: string
+  content: string
+  updatedAt: string | null
+}
+
+export type SaveWorkspaceMarkdownPayload = ReadWorkspaceMarkdownPayload & {
+  content: string
+}
+
+export type SaveWorkspaceMarkdownResult = {
+  state: TeachingAppState
+  document: WorkspaceMarkdownDocument
+}
+
 export type ImportWorkspaceResult = {
   canceled: boolean
   state: TeachingAppState | null
@@ -818,6 +840,8 @@ export type TeachingSystemApi = {
   applyLessonStyle: (payload: ApplyLessonStylePayload) => Promise<TeachingAppState>
   generateLesson: (payload: GenerateLessonPayload) => Promise<GenerateLessonResult>
   readLesson: (payload: ReadLessonPayload) => Promise<ReadLessonResult>
+  readWorkspaceMarkdown: (payload: ReadWorkspaceMarkdownPayload) => Promise<WorkspaceMarkdownDocument>
+  saveWorkspaceMarkdown: (payload: SaveWorkspaceMarkdownPayload) => Promise<SaveWorkspaceMarkdownResult>
   openPath: (path: string) => Promise<OpenPathResult>
   openExternal: (url: string) => Promise<OpenPathResult>
   showNotification: (payload: NotificationPayload) => Promise<void>
