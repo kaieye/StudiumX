@@ -60,6 +60,7 @@ import {
   isRootAgentConversationMarkdownRelativePath,
   normalizeAgentConversationDirectory
 } from '../shared/agent-conversation-catalog'
+import { injectPreviewMarkdownLinkBridge } from '../shared/preview-markdown-bridge'
 import type {
   ApplyLessonStylePayload,
   CreateWorkspacePayload,
@@ -1585,8 +1586,10 @@ function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
 
 function withPreviewBase(html: string, baseHref: string): string {
   const baseTag = `<base href="${baseHref}" />`
-  if (/<base\s/i.test(html)) return html
-  return html.replace(/<head([^>]*)>/i, `<head$1>\n  ${baseTag}`)
+  const withBase = /<base\s/i.test(html)
+    ? html
+    : html.replace(/<head([^>]*)>/i, `<head$1>\n  ${baseTag}`)
+  return injectPreviewMarkdownLinkBridge(withBase)
 }
 
 function toPreviewUrl(workspaceId: string, relativePath: string): string {

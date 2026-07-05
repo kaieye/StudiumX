@@ -98,6 +98,10 @@ import {
 } from './agent-conversation-state'
 import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
 import {
+  parsePreviewMarkdownHref,
+  PREVIEW_MARKDOWN_LINK_MESSAGE
+} from '../../shared/preview-markdown-bridge'
+import {
   DEFAULT_LESSON_STYLE_ID,
   LESSON_STYLES,
   normalizeLessonStyleId,
@@ -3999,6 +4003,7 @@ function MainArea() {
     updateMission,
     generateLesson,
     loadLesson,
+    loadWorkspaceMarkdownFile,
     setMarkdownDraft,
     setMarkdownMode,
     saveMarkdownDocument,
@@ -4054,6 +4059,28 @@ function MainArea() {
       <PanelLeft size={17} />
     </button>
   )
+
+  useEffect(() => {
+    const handlePreviewMessage = (event: MessageEvent): void => {
+      const data = event.data as { type?: unknown; href?: unknown } | null
+      if (!data || data.type !== PREVIEW_MARKDOWN_LINK_MESSAGE || typeof data.href !== 'string') return
+      const target = parsePreviewMarkdownHref(data.href)
+      if (!target) return
+      const workspace = appState.workspaces.find((item) => item.id === target.workspaceId)
+      if (!workspace) return
+      void loadWorkspaceMarkdownFile(
+        {
+          title: titleFromFileName(target.relativePath),
+          relativePath: target.relativePath,
+          absolutePath: target.relativePath
+        },
+        workspace.id
+      )
+    }
+
+    window.addEventListener('message', handlePreviewMessage)
+    return () => window.removeEventListener('message', handlePreviewMessage)
+  }, [appState.workspaces, loadWorkspaceMarkdownFile])
 
   // Show skeleton during initial load
   if (loading && !active) {

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { listSidebarWorkspaceFolders } from '../../src/shared/course-sidebar'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
+import { parsePreviewMarkdownHref, PREVIEW_MARKDOWN_LINK_MESSAGE } from '../../src/shared/preview-markdown-bridge'
 
 let tempRoot = ''
 
@@ -67,6 +68,28 @@ try {
 
   const previewFile = await service.resolvePreviewFile(workspace.id, 'RESOURCES.md')
   assert.equal(previewFile?.mimeType, 'text/markdown; charset=utf-8')
+
+  const lessonDir = join(workspace.rootPath, 'courses', 'demo', 'lesson')
+  await mkdir(lessonDir, { recursive: true })
+  await writeFile(
+    join(lessonDir, '0001-md-nav.html'),
+    '<!doctype html><html><head><title>md nav</title></head><body><a href="../../../MISSION.md">Mission</a></body></html>',
+    'utf8'
+  )
+  const lessonPreview = await service.readLesson({
+    workspaceId: workspace.id,
+    lessonPath: 'courses/demo/lesson/0001-md-nav.html'
+  })
+  assert.match(
+    lessonPreview.html,
+    new RegExp(PREVIEW_MARKDOWN_LINK_MESSAGE),
+    'lesson preview HTML should intercept Markdown links instead of letting the iframe navigate to raw text'
+  )
+  assert.deepEqual(
+    parsePreviewMarkdownHref(`teachos-preview://${encodeURIComponent(workspace.id)}/MISSION.md`),
+    { workspaceId: workspace.id, relativePath: 'MISSION.md' },
+    'preview markdown bridge should parse teachos-preview Markdown links for the app shell'
+  )
 
   await assert.rejects(
     service.readWorkspaceMarkdown({ workspaceId: workspace.id, documentPath: '../outside.md' }),
