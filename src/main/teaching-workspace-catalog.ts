@@ -201,10 +201,32 @@ export function normalizeLessonSummary(
     courseRelativePath: placement.courseRelativePath,
     courseAbsolutePath: placement.courseAbsolutePath,
     sessionId: placement.sessionId,
-    sessionName: placement.sessionName,
+    sessionName: normalizeLessonSessionName(lesson, placement.sessionName),
     sessionRelativePath: placement.sessionRelativePath,
     sessionAbsolutePath: placement.sessionAbsolutePath
   }
+}
+
+function normalizeLessonSessionName(lesson: LessonSummary, filenameSessionName: string): string {
+  const storedSessionName = cleanText(lesson.sessionName)
+  if (storedSessionName && !isFilenameDerivedSessionName(storedSessionName, filenameSessionName, lesson.id)) {
+    return storedSessionName
+  }
+  const title = cleanText(lesson.title)
+  if (!title) return filenameSessionName
+  const sequence = /^\d{4}$/.test(lesson.id) && lesson.id !== '0000' ? lesson.id : ''
+  if (!sequence || title.startsWith(sequence)) return title
+  return `${sequence} ${title}`
+}
+
+function isFilenameDerivedSessionName(value: string, filenameSessionName: string, lessonId: string): boolean {
+  const normalizedValue = value.toLocaleLowerCase()
+  const normalizedFilenameName = cleanText(filenameSessionName).toLocaleLowerCase()
+  const normalizedId = cleanText(lessonId)
+  return (
+    normalizedValue === normalizedFilenameName ||
+    Boolean(normalizedId && normalizedValue === `${normalizedId} ${normalizedFilenameName}`)
+  )
 }
 
 async function mergeLessonIndexWithDisk(

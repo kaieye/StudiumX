@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -22,6 +22,45 @@ try {
   const state = await service.createWorkspace({ name: 'teach-rag', prompt: '学习 RAG' })
   const workspace = state.activeWorkspace
   assert.ok(workspace)
+
+  const lessonTitle = 'RAG 全貌：为什么 + 三阶段流程'
+  const lessonRelativePath = 'lessons/0001-rag.html'
+  const lessonAbsolutePath = join(workspace.rootPath, lessonRelativePath)
+  await writeFile(lessonAbsolutePath, `<html><head><title>${lessonTitle}</title></head><body>${lessonTitle}</body></html>`)
+  await writeFile(
+    join(workspace.rootPath, '.teachos', 'index.json'),
+    `${JSON.stringify({
+      id: workspace.id,
+      name: workspace.name,
+      rootPath: workspace.rootPath,
+      createdAt: workspace.createdAt,
+      updatedAt: workspace.updatedAt,
+      lessons: [
+        {
+          id: '0001',
+          title: lessonTitle,
+          objective: '用图书馆员类比理解 RAG 动机与流程。',
+          prompt: '学习 RAG',
+          createdAt: '2026-07-01T00:00:00.000Z',
+          durationMinutes: 15,
+          relativePath: lessonRelativePath,
+          absolutePath: lessonAbsolutePath,
+          sessionName: 'Rag'
+        }
+      ]
+    }, null, 2)}\n`
+  )
+
+  const reloaded = await service.getState({ activeWorkspaceId: workspace.id })
+  const reloadedWorkspace = reloaded.activeWorkspace
+  assert.ok(reloadedWorkspace)
+  const reloadedLesson = reloadedWorkspace.lessons.find((lesson) => lesson.relativePath === lessonRelativePath)
+  assert.ok(reloadedLesson)
+  assert.equal(
+    reloadedLesson.sessionName,
+    `0001 ${lessonTitle}`,
+    'indexed lesson titles should survive reload instead of falling back to the rag filename slug'
+  )
 
   const selectedCourseRelativePath = 'lessons'
   await mkdir(join(workspace.rootPath, 'conversations'), { recursive: true })
