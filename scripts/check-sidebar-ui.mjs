@@ -182,22 +182,28 @@ assert.match(
   'course sidebar should route Markdown files into the in-app markdown document reader'
 )
 
-assert.match(
+assert.doesNotMatch(
   app,
-  /type MarkdownEditorMode = 'split' \| 'preview' \| 'edit'/,
-  'markdown documents should support split, preview, and edit modes'
+  /MarkdownEditorMode|markdownMode|setMarkdownMode|onModeChange/,
+  'markdown documents should not expose mode state or a mode switch'
 )
 
-assert.match(
+assert.doesNotMatch(
   app,
-  /markdownMode: 'split'/,
-  'markdown documents should open in split mode by default'
+  /markdown-document-toolbar|markdown-pane-label|data-mode=\{/,
+  'markdown document panel should not render top chrome or pane labels'
+)
+
+assert.doesNotMatch(
+  css,
+  /markdown-document-toolbar|markdown-pane-label|data-mode=/,
+  'markdown document styles should not keep toolbar, labels, or mode-specific layouts'
 )
 
 assert.match(
   app,
   /className="markdown-document-editor"[\s\S]*<MarkdownEditor[\s\S]*className="markdown-document-preview"[\s\S]*<MarkdownPreview/,
-  'markdown document panel should render CodeMirror editor and rendered preview panes together'
+  'markdown document panel should always render CodeMirror editor and rendered preview panes together'
 )
 
 assert.match(

@@ -51,7 +51,6 @@ import {
   Star,
   Square,
   Sun,
-  Save,
   Play,
   SendHorizontal,
   Upload,
@@ -186,8 +185,6 @@ type ResourcePreviewFile = {
   html: string
 }
 
-type MarkdownEditorMode = 'split' | 'preview' | 'edit'
-
 type LessonGenerationOptions = {
   prompt?: string
   messages?: AgentChatMessage[]
@@ -208,7 +205,6 @@ type StoreState = {
   selectedResourcePreviewFile: ResourcePreviewFile | null
   selectedMarkdownDocument: WorkspaceMarkdownDocument | null
   markdownDraft: string
-  markdownMode: MarkdownEditorMode
   markdownSaving: boolean
   selectedCourseRelativePath: string | null
   selectedCourseWorkspaceId: string | null
@@ -241,7 +237,6 @@ type StoreState = {
   loadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
   loadWorkspaceMarkdownFile: (file: CoursePreviewFile, workspaceId?: string | null) => Promise<void>
   setMarkdownDraft: (content: string) => void
-  setMarkdownMode: (mode: MarkdownEditorMode) => void
   saveMarkdownDocument: () => Promise<void>
   openResourceHtmlPreview: (file: ResourcePreviewFile) => void
   closeResourceHtmlPreview: () => void
@@ -404,12 +399,11 @@ const emptySettings: TeachingSettingsV1 = {
 
 function clearMarkdownDocumentPatch(): Pick<
   StoreState,
-  'selectedMarkdownDocument' | 'markdownDraft' | 'markdownMode' | 'markdownSaving'
+  'selectedMarkdownDocument' | 'markdownDraft' | 'markdownSaving'
 > {
   return {
     selectedMarkdownDocument: null,
     markdownDraft: '',
-    markdownMode: 'split',
     markdownSaving: false
   }
 }
@@ -906,7 +900,6 @@ const useAppStore = create<StoreState>((set, get) => ({
   selectedResourcePreviewFile: null,
   selectedMarkdownDocument: null,
   markdownDraft: '',
-  markdownMode: 'split',
   markdownSaving: false,
   selectedCourseRelativePath: null,
   selectedCourseWorkspaceId: null,
@@ -1059,7 +1052,6 @@ const useAppStore = create<StoreState>((set, get) => ({
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setTaskPrompt: (taskPrompt) => set({ taskPrompt }),
   setMarkdownDraft: (markdownDraft) => set({ markdownDraft }),
-  setMarkdownMode: (markdownMode) => set({ markdownMode }),
   clearError: () => set({ error: null }),
   initialize: async () => {
     set({ loading: true, error: null })
@@ -1872,7 +1864,6 @@ const useAppStore = create<StoreState>((set, get) => ({
         updatedAt: null
       },
       markdownDraft: '',
-      markdownMode: 'split',
       markdownSaving: false,
       appState: {
         ...get().appState,
@@ -3333,69 +3324,27 @@ function lessonToCoursePreviewFile(lesson: LessonSummary): CoursePreviewFile {
 function MarkdownDocumentPanel({
   document,
   draft,
-  mode,
-  saving,
   workspaceId,
   onDraftChange,
-  onModeChange,
   onSave,
-  onOpenPath,
   onOpenExternal
 }: {
   document: WorkspaceMarkdownDocument
   draft: string
-  mode: MarkdownEditorMode
-  saving: boolean
   workspaceId: string | null
   onDraftChange: (content: string) => void
-  onModeChange: (mode: MarkdownEditorMode) => void
   onSave: () => void
-  onOpenPath: () => void
   onOpenExternal: (href: string) => void
 }) {
   const { t } = useTranslation()
-  const dirty = draft !== document.content
-  const updatedAt = document.updatedAt
-    ? new Date(document.updatedAt).toLocaleString(i18n.language)
-    : null
 
   return (
     <section className="markdown-document-panel" aria-label={document.title}>
-      <header className="markdown-document-toolbar">
-        <div className="markdown-document-title">
-          <FileText size={16} />
-          <div>
-            <strong>{document.title || titleFromFileName(document.relativePath)}</strong>
-            <span>{document.relativePath}{updatedAt ? ` · ${updatedAt}` : ''}</span>
-          </div>
-        </div>
-        <div className="markdown-document-actions">
-          <SegmentedControl
-            value={mode}
-            options={[
-              { value: 'split', label: t('markdown.split'), icon: PanelLeft },
-              { value: 'preview', label: t('markdown.preview'), icon: Eye },
-              { value: 'edit', label: t('markdown.edit'), icon: PenLine }
-            ]}
-            onChange={onModeChange}
-          />
-          <button className="ghost-button" type="button" onClick={onOpenPath}>
-            <ExternalLink size={15} />
-            {t('markdown.openFile')}
-          </button>
-          <button className="ghost-button strong" type="button" onClick={onSave} disabled={!dirty || saving}>
-            {saving ? <Loader2 className="spin" size={15} /> : <Save size={15} />}
-            {dirty ? t('markdown.save') : t('markdown.saved')}
-          </button>
-        </div>
-      </header>
-      <div className="markdown-document-body" data-mode={mode}>
-        <div className="markdown-document-editor" aria-hidden={mode === 'preview' ? true : undefined}>
-          <div className="markdown-pane-label">{t('markdown.source')}</div>
+      <div className="markdown-document-body">
+        <div className="markdown-document-editor">
           <MarkdownEditor value={draft} onChange={onDraftChange} onSave={onSave} />
         </div>
         <div className="markdown-document-preview">
-          <div className="markdown-pane-label">{t('markdown.rendered')}</div>
           <MarkdownPreview
             source={draft}
             workspaceId={workspaceId}
@@ -3989,8 +3938,6 @@ function MainArea() {
     selectedResourcePreviewFile,
     selectedMarkdownDocument,
     markdownDraft,
-    markdownMode,
-    markdownSaving,
     setView,
     setSidebarCollapsed,
     openSettings,
@@ -4005,7 +3952,6 @@ function MainArea() {
     loadLesson,
     loadWorkspaceMarkdownFile,
     setMarkdownDraft,
-    setMarkdownMode,
     saveMarkdownDocument,
     openLessonLibrary,
     openPath,
@@ -4209,13 +4155,9 @@ function MainArea() {
               <MarkdownDocumentPanel
                 document={selectedMarkdownDocument}
                 draft={markdownDraft}
-                mode={markdownMode}
-                saving={markdownSaving}
                 workspaceId={selectedCourseWorkspaceId}
                 onDraftChange={setMarkdownDraft}
-                onModeChange={setMarkdownMode}
                 onSave={() => void saveMarkdownDocument()}
-                onOpenPath={() => void openPath(selectedMarkdownDocument.absolutePath)}
                 onOpenExternal={(href) => void openExternal(href)}
               />
             ) : (
