@@ -147,7 +147,7 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
       workspaceRead: true,
       webSearch: true,
       webFetch: false,
-      maxIterations: 4
+      maxIterations: 8
     },
     webSearch: {
       backend: 'auto',
@@ -326,7 +326,7 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       workspaceRead: toolsInput.workspaceRead !== false,
       webSearch: toolsInput.webSearch !== false,
       webFetch: toolsInput.webFetch === true,
-      maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 1, 10, defaults.tools.maxIterations))
+      maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 1, 12, defaults.tools.maxIterations))
     },
     webSearch: {
       backend: normalizeWebSearchBackend(webSearchInput.backend, defaults.webSearch.backend),

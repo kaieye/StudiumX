@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { runAgentLoop } from './ai/agent-loop'
-import { resolveActiveProvider, type ChatMessage } from './ai/provider-adapter'
+import { resolveActiveProvider, type ChatMessage, type ToolDefinition } from './ai/provider-adapter'
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
 import {
   buildLearnerMemoryCandidate,
@@ -11,6 +11,7 @@ import {
   isBareMemoryConsentResponse,
   planLearnerMemoryCapture
 } from '../shared/teaching-memory-capture'
+import { normalizeLessonBrief, type LessonBrief } from '../shared/teaching-workflow'
 import type {
   AgentChatMessage,
   AgentChatMode,
@@ -21,7 +22,7 @@ import type {
   AgentChatStreamToolEvent,
   AgentChatTurn,
   CreateTeachingMemoryPayload,
-  TeachingClarificationResult,
+  LessonSummary,
   TeachingMemoryCaptureResult,
   TeachingMemoryRecord,
   TeachingSettingsV1
@@ -54,11 +55,12 @@ export type TeachingConversationRuntimeDeps = {
   loadSettings: () => Promise<TeachingSettingsV1>
   listMemories: (workspaceRoot?: string) => Promise<TeachingMemoryRecord[]>
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
-  assessTeachingRequest: (options: {
-    workspace: TeachingConversationRuntimeWorkspace
-    userInput: string
-    messages: AgentChatMessage[]
-  }) => Promise<TeachingClarificationResult>
+  /**
+   * Execute the lesson generation pipeline for a brief the conversation agent
+   * assembled. Provided only for teaching-mode conversations with an active
+   * workspace; its presence enables the generate_lesson tool.
+   */
+  generateLessonFromBrief?: (brief: LessonBrief) => Promise<LessonSummary>
   buildTemporaryChatContext: (
     workspace: TeachingConversationRuntimeWorkspace,
     memories: TeachingMemoryRecord[]
@@ -128,14 +130,6 @@ export async function runTeachingConversationTurn(
     }
   }
 
-  const teachingAssessment = isTeachingConversation && workspace
-    ? await deps.assessTeachingRequest({
-        workspace,
-        userInput,
-        messages: payload.messages ?? []
-      })
-    : null
-
   if (!provider || !provider.apiKey.trim()) {
     return { error: true, message: '未配置 API Key。' }
   }
@@ -144,6 +138,36 @@ export async function runTeachingConversationTurn(
   const registry = settings.tools.enabled && isTeachingConversation
     ? buildDefaultRegistry(settings, { workspaceRoot, workspaceWrite: true })
     : new ToolRegistry()
+  // Lesson generation is a tool of this conversation, not a parallel
+  // pipeline: the agent clarifies, decides readiness, and hands a structured
+  // brief to the same generator the direct entry uses.
+  const generatedLessons: LessonSummary[] = []
+  const generateLessonFromBrief = deps.generateLessonFromBrief
+  const lessonToolEnabled =
+    isTeachingConversation && Boolean(workspace) && settings.tools.enabled && typeof generateLessonFromBrief === 'function'
+  if (lessonToolEnabled && generateLessonFromBrief) {
+    registry.register({
+      definition: GENERATE_LESSON_TOOL_DEFINITION,
+      handler: async (args) => {
+        const brief = normalizeLessonBrief(args)
+        if (!brief) {
+          throw new Error(
+            'generate_lesson 参数不完整：topic 与 firstLessonFocus 必须是有实际内容的完整句子。请根据对话内容补全后重新调用。'
+          )
+        }
+        const lesson = await generateLessonFromBrief(brief)
+        generatedLessons.push(lesson)
+        return JSON.stringify({
+          ok: true,
+          lessonId: lesson.id,
+          title: lesson.title,
+          path: lesson.relativePath,
+          message: `课程已生成并登记：${lesson.title}（${lesson.relativePath}）`
+        })
+      }
+    })
+  }
+
   const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
   const teachSkillReference = isTeachingConversation ? await readTeachSkillReference(workspaceRoot) : null
   const capturePlan = settings.memory.enabled && memoryWorkspaceRoot && !directConsentOnly
@@ -157,7 +181,7 @@ export async function runTeachingConversationTurn(
       role: 'system',
       content: buildAgentChatSystemPrompt({
         mode: isTeachingConversation ? 'teaching' : 'temporary',
-        teachingAssessment,
+        lessonToolEnabled,
         teachSkillReference,
         memoryCapturePlan: capturePlan,
         settings,
@@ -176,6 +200,10 @@ export async function runTeachingConversationTurn(
     tools: registry.definitions(),
     toolHandlers: registry.handlerMap(ctx),
     maxIterations: settings.tools.maxIterations,
+    shouldErrorOnMaxIterations: () =>
+      lessonToolEnabled && generatedLessons.length === 0 && isLessonGenerationRequest(userInput),
+    maxIterationsErrorMessage:
+      '工具调用上限已用完，generate_lesson 尚未执行，所以课程尚未生成。请重试，或在设置里提高工具调用上限。',
     signal: stream.signal,
     callbacks: {
       onEvent: (event) => {
@@ -209,6 +237,17 @@ export async function runTeachingConversationTurn(
     return { canceled: true }
   }
   if (result.error) {
+    const recovered = await recoverLessonGenerationAfterToolBudget({
+      result,
+      userInput,
+      payloadMessages: payload.messages ?? [],
+      workspace,
+      lessonToolEnabled,
+      generatedLessons,
+      generateLessonFromBrief,
+      stream
+    })
+    if (recovered) return recovered
     return { error: true, message: result.error }
   }
   if (stream.signal?.aborted) {
@@ -248,7 +287,7 @@ export async function runTeachingConversationTurn(
     iterations: result.iterations,
     toolsSupported: result.toolsSupported,
     degradedReason: result.degradedReason,
-    teachingAssessment: teachingAssessment ?? undefined,
+    generatedLessons: generatedLessons.length > 0 ? generatedLessons : undefined,
     memoryCapture
   }
 }
@@ -277,7 +316,7 @@ async function readTeachSkillReference(workspaceRoot?: string): Promise<TeachSki
 
 function buildAgentChatSystemPrompt(options: {
   mode: AgentChatMode
-  teachingAssessment: TeachingClarificationResult | null
+  lessonToolEnabled: boolean
   teachSkillReference: TeachSkillReference | null
   memoryCapturePlan?: ReturnType<typeof planLearnerMemoryCapture>
   settings?: TeachingSettingsV1
@@ -286,7 +325,7 @@ function buildAgentChatSystemPrompt(options: {
 }): string {
   const {
     mode,
-    teachingAssessment,
+    lessonToolEnabled,
     teachSkillReference,
     memoryCapturePlan = { action: 'none', reason: 'no_candidate' },
     settings,
@@ -304,7 +343,6 @@ function buildAgentChatSystemPrompt(options: {
         '<teach-skill-reference source="fallback">',
         'The user has referenced the teach skill in addition to their visible message. Use it as progressive, on-demand guidance: default to the one-line intent here, and consult workspace files/tools only when they are useful.',
         'Core intent: teach within this workspace, ground lessons in MISSION.md / RESOURCES.md / learning-records, keep lessons focused and reviewable, and prefer retrieval practice when designing exercises.',
-        'Do not treat the local assessment below as a prewritten assistant reply. It is only a hint for your own judgment.',
         '</teach-skill-reference>'
       ].join('\n')
 
@@ -318,24 +356,10 @@ function buildAgentChatSystemPrompt(options: {
     return `${TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
   }
 
-  if (!teachingAssessment) {
-    return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${skillReference}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
-  }
-
-  const assessmentLines = [
-    '<teaching-readiness-hints>',
-    `stage: ${teachingAssessment.stage}`,
-    teachingAssessment.summary ? `summary: ${teachingAssessment.summary}` : '',
-    teachingAssessment.missingSignals.length
-      ? `missingSignals: ${teachingAssessment.missingSignals.join(', ')}`
-      : 'missingSignals: none',
-    teachingAssessment.openQuestions.length
-      ? `possibleQuestions: ${teachingAssessment.openQuestions.slice(0, 3).join(' | ')}`
-      : '',
-    '</teaching-readiness-hints>'
-  ].filter(Boolean)
-
-  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${skillReference}${modeLines ? `\n\n${modeLines}` : ''}\n\n${assessmentLines.join('\n')}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
+  const lessonPolicy = lessonToolEnabled
+    ? LESSON_TOOL_POLICY_PROMPT
+    : LESSON_TOOL_UNAVAILABLE_PROMPT
+  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${lessonPolicy}\n\n${skillReference}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
 }
 
 function buildTemporaryChatPromptLines(context?: TemporaryChatContext | null): string {
@@ -506,17 +530,162 @@ function cleanText(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
 }
 
+async function recoverLessonGenerationAfterToolBudget(options: {
+  result: Awaited<ReturnType<typeof runAgentLoop>>
+  userInput: string
+  payloadMessages: AgentChatMessage[]
+  workspace: TeachingConversationRuntimeWorkspace | null
+  lessonToolEnabled: boolean
+  generatedLessons: LessonSummary[]
+  generateLessonFromBrief?: (brief: LessonBrief) => Promise<LessonSummary>
+  stream: TeachingConversationRuntimeStream
+}): Promise<AgentChatStreamResult | null> {
+  const {
+    result,
+    userInput,
+    payloadMessages,
+    workspace,
+    lessonToolEnabled,
+    generatedLessons,
+    generateLessonFromBrief,
+    stream
+  } = options
+  if (
+    result.stopReason !== 'max_iterations' ||
+    !lessonToolEnabled ||
+    generatedLessons.length > 0 ||
+    !generateLessonFromBrief ||
+    !workspace ||
+    !isLessonGenerationRequest(userInput)
+  ) {
+    return null
+  }
+  if (stream.signal?.aborted) return { canceled: true }
+
+  const brief = buildRecoveryLessonBrief({ userInput, payloadMessages, workspace })
+  stream.onStatus({ streamId: stream.streamId, status: 'tool_running', message: 'generate_lesson' })
+  try {
+    const lesson = await generateLessonFromBrief(brief)
+    generatedLessons.push(lesson)
+    const finalText = `课程已生成：${lesson.title}\n\n保存路径：${lesson.relativePath}\n\n下一步建议：打开这节课通读一遍，学完后继续告诉我哪里偏简单或哪里需要加深。`
+    stream.onChunk({ streamId: stream.streamId, delta: finalText })
+    stream.onStatus({ streamId: stream.streamId, status: 'done' })
+    return {
+      turns: toAgentTurns([...result.messages, { role: 'assistant', content: finalText }]),
+      finalText,
+      iterations: result.iterations,
+      toolsSupported: result.toolsSupported,
+      degradedReason: result.degradedReason,
+      generatedLessons
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    stream.onStatus({ streamId: stream.streamId, status: 'error', message })
+    return { error: true, message: `工具调用上限已用完，自动补生成课程也失败：${message}` }
+  }
+}
+
+function buildRecoveryLessonBrief(options: {
+  userInput: string
+  payloadMessages: AgentChatMessage[]
+  workspace: TeachingConversationRuntimeWorkspace
+}): LessonBrief {
+  const userLines = options.payloadMessages
+    .filter((message) => message.role === 'user')
+    .map((message) => cleanText(message.content))
+    .filter(Boolean)
+    .slice(-4)
+  const recentContext = [...userLines, cleanText(options.userInput)].filter(Boolean).join(' / ')
+  const topic = `${options.workspace.name} 下一节课程`
+  return {
+    topic,
+    firstLessonFocus: cleanText(
+      `根据当前教学工作区的 MISSION.md、NOTES.md、已完成课程和学习记录，继续生成下一节正式课程；用户本轮要求是：${options.userInput}`
+    ).slice(0, 600),
+    goal: '继续当前教学工作区的课程进度，产出一节可保存、可复习的正式课程。',
+    constraints: '优先沿用工作区已有课程规划；如果上一课偏简单，本节适当加深内容密度。',
+    extraNotes: recentContext ? `最近用户原话：${recentContext}`.slice(0, 600) : undefined
+  }
+}
+
+function isLessonGenerationRequest(input: string): boolean {
+  const text = cleanText(input).toLowerCase()
+  if (!text) return false
+  return [
+    /(?:生成|创建|产出|保存).*(?:课程|课|lesson|session)/,
+    /(?:课程|课|lesson|session).*(?:生成|创建|产出|保存)/,
+    /(?:继续|开始|进入|上|讲|学|直接).*(?:下一节|下一课|下节课|第二节|第二课|第[一二三四五六七八九十0-9]+节|第[一二三四五六七八九十0-9]+课)/,
+    /(?:下一节|下一课|下节课|第二节|第二课)/,
+    /(?:next|continue|start).*(?:lesson|session|course)/
+  ].some((pattern) => pattern.test(text))
+}
+
 const AGENT_CHAT_SYSTEM_PROMPT =
-  '你是 TeachOS 的学习助手。' +
-  '用户进入“教学”对话时，等价于在发送真实需求的同时引用了 teach skill：把它当作教学工作区方法论和可用上下文，而不是必须照本宣科的固定流程。' +
-  '保持主动判断：可以先回答、先澄清、读取工作区、建议下一步或生成课程计划；只有在学习者基础/身份、目标、约束或第一步动作确实会影响教学质量时，才问 1 到 3 个具体问题。' +
+  '你是 TeachOS 的教学助手，负责这个教学工作区里的完整学习闭环：澄清学习需求、答疑、维护工作区文件、决定何时生成课程。' +
+  '用户进入“教学”对话时，等价于在发送真实需求的同时引用了 teach skill：把它当作教学方法论，而不是必须照本宣科的固定流程。' +
+  '保持主动判断：可以先回答、先澄清、读取工作区或建议下一步；只有在学习者基础/身份、目标、约束或第一步动作确实会影响教学质量时，才问 1 到 3 个具体问题，问完即止。' +
   '不要默认用户属于编程、AI、学生或任何固定人群；问题示例必须跟随用户当前主题、身份和场景。' +
   '回答使用简洁、准确的中文。' +
   '当用户询问当前教学工作区、mission、resources、课程文件、参考资料或学习记录时，优先调用 list_workspace、read_workspace_file、search_workspace 或 glob_workspace 读取本地文件后再回答；' +
-  '当用户要求制作、保存或更新 HTML/Markdown/JSON/课程文件时，优先调用 write_workspace_file 写入当前工作区；默认保存 lesson 到 lessons/*.html，并在回复中只给出保存路径、简短摘要和下一步建议，不要把完整文件内容粘贴进聊天；' +
-  '当问题涉及时效性、最新动态或课程库之外的事实性信息时，调用 web_search 工具检索后再作答；' +
-  '必要时可用 web_fetch 深入阅读某条结果。回答中适度引用信息来源链接。' +
+  '你可以且应该用 write_workspace_file 维护 MISSION.md、RESOURCES.md、NOTES.md、reference/ 速查材料与 learning-records/ 学习记录，回复中只给出保存路径与简短摘要，不要把完整文件内容粘贴进聊天；' +
+  '当问题涉及时效性、最新动态或课程库之外的事实性信息时，调用 web_search 工具检索后再作答，必要时用 web_fetch 深入阅读，回答中适度引用信息来源链接。' +
   '若未配置工具或当前模型不支持工具调用，直接依据自身知识作答即可。'
+
+const LESSON_TOOL_POLICY_PROMPT = [
+  '<lesson-generation-policy>',
+  '正式课程只能通过 generate_lesson 工具产出；不要用 write_workspace_file 直接写 lessons/ 目录下的课程页面（该工具会拒绝这类写入）。',
+  '当你已经基本清楚「教什么主题、为谁教、为什么学、本节课要完成什么动作」时，立即调用 generate_lesson：把这些信息整理成完整的中文句子填入参数，只填写对话中真实确认过的内容，不确定的字段留空，绝不能用碎片词或占位词充数。',
+  '当用户要求“继续下一节/下一课/直接开始/直接生成”且已有足够上下文时，优先调用 generate_lesson；不要先做开放式 web_search、assets 检查或长篇资料收集，generate_lesson 后续流水线会负责课程计划生成。',
+  '在当前轮次没有收到 generate_lesson 的 ok:true 工具结果之前，不要说课程已经生成、正在生成、开始生成或已保存。',
+  '用户明确表示“直接生成、别问了”时，跳过澄清，基于已知信息与 MISSION.md 直接调用 generate_lesson。',
+  '生成成功后：向用户简短汇报课程标题与保存路径，并给一句下一步建议。生成失败时：如实转述失败原因，可建议重试或调整，不要假装已生成，也不要改用其他方式硬写课程文件。',
+  '</lesson-generation-policy>'
+].join('\n')
+
+const LESSON_TOOL_UNAVAILABLE_PROMPT = [
+  '<lesson-generation-policy>',
+  '当前会话未启用 generate_lesson 工具（工具未开启或没有激活的工作区）。你可以澄清需求、答疑并维护工作区文件，但不要直接写 lessons/ 下的课程页面；若用户希望生成正式课程，提示其在设置中启用工具调用。',
+  '</lesson-generation-policy>'
+].join('\n')
+
+const GENERATE_LESSON_TOOL_DEFINITION: ToolDefinition = {
+  type: 'function',
+  function: {
+    name: 'generate_lesson',
+    description:
+      '生成一节正式课程并保存到当前教学工作区（统一编号、渲染课程模板、写入课程索引与复习卡）。当学习主题、学习者背景、目标和本节课要完成的动作已经基本清楚时调用。参数请用完整中文句子，只填对话中真实确认过的信息。',
+    parameters: {
+      type: 'object',
+      properties: {
+        topic: {
+          type: 'string',
+          description: '学习主题，例如「RAG 检索增强生成」'
+        },
+        firstLessonFocus: {
+          type: 'string',
+          description: '本节课要完成的最小可观察动作，完整句子，例如「用一张流程图讲清 RAG 的五个核心步骤，并给出可直接使用的面试话术」'
+        },
+        learnerProfile: {
+          type: 'string',
+          description: '学习者背景/基础/身份，完整句子；对话中未确认可留空'
+        },
+        goal: {
+          type: 'string',
+          description: '学习动机与目标，例如「准备面试，概念为主不写代码」；未确认可留空'
+        },
+        constraints: {
+          type: 'string',
+          description: '时间、设备、范围等约束，例如「每节课 15-20 分钟，不涉及编码实现」；未确认可留空'
+        },
+        extraNotes: {
+          type: 'string',
+          description: '其他对课程设计有用的说明（语气、深度、引用偏好等）；可留空'
+        }
+      },
+      required: ['topic', 'firstLessonFocus']
+    }
+  }
+}
 
 const TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT =
   '你是 TeachOS 的临时会话助手。' +

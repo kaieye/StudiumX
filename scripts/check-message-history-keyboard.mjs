@@ -65,8 +65,8 @@ assert.match(
 
 assert.match(
   app,
-  /rememberAgentInput\(prompt\)[\s\S]*if \(continueTeachingConversation\)/,
-  'teaching submits should remember the outgoing prompt before routing'
+  /const submitTeachingPrompt = \(value:\s*string\):\s*void => \{[\s\S]*?rememberAgentInput\(prompt\)[\s\S]*?agentChat\(prompt,\s*\{ mode:\s*'teaching' \}\)/,
+  'teaching submits should remember the outgoing prompt before routing to the conversation'
 )
 
 assert.match(

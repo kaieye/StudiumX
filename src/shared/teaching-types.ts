@@ -500,19 +500,6 @@ export type GenerateLessonPayload = {
   messages?: AgentChatMessage[]
 }
 
-export type TeachingWorkflowStage = 'clarifying' | 'ready'
-
-export type TeachingClarificationResult = {
-  stage: TeachingWorkflowStage
-  assistantMessage: string
-  summary: string
-  learnerProfile: string[]
-  learningGoals: string[]
-  openQuestions: string[]
-  lessonPrompt: string
-  missingSignals: Array<'topic' | 'background' | 'goal' | 'constraints' | 'firstAction'>
-}
-
 export type TeachingMemoryCaptureResult = {
   action: 'created' | 'requested_consent' | 'approved' | 'rejected' | 'none'
   candidateContent?: string
@@ -544,19 +531,13 @@ export type ImportWorkspaceResult = {
   state: TeachingAppState | null
 }
 
-export type GenerateLessonResult =
-  | {
-      kind: 'lesson'
-      state: TeachingAppState
-      lesson: LessonSummary
-      source: 'ai' | 'fallback'
-      reason?: string
-    }
-  | {
-      kind: 'clarification'
-      state: TeachingAppState
-      clarification: TeachingClarificationResult
-    }
+export type GenerateLessonResult = {
+  kind: 'lesson'
+  state: TeachingAppState
+  lesson: LessonSummary
+  source: 'ai' | 'fallback'
+  reason?: string
+}
 
 export type OpenPathResult = {
   ok: boolean
@@ -598,7 +579,6 @@ export type LessonStreamStatus = {
 
 export type LessonStreamDone =
   | { streamId: string; kind: 'lesson'; state: TeachingAppState; lesson: LessonSummary; source: 'ai' | 'fallback'; reason?: string }
-  | { streamId: string; kind: 'clarification'; state: TeachingAppState; clarification: TeachingClarificationResult }
   | { streamId: string; error: true; message: string }
 
 export type GenerateLessonStreamPayload = GenerateLessonPayload
@@ -728,7 +708,7 @@ export type AgentChatStreamDone =
       iterations: number
       toolsSupported: boolean
       degradedReason?: string
-      teachingAssessment?: TeachingClarificationResult
+      generatedLessons?: LessonSummary[]
       memoryCapture?: TeachingMemoryCaptureResult
     }
   | { streamId: string; canceled: true }
@@ -743,7 +723,7 @@ export type AgentChatStreamResult =
       iterations: number
       toolsSupported: boolean
       degradedReason?: string
-      teachingAssessment?: TeachingClarificationResult
+      generatedLessons?: LessonSummary[]
       memoryCapture?: TeachingMemoryCaptureResult
     }
   | { canceled: true }

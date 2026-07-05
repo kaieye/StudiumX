@@ -162,6 +162,17 @@ function isProtectedWorkspaceRelativePath(relativePath: string): boolean {
   return Boolean(leaf && isSensitiveFileName(leaf))
 }
 
+/**
+ * Lesson pages must go through the generate_lesson pipeline (stable
+ * numbering, template rendering, index registration). Large hand-written
+ * HTML through a single tool call is also the most fragile spot for weaker
+ * providers' tool-call serialization.
+ */
+function isLessonHtmlRelativePath(relativePath: string): boolean {
+  const posix = toPosixPath(relativePath).replace(/^\.\//, '').toLowerCase()
+  return posix.startsWith('lessons/') && /\.html?$/.test(posix)
+}
+
 function isLikelyTextPath(path: string): boolean {
   const ext = extname(path).toLowerCase()
   return !ext || TEXT_EXTENSIONS.has(ext)
@@ -397,11 +408,11 @@ export const writeWorkspaceFileTool: ToolEntry = {
     function: {
       name: 'write_workspace_file',
       description:
-        '写入当前 TeachOS 教学工作区内的文本文件。限定在当前工作区内；会自动创建父目录；默认不覆盖已有文件。适合保存 lessons/*.html、reference/*.html、*.md、*.json 等课程产物。',
+        '写入当前 TeachOS 教学工作区内的文本文件。限定在当前工作区内；会自动创建父目录；默认不覆盖已有文件。适合维护 MISSION.md、RESOURCES.md、NOTES.md、reference/*.html、learning-records/*.md 等文件。注意：lessons/ 目录下的课程 HTML 不能用本工具写入，请改用 generate_lesson 工具（它会统一编号、渲染模板并登记到课程索引）。',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: '相对工作区文件路径，例如 "lessons/0001-rag.html"' },
+          path: { type: 'string', description: '相对工作区文件路径，例如 "reference/glossary.html"' },
           content: { type: 'string', description: '要写入的完整文本内容' },
           overwrite: { type: 'boolean', description: '是否允许覆盖已有文件，默认 false' }
         },
@@ -417,6 +428,11 @@ export const writeWorkspaceFileTool: ToolEntry = {
       const target = resolveWorkspacePath(ctx, input.path)
       if (isProtectedWorkspaceRelativePath(target.relativePath)) {
         throw new Error('该路径属于隐藏、构建或敏感文件范围，已拒绝写入。')
+      }
+      if (isLessonHtmlRelativePath(target.relativePath)) {
+        throw new Error(
+          '课程页面不能用 write_workspace_file 直接写入 lessons/ 目录。请调用 generate_lesson 工具生成本节课程，它会统一编号、套用课程模板并登记到课程索引。'
+        )
       }
       if (!isLikelyTextPath(target.relativePath)) {
         throw new Error('仅允许写入文本文件类型。')

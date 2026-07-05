@@ -32,6 +32,9 @@ export type RunAgentLoopOptions = {
   tools: ToolDefinition[]
   toolHandlers: ToolHandlerMap
   maxIterations?: number
+  maxIterationsBehavior?: 'force_final_answer' | 'error'
+  shouldErrorOnMaxIterations?: () => boolean
+  maxIterationsErrorMessage?: string
   signal?: AbortSignal
   callbacks?: { onEvent?: (e: AgentLoopEvent) => void }
 }
@@ -218,6 +221,20 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
   }
 
   // Budget exhausted: force one final no-tools turn to produce an answer.
+  if (opts.maxIterationsBehavior === 'error' || opts.shouldErrorOnMaxIterations?.() === true) {
+    const message = opts.maxIterationsErrorMessage ?? '达到工具调用上限，任务尚未完成。请提高工具调用上限或简化请求后重试。'
+    emit({ type: 'status', status: 'error', message })
+    return {
+      messages: transcript,
+      finalText: '',
+      iterations,
+      toolsSupported: true,
+      degradedReason,
+      stopReason: 'max_iterations',
+      error: message
+    }
+  }
+
   emit({ type: 'status', status: 'answering', message: '达到工具调用上限，生成最终答复。' })
   try {
     if (isCanceled()) return canceledResult(true)

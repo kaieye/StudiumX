@@ -3,7 +3,7 @@ import { basename, dirname, join } from 'node:path'
 import { callProvider, ProviderAdapterError, resolveActiveProvider, streamProvider, toolsSupportedForFormat, type AdapterCallbacks } from './ai/provider-adapter'
 import { runAgentLoop } from './ai/agent-loop'
 import { buildDefaultRegistry, buildToolContext } from './ai/tools/registry'
-import { buildLessonSystemPrompt, buildLessonUserPrompt } from './ai/lesson-prompts'
+import { buildLessonSystemPrompt, buildLessonUserPrompt, buildLessonRepairPrompt } from './ai/lesson-prompts'
 import {
   renderLearningRecordFromPlan,
   renderLessonHtmlFromPlan,
@@ -13,11 +13,14 @@ import { readMissionSummary } from './teaching-workspace-catalog'
 import { clampTitle, cleanText, collectTeachingFiles, slugify, workspaceRelativePath } from './teaching-workspace-paths'
 import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
 import { classifyProviderError, providerErrorReason } from '../shared/provider-error'
-import { assessTeachingReadiness, isContinuationLessonRequest } from '../shared/teaching-workflow'
+import {
+  buildLessonPromptFromBrief,
+  buildLessonPromptWithConversation,
+  type LessonBrief
+} from '../shared/teaching-workflow'
 import type {
   AgentChatMessage,
   LessonSummary,
-  TeachingClarificationResult,
   TeachingMemoryRecord,
   TeachingSettingsV1
 } from '../shared/teaching-types'
@@ -36,20 +39,28 @@ export type LessonGenerationMemoryRetriever = (options: {
   limit: number
 }) => Promise<TeachingMemoryRecord[]>
 
-export type LessonGenerationResult =
-  | {
-      kind: 'clarification'
-      clarification: TeachingClarificationResult
-    }
-  | {
-      kind: 'lesson'
-      lesson: LessonSummary
-      source: LessonPlanSource
-      reason?: string
-      eventPrompt: string
-      eventPaths: string[]
-      eventMeta: { source: LessonPlanSource; reason?: string; model?: string }
-    }
+export type LessonGenerationResult = {
+  kind: 'lesson'
+  lesson: LessonSummary
+  source: LessonPlanSource
+  reason?: string
+  eventPrompt: string
+  eventPaths: string[]
+  eventMeta: { source: LessonPlanSource; reason?: string; model?: string }
+}
+
+/**
+ * Raised when the provider is configured but no valid LessonPlan could be
+ * produced (even after one repair round). Callers must NOT write anything to
+ * disk in this case — surfacing the failure honestly beats persisting an
+ * off-topic placeholder lesson.
+ */
+export class LessonGenerationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'LessonGenerationError'
+  }
+}
 
 type LessonArtifactPaths = {
   courseId: string
@@ -75,6 +86,8 @@ export async function runLessonGenerationPipeline(options: {
   settings: TeachingSettingsV1
   lessons: LessonSummary[]
   prompt: string
+  /** Structured brief authored by the teaching conversation agent, if any. */
+  brief?: LessonBrief
   requestedCourseName?: string
   messages: AgentChatMessage[]
   now: string
@@ -86,6 +99,7 @@ export async function runLessonGenerationPipeline(options: {
     settings,
     lessons,
     prompt,
+    brief,
     requestedCourseName,
     messages,
     now,
@@ -93,20 +107,12 @@ export async function runLessonGenerationPipeline(options: {
     callbacks
   } = options
   const mission = await readMissionSummary(workspace.rootPath, workspace.name)
-  const generationAssessment = assessTeachingReadiness({
-    userInput: prompt,
-    messages,
-    missionTitle: mission.title,
-    missionExcerpt: mission.excerpt
-  })
-  if (
-    generationAssessment.stage === 'clarifying' &&
-    !isContinuationLessonRequest(prompt)
-  ) {
-    return { kind: 'clarification', clarification: generationAssessment }
-  }
-
-  const lessonPrompt = generationAssessment.lessonPrompt || prompt
+  // The conversation agent owns the readiness judgment. A brief is the
+  // preferred, structured hand-off; the direct entry falls back to the user's
+  // verbatim prompt plus their own recent words — never extracted "signals".
+  const lessonPrompt = brief
+    ? buildLessonPromptFromBrief(brief)
+    : buildLessonPromptWithConversation(prompt, messages)
   const sequence = await nextLessonNumber(workspace.rootPath, lessons)
   const lessonId = String(sequence).padStart(4, '0')
   const recalledMemories = await retrieveMemories({
@@ -197,6 +203,8 @@ async function produceLessonPlan(opts: {
   const { workspace, mission, prompt, settings, sequence, recalledMemories, callbacks } = opts
   const provider = resolveActiveProvider(settings)
 
+  // The only legitimate fallback: no provider at all. Every other failure is
+  // surfaced as an error instead of silently writing a templated lesson.
   if (!provider || !provider.apiKey.trim()) {
     return { plan: localFallbackPlan(prompt, mission, sequence, settings), source: 'fallback', reason: '未配置 API Key' }
   }
@@ -218,9 +226,12 @@ async function produceLessonPlan(opts: {
     memories: recalledMemories
   })
 
+  let rawOutput = ''
+  let parseError = ''
+
   // Tool-augmented path: let the model inspect the workspace and/or research
   // before emitting the LessonPlan JSON. Only for chat_completions /
-  // custom_endpoint formats.
+  // custom_endpoint formats. Transport errors fall through to single-shot.
   const useTools =
     settings.tools.enabled &&
     toolsSupportedForFormat(settings.generator.endpointFormat) &&
@@ -254,11 +265,10 @@ async function produceLessonPlan(opts: {
         }
       })
       callbacks.onStatus?.('validating')
-      const plan = parsePlan(loopResult.finalText)
-      if (!plan) {
-        return { plan: localFallbackPlan(prompt, mission, sequence, settings), source: 'fallback', reason: 'AI 输出未通过结构校验' }
-      }
-      return { plan, source: 'ai' }
+      const parsed = parsePlan(loopResult.finalText)
+      if (parsed.plan) return { plan: parsed.plan, source: 'ai' }
+      rawOutput = loopResult.finalText
+      parseError = parsed.error
     } catch (error) {
       const reason = error instanceof ProviderAdapterError ? adapterReason(error) : (error instanceof Error ? error.message : '未知错误')
       console.warn(`[TeachOS] Tool-augmented lesson generation fell back to single-shot: ${reason}`)
@@ -266,21 +276,47 @@ async function produceLessonPlan(opts: {
     }
   }
 
-  try {
-    const result = settings.generator.streaming
-      ? await streamProvider({ settings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
-      : await callProvider({ settings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
-    callbacks.onStatus?.('validating')
-    const plan = parsePlan(result.text)
-    if (!plan) {
-      return { plan: localFallbackPlan(prompt, mission, sequence, settings), source: 'fallback', reason: 'AI 输出未通过结构校验' }
+  if (!rawOutput) {
+    let resultText = ''
+    try {
+      const result = settings.generator.streaming
+        ? await streamProvider({ settings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
+        : await callProvider({ settings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
+      resultText = result.text
+    } catch (error) {
+      const reason = error instanceof ProviderAdapterError ? adapterReason(error) : (error instanceof Error ? error.message : '未知错误')
+      throw new LessonGenerationError(`课程生成请求失败：${reason}`)
     }
-    return { plan, source: 'ai' }
+    callbacks.onStatus?.('validating')
+    const parsed = parsePlan(resultText)
+    if (parsed.plan) return { plan: parsed.plan, source: 'ai' }
+    rawOutput = resultText
+    parseError = parsed.error
+  }
+
+  // One repair round: hand the raw output and the validation error back to
+  // the model so it can fix its own JSON.
+  callbacks.onStatus?.('calling')
+  let repairedText = ''
+  try {
+    const repairUserPrompt = `${userPrompt}\n\n---\n\n${buildLessonRepairPrompt({ rawOutput, validationError: parseError })}`
+    const repaired = await callProvider({
+      settings,
+      provider,
+      request: { systemPrompt, userPrompt: repairUserPrompt, jsonMode: true },
+      callbacks
+    })
+    repairedText = repaired.text
   } catch (error) {
     const reason = error instanceof ProviderAdapterError ? adapterReason(error) : (error instanceof Error ? error.message : '未知错误')
-    console.warn(`[TeachOS] Lesson generation fell back to local generator: ${reason}`)
-    return { plan: localFallbackPlan(prompt, mission, sequence, settings), source: 'fallback', reason }
+    throw new LessonGenerationError(`课程计划修复请求失败：${reason}（首次校验错误：${parseError}）`)
   }
+  callbacks.onStatus?.('validating')
+  const reparsed = parsePlan(repairedText)
+  if (reparsed.plan) {
+    return { plan: reparsed.plan, source: 'ai', reason: '首次输出未通过校验，已自动修复' }
+  }
+  throw new LessonGenerationError(`AI 两次输出均未通过课程计划校验：${reparsed.error}`)
 }
 
 async function writeLessonArtifacts(opts: {
@@ -422,23 +458,27 @@ const LESSON_RESEARCH_PREFIX =
 /**
  * Parse + Zod-validate the model's text into a LessonPlan. Strips markdown
  * fences and extracts the outermost JSON object if the model wrapped it in
- * prose. Returns null on any failure (caller falls back to local plan).
+ * prose. On failure returns a human-readable error for the repair round.
  */
-function parsePlan(text: string): LessonPlan | null {
+function parsePlan(text: string): { plan: LessonPlan; error?: undefined } | { plan: null; error: string } {
   const raw = extractJsonText(text)
-  if (!raw) return null
+  if (!raw) return { plan: null, error: '输出中找不到 JSON 对象' }
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
-  } catch {
-    return null
+  } catch (error) {
+    return { plan: null, error: `JSON 解析失败：${error instanceof Error ? error.message : String(error)}` }
   }
   const result = lessonPlanSchema.safeParse(parsed)
   if (!result.success) {
-    console.warn('[TeachOS] Lesson plan schema validation failed:', result.error.issues[0]?.message)
-    return null
+    const issues = result.error.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .join('；')
+    console.warn('[TeachOS] Lesson plan schema validation failed:', issues)
+    return { plan: null, error: `结构校验失败：${issues}` }
   }
-  return sanitizePlan(result.data)
+  return { plan: sanitizePlan(result.data) }
 }
 
 function extractJsonText(text: string): string {

@@ -3939,7 +3939,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 .lesson-library-header h2 {
   margin: 0;
-  color: #1f2d44;
+  color: var(--text);
   font-size: 24px;
   font-weight: 760;
   line-height: 1.25;
@@ -3969,7 +3969,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #293952;
+  color: var(--text);
   font-size: 15px;
 }
 
@@ -3990,36 +3990,41 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 .lesson-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(256px, 1fr));
+  gap: 14px;
 }
 
-/* ----- Lesson course card ----- */
+/* ----- Lesson course card (spine layout) ----- */
 
 .lesson-course-card {
   position: relative;
   display: flex;
-  flex-direction: column;
-  gap: 0;
-  min-height: 156px;
-  padding: 20px;
+  align-items: stretch;
+  min-height: 148px;
+  padding: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--surface-solid);
   box-shadow: var(--shadow-card);
   cursor: pointer;
   text-align: left;
+  overflow: hidden;
   transition:
     transform 180ms ease,
     border-color 180ms ease,
     box-shadow 180ms ease;
-  animation: card-rise 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: card-rise 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .lesson-course-card:hover {
   transform: translateY(-2px);
-  border-color: #d0dcf0;
+  border-color: var(--line-strong);
   box-shadow: var(--shadow-card-hover);
+}
+
+.lesson-course-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .lesson-course-card.is-selected {
@@ -4027,78 +4032,76 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   box-shadow: 0 0 0 1px var(--accent), var(--shadow-card);
 }
 
-.lesson-course-card::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  background: linear-gradient(90deg, var(--accent), #7b9cf7);
-  opacity: 0;
-  transition: opacity 180ms ease;
-}
-
-.lesson-course-card:hover::after {
-  opacity: 0.6;
-}
-
-.lesson-course-card.is-selected::after {
-  opacity: 1;
-}
-
-.lesson-card-number {
-  display: inline-flex;
-  align-items: center;
+.lesson-card-spine {
+  flex: 0 0 56px;
+  display: flex;
+  align-items: flex-start;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  margin-bottom: 14px;
-  color: var(--accent);
-  border-radius: 12px;
-  background: var(--accent-soft);
-  font-size: 13px;
-  font-weight: 800;
-  flex: 0 0 auto;
+  padding-top: 17px;
+  background: var(--surface-subtle);
+  border-right: 1px solid var(--line-muted);
+  color: var(--text-faint);
+  font-size: 25px;
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
 }
 
-.lesson-card-content {
+.lesson-course-card:hover .lesson-card-spine {
+  background: var(--accent-soft);
+  border-right-color: transparent;
+  color: var(--accent);
+}
+
+.lesson-course-card.is-selected .lesson-card-spine {
+  background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+  border-right-color: transparent;
+  color: #ffffff;
+  font-weight: 400;
+}
+
+.lesson-card-body {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 13px 17px;
 }
 
-.lesson-card-content h3 {
-  margin: 0;
-  color: #24324a;
+.lesson-card-title {
+  color: var(--text);
   font-size: 14.5px;
   font-weight: 720;
-  line-height: 1.35;
+  line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.lesson-card-content p {
-  margin: 6px 0 0;
+.lesson-card-summary {
+  margin-top: 5px;
   color: var(--text-muted);
   font-size: 12.5px;
-  line-height: 1.5;
+  line-height: 1.55;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.lesson-card-footer {
+.lesson-card-meta {
+  margin-top: auto;
+  padding-top: 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line-muted);
 }
 
 .lesson-card-duration {
@@ -4110,14 +4113,32 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-weight: 650;
 }
 
-.lesson-card-course {
-  color: var(--text-faint);
-  font-size: 11px;
-  font-weight: 600;
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.lesson-card-open-hint {
+  color: var(--accent);
+  opacity: 0;
+  transform: translate(-4px, 4px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.lesson-course-card:hover .lesson-card-open-hint,
+.lesson-course-card:focus-visible .lesson-card-open-hint,
+.lesson-course-card.is-selected .lesson-card-open-hint {
+  opacity: 1;
+  transform: translate(0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lesson-course-card {
+    animation: none;
+    transition: none;
+  }
+
+  .lesson-card-spine,
+  .lesson-card-open-hint {
+    transition: none;
+  }
 }
 
 /* ----- Reader panel (inline HTML preview) ----- */
@@ -4938,7 +4959,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   }
 
   .lesson-card-grid {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
   }
 
   .lesson-course-stage {
@@ -5034,7 +5055,6 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   .topbar-actions,
   .composer-footer,
   .lesson-card,
-  .lesson-course-card,
   .mission-strip {
     align-items: stretch;
     flex-direction: column;
@@ -5121,6 +5141,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .app-frame {
   background: #0f0f10;
   color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .lesson-course-card.is-selected .lesson-card-spine {
+  color: #10131a;
 }
 
 :root[data-resolved-theme="dark"] .window-titlebar {

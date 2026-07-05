@@ -59,6 +59,7 @@ ${opts.memories.map((memory, index) => `- [${index + 1}] (${memory.scope}) ${mem
 
 ` : ''}# 要求
 - 全部用中文，内容贴合 Mission 和用户输入。
+- 课程内容必须紧扣用户请求中的学习主题本身；禁止把课程写成关于学习方法、工作区文件组织或本教学系统的元课程，除非用户明确要求学习这些。
 - 时长目标：${opts.durationMinutes} 分钟，只教一个足够小的可观察动作。
 - 如果长期记忆与本次课程相关，优先保持术语、偏好和上下文连续。
 - sections 的 body 用 markdown，不要输出 HTML。
@@ -83,65 +84,26 @@ ${opts.memories.map((memory, index) => `${index + 1}. ${memory.content}`).join('
 ` : ''}请按系统约定的 JSON 结构输出本节课程。`
 }
 
-export function buildClarifySystemPrompt(opts: {
-  missionTitle: string
-  missionExcerpt: string
-  memories: TeachingMemoryRecord[]
+/**
+ * Repair prompt — used once when the model's first output fails schema
+ * validation. Feeding the raw output plus the validation error back lets the
+ * model fix its own JSON instead of the pipeline silently discarding the
+ * lesson (the old behavior wrote an off-topic fallback lesson to disk).
+ */
+export function buildLessonRepairPrompt(opts: {
+  rawOutput: string
+  validationError: string
 }): string {
-  return `你是 TeachOS 的学习教练。你的任务不是立刻生成课程，而是先通过多轮对话摸清学习者的相关基础、学习目的、现实约束和期望产出。
+  const clipped = opts.rawOutput.length > 24_000
+    ? `${opts.rawOutput.slice(0, 24_000)}\n…[已截断]`
+    : opts.rawOutput
+  return `你上一次的输出未通过课程计划 JSON 校验。
 
-# 行为规则
-- 默认先澄清，再决定是否已经可以生成课程。
-- 每次回复都要像真实老师在继续追问，不要一下子给完整课程。
-- 如果用户信息仍然模糊，优先问 1~3 个高价值问题，不要泛泛而谈。
-- 如果已经足够明确，可以总结并告诉前端“已可生成课程”。
-- 不要默认用户是程序员、AI 工程师、学生或任何固定人群；示例必须适配当前主题和用户已说出的身份/场景。
-- 全部使用中文，语气直接、具体、简洁。
+校验错误：
+${opts.validationError}
 
-# 严格输出契约
-- 只输出一个 JSON 对象，不要解释、不要 markdown 代码围栏。
-- JSON 必须符合下面结构：
-{
-  "assistantMessage": string,      // 对用户显示的回复，可分段，包含继续追问或总结
-  "stage": "clarifying" | "ready",
-  "summary": string,               // 当前已确认的学习任务摘要，<= 200 字
-  "learnerProfile": string[],      // 已知背景/经验/限制，0~6 条
-  "learningGoals": string[],       // 已知目标，1~6 条
-  "openQuestions": string[],       // 仍需澄清的问题，0~6 条
-  "lessonPrompt": string           // 若 stage=ready，给后续课程生成器的精炼提示词；否则可留空字符串
-}
+你上一次的输出：
+${clipped}
 
-# 当前 Mission
-- 标题：${opts.missionTitle}
-- 说明：${opts.missionExcerpt}
-
-${opts.memories.length > 0 ? `# 可用长期记忆
-${opts.memories.map((memory, index) => `- [${index + 1}] (${memory.scope}) ${memory.content}`).join('\n')}
-
-` : ''}# 追问优先级
-1. 学习者相关基础、当前身份或使用场景
-2. 想解决的真实问题、任务目标或水平目标
-3. 希望先完成的最小可观察动作
-4. 时间预算、可用资源、工具/设备/材料和其他限制条件
-5. 希望输出成什么样的 lesson
-
-# ready 判定
-- 只有当你已经基本知道“为谁教、教什么、教到什么程度、为什么现在学、第一节课应完成什么动作”时，才能设为 "ready"。
-- 否则必须保持 "clarifying"。`
-}
-
-export function buildClarifyUserPrompt(opts: {
-  missionTitle: string
-  summary: string
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>
-}): string {
-  return `Mission：${opts.missionTitle}
-
-${opts.summary ? `当前已确认摘要：
-${opts.summary}
-
-` : ''}对话历史：
-${opts.messages.map((message) => `${message.role === 'user' ? '用户' : '助手'}：${message.content}`).join('\n\n')}
-
-请基于以上对话输出下一轮结构化澄清结果。`
+请修复以上问题，重新输出完整的课程计划。只输出一个符合系统约定结构的 JSON 对象，不要解释、不要 markdown 围栏、不要输出 JSON 以外的任何字符。`
 }

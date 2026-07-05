@@ -1,64 +1,69 @@
 import assert from 'node:assert/strict'
 
 const {
-  assessTeachingReadiness,
-  isContinuationLessonRequest,
-  isLearningSetupRequest
+  normalizeLessonBrief,
+  buildLessonPromptFromBrief,
+  buildLessonPromptWithConversation
 } = await import('../src/shared/teaching-workflow.ts')
 
-const vague = assessTeachingReadiness({
-  userInput: '我想学习RAG',
-  missionTitle: 'learn',
-  missionExcerpt: '学习目标、可信资源、课程讲义和复习记录沉淀为本地文件。'
+// Fragment fields (the exact garbage the old regex extractor produced from
+// the assistant's own words: 背景「工作」← “工作区”, 动作「先」← “我先看看”)
+// must be rejected so the model retries with a real brief.
+assert.equal(normalizeLessonBrief(null), null)
+assert.equal(normalizeLessonBrief({}), null)
+assert.equal(normalizeLessonBrief({ topic: 'RAG' }), null, 'missing firstLessonFocus should reject')
+assert.equal(
+  normalizeLessonBrief({ topic: 'R', firstLessonFocus: '先' }),
+  null,
+  'single-character fragments must not pass as a lesson brief'
+)
+
+const brief = normalizeLessonBrief({
+  topic: 'RAG 检索增强生成',
+  firstLessonFocus: '用一张流程图讲清 RAG 的五个核心步骤，并给出面试话术',
+  learnerProfile: '有编程基础的求职者',
+  goal: '准备面试，概念为主不写代码',
+  constraints: '每节课 15-20 分钟',
+  extraNotes: ''
 })
+assert.ok(brief)
+assert.equal(brief.topic, 'RAG 检索增强生成')
+assert.equal(brief.extraNotes, undefined, 'empty optional fields should be dropped')
 
-assert.equal(vague.stage, 'clarifying')
-assert.equal(isLearningSetupRequest('我想学习RAG'), true)
-assert.equal(isContinuationLessonRequest('我想学习RAG'), false)
-assert.ok(vague.missingSignals.includes('background'))
-assert.ok(vague.missingSignals.includes('goal'))
-assert.ok(vague.assistantMessage.includes('我先不生成 lesson'))
-assert.ok(vague.assistantMessage.includes('你的相关基础或当前身份是什么'))
-assert.equal(vague.assistantMessage.includes('编程、机器学习、LLM 应用、向量数据库'), false)
+const prompt = buildLessonPromptFromBrief(brief)
+assert.match(prompt, /主题：RAG 检索增强生成/)
+assert.match(prompt, /学习者背景：有编程基础的求职者/)
+assert.match(prompt, /学习目标：准备面试/)
+assert.match(prompt, /本节课要完成的动作：用一张流程图/)
+assert.doesNotMatch(prompt, /额外说明/, 'omitted fields should not leave empty labels')
 
-const terse = assessTeachingReadiness({
-  userInput: 'RAG',
-  missionTitle: 'learn',
-  missionExcerpt: '学习目标、可信资源、课程讲义和复习记录沉淀为本地文件。'
+// Whitespace normalization + length clamp.
+const noisy = normalizeLessonBrief({
+  topic: '  RAG\n检索增强生成  ',
+  firstLessonFocus: `${'很'.repeat(700)}长的目标`
 })
+assert.ok(noisy)
+assert.equal(noisy.topic, 'RAG 检索增强生成')
+assert.equal(noisy.firstLessonFocus.length, 600, 'brief fields should clamp to 600 chars')
 
-assert.equal(terse.stage, 'clarifying')
+// Direct-generation prompts fold in the user's verbatim words — never
+// assistant text, never extracted "signals".
+const conversationPrompt = buildLessonPromptWithConversation('我只需要了解一下概念就行了', [
+  { role: 'user', content: '我想学习springboot' },
+  { role: 'assistant', content: '好的，我先看看当前教学工作区里已有的文件。' }
+])
+assert.match(conversationPrompt, /我只需要了解一下概念就行了/)
+assert.match(conversationPrompt, /springboot/i)
+assert.doesNotMatch(
+  conversationPrompt,
+  /先看看当前教学工作区/,
+  'assistant words must never be folded into the lesson prompt'
+)
 
-const conceptOverview = assessTeachingReadiness({
-  userInput: '我只需要了解一下概念就行了',
-  messages: [
-    { role: 'user', content: '我想学习springboot' },
-    {
-      role: 'assistant',
-      content:
-        '请回答背景、目标和约束，以便生成第一节课。'
-    }
-  ],
-  missionTitle: 'learn',
-  missionExcerpt: '学习目标、可信资源、课程讲义和复习记录沉淀为本地文件。'
-})
+assert.equal(
+  buildLessonPromptWithConversation('直接生成', undefined),
+  '直接生成',
+  'no conversation means the prompt passes through untouched'
+)
 
-assert.equal(conceptOverview.stage, 'ready')
-assert.equal(conceptOverview.missingSignals.length, 0)
-assert.match(conceptOverview.lessonPrompt, /Spring Boot|springboot/i)
-assert.match(conceptOverview.lessonPrompt, /概念/)
-
-const ready = assessTeachingReadiness({
-  userInput:
-    '我想学习 RAG。我是会 Python 的后端工程师，做过简单 LLM API 调用。目标是在公司知识库里做一个可评估的问答 demo。每天 1 小时，准备用 Python、OpenAI compatible API 和本地 Markdown 文档。第一节课先跑通最小检索链路并写出评估样例。',
-  missionTitle: 'learn',
-  missionExcerpt: '学习目标、可信资源、课程讲义和复习记录沉淀为本地文件。'
-})
-
-assert.equal(ready.stage, 'ready')
-assert.equal(ready.missingSignals.length, 0)
-assert.ok(ready.lessonPrompt.includes('RAG'))
-
-assert.equal(isContinuationLessonRequest('基于当前 mission，生成下一节短小、可复习、带检索练习的 HTML lesson。'), true)
-
-console.log('teaching workflow gate ok')
+console.log('teaching workflow brief contract ok')

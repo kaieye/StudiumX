@@ -42,8 +42,8 @@ assert.match(
 
 assert.match(
   app,
-  /void get\(\)\.agentChat\(prompt, \{ mode: 'teaching' \}\)/,
-  'lesson clarification fallback should continue through teaching mode'
+  /void agentChat\(prompt, \{ mode: 'teaching' \}\)/,
+  'teaching submissions should continue through the teaching conversation'
 )
 
 assert.match(

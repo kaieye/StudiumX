@@ -48,7 +48,7 @@ import {
   lessonStyleCss,
   normalizeLessonStyleId
 } from '../shared/lesson-styles'
-import { assessTeachingReadiness } from '../shared/teaching-workflow'
+import type { LessonBrief } from '../shared/teaching-workflow'
 import {
   isLearnerProfileMemory
 } from '../shared/teaching-memory-capture'
@@ -91,7 +91,6 @@ import type {
   SaveAgentConversationResult,
   TeachingMemoryDiagnostics,
   TeachingMemoryRecord,
-  TeachingClarificationResult,
   TeachingAppState,
   TeachingRuntimeState,
   TeachingSettingsV1,
@@ -429,11 +428,28 @@ export class TeachingWorkspaceService {
     const workspace = payload.workspaceId && registryState
       ? findWorkspace(registryState, payload.workspaceId)
       : null
+    const isTeachingConversation = (payload.mode ?? 'teaching') === 'teaching'
     return runTeachingConversationTurn(payload, stream, workspace, {
       loadSettings: () => this.loadSettings(),
       listMemories: (workspaceRoot) => this.memoryStore.list(workspaceRoot),
       createMemory: (memoryPayload) => this.memoryStore.create(memoryPayload),
-      assessTeachingRequest: (options) => this.assessTeachingRequest(options),
+      generateLessonFromBrief: workspace && isTeachingConversation
+        ? async (brief) => {
+            const generation = await this.generateAndPersistLesson({
+              workspace,
+              prompt: brief.topic,
+              brief,
+              messages: [],
+              callbacks: {
+                onStatus: (step) => {
+                  const message = lessonToolStepMessage(step)
+                  if (message) stream.onStatus({ streamId: stream.streamId, status: 'tool_running', message })
+                }
+              }
+            })
+            return generation.lesson
+          }
+        : undefined,
       buildTemporaryChatContext: (runtimeWorkspace, memories) => this.buildTemporaryChatContext(runtimeWorkspace, memories)
     })
   }
@@ -691,11 +707,6 @@ export class TeachingWorkspaceService {
 
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    await this.ensureWorkspaceStructure(workspace)
-
-    const settings = await this.loadSettings()
-    const now = new Date().toISOString()
-    const index = await this.loadWorkspaceIndex(workspace)
     const callbacks: LessonGenerationCallbacks = {
       onToken: (delta) => {
         if (stream) stream.onChunk({ streamId: stream.streamId, delta })
@@ -705,26 +716,64 @@ export class TeachingWorkspaceService {
       }
     }
 
+    const generation = await this.generateAndPersistLesson({
+      workspace,
+      prompt,
+      messages: payload.messages ?? [],
+      requestedCourseName: payload.courseName,
+      callbacks
+    })
+
+    if (stream) stream.onStatus({ streamId: stream.streamId, step: 'done' })
+    return {
+      kind: 'lesson',
+      state: await this.buildState(generation.registry, workspace.id, generation.lesson.absolutePath),
+      lesson: generation.lesson,
+      source: generation.source,
+      reason: generation.reason
+    }
+  }
+
+  /**
+   * Generate one lesson and persist every side effect (files, workspace
+   * index, session event, registry touch). Both the direct IPC entry and the
+   * conversation agent's generate_lesson tool go through here, so a lesson
+   * created mid-conversation is indistinguishable from a directly generated
+   * one. Throws LessonGenerationError instead of persisting anything when the
+   * provider fails to produce a valid plan.
+   */
+  private async generateAndPersistLesson(options: {
+    workspace: RegistryWorkspace
+    prompt: string
+    brief?: LessonBrief
+    messages: AgentChatMessage[]
+    requestedCourseName?: string
+    callbacks?: LessonGenerationCallbacks
+  }): Promise<{
+    lesson: LessonSummary
+    source: LessonPlanSource
+    reason?: string
+    registry: WorkspaceRegistry
+  }> {
+    const { workspace } = options
+    await this.ensureWorkspaceStructure(workspace)
+
+    const settings = await this.loadSettings()
+    const now = new Date().toISOString()
+    const index = await this.loadWorkspaceIndex(workspace)
+
     const generation = await runLessonGenerationPipeline({
       workspace,
       settings,
       lessons: index.lessons,
-      prompt,
-      requestedCourseName: payload.courseName,
-      messages: payload.messages ?? [],
+      prompt: options.prompt,
+      brief: options.brief,
+      requestedCourseName: options.requestedCourseName,
+      messages: options.messages,
       now,
       retrieveMemories: (query) => this.memoryStore.retrieve(query),
-      callbacks
+      callbacks: options.callbacks
     })
-
-    if (generation.kind === 'clarification') {
-      if (stream) stream.onStatus({ streamId: stream.streamId, step: 'done' })
-      return {
-        kind: 'clarification',
-        state: await this.buildState(registry, workspace.id, null),
-        clarification: generation.clarification
-      }
-    }
 
     await this.saveWorkspaceIndex(workspace.rootPath, {
       ...index,
@@ -741,15 +790,14 @@ export class TeachingWorkspaceService {
       meta: generation.eventMeta
     })
 
+    const registry = await this.ensureRegistry()
     const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
     await this.saveRegistry(nextRegistry)
-    if (stream) stream.onStatus({ streamId: stream.streamId, step: 'done' })
     return {
-      kind: 'lesson',
-      state: await this.buildState(nextRegistry, workspace.id, generation.lesson.absolutePath),
       lesson: generation.lesson,
       source: generation.source,
-      reason: generation.reason
+      reason: generation.reason,
+      registry: nextRegistry
     }
   }
 
@@ -1166,20 +1214,22 @@ export class TeachingWorkspaceService {
     }
   }
 
-  private async assessTeachingRequest(options: {
-    workspace: RegistryWorkspace
-    userInput: string
-    messages: AgentChatMessage[]
-  }): Promise<TeachingClarificationResult> {
-    const mission = await readMissionSummary(options.workspace.rootPath, options.workspace.name)
-    return assessTeachingReadiness({
-      userInput: options.userInput,
-      messages: options.messages,
-      missionTitle: mission.title,
-      missionExcerpt: mission.excerpt
-    })
-  }
+}
 
+/** Progress copy shown in the conversation while generate_lesson runs. */
+function lessonToolStepMessage(step: string): string {
+  switch (step) {
+    case 'calling':
+      return '正在生成课程：调用模型…'
+    case 'streaming':
+      return '正在生成课程：撰写课程计划…'
+    case 'validating':
+      return '正在生成课程：校验课程结构…'
+    case 'rendering':
+      return '正在生成课程：渲染课程文件…'
+    default:
+      return ''
+  }
 }
 
 function upsertRegistryWorkspace(

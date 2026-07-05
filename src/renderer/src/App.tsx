@@ -197,6 +197,7 @@ type StoreState = {
   setView: (view: WorkspaceView) => void
   setOverviewDialogMode: (mode: DialogMode) => void
   openLessonLibrary: () => void
+  openTeachingConversationView: () => void
   openWorkspaceTeachingMode: () => void
   selectCourseFolder: (relativePath: string | null, workspaceId?: string | null) => void
   setSettingsSection: (section: SettingsSection) => void
@@ -214,7 +215,6 @@ type StoreState = {
   importWorkspacePath: (rootPath: string) => Promise<boolean>
   updateMission: () => Promise<void>
   applyLessonStyle: (styleId: LessonStyleId) => Promise<void>
-  setPendingLessonClarificationPrompt: (prompt: string | null) => void
   generateLesson: (options?: LessonGenerationOptions) => Promise<void>
   generateLessonStream: (options?: LessonGenerationOptions) => Promise<void>
   loadLesson: (lesson: LessonSummary) => Promise<void>
@@ -248,7 +248,6 @@ type StoreState = {
   agentInputHistory: string[]
   agentToolsSupported: boolean | null
   pendingAgentConversation: PendingAgentConversation | null
-  pendingLessonClarificationPrompt: string | null
   gitBranchesRoot: string
   gitBranchesResult: TeachingGitBranchesResult | null
   gitBranchesLoading: boolean
@@ -340,7 +339,7 @@ const emptySettings: TeachingSettingsV1 = {
     workspaceRead: true,
     webSearch: true,
     webFetch: false,
-    maxIterations: 4
+    maxIterations: 8
   },
   webSearch: {
     backend: 'auto',
@@ -526,6 +525,18 @@ function providerHost(provider: TeachingModelProviderProfile): string {
   } catch {
     return provider.baseUrl.toLowerCase()
   }
+}
+
+function formatLessonIndex(id: string): string {
+  const numeric = id.match(/\d+/)?.[0]
+  if (!numeric) return id
+  return String(Number.parseInt(numeric, 10)).padStart(2, '0')
+}
+
+function stripLessonIndexPrefix(name: string, id: string): string {
+  if (!id || !name.startsWith(id)) return name
+  const rest = name.slice(id.length).replace(/^[\s._-]+/, '')
+  return rest || name
 }
 
 function isDeepSeekReasoningProvider(provider: TeachingModelProviderProfile, model: string): boolean {
@@ -873,12 +884,10 @@ const useAppStore = create<StoreState>((set, get) => ({
   agentInputHistory: readPersistedAgentInputHistory(),
   agentToolsSupported: null,
   pendingAgentConversation: null,
-  pendingLessonClarificationPrompt: null,
   gitBranchesRoot: '',
   gitBranchesResult: null,
   gitBranchesLoading: false,
   setAgentInput: (agentInput) => set({ agentInput }),
-  setPendingLessonClarificationPrompt: (prompt) => set({ pendingLessonClarificationPrompt: prompt }),
   rememberAgentInput: (input) => {
     const nextHistory = appendAgentInputHistory(get().agentInputHistory, input)
     set({ agentInputHistory: nextHistory })
@@ -886,10 +895,10 @@ const useAppStore = create<StoreState>((set, get) => ({
   },
   clearAgentChat: () => {
     if (get().agentChatBusy && get().pendingAgentConversation) {
-      set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, pendingLessonClarificationPrompt: null })
+      set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null })
       return
     }
-    set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null, pendingLessonClarificationPrompt: null })
+    set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null })
   },
   cancelAgentChat: async () => {
     const api = window.teachingSystem
@@ -953,11 +962,15 @@ const useAppStore = create<StoreState>((set, get) => ({
     set(view === 'resources' ? { view, selectedResourcePreviewFile: null } : { view })
     if (view === 'review') void get().loadReviewCards()
   },
-  setOverviewDialogMode: (overviewDialogMode) => set({
-    overviewDialogMode,
-    ...(overviewDialogMode === 'chat' ? { pendingLessonClarificationPrompt: null } : {})
-  }),
+  setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
   openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null, selectedResourcePreviewFile: null }),
+  openTeachingConversationView: () => set({
+    view: 'overview',
+    overviewDialogMode: 'teaching',
+    lessonReaderOpen: false,
+    selectedCoursePreviewFile: null,
+    selectedResourcePreviewFile: null
+  }),
   openWorkspaceTeachingMode: () => {
     get().clearAgentChat()
     set({
@@ -989,7 +1002,7 @@ const useAppStore = create<StoreState>((set, get) => ({
       selectedCourseRelativePath,
       selectedCourseWorkspaceId: selectedCourse ? targetWorkspace?.id ?? null : null,
       ...(!hasCourseContent
-        ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null, pendingLessonClarificationPrompt: null }
+        ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
         : {})
     })
   },
@@ -1065,7 +1078,6 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentStatus: '',
         agentToolsSupported: null,
         pendingAgentConversation: null,
-        pendingLessonClarificationPrompt: null,
         loading: false
       })
     } catch (error) {
@@ -1094,7 +1106,6 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentStatus: '',
         agentToolsSupported: null,
         pendingAgentConversation: null,
-        pendingLessonClarificationPrompt: null,
         loading: false
       })
     } catch (error) {
@@ -1123,7 +1134,6 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentStatus: '',
         agentToolsSupported: null,
         pendingAgentConversation: null,
-        pendingLessonClarificationPrompt: null,
         loading: false
       })
       const settings = get().settings
@@ -1164,7 +1174,6 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentStatus: '',
         agentToolsSupported: null,
         pendingAgentConversation: null,
-        pendingLessonClarificationPrompt: null,
         loading: false
       })
       const settings = get().settings
@@ -1267,20 +1276,6 @@ const useAppStore = create<StoreState>((set, get) => ({
         courseName: suggestedCourseName(workspace, prompt),
         messages: lessonMessages
       })
-      if (result.kind === 'clarification') {
-        set({
-          view: 'overview',
-          overviewDialogMode: 'teaching',
-          lessonReaderOpen: false,
-          appState: result.state,
-          agentStatus: '',
-          generating: false,
-          pendingLessonClarificationPrompt: prompt,
-          taskPrompt: prompt
-        })
-        void get().agentChat(prompt, { mode: 'teaching' })
-        return
-      }
       set({
         view: 'lessons',
         lessonReaderOpen: true,
@@ -1288,7 +1283,6 @@ const useAppStore = create<StoreState>((set, get) => ({
         selectedCourseWorkspaceId: workspace.id,
         selectedCoursePreviewFile: lessonToCoursePreviewFile(result.lesson),
         appState: result.state,
-        pendingLessonClarificationPrompt: null,
         taskPrompt: nextPrompt,
         generating: false
       })
@@ -1379,22 +1373,6 @@ const useAppStore = create<StoreState>((set, get) => ({
         }
         return
       }
-      if (!('error' in done) && done.kind === 'clarification') {
-        set({
-          view: 'overview',
-          overviewDialogMode: 'teaching',
-          lessonReaderOpen: false,
-          selectedCoursePreviewFile: null,
-          selectedCourseWorkspaceId: null,
-          appState: done.state,
-          agentStatus: '',
-          generating: false,
-          pendingLessonClarificationPrompt: prompt,
-          taskPrompt: prompt
-        })
-        void get().agentChat(prompt, { mode: 'teaching' })
-        return
-      }
       if (!('error' in done) && done.kind === 'lesson') {
         set({
           view: 'lessons',
@@ -1403,7 +1381,6 @@ const useAppStore = create<StoreState>((set, get) => ({
           selectedCourseWorkspaceId: workspace.id,
           selectedCoursePreviewFile: lessonToCoursePreviewFile(done.lesson),
           appState: done.state,
-          pendingLessonClarificationPrompt: null,
           taskPrompt: nextPrompt,
           generating: false
         })
@@ -1453,7 +1430,6 @@ const useAppStore = create<StoreState>((set, get) => ({
         agentStatus: '',
         agentToolsSupported: null,
         agentInput: '',
-        pendingLessonClarificationPrompt: null,
         selectedCourseRelativePath: conversationCourseRelativePath,
         selectedCourseWorkspaceId: conversationCourseRelativePath ? workspace.id : null,
         taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
@@ -1589,6 +1565,24 @@ const useAppStore = create<StoreState>((set, get) => ({
               toolsSupported: done.toolsSupported
             })
           })
+          // Lessons generated inside the conversation (generate_lesson tool):
+          // saved.state already contains them; mirror the direct-generation
+          // notifications and auto-open behavior without yanking the user
+          // away from the conversation.
+          const generatedLessons = done.generatedLessons ?? []
+          if (generatedLessons.length > 0) {
+            const settings = get().settings
+            const latest = generatedLessons[generatedLessons.length - 1]
+            if (latest && settings.workspace.autoOpenGeneratedLesson) {
+              void get().openPath(latest.absolutePath)
+            }
+            if (latest && settings.notifications.enabled && settings.notifications.lessonGenerated) {
+              void get().showNotification(
+                i18n.t('notify.lessonGenerated.title'),
+                i18n.t('notify.lessonGenerated.body', { title: latest.title, path: latest.relativePath, suffix: '' })
+              )
+            }
+          }
         } catch (saveError) {
           set({ error: toUserError(saveError) })
         } finally {
@@ -1650,7 +1644,6 @@ const useAppStore = create<StoreState>((set, get) => ({
               agentToolsSupported: null,
               agentChatBusy: false,
               pendingAgentConversation: null,
-              pendingLessonClarificationPrompt: null
             }
           : {})
       })
@@ -1682,7 +1675,7 @@ const useAppStore = create<StoreState>((set, get) => ({
         appState: state,
         error: null,
         ...(uiPatch.clearActiveConversation
-          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null, pendingLessonClarificationPrompt: null }
+          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
           : {}),
         ...(uiPatch.clearSelectedCoursePreview
           ? { lessonReaderOpen: false, selectedCoursePreviewFile: null }
@@ -1728,7 +1721,6 @@ const useAppStore = create<StoreState>((set, get) => ({
               agentToolsSupported: null,
               agentChatBusy: false,
               pendingAgentConversation: null,
-              pendingLessonClarificationPrompt: null
             }
           : {})
       })
@@ -3975,7 +3967,7 @@ function MainArea() {
                         <span className="lesson-session-count">{t('lessons.sessionCount', { count: course.sessions.length })}</span>
                       </div>
                       <div className="lesson-card-grid">
-                        {course.sessions.map((session) => {
+                        {course.sessions.map((session, sessionIndex) => {
                           const lesson = session.lesson
                           const isSelected = lesson.absolutePath === appState.selectedLessonPath
                           return (
@@ -3984,19 +3976,20 @@ function MainArea() {
                               key={lesson.absolutePath}
                               type="button"
                               onClick={() => void loadLesson(lesson)}
+                              style={{ animationDelay: `${Math.min(sessionIndex, 12) * 28}ms` }}
                             >
-                              <div className="lesson-card-number">{lesson.id}</div>
-                              <div className="lesson-card-content">
-                                <h3>{session.name}</h3>
-                                <p>{lesson.objective || lesson.prompt || lesson.relativePath}</p>
-                              </div>
-                              <div className="lesson-card-footer">
-                                <span className="lesson-card-duration">
-                                  <Clock3 size={12} />
-                                  {t('lessons.duration', { count: lesson.durationMinutes })}
+                              <span className="lesson-card-spine">{formatLessonIndex(lesson.id)}</span>
+                              <span className="lesson-card-body">
+                                <span className="lesson-card-title">{stripLessonIndexPrefix(session.name, lesson.id)}</span>
+                                <span className="lesson-card-summary">{lesson.objective || lesson.prompt || lesson.relativePath}</span>
+                                <span className="lesson-card-meta">
+                                  <span className="lesson-card-duration">
+                                    <Clock3 size={12} />
+                                    {t('lessons.duration', { count: lesson.durationMinutes })}
+                                  </span>
+                                  <ArrowUpRight className="lesson-card-open-hint" size={14} aria-hidden="true" />
                                 </span>
-                                <span className="lesson-card-course">{lesson.courseName}</span>
-                              </div>
+                              </span>
                             </button>
                           )
                         })}
@@ -4219,15 +4212,24 @@ function OverviewLessonComposer({
     taskPrompt,
     setTaskPrompt,
     generating,
-    settings,
-    generateLesson,
-    generateLessonStream
+    agentChatBusy,
+    agentChat,
+    openTeachingConversationView
   } = useAppStore()
-  const canSend = Boolean(active && taskPrompt.trim().length > 0 && !generating)
+  const busy = generating || agentChatBusy
+  const canSend = Boolean(active && taskPrompt.trim().length > 0 && !busy)
+  // Every free-form teaching input goes through the conversation agent; it
+  // clarifies when needed and calls the generate_lesson tool when ready.
+  const submitToTeachingAgent = () => {
+    if (!canSend) return
+    const prompt = taskPrompt.trim()
+    setTaskPrompt('')
+    openTeachingConversationView()
+    void agentChat(prompt, { mode: 'teaching' })
+  }
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
-    if (!canSend) return
-    void (settings.generator.streaming ? generateLessonStream() : generateLesson())
+    submitToTeachingAgent()
   }
   return (
     <section className={`overview-dialog-shell${className ? ` ${className}` : ''}`} aria-label={t('lessons.composerAria')}>
@@ -4243,7 +4245,7 @@ function OverviewLessonComposer({
               if (event.key === 'Enter' && !event.shiftKey) {
                 if (isInputComposing(event)) return
                 event.preventDefault()
-                if (canSend) void (settings.generator.streaming ? generateLessonStream() : generateLesson())
+                submitToTeachingAgent()
               }
             }}
           />
@@ -4252,7 +4254,7 @@ function OverviewLessonComposer({
               <OverviewModelPicker />
               <OverviewReasoningPicker />
               <button className="send-button overview-dialog-send" type="submit" aria-label={t('lessons.send')} disabled={!canSend}>
-                {generating ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
+                {busy ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
               </button>
             </div>
           </div>
@@ -4263,7 +4265,7 @@ function OverviewLessonComposer({
             <GitBranchPicker workspaceRoot={active?.rootPath ?? ''} />
           </div>
           <div className="overview-dialog-status-group">
-            {generating ? <span className="overview-dialog-status-text">{t('lessons.composerTitle')}</span> : null}
+            {busy ? <span className="overview-dialog-status-text">{t('lessons.composerTitle')}</span> : null}
           </div>
         </div>
       </form>
@@ -4281,15 +4283,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     setAgentInput,
     agentInputHistory,
     rememberAgentInput,
-    setTaskPrompt,
     generating,
-    settings,
-    generateLesson,
-    generateLessonStream,
     agentChat,
-    cancelAgentChat,
-    pendingLessonClarificationPrompt,
-    setPendingLessonClarificationPrompt
+    cancelAgentChat
   } = useAppStore()
   const view = useAppStore((s) => s.view)
   const overviewDialogMode = useAppStore((s) => s.overviewDialogMode)
@@ -4311,41 +4307,16 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     () => mergeAgentInputHistory(agentInputHistory, userTurnInputHistory(agentTurns)),
     [agentInputHistory, agentTurns]
   )
-  const activeConversationSummary = useMemo(() => activeTeachingConversationSummary({
-    state: appState,
-    workspaceId: active?.id,
-    activeConversationId,
-    pendingAgentConversation
-  }), [active?.id, activeConversationId, appState, pendingAgentConversation])
-  const continueTeachingConversation = isTeachingMode && Boolean(
-    activeConversationSummary
-  )
   const submitTeachingPrompt = (value: string): void => {
     const prompt = value.trim()
     if (!prompt) return
     rememberAgentInput(prompt)
     setInputHistoryIndex(null)
     setInputHistoryDraft('')
-    if (continueTeachingConversation && pendingLessonClarificationPrompt) {
-      const lessonMessages: AgentChatMessage[] = [
-        ...agentTurnsToMessages(agentTurns),
-        { role: 'user', content: prompt }
-      ]
-      setTaskPrompt(pendingLessonClarificationPrompt)
-      setAgentInput('')
-      setPendingLessonClarificationPrompt(null)
-      void (settings.generator.streaming
-        ? generateLessonStream({ prompt: pendingLessonClarificationPrompt, messages: lessonMessages })
-        : generateLesson({ prompt: pendingLessonClarificationPrompt, messages: lessonMessages }))
-      return
-    }
-    if (continueTeachingConversation) {
-      void agentChat(prompt, { mode: 'teaching' })
-      return
-    }
-    setTaskPrompt(prompt)
     setAgentInput('')
-    void (settings.generator.streaming ? generateLessonStream() : generateLesson())
+    // One brain: the teaching conversation owns clarification AND generation
+    // (via its generate_lesson tool). No parallel pipeline hand-off here.
+    void agentChat(prompt, { mode: 'teaching' })
   }
   const submitChatPrompt = (value: string): void => {
     const prompt = value.trim()
@@ -5381,9 +5352,9 @@ function SettingsView({
                   onChange={(webFetch) => void onUpdateSettings({ tools: { webFetch } } as TeachingSettingsPatch)}
                 />
               </SettingsRow>
-              <SettingsRow label="最大工具调用轮数" detail={`默认 ${4}，控制单次任务的最大工具往返`}>
+              <SettingsRow label="最大工具调用轮数" detail={`默认 ${8}，控制单次任务的最大工具往返（教学对话中生成课程也算一轮）`}>
                 <NumberInput
-                  max={10}
+                  max={12}
                   min={1}
                   step={1}
                   value={settings.tools.maxIterations}
