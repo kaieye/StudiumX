@@ -203,12 +203,17 @@ export function applyAgentChatStatusToPending({
 }): PendingConversationStorePatch | null {
   if (!pending || status.streamId !== pending.summary.id) return null
   const label = agentStatusLabel(status.status)
+  const statusText = status.message?.startsWith('正在生成课程：')
+    ? status.message
+    : status.message
+      ? `${label} ${status.message}`
+      : label
   return syncPendingAgentConversation({
     pending,
     pendingConversationId: pending.summary.id,
     activeConversationId,
     patch: {
-      status: status.message ? `${label} ${status.message}` : label,
+      status: statusText,
       turns: updateAgentAssistantTurn(pending.turns, assistantId, (turn) => ({
         ...turn,
         processEvents: appendAgentProcessEvent(
@@ -522,12 +527,13 @@ function createAgentStatusProcessEvent(
   status: AgentChatStreamStatus['status'],
   message?: string
 ): AgentChatProcessEvent {
+  const copy = agentProcessStatusCopy(status, message)
   return {
     id: createAgentProcessEventId('status'),
     kind: 'status',
     status,
-    title: agentProcessStatusTitle(status),
-    detail: message,
+    title: copy.title,
+    detail: copy.detail,
     createdAt: new Date().toISOString()
   }
 }
@@ -572,6 +578,31 @@ function agentProcessStatusTitle(status: AgentChatStreamStatus['status']): strin
   return labels[status]
 }
 
+function agentProcessStatusCopy(
+  status: AgentChatStreamStatus['status'],
+  message?: string
+): { title: string; detail?: string } {
+  const trimmed = message?.trim()
+  if (trimmed) {
+    const lessonPrefix = '正在生成课程：'
+    if (trimmed.startsWith(lessonPrefix)) {
+      const phase = trimmed
+        .slice(lessonPrefix.length)
+        .replace(/[.…]+$/g, '')
+        .trim()
+      return { title: `generate_lesson：${phase || '生成课程'}`, detail: '课程生成工具' }
+    }
+    if (status === 'tool_running' && /^[\w.-]+$/.test(trimmed)) {
+      return { title: `准备调用：${trimmed}` }
+    }
+    if (status === 'tool_done' && /^[\w.-]+$/.test(trimmed)) {
+      return { title: `工具返回：${trimmed}` }
+    }
+    if (status === 'error') return { title: agentProcessStatusTitle(status), detail: trimmed }
+  }
+  return { title: agentProcessStatusTitle(status), detail: trimmed }
+}
+
 function appendAgentProcessEvent(
   events: AgentChatProcessEvent[] | undefined,
   event: AgentChatProcessEvent
@@ -582,7 +613,19 @@ function appendAgentProcessEvent(
     last?.kind === 'status' &&
     event.kind === 'status' &&
     last.status === event.status &&
+    last.title === event.title &&
     last.detail === event.detail
+  ) {
+    return current
+  }
+  if (
+    event.kind === 'status' &&
+    current.some((existing) =>
+      existing.kind === 'status' &&
+      existing.status === event.status &&
+      existing.title === event.title &&
+      existing.detail === event.detail
+    )
   ) {
     return current
   }
@@ -698,4 +741,3 @@ function parseAskArguments(argumentsJson: string): AskQuestion[] | null {
   })
   return out.length > 0 ? out : null
 }
-

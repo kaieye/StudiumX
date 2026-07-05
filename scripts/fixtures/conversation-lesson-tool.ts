@@ -13,7 +13,7 @@ type MockMessage = {
   content?: string | null
   tool_calls?: Array<{ function?: { name?: string } }>
 }
-type MockRequest = { messages?: MockMessage[]; tools?: unknown[] }
+type MockRequest = { messages?: MockMessage[]; tools?: unknown[]; response_format?: { type?: string }; max_tokens?: number }
 
 const VALID_PLAN = {
   title: 'RAG 是什么',
@@ -40,8 +40,9 @@ const VALID_PLAN = {
 // 'success': pipeline requests return a valid plan; 'broken': they return
 // garbage twice (first attempt + repair round) so generation must fail
 // without writing anything.
-let pipelineMode: 'success' | 'broken' = 'success'
+let pipelineMode: 'success' | 'broken' | 'compact-recovery' = 'success'
 let pipelineRequests = 0
+let pipelineBodies: MockRequest[] = []
 let conversationMode:
   | 'normal'
   | 'budget-exhaustion'
@@ -65,12 +66,17 @@ const server = createServer(async (req, res) => {
   if (!isConversation) {
     // Lesson pipeline call (research loop first attempt or repair round).
     pipelineRequests += 1
+    pipelineBodies.push(body)
+    const content =
+      pipelineMode === 'success' || (pipelineMode === 'compact-recovery' && pipelineRequests >= 3)
+        ? JSON.stringify(VALID_PLAN)
+        : '抱歉，我无法输出 JSON。'
     reply({
       choices: [
         {
           message: {
             role: 'assistant',
-            content: pipelineMode === 'success' ? JSON.stringify(VALID_PLAN) : '抱歉，我无法输出 JSON。'
+            content
           }
         }
       ]
@@ -366,10 +372,13 @@ try {
     'conversation-generated lessons must land in the workspace index like direct ones'
   )
   assert.ok(statuses.includes('tool_running'), 'lesson generation should stream tool progress')
+  assert.equal(pipelineBodies[0]?.response_format?.type, 'json_object', 'tool-augmented lesson generation should request JSON mode')
+  assert.ok((pipelineBodies[0]?.max_tokens ?? 0) >= 8192, 'lesson generation should raise the output budget for structured lesson plans')
 
   // --- Scenario 2: pipeline failure must not persist any placeholder lesson.
   pipelineMode = 'broken'
   pipelineRequests = 0
+  pipelineBodies = []
   const failure = await service.agentChatStream(
     {
       workspaceId: workspace.id,
@@ -513,6 +522,41 @@ try {
   assert.ok(pipelineRequests >= 1, 'forced-final tool_call recovery should run the lesson generation pipeline')
   const filesAfterFinalToolCall = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
   assert.equal(filesAfterFinalToolCall.some((name) => name.startsWith('0004-')), true, 'lesson 0004 should exist on disk')
+
+  // --- Scenario 6: malformed JSON should get one repair round and then a
+  // compact full regeneration. The compact round is intentionally shorter
+  // and should rescue providers that clipped or broke the first JSON object.
+  conversationMode = 'normal'
+  pipelineMode = 'compact-recovery'
+  pipelineRequests = 0
+  pipelineBodies = []
+  settings.tools.maxIterations = 0
+  const compactRecovery = await service.agentChatStream(
+    {
+      workspaceId: workspace.id,
+      mode: 'teaching',
+      messages: [],
+      userInput: '继续生成一节需要紧凑重试的课。'
+    },
+    {
+      streamId: 'lesson-tool-compact-recovery-stream',
+      onChunk: () => {},
+      onStatus: () => {},
+      onTool: () => {}
+    }
+  )
+
+  assert.ok(!('error' in compactRecovery) && !('canceled' in compactRecovery), 'compact regeneration should recover from invalid JSON')
+  assert.equal(compactRecovery.generatedLessons?.length, 1, 'compact regeneration should still surface the generated lesson')
+  assert.equal(compactRecovery.generatedLessons?.[0]?.id, '0005', 'compact recovery should persist the next lesson')
+  assert.equal(pipelineRequests, 3, 'compact recovery should run first attempt, repair, and one compact regeneration')
+  assert.equal(
+    pipelineBodies.every((request) => request.response_format?.type === 'json_object'),
+    true,
+    'all lesson-plan attempts should request JSON mode'
+  )
+  const filesAfterCompactRecovery = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
+  assert.equal(filesAfterCompactRecovery.some((name) => name.startsWith('0005-')), true, 'lesson 0005 should exist on disk')
 
   console.log('conversation lesson tool ok')
 } finally {

@@ -151,6 +151,7 @@ export async function runTeachingConversationTurn(
   // brief to the same generator the direct entry uses.
   const generatedLessons: LessonSummary[] = []
   const generateLessonFromBrief = deps.generateLessonFromBrief
+  let lessonGenerationFailure: string | null = null
   const lessonToolEnabled =
     isTeachingConversation && Boolean(workspace) && settings.tools.enabled && typeof generateLessonFromBrief === 'function'
   if (lessonToolEnabled && generateLessonFromBrief) {
@@ -163,7 +164,20 @@ export async function runTeachingConversationTurn(
             'generate_lesson 参数不完整：topic 与 firstLessonFocus 必须是有实际内容的完整句子。请根据对话内容补全后重新调用。'
           )
         }
-        const lesson = await generateLessonFromBrief(brief)
+        if (lessonGenerationFailure) {
+          throw new Error(
+            `本轮对话已经尝试 generate_lesson 且失败：${lessonGenerationFailure}。不要继续重复调用 generate_lesson；请直接向用户说明失败原因、已确认的课程方向，以及下一步可重试的具体操作。`
+          )
+        }
+        let lesson: LessonSummary
+        try {
+          lesson = await generateLessonFromBrief(brief)
+        } catch (error) {
+          lessonGenerationFailure = error instanceof Error ? error.message : String(error)
+          throw new Error(
+            `${lessonGenerationFailure}。本轮不要再次调用 generate_lesson；请向用户说明课程尚未生成，并保留已确认的主题、焦点和后续重试入口。`
+          )
+        }
         generatedLessons.push(lesson)
         return JSON.stringify({
           ok: true,

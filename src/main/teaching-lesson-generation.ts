@@ -49,9 +49,11 @@ export type LessonGenerationResult = {
   eventMeta: { source: LessonPlanSource; reason?: string; model?: string }
 }
 
+const MIN_LESSON_PLAN_OUTPUT_TOKENS = 8192
+
 /**
  * Raised when the provider is configured but no valid LessonPlan could be
- * produced (even after one repair round). Callers must NOT write anything to
+ * produced (even after repair / compact regeneration). Callers must NOT write anything to
  * disk in this case — surfacing the failure honestly beats persisting an
  * off-topic placeholder lesson.
  */
@@ -217,22 +219,23 @@ async function produceLessonPlan(opts: {
 }): Promise<{ plan: LessonPlan; source: LessonPlanSource; reason?: string }> {
   const { workspace, mission, prompt, settings, sequence, recalledMemories, priorLessons, conversationExcerpt, workspaceContext, callbacks } = opts
   const provider = resolveActiveProvider(settings)
+  const generationSettings = withLessonPlanOutputBudget(settings)
 
   // The only legitimate fallback: no provider at all. Every other failure is
   // surfaced as an error instead of silently writing a templated lesson.
   if (!provider || !provider.apiKey.trim()) {
-    return { plan: localFallbackPlan(prompt, mission, sequence, settings), source: 'fallback', reason: '未配置 API Key' }
+    return { plan: localFallbackPlan(prompt, mission, sequence, generationSettings), source: 'fallback', reason: '未配置 API Key' }
   }
 
   const systemPrompt = buildLessonSystemPrompt({
     missionTitle: mission.title,
     missionExcerpt: mission.excerpt,
-    durationMinutes: settings.generator.lessonDurationMinutes,
-    includeRetrievalPractice: settings.generator.includeRetrievalPractice,
-    generateReference: settings.generator.generateReference,
-    generateLearningRecord: settings.generator.generateLearningRecord,
+    durationMinutes: generationSettings.generator.lessonDurationMinutes,
+    includeRetrievalPractice: generationSettings.generator.includeRetrievalPractice,
+    generateReference: generationSettings.generator.generateReference,
+    generateLearningRecord: generationSettings.generator.generateLearningRecord,
     memories: recalledMemories,
-    generator: settings.generator,
+    generator: generationSettings.generator,
     priorLessons,
     conversationExcerpt,
     workspaceContext
@@ -251,16 +254,16 @@ async function produceLessonPlan(opts: {
   // before emitting the LessonPlan JSON. Only for chat_completions /
   // custom_endpoint formats. Transport errors fall through to single-shot.
   const useTools =
-    settings.tools.enabled &&
-    toolsSupportedForFormat(settings.generator.endpointFormat) &&
-    buildDefaultRegistry(settings, { workspaceRoot: workspace.rootPath }).definitions().length > 0
+    generationSettings.tools.enabled &&
+    toolsSupportedForFormat(generationSettings.generator.endpointFormat) &&
+    buildDefaultRegistry(generationSettings, { workspaceRoot: workspace.rootPath }).definitions().length > 0
   if (useTools) {
     try {
       const researchSystemPrompt = `${LESSON_RESEARCH_PREFIX}\n\n${systemPrompt}`
-      const ctx = buildToolContext(settings, { workspaceRoot: workspace.rootPath })
-      const registry = buildDefaultRegistry(settings, { workspaceRoot: workspace.rootPath })
+      const ctx = buildToolContext(generationSettings, { workspaceRoot: workspace.rootPath })
+      const registry = buildDefaultRegistry(generationSettings, { workspaceRoot: workspace.rootPath })
       const loopResult = await runAgentLoop({
-        settings,
+        settings: generationSettings,
         provider,
         messages: [
           { role: 'system', content: researchSystemPrompt },
@@ -268,7 +271,8 @@ async function produceLessonPlan(opts: {
         ],
         tools: registry.definitions(),
         toolHandlers: registry.handlerMap(ctx),
-        maxIterations: settings.tools.maxIterations,
+        maxIterations: generationSettings.tools.maxIterations,
+        jsonMode: true,
         callbacks: {
           onEvent: (e) => {
             if (e.type === 'status') {
@@ -297,9 +301,9 @@ async function produceLessonPlan(opts: {
   if (!rawOutput) {
     let resultText = ''
     try {
-      const result = settings.generator.streaming
-        ? await streamProvider({ settings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
-        : await callProvider({ settings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
+      const result = generationSettings.generator.streaming
+        ? await streamProvider({ settings: generationSettings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
+        : await callProvider({ settings: generationSettings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
       resultText = result.text
     } catch (error) {
       const reason = error instanceof ProviderAdapterError ? adapterReason(error) : (error instanceof Error ? error.message : '未知错误')
@@ -319,7 +323,7 @@ async function produceLessonPlan(opts: {
   try {
     const repairUserPrompt = `${userPrompt}\n\n---\n\n${buildLessonRepairPrompt({ rawOutput, validationError: parseError })}`
     const repaired = await callProvider({
-      settings,
+      settings: generationSettings,
       provider,
       request: { systemPrompt, userPrompt: repairUserPrompt, jsonMode: true },
       callbacks
@@ -334,7 +338,115 @@ async function produceLessonPlan(opts: {
   if (reparsed.plan) {
     return { plan: reparsed.plan, source: 'ai', reason: '首次输出未通过校验，已自动修复' }
   }
-  throw new LessonGenerationError(`AI 两次输出均未通过课程计划校验：${reparsed.error}`)
+  const compact = await regenerateCompactLessonPlan({
+    settings: generationSettings,
+    provider,
+    mission,
+    prompt,
+    sequence,
+    recalledMemories,
+    previousErrors: [parseError, reparsed.error],
+    callbacks
+  })
+  if (compact.plan) {
+    return { plan: compact.plan, source: 'ai', reason: '前两次输出未通过校验，已用紧凑模式重生成' }
+  }
+  throw new LessonGenerationError(`AI 三次输出均未通过课程计划校验：${compact.error}`)
+}
+
+function withLessonPlanOutputBudget(settings: TeachingSettingsV1): TeachingSettingsV1 {
+  if (settings.generator.maxOutputTokens >= MIN_LESSON_PLAN_OUTPUT_TOKENS) return settings
+  return {
+    ...settings,
+    generator: {
+      ...settings.generator,
+      maxOutputTokens: MIN_LESSON_PLAN_OUTPUT_TOKENS
+    }
+  }
+}
+
+async function regenerateCompactLessonPlan(opts: {
+  settings: TeachingSettingsV1
+  provider: NonNullable<ReturnType<typeof resolveActiveProvider>>
+  mission: { title: string; excerpt: string }
+  prompt: string
+  sequence: number
+  recalledMemories: TeachingMemoryRecord[]
+  previousErrors: string[]
+  callbacks: AdapterCallbacks
+}): Promise<{ plan: LessonPlan; error?: undefined } | { plan: null; error: string }> {
+  const systemPrompt = buildCompactLessonSystemPrompt({
+    mission: opts.mission,
+    durationMinutes: opts.settings.generator.lessonDurationMinutes,
+    includeRetrievalPractice: opts.settings.generator.includeRetrievalPractice,
+    generateReference: opts.settings.generator.generateReference,
+    generateLearningRecord: opts.settings.generator.generateLearningRecord
+  })
+  const memoryBlock = opts.recalledMemories.length > 0
+    ? `\n\n相关长期记忆：\n${opts.recalledMemories.map((memory, index) => `${index + 1}. ${memory.content}`).join('\n')}`
+    : ''
+  const userPrompt = [
+    `当前是第 ${opts.sequence} 节课程。`,
+    `学习请求：${opts.prompt}`,
+    memoryBlock,
+    '',
+    '前两次输出未通过 JSON 校验：',
+    ...opts.previousErrors.map((error, index) => `${index + 1}. ${error}`),
+    '',
+    '请从头重新生成一份更短、更稳的课程计划。'
+  ].join('\n')
+
+  let compactText = ''
+  try {
+    opts.callbacks.onStatus?.('calling')
+    const compact = await callProvider({
+      settings: opts.settings,
+      provider: opts.provider,
+      request: { systemPrompt, userPrompt, jsonMode: true },
+      callbacks: opts.callbacks
+    })
+    compactText = compact.text
+  } catch (error) {
+    const reason = error instanceof ProviderAdapterError ? adapterReason(error) : (error instanceof Error ? error.message : '未知错误')
+    return { plan: null, error: `紧凑重生成请求失败：${reason}` }
+  }
+  opts.callbacks.onStatus?.('validating')
+  return parsePlan(compactText)
+}
+
+function buildCompactLessonSystemPrompt(opts: {
+  mission: { title: string; excerpt: string }
+  durationMinutes: number
+  includeRetrievalPractice: boolean
+  generateReference: boolean
+  generateLearningRecord: boolean
+}): string {
+  return `你是 TeachOS 的课程计划生成器。只输出一个合法 JSON 对象，不要 markdown 围栏、不要解释。
+
+目标：在 JSON 稳定性优先的前提下，生成一节中文课程。
+
+必须字段：
+{
+  "title": "≤24字",
+  "objective": "≤60字",
+  "durationMinutes": ${opts.durationMinutes},
+  "sections": [
+    { "heading": "≤18字", "body": "120到350字中文，允许简短 markdown，但不要代码块，不要复杂表格" }
+  ],
+  "keyPoints": ["3到6个，每个≤30字"],
+  "quiz": ${opts.includeRetrievalPractice ? '[{"type":"single","question":"...","choices":["...","..."],"answer":0,"explanation":"≤80字"}]' : '[]'},
+  "flashcards": [{"front":"...","back":"..."}],
+  "referenceNotes": ${opts.generateReference ? '"≤300字 markdown 速查材料"' : '""'},
+  "learningRecordNote": ${opts.generateLearningRecord ? '"两段 markdown：## 判定 和 ## 影响"' : '""'},
+  "callouts": [],
+  "flowDiagram": ""
+}
+
+约束：
+- 只保留 3 到 4 个 sections，每个 body 必须是单行 JSON 字符串；所有换行写成 \\n。
+- body 内不要出现未转义的英文双引号；需要引用术语时用中文书名号或反引号。
+- 不输出 HTML。
+- Mission：${opts.mission.title}。${opts.mission.excerpt}`
 }
 
 async function writeLessonArtifacts(opts: {
@@ -562,15 +674,38 @@ const LESSON_RESEARCH_PREFIX =
  * fences and extracts the outermost JSON object if the model wrapped it in
  * prose. On failure returns a human-readable error for the repair round.
  */
-function parsePlan(text: string): { plan: LessonPlan; error?: undefined } | { plan: null; error: string } {
-  const raw = extractJsonText(text)
-  if (!raw) return { plan: null, error: '输出中找不到 JSON 对象' }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch (error) {
-    return { plan: null, error: `JSON 解析失败：${error instanceof Error ? error.message : String(error)}` }
+export function parsePlan(text: string): { plan: LessonPlan; error?: undefined } | { plan: null; error: string } {
+  const candidates = extractJsonCandidates(text)
+  if (candidates.length === 0) return { plan: null, error: '输出中找不到 JSON 对象' }
+
+  let lastError = ''
+  for (const raw of candidates) {
+    const parsed = parseJsonCandidate(raw)
+    if (parsed.ok) {
+      const validated = validatePlan(parsed.value)
+      if (validated.plan) return validated
+      lastError = validated.error
+      continue
+    }
+    lastError = parsed.error
+
+    const repaired = repairLikelyTruncatedJson(raw)
+    if (repaired && repaired !== raw) {
+      const reparsed = parseJsonCandidate(repaired)
+      if (reparsed.ok) {
+        const validated = validatePlan(reparsed.value)
+        if (validated.plan) return validated
+        lastError = validated.error
+      } else {
+        lastError = reparsed.error
+      }
+    }
   }
+
+  return { plan: null, error: lastError || 'JSON 解析失败' }
+}
+
+function validatePlan(parsed: unknown): { plan: LessonPlan; error?: undefined } | { plan: null; error: string } {
   const result = lessonPlanSchema.safeParse(parsed)
   if (!result.success) {
     const issues = result.error.issues
@@ -583,29 +718,124 @@ function parsePlan(text: string): { plan: LessonPlan; error?: undefined } | { pl
   return { plan: sanitizePlan(result.data) }
 }
 
-function extractJsonText(text: string): string {
-  const trimmed = text.trim()
-  // Strip ```json ... ``` fences
-  const fenceMatch = /^```(?:json)?\s*([\s\S]*?)```$/i.exec(trimmed)
-  if (fenceMatch) return fenceMatch[1]!.trim()
-  // If it starts with { assume pure JSON
-  if (trimmed.startsWith('{')) return trimmed
-  // Otherwise extract the last balanced { ... } block
-  const start = trimmed.lastIndexOf('{')
-  const end = trimmed.indexOf('}', start)
-  if (start >= 0 && end > start) {
-    // Greedy: take from first { to last }
-    const first = trimmed.indexOf('{')
-    const last = trimmed.lastIndexOf('}')
-    if (first >= 0 && last > first) return trimmed.slice(first, last + 1)
+function parseJsonCandidate(raw: string): { ok: true; value: unknown } | { ok: false; error: string } {
+  try {
+    return { ok: true, value: JSON.parse(raw) }
+  } catch (error) {
+    return { ok: false, error: `JSON 解析失败：${error instanceof Error ? error.message : String(error)}` }
+  }
+}
+
+function extractJsonCandidates(text: string): string[] {
+  const trimmed = stripJsonFence(text.trim())
+  const candidates: string[] = []
+  const add = (candidate: string): void => {
+    const normalized = candidate.trim()
+    if (normalized && !candidates.includes(normalized)) candidates.push(normalized)
+  }
+
+  const balanced = extractFirstBalancedJsonObject(trimmed)
+  if (balanced) add(balanced)
+  if (trimmed.startsWith('{')) add(trimmed)
+
+  const first = trimmed.indexOf('{')
+  const last = trimmed.lastIndexOf('}')
+  if (first >= 0 && last > first) add(trimmed.slice(first, last + 1))
+  return candidates
+}
+
+function stripJsonFence(text: string): string {
+  const fenceMatch = /^```(?:json)?\s*([\s\S]*?)```$/i.exec(text)
+  return fenceMatch ? fenceMatch[1]!.trim() : text
+}
+
+function extractFirstBalancedJsonObject(text: string): string {
+  const start = text.indexOf('{')
+  if (start < 0) return ''
+
+  const stack: string[] = []
+  let inString = false
+  let escaped = false
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index]
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+    } else if (char === '{') {
+      stack.push('}')
+    } else if (char === '[') {
+      stack.push(']')
+    } else if (char === '}' || char === ']') {
+      if (stack.length === 0 || stack[stack.length - 1] !== char) return ''
+      stack.pop()
+      if (stack.length === 0) return text.slice(start, index + 1)
+    }
   }
   return ''
 }
 
+function repairLikelyTruncatedJson(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('{')) return ''
+
+  let repaired = ''
+  const stack: string[] = []
+  let inString = false
+  let escaped = false
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index]
+    repaired += char
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+    } else if (char === '{') {
+      stack.push('}')
+    } else if (char === '[') {
+      stack.push(']')
+    } else if (char === '}' || char === ']') {
+      if (stack[stack.length - 1] !== char) return ''
+      stack.pop()
+    }
+  }
+
+  if (escaped) repaired += '\\'
+  if (inString) repaired += '"'
+  repaired = repaired.replace(/,\s*$/, '')
+  while (stack.length > 0) {
+    const close = stack.pop()!
+    repaired = repaired.replace(/,\s*$/, '')
+    repaired += close
+  }
+  return removeTrailingJsonCommas(repaired)
+}
+
+function removeTrailingJsonCommas(text: string): string {
+  return text.replace(/,\s*([}\]])/g, '$1')
+}
+
 /**
- * Local fallback plan — used when no provider is configured or the AI call
- * fails. Mirrors the original templated lesson content so the fallback path
- * stays educational rather than empty.
+ * Local fallback plan — used only when no provider is configured. Provider
+ * failures are surfaced instead of being hidden behind a placeholder lesson.
  */
 function localFallbackPlan(
   prompt: string,
@@ -614,36 +844,42 @@ function localFallbackPlan(
   settings: TeachingSettingsV1
 ): LessonPlan {
   const topic = deriveTopic(prompt, mission.title)
-  const title = sequence === 1 ? '写出可执行的学习使命' : deriveLessonTitle(prompt, sequence)
+  const title = deriveLessonTitle(prompt, sequence)
   const includeQuiz = settings.generator.includeRetrievalPractice
   return {
     title,
-    objective: `把「${topic}」压缩成一次可保存、可复习的学习动作。`,
-    durationMinutes: sequence === 1 ? Math.min(12, settings.generator.lessonDurationMinutes) : settings.generator.lessonDurationMinutes,
+    objective: `用一个可复述框架掌握「${topic}」的关键判断。`,
+    durationMinutes: settings.generator.lessonDurationMinutes,
     sections: [
       {
-        heading: '这节课完成什么',
-        body: '先把输入的学习愿望整理成一个小闭环：使命、可信资源、可复习 lesson、learning record。这个闭环比一次性聊天更有价值，因为它能在文件系统里持续演进。\n\n1. **使命** — 说明为什么学，以及成功是什么样子。\n2. **课程** — 只教一个足够小的动作，并保存为静态 HTML。\n3. **记录** — 把已经建立的理解写入 learning-records，供下次生成使用。'
+        heading: '先回答什么',
+        body: `本课围绕「${topic}」建立一个最小闭环：它是什么、为什么重要、实际判断时看哪些信号。学习时先不要追求覆盖所有分支，而是把主题压缩成一段能讲给面试官或同事听的解释。`
       },
       {
-        heading: '把任务拆成文件',
-        body: '- [MISSION.md](../MISSION.md) — 学习罗盘\n- [RESOURCES.md](../RESOURCES.md) — 可信来源\n- lessons/*.html — 课程讲义与速查材料\n- lessons/*.md — 学习证据\n- conversation/*.md — 对话记录'
+        heading: '三步框架',
+        body: `1. **定义边界**：说明「${topic}」解决哪类问题，也说明它不负责什么。\n2. **抓住取舍**：列出 2 到 3 个会影响结果的关键参数或设计选择。\n3. **落到例子**：用 Mission「${mission.title}」里的真实目标，把抽象概念换成一个具体判断。`
+      },
+      {
+        heading: '复述模板',
+        body: `可以这样复述：在「${mission.title}」里，${topic} 的价值不是记住名词，而是能解释它改变了哪一步决策。先讲目标，再讲机制，最后讲一个常见误区或边界条件。`
       }
     ],
-    keyPoints: ['文件系统是真相来源', '每节 lesson 短小且可复习', '本地优先，AI 可选'],
+    keyPoints: [`先定义「${topic}」边界`, '用取舍而不是名词记忆', '用一个具体例子复述'],
     quiz: includeQuiz
       ? [{
           type: 'single',
-          question: 'TeachOS 里最应该长期保存的真相来源是什么？',
-          choices: ['运行时内存状态', '工作区文件资产', '单次聊天窗口'],
-          answer: 1,
-          explanation: '工作区文件能脱离 App 长期保存。'
+          question: `学习「${topic}」时，最稳的复述顺序是什么？`,
+          choices: ['目标、机制、边界', '名词列表、工具列表、版本号', '先背结论，再补原因'],
+          answer: 0,
+          explanation: '先讲目标，再讲机制和边界，最不容易跑题。'
         }]
       : [],
-    flashcards: [],
+    flashcards: [
+      { front: `${topic} 的学习抓手`, back: '定义边界、关键取舍、具体例子。' }
+    ],
     callouts: [],
-    referenceNotes: '先写 mission，再决定第一课；课程输出到 lessons/*.html；对话记录写入 conversation/*.md。',
-    learningRecordNote: `本节围绕「${mission.title}」建立了可复用的 TeachOS 学习闭环。`
+    referenceNotes: `围绕「${topic}」复习时，优先检查：它解决的问题、关键取舍、一个可讲清的例子。`,
+    learningRecordNote: `## 判定\n本节为「${topic}」建立了可复述框架：目标、机制、边界。\n\n## 影响\n后续课程可以在这个框架上继续补具体参数、案例和面试问答。`
   }
 }
 

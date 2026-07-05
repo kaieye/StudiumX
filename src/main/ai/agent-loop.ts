@@ -32,6 +32,7 @@ export type RunAgentLoopOptions = {
   tools: ToolDefinition[]
   toolHandlers: ToolHandlerMap
   maxIterations?: number
+  jsonMode?: boolean
   maxIterationsBehavior?: 'force_final_answer' | 'error'
   shouldErrorOnMaxIterations?: () => boolean
   maxIterationsErrorMessage?: string
@@ -137,7 +138,8 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         request: {
           messages: transcript,
           tools: opts.tools,
-          toolChoice: 'auto'
+          toolChoice: 'auto',
+          jsonMode: opts.jsonMode === true
         },
         signal: opts.signal
       })
@@ -243,7 +245,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     const final = await callChatProvider({
       settings: opts.settings,
       provider: opts.provider,
-      request: { messages: transcript, tools: [], toolChoice: 'none' },
+      request: { messages: transcript, tools: [], toolChoice: 'none', jsonMode: opts.jsonMode === true },
       signal: opts.signal
     })
     if (isCanceled()) return canceledResult(true)

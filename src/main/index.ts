@@ -478,6 +478,12 @@ function createWindow(hidden = false): BrowserWindow {
     logger?.error(`Preload failed at ${preloadPath}: ${error.stack ?? error.message}`)
   })
 
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppShellNavigation(url)) return
+    event.preventDefault()
+    if (isHttpUrl(url)) void shell.openExternal(url)
+  })
+
   mainWindow.once('ready-to-show', () => {
     if (!hidden) mainWindow.show()
   })
@@ -488,7 +494,7 @@ function createWindow(hidden = false): BrowserWindow {
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    if (isHttpUrl(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
 
@@ -499,6 +505,25 @@ function createWindow(hidden = false): BrowserWindow {
   }
 
   return mainWindow
+}
+
+function isAppShellNavigation(url: string): boolean {
+  if (isDev && process.env.ELECTRON_RENDERER_URL && url.startsWith(process.env.ELECTRON_RENDERER_URL)) return true
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'file:' || parsed.protocol === `${PREVIEW_PROTOCOL}:`
+  } catch {
+    return false
+  }
+}
+
+function isHttpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 function focusExistingWindow(): void {

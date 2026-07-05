@@ -1,4 +1,5 @@
 export const PREVIEW_MARKDOWN_LINK_MESSAGE = 'teachos:open-markdown'
+export const PREVIEW_EXTERNAL_LINK_MESSAGE = 'teachos:open-external'
 
 const BRIDGE_SCRIPT_ID = 'teachos-markdown-link-bridge'
 
@@ -22,11 +23,17 @@ function markdownBridgeScript(): string {
     } catch {
       return;
     }
-    if (url.protocol !== 'teachos-preview:') return;
-    const path = decodeURIComponent(url.pathname);
-    if (!/\\.(?:md|markdown)$/i.test(path)) return;
-    event.preventDefault();
-    window.parent.postMessage({ type: ${JSON.stringify(PREVIEW_MARKDOWN_LINK_MESSAGE)}, href: url.href }, '*');
+    if (url.protocol === 'teachos-preview:') {
+      const path = decodeURIComponent(url.pathname);
+      if (!/\\.(?:md|markdown)$/i.test(path)) return;
+      event.preventDefault();
+      window.parent.postMessage({ type: ${JSON.stringify(PREVIEW_MARKDOWN_LINK_MESSAGE)}, href: url.href }, '*');
+      return;
+    }
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      event.preventDefault();
+      window.parent.postMessage({ type: ${JSON.stringify(PREVIEW_EXTERNAL_LINK_MESSAGE)}, href: url.href }, '*');
+    }
   }, true);
 })();
 </script>`
@@ -62,6 +69,17 @@ export function parsePreviewMarkdownHref(href: string): PreviewMarkdownLink | nu
 
   if (!workspaceId || !relativePath || !/\.(?:md|markdown)$/i.test(relativePath)) return null
   return { workspaceId, relativePath }
+}
+
+export function parsePreviewExternalHref(href: string): string | null {
+  let url: URL
+  try {
+    url = new URL(href)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+  return url.href
 }
 
 function escapeHtmlAttribute(value: string): string {

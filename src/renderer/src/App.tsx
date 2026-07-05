@@ -97,7 +97,9 @@ import {
 } from './agent-conversation-state'
 import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
 import {
+  parsePreviewExternalHref,
   parsePreviewMarkdownHref,
+  PREVIEW_EXTERNAL_LINK_MESSAGE,
   PREVIEW_MARKDOWN_LINK_MESSAGE
 } from '../../shared/preview-markdown-bridge'
 import {
@@ -4009,24 +4011,31 @@ function MainArea() {
   useEffect(() => {
     const handlePreviewMessage = (event: MessageEvent): void => {
       const data = event.data as { type?: unknown; href?: unknown } | null
-      if (!data || data.type !== PREVIEW_MARKDOWN_LINK_MESSAGE || typeof data.href !== 'string') return
-      const target = parsePreviewMarkdownHref(data.href)
-      if (!target) return
-      const workspace = appState.workspaces.find((item) => item.id === target.workspaceId)
-      if (!workspace) return
-      void loadWorkspaceMarkdownFile(
-        {
-          title: titleFromFileName(target.relativePath),
-          relativePath: target.relativePath,
-          absolutePath: target.relativePath
-        },
-        workspace.id
-      )
+      if (!data || typeof data.href !== 'string') return
+      if (data.type === PREVIEW_MARKDOWN_LINK_MESSAGE) {
+        const target = parsePreviewMarkdownHref(data.href)
+        if (!target) return
+        const workspace = appState.workspaces.find((item) => item.id === target.workspaceId)
+        if (!workspace) return
+        void loadWorkspaceMarkdownFile(
+          {
+            title: titleFromFileName(target.relativePath),
+            relativePath: target.relativePath,
+            absolutePath: target.relativePath
+          },
+          workspace.id
+        )
+        return
+      }
+      if (data.type === PREVIEW_EXTERNAL_LINK_MESSAGE) {
+        const href = parsePreviewExternalHref(data.href)
+        if (href) void openExternal(href)
+      }
     }
 
     window.addEventListener('message', handlePreviewMessage)
     return () => window.removeEventListener('message', handlePreviewMessage)
-  }, [appState.workspaces, loadWorkspaceMarkdownFile])
+  }, [appState.workspaces, loadWorkspaceMarkdownFile, openExternal])
 
   // Show skeleton during initial load
   if (loading && !active) {

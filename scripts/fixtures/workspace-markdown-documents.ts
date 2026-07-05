@@ -9,7 +9,9 @@ import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import {
   ensurePreviewBaseTag,
   injectPreviewMarkdownLinkBridge,
+  parsePreviewExternalHref,
   parsePreviewMarkdownHref,
+  PREVIEW_EXTERNAL_LINK_MESSAGE,
   PREVIEW_MARKDOWN_LINK_MESSAGE
 } from '../../src/shared/preview-markdown-bridge'
 
@@ -95,10 +97,25 @@ try {
     new RegExp(PREVIEW_MARKDOWN_LINK_MESSAGE),
     'lesson preview HTML should intercept Markdown links instead of letting the iframe navigate to raw text'
   )
+  assert.match(
+    lessonPreview.html,
+    new RegExp(PREVIEW_EXTERNAL_LINK_MESSAGE),
+    'lesson preview HTML should intercept external links instead of letting the iframe navigate away from TeachOS'
+  )
   assert.deepEqual(
     parsePreviewMarkdownHref(`teachos-preview://${encodeURIComponent(workspace.id)}/MISSION.md`),
     { workspaceId: workspace.id, relativePath: 'MISSION.md' },
     'preview markdown bridge should parse teachos-preview Markdown links for the app shell'
+  )
+  assert.equal(
+    parsePreviewExternalHref('https://example.com/docs?x=1#intro'),
+    'https://example.com/docs?x=1#intro',
+    'preview bridge should allow http(s) external links'
+  )
+  assert.equal(
+    parsePreviewExternalHref(`teachos-preview://${encodeURIComponent(workspace.id)}/MISSION.md`),
+    null,
+    'preview bridge should not treat internal preview links as external links'
   )
   const protocolPreviewFile = await service.resolvePreviewFile(workspace.id, 'courses/demo/lesson/0001-md-nav.html')
   assert.equal(protocolPreviewFile?.relativePath, 'courses/demo/lesson/0001-md-nav.html')
@@ -117,6 +134,11 @@ try {
     protocolHtml,
     new RegExp(PREVIEW_MARKDOWN_LINK_MESSAGE),
     'preview protocol HTML should intercept Markdown links before the iframe navigates to raw text'
+  )
+  assert.match(
+    protocolHtml,
+    new RegExp(PREVIEW_EXTERNAL_LINK_MESSAGE),
+    'preview protocol HTML should intercept external links before the iframe navigates away from TeachOS'
   )
 
   await assert.rejects(

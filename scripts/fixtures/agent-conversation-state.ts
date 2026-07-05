@@ -99,6 +99,35 @@ assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'status')
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.status, 'tool_running')
 pending = patch.pendingAgentConversation!
 
+patch = applyAgentChatStatusToPending({
+  pending,
+  activeConversationId: draft.pendingConversationId,
+  assistantId: draft.assistantId,
+  status: { streamId: draft.pendingConversationId, status: 'tool_running', message: '正在生成课程：调用模型…' },
+  updatedAt: '2026-01-02T00:00:02.500Z'
+})
+assert.ok(patch)
+assert.equal(patch.agentStatus, '正在生成课程：调用模型…')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, 'generate_lesson：调用模型')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.detail, '课程生成工具')
+const eventCountAfterLessonStatus = patch.agentTurns?.at(-1)?.processEvents?.length ?? 0
+pending = patch.pendingAgentConversation!
+
+patch = applyAgentChatStatusToPending({
+  pending,
+  activeConversationId: draft.pendingConversationId,
+  assistantId: draft.assistantId,
+  status: { streamId: draft.pendingConversationId, status: 'tool_running', message: '正在生成课程：调用模型…' },
+  updatedAt: '2026-01-02T00:00:02.750Z'
+})
+assert.ok(patch)
+assert.equal(
+  patch.agentTurns?.at(-1)?.processEvents?.length,
+  eventCountAfterLessonStatus,
+  'repeated lesson-generation phases should not spam the process panel'
+)
+pending = patch.pendingAgentConversation!
+
 patch = applyAgentChatToolEventToPending({
   pending,
   activeConversationId: draft.pendingConversationId,
