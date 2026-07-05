@@ -64,8 +64,8 @@ function listSidebarWorkspaceChildren(
       name: sidebarCourseNodeName(node)
     }))
   return [
-    ...workspaceRootTeachingMarkdownNodes(workspace),
     ...(defaultCourse?.node.children ?? []),
+    ...workspaceRootTeachingMarkdownNodes(workspace),
     ...legacyCourses
   ]
 }
@@ -73,7 +73,7 @@ function listSidebarWorkspaceChildren(
 function workspaceRootTeachingMarkdownNodes(workspace: TeachingWorkspaceSummary): WorkspaceFileNode[] {
   const rootFiles = new Map<string, WorkspaceFileNode>()
   indexWorkspaceNodes(workspace.fileTree, rootFiles)
-  return ['MISSION.md', 'GLOSSARY.md', 'RESOURCES.md']
+  return ['MISSION.md', 'GLOSSARY.md', 'RESOURCES.md', 'NOTES.md']
     .map((relativePath) => rootFiles.get(relativePath))
     .filter((node): node is WorkspaceFileNode => Boolean(node))
 }

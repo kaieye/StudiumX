@@ -47,12 +47,17 @@ try {
   const sidebarRoot = listSidebarWorkspaceFolders(created.workspaces, false).find(({ workspace: item }) => item.id === workspace.id)?.node
   assert.ok(sidebarRoot)
   assert.deepEqual(
+    sidebarRoot.children?.map((node) => node.relativePath).slice(0, 6),
+    ['lessons', 'conversation', 'MISSION.md', 'GLOSSARY.md', 'RESOURCES.md', 'NOTES.md'],
+    'course sidebar should list lesson/conversation folders before sibling markdown files'
+  )
+  assert.deepEqual(
     sidebarRoot.children
       ?.filter((node) => node.kind === 'file' && node.name.endsWith('.md'))
       .map((node) => node.relativePath)
       .sort(),
-    ['GLOSSARY.md', 'MISSION.md', 'RESOURCES.md'],
-    'course sidebar should expose mission, glossary, and resources markdown files'
+    ['GLOSSARY.md', 'MISSION.md', 'NOTES.md', 'RESOURCES.md'],
+    'course sidebar should expose mission, glossary, resources, and notes markdown files'
   )
 
   const mission = await service.readWorkspaceMarkdown({

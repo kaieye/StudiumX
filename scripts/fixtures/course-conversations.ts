@@ -121,9 +121,9 @@ try {
     ?.node
   assert.ok(selectedWorkspaceNode)
   assert.deepEqual(
-    selectedWorkspaceNode.children?.map((node) => node.name).sort(),
-    ['conversation', 'lessons'],
-    'imported workspace folders should display lessons and conversation directly under the tutorial root'
+    selectedWorkspaceNode.children?.map((node) => node.name).slice(0, 6),
+    ['lessons', 'conversation', 'MISSION.md', 'GLOSSARY.md', 'RESOURCES.md', 'NOTES.md'],
+    'imported workspace folders should display lessons and conversation before sibling markdown files'
   )
 
   const loaded = await service.readAgentConversation({

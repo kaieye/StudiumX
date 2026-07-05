@@ -472,11 +472,11 @@ function renderMarkdown(source: string): string {
       continue
     }
     flushList()
-    const headingMatch = /^(#{1,3})\s+(.*)$/.exec(line)
+    const headingMatch = /^(#{1,6})\s+(.*)$/.exec(line)
     if (headingMatch) {
       flushParagraph()
-      const level = headingMatch[1]!.length
-      blocks.push(`<h${level + 1}>${inline(headingMatch[2]!)}</h${level + 1}>`)
+      const level = Math.min(6, headingMatch[1]!.length + 1)
+      blocks.push(`<h${level}>${inline(headingMatch[2]!)}</h${level}>`)
       continue
     }
     if (/^>\s+/.test(line)) {

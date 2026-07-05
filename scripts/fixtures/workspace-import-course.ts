@@ -64,16 +64,16 @@ try {
   const importedWorkspaceNode = sidebarWorkspaceFolders.find(({ workspace }) => workspace.id === active.id)?.node
   assert.ok(importedWorkspaceNode)
   assert.deepEqual(
-    importedWorkspaceNode.children?.map((node) => node.name).sort(),
-    ['GLOSSARY.md', 'MISSION.md', 'RESOURCES.md', 'conversation', 'lessons'],
-    'imported tutorial folder should expose mission, glossary, resources, lessons, and conversation directly under the workspace root'
+    importedWorkspaceNode.children?.map((node) => node.name).slice(0, 6),
+    ['lessons', 'conversation', 'MISSION.md', 'GLOSSARY.md', 'RESOURCES.md', 'NOTES.md'],
+    'imported tutorial folder should expose lessons and conversation before sibling markdown files'
   )
   assert.deepEqual(
     importedWorkspaceNode.children
       ?.filter((node) => node.kind === 'file' && node.name.endsWith('.md'))
       .map((node) => node.relativePath)
       .sort(),
-    ['GLOSSARY.md', 'MISSION.md', 'RESOURCES.md'],
+    ['GLOSSARY.md', 'MISSION.md', 'NOTES.md', 'RESOURCES.md'],
     'workspace root teaching markdown files should be selectable from the course sidebar'
   )
   assert.equal(

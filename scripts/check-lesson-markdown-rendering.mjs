@@ -142,6 +142,50 @@ assert.match(relaxedHtml, /<div class="markdown-table-wrap">/, 'two-dash separat
 assert.match(relaxedHtml, /class="align-center"/, 'two-dash center alignment should still produce the class')
 assert.doesNotMatch(relaxedHtml, /\| 项 \| 说明 \|/, 'two-dash table source must not remain as a paragraph')
 
+// Model-generated lessons commonly nest markdown headings under a section
+// heading. Four-hash headings must render instead of leaking raw `####`.
+const nestedHeadingPlan = {
+  title: '嵌套标题',
+  objective: '四级 Markdown 标题应渲染成 HTML 标题。',
+  durationMinutes: 5,
+  sections: [
+    {
+      heading: '正文',
+      body: '#### ① 索引阶段（Indexing）— 离线'
+    }
+  ],
+  keyPoints: [],
+  quiz: [],
+  flashcards: [],
+  referenceNotes: '',
+  learningRecordNote: ''
+}
+const nestedHeadingLesson = {
+  id: '004',
+  title: nestedHeadingPlan.title,
+  sessionName: nestedHeadingPlan.title,
+  prompt: '嵌套标题',
+  objective: nestedHeadingPlan.objective,
+  durationMinutes: nestedHeadingPlan.durationMinutes,
+  relativePath: 'courses/demo/lesson/004-nested-heading.html',
+  absolutePath: 'D:\\tmp\\004-nested-heading.html',
+  courseId: 'demo',
+  courseName: 'demo',
+  courseRelativePath: 'courses/demo',
+  courseAbsolutePath: 'D:\\tmp\\courses\\demo'
+}
+const nestedHeadingHtml = renderLessonHtmlFromPlan({
+  plan: nestedHeadingPlan,
+  lesson: nestedHeadingLesson,
+  mission: { title: '教学链路优化', excerpt: '嵌套标题应渲染。' },
+  workspaceName: 'StudiumX',
+  recordRelativePath: null,
+  referenceRelativePath: null,
+  generator
+})
+assert.match(nestedHeadingHtml, /<h5>① 索引阶段（Indexing）— 离线<\/h5>/, 'four-hash headings should render one level below h4')
+assert.doesNotMatch(nestedHeadingHtml, /<p>####/, 'four-hash heading source should not remain as paragraph text')
+
 // New teach-skill-quality components: nav replaces mission-card; flow /
 // callout / interview / primary-source / followupPrompt render.
 const richPlan = {
