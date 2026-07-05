@@ -17,6 +17,10 @@ import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
 import { isPathInsideConfiguredRoot, isPathInsideRoot } from './path-access'
 import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import {
+  ensurePreviewBaseTag,
+  injectPreviewMarkdownLinkBridge
+} from '../shared/preview-markdown-bridge'
+import {
   optionalString,
   parseAgentChatStreamPayload,
   parseApplyLessonStylePayload,
@@ -410,7 +414,12 @@ function registerPreviewProtocol(service: TeachingWorkspaceService): void {
       const file = await service.resolvePreviewFile(workspaceId, relativePath)
       if (!file) return new Response('Not found', { status: 404 })
       const body = await readFile(file.absolutePath)
-      return new Response(body, {
+      const responseBody = file.mimeType.startsWith('text/html')
+        ? injectPreviewMarkdownLinkBridge(
+            ensurePreviewBaseTag(body.toString('utf8'), request.url)
+          )
+        : body
+      return new Response(responseBody, {
         headers: {
           'Content-Type': file.mimeType,
           'Cache-Control': 'no-store'

@@ -6,7 +6,12 @@ import { join } from 'node:path'
 import { listSidebarWorkspaceFolders } from '../../src/shared/course-sidebar'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
-import { parsePreviewMarkdownHref, PREVIEW_MARKDOWN_LINK_MESSAGE } from '../../src/shared/preview-markdown-bridge'
+import {
+  ensurePreviewBaseTag,
+  injectPreviewMarkdownLinkBridge,
+  parsePreviewMarkdownHref,
+  PREVIEW_MARKDOWN_LINK_MESSAGE
+} from '../../src/shared/preview-markdown-bridge'
 
 let tempRoot = ''
 
@@ -89,6 +94,24 @@ try {
     parsePreviewMarkdownHref(`teachos-preview://${encodeURIComponent(workspace.id)}/MISSION.md`),
     { workspaceId: workspace.id, relativePath: 'MISSION.md' },
     'preview markdown bridge should parse teachos-preview Markdown links for the app shell'
+  )
+  const protocolPreviewFile = await service.resolvePreviewFile(workspace.id, 'courses/demo/lesson/0001-md-nav.html')
+  assert.equal(protocolPreviewFile?.relativePath, 'courses/demo/lesson/0001-md-nav.html')
+  assert.equal(protocolPreviewFile?.workspaceId, workspace.id)
+  assert.equal(protocolPreviewFile?.mimeType, 'text/html; charset=utf-8')
+  const protocolPreviewUrl = `teachos-preview://${encodeURIComponent(workspace.id)}/courses/demo/lesson/0001-md-nav.html`
+  const protocolHtml = injectPreviewMarkdownLinkBridge(
+    ensurePreviewBaseTag(await readFile(protocolPreviewFile.absolutePath, 'utf8'), protocolPreviewUrl)
+  )
+  assert.match(
+    protocolHtml,
+    new RegExp(`<base href="${protocolPreviewUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`),
+    'preview protocol HTML should receive a teachos-preview base tag'
+  )
+  assert.match(
+    protocolHtml,
+    new RegExp(PREVIEW_MARKDOWN_LINK_MESSAGE),
+    'preview protocol HTML should intercept Markdown links before the iframe navigates to raw text'
   )
 
   await assert.rejects(

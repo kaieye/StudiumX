@@ -39,6 +39,11 @@ export function injectPreviewMarkdownLinkBridge(html: string): string {
   return `${html}\n${script}`
 }
 
+export function ensurePreviewBaseTag(html: string, baseHref: string): string {
+  if (/<base\s/i.test(html)) return html
+  return html.replace(/<head([^>]*)>/i, `<head$1>\n  <base href="${escapeHtmlAttribute(baseHref)}" />`)
+}
+
 export function parsePreviewMarkdownHref(href: string): PreviewMarkdownLink | null {
   let url: URL
   try {
@@ -57,4 +62,12 @@ export function parsePreviewMarkdownHref(href: string): PreviewMarkdownLink | nu
 
   if (!workspaceId || !relativePath || !/\.(?:md|markdown)$/i.test(relativePath)) return null
   return { workspaceId, relativePath }
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }

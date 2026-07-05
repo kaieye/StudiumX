@@ -60,7 +60,10 @@ import {
   isRootAgentConversationMarkdownRelativePath,
   normalizeAgentConversationDirectory
 } from '../shared/agent-conversation-catalog'
-import { injectPreviewMarkdownLinkBridge } from '../shared/preview-markdown-bridge'
+import {
+  ensurePreviewBaseTag,
+  injectPreviewMarkdownLinkBridge
+} from '../shared/preview-markdown-bridge'
 import type {
   ApplyLessonStylePayload,
   CreateWorkspacePayload,
@@ -146,6 +149,8 @@ type AgentConversationLocation = {
 export type WorkspacePreviewFile = {
   absolutePath: string
   mimeType: string
+  relativePath: string
+  workspaceId: string
 }
 
 type SessionEvent = {
@@ -948,7 +953,9 @@ export class TeachingWorkspaceService {
     if (!(await fileExists(target))) return null
     return {
       absolutePath: target,
-      mimeType: mimeTypeForPath(target)
+      mimeType: mimeTypeForPath(target),
+      relativePath: normalizedRelativePath,
+      workspaceId: workspace.id
     }
   }
 
@@ -1585,11 +1592,7 @@ function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
 }
 
 function withPreviewBase(html: string, baseHref: string): string {
-  const baseTag = `<base href="${baseHref}" />`
-  const withBase = /<base\s/i.test(html)
-    ? html
-    : html.replace(/<head([^>]*)>/i, `<head$1>\n  ${baseTag}`)
-  return injectPreviewMarkdownLinkBridge(withBase)
+  return injectPreviewMarkdownLinkBridge(ensurePreviewBaseTag(html, baseHref))
 }
 
 function toPreviewUrl(workspaceId: string, relativePath: string): string {
