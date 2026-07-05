@@ -85,13 +85,16 @@ for (const html of [lessonHtml, referenceHtml]) {
   assert.match(html, /<p>表格后的段落应该继续正常渲染。<\/p>/, 'content after a table should keep rendering')
 }
 
-const [baseStyles, promptSource] = await Promise.all([
+const [baseStyles, assetStyles, promptSource] = await Promise.all([
   readFile('src/shared/lesson-style-themes/base.ts', 'utf8'),
+  readFile('assets/lesson.css', 'utf8'),
   readFile('src/main/ai/lesson-prompts.ts', 'utf8')
 ])
 
 assert.match(baseStyles, /\.markdown-table-wrap \{/, 'lesson CSS should style the table scroll wrapper')
 assert.match(baseStyles, /td\.align-right/, 'lesson CSS should style right-aligned table cells')
+assert.match(assetStyles, /\.markdown-table-wrap \{/, 'workspace lesson.css asset should style the table scroll wrapper')
+assert.match(assetStyles, /td\.align-right/, 'workspace lesson.css asset should style right-aligned table cells')
 assert.match(promptSource, /GFM 表格/, 'lesson prompt contract should advertise GFM table support')
 
 // Relaxed table separator: `:--:` (2 dashes) must also render as a table,

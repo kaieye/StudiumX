@@ -215,16 +215,31 @@ hr {
   background: var(--line);
 }
 
-table {
-  display: block;
+.markdown-table-wrap {
   width: 100%;
   overflow-x: auto;
   margin: 16px 0 0;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: var(--panel);
+}
+
+table {
+  width: 100%;
+  margin: 16px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   border-spacing: 0;
   border-collapse: separate;
   background: var(--panel);
+}
+
+.markdown-table-wrap table {
+  min-width: 620px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
 }
 
 thead {
@@ -243,6 +258,16 @@ td {
 th {
   color: #ffffff;
   font-weight: 800;
+}
+
+th.align-center,
+td.align-center {
+  text-align: center;
+}
+
+th.align-right,
+td.align-right {
+  text-align: right;
 }
 
 tr:last-child td {
