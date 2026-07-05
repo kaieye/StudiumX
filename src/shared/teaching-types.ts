@@ -700,6 +700,33 @@ export type AgentChatStreamToolEvent = {
   isError?: boolean
 }
 
+// ---- ask tool: structured questions with clickable options ----
+
+/** One selectable option inside an ask question. The label is also the
+ *  value returned to the model when chosen. */
+export type AskOption = {
+  label: string
+  description?: string
+}
+
+/** A single question the model presents to the user. `id` is assigned by
+ *  the ask handler (stable `q1`/`q2`/...) so answers can be correlated. */
+export type AskQuestion = {
+  id: string
+  header?: string
+  prompt: string
+  multiSelect?: boolean
+  options: AskOption[]
+}
+
+/** A user's answer to one question. `selected` holds the chosen labels;
+ *  a free-typed answer is sent as a single-element array. An empty array
+ *  means "the user dismissed without choosing — don't decide for them". */
+export type AskAnswer = {
+  questionId: string
+  selected: string[]
+}
+
 export type AgentChatStreamDone =
   | {
       streamId: string
@@ -811,6 +838,11 @@ export type TeachingSystemApi = {
     onTool: (event: AgentChatStreamToolEvent) => void
   ) => Promise<AgentChatStreamDone>
   cancelAgentChatStream: (streamId: string) => Promise<{ canceled: boolean }>
+  answerAgentChatTool: (
+    streamId: string,
+    toolCallId: string,
+    answers: AskAnswer[]
+  ) => Promise<void>
   onAgentChatChunk: (handler: (chunk: AgentChatStreamChunk) => void) => () => void
   onAgentChatStatus: (handler: (status: AgentChatStreamStatus) => void) => () => void
   onAgentChatTool: (handler: (event: AgentChatStreamToolEvent) => void) => () => void

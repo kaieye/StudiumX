@@ -38,6 +38,7 @@ import {
   MoreHorizontal,
   PanelLeft,
   Palette,
+  PenLine,
   Pin,
   PinOff,
   Plus,
@@ -84,9 +85,12 @@ import {
   findConversationSummary,
   finishPendingAgentConversationSave,
   isPendingConversationSummary,
+  parseAskToolCall,
   reconcileAgentTurnsWithLocalProcess,
+  selectPendingAsk,
   syncPendingAgentConversation,
   type PendingAgentConversation,
+  type PendingAsk,
   type SidebarConversationSummary
 } from './agent-conversation-state'
 import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
@@ -112,6 +116,8 @@ import {
   type AgentChatMode,
   type AgentChatTurn,
   type AgentConversationSummary,
+  type AskAnswer,
+  type AskQuestion,
   type CreateTeachingMemoryPayload,
   type GitBranchPayload,
   type LessonStreamChunk,
@@ -339,7 +345,7 @@ const emptySettings: TeachingSettingsV1 = {
     workspaceRead: true,
     webSearch: true,
     webFetch: false,
-    maxIterations: 8
+    maxIterations: 0
   },
   webSearch: {
     backend: 'auto',
@@ -4381,6 +4387,18 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const activeAssistantTurnId = viewingBusyPendingConversation
     ? [...agentTurns].reverse().find((turn) => turn.role === 'assistant')?.id
     : null
+  const pendingAskStreamId = pendingAgentConversation?.summary.id ?? null
+  const pendingAsk = pendingAskStreamId
+    ? selectPendingAsk(agentTurns, pendingAskStreamId)
+    : null
+  const answerAsk = (answers: AskAnswer[]): void => {
+    if (!pendingAsk) return
+    void window.teachingSystem?.answerAgentChatTool(
+      pendingAsk.streamId,
+      pendingAsk.toolCallId,
+      answers
+    )
+  }
 
   return (
     <section
@@ -4403,6 +4421,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
               >
                 {turn.role === 'assistant' && <AgentProcessPanel turn={turn} busy={isBusyTurn} compact />}
                 {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
+                {turn.role === 'assistant' && <AskQABlock turn={turn} />}
               </div>
             )
           })}
@@ -4410,7 +4429,17 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         </div>
       )}
 
-      <DialogModeSwitch />
+      {!(hasConversation && isTeachingMode) && <DialogModeSwitch />}
+      {pendingAsk && (
+        <div className="overview-dialog-stack ask-stack">
+          <AskCard
+            questions={pendingAsk.questions}
+            onSubmit={answerAsk}
+            onDismiss={() => answerAsk([])}
+            onCancel={() => void cancelAgentChat()}
+          />
+        </div>
+      )}
       <form
         className="overview-dialog-stack"
         aria-label={t('overview.formAria')}
@@ -4644,11 +4673,251 @@ function AgentProcessIcon({
   return <Clock3 size={13} />
 }
 
+function AskCard({
+  questions,
+  onSubmit,
+  onDismiss,
+  onCancel
+}: {
+  questions: AskQuestion[]
+  onSubmit: (answers: AskAnswer[]) => void
+  onDismiss: () => void
+  onCancel?: () => void
+}) {
+  const { t } = useTranslation()
+  const [active, setActive] = useState(0)
+  const [selected, setSelected] = useState<Record<string, string[]>>({})
+  const [custom, setCustom] = useState<Record<string, string>>({})
+  const [customOpen, setCustomOpen] = useState<Record<string, boolean>>({})
+
+  const total = questions.length
+  const question = questions[Math.min(active, total - 1)]
+  if (!question) return null
+
+  const currentSelected = selected[question.id] ?? []
+  const currentCustom = custom[question.id] ?? ''
+  const customActive = customOpen[question.id] === true || currentCustom.trim().length > 0
+  const canSubmit = currentCustom.trim().length > 0 || currentSelected.length > 0
+
+  const toggle = (label: string): void => {
+    setCustom((prev) => ({ ...prev, [question.id]: '' }))
+    setSelected((prev) => {
+      const current = prev[question.id] ?? []
+      if (question.multiSelect) {
+        const next = current.includes(label) ? current.filter((l) => l !== label) : [...current, label]
+        return { ...prev, [question.id]: next }
+      }
+      return { ...prev, [question.id]: [label] }
+    })
+  }
+
+  const advanceOrSubmit = (): void => {
+    const answers = collectAnswers()
+    if (active < total - 1) {
+      setActive(active + 1)
+    } else {
+      onSubmit(answers)
+    }
+  }
+
+  const collectAnswers = (): AskAnswer[] =>
+    questions.map((q) => {
+      const typed = (custom[q.id] ?? '').trim()
+      if (typed) return { questionId: q.id, selected: [typed] }
+      return { questionId: q.id, selected: selected[q.id] ?? [] }
+    })
+
+  const handleOptionClick = (label: string): void => {
+    toggle(label)
+    if (!question.multiSelect) {
+      // Single-select: auto-advance after a brief tick so the user sees
+      // the selection highlight before the next question animates in.
+      // Reads prior answers from the render-snapshot `selected`/`custom`
+      // (stable for already-answered questions) and overrides the current
+      // question with the clicked label — no state-updater side effects.
+      window.setTimeout(() => {
+        const answers: AskAnswer[] = questions.map((q) => {
+          if (q.id === question.id) return { questionId: q.id, selected: [label] }
+          const typed = (custom[q.id] ?? '').trim()
+          if (typed) return { questionId: q.id, selected: [typed] }
+          return { questionId: q.id, selected: selected[q.id] ?? [] }
+        })
+        if (active < total - 1) {
+          setActive((a) => a + 1)
+        } else {
+          onSubmit(answers)
+        }
+      }, 120)
+    }
+  }
+
+  return (
+    <div className="ask-card" role="dialog" aria-label={t('ask.title')}>
+      <div className="ask-card__head">
+        <MessageSquare size={15} />
+        <strong>{t('ask.title')}</strong>
+        {total > 1 && (
+          <span className="ask-card__progress">
+            {t('ask.questionProgress', { current: active + 1, total })}
+          </span>
+        )}
+      </div>
+
+      {total > 1 && active > 0 && (
+        <div className="ask-card__crumbs">
+          {questions.slice(0, active).map((q) => {
+            const typed = (custom[q.id] ?? '').trim()
+            const picked = typed || (selected[q.id] ?? []).join('、')
+            return (
+              <button
+                key={q.id}
+                type="button"
+                className="ask-card__crumb"
+                onClick={() => setActive(questions.indexOf(q))}
+                title={q.prompt}
+              >
+                <span className="ask-card__crumb-label">{q.header ?? compactPrompt(q.prompt)}</span>
+                <span className="ask-card__crumb-value">{picked || '—'}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="ask-card__question">
+        {question.header && <div className="ask-card__question-header">{question.header}</div>}
+        <p>{question.prompt}</p>
+      </div>
+
+      <div className="ask-options">
+        {question.options.map((option) => {
+          const isSel = currentSelected.includes(option.label) && !customActive
+          return (
+            <button
+              key={option.label}
+              type="button"
+              className={`ask-option${isSel ? ' is-selected' : ''}`}
+              onClick={() => handleOptionClick(option.label)}
+            >
+              <span className="ask-option__label">{option.label}</span>
+              {option.description && <span className="ask-option__desc">{option.description}</span>}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="ask-card__custom">
+        {customActive ? (
+          <textarea
+            className="ask-card__custom-input"
+            placeholder={t('ask.customPlaceholder')}
+            value={currentCustom}
+            autoFocus
+            onChange={(event) => {
+              const value = event.target.value
+              setCustom((prev) => ({ ...prev, [question.id]: value }))
+              if (value.trim()) {
+                setSelected((prev) => ({ ...prev, [question.id]: [] }))
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey && canSubmit) {
+                event.preventDefault()
+                advanceOrSubmit()
+              }
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            className="ask-card__custom-toggle"
+            onClick={() => setCustomOpen((prev) => ({ ...prev, [question.id]: true }))}
+          >
+            <PenLine size={13} />
+            {t('ask.customAnswer')}
+          </button>
+        )}
+      </div>
+
+      <div className="ask-card__footer">
+        <button type="button" className="ask-card__ghost" onClick={onDismiss}>
+          {t('ask.justChat')}
+        </button>
+        {onCancel ? (
+          <button type="button" className="ask-card__ghost ask-card__ghost--mute" onClick={onCancel}>
+            <Square size={12} />
+            {t('ask.cancel')}
+          </button>
+        ) : null}
+        {question.multiSelect || customActive ? (
+          <button
+            type="button"
+            className="ask-card__primary"
+            disabled={!canSubmit}
+            onClick={advanceOrSubmit}
+          >
+            {active < total - 1 ? t('ask.next') : t('ask.submit')}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function AskQABlock({ turn }: { turn: AgentChatTurn }) {
+  const parsed = parseAskToolCall(turn)
+  if (!parsed || parsed.result === undefined) return null
+  // Don't render the inline Q&A if the ask errored — the process timeline
+  // already shows "失败"; a partial result would be misleading.
+  if (parsed.isError) return null
+  // The tool_result text already contains each question prompt plus the
+  // user's selection (see formatAskAnswers in ask.ts), so render it as a
+  // single self-contained block rather than re-deriving the structure.
+  return (
+    <div className="ask-qa-block">
+      <div className="ask-qa-block__head">
+        <CheckCircle2 size={13} />
+        <span>已询问用户</span>
+      </div>
+      <div className="ask-qa-block__body">
+        {parsed.result.split(/\n\n/).map((block, index) => (
+          <div key={index} className="ask-qa-block__item">
+            {block.split('\n').map((line, lineIndex) => (
+              <p key={lineIndex}>{line}</p>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function compactPrompt(prompt: string): string {
+  const trimmed = prompt.replace(/\s+/g, ' ').trim()
+  return trimmed.length > 18 ? `${trimmed.slice(0, 17)}…` : trimmed
+}
+
 function ToolCallCard({ toolCall }: { toolCall: NonNullable<AgentChatTurn['toolCalls']>[number] }) {
   const [open, setOpen] = useState(false)
   const name = toolCall.name || 'tool'
   const argsPretty = prettyJson(toolCall.arguments)
   const hasResult = toolCall.result !== undefined
+  // The `ask` tool is rendered elsewhere: pending state by the floating
+  // AskCard, answered state by the inline AskQABlock. Keep the process
+  // timeline entry minimal so the Q&A isn't shown twice.
+  if (name === 'ask') {
+    return (
+      <div className="tool-call-card is-ask">
+        <div className="tool-call-trigger">
+          <MessageSquare size={14} />
+          <strong>询问用户</strong>
+          {hasResult && (
+            <span className="tool-call-state">{toolCall.isError ? '失败' : '已回答'}</span>
+          )}
+        </div>
+      </div>
+    )
+  }
   return (
     <div className={`tool-call-card${toolCall.isError ? ' is-error' : ''}`}>
       <button
@@ -5352,10 +5621,10 @@ function SettingsView({
                   onChange={(webFetch) => void onUpdateSettings({ tools: { webFetch } } as TeachingSettingsPatch)}
                 />
               </SettingsRow>
-              <SettingsRow label="最大工具调用轮数" detail={`默认 ${8}，控制单次任务的最大工具往返（教学对话中生成课程也算一轮）`}>
+              <SettingsRow label="最大工具调用轮数" detail="默认 0（不限）；设为正数时，控制单次任务的最大工具往返">
                 <NumberInput
-                  max={12}
-                  min={1}
+                  max={60}
+                  min={0}
                   step={1}
                   value={settings.tools.maxIterations}
                   onChange={(maxIterations) => void onUpdateSettings({ tools: { maxIterations } } as TeachingSettingsPatch)}

@@ -15,12 +15,14 @@ import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
 import { isPathInsideConfiguredRoot, isPathInsideRoot } from './path-access'
+import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import {
   optionalString,
   parseAgentChatStreamPayload,
   parseApplyLessonStylePayload,
   parseCreateMemoryPayload,
   parseCreateWorkspacePayload,
+  decodeToolAnswerPayload,
   parseGenerateLessonPayload,
   parseGitBranchPayload,
   parseListUpstreamModelsPayload,
@@ -205,10 +207,19 @@ function registerTeachingIpc(
   ipcMain.handle('teach:cancel-agent-chat-stream', async (_, rawStreamId: unknown) => {
     const streamId = requireStreamId(rawStreamId)
     const controller = activeAgentChatStreams.get(streamId)
-    if (!controller) return { canceled: false }
-    controller.abort()
-    activeAgentChatStreams.delete(streamId)
+    if (controller) {
+      controller.abort()
+      activeAgentChatStreams.delete(streamId)
+    }
+    // Reject any in-flight ask resolvers so their blocked handlers don't dangle.
+    cancelStreamAskPending(streamId)
     return { canceled: true }
+  })
+
+  ipcMain.handle('teach:agent-chat-tool-answer', async (_, payload: unknown) => {
+    const decoded = decodeToolAnswerPayload(payload)
+    resolveAskPending(decoded.streamId, decoded.toolCallId, decoded.answers)
+    return { ok: true }
   })
 
   ipcMain.handle('teach:save-agent-conversation', async (_, payload: unknown) =>

@@ -3,6 +3,7 @@ import type {
   AgentChatStreamPayload,
   AgentChatTurn,
   ApplyLessonStylePayload,
+  AskAnswer,
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
   GenerateLessonPayload,
@@ -100,6 +101,27 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
     messages: parseAgentChatMessages(record.messages),
     userInput: requireString(record.userInput, 'userInput')
   }
+}
+
+export function decodeToolAnswerPayload(payload: unknown): {
+  streamId: string
+  toolCallId: string
+  answers: AskAnswer[]
+} {
+  const record = requireRecord(payload)
+  const streamId = requireStreamId(record.streamId)
+  const toolCallId = requireString(record.toolCallId, 'toolCallId')
+  const rawAnswers = Array.isArray(record.answers) ? record.answers : []
+  const answers: AskAnswer[] = []
+  for (const item of rawAnswers) {
+    if (!item || typeof item !== 'object') continue
+    const a = item as Record<string, unknown>
+    const questionId = typeof a.questionId === 'string' ? a.questionId : ''
+    if (!questionId) continue
+    const selected = Array.isArray(a.selected) ? a.selected.map((s) => String(s)) : []
+    answers.push({ questionId, selected })
+  }
+  return { streamId, toolCallId, answers }
 }
 
 export function parseSaveAgentConversationPayload(payload: unknown): SaveAgentConversationPayload {

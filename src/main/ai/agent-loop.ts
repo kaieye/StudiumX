@@ -49,7 +49,7 @@ export type RunAgentLoopResult = {
   error?: string
 }
 
-const DEFAULT_MAX_ITERATIONS = 4
+const DEFAULT_MAX_ITERATIONS = 0
 
 /**
  * Non-streaming tool-calling loop (v1). Each turn calls callChatProvider; if
@@ -61,7 +61,9 @@ const DEFAULT_MAX_ITERATIONS = 4
 export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentLoopResult> {
   const format = opts.settings.generator.endpointFormat
   const supported = toolsSupportedForFormat(format)
-  const maxIter = Math.max(1, opts.maxIterations ?? opts.settings.tools.maxIterations ?? DEFAULT_MAX_ITERATIONS)
+  const requestedMaxIter = opts.maxIterations ?? opts.settings.tools.maxIterations ?? DEFAULT_MAX_ITERATIONS
+  const maxIter = Number.isFinite(requestedMaxIter) ? Math.max(0, Math.floor(requestedMaxIter)) : DEFAULT_MAX_ITERATIONS
+  const hasIterationLimit = maxIter > 0
   const transcript: ChatMessage[] = [...opts.messages]
   const emit = (e: AgentLoopEvent): void => {
     opts.callbacks?.onEvent?.(e)
@@ -123,7 +125,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     }
   }
 
-  for (let i = 0; i < maxIter; i++) {
+  for (let i = 0; !hasIterationLimit || i < maxIter; i++) {
     if (isCanceled()) return canceledResult(true)
     iterations = i + 1
     emit({ type: 'status', status: 'thinking' })
@@ -202,7 +204,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         const args = safeParseArgs(call.function.arguments)
         const handler = opts.toolHandlers[call.function.name]
         if (!handler) throw new Error(`未知工具：${call.function.name}`)
-        payload = await handler(args)
+        payload = await handler(args, { toolCallId: call.id, toolName: call.function.name })
       } catch (e) {
         isError = true
         payload = JSON.stringify({ error: e instanceof Error ? e.message : String(e) })
@@ -246,7 +248,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     })
     if (isCanceled()) return canceledResult(true)
     degradedReason ??= final.degradedReason
-    const assistantMsg: ChatMessage = { role: 'assistant', content: final.text || null }
+    const assistantMsg: ChatMessage = {
+      role: 'assistant',
+      content: final.text || null,
+      tool_calls: final.toolCalls.length > 0 ? final.toolCalls : undefined
+    }
     transcript.push(assistantMsg)
     emit({ type: 'assistant_message', message: assistantMsg })
     if (!final.text.trim()) {

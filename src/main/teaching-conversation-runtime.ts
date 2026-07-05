@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path'
 import { runAgentLoop } from './ai/agent-loop'
 import { resolveActiveProvider, type ChatMessage, type ToolDefinition } from './ai/provider-adapter'
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
+import { createAskToolEntry } from './ai/tools/ask'
 import {
   buildLearnerMemoryCandidate,
   buildMemoryConsentPrompt,
@@ -138,6 +139,13 @@ export async function runTeachingConversationTurn(
   const registry = settings.tools.enabled && isTeachingConversation
     ? buildDefaultRegistry(settings, { workspaceRoot, workspaceWrite: true })
     : new ToolRegistry()
+  // The `ask` tool is a pure conversational decision tool — registered
+  // whenever tool calling is enabled (teaching or temporary mode) so the
+  // model can present clickable options at a real user-owned fork. It
+  // respects the master `tools.enabled` switch like every other tool.
+  if (settings.tools.enabled) {
+    registry.register(createAskToolEntry({ streamId: stream.streamId, signal: stream.signal }))
+  }
   // Lesson generation is a tool of this conversation, not a parallel
   // pipeline: the agent clarifies, decides readiness, and hands a structured
   // brief to the same generator the direct entry uses.
@@ -236,18 +244,18 @@ export async function runTeachingConversationTurn(
   if (result.stopReason === 'canceled') {
     return { canceled: true }
   }
+  const recovered = await recoverLessonGenerationAfterToolBudget({
+    result,
+    userInput,
+    payloadMessages: payload.messages ?? [],
+    workspace,
+    lessonToolEnabled,
+    generatedLessons,
+    generateLessonFromBrief,
+    stream
+  })
+  if (recovered) return recovered
   if (result.error) {
-    const recovered = await recoverLessonGenerationAfterToolBudget({
-      result,
-      userInput,
-      payloadMessages: payload.messages ?? [],
-      workspace,
-      lessonToolEnabled,
-      generatedLessons,
-      generateLessonFromBrief,
-      stream
-    })
-    if (recovered) return recovered
     return { error: true, message: result.error }
   }
   if (stream.signal?.aborted) {
@@ -353,13 +361,13 @@ function buildAgentChatSystemPrompt(options: {
     : ''
 
   if (mode === 'temporary') {
-    return `${TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
+    return `${TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}\n\n${ASK_TOOL_POLICY_PROMPT}`
   }
 
   const lessonPolicy = lessonToolEnabled
     ? LESSON_TOOL_POLICY_PROMPT
     : LESSON_TOOL_UNAVAILABLE_PROMPT
-  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${lessonPolicy}\n\n${skillReference}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
+  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${lessonPolicy}\n\n${ASK_TOOL_POLICY_PROMPT}\n\n${skillReference}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
 }
 
 function buildTemporaryChatPromptLines(context?: TemporaryChatContext | null): string {
@@ -530,6 +538,14 @@ function cleanText(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
 }
 
+function safeParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value || '{}')
+  } catch {
+    return {}
+  }
+}
+
 async function recoverLessonGenerationAfterToolBudget(options: {
   result: Awaited<ReturnType<typeof runAgentLoop>>
   userInput: string
@@ -551,18 +567,18 @@ async function recoverLessonGenerationAfterToolBudget(options: {
     stream
   } = options
   if (
-    result.stopReason !== 'max_iterations' ||
     !lessonToolEnabled ||
     generatedLessons.length > 0 ||
     !generateLessonFromBrief ||
     !workspace ||
-    !isLessonGenerationRequest(userInput)
+    !shouldRecoverLessonGenerationAfterToolBudget({ userInput, result })
   ) {
     return null
   }
   if (stream.signal?.aborted) return { canceled: true }
 
-  const brief = buildRecoveryLessonBrief({ userInput, payloadMessages, workspace })
+  const brief = findLatestGenerateLessonBrief(result.messages) ??
+    buildRecoveryLessonBrief({ userInput, payloadMessages, workspace })
   stream.onStatus({ streamId: stream.streamId, status: 'tool_running', message: 'generate_lesson' })
   try {
     const lesson = await generateLessonFromBrief(brief)
@@ -596,7 +612,7 @@ function buildRecoveryLessonBrief(options: {
     .filter(Boolean)
     .slice(-4)
   const recentContext = [...userLines, cleanText(options.userInput)].filter(Boolean).join(' / ')
-  const topic = `${options.workspace.name} 下一节课程`
+  const topic = deriveRecoveryLessonTopic(options.userInput, options.workspace)
   return {
     topic,
     firstLessonFocus: cleanText(
@@ -606,6 +622,72 @@ function buildRecoveryLessonBrief(options: {
     constraints: '优先沿用工作区已有课程规划；如果上一课偏简单，本节适当加深内容密度。',
     extraNotes: recentContext ? `最近用户原话：${recentContext}`.slice(0, 600) : undefined
   }
+}
+
+function shouldRecoverLessonGenerationAfterToolBudget(options: {
+  userInput: string
+  result: Awaited<ReturnType<typeof runAgentLoop>>
+}): boolean {
+  if (!isToolBudgetExhaustionResult(options.result)) return false
+  if (isLessonGenerationRequest(options.userInput)) return true
+  if (findLatestGenerateLessonBrief(options.result.messages)) return true
+  const assistantTexts = [
+    options.result.finalText,
+    ...[...options.result.messages]
+      .reverse()
+      .filter((message) => message.role === 'assistant')
+      .slice(0, 3)
+      .map((message) => message.content ?? '')
+  ].join('\n')
+  return hasLessonGenerationIntent(assistantTexts)
+}
+
+function isToolBudgetExhaustionResult(result: Awaited<ReturnType<typeof runAgentLoop>>): boolean {
+  if (result.stopReason === 'max_iterations') return true
+  if (result.stopReason !== 'error') return false
+  return /达到工具调用上限后/.test(result.error ?? '')
+}
+
+function findLatestGenerateLessonBrief(messages: ChatMessage[]): LessonBrief | null {
+  for (const message of [...messages].reverse()) {
+    if (message.role !== 'assistant') continue
+    const calls = [...(message.tool_calls ?? [])].reverse()
+    for (const call of calls) {
+      if (call.function.name !== 'generate_lesson') continue
+      const brief = normalizeLessonBrief(safeParseJson(call.function.arguments))
+      if (brief) return brief
+    }
+  }
+  return null
+}
+
+function hasLessonGenerationIntent(value: string): boolean {
+  const text = cleanText(value)
+  if (!text) return false
+  if (/(?:尚未|还没|未能|无法|不能|不会|失败|报错|错误|重试|提高工具调用上限|没有生成|未生成)/.test(text)) {
+    return false
+  }
+  return [
+    /(?:现在|马上|接下来|开始|继续|我来|帮你|为你|将|会).{0,32}(?:生成|创建|产出|保存).{0,32}(?:课程|课|lesson|session)/i,
+    /(?:生成|创建|产出|保存).{0,32}(?:第一节|第一课|下一节|下一课|下节课|正式课程|lesson|session)/i,
+    /(?:课程|课|lesson|session).{0,32}(?:已生成|已创建|已保存)/i
+  ].some((pattern) => pattern.test(text))
+}
+
+function deriveRecoveryLessonTopic(
+  userInput: string,
+  workspace: TeachingConversationRuntimeWorkspace
+): string {
+  const text = cleanText(userInput)
+  const extracted = [
+    /(?:我想|想要|准备|打算)?(?:学习|学|了解|掌握|研究)\s*([^，。,.!?？\n]{2,40})/i,
+    /(?:teach me|learn|study)\s+([^，。,.!?？\n]{2,40})/i
+  ]
+    .map((pattern) => pattern.exec(text)?.[1])
+    .map((match) => cleanText(match))
+    .find(Boolean)
+  if (extracted) return extracted
+  return `${workspace.name} 下一节课程`
 }
 
 function isLessonGenerationRequest(input: string): boolean {
@@ -649,6 +731,14 @@ const LESSON_TOOL_UNAVAILABLE_PROMPT = [
   '<lesson-generation-policy>',
   '当前会话未启用 generate_lesson 工具（工具未开启或没有激活的工作区）。你可以澄清需求、答疑并维护工作区文件，但不要直接写 lessons/ 下的课程页面；若用户希望生成正式课程，提示其在设置中启用工具调用。',
   '</lesson-generation-policy>'
+].join('\n')
+
+const ASK_TOOL_POLICY_PROMPT = [
+  '<ask-tool-policy>',
+  '当存在真正属于用户的决策岔路（学习方向、身份基础、目标优先级、约束选择等，每个选项对应实质不同的后续路径）时，调用 ask 工具给出 1-4 个问题、每题 2-4 个具体选项，推荐项放第一个，然后等待 tool result。',
+  '不要用 ask 询问有明显默认值或你能合理推断的决策；不要在散文里重复 ask 已经问过的内容。',
+  '调用 ask 后会阻塞直到用户回答；在收到真实 ask tool result 之前，不要假设用户做了任何选择，也不要替用户挑选项。用户跳过未答的题，请视为"不要替我决定"。',
+  '</ask-tool-policy>'
 ].join('\n')
 
 const GENERATE_LESSON_TOOL_DEFINITION: ToolDefinition = {

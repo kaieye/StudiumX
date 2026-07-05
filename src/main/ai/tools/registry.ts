@@ -10,14 +10,23 @@ export type ToolContext = {
   workspaceRoot?: string
 }
 
+/** Contextual information about the specific tool call being executed,
+ *  passed into handlers so they can correlate back-ends (e.g. the `ask`
+ *  tool needs `toolCallId` to route the user's answer back). Optional so
+ *  legacy handlers can ignore it. */
+export type ToolCallContext = {
+  toolCallId: string
+  toolName: string
+}
+
 /** A tool handler with its ToolContext already bound (ctx curried in). */
-export type BoundToolHandler = (args: unknown) => Promise<string>
+export type BoundToolHandler = (args: unknown, callCtx?: ToolCallContext) => Promise<string>
 
 export type ToolHandlerMap = Record<string, BoundToolHandler>
 
 export type ToolEntry = {
   definition: ToolDefinition
-  handler: (args: unknown, ctx: ToolContext) => Promise<string>
+  handler: (args: unknown, ctx: ToolContext, callCtx?: ToolCallContext) => Promise<string>
 }
 
 export class ToolRegistry {
@@ -34,7 +43,7 @@ export class ToolRegistry {
   handlerMap(ctx: ToolContext): ToolHandlerMap {
     const out: ToolHandlerMap = {}
     for (const [name, entry] of this.entries) {
-      out[name] = (args) => entry.handler(args, ctx)
+      out[name] = (args, callCtx) => entry.handler(args, ctx, callCtx)
     }
     return out
   }

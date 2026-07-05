@@ -110,6 +110,16 @@
       "teaching": "教学"
     }
   },
+  "ask": {
+    "title": "需要你的决定",
+    "questionProgress": "第 {{current}}/{{total}} 题",
+    "customAnswer": "其他答案",
+    "customPlaceholder": "输入你的回答…",
+    "justChat": "跳过，继续聊",
+    "submit": "提交",
+    "next": "下一题",
+    "cancel": "中断"
+  },
   "lessons": {
     "composerAria": "教学任务输入",
     "composerTitle": "教学任务",

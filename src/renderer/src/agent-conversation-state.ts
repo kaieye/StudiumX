@@ -13,6 +13,9 @@ import type {
   AgentChatStreamToolEvent,
   AgentChatTurn,
   AgentConversationSummary,
+  AskAnswer,
+  AskOption,
+  AskQuestion,
   TeachingAppState,
   TeachingWorkspaceSummary
 } from '../../shared/teaching-types'
@@ -610,3 +613,89 @@ function compactText(value: string, maxLength: number): string {
 }
 
 let agentProcessEventCounter = 0
+
+// ---- ask tool: locate and parse the pending question card ----
+
+export type PendingAsk = {
+  streamId: string
+  toolCallId: string
+  questions: AskQuestion[]
+}
+
+/** A single ask tool call's questions (pending or answered). Returns null
+ *  if the turn has no `ask` tool call. Used both for the active AskCard
+ *  (result===undefined) and the inline Q&A block (result defined). */
+export function parseAskToolCall(
+  turn: AgentChatTurn | undefined | null
+): { toolCallId: string; questions: AskQuestion[]; result?: string; isError?: boolean } | null {
+  if (!turn?.toolCalls) return null
+  for (const toolCall of turn.toolCalls) {
+    if (toolCall.name !== 'ask') continue
+    const questions = parseAskArguments(toolCall.arguments)
+    if (!questions) continue
+    return {
+      toolCallId: toolCall.id,
+      questions,
+      result: toolCall.result,
+      isError: toolCall.isError
+    }
+  }
+  return null
+}
+
+/** Find the active (unanswered) ask on the latest assistant turn. */
+export function selectPendingAsk(
+  turns: AgentChatTurn[],
+  streamId: string
+): PendingAsk | null {
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const turn = turns[i]
+    if (turn.role !== 'assistant') continue
+    const parsed = parseAskToolCall(turn)
+    if (parsed && parsed.result === undefined) {
+      return { streamId, toolCallId: parsed.toolCallId, questions: parsed.questions }
+    }
+    break
+  }
+  return null
+}
+
+function parseAskArguments(argumentsJson: string): AskQuestion[] | null {
+  if (!argumentsJson) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(argumentsJson)
+  } catch {
+    return null
+  }
+  const raw = parsed as { questions?: unknown }
+  const rawQuestions = Array.isArray(raw?.questions) ? raw.questions : []
+  if (rawQuestions.length === 0) return null
+  const out: AskQuestion[] = []
+  rawQuestions.forEach((item, index) => {
+    if (!item || typeof item !== 'object') return
+    const q = item as Record<string, unknown>
+    const prompt = typeof q.question === 'string' ? q.question.trim() : ''
+    if (!prompt) return
+    const rawOptions = Array.isArray(q.options) ? q.options : []
+    const options: AskOption[] = []
+    for (const opt of rawOptions) {
+      if (!opt || typeof opt !== 'object') continue
+      const o = opt as Record<string, unknown>
+      const label = typeof o.label === 'string' ? o.label.trim() : ''
+      if (!label) continue
+      const description = typeof o.description === 'string' ? o.description.trim() : ''
+      options.push(description ? { label, description } : { label })
+    }
+    if (options.length < 2) return
+    out.push({
+      id: typeof q.id === 'string' ? q.id : `q${index + 1}`,
+      header: typeof q.header === 'string' && q.header.trim() ? q.header.trim() : undefined,
+      prompt,
+      multiSelect: q.multiSelect === true ? true : undefined,
+      options
+    })
+  })
+  return out.length > 0 ? out : null
+}
+

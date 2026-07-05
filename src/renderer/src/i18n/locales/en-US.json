@@ -110,6 +110,16 @@
       "teaching": "Teaching"
     }
   },
+  "ask": {
+    "title": "Need your decision",
+    "questionProgress": "Question {{current}}/{{total}}",
+    "customAnswer": "Other answer",
+    "customPlaceholder": "Type your answer…",
+    "justChat": "Skip, just chat",
+    "submit": "Submit",
+    "next": "Next",
+    "cancel": "Cancel"
+  },
   "lessons": {
     "composerAria": "Teaching task input",
     "composerTitle": "Teaching task",
