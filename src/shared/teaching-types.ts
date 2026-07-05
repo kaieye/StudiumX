@@ -700,6 +700,7 @@ export type AgentChatStreamPayload = {
   streamId?: string
   workspaceId?: string
   mode?: AgentChatMode
+  context?: string
   messages: AgentChatMessage[]
   userInput: string
 }

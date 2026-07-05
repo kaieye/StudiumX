@@ -61,7 +61,7 @@ import {
 } from 'lucide-react'
 import type { CSSProperties, ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Component, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Component, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { type Components } from 'react-markdown'
@@ -93,6 +93,7 @@ import {
   syncPendingAgentConversation,
   type PendingAgentConversation,
   type PendingAsk,
+  type PendingConversationStorePatch,
   type SidebarConversationSummary
 } from './agent-conversation-state'
 import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
@@ -185,6 +186,36 @@ type ResourcePreviewFile = {
   id: string
   title: string
   html: string
+}
+
+type FloatingTemporaryChatState = {
+  turns: AgentChatTurn[]
+  pending: PendingAgentConversation | null
+  activeConversationId: string | null
+  savedConversationId: string | null
+  busy: boolean
+  status: string
+  toolsSupported: boolean | null
+  error: string | null
+}
+
+type HtmlAiPanelRatio = {
+  rx: number
+  ry: number
+  rw: number
+  rh: number
+}
+
+type HtmlAiPanelPixels = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type HtmlAiPanelViewport = {
+  width: number
+  height: number
 }
 
 type LessonGenerationOptions = {
@@ -474,6 +505,330 @@ function normalizeRendererSettings(input: TeachingSettingsPatch | TeachingSettin
 const defaultPrompt = ''
 
 const nextPrompt = '基于当前 mission，生成下一节短小、可复习、带检索练习的 HTML lesson。'
+
+const MAX_HTML_CHAT_CONTEXT_LENGTH = 6000
+const HTML_AI_PANEL_STORAGE_KEY = 'teachos-html-ai-panel-ratio'
+const HTML_AI_PANEL_MIN_WIDTH = 340
+const HTML_AI_PANEL_MIN_HEIGHT = 360
+const HTML_AI_PANEL_MAX_WIDTH = 760
+const HTML_AI_PANEL_MAX_HEIGHT = 860
+const HTML_AI_PANEL_MARGIN = 16
+
+function emptyFloatingTemporaryChatState(): FloatingTemporaryChatState {
+  return {
+    turns: [],
+    pending: null,
+    activeConversationId: null,
+    savedConversationId: null,
+    busy: false,
+    status: '',
+    toolsSupported: null,
+    error: null
+  }
+}
+
+function viewportFromWindow(): HtmlAiPanelViewport {
+  if (typeof window === 'undefined') return { width: 1280, height: 800 }
+  return { width: window.innerWidth, height: window.innerHeight }
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function loadHtmlAiPanelRatio(): HtmlAiPanelRatio | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(HTML_AI_PANEL_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<HtmlAiPanelRatio>
+    if (
+      typeof parsed.rx === 'number' &&
+      typeof parsed.ry === 'number' &&
+      typeof parsed.rw === 'number' &&
+      typeof parsed.rh === 'number'
+    ) {
+      return parsed as HtmlAiPanelRatio
+    }
+  } catch {
+    // Panel geometry is cosmetic; ignore bad persisted state.
+  }
+  return null
+}
+
+function saveHtmlAiPanelRatio(ratio: HtmlAiPanelRatio): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(HTML_AI_PANEL_STORAGE_KEY, JSON.stringify(ratio))
+  } catch {
+    // Persisting geometry should not affect chat behavior.
+  }
+}
+
+function defaultHtmlAiPanelRatio(viewport: HtmlAiPanelViewport): HtmlAiPanelRatio {
+  const maxWidth = Math.max(280, viewport.width - HTML_AI_PANEL_MARGIN * 2)
+  const maxHeight = Math.max(320, viewport.height - HTML_AI_PANEL_MARGIN * 2)
+  const width = clampNumber(
+    Math.min(Math.max(420, viewport.width * 0.34), HTML_AI_PANEL_MAX_WIDTH),
+    Math.min(HTML_AI_PANEL_MIN_WIDTH, maxWidth),
+    maxWidth
+  )
+  const height = clampNumber(
+    Math.min(Math.max(640, viewport.height * 0.72), HTML_AI_PANEL_MAX_HEIGHT),
+    Math.min(HTML_AI_PANEL_MIN_HEIGHT, maxHeight),
+    maxHeight
+  )
+  return {
+    rx: (viewport.width - width - 24) / viewport.width,
+    ry: (viewport.height - height - 24) / viewport.height,
+    rw: width / viewport.width,
+    rh: height / viewport.height
+  }
+}
+
+function htmlAiPanelRatioToPixels(
+  ratio: HtmlAiPanelRatio,
+  viewport: HtmlAiPanelViewport
+): HtmlAiPanelPixels {
+  const maxWidth = Math.max(280, viewport.width - HTML_AI_PANEL_MARGIN * 2)
+  const maxHeight = Math.max(320, viewport.height - HTML_AI_PANEL_MARGIN * 2)
+  const width = Math.round(clampNumber(
+    ratio.rw * viewport.width,
+    Math.min(HTML_AI_PANEL_MIN_WIDTH, maxWidth),
+    Math.min(HTML_AI_PANEL_MAX_WIDTH, maxWidth)
+  ))
+  const height = Math.round(clampNumber(
+    ratio.rh * viewport.height,
+    Math.min(HTML_AI_PANEL_MIN_HEIGHT, maxHeight),
+    Math.min(HTML_AI_PANEL_MAX_HEIGHT, maxHeight)
+  ))
+  const maxX = Math.max(HTML_AI_PANEL_MARGIN, viewport.width - width - HTML_AI_PANEL_MARGIN)
+  const maxY = Math.max(HTML_AI_PANEL_MARGIN, viewport.height - height - HTML_AI_PANEL_MARGIN)
+  return {
+    x: Math.round(clampNumber(ratio.rx * viewport.width, HTML_AI_PANEL_MARGIN, maxX)),
+    y: Math.round(clampNumber(ratio.ry * viewport.height, HTML_AI_PANEL_MARGIN, maxY)),
+    width,
+    height
+  }
+}
+
+function htmlAiPanelPixelsToRatio(
+  pixels: HtmlAiPanelPixels,
+  viewport: HtmlAiPanelViewport
+): HtmlAiPanelRatio {
+  return {
+    rx: pixels.x / viewport.width,
+    ry: pixels.y / viewport.height,
+    rw: pixels.width / viewport.width,
+    rh: pixels.height / viewport.height
+  }
+}
+
+function initialHtmlAiPanelRatio(): HtmlAiPanelRatio {
+  return loadHtmlAiPanelRatio() ?? defaultHtmlAiPanelRatio(viewportFromWindow())
+}
+
+function useHtmlAiPanelGeometry() {
+  const panelRef = useRef<HTMLElement | null>(null)
+  const [ratio, setRatio] = useState<HtmlAiPanelRatio>(() => initialHtmlAiPanelRatio())
+  const ratioRef = useRef(ratio)
+  const [, setViewportTick] = useState(0)
+
+  useEffect(() => {
+    ratioRef.current = ratio
+  }, [ratio])
+
+  useEffect(() => {
+    const onResize = (): void => setViewportTick((value) => value + 1)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const pixels = htmlAiPanelRatioToPixels(ratio, viewportFromWindow())
+
+  const commitPixels = useCallback((pixelsToCommit: HtmlAiPanelPixels): void => {
+    const nextRatio = htmlAiPanelPixelsToRatio(pixelsToCommit, viewportFromWindow())
+    ratioRef.current = nextRatio
+    setRatio(nextRatio)
+    saveHtmlAiPanelRatio(nextRatio)
+  }, [])
+
+  const handleHeaderPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>): void => {
+    if ((event.target as HTMLElement).closest('button, textarea, input, a')) return
+    const panel = panelRef.current
+    if (!panel) return
+
+    const viewport = viewportFromWindow()
+    const startPointerX = event.clientX
+    const startPointerY = event.clientY
+    const startPixels = htmlAiPanelRatioToPixels(ratioRef.current, viewport)
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+
+    panel.style.transition = 'none'
+    panel.style.willChange = 'transform'
+    document.body.style.cursor = 'grabbing'
+    document.body.style.userSelect = 'none'
+
+    const handlePointerMove = (moveEvent: PointerEvent): void => {
+      const dx = moveEvent.clientX - startPointerX
+      const dy = moveEvent.clientY - startPointerY
+      const currentViewport = viewportFromWindow()
+      const maxX = Math.max(HTML_AI_PANEL_MARGIN, currentViewport.width - startPixels.width - HTML_AI_PANEL_MARGIN)
+      const maxY = Math.max(HTML_AI_PANEL_MARGIN, currentViewport.height - startPixels.height - HTML_AI_PANEL_MARGIN)
+      const nextX = clampNumber(startPixels.x + dx, HTML_AI_PANEL_MARGIN, maxX)
+      const nextY = clampNumber(startPixels.y + dy, HTML_AI_PANEL_MARGIN, maxY)
+      panel.style.transform = `translate(${nextX - startPixels.x}px, ${nextY - startPixels.y}px)`
+    }
+
+    const finishPointerDrag = (upEvent: PointerEvent): void => {
+      const dx = upEvent.clientX - startPointerX
+      const dy = upEvent.clientY - startPointerY
+      const currentViewport = viewportFromWindow()
+      const maxX = Math.max(HTML_AI_PANEL_MARGIN, currentViewport.width - startPixels.width - HTML_AI_PANEL_MARGIN)
+      const maxY = Math.max(HTML_AI_PANEL_MARGIN, currentViewport.height - startPixels.height - HTML_AI_PANEL_MARGIN)
+      const nextPixels = {
+        ...startPixels,
+        x: clampNumber(startPixels.x + dx, HTML_AI_PANEL_MARGIN, maxX),
+        y: clampNumber(startPixels.y + dy, HTML_AI_PANEL_MARGIN, maxY)
+      }
+
+      panel.style.transform = ''
+      panel.style.willChange = ''
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', finishPointerDrag)
+      window.removeEventListener('pointercancel', finishPointerDrag)
+      commitPixels(nextPixels)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', finishPointerDrag)
+    window.addEventListener('pointercancel', finishPointerDrag)
+    event.preventDefault()
+  }, [commitPixels])
+
+  const handleResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
+    const panel = panelRef.current
+    if (!panel) return
+
+    const startPointerX = event.clientX
+    const startPointerY = event.clientY
+    const startPixels = htmlAiPanelRatioToPixels(ratioRef.current, viewportFromWindow())
+    const fixedRight = startPixels.x + startPixels.width
+    const fixedBottom = startPixels.y + startPixels.height
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+
+    panel.style.transition = 'none'
+    panel.style.willChange = 'left, top, width, height'
+    document.body.style.cursor = 'nwse-resize'
+    document.body.style.userSelect = 'none'
+
+    const handlePointerMove = (moveEvent: PointerEvent): void => {
+      const dx = moveEvent.clientX - startPointerX
+      const dy = moveEvent.clientY - startPointerY
+      const maxWidth = Math.min(HTML_AI_PANEL_MAX_WIDTH, fixedRight - HTML_AI_PANEL_MARGIN)
+      const maxHeight = Math.min(HTML_AI_PANEL_MAX_HEIGHT, fixedBottom - HTML_AI_PANEL_MARGIN)
+      const minWidth = Math.min(HTML_AI_PANEL_MIN_WIDTH, maxWidth)
+      const minHeight = Math.min(HTML_AI_PANEL_MIN_HEIGHT, maxHeight)
+      const nextWidth = clampNumber(startPixels.width - dx, minWidth, maxWidth)
+      const nextHeight = clampNumber(startPixels.height - dy, minHeight, maxHeight)
+      const nextX = fixedRight - nextWidth
+      const nextY = fixedBottom - nextHeight
+      panel.style.left = `${Math.round(nextX)}px`
+      panel.style.top = `${Math.round(nextY)}px`
+      panel.style.width = `${Math.round(nextWidth)}px`
+      panel.style.height = `${Math.round(nextHeight)}px`
+    }
+
+    const finishPointerResize = (): void => {
+      const rect = panel.getBoundingClientRect()
+      const maxWidth = Math.min(HTML_AI_PANEL_MAX_WIDTH, fixedRight - HTML_AI_PANEL_MARGIN)
+      const maxHeight = Math.min(HTML_AI_PANEL_MAX_HEIGHT, fixedBottom - HTML_AI_PANEL_MARGIN)
+      const minWidth = Math.min(HTML_AI_PANEL_MIN_WIDTH, maxWidth)
+      const minHeight = Math.min(HTML_AI_PANEL_MIN_HEIGHT, maxHeight)
+      const width = Math.round(clampNumber(rect.width, minWidth, maxWidth))
+      const height = Math.round(clampNumber(rect.height, minHeight, maxHeight))
+      const nextPixels = {
+        x: Math.round(fixedRight - width),
+        y: Math.round(fixedBottom - height),
+        width,
+        height
+      }
+
+      panel.style.left = ''
+      panel.style.top = ''
+      panel.style.width = ''
+      panel.style.height = ''
+      panel.style.willChange = ''
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', finishPointerResize)
+      window.removeEventListener('pointercancel', finishPointerResize)
+      commitPixels(nextPixels)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', finishPointerResize)
+    window.addEventListener('pointercancel', finishPointerResize)
+    event.preventDefault()
+    event.stopPropagation()
+  }, [commitPixels])
+
+  return {
+    panelRef,
+    pixels,
+    handleHeaderPointerDown,
+    handleResizePointerDown
+  }
+}
+
+function mergeFloatingTemporaryChatPatch(
+  state: FloatingTemporaryChatState,
+  patch: PendingConversationStorePatch
+): FloatingTemporaryChatState {
+  return {
+    ...state,
+    pending: 'pendingAgentConversation' in patch ? patch.pendingAgentConversation ?? null : state.pending,
+    turns: patch.agentTurns ?? state.turns,
+    activeConversationId: 'activeConversationId' in patch ? patch.activeConversationId ?? null : state.activeConversationId,
+    busy: patch.agentChatBusy ?? state.busy,
+    status: 'agentStatus' in patch ? patch.agentStatus ?? '' : state.status,
+    toolsSupported: 'agentToolsSupported' in patch ? patch.agentToolsSupported ?? null : state.toolsSupported
+  }
+}
+
+function buildHtmlChatContext(file: CoursePreviewFile, html: string): string {
+  const text = extractVisibleTextFromHtml(html)
+  const lines = [
+    `当前打开的 HTML：${file.title}`,
+    `路径：${file.relativePath}`,
+    text ? `可见文本：\n${text}` : ''
+  ].filter(Boolean)
+  return lines.join('\n\n').slice(0, MAX_HTML_CHAT_CONTEXT_LENGTH)
+}
+
+function extractVisibleTextFromHtml(html: string): string {
+  if (!html.trim()) return ''
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    doc.querySelectorAll('script, style, noscript, svg, canvas').forEach((node) => node.remove())
+    const title = doc.title?.trim()
+    const body = (doc.body?.textContent ?? '').replace(/\s+/g, ' ').trim()
+    return [title, body].filter(Boolean).join('\n').slice(0, MAX_HTML_CHAT_CONTEXT_LENGTH)
+  } catch {
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, MAX_HTML_CHAT_CONTEXT_LENGTH)
+  }
+}
 
 const settingsNavItems = [
   { id: 'general', icon: Settings },
@@ -4256,7 +4611,564 @@ function MainArea() {
           )}
         </section>
       )}
+
+      {readingCourseHtml && selectedPreviewFile ? (
+        <HtmlTemporaryChat
+          active={active}
+          html={appState.previewHtml}
+          previewFile={selectedPreviewFile}
+          selectedLessonPath={appState.selectedLessonPath}
+        />
+      ) : null}
     </main>
+  )
+}
+
+function HtmlTemporaryChat({
+  active,
+  html,
+  previewFile,
+  selectedLessonPath
+}: {
+  active: TeachingWorkspaceSummary | null
+  html: string
+  previewFile: CoursePreviewFile
+  selectedLessonPath: string | null
+}) {
+  const [open, setOpen] = useState(false)
+  const [input, setInput] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyLoadingId, setHistoryLoadingId] = useState<string | null>(null)
+  const [chatState, setChatState] = useState<FloatingTemporaryChatState>(() => emptyFloatingTemporaryChatState())
+  const temporaryConversations = useAppStore((s) => s.appState.temporaryConversations)
+  const chatStateRef = useRef(chatState)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const {
+    panelRef,
+    pixels: panelPixels,
+    handleHeaderPointerDown,
+    handleResizePointerDown
+  } = useHtmlAiPanelGeometry()
+  const contextKey = `${active?.id ?? 'no-workspace'}:${previewFile.absolutePath}`
+  const pageContext = useMemo(
+    () => buildHtmlChatContext(previewFile, html),
+    [html, previewFile]
+  )
+  const pendingAsk = chatState.activeConversationId
+    ? selectPendingAsk(chatState.turns, chatState.activeConversationId)
+    : null
+  const hasConversation = chatState.turns.length > 0
+  const canSend = Boolean(active && input.trim() && !chatState.busy && !pendingAsk)
+  const activeAssistantTurnId = chatState.busy
+    ? [...chatState.turns].reverse().find((turn) => turn.role === 'assistant')?.id ?? null
+    : null
+  const suggestions = [
+    '总结当前页面的要点',
+    '把这一页变成 3 个复习问题',
+    '用更简单的话解释这一页'
+  ]
+
+  chatStateRef.current = chatState
+
+  useEffect(() => {
+    setOpen(false)
+    setHistoryOpen(false)
+    setInput('')
+    setChatState(emptyFloatingTemporaryChatState())
+    return () => {
+      const current = chatStateRef.current
+      if (current.busy && current.activeConversationId) {
+        void window.teachingSystem?.cancelAgentChatStream(current.activeConversationId)
+      }
+    }
+  }, [contextKey])
+
+  useEffect(() => {
+    if (!open) return
+    const id = window.setTimeout(() => inputRef.current?.focus(), 80)
+    return () => window.clearTimeout(id)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const node = scrollRef.current
+    if (!node) return
+    node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
+  }, [open, chatState.turns, chatState.status, pendingAsk])
+
+  const applyChatPatch = (
+    buildPatch: (state: FloatingTemporaryChatState) => PendingConversationStorePatch | null
+  ): void => {
+    setChatState((state) => {
+      const patch = buildPatch(state)
+      return patch ? mergeFloatingTemporaryChatPatch(state, patch) : state
+    })
+  }
+
+  const cancelCurrentStream = async (): Promise<void> => {
+    const current = chatStateRef.current
+    if (!current.busy || !current.activeConversationId || !current.pending) return
+    setChatState((state) =>
+      state.pending
+        ? mergeFloatingTemporaryChatPatch(state, cancelPendingAgentConversation({
+            pending: state.pending,
+            activeConversationId: state.activeConversationId,
+            preserveToolsSupported: true
+          }))
+        : { ...state, busy: false, status: '' }
+    )
+    await window.teachingSystem?.cancelAgentChatStream(current.activeConversationId).catch(() => undefined)
+  }
+
+  const sendPrompt = async (rawPrompt: string): Promise<void> => {
+    const api = window.teachingSystem
+    const workspace = active
+    const prompt = rawPrompt.trim()
+    const current = chatStateRef.current
+    if (!api || !workspace || !prompt || current.busy) return
+
+    const draft = createAgentConversationTurnDraft({
+      state: useAppStore.getState().appState,
+      workspace,
+      input: prompt,
+      mode: 'temporary',
+      activeConversationId: current.savedConversationId,
+      currentTurns: current.turns,
+      selectedCourseRelativePath: null,
+      currentSelectedLessonPath: selectedLessonPath ?? previewFile.absolutePath,
+      createdAt: new Date().toISOString(),
+      idSeed: Date.now()
+    })
+    const {
+      pendingConversationId,
+      selectedLessonPath: draftSelectedLessonPath,
+      assistantId,
+      priorMessages,
+      initialTurns,
+      pendingConversation
+    } = draft
+
+    setInput('')
+    setOpen(true)
+    setChatState((state) => ({
+      ...state,
+      turns: initialTurns,
+      pending: pendingConversation,
+      activeConversationId: pendingConversationId,
+      busy: true,
+      status: pendingConversation.status,
+      toolsSupported: null,
+      error: null
+    }))
+
+    try {
+      const done = await api.agentChatStream(
+        {
+          streamId: pendingConversationId,
+          workspaceId: workspace.id,
+          mode: 'temporary',
+          context: pageContext,
+          messages: priorMessages,
+          userInput: prompt
+        },
+        (chunk) => {
+          applyChatPatch((state) => applyAgentChatChunkToPending({
+            pending: state.pending,
+            activeConversationId: state.activeConversationId,
+            assistantId,
+            chunk
+          }))
+        },
+        (status) => {
+          applyChatPatch((state) => applyAgentChatStatusToPending({
+            pending: state.pending,
+            activeConversationId: state.activeConversationId,
+            assistantId,
+            status
+          }))
+        },
+        (event) => {
+          applyChatPatch((state) => applyAgentChatToolEventToPending({
+            pending: state.pending,
+            activeConversationId: state.activeConversationId,
+            assistantId,
+            event
+          }))
+        }
+      )
+
+      if ('canceled' in done) {
+        setChatState((state) =>
+          state.pending?.summary.id === pendingConversationId
+            ? mergeFloatingTemporaryChatPatch(state, cancelPendingAgentConversation({
+                pending: state.pending,
+                activeConversationId: state.activeConversationId,
+                preserveToolsSupported: true
+              }))
+            : state
+        )
+        return
+      }
+
+      if ('error' in done && done.error) {
+        const userError = toUserError(new Error(done.message))
+        setChatState((state) =>
+          state.pending?.summary.id === pendingConversationId
+            ? {
+                ...mergeFloatingTemporaryChatPatch(state, failPendingAgentConversation({
+                  pending: state.pending,
+                  activeConversationId: state.activeConversationId,
+                  assistantId
+                })),
+                error: userError.message
+              }
+            : { ...state, error: userError.message, busy: false, status: '' }
+        )
+        return
+      }
+
+      if (!('error' in done)) {
+        const latest = chatStateRef.current
+        const pending = latest.pending
+        if (!pending || pending.summary.id !== pendingConversationId) return
+        const reconciledTurns = reconcileAgentTurnsWithLocalProcess(done.turns, pending.turns)
+        setChatState((state) =>
+          state.pending?.summary.id === pendingConversationId
+            ? {
+                ...state,
+                turns: reconciledTurns,
+                pending: {
+                  ...state.pending,
+                  turns: reconciledTurns,
+                  status: '保存对话…',
+                  toolsSupported: done.toolsSupported
+                },
+                status: '保存对话…',
+                toolsSupported: done.toolsSupported
+              }
+            : state
+        )
+        try {
+          const saved = await api.saveAgentConversation({
+            workspaceId: workspace.id,
+            mode: 'temporary',
+            conversationId: pending.sourceConversationId ?? latest.savedConversationId,
+            selectedLessonPath: draftSelectedLessonPath ?? selectedLessonPath ?? previewFile.absolutePath,
+            selectedCourseRelativePath: null,
+            turns: reconciledTurns
+          })
+          useAppStore.setState({ appState: saved.state })
+          setChatState((state) =>
+            state.pending?.summary.id === pendingConversationId
+              ? {
+                  ...mergeFloatingTemporaryChatPatch(state, finishPendingAgentConversationSave({
+                    pending: state.pending,
+                    activeConversationId: state.activeConversationId,
+                    savedConversationId: saved.conversation.id,
+                    turns: reconciledTurns,
+                    toolsSupported: done.toolsSupported
+                  })),
+                  savedConversationId: saved.conversation.id,
+                  busy: false,
+                  status: '',
+                  error: null
+                }
+              : state
+          )
+        } catch (saveError) {
+          const userError = toUserError(saveError)
+          setChatState((state) => ({
+            ...state,
+            pending: null,
+            busy: false,
+            status: '',
+            error: userError.message
+          }))
+        }
+      }
+    } catch (error) {
+      const userError = toUserError(error)
+      setChatState((state) =>
+        state.pending?.summary.id === pendingConversationId
+          ? {
+              ...mergeFloatingTemporaryChatPatch(state, failPendingAgentConversation({
+                pending: state.pending,
+                activeConversationId: state.activeConversationId,
+                assistantId
+              })),
+              error: userError.message
+            }
+          : { ...state, busy: false, status: '', error: userError.message }
+      )
+    }
+  }
+
+  const answerAsk = (answers: AskAnswer[]): void => {
+    if (!pendingAsk) return
+    void window.teachingSystem?.answerAgentChatTool(
+      pendingAsk.streamId,
+      pendingAsk.toolCallId,
+      answers
+    )
+  }
+
+  const loadHistoryConversation = async (conversation: AgentConversationSummary): Promise<void> => {
+    const api = window.teachingSystem
+    if (!api || !active || chatStateRef.current.busy) return
+    setHistoryLoadingId(conversation.id)
+    try {
+      const record = await api.readAgentConversation({
+        workspaceId: active.id,
+        conversationId: conversation.id
+      })
+      setInput('')
+      setHistoryOpen(false)
+      setChatState((state) => ({
+        ...state,
+        turns: record.turns,
+        pending: null,
+        activeConversationId: record.id,
+        savedConversationId: record.id,
+        busy: false,
+        status: '',
+        toolsSupported: null,
+        error: null
+      }))
+      window.requestAnimationFrame(() => {
+        const node = scrollRef.current
+        if (node) node.scrollTo({ top: node.scrollHeight })
+      })
+    } catch (error) {
+      const userError = toUserError(error)
+      setChatState((state) => ({ ...state, error: userError.message }))
+    } finally {
+      setHistoryLoadingId(null)
+    }
+  }
+
+  const resetConversation = (): void => {
+    if (chatStateRef.current.busy) return
+    setInput('')
+    setHistoryOpen(false)
+    setChatState(emptyFloatingTemporaryChatState())
+    window.requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
+  const handleSubmit = (event: FormEvent): void => {
+    event.preventDefault()
+    if (!canSend) return
+    void sendPrompt(input)
+  }
+
+  return (
+    <div className={`html-ai-dock${open ? ' is-open' : ''}`}>
+      {open ? (
+        <section
+          ref={panelRef}
+          className="html-ai-panel"
+          aria-label="AI 临时对话"
+          style={{
+            left: panelPixels.x,
+            top: panelPixels.y,
+            width: panelPixels.width,
+            height: panelPixels.height
+          }}
+        >
+          <header
+            className="html-ai-panel-header"
+            title="拖动窗口"
+            onPointerDown={handleHeaderPointerDown}
+          >
+            <div className="html-ai-title">
+              <span className="html-ai-title-icon"><Bot size={16} /></span>
+              <span>
+                <strong>AI 临时对话</strong>
+                <small>{previewFile.title}</small>
+              </span>
+            </div>
+            <div className="html-ai-actions">
+              <button
+                type="button"
+                aria-label="历史对话"
+                aria-pressed={historyOpen}
+                title="历史对话"
+                onClick={() => setHistoryOpen((value) => !value)}
+                disabled={chatState.busy}
+              >
+                <History size={14} />
+              </button>
+              <button type="button" aria-label="新对话" title="新对话" onClick={resetConversation} disabled={chatState.busy}>
+                <Plus size={14} />
+              </button>
+              <button type="button" aria-label="清空对话" title="清空对话" onClick={resetConversation} disabled={chatState.busy || !hasConversation}>
+                <Trash2 size={14} />
+              </button>
+              <button type="button" aria-label="关闭 AI 对话" title="关闭" onClick={() => setOpen(false)}>
+                <X size={14} />
+              </button>
+            </div>
+          </header>
+
+          {historyOpen ? (
+            <div className="html-ai-history-panel">
+              <div className="html-ai-history-head">
+                <strong>历史对话</strong>
+                <button type="button" aria-label="关闭历史对话" onClick={() => setHistoryOpen(false)}>
+                  <X size={13} />
+                </button>
+              </div>
+              <div className="html-ai-history-list">
+                {temporaryConversations.length === 0 ? (
+                  <div className="html-ai-history-empty">暂无历史对话</div>
+                ) : (
+                  temporaryConversations.map((conversation) => {
+                    const isSelected = chatState.savedConversationId === conversation.id || chatState.activeConversationId === conversation.id
+                    const updatedAt = new Date(conversation.updatedAt)
+                    const updatedLabel = Number.isFinite(updatedAt.getTime())
+                      ? updatedAt.toLocaleString(i18n.language)
+                      : conversation.updatedAt
+                    return (
+                      <button
+                        key={conversation.id}
+                        type="button"
+                        className={`html-ai-history-row${isSelected ? ' is-selected' : ''}`}
+                        onClick={() => void loadHistoryConversation(conversation)}
+                        disabled={Boolean(historyLoadingId)}
+                      >
+                        <MessageSquare size={14} />
+                        <span>
+                          <strong>{conversation.title}</strong>
+                          <small>{updatedLabel} · {conversation.messageCount} 条</small>
+                        </span>
+                        {historyLoadingId === conversation.id ? <Loader2 className="spin" size={13} /> : null}
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          <div ref={scrollRef} className="html-ai-thread">
+            {!hasConversation && !chatState.error ? (
+              <div className="html-ai-empty">
+                <Sparkles size={28} />
+                <strong>询问当前页面</strong>
+                <span>{previewFile.title}</span>
+                <div className="html-ai-suggestions">
+                  {suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => void sendPrompt(suggestion)}
+                      disabled={!active || chatState.busy}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {chatState.turns.map((turn) => {
+              const isBusyTurn = turn.id === activeAssistantTurnId
+              const hasProcess =
+                turn.role === 'assistant' &&
+                (Boolean(turn.processEvents?.length) || Boolean(turn.toolCalls?.length))
+              const content = turn.content || (turn.role === 'assistant' && isBusyTurn && !hasProcess ? '正在回复…' : '')
+              return (
+                <div key={turn.id} className={`html-ai-message is-${turn.role}`}>
+                  {turn.role === 'assistant' ? (
+                    <span className="html-ai-avatar"><Bot size={14} /></span>
+                  ) : null}
+                  <div className="html-ai-bubble">
+                    {turn.role === 'assistant' ? <AgentProcessPanel turn={turn} busy={isBusyTurn} compact /> : null}
+                    {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
+                    {turn.role === 'assistant' ? <AskQABlock turn={turn} /> : null}
+                  </div>
+                </div>
+              )
+            })}
+
+            {pendingAsk ? (
+              <div className="html-ai-ask">
+                <AskCard
+                  questions={pendingAsk.questions}
+                  onSubmit={answerAsk}
+                  onDismiss={() => answerAsk([])}
+                  onCancel={() => void cancelCurrentStream()}
+                />
+              </div>
+            ) : null}
+
+            {chatState.error ? (
+              <div className="html-ai-error" role="alert">
+                <AlertCircle size={14} />
+                <span>{chatState.error}</span>
+              </div>
+            ) : null}
+          </div>
+
+          <form className="html-ai-composer" onSubmit={handleSubmit}>
+            <textarea
+              ref={inputRef}
+              value={input}
+              rows={1}
+              placeholder={pendingAsk ? '请先回答上方追问…' : '输入对当前页面的问题…'}
+              disabled={Boolean(pendingAsk)}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setOpen(false)
+                  return
+                }
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  if (isInputComposing(event)) return
+                  event.preventDefault()
+                  if (canSend) void sendPrompt(input)
+                }
+              }}
+            />
+            <button
+              className="html-ai-send"
+              type={chatState.busy ? 'button' : 'submit'}
+              aria-label={chatState.busy ? '中断对话' : '发送'}
+              title={chatState.busy ? '中断对话' : '发送'}
+              disabled={chatState.busy ? false : !canSend}
+              onClick={chatState.busy ? () => void cancelCurrentStream() : undefined}
+            >
+              {chatState.busy ? <Square size={15} /> : <SendHorizontal size={16} />}
+            </button>
+          </form>
+
+          <div className="html-ai-statusbar">
+            <span>temporary</span>
+            <span>{chatState.status || (chatState.busy ? '处理中…' : '空闲')}</span>
+          </div>
+
+          <div
+            className="html-ai-resize-handle"
+            role="presentation"
+            title="调整大小"
+            onPointerDown={handleResizePointerDown}
+          />
+        </section>
+      ) : null}
+
+      {!open ? (
+        <button
+          className={`html-ai-button${chatState.busy ? ' is-busy' : ''}`}
+          type="button"
+          aria-label="打开 AI 临时对话"
+          title="AI 临时对话"
+          onClick={() => setOpen(true)}
+        >
+          {chatState.busy ? <Loader2 className="spin" size={19} /> : <Sparkles size={19} />}
+          <span>AI</span>
+        </button>
+      ) : null}
+    </div>
   )
 }
 

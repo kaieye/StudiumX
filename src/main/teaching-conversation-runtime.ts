@@ -208,7 +208,8 @@ export async function runTeachingConversationTurn(
         memoryCapturePlan: capturePlan,
         settings,
         provider,
-        temporaryContext
+        temporaryContext,
+        visiblePageContext: payload.context
       })
     },
     ...priorMessages.filter((m) => m.role !== 'system'),
@@ -344,6 +345,7 @@ function buildAgentChatSystemPrompt(options: {
   settings?: TeachingSettingsV1
   provider?: ReturnType<typeof resolveActiveProvider>
   temporaryContext?: TemporaryChatContext | null
+  visiblePageContext?: string | null
 }): string {
   const {
     mode,
@@ -352,7 +354,8 @@ function buildAgentChatSystemPrompt(options: {
     memoryCapturePlan = { action: 'none', reason: 'no_candidate' },
     settings,
     provider,
-    temporaryContext
+    temporaryContext,
+    visiblePageContext
   } = options
   const skillReference = teachSkillReference
     ? [
@@ -371,7 +374,7 @@ function buildAgentChatSystemPrompt(options: {
   const memoryLines = buildMemoryCapturePromptLines(memoryCapturePlan)
   const runtimeLines = buildModelRuntimePromptLines(settings, provider)
   const modeLines = mode === 'temporary'
-    ? buildTemporaryChatPromptLines(temporaryContext)
+    ? buildTemporaryChatPromptLines(temporaryContext, visiblePageContext)
     : ''
 
   if (mode === 'temporary') {
@@ -384,7 +387,7 @@ function buildAgentChatSystemPrompt(options: {
   return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${lessonPolicy}\n\n${ASK_TOOL_POLICY_PROMPT}\n\n${skillReference}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
 }
 
-function buildTemporaryChatPromptLines(context?: TemporaryChatContext | null): string {
+function buildTemporaryChatPromptLines(context?: TemporaryChatContext | null, visiblePageContext?: string | null): string {
   const learnerProfiles = context?.learnerProfiles ?? []
   const courses = context?.courses ?? []
   const profileLines = learnerProfiles.length
@@ -393,18 +396,35 @@ function buildTemporaryChatPromptLines(context?: TemporaryChatContext | null): s
   const courseLines = courses.length
     ? courses.map((course, index) => `${index + 1}. ${course.name} (${course.lessonCount} lessons, ${course.sessionCount} sessions)`).join('\n')
     : 'none'
+  const pageContext = cleanPromptContext(visiblePageContext, 6000)
   return [
     '<temporary-chat-context>',
     '当前是临时会话，不是教学对话。不要查看、列出、读取、搜索或推断工作区文件内容；不要声称已经检查了 MISSION.md、RESOURCES.md、lessons、courses、reference 或 learning-records。',
-    '你只能使用下方已注入的学习者画像和课程概览作为本地上下文；如果用户想基于工作区文件学习，提示其切换到教学对话。',
+    '你只能使用下方已注入的学习者画像、课程概览和当前打开页面的可见文本作为本地上下文；如果用户想基于其他工作区文件学习，提示其切换到教学对话。',
     '<learner-profiles>',
     profileLines,
     '</learner-profiles>',
     '<course-overview>',
     courseLines,
     '</course-overview>',
+    ...(pageContext
+      ? [
+          '<visible-page-context>',
+          pageContext,
+          '</visible-page-context>'
+        ]
+      : []),
     '</temporary-chat-context>'
   ].join('\n')
+}
+
+function cleanPromptContext(value: unknown, maxLength: number): string {
+  return String(value ?? '')
+    .replace(/\r/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, maxLength)
 }
 
 function buildModelRuntimePromptLines(

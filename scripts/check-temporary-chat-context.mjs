@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const [app, types, main, commands, service, runtime] = await Promise.all([
+const [app, css, types, main, commands, service, runtime] = await Promise.all([
   readFile('src/renderer/src/App.tsx', 'utf8'),
+  readFile('src/renderer/src/styles.css', 'utf8'),
   readFile('src/shared/teaching-types.ts', 'utf8'),
   readFile('src/main/index.ts', 'utf8'),
   readFile('src/main/teaching-ipc-commands.ts', 'utf8'),
@@ -23,9 +24,21 @@ assert.match(
 )
 
 assert.match(
+  types,
+  /context\?: string/,
+  'agent chat stream payload should allow renderer-provided visible page context'
+)
+
+assert.match(
   commands,
   /mode: record\.mode === 'teaching' \? 'teaching' : record\.mode === 'temporary' \? 'temporary' : undefined/,
   'IPC parser should preserve explicit temporary chat mode'
+)
+
+assert.match(
+  commands,
+  /context: optionalString\(record\.context\)/,
+  'IPC parser should preserve visible page context for temporary HTML chat'
 )
 
 assert.match(
@@ -38,6 +51,54 @@ assert.match(
   app,
   /void agentChat\(prompt, \{ mode: 'temporary' \}\)/,
   'ordinary chat submit should send temporary mode to the backend'
+)
+
+assert.match(
+  app,
+  /function HtmlTemporaryChat\(/,
+  'opened HTML lessons should mount a floating temporary AI chat component'
+)
+
+assert.match(
+  app,
+  /function useHtmlAiPanelGeometry\(\)/,
+  'floating HTML chat should own draggable and resizable panel geometry'
+)
+
+assert.match(
+  app,
+  /onPointerDown=\{handleHeaderPointerDown\}/,
+  'floating HTML chat header should support dragging the panel'
+)
+
+assert.match(
+  app,
+  /className="html-ai-resize-handle"[\s\S]*onPointerDown=\{handleResizePointerDown\}/,
+  'floating HTML chat should expose a resize handle'
+)
+
+assert.match(
+  app,
+  /aria-label="历史对话"[\s\S]*<History size=\{14\} \/>/,
+  'floating HTML chat should expose a history conversation button'
+)
+
+assert.match(
+  app,
+  /loadHistoryConversation\(conversation\)/,
+  'floating HTML chat history rows should load saved temporary conversations'
+)
+
+assert.match(
+  css,
+  /\.html-ai-resize-handle \{[\s\S]*top: 0;[\s\S]*left: 0;/,
+  'floating HTML chat resize handle should sit at the top-left corner'
+)
+
+assert.match(
+  app,
+  /mode: 'temporary',[\s\S]*context: pageContext/,
+  'floating HTML chat should send current page context in temporary mode'
 )
 
 assert.match(
@@ -86,6 +147,18 @@ assert.match(
   runtime,
   /当前是临时会话/,
   'temporary chat prompt should explicitly tell the model it is in a temporary session'
+)
+
+assert.match(
+  runtime,
+  /visiblePageContext: payload\.context/,
+  'runtime should pass renderer-provided visible page context into the temporary prompt'
+)
+
+assert.match(
+  runtime,
+  /<visible-page-context>/,
+  'temporary prompt should wrap current HTML page text in a visible-page-context block'
 )
 
 console.log('temporary chat context isolation ok')
