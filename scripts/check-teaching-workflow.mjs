@@ -37,14 +37,15 @@ assert.match(prompt, /学习目标：准备面试/)
 assert.match(prompt, /本节课要完成的动作：用一张流程图/)
 assert.doesNotMatch(prompt, /额外说明/, 'omitted fields should not leave empty labels')
 
-// Whitespace normalization + length clamp.
+// Whitespace normalization + length clamp (1500 — room for real clarification
+// nuance like running examples and tone preferences, not just fragments).
 const noisy = normalizeLessonBrief({
   topic: '  RAG\n检索增强生成  ',
-  firstLessonFocus: `${'很'.repeat(700)}长的目标`
+  firstLessonFocus: `${'很'.repeat(1600)}长的目标`
 })
 assert.ok(noisy)
 assert.equal(noisy.topic, 'RAG 检索增强生成')
-assert.equal(noisy.firstLessonFocus.length, 600, 'brief fields should clamp to 600 chars')
+assert.equal(noisy.firstLessonFocus.length, 1500, 'brief fields should clamp to 1500 chars')
 
 // Direct-generation prompts fold in the user's verbatim words — never
 // assistant text, never extracted "signals".

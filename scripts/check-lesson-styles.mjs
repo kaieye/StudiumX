@@ -73,7 +73,7 @@ for (const id of STYLE_IDS) {
   )
 }
 
-for (const selector of ['.lesson-hero', '.mission-card', '.quiz-card', '.compact-list', 'blockquote', 'thead']) {
+for (const selector of ['.lesson-hero', '.mission-card', '.quiz-card', '.compact-list', 'blockquote', 'thead', '.markdown-table-wrap', '.lesson-nav', '.flow', '.interview', '.callout', '.primary-source']) {
   assert.ok(
     baseStyles.includes(selector),
     `buildLessonCss should keep styling the shared lesson markup (${selector})`

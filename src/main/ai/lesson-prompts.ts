@@ -1,10 +1,33 @@
 import type { TeachingMemoryRecord, TeachingSettingsV1 } from '../../shared/teaching-types'
 
 /**
+ * A workspace file (NOTES.md / GLOSSARY.md / RESOURCES.md) excerpt injected
+ * into the lesson system prompt so the second brain sees what the first brain
+ * has already established — terminology, learner preferences, trusted sources.
+ */
+export type LessonWorkspaceContext = {
+  notes: string
+  glossary: string
+  resources: string
+}
+
+/**
+ * A prior lesson surfaced in the prompt so the generator can link to it,
+ * carry its running example forward, and avoid re-teaching established definitions.
+ */
+export type LessonPriorLesson = {
+  id: string
+  title: string
+  objective: string
+  relativePath: string
+}
+
+/**
  * System prompt — instructs the model to return ONLY a JSON object matching
  * the LessonPlan schema. The model is forbidden from emitting HTML; markdown
- * is allowed only inside section bodies. Zod validates downstream, and any
- * failure falls back to the local template generator.
+ * is allowed only inside section bodies / interviewAnswer / callout.body.
+ * Zod validates downstream, and any failure falls back to the local template
+ * generator.
  */
 export function buildLessonSystemPrompt(opts: {
   missionTitle: string
@@ -15,10 +38,29 @@ export function buildLessonSystemPrompt(opts: {
   generateLearningRecord: boolean
   memories: TeachingMemoryRecord[]
   generator: TeachingSettingsV1['generator']
+  priorLessons?: LessonPriorLesson[]
+  conversationExcerpt?: string
+  workspaceContext?: LessonWorkspaceContext
 }): string {
   const includeQuiz = opts.includeRetrievalPractice
   const includeReference = opts.generateReference
   const includeRecord = opts.generateLearningRecord
+  const priorLessonsBlock = opts.priorLessons && opts.priorLessons.length > 0
+    ? `\n# 已完成课程\n${opts.priorLessons
+        .map((lesson) => `- Lesson ${lesson.id}：${lesson.title} — ${lesson.objective}（文件：${lesson.relativePath}）`)
+        .join('\n')}\n\n- 若存在上一课，本课应**承接**其例子或概念，不要重复已建立的定义；可在正文用相对链接引用，例如 \`[上一课](0001-xxx.html)\`。\n- 跨课导航由模板自动生成，你无需在正文里写"上一课/下一课"按钮。`
+    : ''
+  const conversationBlock = opts.conversationExcerpt && opts.conversationExcerpt.trim()
+    ? `\n# 对话澄清摘要\n以下是用户在教学对话中的原话，本课内容应贴合这些真实表述与已确认的背景，不要凭空假设学习者身份或目标：\n${opts.conversationExcerpt.trim()}`
+    : ''
+  const ctx = opts.workspaceContext
+  const ctxBlock = ctx && (ctx.notes || ctx.glossary || ctx.resources)
+    ? `\n# 工作区状态\n${[
+        ctx.notes ? `- NOTES.md（用户偏好/工作备忘）：\n${truncate(ctx.notes, 800)}` : '',
+        ctx.glossary ? `- GLOSSARY.md（已确立术语表，本课必须沿用其中的写法，不要重新定义已收录术语；正文里不需要再列术语表）：\n${truncate(ctx.glossary, 1000)}` : '',
+        ctx.resources ? `- RESOURCES.md（可信来源，引用时优先从这里选，并在推荐阅读/正文标注）：\n${truncate(ctx.resources, 800)}` : ''
+      ].filter(Boolean).join('\n')}`
+    : ''
   return `你是一个本地教学系统的课程设计助手。根据用户的学习目标和当前 Mission，设计一节短小、可复习、可保存的静态 HTML 课程内容。
 
 # 严格输出契约
@@ -31,8 +73,8 @@ export function buildLessonSystemPrompt(opts: {
   "durationMinutes": number,            // 建议学习时长（分钟），与请求一致
   "sections": [                          // 1~6 节正文
     { "heading": string,                // 小节标题 ≤20字
-      "body": string }                  // 小节正文，使用 markdown：支持 #/##/###、段落、- 列表、1. 有序列表、\`行内代码\`、\`\`\`代码块\`\`\`、> 引用、**粗体**。禁止任何 HTML 标签。
-    ],
+      "body": string }                  // 小节正文，使用 markdown：支持 #/##/###、段落、- 列表、1. 有序列表、\`行内代码\`、\`\`\`代码块\`\`\`、> 引用、**粗体**、GFM 表格。禁止任何 HTML 标签。
+    }],
   "keyPoints": string[],                // 3~6 个要点，每个 ≤30字
   "quiz": [                              // ${includeQuiz ? '2~4 道检索练习题' : '留空数组'},
     {
@@ -47,12 +89,24 @@ export function buildLessonSystemPrompt(opts: {
     { "front": string, "back": string }
   ]${includeReference ? `,
   "referenceNotes": string              // 速查材料，markdown，≤300字` : ''}${includeRecord ? `,
-  "learningRecordNote": string          // 学习记录摘要，≤200字` : ''}
+  "learningRecordNote": string          // 学习记录，用两段 markdown：第一段以 \`## 判定\` 开头，写用户本课应掌握什么；第二段以 \`## 影响\` 开头，写对后续课程的影响（不再重讲的"地板结论"、下一步该教什么）` : ''},
+  "primarySource": {                    // 可选但强烈建议填写：本课最该读的一个高可信来源
+    "title": string,                    // 来源标题
+    "url": string,                      // http(s) 链接；无则省略该字段
+    "note": string                      // 一句话：为什么读 / 读哪段；可选
+  },
+  "followupPrompt": string,             // 可选：课尾给学习者的一句追问提醒，替代通用 footer
+  "interviewAnswer": string,            // 可选：若主题面向面试，给一段可直接背诵的结构化答案（markdown）
+  "callouts": [                          // 可选：在关键决策点/易错点/非平凡洞察处插入的卡片
+    { "kind": "criteria" | "pitfall" | "insight", "title": string, "body": string }
+  ],
+  "flowDiagram": string                 // 可选：多步流程的 ASCII 框图，纯文本（不要 markdown 代码围栏），模板会以 <pre class="flow"> 渲染
 }
 
 # 当前 Mission
 - 标题：${opts.missionTitle}
 - 说明：${opts.missionExcerpt}
+${priorLessonsBlock}${conversationBlock}${ctxBlock}
 
 ${opts.memories.length > 0 ? `# 可用长期记忆
 ${opts.memories.map((memory, index) => `- [${index + 1}] (${memory.scope}) ${memory.content}`).join('\n')}
@@ -63,8 +117,16 @@ ${opts.memories.map((memory, index) => `- [${index + 1}] (${memory.scope}) ${mem
 - 时长目标：${opts.durationMinutes} 分钟，只教一个足够小的可观察动作。
 - 如果长期记忆与本次课程相关，优先保持术语、偏好和上下文连续。
 - sections 的 body 用 markdown，不要输出 HTML。
+- 当内容涉及比较、分类、步骤矩阵、参数对照或取舍判断时，优先用 markdown 表格表达；表格必须包含表头和分隔行，例如两行：\`| 项 | 说明 |\` 和 \`| --- | --- |\`。
 - 题目答案必须与 choices 对应，索引从 0 开始。
+- 推荐阅读 \`primarySource\` 优先填一个权威原始来源（论文/官方文档/权威博客）；无 URL 时只填 title + note。
+- 若存在多步流程（如 RAG 的检索→增强→生成），用 \`flowDiagram\` 画 ASCII 框图，比文字列表更直观。
 - 不要输出 JSON 以外的任何字符。`
+}
+
+function truncate(text: string, limit: number): string {
+  const trimmed = text.replace(/\s+/g, ' ').trim()
+  return trimmed.length > limit ? `${trimmed.slice(0, limit)}…` : trimmed
 }
 
 export function buildLessonUserPrompt(opts: {

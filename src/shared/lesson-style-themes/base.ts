@@ -246,16 +246,31 @@ hr {
   background: var(--line);
 }
 
-table {
-  display: block;
+.markdown-table-wrap {
   width: 100%;
   overflow-x: auto;
   margin: 16px 0 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
+  background: var(--panel);
+}
+
+table {
+  width: 100%;
+  margin: 16px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
   border-spacing: 0;
   border-collapse: separate;
   background: var(--panel);
+}
+
+.markdown-table-wrap table {
+  min-width: 620px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
 }
 
 thead {
@@ -274,6 +289,16 @@ td {
 th {
   color: var(--thead-text);
   font-weight: 800;
+}
+
+th.align-center,
+td.align-center {
+  text-align: center;
+}
+
+th.align-right,
+td.align-right {
+  text-align: right;
 }
 
 tr:last-child td {
@@ -581,6 +606,138 @@ footer p {
 
 .quiz-card .quiz-explanation {
   color: var(--muted);
+}
+
+/* Cross-lesson navigation (replaces the per-lesson mission card). */
+.lesson-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 12px 0;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.lesson-nav--foot {
+  margin-top: 36px;
+  padding-top: 16px;
+  border-bottom: 0;
+  justify-content: space-between;
+}
+
+.lesson-nav a {
+  border-bottom: 1px solid var(--link-underline);
+}
+
+.lesson-nav-placeholder {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.lesson-nav-sep {
+  color: var(--line);
+}
+
+/* ASCII flow diagram — monospace, left accent rule, soft background. */
+.flow {
+  margin: 18px 0 0;
+  padding: 16px 18px;
+  overflow-x: auto;
+  color: var(--pre-text);
+  background: var(--pre-bg);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-small);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/* Recitable interview answer card. */
+.interview {
+  margin-top: 28px;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-card);
+  background: var(--accent-soft);
+}
+
+.interview > :first-child {
+  margin-top: 0;
+}
+
+.interview > :last-child {
+  margin-bottom: 0;
+}
+
+/* Decision criteria / pitfall / insight callouts. */
+.callout {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 0 var(--radius-small) var(--radius-small) 0;
+  background: var(--panel);
+}
+
+.callout-title {
+  margin: 0 0 6px;
+}
+
+.callout--criteria {
+  border-left-color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.callout--criteria strong {
+  color: var(--amber);
+}
+
+.callout--pitfall {
+  border-left-color: var(--rose);
+  background: var(--rose-soft);
+}
+
+.callout--pitfall strong {
+  color: var(--rose);
+}
+
+.callout--insight {
+  border-left-color: var(--green);
+  background: var(--green-soft);
+}
+
+.callout--insight strong {
+  color: var(--green);
+}
+
+.callout > :last-child {
+  margin-bottom: 0;
+}
+
+/* Primary source recommendation. */
+.primary-source {
+  margin-top: 28px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--soft);
+}
+
+.primary-source-title {
+  margin: 6px 0 0;
+  font-weight: 700;
+  color: var(--strong);
+}
+
+.primary-source-title a {
+  border-bottom: 1px solid var(--link-underline);
 }
 
 @media (max-width: 700px) {

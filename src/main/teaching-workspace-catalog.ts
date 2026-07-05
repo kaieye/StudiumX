@@ -305,7 +305,13 @@ async function readLearningRecords(rootPath: string): Promise<TeachingWorkspaceS
     rootPath,
     (file) => {
       if (!file.toLowerCase().endsWith('.md')) return false
-      if (basename(file).startsWith('MISSION') || basename(file).startsWith('RESOURCES')) return false
+      const name = basename(file)
+      if (
+        name.startsWith('MISSION') ||
+        name.startsWith('RESOURCES') ||
+        name.startsWith('GLOSSARY') ||
+        name.startsWith('NOTES')
+      ) return false
       return !isAgentConversationMarkdownRelativePath(toWorkspaceRelativePath(rootPath, file))
     }
   )

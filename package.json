@@ -23,6 +23,7 @@
     "check:concept-overview": "node scripts/check-concept-overview-lesson.mjs",
     "check:lesson-styles": "node scripts/check-lesson-styles.mjs",
     "check:resource-dark-theme": "node scripts/check-resource-dark-theme.mjs",
+    "check:lesson-markdown": "node scripts/check-lesson-markdown-rendering.mjs",
     "check:dark-theme-neutrality": "node scripts/check-dark-theme-neutrality.mjs",
     "check:provider-errors": "node scripts/check-provider-errors.mjs",
     "check:model-settings-custom-provider": "node scripts/check-model-settings-custom-provider.mjs",

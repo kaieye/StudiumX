@@ -177,6 +177,8 @@ const WORKSPACE_SCAFFOLD_DIRECTORIES = new Set([
 const WORKSPACE_SCAFFOLD_FILES = new Set([
   'MISSION.md',
   'RESOURCES.md',
+  'GLOSSARY.md',
+  'NOTES.md',
   'assets/lesson.css',
   'assets/quiz.js',
   'assets/flashcards.css',
@@ -1092,6 +1094,8 @@ export class TeachingWorkspaceService {
     await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.css', LESSON_FLASHCARD_CSS)
     await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.js', LESSON_FLASHCARD_JS)
     await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'RESOURCES.md', renderResources(workspace.name))
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'GLOSSARY.md', renderGlossary())
+    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'NOTES.md', renderNotes())
     await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'MISSION.md', renderMission(workspace.name, `学习 ${workspace.name}`))
   }
 
@@ -1418,6 +1422,46 @@ function renderResources(topic: string): string {
 ## Gaps
 
 - 还需要为具体学习主题补充高信任外部资料。
+`
+}
+
+/**
+ * Glossary scaffold. Starts as a placeholder; the conversation agent and the
+ * lesson pipeline incrementally promote terms here as lessons touch them.
+ * The lesson generator reads this file so terminology stays consistent across
+ * lessons without re-defining known terms.
+ */
+function renderGlossary(): string {
+  return `# Glossary
+
+本表记录已在本工作区确立的术语写法，供所有课程沿用。未触达的术语留空；每节课引入新术语后由教学对话增量补充（用 write_workspace_file 覆盖本文件，追加到对应分区）。
+
+## 通用
+
+- LLM：大语言模型
+- Token：模型处理文本的最小单位
+- Prompt：送给模型的输入
+- Context window：模型一次能接收的最大 token 数
+
+## 主题相关
+
+_占位：本工作区学习主题涉及的核心术语会在对应课程触达后由对话补充到这里。_
+`
+}
+
+/**
+ * Notes scaffold. A scratchpad for learner preferences and working notes the
+ * conversation agent maintains; the lesson generator reads it to honor
+ * declared preferences (depth, language, citation style, etc.).
+ */
+function renderNotes(): string {
+  return `# Notes
+
+记录用户的学习偏好与工作备忘，供课程生成时参考。由教学对话维护：用户表达偏好或背景时，用 write_workspace_file（overwrite: true）增量更新本文件。
+
+- 语言：中文讲解，专业术语保留英文
+- 深度：暂未确认
+- 其他：暂无
 `
 }
 

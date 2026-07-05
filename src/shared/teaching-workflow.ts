@@ -22,7 +22,10 @@ export type LessonBrief = {
   extraNotes?: string
 }
 
-const BRIEF_TEXT_LIMIT = 600
+// Brief fields can carry real clarification nuance (running examples, prior
+// context, tone preferences). 1500 chars leaves room for that without letting
+// a single tool-call argument balloon the lesson prompt.
+const BRIEF_TEXT_LIMIT = 1500
 
 /**
  * Coerce untrusted tool-call arguments into a LessonBrief. Returns null when

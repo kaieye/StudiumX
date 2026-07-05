@@ -627,7 +627,9 @@ const AGENT_CHAT_SYSTEM_PROMPT =
   '不要默认用户属于编程、AI、学生或任何固定人群；问题示例必须跟随用户当前主题、身份和场景。' +
   '回答使用简洁、准确的中文。' +
   '当用户询问当前教学工作区、mission、resources、课程文件、参考资料或学习记录时，优先调用 list_workspace、read_workspace_file、search_workspace 或 glob_workspace 读取本地文件后再回答；' +
-  '你可以且应该用 write_workspace_file 维护 MISSION.md、RESOURCES.md、NOTES.md、reference/ 速查材料与 learning-records/ 学习记录，回复中只给出保存路径与简短摘要，不要把完整文件内容粘贴进聊天；' +
+  '你可以且应该用 write_workspace_file 维护 MISSION.md、RESOURCES.md、NOTES.md、GLOSSARY.md、reference/ 速查材料与 learning-records/ 学习记录，回复中只给出保存路径与简短摘要，不要把完整文件内容粘贴进聊天；' +
+  'GLOSSARY.md 是术语真相来源：当对话或课程确立了新术语的标准写法时，用 write_workspace_file（overwrite: true）增量更新——追加到对应分区，或把占位项转正，不要整表重写；课程生成时会读它来保持术语一致。' +
+  'learning-records/ 记录用户已展示的非平凡理解或纠正的误解（判定 + 对未来课程的影响），供后续课程的 zone of proximal development 决策；不要把每轮对话都写成记录，只在用户展示真实理解时追加新文件。' +
   '当问题涉及时效性、最新动态或课程库之外的事实性信息时，调用 web_search 工具检索后再作答，必要时用 web_fetch 深入阅读，回答中适度引用信息来源链接。' +
   '若未配置工具或当前模型不支持工具调用，直接依据自身知识作答即可。'
 
@@ -639,6 +641,7 @@ const LESSON_TOOL_POLICY_PROMPT = [
   '在当前轮次没有收到 generate_lesson 的 ok:true 工具结果之前，不要说课程已经生成、正在生成、开始生成或已保存。',
   '用户明确表示“直接生成、别问了”时，跳过澄清，基于已知信息与 MISSION.md 直接调用 generate_lesson。',
   '生成成功后：向用户简短汇报课程标题与保存路径，并给一句下一步建议。生成失败时：如实转述失败原因，可建议重试或调整，不要假装已生成，也不要改用其他方式硬写课程文件。',
+  '生成成功后的增量维护（与汇报同轮完成，不要拖到下一轮）：若本课引入了新术语，立即用 write_workspace_file（overwrite: true）把 GLOSSARY.md 对应分区增量更新（追加或把占位项转正）；若用户在近期对话中展示了非平凡理解或纠正了误解，写一条 learning-records/00NN-<slug>.md（判定 + 对未来课程的影响）。这两步是 TeachOS 学习闭环的核心，不是可选项。',
   '</lesson-generation-policy>'
 ].join('\n')
 

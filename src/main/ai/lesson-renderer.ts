@@ -1,12 +1,120 @@
-import type { LessonPlan, LessonQuizItem } from '../../shared/lesson-schema'
+import type { LessonCalloutKind, LessonPlan, LessonQuizItem } from '../../shared/lesson-schema'
 import type { LessonSummary, TeachingSettingsV1 } from '../../shared/teaching-types'
 
 /**
  * Renders a validated LessonPlan into the same static HTML skeleton used by
  * the fallback template: shared `assets/lesson.css` + `assets/quiz.js` +
  * `assets/flashcards.js`, and an embedded metadata JSON script. Markdown in
- * section bodies is converted through a strict allowlist (no raw HTML).
+ * section bodies is converted through a strict allowlist (no raw HTML),
+ * including GFM-style tables.
  */
+
+type LessonNavLink = { href: string; label: string }
+
+type LessonNav = {
+  prev?: LessonNavLink
+  next?: LessonNavLink
+}
+
+/**
+ * Derive prev/next lesson links from the workspace's lesson list. Lessons are
+ * sorted by id ascending; the current lesson is matched by id. Links are
+ * relative basenames (lessons share one directory).
+ */
+function deriveLessonNav(lessons: LessonSummary[] | undefined, currentId: string): LessonNav {
+  if (!lessons || lessons.length === 0) return {}
+  const sorted = [...lessons].sort((a, b) => a.id.localeCompare(b.id))
+  const index = sorted.findIndex((lesson) => lesson.id === currentId)
+  if (index < 0) return {}
+  const toLink = (lesson: LessonSummary): LessonNavLink => ({
+    href: basename(lesson.relativePath),
+    label: `Lesson ${lesson.id}`
+  })
+  return {
+    prev: index > 0 ? toLink(sorted[index - 1]!) : undefined,
+    next: index < sorted.length - 1 ? toLink(sorted[index + 1]!) : undefined
+  }
+}
+
+function basename(relativePath: string): string {
+  const parts = relativePath.split('/').filter(Boolean)
+  return parts[parts.length - 1] ?? relativePath
+}
+
+function renderLessonTopNav(opts: {
+  assetBase: string
+  nav: LessonNav
+  glossaryAvailable: boolean
+}): string {
+  const { assetBase, nav, glossaryAvailable } = opts
+  const prev = nav.prev ? `<a href="${escapeAttr(nav.prev.href)}" class="lesson-nav-prev">← ${escapeHtml(nav.prev.label)}</a>` : '<span class="lesson-nav-prev lesson-nav-placeholder">← 起点课</span>'
+  const mission = `<a href="${escapeAttr(`${assetBase}MISSION.md`)}">Mission</a>`
+  const glossary = glossaryAvailable
+    ? ` · <a href="${escapeAttr(`${assetBase}GLOSSARY.md`)}">Glossary</a>`
+    : ''
+  const resources = ` · <a href="${escapeAttr(`${assetBase}RESOURCES.md`)}">Resources</a>`
+  return `    <nav class="lesson-nav">
+      ${prev}
+      <span class="lesson-nav-sep">·</span>${mission}${glossary}${resources}
+    </nav>`
+}
+
+function renderLessonFootNav(nav: LessonNav): string {
+  const prev = nav.prev
+    ? `<a href="${escapeAttr(nav.prev.href)}" class="lesson-nav-prev">← ${escapeHtml(nav.prev.label)}</a>`
+    : '<span class="lesson-nav-prev lesson-nav-placeholder">已是第一课</span>'
+  const next = nav.next
+    ? `<a href="${escapeAttr(nav.next.href)}" class="lesson-nav-next">${escapeHtml(nav.next.label)} →</a>`
+    : '<span class="lesson-nav-next lesson-nav-placeholder">下一课待生成 →</span>'
+  return `    <nav class="lesson-nav lesson-nav--foot">
+      ${prev}
+      <span class="lesson-nav-sep">|</span>
+      ${next}
+    </nav>`
+}
+
+function renderCallout(callout: { kind: LessonCalloutKind; title?: string; body: string }): string {
+  const title = callout.title ? `<p class="callout-title"><strong>${escapeHtml(callout.title)}</strong></p>` : ''
+  return `      <aside class="callout callout--${escapeAttr(callout.kind)}">
+        ${title}
+        ${renderMarkdown(callout.body)}
+      </aside>`
+}
+
+function renderLessonExtras(opts: {
+  plan: LessonPlan
+}): string {
+  const { plan } = opts
+  const calloutsList = plan.callouts ?? []
+  const flow = plan.flowDiagram && plan.flowDiagram.trim()
+    ? `      <pre class="flow">${escapeHtml(plan.flowDiagram)}</pre>`
+    : ''
+  const callouts = calloutsList.length
+    ? calloutsList.map((callout) => renderCallout(callout)).join('\n')
+    : ''
+  const interview = plan.interviewAnswer && plan.interviewAnswer.trim()
+    ? `      <section class="interview">
+        <h2>面试答案</h2>
+        ${renderMarkdown(plan.interviewAnswer)}
+      </section>`
+    : ''
+  const primarySource = plan.primarySource
+    ? renderPrimarySource(plan.primarySource)
+    : ''
+  return [flow, callouts, interview, primarySource].filter(Boolean).join('\n')
+}
+
+function renderPrimarySource(source: { title: string; url?: string; note?: string }): string {
+  const title = source.url
+    ? `<a href="${escapeAttr(sanitizeHref(source.url) || '#')}" target="_blank" rel="noreferrer noopener">${escapeHtml(source.title)}</a>`
+    : `<strong>${escapeHtml(source.title)}</strong>`
+  const note = source.note ? `<p>${escapeHtml(source.note)}</p>` : ''
+  return `      <section class="primary-source">
+        <h2>推荐阅读</h2>
+        <p class="primary-source-title">${title}</p>
+        ${note}
+      </section>`
+}
 
 export function renderLessonHtmlFromPlan(opts: {
   plan: LessonPlan
@@ -15,10 +123,13 @@ export function renderLessonHtmlFromPlan(opts: {
   workspaceName: string
   recordRelativePath: string | null
   referenceRelativePath: string | null
+  lessons?: LessonSummary[]
+  glossaryAvailable?: boolean
   generator: TeachingSettingsV1['generator']
 }): string {
   const { plan, lesson, mission, workspaceName, recordRelativePath, referenceRelativePath, generator } = opts
   const assetBase = relativeAssetBase(lesson.relativePath)
+  const nav = deriveLessonNav(opts.lessons, lesson.id)
   const sections = plan.sections
     .map(
       (section) => `      <section>
@@ -27,6 +138,8 @@ export function renderLessonHtmlFromPlan(opts: {
       </section>`
     )
     .join('\n')
+
+  const extras = renderLessonExtras({ plan })
 
   const keyPoints = plan.keyPoints.length
     ? `      <section>
@@ -86,6 +199,10 @@ ${plan.quiz.map((item) => renderQuizCard(item)).join('\n')}
       })}</script>`
     : ''
 
+  const footerLine = plan.followupPrompt && plan.followupPrompt.trim()
+    ? escapeHtml(plan.followupPrompt)
+    : '下一步：把不清楚的地方继续问教学助手，并把新的理解沉淀成 learning record。'
+
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -103,13 +220,11 @@ ${plan.quiz.map((item) => renderQuizCard(item)).join('\n')}
       <p>${escapeHtml(plan.objective)}</p>
     </header>
 
-    <section class="mission-card">
-      <span>Mission</span>
-      <strong>${escapeHtml(mission.title)}</strong>
-      <p>${escapeHtml(mission.excerpt)}</p>
-    </section>
+${renderLessonTopNav({ assetBase, nav, glossaryAvailable: opts.glossaryAvailable ?? false })}
 
 ${sections}
+
+${extras}
 
 ${keyPoints}
 
@@ -117,8 +232,10 @@ ${flashcards}
 
 ${quiz}
 
+${renderLessonFootNav(nav)}
+
     <footer>
-      <p>下一步：把不清楚的地方继续问教学助手，并把新的理解沉淀成 learning record。</p>
+      <p>${footerLine}</p>
     </footer>
   </main>
 ${metadata}
@@ -134,6 +251,7 @@ export function renderReferenceHtmlFromPlan(opts: {
   lesson: LessonSummary
   mission: { title: string; excerpt: string }
   workspaceName: string
+  glossaryAvailable?: boolean
 }): string {
   const { plan, lesson, mission, workspaceName } = opts
   const assetBase = relativeAssetBase(lesson.relativePath)
@@ -144,6 +262,12 @@ export function renderReferenceHtmlFromPlan(opts: {
     ? `<ul class="compact-list">
 ${plan.keyPoints.map((point) => `  <li>${escapeHtml(point)}</li>`).join('\n')}
 </ul>`
+    : ''
+  const flow = plan.flowDiagram && plan.flowDiagram.trim()
+    ? `<pre class="flow">${escapeHtml(plan.flowDiagram)}</pre>`
+    : ''
+  const glossaryLink = opts.glossaryAvailable
+    ? ` · <a href="${escapeAttr(`${assetBase}GLOSSARY.md`)}">Glossary</a>`
     : ''
   return `<!doctype html>
 <html lang="zh-CN">
@@ -160,8 +284,12 @@ ${plan.keyPoints.map((point) => `  <li>${escapeHtml(point)}</li>`).join('\n')}
       <h1>${escapeHtml(plan.title)} 速查</h1>
       <p>${escapeHtml(mission.title)}：${escapeHtml(mission.excerpt)}</p>
     </header>
+    <nav class="lesson-nav">
+      <a href="${escapeAttr(`${assetBase}MISSION.md`)}">Mission</a>${glossaryLink} · <a href="${escapeAttr(`${assetBase}RESOURCES.md`)}">Resources</a>
+    </nav>
     <section>
       ${notes}
+      ${flow}
       ${keyPoints}
     </section>
   </main>
@@ -176,18 +304,26 @@ export function renderLearningRecordFromPlan(opts: {
   mission: { title: string; excerpt: string }
 }): string {
   const { plan, lesson, mission } = opts
-  const note = plan.learningRecordNote || plan.objective
+  const note = (plan.learningRecordNote || '').trim()
+  // The prompt asks the model to structure learningRecordNote as two sections
+  // marked with `## 判定` and `## 影响`. If present, surface them verbatim;
+  // otherwise fall back to a flat summary so empty/legacy plans still render.
+  const hasJudgment = /^##\s*判定/m.test(note)
+  const body = hasJudgment
+    ? note
+    : `## 判定\n\n${note || plan.objective}\n\n## 影响\n\n_暂未记录对本课程后续的影响；下次生成课程时由对话补充。_`
   return `# ${plan.title}
 
-本节课围绕「${mission.title}」建立了一个可保存的学习动作：${note}。
-
+- 工作区：${mission.title}
+- 课程：Lesson ${lesson.id}（${plan.durationMinutes} 分钟）
 - 学习目标：${plan.objective}
-- 时长：${plan.durationMinutes} 分钟
-- 正文小节：${plan.sections.length}
-- 检索练习：${plan.quiz.length} 题
-- 复习卡片：${plan.flashcards.length} 张
+- 正文小节：${plan.sections.length}　检索练习：${plan.quiz.length} 题　复习卡片：${plan.flashcards.length} 张
 
-下一步应继续维护 MISSION.md、RESOURCES.md 与 learning-records，而不是只依赖一次性聊天上下文。
+${body}
+
+---
+
+_本记录由 TeachOS 在生成课程时自动落盘，供后续课程的 zone of proximal development 决策使用；对话中若展示了新的理解或纠正了误解，应另起一条 learning-record。_
 `
 }
 
@@ -254,6 +390,15 @@ function letterFor(index: number): string {
 // Minimal, strict markdown → HTML (no raw HTML allowed)
 // ----------------------------------------------------------------
 
+type TableAlignment = 'left' | 'center' | 'right' | null
+
+type MarkdownTable = {
+  header: string[]
+  alignments: TableAlignment[]
+  rows: string[][]
+  endIndex: number
+}
+
 function renderMarkdown(source: string): string {
   const escaped = escapeHtml(source)
   const lines = escaped.split(/\r?\n/)
@@ -278,8 +423,8 @@ function renderMarkdown(source: string): string {
   }
 
   let listItems: string[] = []
-  for (const raw of lines) {
-    const line = raw
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!
     if (/^```/.test(line.trim())) {
       if (code) {
         blocks.push(`<pre><code>${codeBuffer.join('\n')}</code></pre>`)
@@ -294,6 +439,14 @@ function renderMarkdown(source: string): string {
     }
     if (code) {
       codeBuffer.push(line)
+      continue
+    }
+    const table = parseMarkdownTable(lines, index)
+    if (table) {
+      flushParagraph()
+      flushList()
+      blocks.push(renderMarkdownTable(table))
+      index = table.endIndex
       continue
     }
     const ulMatch = /^[-*]\s+(.*)$/.exec(line)
@@ -341,6 +494,128 @@ function renderMarkdown(source: string): string {
   flushList()
   if (code) blocks.push(`<pre><code>${codeBuffer.join('\n')}</code></pre>`)
   return blocks.join('\n')
+}
+
+function parseMarkdownTable(lines: string[], startIndex: number): MarkdownTable | null {
+  const header = splitTableRow(lines[startIndex] ?? '')
+  const separator = splitTableRow(lines[startIndex + 1] ?? '')
+  if (!header || !separator || header.length === 0 || separator.length !== header.length) return null
+
+  const alignments: TableAlignment[] = []
+  for (const cell of separator) {
+    const alignment = parseTableAlignment(cell)
+    if (alignment === undefined) return null
+    alignments.push(alignment)
+  }
+
+  const rows: string[][] = []
+  let endIndex = startIndex + 1
+  for (let index = startIndex + 2; index < lines.length; index += 1) {
+    const line = lines[index] ?? ''
+    if (line.trim() === '') break
+    const row = splitTableRow(line)
+    if (!row) break
+    rows.push(normalizeTableCells(row, header.length))
+    endIndex = index
+  }
+
+  return {
+    header: normalizeTableCells(header, header.length),
+    alignments,
+    rows,
+    endIndex
+  }
+}
+
+function splitTableRow(line: string): string[] | null {
+  const trimmed = line.trim()
+  if (!trimmed.includes('|')) return null
+
+  const hasLeadingPipe = trimmed.startsWith('|')
+  const hasTrailingPipe = endsWithUnescapedPipe(trimmed)
+  let body = hasLeadingPipe ? trimmed.slice(1) : trimmed
+  if (hasTrailingPipe) body = body.slice(0, -1)
+
+  const cells: string[] = []
+  let current = ''
+  let escaped = false
+  let inCode = false
+  let sawSeparator = hasLeadingPipe || hasTrailingPipe
+
+  for (const char of body) {
+    if (char === '`' && !escaped) {
+      inCode = !inCode
+      current += char
+      continue
+    }
+    if (char === '|' && !escaped && !inCode) {
+      cells.push(current.trim())
+      current = ''
+      sawSeparator = true
+      continue
+    }
+    current += char
+    escaped = char === '\\' && !escaped
+  }
+
+  if (!sawSeparator) return null
+  cells.push(current.trim())
+  return cells
+}
+
+function endsWithUnescapedPipe(value: string): boolean {
+  if (!value.endsWith('|')) return false
+  let slashCount = 0
+  for (let index = value.length - 2; index >= 0 && value[index] === '\\'; index -= 1) {
+    slashCount += 1
+  }
+  return slashCount % 2 === 0
+}
+
+function parseTableAlignment(cell: string): TableAlignment | undefined {
+  // Normalize full-width colons and em/en dashes some Chinese-locale models
+  // emit. Require at least 2 dashes/colons (GFM says 3+, but weaker models
+  // emit `:--:` or `--` and we'd rather render the table than drop it to a
+  // paragraph — see the 0003-rag.html regression).
+  const marker = cell
+    .replace(/[：:]/g, ':')
+    .replace(/[—–\-―]/g, '-')
+    .replace(/\s+/g, '')
+  if (!/^:?-{2,}:?$/.test(marker)) return undefined
+  if (marker.startsWith(':') && marker.endsWith(':')) return 'center'
+  if (marker.endsWith(':')) return 'right'
+  if (marker.startsWith(':')) return 'left'
+  return null
+}
+
+function normalizeTableCells(cells: string[], expected: number): string[] {
+  const normalized = cells.slice(0, expected)
+  while (normalized.length < expected) normalized.push('')
+  return normalized
+}
+
+function renderMarkdownTable(table: MarkdownTable): string {
+  const header = table.header
+    .map((cell, index) => `          <th scope="col"${alignmentClass(table.alignments[index])}>${inline(cell)}</th>`)
+    .join('')
+  const rows = table.rows
+    .map((row) => `        <tr>${row.map((cell, index) => `<td${alignmentClass(table.alignments[index])}>${inline(cell)}</td>`).join('')}</tr>`)
+    .join('\n')
+
+  return `<div class="markdown-table-wrap">
+      <table>
+        <thead>
+        <tr>${header}</tr>
+        </thead>
+        <tbody>
+${rows}
+        </tbody>
+      </table>
+    </div>`
+}
+
+function alignmentClass(alignment: TableAlignment | undefined): string {
+  return alignment ? ` class="align-${alignment}"` : ''
 }
 
 function inline(text: string): string {

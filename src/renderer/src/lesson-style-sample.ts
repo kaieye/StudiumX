@@ -30,21 +30,32 @@ export function buildLessonStyleSampleHtml(styleId: LessonStyleId): string {
       <p>理解遗忘曲线的规律，学会用间隔重复和主动回忆安排复习节奏，让学到的知识真正留下来。</p>
     </header>
 
-    <section class="mission-card">
-      <span>Mission</span>
-      <strong>建立可持续的复习系统</strong>
-      <p>把「学过」变成「记得」：为每节课沉淀复习卡片，并按遗忘曲线安排回顾时间。</p>
-    </section>
+    <nav class="lesson-nav">
+      <span class="lesson-nav-prev lesson-nav-placeholder">← 起点课</span>
+      <span class="lesson-nav-sep">·</span>
+      <a href="../MISSION.md">Mission</a>
+      <span class="lesson-nav-sep">·</span>
+      <a href="../GLOSSARY.md">Glossary</a>
+      <span class="lesson-nav-sep">·</span>
+      <a href="../RESOURCES.md">Resources</a>
+    </nav>
 
     <section>
       <h2>为什么我们会遗忘</h2>
       <p>艾宾浩斯的实验表明，新知识在最初 24 小时内流失得最快。如果不做任何复习，一周后往往只剩下不到三成。真正有效的对策不是「多看几遍」，而是<strong>在快要忘记的时刻主动回想</strong>。</p>
       <blockquote>检索一次的效果，胜过重读十次——回忆本身就是在加固记忆。</blockquote>
+      <pre class="flow">学习 ──▶ 24h 内流失最快 ──▶ 主动回忆 ──▶ 间隔复习 ──▶ 长期留存
+                          │
+                          └─ 重读只产生熟悉感 ✗</pre>
       <ul class="compact-list">
         <li>重读只产生「熟悉感」，并不等于记住了。</li>
         <li>主动回忆迫使大脑重建线索，形成更强的连接。</li>
         <li>间隔越合理，单位时间的复习收益越高。</li>
       </ul>
+      <aside class="callout callout--pitfall">
+        <p class="callout-title"><strong>常见误区</strong></p>
+        <p>「看得眼熟」≠ 记住了。熟悉感是流畅性错觉，考试时提取不出来等于没记住。</p>
+      </aside>
     </section>
 
     <section>
@@ -52,17 +63,33 @@ export function buildLessonStyleSampleHtml(styleId: LessonStyleId): string {
       <p>一张好卡片只问一件事。把概念拆成「问题 → 答案」，例如用 <code>Q/A</code> 的形式记录 API 用法：</p>
       <pre><code>Q: setInterval 与 setTimeout 的核心区别？
 A: setInterval 周期性触发；setTimeout 只触发一次。</code></pre>
-      <table>
-        <thead>
-          <tr><th>复习轮次</th><th>距上次间隔</th><th>目标</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>第 1 次</td><td>1 天</td><td>能独立复述要点</td></tr>
-          <tr><td>第 2 次</td><td>3 天</td><td>能举出自己的例子</td></tr>
-          <tr><td>第 3 次</td><td>7 天</td><td>能应用到新问题</td></tr>
-        </tbody>
-      </table>
-      <p class="tip"><strong>提示：</strong>卡片答错时不要沮丧——错误暴露的位置，正是间隔重复要优先照顾的地方。</p>
+      <div class="markdown-table-wrap">
+        <table>
+          <thead>
+            <tr><th>复习轮次</th><th>距上次间隔</th><th>目标</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>第 1 次</td><td>1 天</td><td>能独立复述要点</td></tr>
+            <tr><td>第 2 次</td><td>3 天</td><td>能举出自己的例子</td></tr>
+            <tr><td>第 3 次</td><td>7 天</td><td>能应用到新问题</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <aside class="callout callout--criteria">
+        <p class="callout-title"><strong>判断准则</strong></p>
+        <p>卡片答对且能举一反三 → 拉长下次间隔；答错或迟疑 → 缩短间隔并当天再练一次。</p>
+      </aside>
+    </section>
+
+    <section class="interview">
+      <h2>面试答案</h2>
+      <p>「间隔重复」是一种利用遗忘曲线的复习策略：在记忆即将衰减时主动检索，以最小的时间成本把知识转入长期记忆。它和「重读」的区别在于——重读只制造熟悉感，检索才加固提取路径，所以我会把每个知识点拆成一张只问一件事的卡片，并按 1 天 / 3 天 / 7 天的递增间隔安排回顾。</p>
+    </section>
+
+    <section class="primary-source">
+      <h2>推荐阅读</h2>
+      <p class="primary-source-title"><a href="https://www.gwern.net/Spaced-repetition" target="_blank" rel="noreferrer noopener">Gwern — Spaced Repetition</a></p>
+      <p>系统梳理间隔重复的原理与算法选择，读「Forgetting curve」与「Review scheduling」两节即可。</p>
     </section>
 
     <section>
@@ -103,8 +130,14 @@ A: setInterval 周期性触发；setTimeout 只触发一次。</code></pre>
       </article>
     </section>
 
+    <nav class="lesson-nav lesson-nav--foot">
+      <span class="lesson-nav-prev lesson-nav-placeholder">已是第一课</span>
+      <span class="lesson-nav-sep">|</span>
+      <span class="lesson-nav-next lesson-nav-placeholder">下一课待生成 →</span>
+    </nav>
+
     <footer>
-      <p>下一步：把不清楚的地方继续问教学助手，并把新的理解沉淀成 learning record。</p>
+      <p>试着用一句话向同事解释：为什么「重读」不如「主动回忆」？</p>
     </footer>
   </main>
   <script>${LESSON_QUIZ_JS}</script>

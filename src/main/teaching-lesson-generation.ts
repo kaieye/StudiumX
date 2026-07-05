@@ -1,16 +1,16 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { callProvider, ProviderAdapterError, resolveActiveProvider, streamProvider, toolsSupportedForFormat, type AdapterCallbacks } from './ai/provider-adapter'
 import { runAgentLoop } from './ai/agent-loop'
 import { buildDefaultRegistry, buildToolContext } from './ai/tools/registry'
-import { buildLessonSystemPrompt, buildLessonUserPrompt, buildLessonRepairPrompt } from './ai/lesson-prompts'
+import { buildLessonSystemPrompt, buildLessonUserPrompt, buildLessonRepairPrompt, type LessonPriorLesson, type LessonWorkspaceContext } from './ai/lesson-prompts'
 import {
   renderLearningRecordFromPlan,
   renderLessonHtmlFromPlan,
   renderReferenceHtmlFromPlan
 } from './ai/lesson-renderer'
 import { readMissionSummary } from './teaching-workspace-catalog'
-import { clampTitle, cleanText, collectTeachingFiles, slugify, workspaceRelativePath } from './teaching-workspace-paths'
+import { clampTitle, cleanText, collectTeachingFiles, fileExists, slugify, workspaceRelativePath } from './teaching-workspace-paths'
 import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
 import { classifyProviderError, providerErrorReason } from '../shared/provider-error'
 import {
@@ -106,7 +106,14 @@ export async function runLessonGenerationPipeline(options: {
     retrieveMemories,
     callbacks
   } = options
+  // One-time, idempotent: relocate legacy learning records left in lessons/
+  // (pre-2026-07) into the scaffolded learning-records/ directory.
+  await migrateLegacyLearningRecords(workspace.rootPath)
   const mission = await readMissionSummary(workspace.rootPath, workspace.name)
+  const workspaceContext = await readWorkspaceContextSummary(workspace.rootPath)
+  const glossaryAvailable = await fileExists(join(workspace.rootPath, 'GLOSSARY.md'))
+  const conversationExcerpt = collectConversationExcerpt(messages)
+  const priorLessons = buildPriorLessons(lessons)
   // The conversation agent owns the readiness judgment. A brief is the
   // preferred, structured hand-off; the direct entry falls back to the user's
   // verbatim prompt plus their own recent words — never extracted "signals".
@@ -127,6 +134,9 @@ export async function runLessonGenerationPipeline(options: {
     settings,
     sequence,
     recalledMemories,
+    priorLessons,
+    conversationExcerpt,
+    workspaceContext,
     callbacks: callbacks ?? {}
   })
 
@@ -166,6 +176,8 @@ export async function runLessonGenerationPipeline(options: {
     lesson,
     mission,
     workspaceName: workspace.name,
+    lessons,
+    glossaryAvailable,
     recordRelativePath: artifacts.recordRelativePath,
     recordAbsolutePath: artifacts.recordAbsolutePath,
     referenceRelativePath: artifacts.referenceRelativePath,
@@ -198,9 +210,12 @@ async function produceLessonPlan(opts: {
   settings: TeachingSettingsV1
   sequence: number
   recalledMemories: TeachingMemoryRecord[]
+  priorLessons: LessonPriorLesson[]
+  conversationExcerpt: string
+  workspaceContext: LessonWorkspaceContext
   callbacks: AdapterCallbacks
 }): Promise<{ plan: LessonPlan; source: LessonPlanSource; reason?: string }> {
-  const { workspace, mission, prompt, settings, sequence, recalledMemories, callbacks } = opts
+  const { workspace, mission, prompt, settings, sequence, recalledMemories, priorLessons, conversationExcerpt, workspaceContext, callbacks } = opts
   const provider = resolveActiveProvider(settings)
 
   // The only legitimate fallback: no provider at all. Every other failure is
@@ -217,7 +232,10 @@ async function produceLessonPlan(opts: {
     generateReference: settings.generator.generateReference,
     generateLearningRecord: settings.generator.generateLearningRecord,
     memories: recalledMemories,
-    generator: settings.generator
+    generator: settings.generator,
+    priorLessons,
+    conversationExcerpt,
+    workspaceContext
   })
   const userPrompt = buildLessonUserPrompt({
     prompt,
@@ -324,6 +342,8 @@ async function writeLessonArtifacts(opts: {
   lesson: LessonSummary
   mission: { title: string; excerpt: string }
   workspaceName: string
+  lessons: LessonSummary[]
+  glossaryAvailable: boolean
   recordRelativePath: string | null
   recordAbsolutePath: string | null
   referenceRelativePath: string | null
@@ -333,7 +353,7 @@ async function writeLessonArtifacts(opts: {
   generator: TeachingSettingsV1['generator']
 }): Promise<void> {
   const {
-    plan, lesson, mission, workspaceName,
+    plan, lesson, mission, workspaceName, lessons, glossaryAvailable,
     recordRelativePath, recordAbsolutePath,
     referenceRelativePath, referenceAbsolutePath,
     reviewsRelativePath, reviewsAbsolutePath,
@@ -348,11 +368,11 @@ async function writeLessonArtifacts(opts: {
 
   await writeFile(
     lesson.absolutePath,
-    renderLessonHtmlFromPlan({ plan, lesson, mission, workspaceName, recordRelativePath, referenceRelativePath, generator }),
+    renderLessonHtmlFromPlan({ plan, lesson, mission, workspaceName, lessons, glossaryAvailable, recordRelativePath, referenceRelativePath, generator }),
     'utf8'
   )
   if (referenceAbsolutePath) {
-    await writeFile(referenceAbsolutePath, renderReferenceHtmlFromPlan({ plan, lesson, mission, workspaceName }), 'utf8')
+    await writeFile(referenceAbsolutePath, renderReferenceHtmlFromPlan({ plan, lesson, mission, workspaceName, glossaryAvailable }), 'utf8')
   }
   if (recordAbsolutePath) {
     await writeFile(recordAbsolutePath, renderLearningRecordFromPlan({ plan, lesson, mission }), 'utf8')
@@ -395,8 +415,12 @@ function buildLessonArtifactPaths(options: {
   const referenceRelativePath = options.includeReference
     ? workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-reference.html`)
     : null
+  // Learning records live in the scaffolded learning-records/ directory (not
+  // lessons/) so they're distinct from lesson pages and pickable by the
+  // records catalog. Legacy records in lessons/ are migrated at pipeline start.
+  const recordsDirRelativePath = 'learning-records'
   const recordRelativePath = options.includeLearningRecord
-    ? workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.md`)
+    ? workspaceRelativePath(recordsDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.md`)
     : null
   const reviewsRelativePath = options.includeReviews
     ? workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-flashcards.json`)
@@ -429,6 +453,84 @@ async function nextLessonNumber(rootPath: string, lessons: LessonSummary[]): Pro
     .map((file) => Number.parseInt(basename(file).slice(0, 4), 10))
     .filter(Number.isFinite)
   return Math.max(0, ...fromIndex, ...fromDisk) + 1
+}
+
+/**
+ * Best-effort read of NOTES.md / GLOSSARY.md / RESOURCES.md so the lesson
+ * generator (the "second brain") sees terminology, learner preferences and
+ * trusted sources the conversation agent has already established. Missing
+ * files yield empty strings — the prompt builder skips empty sections.
+ */
+async function readWorkspaceContextSummary(rootPath: string): Promise<LessonWorkspaceContext> {
+  const readSafe = async (name: string): Promise<string> => {
+    const content = await readFile(join(rootPath, name), 'utf8').catch(() => '')
+    return content.replace(/\r?\n/g, '\n')
+  }
+  const [notes, glossary, resources] = await Promise.all([
+    readSafe('NOTES.md'),
+    readSafe('GLOSSARY.md'),
+    readSafe('RESOURCES.md')
+  ])
+  return { notes, glossary, resources }
+}
+
+/**
+ * Fold the user's recent verbatim turns into a concise excerpt for the lesson
+ * prompt. Assistant text is deliberately excluded — only honest user signal.
+ * Mirrors the extraction in buildLessonPromptWithConversation but returns the
+ * raw lines for system-prompt injection rather than a folded prompt string.
+ */
+function collectConversationExcerpt(messages: AgentChatMessage[] | undefined): string {
+  const userLines = (messages ?? [])
+    .filter((message) => message.role === 'user')
+    .map((message) => cleanText(message.content))
+    .filter(Boolean)
+    .slice(-6)
+  return userLines.map((line) => `- ${line}`).join('\n')
+}
+
+/**
+ * Surface the most recent prior lessons (by id ascending) so the generator
+ * can link to the previous lesson and avoid re-teaching established ground.
+ * Capped at 8 to keep the prompt bounded.
+ */
+function buildPriorLessons(lessons: LessonSummary[]): LessonPriorLesson[] {
+  return [...lessons]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .slice(-8)
+    .map((lesson) => ({
+      id: lesson.id,
+      title: lesson.title,
+      objective: lesson.objective,
+      relativePath: lesson.relativePath
+    }))
+}
+
+/**
+ * One-time, idempotent migration: learning records written to lessons/ before
+ * the 2026-07 path change are moved into learning-records/ so the records
+ * catalog and scaffold stay consistent. Only moves NNNN-*.md files; never
+ * touches .html lessons or non-numbered markdown.
+ */
+async function migrateLegacyLearningRecords(rootPath: string): Promise<void> {
+  const lessonsDir = join(rootPath, 'lessons')
+  const recordsDir = join(rootPath, 'learning-records')
+  const legacyFiles = await collectTeachingFiles(rootPath, (file) => {
+    const lower = file.toLowerCase()
+    if (!lower.endsWith('.md')) return false
+    const name = basename(file)
+    return /^\d{4}-/.test(name)
+  })
+  for (const absolutePath of legacyFiles) {
+    if (!absolutePath.replace(/\\/g, '/').includes('/lessons/')) continue
+    const name = basename(absolutePath)
+    const target = join(recordsDir, name)
+    if (await fileExists(target)) continue
+    await mkdir(recordsDir, { recursive: true })
+    await rename(absolutePath, target).catch(() => {
+      /* ignore race / fs errors — migration is best-effort */
+    })
+  }
 }
 
 function adapterReason(error: ProviderAdapterError): string {
@@ -539,6 +641,7 @@ function localFallbackPlan(
         }]
       : [],
     flashcards: [],
+    callouts: [],
     referenceNotes: '先写 mission，再决定第一课；课程输出到 lessons/*.html；对话记录写入 conversation/*.md。',
     learningRecordNote: `本节围绕「${mission.title}」建立了可复用的 TeachOS 学习闭环。`
   }
