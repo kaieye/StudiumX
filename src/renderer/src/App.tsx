@@ -5618,27 +5618,10 @@ function StudySpace() {
             <span>{activeRoom.ambient}</span>
             <span>{presence.status === 'online' ? '实时同步' : presence.status === 'connecting' ? '连接同步' : '本机模式'}</span>
           </div>
-          <div className="study-space-console">
-            <form className="study-space-code-form" onSubmit={joinSpace}>
-              <input
-                value={spaceDraft}
-                onChange={(event) => setSpaceDraft(event.target.value)}
-                placeholder={snapshot.spaceCode}
-                aria-label="加入空间码"
-                maxLength={18}
-              />
-              <button type="submit">加入</button>
-            </form>
-            <button type="button" onClick={createSpace}>新建空间</button>
-            <button type="button" onClick={() => void copyInvite()}>
-              <Copy size={13} />
-              {copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '邀请'}
-            </button>
-          </div>
         </div>
         <div className="study-header-stats" aria-label="学习统计">
-          <span><Zap size={15} /> streak {snapshot.streakDays}</span>
-          <span><Trophy size={15} /> Lv.{level.level}</span>
+          <span><Zap size={15} /> 连续 {snapshot.streakDays}</span>
+          <span><Trophy size={15} /> 等级 {level.level}</span>
           <span><Target size={15} /> {completedTasks}/{snapshot.tasks.length}</span>
         </div>
       </div>
@@ -6163,7 +6146,7 @@ function StudySpace() {
                 <span>{peer.nickname.slice(0, 1).toUpperCase()}</span>
                 <div>
                   <strong>{peer.nickname}</strong>
-                  <small>{formatStudySeatLabel(normalizeStudySeatIndex(peer.seatIndex, peer.roomId, peer.clientId))} · {studySignalLabel(peer.signalId)} · {peer.timerMode === 'focus' ? `${peer.focusMinutes}m 专注` : '休息中'} · streak {peer.streakDays}</small>
+                  <small>{formatStudySeatLabel(normalizeStudySeatIndex(peer.seatIndex, peer.roomId, peer.clientId))} · {studySignalLabel(peer.signalId)} · {peer.timerMode === 'focus' ? `${peer.focusMinutes}m 专注` : '休息中'} · 连续 {peer.streakDays}</small>
                 </div>
                 <em>{studyMemberStatusLabel(peer.status, peer.timerMode)}</em>
               </div>

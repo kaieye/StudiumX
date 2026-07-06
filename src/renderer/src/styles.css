@@ -5338,48 +5338,6 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   margin-top: 9px;
 }
 
-.study-space-console {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.study-space-code-form {
-  display: flex;
-  gap: 6px;
-}
-
-.study-space-code-form input,
-.study-space-console button {
-  height: 30px;
-  border: 1px solid rgba(23, 32, 29, 0.1);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.66);
-  backdrop-filter: blur(18px);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 780;
-}
-
-.study-space-code-form input {
-  width: 138px;
-  padding: 0 13px;
-  color: #17201d;
-  text-transform: uppercase;
-}
-
-.study-space-console button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 13px;
-  color: rgba(23, 32, 29, 0.76);
-  cursor: pointer;
-}
-
-.study-space-console button:hover,
 .study-name-button:hover {
   background: rgba(255, 255, 255, 0.88);
 }
@@ -8828,51 +8786,17 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: 1fr;
   }
 
-  .study-space-console,
-  .study-space-code-form,
   .study-ambient-control {
     width: 100%;
-  }
-
-  .study-space-console {
-    flex-direction: column;
   }
 
   .study-ambient-control {
     grid-template-columns: 1fr;
   }
 
-  .study-space-code-form input,
-  .study-space-code-form button,
-  .study-space-console > button,
   .study-room-actions button,
   .study-ambient-control button {
     width: 100%;
-  }
-
-  .study-space-console {
-    flex-direction: row;
-    gap: 6px;
-  }
-
-  .study-space-code-form {
-    flex: 1 1 188px;
-    width: auto;
-  }
-
-  .study-space-code-form input {
-    flex: 1;
-    width: auto;
-  }
-
-  .study-space-code-form button {
-    flex: 0 0 auto;
-    width: auto;
-  }
-
-  .study-space-console > button {
-    flex: 1 1 92px;
-    width: auto;
   }
 
   .study-connection-card div,
@@ -9553,8 +9477,6 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-directory-head > span,
 :root[data-resolved-theme="dark"] .study-directory-card,
 :root[data-resolved-theme="dark"] .study-directory-meta span,
-:root[data-resolved-theme="dark"] .study-space-code-form input,
-:root[data-resolved-theme="dark"] .study-space-console button,
 :root[data-resolved-theme="dark"] .study-ambient-control button,
 :root[data-resolved-theme="dark"] .study-space-overview div,
 :root[data-resolved-theme="dark"] .study-room-metrics div,
@@ -9584,11 +9506,6 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   color: var(--text);
 }
 
-:root[data-resolved-theme="dark"] .study-space-code-form input::placeholder {
-  color: var(--text-muted);
-}
-
-:root[data-resolved-theme="dark"] .study-space-console button:hover,
 :root[data-resolved-theme="dark"] .study-name-button:hover,
 :root[data-resolved-theme="dark"] .study-ambient-control button.is-active,
 :root[data-resolved-theme="dark"] .study-mode-card.is-active,
