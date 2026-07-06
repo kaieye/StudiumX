@@ -1029,6 +1029,23 @@ function persistStudySnapshot(snapshot: StudySnapshot): void {
   }
 }
 
+function syncStudyLocation(spaceCode: string, roomId: StudyRoomId): void {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    params.delete('space')
+    params.delete('room')
+    params.delete('studyFreshSession')
+    params.set('studySpace', normalizeStudySpaceCode(spaceCode))
+    params.set('studyRoom', roomId)
+    const search = params.toString()
+    const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    if (nextUrl !== currentUrl) window.history.replaceState(null, '', nextUrl)
+  } catch {
+    // URL sync is a convenience; the room state itself is already persisted.
+  }
+}
+
 function formatStudyDuration(totalSeconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(totalSeconds))
   const minutes = Math.floor(safeSeconds / 60)
@@ -5366,6 +5383,10 @@ function StudySpace() {
   useEffect(() => {
     persistStudySnapshot(snapshot)
   }, [snapshot])
+
+  useEffect(() => {
+    syncStudyLocation(snapshot.spaceCode, snapshot.roomId)
+  }, [snapshot.roomId, snapshot.spaceCode])
 
   useEffect(() => {
     const id = window.setInterval(() => setRoomCycleNow(Date.now()), 1000)
