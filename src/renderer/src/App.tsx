@@ -5292,7 +5292,21 @@ function StudySpace() {
     ? '在线同步'
     : presence.status === 'connecting'
       ? '连接中'
-      : '离线模式'
+      : '本机席位'
+  const remoteHeartbeatLabel = remoteOnline > 0
+    ? `${remoteFreshCount}/${remoteOnline} 心跳`
+    : presence.status === 'online'
+      ? '等待心跳'
+      : presence.status === 'connecting'
+        ? '连接中'
+        : '待同步'
+  const remoteFreshValue = remoteOnline > 0
+    ? `${remoteFreshCount}/${remoteOnline}`
+    : presence.status === 'online'
+      ? '待加入'
+      : presence.status === 'connecting'
+        ? '连接中'
+        : '待同步'
   const presenceProofRows = [
     { label: '本机心跳', value: formatStudyPresenceAge(presence.lastHeartbeatAt, roomCycleNow) },
     { label: '最近远端', value: formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow) },
@@ -5311,7 +5325,7 @@ function StudySpace() {
     ? '实时在线'
     : presence.status === 'connecting'
       ? '正在连接'
-      : '离线模式'
+      : '本机席位'
   const liveLineCode = latestRoomEvent
     ? latestRoomEvent.kind === 'checkin'
       ? 'IN'
@@ -5332,8 +5346,8 @@ function StudySpace() {
       : presence.status === 'online'
         ? '实时教室已连接，签到或开始专注后会同步到同空间同房间。'
         : presence.status === 'connecting'
-          ? '正在连接实时教室，连接前不会显示模拟同学。'
-          : '离线模式只保留本机席位，不显示虚假在线动态。'
+          ? '正在进入在线教室，连接成功后会显示真实同桌。'
+          : '已保留你的真实席位，邀请同学或同步恢复后会显示同桌。'
   const liveLineMeta = latestRoomEvent
     ? formatStudyEventTime(latestRoomEvent.createdAt)
     : latestRemotePeer
@@ -5344,7 +5358,7 @@ function StudySpace() {
     ? `人数来自当前设备和同空间 MQTT 心跳：本房间 ${online} 人，整个空间 ${spaceOnline} 人。`
     : presence.status === 'connecting'
       ? '正在连接公共同步服务，连接前不会用模拟人数填充座位。'
-      : '同步服务暂不可用，页面只显示本机状态，不再显示虚假的在线人数。'
+      : '同步服务暂不可用，页面会保留你的本机席位，在线人数不会虚增。'
   const liveSessionTitle = remoteOnline > 0
     ? `已收到 ${remoteOnline} 个远端同桌`
     : presence.status === 'online'
@@ -5354,7 +5368,7 @@ function StudySpace() {
     ? `最近远端消息 ${formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow)}，超过 ${Math.round(STUDY_PRESENCE_PEER_TTL_MS / 1000)} 秒未心跳会自动下线。`
     : presence.status === 'online'
       ? '打开一个独立同桌窗口会使用新的 session 身份，连接成功后本房间在线人数才会增加。'
-      : '连接成功前不会填充模拟同学；你可以保留当前窗口等待同步服务恢复。'
+      : '连接成功前会保留当前席位；你可以复制邀请或等待同步服务恢复。'
   const inviteHint = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE
     ? '公共大厅不用邀请码；新建空间后可只邀请自己的同学进入。'
     : `把空间码 ${snapshot.spaceCode} 发给同学，对方输入后会进入同一个在线 presence 房间。`
@@ -5763,7 +5777,7 @@ function StudySpace() {
             <em>{liveLineMeta}</em>
             <div>
               <small>{focusingCount} 专注</small>
-              <small>{remoteFreshCount}/{remoteOnline} 心跳</small>
+              <small>{remoteHeartbeatLabel}</small>
               <small>{online}/{activeRoom.capacity}</small>
             </div>
           </div>
@@ -5829,7 +5843,7 @@ function StudySpace() {
                 <span>专注中</span>
               </div>
               <div>
-                <strong>{remoteFreshCount}/{remoteOnline}</strong>
+                <strong>{remoteFreshValue}</strong>
                 <span>远端心跳</span>
               </div>
               <div>
@@ -5855,7 +5869,7 @@ function StudySpace() {
               <span><Plus size={13} /></span>
               <div>
                 <strong>{presence.status === 'online' ? '等待同桌入座' : '等待同步服务'}</strong>
-                <small>{presence.status === 'online' ? '复制邀请或打开同桌窗口后才会增加人数' : '离线时不会显示模拟同学'}</small>
+                <small>{presence.status === 'online' ? '复制邀请或打开同桌窗口后才会增加人数' : '同步恢复后才会显示远端席位'}</small>
               </div>
             </div>
           </div>
@@ -6370,7 +6384,7 @@ function StudySpace() {
               </div>
               <div>
                 <span>远端心跳</span>
-                <strong>{remoteFreshCount}/{remoteOnline}</strong>
+                <strong>{remoteFreshValue}</strong>
                 <small>{formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow)}</small>
               </div>
               <div>
