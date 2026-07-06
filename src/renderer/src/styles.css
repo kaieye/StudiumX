@@ -5248,12 +5248,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   position: relative;
   isolation: isolate;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  min-height: 188px;
-  margin-bottom: 14px;
-  padding: 28px;
+  gap: 18px;
+  min-height: 132px;
+  margin-bottom: 12px;
+  padding: 20px 22px;
   border: 1px solid rgba(38, 47, 65, 0.1);
   border-radius: 22px;
   overflow: hidden;
@@ -5326,34 +5326,34 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-hero h1 {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   max-width: 680px;
   color: #17201d;
-  font-size: 42px;
-  line-height: 1.06;
+  font-size: 32px;
+  line-height: 1.08;
   font-weight: 820;
 }
 
 .study-hero p {
   max-width: 560px;
-  margin: 10px 0 0;
+  margin: 7px 0 0;
   color: rgba(23, 32, 29, 0.68);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .study-hero-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 12px;
 }
 
 .study-space-console {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .study-space-code-form {
@@ -8712,7 +8712,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   }
 
   .study-hero h1 {
-    font-size: 34px;
+    font-size: 30px;
   }
 
   .study-space-overview {
@@ -8759,17 +8759,25 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
   .study-hero {
     min-height: 0;
-    padding: 20px;
+    padding: 16px;
     border-radius: 18px;
   }
 
   .study-hero h1 {
-    font-size: 28px;
+    font-size: 26px;
+  }
+
+  .study-hero p {
+    display: none;
   }
 
   .study-hero-meta > span,
   .study-header-stats span {
     width: fit-content;
+  }
+
+  .study-hero-meta > span:nth-child(n + 3) {
+    display: none;
   }
 
   .study-space-overview {
@@ -8841,6 +8849,31 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   .study-room-actions button,
   .study-ambient-control button {
     width: 100%;
+  }
+
+  .study-space-console {
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .study-space-code-form {
+    flex: 1 1 188px;
+    width: auto;
+  }
+
+  .study-space-code-form input {
+    flex: 1;
+    width: auto;
+  }
+
+  .study-space-code-form button {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .study-space-console > button {
+    flex: 1 1 92px;
+    width: auto;
   }
 
   .study-connection-card div,

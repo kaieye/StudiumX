@@ -5226,18 +5226,18 @@ function StudySpace() {
   const connectionDetail = presence.status === 'online'
     ? `人数来自当前设备和同空间 MQTT 心跳：本房间 ${online} 人，整个空间 ${spaceOnline} 人。`
     : presence.status === 'connecting'
-      ? '正在连接公共 relay，连接前不会用模拟人数填充座位。'
-      : 'relay 暂不可用，页面只显示本机状态，不再显示虚假的在线人数。'
+      ? '正在连接公共同步服务，连接前不会用模拟人数填充座位。'
+      : '同步服务暂不可用，页面只显示本机状态，不再显示虚假的在线人数。'
   const inviteHint = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE
     ? '公共大厅不用邀请码；新建空间后可只邀请自己的同学进入。'
     : `把空间码 ${snapshot.spaceCode} 发给同学，对方输入后会进入同一个在线 presence 房间。`
   const stageStatusLabel = snapshot.timerState === 'running'
     ? snapshot.timerMode === 'focus'
-      ? 'FOCUS ON'
-      : 'BREAK'
+      ? '专注中'
+      : '休息中'
     : snapshot.timerState === 'paused'
-      ? 'PAUSED'
-      : 'READY'
+      ? '已暂停'
+      : '准备进入'
   const contractDisplay = snapshot.contractText.trim() || snapshot.tasks.find((task) => !task.done)?.title || activeMode.name
   const hostActionLabel = snapshot.timerState === 'running'
     ? '进入沉浸'
@@ -5275,13 +5275,13 @@ function StudySpace() {
     completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
     presence.status === 'online'
       ? `空间 ${snapshot.spaceCode} 已连接实时 presence，远端同学 ${remoteOnline} 人。`
-      : '在线 relay 不可用时，只显示本机状态。'
+      : '在线同步不可用时，只显示本机状态。'
   ]
   const roomRules = [
     snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公共大厅：任何 StudiumX 用户都可进入' : `私密空间：凭 ${snapshot.spaceCode} 加入`,
     `${activeMode.name}：${activeMode.rule}`,
     activeRoom.id === 'exam' ? '考试模拟间默认静音，不播放环境音' : `${activeRoom.ambient} 可在右侧开关`,
-    'presence 只广播匿名状态，不上传学习任务内容'
+    '在线状态只广播匿名座位和学习信号，不上传学习任务内容'
   ]
 
   const emitRoomEvent = (kind: StudyRoomEventKind, text: string): void => {
@@ -5605,7 +5605,7 @@ function StudySpace() {
     >
       <div className="study-hero">
         <div className="study-hero-copy">
-          <span className="study-eyebrow"><DoorOpen size={14} /> Network study room</span>
+          <span className="study-eyebrow"><DoorOpen size={14} /> 在线自习室</span>
           <h1>{activeRoom.name}</h1>
           <p>{activeRoom.tone}</p>
           <div className="study-hero-meta">
@@ -5613,10 +5613,10 @@ function StudySpace() {
               <span />
               {presence.status === 'online' ? `${online} 人在线` : presence.status === 'connecting' ? '连接教室中' : '离线，仅本机'}
             </span>
-            <span>Space {snapshot.spaceCode}</span>
+            <span>空间 {snapshot.spaceCode}</span>
             <span>{activeRoom.light}</span>
             <span>{activeRoom.ambient}</span>
-            <span>relay {presence.relay}</span>
+            <span>{presence.status === 'online' ? '实时同步' : presence.status === 'connecting' ? '连接同步' : '本机模式'}</span>
           </div>
           <div className="study-space-console">
             <form className="study-space-code-form" onSubmit={joinSpace}>
@@ -5647,7 +5647,7 @@ function StudySpace() {
         <div className="study-arrival-live">
           <div className="study-arrival-head">
             <div>
-              <span className="study-kicker"><Users size={14} /> Verified presence</span>
+              <span className="study-kicker"><Users size={14} /> 真实在线</span>
               <h2>在线人数可验证</h2>
             </div>
             <span className={`study-relay-badge is-${presence.status}`}>{relayHealthLabel}</span>
@@ -5693,7 +5693,7 @@ function StudySpace() {
         <div className="study-arrival-focus">
           <div className="study-arrival-head">
             <div>
-              <span className="study-kicker"><Timer size={14} /> Room rhythm</span>
+              <span className="study-kicker"><Timer size={14} /> 房间节奏</span>
               <h2>{roomCycle.phase === 'focus' ? '同频专注中' : '同步休息中'}</h2>
             </div>
             <strong className="study-arrival-clock">{formatStudyDuration(roomCycle.remainingSeconds)}</strong>
@@ -5727,7 +5727,7 @@ function StudySpace() {
         <div className="study-arrival-rooms">
           <div className="study-arrival-head">
             <div>
-              <span className="study-kicker"><DoorOpen size={14} /> Rooms</span>
+              <span className="study-kicker"><DoorOpen size={14} /> 自习房间</span>
               <h2>选择房间</h2>
             </div>
             <span>{snapshot.spaceCode}</span>
@@ -5771,7 +5771,7 @@ function StudySpace() {
           <div className="study-cinema" aria-label="沉浸式在线自习室">
             <div className="study-cinema-topbar">
               <div>
-                <span className="study-kicker"><Users size={14} /> Real presence</span>
+                <span className="study-kicker"><Users size={14} /> 真实在线</span>
                 <h2>{activeRoom.name}</h2>
               </div>
               <div className="study-cinema-status">
@@ -5852,7 +5852,7 @@ function StudySpace() {
 
           <div className="study-host-card" aria-label="房间主持">
             <div className="study-host-copy">
-              <span className="study-kicker"><Sparkles size={14} /> Room host</span>
+              <span className="study-kicker"><Sparkles size={14} /> 房间引导</span>
               <strong>{hostBrief}</strong>
             </div>
             <div className="study-host-checklist">
@@ -5876,7 +5876,7 @@ function StudySpace() {
           </div>
           <div className={`study-cycle-card is-${roomCycle.phase}`} aria-label="房间同步轮次">
             <div>
-              <span>Room round #{roomCycle.round}</span>
+              <span>第 {roomCycle.round} 轮</span>
               <strong>{roomCycle.phase === 'focus' ? `${activeRoom.sessionMinutes} 分钟同频专注` : `${activeRoom.breakMinutes} 分钟同步休息`}</strong>
               <small>下一段：{roomCycle.nextLabel}</small>
             </div>
@@ -5920,7 +5920,7 @@ function StudySpace() {
         <section className="study-panel study-mode-panel" aria-label="学习模式和专注契约">
           <div className="study-panel-head">
             <div>
-              <span className="study-kicker"><ShieldCheck size={14} /> Focus contract</span>
+              <span className="study-kicker"><ShieldCheck size={14} /> 专注契约</span>
               <h2>学习模式</h2>
             </div>
             <span className="study-session-label">{activeMode.name}</span>
@@ -5958,7 +5958,7 @@ function StudySpace() {
           </div>
           <div className="study-signal-picker" aria-label="学习状态">
             <div>
-              <span className="study-kicker"><Sparkles size={14} /> Status signal</span>
+              <span className="study-kicker"><Sparkles size={14} /> 学习状态</span>
               <strong>{studySignalLabel(snapshot.signalId)}</strong>
             </div>
             <div>
@@ -5980,7 +5980,7 @@ function StudySpace() {
         <section className="study-panel study-timer-panel" aria-label="番茄时钟">
           <div className="study-panel-head">
             <div>
-              <span className="study-kicker"><Timer size={14} /> Pomodoro</span>
+              <span className="study-kicker"><Timer size={14} /> 番茄钟</span>
               <h2>{snapshot.timerMode === 'focus' ? '专注轮次' : '恢复时间'}</h2>
             </div>
             <span className="study-session-label">{snapshot.focusMinutes}/{snapshot.breakMinutes}</span>
@@ -6072,7 +6072,7 @@ function StudySpace() {
           <div className="study-live-proof" aria-label="在线同步证明">
             <div className="study-live-proof-head">
               <div>
-                <span className="study-kicker"><GitBranch size={14} /> Live proof</span>
+                <span className="study-kicker"><GitBranch size={14} /> 同步证明</span>
                 <strong>{presence.topic}</strong>
               </div>
               <div className="study-live-proof-actions">
@@ -6271,7 +6271,7 @@ function StudySpace() {
               </button>
             </div>
             <div className="study-theater-center">
-              <span>{snapshot.timerMode === 'focus' ? 'FOCUS SESSION' : 'RECOVERY'}</span>
+              <span>{snapshot.timerMode === 'focus' ? '专注中' : '恢复中'}</span>
               <strong>{formatStudyDuration(snapshot.remainingSeconds)}</strong>
               <p>{contractDisplay}</p>
               <div className="study-theater-host">
