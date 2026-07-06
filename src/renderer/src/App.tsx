@@ -5786,7 +5786,13 @@ function StudySpace() {
         </div>
       </div>
 
-      <section className="study-arrival" aria-label="在线自习室入场台">
+      <details className="study-arrival" aria-label="在线自习室设置">
+        <summary className="study-arrival-summary">
+          <span><Settings size={14} /> 房间设置与联机验证</span>
+          <strong>{online}/{activeRoom.capacity} 在线 · {remoteOnline} 远端 · {relayHealthLabel}</strong>
+          <ChevronDown size={14} />
+        </summary>
+        <div className="study-arrival-body">
         <div className="study-arrival-live">
           <div className="study-arrival-head">
             <div>
@@ -6001,7 +6007,8 @@ function StudySpace() {
             </div>
           </details>
         </div>
-      </section>
+        </div>
+      </details>
 
       <div className="study-layout">
         <section className="study-room-stage" aria-label="在线自习室">

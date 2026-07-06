@@ -70,6 +70,8 @@ try {
   assert.deepEqual(result.clientB.boardValues.slice(1, 3), ['1/1', '2/36'], 'second client room board should show real heartbeat and capacity values')
   assert.equal(result.clientA.boardRosterCount, 2, 'first client room board roster should include local and remote sessions')
   assert.equal(result.clientB.boardRosterCount, 2, 'second client room board roster should include local and remote sessions')
+  assert.equal(result.clientA.arrivalOpen, false, 'first client advanced arrival/settings panel should be collapsed by default')
+  assert.equal(result.clientB.arrivalOpen, false, 'second client advanced arrival/settings panel should be collapsed by default')
   assert.notEqual(result.clientA.sessionId, result.clientB.sessionId, 'clients should use distinct session identities')
 
   console.log(`study presence live ok: ${result.spaceCode}`)
@@ -172,8 +174,9 @@ async function readStudyPresence(client) {
         boardText: q('.study-room-board-head strong')?.textContent?.trim() ?? '',
         boardValues: [...document.querySelectorAll('.study-room-board-grid strong')].map((node) => node.textContent.trim()),
         boardRosterCount: document.querySelectorAll('.study-room-board-roster span').length,
+        arrivalOpen: q('.study-arrival')?.open ?? null,
         counts: [...document.querySelectorAll('.study-arrival-counts strong')].map((node) => node.textContent.trim()),
-        remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌'),
+        remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌') || text.includes('1 位远端同学刚刚心跳') || text.includes('1/1 心跳'),
         sessionId: proofText.match(/会话身份([A-Z0-9]+)/)?.[1] ?? '',
         text: text.slice(0, 800)
       }
