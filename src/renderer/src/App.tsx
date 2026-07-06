@@ -5696,6 +5696,17 @@ function StudySpace() {
           <span><Zap size={15} /> 连续 {snapshot.streakDays}</span>
           <span><Trophy size={15} /> 等级 {level.level}</span>
           <span><Target size={15} /> {completedTasks}/{snapshot.tasks.length}</span>
+          <form className="study-hero-join" onSubmit={joinSpace}>
+            <KeyRound size={14} />
+            <input
+              value={spaceDraft}
+              onChange={(event) => setSpaceDraft(event.target.value)}
+              placeholder="输入空间码"
+              aria-label="加入在线自习空间码"
+              maxLength={18}
+            />
+            <button type="submit">加入</button>
+          </form>
         </div>
       </div>
 
@@ -5809,17 +5820,6 @@ function StudySpace() {
               <strong>{remoteOnline > 0 ? '已见远端' : verifyOpenState === 'opened' ? '窗口已开' : verifyOpenState === 'blocked' ? '被拦截' : '待验证'}</strong>
             </div>
           </div>
-          <form className="study-invite-join" onSubmit={joinSpace}>
-            <KeyRound size={14} />
-            <input
-              value={spaceDraft}
-              onChange={(event) => setSpaceDraft(event.target.value)}
-              placeholder="输入同学发来的空间码"
-              aria-label="加入在线自习空间码"
-              maxLength={18}
-            />
-            <button type="submit">加入</button>
-          </form>
         </div>
 
         <div className="study-arrival-focus">

@@ -5495,6 +5495,61 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   max-width: 340px;
 }
 
+.study-hero-join {
+  display: grid;
+  grid-template-columns: 18px minmax(118px, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 5px 4px 10px;
+  border: 1px solid rgba(23, 32, 29, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(18px);
+}
+
+.study-hero-join svg {
+  color: #3f5f59;
+}
+
+.study-hero-join input {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0;
+  color: #17201d;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.study-hero-join input::placeholder {
+  color: rgba(23, 32, 29, 0.48);
+  text-transform: none;
+}
+
+.study-hero-join button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  color: #214d3d;
+  border: 1px solid rgba(36, 161, 108, 0.18);
+  border-radius: 999px;
+  background: rgba(36, 161, 108, 0.12);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 860;
+  white-space: nowrap;
+}
+
 .study-arrival {
   order: 3;
   display: grid;
@@ -9434,6 +9489,11 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     justify-content: flex-start;
   }
 
+  .study-hero-join {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
   .study-hero-meta > span:nth-child(n + 3) {
     display: none;
   }
@@ -10652,6 +10712,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-arrival-link,
 :root[data-resolved-theme="dark"] .study-relay-status,
 :root[data-resolved-theme="dark"] .study-invite-strip div,
+:root[data-resolved-theme="dark"] .study-hero-join,
 :root[data-resolved-theme="dark"] .study-arrival-join input,
 :root[data-resolved-theme="dark"] .study-invite-join input,
 :root[data-resolved-theme="dark"] .study-arrival-relay input,
@@ -10667,6 +10728,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 :root[data-resolved-theme="dark"] .study-arrival-actions button,
 :root[data-resolved-theme="dark"] .study-arrival-join button,
+:root[data-resolved-theme="dark"] .study-hero-join button,
 :root[data-resolved-theme="dark"] .study-invite-join button,
 :root[data-resolved-theme="dark"] .study-arrival-relay button,
 :root[data-resolved-theme="dark"] .study-online-proof > button,
@@ -10690,9 +10752,18 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 :root[data-resolved-theme="dark"] .study-arrival-join input,
+:root[data-resolved-theme="dark"] .study-hero-join input,
 :root[data-resolved-theme="dark"] .study-invite-join input,
 :root[data-resolved-theme="dark"] .study-arrival-relay input {
   color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-hero-join input::placeholder {
+  color: var(--text-soft);
+}
+
+:root[data-resolved-theme="dark"] .study-hero-join svg {
+  color: var(--green);
 }
 
 :root[data-resolved-theme="dark"] .study-invite-join svg {
