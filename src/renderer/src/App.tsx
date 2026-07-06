@@ -6339,9 +6339,9 @@ function StudySpace() {
           </div>
           <div className={`study-companion-hero is-${presence.status}`}>
             <div>
-              <span>{presence.status === 'online' ? '在线房间' : presence.status === 'connecting' ? '正在入场' : '本机自习'}</span>
-              <strong>{presence.status === 'online' ? `${online} 人在 ${activeRoom.name}` : presence.status === 'connecting' ? '连接同步服务' : '未显示模拟同学'}</strong>
-              <p>{remoteOnline > 0 ? `${remoteOnline} 位远端同学刚刚心跳，座位图和同桌列表会实时更新。` : presence.status === 'online' ? '复制邀请或打开验证窗口后，真实远端 session 才会进入这里。' : '连接恢复前只保留本机席位，在线人数不会虚增。'}</p>
+              <span>{presence.status === 'online' ? '在线房间' : presence.status === 'connecting' ? '正在入场' : '本机席位'}</span>
+              <strong>{presence.status === 'online' ? `${online} 人在 ${activeRoom.name}` : presence.status === 'connecting' ? '连接同步服务' : '等待同桌加入'}</strong>
+              <p>{remoteOnline > 0 ? `${remoteOnline} 位远端同学刚刚心跳，座位图和同桌列表会实时更新。` : presence.status === 'online' ? '复制邀请或打开验证窗口后，真实远端 session 才会进入这里。' : `先保留 ${formatStudySeatLabel(userSeat)}，连接恢复或同学进入后才会增加在线人数。`}</p>
             </div>
             <div>
               <button type="button" onClick={() => void copyInvite()}>

@@ -8171,9 +8171,9 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-companion-hero.is-offline {
-  border-color: rgba(193, 79, 74, 0.16);
+  border-color: rgba(63, 95, 89, 0.14);
   background:
-    linear-gradient(135deg, rgba(255, 244, 242, 0.82), rgba(248, 250, 246, 0.72)),
+    linear-gradient(135deg, rgba(248, 250, 246, 0.9), rgba(238, 244, 238, 0.76)),
     rgba(255, 255, 255, 0.72);
 }
 
@@ -8247,6 +8247,13 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   color: #1f1a0b;
   border-color: rgba(229, 185, 85, 0.34);
   background: #ffe2a0;
+}
+
+.study-companion-hero button:disabled {
+  color: rgba(23, 32, 29, 0.4);
+  border-color: rgba(38, 47, 65, 0.08);
+  background: rgba(255, 255, 255, 0.52);
+  cursor: not-allowed;
 }
 
 .study-online-summary {
