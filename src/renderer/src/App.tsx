@@ -5165,6 +5165,31 @@ function StudySpace() {
       ? 'PAUSED'
       : 'READY'
   const contractDisplay = snapshot.contractText.trim() || snapshot.tasks.find((task) => !task.done)?.title || activeMode.name
+  const hostActionLabel = snapshot.timerState === 'running'
+    ? '进入沉浸'
+    : !snapshot.contractLocked && snapshot.timerMode === 'focus'
+      ? '锁定目标'
+      : !followingRoomCycle
+        ? '跟随房间'
+        : '开始专注'
+  const hostActionIcon = snapshot.timerState === 'running'
+    ? <Maximize2 size={14} />
+    : !snapshot.contractLocked && snapshot.timerMode === 'focus'
+      ? <ShieldCheck size={14} />
+      : !followingRoomCycle
+        ? <RefreshCw size={14} />
+        : <Play size={14} />
+  const hostBrief = snapshot.timerState === 'running'
+    ? `${snapshot.nickname} 正在 ${formatStudySeatLabel(userSeat)} 专注，保持本轮目标不切换。`
+    : snapshot.timerMode === 'break'
+      ? `现在是同步休息，${formatStudyDuration(snapshot.remainingSeconds)} 后回到专注。`
+      : `${formatStudySeatLabel(userSeat)} 已入座，锁定一个目标后跟随房间节奏开始。`
+  const hostChecklist = [
+    { label: '座位', value: `${formatStudySeatLabel(userSeat)} · ${snapshot.spaceCode}` },
+    { label: '状态', value: `${studySignalLabel(snapshot.signalId)} · ${activeMode.name}` },
+    { label: '目标', value: contractDisplay },
+    { label: '节奏', value: `${roomCycle.phase === 'focus' ? '专注' : '休息'} · ${formatStudyDuration(roomCycle.remainingSeconds)}` }
+  ]
   const roomFeed = [
     `${activeRoom.name} 当前 ${focusingCount} 人正在专注，今日合计 ${formatStudyHours(roomFocusSeconds)}h。`,
     snapshot.timerState === 'running'
@@ -5394,6 +5419,22 @@ function StudySpace() {
     const seatLabel = formatStudySeatLabel(seatIndex)
     setSnapshot((current) => ({ ...current, seatIndex }))
     emitRoomEvent('checkin', `${snapshot.nickname} 换到 ${seatLabel}。`)
+  }
+
+  const runHostAction = (): void => {
+    if (snapshot.timerState === 'running') {
+      setFocusTheaterOpen(true)
+      return
+    }
+    if (!snapshot.contractLocked && snapshot.timerMode === 'focus') {
+      toggleContract()
+      return
+    }
+    if (!followingRoomCycle) {
+      followRoomCycle()
+      return
+    }
+    toggleTimer()
   }
 
   const resetTimer = (): void => {
@@ -5677,6 +5718,30 @@ function StudySpace() {
             >
               {snapshot.nickname}
             </button>
+          </div>
+          <div className="study-host-card" aria-label="房间主持">
+            <div className="study-host-copy">
+              <span className="study-kicker"><Sparkles size={14} /> Room host</span>
+              <strong>{hostBrief}</strong>
+            </div>
+            <div className="study-host-checklist">
+              {hostChecklist.map((item) => (
+                <div key={item.label}>
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="study-host-actions">
+              <button type="button" onClick={runHostAction}>
+                {hostActionIcon}
+                {hostActionLabel}
+              </button>
+              <button type="button" onClick={() => setFocusTheaterOpen(true)}>
+                <Maximize2 size={14} />
+                沉浸视图
+              </button>
+            </div>
           </div>
           <div className={`study-cycle-card is-${roomCycle.phase}`} aria-label="房间同步轮次">
             <div>
@@ -6080,6 +6145,11 @@ function StudySpace() {
               <span>{snapshot.timerMode === 'focus' ? 'FOCUS SESSION' : 'RECOVERY'}</span>
               <strong>{formatStudyDuration(snapshot.remainingSeconds)}</strong>
               <p>{contractDisplay}</p>
+              <div className="study-theater-host">
+                {hostChecklist.map((item) => (
+                  <span key={item.label}><em>{item.label}</em>{item.value}</span>
+                ))}
+              </div>
               <div className="study-theater-progress" aria-hidden="true">
                 <span style={{ width: `${timerProgress}%` }} />
               </div>

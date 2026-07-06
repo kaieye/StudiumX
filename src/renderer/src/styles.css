@@ -6068,6 +6068,103 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   cursor: pointer;
 }
 
+.study-host-card {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.9fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid rgba(48, 59, 68, 0.1);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(248, 250, 246, 0.48)),
+    rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(18px);
+}
+
+.study-host-copy,
+.study-host-checklist div {
+  min-width: 0;
+}
+
+.study-host-copy strong {
+  display: block;
+  margin-top: 4px;
+  color: #17201d;
+  font-size: 14px;
+  line-height: 1.38;
+  font-weight: 820;
+  overflow-wrap: anywhere;
+}
+
+.study-host-checklist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.study-host-checklist div {
+  padding: 9px 10px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 13px;
+  background: rgba(249, 250, 246, 0.7);
+}
+
+.study-host-checklist span,
+.study-host-checklist strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-host-checklist span {
+  color: rgba(23, 32, 29, 0.52);
+  font-size: 10px;
+  font-weight: 820;
+}
+
+.study-host-checklist strong {
+  margin-top: 3px;
+  color: #17201d;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.study-host-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.study-host-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 12px;
+  color: #214d3d;
+  border: 1px solid rgba(36, 161, 108, 0.18);
+  border-radius: 999px;
+  background: rgba(36, 161, 108, 0.13);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 840;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.study-host-actions button:first-child {
+  color: #1f1a0b;
+  border-color: rgba(229, 185, 85, 0.34);
+  background: #ffe2a0;
+}
+
 .study-cycle-card {
   position: relative;
   z-index: 1;
@@ -7157,6 +7254,34 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   overflow-wrap: anywhere;
 }
 
+.study-theater-host {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: min(780px, 100%);
+}
+
+.study-theater-host span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  max-width: min(320px, 100%);
+  padding: 0 10px;
+  color: rgba(255, 247, 223, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(12, 16, 18, 0.34);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.study-theater-host em {
+  color: rgba(255, 247, 223, 0.58);
+  font-style: normal;
+}
+
 .study-theater-progress {
   width: min(520px, 100%);
   height: 9px;
@@ -7860,6 +7985,15 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: minmax(0, 1fr) 104px;
   }
 
+  .study-host-card {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 0.8fr);
+  }
+
+  .study-host-actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+  }
+
   .study-seat-map {
     grid-template-columns: repeat(8, minmax(36px, 1fr));
   }
@@ -8042,6 +8176,19 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   .study-stage-clock {
     width: 92px;
     justify-self: start;
+  }
+
+  .study-host-card,
+  .study-host-checklist {
+    grid-template-columns: 1fr;
+  }
+
+  .study-host-actions {
+    flex-direction: column;
+  }
+
+  .study-host-actions button {
+    width: 100%;
   }
 
   .study-stage-lamp {
@@ -8523,6 +8670,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-lobby-head strong,
 :root[data-resolved-theme="dark"] .study-directory-head h2,
 :root[data-resolved-theme="dark"] .study-directory-card-head strong,
+:root[data-resolved-theme="dark"] .study-host-copy strong,
+:root[data-resolved-theme="dark"] .study-host-checklist strong,
 :root[data-resolved-theme="dark"] .study-signal-picker strong,
 :root[data-resolved-theme="dark"] .study-signal-mix-head strong,
 :root[data-resolved-theme="dark"] .study-room-tab strong,
@@ -8549,6 +8698,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-directory-head > span,
 :root[data-resolved-theme="dark"] .study-directory-card p,
 :root[data-resolved-theme="dark"] .study-directory-meta span,
+:root[data-resolved-theme="dark"] .study-host-checklist span,
 :root[data-resolved-theme="dark"] .study-lobby-link,
 :root[data-resolved-theme="dark"] .study-signal-row,
 :root[data-resolved-theme="dark"] .study-feed-row p,
@@ -8593,6 +8743,9 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-ambient-control button,
 :root[data-resolved-theme="dark"] .study-space-overview div,
 :root[data-resolved-theme="dark"] .study-room-metrics div,
+:root[data-resolved-theme="dark"] .study-host-card,
+:root[data-resolved-theme="dark"] .study-host-checklist div,
+:root[data-resolved-theme="dark"] .study-host-actions button,
 :root[data-resolved-theme="dark"] .study-signal-mix,
 :root[data-resolved-theme="dark"] .study-signal-row > span,
 :root[data-resolved-theme="dark"] .study-room-rules span,
@@ -8628,6 +8781,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 :root[data-resolved-theme="dark"] .study-lobby-start {
   background: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme="dark"] .study-host-actions button:first-child {
+  color: #1b1608;
+  border-color: rgba(246, 195, 92, 0.34);
+  background: #f6c35c;
 }
 
 :root[data-resolved-theme="dark"] .study-directory-card.is-active {
