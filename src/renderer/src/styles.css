@@ -6075,10 +6075,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(315px, 0.72fr);
   grid-template-areas:
-    'stage timer'
+    'stage companion'
     'mode companion'
-    'tasks companion'
-    'growth companion';
+    'timer tasks'
+    'growth tasks';
   gap: 14px;
 }
 
@@ -8607,8 +8607,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: minmax(0, 1fr) minmax(300px, 0.64fr);
     grid-template-areas:
       'stage stage'
-      'timer companion'
-      'mode companion'
+      'companion companion'
+      'timer mode'
       'tasks growth';
   }
 
@@ -8683,9 +8683,9 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: 1fr;
     grid-template-areas:
       'stage'
+      'companion'
       'timer'
       'mode'
-      'companion'
       'tasks'
       'growth';
   }
