@@ -5760,6 +5760,17 @@ function StudySpace() {
               <strong>{remoteOnline > 0 ? '已见远端' : verifyOpenState === 'opened' ? '窗口已开' : verifyOpenState === 'blocked' ? '被拦截' : '待验证'}</strong>
             </div>
           </div>
+          <form className="study-invite-join" onSubmit={joinSpace}>
+            <KeyRound size={14} />
+            <input
+              value={spaceDraft}
+              onChange={(event) => setSpaceDraft(event.target.value)}
+              placeholder="输入同学发来的空间码"
+              aria-label="加入在线自习空间码"
+              maxLength={18}
+            />
+            <button type="submit">加入</button>
+          </form>
         </div>
 
         <div className="study-arrival-focus">
@@ -5784,16 +5795,6 @@ function StudySpace() {
               沉浸开始
             </button>
           </div>
-          <form className="study-arrival-join" onSubmit={joinSpace}>
-            <input
-              value={spaceDraft}
-              onChange={(event) => setSpaceDraft(event.target.value)}
-              placeholder={`加入空间 ${snapshot.spaceCode}`}
-              aria-label="加入在线自习空间码"
-              maxLength={18}
-            />
-            <button type="submit">加入空间</button>
-          </form>
         </div>
 
         <div className="study-arrival-rooms">

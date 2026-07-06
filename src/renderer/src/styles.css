@@ -5832,6 +5832,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-arrival-join,
+.study-invite-join,
 .study-arrival-relay {
   display: flex;
   gap: 8px;
@@ -5839,6 +5840,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-arrival-join input,
+.study-invite-join input,
 .study-arrival-relay input {
   flex: 1;
   min-width: 0;
@@ -5853,8 +5855,32 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-weight: 780;
 }
 
-.study-arrival-join input {
+.study-arrival-join input,
+.study-invite-join input {
   text-transform: uppercase;
+}
+
+.study-invite-join svg {
+  flex: 0 0 auto;
+  align-self: center;
+  color: #3f5f59;
+}
+
+.study-invite-join button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  color: #214d3d;
+  border: 1px solid rgba(36, 161, 108, 0.18);
+  border-radius: 999px;
+  background: rgba(36, 161, 108, 0.12);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 840;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .study-relay-status {
@@ -9073,6 +9099,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   .study-relay-form,
   .study-arrival-actions,
   .study-arrival-join,
+  .study-invite-join,
   .study-arrival-relay {
     flex-direction: column;
   }
@@ -9085,6 +9112,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   .study-arrival-actions button,
   .study-arrival-join button,
   .study-arrival-join input,
+  .study-invite-join button,
+  .study-invite-join input,
   .study-arrival-relay button,
   .study-arrival-relay input {
     width: 100%;
@@ -10194,6 +10223,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-relay-status,
 :root[data-resolved-theme="dark"] .study-invite-strip div,
 :root[data-resolved-theme="dark"] .study-arrival-join input,
+:root[data-resolved-theme="dark"] .study-invite-join input,
 :root[data-resolved-theme="dark"] .study-arrival-relay input,
 :root[data-resolved-theme="dark"] .study-arrival-room {
   border-color: var(--line);
@@ -10207,6 +10237,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 :root[data-resolved-theme="dark"] .study-arrival-actions button,
 :root[data-resolved-theme="dark"] .study-arrival-join button,
+:root[data-resolved-theme="dark"] .study-invite-join button,
 :root[data-resolved-theme="dark"] .study-arrival-relay button,
 :root[data-resolved-theme="dark"] .study-presence-test button {
   color: #d9f4e5;
@@ -10228,8 +10259,13 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 :root[data-resolved-theme="dark"] .study-arrival-join input,
+:root[data-resolved-theme="dark"] .study-invite-join input,
 :root[data-resolved-theme="dark"] .study-arrival-relay input {
   color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-invite-join svg {
+  color: var(--green);
 }
 
 :root[data-resolved-theme="dark"] *::-webkit-scrollbar-track {
