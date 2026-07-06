@@ -5484,6 +5484,107 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   max-width: 340px;
 }
 
+.study-lobby {
+  display: grid;
+  grid-template-columns: 1.1fr 0.95fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.study-lobby-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(39, 51, 63, 0.1);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 16px 44px rgba(26, 32, 44, 0.08);
+}
+
+.study-lobby-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.study-lobby-head strong {
+  flex: 0 0 auto;
+  max-width: 54%;
+  overflow: hidden;
+  color: #17201d;
+  font-size: 18px;
+  font-weight: 860;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-lobby-card p {
+  min-height: 42px;
+  margin: 0 0 12px;
+  color: rgba(23, 32, 29, 0.62);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.study-lobby-actions,
+.study-lobby-join {
+  display: flex;
+  gap: 8px;
+}
+
+.study-lobby-actions button,
+.study-lobby-join button,
+.study-lobby-join input {
+  min-height: 34px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 999px;
+  background: rgba(249, 250, 246, 0.9);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.study-lobby-actions button,
+.study-lobby-join button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  color: #3f5f59;
+  cursor: pointer;
+}
+
+.study-lobby-join input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  color: #17201d;
+  text-transform: uppercase;
+}
+
+.study-lobby-meter {
+  height: 8px;
+  margin: 0 0 12px;
+  border-radius: 999px;
+  background: rgba(38, 47, 65, 0.09);
+  overflow: hidden;
+}
+
+.study-lobby-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #24a16c, #e5b955);
+}
+
+.study-lobby-start {
+  background:
+    linear-gradient(135deg, rgba(255, 249, 233, 0.92), rgba(238, 244, 238, 0.84)),
+    rgba(255, 255, 255, 0.78);
+}
+
 .study-space-overview {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -7434,6 +7535,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .study-lobby {
+    grid-template-columns: 1fr;
+  }
+
   .study-layout {
     grid-template-columns: 1fr;
     grid-template-areas:
@@ -7476,6 +7581,31 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
   .study-space-overview {
     grid-template-columns: 1fr;
+  }
+
+  .study-lobby-card {
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .study-lobby-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .study-lobby-head strong {
+    max-width: 100%;
+  }
+
+  .study-lobby-actions,
+  .study-lobby-join {
+    flex-direction: column;
+  }
+
+  .study-lobby-actions button,
+  .study-lobby-join button,
+  .study-lobby-join input {
+    width: 100%;
   }
 
   .study-space-console,
@@ -7992,6 +8122,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 :root[data-resolved-theme="dark"] .study-hero h1,
 :root[data-resolved-theme="dark"] .study-stage-topline h2,
+:root[data-resolved-theme="dark"] .study-lobby-head strong,
 :root[data-resolved-theme="dark"] .study-room-tab strong,
 :root[data-resolved-theme="dark"] .study-room-metrics strong,
 :root[data-resolved-theme="dark"] .study-space-overview strong,
@@ -8012,6 +8143,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-cycle-card span,
 :root[data-resolved-theme="dark"] .study-cycle-card small,
 :root[data-resolved-theme="dark"] .study-room-rules span,
+:root[data-resolved-theme="dark"] .study-lobby-card p,
 :root[data-resolved-theme="dark"] .study-feed-row p,
 :root[data-resolved-theme="dark"] .study-event-empty,
 :root[data-resolved-theme="dark"] .study-event-row p,
@@ -8039,6 +8171,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-online-summary div,
 :root[data-resolved-theme="dark"] .study-invite-note,
 :root[data-resolved-theme="dark"] .study-cycle-card,
+:root[data-resolved-theme="dark"] .study-lobby-card,
+:root[data-resolved-theme="dark"] .study-lobby-actions button,
+:root[data-resolved-theme="dark"] .study-lobby-join button,
+:root[data-resolved-theme="dark"] .study-lobby-join input,
 :root[data-resolved-theme="dark"] .study-space-code-form input,
 :root[data-resolved-theme="dark"] .study-space-console button,
 :root[data-resolved-theme="dark"] .study-ambient-control button,
@@ -8071,6 +8207,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-contract.is-locked,
 :root[data-resolved-theme="dark"] .study-leader-row.is-me {
   background: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-resolved-theme="dark"] .study-lobby-start {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme="dark"] .study-lobby-join input::placeholder {
+  color: var(--text-muted);
 }
 
 :root[data-resolved-theme="dark"] .study-room-actions button {

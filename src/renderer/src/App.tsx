@@ -5347,6 +5347,63 @@ function StudySpace() {
         </div>
       </div>
 
+      <section className="study-lobby" aria-label="房间大厅">
+        <div className="study-lobby-card study-lobby-pass">
+          <div className="study-lobby-head">
+            <span className="study-kicker"><KeyRound size={14} /> Room pass</span>
+            <strong>{snapshot.spaceCode}</strong>
+          </div>
+          <p>{snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '当前在公共大厅。新建私密空间后，只把空间码发给要一起自习的人。' : inviteHint}</p>
+          <div className="study-lobby-actions">
+            <button type="button" onClick={createSpace}>
+              <Lock size={14} />
+              新建私密空间
+            </button>
+            <button type="button" onClick={() => void copyInvite()}>
+              <Copy size={14} />
+              {copyState === 'copied' ? '已复制邀请' : '复制邀请'}
+            </button>
+          </div>
+        </div>
+        <div className="study-lobby-card">
+          <div className="study-lobby-head">
+            <span className="study-kicker"><Users size={14} /> Live room</span>
+            <strong>{online}/{activeRoom.capacity}</strong>
+          </div>
+          <div className="study-lobby-meter" aria-hidden="true">
+            <span style={{ width: `${Math.min(100, Math.round((online / activeRoom.capacity) * 100))}%` }} />
+          </div>
+          <p>{presence.status === 'online' ? `远端同学 ${remoteOnline} 人，整个空间 ${spaceOnline} 人在线。` : connectionDetail}</p>
+          <form className="study-lobby-join" onSubmit={joinSpace}>
+            <input
+              value={spaceDraft}
+              onChange={(event) => setSpaceDraft(event.target.value)}
+              placeholder="输入空间码"
+              aria-label="大厅加入空间码"
+              maxLength={18}
+            />
+            <button type="submit">加入</button>
+          </form>
+        </div>
+        <div className="study-lobby-card study-lobby-start">
+          <div className="study-lobby-head">
+            <span className="study-kicker"><Timer size={14} /> Start ritual</span>
+            <strong>{roomCycle.phase === 'focus' ? '同频专注' : '同步休息'}</strong>
+          </div>
+          <p>房间第 {roomCycle.round} 轮，{formatStudyDuration(roomCycle.remainingSeconds)} 后进入{roomCycle.nextLabel}。</p>
+          <div className="study-lobby-actions">
+            <button type="button" onClick={followRoomCycle}>
+              <RefreshCw size={14} />
+              跟随房间
+            </button>
+            <button type="button" onClick={() => setFocusTheaterOpen(true)}>
+              <Maximize2 size={14} />
+              沉浸开始
+            </button>
+          </div>
+        </div>
+      </section>
+
       <div className="study-space-overview" aria-label="空间概览">
         <div>
           <span>空间类型</span>
