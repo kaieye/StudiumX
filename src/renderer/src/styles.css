@@ -6805,6 +6805,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-cinema .study-seat-map {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 7px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -6813,15 +6815,23 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-cinema .study-seat {
-  min-height: 58px;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto;
+  align-content: center;
+  justify-items: center;
+  gap: 3px;
+  min-height: 46px;
+  aspect-ratio: 1.08;
+  padding: 6px 4px;
   color: rgba(255, 247, 223, 0.5);
   border-color: rgba(255, 255, 255, 0.14);
+  border-radius: 13px;
   background: rgba(255, 255, 255, 0.12);
   box-shadow: none;
 }
 
 .study-cinema .study-seat::after {
-  background: rgba(0, 0, 0, 0.2);
+  display: none;
 }
 
 .study-cinema .study-seat.is-empty:hover {
@@ -6844,9 +6854,26 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-cinema .study-seat-avatar {
+  grid-row: auto;
+  width: 24px;
+  height: 24px;
   color: rgba(255, 247, 223, 0.58);
   border-color: rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.1);
+}
+
+.study-cinema .study-seat-label,
+.study-cinema .study-seat-meta {
+  display: none;
+}
+
+.study-cinema .study-seat small {
+  position: static;
+  justify-self: center;
+  color: currentColor;
+  font-size: 9px;
+  line-height: 1;
+  opacity: 0.64;
 }
 
 .study-cinema .study-seat.is-occupied .study-seat-avatar {
@@ -7601,19 +7628,21 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   position: relative;
   z-index: 1;
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
   margin-top: 12px;
 }
 
 .study-room-rules span {
   display: block;
-  padding: 9px 11px;
+  min-width: 0;
+  padding: 8px 10px;
   color: rgba(23, 32, 29, 0.64);
   border-left: 3px solid rgba(63, 95, 89, 0.42);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.46);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 11px;
+  line-height: 1.38;
 }
 
 .study-room-tags span,
@@ -9527,7 +9556,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   }
 
   .study-room-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
