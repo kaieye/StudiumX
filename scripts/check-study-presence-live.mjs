@@ -56,6 +56,12 @@ try {
   assert.match(result.clientB.pulseText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client arrival pulse should describe the remote peer seat and status')
   assert.deepEqual(result.clientA.pulseStats, ['0', '1/1', '2/36'], 'first client arrival pulse should show real focus, heartbeat, and capacity stats')
   assert.deepEqual(result.clientB.pulseStats, ['0', '1/1', '2/36'], 'second client arrival pulse should show real focus, heartbeat, and capacity stats')
+  assert.equal(result.clientA.heroPulseCode, 'PEER', 'first client hero should surface the remote peer heartbeat')
+  assert.equal(result.clientB.heroPulseCode, 'PEER', 'second client hero should surface the remote peer heartbeat')
+  assert.match(result.clientA.heroPulseText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'first client hero should describe the remote peer seat and status')
+  assert.match(result.clientB.heroPulseText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client hero should describe the remote peer seat and status')
+  assert.deepEqual(result.clientA.heroPulseStats, ['0 专注', '1/1 心跳', '2/36'], 'first client hero should show real focus, heartbeat, and capacity stats')
+  assert.deepEqual(result.clientB.heroPulseStats, ['0 专注', '1/1 心跳', '2/36'], 'second client hero should show real focus, heartbeat, and capacity stats')
   assert.notEqual(result.clientA.sessionId, result.clientB.sessionId, 'clients should use distinct session identities')
 
   console.log(`study presence live ok: ${result.spaceCode}`)
@@ -151,6 +157,9 @@ async function readStudyPresence(client) {
         pulseCode: q('.study-room-pulse-main > span')?.textContent?.trim() ?? '',
         pulseText: q('.study-room-pulse-main strong')?.textContent?.trim() ?? '',
         pulseStats: [...document.querySelectorAll('.study-room-pulse-stats strong')].map((node) => node.textContent.trim()),
+        heroPulseCode: q('.study-hero-livebar > span')?.textContent?.trim() ?? '',
+        heroPulseText: q('.study-hero-livebar strong')?.textContent?.trim() ?? '',
+        heroPulseStats: [...document.querySelectorAll('.study-hero-livebar small')].map((node) => node.textContent.trim()),
         counts: [...document.querySelectorAll('.study-arrival-counts strong')].map((node) => node.textContent.trim()),
         remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌'),
         sessionId: proofText.match(/会话身份([A-Z0-9]+)/)?.[1] ?? '',

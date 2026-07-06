@@ -5757,6 +5757,16 @@ function StudySpace() {
             <span>{activeRoom.ambient}</span>
             <span>{presence.status === 'online' ? '实时同步' : presence.status === 'connecting' ? '连接同步' : '本机模式'}</span>
           </div>
+          <div className={`study-hero-livebar is-${presence.status}${latestRemotePeer ? ' has-peer' : ''}`} aria-label="首屏实时房间状态">
+            <span>{liveLineCode}</span>
+            <strong>{liveLineText}</strong>
+            <em>{liveLineMeta}</em>
+            <div>
+              <small>{focusingCount} 专注</small>
+              <small>{remoteFreshCount}/{remoteOnline} 心跳</small>
+              <small>{online}/{activeRoom.capacity}</small>
+            </div>
+          </div>
         </div>
         <div className="study-header-stats" aria-label="学习统计">
           <span><Zap size={15} /> 连续 {snapshot.streakDays}</span>
