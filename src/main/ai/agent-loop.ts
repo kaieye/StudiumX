@@ -11,7 +11,7 @@ import {
 } from './provider-adapter'
 import { ContextEstimator, type TokenEstimate } from './context-estimator'
 import { applyRequestHistoryHygiene } from './request-history-hygiene'
-import type { ToolHandlerMap } from './tools/registry'
+import type { ToolHandlerMap, ToolRuntimeEvent } from './tools/registry'
 import type {
   TeachingSettingsV1,
   TeachingModelProviderProfile
@@ -41,6 +41,7 @@ export type AgentLoopEvent =
   | { type: 'context_estimated'; estimate: TokenEstimate }
   | { type: 'context_hygiene_applied'; changed: boolean; savedTokens: number; compactedToolResults: number; digestedToolResults: number; compactedToolCallArgs: number }
   | { type: 'token'; delta: string }
+  | ToolRuntimeEvent
 
 export type RunAgentLoopOptions = {
   settings: TeachingSettingsV1
@@ -238,7 +239,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         const args = safeParseArgs(call.function.arguments)
         const handler = opts.toolHandlers[call.function.name]
         if (!handler) throw new Error(`未知工具：${call.function.name}`)
-        payload = await handler(args, { toolCallId: call.id, toolName: call.function.name })
+        payload = await handler(args, {
+          toolCallId: call.id,
+          toolName: call.function.name,
+          emit: (event) => emit(event)
+        })
       } catch (e) {
         isError = true
         payload = JSON.stringify({ error: e instanceof Error ? e.message : String(e) })

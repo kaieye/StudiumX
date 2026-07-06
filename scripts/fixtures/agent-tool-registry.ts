@@ -76,6 +76,36 @@ assert.equal(registry.definitions().length, 1, 'registering the same function na
 assert.equal(registry.definitions()[0]?.function.description, 'Replacement handler.')
 assert.equal(JSON.parse(await registry.handlerMap(ctx).sample_tool({ value: 'new' })).version, 'replacement')
 assert.equal(handlerMap.sample_tool !== registry.handlerMap(ctx).sample_tool, true, 'handlerMap should create fresh bound functions')
+assert.deepEqual(registry.names(), ['sample_tool'], 'names should expose registered tool names')
+
+const secondTool: ToolEntry = {
+  definition: {
+    type: 'function',
+    function: {
+      name: 'second_tool',
+      description: 'Second handler.',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  handler: async () => JSON.stringify({ version: 'second' })
+}
+registry.register(secondTool)
+assert.deepEqual(registry.names(), ['sample_tool', 'second_tool'], 'names should preserve registry insertion order')
+assert.deepEqual(
+  registry.project({ allow: ['second_tool'] }).definitions().map((tool) => tool.function.name),
+  ['second_tool'],
+  'project allow-list should keep only selected tools'
+)
+assert.deepEqual(
+  registry.project({ deny: ['sample_tool'] }).definitions().map((tool) => tool.function.name),
+  ['second_tool'],
+  'project deny-list should remove selected tools'
+)
+assert.deepEqual(
+  registry.project({ allow: ['sample_tool', 'second_tool'], deny: ['sample_tool'] }).definitions().map((tool) => tool.function.name),
+  ['second_tool'],
+  'project deny-list should win over allow-list'
+)
 
 const noWorkspaceRegistry = buildDefaultRegistry(settings, { workspaceRoot: null })
 assert.equal(

@@ -4,6 +4,7 @@ import { runAgentLoop } from './ai/agent-loop'
 import { resolveActiveProvider, type ChatMessage, type ToolDefinition } from './ai/provider-adapter'
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
 import { createAskToolEntry } from './ai/tools/ask'
+import { createDelegationToolEntries } from './ai/tools/delegation'
 import {
   buildLearnerMemoryCandidate,
   buildMemoryConsentPrompt,
@@ -146,6 +147,11 @@ export async function runTeachingConversationTurn(
   if (settings.tools.enabled) {
     registry.register(createAskToolEntry({ streamId: stream.streamId, signal: stream.signal }))
   }
+  if (settings.tools.enabled && isTeachingConversation) {
+    for (const tool of createDelegationToolEntries({ provider, streamId: stream.streamId, signal: stream.signal })) {
+      registry.register(tool)
+    }
+  }
   // Lesson generation is a tool of this conversation, not a parallel
   // pipeline: the agent clarifies, decides readiness, and hands a structured
   // brief to the same generator the direct entry uses.
@@ -250,6 +256,30 @@ export async function runTeachingConversationTurn(
             toolCall: { id: event.toolCallId, name: event.name, arguments: '' },
             result: event.result,
             isError: event.isError
+          })
+        } else if (event.type === 'child_run_started') {
+          stream.onStatus({
+            streamId,
+            status: 'tool_running',
+            message: `子任务开始：${event.child.label}`
+          })
+        } else if (event.type === 'child_run_completed') {
+          stream.onStatus({
+            streamId,
+            status: 'tool_done',
+            message: `子任务完成：${event.child.label}`
+          })
+        } else if (event.type === 'child_run_failed') {
+          stream.onStatus({
+            streamId,
+            status: 'tool_done',
+            message: `子任务失败：${event.child.label}`
+          })
+        } else if (event.type === 'child_run_canceled') {
+          stream.onStatus({
+            streamId,
+            status: 'tool_done',
+            message: `子任务取消：${event.child.label}`
           })
         }
       }

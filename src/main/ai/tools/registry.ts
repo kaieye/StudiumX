@@ -10,6 +10,32 @@ export type ToolContext = {
   workspaceRoot?: string
 }
 
+export type ToolRuntimeChildRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'canceled'
+
+export type ToolRuntimeChildRunRecord = {
+  id: string
+  label: string
+  profile: string
+  status: ToolRuntimeChildRunStatus
+  summary?: string
+  error?: string
+  startedAt?: string
+  completedAt?: string
+  usage?: {
+    promptTokens?: number
+    completionTokens?: number
+    totalTokens?: number
+    toolCalls: number
+  }
+}
+
+export type ToolRuntimeEvent =
+  | { type: 'child_run_started'; child: ToolRuntimeChildRunRecord }
+  | { type: 'child_run_delta'; childRunId: string; message: string }
+  | { type: 'child_run_completed'; child: ToolRuntimeChildRunRecord }
+  | { type: 'child_run_failed'; child: ToolRuntimeChildRunRecord }
+  | { type: 'child_run_canceled'; child: ToolRuntimeChildRunRecord }
+
 /** Contextual information about the specific tool call being executed,
  *  passed into handlers so they can correlate back-ends (e.g. the `ask`
  *  tool needs `toolCallId` to route the user's answer back). Optional so
@@ -17,6 +43,7 @@ export type ToolContext = {
 export type ToolCallContext = {
   toolCallId: string
   toolName: string
+  emit?: (event: ToolRuntimeEvent) => void
 }
 
 /** A tool handler with its ToolContext already bound (ctx curried in). */
@@ -34,6 +61,22 @@ export class ToolRegistry {
 
   register(entry: ToolEntry): void {
     this.entries.set(entry.definition.function.name, entry)
+  }
+
+  names(): string[] {
+    return [...this.entries.keys()]
+  }
+
+  project(options: { allow?: Iterable<string>; deny?: Iterable<string> }): ToolRegistry {
+    const allow = options.allow ? new Set(options.allow) : null
+    const deny = options.deny ? new Set(options.deny) : new Set<string>()
+    const registry = new ToolRegistry()
+    for (const [name, entry] of this.entries) {
+      if (allow && !allow.has(name)) continue
+      if (deny.has(name)) continue
+      registry.register(entry)
+    }
+    return registry
   }
 
   definitions(): ToolDefinition[] {
