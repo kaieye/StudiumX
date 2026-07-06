@@ -31,6 +31,7 @@ import {
   Info,
   KeyRound,
   LibraryBig,
+  LinkIcon,
   Loader2,
   Lock,
   Maximize2,
@@ -191,6 +192,7 @@ type StudyModeId = 'free' | 'sync' | 'deepwork' | 'exam'
 type StudyPresenceStatus = 'connecting' | 'online' | 'offline'
 type StudyRoomEventKind = 'checkin' | 'focus_start' | 'task_done' | 'cheer'
 type StudyRoomCyclePhase = 'focus' | 'break'
+type StudySignalId = 'reading' | 'writing' | 'practice' | 'review' | 'exam'
 
 type StudyTask = {
   id: string
@@ -203,6 +205,7 @@ type StudyPresencePeer = {
   roomId: StudyRoomId
   spaceCode: string
   nickname: string
+  signalId: StudySignalId
   status: StudyTimerState
   timerMode: StudyTimerMode
   focusMinutes: number
@@ -238,6 +241,7 @@ type StudySnapshot = {
   nickname: string
   spaceCode: string
   presenceRelayUrl: string
+  signalId: StudySignalId
   modeId: StudyModeId
   contractText: string
   contractLocked: boolean
@@ -600,6 +604,7 @@ const defaultStudySnapshot: StudySnapshot = {
   nickname: '',
   spaceCode: STUDY_PUBLIC_SPACE_CODE,
   presenceRelayUrl: STUDY_PRESENCE_BROKER_URL,
+  signalId: 'reading',
   modeId: 'free',
   contractText: '',
   contractLocked: false,
@@ -669,6 +674,19 @@ const studyModes: Array<{
     roomId: 'exam',
     rule: '默认静音，按考试节奏完成后复盘。'
   }
+]
+
+const studySignals: Array<{
+  id: StudySignalId
+  label: string
+  shortLabel: string
+  detail: string
+}> = [
+  { id: 'reading', label: '阅读材料', shortLabel: '读', detail: '看书、论文、课程材料' },
+  { id: 'writing', label: '写作输出', shortLabel: '写', detail: '笔记、论文、报告' },
+  { id: 'practice', label: '刷题练习', shortLabel: '练', detail: '习题、代码、真题训练' },
+  { id: 'review', label: '复盘整理', shortLabel: '复', detail: '整理错题、知识卡片' },
+  { id: 'exam', label: '模拟考试', shortLabel: '考', detail: '计时、闭卷、复盘' }
 ]
 
 const studyRooms: Array<{
@@ -794,6 +812,18 @@ function normalizeStudyModeId(input: unknown): StudyModeId {
   return studyModes.some((mode) => mode.id === input) ? input as StudyModeId : defaultStudySnapshot.modeId
 }
 
+function normalizeStudySignalId(input: unknown): StudySignalId {
+  return studySignals.some((signal) => signal.id === input) ? input as StudySignalId : defaultStudySnapshot.signalId
+}
+
+function studySignalLabel(signalId: StudySignalId): string {
+  return studySignals.find((signal) => signal.id === signalId)?.label ?? studySignals[0].label
+}
+
+function studySignalShortLabel(signalId: StudySignalId): string {
+  return studySignals.find((signal) => signal.id === signalId)?.shortLabel ?? studySignals[0].shortLabel
+}
+
 function normalizeStudySpaceCode(input: unknown): string {
   if (typeof input !== 'string') return STUDY_PUBLIC_SPACE_CODE
   const value = input.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 18)
@@ -861,6 +891,7 @@ function normalizeStudySnapshot(input: unknown): StudySnapshot {
     nickname,
     spaceCode,
     presenceRelayUrl: normalizeStudyRelayUrl(raw.presenceRelayUrl),
+    signalId: normalizeStudySignalId(raw.signalId),
     modeId,
     contractText: typeof raw.contractText === 'string' ? raw.contractText.trim().slice(0, 120) : '',
     contractLocked: Boolean(raw.contractLocked),
@@ -883,12 +914,35 @@ function normalizeStudySnapshot(input: unknown): StudySnapshot {
   }
 }
 
+function applyStudyInviteParams(snapshot: StudySnapshot): StudySnapshot {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const spaceParam = params.get('studySpace') ?? params.get('space')
+    const roomParam = params.get('studyRoom') ?? params.get('room')
+    const nextSpaceCode = spaceParam ? normalizeStudySpaceCode(spaceParam) : snapshot.spaceCode
+    const nextRoomId = roomParam ? normalizeStudyRoomId(roomParam) : snapshot.roomId
+    const nextRoom = studyRooms.find((room) => room.id === nextRoomId)
+    if (!spaceParam && !roomParam) return snapshot
+    return {
+      ...snapshot,
+      spaceCode: nextSpaceCode,
+      roomId: nextRoomId,
+      focusMinutes: snapshot.timerState === 'running' || !nextRoom ? snapshot.focusMinutes : nextRoom.sessionMinutes,
+      breakMinutes: snapshot.timerState === 'running' || !nextRoom ? snapshot.breakMinutes : nextRoom.breakMinutes,
+      remainingSeconds: snapshot.timerState === 'running' || !nextRoom ? snapshot.remainingSeconds : nextRoom.sessionMinutes * 60,
+      timerMode: snapshot.timerState === 'running' ? snapshot.timerMode : 'focus'
+    }
+  } catch {
+    return snapshot
+  }
+}
+
 function readStudySnapshot(): StudySnapshot {
   try {
     const stored = window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY)
-    return normalizeStudySnapshot(stored ? JSON.parse(stored) : null)
+    return applyStudyInviteParams(normalizeStudySnapshot(stored ? JSON.parse(stored) : null))
   } catch {
-    return defaultStudySnapshot
+    return applyStudyInviteParams(normalizeStudySnapshot(null))
   }
 }
 
@@ -937,6 +991,17 @@ function studyPlantStage(xp: number): string {
   if (xp >= 180) return '抽枝'
   if (xp >= 60) return '发芽'
   return '种子'
+}
+
+function studyInviteUrl(spaceCode: string, roomId: StudyRoomId): string {
+  try {
+    const url = new URL(window.location.href)
+    url.searchParams.set('studySpace', normalizeStudySpaceCode(spaceCode))
+    url.searchParams.set('studyRoom', roomId)
+    return url.toString()
+  } catch {
+    return ''
+  }
 }
 
 function nextStudyStreak(lastStudyDate: string, currentStreak: number, now = new Date()): number {
@@ -1049,6 +1114,7 @@ function normalizePresencePeer(input: unknown): StudyPresencePeer | null {
     roomId,
     spaceCode,
     nickname,
+    signalId: normalizeStudySignalId(raw.signalId),
     status,
     timerMode: raw.timerMode === 'break' ? 'break' : 'focus',
     focusMinutes: clampNumber(raw.focusMinutes, 5, 120, 25),
@@ -1122,6 +1188,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
         spaceCode: current.spaceCode,
         roomId: current.roomId,
         nickname: current.nickname,
+        signalId: current.signalId,
         status: current.timerState,
         timerMode: current.timerMode,
         focusMinutes: current.focusMinutes,
@@ -1223,6 +1290,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
         spaceCode: snapshot.spaceCode,
         roomId: snapshot.roomId,
         nickname: snapshot.nickname,
+        signalId: snapshot.signalId,
         status: snapshot.timerState,
         timerMode: snapshot.timerMode,
         focusMinutes: snapshot.focusMinutes,
@@ -1232,7 +1300,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
         updatedAt: Date.now()
       })))
     }
-  }, [activeTopic, snapshot.clientId, snapshot.focusMinutes, snapshot.nickname, snapshot.roomId, snapshot.spaceCode, snapshot.streakDays, snapshot.timerMode, snapshot.timerState])
+  }, [activeTopic, snapshot.clientId, snapshot.focusMinutes, snapshot.nickname, snapshot.roomId, snapshot.signalId, snapshot.spaceCode, snapshot.streakDays, snapshot.timerMode, snapshot.timerState])
 
   const sendEvent = (kind: StudyRoomEventKind, text: string): void => {
     const current = snapshotRef.current
@@ -5012,6 +5080,7 @@ function StudySpace() {
     {
       clientId: snapshot.clientId,
       nickname: snapshot.nickname,
+      signalId: snapshot.signalId,
       status: snapshot.timerState,
       timerMode: snapshot.timerMode,
       todayFocusSeconds: snapshot.todayFocusSeconds,
@@ -5028,6 +5097,19 @@ function StudySpace() {
   const roomFocusSeconds = roomMembers.reduce((sum, member) => sum + member.todayFocusSeconds, 0)
   const roomSessionCount = roomMembers.reduce((sum, member) => sum + member.todaySessions, 0)
   const focusingCount = roomMembers.filter((member) => member.status === 'running' && member.timerMode === 'focus').length
+  const inviteUrl = studyInviteUrl(snapshot.spaceCode, snapshot.roomId)
+  const signalMix = studySignals.map((signal) => {
+    const members = roomMembers.filter((member) => member.signalId === signal.id)
+    return {
+      ...signal,
+      count: members.length,
+      focusing: members.filter((member) => member.status === 'running' && member.timerMode === 'focus').length
+    }
+  })
+  const activeSignalMix = signalMix.filter((signal) => signal.count > 0)
+  const signalMixSummary = activeSignalMix.length > 0
+    ? activeSignalMix.map((signal) => `${signal.label} ${signal.count}`).join('、')
+    : `${studySignalLabel(snapshot.signalId)} 1`
   const roomEvents = presence.events
     .filter((event) => event.spaceCode === snapshot.spaceCode && event.roomId === snapshot.roomId)
     .slice(0, 8)
@@ -5057,6 +5139,7 @@ function StudySpace() {
     snapshot.timerState === 'running'
       ? `${snapshot.nickname} 正在进行 ${snapshot.focusMinutes} 分钟专注轮次：${contractDisplay}。`
       : `${snapshot.nickname} 已入座，等待开始下一轮。`,
+    `学习状态分布：${signalMixSummary}。`,
     `房间第 ${roomCycle.round} 轮正在${roomCycle.phase === 'focus' ? '专注' : '休息'}，${formatStudyDuration(roomCycle.remainingSeconds)} 后切换到${roomCycle.nextLabel}。`,
     completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
     presence.status === 'online'
@@ -5229,7 +5312,7 @@ function StudySpace() {
   }
 
   const copyInvite = async (): Promise<void> => {
-    const text = `StudiumX 学习空间：${snapshot.spaceCode}\n教室：${activeRoom.name}\n进入学习空间后输入空间码即可加入同一自习室。`
+    const text = `StudiumX 学习空间：${activeRoom.name}\n链接：${inviteUrl}\n空间码：${snapshot.spaceCode}\n进入后会加入同一在线 presence 房间；如果链接不可用，可手动输入空间码。`
     try {
       await navigator.clipboard.writeText(text)
       setCopyState('copied')
@@ -5391,6 +5474,10 @@ function StudySpace() {
               <Copy size={14} />
               {copyState === 'copied' ? '已复制邀请' : '复制邀请'}
             </button>
+          </div>
+          <div className="study-lobby-link" title={inviteUrl}>
+            <LinkIcon size={13} />
+            <span>{inviteUrl}</span>
           </div>
         </div>
         <div className="study-lobby-card">
@@ -5581,6 +5668,22 @@ function StudySpace() {
               <span>完成番茄</span>
             </div>
           </div>
+          <div className="study-signal-mix" aria-label="房间学习状态分布">
+            <div className="study-signal-mix-head">
+              <span className="study-kicker"><Sparkles size={14} /> Study mix</span>
+              <strong>{signalMixSummary}</strong>
+            </div>
+            {signalMix.map((signal) => (
+              <div className={`study-signal-row${signal.count > 0 ? ' is-active' : ''}`} key={signal.id}>
+                <span>{signal.shortLabel}</span>
+                <div aria-hidden="true">
+                  <i style={{ width: `${Math.max(4, Math.round((signal.count / Math.max(1, online)) * 100))}%` }} />
+                </div>
+                <strong>{signal.count}</strong>
+                <em>{signal.focusing} 专注</em>
+              </div>
+            ))}
+          </div>
           <div className="study-seat-map" aria-label="真实在线座位图">
             {Array.from({ length: seatCount }, (_, index) => {
               const peer = activePeers[index > userSeat ? index - 1 : index]
@@ -5590,10 +5693,10 @@ function StudySpace() {
                 <span
                   key={index}
                   className={`study-seat${isUser ? ' is-user' : ''}${isOccupied ? ' is-occupied' : ''}${peer?.status === 'running' ? ' is-focusing' : ''}`}
-                  title={isUser ? `${snapshot.nickname}（我）· ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${peer.nickname} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : '空座'}
-                  aria-label={isUser ? `${snapshot.nickname}（我）· ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${peer.nickname} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : '空座'}
+                  title={isUser ? `${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : '空座'}
+                  aria-label={isUser ? `${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : '空座'}
                 >
-                  {isUser ? '我' : peer ? peer.nickname.slice(0, 1).toUpperCase() : ''}
+                  {isUser ? '我' : peer ? studySignalShortLabel(peer.signalId) : ''}
                 </span>
               )
             })}
@@ -5661,6 +5764,25 @@ function StudySpace() {
               <button type="button" onClick={toggleContract}>
                 {snapshot.contractLocked ? '解锁' : '锁定契约'}
               </button>
+            </div>
+          </div>
+          <div className="study-signal-picker" aria-label="学习状态">
+            <div>
+              <span className="study-kicker"><Sparkles size={14} /> Status signal</span>
+              <strong>{studySignalLabel(snapshot.signalId)}</strong>
+            </div>
+            <div>
+              {studySignals.map((signal) => (
+                <button
+                  key={signal.id}
+                  type="button"
+                  className={snapshot.signalId === signal.id ? 'is-active' : ''}
+                  onClick={() => setSnapshot((current) => ({ ...current, signalId: signal.id }))}
+                  title={signal.detail}
+                >
+                  {signal.shortLabel}
+                </button>
+              ))}
             </div>
           </div>
         </section>
@@ -5802,7 +5924,7 @@ function StudySpace() {
               <div className={`study-leader-row${member.isSelf ? ' is-me' : ''}`} key={member.clientId}>
                 <span>{index + 1}</span>
                 <strong>{member.nickname}</strong>
-                <em>{formatStudyHours(member.todayFocusSeconds)}h</em>
+                <em>{studySignalShortLabel(member.signalId)} · {formatStudyHours(member.todayFocusSeconds)}h</em>
               </div>
             ))}
           </div>
@@ -5811,7 +5933,7 @@ function StudySpace() {
               <span>{snapshot.nickname.slice(0, 1).toUpperCase()}</span>
               <div>
                 <strong>{snapshot.nickname}</strong>
-                <small>{snapshot.timerMode === 'focus' ? `${snapshot.focusMinutes}m 专注` : '休息中'} · {contractDisplay}</small>
+                <small>{studySignalLabel(snapshot.signalId)} · {snapshot.timerMode === 'focus' ? `${snapshot.focusMinutes}m 专注` : '休息中'} · {contractDisplay}</small>
               </div>
               <em>{studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}</em>
             </div>
@@ -5824,7 +5946,7 @@ function StudySpace() {
                 <span>{peer.nickname.slice(0, 1).toUpperCase()}</span>
                 <div>
                   <strong>{peer.nickname}</strong>
-                  <small>{peer.timerMode === 'focus' ? `${peer.focusMinutes}m 专注` : '休息中'} · streak {peer.streakDays}</small>
+                  <small>{studySignalLabel(peer.signalId)} · {peer.timerMode === 'focus' ? `${peer.focusMinutes}m 专注` : '休息中'} · streak {peer.streakDays}</small>
                 </div>
                 <em>{studyMemberStatusLabel(peer.status, peer.timerMode)}</em>
               </div>
@@ -5923,8 +6045,8 @@ function StudySpace() {
               </div>
               <div className="study-theater-peers" aria-label="在线同桌">
                 {roomMembers.slice(0, 6).map((member) => (
-                  <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${member.nickname} · ${studyMemberStatusLabel(member.status, member.timerMode)}`}>
-                    {member.nickname.slice(0, 1).toUpperCase()}
+                  <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${member.nickname} · ${studySignalLabel(member.signalId)} · ${studyMemberStatusLabel(member.status, member.timerMode)}`}>
+                    {studySignalShortLabel(member.signalId)}
                   </span>
                 ))}
               </div>

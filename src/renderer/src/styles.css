@@ -4696,7 +4696,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 /* ----- Study Space ----- */
 
 .study-space {
-  width: min(1220px, calc(100vw - 64px));
+  width: min(1220px, calc(100% - 64px));
   margin: 22px auto 0;
   padding-bottom: 32px;
 }
@@ -5235,7 +5235,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 /* Study Space v2: networked, room-first interface */
 
 .study-space {
-  width: min(1280px, calc(100vw - 56px));
+  width: min(1280px, calc(100% - 32px));
   margin: 18px auto 0;
   padding: 0 0 34px;
   color: #20242a;
@@ -5532,6 +5532,33 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-relay-form {
   display: flex;
   gap: 8px;
+}
+
+.study-lobby-link {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  margin-top: 10px;
+  padding: 7px 9px;
+  color: rgba(23, 32, 29, 0.58);
+  border: 1px dashed rgba(63, 95, 89, 0.22);
+  border-radius: 13px;
+  background: rgba(249, 250, 246, 0.66);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.study-lobby-link svg {
+  color: #3f5f59;
+}
+
+.study-lobby-link span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .study-lobby-actions button,
@@ -6170,6 +6197,97 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-weight: 760;
 }
 
+.study-signal-mix {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid rgba(48, 59, 68, 0.1);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(248, 250, 246, 0.44)),
+    rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(18px);
+}
+
+.study-signal-mix-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.study-signal-mix-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #17201d;
+  font-size: 12px;
+  font-weight: 820;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-signal-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 24px 48px;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: rgba(23, 32, 29, 0.54);
+}
+
+.study-signal-row > span {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  font-size: 11px;
+  font-weight: 860;
+}
+
+.study-signal-row > div {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(38, 47, 65, 0.09);
+  overflow: hidden;
+}
+
+.study-signal-row i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(63, 95, 89, 0.26);
+}
+
+.study-signal-row strong,
+.study-signal-row em {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 820;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.study-signal-row.is-active {
+  color: #17201d;
+}
+
+.study-signal-row.is-active > span {
+  color: #1f1a0b;
+  border-color: rgba(229, 185, 85, 0.34);
+  background: #ffe2a0;
+}
+
+.study-signal-row.is-active i {
+  background: linear-gradient(90deg, #e5b955, #24a16c);
+}
+
 .study-seat-map {
   position: relative;
   z-index: 1;
@@ -6607,6 +6725,54 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-contract.is-locked {
   border-color: rgba(229, 185, 85, 0.34);
   background: rgba(255, 249, 233, 0.58);
+}
+
+.study-signal-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 16px;
+  background: rgba(249, 250, 246, 0.84);
+}
+
+.study-signal-picker strong {
+  display: block;
+  margin-top: 4px;
+  color: #17201d;
+  font-size: 13px;
+  font-weight: 840;
+}
+
+.study-signal-picker > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.study-signal-picker button {
+  display: inline-grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  color: rgba(23, 32, 29, 0.62);
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 860;
+  cursor: pointer;
+}
+
+.study-signal-picker button.is-active {
+  color: #1f1a0b;
+  border-color: rgba(229, 185, 85, 0.34);
+  background: #ffe2a0;
 }
 
 .study-task-form input,
@@ -7815,6 +7981,25 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: 1fr;
   }
 
+  .study-signal-mix-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .study-signal-mix-head strong {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .study-signal-row {
+    grid-template-columns: 28px minmax(0, 1fr) 22px;
+  }
+
+  .study-signal-row em {
+    grid-column: 2 / -1;
+    text-align: left;
+  }
+
   .study-room-stage,
   .study-panel {
     border-radius: 18px;
@@ -7915,6 +8100,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   .study-contract > div {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .study-signal-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .study-signal-picker > div:last-child {
+    justify-content: flex-start;
   }
 
   .study-contract button {
@@ -8305,6 +8498,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-lobby-head strong,
 :root[data-resolved-theme="dark"] .study-directory-head h2,
 :root[data-resolved-theme="dark"] .study-directory-card-head strong,
+:root[data-resolved-theme="dark"] .study-signal-picker strong,
+:root[data-resolved-theme="dark"] .study-signal-mix-head strong,
 :root[data-resolved-theme="dark"] .study-room-tab strong,
 :root[data-resolved-theme="dark"] .study-room-metrics strong,
 :root[data-resolved-theme="dark"] .study-space-overview strong,
@@ -8329,6 +8524,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-directory-head > span,
 :root[data-resolved-theme="dark"] .study-directory-card p,
 :root[data-resolved-theme="dark"] .study-directory-meta span,
+:root[data-resolved-theme="dark"] .study-lobby-link,
+:root[data-resolved-theme="dark"] .study-signal-row,
 :root[data-resolved-theme="dark"] .study-feed-row p,
 :root[data-resolved-theme="dark"] .study-event-empty,
 :root[data-resolved-theme="dark"] .study-event-row p,
@@ -8371,6 +8568,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-ambient-control button,
 :root[data-resolved-theme="dark"] .study-space-overview div,
 :root[data-resolved-theme="dark"] .study-room-metrics div,
+:root[data-resolved-theme="dark"] .study-signal-mix,
+:root[data-resolved-theme="dark"] .study-signal-row > span,
 :root[data-resolved-theme="dark"] .study-room-rules span,
 :root[data-resolved-theme="dark"] .study-feed-row,
 :root[data-resolved-theme="dark"] .study-event-empty,
@@ -8378,6 +8577,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-leaderboard,
 :root[data-resolved-theme="dark"] .study-mode-card,
 :root[data-resolved-theme="dark"] .study-contract,
+:root[data-resolved-theme="dark"] .study-signal-picker,
+:root[data-resolved-theme="dark"] .study-signal-picker button,
 :root[data-resolved-theme="dark"] .study-contract textarea,
 :root[data-resolved-theme="dark"] .study-room-tab,
 :root[data-resolved-theme="dark"] .study-room-tags span,
@@ -8434,6 +8635,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 :root[data-resolved-theme="dark"] .study-directory-card.is-active button {
+  color: #1b1608;
+  border-color: rgba(246, 195, 92, 0.34);
+  background: #f6c35c;
+}
+
+:root[data-resolved-theme="dark"] .study-signal-picker button.is-active {
   color: #1b1608;
   border-color: rgba(246, 195, 92, 0.34);
   background: #f6c35c;
