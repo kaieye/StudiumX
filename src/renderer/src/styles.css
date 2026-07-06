@@ -5175,6 +5175,52 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-classmate-list {
   display: grid;
   gap: 8px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(248, 250, 246, 0.78)),
+    rgba(255, 255, 255, 0.72);
+}
+
+.study-classmate-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.study-classmate-head > div {
+  min-width: 0;
+}
+
+.study-classmate-head strong {
+  display: block;
+  margin-top: 4px;
+  min-width: 0;
+  overflow: hidden;
+  color: #17201d;
+  font-size: 13px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-classmate-head > span {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  color: #214d3d;
+  border: 1px solid rgba(36, 161, 108, 0.18);
+  border-radius: 999px;
+  background: rgba(36, 161, 108, 0.13);
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
 }
 
 .study-classmate-row {
@@ -5183,12 +5229,15 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   align-items: center;
   gap: 9px;
   min-height: 44px;
-  padding: 7px 0;
-  border-bottom: 1px solid #edf1f7;
+  padding: 9px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
 }
 
-.study-classmate-row:last-child {
-  border-bottom: 0;
+.study-classmate-row.is-me {
+  border-color: rgba(36, 161, 108, 0.18);
+  background: rgba(36, 161, 108, 0.08);
 }
 
 .study-classmate-row > span {
@@ -7162,7 +7211,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-live-proof {
   display: grid;
   gap: 9px;
-  margin-bottom: 10px;
+  margin-top: 2px;
   padding: 11px;
   border: 1px solid rgba(63, 95, 89, 0.16);
   border-radius: 15px;
@@ -7607,6 +7656,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-room-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 30px;
   padding: 0 10px;
   color: #3f5f59;
@@ -7617,6 +7670,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-size: 12px;
   font-weight: 820;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .study-room-actions button:hover {
@@ -8585,12 +8639,26 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
+  .study-classmate-list {
+    padding: 10px;
+  }
+
+  .study-classmate-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .study-classmate-head > span {
+    width: fit-content;
+  }
+
   .study-classmate-row {
     grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .study-classmate-row em {
     grid-column: 2;
+    justify-self: start;
   }
 }
 
@@ -9407,6 +9475,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-directory-card-head strong,
 :root[data-resolved-theme="dark"] .study-host-copy strong,
 :root[data-resolved-theme="dark"] .study-host-checklist strong,
+:root[data-resolved-theme="dark"] .study-classmate-head strong,
 :root[data-resolved-theme="dark"] .study-live-proof-head strong,
 :root[data-resolved-theme="dark"] .study-live-proof-grid strong,
 :root[data-resolved-theme="dark"] .study-signal-picker strong,
@@ -9483,6 +9552,9 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-host-card,
 :root[data-resolved-theme="dark"] .study-host-checklist div,
 :root[data-resolved-theme="dark"] .study-host-actions button,
+:root[data-resolved-theme="dark"] .study-classmate-list,
+:root[data-resolved-theme="dark"] .study-classmate-row,
+:root[data-resolved-theme="dark"] .study-classmate-head > span,
 :root[data-resolved-theme="dark"] .study-live-proof,
 :root[data-resolved-theme="dark"] .study-live-proof-grid div,
 :root[data-resolved-theme="dark"] .study-live-proof-actions button,
@@ -9510,6 +9582,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-ambient-control button.is-active,
 :root[data-resolved-theme="dark"] .study-mode-card.is-active,
 :root[data-resolved-theme="dark"] .study-contract.is-locked,
+:root[data-resolved-theme="dark"] .study-classmate-row.is-me,
 :root[data-resolved-theme="dark"] .study-leader-row.is-me {
   background: rgba(255, 255, 255, 0.1);
 }

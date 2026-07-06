@@ -827,7 +827,7 @@ function normalizeStudySeatIndex(input: unknown, roomId: StudyRoomId, clientId: 
 }
 
 function formatStudySeatLabel(index: number): string {
-  return `Seat ${String(index + 1).padStart(2, '0')}`
+  return `${String(index + 1).padStart(2, '0')}号座`
 }
 
 function normalizeStudyModeId(input: unknown): StudyModeId {
@@ -6052,10 +6052,93 @@ function StudySpace() {
               <span>远端同学</span>
             </div>
           </div>
+          <div className="study-classmate-list">
+            <div className="study-classmate-head">
+              <div>
+                <span className="study-kicker"><Users size={14} /> 正在同桌</span>
+                <strong>{remoteOnline === 0 ? '先显示你的真实席位' : `${remoteOnline} 位远端同学在场`}</strong>
+              </div>
+              <span>{connectionLabel}</span>
+            </div>
+            <div className="study-classmate-row is-me">
+              <span>{snapshot.nickname.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <strong>{snapshot.nickname}</strong>
+                <small>{formatStudySeatLabel(userSeat)} · {studySignalLabel(snapshot.signalId)} · {snapshot.timerMode === 'focus' ? `${snapshot.focusMinutes}m 专注` : '休息中'} · {contractDisplay}</small>
+              </div>
+              <em>{studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}</em>
+            </div>
+            {activePeers.length === 0 ? (
+              <div className="study-empty-online">
+                {presence.status === 'online' ? '当前房间还没有其他同学。打开另一个客户端或邀请朋友进入同一房间后，人数和座位才会增加。' : '正在连接在线教室，连接失败时不会显示模拟人数。'}
+              </div>
+            ) : activePeers.map((peer) => (
+              <div className="study-classmate-row" key={peer.clientId}>
+                <span>{peer.nickname.slice(0, 1).toUpperCase()}</span>
+                <div>
+                  <strong>{peer.nickname}</strong>
+                  <small>{formatStudySeatLabel(normalizeStudySeatIndex(peer.seatIndex, peer.roomId, peer.clientId))} · {studySignalLabel(peer.signalId)} · {peer.timerMode === 'focus' ? `${peer.focusMinutes}m 专注` : '休息中'} · 连续 {peer.streakDays}</small>
+                </div>
+                <em>{studyMemberStatusLabel(peer.status, peer.timerMode)}</em>
+              </div>
+            ))}
+          </div>
+          <div className="study-room-actions" aria-label="房间互动">
+            <button type="button" onClick={() => emitRoomEvent('checkin', `${snapshot.nickname} 在 ${activeRoom.name} 签到。`)}>
+              <CheckCircle2 size={13} />
+              签到
+            </button>
+            <button type="button" onClick={() => emitRoomEvent('cheer', `${snapshot.nickname} 给同桌们加油。`)}>
+              <Zap size={13} />
+              加油
+            </button>
+            <button type="button" onClick={() => emitRoomEvent('cheer', `${snapshot.nickname} 休息提醒：记得喝水和放松眼睛。`)}>
+              <Coffee size={13} />
+              休息提醒
+            </button>
+          </div>
+          <div className="study-event-stream" aria-label="实时互动流">
+            {roomEvents.length === 0 ? (
+              <div className="study-event-empty">还没有实时互动。签到或开始专注后，同空间同房间的同学会看到动态。</div>
+            ) : roomEvents.map((event) => (
+              <div className={`study-event-row is-${event.kind}`} key={event.id}>
+                <span>{event.kind === 'checkin' ? 'IN' : event.kind === 'focus_start' ? 'GO' : event.kind === 'task_done' ? 'OK' : 'UP'}</span>
+                <div>
+                  <strong>{event.nickname}<small>{formatStudyEventTime(event.createdAt)}</small></strong>
+                  <p>{event.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="study-room-feed" aria-label="房间动态">
+            {roomFeed.map((item, index) => (
+              <div key={index} className="study-feed-row">
+                <span>{index + 1}</span>
+                <p>{item}</p>
+              </div>
+            ))}
+          </div>
+          <div className="study-invite-note">
+            <Info size={14} />
+            <span>{connectionDetail}</span>
+          </div>
+          <div className="study-leaderboard" aria-label="在线专注榜">
+            <div className="study-leaderboard-head">
+              <strong>在线专注榜</strong>
+              <span>{roomMembers.length} 人</span>
+            </div>
+            {roomMembers.slice(0, 5).map((member, index) => (
+              <div className={`study-leader-row${member.isSelf ? ' is-me' : ''}`} key={member.clientId}>
+                <span>{index + 1}</span>
+                <strong>{member.nickname}</strong>
+                <em>{studySignalShortLabel(member.signalId)} · {formatStudyHours(member.todayFocusSeconds)}h</em>
+              </div>
+            ))}
+          </div>
           <div className="study-live-proof" aria-label="在线同步证明">
             <div className="study-live-proof-head">
               <div>
-                <span className="study-kicker"><GitBranch size={14} /> 同步证明</span>
+                <span className="study-kicker"><GitBranch size={14} /> 可核验在线来源</span>
                 <strong>{presence.topic}</strong>
               </div>
               <div className="study-live-proof-actions">
@@ -6078,79 +6161,6 @@ function StudySpace() {
               ))}
             </div>
             <p>人数只来自当前 topic 的 MQTT 心跳；每个窗口使用独立 session presence 身份，超过 {Math.round(STUDY_PRESENCE_PEER_TTL_MS / 1000)} 秒未心跳会自动下线。</p>
-          </div>
-          <div className="study-invite-note">
-            <Info size={14} />
-            <span>{connectionDetail}</span>
-          </div>
-          <div className="study-room-feed" aria-label="房间动态">
-            {roomFeed.map((item, index) => (
-              <div key={index} className="study-feed-row">
-                <span>{index + 1}</span>
-                <p>{item}</p>
-              </div>
-            ))}
-          </div>
-          <div className="study-room-actions" aria-label="房间互动">
-            <button type="button" onClick={() => emitRoomEvent('checkin', `${snapshot.nickname} 在 ${activeRoom.name} 签到。`)}>
-              签到
-            </button>
-            <button type="button" onClick={() => emitRoomEvent('cheer', `${snapshot.nickname} 给同桌们加油。`)}>
-              加油
-            </button>
-            <button type="button" onClick={() => emitRoomEvent('cheer', `${snapshot.nickname} 休息提醒：记得喝水和放松眼睛。`)}>
-              休息提醒
-            </button>
-          </div>
-          <div className="study-event-stream" aria-label="实时互动流">
-            {roomEvents.length === 0 ? (
-              <div className="study-event-empty">还没有实时互动。签到或开始专注后，同空间同房间的同学会看到动态。</div>
-            ) : roomEvents.map((event) => (
-              <div className={`study-event-row is-${event.kind}`} key={event.id}>
-                <span>{event.kind === 'checkin' ? 'IN' : event.kind === 'focus_start' ? 'GO' : event.kind === 'task_done' ? 'OK' : 'UP'}</span>
-                <div>
-                  <strong>{event.nickname}<small>{formatStudyEventTime(event.createdAt)}</small></strong>
-                  <p>{event.text}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="study-leaderboard" aria-label="在线专注榜">
-            <div className="study-leaderboard-head">
-              <strong>在线专注榜</strong>
-              <span>{roomMembers.length} 人</span>
-            </div>
-            {roomMembers.slice(0, 5).map((member, index) => (
-              <div className={`study-leader-row${member.isSelf ? ' is-me' : ''}`} key={member.clientId}>
-                <span>{index + 1}</span>
-                <strong>{member.nickname}</strong>
-                <em>{studySignalShortLabel(member.signalId)} · {formatStudyHours(member.todayFocusSeconds)}h</em>
-              </div>
-            ))}
-          </div>
-          <div className="study-classmate-list">
-            <div className="study-classmate-row is-me">
-              <span>{snapshot.nickname.slice(0, 1).toUpperCase()}</span>
-              <div>
-                <strong>{snapshot.nickname}</strong>
-                <small>{formatStudySeatLabel(userSeat)} · {studySignalLabel(snapshot.signalId)} · {snapshot.timerMode === 'focus' ? `${snapshot.focusMinutes}m 专注` : '休息中'} · {contractDisplay}</small>
-              </div>
-              <em>{studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}</em>
-            </div>
-            {activePeers.length === 0 ? (
-              <div className="study-empty-online">
-                {presence.status === 'online' ? '当前房间还没有其他同学。打开另一个客户端或邀请朋友进入同一房间即可看到真实人数。' : '正在连接在线教室，连接失败时不会显示模拟人数。'}
-              </div>
-            ) : activePeers.map((peer) => (
-              <div className="study-classmate-row" key={peer.clientId}>
-                <span>{peer.nickname.slice(0, 1).toUpperCase()}</span>
-                <div>
-                  <strong>{peer.nickname}</strong>
-                  <small>{formatStudySeatLabel(normalizeStudySeatIndex(peer.seatIndex, peer.roomId, peer.clientId))} · {studySignalLabel(peer.signalId)} · {peer.timerMode === 'focus' ? `${peer.focusMinutes}m 专注` : '休息中'} · 连续 {peer.streakDays}</small>
-                </div>
-                <em>{studyMemberStatusLabel(peer.status, peer.timerMode)}</em>
-              </div>
-            ))}
           </div>
         </section>
 
