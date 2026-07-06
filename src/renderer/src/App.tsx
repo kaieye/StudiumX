@@ -5742,6 +5742,24 @@ function StudySpace() {
             <LinkIcon size={13} />
             <span>{inviteUrl}</span>
           </div>
+          <div className="study-invite-strip" aria-label="房间邀请状态">
+            <div title={inviteHint}>
+              <span>空间码</span>
+              <strong>{snapshot.spaceCode}</strong>
+            </div>
+            <div>
+              <span>空间类型</span>
+              <strong>{snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公共大厅' : '私密空间'}</strong>
+            </div>
+            <div>
+              <span>邀请</span>
+              <strong>{copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '待发送'}</strong>
+            </div>
+            <div>
+              <span>验证</span>
+              <strong>{remoteOnline > 0 ? '已见远端' : verifyOpenState === 'opened' ? '窗口已开' : verifyOpenState === 'blocked' ? '被拦截' : '待验证'}</strong>
+            </div>
+          </div>
         </div>
 
         <div className="study-arrival-focus">

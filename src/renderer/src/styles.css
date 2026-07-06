@@ -5770,6 +5770,43 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   white-space: nowrap;
 }
 
+.study-invite-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.study-invite-strip div {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid rgba(38, 47, 65, 0.09);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.study-invite-strip span,
+.study-invite-strip strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-invite-strip span {
+  color: rgba(23, 32, 29, 0.5);
+  font-size: 10px;
+  font-weight: 820;
+}
+
+.study-invite-strip strong {
+  margin-top: 3px;
+  color: #17201d;
+  font-size: 11px;
+  font-weight: 850;
+}
+
 .study-arrival-focus p {
   min-height: 44px;
   margin: 0 0 12px;
@@ -9098,7 +9135,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   }
 
   .study-arrival-counts,
-  .study-arrival-room-grid {
+  .study-arrival-room-grid,
+  .study-invite-strip {
     grid-template-columns: 1fr;
   }
 
@@ -10131,6 +10169,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-arrival-counts strong,
 :root[data-resolved-theme="dark"] .study-presence-test strong,
 :root[data-resolved-theme="dark"] .study-relay-status strong,
+:root[data-resolved-theme="dark"] .study-invite-strip strong,
 :root[data-resolved-theme="dark"] .study-arrival-room strong {
   color: var(--text);
 }
@@ -10143,6 +10182,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-relay-status,
 :root[data-resolved-theme="dark"] .study-relay-status span,
 :root[data-resolved-theme="dark"] .study-relay-status em,
+:root[data-resolved-theme="dark"] .study-invite-strip span,
 :root[data-resolved-theme="dark"] .study-arrival-room span {
   color: var(--text-muted);
 }
@@ -10152,6 +10192,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-presence-test,
 :root[data-resolved-theme="dark"] .study-arrival-link,
 :root[data-resolved-theme="dark"] .study-relay-status,
+:root[data-resolved-theme="dark"] .study-invite-strip div,
 :root[data-resolved-theme="dark"] .study-arrival-join input,
 :root[data-resolved-theme="dark"] .study-arrival-relay input,
 :root[data-resolved-theme="dark"] .study-arrival-room {
