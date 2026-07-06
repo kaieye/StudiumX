@@ -1046,6 +1046,11 @@ function formatStudyPresenceAge(timestamp: number, nowMs = Date.now()): string {
   return `${Math.floor(elapsedSeconds / 3600)} 小时前`
 }
 
+function studyMemberFreshnessLabel(member: { isSelf?: boolean; updatedAt?: number }, nowMs = Date.now()): string {
+  if (member.isSelf) return '本机心跳'
+  return `心跳 ${formatStudyPresenceAge(member.updatedAt ?? 0, nowMs)}`
+}
+
 function studyMemberStatusLabel(status: StudyTimerState, timerMode: StudyTimerMode): string {
   if (status === 'running') return timerMode === 'focus' ? '在线专注' : '休息中'
   if (status === 'paused') return '暂停'
@@ -5224,6 +5229,7 @@ function StudySpace() {
       streakDays: snapshot.streakDays,
       focusMinutes: snapshot.focusMinutes,
       seatIndex: userSeat,
+      updatedAt: roomCycleNow,
       isSelf: true
     },
     ...activePeers.map((peer) => ({
@@ -5869,7 +5875,7 @@ function StudySpace() {
 
             <div className="study-cinema-peer-strip" aria-label="在线同桌">
               {roomMembers.slice(0, 7).map((member) => (
-                <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${formatStudySeatLabel(member.seatIndex)} · ${member.nickname} · ${studySignalLabel(member.signalId)}`}>
+                <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${formatStudySeatLabel(member.seatIndex)} · ${member.nickname} · ${studySignalLabel(member.signalId)} · ${studyMemberFreshnessLabel(member, roomCycleNow)}`}>
                   {member.isSelf ? '我' : studySignalShortLabel(member.signalId)}
                 </span>
               ))}
@@ -5893,13 +5899,18 @@ function StudySpace() {
                     : peer
                       ? studyMemberStatusLabel(peer.status, peer.timerMode)
                       : '可入座'
+                  const seatFreshness = isUser
+                    ? '本机心跳'
+                    : peer
+                      ? studyMemberFreshnessLabel(peer, roomCycleNow)
+                      : ''
                   return (
                     <button
                       key={index}
                       type="button"
                       className={`study-seat${isUser ? ' is-user' : ''}${isOccupied ? ' is-occupied' : ' is-empty'}${peer?.status === 'running' ? ' is-focusing' : ''}`}
-                      title={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : `${seatLabel} · 空座，点击入座`}
-                      aria-label={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : `${seatLabel} · 空座，点击入座`}
+                      title={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)} · ${seatFreshness}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)} · ${seatFreshness}` : `${seatLabel} · 空座，点击入座`}
+                      aria-label={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)} · ${seatFreshness}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)} · ${seatFreshness}` : `${seatLabel} · 空座，点击入座`}
                       disabled={Boolean(peer) && !isUser}
                       onClick={() => chooseSeat(index)}
                     >
@@ -6147,7 +6158,7 @@ function StudySpace() {
               <span>{snapshot.nickname.slice(0, 1).toUpperCase()}</span>
               <div>
                 <strong>{snapshot.nickname}</strong>
-                <small>{formatStudySeatLabel(userSeat)} · {studySignalLabel(snapshot.signalId)} · {snapshot.timerMode === 'focus' ? `${snapshot.focusMinutes}m 专注` : '休息中'} · {contractDisplay}</small>
+                <small>{formatStudySeatLabel(userSeat)} · {studySignalLabel(snapshot.signalId)} · {snapshot.timerMode === 'focus' ? `${snapshot.focusMinutes}m 专注` : '休息中'} · {contractDisplay} · 本机心跳</small>
               </div>
               <em>{studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}</em>
             </div>
@@ -6160,7 +6171,7 @@ function StudySpace() {
                 <span>{peer.nickname.slice(0, 1).toUpperCase()}</span>
                 <div>
                   <strong>{peer.nickname}</strong>
-                  <small>{formatStudySeatLabel(normalizeStudySeatIndex(peer.seatIndex, peer.roomId, peer.clientId))} · {studySignalLabel(peer.signalId)} · {peer.timerMode === 'focus' ? `${peer.focusMinutes}m 专注` : '休息中'} · 连续 {peer.streakDays}</small>
+                  <small>{formatStudySeatLabel(normalizeStudySeatIndex(peer.seatIndex, peer.roomId, peer.clientId))} · {studySignalLabel(peer.signalId)} · {peer.timerMode === 'focus' ? `${peer.focusMinutes}m 专注` : '休息中'} · 连续 {peer.streakDays} · {studyMemberFreshnessLabel(peer, roomCycleNow)}</small>
                 </div>
                 <em>{studyMemberStatusLabel(peer.status, peer.timerMode)}</em>
               </div>
@@ -6214,7 +6225,7 @@ function StudySpace() {
               <div className={`study-leader-row${member.isSelf ? ' is-me' : ''}`} key={member.clientId}>
                 <span>{index + 1}</span>
                 <strong>{member.nickname}</strong>
-                <em>{studySignalShortLabel(member.signalId)} · {formatStudyHours(member.todayFocusSeconds)}h</em>
+                <em>{studySignalShortLabel(member.signalId)} · {formatStudyHours(member.todayFocusSeconds)}h · {studyMemberFreshnessLabel(member, roomCycleNow)}</em>
               </div>
             ))}
           </div>
@@ -6366,7 +6377,7 @@ function StudySpace() {
               </div>
               <div className="study-theater-peers" aria-label="在线同桌">
                 {roomMembers.slice(0, 6).map((member) => (
-                  <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${formatStudySeatLabel(member.seatIndex)} · ${member.nickname} · ${studySignalLabel(member.signalId)} · ${studyMemberStatusLabel(member.status, member.timerMode)}`}>
+                  <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${formatStudySeatLabel(member.seatIndex)} · ${member.nickname} · ${studySignalLabel(member.signalId)} · ${studyMemberStatusLabel(member.status, member.timerMode)} · ${studyMemberFreshnessLabel(member, roomCycleNow)}`}>
                     {studySignalShortLabel(member.signalId)}
                   </span>
                 ))}

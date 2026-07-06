@@ -8012,10 +8012,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-leader-row em {
+  min-width: 0;
+  overflow: hidden;
   color: rgba(23, 32, 29, 0.66);
   font-size: 11px;
   font-style: normal;
   font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .study-leader-row.is-me {
