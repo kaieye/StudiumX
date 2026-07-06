@@ -5355,9 +5355,9 @@ function StudySpace() {
       : connectionLabel
   const liveLineClass = latestRoomEvent ? ` is-${latestRoomEvent.kind}` : latestRemotePeer ? ' has-peer' : ' is-empty'
   const connectionDetail = presence.status === 'online'
-    ? `人数来自当前设备和同空间 MQTT 心跳：本房间 ${online} 人，整个空间 ${spaceOnline} 人。`
+    ? `人数来自同空间的实时同步：本房间 ${online} 人，整个空间 ${spaceOnline} 人。`
     : presence.status === 'connecting'
-      ? '正在连接公共同步服务，连接前不会用模拟人数填充座位。'
+      ? '正在进入在线教室，连接前只保留当前席位。'
       : '同步服务暂不可用，页面会保留你的本机席位，在线人数不会虚增。'
   const liveSessionTitle = remoteOnline > 0
     ? `已收到 ${remoteOnline} 个远端同桌`
@@ -5415,8 +5415,8 @@ function StudySpace() {
     `房间第 ${roomCycle.round} 轮正在${roomCycle.phase === 'focus' ? '专注' : '休息'}，${formatStudyDuration(roomCycle.remainingSeconds)} 后切换到${roomCycle.nextLabel}。`,
     completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
     presence.status === 'online'
-      ? `空间 ${snapshot.spaceCode} 已连接实时 presence，远端同学 ${remoteOnline} 人。`
-      : '在线同步不可用时，只显示本机状态。'
+      ? `空间 ${snapshot.spaceCode} 已连接实时自习室，远端同学 ${remoteOnline} 人。`
+      : '在线同步不可用时，先保留你的本机席位。'
   ]
   const roomRules = [
     snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公共大厅：任何 StudiumX 用户都可进入' : `私密空间：凭 ${snapshot.spaceCode} 加入`,
@@ -5598,7 +5598,7 @@ function StudySpace() {
   }
 
   const copyInvite = async (): Promise<void> => {
-    const text = `StudiumX 学习空间：${activeRoom.name}\n链接：${inviteUrl}\n空间码：${snapshot.spaceCode}\n进入后会加入同一在线 presence 房间；另开窗口或标签页会使用独立 session 在线身份。`
+    const text = `StudiumX 学习空间：${activeRoom.name}\n链接：${inviteUrl}\n空间码：${snapshot.spaceCode}\n进入后会加入同一在线自习室；另开窗口或标签页会使用独立同桌身份。`
     try {
       await navigator.clipboard.writeText(text)
       setCopyState('copied')
@@ -6394,8 +6394,8 @@ function StudySpace() {
               </div>
               <div>
                 <span>同步房间</span>
-                <strong>{topicTail}</strong>
-                <small>{relayHealthLabel}</small>
+                <strong>{snapshot.spaceCode}</strong>
+                <small>{activeRoom.name} · {relayHealthLabel}</small>
               </div>
             </div>
             <div className="study-room-board-roster" aria-label="房间席位头像">

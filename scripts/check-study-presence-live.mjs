@@ -80,6 +80,8 @@ try {
   assert.match(result.clientB.roomFrontText, /FOCUS BOARD/, 'second client study room should render a front room board')
   assert.equal(result.clientA.companionHeroHasDebugCopy, false, 'first client companion hero should not show debug-style fake-user copy')
   assert.equal(result.clientB.companionHeroHasDebugCopy, false, 'second client companion hero should not show debug-style fake-user copy')
+  assert.equal(result.clientA.visibleTechCopy, false, 'first client default study UI should not expose MQTT/presence/session wording')
+  assert.equal(result.clientB.visibleTechCopy, false, 'second client default study UI should not expose MQTT/presence/session wording')
   assert.notEqual(result.clientA.sessionId, result.clientB.sessionId, 'clients should use distinct session identities')
 
   console.log(`study presence live ok: ${result.spaceCode}`)
@@ -187,6 +189,13 @@ async function readStudyPresence(client) {
         roomAisleCount: document.querySelectorAll('.study-seat-room .study-seat-aisle').length,
         roomFrontText: q('.study-seat-front')?.textContent?.trim() ?? '',
         companionHeroHasDebugCopy: (q('.study-companion-hero')?.textContent ?? '').includes('未显示模拟同学'),
+        visibleTechCopy: [
+          '.study-hero',
+          '.study-room-stage',
+          '.study-companion-hero',
+          '.study-room-board',
+          '.study-invite-note'
+        ].some((selector) => /\\b(MQTT|presence|session)\\b/i.test(q(selector)?.textContent ?? '')),
         counts: [...document.querySelectorAll('.study-arrival-counts strong')].map((node) => node.textContent.trim()),
         remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌') || text.includes('1 位远端同学刚刚心跳') || text.includes('1/1 心跳'),
         sessionId: proofText.match(/会话身份([A-Z0-9]+)/)?.[1] ?? '',
