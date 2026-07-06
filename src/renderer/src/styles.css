@@ -5235,6 +5235,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 /* Study Space v2: networked, room-first interface */
 
 .study-space {
+  display: flex;
+  flex-direction: column;
   width: min(1280px, calc(100% - 32px));
   margin: 18px auto 0;
   padding: 0 0 34px;
@@ -5242,6 +5244,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-hero {
+  order: 1;
   position: relative;
   isolation: isolate;
   display: flex;
@@ -5485,10 +5488,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-arrival {
+  order: 3;
   display: grid;
   grid-template-columns: minmax(320px, 0.95fr) minmax(280px, 0.72fr) minmax(360px, 1.05fr);
   gap: 12px;
-  margin-bottom: 14px;
+  margin-top: 14px;
+  margin-bottom: 0;
 }
 
 .study-arrival-live,
@@ -6076,6 +6081,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-space-overview {
+  order: 4;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
@@ -6114,6 +6120,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-layout {
+  order: 2;
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(315px, 0.72fr);
   grid-template-areas:
