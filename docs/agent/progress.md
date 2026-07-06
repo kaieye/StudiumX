@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | 文档规划 | 已完成 | `a292a79` | 已拆分 agent 能力设计文档、参考项目映射和路线图。 |
 | 通用 AI 执行 Prompt | 已完成 | `4b9ca0d` | 新增通用模板，要求每次实施后更新进度。 |
-| Phase 0：基线测试与诊断 | 未开始 | - | 需要先补现状测试。 |
+| Phase 0：基线测试与诊断 | 已完成 | `5ffcaa9` | 已补 ToolRegistry、agent loop、web tools 基线 check，并新增基础 usage/diagnostic 类型。 |
 | Phase 1：搜索 runtime 深模块 | 未开始 | - | 依赖搜索专题设计，建议在 Phase 0 后执行。 |
 | Phase 2：发送前 context hygiene | 未开始 | - | 可在 Phase 0 后优先执行。 |
 | Phase 3：自动与手动压缩 | 未开始 | - | 依赖 Phase 2 的 estimator/hygiene。 |
@@ -57,13 +57,33 @@
 
 - 已检查文档入口、阶段状态和未完成项标记。
 
+### Phase 0：基线测试与诊断
+
+完成内容：
+
+- 新增 `check:agent-tool-registry`，覆盖 `ToolRegistry` 注册、同名覆盖、`handlerMap` 绑定上下文，以及默认 registry 的工作区读写和 web 工具注册边界。
+- 新增 `check:agent-loop-baseline`，用本地 fake chat provider 覆盖无工具、单工具、多工具、工具错误、最大迭代 forced-final、最大迭代 error 和取消。
+- 新增 `check:web-tools-baseline`，固定 `web_search` / `web_fetch` 当前结构化输出、HTML 文本提取、纯文本抓取、缺参错误和基础 URL guard 行为。
+- 新增 `AgentLoopUsage` / `AgentLoopDiagnostic` 基础类型，暂不接 UI 和事件流。
+- 为测试导出 `assertSafeUrl`，不改变 `web_fetch` 生产行为。
+
+提交：
+
+- `5ffcaa9 test(agent): cover current loop and tool registry`
+
+验证：
+
+- `npm run check:agent-tool-registry`
+- `npm run check:agent-loop-baseline`
+- `npm run check:web-tools-baseline`
+- `npx tsc --noEmit`
+
 ## 进行中
 
 无。
 
 ## 未开始
 
-- Phase 0：基线测试与诊断。
 - Phase 1：搜索 runtime 深模块。
 - Phase 2：发送前 context hygiene。
 - Phase 3：自动与手动压缩。
