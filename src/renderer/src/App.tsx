@@ -183,6 +183,7 @@ type ResourcePreviewFile = {
 type StudyTimerMode = 'focus' | 'break'
 type StudyTimerState = 'idle' | 'running' | 'paused'
 type StudyRoomId = 'silent' | 'sprint' | 'deep' | 'exam'
+type StudyPresenceStatus = 'connecting' | 'online' | 'offline'
 
 type StudyTask = {
   id: string
@@ -190,7 +191,20 @@ type StudyTask = {
   done: boolean
 }
 
+type StudyPresencePeer = {
+  clientId: string
+  roomId: StudyRoomId
+  nickname: string
+  status: StudyTimerState
+  timerMode: StudyTimerMode
+  focusMinutes: number
+  streakDays: number
+  updatedAt: number
+}
+
 type StudySnapshot = {
+  clientId: string
+  nickname: string
   roomId: StudyRoomId
   timerMode: StudyTimerMode
   timerState: StudyTimerState
@@ -536,8 +550,15 @@ function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
 
 const STUDY_SPACE_STORAGE_KEY = 'teachos:study-space:v1'
 const STUDY_DAY_MS = 24 * 60 * 60 * 1000
+const STUDY_PRESENCE_BROKER_URL = 'wss://broker.emqx.io:8084/mqtt'
+const STUDY_PRESENCE_TOPIC = 'studiumx/study-space/v1/presence'
+const STUDY_PRESENCE_PEER_TTL_MS = 35_000
+const STUDY_PRESENCE_HEARTBEAT_MS = 10_000
+const STUDY_PRESENCE_CLIENT_PREFIX = 'studiumx'
 
 const defaultStudySnapshot: StudySnapshot = {
+  clientId: '',
+  nickname: '',
   roomId: 'silent',
   timerMode: 'focus',
   timerState: 'idle',
@@ -562,65 +583,66 @@ const studyRooms: Array<{
   name: string
   tone: string
   capacity: number
-  baseOnline: number
   sessionMinutes: number
   breakMinutes: number
   tags: string[]
   seats: number
+  light: string
+  ambient: string
+  backdrop: string
 }> = [
   {
     id: 'silent',
     name: '静音自习室',
-    tone: '稳定长坐',
-    capacity: 180,
-    baseOnline: 96,
+    tone: '低噪、长坐、适合跟读和预习',
+    capacity: 36,
     sessionMinutes: 25,
     breakMinutes: 5,
     tags: ['课程预习', '笔记整理', '轻专注'],
-    seats: 18
+    seats: 36,
+    light: '晨光',
+    ambient: '翻书声',
+    backdrop: 'study-backdrop-silent'
   },
   {
     id: 'sprint',
     name: '冲刺教室',
-    tone: '限时推进',
-    capacity: 120,
-    baseOnline: 72,
+    tone: '公开冲刺、按轮次一起开始',
+    capacity: 32,
     sessionMinutes: 45,
     breakMinutes: 10,
     tags: ['作业收尾', '限时刷题', '高效率'],
-    seats: 16
+    seats: 32,
+    light: '白炽灯',
+    ambient: '键盘声',
+    backdrop: 'study-backdrop-sprint'
   },
   {
     id: 'deep',
     name: '深度学习舱',
-    tone: '少打断',
-    capacity: 80,
-    baseOnline: 48,
+    tone: '90 分钟沉浸、隐藏干扰',
+    capacity: 24,
     sessionMinutes: 90,
     breakMinutes: 15,
     tags: ['论文阅读', '项目推进', '长周期'],
-    seats: 12
+    seats: 24,
+    light: '夜灯',
+    ambient: '雨声',
+    backdrop: 'study-backdrop-deep'
   },
   {
     id: 'exam',
     name: '考试模拟间',
-    tone: '闭卷节奏',
-    capacity: 100,
-    baseOnline: 58,
+    tone: '整点模拟、休息后复盘',
+    capacity: 40,
     sessionMinutes: 50,
     breakMinutes: 10,
     tags: ['真题训练', '倒计时', '复盘'],
-    seats: 20
+    seats: 40,
+    light: '考场灯',
+    ambient: '无背景音',
+    backdrop: 'study-backdrop-exam'
   }
-]
-
-const studyClassmates = [
-  { name: '林同学', subject: '线性代数', status: '专注 42m' },
-  { name: 'Mia', subject: 'Academic Writing', status: '休息 03m' },
-  { name: '周同学', subject: '操作系统', status: '专注 18m' },
-  { name: 'Alex', subject: 'Algorithms', status: '专注 67m' },
-  { name: '予安', subject: '英语听力', status: '整理笔记' },
-  { name: 'Noah', subject: 'Chemistry', status: '专注 25m' }
 ]
 
 function todayKey(date = new Date()): string {
@@ -630,6 +652,21 @@ function todayKey(date = new Date()): string {
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.min(max, Math.max(min, value))
+}
+
+function randomStudyClientId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${STUDY_PRESENCE_CLIENT_PREFIX}-${crypto.randomUUID()}`
+  }
+  return `${STUDY_PRESENCE_CLIENT_PREFIX}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function defaultStudyNickname(clientId: string): string {
+  return `同学 ${clientId.slice(-4).toUpperCase()}`
+}
+
+function normalizeStudyRoomId(input: unknown): StudyRoomId {
+  return studyRooms.some((room) => room.id === input) ? input as StudyRoomId : defaultStudySnapshot.roomId
 }
 
 function normalizeStudyTasks(input: unknown): StudyTask[] {
@@ -648,7 +685,13 @@ function normalizeStudyTasks(input: unknown): StudyTask[] {
 
 function normalizeStudySnapshot(input: unknown): StudySnapshot {
   const raw = input && typeof input === 'object' ? input as Partial<StudySnapshot> : {}
-  const roomId = studyRooms.some((room) => room.id === raw.roomId) ? raw.roomId as StudyRoomId : defaultStudySnapshot.roomId
+  const clientId = typeof raw.clientId === 'string' && raw.clientId.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)
+    ? raw.clientId
+    : randomStudyClientId()
+  const nickname = typeof raw.nickname === 'string' && raw.nickname.trim()
+    ? raw.nickname.trim().slice(0, 18)
+    : defaultStudyNickname(clientId)
+  const roomId = normalizeStudyRoomId(raw.roomId)
   const timerMode = raw.timerMode === 'break' ? 'break' : 'focus'
   const focusMinutes = clampNumber(raw.focusMinutes, 5, 120, defaultStudySnapshot.focusMinutes)
   const breakMinutes = clampNumber(raw.breakMinutes, 1, 45, defaultStudySnapshot.breakMinutes)
@@ -656,6 +699,8 @@ function normalizeStudySnapshot(input: unknown): StudySnapshot {
   const lastStudyDate = typeof raw.lastStudyDate === 'string' ? raw.lastStudyDate : ''
   const isToday = lastStudyDate === todayKey()
   return {
+    clientId,
+    nickname,
     roomId,
     timerMode,
     timerState: raw.timerState === 'running' || raw.timerState === 'paused' ? raw.timerState : 'idle',
@@ -702,14 +747,6 @@ function formatStudyHours(totalSeconds: number): string {
   return hours >= 10 ? hours.toFixed(0) : hours.toFixed(1)
 }
 
-function studyRoomOnline(room: typeof studyRooms[number], time: Date): number {
-  const minutes = time.getHours() * 60 + time.getMinutes()
-  const wave = Math.sin((minutes / 1440) * Math.PI * 2 - 0.8)
-  const micro = Math.sin((minutes / 17) + room.baseOnline) * 4
-  const online = Math.round(room.baseOnline + wave * 18 + micro)
-  return Math.min(room.capacity, Math.max(12, online))
-}
-
 function studyLevel(xp: number): { level: number; current: number; next: number; progress: number } {
   const level = Math.max(1, Math.floor(xp / 120) + 1)
   const current = xp % 120
@@ -729,6 +766,243 @@ function nextStudyStreak(lastStudyDate: string, currentStreak: number, now = new
   if (lastStudyDate === today) return currentStreak || 1
   const yesterday = new Date(now.getTime() - STUDY_DAY_MS).toISOString().slice(0, 10)
   return lastStudyDate === yesterday ? currentStreak + 1 : 1
+}
+
+function mqttEncodeString(value: string): number[] {
+  const encoded = new TextEncoder().encode(value)
+  return [encoded.length >> 8, encoded.length & 0xff, ...encoded]
+}
+
+function mqttEncodeRemainingLength(length: number): number[] {
+  const bytes: number[] = []
+  let value = length
+  do {
+    let byte = value % 128
+    value = Math.floor(value / 128)
+    if (value > 0) byte |= 128
+    bytes.push(byte)
+  } while (value > 0)
+  return bytes
+}
+
+function mqttPacket(type: number, variableHeader: number[] = [], payload: number[] = []): Uint8Array {
+  const body = [...variableHeader, ...payload]
+  return new Uint8Array([type, ...mqttEncodeRemainingLength(body.length), ...body])
+}
+
+function mqttConnectPacket(clientId: string): Uint8Array {
+  return mqttPacket(
+    0x10,
+    [...mqttEncodeString('MQTT'), 0x04, 0x02, 0x00, 0x2d],
+    mqttEncodeString(clientId.slice(0, 48))
+  )
+}
+
+function mqttSubscribePacket(topic: string, packetId: number): Uint8Array {
+  return mqttPacket(
+    0x82,
+    [packetId >> 8, packetId & 0xff],
+    [...mqttEncodeString(topic), 0x00]
+  )
+}
+
+function mqttPublishPacket(topic: string, message: string): Uint8Array {
+  return mqttPacket(0x30, mqttEncodeString(topic), Array.from(new TextEncoder().encode(message)))
+}
+
+function mqttSend(socket: WebSocket, packet: Uint8Array): void {
+  const body = new ArrayBuffer(packet.byteLength)
+  new Uint8Array(body).set(packet)
+  socket.send(body)
+}
+
+function mqttReadRemainingLength(bytes: Uint8Array, offset: number): { value: number; nextOffset: number } | null {
+  let multiplier = 1
+  let value = 0
+  let cursor = offset
+  while (cursor < bytes.length) {
+    const byte = bytes[cursor]
+    value += (byte & 127) * multiplier
+    cursor += 1
+    if ((byte & 128) === 0) return { value, nextOffset: cursor }
+    multiplier *= 128
+    if (multiplier > 128 * 128 * 128) return null
+  }
+  return null
+}
+
+function mqttReadString(bytes: Uint8Array, offset: number): { value: string; nextOffset: number } | null {
+  if (offset + 2 > bytes.length) return null
+  const length = (bytes[offset] << 8) + bytes[offset + 1]
+  const start = offset + 2
+  const end = start + length
+  if (end > bytes.length) return null
+  return { value: new TextDecoder().decode(bytes.slice(start, end)), nextOffset: end }
+}
+
+function mqttParsePublish(data: ArrayBuffer): { topic: string; message: string } | null {
+  const bytes = new Uint8Array(data)
+  if ((bytes[0] >> 4) !== 3) return null
+  const remaining = mqttReadRemainingLength(bytes, 1)
+  if (!remaining) return null
+  const packetEnd = remaining.nextOffset + remaining.value
+  if (packetEnd > bytes.length) return null
+  const topic = mqttReadString(bytes, remaining.nextOffset)
+  if (!topic) return null
+  return {
+    topic: topic.value,
+    message: new TextDecoder().decode(bytes.slice(topic.nextOffset, packetEnd))
+  }
+}
+
+function normalizePresencePeer(input: unknown): StudyPresencePeer | null {
+  if (!input || typeof input !== 'object') return null
+  const raw = input as Partial<StudyPresencePeer> & { type?: string }
+  if (raw.type !== 'study-presence') return null
+  if (typeof raw.clientId !== 'string' || !raw.clientId.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)) return null
+  const roomId = normalizeStudyRoomId(raw.roomId)
+  const nickname = typeof raw.nickname === 'string' && raw.nickname.trim()
+    ? raw.nickname.trim().slice(0, 18)
+    : defaultStudyNickname(raw.clientId)
+  const status: StudyTimerState = raw.status === 'running' || raw.status === 'paused' ? raw.status : 'idle'
+  return {
+    clientId: raw.clientId,
+    roomId,
+    nickname,
+    status,
+    timerMode: raw.timerMode === 'break' ? 'break' : 'focus',
+    focusMinutes: clampNumber(raw.focusMinutes, 5, 120, 25),
+    streakDays: clampNumber(raw.streakDays, 0, 10_000, 0),
+    updatedAt: clampNumber(raw.updatedAt, 0, Date.now() + 60_000, Date.now())
+  }
+}
+
+function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatus; peers: StudyPresencePeer[]; relay: string } {
+  const [status, setStatus] = useState<StudyPresenceStatus>('connecting')
+  const [peers, setPeers] = useState<StudyPresencePeer[]>([])
+  const snapshotRef = useRef(snapshot)
+  const socketRef = useRef<WebSocket | null>(null)
+  const subscribedRef = useRef(false)
+
+  useEffect(() => {
+    snapshotRef.current = snapshot
+  }, [snapshot])
+
+  useEffect(() => {
+    let closed = false
+    let reconnectTimer: number | undefined
+    let heartbeatTimer: number | undefined
+    let pruneTimer: number | undefined
+    let packetId = 1
+
+    const publishPresence = (): void => {
+      const socket = socketRef.current
+      if (!socket || socket.readyState !== WebSocket.OPEN || !subscribedRef.current) return
+      const current = snapshotRef.current
+      const message = JSON.stringify({
+        type: 'study-presence',
+        clientId: current.clientId,
+        roomId: current.roomId,
+        nickname: current.nickname,
+        status: current.timerState,
+        timerMode: current.timerMode,
+        focusMinutes: current.focusMinutes,
+        streakDays: current.streakDays,
+        updatedAt: Date.now()
+      })
+      mqttSend(socket, mqttPublishPacket(STUDY_PRESENCE_TOPIC, message))
+    }
+
+    const prunePeers = (): void => {
+      const nowMs = Date.now()
+      setPeers((current) => current.filter((peer) => nowMs - peer.updatedAt <= STUDY_PRESENCE_PEER_TTL_MS))
+    }
+
+    const connect = (): void => {
+      setStatus('connecting')
+      subscribedRef.current = false
+      const socket = new WebSocket(STUDY_PRESENCE_BROKER_URL, 'mqtt')
+      socket.binaryType = 'arraybuffer'
+      socketRef.current = socket
+
+      socket.addEventListener('open', () => {
+        mqttSend(socket, mqttConnectPacket(snapshotRef.current.clientId))
+      })
+
+      socket.addEventListener('message', (event) => {
+        if (!(event.data instanceof ArrayBuffer)) return
+        const bytes = new Uint8Array(event.data)
+        const packetType = bytes[0] >> 4
+        if (packetType === 2) {
+          mqttSend(socket, mqttSubscribePacket(STUDY_PRESENCE_TOPIC, packetId++))
+          setStatus('online')
+          return
+        }
+        if (packetType === 9) {
+          subscribedRef.current = true
+          publishPresence()
+          return
+        }
+        const publish = mqttParsePublish(event.data)
+        if (!publish || publish.topic !== STUDY_PRESENCE_TOPIC) return
+        try {
+          const peer = normalizePresencePeer(JSON.parse(publish.message))
+          if (!peer || peer.clientId === snapshotRef.current.clientId) return
+          setPeers((current) => [peer, ...current.filter((item) => item.clientId !== peer.clientId)].slice(0, 80))
+        } catch {
+          // Ignore malformed public relay payloads.
+        }
+      })
+
+      socket.addEventListener('close', () => {
+        if (socketRef.current === socket) socketRef.current = null
+        subscribedRef.current = false
+        setStatus('offline')
+        if (!closed) reconnectTimer = window.setTimeout(connect, 5000)
+      })
+
+      socket.addEventListener('error', () => {
+        setStatus('offline')
+        socket.close()
+      })
+    }
+
+    connect()
+    heartbeatTimer = window.setInterval(() => {
+      const socket = socketRef.current
+      if (socket?.readyState === WebSocket.OPEN) mqttSend(socket, new Uint8Array([0xc0, 0x00]))
+      publishPresence()
+    }, STUDY_PRESENCE_HEARTBEAT_MS)
+    pruneTimer = window.setInterval(prunePeers, 5000)
+
+    return () => {
+      closed = true
+      if (reconnectTimer) window.clearTimeout(reconnectTimer)
+      if (heartbeatTimer) window.clearInterval(heartbeatTimer)
+      if (pruneTimer) window.clearInterval(pruneTimer)
+      socketRef.current?.close()
+      socketRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const socket = socketRef.current
+    if (socket?.readyState === WebSocket.OPEN && subscribedRef.current) {
+      mqttSend(socket, mqttPublishPacket(STUDY_PRESENCE_TOPIC, JSON.stringify({
+        type: 'study-presence',
+        clientId: snapshot.clientId,
+        roomId: snapshot.roomId,
+        nickname: snapshot.nickname,
+        status: snapshot.timerState,
+        timerMode: snapshot.timerMode,
+        focusMinutes: snapshot.focusMinutes,
+        streakDays: snapshot.streakDays,
+        updatedAt: Date.now()
+      })))
+    }
+  }, [snapshot.clientId, snapshot.focusMinutes, snapshot.nickname, snapshot.roomId, snapshot.streakDays, snapshot.timerMode, snapshot.timerState])
+
+  return { status, peers, relay: STUDY_PRESENCE_BROKER_URL.replace(/^wss?:\/\//, '') }
 }
 
 // ================================================================
@@ -4394,16 +4668,22 @@ function LessonStyleGallery() {
 function StudySpace() {
   const showNotification = useAppStore((s) => s.showNotification)
   const [snapshot, setSnapshot] = useState<StudySnapshot>(() => readStudySnapshot())
-  const [now, setNow] = useState(() => new Date())
   const [taskInput, setTaskInput] = useState('')
+  const [editingName, setEditingName] = useState(false)
+  const [nicknameDraft, setNicknameDraft] = useState('')
+  const presence = useStudyPresence(snapshot)
   const activeRoom = studyRooms.find((room) => room.id === snapshot.roomId) ?? studyRooms[0]
   const level = studyLevel(snapshot.xp)
-  const online = studyRoomOnline(activeRoom, now)
+  const activePeers = presence.peers.filter((peer) => peer.roomId === snapshot.roomId)
+  const allRoomPeers = studyRooms.reduce<Record<StudyRoomId, number>>((acc, room) => {
+    acc[room.id] = presence.peers.filter((peer) => peer.roomId === room.id).length + (snapshot.roomId === room.id ? 1 : 0)
+    return acc
+  }, { silent: 0, sprint: 0, deep: 0, exam: 0 })
+  const online = activePeers.length + 1
   const timerTotalSeconds = (snapshot.timerMode === 'focus' ? snapshot.focusMinutes : snapshot.breakMinutes) * 60
   const timerProgress = timerTotalSeconds > 0 ? Math.round(((timerTotalSeconds - snapshot.remainingSeconds) / timerTotalSeconds) * 100) : 0
   const completedTasks = snapshot.tasks.filter((task) => task.done).length
   const seatCount = activeRoom.seats
-  const occupiedSeats = Math.min(seatCount - 1, Math.max(1, Math.round((online / activeRoom.capacity) * seatCount)))
   const userSeat = (level.level + snapshot.todaySessions + 2) % seatCount
   const weeklyFocus = [0.42, 0.66, 0.28, 0.74, 0.54, 0.86, Math.min(1, snapshot.todayFocusSeconds / Math.max(1, snapshot.focusMinutes * 60 * 4))]
   const badges = [
@@ -4416,11 +4696,6 @@ function StudySpace() {
   useEffect(() => {
     persistStudySnapshot(snapshot)
   }, [snapshot])
-
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 15_000)
-    return () => window.clearInterval(id)
-  }, [])
 
   useEffect(() => {
     if (snapshot.timerState !== 'running') return undefined
@@ -4495,6 +4770,15 @@ function StudySpace() {
     }))
   }
 
+  const saveNickname = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    const nickname = nicknameDraft.trim().slice(0, 18)
+    if (nickname) {
+      setSnapshot((current) => ({ ...current, nickname }))
+    }
+    setEditingName(false)
+  }
+
   const toggleTimer = (): void => {
     setSnapshot((current) => ({
       ...current,
@@ -4545,31 +4829,96 @@ function StudySpace() {
   }
 
   return (
-    <section className="study-space" aria-label="学习空间">
-      <div className="study-space-header">
-        <div>
-          <span className="study-eyebrow"><DoorOpen size={14} /> 学习空间</span>
+    <section className={`study-space ${activeRoom.backdrop}`} aria-label="学习空间">
+      <div className="study-hero">
+        <div className="study-hero-copy">
+          <span className="study-eyebrow"><DoorOpen size={14} /> Network study room</span>
           <h1>{activeRoom.name}</h1>
-          <p>{activeRoom.tone} · {online}/{activeRoom.capacity} 人在线 · 今日 {formatStudyHours(snapshot.todayFocusSeconds)}h</p>
+          <p>{activeRoom.tone}</p>
+          <div className="study-hero-meta">
+            <span className={`study-presence-pill is-${presence.status}`}>
+              <span />
+              {presence.status === 'online' ? `${online} 人在线` : presence.status === 'connecting' ? '连接教室中' : '离线，仅本机'}
+            </span>
+            <span>{activeRoom.light}</span>
+            <span>{activeRoom.ambient}</span>
+            <span>relay {presence.relay}</span>
+          </div>
         </div>
         <div className="study-header-stats" aria-label="学习统计">
-          <span><Zap size={15} /> 连续 {snapshot.streakDays} 天</span>
+          <span><Zap size={15} /> streak {snapshot.streakDays}</span>
           <span><Trophy size={15} /> Lv.{level.level}</span>
-          <span><Target size={15} /> {completedTasks}/{snapshot.tasks.length} 任务</span>
+          <span><Target size={15} /> {completedTasks}/{snapshot.tasks.length}</span>
         </div>
       </div>
 
       <div className="study-layout">
+        <section className="study-room-stage" aria-label="在线自习室">
+          <div className="study-stage-window">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="study-stage-topline">
+            <div>
+              <span className="study-kicker"><Users size={14} /> Real presence</span>
+              <h2>当前教室：{online}/{activeRoom.capacity}</h2>
+            </div>
+            <button
+              className="study-name-button"
+              type="button"
+              onClick={() => {
+                setNicknameDraft(snapshot.nickname)
+                setEditingName(true)
+              }}
+            >
+              {snapshot.nickname}
+            </button>
+          </div>
+          <div className="study-seat-map" aria-label="真实在线座位图">
+            {Array.from({ length: seatCount }, (_, index) => {
+              const peer = activePeers[index > userSeat ? index - 1 : index]
+              const isUser = index === userSeat
+              const isOccupied = Boolean(peer) || isUser
+              return (
+                <span
+                  key={index}
+                  className={`study-seat${isUser ? ' is-user' : ''}${isOccupied ? ' is-occupied' : ''}${peer?.status === 'running' ? ' is-focusing' : ''}`}
+                  title={isUser ? `${snapshot.nickname}（我）` : peer ? `${peer.nickname} · ${peer.status === 'running' ? '专注中' : peer.status === 'paused' ? '暂停' : '准备中'}` : '空座'}
+                >
+                  {isUser ? '我' : peer ? peer.nickname.slice(0, 1).toUpperCase() : ''}
+                </span>
+              )
+            })}
+          </div>
+          <div className="study-room-strip">
+            {studyRooms.map((room) => {
+              const isActive = room.id === snapshot.roomId
+              return (
+                <button
+                  key={room.id}
+                  type="button"
+                  className={`study-room-tab${isActive ? ' is-active' : ''}`}
+                  onClick={() => selectRoom(room)}
+                >
+                  <strong>{room.name}</strong>
+                  <span>{allRoomPeers[room.id]}/{room.capacity}</span>
+                </button>
+              )
+            })}
+          </div>
+          <div className="study-room-tags">
+            {activeRoom.tags.map((tag) => <span key={tag}>{tag}</span>)}
+          </div>
+        </section>
+
         <section className="study-panel study-timer-panel" aria-label="番茄时钟">
           <div className="study-panel-head">
             <div>
-              <span className="study-kicker"><Timer size={14} /> 番茄时钟</span>
-              <h2>{snapshot.timerMode === 'focus' ? '专注中' : '休息中'}</h2>
+              <span className="study-kicker"><Timer size={14} /> Pomodoro</span>
+              <h2>{snapshot.timerMode === 'focus' ? '专注轮次' : '恢复时间'}</h2>
             </div>
-            <div className="study-mode-switch" role="tablist" aria-label="计时模式">
-              <button type="button" className={snapshot.timerMode === 'focus' ? 'is-active' : ''} onClick={() => switchTimerMode('focus')}>专注</button>
-              <button type="button" className={snapshot.timerMode === 'break' ? 'is-active' : ''} onClick={() => switchTimerMode('break')}>休息</button>
-            </div>
+            <span className="study-session-label">{snapshot.focusMinutes}/{snapshot.breakMinutes}</span>
           </div>
           <div className="study-timer-face" style={{ '--study-progress': `${timerProgress}%` } as CSSProperties}>
             <span>{formatStudyDuration(snapshot.remainingSeconds)}</span>
@@ -4602,49 +4951,42 @@ function StudySpace() {
               </button>
             ))}
           </div>
+          <div className="study-mode-switch" role="tablist" aria-label="计时模式">
+            <button type="button" className={snapshot.timerMode === 'focus' ? 'is-active' : ''} onClick={() => switchTimerMode('focus')}>专注</button>
+            <button type="button" className={snapshot.timerMode === 'break' ? 'is-active' : ''} onClick={() => switchTimerMode('break')}>休息</button>
+          </div>
         </section>
 
-        <section className="study-panel study-room-panel" aria-label="自习教室">
+        <section className="study-panel study-companion-panel" aria-label="在线同学">
           <div className="study-panel-head">
             <div>
-              <span className="study-kicker"><Users size={14} /> 实时教室</span>
-              <h2>独立教室空间</h2>
+              <span className="study-kicker"><Coffee size={14} /> 同桌</span>
+              <h2>真实在线</h2>
             </div>
-            <span className="study-live-dot">LIVE</span>
           </div>
-          <div className="study-room-grid">
-            {studyRooms.map((room) => {
-              const roomOnline = studyRoomOnline(room, now)
-              const isActive = room.id === snapshot.roomId
-              return (
-                <button
-                  key={room.id}
-                  type="button"
-                  className={`study-room-card${isActive ? ' is-active' : ''}`}
-                  onClick={() => selectRoom(room)}
-                >
-                  <strong>{room.name}</strong>
-                  <span>{room.tone}</span>
-                  <small>{roomOnline}/{room.capacity} 在线</small>
-                </button>
-              )
-            })}
-          </div>
-          <div className="study-seat-map" aria-label="座位图">
-            {Array.from({ length: seatCount }, (_, index) => {
-              const isUser = index === userSeat
-              const isOccupied = index < occupiedSeats || isUser
-              return (
-                <span
-                  key={index}
-                  className={`study-seat${isUser ? ' is-user' : ''}${isOccupied ? ' is-occupied' : ''}`}
-                  title={isUser ? '我的座位' : isOccupied ? '已入座' : '空座'}
-                />
-              )
-            })}
-          </div>
-          <div className="study-room-tags">
-            {activeRoom.tags.map((tag) => <span key={tag}>{tag}</span>)}
+          <div className="study-classmate-list">
+            <div className="study-classmate-row is-me">
+              <span>{snapshot.nickname.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <strong>{snapshot.nickname}</strong>
+                <small>{snapshot.timerMode === 'focus' ? `${snapshot.focusMinutes}m 专注` : '休息中'}</small>
+              </div>
+              <em>{snapshot.timerState === 'running' ? '在线专注' : snapshot.timerState === 'paused' ? '暂停' : '准备'}</em>
+            </div>
+            {activePeers.length === 0 ? (
+              <div className="study-empty-online">
+                {presence.status === 'online' ? '当前房间还没有其他同学。打开另一个客户端或邀请朋友进入同一房间即可看到真实人数。' : '正在连接在线教室，连接失败时不会显示模拟人数。'}
+              </div>
+            ) : activePeers.map((peer) => (
+              <div className="study-classmate-row" key={peer.clientId}>
+                <span>{peer.nickname.slice(0, 1).toUpperCase()}</span>
+                <div>
+                  <strong>{peer.nickname}</strong>
+                  <small>{peer.timerMode === 'focus' ? `${peer.focusMinutes}m 专注` : '休息中'} · streak {peer.streakDays}</small>
+                </div>
+                <em>{peer.status === 'running' ? '专注中' : peer.status === 'paused' ? '暂停' : '准备'}</em>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -4708,28 +5050,20 @@ function StudySpace() {
             ))}
           </div>
         </section>
-
-        <section className="study-panel study-classmates-panel" aria-label="同学状态">
-          <div className="study-panel-head">
-            <div>
-              <span className="study-kicker"><Coffee size={14} /> 同桌状态</span>
-              <h2>一起自习</h2>
-            </div>
-          </div>
-          <div className="study-classmate-list">
-            {studyClassmates.map((mate, index) => (
-              <div className="study-classmate-row" key={mate.name}>
-                <span>{mate.name.slice(0, 1).toUpperCase()}</span>
-                <div>
-                  <strong>{mate.name}</strong>
-                  <small>{mate.subject}</small>
-                </div>
-                <em>{index % 3 === 1 ? '休息' : mate.status}</em>
-              </div>
-            ))}
-          </div>
-        </section>
       </div>
+      {editingName ? (
+        <div className="study-name-modal-backdrop" role="presentation" onClick={() => setEditingName(false)}>
+          <form className="study-name-modal" onSubmit={saveNickname} onClick={(event) => event.stopPropagation()}>
+            <h2>在线身份</h2>
+            <p>这个昵称只用于自习室 presence 心跳，不会上传任务内容。</p>
+            <input value={nicknameDraft} onChange={(event) => setNicknameDraft(event.target.value)} maxLength={18} autoFocus />
+            <div>
+              <button className="ghost-button" type="button" onClick={() => setEditingName(false)}>取消</button>
+              <button className="primary-button" type="submit">保存</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </section>
   )
 }
