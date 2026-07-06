@@ -18,6 +18,19 @@ import type { AgentLoopStatus } from '../../shared/teaching-types'
 
 export type AgentLoopStopReason = 'final_answer' | 'max_iterations' | 'error' | 'degraded' | 'canceled'
 
+export type AgentLoopUsage = {
+  providerCalls: number
+  toolCalls: number
+  toolErrors: number
+  iterations: number
+}
+
+export type AgentLoopDiagnostic = {
+  kind: 'provider_call' | 'tool_call' | 'tool_result' | 'stop'
+  message?: string
+  data?: Record<string, string | number | boolean | null | undefined>
+}
+
 export type AgentLoopEvent =
   | { type: 'status'; status: AgentLoopStatus; message?: string }
   | { type: 'assistant_message'; message: ChatMessage }

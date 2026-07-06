@@ -112,7 +112,7 @@ async function buildRestrictedWeChatFetchPayload(opts: {
   })
 }
 
-function assertSafeUrl(input: string): string {
+export function assertSafeUrl(input: string): string {
   let url: URL
   try {
     url = new URL(input)
