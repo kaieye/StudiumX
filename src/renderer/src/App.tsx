@@ -6338,18 +6338,43 @@ function StudySpace() {
               </button>
             </div>
           </div>
-          <div className="study-online-summary" aria-label="实时在线摘要">
-            <div>
-              <strong>{online}</strong>
-              <span>本房间在线</span>
+          <div className={`study-room-board is-${presence.status}${latestRemotePeer ? ' has-peer' : ''}`} aria-label="房间状态板">
+            <div className="study-room-board-head">
+              <span>{liveLineCode}</span>
+              <div>
+                <strong>{liveLineText}</strong>
+                <small>{liveLineMeta}</small>
+              </div>
             </div>
-            <div>
-              <strong>{spaceOnline}</strong>
-              <span>本空间在线</span>
+            <div className="study-room-board-grid">
+              <div>
+                <span>我的席位</span>
+                <strong>{formatStudySeatLabel(userSeat)}</strong>
+                <small>{studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}</small>
+              </div>
+              <div>
+                <span>远端心跳</span>
+                <strong>{remoteFreshCount}/{remoteOnline}</strong>
+                <small>{formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow)}</small>
+              </div>
+              <div>
+                <span>房间容量</span>
+                <strong>{online}/{activeRoom.capacity}</strong>
+                <small>空间 {spaceOnline} 人</small>
+              </div>
+              <div>
+                <span>同步房间</span>
+                <strong>{topicTail}</strong>
+                <small>{relayHealthLabel}</small>
+              </div>
             </div>
-            <div>
-              <strong>{remoteOnline}</strong>
-              <span>远端同学</span>
+            <div className="study-room-board-roster" aria-label="房间席位头像">
+              {roomMembers.slice(0, 8).map((member) => (
+                <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${member.nickname} · ${formatStudySeatLabel(member.seatIndex)} · ${studyMemberFreshnessLabel(member, roomCycleNow)}`}>
+                  {member.isSelf ? '我' : member.nickname.slice(0, 1).toUpperCase()}
+                </span>
+              ))}
+              {remoteOnline === 0 ? <em>等待远端同桌</em> : null}
             </div>
           </div>
           <div className="study-classmate-list">

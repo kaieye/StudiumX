@@ -62,6 +62,14 @@ try {
   assert.match(result.clientB.heroPulseText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client hero should describe the remote peer seat and status')
   assert.deepEqual(result.clientA.heroPulseStats, ['0 专注', '1/1 心跳', '2/36'], 'first client hero should show real focus, heartbeat, and capacity stats')
   assert.deepEqual(result.clientB.heroPulseStats, ['0 专注', '1/1 心跳', '2/36'], 'second client hero should show real focus, heartbeat, and capacity stats')
+  assert.equal(result.clientA.boardCode, 'PEER', 'first client room board should surface the remote peer heartbeat')
+  assert.equal(result.clientB.boardCode, 'PEER', 'second client room board should surface the remote peer heartbeat')
+  assert.match(result.clientA.boardText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'first client room board should describe the remote peer seat and status')
+  assert.match(result.clientB.boardText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client room board should describe the remote peer seat and status')
+  assert.deepEqual(result.clientA.boardValues.slice(1, 3), ['1/1', '2/36'], 'first client room board should show real heartbeat and capacity values')
+  assert.deepEqual(result.clientB.boardValues.slice(1, 3), ['1/1', '2/36'], 'second client room board should show real heartbeat and capacity values')
+  assert.equal(result.clientA.boardRosterCount, 2, 'first client room board roster should include local and remote sessions')
+  assert.equal(result.clientB.boardRosterCount, 2, 'second client room board roster should include local and remote sessions')
   assert.notEqual(result.clientA.sessionId, result.clientB.sessionId, 'clients should use distinct session identities')
 
   console.log(`study presence live ok: ${result.spaceCode}`)
@@ -160,6 +168,10 @@ async function readStudyPresence(client) {
         heroPulseCode: q('.study-hero-livebar > span')?.textContent?.trim() ?? '',
         heroPulseText: q('.study-hero-livebar strong')?.textContent?.trim() ?? '',
         heroPulseStats: [...document.querySelectorAll('.study-hero-livebar small')].map((node) => node.textContent.trim()),
+        boardCode: q('.study-room-board-head > span')?.textContent?.trim() ?? '',
+        boardText: q('.study-room-board-head strong')?.textContent?.trim() ?? '',
+        boardValues: [...document.querySelectorAll('.study-room-board-grid strong')].map((node) => node.textContent.trim()),
+        boardRosterCount: document.querySelectorAll('.study-room-board-roster span').length,
         counts: [...document.querySelectorAll('.study-arrival-counts strong')].map((node) => node.textContent.trim()),
         remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌'),
         sessionId: proofText.match(/会话身份([A-Z0-9]+)/)?.[1] ?? '',
