@@ -5204,6 +5204,12 @@ function StudySpace() {
     ? activeSignalMix.map((signal) => `${signal.label} ${signal.count}`).join('、')
     : `${studySignalLabel(snapshot.signalId)} 1`
   const remoteFreshCount = activePeers.filter((peer) => roomCycleNow - peer.updatedAt <= STUDY_PRESENCE_PEER_TTL_MS).length
+  const topicTail = presence.topic.split('/').slice(-2).join('/')
+  const relayHealthLabel = presence.status === 'online'
+    ? '在线同步'
+    : presence.status === 'connecting'
+      ? '连接中'
+      : '离线模式'
   const presenceProofRows = [
     { label: '本机心跳', value: formatStudyPresenceAge(presence.lastHeartbeatAt, roomCycleNow) },
     { label: '最近远端', value: formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow) },
@@ -5645,55 +5651,66 @@ function StudySpace() {
         </div>
       </div>
 
-      <section className="study-lobby" aria-label="房间大厅">
-        <div className="study-lobby-card study-lobby-pass">
-          <div className="study-lobby-head">
-            <span className="study-kicker"><KeyRound size={14} /> Room pass</span>
-            <strong>{snapshot.spaceCode}</strong>
+      <section className="study-arrival" aria-label="在线自习室入场台">
+        <div className="study-arrival-live">
+          <div className="study-arrival-head">
+            <div>
+              <span className="study-kicker"><Users size={14} /> Verified presence</span>
+              <h2>在线人数可验证</h2>
+            </div>
+            <span className={`study-relay-badge is-${presence.status}`}>{relayHealthLabel}</span>
           </div>
-          <p>{snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '当前在公共大厅。新建私密空间后，只把空间码发给要一起自习的人。' : inviteHint}</p>
-          <div className="study-lobby-actions">
-            <button type="button" onClick={createSpace}>
-              <Lock size={14} />
-              新建私密空间
+          <div className="study-arrival-counts">
+            <div>
+              <strong>{online}</strong>
+              <span>本房间在线</span>
+            </div>
+            <div>
+              <strong>{spaceOnline}</strong>
+              <span>本空间在线</span>
+            </div>
+            <div>
+              <strong>{remoteOnline}</strong>
+              <span>远端会话</span>
+            </div>
+          </div>
+          <div className="study-arrival-proof">
+            <span>{topicTail}</span>
+            <strong>{connectionDetail}</strong>
+          </div>
+          <div className="study-arrival-actions">
+            <button type="button" onClick={openVerificationWindow}>
+              <ExternalLink size={14} />
+              {verifyOpenState === 'opened' ? '验证窗口已打开' : verifyOpenState === 'blocked' ? '窗口被拦截' : '打开验证窗口'}
             </button>
             <button type="button" onClick={() => void copyInvite()}>
               <Copy size={14} />
               {copyState === 'copied' ? '已复制邀请' : '复制邀请'}
             </button>
+            <button type="button" onClick={createSpace}>
+              <Lock size={14} />
+              新建私密空间
+            </button>
           </div>
-          <div className="study-lobby-link" title={inviteUrl}>
+          <div className="study-arrival-link" title={inviteUrl}>
             <LinkIcon size={13} />
             <span>{inviteUrl}</span>
           </div>
         </div>
-        <div className="study-lobby-card">
-          <div className="study-lobby-head">
-            <span className="study-kicker"><Users size={14} /> Live room</span>
-            <strong>{online}/{activeRoom.capacity}</strong>
+
+        <div className="study-arrival-focus">
+          <div className="study-arrival-head">
+            <div>
+              <span className="study-kicker"><Timer size={14} /> Room rhythm</span>
+              <h2>{roomCycle.phase === 'focus' ? '同频专注中' : '同步休息中'}</h2>
+            </div>
+            <strong className="study-arrival-clock">{formatStudyDuration(roomCycle.remainingSeconds)}</strong>
           </div>
-          <div className="study-lobby-meter" aria-hidden="true">
+          <p>第 {roomCycle.round} 轮，下一段是{roomCycle.nextLabel}。当前目标：{contractDisplay}</p>
+          <div className="study-arrival-meter" aria-hidden="true">
             <span style={{ width: `${Math.min(100, Math.round((online / activeRoom.capacity) * 100))}%` }} />
           </div>
-          <p>{presence.status === 'online' ? `远端同学 ${remoteOnline} 人，整个空间 ${spaceOnline} 人在线。` : connectionDetail}</p>
-          <form className="study-lobby-join" onSubmit={joinSpace}>
-            <input
-              value={spaceDraft}
-              onChange={(event) => setSpaceDraft(event.target.value)}
-              placeholder="输入空间码"
-              aria-label="大厅加入空间码"
-              maxLength={18}
-            />
-            <button type="submit">加入</button>
-          </form>
-        </div>
-        <div className="study-lobby-card study-lobby-start">
-          <div className="study-lobby-head">
-            <span className="study-kicker"><Timer size={14} /> Start ritual</span>
-            <strong>{roomCycle.phase === 'focus' ? '同频专注' : '同步休息'}</strong>
-          </div>
-          <p>房间第 {roomCycle.round} 轮，{formatStudyDuration(roomCycle.remainingSeconds)} 后进入{roomCycle.nextLabel}。</p>
-          <div className="study-lobby-actions">
+          <div className="study-arrival-actions">
             <button type="button" onClick={followRoomCycle}>
               <RefreshCw size={14} />
               跟随房间
@@ -5703,14 +5720,48 @@ function StudySpace() {
               沉浸开始
             </button>
           </div>
+          <form className="study-arrival-join" onSubmit={joinSpace}>
+            <input
+              value={spaceDraft}
+              onChange={(event) => setSpaceDraft(event.target.value)}
+              placeholder={`加入空间 ${snapshot.spaceCode}`}
+              aria-label="加入在线自习空间码"
+              maxLength={18}
+            />
+            <button type="submit">加入空间</button>
+          </form>
         </div>
-        <div className="study-lobby-card study-lobby-relay">
-          <div className="study-lobby-head">
-            <span className="study-kicker"><GitBranch size={14} /> Network relay</span>
-            <strong>{connectionLabel}</strong>
+
+        <div className="study-arrival-rooms">
+          <div className="study-arrival-head">
+            <div>
+              <span className="study-kicker"><DoorOpen size={14} /> Rooms</span>
+              <h2>选择房间</h2>
+            </div>
+            <span>{snapshot.spaceCode}</span>
           </div>
-          <p>当前通过 {presence.relay} 同步 presence、事件流和房间人数；可以切到团队自建 MQTT WebSocket relay。</p>
-          <form className="study-relay-form" onSubmit={saveRelayUrl}>
+          <div className="study-arrival-room-grid">
+            {studyRooms.map((room) => {
+              const roomCycleInfo = getStudyRoomCycle(room, roomCycleNow)
+              const roomOnline = allRoomPeers[room.id]
+              const roomFocusing = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id && peer.status === 'running' && peer.timerMode === 'focus').length
+                + (snapshot.roomId === room.id && snapshot.timerState === 'running' && snapshot.timerMode === 'focus' ? 1 : 0)
+              const isActive = snapshot.roomId === room.id
+              return (
+                <button
+                  className={`study-arrival-room${isActive ? ' is-active' : ''}`}
+                  key={room.id}
+                  type="button"
+                  onClick={() => selectRoom(room)}
+                >
+                  <strong>{room.name}</strong>
+                  <span>{roomOnline}/{room.capacity} · {roomFocusing} 专注 · {roomCycleInfo.phase === 'focus' ? '专注' : '休息'} {formatStudyDuration(roomCycleInfo.remainingSeconds)}</span>
+                </button>
+              )
+            })}
+          </div>
+          <form className="study-arrival-relay" onSubmit={saveRelayUrl}>
+            <GitBranch size={14} />
             <input
               value={relayDraft}
               onChange={(event) => setRelayDraft(event.target.value)}
@@ -5720,44 +5771,6 @@ function StudySpace() {
             <button type="submit">连接</button>
             <button type="button" onClick={resetRelayUrl}>默认</button>
           </form>
-        </div>
-      </section>
-
-      <section className="study-room-directory" aria-label="实时房间目录">
-        <div className="study-directory-head">
-          <div>
-            <span className="study-kicker"><DoorOpen size={14} /> Rooms</span>
-            <h2>选择一个真实在线房间</h2>
-          </div>
-          <span>{snapshot.spaceCode} · {spaceOnline} 人在这个空间</span>
-        </div>
-        <div className="study-directory-grid">
-          {studyRooms.map((room) => {
-            const roomCycleInfo = getStudyRoomCycle(room, roomCycleNow)
-            const roomOnline = allRoomPeers[room.id]
-            const roomFocusing = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id && peer.status === 'running' && peer.timerMode === 'focus').length
-              + (snapshot.roomId === room.id && snapshot.timerState === 'running' && snapshot.timerMode === 'focus' ? 1 : 0)
-            const isActive = snapshot.roomId === room.id
-            return (
-              <article className={`study-directory-card${isActive ? ' is-active' : ''}`} key={room.id}>
-                <div className="study-directory-card-head">
-                  <strong>{room.name}</strong>
-                  <span>{roomOnline}/{room.capacity}</span>
-                </div>
-                <p>{room.tone}</p>
-                <div className="study-directory-meter" aria-hidden="true">
-                  <span style={{ width: `${Math.min(100, Math.round((roomOnline / room.capacity) * 100))}%` }} />
-                </div>
-                <div className="study-directory-meta">
-                  <span>{roomCycleInfo.phase === 'focus' ? '专注' : '休息'} · {formatStudyDuration(roomCycleInfo.remainingSeconds)}</span>
-                  <span>{roomFocusing} 人专注中</span>
-                </div>
-                <button type="button" onClick={() => selectRoom(room)}>
-                  {isActive ? '当前房间' : '进入房间'}
-                </button>
-              </article>
-            )
-          })}
         </div>
       </section>
 
