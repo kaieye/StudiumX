@@ -14,6 +14,8 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
+  Coffee,
+  DoorOpen,
   Eye,
   EyeOff,
   ExternalLink,
@@ -38,10 +40,12 @@ import {
   MoreHorizontal,
   PanelLeft,
   Palette,
+  Pause,
   Pin,
   PinOff,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   ShieldCheck,
@@ -50,6 +54,10 @@ import {
   Star,
   Square,
   Sun,
+  Target,
+  Timer,
+  Trophy,
+  Users,
   Play,
   SendHorizontal,
   Upload,
@@ -172,6 +180,33 @@ type ResourcePreviewFile = {
   html: string
 }
 
+type StudyTimerMode = 'focus' | 'break'
+type StudyTimerState = 'idle' | 'running' | 'paused'
+type StudyRoomId = 'silent' | 'sprint' | 'deep' | 'exam'
+
+type StudyTask = {
+  id: string
+  title: string
+  done: boolean
+}
+
+type StudySnapshot = {
+  roomId: StudyRoomId
+  timerMode: StudyTimerMode
+  timerState: StudyTimerState
+  focusMinutes: number
+  breakMinutes: number
+  remainingSeconds: number
+  todayFocusSeconds: number
+  todaySessions: number
+  totalFocusSeconds: number
+  totalSessions: number
+  streakDays: number
+  xp: number
+  lastStudyDate: string
+  tasks: StudyTask[]
+}
+
 type LessonGenerationOptions = {
   prompt?: string
   messages?: AgentChatMessage[]
@@ -271,7 +306,8 @@ type StoreState = {
 
 const navItems = [
   { id: 'overview', icon: Bot },
-  { id: 'resources', icon: LibraryBig }
+  { id: 'resources', icon: LibraryBig },
+  { id: 'studio', icon: DoorOpen }
 ] satisfies Array<{ id: WorkspaceView; icon: LucideIcon }>
 
 const defaultRuntime: TeachingRuntimeState = {
@@ -496,6 +532,203 @@ function webSearchBackendLabel(backend: WebSearchBackend): string {
 function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
   const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number }
   return Boolean(nativeEvent.isComposing || nativeEvent.keyCode === 229)
+}
+
+const STUDY_SPACE_STORAGE_KEY = 'teachos:study-space:v1'
+const STUDY_DAY_MS = 24 * 60 * 60 * 1000
+
+const defaultStudySnapshot: StudySnapshot = {
+  roomId: 'silent',
+  timerMode: 'focus',
+  timerState: 'idle',
+  focusMinutes: 25,
+  breakMinutes: 5,
+  remainingSeconds: 25 * 60,
+  todayFocusSeconds: 0,
+  todaySessions: 0,
+  totalFocusSeconds: 0,
+  totalSessions: 0,
+  streakDays: 0,
+  xp: 0,
+  lastStudyDate: '',
+  tasks: [
+    { id: 'reading', title: '整理下一节课的重点', done: false },
+    { id: 'review', title: '复盘一组检索练习', done: false }
+  ]
+}
+
+const studyRooms: Array<{
+  id: StudyRoomId
+  name: string
+  tone: string
+  capacity: number
+  baseOnline: number
+  sessionMinutes: number
+  breakMinutes: number
+  tags: string[]
+  seats: number
+}> = [
+  {
+    id: 'silent',
+    name: '静音自习室',
+    tone: '稳定长坐',
+    capacity: 180,
+    baseOnline: 96,
+    sessionMinutes: 25,
+    breakMinutes: 5,
+    tags: ['课程预习', '笔记整理', '轻专注'],
+    seats: 18
+  },
+  {
+    id: 'sprint',
+    name: '冲刺教室',
+    tone: '限时推进',
+    capacity: 120,
+    baseOnline: 72,
+    sessionMinutes: 45,
+    breakMinutes: 10,
+    tags: ['作业收尾', '限时刷题', '高效率'],
+    seats: 16
+  },
+  {
+    id: 'deep',
+    name: '深度学习舱',
+    tone: '少打断',
+    capacity: 80,
+    baseOnline: 48,
+    sessionMinutes: 90,
+    breakMinutes: 15,
+    tags: ['论文阅读', '项目推进', '长周期'],
+    seats: 12
+  },
+  {
+    id: 'exam',
+    name: '考试模拟间',
+    tone: '闭卷节奏',
+    capacity: 100,
+    baseOnline: 58,
+    sessionMinutes: 50,
+    breakMinutes: 10,
+    tags: ['真题训练', '倒计时', '复盘'],
+    seats: 20
+  }
+]
+
+const studyClassmates = [
+  { name: '林同学', subject: '线性代数', status: '专注 42m' },
+  { name: 'Mia', subject: 'Academic Writing', status: '休息 03m' },
+  { name: '周同学', subject: '操作系统', status: '专注 18m' },
+  { name: 'Alex', subject: 'Algorithms', status: '专注 67m' },
+  { name: '予安', subject: '英语听力', status: '整理笔记' },
+  { name: 'Noah', subject: 'Chemistry', status: '专注 25m' }
+]
+
+function todayKey(date = new Date()): string {
+  return date.toISOString().slice(0, 10)
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(max, Math.max(min, value))
+}
+
+function normalizeStudyTasks(input: unknown): StudyTask[] {
+  if (!Array.isArray(input)) return defaultStudySnapshot.tasks
+  const tasks = input
+    .filter((item): item is Partial<StudyTask> => Boolean(item) && typeof item === 'object')
+    .map((item, index) => ({
+      id: typeof item.id === 'string' && item.id ? item.id : `task-${index}`,
+      title: typeof item.title === 'string' ? item.title.trim().slice(0, 80) : '',
+      done: Boolean(item.done)
+    }))
+    .filter((item) => item.title)
+    .slice(0, 8)
+  return tasks.length > 0 ? tasks : defaultStudySnapshot.tasks
+}
+
+function normalizeStudySnapshot(input: unknown): StudySnapshot {
+  const raw = input && typeof input === 'object' ? input as Partial<StudySnapshot> : {}
+  const roomId = studyRooms.some((room) => room.id === raw.roomId) ? raw.roomId as StudyRoomId : defaultStudySnapshot.roomId
+  const timerMode = raw.timerMode === 'break' ? 'break' : 'focus'
+  const focusMinutes = clampNumber(raw.focusMinutes, 5, 120, defaultStudySnapshot.focusMinutes)
+  const breakMinutes = clampNumber(raw.breakMinutes, 1, 45, defaultStudySnapshot.breakMinutes)
+  const maxRemaining = (timerMode === 'focus' ? focusMinutes : breakMinutes) * 60
+  const lastStudyDate = typeof raw.lastStudyDate === 'string' ? raw.lastStudyDate : ''
+  const isToday = lastStudyDate === todayKey()
+  return {
+    roomId,
+    timerMode,
+    timerState: raw.timerState === 'running' || raw.timerState === 'paused' ? raw.timerState : 'idle',
+    focusMinutes,
+    breakMinutes,
+    remainingSeconds: clampNumber(raw.remainingSeconds, 1, maxRemaining, maxRemaining),
+    todayFocusSeconds: isToday ? clampNumber(raw.todayFocusSeconds, 0, 24 * 60 * 60, 0) : 0,
+    todaySessions: isToday ? clampNumber(raw.todaySessions, 0, 99, 0) : 0,
+    totalFocusSeconds: clampNumber(raw.totalFocusSeconds, 0, 100_000 * 60, 0),
+    totalSessions: clampNumber(raw.totalSessions, 0, 100_000, 0),
+    streakDays: clampNumber(raw.streakDays, 0, 10_000, 0),
+    xp: clampNumber(raw.xp, 0, 1_000_000, 0),
+    lastStudyDate,
+    tasks: normalizeStudyTasks(raw.tasks)
+  }
+}
+
+function readStudySnapshot(): StudySnapshot {
+  try {
+    const stored = window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY)
+    return normalizeStudySnapshot(stored ? JSON.parse(stored) : null)
+  } catch {
+    return defaultStudySnapshot
+  }
+}
+
+function persistStudySnapshot(snapshot: StudySnapshot): void {
+  try {
+    window.localStorage.setItem(STUDY_SPACE_STORAGE_KEY, JSON.stringify(snapshot))
+  } catch {
+    // Study progress should stay usable even when storage is unavailable.
+  }
+}
+
+function formatStudyDuration(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+  const minutes = Math.floor(safeSeconds / 60)
+  const seconds = safeSeconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+function formatStudyHours(totalSeconds: number): string {
+  const hours = totalSeconds / 3600
+  return hours >= 10 ? hours.toFixed(0) : hours.toFixed(1)
+}
+
+function studyRoomOnline(room: typeof studyRooms[number], time: Date): number {
+  const minutes = time.getHours() * 60 + time.getMinutes()
+  const wave = Math.sin((minutes / 1440) * Math.PI * 2 - 0.8)
+  const micro = Math.sin((minutes / 17) + room.baseOnline) * 4
+  const online = Math.round(room.baseOnline + wave * 18 + micro)
+  return Math.min(room.capacity, Math.max(12, online))
+}
+
+function studyLevel(xp: number): { level: number; current: number; next: number; progress: number } {
+  const level = Math.max(1, Math.floor(xp / 120) + 1)
+  const current = xp % 120
+  return { level, current, next: 120, progress: Math.min(100, Math.round((current / 120) * 100)) }
+}
+
+function studyPlantStage(xp: number): string {
+  if (xp >= 720) return '成林'
+  if (xp >= 420) return '开花'
+  if (xp >= 180) return '抽枝'
+  if (xp >= 60) return '发芽'
+  return '种子'
+}
+
+function nextStudyStreak(lastStudyDate: string, currentStreak: number, now = new Date()): number {
+  const today = todayKey(now)
+  if (lastStudyDate === today) return currentStreak || 1
+  const yesterday = new Date(now.getTime() - STUDY_DAY_MS).toISOString().slice(0, 10)
+  return lastStudyDate === yesterday ? currentStreak + 1 : 1
 }
 
 // ================================================================
@@ -4023,6 +4256,10 @@ function MainArea() {
           )}
         </section>
       )}
+
+      {view === 'studio' && (
+        <StudySpace />
+      )}
     </main>
   )
 }
@@ -4147,6 +4384,353 @@ function LessonStyleGallery() {
         })}
       </div>
     </div>
+  )
+}
+
+// ================================================================
+// Study Space
+// ================================================================
+
+function StudySpace() {
+  const showNotification = useAppStore((s) => s.showNotification)
+  const [snapshot, setSnapshot] = useState<StudySnapshot>(() => readStudySnapshot())
+  const [now, setNow] = useState(() => new Date())
+  const [taskInput, setTaskInput] = useState('')
+  const activeRoom = studyRooms.find((room) => room.id === snapshot.roomId) ?? studyRooms[0]
+  const level = studyLevel(snapshot.xp)
+  const online = studyRoomOnline(activeRoom, now)
+  const timerTotalSeconds = (snapshot.timerMode === 'focus' ? snapshot.focusMinutes : snapshot.breakMinutes) * 60
+  const timerProgress = timerTotalSeconds > 0 ? Math.round(((timerTotalSeconds - snapshot.remainingSeconds) / timerTotalSeconds) * 100) : 0
+  const completedTasks = snapshot.tasks.filter((task) => task.done).length
+  const seatCount = activeRoom.seats
+  const occupiedSeats = Math.min(seatCount - 1, Math.max(1, Math.round((online / activeRoom.capacity) * seatCount)))
+  const userSeat = (level.level + snapshot.todaySessions + 2) % seatCount
+  const weeklyFocus = [0.42, 0.66, 0.28, 0.74, 0.54, 0.86, Math.min(1, snapshot.todayFocusSeconds / Math.max(1, snapshot.focusMinutes * 60 * 4))]
+  const badges = [
+    { label: '首个番茄', unlocked: snapshot.totalSessions >= 1 },
+    { label: '稳定三连', unlocked: snapshot.streakDays >= 3 },
+    { label: '十小时', unlocked: snapshot.totalFocusSeconds >= 10 * 3600 },
+    { label: '任务清空', unlocked: snapshot.tasks.length > 0 && completedTasks === snapshot.tasks.length }
+  ]
+
+  useEffect(() => {
+    persistStudySnapshot(snapshot)
+  }, [snapshot])
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 15_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    if (snapshot.timerState !== 'running') return undefined
+    const id = window.setInterval(() => {
+      setSnapshot((current) => {
+        const today = todayKey()
+        const studyingFocus = current.timerMode === 'focus'
+        const streakDays = studyingFocus ? nextStudyStreak(current.lastStudyDate, current.streakDays) : current.streakDays
+        const lastStudyDate = studyingFocus ? today : current.lastStudyDate
+        const todayFocusSeconds = studyingFocus ? current.todayFocusSeconds + 1 : current.todayFocusSeconds
+        const totalFocusSeconds = studyingFocus ? current.totalFocusSeconds + 1 : current.totalFocusSeconds
+
+        if (current.remainingSeconds > 1) {
+          return {
+            ...current,
+            remainingSeconds: current.remainingSeconds - 1,
+            todayFocusSeconds,
+            totalFocusSeconds,
+            streakDays,
+            lastStudyDate
+          }
+        }
+
+        if (current.timerMode === 'focus') {
+          void showNotification('学习空间', `完成 ${current.focusMinutes} 分钟专注，进入休息。`)
+          return {
+            ...current,
+            timerMode: 'break',
+            timerState: 'idle',
+            remainingSeconds: current.breakMinutes * 60,
+            todayFocusSeconds,
+            todaySessions: current.todaySessions + 1,
+            totalFocusSeconds,
+            totalSessions: current.totalSessions + 1,
+            streakDays,
+            xp: current.xp + Math.max(10, current.focusMinutes * 2),
+            lastStudyDate
+          }
+        }
+
+        void showNotification('学习空间', '休息结束，可以开始下一轮专注。')
+        return {
+          ...current,
+          timerMode: 'focus',
+          timerState: 'idle',
+          remainingSeconds: current.focusMinutes * 60
+        }
+      })
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [showNotification, snapshot.timerState])
+
+  const updateTimerPreset = (focusMinutes: number, breakMinutes: number): void => {
+    setSnapshot((current) => ({
+      ...current,
+      focusMinutes,
+      breakMinutes,
+      timerMode: 'focus',
+      timerState: current.timerState === 'running' ? current.timerState : 'idle',
+      remainingSeconds: current.timerState === 'running' ? current.remainingSeconds : focusMinutes * 60
+    }))
+  }
+
+  const selectRoom = (room: typeof studyRooms[number]): void => {
+    setSnapshot((current) => ({
+      ...current,
+      roomId: room.id,
+      focusMinutes: current.timerState === 'running' ? current.focusMinutes : room.sessionMinutes,
+      breakMinutes: current.timerState === 'running' ? current.breakMinutes : room.breakMinutes,
+      remainingSeconds: current.timerState === 'running' ? current.remainingSeconds : room.sessionMinutes * 60,
+      timerMode: current.timerState === 'running' ? current.timerMode : 'focus'
+    }))
+  }
+
+  const toggleTimer = (): void => {
+    setSnapshot((current) => ({
+      ...current,
+      timerState: current.timerState === 'running' ? 'paused' : 'running'
+    }))
+  }
+
+  const resetTimer = (): void => {
+    setSnapshot((current) => ({
+      ...current,
+      timerState: 'idle',
+      remainingSeconds: (current.timerMode === 'focus' ? current.focusMinutes : current.breakMinutes) * 60
+    }))
+  }
+
+  const switchTimerMode = (timerMode: StudyTimerMode): void => {
+    setSnapshot((current) => ({
+      ...current,
+      timerMode,
+      timerState: current.timerState === 'running' ? 'paused' : current.timerState,
+      remainingSeconds: (timerMode === 'focus' ? current.focusMinutes : current.breakMinutes) * 60
+    }))
+  }
+
+  const addTask = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    const title = taskInput.trim()
+    if (!title) return
+    setSnapshot((current) => ({
+      ...current,
+      tasks: [{ id: `${Date.now()}`, title: title.slice(0, 80), done: false }, ...current.tasks].slice(0, 8)
+    }))
+    setTaskInput('')
+  }
+
+  const toggleTask = (taskId: string): void => {
+    setSnapshot((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) => task.id === taskId ? { ...task, done: !task.done } : task)
+    }))
+  }
+
+  const removeDoneTasks = (): void => {
+    setSnapshot((current) => ({
+      ...current,
+      tasks: current.tasks.filter((task) => !task.done)
+    }))
+  }
+
+  return (
+    <section className="study-space" aria-label="学习空间">
+      <div className="study-space-header">
+        <div>
+          <span className="study-eyebrow"><DoorOpen size={14} /> 学习空间</span>
+          <h1>{activeRoom.name}</h1>
+          <p>{activeRoom.tone} · {online}/{activeRoom.capacity} 人在线 · 今日 {formatStudyHours(snapshot.todayFocusSeconds)}h</p>
+        </div>
+        <div className="study-header-stats" aria-label="学习统计">
+          <span><Zap size={15} /> 连续 {snapshot.streakDays} 天</span>
+          <span><Trophy size={15} /> Lv.{level.level}</span>
+          <span><Target size={15} /> {completedTasks}/{snapshot.tasks.length} 任务</span>
+        </div>
+      </div>
+
+      <div className="study-layout">
+        <section className="study-panel study-timer-panel" aria-label="番茄时钟">
+          <div className="study-panel-head">
+            <div>
+              <span className="study-kicker"><Timer size={14} /> 番茄时钟</span>
+              <h2>{snapshot.timerMode === 'focus' ? '专注中' : '休息中'}</h2>
+            </div>
+            <div className="study-mode-switch" role="tablist" aria-label="计时模式">
+              <button type="button" className={snapshot.timerMode === 'focus' ? 'is-active' : ''} onClick={() => switchTimerMode('focus')}>专注</button>
+              <button type="button" className={snapshot.timerMode === 'break' ? 'is-active' : ''} onClick={() => switchTimerMode('break')}>休息</button>
+            </div>
+          </div>
+          <div className="study-timer-face" style={{ '--study-progress': `${timerProgress}%` } as CSSProperties}>
+            <span>{formatStudyDuration(snapshot.remainingSeconds)}</span>
+            <small>{snapshot.timerState === 'running' ? '进行中' : snapshot.timerState === 'paused' ? '已暂停' : '准备好'}</small>
+          </div>
+          <div className="study-timer-actions">
+            <button className="primary-button" type="button" onClick={toggleTimer}>
+              {snapshot.timerState === 'running' ? <Pause size={15} /> : <Play size={15} />}
+              {snapshot.timerState === 'running' ? '暂停' : '开始'}
+            </button>
+            <button className="ghost-button" type="button" onClick={resetTimer}>
+              <RotateCcw size={15} />
+              重置
+            </button>
+          </div>
+          <div className="study-presets" aria-label="专注时长">
+            {[
+              [25, 5],
+              [45, 10],
+              [50, 10],
+              [90, 15]
+            ].map(([focus, rest]) => (
+              <button
+                key={focus}
+                type="button"
+                className={snapshot.focusMinutes === focus && snapshot.breakMinutes === rest ? 'is-active' : ''}
+                onClick={() => updateTimerPreset(focus, rest)}
+              >
+                {focus}/{rest}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="study-panel study-room-panel" aria-label="自习教室">
+          <div className="study-panel-head">
+            <div>
+              <span className="study-kicker"><Users size={14} /> 实时教室</span>
+              <h2>独立教室空间</h2>
+            </div>
+            <span className="study-live-dot">LIVE</span>
+          </div>
+          <div className="study-room-grid">
+            {studyRooms.map((room) => {
+              const roomOnline = studyRoomOnline(room, now)
+              const isActive = room.id === snapshot.roomId
+              return (
+                <button
+                  key={room.id}
+                  type="button"
+                  className={`study-room-card${isActive ? ' is-active' : ''}`}
+                  onClick={() => selectRoom(room)}
+                >
+                  <strong>{room.name}</strong>
+                  <span>{room.tone}</span>
+                  <small>{roomOnline}/{room.capacity} 在线</small>
+                </button>
+              )
+            })}
+          </div>
+          <div className="study-seat-map" aria-label="座位图">
+            {Array.from({ length: seatCount }, (_, index) => {
+              const isUser = index === userSeat
+              const isOccupied = index < occupiedSeats || isUser
+              return (
+                <span
+                  key={index}
+                  className={`study-seat${isUser ? ' is-user' : ''}${isOccupied ? ' is-occupied' : ''}`}
+                  title={isUser ? '我的座位' : isOccupied ? '已入座' : '空座'}
+                />
+              )
+            })}
+          </div>
+          <div className="study-room-tags">
+            {activeRoom.tags.map((tag) => <span key={tag}>{tag}</span>)}
+          </div>
+        </section>
+
+        <section className="study-panel study-task-panel" aria-label="学习任务">
+          <div className="study-panel-head">
+            <div>
+              <span className="study-kicker"><CheckCircle2 size={14} /> 今日清单</span>
+              <h2>学习任务</h2>
+            </div>
+            <button className="study-clear-button" type="button" onClick={removeDoneTasks}>清除完成</button>
+          </div>
+          <form className="study-task-form" onSubmit={addTask}>
+            <input
+              value={taskInput}
+              onChange={(event) => setTaskInput(event.target.value)}
+              placeholder="添加本轮目标"
+              maxLength={80}
+            />
+            <button type="submit" aria-label="添加任务"><Plus size={15} /></button>
+          </form>
+          <div className="study-task-list">
+            {snapshot.tasks.map((task) => (
+              <button
+                key={task.id}
+                type="button"
+                className={`study-task-row${task.done ? ' is-done' : ''}`}
+                onClick={() => toggleTask(task.id)}
+              >
+                <span>{task.done ? <Check size={13} /> : null}</span>
+                <strong>{task.title}</strong>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="study-panel study-growth-panel" aria-label="成长系统">
+          <div className="study-panel-head">
+            <div>
+              <span className="study-kicker"><Star size={14} /> 养成</span>
+              <h2>{studyPlantStage(snapshot.xp)}</h2>
+            </div>
+            <span className="study-xp">{level.current}/{level.next} XP</span>
+          </div>
+          <div className="study-level-track"><span style={{ width: `${level.progress}%` }} /></div>
+          <div className="study-growth-grid">
+            <div><strong>{formatStudyHours(snapshot.totalFocusSeconds)}h</strong><span>累计专注</span></div>
+            <div><strong>{snapshot.totalSessions}</strong><span>完成番茄</span></div>
+            <div><strong>{snapshot.todaySessions}</strong><span>今日轮次</span></div>
+          </div>
+          <div className="study-week-bars" aria-label="一周专注">
+            {weeklyFocus.map((value, index) => (
+              <span key={index}><i style={{ height: `${Math.max(12, Math.round(value * 100))}%` }} /></span>
+            ))}
+          </div>
+          <div className="study-badges">
+            {badges.map((badge) => (
+              <span key={badge.label} className={badge.unlocked ? 'is-unlocked' : ''}>
+                <Trophy size={12} />
+                {badge.label}
+              </span>
+            ))}
+          </div>
+        </section>
+
+        <section className="study-panel study-classmates-panel" aria-label="同学状态">
+          <div className="study-panel-head">
+            <div>
+              <span className="study-kicker"><Coffee size={14} /> 同桌状态</span>
+              <h2>一起自习</h2>
+            </div>
+          </div>
+          <div className="study-classmate-list">
+            {studyClassmates.map((mate, index) => (
+              <div className="study-classmate-row" key={mate.name}>
+                <span>{mate.name.slice(0, 1).toUpperCase()}</span>
+                <div>
+                  <strong>{mate.name}</strong>
+                  <small>{mate.subject}</small>
+                </div>
+                <em>{index % 3 === 1 ? '休息' : mate.status}</em>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </section>
   )
 }
 

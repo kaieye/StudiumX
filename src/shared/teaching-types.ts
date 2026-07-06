@@ -1,4 +1,4 @@
-export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'review' | 'settings'
+export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'studio' | 'review' | 'settings'
 
 export type SettingsSection =
   | 'general'
