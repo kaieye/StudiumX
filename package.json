@@ -19,6 +19,7 @@
     "check:agent-process-dark-theme": "node scripts/check-agent-process-dark-theme.mjs",
     "check:agent-tool-registry": "node scripts/check-agent-tool-registry.mjs",
     "check:agent-loop-baseline": "node scripts/check-agent-loop-baseline.mjs",
+    "check:agent-loop-context-hygiene": "node scripts/check-agent-loop-context-hygiene.mjs",
     "check:agent-loop-empty-final": "node scripts/check-agent-loop-empty-final.mjs",
     "check:dsml-tool-calls": "node scripts/check-dsml-tool-calls.mjs",
     "check:teaching-mode": "node scripts/check-overview-teaching-mode.mjs",

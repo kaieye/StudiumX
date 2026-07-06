@@ -9,6 +9,8 @@ import {
   callProvider,
   toolsSupportedForFormat
 } from './provider-adapter'
+import { ContextEstimator, type TokenEstimate } from './context-estimator'
+import { applyRequestHistoryHygiene } from './request-history-hygiene'
 import type { ToolHandlerMap } from './tools/registry'
 import type {
   TeachingSettingsV1,
@@ -36,6 +38,8 @@ export type AgentLoopEvent =
   | { type: 'assistant_message'; message: ChatMessage }
   | { type: 'tool_call'; toolCall: ToolCall }
   | { type: 'tool_result'; toolCallId: string; name: string; result: string; isError: boolean }
+  | { type: 'context_estimated'; estimate: TokenEstimate }
+  | { type: 'context_hygiene_applied'; changed: boolean; savedTokens: number; compactedToolResults: number; digestedToolResults: number; compactedToolCallArgs: number }
   | { type: 'token'; delta: string }
 
 export type RunAgentLoopOptions = {
@@ -82,6 +86,21 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
   const emit = (e: AgentLoopEvent): void => {
     opts.callbacks?.onEvent?.(e)
   }
+  const estimator = new ContextEstimator()
+  const prepareMessagesForProvider = (messages: ChatMessage[], tools: ToolDefinition[]): ChatMessage[] => {
+    const hygiene = applyRequestHistoryHygiene(messages, {}, estimator)
+    const estimate = estimator.estimateRequest(hygiene.messages, { tools })
+    emit({ type: 'context_estimated', estimate })
+    emit({
+      type: 'context_hygiene_applied',
+      changed: hygiene.changed,
+      savedTokens: hygiene.savedTokens,
+      compactedToolResults: hygiene.stats.compactedToolResults,
+      digestedToolResults: hygiene.stats.digestedToolResults,
+      compactedToolCallArgs: hygiene.stats.compactedToolCallArgs
+    })
+    return hygiene.messages
+  }
   let degradedReason: string | undefined
   let iterations = 0
   const isCanceled = (): boolean => opts.signal?.aborted === true
@@ -106,7 +125,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       const result = await callProvider({
         settings: opts.settings,
         provider: opts.provider,
-        request: legacyRequestFromMessages(transcript),
+        request: legacyRequestFromMessages(prepareMessagesForProvider(transcript, [])),
         signal: opts.signal
       })
       if (isCanceled()) return canceledResult(false)
@@ -149,7 +168,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         settings: opts.settings,
         provider: opts.provider,
         request: {
-          messages: transcript,
+          messages: prepareMessagesForProvider(transcript, opts.tools),
           tools: opts.tools,
           toolChoice: 'auto',
           jsonMode: opts.jsonMode === true
@@ -258,7 +277,12 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     const final = await callChatProvider({
       settings: opts.settings,
       provider: opts.provider,
-      request: { messages: transcript, tools: [], toolChoice: 'none', jsonMode: opts.jsonMode === true },
+      request: {
+        messages: prepareMessagesForProvider(transcript, []),
+        tools: [],
+        toolChoice: 'none',
+        jsonMode: opts.jsonMode === true
+      },
       signal: opts.signal
     })
     if (isCanceled()) return canceledResult(true)
