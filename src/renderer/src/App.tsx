@@ -5138,15 +5138,23 @@ function StudySpace() {
   const roomCycle = getStudyRoomCycle(activeRoom, roomCycleNow)
   useStudyAmbient(snapshot.roomId, snapshot.ambientEnabled, snapshot.ambientVolume)
   const level = studyLevel(snapshot.xp)
-  const activePeers = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === snapshot.roomId)
-  const spacePeers = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode)
+  const presenceOnline = presence.status === 'online'
+  const activePeers = presenceOnline
+    ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === snapshot.roomId)
+    : []
+  const spacePeers = presenceOnline
+    ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode)
+    : []
   const allRoomPeers = studyRooms.reduce<Record<StudyRoomId, number>>((acc, room) => {
-    acc[room.id] = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id).length + (snapshot.roomId === room.id ? 1 : 0)
+    acc[room.id] = presenceOnline
+      ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id).length + (snapshot.roomId === room.id ? 1 : 0)
+      : 0
     return acc
   }, { silent: 0, sprint: 0, deep: 0, exam: 0 })
-  const online = activePeers.length + 1
-  const spaceOnline = spacePeers.length + 1
-  const remoteOnline = activePeers.length
+  const online = presenceOnline ? activePeers.length + 1 : 0
+  const spaceOnline = presenceOnline ? spacePeers.length + 1 : 0
+  const remoteOnline = presenceOnline ? activePeers.length : 0
+  const localSeatLabel = presenceOnline ? `${spaceOnline} 人在 ${snapshot.spaceCode}` : `本机席位 · ${snapshot.spaceCode}`
   const timerTotalSeconds = (snapshot.timerMode === 'focus' ? snapshot.focusMinutes : snapshot.breakMinutes) * 60
   const timerProgress = timerTotalSeconds > 0 ? Math.round(((timerTotalSeconds - snapshot.remainingSeconds) / timerTotalSeconds) * 100) : 0
   const followingRoomCycle = snapshot.timerState === 'running'
@@ -5740,8 +5748,10 @@ function StudySpace() {
             {studyRooms.map((room) => {
               const roomCycleInfo = getStudyRoomCycle(room, roomCycleNow)
               const roomOnline = allRoomPeers[room.id]
-              const roomFocusing = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id && peer.status === 'running' && peer.timerMode === 'focus').length
-                + (snapshot.roomId === room.id && snapshot.timerState === 'running' && snapshot.timerMode === 'focus' ? 1 : 0)
+              const roomFocusing = presenceOnline
+                ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id && peer.status === 'running' && peer.timerMode === 'focus').length
+                  + (snapshot.roomId === room.id && snapshot.timerState === 'running' && snapshot.timerMode === 'focus' ? 1 : 0)
+                : 0
               const isActive = snapshot.roomId === room.id
               return (
                 <button
@@ -5826,7 +5836,7 @@ function StudySpace() {
 
             <div className="study-cinema-seat-deck">
               <div className="study-cinema-seat-head">
-                <span>{spaceOnline} 人在 {snapshot.spaceCode}</span>
+                <span>{localSeatLabel}</span>
                 <strong>{focusingCount} 人专注中 · {signalMixSummary}</strong>
               </div>
               <div className="study-seat-map" aria-label="真实在线座位图">
@@ -6154,9 +6164,9 @@ function StudySpace() {
             <Info size={14} />
             <span>{connectionDetail}</span>
           </div>
-          <div className="study-leaderboard" aria-label="在线专注榜">
+          <div className="study-leaderboard" aria-label="本房间专注榜">
             <div className="study-leaderboard-head">
-              <strong>在线专注榜</strong>
+              <strong>本房间专注榜</strong>
               <span>{roomMembers.length} 人</span>
             </div>
             {roomMembers.slice(0, 5).map((member, index) => (
