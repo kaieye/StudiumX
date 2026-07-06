@@ -4960,6 +4960,7 @@ function StudySpace() {
   const [nicknameDraft, setNicknameDraft] = useState('')
   const [spaceDraft, setSpaceDraft] = useState('')
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [focusTheaterOpen, setFocusTheaterOpen] = useState(false)
   const presence = useStudyPresence(snapshot)
   const activeRoom = studyRooms.find((room) => room.id === snapshot.roomId) ?? studyRooms[0]
   const activeMode = studyModes.find((mode) => mode.id === snapshot.modeId) ?? studyModes[0]
@@ -5065,6 +5066,15 @@ function StudySpace() {
     const id = window.setInterval(() => setRoomCycleNow(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (!focusTheaterOpen) return undefined
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setFocusTheaterOpen(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [focusTheaterOpen])
 
   useEffect(() => {
     if (snapshot.timerState !== 'running') return undefined
@@ -5536,6 +5546,10 @@ function StudySpace() {
               <RotateCcw size={15} />
               重置
             </button>
+            <button className="ghost-button" type="button" onClick={() => setFocusTheaterOpen(true)}>
+              <Maximize2 size={15} />
+              沉浸
+            </button>
           </div>
           <div className="study-presets" aria-label="专注时长">
             {[
@@ -5739,6 +5753,52 @@ function StudySpace() {
           </div>
         </section>
       </div>
+      {focusTheaterOpen ? (
+        <div className={`study-theater is-${snapshot.timerMode}`} role="dialog" aria-modal="true" aria-label="沉浸专注视图">
+          <div className="study-theater-surface">
+            <div className="study-theater-topbar">
+              <div>
+                <span className={`study-presence-pill is-${presence.status}`}>
+                  <span />
+                  {presence.status === 'online' ? `${online} 人在线` : presence.status === 'connecting' ? '连接中' : '离线'}
+                </span>
+                <strong>{activeRoom.name}</strong>
+              </div>
+              <button type="button" aria-label="关闭沉浸视图" onClick={() => setFocusTheaterOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="study-theater-center">
+              <span>{snapshot.timerMode === 'focus' ? 'FOCUS SESSION' : 'RECOVERY'}</span>
+              <strong>{formatStudyDuration(snapshot.remainingSeconds)}</strong>
+              <p>{contractDisplay}</p>
+              <div className="study-theater-progress" aria-hidden="true">
+                <span style={{ width: `${timerProgress}%` }} />
+              </div>
+            </div>
+            <div className="study-theater-bottom">
+              <div className="study-theater-cycle">
+                <span>房间第 {roomCycle.round} 轮</span>
+                <strong>{roomCycle.phase === 'focus' ? '同频专注' : '同步休息'} · {formatStudyDuration(roomCycle.remainingSeconds)}</strong>
+              </div>
+              <div className="study-theater-peers" aria-label="在线同桌">
+                {roomMembers.slice(0, 6).map((member) => (
+                  <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${member.nickname} · ${studyMemberStatusLabel(member.status, member.timerMode)}`}>
+                    {member.nickname.slice(0, 1).toUpperCase()}
+                  </span>
+                ))}
+              </div>
+              <div className="study-theater-actions">
+                <button type="button" onClick={toggleTimer}>
+                  {snapshot.timerState === 'running' ? <Pause size={15} /> : <Play size={15} />}
+                  {snapshot.timerState === 'running' ? '暂停' : '开始'}
+                </button>
+                <button type="button" onClick={followRoomCycle}>同步房间</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {editingName ? (
         <div className="study-name-modal-backdrop" role="presentation" onClick={() => setEditingName(false)}>
           <form className="study-name-modal" onSubmit={saveNickname} onClick={(event) => event.stopPropagation()}>
