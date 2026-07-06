@@ -9464,9 +9464,44 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: minmax(0, 1fr) minmax(300px, 0.64fr);
     grid-template-areas:
       'stage stage'
-      'companion companion'
       'timer mode'
+      'companion companion'
       'tasks growth';
+  }
+
+  .study-companion-panel {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+  }
+
+  .study-companion-panel > .study-panel-head,
+  .study-companion-panel > .study-live-proof {
+    grid-column: 1 / -1;
+  }
+
+  .study-companion-panel > .study-companion-hero,
+  .study-companion-panel > .study-online-summary,
+  .study-companion-panel > .study-room-actions,
+  .study-companion-panel > .study-room-digest,
+  .study-companion-panel > .study-invite-note {
+    grid-column: 1;
+  }
+
+  .study-companion-panel > .study-classmate-list,
+  .study-companion-panel > .study-event-stream,
+  .study-companion-panel > .study-leaderboard {
+    grid-column: 2;
+  }
+
+  .study-companion-panel > .study-classmate-list,
+  .study-companion-panel > .study-room-actions,
+  .study-companion-panel > .study-event-stream,
+  .study-companion-panel > .study-room-digest,
+  .study-companion-panel > .study-invite-note,
+  .study-companion-panel > .study-leaderboard {
+    margin-bottom: 0;
   }
 
   .study-room-stage {
@@ -9540,11 +9575,37 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: 1fr;
     grid-template-areas:
       'stage'
-      'companion'
       'timer'
       'mode'
+      'companion'
       'tasks'
       'growth';
+  }
+
+  .study-companion-panel {
+    display: block;
+  }
+
+  .study-companion-panel > .study-panel-head,
+  .study-companion-panel > .study-live-proof,
+  .study-companion-panel > .study-companion-hero,
+  .study-companion-panel > .study-online-summary,
+  .study-companion-panel > .study-room-actions,
+  .study-companion-panel > .study-room-digest,
+  .study-companion-panel > .study-invite-note,
+  .study-companion-panel > .study-classmate-list,
+  .study-companion-panel > .study-event-stream,
+  .study-companion-panel > .study-leaderboard {
+    grid-column: auto;
+  }
+
+  .study-companion-panel > .study-classmate-list,
+  .study-companion-panel > .study-room-actions,
+  .study-companion-panel > .study-event-stream,
+  .study-companion-panel > .study-room-digest,
+  .study-companion-panel > .study-invite-note,
+  .study-companion-panel > .study-leaderboard {
+    margin-bottom: 14px;
   }
 
   .study-room-stage {
