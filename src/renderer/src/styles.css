@@ -5629,6 +5629,87 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-weight: 760;
 }
 
+.study-presence-test {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid rgba(36, 161, 108, 0.18);
+  border-radius: 17px;
+  background:
+    linear-gradient(135deg, rgba(36, 161, 108, 0.12), rgba(255, 226, 160, 0.18)),
+    rgba(255, 255, 255, 0.58);
+}
+
+.study-presence-test.has-peer {
+  border-color: rgba(36, 161, 108, 0.28);
+  background:
+    linear-gradient(135deg, rgba(36, 161, 108, 0.18), rgba(238, 248, 243, 0.74)),
+    rgba(255, 255, 255, 0.66);
+}
+
+.study-presence-test.is-offline,
+.study-presence-test.is-connecting {
+  border-color: rgba(38, 47, 65, 0.1);
+  background: rgba(249, 250, 246, 0.74);
+}
+
+.study-presence-test > div {
+  min-width: 0;
+}
+
+.study-presence-test strong,
+.study-presence-test p {
+  display: block;
+  margin: 0;
+  min-width: 0;
+}
+
+.study-presence-test strong {
+  margin-top: 4px;
+  overflow: hidden;
+  color: #17201d;
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 860;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-presence-test p {
+  margin-top: 5px;
+  color: rgba(23, 32, 29, 0.62);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.study-presence-test button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 12px;
+  color: #1f1a0b;
+  border: 1px solid rgba(229, 185, 85, 0.34);
+  border-radius: 999px;
+  background: #ffe2a0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 860;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.study-presence-test button:disabled {
+  color: rgba(23, 32, 29, 0.38);
+  border-color: rgba(38, 47, 65, 0.08);
+  background: rgba(255, 255, 255, 0.5);
+  cursor: not-allowed;
+}
+
 .study-arrival-actions {
   display: flex;
   flex-wrap: wrap;
@@ -8984,6 +9065,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     max-width: 100%;
   }
 
+  .study-presence-test {
+    grid-template-columns: 1fr;
+  }
+
+  .study-presence-test button {
+    width: 100%;
+  }
+
   .study-signal-mix-head {
     align-items: stretch;
     flex-direction: column;
@@ -9989,12 +10078,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-arrival-head h2,
 :root[data-resolved-theme="dark"] .study-arrival-clock,
 :root[data-resolved-theme="dark"] .study-arrival-counts strong,
+:root[data-resolved-theme="dark"] .study-presence-test strong,
 :root[data-resolved-theme="dark"] .study-arrival-room strong {
   color: var(--text);
 }
 
 :root[data-resolved-theme="dark"] .study-arrival-counts span,
 :root[data-resolved-theme="dark"] .study-arrival-proof strong,
+:root[data-resolved-theme="dark"] .study-presence-test p,
 :root[data-resolved-theme="dark"] .study-arrival-focus p,
 :root[data-resolved-theme="dark"] .study-arrival-link,
 :root[data-resolved-theme="dark"] .study-arrival-room span {
@@ -10003,6 +10094,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 :root[data-resolved-theme="dark"] .study-arrival-counts div,
 :root[data-resolved-theme="dark"] .study-arrival-proof,
+:root[data-resolved-theme="dark"] .study-presence-test,
 :root[data-resolved-theme="dark"] .study-arrival-link,
 :root[data-resolved-theme="dark"] .study-arrival-join input,
 :root[data-resolved-theme="dark"] .study-arrival-relay input,
@@ -10018,16 +10110,24 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 :root[data-resolved-theme="dark"] .study-arrival-actions button,
 :root[data-resolved-theme="dark"] .study-arrival-join button,
-:root[data-resolved-theme="dark"] .study-arrival-relay button {
+:root[data-resolved-theme="dark"] .study-arrival-relay button,
+:root[data-resolved-theme="dark"] .study-presence-test button {
   color: #d9f4e5;
   border-color: rgba(114, 214, 167, 0.22);
   background: rgba(114, 214, 167, 0.12);
 }
 
-:root[data-resolved-theme="dark"] .study-arrival-actions button:first-child {
+:root[data-resolved-theme="dark"] .study-arrival-actions button:first-child,
+:root[data-resolved-theme="dark"] .study-presence-test button {
   color: #1b1608;
   border-color: rgba(255, 226, 160, 0.42);
   background: #ffe2a0;
+}
+
+:root[data-resolved-theme="dark"] .study-presence-test button:disabled {
+  color: var(--text-muted);
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 :root[data-resolved-theme="dark"] .study-arrival-join input,

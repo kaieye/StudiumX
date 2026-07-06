@@ -5228,6 +5228,16 @@ function StudySpace() {
     : presence.status === 'connecting'
       ? '正在连接公共同步服务，连接前不会用模拟人数填充座位。'
       : '同步服务暂不可用，页面只显示本机状态，不再显示虚假的在线人数。'
+  const liveSessionTitle = remoteOnline > 0
+    ? `已收到 ${remoteOnline} 个远端同桌`
+    : presence.status === 'online'
+      ? '一键验证真实在线人数'
+      : '等待在线教室连接'
+  const liveSessionDetail = remoteOnline > 0
+    ? `最近远端消息 ${formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow)}，超过 ${Math.round(STUDY_PRESENCE_PEER_TTL_MS / 1000)} 秒未心跳会自动下线。`
+    : presence.status === 'online'
+      ? '打开一个独立同桌窗口会使用新的 session 身份，连接成功后本房间在线人数才会增加。'
+      : '连接成功前不会填充模拟同学；你可以保留当前窗口等待同步服务恢复。'
   const inviteHint = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE
     ? '公共大厅不用邀请码；新建空间后可只邀请自己的同学进入。'
     : `把空间码 ${snapshot.spaceCode} 发给同学，对方输入后会进入同一个在线 presence 房间。`
@@ -5653,10 +5663,21 @@ function StudySpace() {
             <span>{topicTail}</span>
             <strong>{connectionDetail}</strong>
           </div>
-          <div className="study-arrival-actions">
-            <button type="button" onClick={openVerificationWindow}>
+          <div className={`study-presence-test is-${presence.status}${remoteOnline > 0 ? ' has-peer' : ''}`}>
+            <div>
+              <span className="study-kicker"><Monitor size={14} /> 在线校验</span>
+              <strong>{liveSessionTitle}</strong>
+              <p>{liveSessionDetail}</p>
+            </div>
+            <button type="button" onClick={openVerificationWindow} disabled={presence.status !== 'online'}>
               <ExternalLink size={14} />
-              {verifyOpenState === 'opened' ? '验证窗口已打开' : verifyOpenState === 'blocked' ? '窗口被拦截' : '打开验证窗口'}
+              {remoteOnline > 0 ? '再开一个同桌' : verifyOpenState === 'opened' ? '已打开同桌窗口' : verifyOpenState === 'blocked' ? '窗口被拦截' : '开同桌窗口'}
+            </button>
+          </div>
+          <div className="study-arrival-actions">
+            <button type="button" onClick={() => void copyPresenceProof()}>
+              <GitBranch size={14} />
+              {proofCopyState === 'copied' ? '已复制证明' : proofCopyState === 'failed' ? '复制失败' : '复制在线证明'}
             </button>
             <button type="button" onClick={() => void copyInvite()}>
               <Copy size={14} />
