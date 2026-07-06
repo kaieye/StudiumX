@@ -5404,6 +5404,44 @@ function StudySpace() {
         </div>
       </section>
 
+      <section className="study-room-directory" aria-label="实时房间目录">
+        <div className="study-directory-head">
+          <div>
+            <span className="study-kicker"><DoorOpen size={14} /> Rooms</span>
+            <h2>选择一个真实在线房间</h2>
+          </div>
+          <span>{snapshot.spaceCode} · {spaceOnline} 人在这个空间</span>
+        </div>
+        <div className="study-directory-grid">
+          {studyRooms.map((room) => {
+            const roomCycleInfo = getStudyRoomCycle(room, roomCycleNow)
+            const roomOnline = allRoomPeers[room.id]
+            const roomFocusing = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id && peer.status === 'running' && peer.timerMode === 'focus').length
+              + (snapshot.roomId === room.id && snapshot.timerState === 'running' && snapshot.timerMode === 'focus' ? 1 : 0)
+            const isActive = snapshot.roomId === room.id
+            return (
+              <article className={`study-directory-card${isActive ? ' is-active' : ''}`} key={room.id}>
+                <div className="study-directory-card-head">
+                  <strong>{room.name}</strong>
+                  <span>{roomOnline}/{room.capacity}</span>
+                </div>
+                <p>{room.tone}</p>
+                <div className="study-directory-meter" aria-hidden="true">
+                  <span style={{ width: `${Math.min(100, Math.round((roomOnline / room.capacity) * 100))}%` }} />
+                </div>
+                <div className="study-directory-meta">
+                  <span>{roomCycleInfo.phase === 'focus' ? '专注' : '休息'} · {formatStudyDuration(roomCycleInfo.remainingSeconds)}</span>
+                  <span>{roomFocusing} 人专注中</span>
+                </div>
+                <button type="button" onClick={() => selectRoom(room)}>
+                  {isActive ? '当前房间' : '进入房间'}
+                </button>
+              </article>
+            )
+          })}
+        </div>
+      </section>
+
       <div className="study-space-overview" aria-label="空间概览">
         <div>
           <span>空间类型</span>
