@@ -5486,7 +5486,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 .study-lobby {
   display: grid;
-  grid-template-columns: 1.1fr 0.95fr 1fr;
+  grid-template-columns: 1.05fr 0.95fr 0.95fr 1.25fr;
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -5528,14 +5528,17 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-lobby-actions,
-.study-lobby-join {
+.study-lobby-join,
+.study-relay-form {
   display: flex;
   gap: 8px;
 }
 
 .study-lobby-actions button,
 .study-lobby-join button,
-.study-lobby-join input {
+.study-lobby-join input,
+.study-relay-form button,
+.study-relay-form input {
   min-height: 34px;
   border: 1px solid rgba(38, 47, 65, 0.1);
   border-radius: 999px;
@@ -5546,7 +5549,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-lobby-actions button,
-.study-lobby-join button {
+.study-lobby-join button,
+.study-relay-form button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5562,6 +5566,13 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   padding: 0 12px;
   color: #17201d;
   text-transform: uppercase;
+}
+
+.study-relay-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  color: #17201d;
 }
 
 .study-lobby-meter {
@@ -7755,13 +7766,16 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   }
 
   .study-lobby-actions,
-  .study-lobby-join {
+  .study-lobby-join,
+  .study-relay-form {
     flex-direction: column;
   }
 
   .study-lobby-actions button,
   .study-lobby-join button,
-  .study-lobby-join input {
+  .study-lobby-join input,
+  .study-relay-form button,
+  .study-relay-form input {
     width: 100%;
   }
 
@@ -8346,6 +8360,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-lobby-actions button,
 :root[data-resolved-theme="dark"] .study-lobby-join button,
 :root[data-resolved-theme="dark"] .study-lobby-join input,
+:root[data-resolved-theme="dark"] .study-relay-form button,
+:root[data-resolved-theme="dark"] .study-relay-form input,
 :root[data-resolved-theme="dark"] .study-room-directory,
 :root[data-resolved-theme="dark"] .study-directory-head > span,
 :root[data-resolved-theme="dark"] .study-directory-card,
@@ -8398,6 +8414,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 :root[data-resolved-theme="dark"] .study-lobby-join input::placeholder {
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .study-relay-form input::placeholder {
   color: var(--text-muted);
 }
 

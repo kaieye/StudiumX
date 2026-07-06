@@ -237,6 +237,7 @@ type StudySnapshot = {
   clientId: string
   nickname: string
   spaceCode: string
+  presenceRelayUrl: string
   modeId: StudyModeId
   contractText: string
   contractLocked: boolean
@@ -598,6 +599,7 @@ const defaultStudySnapshot: StudySnapshot = {
   clientId: '',
   nickname: '',
   spaceCode: STUDY_PUBLIC_SPACE_CODE,
+  presenceRelayUrl: STUDY_PRESENCE_BROKER_URL,
   modeId: 'free',
   contractText: '',
   contractLocked: false,
@@ -798,6 +800,17 @@ function normalizeStudySpaceCode(input: unknown): string {
   return value.length >= 3 ? value : STUDY_PUBLIC_SPACE_CODE
 }
 
+function normalizeStudyRelayUrl(input: unknown): string {
+  if (typeof input !== 'string') return STUDY_PRESENCE_BROKER_URL
+  const value = input.trim().slice(0, 180)
+  if (!/^wss?:\/\/[^\s]+$/i.test(value)) return STUDY_PRESENCE_BROKER_URL
+  return value
+}
+
+function displayStudyRelayUrl(relayUrl: string): string {
+  return relayUrl.replace(/^wss?:\/\//, '')
+}
+
 function randomStudySpaceCode(): string {
   const bytes = new Uint8Array(3)
   if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
@@ -847,6 +860,7 @@ function normalizeStudySnapshot(input: unknown): StudySnapshot {
     clientId,
     nickname,
     spaceCode,
+    presenceRelayUrl: normalizeStudyRelayUrl(raw.presenceRelayUrl),
     modeId,
     contractText: typeof raw.contractText === 'string' ? raw.contractText.trim().slice(0, 120) : '',
     contractLocked: Boolean(raw.contractLocked),
@@ -1085,6 +1099,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
   const socketRef = useRef<WebSocket | null>(null)
   const subscribedRef = useRef(false)
   const activeTopic = studyPresenceTopic(snapshot.spaceCode)
+  const activeRelayUrl = normalizeStudyRelayUrl(snapshot.presenceRelayUrl)
 
   useEffect(() => {
     snapshotRef.current = snapshot
@@ -1127,7 +1142,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
     const connect = (): void => {
       setStatus('connecting')
       subscribedRef.current = false
-      const socket = new WebSocket(STUDY_PRESENCE_BROKER_URL, 'mqtt')
+      const socket = new WebSocket(activeRelayUrl, 'mqtt')
       socket.binaryType = 'arraybuffer'
       socketRef.current = socket
 
@@ -1197,7 +1212,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
       socketRef.current?.close()
       socketRef.current = null
     }
-  }, [activeTopic])
+  }, [activeRelayUrl, activeTopic])
 
   useEffect(() => {
     const socket = socketRef.current
@@ -1239,7 +1254,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
     }
   }
 
-  return { status, peers, events, relay: STUDY_PRESENCE_BROKER_URL.replace(/^wss?:\/\//, ''), sendEvent }
+  return { status, peers, events, relay: displayStudyRelayUrl(activeRelayUrl), sendEvent }
 }
 
 function useStudyAmbient(roomId: StudyRoomId, enabled: boolean, volume: number): void {
@@ -4959,6 +4974,7 @@ function StudySpace() {
   const [editingName, setEditingName] = useState(false)
   const [nicknameDraft, setNicknameDraft] = useState('')
   const [spaceDraft, setSpaceDraft] = useState('')
+  const [relayDraft, setRelayDraft] = useState(snapshot.presenceRelayUrl)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [focusTheaterOpen, setFocusTheaterOpen] = useState(false)
   const presence = useStudyPresence(snapshot)
@@ -5200,6 +5216,18 @@ function StudySpace() {
     setCopyState('idle')
   }
 
+  const saveRelayUrl = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    const relayUrl = normalizeStudyRelayUrl(relayDraft)
+    setRelayDraft(relayUrl)
+    setSnapshot((current) => ({ ...current, presenceRelayUrl: relayUrl }))
+  }
+
+  const resetRelayUrl = (): void => {
+    setRelayDraft(STUDY_PRESENCE_BROKER_URL)
+    setSnapshot((current) => ({ ...current, presenceRelayUrl: STUDY_PRESENCE_BROKER_URL }))
+  }
+
   const copyInvite = async (): Promise<void> => {
     const text = `StudiumX 学习空间：${snapshot.spaceCode}\n教室：${activeRoom.name}\n进入学习空间后输入空间码即可加入同一自习室。`
     try {
@@ -5401,6 +5429,23 @@ function StudySpace() {
               沉浸开始
             </button>
           </div>
+        </div>
+        <div className="study-lobby-card study-lobby-relay">
+          <div className="study-lobby-head">
+            <span className="study-kicker"><GitBranch size={14} /> Network relay</span>
+            <strong>{connectionLabel}</strong>
+          </div>
+          <p>当前通过 {presence.relay} 同步 presence、事件流和房间人数；可以切到团队自建 MQTT WebSocket relay。</p>
+          <form className="study-relay-form" onSubmit={saveRelayUrl}>
+            <input
+              value={relayDraft}
+              onChange={(event) => setRelayDraft(event.target.value)}
+              placeholder={STUDY_PRESENCE_BROKER_URL}
+              aria-label="MQTT WebSocket relay 地址"
+            />
+            <button type="submit">连接</button>
+            <button type="button" onClick={resetRelayUrl}>默认</button>
+          </form>
         </div>
       </section>
 
