@@ -72,6 +72,12 @@ try {
   assert.equal(result.clientB.boardRosterCount, 2, 'second client room board roster should include local and remote sessions')
   assert.equal(result.clientA.arrivalOpen, false, 'first client advanced arrival/settings panel should be collapsed by default')
   assert.equal(result.clientB.arrivalOpen, false, 'second client advanced arrival/settings panel should be collapsed by default')
+  assert.equal(result.clientA.roomSeatCount, 36, 'first client study room should render all live seats')
+  assert.equal(result.clientB.roomSeatCount, 36, 'second client study room should render all live seats')
+  assert.equal(result.clientA.roomAisleCount, 2, 'first client study room should render seat zone aisles')
+  assert.equal(result.clientB.roomAisleCount, 2, 'second client study room should render seat zone aisles')
+  assert.match(result.clientA.roomFrontText, /FOCUS BOARD/, 'first client study room should render a front room board')
+  assert.match(result.clientB.roomFrontText, /FOCUS BOARD/, 'second client study room should render a front room board')
   assert.notEqual(result.clientA.sessionId, result.clientB.sessionId, 'clients should use distinct session identities')
 
   console.log(`study presence live ok: ${result.spaceCode}`)
@@ -175,6 +181,9 @@ async function readStudyPresence(client) {
         boardValues: [...document.querySelectorAll('.study-room-board-grid strong')].map((node) => node.textContent.trim()),
         boardRosterCount: document.querySelectorAll('.study-room-board-roster span').length,
         arrivalOpen: q('.study-arrival')?.open ?? null,
+        roomSeatCount: document.querySelectorAll('.study-seat-room .study-seat').length,
+        roomAisleCount: document.querySelectorAll('.study-seat-room .study-seat-aisle').length,
+        roomFrontText: q('.study-seat-front')?.textContent?.trim() ?? '',
         counts: [...document.querySelectorAll('.study-arrival-counts strong')].map((node) => node.textContent.trim()),
         remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌') || text.includes('1 位远端同学刚刚心跳') || text.includes('1/1 心跳'),
         sessionId: proofText.match(/会话身份([A-Z0-9]+)/)?.[1] ?? '',

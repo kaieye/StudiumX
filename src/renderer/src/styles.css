@@ -7156,6 +7156,52 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-weight: 880;
 }
 
+.study-seat-room {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
+    rgba(7, 10, 12, 0.18);
+}
+
+.study-seat-front {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 0 12px;
+  color: rgba(255, 247, 223, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 13px;
+  background:
+    linear-gradient(90deg, rgba(255, 226, 160, 0.14), rgba(122, 220, 166, 0.12)),
+    rgba(255, 255, 255, 0.06);
+}
+
+.study-seat-front span,
+.study-seat-front strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-seat-front span {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.study-seat-front strong {
+  color: rgba(255, 247, 223, 0.9);
+  font-family: 'Cascadia Code', Consolas, 'SFMono-Regular', monospace;
+  font-size: 11px;
+  font-weight: 860;
+}
+
 .study-cinema .study-seat-map {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 7px;
@@ -7164,6 +7210,32 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+.study-cinema .study-seat-aisle {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+  color: rgba(255, 247, 223, 0.44);
+  font-size: 9px;
+  font-weight: 840;
+}
+
+.study-cinema .study-seat-aisle::before,
+.study-cinema .study-seat-aisle::after {
+  content: '';
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.study-cinema .study-seat-aisle span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .study-cinema .study-seat {
@@ -10424,6 +10496,21 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   .study-cinema .study-seat-map {
     grid-template-columns: repeat(9, minmax(0, 1fr));
     gap: 5px;
+  }
+
+  .study-seat-room {
+    gap: 7px;
+    padding: 7px;
+    border-radius: 15px;
+  }
+
+  .study-seat-front {
+    min-height: 30px;
+    padding: 0 9px;
+  }
+
+  .study-cinema .study-seat-aisle {
+    min-height: 15px;
   }
 
   .study-cinema .study-seat {

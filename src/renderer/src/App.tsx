@@ -72,7 +72,7 @@ import {
 } from 'lucide-react'
 import type { CSSProperties, ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Component, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Component, Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { type Components } from 'react-markdown'
@@ -6082,43 +6082,52 @@ function StudySpace() {
                 </div>
                 <em>{presence.status === 'online' ? `${remoteOnline} 远端` : presence.status === 'connecting' ? '连接中' : '离线'}</em>
               </div>
-              <div className="study-seat-map" aria-label="真实在线座位图">
-                {Array.from({ length: seatCount }, (_, index) => {
-                  const peer = peersBySeat.get(index)
-                  const isUser = index === userSeat
-                  const isOccupied = Boolean(peer) || isUser
-                  const seatLabel = formatStudySeatLabel(index)
-                  const seatNickname = isUser ? snapshot.nickname : peer?.nickname
-                  const seatSignal = isUser ? snapshot.signalId : peer?.signalId
-                  const seatStatus = isUser
-                    ? studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)
-                    : peer
-                      ? studyMemberStatusLabel(peer.status, peer.timerMode)
-                      : '可入座'
-                  const seatFreshness = isUser
-                    ? '本机心跳'
-                    : peer
-                      ? studyMemberFreshnessLabel(peer, roomCycleNow)
-                      : ''
-                  return (
-                    <button
-                      key={index}
-                      type="button"
-                      className={`study-seat${isUser ? ' is-user' : ''}${isOccupied ? ' is-occupied' : ' is-empty'}${peer?.status === 'running' ? ' is-focusing' : ''}`}
-                      title={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)} · ${seatFreshness}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)} · ${seatFreshness}` : `${seatLabel} · 空座，点击入座`}
-                      aria-label={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)} · ${seatFreshness}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)} · ${seatFreshness}` : `${seatLabel} · 空座，点击入座`}
-                      disabled={Boolean(peer) && !isUser}
-                      onClick={() => chooseSeat(index)}
-                    >
-                      <span className="study-seat-avatar" aria-hidden="true">
-                        {isUser ? '我' : peer ? studySignalShortLabel(peer.signalId) : ''}
-                      </span>
-                      <span className="study-seat-label">{seatNickname ?? '空座'}</span>
-                      <span className="study-seat-meta">{seatSignal ? `${studySignalShortLabel(seatSignal)} · ${seatStatus}` : seatStatus}</span>
-                      <small>{String(index + 1).padStart(2, '0')}</small>
-                    </button>
-                  )
-                })}
+              <div className="study-seat-room" aria-label="真实在线座位图">
+                <div className="study-seat-front" aria-hidden="true">
+                  <span>FOCUS BOARD</span>
+                  <strong>{activeRoom.sessionMinutes}/{activeRoom.breakMinutes}</strong>
+                </div>
+                <div className="study-seat-map">
+                  {Array.from({ length: seatCount }, (_, index) => {
+                    const peer = peersBySeat.get(index)
+                    const isUser = index === userSeat
+                    const isOccupied = Boolean(peer) || isUser
+                    const seatLabel = formatStudySeatLabel(index)
+                    const seatNickname = isUser ? snapshot.nickname : peer?.nickname
+                    const seatSignal = isUser ? snapshot.signalId : peer?.signalId
+                    const seatStatus = isUser
+                      ? studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)
+                      : peer
+                        ? studyMemberStatusLabel(peer.status, peer.timerMode)
+                        : '可入座'
+                    const seatFreshness = isUser
+                      ? '本机心跳'
+                      : peer
+                        ? studyMemberFreshnessLabel(peer, roomCycleNow)
+                        : ''
+                    const isAisleStart = index > 0 && index % 12 === 0
+                    return (
+                      <Fragment key={index}>
+                        {isAisleStart ? <div className="study-seat-aisle" aria-hidden="true"><span>{index === 12 ? '中排静音区' : '后排自由区'}</span></div> : null}
+                        <button
+                          type="button"
+                          className={`study-seat${isUser ? ' is-user' : ''}${isOccupied ? ' is-occupied' : ' is-empty'}${peer?.status === 'running' ? ' is-focusing' : ''}`}
+                          title={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)} · ${seatFreshness}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)} · ${seatFreshness}` : `${seatLabel} · 空座，点击入座`}
+                          aria-label={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)} · ${seatFreshness}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)} · ${seatFreshness}` : `${seatLabel} · 空座，点击入座`}
+                          disabled={Boolean(peer) && !isUser}
+                          onClick={() => chooseSeat(index)}
+                        >
+                          <span className="study-seat-avatar" aria-hidden="true">
+                            {isUser ? '我' : peer ? studySignalShortLabel(peer.signalId) : ''}
+                          </span>
+                          <span className="study-seat-label">{seatNickname ?? '空座'}</span>
+                          <span className="study-seat-meta">{seatSignal ? `${studySignalShortLabel(seatSignal)} · ${seatStatus}` : seatStatus}</span>
+                          <small>{String(index + 1).padStart(2, '0')}</small>
+                        </button>
+                      </Fragment>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           </div>
