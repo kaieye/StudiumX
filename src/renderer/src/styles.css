@@ -5505,6 +5505,42 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   cursor: pointer;
 }
 
+.study-room-metrics {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 14px;
+}
+
+.study-room-metrics div {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(48, 59, 68, 0.1);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(16px);
+}
+
+.study-room-metrics strong,
+.study-room-metrics span {
+  display: block;
+}
+
+.study-room-metrics strong {
+  color: #17201d;
+  font-size: 18px;
+  font-weight: 820;
+}
+
+.study-room-metrics span {
+  margin-top: 3px;
+  color: rgba(23, 32, 29, 0.58);
+  font-size: 11px;
+  font-weight: 760;
+}
+
 .study-seat-map {
   position: relative;
   z-index: 1;
@@ -5617,6 +5653,25 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-room-tags {
   position: relative;
   z-index: 1;
+}
+
+.study-room-rules {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.study-room-rules span {
+  display: block;
+  padding: 9px 11px;
+  color: rgba(23, 32, 29, 0.64);
+  border-left: 3px solid rgba(63, 95, 89, 0.42);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.46);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .study-room-tags span,
@@ -5759,6 +5814,106 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: rgba(248, 250, 246, 0.72);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.study-room-feed {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.study-feed-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 9px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 14px;
+  background: rgba(249, 250, 246, 0.84);
+}
+
+.study-feed-row span {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: #3f5f59;
+  border-radius: 8px;
+  background: #eef4ee;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.study-feed-row p {
+  margin: 0;
+  color: rgba(23, 32, 29, 0.66);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.study-leaderboard {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 249, 233, 0.58);
+}
+
+.study-leaderboard-head,
+.study-leader-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.study-leaderboard-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  color: rgba(23, 32, 29, 0.58);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.study-leader-row {
+  min-height: 30px;
+}
+
+.study-leader-row > span {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: #7a5a14;
+  border-radius: 9px;
+  background: rgba(229, 185, 85, 0.22);
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.study-leader-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #17201d;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-leader-row em {
+  color: rgba(23, 32, 29, 0.66);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.study-leader-row.is-me {
+  padding: 4px 6px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .study-name-modal-backdrop {
@@ -6455,6 +6610,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     padding: 12px;
   }
 
+  .study-room-metrics {
+    grid-template-columns: 1fr;
+  }
+
   .study-seat {
     min-height: 44px;
   }
@@ -6839,6 +6998,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-hero h1,
 :root[data-resolved-theme="dark"] .study-stage-topline h2,
 :root[data-resolved-theme="dark"] .study-room-tab strong,
+:root[data-resolved-theme="dark"] .study-room-metrics strong,
+:root[data-resolved-theme="dark"] .study-leader-row strong,
 :root[data-resolved-theme="dark"] .study-name-modal h2 {
   color: var(--text);
 }
@@ -6846,6 +7007,11 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-hero p,
 :root[data-resolved-theme="dark"] .study-hero-meta > span,
 :root[data-resolved-theme="dark"] .study-room-tab span,
+:root[data-resolved-theme="dark"] .study-room-metrics span,
+:root[data-resolved-theme="dark"] .study-room-rules span,
+:root[data-resolved-theme="dark"] .study-feed-row p,
+:root[data-resolved-theme="dark"] .study-leaderboard-head,
+:root[data-resolved-theme="dark"] .study-leader-row em,
 :root[data-resolved-theme="dark"] .study-empty-online,
 :root[data-resolved-theme="dark"] .study-name-modal p {
   color: var(--text-muted);
@@ -6858,6 +7024,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-space-code-form input,
 :root[data-resolved-theme="dark"] .study-space-console button,
 :root[data-resolved-theme="dark"] .study-ambient-control button,
+:root[data-resolved-theme="dark"] .study-room-metrics div,
+:root[data-resolved-theme="dark"] .study-room-rules span,
+:root[data-resolved-theme="dark"] .study-feed-row,
+:root[data-resolved-theme="dark"] .study-leaderboard,
 :root[data-resolved-theme="dark"] .study-room-tab,
 :root[data-resolved-theme="dark"] .study-room-tags span,
 :root[data-resolved-theme="dark"] .study-badges span {
@@ -6872,8 +7042,15 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 :root[data-resolved-theme="dark"] .study-space-console button:hover,
 :root[data-resolved-theme="dark"] .study-name-button:hover,
-:root[data-resolved-theme="dark"] .study-ambient-control button.is-active {
+:root[data-resolved-theme="dark"] .study-ambient-control button.is-active,
+:root[data-resolved-theme="dark"] .study-leader-row.is-me {
   background: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-resolved-theme="dark"] .study-feed-row span,
+:root[data-resolved-theme="dark"] .study-leader-row > span {
+  color: var(--green);
+  background: var(--green-soft);
 }
 
 :root[data-resolved-theme="dark"] .study-ambient-control {

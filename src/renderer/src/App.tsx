@@ -202,6 +202,8 @@ type StudyPresencePeer = {
   status: StudyTimerState
   timerMode: StudyTimerMode
   focusMinutes: number
+  todayFocusSeconds: number
+  todaySessions: number
   streakDays: number
   updatedAt: number
 }
@@ -909,6 +911,8 @@ function normalizePresencePeer(input: unknown): StudyPresencePeer | null {
     status,
     timerMode: raw.timerMode === 'break' ? 'break' : 'focus',
     focusMinutes: clampNumber(raw.focusMinutes, 5, 120, 25),
+    todayFocusSeconds: clampNumber(raw.todayFocusSeconds, 0, 24 * 60 * 60, 0),
+    todaySessions: clampNumber(raw.todaySessions, 0, 99, 0),
     streakDays: clampNumber(raw.streakDays, 0, 10_000, 0),
     updatedAt: clampNumber(raw.updatedAt, 0, Date.now() + 60_000, Date.now())
   }
@@ -946,6 +950,8 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
         status: current.timerState,
         timerMode: current.timerMode,
         focusMinutes: current.focusMinutes,
+        todayFocusSeconds: current.todayFocusSeconds,
+        todaySessions: current.todaySessions,
         streakDays: current.streakDays,
         updatedAt: Date.now()
       })
@@ -1037,6 +1043,8 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
         status: snapshot.timerState,
         timerMode: snapshot.timerMode,
         focusMinutes: snapshot.focusMinutes,
+        todayFocusSeconds: snapshot.todayFocusSeconds,
+        todaySessions: snapshot.todaySessions,
         streakDays: snapshot.streakDays,
         updatedAt: Date.now()
       })))
@@ -4785,6 +4793,41 @@ function StudySpace() {
     { label: '十小时', unlocked: snapshot.totalFocusSeconds >= 10 * 3600 },
     { label: '任务清空', unlocked: snapshot.tasks.length > 0 && completedTasks === snapshot.tasks.length }
   ]
+  const roomMembers = [
+    {
+      clientId: snapshot.clientId,
+      nickname: snapshot.nickname,
+      status: snapshot.timerState,
+      timerMode: snapshot.timerMode,
+      todayFocusSeconds: snapshot.todayFocusSeconds,
+      todaySessions: snapshot.todaySessions,
+      streakDays: snapshot.streakDays,
+      focusMinutes: snapshot.focusMinutes,
+      isSelf: true
+    },
+    ...activePeers.map((peer) => ({
+      ...peer,
+      isSelf: false
+    }))
+  ].sort((left, right) => right.todayFocusSeconds - left.todayFocusSeconds)
+  const roomFocusSeconds = roomMembers.reduce((sum, member) => sum + member.todayFocusSeconds, 0)
+  const roomSessionCount = roomMembers.reduce((sum, member) => sum + member.todaySessions, 0)
+  const focusingCount = roomMembers.filter((member) => member.status === 'running' && member.timerMode === 'focus').length
+  const roomFeed = [
+    `${activeRoom.name} 当前 ${focusingCount} 人正在专注，今日合计 ${formatStudyHours(roomFocusSeconds)}h。`,
+    snapshot.timerState === 'running'
+      ? `${snapshot.nickname} 正在进行 ${snapshot.focusMinutes} 分钟专注轮次。`
+      : `${snapshot.nickname} 已入座，等待开始下一轮。`,
+    completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
+    presence.status === 'online'
+      ? `空间 ${snapshot.spaceCode} 已连接实时 presence。`
+      : '在线 relay 不可用时，只显示本机状态。'
+  ]
+  const roomRules = [
+    snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公共大厅：任何 StudiumX 用户都可进入' : `私密空间：凭 ${snapshot.spaceCode} 加入`,
+    activeRoom.id === 'exam' ? '考试模拟间默认静音，不播放环境音' : `${activeRoom.ambient} 可在右侧开关`,
+    'presence 只广播匿名状态，不上传学习任务内容'
+  ]
 
   useEffect(() => {
     persistStudySnapshot(snapshot)
@@ -5012,6 +5055,20 @@ function StudySpace() {
               {snapshot.nickname}
             </button>
           </div>
+          <div className="study-room-metrics" aria-label="房间状态">
+            <div>
+              <strong>{formatStudyHours(roomFocusSeconds)}h</strong>
+              <span>房间今日专注</span>
+            </div>
+            <div>
+              <strong>{focusingCount}</strong>
+              <span>正在专注</span>
+            </div>
+            <div>
+              <strong>{roomSessionCount}</strong>
+              <span>完成番茄</span>
+            </div>
+          </div>
           <div className="study-seat-map" aria-label="真实在线座位图">
             {Array.from({ length: seatCount }, (_, index) => {
               const peer = activePeers[index > userSeat ? index - 1 : index]
@@ -5046,6 +5103,11 @@ function StudySpace() {
           </div>
           <div className="study-room-tags">
             {activeRoom.tags.map((tag) => <span key={tag}>{tag}</span>)}
+          </div>
+          <div className="study-room-rules" aria-label="房间规则">
+            {roomRules.map((rule, index) => (
+              <span key={index}>{rule}</span>
+            ))}
           </div>
         </section>
 
@@ -5121,6 +5183,27 @@ function StudySpace() {
               <span className="study-kicker"><Coffee size={14} /> 同桌</span>
               <h2>真实在线</h2>
             </div>
+          </div>
+          <div className="study-room-feed" aria-label="房间动态">
+            {roomFeed.map((item, index) => (
+              <div key={index} className="study-feed-row">
+                <span>{index + 1}</span>
+                <p>{item}</p>
+              </div>
+            ))}
+          </div>
+          <div className="study-leaderboard" aria-label="在线专注榜">
+            <div className="study-leaderboard-head">
+              <strong>在线专注榜</strong>
+              <span>{roomMembers.length} 人</span>
+            </div>
+            {roomMembers.slice(0, 5).map((member, index) => (
+              <div className={`study-leader-row${member.isSelf ? ' is-me' : ''}`} key={member.clientId}>
+                <span>{index + 1}</span>
+                <strong>{member.nickname}</strong>
+                <em>{formatStudyHours(member.todayFocusSeconds)}h</em>
+              </div>
+            ))}
           </div>
           <div className="study-classmate-list">
             <div className="study-classmate-row is-me">
