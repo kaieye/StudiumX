@@ -995,6 +995,15 @@ function formatStudyEventTime(createdAt: number): string {
   return `${Math.floor(elapsedSeconds / 3600)} 小时前`
 }
 
+function formatStudyPresenceAge(timestamp: number, nowMs = Date.now()): string {
+  if (!timestamp) return '尚未收到'
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - timestamp) / 1000))
+  if (elapsedSeconds < 5) return '刚刚'
+  if (elapsedSeconds < 60) return `${elapsedSeconds} 秒前`
+  if (elapsedSeconds < 3600) return `${Math.floor(elapsedSeconds / 60)} 分钟前`
+  return `${Math.floor(elapsedSeconds / 3600)} 小时前`
+}
+
 function studyMemberStatusLabel(status: StudyTimerState, timerMode: StudyTimerMode): string {
   if (status === 'running') return timerMode === 'focus' ? '在线专注' : '休息中'
   if (status === 'paused') return '暂停'
@@ -1179,11 +1188,16 @@ function useStudyPresence(snapshot: StudySnapshot): {
   peers: StudyPresencePeer[]
   events: StudyRoomEvent[]
   relay: string
+  topic: string
+  lastHeartbeatAt: number
+  lastRemoteMessageAt: number
   sendEvent: (kind: StudyRoomEventKind, text: string) => void
 } {
   const [status, setStatus] = useState<StudyPresenceStatus>('connecting')
   const [peers, setPeers] = useState<StudyPresencePeer[]>([])
   const [events, setEvents] = useState<StudyRoomEvent[]>([])
+  const [lastHeartbeatAt, setLastHeartbeatAt] = useState(0)
+  const [lastRemoteMessageAt, setLastRemoteMessageAt] = useState(0)
   const snapshotRef = useRef(snapshot)
   const socketRef = useRef<WebSocket | null>(null)
   const subscribedRef = useRef(false)
@@ -1222,6 +1236,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
         updatedAt: Date.now()
       })
       mqttSend(socket, mqttPublishPacket(activeTopic, message))
+      setLastHeartbeatAt(Date.now())
     }
 
     const prunePeers = (): void => {
@@ -1261,11 +1276,13 @@ function useStudyPresence(snapshot: StudySnapshot): {
           const peer = normalizePresencePeer(JSON.parse(publish.message))
           if (peer) {
             if (peer.clientId === snapshotRef.current.clientId) return
+            setLastRemoteMessageAt(Date.now())
             setPeers((current) => [peer, ...current.filter((item) => item.clientId !== peer.clientId)].slice(0, 80))
             return
           }
           const event = normalizeStudyRoomEvent(JSON.parse(publish.message))
           if (!event || event.clientId === snapshotRef.current.clientId) return
+          setLastRemoteMessageAt(Date.now())
           setEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 80))
         } catch {
           // Ignore malformed public relay payloads.
@@ -1288,6 +1305,8 @@ function useStudyPresence(snapshot: StudySnapshot): {
     connect()
     setPeers([])
     setEvents([])
+    setLastHeartbeatAt(0)
+    setLastRemoteMessageAt(0)
     heartbeatTimer = window.setInterval(() => {
       const socket = socketRef.current
       if (socket?.readyState === WebSocket.OPEN) mqttSend(socket, new Uint8Array([0xc0, 0x00]))
@@ -1324,6 +1343,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
         streakDays: snapshot.streakDays,
         updatedAt: Date.now()
       })))
+      setLastHeartbeatAt(Date.now())
     }
   }, [activeTopic, snapshot.clientId, snapshot.focusMinutes, snapshot.nickname, snapshot.roomId, snapshot.seatIndex, snapshot.signalId, snapshot.spaceCode, snapshot.streakDays, snapshot.timerMode, snapshot.timerState])
 
@@ -1347,7 +1367,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
     }
   }
 
-  return { status, peers, events, relay: displayStudyRelayUrl(activeRelayUrl), sendEvent }
+  return { status, peers, events, relay: displayStudyRelayUrl(activeRelayUrl), topic: activeTopic, lastHeartbeatAt, lastRemoteMessageAt, sendEvent }
 }
 
 function useStudyAmbient(roomId: StudyRoomId, enabled: boolean, volume: number): void {
@@ -5069,6 +5089,7 @@ function StudySpace() {
   const [spaceDraft, setSpaceDraft] = useState('')
   const [relayDraft, setRelayDraft] = useState(snapshot.presenceRelayUrl)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [proofCopyState, setProofCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [focusTheaterOpen, setFocusTheaterOpen] = useState(false)
   const presence = useStudyPresence(snapshot)
   const activeRoom = studyRooms.find((room) => room.id === snapshot.roomId) ?? studyRooms[0]
@@ -5141,6 +5162,13 @@ function StudySpace() {
   const signalMixSummary = activeSignalMix.length > 0
     ? activeSignalMix.map((signal) => `${signal.label} ${signal.count}`).join('、')
     : `${studySignalLabel(snapshot.signalId)} 1`
+  const remoteFreshCount = activePeers.filter((peer) => roomCycleNow - peer.updatedAt <= STUDY_PRESENCE_PEER_TTL_MS).length
+  const presenceProofRows = [
+    { label: '本机心跳', value: formatStudyPresenceAge(presence.lastHeartbeatAt, roomCycleNow) },
+    { label: '最近远端', value: formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow) },
+    { label: '远端新鲜度', value: `${remoteFreshCount}/${remoteOnline}` },
+    { label: 'TTL', value: `${Math.round(STUDY_PRESENCE_PEER_TTL_MS / 1000)} 秒` }
+  ]
   const roomEvents = presence.events
     .filter((event) => event.spaceCode === snapshot.spaceCode && event.roomId === snapshot.roomId)
     .slice(0, 8)
@@ -5378,6 +5406,29 @@ function StudySpace() {
       window.setTimeout(() => setCopyState('idle'), 2200)
     } catch {
       setCopyState('failed')
+    }
+  }
+
+  const copyPresenceProof = async (): Promise<void> => {
+    const text = [
+      `StudiumX live proof`,
+      `space=${snapshot.spaceCode}`,
+      `room=${activeRoom.name}`,
+      `relay=${presence.relay}`,
+      `topic=${presence.topic}`,
+      `status=${presence.status}`,
+      `localHeartbeat=${formatStudyPresenceAge(presence.lastHeartbeatAt, roomCycleNow)}`,
+      `lastRemote=${formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow)}`,
+      `remotePeers=${remoteOnline}`,
+      `freshPeers=${remoteFreshCount}`,
+      `invite=${inviteUrl}`
+    ].join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      setProofCopyState('copied')
+      window.setTimeout(() => setProofCopyState('idle'), 2200)
+    } catch {
+      setProofCopyState('failed')
     }
   }
 
@@ -5989,6 +6040,27 @@ function StudySpace() {
               <strong>{remoteOnline}</strong>
               <span>远端同学</span>
             </div>
+          </div>
+          <div className="study-live-proof" aria-label="在线同步证明">
+            <div className="study-live-proof-head">
+              <div>
+                <span className="study-kicker"><GitBranch size={14} /> Live proof</span>
+                <strong>{presence.topic}</strong>
+              </div>
+              <button type="button" onClick={() => void copyPresenceProof()}>
+                <Copy size={13} />
+                {proofCopyState === 'copied' ? '已复制' : proofCopyState === 'failed' ? '复制失败' : '复制证明'}
+              </button>
+            </div>
+            <div className="study-live-proof-grid">
+              {presenceProofRows.map((row) => (
+                <div key={row.label}>
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                </div>
+              ))}
+            </div>
+            <p>人数只来自当前 topic 的 MQTT 心跳；超过 TTL 的远端同学会自动下线，不再填充虚假座位。</p>
           </div>
           <div className="study-invite-note">
             <Info size={14} />
