@@ -82,6 +82,12 @@ try {
   assert.equal(result.clientB.companionHeroHasDebugCopy, false, 'second client companion hero should not show debug-style fake-user copy')
   assert.equal(result.clientA.visibleTechCopy, false, 'first client default study UI should not expose MQTT/presence/session wording')
   assert.equal(result.clientB.visibleTechCopy, false, 'second client default study UI should not expose MQTT/presence/session wording')
+  assert.equal(result.clientA.roomTabCount, 4, 'first client should render the live room navigator')
+  assert.equal(result.clientB.roomTabCount, 4, 'second client should render the live room navigator')
+  assert.equal(result.clientA.activeRoomTabMeta.includes('2/36'), true, 'first client active room tab should show live occupancy')
+  assert.equal(result.clientB.activeRoomTabMeta.includes('2/36'), true, 'second client active room tab should show live occupancy')
+  assert.match(result.clientA.activeRoomTabCycle, /专注|休息/, 'first client active room tab should show room cycle')
+  assert.match(result.clientB.activeRoomTabCycle, /专注|休息/, 'second client active room tab should show room cycle')
   assert.notEqual(result.clientA.sessionId, result.clientB.sessionId, 'clients should use distinct session identities')
 
   console.log(`study presence live ok: ${result.spaceCode}`)
@@ -196,6 +202,9 @@ async function readStudyPresence(client) {
           '.study-room-board',
           '.study-invite-note'
         ].some((selector) => /\\b(MQTT|presence|session)\\b/i.test(q(selector)?.textContent ?? '')),
+        roomTabCount: document.querySelectorAll('.study-room-tab').length,
+        activeRoomTabMeta: q('.study-room-tab.is-active .study-room-tab-meta')?.textContent?.trim() ?? '',
+        activeRoomTabCycle: q('.study-room-tab.is-active .study-room-tab-cycle')?.textContent?.trim() ?? '',
         counts: [...document.querySelectorAll('.study-arrival-counts strong')].map((node) => node.textContent.trim()),
         remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌') || text.includes('1 位远端同学刚刚心跳') || text.includes('1/1 心跳'),
         sessionId: proofText.match(/会话身份([A-Z0-9]+)/)?.[1] ?? '',

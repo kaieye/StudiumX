@@ -6190,6 +6190,12 @@ function StudySpace() {
           <div className="study-room-strip">
             {studyRooms.map((room) => {
               const isActive = room.id === snapshot.roomId
+              const roomCycleInfo = getStudyRoomCycle(room, roomCycleNow)
+              const roomOnline = allRoomPeers[room.id]
+              const roomFocusing = presenceOnline
+                ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id && peer.status === 'running' && peer.timerMode === 'focus').length
+                  + (snapshot.roomId === room.id && snapshot.timerState === 'running' && snapshot.timerMode === 'focus' ? 1 : 0)
+                : 0
               return (
                 <button
                   key={room.id}
@@ -6198,7 +6204,13 @@ function StudySpace() {
                   onClick={() => selectRoom(room)}
                 >
                   <strong>{room.name}</strong>
-                  <span>{allRoomPeers[room.id]}/{room.capacity}</span>
+                  <span className="study-room-tab-meta">
+                    <em>{roomOnline}/{room.capacity}</em>
+                    <em>{roomFocusing} 专注</em>
+                  </span>
+                  <span className="study-room-tab-cycle">
+                    {roomCycleInfo.phase === 'focus' ? '专注' : '休息'} · {formatStudyDuration(roomCycleInfo.remainingSeconds)}
+                  </span>
                 </button>
               )
             })}
