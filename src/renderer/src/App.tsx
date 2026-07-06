@@ -596,9 +596,14 @@ const STUDY_SPACE_STORAGE_KEY = 'teachos:study-space:v1'
 const STUDY_SPACE_SESSION_CLIENT_KEY = 'teachos:study-space:session-client:v1'
 const STUDY_DAY_MS = 24 * 60 * 60 * 1000
 const STUDY_PRESENCE_BROKER_URL = 'wss://broker.emqx.io:8084/mqtt'
+const STUDY_PRESENCE_RELAY_URLS = [
+  STUDY_PRESENCE_BROKER_URL,
+  'wss://broker.hivemq.com:8884/mqtt'
+]
 const STUDY_PRESENCE_TOPIC_ROOT = 'studiumx/study-space/v1'
 const STUDY_PRESENCE_PEER_TTL_MS = 35_000
 const STUDY_PRESENCE_HEARTBEAT_MS = 10_000
+const STUDY_PRESENCE_CONNECT_TIMEOUT_MS = 6500
 const STUDY_PRESENCE_CLIENT_PREFIX = 'studiumx'
 const STUDY_PUBLIC_SPACE_CODE = 'PUBLIC'
 
@@ -857,6 +862,13 @@ function normalizeStudyRelayUrl(input: unknown): string {
   const value = input.trim().slice(0, 180)
   if (!/^wss?:\/\/[^\s]+$/i.test(value)) return STUDY_PRESENCE_BROKER_URL
   return value
+}
+
+function studyRelayCandidates(primaryRelayUrl: string): string[] {
+  return Array.from(new Set([
+    normalizeStudyRelayUrl(primaryRelayUrl),
+    ...STUDY_PRESENCE_RELAY_URLS.map((relayUrl) => normalizeStudyRelayUrl(relayUrl))
+  ]))
 }
 
 function displayStudyRelayUrl(relayUrl: string): string {
@@ -1238,11 +1250,13 @@ function useStudyPresence(snapshot: StudySnapshot): {
   const [events, setEvents] = useState<StudyRoomEvent[]>([])
   const [lastHeartbeatAt, setLastHeartbeatAt] = useState(0)
   const [lastRemoteMessageAt, setLastRemoteMessageAt] = useState(0)
+  const [relayUrl, setRelayUrl] = useState(() => normalizeStudyRelayUrl(snapshot.presenceRelayUrl))
   const snapshotRef = useRef(snapshot)
   const socketRef = useRef<WebSocket | null>(null)
   const subscribedRef = useRef(false)
   const activeTopic = studyPresenceTopic(snapshot.spaceCode)
   const activeRelayUrl = normalizeStudyRelayUrl(snapshot.presenceRelayUrl)
+  const relayCandidates = useMemo(() => studyRelayCandidates(activeRelayUrl), [activeRelayUrl])
 
   useEffect(() => {
     snapshotRef.current = snapshot
@@ -1253,7 +1267,15 @@ function useStudyPresence(snapshot: StudySnapshot): {
     let reconnectTimer: number | undefined
     let heartbeatTimer: number | undefined
     let pruneTimer: number | undefined
+    let connectTimeout: number | undefined
     let packetId = 1
+
+    const clearConnectTimeout = (): void => {
+      if (connectTimeout) {
+        window.clearTimeout(connectTimeout)
+        connectTimeout = undefined
+      }
+    }
 
     const publishPresence = (): void => {
       const socket = socketRef.current
@@ -1285,14 +1307,21 @@ function useStudyPresence(snapshot: StudySnapshot): {
       setEvents((current) => current.filter((event) => nowMs - event.createdAt <= 2 * 60 * 60 * 1000))
     }
 
-    const connect = (): void => {
+    const connect = (candidateIndex = 0): void => {
+      const candidateRelayUrl = relayCandidates[candidateIndex] ?? relayCandidates[0] ?? activeRelayUrl
       setStatus('connecting')
+      setRelayUrl(candidateRelayUrl)
       subscribedRef.current = false
-      const socket = new WebSocket(activeRelayUrl, 'mqtt')
+      clearConnectTimeout()
+      const socket = new WebSocket(candidateRelayUrl, 'mqtt')
       socket.binaryType = 'arraybuffer'
       socketRef.current = socket
+      connectTimeout = window.setTimeout(() => {
+        if (socket.readyState === WebSocket.CONNECTING) socket.close()
+      }, STUDY_PRESENCE_CONNECT_TIMEOUT_MS)
 
       socket.addEventListener('open', () => {
+        clearConnectTimeout()
         mqttSend(socket, mqttConnectPacket(snapshotRef.current.clientId))
       })
 
@@ -1330,10 +1359,16 @@ function useStudyPresence(snapshot: StudySnapshot): {
       })
 
       socket.addEventListener('close', () => {
+        clearConnectTimeout()
         if (socketRef.current === socket) socketRef.current = null
         subscribedRef.current = false
         setStatus('offline')
-        if (!closed) reconnectTimer = window.setTimeout(connect, 5000)
+        if (!closed) {
+          const nextIndex = candidateIndex + 1
+          const hasNextRelay = nextIndex < relayCandidates.length
+          if (hasNextRelay) setStatus('connecting')
+          reconnectTimer = window.setTimeout(() => connect(hasNextRelay ? nextIndex : 0), hasNextRelay ? 700 : 5000)
+        }
       })
 
       socket.addEventListener('error', () => {
@@ -1359,10 +1394,11 @@ function useStudyPresence(snapshot: StudySnapshot): {
       if (reconnectTimer) window.clearTimeout(reconnectTimer)
       if (heartbeatTimer) window.clearInterval(heartbeatTimer)
       if (pruneTimer) window.clearInterval(pruneTimer)
+      clearConnectTimeout()
       socketRef.current?.close()
       socketRef.current = null
     }
-  }, [activeRelayUrl, activeTopic])
+  }, [activeRelayUrl, activeTopic, relayCandidates])
 
   useEffect(() => {
     const socket = socketRef.current
@@ -1407,7 +1443,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
     }
   }
 
-  return { status, peers, events, relay: displayStudyRelayUrl(activeRelayUrl), topic: activeTopic, lastHeartbeatAt, lastRemoteMessageAt, sendEvent }
+  return { status, peers, events, relay: displayStudyRelayUrl(relayUrl), topic: activeTopic, lastHeartbeatAt, lastRemoteMessageAt, sendEvent }
 }
 
 function useStudyAmbient(roomId: StudyRoomId, enabled: boolean, volume: number): void {
@@ -5777,6 +5813,11 @@ function StudySpace() {
             <button type="submit">连接</button>
             <button type="button" onClick={resetRelayUrl}>默认</button>
           </form>
+          <div className="study-relay-status">
+            <span>当前 relay</span>
+            <strong>{presence.relay}</strong>
+            <em>失败时会自动尝试备用公共 relay。</em>
+          </div>
         </div>
       </section>
 

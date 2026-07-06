@@ -5820,6 +5820,49 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   text-transform: uppercase;
 }
 
+.study-relay-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+  margin-top: 9px;
+  padding: 9px 10px;
+  color: rgba(23, 32, 29, 0.58);
+  border: 1px dashed rgba(63, 95, 89, 0.18);
+  border-radius: 13px;
+  background: rgba(249, 250, 246, 0.66);
+}
+
+.study-relay-status span,
+.study-relay-status strong,
+.study-relay-status em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-relay-status span {
+  color: rgba(23, 32, 29, 0.5);
+  font-size: 10px;
+  font-weight: 840;
+}
+
+.study-relay-status strong {
+  color: #17201d;
+  font-family: 'Cascadia Code', Consolas, 'SFMono-Regular', monospace;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.study-relay-status em {
+  grid-column: 1 / -1;
+  color: rgba(23, 32, 29, 0.5);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 740;
+}
+
 .study-arrival-room-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -9073,6 +9116,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     width: 100%;
   }
 
+  .study-relay-status {
+    grid-template-columns: 1fr;
+  }
+
   .study-signal-mix-head {
     align-items: stretch;
     flex-direction: column;
@@ -10079,6 +10126,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-arrival-clock,
 :root[data-resolved-theme="dark"] .study-arrival-counts strong,
 :root[data-resolved-theme="dark"] .study-presence-test strong,
+:root[data-resolved-theme="dark"] .study-relay-status strong,
 :root[data-resolved-theme="dark"] .study-arrival-room strong {
   color: var(--text);
 }
@@ -10088,6 +10136,9 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-presence-test p,
 :root[data-resolved-theme="dark"] .study-arrival-focus p,
 :root[data-resolved-theme="dark"] .study-arrival-link,
+:root[data-resolved-theme="dark"] .study-relay-status,
+:root[data-resolved-theme="dark"] .study-relay-status span,
+:root[data-resolved-theme="dark"] .study-relay-status em,
 :root[data-resolved-theme="dark"] .study-arrival-room span {
   color: var(--text-muted);
 }
@@ -10096,6 +10147,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-arrival-proof,
 :root[data-resolved-theme="dark"] .study-presence-test,
 :root[data-resolved-theme="dark"] .study-arrival-link,
+:root[data-resolved-theme="dark"] .study-relay-status,
 :root[data-resolved-theme="dark"] .study-arrival-join input,
 :root[data-resolved-theme="dark"] .study-arrival-relay input,
 :root[data-resolved-theme="dark"] .study-arrival-room {
