@@ -1294,6 +1294,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   padding-bottom: 0;
 }
 
+.main-area[data-view='studio'] {
+  background: #f8faf6;
+}
+
+.main-area[data-view='studio'] > .topbar {
+  display: none;
+}
+
 .main-area[data-reading-html='true'] {
   padding: 0;
   position: relative;
