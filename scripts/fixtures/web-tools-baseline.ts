@@ -98,11 +98,12 @@ try {
   assert.equal(searchPayload.query, 'baseline search')
   assert.equal(searchPayload.provider, 'DDGS / DuckDuckGo')
   assert.equal(searchPayload.count, 1)
-  assert.deepEqual(searchPayload.results[0], {
-    title: 'Result & Title',
-    url: 'https://example.com/result?a=1',
-    snippet: 'Snippet & details'
-  })
+  assert.equal(searchPayload.results[0].title, 'Result & Title')
+  assert.equal(searchPayload.results[0].url, 'https://example.com/result?a=1')
+  assert.equal(searchPayload.results[0].snippet, 'Snippet & details')
+  assert.match(searchPayload.results[0].sourceId, /^src_[a-f0-9]+$/)
+  assert.equal(searchPayload.results[0].provider, 'DDGS / DuckDuckGo')
+  assert.ok(Number.isFinite(Date.parse(searchPayload.results[0].retrievedAt)))
   assert.ok(requests.some((url) => url.includes('baseline%20search')), 'query should be encoded into the DDG Lite request')
 
   const missingFetch = JSON.parse(await webFetchTool.handler({}, makeCtx()))

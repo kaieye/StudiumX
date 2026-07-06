@@ -36,6 +36,7 @@
     "check:workspace-import-course": "node scripts/check-workspace-import-course.mjs",
     "check:workspace-markdown": "node scripts/check-workspace-markdown-documents.mjs",
     "check:workspace-removal": "node scripts/check-workspace-removal-state.mjs",
+    "check:search-runtime": "node scripts/check-search-runtime.mjs",
     "check:web-search-providers": "node scripts/check-web-search-providers.mjs",
     "check:web-tools-baseline": "node scripts/check-web-tools-baseline.mjs",
     "check:memory-capture": "node scripts/check-memory-capture.mjs",

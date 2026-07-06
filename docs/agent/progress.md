@@ -9,7 +9,7 @@
 | 文档规划 | 已完成 | `a292a79` | 已拆分 agent 能力设计文档、参考项目映射和路线图。 |
 | 通用 AI 执行 Prompt | 已完成 | `4b9ca0d` | 新增通用模板，要求每次实施后更新进度。 |
 | Phase 0：基线测试与诊断 | 已完成 | `5ffcaa9` | 已补 ToolRegistry、agent loop、web tools 基线 check，并新增基础 usage/diagnostic 类型。 |
-| Phase 1：搜索 runtime 深模块 | 未开始 | - | 依赖搜索专题设计，建议在 Phase 0 后执行。 |
+| Phase 1：搜索 runtime 深模块 | 已完成 | `待提交` | 已抽出 SearchRuntime，搜索/抓取工具改为薄封装，并新增结构化 sources、attempts 和抓取安全测试。 |
 | Phase 2：发送前 context hygiene | 已完成 | `fdf9ea1` | 已新增发送前历史清理、CJK 友好估算和最小诊断事件。 |
 | Phase 3：自动与手动压缩 | 未开始 | - | 依赖 Phase 2 的 estimator/hygiene。 |
 | Phase 4：只读子 agent | 未开始 | - | 建议在 Phase 0 后实施，写入能力延后。 |
@@ -78,6 +78,36 @@
 - `npm run check:web-tools-baseline`
 - `npx tsc --noEmit`
 
+### Phase 1：搜索 runtime 深模块
+
+完成内容：
+
+- 新增 `SearchRuntime`，集中承载搜索 provider dispatch、结构化来源归一化、微信公众号 fallback、抓取正文和诊断边界。
+- 将 `web_search` / `web_fetch` 工具改为薄封装，handler 只做参数校验、调用 runtime 并序列化 JSON。
+- 搜索结果新增 `sourceId`、`retrievedAt`、`provider`，搜索 envelope 新增 `backend`、`attemptedBackends`，同时保留既有 `provider/count/results/attempts` 兼容字段。
+- 抓取结果新增 `sourceId`、`finalUrl`、`contentType`、`truncated`、`attempts`，并使用流式 body 上限，避免先读完整响应再截断。
+- `web_fetch` 安全检查升级为 URL、IPv4、IPv6、CGNAT、云 metadata、DNS 解析结果和重定向目标检查；设置 proxy 时仍先做安全解析。
+- 新增 `check:search-runtime`，覆盖 structured sources、显式后端不可用不 fallback、HTML 提取、长正文截断、重定向到内网拒绝、DNS/proxy 安全边界。
+
+提交：
+
+- `待提交 feat(search): add search runtime and structured sources`
+
+验证：
+
+- `npm run check:search-runtime`
+- `npm run check:web-tools-baseline`
+- `npm run check:web-search-providers`
+- `node scripts/check-wechat-web-tools.mjs`
+- `npm run check:agent-tool-registry`
+- `npm run check:agent-loop-baseline`
+- `npx tsc --noEmit`
+
+剩余风险：
+
+- `npm run check:agent-chat` 仍是 Phase 2 记录的既有失败，本阶段未改临时会话 prompt 文案断言。
+- 搜索 sources 目前仍只写入 tool result JSON，尚未落到 turn metadata 或 UI sources 面板；这属于 Phase 6 的持久化与审计范围。
+
 ### Phase 2：发送前 context hygiene
 
 完成内容：
@@ -112,7 +142,6 @@
 
 ## 未开始
 
-- Phase 1：搜索 runtime 深模块。
 - Phase 3：自动与手动压缩。
 - Phase 4：只读子 agent。
 - Phase 5：并行任务与状态 UI。

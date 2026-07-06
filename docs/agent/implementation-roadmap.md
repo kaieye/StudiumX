@@ -26,7 +26,7 @@
 
 ## Phase 1：搜索 runtime 深模块
 
-状态：未开始。
+状态：已完成。
 
 目标：把搜索 provider 和抓取安全从工具 handler 中抽出来。
 
