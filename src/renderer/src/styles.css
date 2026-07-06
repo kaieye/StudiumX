@@ -6787,6 +6787,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: #f6d776;
 }
 
+.study-cinema-liveline.has-peer > span {
+  color: #10271e;
+  background: #7adca6;
+  box-shadow: 0 0 0 5px rgba(122, 220, 166, 0.14);
+}
+
 .study-cinema-liveline.is-empty > span {
   color: rgba(255, 247, 223, 0.76);
   border: 1px solid rgba(255, 255, 255, 0.14);

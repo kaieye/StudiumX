@@ -46,6 +46,10 @@ try {
   assert.deepEqual(result.clientB.counts, ['2', '2', '1'], 'second client should see one local and one remote session')
   assert.equal(result.clientA.remoteVerified, true, 'first client should show remote verification state')
   assert.equal(result.clientB.remoteVerified, true, 'second client should show remote verification state')
+  assert.equal(result.clientA.liveLineCode, 'PEER', 'first client stage should surface the remote peer heartbeat')
+  assert.equal(result.clientB.liveLineCode, 'PEER', 'second client stage should surface the remote peer heartbeat')
+  assert.match(result.clientA.liveLineText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'first client live line should describe the remote peer seat and status')
+  assert.match(result.clientB.liveLineText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client live line should describe the remote peer seat and status')
   assert.notEqual(result.clientA.sessionId, result.clientB.sessionId, 'clients should use distinct session identities')
 
   console.log(`study presence live ok: ${result.spaceCode}`)
@@ -136,6 +140,8 @@ async function readStudyPresence(client) {
         hasStudy: Boolean(q('.study-space')),
         heading: q('.study-arrival-live h2')?.textContent?.trim() ?? '',
         status: q('.study-relay-badge')?.textContent?.trim() ?? '',
+        liveLineCode: q('.study-cinema-liveline span')?.textContent?.trim() ?? '',
+        liveLineText: q('.study-cinema-liveline p')?.textContent?.trim() ?? '',
         counts: [...document.querySelectorAll('.study-arrival-counts strong')].map((node) => node.textContent.trim()),
         remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌'),
         sessionId: proofText.match(/会话身份([A-Z0-9]+)/)?.[1] ?? '',

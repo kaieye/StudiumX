@@ -5303,11 +5303,42 @@ function StudySpace() {
     .filter((event) => event.spaceCode === snapshot.spaceCode && event.roomId === snapshot.roomId)
     .slice(0, 8)
   const latestRoomEvent = roomEvents[0]
+  const latestRemotePeer = activePeers
+    .slice()
+    .sort((left, right) => right.updatedAt - left.updatedAt)[0]
   const connectionLabel = presence.status === 'online'
     ? '实时在线'
     : presence.status === 'connecting'
       ? '正在连接'
       : '离线模式'
+  const liveLineCode = latestRoomEvent
+    ? latestRoomEvent.kind === 'checkin'
+      ? 'IN'
+      : latestRoomEvent.kind === 'focus_start'
+        ? 'GO'
+        : latestRoomEvent.kind === 'task_done'
+          ? 'OK'
+          : 'UP'
+    : latestRemotePeer
+      ? 'PEER'
+      : presence.status === 'online'
+        ? 'LIVE'
+        : 'SYNC'
+  const liveLineText = latestRoomEvent
+    ? latestRoomEvent.text
+    : latestRemotePeer
+      ? `${latestRemotePeer.nickname} 在 ${formatStudySeatLabel(normalizeStudySeatIndex(latestRemotePeer.seatIndex, latestRemotePeer.roomId, latestRemotePeer.clientId))} · ${studySignalLabel(latestRemotePeer.signalId)} · ${studyMemberStatusLabel(latestRemotePeer.status, latestRemotePeer.timerMode)}`
+      : presence.status === 'online'
+        ? '实时教室已连接，签到或开始专注后会同步到同空间同房间。'
+        : presence.status === 'connecting'
+          ? '正在连接实时教室，连接前不会显示模拟同学。'
+          : '离线模式只保留本机席位，不显示虚假在线动态。'
+  const liveLineMeta = latestRoomEvent
+    ? formatStudyEventTime(latestRoomEvent.createdAt)
+    : latestRemotePeer
+      ? studyMemberFreshnessLabel(latestRemotePeer, roomCycleNow)
+      : connectionLabel
+  const liveLineClass = latestRoomEvent ? ` is-${latestRoomEvent.kind}` : latestRemotePeer ? ' has-peer' : ' is-empty'
   const connectionDetail = presence.status === 'online'
     ? `人数来自当前设备和同空间 MQTT 心跳：本房间 ${online} 人，整个空间 ${spaceOnline} 人。`
     : presence.status === 'connecting'
@@ -5993,10 +6024,10 @@ function StudySpace() {
               ))}
             </div>
 
-            <div className={`study-cinema-liveline${latestRoomEvent ? ` is-${latestRoomEvent.kind}` : ' is-empty'}`} aria-label="房间实时动态">
-              <span>{latestRoomEvent ? latestRoomEvent.kind === 'checkin' ? 'IN' : latestRoomEvent.kind === 'focus_start' ? 'GO' : latestRoomEvent.kind === 'task_done' ? 'OK' : 'UP' : presence.status === 'online' ? 'LIVE' : 'SYNC'}</span>
-              <p>{latestRoomEvent ? latestRoomEvent.text : presence.status === 'online' ? '实时教室已连接，签到或开始专注后会同步到同空间同房间。' : presence.status === 'connecting' ? '正在连接实时教室，连接前不会显示模拟同学。' : '离线模式只保留本机席位，不显示虚假在线动态。'}</p>
-              <em>{latestRoomEvent ? formatStudyEventTime(latestRoomEvent.createdAt) : connectionLabel}</em>
+            <div className={`study-cinema-liveline${liveLineClass}`} aria-label="房间实时动态">
+              <span>{liveLineCode}</span>
+              <p>{liveLineText}</p>
+              <em>{liveLineMeta}</em>
             </div>
 
             <div className="study-cinema-seat-deck">
