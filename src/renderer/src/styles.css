@@ -6676,7 +6676,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   white-space: nowrap;
 }
 
-.study-live-proof-head button {
+.study-live-proof-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.study-live-proof-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -6692,6 +6699,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-weight: 840;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.study-live-proof-actions button:first-child {
+  color: #1f1a0b;
+  border-color: rgba(229, 185, 85, 0.34);
+  background: #ffe2a0;
 }
 
 .study-live-proof-grid {
@@ -8241,7 +8254,11 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     flex-direction: column;
   }
 
-  .study-live-proof-head button {
+  .study-live-proof-actions {
+    flex-direction: column;
+  }
+
+  .study-live-proof-actions button {
     width: 100%;
   }
 
@@ -8861,7 +8878,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-host-actions button,
 :root[data-resolved-theme="dark"] .study-live-proof,
 :root[data-resolved-theme="dark"] .study-live-proof-grid div,
-:root[data-resolved-theme="dark"] .study-live-proof-head button,
+:root[data-resolved-theme="dark"] .study-live-proof-actions button,
 :root[data-resolved-theme="dark"] .study-signal-mix,
 :root[data-resolved-theme="dark"] .study-signal-row > span,
 :root[data-resolved-theme="dark"] .study-room-rules span,
@@ -8900,6 +8917,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 :root[data-resolved-theme="dark"] .study-host-actions button:first-child {
+  color: #1b1608;
+  border-color: rgba(246, 195, 92, 0.34);
+  background: #f6c35c;
+}
+
+:root[data-resolved-theme="dark"] .study-live-proof-actions button:first-child {
   color: #1b1608;
   border-color: rgba(246, 195, 92, 0.34);
   background: #f6c35c;

@@ -939,10 +939,18 @@ function normalizeStudySnapshot(input: unknown): StudySnapshot {
 
 function readStudySessionClientId(): string {
   try {
+    const params = new URLSearchParams(window.location.search)
+    const forceFreshSession = params.get('studyFreshSession') === '1'
     const stored = window.sessionStorage.getItem(STUDY_SPACE_SESSION_CLIENT_KEY)
-    if (stored?.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)) return stored
+    if (!forceFreshSession && stored?.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)) return stored
     const nextClientId = randomStudyClientId()
     window.sessionStorage.setItem(STUDY_SPACE_SESSION_CLIENT_KEY, nextClientId)
+    if (forceFreshSession) {
+      params.delete('studyFreshSession')
+      const search = params.toString()
+      const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`
+      window.history.replaceState(null, '', nextUrl)
+    }
     return nextClientId
   } catch {
     return randomStudyClientId()
@@ -1054,6 +1062,16 @@ function studyInviteUrl(spaceCode: string, roomId: StudyRoomId): string {
     return url.toString()
   } catch {
     return ''
+  }
+}
+
+function studyVerificationUrl(inviteUrl: string): string {
+  try {
+    const url = new URL(inviteUrl)
+    url.searchParams.set('studyFreshSession', '1')
+    return url.toString()
+  } catch {
+    return inviteUrl
   }
 }
 
@@ -5112,6 +5130,7 @@ function StudySpace() {
   const [relayDraft, setRelayDraft] = useState(snapshot.presenceRelayUrl)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [proofCopyState, setProofCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [verifyOpenState, setVerifyOpenState] = useState<'idle' | 'opened' | 'blocked'>('idle')
   const [focusTheaterOpen, setFocusTheaterOpen] = useState(false)
   const presence = useStudyPresence(snapshot)
   const activeRoom = studyRooms.find((room) => room.id === snapshot.roomId) ?? studyRooms[0]
@@ -5453,6 +5472,17 @@ function StudySpace() {
       window.setTimeout(() => setProofCopyState('idle'), 2200)
     } catch {
       setProofCopyState('failed')
+    }
+  }
+
+  const openVerificationWindow = (): void => {
+    const opened = window.open(studyVerificationUrl(inviteUrl), '_blank')
+    if (opened) {
+      opened.focus()
+      setVerifyOpenState('opened')
+      window.setTimeout(() => setVerifyOpenState('idle'), 2200)
+    } else {
+      setVerifyOpenState('blocked')
     }
   }
 
@@ -6071,10 +6101,16 @@ function StudySpace() {
                 <span className="study-kicker"><GitBranch size={14} /> Live proof</span>
                 <strong>{presence.topic}</strong>
               </div>
-              <button type="button" onClick={() => void copyPresenceProof()}>
-                <Copy size={13} />
-                {proofCopyState === 'copied' ? '已复制' : proofCopyState === 'failed' ? '复制失败' : '复制证明'}
-              </button>
+              <div className="study-live-proof-actions">
+                <button type="button" onClick={openVerificationWindow}>
+                  <ExternalLink size={13} />
+                  {verifyOpenState === 'opened' ? '已打开' : verifyOpenState === 'blocked' ? '被拦截' : '打开验证窗口'}
+                </button>
+                <button type="button" onClick={() => void copyPresenceProof()}>
+                  <Copy size={13} />
+                  {proofCopyState === 'copied' ? '已复制' : proofCopyState === 'failed' ? '复制失败' : '复制证明'}
+                </button>
+              </div>
             </div>
             <div className="study-live-proof-grid">
               {presenceProofRows.map((row) => (
