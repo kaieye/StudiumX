@@ -858,6 +858,19 @@ function formatStudyHours(totalSeconds: number): string {
   return hours >= 10 ? hours.toFixed(0) : hours.toFixed(1)
 }
 
+function formatStudyEventTime(createdAt: number): string {
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000))
+  if (elapsedSeconds < 45) return '刚刚'
+  if (elapsedSeconds < 3600) return `${Math.floor(elapsedSeconds / 60)} 分钟前`
+  return `${Math.floor(elapsedSeconds / 3600)} 小时前`
+}
+
+function studyMemberStatusLabel(status: StudyTimerState, timerMode: StudyTimerMode): string {
+  if (status === 'running') return timerMode === 'focus' ? '在线专注' : '休息中'
+  if (status === 'paused') return '暂停'
+  return '准备'
+}
+
 function studyLevel(xp: number): { level: number; current: number; next: number; progress: number } {
   const level = Math.max(1, Math.floor(xp / 120) + 1)
   const current = xp % 120
@@ -4912,11 +4925,14 @@ function StudySpace() {
   useStudyAmbient(snapshot.roomId, snapshot.ambientEnabled, snapshot.ambientVolume)
   const level = studyLevel(snapshot.xp)
   const activePeers = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === snapshot.roomId)
+  const spacePeers = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode)
   const allRoomPeers = studyRooms.reduce<Record<StudyRoomId, number>>((acc, room) => {
     acc[room.id] = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id).length + (snapshot.roomId === room.id ? 1 : 0)
     return acc
   }, { silent: 0, sprint: 0, deep: 0, exam: 0 })
   const online = activePeers.length + 1
+  const spaceOnline = spacePeers.length + 1
+  const remoteOnline = activePeers.length
   const timerTotalSeconds = (snapshot.timerMode === 'focus' ? snapshot.focusMinutes : snapshot.breakMinutes) * 60
   const timerProgress = timerTotalSeconds > 0 ? Math.round(((timerTotalSeconds - snapshot.remainingSeconds) / timerTotalSeconds) * 100) : 0
   const completedTasks = snapshot.tasks.filter((task) => task.done).length
@@ -4952,6 +4968,19 @@ function StudySpace() {
   const roomEvents = presence.events
     .filter((event) => event.spaceCode === snapshot.spaceCode && event.roomId === snapshot.roomId)
     .slice(0, 8)
+  const connectionLabel = presence.status === 'online'
+    ? '实时在线'
+    : presence.status === 'connecting'
+      ? '正在连接'
+      : '离线模式'
+  const connectionDetail = presence.status === 'online'
+    ? `人数来自当前设备和同空间 MQTT 心跳：本房间 ${online} 人，整个空间 ${spaceOnline} 人。`
+    : presence.status === 'connecting'
+      ? '正在连接公共 relay，连接前不会用模拟人数填充座位。'
+      : 'relay 暂不可用，页面只显示本机状态，不再显示虚假的在线人数。'
+  const inviteHint = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE
+    ? '公共大厅不用邀请码；新建空间后可只邀请自己的同学进入。'
+    : `把空间码 ${snapshot.spaceCode} 发给同学，对方输入后会进入同一个在线 presence 房间。`
   const stageStatusLabel = snapshot.timerState === 'running'
     ? snapshot.timerMode === 'focus'
       ? 'FOCUS ON'
@@ -4967,7 +4996,7 @@ function StudySpace() {
       : `${snapshot.nickname} 已入座，等待开始下一轮。`,
     completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
     presence.status === 'online'
-      ? `空间 ${snapshot.spaceCode} 已连接实时 presence。`
+      ? `空间 ${snapshot.spaceCode} 已连接实时 presence，远端同学 ${remoteOnline} 人。`
       : '在线 relay 不可用时，只显示本机状态。'
   ]
   const roomRules = [
@@ -5217,6 +5246,13 @@ function StudySpace() {
               {copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '邀请'}
             </button>
           </div>
+          <div className="study-connection-card" aria-label="在线连接说明">
+            <div>
+              <strong>{connectionLabel}</strong>
+              <span>{connectionDetail}</span>
+            </div>
+            <small>{inviteHint}</small>
+          </div>
         </div>
         <div className="study-header-stats" aria-label="学习统计">
           <span><Zap size={15} /> streak {snapshot.streakDays}</span>
@@ -5307,7 +5343,8 @@ function StudySpace() {
                 <span
                   key={index}
                   className={`study-seat${isUser ? ' is-user' : ''}${isOccupied ? ' is-occupied' : ''}${peer?.status === 'running' ? ' is-focusing' : ''}`}
-                  title={isUser ? `${snapshot.nickname}（我）` : peer ? `${peer.nickname} · ${peer.status === 'running' ? '专注中' : peer.status === 'paused' ? '暂停' : '准备中'}` : '空座'}
+                  title={isUser ? `${snapshot.nickname}（我）· ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${peer.nickname} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : '空座'}
+                  aria-label={isUser ? `${snapshot.nickname}（我）· ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${peer.nickname} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : '空座'}
                 >
                   {isUser ? '我' : peer ? peer.nickname.slice(0, 1).toUpperCase() : ''}
                 </span>
@@ -5453,6 +5490,25 @@ function StudySpace() {
               <span className="study-kicker"><Coffee size={14} /> 同桌</span>
               <h2>真实在线</h2>
             </div>
+            <span className={`study-relay-badge is-${presence.status}`}>{connectionLabel}</span>
+          </div>
+          <div className="study-online-summary" aria-label="实时在线摘要">
+            <div>
+              <strong>{online}</strong>
+              <span>本房间在线</span>
+            </div>
+            <div>
+              <strong>{spaceOnline}</strong>
+              <span>本空间在线</span>
+            </div>
+            <div>
+              <strong>{remoteOnline}</strong>
+              <span>远端同学</span>
+            </div>
+          </div>
+          <div className="study-invite-note">
+            <Info size={14} />
+            <span>{connectionDetail}</span>
           </div>
           <div className="study-room-feed" aria-label="房间动态">
             {roomFeed.map((item, index) => (
@@ -5480,7 +5536,7 @@ function StudySpace() {
               <div className={`study-event-row is-${event.kind}`} key={event.id}>
                 <span>{event.kind === 'checkin' ? 'IN' : event.kind === 'focus_start' ? 'GO' : event.kind === 'task_done' ? 'OK' : 'UP'}</span>
                 <div>
-                  <strong>{event.nickname}</strong>
+                  <strong>{event.nickname}<small>{formatStudyEventTime(event.createdAt)}</small></strong>
                   <p>{event.text}</p>
                 </div>
               </div>
@@ -5504,9 +5560,9 @@ function StudySpace() {
               <span>{snapshot.nickname.slice(0, 1).toUpperCase()}</span>
               <div>
                 <strong>{snapshot.nickname}</strong>
-                <small>{snapshot.timerMode === 'focus' ? `${snapshot.focusMinutes}m 专注` : '休息中'}</small>
+                <small>{snapshot.timerMode === 'focus' ? `${snapshot.focusMinutes}m 专注` : '休息中'} · {contractDisplay}</small>
               </div>
-              <em>{snapshot.timerState === 'running' ? '在线专注' : snapshot.timerState === 'paused' ? '暂停' : '准备'}</em>
+              <em>{studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}</em>
             </div>
             {activePeers.length === 0 ? (
               <div className="study-empty-online">
@@ -5519,7 +5575,7 @@ function StudySpace() {
                   <strong>{peer.nickname}</strong>
                   <small>{peer.timerMode === 'focus' ? `${peer.focusMinutes}m 专注` : '休息中'} · streak {peer.streakDays}</small>
                 </div>
-                <em>{peer.status === 'running' ? '专注中' : peer.status === 'paused' ? '暂停' : '准备'}</em>
+                <em>{studyMemberStatusLabel(peer.status, peer.timerMode)}</em>
               </div>
             ))}
           </div>
