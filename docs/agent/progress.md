@@ -7,7 +7,7 @@
 | 项目 | 状态 | 最近提交 | 说明 |
 | --- | --- | --- | --- |
 | 文档规划 | 已完成 | `a292a79` | 已拆分 agent 能力设计文档、参考项目映射和路线图。 |
-| 通用 AI 执行 Prompt | 已完成 | 本次文档更新 | 新增通用模板，要求每次实施后更新进度。 |
+| 通用 AI 执行 Prompt | 已完成 | `4b9ca0d` | 新增通用模板，要求每次实施后更新进度。 |
 | Phase 0：基线测试与诊断 | 未开始 | - | 需要先补现状测试。 |
 | Phase 1：搜索 runtime 深模块 | 未开始 | - | 依赖搜索专题设计，建议在 Phase 0 后执行。 |
 | Phase 2：发送前 context hygiene | 未开始 | - | 可在 Phase 0 后优先执行。 |
@@ -51,7 +51,7 @@
 
 提交：
 
-- 本次文档更新提交。
+- `4b9ca0d docs(agent): add AI execution prompt and progress tracking`
 
 验证：
 
