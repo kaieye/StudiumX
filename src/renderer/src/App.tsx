@@ -5302,6 +5302,7 @@ function StudySpace() {
   const roomEvents = presence.events
     .filter((event) => event.spaceCode === snapshot.spaceCode && event.roomId === snapshot.roomId)
     .slice(0, 8)
+  const latestRoomEvent = roomEvents[0]
   const connectionLabel = presence.status === 'online'
     ? '实时在线'
     : presence.status === 'connecting'
@@ -5990,6 +5991,12 @@ function StudySpace() {
                   {member.isSelf ? '我' : studySignalShortLabel(member.signalId)}
                 </span>
               ))}
+            </div>
+
+            <div className={`study-cinema-liveline${latestRoomEvent ? ` is-${latestRoomEvent.kind}` : ' is-empty'}`} aria-label="房间实时动态">
+              <span>{latestRoomEvent ? latestRoomEvent.kind === 'checkin' ? 'IN' : latestRoomEvent.kind === 'focus_start' ? 'GO' : latestRoomEvent.kind === 'task_done' ? 'OK' : 'UP' : presence.status === 'online' ? 'LIVE' : 'SYNC'}</span>
+              <p>{latestRoomEvent ? latestRoomEvent.text : presence.status === 'online' ? '实时教室已连接，签到或开始专注后会同步到同空间同房间。' : presence.status === 'connecting' ? '正在连接实时教室，连接前不会显示模拟同学。' : '离线模式只保留本机席位，不显示虚假在线动态。'}</p>
+              <em>{latestRoomEvent ? formatStudyEventTime(latestRoomEvent.createdAt) : connectionLabel}</em>
             </div>
 
             <div className="study-cinema-seat-deck">
