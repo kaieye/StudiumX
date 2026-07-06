@@ -78,6 +78,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { create } from 'zustand'
 import i18n from './i18n'
+import studyRoomAmbience from './assets/study-room-ambience.webp'
 import { buildAgentProcessTimeline } from './agent-process-timeline'
 import {
   courseRelativePathForAgentConversation,
@@ -5279,9 +5280,16 @@ function StudySpace() {
       tasks: current.tasks.filter((task) => !task.done)
     }))
   }
+  const roomBackdropStyle = {
+    '--study-room-image': `url(${studyRoomAmbience})`
+  } as CSSProperties
 
   return (
-    <section className={`study-space ${activeRoom.backdrop}${snapshot.timerState === 'running' ? ' is-running' : ''}${snapshot.timerMode === 'break' ? ' is-break' : ''}`} aria-label="学习空间">
+    <section
+      className={`study-space ${activeRoom.backdrop}${snapshot.timerState === 'running' ? ' is-running' : ''}${snapshot.timerMode === 'break' ? ' is-break' : ''}`}
+      style={roomBackdropStyle}
+      aria-label="学习空间"
+    >
       <div className="study-hero">
         <div className="study-hero-copy">
           <span className="study-eyebrow"><DoorOpen size={14} /> Network study room</span>

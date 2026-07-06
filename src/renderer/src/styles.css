@@ -5243,6 +5243,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 .study-hero {
   position: relative;
+  isolation: isolate;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -5260,6 +5261,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-hero::before,
+.study-hero::after,
 .study-room-stage::before {
   content: '';
   position: absolute;
@@ -5268,10 +5270,20 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-hero::before {
+  z-index: 1;
   background:
     linear-gradient(90deg, transparent 0 58%, rgba(255, 255, 255, 0.38) 58% 59%, transparent 59%),
     repeating-linear-gradient(90deg, rgba(64, 76, 96, 0.08) 0 1px, transparent 1px 92px);
   opacity: 0.75;
+}
+
+.study-hero::after {
+  z-index: 0;
+  background:
+    linear-gradient(90deg, rgba(248, 249, 244, 0.98) 0 34%, rgba(246, 247, 242, 0.86) 48%, rgba(17, 24, 32, 0.14) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0)),
+    var(--study-room-image) center / cover no-repeat;
+  transform: scale(1.012);
 }
 
 .study-backdrop-silent .study-hero {
@@ -5301,7 +5313,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-hero-copy,
 .study-header-stats {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 .study-eyebrow,
@@ -5532,18 +5544,23 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-room-stage {
   grid-area: stage;
   position: relative;
+  isolation: isolate;
   min-height: 520px;
   padding: 18px;
   overflow: hidden;
   background:
-    linear-gradient(180deg, rgba(239, 241, 236, 0.92), rgba(218, 225, 224, 0.88)),
+    linear-gradient(180deg, rgba(239, 241, 236, 0.88), rgba(218, 225, 224, 0.82)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.26)),
+    var(--study-room-image) center / cover no-repeat,
     #e7ece9;
 }
 
 .study-room-stage::before {
+  z-index: 0;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.42), transparent 28%),
-    radial-gradient(circle at 26% 10%, rgba(255, 245, 205, 0.56), transparent 28%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.56), transparent 32%),
+    radial-gradient(circle at 26% 10%, rgba(255, 245, 205, 0.58), transparent 28%),
+    linear-gradient(180deg, rgba(12, 17, 22, 0), rgba(12, 17, 22, 0.1));
 }
 
 .study-stage-window {
@@ -7711,6 +7728,13 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 92px);
 }
 
+:root[data-resolved-theme="dark"] .study-hero::after {
+  background:
+    linear-gradient(90deg, rgba(24, 25, 23, 0.98) 0 34%, rgba(24, 27, 26, 0.78) 50%, rgba(9, 12, 15, 0.34) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.22)),
+    var(--study-room-image) center / cover no-repeat;
+}
+
 :root[data-resolved-theme="dark"] .study-hero h1,
 :root[data-resolved-theme="dark"] .study-stage-topline h2,
 :root[data-resolved-theme="dark"] .study-room-tab strong,
@@ -7849,8 +7873,17 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-room-stage {
   border-color: rgba(255, 255, 255, 0.08);
   background:
-    linear-gradient(180deg, rgba(31, 36, 35, 0.95), rgba(25, 29, 31, 0.96)),
+    linear-gradient(180deg, rgba(31, 36, 35, 0.9), rgba(25, 29, 31, 0.94)),
+    linear-gradient(90deg, rgba(18, 20, 21, 0.76), rgba(18, 20, 21, 0.42)),
+    var(--study-room-image) center / cover no-repeat,
     #171b1d;
+}
+
+:root[data-resolved-theme="dark"] .study-room-stage::before {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 32%),
+    radial-gradient(circle at 26% 10%, rgba(246, 195, 92, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.26));
 }
 
 :root[data-resolved-theme="dark"] .study-stage-window span {
