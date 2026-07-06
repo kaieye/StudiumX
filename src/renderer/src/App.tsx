@@ -6213,6 +6213,23 @@ function StudySpace() {
             </div>
             <span className={`study-relay-badge is-${presence.status}`}>{connectionLabel}</span>
           </div>
+          <div className={`study-companion-hero is-${presence.status}`}>
+            <div>
+              <span>{presence.status === 'online' ? '在线房间' : presence.status === 'connecting' ? '正在入场' : '本机自习'}</span>
+              <strong>{presence.status === 'online' ? `${online} 人在 ${activeRoom.name}` : presence.status === 'connecting' ? '连接同步服务' : '未显示模拟同学'}</strong>
+              <p>{remoteOnline > 0 ? `${remoteOnline} 位远端同学刚刚心跳，座位图和同桌列表会实时更新。` : presence.status === 'online' ? '复制邀请或打开验证窗口后，真实远端 session 才会进入这里。' : '连接恢复前只保留本机席位，在线人数不会虚增。'}</p>
+            </div>
+            <div>
+              <button type="button" onClick={() => void copyInvite()}>
+                <Copy size={13} />
+                {copyState === 'copied' ? '已复制' : '复制邀请'}
+              </button>
+              <button type="button" onClick={openVerificationWindow} disabled={presence.status !== 'online'}>
+                <ExternalLink size={13} />
+                {remoteOnline > 0 ? '再开同桌' : '验证在线'}
+              </button>
+            </div>
+          </div>
           <div className="study-online-summary" aria-label="实时在线摘要">
             <div>
               <strong>{online}</strong>
@@ -6285,14 +6302,20 @@ function StudySpace() {
               </div>
             ))}
           </div>
-          <div className="study-room-feed" aria-label="房间动态">
-            {roomFeed.map((item, index) => (
-              <div key={index} className="study-feed-row">
-                <span>{index + 1}</span>
-                <p>{item}</p>
-              </div>
-            ))}
-          </div>
+          <details className="study-room-digest">
+            <summary>
+              <span><Info size={13} /> 房间摘要</span>
+              <ChevronDown size={14} />
+            </summary>
+            <div className="study-room-feed" aria-label="房间动态">
+              {roomFeed.map((item, index) => (
+                <div key={index} className="study-feed-row">
+                  <span>{index + 1}</span>
+                  <p>{item}</p>
+                </div>
+              ))}
+            </div>
+          </details>
           <div className="study-invite-note">
             <Info size={14} />
             <span>{connectionDetail}</span>
@@ -6310,10 +6333,13 @@ function StudySpace() {
               </div>
             ))}
           </div>
-          <div className="study-live-proof" aria-label="在线同步证明">
+          <details className="study-live-proof" aria-label="在线同步证明">
+            <summary>
+              <span><GitBranch size={13} /> 在线来源</span>
+              <ChevronDown size={14} />
+            </summary>
             <div className="study-live-proof-head">
               <div>
-                <span className="study-kicker"><GitBranch size={14} /> 可核验在线来源</span>
                 <strong>{presence.topic}</strong>
               </div>
               <div className="study-live-proof-actions">
@@ -6336,7 +6362,7 @@ function StudySpace() {
               ))}
             </div>
             <p>人数只来自当前 topic 的 MQTT 心跳；每个窗口使用独立 session presence 身份，超过 {Math.round(STUDY_PRESENCE_PEER_TTL_MS / 1000)} 秒未心跳会自动下线。</p>
-          </div>
+          </details>
         </section>
 
         <section className="study-panel study-task-panel" aria-label="学习任务">
