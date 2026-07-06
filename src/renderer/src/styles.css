@@ -5488,7 +5488,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-arrival {
-  order: 3;
+  order: 2;
   display: grid;
   grid-template-columns: minmax(320px, 0.95fr) minmax(280px, 0.72fr) minmax(360px, 1.05fr);
   gap: 12px;
@@ -5595,37 +5595,70 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-weight: 780;
 }
 
-.study-arrival-proof {
+.study-arrival-roster {
   display: grid;
-  gap: 5px;
-  min-height: 62px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   margin-bottom: 11px;
-  padding: 10px 11px;
-  border: 1px solid rgba(36, 161, 108, 0.14);
-  border-radius: 15px;
-  background: rgba(232, 243, 237, 0.72);
 }
 
-.study-arrival-proof span,
-.study-arrival-proof strong {
+.study-arrival-roster-seat {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 9px;
+  border: 1px solid rgba(38, 47, 65, 0.09);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.study-arrival-roster-seat > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  color: #1f1a0b;
+  border-radius: 50%;
+  background: #ffe2a0;
+  font-size: 12px;
+  font-weight: 880;
+}
+
+.study-arrival-roster-seat.is-me > span {
+  color: #f9fbf6;
+  background: #214d3d;
+}
+
+.study-arrival-roster-seat.is-empty > span {
+  color: #214d3d;
+  border: 1px dashed rgba(36, 161, 108, 0.26);
+  background: rgba(36, 161, 108, 0.1);
+}
+
+.study-arrival-roster-seat div,
+.study-arrival-roster-seat strong,
+.study-arrival-roster-seat small {
   display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.study-arrival-proof span {
-  color: #214d3d;
-  font-family: 'Cascadia Code', Consolas, 'SFMono-Regular', monospace;
-  font-size: 11px;
-  font-weight: 820;
   white-space: nowrap;
 }
 
-.study-arrival-proof strong {
-  color: rgba(23, 32, 29, 0.68);
+.study-arrival-roster-seat strong {
+  color: #17201d;
   font-size: 12px;
-  line-height: 1.45;
+  font-weight: 860;
+}
+
+.study-arrival-roster-seat small {
+  margin-top: 3px;
+  color: rgba(23, 32, 29, 0.56);
+  font-size: 11px;
   font-weight: 760;
 }
 
@@ -5740,6 +5773,119 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   color: #1f1a0b;
   border-color: rgba(229, 185, 85, 0.34);
   background: #ffe2a0;
+}
+
+.study-online-proof,
+.study-relay-settings {
+  margin-top: 10px;
+  border: 1px solid rgba(63, 95, 89, 0.14);
+  border-radius: 15px;
+  background: rgba(249, 250, 246, 0.5);
+  overflow: hidden;
+}
+
+.study-online-proof summary,
+.study-relay-settings summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 11px;
+  color: rgba(23, 32, 29, 0.64);
+  font-size: 12px;
+  font-weight: 820;
+  cursor: pointer;
+  list-style: none;
+}
+
+.study-online-proof summary::-webkit-details-marker,
+.study-relay-settings summary::-webkit-details-marker {
+  display: none;
+}
+
+.study-online-proof summary span,
+.study-relay-settings summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.study-online-proof summary svg:last-child,
+.study-relay-settings summary svg:last-child {
+  flex: 0 0 auto;
+  transition: transform 160ms ease;
+}
+
+.study-online-proof[open] summary svg:last-child,
+.study-relay-settings[open] summary svg:last-child {
+  transform: rotate(180deg);
+}
+
+.study-online-proof-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 0 10px 10px;
+}
+
+.study-online-proof-topic,
+.study-proof-row {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid rgba(38, 47, 65, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.study-online-proof-topic {
+  grid-column: span 2;
+}
+
+.study-online-proof-topic span,
+.study-online-proof-topic strong,
+.study-proof-row span,
+.study-proof-row strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-online-proof-topic span,
+.study-proof-row span {
+  color: rgba(23, 32, 29, 0.5);
+  font-size: 10px;
+  font-weight: 820;
+}
+
+.study-online-proof-topic strong,
+.study-proof-row strong {
+  margin-top: 3px;
+  color: #17201d;
+  font-family: 'Cascadia Code', Consolas, 'SFMono-Regular', monospace;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.study-online-proof > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 32px;
+  margin: 0 10px 10px;
+  padding: 0 11px;
+  color: #214d3d;
+  border: 1px solid rgba(36, 161, 108, 0.18);
+  border-radius: 999px;
+  background: rgba(36, 161, 108, 0.1);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 820;
+  cursor: pointer;
 }
 
 .study-arrival-link {
@@ -5894,6 +6040,14 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   border: 1px dashed rgba(63, 95, 89, 0.18);
   border-radius: 13px;
   background: rgba(249, 250, 246, 0.66);
+}
+
+.study-relay-settings .study-arrival-relay {
+  margin: 0 10px 10px;
+}
+
+.study-relay-settings .study-relay-status {
+  margin: 0 10px 10px;
 }
 
 .study-relay-status span,
@@ -6307,7 +6461,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-layout {
-  order: 2;
+  order: 3;
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(315px, 0.72fr);
   grid-template-areas:
@@ -9164,9 +9318,15 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   }
 
   .study-arrival-counts,
+  .study-arrival-roster,
   .study-arrival-room-grid,
+  .study-online-proof-grid,
   .study-invite-strip {
     grid-template-columns: 1fr;
+  }
+
+  .study-online-proof-topic {
+    grid-column: auto;
   }
 
   .study-arrival-head {
@@ -10196,7 +10356,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-arrival-head h2,
 :root[data-resolved-theme="dark"] .study-arrival-clock,
 :root[data-resolved-theme="dark"] .study-arrival-counts strong,
+:root[data-resolved-theme="dark"] .study-arrival-roster-seat strong,
 :root[data-resolved-theme="dark"] .study-presence-test strong,
+:root[data-resolved-theme="dark"] .study-online-proof-topic strong,
+:root[data-resolved-theme="dark"] .study-proof-row strong,
 :root[data-resolved-theme="dark"] .study-relay-status strong,
 :root[data-resolved-theme="dark"] .study-invite-strip strong,
 :root[data-resolved-theme="dark"] .study-arrival-room strong {
@@ -10204,8 +10367,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 :root[data-resolved-theme="dark"] .study-arrival-counts span,
-:root[data-resolved-theme="dark"] .study-arrival-proof strong,
+:root[data-resolved-theme="dark"] .study-arrival-roster-seat small,
 :root[data-resolved-theme="dark"] .study-presence-test p,
+:root[data-resolved-theme="dark"] .study-online-proof summary,
+:root[data-resolved-theme="dark"] .study-online-proof-topic span,
+:root[data-resolved-theme="dark"] .study-proof-row span,
+:root[data-resolved-theme="dark"] .study-relay-settings summary,
 :root[data-resolved-theme="dark"] .study-arrival-focus p,
 :root[data-resolved-theme="dark"] .study-arrival-link,
 :root[data-resolved-theme="dark"] .study-relay-status,
@@ -10217,8 +10384,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 :root[data-resolved-theme="dark"] .study-arrival-counts div,
-:root[data-resolved-theme="dark"] .study-arrival-proof,
+:root[data-resolved-theme="dark"] .study-arrival-roster-seat,
 :root[data-resolved-theme="dark"] .study-presence-test,
+:root[data-resolved-theme="dark"] .study-online-proof,
+:root[data-resolved-theme="dark"] .study-relay-settings,
+:root[data-resolved-theme="dark"] .study-online-proof-topic,
+:root[data-resolved-theme="dark"] .study-proof-row,
 :root[data-resolved-theme="dark"] .study-arrival-link,
 :root[data-resolved-theme="dark"] .study-relay-status,
 :root[data-resolved-theme="dark"] .study-invite-strip div,
@@ -10239,6 +10410,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-arrival-join button,
 :root[data-resolved-theme="dark"] .study-invite-join button,
 :root[data-resolved-theme="dark"] .study-arrival-relay button,
+:root[data-resolved-theme="dark"] .study-online-proof > button,
 :root[data-resolved-theme="dark"] .study-presence-test button {
   color: #d9f4e5;
   border-color: rgba(114, 214, 167, 0.22);

@@ -5228,6 +5228,7 @@ function StudySpace() {
       todaySessions: snapshot.todaySessions,
       streakDays: snapshot.streakDays,
       focusMinutes: snapshot.focusMinutes,
+      roomId: snapshot.roomId,
       seatIndex: userSeat,
       updatedAt: roomCycleNow,
       isSelf: true
@@ -5265,6 +5266,7 @@ function StudySpace() {
     { label: '远端新鲜度', value: `${remoteFreshCount}/${remoteOnline}` },
     { label: '会话身份', value: snapshot.clientId.slice(-4).toUpperCase() }
   ]
+  const arrivalRosterMembers = roomMembers.slice(0, 4)
   const roomEvents = presence.events
     .filter((event) => event.spaceCode === snapshot.spaceCode && event.roomId === snapshot.roomId)
     .slice(0, 8)
@@ -5691,7 +5693,7 @@ function StudySpace() {
           <div className="study-arrival-head">
             <div>
               <span className="study-kicker"><Users size={14} /> 真实在线</span>
-              <h2>在线人数可验证</h2>
+              <h2>同桌在线</h2>
             </div>
             <span className={`study-relay-badge is-${presence.status}`}>{relayHealthLabel}</span>
           </div>
@@ -5709,13 +5711,27 @@ function StudySpace() {
               <span>远端会话</span>
             </div>
           </div>
-          <div className="study-arrival-proof">
-            <span>{topicTail}</span>
-            <strong>{connectionDetail}</strong>
+          <div className="study-arrival-roster" aria-label="入座同桌">
+            {arrivalRosterMembers.map((member) => (
+              <div className={`study-arrival-roster-seat${member.isSelf ? ' is-me' : ''}`} key={member.clientId}>
+                <span>{member.nickname.slice(0, 1).toUpperCase()}</span>
+                <div>
+                  <strong>{member.isSelf ? '我的席位' : member.nickname}</strong>
+                  <small>{formatStudySeatLabel(normalizeStudySeatIndex(member.seatIndex, member.roomId, member.clientId))} · {studyMemberStatusLabel(member.status, member.timerMode)} · {studyMemberFreshnessLabel(member, roomCycleNow)}</small>
+                </div>
+              </div>
+            ))}
+            <div className="study-arrival-roster-seat is-empty">
+              <span><Plus size={13} /></span>
+              <div>
+                <strong>{presence.status === 'online' ? '等待同桌入座' : '等待同步服务'}</strong>
+                <small>{presence.status === 'online' ? '复制邀请或打开同桌窗口后才会增加人数' : '离线时不会显示模拟同学'}</small>
+              </div>
+            </div>
           </div>
           <div className={`study-presence-test is-${presence.status}${remoteOnline > 0 ? ' has-peer' : ''}`}>
             <div>
-              <span className="study-kicker"><Monitor size={14} /> 在线校验</span>
+              <span className="study-kicker"><Monitor size={14} /> 邀请同桌</span>
               <strong>{liveSessionTitle}</strong>
               <p>{liveSessionDetail}</p>
             </div>
@@ -5725,10 +5741,6 @@ function StudySpace() {
             </button>
           </div>
           <div className="study-arrival-actions">
-            <button type="button" onClick={() => void copyPresenceProof()}>
-              <GitBranch size={14} />
-              {proofCopyState === 'copied' ? '已复制证明' : proofCopyState === 'failed' ? '复制失败' : '复制在线证明'}
-            </button>
             <button type="button" onClick={() => void copyInvite()}>
               <Copy size={14} />
               {copyState === 'copied' ? '已复制邀请' : '复制邀请'}
@@ -5738,6 +5750,32 @@ function StudySpace() {
               新建私密空间
             </button>
           </div>
+          <details className="study-online-proof">
+            <summary>
+              <span><GitBranch size={14} /> 在线证明</span>
+              <ChevronDown size={14} />
+            </summary>
+            <div className="study-online-proof-grid">
+              <div className="study-online-proof-topic">
+                <span>Presence topic</span>
+                <strong>{topicTail}</strong>
+              </div>
+              <div className="study-online-proof-topic">
+                <span>Relay</span>
+                <strong>{presence.relay}</strong>
+              </div>
+              {presenceProofRows.map((row) => (
+                <div className="study-proof-row" key={row.label}>
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={() => void copyPresenceProof()}>
+              <Copy size={13} />
+              {proofCopyState === 'copied' ? '已复制证明' : proofCopyState === 'failed' ? '复制失败' : '复制在线证明'}
+            </button>
+          </details>
           <div className="study-arrival-link" title={inviteUrl}>
             <LinkIcon size={13} />
             <span>{inviteUrl}</span>
@@ -5827,22 +5865,28 @@ function StudySpace() {
               )
             })}
           </div>
-          <form className="study-arrival-relay" onSubmit={saveRelayUrl}>
-            <GitBranch size={14} />
-            <input
-              value={relayDraft}
-              onChange={(event) => setRelayDraft(event.target.value)}
-              placeholder={STUDY_PRESENCE_BROKER_URL}
-              aria-label="MQTT WebSocket relay 地址"
-            />
-            <button type="submit">连接</button>
-            <button type="button" onClick={resetRelayUrl}>默认</button>
-          </form>
-          <div className="study-relay-status">
-            <span>当前 relay</span>
-            <strong>{presence.relay}</strong>
-            <em>失败时会自动尝试备用公共 relay。</em>
-          </div>
+          <details className="study-relay-settings">
+            <summary>
+              <span><Settings size={14} /> 连接设置</span>
+              <ChevronDown size={14} />
+            </summary>
+            <form className="study-arrival-relay" onSubmit={saveRelayUrl}>
+              <GitBranch size={14} />
+              <input
+                value={relayDraft}
+                onChange={(event) => setRelayDraft(event.target.value)}
+                placeholder={STUDY_PRESENCE_BROKER_URL}
+                aria-label="MQTT WebSocket relay 地址"
+              />
+              <button type="submit">连接</button>
+              <button type="button" onClick={resetRelayUrl}>默认</button>
+            </form>
+            <div className="study-relay-status">
+              <span>当前 relay</span>
+              <strong>{presence.relay}</strong>
+              <em>失败时会自动尝试备用公共 relay。</em>
+            </div>
+          </details>
         </div>
       </section>
 
