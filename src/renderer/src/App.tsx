@@ -5225,6 +5225,7 @@ function StudySpace() {
   const online = presenceOnline ? activePeers.length + 1 : 0
   const spaceOnline = presenceOnline ? spacePeers.length + 1 : 0
   const remoteOnline = presenceOnline ? activePeers.length : 0
+  const roomCapacityPercent = Math.min(100, Math.round((online / activeRoom.capacity) * 100))
   const localSeatLabel = presenceOnline ? `${spaceOnline} 人在 ${snapshot.spaceCode}` : `本机席位 · ${snapshot.spaceCode}`
   const timerTotalSeconds = (snapshot.timerMode === 'focus' ? snapshot.focusMinutes : snapshot.breakMinutes) * 60
   const timerProgress = timerTotalSeconds > 0 ? Math.round(((timerTotalSeconds - snapshot.remainingSeconds) / timerTotalSeconds) * 100) : 0
@@ -5798,6 +5799,32 @@ function StudySpace() {
               <span>远端会话</span>
             </div>
           </div>
+          <div className={`study-room-pulse is-${presence.status}${latestRemotePeer ? ' has-peer' : ''}`} aria-label="房间实时脉搏">
+            <div className="study-room-pulse-main">
+              <span>{liveLineCode}</span>
+              <div>
+                <strong>{liveLineText}</strong>
+                <small>{liveLineMeta}</small>
+              </div>
+            </div>
+            <div className="study-room-pulse-stats">
+              <div>
+                <strong>{focusingCount}</strong>
+                <span>专注中</span>
+              </div>
+              <div>
+                <strong>{remoteFreshCount}/{remoteOnline}</strong>
+                <span>远端心跳</span>
+              </div>
+              <div>
+                <strong>{online}/{activeRoom.capacity}</strong>
+                <span>容量</span>
+              </div>
+            </div>
+            <div className="study-room-pulse-meter" aria-hidden="true">
+              <span style={{ width: `${roomCapacityPercent}%` }} />
+            </div>
+          </div>
           <div className="study-arrival-roster" aria-label="入座同桌">
             {arrivalRosterMembers.map((member) => (
               <div className={`study-arrival-roster-seat${member.isSelf ? ' is-me' : ''}`} key={member.clientId}>
@@ -5897,7 +5924,7 @@ function StudySpace() {
           </div>
           <p>第 {roomCycle.round} 轮，下一段是{roomCycle.nextLabel}。当前目标：{contractDisplay}</p>
           <div className="study-arrival-meter" aria-hidden="true">
-            <span style={{ width: `${Math.min(100, Math.round((online / activeRoom.capacity) * 100))}%` }} />
+            <span style={{ width: `${roomCapacityPercent}%` }} />
           </div>
           <div className="study-arrival-actions">
             <button type="button" onClick={followRoomCycle}>

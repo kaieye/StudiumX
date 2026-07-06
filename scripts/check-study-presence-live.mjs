@@ -50,6 +50,12 @@ try {
   assert.equal(result.clientB.liveLineCode, 'PEER', 'second client stage should surface the remote peer heartbeat')
   assert.match(result.clientA.liveLineText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'first client live line should describe the remote peer seat and status')
   assert.match(result.clientB.liveLineText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client live line should describe the remote peer seat and status')
+  assert.equal(result.clientA.pulseCode, 'PEER', 'first client arrival pulse should surface the remote peer heartbeat')
+  assert.equal(result.clientB.pulseCode, 'PEER', 'second client arrival pulse should surface the remote peer heartbeat')
+  assert.match(result.clientA.pulseText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'first client arrival pulse should describe the remote peer seat and status')
+  assert.match(result.clientB.pulseText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client arrival pulse should describe the remote peer seat and status')
+  assert.deepEqual(result.clientA.pulseStats, ['0', '1/1', '2/36'], 'first client arrival pulse should show real focus, heartbeat, and capacity stats')
+  assert.deepEqual(result.clientB.pulseStats, ['0', '1/1', '2/36'], 'second client arrival pulse should show real focus, heartbeat, and capacity stats')
   assert.notEqual(result.clientA.sessionId, result.clientB.sessionId, 'clients should use distinct session identities')
 
   console.log(`study presence live ok: ${result.spaceCode}`)
@@ -142,6 +148,9 @@ async function readStudyPresence(client) {
         status: q('.study-relay-badge')?.textContent?.trim() ?? '',
         liveLineCode: q('.study-cinema-liveline span')?.textContent?.trim() ?? '',
         liveLineText: q('.study-cinema-liveline p')?.textContent?.trim() ?? '',
+        pulseCode: q('.study-room-pulse-main > span')?.textContent?.trim() ?? '',
+        pulseText: q('.study-room-pulse-main strong')?.textContent?.trim() ?? '',
+        pulseStats: [...document.querySelectorAll('.study-room-pulse-stats strong')].map((node) => node.textContent.trim()),
         counts: [...document.querySelectorAll('.study-arrival-counts strong')].map((node) => node.textContent.trim()),
         remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌'),
         sessionId: proofText.match(/会话身份([A-Z0-9]+)/)?.[1] ?? '',
