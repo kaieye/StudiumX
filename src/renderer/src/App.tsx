@@ -189,6 +189,7 @@ type StudyRoomId = 'silent' | 'sprint' | 'deep' | 'exam'
 type StudyModeId = 'free' | 'sync' | 'deepwork' | 'exam'
 type StudyPresenceStatus = 'connecting' | 'online' | 'offline'
 type StudyRoomEventKind = 'checkin' | 'focus_start' | 'task_done' | 'cheer'
+type StudyRoomCyclePhase = 'focus' | 'break'
 
 type StudyTask = {
   id: string
@@ -219,6 +220,16 @@ type StudyRoomEvent = {
   kind: StudyRoomEventKind
   text: string
   createdAt: number
+}
+
+type StudyRoomCycle = {
+  phase: StudyRoomCyclePhase
+  round: number
+  elapsedSeconds: number
+  remainingSeconds: number
+  totalSeconds: number
+  progress: number
+  nextLabel: string
 }
 
 type StudySnapshot = {
@@ -723,6 +734,34 @@ const studyRooms: Array<{
     backdrop: 'study-backdrop-exam'
   }
 ]
+
+function studyRoomCycleOffset(roomId: StudyRoomId): number {
+  const roomIndex = studyRooms.findIndex((room) => room.id === roomId)
+  return Math.max(0, roomIndex) * 7 * 60
+}
+
+function getStudyRoomCycle(room: typeof studyRooms[number], nowMs = Date.now()): StudyRoomCycle {
+  const focusSeconds = room.sessionMinutes * 60
+  const breakSeconds = room.breakMinutes * 60
+  const cycleSeconds = focusSeconds + breakSeconds
+  const anchorMs = Date.UTC(2026, 0, 1, 0, 0, 0)
+  const elapsedSinceAnchor = Math.max(0, Math.floor((nowMs - anchorMs) / 1000) + studyRoomCycleOffset(room.id))
+  const round = Math.floor(elapsedSinceAnchor / cycleSeconds) + 1
+  const cycleElapsed = elapsedSinceAnchor % cycleSeconds
+  const phase: StudyRoomCyclePhase = cycleElapsed < focusSeconds ? 'focus' : 'break'
+  const elapsedSeconds = phase === 'focus' ? cycleElapsed : cycleElapsed - focusSeconds
+  const totalSeconds = phase === 'focus' ? focusSeconds : breakSeconds
+  const remainingSeconds = Math.max(1, totalSeconds - elapsedSeconds)
+  return {
+    phase,
+    round,
+    elapsedSeconds,
+    remainingSeconds,
+    totalSeconds,
+    progress: Math.round((elapsedSeconds / totalSeconds) * 100),
+    nextLabel: phase === 'focus' ? `${room.breakMinutes} 分钟休息` : `${room.sessionMinutes} 分钟专注`
+  }
+}
 
 function todayKey(date = new Date()): string {
   return date.toISOString().slice(0, 10)
@@ -4914,6 +4953,7 @@ function LessonStyleGallery() {
 function StudySpace() {
   const showNotification = useAppStore((s) => s.showNotification)
   const [snapshot, setSnapshot] = useState<StudySnapshot>(() => readStudySnapshot())
+  const [roomCycleNow, setRoomCycleNow] = useState(() => Date.now())
   const [taskInput, setTaskInput] = useState('')
   const [editingName, setEditingName] = useState(false)
   const [nicknameDraft, setNicknameDraft] = useState('')
@@ -4922,6 +4962,7 @@ function StudySpace() {
   const presence = useStudyPresence(snapshot)
   const activeRoom = studyRooms.find((room) => room.id === snapshot.roomId) ?? studyRooms[0]
   const activeMode = studyModes.find((mode) => mode.id === snapshot.modeId) ?? studyModes[0]
+  const roomCycle = getStudyRoomCycle(activeRoom, roomCycleNow)
   useStudyAmbient(snapshot.roomId, snapshot.ambientEnabled, snapshot.ambientVolume)
   const level = studyLevel(snapshot.xp)
   const activePeers = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === snapshot.roomId)
@@ -4935,6 +4976,10 @@ function StudySpace() {
   const remoteOnline = activePeers.length
   const timerTotalSeconds = (snapshot.timerMode === 'focus' ? snapshot.focusMinutes : snapshot.breakMinutes) * 60
   const timerProgress = timerTotalSeconds > 0 ? Math.round(((timerTotalSeconds - snapshot.remainingSeconds) / timerTotalSeconds) * 100) : 0
+  const followingRoomCycle = snapshot.timerState === 'running'
+    && snapshot.timerMode === roomCycle.phase
+    && snapshot.focusMinutes === activeRoom.sessionMinutes
+    && snapshot.breakMinutes === activeRoom.breakMinutes
   const completedTasks = snapshot.tasks.filter((task) => task.done).length
   const seatCount = activeRoom.seats
   const userSeat = (level.level + snapshot.todaySessions + 2) % seatCount
@@ -4994,6 +5039,7 @@ function StudySpace() {
     snapshot.timerState === 'running'
       ? `${snapshot.nickname} 正在进行 ${snapshot.focusMinutes} 分钟专注轮次：${contractDisplay}。`
       : `${snapshot.nickname} 已入座，等待开始下一轮。`,
+    `房间第 ${roomCycle.round} 轮正在${roomCycle.phase === 'focus' ? '专注' : '休息'}，${formatStudyDuration(roomCycle.remainingSeconds)} 后切换到${roomCycle.nextLabel}。`,
     completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
     presence.status === 'online'
       ? `空间 ${snapshot.spaceCode} 已连接实时 presence，远端同学 ${remoteOnline} 人。`
@@ -5013,6 +5059,11 @@ function StudySpace() {
   useEffect(() => {
     persistStudySnapshot(snapshot)
   }, [snapshot])
+
+  useEffect(() => {
+    const id = window.setInterval(() => setRoomCycleNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
 
   useEffect(() => {
     if (snapshot.timerState !== 'running') return undefined
@@ -5165,6 +5216,23 @@ function StudySpace() {
     }))
   }
 
+  const followRoomCycle = (): void => {
+    const nextContract = (snapshot.contractText.trim() || defaultContractText()).slice(0, 120)
+    if (roomCycle.phase === 'focus') {
+      emitRoomEvent('focus_start', `${snapshot.nickname} 跟随房间第 ${roomCycle.round} 轮开始专注：${nextContract}`)
+    }
+    setSnapshot((current) => ({
+      ...current,
+      focusMinutes: activeRoom.sessionMinutes,
+      breakMinutes: activeRoom.breakMinutes,
+      timerMode: roomCycle.phase,
+      timerState: 'running',
+      remainingSeconds: roomCycle.remainingSeconds,
+      contractText: nextContract,
+      contractLocked: roomCycle.phase === 'focus'
+    }))
+  }
+
   const resetTimer = (): void => {
     setSnapshot((current) => ({
       ...current,
@@ -5275,6 +5343,10 @@ function StudySpace() {
           <strong>{snapshot.contractLocked ? '已锁定' : contractDisplay}</strong>
         </div>
         <div>
+          <span>房间节奏</span>
+          <strong>{roomCycle.phase === 'focus' ? '专注中' : '休息中'} · {formatStudyDuration(roomCycle.remainingSeconds)}</strong>
+        </div>
+        <div>
           <span>实时人数</span>
           <strong>{presence.status === 'online' ? `${online} / ${activeRoom.capacity}` : '离线'}</strong>
         </div>
@@ -5319,6 +5391,23 @@ function StudySpace() {
             >
               {snapshot.nickname}
             </button>
+          </div>
+          <div className={`study-cycle-card is-${roomCycle.phase}`} aria-label="房间同步轮次">
+            <div>
+              <span>Room round #{roomCycle.round}</span>
+              <strong>{roomCycle.phase === 'focus' ? `${activeRoom.sessionMinutes} 分钟同频专注` : `${activeRoom.breakMinutes} 分钟同步休息`}</strong>
+              <small>下一段：{roomCycle.nextLabel}</small>
+            </div>
+            <div className="study-cycle-countdown">
+              <strong>{formatStudyDuration(roomCycle.remainingSeconds)}</strong>
+              <span>{followingRoomCycle ? '正在跟随房间节奏' : '与房间轮次同频'}</span>
+            </div>
+            <button type="button" onClick={followRoomCycle}>
+              {followingRoomCycle ? '重新同步' : '跟随节奏'}
+            </button>
+            <div className="study-cycle-track" aria-hidden="true">
+              <span style={{ width: `${roomCycle.progress}%` }} />
+            </div>
           </div>
           <div className="study-room-metrics" aria-label="房间状态">
             <div>

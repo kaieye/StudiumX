@@ -5474,7 +5474,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 .study-space-overview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin: 0 0 14px;
 }
@@ -5762,6 +5762,99 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-name-button {
   border: 0;
   cursor: pointer;
+}
+
+.study-cycle-card {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid rgba(48, 59, 68, 0.1);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(248, 250, 246, 0.46)),
+    rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(18px);
+  overflow: hidden;
+}
+
+.study-cycle-card > div {
+  min-width: 0;
+}
+
+.study-cycle-card span,
+.study-cycle-card small,
+.study-cycle-card strong {
+  display: block;
+}
+
+.study-cycle-card span,
+.study-cycle-card small {
+  color: rgba(23, 32, 29, 0.56);
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.study-cycle-card strong {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #17201d;
+  font-size: 15px;
+  line-height: 1.25;
+  font-weight: 840;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-cycle-countdown {
+  text-align: right;
+}
+
+.study-cycle-countdown strong {
+  font-family: 'Cascadia Code', Consolas, 'SFMono-Regular', monospace;
+  font-size: 24px;
+}
+
+.study-cycle-card button {
+  min-height: 34px;
+  padding: 0 13px;
+  color: #214d3d;
+  border: 1px solid rgba(36, 161, 108, 0.18);
+  border-radius: 999px;
+  background: rgba(36, 161, 108, 0.13);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 840;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.study-cycle-card.is-break button {
+  color: #2f5f75;
+  border-color: rgba(92, 151, 174, 0.22);
+  background: rgba(92, 151, 174, 0.14);
+}
+
+.study-cycle-track {
+  grid-column: 1 / -1;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(38, 47, 65, 0.09);
+  overflow: hidden;
+}
+
+.study-cycle-track span {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #24a16c, #e5b955);
+}
+
+.study-cycle-card.is-break .study-cycle-track span {
+  background: linear-gradient(90deg, #5c97ae, #e5b955);
 }
 
 .study-room-metrics {
@@ -7225,6 +7318,18 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: 1fr;
   }
 
+  .study-cycle-card {
+    grid-template-columns: 1fr;
+  }
+
+  .study-cycle-countdown {
+    text-align: left;
+  }
+
+  .study-cycle-card button {
+    width: 100%;
+  }
+
   .study-contract > div {
     align-items: stretch;
     flex-direction: column;
@@ -7611,6 +7716,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-room-tab strong,
 :root[data-resolved-theme="dark"] .study-room-metrics strong,
 :root[data-resolved-theme="dark"] .study-space-overview strong,
+:root[data-resolved-theme="dark"] .study-cycle-card strong,
 :root[data-resolved-theme="dark"] .study-online-summary strong,
 :root[data-resolved-theme="dark"] .study-leader-row strong,
 :root[data-resolved-theme="dark"] .study-mode-card strong,
@@ -7624,6 +7730,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-room-tab span,
 :root[data-resolved-theme="dark"] .study-room-metrics span,
 :root[data-resolved-theme="dark"] .study-space-overview span,
+:root[data-resolved-theme="dark"] .study-cycle-card span,
+:root[data-resolved-theme="dark"] .study-cycle-card small,
 :root[data-resolved-theme="dark"] .study-room-rules span,
 :root[data-resolved-theme="dark"] .study-feed-row p,
 :root[data-resolved-theme="dark"] .study-event-empty,
@@ -7651,6 +7759,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-relay-badge,
 :root[data-resolved-theme="dark"] .study-online-summary div,
 :root[data-resolved-theme="dark"] .study-invite-note,
+:root[data-resolved-theme="dark"] .study-cycle-card,
 :root[data-resolved-theme="dark"] .study-space-code-form input,
 :root[data-resolved-theme="dark"] .study-space-console button,
 :root[data-resolved-theme="dark"] .study-ambient-control button,
@@ -7705,9 +7814,20 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-event-row > span,
 :root[data-resolved-theme="dark"] .study-connection-card strong,
 :root[data-resolved-theme="dark"] .study-relay-badge.is-online,
+:root[data-resolved-theme="dark"] .study-cycle-card button,
 :root[data-resolved-theme="dark"] .study-leader-row > span {
   color: var(--green);
   background: var(--green-soft);
+}
+
+:root[data-resolved-theme="dark"] .study-cycle-card.is-break button {
+  color: var(--accent);
+  border-color: rgba(138, 180, 255, 0.24);
+  background: var(--accent-soft);
+}
+
+:root[data-resolved-theme="dark"] .study-cycle-track {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 :root[data-resolved-theme="dark"] .study-relay-badge.is-connecting {
