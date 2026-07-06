@@ -5814,6 +5814,13 @@ function StudySpace() {
                   const isUser = index === userSeat
                   const isOccupied = Boolean(peer) || isUser
                   const seatLabel = formatStudySeatLabel(index)
+                  const seatNickname = isUser ? snapshot.nickname : peer?.nickname
+                  const seatSignal = isUser ? snapshot.signalId : peer?.signalId
+                  const seatStatus = isUser
+                    ? studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)
+                    : peer
+                      ? studyMemberStatusLabel(peer.status, peer.timerMode)
+                      : '可入座'
                   return (
                     <button
                       key={index}
@@ -5824,7 +5831,11 @@ function StudySpace() {
                       disabled={Boolean(peer) && !isUser}
                       onClick={() => chooseSeat(index)}
                     >
-                      {isUser ? '我' : peer ? studySignalShortLabel(peer.signalId) : ''}
+                      <span className="study-seat-avatar" aria-hidden="true">
+                        {isUser ? '我' : peer ? studySignalShortLabel(peer.signalId) : ''}
+                      </span>
+                      <span className="study-seat-label">{seatNickname ?? '空座'}</span>
+                      <span className="study-seat-meta">{seatSignal ? `${studySignalShortLabel(seatSignal)} · ${seatStatus}` : seatStatus}</span>
                       <small>{String(index + 1).padStart(2, '0')}</small>
                     </button>
                   )

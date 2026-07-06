@@ -6387,7 +6387,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-cinema .study-seat {
-  min-height: 42px;
+  min-height: 58px;
   color: rgba(255, 247, 223, 0.5);
   border-color: rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.12);
@@ -6415,6 +6415,24 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   color: #1f1a0b;
   border-color: rgba(255, 226, 160, 0.58);
   background: #ffe2a0;
+}
+
+.study-cinema .study-seat-avatar {
+  color: rgba(255, 247, 223, 0.58);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.study-cinema .study-seat.is-occupied .study-seat-avatar {
+  color: #173126;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(234, 247, 239, 0.86);
+}
+
+.study-cinema .study-seat.is-user .study-seat-avatar {
+  color: #1f1a0b;
+  border-color: rgba(31, 26, 11, 0.12);
+  background: rgba(255, 255, 255, 0.64);
 }
 
 .study-stage-window {
@@ -6970,10 +6988,13 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-seat {
   position: relative;
   display: grid;
-  place-items: center;
-  min-height: 48px;
-  aspect-ratio: 1.24;
-  padding: 0;
+  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 7px;
+  min-height: 56px;
+  aspect-ratio: 1.46;
+  padding: 8px 8px 8px 9px;
   color: rgba(47, 58, 67, 0.5);
   border: 1px solid rgba(62, 76, 86, 0.12);
   border-radius: 16px 16px 10px 10px;
@@ -6983,6 +7004,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font: inherit;
   font-size: 12px;
   font-weight: 820;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -7025,6 +7047,64 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   border-color: rgba(242, 199, 92, 0.62);
   background:
     linear-gradient(180deg, #ffe9a8, #f4c866);
+}
+
+.study-seat-avatar {
+  grid-row: 1 / 3;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: rgba(47, 58, 67, 0.5);
+  border: 1px solid rgba(62, 76, 86, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.68);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.study-seat-label,
+.study-seat-meta {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-seat-label {
+  color: currentColor;
+  font-size: 11px;
+  font-weight: 880;
+}
+
+.study-seat-meta {
+  color: currentColor;
+  font-size: 9px;
+  font-weight: 820;
+  opacity: 0.58;
+}
+
+.study-seat.is-empty .study-seat-avatar {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.study-seat.is-empty .study-seat-avatar,
+.study-seat.is-empty .study-seat-label,
+.study-seat.is-empty .study-seat-meta {
+  display: none;
+}
+
+.study-seat.is-occupied .study-seat-avatar {
+  color: #254337;
+  border-color: rgba(255, 255, 255, 0.36);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.study-seat.is-user .study-seat-avatar {
+  color: #1f1a0b;
+  border-color: rgba(31, 26, 11, 0.12);
+  background: rgba(255, 255, 255, 0.7);
 }
 
 .study-seat small {
@@ -9011,7 +9091,22 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   }
 
   .study-seat {
-    min-height: 44px;
+    min-height: 58px;
+    padding: 8px 7px;
+  }
+
+  .study-seat-avatar {
+    width: 24px;
+    height: 24px;
+    font-size: 10px;
+  }
+
+  .study-seat-label {
+    font-size: 10px;
+  }
+
+  .study-seat-meta {
+    font-size: 8px;
   }
 
   .study-room-strip,
@@ -9776,6 +9871,24 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   border-color: rgba(246, 195, 92, 0.62);
   background:
     linear-gradient(180deg, #ffe1a0, #c99f3e);
+}
+
+:root[data-resolved-theme="dark"] .study-seat-avatar {
+  color: rgba(255, 255, 255, 0.52);
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-resolved-theme="dark"] .study-seat.is-occupied .study-seat-avatar {
+  color: #173126;
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(238, 245, 237, 0.86);
+}
+
+:root[data-resolved-theme="dark"] .study-seat.is-user .study-seat-avatar {
+  color: #1b1608;
+  border-color: rgba(27, 22, 8, 0.12);
+  background: rgba(255, 255, 255, 0.62);
 }
 
 :root[data-resolved-theme="dark"] .study-room-tab.is-active,
