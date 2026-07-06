@@ -1319,7 +1319,7 @@ function assertSafeWorkspaceRootForRemoval(rootPath: string): void {
 
 async function atomicWriteFile(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
+  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`
   await writeFile(tempPath, content, 'utf8')
   await rename(tempPath, path)
 }
