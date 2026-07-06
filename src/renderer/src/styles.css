@@ -5433,6 +5433,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   grid-template-columns: minmax(0, 1.35fr) minmax(315px, 0.72fr);
   grid-template-areas:
     'stage timer'
+    'mode companion'
     'tasks companion'
     'growth companion';
   gap: 14px;
@@ -5688,6 +5689,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   grid-area: tasks;
 }
 
+.study-mode-panel {
+  grid-area: mode;
+}
+
 .study-growth-panel {
   grid-area: growth;
 }
@@ -5775,6 +5780,117 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-ambient-control input {
   width: 100%;
   accent-color: #3f5f59;
+}
+
+.study-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.study-mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 86px;
+  padding: 11px;
+  color: rgba(23, 32, 29, 0.68);
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 15px;
+  background: rgba(249, 250, 246, 0.84);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.study-mode-card strong {
+  color: #17201d;
+  font-size: 13px;
+  font-weight: 820;
+}
+
+.study-mode-card span {
+  color: rgba(23, 32, 29, 0.58);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.study-mode-card.is-active {
+  border-color: rgba(63, 95, 89, 0.34);
+  background: #f8f5e9;
+  box-shadow: 0 10px 24px rgba(35, 53, 61, 0.1);
+}
+
+.study-mode-card:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.study-contract {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.study-contract label {
+  color: rgba(23, 32, 29, 0.62);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.study-contract textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  padding: 10px 11px;
+  color: #17201d;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 12px;
+  background: rgba(249, 250, 246, 0.84);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.study-contract textarea:disabled {
+  color: rgba(23, 32, 29, 0.72);
+  background: #fff9e9;
+}
+
+.study-contract > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.study-contract > div span {
+  color: rgba(23, 32, 29, 0.58);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.study-contract button {
+  flex: 0 0 auto;
+  height: 31px;
+  padding: 0 11px;
+  color: #3f5f59;
+  border: 1px solid rgba(63, 95, 89, 0.24);
+  border-radius: 999px;
+  background: #eef4ee;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 820;
+  cursor: pointer;
+}
+
+.study-contract.is-locked {
+  border-color: rgba(229, 185, 85, 0.34);
+  background: rgba(255, 249, 233, 0.58);
 }
 
 .study-task-form input,
@@ -6507,6 +6623,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-areas:
       'stage stage'
       'timer companion'
+      'mode companion'
       'tasks growth';
   }
 
@@ -6540,6 +6657,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-areas:
       'stage'
       'timer'
+      'mode'
       'companion'
       'tasks'
       'growth';
@@ -6619,8 +6737,18 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   }
 
   .study-room-strip,
+  .study-mode-grid,
   .study-growth-grid {
     grid-template-columns: 1fr;
+  }
+
+  .study-contract > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .study-contract button {
+    width: 100%;
   }
 
   .study-name-modal div {
@@ -7000,6 +7128,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-room-tab strong,
 :root[data-resolved-theme="dark"] .study-room-metrics strong,
 :root[data-resolved-theme="dark"] .study-leader-row strong,
+:root[data-resolved-theme="dark"] .study-mode-card strong,
 :root[data-resolved-theme="dark"] .study-name-modal h2 {
   color: var(--text);
 }
@@ -7012,6 +7141,9 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-feed-row p,
 :root[data-resolved-theme="dark"] .study-leaderboard-head,
 :root[data-resolved-theme="dark"] .study-leader-row em,
+:root[data-resolved-theme="dark"] .study-mode-card span,
+:root[data-resolved-theme="dark"] .study-contract label,
+:root[data-resolved-theme="dark"] .study-contract > div span,
 :root[data-resolved-theme="dark"] .study-empty-online,
 :root[data-resolved-theme="dark"] .study-name-modal p {
   color: var(--text-muted);
@@ -7028,6 +7160,9 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-room-rules span,
 :root[data-resolved-theme="dark"] .study-feed-row,
 :root[data-resolved-theme="dark"] .study-leaderboard,
+:root[data-resolved-theme="dark"] .study-mode-card,
+:root[data-resolved-theme="dark"] .study-contract,
+:root[data-resolved-theme="dark"] .study-contract textarea,
 :root[data-resolved-theme="dark"] .study-room-tab,
 :root[data-resolved-theme="dark"] .study-room-tags span,
 :root[data-resolved-theme="dark"] .study-badges span {
@@ -7043,8 +7178,20 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-space-console button:hover,
 :root[data-resolved-theme="dark"] .study-name-button:hover,
 :root[data-resolved-theme="dark"] .study-ambient-control button.is-active,
+:root[data-resolved-theme="dark"] .study-mode-card.is-active,
+:root[data-resolved-theme="dark"] .study-contract.is-locked,
 :root[data-resolved-theme="dark"] .study-leader-row.is-me {
   background: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-resolved-theme="dark"] .study-contract button {
+  border-color: rgba(102, 194, 154, 0.24);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+:root[data-resolved-theme="dark"] .study-contract textarea:disabled {
+  background: rgba(246, 195, 92, 0.12);
 }
 
 :root[data-resolved-theme="dark"] .study-feed-row span,

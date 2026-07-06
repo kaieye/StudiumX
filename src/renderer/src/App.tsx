@@ -186,6 +186,7 @@ type ResourcePreviewFile = {
 type StudyTimerMode = 'focus' | 'break'
 type StudyTimerState = 'idle' | 'running' | 'paused'
 type StudyRoomId = 'silent' | 'sprint' | 'deep' | 'exam'
+type StudyModeId = 'free' | 'sync' | 'deepwork' | 'exam'
 type StudyPresenceStatus = 'connecting' | 'online' | 'offline'
 
 type StudyTask = {
@@ -212,6 +213,9 @@ type StudySnapshot = {
   clientId: string
   nickname: string
   spaceCode: string
+  modeId: StudyModeId
+  contractText: string
+  contractLocked: boolean
   ambientEnabled: boolean
   ambientVolume: number
   roomId: StudyRoomId
@@ -570,6 +574,9 @@ const defaultStudySnapshot: StudySnapshot = {
   clientId: '',
   nickname: '',
   spaceCode: STUDY_PUBLIC_SPACE_CODE,
+  modeId: 'free',
+  contractText: '',
+  contractLocked: false,
   ambientEnabled: false,
   ambientVolume: 0.45,
   roomId: 'silent',
@@ -590,6 +597,53 @@ const defaultStudySnapshot: StudySnapshot = {
     { id: 'review', title: '复盘一组检索练习', done: false }
   ]
 }
+
+const studyModes: Array<{
+  id: StudyModeId
+  name: string
+  detail: string
+  focusMinutes: number
+  breakMinutes: number
+  roomId: StudyRoomId
+  rule: string
+}> = [
+  {
+    id: 'free',
+    name: '自由自习',
+    detail: '适合预习、整理笔记和轻量任务',
+    focusMinutes: 25,
+    breakMinutes: 5,
+    roomId: 'silent',
+    rule: '可以随时开始，保持任务清单清晰。'
+  },
+  {
+    id: 'sync',
+    name: '同频冲刺',
+    detail: '适合和同学一起限时推进',
+    focusMinutes: 45,
+    breakMinutes: 10,
+    roomId: 'sprint',
+    rule: '进入后先写本轮目标，尽量整轮不切任务。'
+  },
+  {
+    id: 'deepwork',
+    name: '深度沉浸',
+    detail: '适合论文、项目和长时间材料阅读',
+    focusMinutes: 90,
+    breakMinutes: 15,
+    roomId: 'deep',
+    rule: '隐藏干扰，只保留一个主目标。'
+  },
+  {
+    id: 'exam',
+    name: '模拟考场',
+    detail: '适合真题、闭卷训练和限时复盘',
+    focusMinutes: 50,
+    breakMinutes: 10,
+    roomId: 'exam',
+    rule: '默认静音，按考试节奏完成后复盘。'
+  }
+]
 
 const studyRooms: Array<{
   id: StudyRoomId
@@ -682,6 +736,10 @@ function normalizeStudyRoomId(input: unknown): StudyRoomId {
   return studyRooms.some((room) => room.id === input) ? input as StudyRoomId : defaultStudySnapshot.roomId
 }
 
+function normalizeStudyModeId(input: unknown): StudyModeId {
+  return studyModes.some((mode) => mode.id === input) ? input as StudyModeId : defaultStudySnapshot.modeId
+}
+
 function normalizeStudySpaceCode(input: unknown): string {
   if (typeof input !== 'string') return STUDY_PUBLIC_SPACE_CODE
   const value = input.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 18)
@@ -725,6 +783,7 @@ function normalizeStudySnapshot(input: unknown): StudySnapshot {
     ? raw.nickname.trim().slice(0, 18)
     : defaultStudyNickname(clientId)
   const spaceCode = normalizeStudySpaceCode(raw.spaceCode)
+  const modeId = normalizeStudyModeId(raw.modeId)
   const roomId = normalizeStudyRoomId(raw.roomId)
   const timerMode = raw.timerMode === 'break' ? 'break' : 'focus'
   const focusMinutes = clampNumber(raw.focusMinutes, 5, 120, defaultStudySnapshot.focusMinutes)
@@ -736,6 +795,9 @@ function normalizeStudySnapshot(input: unknown): StudySnapshot {
     clientId,
     nickname,
     spaceCode,
+    modeId,
+    contractText: typeof raw.contractText === 'string' ? raw.contractText.trim().slice(0, 120) : '',
+    contractLocked: Boolean(raw.contractLocked),
     ambientEnabled: Boolean(raw.ambientEnabled),
     ambientVolume: clampNumber(raw.ambientVolume, 0, 1, defaultStudySnapshot.ambientVolume),
     roomId,
@@ -4773,6 +4835,7 @@ function StudySpace() {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const presence = useStudyPresence(snapshot)
   const activeRoom = studyRooms.find((room) => room.id === snapshot.roomId) ?? studyRooms[0]
+  const activeMode = studyModes.find((mode) => mode.id === snapshot.modeId) ?? studyModes[0]
   useStudyAmbient(snapshot.roomId, snapshot.ambientEnabled, snapshot.ambientVolume)
   const level = studyLevel(snapshot.xp)
   const activePeers = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === snapshot.roomId)
@@ -4816,7 +4879,7 @@ function StudySpace() {
   const roomFeed = [
     `${activeRoom.name} 当前 ${focusingCount} 人正在专注，今日合计 ${formatStudyHours(roomFocusSeconds)}h。`,
     snapshot.timerState === 'running'
-      ? `${snapshot.nickname} 正在进行 ${snapshot.focusMinutes} 分钟专注轮次。`
+      ? `${snapshot.nickname} 正在进行 ${snapshot.focusMinutes} 分钟专注轮次：${snapshot.contractText || activeMode.name}。`
       : `${snapshot.nickname} 已入座，等待开始下一轮。`,
     completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
     presence.status === 'online'
@@ -4825,6 +4888,7 @@ function StudySpace() {
   ]
   const roomRules = [
     snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公共大厅：任何 StudiumX 用户都可进入' : `私密空间：凭 ${snapshot.spaceCode} 加入`,
+    `${activeMode.name}：${activeMode.rule}`,
     activeRoom.id === 'exam' ? '考试模拟间默认静音，不播放环境音' : `${activeRoom.ambient} 可在右侧开关`,
     'presence 只广播匿名状态，不上传学习任务内容'
   ]
@@ -4862,6 +4926,7 @@ function StudySpace() {
             timerMode: 'break',
             timerState: 'idle',
             remainingSeconds: current.breakMinutes * 60,
+            contractLocked: false,
             todayFocusSeconds,
             todaySessions: current.todaySessions + 1,
             totalFocusSeconds,
@@ -4906,6 +4971,32 @@ function StudySpace() {
     }))
   }
 
+  const selectStudyMode = (mode: typeof studyModes[number]): void => {
+    setSnapshot((current) => ({
+      ...current,
+      modeId: mode.id,
+      roomId: current.timerState === 'running' ? current.roomId : mode.roomId,
+      focusMinutes: current.timerState === 'running' ? current.focusMinutes : mode.focusMinutes,
+      breakMinutes: current.timerState === 'running' ? current.breakMinutes : mode.breakMinutes,
+      remainingSeconds: current.timerState === 'running' ? current.remainingSeconds : mode.focusMinutes * 60,
+      timerMode: current.timerState === 'running' ? current.timerMode : 'focus',
+      ambientEnabled: mode.id === 'exam' ? false : current.ambientEnabled
+    }))
+  }
+
+  const defaultContractText = (): string => {
+    const firstOpenTask = snapshot.tasks.find((task) => !task.done)?.title
+    return firstOpenTask || activeMode.name
+  }
+
+  const toggleContract = (): void => {
+    setSnapshot((current) => ({
+      ...current,
+      contractText: (current.contractText.trim() || defaultContractText()).slice(0, 120),
+      contractLocked: !current.contractLocked
+    }))
+  }
+
   const saveNickname = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
     const nickname = nicknameDraft.trim().slice(0, 18)
@@ -4944,7 +5035,13 @@ function StudySpace() {
   const toggleTimer = (): void => {
     setSnapshot((current) => ({
       ...current,
-      timerState: current.timerState === 'running' ? 'paused' : 'running'
+      timerState: current.timerState === 'running' ? 'paused' : 'running',
+      ...(current.timerState === 'running'
+        ? {}
+        : {
+            contractText: (current.contractText.trim() || current.tasks.find((task) => !task.done)?.title || activeMode.name).slice(0, 120),
+            contractLocked: current.timerMode === 'focus' ? true : current.contractLocked
+          })
     }))
   }
 
@@ -4952,6 +5049,7 @@ function StudySpace() {
     setSnapshot((current) => ({
       ...current,
       timerState: 'idle',
+      contractLocked: false,
       remainingSeconds: (current.timerMode === 'focus' ? current.focusMinutes : current.breakMinutes) * 60
     }))
   }
@@ -5108,6 +5206,47 @@ function StudySpace() {
             {roomRules.map((rule, index) => (
               <span key={index}>{rule}</span>
             ))}
+          </div>
+        </section>
+
+        <section className="study-panel study-mode-panel" aria-label="学习模式和专注契约">
+          <div className="study-panel-head">
+            <div>
+              <span className="study-kicker"><ShieldCheck size={14} /> Focus contract</span>
+              <h2>学习模式</h2>
+            </div>
+            <span className="study-session-label">{activeMode.name}</span>
+          </div>
+          <div className="study-mode-grid">
+            {studyModes.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                className={`study-mode-card${snapshot.modeId === mode.id ? ' is-active' : ''}`}
+                onClick={() => selectStudyMode(mode)}
+                disabled={snapshot.timerState === 'running'}
+              >
+                <strong>{mode.name}</strong>
+                <span>{mode.focusMinutes}/{mode.breakMinutes} · {mode.detail}</span>
+              </button>
+            ))}
+          </div>
+          <div className={`study-contract${snapshot.contractLocked ? ' is-locked' : ''}`}>
+            <label htmlFor="study-contract-input">本轮承诺</label>
+            <textarea
+              id="study-contract-input"
+              value={snapshot.contractText}
+              disabled={snapshot.contractLocked}
+              maxLength={120}
+              onChange={(event) => setSnapshot((current) => ({ ...current, contractText: event.target.value.slice(0, 120) }))}
+              placeholder="例如：完成第 3 章笔记，做完 20 道题，或读完论文方法部分"
+            />
+            <div>
+              <span>{snapshot.contractLocked ? '已锁定，完成本轮后自动释放' : activeMode.rule}</span>
+              <button type="button" onClick={toggleContract}>
+                {snapshot.contractLocked ? '解锁' : '锁定契约'}
+              </button>
+            </div>
           </div>
         </section>
 
