@@ -5188,7 +5188,6 @@ function StudySpace() {
     }))
   ].sort((left, right) => right.todayFocusSeconds - left.todayFocusSeconds)
   const roomFocusSeconds = roomMembers.reduce((sum, member) => sum + member.todayFocusSeconds, 0)
-  const roomSessionCount = roomMembers.reduce((sum, member) => sum + member.todaySessions, 0)
   const focusingCount = roomMembers.filter((member) => member.status === 'running' && member.timerMode === 'focus').length
   const inviteUrl = studyInviteUrl(snapshot.spaceCode, snapshot.roomId)
   const signalMix = studySignals.map((signal) => {
@@ -5636,13 +5635,6 @@ function StudySpace() {
               {copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '邀请'}
             </button>
           </div>
-          <div className="study-connection-card" aria-label="在线连接说明">
-            <div>
-              <strong>{connectionLabel}</strong>
-              <span>{connectionDetail}</span>
-            </div>
-            <small>{inviteHint}</small>
-          </div>
         </div>
         <div className="study-header-stats" aria-label="学习统计">
           <span><Zap size={15} /> streak {snapshot.streakDays}</span>
@@ -5774,69 +5766,90 @@ function StudySpace() {
         </div>
       </section>
 
-      <div className="study-space-overview" aria-label="空间概览">
-        <div>
-          <span>空间类型</span>
-          <strong>{snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公开大厅' : '私密房间'}</strong>
-        </div>
-        <div>
-          <span>当前模式</span>
-          <strong>{activeMode.name}</strong>
-        </div>
-        <div>
-          <span>本轮契约</span>
-          <strong>{snapshot.contractLocked ? '已锁定' : contractDisplay}</strong>
-        </div>
-        <div>
-          <span>房间节奏</span>
-          <strong>{roomCycle.phase === 'focus' ? '专注中' : '休息中'} · {formatStudyDuration(roomCycle.remainingSeconds)}</strong>
-        </div>
-        <div>
-          <span>实时人数</span>
-          <strong>{presence.status === 'online' ? `${online} / ${activeRoom.capacity}` : '离线'}</strong>
-        </div>
-      </div>
-
       <div className="study-layout">
         <section className="study-room-stage" aria-label="在线自习室">
-          <div className="study-stage-window">
-            <span />
-            <span />
-            <span />
-          </div>
-          <div className="study-stage-scene" aria-label="自习室场景">
-            <div className="study-stage-board">
+          <div className="study-cinema" aria-label="沉浸式在线自习室">
+            <div className="study-cinema-topbar">
+              <div>
+                <span className="study-kicker"><Users size={14} /> Real presence</span>
+                <h2>{activeRoom.name}</h2>
+              </div>
+              <div className="study-cinema-status">
+                <span className={`study-presence-pill is-${presence.status}`}>
+                  <span />
+                  {presence.status === 'online' ? `${online}/${activeRoom.capacity}` : presence.status === 'connecting' ? '连接中' : '离线'}
+                </span>
+                <button
+                  className="study-name-button"
+                  type="button"
+                  onClick={() => {
+                    setNicknameDraft(snapshot.nickname)
+                    setEditingName(true)
+                  }}
+                >
+                  {snapshot.nickname}
+                </button>
+              </div>
+            </div>
+
+            <div className="study-cinema-center">
               <span>{stageStatusLabel}</span>
-              <strong>{contractDisplay}</strong>
-              <small>{activeMode.name} · {snapshot.focusMinutes}/{snapshot.breakMinutes}</small>
-            </div>
-            <div className="study-stage-clock">
-              <Clock3 size={18} />
               <strong>{formatStudyDuration(snapshot.remainingSeconds)}</strong>
+              <p>{contractDisplay}</p>
+              <div className="study-cinema-actions">
+                <button type="button" onClick={runHostAction}>
+                  {hostActionIcon}
+                  {hostActionLabel}
+                </button>
+                <button type="button" onClick={followRoomCycle}>
+                  <RefreshCw size={14} />
+                  同步房间
+                </button>
+                <button type="button" onClick={() => setFocusTheaterOpen(true)}>
+                  <Maximize2 size={14} />
+                  全屏
+                </button>
+              </div>
             </div>
-            <div className="study-stage-lamp" aria-hidden="true" />
-            <div className="study-stage-desk" aria-hidden="true">
-              <span className="study-desk-book" />
-              <span className="study-desk-note" />
-              <span className="study-desk-cup" />
+
+            <div className="study-cinema-peer-strip" aria-label="在线同桌">
+              {roomMembers.slice(0, 7).map((member) => (
+                <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${formatStudySeatLabel(member.seatIndex)} · ${member.nickname} · ${studySignalLabel(member.signalId)}`}>
+                  {member.isSelf ? '我' : studySignalShortLabel(member.signalId)}
+                </span>
+              ))}
+            </div>
+
+            <div className="study-cinema-seat-deck">
+              <div className="study-cinema-seat-head">
+                <span>{spaceOnline} 人在 {snapshot.spaceCode}</span>
+                <strong>{focusingCount} 人专注中 · {signalMixSummary}</strong>
+              </div>
+              <div className="study-seat-map" aria-label="真实在线座位图">
+                {Array.from({ length: seatCount }, (_, index) => {
+                  const peer = peersBySeat.get(index)
+                  const isUser = index === userSeat
+                  const isOccupied = Boolean(peer) || isUser
+                  const seatLabel = formatStudySeatLabel(index)
+                  return (
+                    <button
+                      key={index}
+                      type="button"
+                      className={`study-seat${isUser ? ' is-user' : ''}${isOccupied ? ' is-occupied' : ' is-empty'}${peer?.status === 'running' ? ' is-focusing' : ''}`}
+                      title={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : `${seatLabel} · 空座，点击入座`}
+                      aria-label={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : `${seatLabel} · 空座，点击入座`}
+                      disabled={Boolean(peer) && !isUser}
+                      onClick={() => chooseSeat(index)}
+                    >
+                      {isUser ? '我' : peer ? studySignalShortLabel(peer.signalId) : ''}
+                      <small>{String(index + 1).padStart(2, '0')}</small>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </div>
-          <div className="study-stage-topline">
-            <div>
-              <span className="study-kicker"><Users size={14} /> Real presence</span>
-              <h2>当前教室：{online}/{activeRoom.capacity}</h2>
-            </div>
-            <button
-              className="study-name-button"
-              type="button"
-              onClick={() => {
-                setNicknameDraft(snapshot.nickname)
-                setEditingName(true)
-              }}
-            >
-              {snapshot.nickname}
-            </button>
-          </div>
+
           <div className="study-host-card" aria-label="房间主持">
             <div className="study-host-copy">
               <span className="study-kicker"><Sparkles size={14} /> Room host</span>
@@ -5877,58 +5890,6 @@ function StudySpace() {
             <div className="study-cycle-track" aria-hidden="true">
               <span style={{ width: `${roomCycle.progress}%` }} />
             </div>
-          </div>
-          <div className="study-room-metrics" aria-label="房间状态">
-            <div>
-              <strong>{formatStudyHours(roomFocusSeconds)}h</strong>
-              <span>房间今日专注</span>
-            </div>
-            <div>
-              <strong>{focusingCount}</strong>
-              <span>正在专注</span>
-            </div>
-            <div>
-              <strong>{roomSessionCount}</strong>
-              <span>完成番茄</span>
-            </div>
-          </div>
-          <div className="study-signal-mix" aria-label="房间学习状态分布">
-            <div className="study-signal-mix-head">
-              <span className="study-kicker"><Sparkles size={14} /> Study mix</span>
-              <strong>{signalMixSummary}</strong>
-            </div>
-            {signalMix.map((signal) => (
-              <div className={`study-signal-row${signal.count > 0 ? ' is-active' : ''}`} key={signal.id}>
-                <span>{signal.shortLabel}</span>
-                <div aria-hidden="true">
-                  <i style={{ width: `${Math.max(4, Math.round((signal.count / Math.max(1, online)) * 100))}%` }} />
-                </div>
-                <strong>{signal.count}</strong>
-                <em>{signal.focusing} 专注</em>
-              </div>
-            ))}
-          </div>
-          <div className="study-seat-map" aria-label="真实在线座位图">
-            {Array.from({ length: seatCount }, (_, index) => {
-              const peer = peersBySeat.get(index)
-              const isUser = index === userSeat
-              const isOccupied = Boolean(peer) || isUser
-              const seatLabel = formatStudySeatLabel(index)
-              return (
-                <button
-                  key={index}
-                  type="button"
-                  className={`study-seat${isUser ? ' is-user' : ''}${isOccupied ? ' is-occupied' : ' is-empty'}${peer?.status === 'running' ? ' is-focusing' : ''}`}
-                  title={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : `${seatLabel} · 空座，点击入座`}
-                  aria-label={isUser ? `${seatLabel} · ${snapshot.nickname}（我）· ${studySignalLabel(snapshot.signalId)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}` : peer ? `${seatLabel} · ${peer.nickname} · ${studySignalLabel(peer.signalId)} · ${studyMemberStatusLabel(peer.status, peer.timerMode)}` : `${seatLabel} · 空座，点击入座`}
-                  disabled={Boolean(peer) && !isUser}
-                  onClick={() => chooseSeat(index)}
-                >
-                  {isUser ? '我' : peer ? studySignalShortLabel(peer.signalId) : ''}
-                  <small>{String(index + 1).padStart(2, '0')}</small>
-                </button>
-              )
-            })}
           </div>
           <div className="study-room-strip">
             {studyRooms.map((room) => {
@@ -6270,6 +6231,29 @@ function StudySpace() {
             ))}
           </div>
         </section>
+      </div>
+
+      <div className="study-space-overview" aria-label="空间概览">
+        <div>
+          <span>空间类型</span>
+          <strong>{snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公开大厅' : '私密房间'}</strong>
+        </div>
+        <div>
+          <span>当前模式</span>
+          <strong>{activeMode.name}</strong>
+        </div>
+        <div>
+          <span>本轮契约</span>
+          <strong>{snapshot.contractLocked ? '已锁定' : contractDisplay}</strong>
+        </div>
+        <div>
+          <span>房间节奏</span>
+          <strong>{roomCycle.phase === 'focus' ? '专注中' : '休息中'} · {formatStudyDuration(roomCycle.remainingSeconds)}</strong>
+        </div>
+        <div>
+          <span>实时人数</span>
+          <strong>{presence.status === 'online' ? `${online} / ${activeRoom.capacity}` : '离线'}</strong>
+        </div>
       </div>
       {focusTheaterOpen ? (
         <div className={`study-theater is-${snapshot.timerMode}`} role="dialog" aria-modal="true" aria-label="沉浸专注视图">
