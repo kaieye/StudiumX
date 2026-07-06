@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Clock3,
   Coffee,
+  Copy,
   DoorOpen,
   Eye,
   EyeOff,
@@ -58,6 +59,8 @@ import {
   Timer,
   Trophy,
   Users,
+  Volume2,
+  VolumeX,
   Play,
   SendHorizontal,
   Upload,
@@ -194,6 +197,7 @@ type StudyTask = {
 type StudyPresencePeer = {
   clientId: string
   roomId: StudyRoomId
+  spaceCode: string
   nickname: string
   status: StudyTimerState
   timerMode: StudyTimerMode
@@ -205,6 +209,9 @@ type StudyPresencePeer = {
 type StudySnapshot = {
   clientId: string
   nickname: string
+  spaceCode: string
+  ambientEnabled: boolean
+  ambientVolume: number
   roomId: StudyRoomId
   timerMode: StudyTimerMode
   timerState: StudyTimerState
@@ -551,14 +558,18 @@ function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
 const STUDY_SPACE_STORAGE_KEY = 'teachos:study-space:v1'
 const STUDY_DAY_MS = 24 * 60 * 60 * 1000
 const STUDY_PRESENCE_BROKER_URL = 'wss://broker.emqx.io:8084/mqtt'
-const STUDY_PRESENCE_TOPIC = 'studiumx/study-space/v1/presence'
+const STUDY_PRESENCE_TOPIC_ROOT = 'studiumx/study-space/v1'
 const STUDY_PRESENCE_PEER_TTL_MS = 35_000
 const STUDY_PRESENCE_HEARTBEAT_MS = 10_000
 const STUDY_PRESENCE_CLIENT_PREFIX = 'studiumx'
+const STUDY_PUBLIC_SPACE_CODE = 'PUBLIC'
 
 const defaultStudySnapshot: StudySnapshot = {
   clientId: '',
   nickname: '',
+  spaceCode: STUDY_PUBLIC_SPACE_CODE,
+  ambientEnabled: false,
+  ambientVolume: 0.45,
   roomId: 'silent',
   timerMode: 'focus',
   timerState: 'idle',
@@ -669,6 +680,26 @@ function normalizeStudyRoomId(input: unknown): StudyRoomId {
   return studyRooms.some((room) => room.id === input) ? input as StudyRoomId : defaultStudySnapshot.roomId
 }
 
+function normalizeStudySpaceCode(input: unknown): string {
+  if (typeof input !== 'string') return STUDY_PUBLIC_SPACE_CODE
+  const value = input.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 18)
+  return value.length >= 3 ? value : STUDY_PUBLIC_SPACE_CODE
+}
+
+function randomStudySpaceCode(): string {
+  const bytes = new Uint8Array(3)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes)
+  } else {
+    bytes.forEach((_, index) => { bytes[index] = Math.floor(Math.random() * 256) })
+  }
+  return `ROOM-${Array.from(bytes).map((byte) => byte.toString(36).padStart(2, '0').toUpperCase()).join('')}`
+}
+
+function studyPresenceTopic(spaceCode: string): string {
+  return `${STUDY_PRESENCE_TOPIC_ROOT}/${normalizeStudySpaceCode(spaceCode).toLowerCase()}/presence`
+}
+
 function normalizeStudyTasks(input: unknown): StudyTask[] {
   if (!Array.isArray(input)) return defaultStudySnapshot.tasks
   const tasks = input
@@ -691,6 +722,7 @@ function normalizeStudySnapshot(input: unknown): StudySnapshot {
   const nickname = typeof raw.nickname === 'string' && raw.nickname.trim()
     ? raw.nickname.trim().slice(0, 18)
     : defaultStudyNickname(clientId)
+  const spaceCode = normalizeStudySpaceCode(raw.spaceCode)
   const roomId = normalizeStudyRoomId(raw.roomId)
   const timerMode = raw.timerMode === 'break' ? 'break' : 'focus'
   const focusMinutes = clampNumber(raw.focusMinutes, 5, 120, defaultStudySnapshot.focusMinutes)
@@ -701,6 +733,9 @@ function normalizeStudySnapshot(input: unknown): StudySnapshot {
   return {
     clientId,
     nickname,
+    spaceCode,
+    ambientEnabled: Boolean(raw.ambientEnabled),
+    ambientVolume: clampNumber(raw.ambientVolume, 0, 1, defaultStudySnapshot.ambientVolume),
     roomId,
     timerMode,
     timerState: raw.timerState === 'running' || raw.timerState === 'paused' ? raw.timerState : 'idle',
@@ -861,6 +896,7 @@ function normalizePresencePeer(input: unknown): StudyPresencePeer | null {
   if (raw.type !== 'study-presence') return null
   if (typeof raw.clientId !== 'string' || !raw.clientId.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)) return null
   const roomId = normalizeStudyRoomId(raw.roomId)
+  const spaceCode = normalizeStudySpaceCode(raw.spaceCode)
   const nickname = typeof raw.nickname === 'string' && raw.nickname.trim()
     ? raw.nickname.trim().slice(0, 18)
     : defaultStudyNickname(raw.clientId)
@@ -868,6 +904,7 @@ function normalizePresencePeer(input: unknown): StudyPresencePeer | null {
   return {
     clientId: raw.clientId,
     roomId,
+    spaceCode,
     nickname,
     status,
     timerMode: raw.timerMode === 'break' ? 'break' : 'focus',
@@ -883,6 +920,7 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
   const snapshotRef = useRef(snapshot)
   const socketRef = useRef<WebSocket | null>(null)
   const subscribedRef = useRef(false)
+  const activeTopic = studyPresenceTopic(snapshot.spaceCode)
 
   useEffect(() => {
     snapshotRef.current = snapshot
@@ -902,6 +940,7 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
       const message = JSON.stringify({
         type: 'study-presence',
         clientId: current.clientId,
+        spaceCode: current.spaceCode,
         roomId: current.roomId,
         nickname: current.nickname,
         status: current.timerState,
@@ -910,7 +949,7 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
         streakDays: current.streakDays,
         updatedAt: Date.now()
       })
-      mqttSend(socket, mqttPublishPacket(STUDY_PRESENCE_TOPIC, message))
+      mqttSend(socket, mqttPublishPacket(activeTopic, message))
     }
 
     const prunePeers = (): void => {
@@ -934,7 +973,7 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
         const bytes = new Uint8Array(event.data)
         const packetType = bytes[0] >> 4
         if (packetType === 2) {
-          mqttSend(socket, mqttSubscribePacket(STUDY_PRESENCE_TOPIC, packetId++))
+          mqttSend(socket, mqttSubscribePacket(activeTopic, packetId++))
           setStatus('online')
           return
         }
@@ -944,7 +983,7 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
           return
         }
         const publish = mqttParsePublish(event.data)
-        if (!publish || publish.topic !== STUDY_PRESENCE_TOPIC) return
+        if (!publish || publish.topic !== activeTopic) return
         try {
           const peer = normalizePresencePeer(JSON.parse(publish.message))
           if (!peer || peer.clientId === snapshotRef.current.clientId) return
@@ -968,6 +1007,7 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
     }
 
     connect()
+    setPeers([])
     heartbeatTimer = window.setInterval(() => {
       const socket = socketRef.current
       if (socket?.readyState === WebSocket.OPEN) mqttSend(socket, new Uint8Array([0xc0, 0x00]))
@@ -983,14 +1023,15 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
       socketRef.current?.close()
       socketRef.current = null
     }
-  }, [])
+  }, [activeTopic])
 
   useEffect(() => {
     const socket = socketRef.current
     if (socket?.readyState === WebSocket.OPEN && subscribedRef.current) {
-      mqttSend(socket, mqttPublishPacket(STUDY_PRESENCE_TOPIC, JSON.stringify({
+      mqttSend(socket, mqttPublishPacket(activeTopic, JSON.stringify({
         type: 'study-presence',
         clientId: snapshot.clientId,
+        spaceCode: snapshot.spaceCode,
         roomId: snapshot.roomId,
         nickname: snapshot.nickname,
         status: snapshot.timerState,
@@ -1000,9 +1041,58 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
         updatedAt: Date.now()
       })))
     }
-  }, [snapshot.clientId, snapshot.focusMinutes, snapshot.nickname, snapshot.roomId, snapshot.streakDays, snapshot.timerMode, snapshot.timerState])
+  }, [activeTopic, snapshot.clientId, snapshot.focusMinutes, snapshot.nickname, snapshot.roomId, snapshot.spaceCode, snapshot.streakDays, snapshot.timerMode, snapshot.timerState])
 
   return { status, peers, relay: STUDY_PRESENCE_BROKER_URL.replace(/^wss?:\/\//, '') }
+}
+
+function useStudyAmbient(roomId: StudyRoomId, enabled: boolean, volume: number): void {
+  useEffect(() => {
+    if (!enabled || roomId === 'exam') return undefined
+    const AudioContextCtor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioContextCtor) return undefined
+
+    const context = new AudioContextCtor()
+    const gain = context.createGain()
+    gain.gain.value = Math.min(0.16, Math.max(0, volume) * 0.16)
+    gain.connect(context.destination)
+
+    const filter = context.createBiquadFilter()
+    filter.connect(gain)
+    const bufferSize = Math.max(1, Math.floor(context.sampleRate * 2))
+    const buffer = context.createBuffer(1, bufferSize, context.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let index = 0; index < bufferSize; index += 1) {
+      data[index] = (Math.random() * 2 - 1) * (roomId === 'deep' ? 0.8 : 0.32)
+    }
+
+    if (roomId === 'deep') {
+      filter.type = 'lowpass'
+      filter.frequency.value = 850
+    } else if (roomId === 'sprint') {
+      filter.type = 'bandpass'
+      filter.frequency.value = 1250
+      filter.Q.value = 0.7
+    } else {
+      filter.type = 'highpass'
+      filter.frequency.value = 420
+    }
+
+    const source = context.createBufferSource()
+    source.buffer = buffer
+    source.loop = true
+    source.connect(filter)
+    void context.resume().catch(() => undefined)
+    source.start()
+
+    return () => {
+      source.stop()
+      source.disconnect()
+      filter.disconnect()
+      gain.disconnect()
+      void context.close().catch(() => undefined)
+    }
+  }, [enabled, roomId, volume])
 }
 
 // ================================================================
@@ -4671,12 +4761,15 @@ function StudySpace() {
   const [taskInput, setTaskInput] = useState('')
   const [editingName, setEditingName] = useState(false)
   const [nicknameDraft, setNicknameDraft] = useState('')
+  const [spaceDraft, setSpaceDraft] = useState('')
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const presence = useStudyPresence(snapshot)
   const activeRoom = studyRooms.find((room) => room.id === snapshot.roomId) ?? studyRooms[0]
+  useStudyAmbient(snapshot.roomId, snapshot.ambientEnabled, snapshot.ambientVolume)
   const level = studyLevel(snapshot.xp)
-  const activePeers = presence.peers.filter((peer) => peer.roomId === snapshot.roomId)
+  const activePeers = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === snapshot.roomId)
   const allRoomPeers = studyRooms.reduce<Record<StudyRoomId, number>>((acc, room) => {
-    acc[room.id] = presence.peers.filter((peer) => peer.roomId === room.id).length + (snapshot.roomId === room.id ? 1 : 0)
+    acc[room.id] = presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id).length + (snapshot.roomId === room.id ? 1 : 0)
     return acc
   }, { silent: 0, sprint: 0, deep: 0, exam: 0 })
   const online = activePeers.length + 1
@@ -4779,6 +4872,32 @@ function StudySpace() {
     setEditingName(false)
   }
 
+  const joinSpace = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    const spaceCode = normalizeStudySpaceCode(spaceDraft)
+    setSnapshot((current) => ({ ...current, spaceCode }))
+    setSpaceDraft('')
+    setCopyState('idle')
+  }
+
+  const createSpace = (): void => {
+    const spaceCode = randomStudySpaceCode()
+    setSnapshot((current) => ({ ...current, spaceCode }))
+    setSpaceDraft('')
+    setCopyState('idle')
+  }
+
+  const copyInvite = async (): Promise<void> => {
+    const text = `StudiumX 学习空间：${snapshot.spaceCode}\n教室：${activeRoom.name}\n进入学习空间后输入空间码即可加入同一自习室。`
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyState('copied')
+      window.setTimeout(() => setCopyState('idle'), 2200)
+    } catch {
+      setCopyState('failed')
+    }
+  }
+
   const toggleTimer = (): void => {
     setSnapshot((current) => ({
       ...current,
@@ -4840,9 +4959,27 @@ function StudySpace() {
               <span />
               {presence.status === 'online' ? `${online} 人在线` : presence.status === 'connecting' ? '连接教室中' : '离线，仅本机'}
             </span>
+            <span>Space {snapshot.spaceCode}</span>
             <span>{activeRoom.light}</span>
             <span>{activeRoom.ambient}</span>
             <span>relay {presence.relay}</span>
+          </div>
+          <div className="study-space-console">
+            <form className="study-space-code-form" onSubmit={joinSpace}>
+              <input
+                value={spaceDraft}
+                onChange={(event) => setSpaceDraft(event.target.value)}
+                placeholder={snapshot.spaceCode}
+                aria-label="加入空间码"
+                maxLength={18}
+              />
+              <button type="submit">加入</button>
+            </form>
+            <button type="button" onClick={createSpace}>新建空间</button>
+            <button type="button" onClick={() => void copyInvite()}>
+              <Copy size={13} />
+              {copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '邀请'}
+            </button>
           </div>
         </div>
         <div className="study-header-stats" aria-label="学习统计">
@@ -4954,6 +5091,27 @@ function StudySpace() {
           <div className="study-mode-switch" role="tablist" aria-label="计时模式">
             <button type="button" className={snapshot.timerMode === 'focus' ? 'is-active' : ''} onClick={() => switchTimerMode('focus')}>专注</button>
             <button type="button" className={snapshot.timerMode === 'break' ? 'is-active' : ''} onClick={() => switchTimerMode('break')}>休息</button>
+          </div>
+          <div className="study-ambient-control">
+            <button
+              type="button"
+              className={snapshot.ambientEnabled ? 'is-active' : ''}
+              onClick={() => setSnapshot((current) => ({ ...current, ambientEnabled: !current.ambientEnabled }))}
+              disabled={snapshot.roomId === 'exam'}
+            >
+              {snapshot.ambientEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+              {snapshot.roomId === 'exam' ? '考场静音' : activeRoom.ambient}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={snapshot.ambientVolume}
+              disabled={!snapshot.ambientEnabled || snapshot.roomId === 'exam'}
+              onChange={(event) => setSnapshot((current) => ({ ...current, ambientVolume: Number(event.target.value) }))}
+              aria-label="环境音音量"
+            />
           </div>
         </section>
 
