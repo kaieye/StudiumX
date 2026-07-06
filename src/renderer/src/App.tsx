@@ -593,6 +593,7 @@ function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
 }
 
 const STUDY_SPACE_STORAGE_KEY = 'teachos:study-space:v1'
+const STUDY_SPACE_SESSION_CLIENT_KEY = 'teachos:study-space:session-client:v1'
 const STUDY_DAY_MS = 24 * 60 * 60 * 1000
 const STUDY_PRESENCE_BROKER_URL = 'wss://broker.emqx.io:8084/mqtt'
 const STUDY_PRESENCE_TOPIC_ROOT = 'studiumx/study-space/v1'
@@ -936,6 +937,27 @@ function normalizeStudySnapshot(input: unknown): StudySnapshot {
   }
 }
 
+function readStudySessionClientId(): string {
+  try {
+    const stored = window.sessionStorage.getItem(STUDY_SPACE_SESSION_CLIENT_KEY)
+    if (stored?.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)) return stored
+    const nextClientId = randomStudyClientId()
+    window.sessionStorage.setItem(STUDY_SPACE_SESSION_CLIENT_KEY, nextClientId)
+    return nextClientId
+  } catch {
+    return randomStudyClientId()
+  }
+}
+
+function applyStudySessionIdentity(snapshot: StudySnapshot): StudySnapshot {
+  const clientId = readStudySessionClientId()
+  if (clientId === snapshot.clientId) return snapshot
+  const nickname = /^同学 [A-Z0-9]{4}$/.test(snapshot.nickname)
+    ? defaultStudyNickname(clientId)
+    : snapshot.nickname
+  return { ...snapshot, clientId, nickname }
+}
+
 function applyStudyInviteParams(snapshot: StudySnapshot): StudySnapshot {
   try {
     const params = new URLSearchParams(window.location.search)
@@ -962,9 +984,9 @@ function applyStudyInviteParams(snapshot: StudySnapshot): StudySnapshot {
 function readStudySnapshot(): StudySnapshot {
   try {
     const stored = window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY)
-    return applyStudyInviteParams(normalizeStudySnapshot(stored ? JSON.parse(stored) : null))
+    return applyStudyInviteParams(applyStudySessionIdentity(normalizeStudySnapshot(stored ? JSON.parse(stored) : null)))
   } catch {
-    return applyStudyInviteParams(normalizeStudySnapshot(null))
+    return applyStudyInviteParams(applyStudySessionIdentity(normalizeStudySnapshot(null)))
   }
 }
 
@@ -5167,7 +5189,7 @@ function StudySpace() {
     { label: '本机心跳', value: formatStudyPresenceAge(presence.lastHeartbeatAt, roomCycleNow) },
     { label: '最近远端', value: formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow) },
     { label: '远端新鲜度', value: `${remoteFreshCount}/${remoteOnline}` },
-    { label: 'TTL', value: `${Math.round(STUDY_PRESENCE_PEER_TTL_MS / 1000)} 秒` }
+    { label: '会话身份', value: snapshot.clientId.slice(-4).toUpperCase() }
   ]
   const roomEvents = presence.events
     .filter((event) => event.spaceCode === snapshot.spaceCode && event.roomId === snapshot.roomId)
@@ -5399,7 +5421,7 @@ function StudySpace() {
   }
 
   const copyInvite = async (): Promise<void> => {
-    const text = `StudiumX 学习空间：${activeRoom.name}\n链接：${inviteUrl}\n空间码：${snapshot.spaceCode}\n进入后会加入同一在线 presence 房间；如果链接不可用，可手动输入空间码。`
+    const text = `StudiumX 学习空间：${activeRoom.name}\n链接：${inviteUrl}\n空间码：${snapshot.spaceCode}\n进入后会加入同一在线 presence 房间；另开窗口或标签页会使用独立 session 在线身份。`
     try {
       await navigator.clipboard.writeText(text)
       setCopyState('copied')
@@ -5417,10 +5439,12 @@ function StudySpace() {
       `relay=${presence.relay}`,
       `topic=${presence.topic}`,
       `status=${presence.status}`,
+      `sessionPeer=${snapshot.clientId}`,
       `localHeartbeat=${formatStudyPresenceAge(presence.lastHeartbeatAt, roomCycleNow)}`,
       `lastRemote=${formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow)}`,
       `remotePeers=${remoteOnline}`,
       `freshPeers=${remoteFreshCount}`,
+      `ttlSeconds=${Math.round(STUDY_PRESENCE_PEER_TTL_MS / 1000)}`,
       `invite=${inviteUrl}`
     ].join('\n')
     try {
@@ -6060,7 +6084,7 @@ function StudySpace() {
                 </div>
               ))}
             </div>
-            <p>人数只来自当前 topic 的 MQTT 心跳；超过 TTL 的远端同学会自动下线，不再填充虚假座位。</p>
+            <p>人数只来自当前 topic 的 MQTT 心跳；每个窗口使用独立 session presence 身份，超过 {Math.round(STUDY_PRESENCE_PEER_TTL_MS / 1000)} 秒未心跳会自动下线。</p>
           </div>
           <div className="study-invite-note">
             <Info size={14} />
