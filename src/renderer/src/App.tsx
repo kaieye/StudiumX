@@ -1001,6 +1001,17 @@ function applyStudyInviteParams(snapshot: StudySnapshot): StudySnapshot {
   }
 }
 
+function initialWorkspaceViewFromUrl(): WorkspaceView {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return params.has('studySpace') || params.has('space') || params.has('studyRoom') || params.has('room')
+      ? 'studio'
+      : 'agent'
+  } catch {
+    return 'agent'
+  }
+}
+
 function readStudySnapshot(): StudySnapshot {
   try {
     const stored = window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY)
@@ -1858,7 +1869,7 @@ function persistAgentInputHistory(history: string[]): void {
 }
 
 const useAppStore = create<StoreState>((set, get) => ({
-  view: 'agent',
+  view: initialWorkspaceViewFromUrl(),
   settingsSection: 'general',
   sidebarCollapsed: false,
   loading: true,

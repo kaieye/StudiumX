@@ -29,6 +29,7 @@
     "check:provider-actions": "node scripts/check-provider-actions.mjs",
     "check:dialog-ime": "node scripts/check-dialog-ime-composition.mjs",
     "check:sidebar-ui": "node scripts/check-sidebar-ui.mjs",
+    "check:study-presence-live": "node scripts/check-study-presence-live.mjs",
     "check:workspace-import-course": "node scripts/check-workspace-import-course.mjs",
     "check:workspace-removal": "node scripts/check-workspace-removal-state.mjs",
     "check:web-search-providers": "node scripts/check-web-search-providers.mjs",

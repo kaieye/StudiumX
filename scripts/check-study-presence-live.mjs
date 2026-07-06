@@ -1,0 +1,181 @@
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const appUrl = process.env.STUDIUMX_STUDY_URL ?? 'http://localhost:5173/'
+const chromePath = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+const debugPort = Number(process.env.STUDIUMX_CHROME_DEBUG_PORT ?? 9233)
+const timeoutMs = Number(process.env.STUDIUMX_STUDY_LIVE_TIMEOUT_MS ?? 30_000)
+const pollMs = 1_500
+
+await assertAppIsRunning(appUrl)
+
+const userDataDir = await mkdtemp(join(tmpdir(), 'studiumx-study-presence-'))
+const chrome = spawn(chromePath, [
+  '--headless=new',
+  `--remote-debugging-port=${debugPort}`,
+  `--user-data-dir=${userDataDir}`,
+  '--disable-gpu',
+  '--no-first-run',
+  '--no-default-browser-check',
+  'about:blank'
+], { stdio: ['ignore', 'ignore', 'pipe'] })
+
+let stderr = ''
+let chromeClosed = false
+const chromeClose = new Promise((resolve) => {
+  chrome.once('close', () => {
+    chromeClosed = true
+    resolve()
+  })
+})
+chrome.stderr.setEncoding('utf8')
+chrome.stderr.on('data', (chunk) => {
+  stderr += chunk
+})
+
+try {
+  await waitForDebugger(debugPort)
+  const result = await verifyTwoStudyClients(debugPort, appUrl, timeoutMs)
+
+  assert.equal(result.clientA.hasStudy, true, 'first invite URL should open the study space view directly')
+  assert.equal(result.clientB.hasStudy, true, 'second invite URL should open the study space view directly')
+  assert.deepEqual(result.clientA.counts, ['2', '2', '1'], 'first client should see one local and one remote session')
+  assert.deepEqual(result.clientB.counts, ['2', '2', '1'], 'second client should see one local and one remote session')
+  assert.equal(result.clientA.remoteVerified, true, 'first client should show remote verification state')
+  assert.equal(result.clientB.remoteVerified, true, 'second client should show remote verification state')
+  assert.notEqual(result.clientA.sessionId, result.clientB.sessionId, 'clients should use distinct session identities')
+
+  console.log(`study presence live ok: ${result.spaceCode}`)
+} finally {
+  if (!chromeClosed) chrome.kill('SIGTERM')
+  await chromeClose
+  await rm(userDataDir, { force: true, recursive: true })
+}
+
+async function assertAppIsRunning(url) {
+  try {
+    const response = await fetch(url, { method: 'HEAD' })
+    assert.equal(response.ok, true)
+  } catch (error) {
+    throw new Error(`Study presence live check requires the dev server at ${url}. Start it with npm run dev.\n${error.message}`)
+  }
+}
+
+async function waitForDebugger(port) {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < 8_000) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`)
+      if (response.ok) return
+    } catch {
+      // Chrome is still starting.
+    }
+    await delay(200)
+  }
+  throw new Error(`Chrome debugger did not start on port ${port}${stderr ? `\n${stderr}` : ''}`)
+}
+
+async function verifyTwoStudyClients(port, rootUrl, timeout) {
+  const browserInfo = await fetch(`http://127.0.0.1:${port}/json/version`).then((response) => response.json())
+  const browser = await connect(browserInfo.webSocketDebuggerUrl)
+  const spaceCode = `SX${Date.now().toString(36).slice(-6).toUpperCase()}`
+  const inviteUrl = new URL(rootUrl)
+  inviteUrl.searchParams.set('studySpace', spaceCode)
+  inviteUrl.searchParams.set('studyRoom', 'silent')
+  inviteUrl.searchParams.set('studyFreshSession', '1')
+
+  const targetA = await browser.send('Target.createTarget', { url: inviteUrl.href })
+  const targetB = await browser.send('Target.createTarget', { url: inviteUrl.href })
+  await delay(1_000)
+
+  const tabs = await fetch(`http://127.0.0.1:${port}/json`).then((response) => response.json())
+  const clientA = await connect(targetWebSocket(tabs, targetA.targetId))
+  const clientB = await connect(targetWebSocket(tabs, targetB.targetId))
+
+  await Promise.all([
+    clientA.send('Runtime.enable'),
+    clientB.send('Runtime.enable'),
+    clientA.send('Page.enable'),
+    clientB.send('Page.enable')
+  ])
+
+  let lastA = null
+  let lastB = null
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeout) {
+    await delay(pollMs)
+    lastA = await readStudyPresence(clientA)
+    lastB = await readStudyPresence(clientB)
+    if (lastA.hasStudy && lastB.hasStudy && lastA.counts[2] === '1' && lastB.counts[2] === '1') break
+  }
+
+  clientA.close()
+  clientB.close()
+  browser.close()
+
+  return { spaceCode, clientA: lastA, clientB: lastB }
+}
+
+function targetWebSocket(tabs, targetId) {
+  const tab = tabs.find((item) => item.id === targetId)
+  if (!tab) throw new Error(`Could not find Chrome target ${targetId}`)
+  return tab.webSocketDebuggerUrl
+}
+
+async function readStudyPresence(client) {
+  const result = await client.send('Runtime.evaluate', {
+    returnByValue: true,
+    expression: `(() => {
+      const q = (selector) => document.querySelector(selector)
+      const text = document.body.innerText
+      const proofText = q('.study-online-proof')?.textContent ?? ''
+      return {
+        hasStudy: Boolean(q('.study-space')),
+        heading: q('.study-arrival-live h2')?.textContent?.trim() ?? '',
+        status: q('.study-relay-badge')?.textContent?.trim() ?? '',
+        counts: [...document.querySelectorAll('.study-arrival-counts strong')].map((node) => node.textContent.trim()),
+        remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌'),
+        sessionId: proofText.match(/会话身份([A-Z0-9]+)/)?.[1] ?? '',
+        text: text.slice(0, 800)
+      }
+    })()`
+  })
+  return result.result.value
+}
+
+function connect(webSocketUrl) {
+  const ws = new WebSocket(webSocketUrl)
+  let id = 0
+
+  const opened = new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve, { once: true })
+    ws.addEventListener('error', reject, { once: true })
+  })
+
+  return opened.then(() => ({
+    send(method, params = {}) {
+      return new Promise((resolve, reject) => {
+        const callId = ++id
+        const onMessage = (event) => {
+          const data = JSON.parse(event.data)
+          if (data.id !== callId) return
+          ws.removeEventListener('message', onMessage)
+          if (data.error) reject(new Error(JSON.stringify(data.error)))
+          else resolve(data.result)
+        }
+        ws.addEventListener('message', onMessage)
+        ws.send(JSON.stringify({ id: callId, method, params }))
+      })
+    },
+    close() {
+      ws.close()
+    }
+  }))
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
