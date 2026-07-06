@@ -4876,10 +4876,18 @@ function StudySpace() {
   const roomFocusSeconds = roomMembers.reduce((sum, member) => sum + member.todayFocusSeconds, 0)
   const roomSessionCount = roomMembers.reduce((sum, member) => sum + member.todaySessions, 0)
   const focusingCount = roomMembers.filter((member) => member.status === 'running' && member.timerMode === 'focus').length
+  const stageStatusLabel = snapshot.timerState === 'running'
+    ? snapshot.timerMode === 'focus'
+      ? 'FOCUS ON'
+      : 'BREAK'
+    : snapshot.timerState === 'paused'
+      ? 'PAUSED'
+      : 'READY'
+  const contractDisplay = snapshot.contractText.trim() || snapshot.tasks.find((task) => !task.done)?.title || activeMode.name
   const roomFeed = [
     `${activeRoom.name} 当前 ${focusingCount} 人正在专注，今日合计 ${formatStudyHours(roomFocusSeconds)}h。`,
     snapshot.timerState === 'running'
-      ? `${snapshot.nickname} 正在进行 ${snapshot.focusMinutes} 分钟专注轮次：${snapshot.contractText || activeMode.name}。`
+      ? `${snapshot.nickname} 正在进行 ${snapshot.focusMinutes} 分钟专注轮次：${contractDisplay}。`
       : `${snapshot.nickname} 已入座，等待开始下一轮。`,
     completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
     presence.status === 'online'
@@ -5089,7 +5097,7 @@ function StudySpace() {
   }
 
   return (
-    <section className={`study-space ${activeRoom.backdrop}`} aria-label="学习空间">
+    <section className={`study-space ${activeRoom.backdrop}${snapshot.timerState === 'running' ? ' is-running' : ''}${snapshot.timerMode === 'break' ? ' is-break' : ''}`} aria-label="学习空间">
       <div className="study-hero">
         <div className="study-hero-copy">
           <span className="study-eyebrow"><DoorOpen size={14} /> Network study room</span>
@@ -5130,12 +5138,48 @@ function StudySpace() {
         </div>
       </div>
 
+      <div className="study-space-overview" aria-label="空间概览">
+        <div>
+          <span>空间类型</span>
+          <strong>{snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公开大厅' : '私密房间'}</strong>
+        </div>
+        <div>
+          <span>当前模式</span>
+          <strong>{activeMode.name}</strong>
+        </div>
+        <div>
+          <span>本轮契约</span>
+          <strong>{snapshot.contractLocked ? '已锁定' : contractDisplay}</strong>
+        </div>
+        <div>
+          <span>实时人数</span>
+          <strong>{presence.status === 'online' ? `${online} / ${activeRoom.capacity}` : '离线'}</strong>
+        </div>
+      </div>
+
       <div className="study-layout">
         <section className="study-room-stage" aria-label="在线自习室">
           <div className="study-stage-window">
             <span />
             <span />
             <span />
+          </div>
+          <div className="study-stage-scene" aria-label="自习室场景">
+            <div className="study-stage-board">
+              <span>{stageStatusLabel}</span>
+              <strong>{contractDisplay}</strong>
+              <small>{activeMode.name} · {snapshot.focusMinutes}/{snapshot.breakMinutes}</small>
+            </div>
+            <div className="study-stage-clock">
+              <Clock3 size={18} />
+              <strong>{formatStudyDuration(snapshot.remainingSeconds)}</strong>
+            </div>
+            <div className="study-stage-lamp" aria-hidden="true" />
+            <div className="study-stage-desk" aria-hidden="true">
+              <span className="study-desk-book" />
+              <span className="study-desk-note" />
+              <span className="study-desk-cup" />
+            </div>
           </div>
           <div className="study-stage-topline">
             <div>
