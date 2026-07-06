@@ -188,6 +188,7 @@ type StudyTimerState = 'idle' | 'running' | 'paused'
 type StudyRoomId = 'silent' | 'sprint' | 'deep' | 'exam'
 type StudyModeId = 'free' | 'sync' | 'deepwork' | 'exam'
 type StudyPresenceStatus = 'connecting' | 'online' | 'offline'
+type StudyRoomEventKind = 'checkin' | 'focus_start' | 'task_done' | 'cheer'
 
 type StudyTask = {
   id: string
@@ -207,6 +208,17 @@ type StudyPresencePeer = {
   todaySessions: number
   streakDays: number
   updatedAt: number
+}
+
+type StudyRoomEvent = {
+  id: string
+  clientId: string
+  spaceCode: string
+  roomId: StudyRoomId
+  nickname: string
+  kind: StudyRoomEventKind
+  text: string
+  createdAt: number
 }
 
 type StudySnapshot = {
@@ -980,9 +992,42 @@ function normalizePresencePeer(input: unknown): StudyPresencePeer | null {
   }
 }
 
-function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatus; peers: StudyPresencePeer[]; relay: string } {
+function normalizeStudyRoomEvent(input: unknown): StudyRoomEvent | null {
+  if (!input || typeof input !== 'object') return null
+  const raw = input as Partial<StudyRoomEvent> & { type?: string }
+  if (raw.type !== 'study-event') return null
+  if (typeof raw.clientId !== 'string' || !raw.clientId.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)) return null
+  const kind = raw.kind === 'checkin' || raw.kind === 'focus_start' || raw.kind === 'task_done' || raw.kind === 'cheer'
+    ? raw.kind
+    : null
+  if (!kind) return null
+  const id = typeof raw.id === 'string' && raw.id ? raw.id.slice(0, 80) : `${raw.clientId}-${raw.createdAt ?? Date.now()}`
+  const text = typeof raw.text === 'string' ? raw.text.trim().slice(0, 90) : ''
+  if (!text) return null
+  return {
+    id,
+    clientId: raw.clientId,
+    spaceCode: normalizeStudySpaceCode(raw.spaceCode),
+    roomId: normalizeStudyRoomId(raw.roomId),
+    nickname: typeof raw.nickname === 'string' && raw.nickname.trim()
+      ? raw.nickname.trim().slice(0, 18)
+      : defaultStudyNickname(raw.clientId),
+    kind,
+    text,
+    createdAt: clampNumber(raw.createdAt, Date.now() - STUDY_DAY_MS, Date.now() + 60_000, Date.now())
+  }
+}
+
+function useStudyPresence(snapshot: StudySnapshot): {
+  status: StudyPresenceStatus
+  peers: StudyPresencePeer[]
+  events: StudyRoomEvent[]
+  relay: string
+  sendEvent: (kind: StudyRoomEventKind, text: string) => void
+} {
   const [status, setStatus] = useState<StudyPresenceStatus>('connecting')
   const [peers, setPeers] = useState<StudyPresencePeer[]>([])
+  const [events, setEvents] = useState<StudyRoomEvent[]>([])
   const snapshotRef = useRef(snapshot)
   const socketRef = useRef<WebSocket | null>(null)
   const subscribedRef = useRef(false)
@@ -1023,6 +1068,7 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
     const prunePeers = (): void => {
       const nowMs = Date.now()
       setPeers((current) => current.filter((peer) => nowMs - peer.updatedAt <= STUDY_PRESENCE_PEER_TTL_MS))
+      setEvents((current) => current.filter((event) => nowMs - event.createdAt <= 2 * 60 * 60 * 1000))
     }
 
     const connect = (): void => {
@@ -1054,8 +1100,14 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
         if (!publish || publish.topic !== activeTopic) return
         try {
           const peer = normalizePresencePeer(JSON.parse(publish.message))
-          if (!peer || peer.clientId === snapshotRef.current.clientId) return
-          setPeers((current) => [peer, ...current.filter((item) => item.clientId !== peer.clientId)].slice(0, 80))
+          if (peer) {
+            if (peer.clientId === snapshotRef.current.clientId) return
+            setPeers((current) => [peer, ...current.filter((item) => item.clientId !== peer.clientId)].slice(0, 80))
+            return
+          }
+          const event = normalizeStudyRoomEvent(JSON.parse(publish.message))
+          if (!event || event.clientId === snapshotRef.current.clientId) return
+          setEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 80))
         } catch {
           // Ignore malformed public relay payloads.
         }
@@ -1076,6 +1128,7 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
 
     connect()
     setPeers([])
+    setEvents([])
     heartbeatTimer = window.setInterval(() => {
       const socket = socketRef.current
       if (socket?.readyState === WebSocket.OPEN) mqttSend(socket, new Uint8Array([0xc0, 0x00]))
@@ -1113,7 +1166,27 @@ function useStudyPresence(snapshot: StudySnapshot): { status: StudyPresenceStatu
     }
   }, [activeTopic, snapshot.clientId, snapshot.focusMinutes, snapshot.nickname, snapshot.roomId, snapshot.spaceCode, snapshot.streakDays, snapshot.timerMode, snapshot.timerState])
 
-  return { status, peers, relay: STUDY_PRESENCE_BROKER_URL.replace(/^wss?:\/\//, '') }
+  const sendEvent = (kind: StudyRoomEventKind, text: string): void => {
+    const current = snapshotRef.current
+    const event: StudyRoomEvent = {
+      id: `${current.clientId}-${Date.now()}-${kind}`,
+      clientId: current.clientId,
+      spaceCode: current.spaceCode,
+      roomId: current.roomId,
+      nickname: current.nickname,
+      kind,
+      text: text.trim().slice(0, 90),
+      createdAt: Date.now()
+    }
+    if (!event.text) return
+    setEvents((items) => [event, ...items.filter((item) => item.id !== event.id)].slice(0, 80))
+    const socket = socketRef.current
+    if (socket?.readyState === WebSocket.OPEN && subscribedRef.current) {
+      mqttSend(socket, mqttPublishPacket(activeTopic, JSON.stringify({ type: 'study-event', ...event })))
+    }
+  }
+
+  return { status, peers, events, relay: STUDY_PRESENCE_BROKER_URL.replace(/^wss?:\/\//, ''), sendEvent }
 }
 
 function useStudyAmbient(roomId: StudyRoomId, enabled: boolean, volume: number): void {
@@ -4876,6 +4949,9 @@ function StudySpace() {
   const roomFocusSeconds = roomMembers.reduce((sum, member) => sum + member.todayFocusSeconds, 0)
   const roomSessionCount = roomMembers.reduce((sum, member) => sum + member.todaySessions, 0)
   const focusingCount = roomMembers.filter((member) => member.status === 'running' && member.timerMode === 'focus').length
+  const roomEvents = presence.events
+    .filter((event) => event.spaceCode === snapshot.spaceCode && event.roomId === snapshot.roomId)
+    .slice(0, 8)
   const stageStatusLabel = snapshot.timerState === 'running'
     ? snapshot.timerMode === 'focus'
       ? 'FOCUS ON'
@@ -4900,6 +4976,10 @@ function StudySpace() {
     activeRoom.id === 'exam' ? '考试模拟间默认静音，不播放环境音' : `${activeRoom.ambient} 可在右侧开关`,
     'presence 只广播匿名状态，不上传学习任务内容'
   ]
+
+  const emitRoomEvent = (kind: StudyRoomEventKind, text: string): void => {
+    presence.sendEvent(kind, text)
+  }
 
   useEffect(() => {
     persistStudySnapshot(snapshot)
@@ -5041,6 +5121,9 @@ function StudySpace() {
   }
 
   const toggleTimer = (): void => {
+    if (snapshot.timerState !== 'running' && snapshot.timerMode === 'focus') {
+      emitRoomEvent('focus_start', `${snapshot.nickname} 开始专注：${contractDisplay}`)
+    }
     setSnapshot((current) => ({
       ...current,
       timerState: current.timerState === 'running' ? 'paused' : 'running',
@@ -5083,6 +5166,10 @@ function StudySpace() {
   }
 
   const toggleTask = (taskId: string): void => {
+    const task = snapshot.tasks.find((item) => item.id === taskId)
+    if (task && !task.done) {
+      emitRoomEvent('task_done', `${snapshot.nickname} 完成任务：${task.title}`)
+    }
     setSnapshot((current) => ({
       ...current,
       tasks: current.tasks.map((task) => task.id === taskId ? { ...task, done: !task.done } : task)
@@ -5372,6 +5459,30 @@ function StudySpace() {
               <div key={index} className="study-feed-row">
                 <span>{index + 1}</span>
                 <p>{item}</p>
+              </div>
+            ))}
+          </div>
+          <div className="study-room-actions" aria-label="房间互动">
+            <button type="button" onClick={() => emitRoomEvent('checkin', `${snapshot.nickname} 在 ${activeRoom.name} 签到。`)}>
+              签到
+            </button>
+            <button type="button" onClick={() => emitRoomEvent('cheer', `${snapshot.nickname} 给同桌们加油。`)}>
+              加油
+            </button>
+            <button type="button" onClick={() => emitRoomEvent('cheer', `${snapshot.nickname} 休息提醒：记得喝水和放松眼睛。`)}>
+              休息提醒
+            </button>
+          </div>
+          <div className="study-event-stream" aria-label="实时互动流">
+            {roomEvents.length === 0 ? (
+              <div className="study-event-empty">还没有实时互动。签到或开始专注后，同空间同房间的同学会看到动态。</div>
+            ) : roomEvents.map((event) => (
+              <div className={`study-event-row is-${event.kind}`} key={event.id}>
+                <span>{event.kind === 'checkin' ? 'IN' : event.kind === 'focus_start' ? 'GO' : event.kind === 'task_done' ? 'OK' : 'UP'}</span>
+                <div>
+                  <strong>{event.nickname}</strong>
+                  <p>{event.text}</p>
+                </div>
               </div>
             ))}
           </div>

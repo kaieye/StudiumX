@@ -6182,6 +6182,98 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   line-height: 1.5;
 }
 
+.study-room-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+
+.study-room-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  color: #3f5f59;
+  border: 1px solid rgba(63, 95, 89, 0.22);
+  border-radius: 999px;
+  background: #eef4ee;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 820;
+  cursor: pointer;
+}
+
+.study-room-actions button:hover {
+  background: #e6efe7;
+}
+
+.study-event-stream {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.study-event-empty {
+  padding: 12px;
+  color: rgba(23, 32, 29, 0.58);
+  border: 1px dashed rgba(63, 95, 89, 0.24);
+  border-radius: 14px;
+  background: rgba(248, 250, 246, 0.72);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.study-event-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.study-event-row > span {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: #3f5f59;
+  border-radius: 11px;
+  background: #eef4ee;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.study-event-row.is-focus_start > span {
+  color: #7a5a14;
+  background: rgba(229, 185, 85, 0.22);
+}
+
+.study-event-row.is-task_done > span {
+  color: #0a7a58;
+  background: rgba(36, 161, 108, 0.13);
+}
+
+.study-event-row strong,
+.study-event-row p {
+  display: block;
+  margin: 0;
+}
+
+.study-event-row strong {
+  color: #17201d;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.study-event-row p {
+  margin-top: 3px;
+  color: rgba(23, 32, 29, 0.62);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .study-leaderboard {
   display: grid;
   gap: 7px;
@@ -6935,6 +7027,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   .study-space-code-form input,
   .study-space-code-form button,
   .study-space-console > button,
+  .study-room-actions button,
   .study-ambient-control button {
     width: 100%;
   }
@@ -7372,6 +7465,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-space-overview strong,
 :root[data-resolved-theme="dark"] .study-leader-row strong,
 :root[data-resolved-theme="dark"] .study-mode-card strong,
+:root[data-resolved-theme="dark"] .study-event-row strong,
 :root[data-resolved-theme="dark"] .study-name-modal h2 {
   color: var(--text);
 }
@@ -7383,6 +7477,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-space-overview span,
 :root[data-resolved-theme="dark"] .study-room-rules span,
 :root[data-resolved-theme="dark"] .study-feed-row p,
+:root[data-resolved-theme="dark"] .study-event-empty,
+:root[data-resolved-theme="dark"] .study-event-row p,
 :root[data-resolved-theme="dark"] .study-leaderboard-head,
 :root[data-resolved-theme="dark"] .study-leader-row em,
 :root[data-resolved-theme="dark"] .study-mode-card span,
@@ -7404,6 +7500,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-room-metrics div,
 :root[data-resolved-theme="dark"] .study-room-rules span,
 :root[data-resolved-theme="dark"] .study-feed-row,
+:root[data-resolved-theme="dark"] .study-event-empty,
+:root[data-resolved-theme="dark"] .study-event-row,
 :root[data-resolved-theme="dark"] .study-leaderboard,
 :root[data-resolved-theme="dark"] .study-mode-card,
 :root[data-resolved-theme="dark"] .study-contract,
@@ -7429,6 +7527,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   background: rgba(255, 255, 255, 0.1);
 }
 
+:root[data-resolved-theme="dark"] .study-room-actions button {
+  border-color: rgba(102, 194, 154, 0.24);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
 :root[data-resolved-theme="dark"] .study-contract button {
   border-color: rgba(102, 194, 154, 0.24);
   background: var(--green-soft);
@@ -7440,6 +7544,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 :root[data-resolved-theme="dark"] .study-feed-row span,
+:root[data-resolved-theme="dark"] .study-event-row > span,
 :root[data-resolved-theme="dark"] .study-leader-row > span {
   color: var(--green);
   background: var(--green-soft);
