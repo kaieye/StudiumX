@@ -12,7 +12,7 @@
 | Phase 1：搜索 runtime 深模块 | 已完成 | `cfda6ab` | 已抽出 SearchRuntime，搜索/抓取工具改为薄封装，并新增结构化 sources、attempts 和抓取安全测试。 |
 | Phase 2：发送前 context hygiene | 已完成 | `fdf9ea1` | 已新增发送前历史清理、CJK 友好估算和最小诊断事件。 |
 | Phase 3：自动与手动压缩 | 未开始 | - | 依赖 Phase 2 的 estimator/hygiene。 |
-| Phase 4：只读子 agent | 未开始 | - | 建议在 Phase 0 后实施，写入能力延后。 |
+| Phase 4：只读子 agent | 已完成 | `6bf0fee` | 已新增 DelegationRuntime、delegate_task/read_only_task 和只读 profile 工具边界。 |
 | Phase 5：并行任务与状态 UI | 未开始 | - | 依赖 Phase 4。 |
 | Phase 6：持久化与恢复 | 未开始 | - | 依赖 sources、child run、compaction metadata 的实际落地。 |
 
@@ -136,6 +136,37 @@
 
 - `npm run check:agent-chat` 未通过，失败点是临时会话 prompt 文案断言期望匹配 `学习者画像和课程概览`，实际 prompt 为 `学习者画像、课程概览和当前打开页面...`；本阶段未改该路径，未混入无关修复。
 
+### Phase 4：只读子 agent
+
+完成内容：
+
+- 新增 `DelegationRuntime`、`ChildRunStore` 和只读 child system prompt，child 内部复用 `runAgentLoop`。
+- 新增 `delegate_task` 与 `read_only_task` 工具；主教学对话启用工具时可派发前台只读 child task。
+- child registry 通过 profile 投影限制工具：`read_only/research` 允许工作区只读与 web 工具，`workspace_audit` 只允许工作区只读；child 不注册 `write_workspace_file`、`ask`、`generate_lesson` 或递归派发工具。
+- 父 transcript 只保存 delegation 工具 JSON 结果，child transcript 不展开进父上下文。
+- child 生命周期事件从工具 handler 透传到 agent loop，并在教学 runtime 中映射为现有 status 流。
+- 新增 `check:agent-delegation-runtime`，覆盖父 agent 派发、child 读文件、只读工具白名单、child 失败不终止父 loop。
+
+提交：
+
+- `6bf0fee feat(agent): add read-only child task delegation`
+
+验证：
+
+- `npm run check:agent-tool-registry`
+- `npm run check:agent-delegation-runtime`
+- `npm run check:agent-loop-baseline`
+- `npm run check:agent-loop-context-hygiene`
+- `npm run check:conversation-lesson-tool`
+- `node scripts/check-workspace-write-tool.mjs`
+- `npx tsc --noEmit`
+
+剩余风险：
+
+- child run 目前只在内存中执行，未持久化 child transcript 或 metadata；这属于 Phase 6。
+- UI 暂用现有 status/process timeline 展示子任务开始/完成/失败，没有独立 child run 列表；并发与状态 UI 留到 Phase 5。
+- 未新增 `parallel_tasks`，仍是单个前台 child task。
+
 ## 进行中
 
 无。
@@ -143,7 +174,6 @@
 ## 未开始
 
 - Phase 3：自动与手动压缩。
-- Phase 4：只读子 agent。
 - Phase 5：并行任务与状态 UI。
 - Phase 6：持久化与恢复。
 

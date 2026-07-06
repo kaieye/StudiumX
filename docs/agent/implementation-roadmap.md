@@ -101,7 +101,7 @@
 
 ## Phase 4：只读子 agent
 
-状态：未开始。
+状态：已完成。
 
 目标：主 agent 可以派发一个只读 child task。
 
