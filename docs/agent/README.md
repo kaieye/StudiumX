@@ -20,6 +20,8 @@
 - [状态、持久化与记忆边界](state-persistence-and-memory.md)：turn 元数据、child run、sources、compaction 和 learner memory 的边界。
 - [参考项目映射](reference-map.md)：从 `ref_project` 中提炼出的可复用模式。
 - [实施路线图](implementation-roadmap.md)：分阶段落地顺序、验收标准和建议提交粒度。
+- [AI 执行 Prompt](ai-execution-prompt.md)：交给 AI 实施任一阶段时使用的通用模板。
+- [实施进度](progress.md)：记录已完成、进行中、未开始的阶段和提交。
 
 ## 设计原则
 

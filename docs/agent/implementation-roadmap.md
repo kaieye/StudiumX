@@ -4,6 +4,8 @@
 
 ## Phase 0：基线测试与诊断
 
+状态：未开始。
+
 目标：在不改变行为的前提下固定现状。
 
 工作：
@@ -23,6 +25,8 @@
 - `test(agent): cover current loop and tool registry`
 
 ## Phase 1：搜索 runtime 深模块
+
+状态：未开始。
 
 目标：把搜索 provider 和抓取安全从工具 handler 中抽出来。
 
@@ -48,6 +52,8 @@
 
 ## Phase 2：发送前 context hygiene
 
+状态：未开始。
+
 目标：先解决 tool result 无限增长，不引入 LLM 摘要。
 
 工作：
@@ -69,6 +75,8 @@
 - `feat(context): add send-time history hygiene`
 
 ## Phase 3：自动与手动压缩
+
+状态：未开始。
 
 目标：在上下文接近阈值时压缩历史。
 
@@ -93,6 +101,8 @@
 
 ## Phase 4：只读子 agent
 
+状态：未开始。
+
 目标：主 agent 可以派发一个只读 child task。
 
 工作：
@@ -115,6 +125,8 @@
 
 ## Phase 5：并行任务与状态 UI
 
+状态：未开始。
+
 目标：支持多个独立只读任务并发执行，并让用户看见状态。
 
 工作：
@@ -136,6 +148,8 @@
 - `feat(agent): run read-only child tasks in parallel`
 
 ## Phase 6：持久化与恢复
+
+状态：未开始。
 
 目标：让 child runs、压缩摘要和搜索 sources 可审计。
 
