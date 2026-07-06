@@ -1276,7 +1276,7 @@ function useStudyPresence(snapshot: StudySnapshot): {
   topic: string
   lastHeartbeatAt: number
   lastRemoteMessageAt: number
-  sendEvent: (kind: StudyRoomEventKind, text: string) => void
+  sendEvent: (kind: StudyRoomEventKind, text: string, target?: { roomId?: StudyRoomId; spaceCode?: string }) => void
 } {
   const [status, setStatus] = useState<StudyPresenceStatus>('connecting')
   const [peers, setPeers] = useState<StudyPresencePeer[]>([])
@@ -1456,13 +1456,15 @@ function useStudyPresence(snapshot: StudySnapshot): {
     }
   }, [activeTopic, snapshot.clientId, snapshot.focusMinutes, snapshot.nickname, snapshot.roomId, snapshot.seatIndex, snapshot.signalId, snapshot.spaceCode, snapshot.streakDays, snapshot.timerMode, snapshot.timerState])
 
-  const sendEvent = (kind: StudyRoomEventKind, text: string): void => {
+  const sendEvent = (kind: StudyRoomEventKind, text: string, target: { roomId?: StudyRoomId; spaceCode?: string } = {}): void => {
     const current = snapshotRef.current
+    const roomId = target.roomId ?? current.roomId
+    const spaceCode = target.spaceCode ? normalizeStudySpaceCode(target.spaceCode) : current.spaceCode
     const event: StudyRoomEvent = {
       id: `${current.clientId}-${Date.now()}-${kind}`,
       clientId: current.clientId,
-      spaceCode: current.spaceCode,
-      roomId: current.roomId,
+      spaceCode,
+      roomId,
       nickname: current.nickname,
       kind,
       text: text.trim().slice(0, 90),
@@ -5466,6 +5468,9 @@ function StudySpace() {
   }
 
   const selectRoom = (room: typeof studyRooms[number]): void => {
+    if (room.id !== snapshot.roomId) {
+      presence.sendEvent('checkin', `${snapshot.nickname} 进入 ${room.name}。`, { roomId: room.id })
+    }
     setSnapshot((current) => ({
       ...current,
       roomId: room.id,
@@ -5478,6 +5483,11 @@ function StudySpace() {
   }
 
   const selectStudyMode = (mode: typeof studyModes[number]): void => {
+    const targetRoom = snapshot.timerState === 'running' ? snapshot.roomId : mode.roomId
+    if (targetRoom !== snapshot.roomId) {
+      const roomName = studyRooms.find((room) => room.id === targetRoom)?.name ?? activeRoom.name
+      presence.sendEvent('checkin', `${snapshot.nickname} 切换到 ${roomName}。`, { roomId: targetRoom })
+    }
     setSnapshot((current) => ({
       ...current,
       modeId: mode.id,
