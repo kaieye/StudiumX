@@ -52,7 +52,7 @@
 
 ## Phase 2：发送前 context hygiene
 
-状态：未开始。
+状态：已完成。
 
 目标：先解决 tool result 无限增长，不引入 LLM 摘要。
 

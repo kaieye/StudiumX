@@ -10,7 +10,7 @@
 | 通用 AI 执行 Prompt | 已完成 | `4b9ca0d` | 新增通用模板，要求每次实施后更新进度。 |
 | Phase 0：基线测试与诊断 | 已完成 | `5ffcaa9` | 已补 ToolRegistry、agent loop、web tools 基线 check，并新增基础 usage/diagnostic 类型。 |
 | Phase 1：搜索 runtime 深模块 | 未开始 | - | 依赖搜索专题设计，建议在 Phase 0 后执行。 |
-| Phase 2：发送前 context hygiene | 未开始 | - | 可在 Phase 0 后优先执行。 |
+| Phase 2：发送前 context hygiene | 已完成 | `fdf9ea1` | 已新增发送前历史清理、CJK 友好估算和最小诊断事件。 |
 | Phase 3：自动与手动压缩 | 未开始 | - | 依赖 Phase 2 的 estimator/hygiene。 |
 | Phase 4：只读子 agent | 未开始 | - | 建议在 Phase 0 后实施，写入能力延后。 |
 | Phase 5：并行任务与状态 UI | 未开始 | - | 依赖 Phase 4。 |
@@ -78,6 +78,34 @@
 - `npm run check:web-tools-baseline`
 - `npx tsc --noEmit`
 
+### Phase 2：发送前 context hygiene
+
+完成内容：
+
+- 新增 `ContextEstimator`，对 ASCII、CJK、message 和 tool schema 做本地 token 粗估。
+- 新增 `RequestHistoryHygiene`，在发送给 provider 前缩短旧的大型 tool result、已完成 tool call 的长参数，并用累计工具结果预算折叠更旧结果。
+- 保留最近 tool result 的完整内容；旧结果 digest 保留首行和 error/warning 等高信号行。
+- `runAgentLoop` 在普通工具轮、forced-final 轮和不支持工具的 degraded 轮发请求前使用发送投影，但返回的 result transcript 保留原始完整 tool result。
+- 新增 `context_estimated` 与 `context_hygiene_applied` 事件，先作为 loop 层最小诊断能力。
+- 新增 `check:agent-loop-context-hygiene`，用 fake provider 验证发送投影、最近结果保留、原始 transcript 不被改写和估算行为。
+
+提交：
+
+- `fdf9ea1 feat(context): add send-time history hygiene`
+
+验证：
+
+- `npm run check:agent-loop-context-hygiene`
+- `npm run check:agent-loop-baseline`
+- `npm run check:agent-loop-empty-final`
+- `npm run check:dsml-tool-calls`
+- `npm run check:conversation-lesson-tool`
+- `npx tsc --noEmit`
+
+剩余风险：
+
+- `npm run check:agent-chat` 未通过，失败点是临时会话 prompt 文案断言期望匹配 `学习者画像和课程概览`，实际 prompt 为 `学习者画像、课程概览和当前打开页面...`；本阶段未改该路径，未混入无关修复。
+
 ## 进行中
 
 无。
@@ -85,7 +113,6 @@
 ## 未开始
 
 - Phase 1：搜索 runtime 深模块。
-- Phase 2：发送前 context hygiene。
 - Phase 3：自动与手动压缩。
 - Phase 4：只读子 agent。
 - Phase 5：并行任务与状态 UI。
