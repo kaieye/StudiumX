@@ -7646,6 +7646,33 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   padding: 18px;
 }
 
+.study-work-panel {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(247, 249, 245, 0.82)),
+    #ffffff;
+  box-shadow: 0 14px 38px rgba(26, 32, 44, 0.08);
+}
+
+.study-work-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, #3f5f59, #e5b955);
+}
+
+.study-work-panel .study-panel-head {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 12px;
+}
+
+.study-work-panel .study-panel-head h2 {
+  font-size: 16px;
+}
+
 .study-relay-badge {
   display: inline-flex;
   align-items: center;
@@ -8213,6 +8240,51 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .study-week-bars {
   border-color: rgba(38, 47, 65, 0.1);
   background: rgba(249, 250, 246, 0.84);
+}
+
+.study-task-summary {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(66px, 0.62fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.study-task-summary div {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.study-task-summary span,
+.study-task-summary strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-task-summary span {
+  color: rgba(23, 32, 29, 0.52);
+  font-size: 10px;
+  font-weight: 840;
+}
+
+.study-task-summary strong {
+  margin-top: 4px;
+  color: #17201d;
+  font-size: 13px;
+  font-weight: 860;
+}
+
+.study-task-summary div:not(:first-child) strong {
+  color: #214d3d;
+  font-size: 18px;
+  line-height: 1.05;
 }
 
 .study-task-form button {
@@ -9671,8 +9743,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   }
 
   .study-cinema-center {
-    min-height: 250px;
-    padding: 28px 0 18px;
+    min-height: 210px;
+    padding: 22px 0 14px;
   }
 
   .study-cinema-center > strong {
@@ -9694,22 +9766,22 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   }
 
   .study-cinema .study-seat-map {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 6px;
+    grid-template-columns: repeat(9, minmax(0, 1fr));
+    gap: 5px;
   }
 
   .study-cinema .study-seat {
     aspect-ratio: 1;
     min-height: 0;
-    padding: 5px;
-    border-radius: 14px;
+    padding: 4px;
+    border-radius: 12px;
   }
 
   .study-cinema .study-seat-avatar {
-    width: 24px;
-    height: 24px;
+    width: 21px;
+    height: 21px;
     margin: 0 auto;
-    font-size: 11px;
+    font-size: 10px;
   }
 
   .study-cinema .study-seat-label,
@@ -9738,12 +9810,23 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: 1fr;
   }
 
+  .study-host-card {
+    gap: 10px;
+  }
+
+  .study-host-checklist {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .study-host-actions {
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .study-host-actions button {
     width: 100%;
+    min-height: 32px;
+    padding: 0 9px;
   }
 
   .study-stage-lamp {
@@ -9781,22 +9864,62 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     font-size: 8px;
   }
 
-  .study-room-strip,
   .study-mode-grid,
   .study-growth-grid {
     grid-template-columns: 1fr;
   }
 
+  .study-room-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .study-room-tab {
+    min-height: 56px;
+    padding: 9px 10px;
+  }
+
+  .study-room-rules {
+    display: flex;
+    gap: 7px;
+    margin-top: 10px;
+    padding-bottom: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .study-room-rules::-webkit-scrollbar {
+    display: none;
+  }
+
+  .study-room-rules span {
+    flex: 0 0 min(260px, 84vw);
+    padding: 8px 9px;
+    font-size: 11px;
+    line-height: 1.38;
+  }
+
+  .study-task-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .study-task-summary div:first-child {
+    grid-column: 1 / -1;
+  }
+
   .study-cycle-card {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 12px;
   }
 
   .study-cycle-countdown {
-    text-align: left;
+    text-align: right;
   }
 
   .study-cycle-card button {
+    grid-column: 1 / -1;
     width: 100%;
+    min-height: 32px;
   }
 
   .study-theater {
@@ -10134,6 +10257,19 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   color: var(--text);
 }
 
+:root[data-resolved-theme="dark"] .study-work-panel {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(32, 33, 34, 0.9), rgba(20, 22, 23, 0.84)),
+    var(--surface);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.22);
+}
+
+:root[data-resolved-theme="dark"] .study-work-panel::before {
+  background: linear-gradient(90deg, var(--green), #f6c35c);
+  opacity: 0.82;
+}
+
 :root[data-resolved-theme="dark"] .study-eyebrow,
 :root[data-resolved-theme="dark"] .study-kicker,
 :root[data-resolved-theme="dark"] .study-xp {
@@ -10144,6 +10280,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-presets button,
 :root[data-resolved-theme="dark"] .study-room-card,
 :root[data-resolved-theme="dark"] .study-seat-map,
+:root[data-resolved-theme="dark"] .study-task-summary div,
 :root[data-resolved-theme="dark"] .study-task-form input,
 :root[data-resolved-theme="dark"] .study-task-row,
 :root[data-resolved-theme="dark"] .study-level-track,
@@ -10174,6 +10311,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 :root[data-resolved-theme="dark"] .study-timer-face span,
 :root[data-resolved-theme="dark"] .study-room-card strong,
+:root[data-resolved-theme="dark"] .study-task-summary strong,
 :root[data-resolved-theme="dark"] .study-task-row strong,
 :root[data-resolved-theme="dark"] .study-growth-grid strong,
 :root[data-resolved-theme="dark"] .study-classmate-row strong {
@@ -10292,6 +10430,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 :root[data-resolved-theme="dark"] .study-leaderboard-head,
 :root[data-resolved-theme="dark"] .study-leader-row em,
 :root[data-resolved-theme="dark"] .study-mode-card span,
+:root[data-resolved-theme="dark"] .study-task-summary span,
 :root[data-resolved-theme="dark"] .study-contract label,
 :root[data-resolved-theme="dark"] .study-contract > div span,
 :root[data-resolved-theme="dark"] .study-empty-online,

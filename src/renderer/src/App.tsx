@@ -5214,6 +5214,8 @@ function StudySpace() {
     && snapshot.focusMinutes === activeRoom.sessionMinutes
     && snapshot.breakMinutes === activeRoom.breakMinutes
   const completedTasks = snapshot.tasks.filter((task) => task.done).length
+  const openTasks = snapshot.tasks.length - completedTasks
+  const currentTask = snapshot.tasks.find((task) => !task.done)
   const seatCount = activeRoom.seats
   const userSeat = normalizeStudySeatIndex(snapshot.seatIndex, snapshot.roomId, snapshot.clientId)
   const peersBySeat = new Map<number, StudyPresencePeer>()
@@ -6075,7 +6077,7 @@ function StudySpace() {
           </div>
         </section>
 
-        <section className="study-panel study-mode-panel" aria-label="学习模式和专注契约">
+        <section className="study-panel study-work-panel study-mode-panel" aria-label="学习模式和专注契约">
           <div className="study-panel-head">
             <div>
               <span className="study-kicker"><ShieldCheck size={14} /> 专注契约</span>
@@ -6135,7 +6137,7 @@ function StudySpace() {
           </div>
         </section>
 
-        <section className="study-panel study-timer-panel" aria-label="番茄时钟">
+        <section className="study-panel study-work-panel study-timer-panel" aria-label="番茄时钟">
           <div className="study-panel-head">
             <div>
               <span className="study-kicker"><Timer size={14} /> 番茄钟</span>
@@ -6365,13 +6367,27 @@ function StudySpace() {
           </details>
         </section>
 
-        <section className="study-panel study-task-panel" aria-label="学习任务">
+        <section className="study-panel study-work-panel study-task-panel" aria-label="学习任务">
           <div className="study-panel-head">
             <div>
               <span className="study-kicker"><CheckCircle2 size={14} /> 今日清单</span>
               <h2>学习任务</h2>
             </div>
             <button className="study-clear-button" type="button" onClick={removeDoneTasks}>清除完成</button>
+          </div>
+          <div className="study-task-summary" aria-label="任务执行摘要">
+            <div>
+              <span>本轮目标</span>
+              <strong>{currentTask?.title ?? '今日任务已清空'}</strong>
+            </div>
+            <div>
+              <span>未完成</span>
+              <strong>{openTasks}</strong>
+            </div>
+            <div>
+              <span>已完成</span>
+              <strong>{completedTasks}</strong>
+            </div>
           </div>
           <form className="study-task-form" onSubmit={addTask}>
             <input
@@ -6397,7 +6413,7 @@ function StudySpace() {
           </div>
         </section>
 
-        <section className="study-panel study-growth-panel" aria-label="成长系统">
+        <section className="study-panel study-work-panel study-growth-panel" aria-label="成长系统">
           <div className="study-panel-head">
             <div>
               <span className="study-kicker"><Star size={14} /> 养成</span>
