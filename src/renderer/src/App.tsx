@@ -5940,6 +5940,10 @@ function StudySpace() {
                   <RefreshCw size={14} />
                   同步房间
                 </button>
+                <button type="button" onClick={() => void copyInvite()}>
+                  <Copy size={14} />
+                  {copyState === 'copied' ? '已复制' : '邀请'}
+                </button>
                 <button type="button" onClick={() => setFocusTheaterOpen(true)}>
                   <Maximize2 size={14} />
                   全屏

@@ -5488,7 +5488,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-arrival {
-  order: 2;
+  order: 3;
   display: grid;
   grid-template-columns: minmax(320px, 0.95fr) minmax(280px, 0.72fr) minmax(360px, 1.05fr);
   gap: 12px;
@@ -5889,7 +5889,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-arrival-link {
-  display: grid;
+  display: none;
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
@@ -5917,7 +5917,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-invite-strip {
-  display: grid;
+  display: none;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
   margin-top: 9px;
@@ -6461,7 +6461,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-layout {
-  order: 3;
+  order: 2;
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(315px, 0.72fr);
   grid-template-areas:
@@ -8849,6 +8849,11 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     min-height: 100vh;
   }
 
+  .app-shell:has(.main-area[data-view='studio']) .sidebar,
+  .app-shell:has(.main-area[data-view='studio']) .sidebar-resizer {
+    display: none;
+  }
+
   .sidebar-resizer {
     display: none;
   }
@@ -9317,12 +9322,15 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .study-arrival-counts,
   .study-arrival-roster,
   .study-arrival-room-grid,
   .study-online-proof-grid,
   .study-invite-strip {
     grid-template-columns: 1fr;
+  }
+
+  .study-arrival-counts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .study-online-proof-topic {
