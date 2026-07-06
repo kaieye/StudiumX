@@ -5961,8 +5961,11 @@ function StudySpace() {
 
             <div className="study-cinema-seat-deck">
               <div className="study-cinema-seat-head">
-                <span>{localSeatLabel}</span>
-                <strong>{focusingCount} 人专注中 · {signalMixSummary}</strong>
+                <div>
+                  <span>{localSeatLabel}</span>
+                  <strong>{focusingCount} 人专注中 · {signalMixSummary}</strong>
+                </div>
+                <em>{presence.status === 'online' ? `${remoteOnline} 远端` : presence.status === 'connecting' ? '连接中' : '离线'}</em>
               </div>
               <div className="study-seat-map" aria-label="真实在线座位图">
                 {Array.from({ length: seatCount }, (_, index) => {

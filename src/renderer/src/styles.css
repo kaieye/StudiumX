@@ -6699,8 +6699,13 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   gap: 12px;
 }
 
+.study-cinema-seat-head > div {
+  min-width: 0;
+}
+
 .study-cinema-seat-head span,
-.study-cinema-seat-head strong {
+.study-cinema-seat-head strong,
+.study-cinema-seat-head em {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6708,15 +6713,32 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }
 
 .study-cinema-seat-head span {
+  display: block;
   color: rgba(255, 247, 223, 0.62);
   font-size: 11px;
   font-weight: 840;
 }
 
 .study-cinema-seat-head strong {
+  display: block;
+  margin-top: 3px;
   color: rgba(255, 247, 223, 0.88);
   font-size: 12px;
   font-weight: 840;
+}
+
+.study-cinema-seat-head em {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  color: #1f1a0b;
+  border-radius: 999px;
+  background: #ffe2a0;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 880;
 }
 
 .study-cinema .study-seat-map {
@@ -9403,6 +9425,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     justify-content: flex-start;
   }
 
+  .study-cinema-seat-head em {
+    width: fit-content;
+  }
+
   .study-cinema-center {
     min-height: 250px;
     padding: 28px 0 18px;
@@ -9418,12 +9444,42 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
   .study-cinema-actions {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
   }
 
   .study-cinema-actions button {
     width: 100%;
+  }
+
+  .study-cinema .study-seat-map {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .study-cinema .study-seat {
+    aspect-ratio: 1;
+    min-height: 0;
+    padding: 5px;
+    border-radius: 14px;
+  }
+
+  .study-cinema .study-seat-avatar {
+    width: 24px;
+    height: 24px;
+    margin: 0 auto;
+    font-size: 11px;
+  }
+
+  .study-cinema .study-seat-label,
+  .study-cinema .study-seat-meta {
+    display: none;
+  }
+
+  .study-cinema .study-seat small {
+    margin: 2px 0 0;
+    font-size: 9px;
+    line-height: 1;
   }
 
   .study-stage-scene {
