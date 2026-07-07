@@ -151,3 +151,22 @@ Benefits:
 Start with Course and Session placement.
 
 It is a real domain seam, it already leaks into Lesson generation, Workspace catalog, Agent conversation placement, sidebar rendering, and renderer helpers, and it has the smallest path to better locality and test leverage.
+
+## Follow-up Treatment: Deepen Tool Execution
+
+Recommendation: Strong
+
+Files:
+
+- `src/main/ai/agent-loop.ts`
+- `src/main/ai/tools/registry.ts`
+- `src/main/ai/tools/web_fetch.ts`
+- `src/main/ai/tools/web_search.ts`
+
+Problem:
+
+The Tool interface was wider than `handler(args) => string`: argument parsing, missing tool handling, thrown errors, returned `{ error }` payloads, transcript binding, and `isError` events were split between the agent loop and individual tools.
+
+Treatment:
+
+- 2026-07-08: Added a Tool execution Module so the agent loop receives one normalized tool result with call id, name, serialized content, and error flag.

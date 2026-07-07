@@ -2,6 +2,37 @@
 
 This log records codebase risk reviews and the concrete treatment applied after each review batch.
 
+## 2026-07-08: Tool Execution Module
+
+Review lanes:
+
+- Agent loop tool-call dispatch.
+- Tool handler result serialization and error signaling.
+- DSML tool-call continuation and generated Lesson tool flow.
+
+Findings:
+
+- The agent loop owned argument parsing, handler lookup, thrown-error serialization, transcript insertion, and `tool_result` event flags inline.
+- Some tools returned model-visible `{ "error": "..." }` payloads as ordinary strings, so `tool_result.isError` could be false even when the payload represented a tool failure.
+
+Treatment:
+
+- Added `src/main/ai/tools/execution.ts` as the Tool execution Module. Its interface executes one tool call and returns a normalized result: tool call id, tool name, serialized content, and error flag.
+- Moved argument parsing, missing-handler errors, thrown-error serialization, and returned `{ error }` detection behind that interface.
+- Kept the agent loop responsible only for transcript ordering and event emission.
+
+Verification:
+
+- `npm run check:tool-execution`
+- `npm run check:agent-loop-empty-final`
+- `npm run check:dsml-tool-calls`
+- `npm run check:conversation-lesson-tool`
+- `npx tsc --noEmit`
+
+Residual risk:
+
+- Tool handlers still return strings. A future deeper interface could let tool Implementations return structured values while this Module owns all serialization.
+
 ## 2026-07-08: Course and Session Placement Module
 
 Review lanes:

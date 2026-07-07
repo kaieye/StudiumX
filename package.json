@@ -19,6 +19,7 @@
     "check:agent-process-timeline": "node scripts/check-agent-process-timeline.mjs",
     "check:agent-process-dark-theme": "node scripts/check-agent-process-dark-theme.mjs",
     "check:agent-loop-empty-final": "node scripts/check-agent-loop-empty-final.mjs",
+    "check:tool-execution": "node scripts/check-tool-execution.mjs",
     "check:dsml-tool-calls": "node scripts/check-dsml-tool-calls.mjs",
     "check:teaching-mode": "node scripts/check-overview-teaching-mode.mjs",
     "check:concept-overview": "node scripts/check-concept-overview-lesson.mjs",
