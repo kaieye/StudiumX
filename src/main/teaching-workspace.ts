@@ -646,7 +646,8 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     const mode = payload.mode ?? 'disk'
     if (mode === 'disk') {
-      assertSafeWorkspaceRootForRemoval(workspace.rootPath)
+      const settings = await this.loadSettings()
+      assertSafeWorkspaceRootForRemoval(workspace.rootPath, [this.defaultRoot, settings.workspace.defaultRoot])
       await rm(workspace.rootPath, { recursive: true, force: true })
     }
     const workspaces = orderRegistryWorkspaces(registry.workspaces.filter((entry) => entry.id !== workspace.id))
@@ -1310,10 +1311,19 @@ function samePath(left: string, right: string): boolean {
   return resolve(left).toLowerCase() === resolve(right).toLowerCase()
 }
 
-function assertSafeWorkspaceRootForRemoval(rootPath: string): void {
+function assertSafeWorkspaceRootForRemoval(rootPath: string, managedRoots: string[]): void {
   const root = resolve(rootPath)
   if (samePath(root, dirname(root))) {
     throw new Error('Cannot remove a filesystem root as a workspace.')
+  }
+  const removableRoots = [...new Set(managedRoots.map((item) => item.trim()).filter(Boolean).map((item) => resolve(item)))]
+  const isManagedWorkspace = removableRoots.some((managedRoot) =>
+    !samePath(root, managedRoot) && isPathInsideRoot(managedRoot, root)
+  )
+  if (!isManagedWorkspace) {
+    throw new Error(
+      'Only workspaces inside the configured TeachOS workspace root can be removed from disk. Remove this imported workspace from the list instead.'
+    )
   }
 }
 
