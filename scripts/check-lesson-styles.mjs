@@ -25,6 +25,7 @@ const [
   mainIndex,
   preload,
   app,
+  lessonStyleGallery,
   css,
   zh,
   en,
@@ -39,6 +40,7 @@ const [
   readFile('src/main/index.ts', 'utf8'),
   readFile('src/preload/index.ts', 'utf8'),
   readFile('src/renderer/src/App.tsx', 'utf8'),
+  readFile('src/renderer/src/views/resources/LessonStyleGallery.tsx', 'utf8'),
   readFile('src/renderer/src/styles.css', 'utf8'),
   readFile('src/renderer/src/i18n/locales/zh-CN.json', 'utf8'),
   readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8'),
@@ -151,14 +153,14 @@ assert.match(
 // ----- renderer gallery -----
 
 assert.match(
-  app,
-  /function LessonStyleGallery\(\)/,
-  'resources page should render the style gallery component'
+  lessonStyleGallery,
+  /export function LessonStyleGallery\(/,
+  'resources page should keep the style gallery implementation in its view module'
 )
 
 assert.match(
   app,
-  /className="resource-page"[\s\S]{0,900}<LessonStyleGallery \/>/,
+  /className="resource-page"[\s\S]{0,900}<LessonStyleGallery\s+currentStyleId=/,
   'the resources page should mount the style gallery when not reading a preview'
 )
 
@@ -170,19 +172,19 @@ for (const removedResourceContent of ['PRESET_TUTORIALS', 'tutorial-grid', 'reso
 }
 
 assert.match(
-  app,
+  lessonStyleGallery,
   /useState<LessonStyleId \| null>\(null\)/,
   'the gallery should track which style is being applied'
 )
 
 assert.match(
-  app,
-  /onClick=\{\(\) => openResourceHtmlPreview\(\{/,
+  lessonStyleGallery,
+  /onClick=\{\(\) => onOpenPreview\(\{/,
   'clicking a style card should open the rendered sample preview'
 )
 
 assert.match(
-  app,
+  lessonStyleGallery,
   /html: buildLessonStyleSampleHtml\(style\.id\)/,
   'the style card preview should render the sample page for that style'
 )
@@ -194,25 +196,25 @@ assert.match(
 )
 
 assert.match(
-  app,
+  lessonStyleGallery,
   /className="style-card-chip-aa"/,
   'style cards should render the brand-board type specimen (Aa) chip'
 )
 
 assert.doesNotMatch(
-  app,
+  lessonStyleGallery,
   /className="style-card-badge"/,
   'the selected style card should not show a top-right in-use badge'
 )
 
 assert.match(
-  app,
+  lessonStyleGallery,
   /className=\{`style-card-apply\$\{isCurrent \? ' is-current' : ''\}`\}/,
   'the selected style should use the apply button as its status control'
 )
 
 assert.match(
-  app,
+  lessonStyleGallery,
   /disabled=\{isCurrent \|\| isApplying\}/,
   'the selected style apply button should be disabled while showing the current status'
 )

@@ -60,6 +60,21 @@ import {
   isRootAgentConversationMarkdownRelativePath,
   normalizeAgentConversationDirectory
 } from '../shared/agent-conversation-catalog'
+import {
+  EMPTY_REGISTRY,
+  applyRegistryWorkspaceMeta,
+  assertSafeWorkspaceRootForRemoval,
+  findWorkspace,
+  isRegistryWorkspace,
+  orderRegistryWorkspaces,
+  samePath,
+  sameRegistryWorkspaceOrder,
+  touchRegistryWorkspace,
+  upsertRegistryWorkspace,
+  visibleRegistryWorkspaces,
+  type RegistryWorkspace,
+  type WorkspaceRegistry
+} from './teaching-workspace/registry'
 import type {
   ApplyLessonStylePayload,
   CreateWorkspacePayload,
@@ -103,21 +118,6 @@ import type {
   UpdateMissionPayload
 } from '../shared/teaching-types'
 
-type RegistryWorkspace = {
-  id: string
-  name: string
-  rootPath: string
-  createdAt: string
-  updatedAt: string
-  pinned?: boolean
-  archived?: boolean
-}
-
-type WorkspaceRegistry = {
-  activeWorkspaceId: string | null
-  workspaces: RegistryWorkspace[]
-}
-
 type WorkspaceIndex = {
   id: string
   name: string
@@ -158,11 +158,6 @@ const DEFAULT_RUNTIME: TeachingRuntimeState = {
   currentStep: 'ready',
   queuedTasks: 0,
   providerLabel: 'Local structured generator'
-}
-
-const EMPTY_REGISTRY: WorkspaceRegistry = {
-  activeWorkspaceId: null,
-  workspaces: []
 }
 
 const WORKSPACE_SCAFFOLD_DIRECTORIES = new Set([
@@ -1233,67 +1228,6 @@ function lessonToolStepMessage(step: string): string {
   }
 }
 
-function upsertRegistryWorkspace(
-  registry: WorkspaceRegistry,
-  entry: RegistryWorkspace,
-  activeWorkspaceId: string
-): WorkspaceRegistry {
-  const others = registry.workspaces.filter((workspace) => workspace.id !== entry.id)
-  return { activeWorkspaceId, workspaces: orderRegistryWorkspaces([entry, ...others]) }
-}
-
-function touchRegistryWorkspace(
-  registry: WorkspaceRegistry,
-  workspaceId: string,
-  updatedAt: string
-): WorkspaceRegistry {
-  return {
-    activeWorkspaceId: workspaceId,
-    workspaces: orderRegistryWorkspaces(registry.workspaces.map((workspace) =>
-      workspace.id === workspaceId ? { ...workspace, updatedAt } : workspace
-    ))
-  }
-}
-
-function orderRegistryWorkspaces(workspaces: RegistryWorkspace[]): RegistryWorkspace[] {
-  return workspaces
-    .map((workspace, index) => ({ workspace, index }))
-    .sort((left, right) => {
-      const leftPinned = left.workspace.pinned ? 1 : 0
-      const rightPinned = right.workspace.pinned ? 1 : 0
-      if (leftPinned !== rightPinned) return rightPinned - leftPinned
-      return left.index - right.index
-    })
-    .map(({ workspace }) => workspace)
-}
-
-function visibleRegistryWorkspaces(workspaces: RegistryWorkspace[]): RegistryWorkspace[] {
-  return workspaces.filter((workspace) => !workspace.archived)
-}
-
-function applyRegistryWorkspaceMeta(
-  workspace: RegistryWorkspace,
-  patch: Pick<WorkspaceItemMetaPayload, 'pinned' | 'archived'>
-): RegistryWorkspace {
-  const next = { ...workspace }
-  if (patch.pinned === null) delete next.pinned
-  else if (patch.pinned !== undefined) next.pinned = patch.pinned
-  if (patch.archived === null) delete next.archived
-  else if (patch.archived !== undefined) next.archived = patch.archived
-  return next
-}
-
-function sameRegistryWorkspaceOrder(left: RegistryWorkspace[], right: RegistryWorkspace[]): boolean {
-  if (left.length !== right.length) return false
-  return left.every((workspace, index) => workspace.id === right[index]?.id)
-}
-
-function findWorkspace(registry: WorkspaceRegistry, workspaceId: string): RegistryWorkspace {
-  const workspace = registry.workspaces.find((entry) => entry.id === workspaceId)
-  if (!workspace) throw new Error('Workspace not found.')
-  return workspace
-}
-
 function upsertLesson(lessons: LessonSummary[], lesson: LessonSummary): LessonSummary[] {
   return [lesson, ...lessons.filter((item) => item.absolutePath !== lesson.absolutePath)]
 }
@@ -1305,26 +1239,6 @@ function resolveLessonPath(rootPath: string, lessonPath: string): string {
     throw new Error('Lesson path is outside the workspace lessons directory.')
   }
   return target
-}
-
-function samePath(left: string, right: string): boolean {
-  return resolve(left).toLowerCase() === resolve(right).toLowerCase()
-}
-
-function assertSafeWorkspaceRootForRemoval(rootPath: string, managedRoots: string[]): void {
-  const root = resolve(rootPath)
-  if (samePath(root, dirname(root))) {
-    throw new Error('Cannot remove a filesystem root as a workspace.')
-  }
-  const removableRoots = [...new Set(managedRoots.map((item) => item.trim()).filter(Boolean).map((item) => resolve(item)))]
-  const isManagedWorkspace = removableRoots.some((managedRoot) =>
-    !samePath(root, managedRoot) && isPathInsideRoot(managedRoot, root)
-  )
-  if (!isManagedWorkspace) {
-    throw new Error(
-      'Only workspaces inside the configured TeachOS workspace root can be removed from disk. Remove this imported workspace from the list instead.'
-    )
-  }
 }
 
 async function atomicWriteFile(path: string, content: string): Promise<void> {
@@ -1479,18 +1393,6 @@ function mimeTypeForPath(path: string): string {
   if (lower.endsWith('.woff2')) return 'font/woff2'
   if (lower.endsWith('.woff')) return 'font/woff'
   return 'application/octet-stream'
-}
-
-function isRegistryWorkspace(value: unknown): value is RegistryWorkspace {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Record<string, unknown>
-  return (
-    typeof record.id === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.rootPath === 'string' &&
-    typeof record.createdAt === 'string' &&
-    typeof record.updatedAt === 'string'
-  )
 }
 
 function isLessonSummary(value: unknown): value is LessonSummary {
