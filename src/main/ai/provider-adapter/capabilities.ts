@@ -126,7 +126,3 @@ export function reasoningRequestOptions(
   const openAiEffort = normalizeOpenAiReasoningEffort(effort)
   return openAiEffort ? { reasoning_effort: openAiEffort } : {}
 }
-
-export function toolsSupportedForFormat(format: ModelEndpointFormat): boolean {
-  return format === 'chat_completions' || format === 'custom_endpoint'
-}

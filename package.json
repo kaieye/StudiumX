@@ -27,6 +27,7 @@
     "check:resource-dark-theme": "node scripts/check-resource-dark-theme.mjs",
     "check:dark-theme-neutrality": "node scripts/check-dark-theme-neutrality.mjs",
     "check:provider-errors": "node scripts/check-provider-errors.mjs",
+    "check:provider-format-adapters": "node scripts/check-provider-format-adapters.mjs",
     "check:model-settings-custom-provider": "node scripts/check-model-settings-custom-provider.mjs",
     "check:provider-actions": "node scripts/check-provider-actions.mjs",
     "check:dialog-ime": "node scripts/check-dialog-ime-composition.mjs",

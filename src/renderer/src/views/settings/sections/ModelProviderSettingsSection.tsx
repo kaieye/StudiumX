@@ -25,6 +25,7 @@ import {
 } from '../../../../../shared/teaching-types'
 import {
   activeModelProvider,
+  modelListProbeSupportedForProvider,
   modelSettingsProviderIds,
   reasoningEffortLabel,
   reasoningEffortOptionsForSettings,
@@ -241,7 +242,7 @@ export function ModelProviderSettingsSection({
               {providerBusy ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} />}
               {t('model.actions.test')}
             </button>
-            <button className="ghost-button" type="button" onClick={() => void pullActiveProviderModels()} disabled={providerBusy || activeModelSettingsProvider.endpointFormat === 'custom_endpoint'}>
+            <button className="ghost-button" type="button" onClick={() => void pullActiveProviderModels()} disabled={providerBusy || !modelListProbeSupportedForProvider(activeModelSettingsProvider)}>
               <RefreshCw size={15} />
               {t('model.actions.pull')}
             </button>

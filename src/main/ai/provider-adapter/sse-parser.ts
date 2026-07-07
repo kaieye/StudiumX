@@ -1,6 +1,6 @@
 import type { ModelEndpointFormat } from '../../../shared/teaching-types'
 import type { ToolCall } from '../provider-adapter'
-import { toolsSupportedForFormat } from './capabilities'
+import { toolsSupportedForFormat } from './formats'
 
 type ToolCallFragment = {
   index: number

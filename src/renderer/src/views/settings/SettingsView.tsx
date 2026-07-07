@@ -48,6 +48,7 @@ import {
   runtimeProviderLabel,
   selectedReasoningEffort,
   settingsNavItems,
+  toolsSupportedForSettings,
   webSearchBackendLabel,
   webSearchBackendOptions
 } from '../../workflows/settings'
@@ -519,7 +520,7 @@ export function SettingsView({
                 />
               </SettingsRow>
               <SettingsRow label="端点格式支持" detail={
-                settings.generator.endpointFormat === 'chat_completions' || settings.generator.endpointFormat === 'custom_endpoint'
+                toolsSupportedForSettings(settings)
                   ? `当前「${settings.generator.endpointFormat}」支持工具调用`
                   : `当前「${settings.generator.endpointFormat}」不支持工具调用，将降级为纯文本`
               }>

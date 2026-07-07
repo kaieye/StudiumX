@@ -170,3 +170,24 @@ The Tool interface was wider than `handler(args) => string`: argument parsing, m
 Treatment:
 
 - 2026-07-08: Added a Tool execution Module so the agent loop receives one normalized tool result with call id, name, serialized content, and error flag.
+
+## Follow-up Treatment: Deepen Provider Format Rules
+
+Recommendation: Strong
+
+Files:
+
+- `src/shared/provider-format.ts`
+- `src/main/ai/provider-adapter/request-builder.ts`
+- `src/main/provider-connection.ts`
+- `src/renderer/src/workflows/settings.ts`
+- `src/renderer/src/views/settings/SettingsView.tsx`
+- `src/renderer/src/views/settings/sections/ModelProviderSettingsSection.tsx`
+
+Problem:
+
+Provider format facts leaked across main and renderer modules: tool support, auth headers, model-list probing, model-id parsing, and UI affordances each carried endpoint-format rules.
+
+Treatment:
+
+- 2026-07-08: Added a shared Provider format Module so main provider calls, model probing, response parsing, SSE parsing, and renderer settings reuse the same format interface.

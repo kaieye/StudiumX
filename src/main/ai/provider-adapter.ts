@@ -3,12 +3,12 @@ import type {
   TeachingSettingsV1
 } from '../../shared/teaching-types'
 import { fetchWithOptionalProxy } from '../proxy-fetch'
-import { toolsSupportedForFormat } from './provider-adapter/capabilities'
+import { toolsSupportedForFormat } from './provider-adapter/formats'
 import { buildChatRequest, buildRequest } from './provider-adapter/request-builder'
 import { extractText, extractToolCalls } from './provider-adapter/response-parser'
 import { readChatSseStream, readSseStream } from './provider-adapter/sse-parser'
 
-export { toolsSupportedForFormat } from './provider-adapter/capabilities'
+export { toolsSupportedForFormat } from './provider-adapter/formats'
 export { adapterAuthHeaders } from './provider-adapter/request-builder'
 
 export type AdapterRequest = {

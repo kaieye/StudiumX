@@ -2,6 +2,41 @@
 
 This log records codebase risk reviews and the concrete treatment applied after each review batch.
 
+## 2026-07-08: Provider Format Module
+
+Review lanes:
+
+- Provider request headers and auth style.
+- Model-list probe support, probe URL construction, and model-id parsing.
+- Tool support checks in agent loops, parsers, and renderer settings.
+
+Findings:
+
+- Endpoint-format rules were split between request building, provider probing, response parsing, SSE parsing, and renderer settings.
+- Renderer tool-support and model-list controls hard-coded endpoint-format strings instead of using the same interface as the main provider path.
+- Provider request headers depended on `provider-connection`, creating an inverted dependency between provider calls and provider probing.
+
+Treatment:
+
+- Added `src/shared/provider-format.ts` as the shared Provider format Module. Its interface owns auth headers, JSON request headers, tool support, model-list probe support, model-list URLs, and model-id parsing.
+- Kept a thin main-side re-export for provider adapter internals while routing `provider-connection`, request building, response parsing, SSE parsing, agent loop checks, and renderer settings through the shared Module.
+- Added a focused fixture for the Provider format interface.
+
+Verification:
+
+- `npm run check:provider-format-adapters`
+- `npm run check:provider-actions`
+- `npm run check:model-settings-custom-provider`
+- `npm run check:agent-chat`
+- `npm run check:dsml-tool-calls`
+- `npm run check:conversation-lesson-tool`
+- `npm run check:teaching-ipc-commands`
+- `npx tsc --noEmit`
+
+Residual risk:
+
+- Request body construction and response text extraction are still organized by helper Modules rather than per-format Adapter objects. The shared Module now owns the cross-cutting format facts, but a future pass could move request and parse behavior behind the same Adapter interface.
+
 ## 2026-07-08: Tool Execution Module
 
 Review lanes:

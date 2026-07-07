@@ -9,20 +9,11 @@ import {
   upstreamOpenAiCustomEndpointUrl,
   upstreamOpenAiResponsesUrl
 } from '../../../shared/openai-compat-url'
-import { providerProbeHeaders } from '../../provider-connection'
 import type { AdapterRequest, ChatAdapterRequest } from '../provider-adapter'
 import { anthropicGenerationOptions, reasoningRequestOptions } from './capabilities'
+import { adapterAuthHeaders } from './formats'
 
-const CONTENT_TYPE_JSON = 'application/json'
-
-export function adapterAuthHeaders(
-  endpointFormat: ModelEndpointFormat,
-  apiKey: string
-): Record<string, string> {
-  const base = providerProbeHeaders(endpointFormat, apiKey)
-  base['Content-Type'] = CONTENT_TYPE_JSON
-  return base
-}
+export { adapterAuthHeaders } from './formats'
 
 export function buildRequest(
   format: ModelEndpointFormat,

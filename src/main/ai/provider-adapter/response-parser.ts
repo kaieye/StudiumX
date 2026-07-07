@@ -1,7 +1,7 @@
 import type { ModelEndpointFormat } from '../../../shared/teaching-types'
 import type { ToolCall } from '../provider-adapter'
 import { parseDsmlToolCalls, stripDsmlToolCallBlocks } from './dsml-tool-calls'
-import { toolsSupportedForFormat } from './capabilities'
+import { toolsSupportedForFormat } from './formats'
 
 export function extractText(format: ModelEndpointFormat, body: unknown): string {
   if (format === 'messages') {

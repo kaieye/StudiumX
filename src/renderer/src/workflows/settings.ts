@@ -28,6 +28,10 @@ import {
   type TeachingSettingsV1,
   type WebSearchBackend
 } from '../../../shared/teaching-types'
+import {
+  modelListProbeSupportedForFormat,
+  toolsSupportedForFormat
+} from '../../../shared/provider-format'
 
 export const emptySettings: TeachingSettingsV1 = {
   version: 1,
@@ -242,6 +246,14 @@ export function runtimeProviderLabel(settings: TeachingSettingsV1): string {
   const provider = activeModelProvider(settings)
   const model = settings.generator.model || i18n.t('common.auto')
   return `${provider?.name ?? i18n.t('common.modelProvider')} · ${model}`
+}
+
+export function toolsSupportedForSettings(settings: TeachingSettingsV1): boolean {
+  return toolsSupportedForFormat(settings.generator.endpointFormat)
+}
+
+export function modelListProbeSupportedForProvider(provider: TeachingModelProviderProfile): boolean {
+  return modelListProbeSupportedForFormat(provider.endpointFormat)
 }
 
 function providerHost(provider: TeachingModelProviderProfile): string {
