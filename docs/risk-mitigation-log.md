@@ -2,6 +2,40 @@
 
 This log records codebase risk reviews and the concrete treatment applied after each review batch.
 
+## 2026-07-08: Course and Session Placement Module
+
+Review lanes:
+
+- Lesson, Reference, Learning record, and review artifact placement.
+- Course and Session catalog reconstruction from disk.
+- Agent conversation Course placement and sidebar Course folders.
+
+Findings:
+
+- Lesson generation accepted a requested Course name, but still wrote every generated Lesson and sibling artifact into the default `lessons` Course.
+- Course, Session, and conversation placement rules were duplicated across Lesson generation, Workspace catalog reconstruction, Agent conversation path helpers, renderer Course selection, and sidebar folder rendering.
+
+Treatment:
+
+- Added `src/shared/teaching-placement.ts` as the shared placement Module. Its interface owns default Course rules, custom Course rules, Lesson folder rules, Course/Session derivation from existing paths, and generated Lesson/Reference/Learning record/review artifact paths.
+- Routed Lesson generation, Workspace catalog Course summaries, Agent conversation directory selection, sidebar Course folder rendering, and renderer Course selection through the shared placement Module.
+- Added a focused placement fixture so these filesystem layout invariants can be tested without constructing a full Teaching workspace.
+
+Verification:
+
+- `npm run check:teaching-placement`
+- `npm run check:agent-conversation-catalog`
+- `npm run check:course-conversations`
+- `npm run check:workspace-import-course`
+- `npm run check:sidebar-ui`
+- `npm run check:concept-overview`
+- `npm run check:conversation-lesson-tool`
+- `npm run build`
+
+Residual risk:
+
+- Existing Lessons that used non-canonical historical Course layouts still rely on catalog reconstruction heuristics. The shared placement Module now owns the canonical rules and the currently supported legacy conversation aliases.
+
 ## 2026-07-07: Imported Workspace Disk Removal Guard
 
 Review lanes:

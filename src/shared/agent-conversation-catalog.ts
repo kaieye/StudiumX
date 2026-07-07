@@ -1,4 +1,11 @@
 import type { AgentChatMode } from './teaching-types'
+import {
+  courseRelativePathFromWorkspacePath,
+  isCourseRelativePath,
+  isDefaultCourseRelativePath,
+  joinTeachingRelativePath,
+  normalizeTeachingRelativePath
+} from './teaching-placement'
 
 export type AgentConversationFileFormat = 'markdown' | 'json'
 export type AgentConversationScope = 'course' | 'temporary'
@@ -27,7 +34,7 @@ export type AgentConversationCollectionOptions = {
 }
 
 export function normalizeAgentConversationRelativePath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '').replace(/\/+$/, '')
+  return normalizeTeachingRelativePath(value)
 }
 
 export function describeAgentConversationPath(relativePath: string): AgentConversationPathInfo | null {
@@ -116,11 +123,11 @@ export function agentConversationDirectoryRelativePath(input: AgentConversationP
   if (input.mode === 'temporary') return 'conversations'
 
   const selectedCourse = normalizeAgentConversationRelativePath(input.selectedCourseRelativePath ?? '')
-  if (isAgentConversationCourseRelativePath(selectedCourse)) {
+  if (isCourseRelativePath(selectedCourse)) {
     return primaryAgentConversationDirectoryRelativePathForCourse(selectedCourse)
   }
 
-  const lessonCourse = courseRelativePathForWorkspacePath(input.selectedLessonPath ?? '')
+  const lessonCourse = courseRelativePathFromWorkspacePath(input.selectedLessonPath ?? '')
   if (lessonCourse) return primaryAgentConversationDirectoryRelativePathForCourse(lessonCourse)
 
   return input.mode === 'teaching' ? 'conversation' : 'conversations'
@@ -128,14 +135,14 @@ export function agentConversationDirectoryRelativePath(input: AgentConversationP
 
 export function primaryAgentConversationDirectoryRelativePathForCourse(courseRelativePath: string): string {
   const course = normalizeAgentConversationRelativePath(courseRelativePath)
-  return course === 'lessons'
+  return isDefaultCourseRelativePath(course)
     ? 'conversation'
     : joinAgentConversationRelativePath(course, 'conversation')
 }
 
 export function agentConversationDirectoryRelativePathsForCourse(courseRelativePath: string): string[] {
   const course = normalizeAgentConversationRelativePath(courseRelativePath) || 'lessons'
-  if (course === 'lessons') {
+  if (isDefaultCourseRelativePath(course)) {
     return ['conversation', 'lessons/conversation', 'lessons/conversations']
   }
   return [
@@ -206,18 +213,6 @@ function agentConversationFileRelativePath(id: string, conversationDir: string, 
   return joinAgentConversationRelativePath(normalizeAgentConversationDirectory(conversationDir), `${id}.${extension}`)
 }
 
-function courseRelativePathForWorkspacePath(relativePath: string): string | null {
-  const parts = normalizeAgentConversationRelativePath(relativePath).split('/').filter(Boolean)
-  if (parts[0] === 'lessons') return 'lessons'
-  if (parts[0] === 'courses' && parts[1]) return joinAgentConversationRelativePath('courses', parts[1])
-  return null
-}
-
-function isAgentConversationCourseRelativePath(relativePath: string): boolean {
-  const normalized = normalizeAgentConversationRelativePath(relativePath)
-  return normalized === 'lessons' || /^courses\/[^/]+$/.test(normalized)
-}
-
 function agentConversationFileFormat(relativePath: string): AgentConversationFileFormat | null {
   if (relativePath.toLowerCase().endsWith('.md')) return 'markdown'
   if (relativePath.toLowerCase().endsWith('.json')) return 'json'
@@ -229,5 +224,5 @@ function isConversationFolderName(value: string | undefined): boolean {
 }
 
 function joinAgentConversationRelativePath(...parts: string[]): string {
-  return normalizeAgentConversationRelativePath(parts.filter(Boolean).join('/'))
+  return joinTeachingRelativePath(...parts)
 }

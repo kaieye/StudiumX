@@ -3,6 +3,15 @@ import {
   agentConversationDirectoryRelativePathsForCourse,
   primaryAgentConversationDirectoryRelativePathForCourse
 } from './agent-conversation-catalog'
+import {
+  DEFAULT_COURSE_RELATIVE_PATH,
+  isDefaultCourseRelativePath,
+  joinTeachingRelativePath,
+  lessonFolderNameForCourse,
+  lessonFolderRelativePathForCourse,
+  normalizeTeachingRelativePath,
+  sameTeachingRelativePath
+} from './teaching-placement'
 
 export type SidebarCourseFolder = {
   workspace: TeachingWorkspaceSummary
@@ -56,9 +65,9 @@ function listSidebarWorkspaceChildren(
   showAllCourseFiles: boolean
 ): WorkspaceFileNode[] {
   const courseFolders = listSidebarCourseFolders([workspace], showAllCourseFiles)
-  const defaultCourse = courseFolders.find(({ node }) => sameRelativePath(node.relativePath, 'lessons'))
+  const defaultCourse = courseFolders.find(({ node }) => isDefaultCourseRelativePath(node.relativePath))
   const legacyCourses = courseFolders
-    .filter(({ node }) => !sameRelativePath(node.relativePath, 'lessons'))
+    .filter(({ node }) => !isDefaultCourseRelativePath(node.relativePath))
     .map(({ node }) => ({
       ...node,
       name: sidebarCourseNodeName(node)
@@ -71,7 +80,7 @@ function listSidebarWorkspaceChildren(
 
 function findWorkspaceNode(nodes: WorkspaceFileNode[], relativePath: string): WorkspaceFileNode | null {
   for (const node of nodes) {
-    if (sameRelativePath(node.relativePath, relativePath)) return node
+    if (sameTeachingRelativePath(node.relativePath, relativePath)) return node
     const child = node.kind === 'directory' ? findWorkspaceNode(node.children ?? [], relativePath) : null
     if (child) return child
   }
@@ -86,8 +95,7 @@ function buildCourseContentFolders(
 ): WorkspaceFileNode[] {
   const nodeByPath = new Map<string, WorkspaceFileNode>()
   indexWorkspaceNodes(workspaceTree, nodeByPath)
-  const isDefaultCourse = sameRelativePath(course.relativePath, 'lessons')
-  const lessonFolderName = isDefaultCourse ? 'lessons' : 'lesson'
+  const lessonFolderName = lessonFolderNameForCourse(course.relativePath)
   const lessonChildren = showAllCourseFiles
     ? mergeUniqueNodes([
         ...lessonFolderChildren(courseTree, course),
@@ -151,11 +159,11 @@ function findCourseContentFolder(
       if (folder) return folder
     }
   }
-  if (sameRelativePath(course.relativePath, 'lessons')) {
+  if (isDefaultCourseRelativePath(course.relativePath)) {
     return findWorkspaceNode(workspaceTree, contentFolderRelativePath(course, name))
   }
   const children = courseTree?.children ?? []
-  const current = findWorkspaceNode(children, joinRelativePath(course.relativePath, name))
+  const current = findWorkspaceNode(children, joinTeachingRelativePath(course.relativePath, name))
   if (current) return current
   return null
 }
@@ -164,8 +172,8 @@ function lessonFolderChildren(
   courseTree: WorkspaceFileNode | null,
   course: TeachingCourseSummary
 ): WorkspaceFileNode[] {
-  if (sameRelativePath(course.relativePath, 'lessons')) return courseTree?.children ?? []
-  const folder = findWorkspaceNode(courseTree?.children ?? [], joinRelativePath(course.relativePath, 'lesson'))
+  if (isDefaultCourseRelativePath(course.relativePath)) return courseTree?.children ?? []
+  const folder = findWorkspaceNode(courseTree?.children ?? [], lessonFolderRelativePathForCourse(course.relativePath))
   return folder?.kind === 'directory' ? folder.children ?? [] : []
 }
 
@@ -180,12 +188,12 @@ function conversationFolderChildren(
 }
 
 function contentFolderRelativePath(course: TeachingCourseSummary, name: 'lessons' | 'lesson' | 'conversation'): string {
-  if (sameRelativePath(course.relativePath, 'lessons')) {
-    return name === 'conversation' ? primaryAgentConversationDirectoryRelativePathForCourse(course.relativePath) : 'lessons'
+  if (name === 'conversation') {
+    return primaryAgentConversationDirectoryRelativePathForCourse(course.relativePath)
   }
-  return name === 'conversation'
-    ? primaryAgentConversationDirectoryRelativePathForCourse(course.relativePath)
-    : joinRelativePath(course.relativePath, name)
+  return isDefaultCourseRelativePath(course.relativePath)
+    ? DEFAULT_COURSE_RELATIVE_PATH
+    : lessonFolderRelativePathForCourse(course.relativePath)
 }
 
 function legacyCourseRootLessonNodes(
@@ -193,21 +201,21 @@ function legacyCourseRootLessonNodes(
   course: TeachingCourseSummary
 ): WorkspaceFileNode[] {
   const excluded = new Set([
-    joinRelativePath(course.relativePath, 'lesson'),
-    joinRelativePath(course.relativePath, 'lessons'),
-    joinRelativePath(course.relativePath, 'conversation'),
-    joinRelativePath(course.relativePath, 'conversations')
+    lessonFolderRelativePathForCourse(course.relativePath),
+    joinTeachingRelativePath(course.relativePath, 'lessons'),
+    joinTeachingRelativePath(course.relativePath, 'conversation'),
+    joinTeachingRelativePath(course.relativePath, 'conversations')
   ])
   return (courseTree?.children ?? [])
     .filter((node) => node.kind === 'file')
-    .filter((node) => !excluded.has(normalizeRelativePath(node.relativePath)))
+    .filter((node) => !excluded.has(normalizeTeachingRelativePath(node.relativePath)))
 }
 
 function mergeUniqueNodes(nodes: WorkspaceFileNode[]): WorkspaceFileNode[] {
   const seen = new Set<string>()
   const result: WorkspaceFileNode[] = []
   for (const node of nodes) {
-    const path = normalizeRelativePath(node.relativePath)
+    const path = normalizeTeachingRelativePath(node.relativePath)
     if (seen.has(path)) continue
     seen.add(path)
     result.push(node)
@@ -216,7 +224,7 @@ function mergeUniqueNodes(nodes: WorkspaceFileNode[]): WorkspaceFileNode[] {
 }
 
 function lessonNode(lesson: LessonSummary, nodeByPath: Map<string, WorkspaceFileNode>): WorkspaceFileNode {
-  return nodeByPath.get(normalizeRelativePath(lesson.relativePath)) ?? {
+  return nodeByPath.get(normalizeTeachingRelativePath(lesson.relativePath)) ?? {
     name: fileNameFromPath(lesson.relativePath),
     kind: 'file',
     relativePath: lesson.relativePath,
@@ -229,7 +237,7 @@ function conversationNode(
   conversation: AgentConversationSummary,
   nodeByPath: Map<string, WorkspaceFileNode>
 ): WorkspaceFileNode {
-  return nodeByPath.get(normalizeRelativePath(conversation.relativePath)) ?? {
+  return nodeByPath.get(normalizeTeachingRelativePath(conversation.relativePath)) ?? {
     name: fileNameFromPath(conversation.relativePath),
     kind: 'file',
     relativePath: conversation.relativePath,
@@ -240,32 +248,20 @@ function conversationNode(
 
 function indexWorkspaceNodes(nodes: WorkspaceFileNode[], nodeByPath: Map<string, WorkspaceFileNode>): void {
   for (const node of nodes) {
-    nodeByPath.set(normalizeRelativePath(node.relativePath), node)
+    nodeByPath.set(normalizeTeachingRelativePath(node.relativePath), node)
     if (node.kind === 'directory') indexWorkspaceNodes(node.children ?? [], nodeByPath)
   }
 }
 
 function sidebarCourseNodeName(node: WorkspaceFileNode): string {
-  const relativePath = normalizeRelativePath(node.relativePath)
-  return relativePath === 'lessons' ? 'lessons' : node.name
+  const relativePath = normalizeTeachingRelativePath(node.relativePath)
+  return isDefaultCourseRelativePath(relativePath) ? DEFAULT_COURSE_RELATIVE_PATH : node.name
 }
 
-function sameRelativePath(left: string, right: string): boolean {
-  return normalizeRelativePath(left) === normalizeRelativePath(right)
-}
-
-function normalizeRelativePath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '').replace(/\/+$/, '')
-}
-
-function joinRelativePath(...parts: string[]): string {
-  return normalizeRelativePath(parts.filter(Boolean).join('/'))
+function fileNameFromPath(path: string): string {
+  return normalizeTeachingRelativePath(path).split('/').filter(Boolean).at(-1) ?? path
 }
 
 function joinDisplayPath(basePath: string, child: string): string {
   return `${basePath.replace(/[\\/]+$/, '')}/${child}`
-}
-
-function fileNameFromPath(path: string): string {
-  return normalizeRelativePath(path).split('/').filter(Boolean).at(-1) ?? path
 }

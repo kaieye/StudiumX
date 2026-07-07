@@ -28,6 +28,7 @@ import {
 import { type LessonStyleId } from '../../../shared/lesson-styles'
 import { classifyProviderError } from '../../../shared/provider-error'
 import { deriveWorkspaceRemovalUiPatch } from '../../../shared/workspace-removal-state'
+import { courseRelativePathFromWorkspacePath } from '../../../shared/teaching-placement'
 import {
   type AgentChatMessage,
   type AgentChatStreamChunk,
@@ -1546,10 +1547,7 @@ export function titleFromFileName(fileName: string): string {
 
 
 function courseRelativePathForFile(relativePath: string): string | null {
-  const parts = normalizeRelativePath(relativePath).split('/').filter(Boolean)
-  if (parts[0] === 'courses' && parts[1]) return `courses/${parts[1]}`
-  if (parts[0] === 'lessons') return 'lessons'
-  return null
+  return courseRelativePathFromWorkspacePath(relativePath)
 }
 
 
@@ -1622,4 +1620,3 @@ body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;backg
 main{display:grid;place-items:center;min-height:360px;padding:34px}p{color:#68778f}
 </style></head><body><main><div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(i18n.t('preview.loadingHint'))}</p></div></main></body></html>`
 }
-

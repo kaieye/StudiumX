@@ -31,6 +31,10 @@ Benefits:
 - Tests can use the placement interface as the test surface.
 - Domain vocabulary stops leaking into unrelated modules.
 
+Treatment:
+
+- 2026-07-08: Added the shared placement Module and routed Lesson generation, Workspace catalog reconstruction, Agent conversation placement, sidebar folders, and renderer Course selection through it.
+
 ## 2. Collapse the IPC Capability Seam
 
 Recommendation: Strong

@@ -10,7 +10,7 @@ import {
   renderReferenceHtmlFromPlan
 } from './ai/lesson-renderer'
 import { readMissionSummary } from './teaching-workspace-catalog'
-import { clampTitle, cleanText, collectTeachingFiles, slugify, workspaceRelativePath } from './teaching-workspace-paths'
+import { clampTitle, cleanText, collectTeachingFiles } from './teaching-workspace-paths'
 import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
 import { classifyProviderError, providerErrorReason } from '../shared/provider-error'
 import {
@@ -24,6 +24,7 @@ import type {
   TeachingMemoryRecord,
   TeachingSettingsV1
 } from '../shared/teaching-types'
+import { buildLessonArtifactPlacement } from '../shared/teaching-placement'
 
 export type LessonGenerationWorkspace = {
   id: string
@@ -380,45 +381,35 @@ function buildLessonArtifactPaths(options: {
   includeLearningRecord: boolean
   includeReviews: boolean
 }): LessonArtifactPaths {
-  const courseName = clampTitle(options.workspace.name)
-  const courseId = slugify(courseName, 'course')
-  const courseRelativePath = workspaceRelativePath('lessons')
+  const placement = buildLessonArtifactPlacement({
+    workspaceName: options.workspace.name,
+    sequence: options.sequence,
+    title: options.title,
+    requestedCourseName: options.requestedCourseName,
+    includeReference: options.includeReference,
+    includeLearningRecord: options.includeLearningRecord,
+    includeReviews: options.includeReviews
+  })
+  const courseRelativePath = placement.courseRelativePath
   const courseAbsolutePath = join(options.workspace.rootPath, courseRelativePath)
-  const sessionId = `lesson-${String(options.sequence).padStart(4, '0')}`
-  const sessionName = `${String(options.sequence).padStart(4, '0')} ${options.title}`
-  const lessonDirRelativePath = courseRelativePath
-  const sessionRelativePath = lessonDirRelativePath
-  const sessionAbsolutePath = join(options.workspace.rootPath, sessionRelativePath)
-  const fileSlug = slugify(options.title, 'lesson')
-  const lessonRelativePath = workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.html`)
-  const lessonAbsolutePath = join(options.workspace.rootPath, lessonRelativePath)
-  const referenceRelativePath = options.includeReference
-    ? workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-reference.html`)
-    : null
-  const recordRelativePath = options.includeLearningRecord
-    ? workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}.md`)
-    : null
-  const reviewsRelativePath = options.includeReviews
-    ? workspaceRelativePath(lessonDirRelativePath, `${String(options.sequence).padStart(4, '0')}-${fileSlug}-flashcards.json`)
-    : null
 
   return {
-    courseId,
-    courseName,
+    courseId: placement.courseId,
+    courseName: placement.courseName,
     courseRelativePath,
     courseAbsolutePath,
-    sessionId,
-    sessionName,
-    sessionRelativePath,
-    sessionAbsolutePath,
-    lessonRelativePath,
-    lessonAbsolutePath,
-    referenceRelativePath,
-    referenceAbsolutePath: referenceRelativePath ? join(options.workspace.rootPath, referenceRelativePath) : null,
-    recordRelativePath,
-    recordAbsolutePath: recordRelativePath ? join(options.workspace.rootPath, recordRelativePath) : null,
-    reviewsRelativePath,
-    reviewsAbsolutePath: reviewsRelativePath ? join(options.workspace.rootPath, reviewsRelativePath) : null
+    sessionId: placement.sessionId,
+    sessionName: placement.sessionName,
+    sessionRelativePath: placement.sessionRelativePath,
+    sessionAbsolutePath: join(options.workspace.rootPath, placement.sessionRelativePath),
+    lessonRelativePath: placement.lessonRelativePath,
+    lessonAbsolutePath: join(options.workspace.rootPath, placement.lessonRelativePath),
+    referenceRelativePath: placement.referenceRelativePath,
+    referenceAbsolutePath: placement.referenceRelativePath ? join(options.workspace.rootPath, placement.referenceRelativePath) : null,
+    recordRelativePath: placement.recordRelativePath,
+    recordAbsolutePath: placement.recordRelativePath ? join(options.workspace.rootPath, placement.recordRelativePath) : null,
+    reviewsRelativePath: placement.reviewsRelativePath,
+    reviewsAbsolutePath: placement.reviewsRelativePath ? join(options.workspace.rootPath, placement.reviewsRelativePath) : null
   }
 }
 
