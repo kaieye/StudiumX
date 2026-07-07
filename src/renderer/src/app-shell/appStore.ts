@@ -23,6 +23,7 @@ import {
   type PendingAgentConversation
 } from '../agent-conversation-state'
 import {
+  activateWorkspaceContext,
   clearAgentConversationContext,
   clearRemovedWorkspaceContext,
   courseRelativePathForFile,
@@ -574,20 +575,11 @@ export const useAppStore = create<StoreState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const state = await api.selectWorkspace(workspaceId)
-      set({
+      set(activateWorkspaceContext({
         appState: state,
-        lessonReaderOpen: false,
-        selectedCoursePreviewFile: null,
-        selectedCourseRelativePath: null,
-        selectedCourseWorkspaceId: null,
         taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        agentTurns: [],
-        activeConversationId: null,
-        agentStatus: '',
-        agentToolsSupported: null,
-        pendingAgentConversation: null,
         loading: false
-      })
+      }))
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -602,20 +594,11 @@ export const useAppStore = create<StoreState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const state = await api.createWorkspace({ name, prompt })
-      set({
+      set(activateWorkspaceContext({
         appState: state,
-        lessonReaderOpen: false,
-        selectedCoursePreviewFile: null,
-        selectedCourseRelativePath: null,
-        selectedCourseWorkspaceId: null,
         taskPrompt: defaultPrompt,
-        agentTurns: [],
-        activeConversationId: null,
-        agentStatus: '',
-        agentToolsSupported: null,
-        pendingAgentConversation: null,
         loading: false
-      })
+      }))
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -630,20 +613,11 @@ export const useAppStore = create<StoreState>((set, get) => ({
         set({ loading: false })
         return false
       }
-      set({
+      set(activateWorkspaceContext({
         appState: result.state,
-        lessonReaderOpen: false,
-        selectedCoursePreviewFile: null,
-        selectedCourseRelativePath: null,
-        selectedCourseWorkspaceId: null,
         taskPrompt: result.state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        agentTurns: [],
-        activeConversationId: null,
-        agentStatus: '',
-        agentToolsSupported: null,
-        pendingAgentConversation: null,
         loading: false
-      })
+      }))
       const settings = get().settings
       if (settings.notifications.enabled && settings.notifications.workspaceImported) {
         const wsName = result.state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
@@ -670,20 +644,11 @@ export const useAppStore = create<StoreState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const state = await api.importWorkspacePath(path)
-      set({
+      set(activateWorkspaceContext({
         appState: state,
-        lessonReaderOpen: false,
-        selectedCoursePreviewFile: null,
-        selectedCourseRelativePath: null,
-        selectedCourseWorkspaceId: null,
         taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        agentTurns: [],
-        activeConversationId: null,
-        agentStatus: '',
-        agentToolsSupported: null,
-        pendingAgentConversation: null,
         loading: false
-      })
+      }))
       const settings = get().settings
       if (settings.notifications.enabled && settings.notifications.workspaceImported) {
         const wsName = state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
@@ -1130,14 +1095,10 @@ export const useAppStore = create<StoreState>((set, get) => ({
         appState: state,
         error: null,
         ...(clearsCurrentContext
-          ? {
-              lessonReaderOpen: false,
-              selectedCoursePreviewFile: null,
-              selectedCourseRelativePath: null,
-              selectedCourseWorkspaceId: null,
-              taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-              ...clearAgentConversationContext()
-            }
+          ? activateWorkspaceContext({
+              appState: state,
+              taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt
+            })
           : {})
       })
     } catch (error) {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  activateWorkspaceContext,
   clearRemovedWorkspaceContext,
   openAgentConversationContext,
   openLessonReaderContext,
@@ -75,6 +76,27 @@ assert.equal(workspaceTeaching.lessonReaderOpen, false)
 assert.equal(workspaceTeaching.selectedCourseRelativePath, null)
 assert.equal(workspaceTeaching.activeConversationId, null)
 assert.equal(workspaceTeaching.pendingAgentConversation, null)
+
+const activatedWorkspace = activateWorkspaceContext({
+  appState,
+  taskPrompt: 'next lesson',
+  loading: false
+})
+assert.equal(activatedWorkspace.appState, appState)
+assert.equal(activatedWorkspace.loading, false)
+assert.equal(activatedWorkspace.lessonReaderOpen, false)
+assert.equal(activatedWorkspace.selectedCoursePreviewFile, null)
+assert.equal(activatedWorkspace.selectedResourcePreviewFile, null)
+assert.equal(activatedWorkspace.selectedCourseRelativePath, null)
+assert.equal(activatedWorkspace.selectedCourseWorkspaceId, null)
+assert.equal(activatedWorkspace.taskPrompt, 'next lesson')
+assert.deepEqual(activatedWorkspace.agentTurns, [])
+assert.equal(activatedWorkspace.activeConversationId, null)
+assert.equal(activatedWorkspace.agentStatus, '')
+assert.equal(activatedWorkspace.agentInput, '')
+assert.equal(activatedWorkspace.agentToolsSupported, null)
+assert.equal(activatedWorkspace.agentChatBusy, false)
+assert.equal(activatedWorkspace.pendingAgentConversation, null)
 
 const courseWithContent = selectCourseFolderContext({
   selectedCourseRelativePath: 'courses/rag',

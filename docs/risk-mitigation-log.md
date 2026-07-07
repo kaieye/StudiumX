@@ -51,6 +51,7 @@ Treatment:
 
 - Added `src/renderer/src/app-shell/contextTransitions.ts` as a pure App shell context transition Module. Its interface owns primary view transitions, Teaching conversation entry, Course selection, pending conversation restore, Agent conversation opening, Lesson/Resource reader entry, and removed-workspace cleanup.
 - Routed `src/renderer/src/app-shell/appStore.ts` and the sidebar overview navigation through the shared transition functions.
+- Routed workspace activation/reset after select, create, import, and archived-root cleanup through the same transition interface.
 - Added a focused transition fixture and updated teaching-mode / pending-conversation checks to assert behavior and wiring at the new interface.
 
 Verification:

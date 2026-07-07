@@ -214,6 +214,7 @@ App shell context changes were repeated across navigation, Course selection, pen
 Treatment:
 
 - 2026-07-08: Added a pure App shell context transition Module so the store and sidebar call one interface for cross-field transition patches, with a focused fixture covering the behavior.
+- 2026-07-08: Routed workspace activation/reset after select, create, import, and archived-root cleanup through the same transition Module.
 
 ## Follow-up Treatment: Study Session Transitions
 

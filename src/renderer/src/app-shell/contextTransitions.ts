@@ -25,8 +25,10 @@ export type ResourcePreviewFile = {
 }
 
 export type AppShellTransitionPatch = {
+  appState?: TeachingAppState
   view?: WorkspaceView
   overviewDialogMode?: DialogMode
+  loading?: boolean
   lessonReaderOpen?: boolean
   selectedCoursePreviewFile?: CoursePreviewFile | null
   selectedResourcePreviewFile?: ResourcePreviewFile | null
@@ -85,6 +87,24 @@ export function openWorkspaceTeaching(): AppShellTransitionPatch {
     ...openTeachingConversation(),
     selectedCourseRelativePath: null,
     selectedCourseWorkspaceId: null
+  }
+}
+
+export function activateWorkspaceContext(input: {
+  appState: TeachingAppState
+  taskPrompt: string
+  loading?: boolean
+}): AppShellTransitionPatch {
+  return {
+    appState: input.appState,
+    loading: input.loading,
+    lessonReaderOpen: false,
+    selectedCoursePreviewFile: null,
+    selectedResourcePreviewFile: null,
+    selectedCourseRelativePath: null,
+    selectedCourseWorkspaceId: null,
+    taskPrompt: input.taskPrompt,
+    ...clearAgentConversationContext()
   }
 }
 
