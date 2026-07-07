@@ -1,9 +1,23 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+
+async function readReachableCss(entryPath, seen = new Set()) {
+  if (seen.has(entryPath)) return ''
+  seen.add(entryPath)
+  const content = await readFile(entryPath, 'utf8')
+  const imports = [...content.matchAll(/@import\s+"([^"]+)";/g)]
+    .map((match) => match[1])
+    .filter((target) => target.startsWith('.'))
+  const importedCss = await Promise.all(
+    imports.map((target) => readReachableCss(join(dirname(entryPath), target), seen))
+  )
+  return [content, ...importedCss].join('\n')
+}
 
 const [app, css, zh, en] = await Promise.all([
   readFile('src/renderer/src/App.tsx', 'utf8'),
-  readFile('src/renderer/src/styles.css', 'utf8'),
+  readReachableCss('src/renderer/src/styles.css'),
   readFile('src/renderer/src/i18n/locales/zh-CN.json', 'utf8'),
   readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8')
 ])

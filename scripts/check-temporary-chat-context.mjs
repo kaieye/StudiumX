@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 
 const [app, types, main, commands, service, runtime] = await Promise.all([
   readFile('src/renderer/src/App.tsx', 'utf8'),
-  readFile('src/shared/teaching-types.ts', 'utf8'),
+  readFile('src/shared/teaching-types/agent.ts', 'utf8'),
   readFile('src/main/index.ts', 'utf8'),
   readFile('src/main/teaching-ipc-commands.ts', 'utf8'),
   readFile('src/main/teaching-workspace.ts', 'utf8'),

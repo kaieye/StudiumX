@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, unlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
@@ -8,7 +8,6 @@ import { isPathInsideRoot } from './path-access'
 import {
   buildCourseSummaries,
   buildWorkspaceCatalog,
-  normalizeLessonSummary,
   readMissionSummary
 } from './teaching-workspace-catalog'
 import { runLessonGenerationPipeline, type LessonGenerationCallbacks } from './teaching-lesson-generation'
@@ -17,8 +16,6 @@ import {
   collectTeachingFiles,
   directoryExists,
   fileExists,
-  isPathArchived,
-  normalizePathMeta,
   normalizeWorkspaceRelativePath,
   pathRemovedByWorkspaceItem,
   prunePathMeta,
@@ -42,9 +39,6 @@ import { resolveActiveProvider } from './ai/provider-adapter'
 import { runTeachingConversationTurn, type TemporaryChatContext } from './teaching-conversation-runtime'
 import type { LessonPlanSource } from '../shared/lesson-schema'
 import {
-  LESSON_FLASHCARD_CSS,
-  LESSON_FLASHCARD_JS,
-  LESSON_QUIZ_JS,
   lessonStyleCss,
   normalizeLessonStyleId
 } from '../shared/lesson-styles'
@@ -75,6 +69,19 @@ import {
   type RegistryWorkspace,
   type WorkspaceRegistry
 } from './teaching-workspace/registry'
+import {
+  appendSessionEvent as appendWorkspaceSessionEvent,
+  atomicWriteFile,
+  ensureWorkspaceStructure as ensureWorkspaceLifecycleStructure,
+  isWorkspaceScaffoldPath,
+  loadWorkspaceIndex as loadWorkspaceLifecycleIndex,
+  renderMission,
+  renderResources,
+  saveWorkspaceIndex as saveWorkspaceLifecycleIndex,
+  writeIfMissing,
+  type SessionEvent,
+  type WorkspaceIndex
+} from './teaching-workspace/lifecycle'
 import type {
   ApplyLessonStylePayload,
   CreateWorkspacePayload,
@@ -118,16 +125,6 @@ import type {
   UpdateMissionPayload
 } from '../shared/teaching-types'
 
-type WorkspaceIndex = {
-  id: string
-  name: string
-  rootPath: string
-  createdAt: string
-  updatedAt: string
-  lessons: LessonSummary[]
-  pathMeta?: Record<string, WorkspacePathMeta>
-}
-
 type ConversationIndex = {
   pathMeta?: Record<string, WorkspacePathMeta>
 }
@@ -143,40 +140,12 @@ export type WorkspacePreviewFile = {
   mimeType: string
 }
 
-type SessionEvent = {
-  id: string
-  kind: 'workspace_created' | 'workspace_imported' | 'mission_updated' | 'lesson_generated' | 'lesson_style_applied' | 'agent_conversation_recorded'
-  timestamp: string
-  workspaceId: string
-  prompt?: string
-  paths?: string[]
-  meta?: { source?: LessonPlanSource; reason?: string; model?: string; styleId?: string }
-}
-
 const DEFAULT_RUNTIME: TeachingRuntimeState = {
   status: 'idle',
   currentStep: 'ready',
   queuedTasks: 0,
   providerLabel: 'Local structured generator'
 }
-
-const WORKSPACE_SCAFFOLD_DIRECTORIES = new Set([
-  'lessons',
-  'conversation',
-  'reference',
-  'learning-records',
-  'reviews',
-  'assets'
-])
-
-const WORKSPACE_SCAFFOLD_FILES = new Set([
-  'MISSION.md',
-  'RESOURCES.md',
-  'assets/lesson.css',
-  'assets/quiz.js',
-  'assets/flashcards.css',
-  'assets/flashcards.js'
-])
 
 export class TeachingWorkspaceService {
   private readonly registryPath: string
@@ -1072,23 +1041,10 @@ export class TeachingWorkspaceService {
     workspace: RegistryWorkspace,
     pathMeta?: Record<string, WorkspacePathMeta>
   ): Promise<void> {
-    const effectivePathMeta = pathMeta ?? (await this.loadWorkspaceIndex(workspace).then((index) => index.pathMeta ?? {}).catch(() => ({})))
-    await mkdir(workspace.rootPath, { recursive: true })
-    await Promise.all([
-      ...Array.from(WORKSPACE_SCAFFOLD_DIRECTORIES)
-        .filter((relativePath) => !isPathArchived(effectivePathMeta, relativePath))
-        .map((relativePath) => mkdir(join(workspace.rootPath, relativePath), { recursive: true })),
-      mkdir(join(workspace.rootPath, '.teachos'), { recursive: true })
-    ])
-    const lessonStyleId = normalizeLessonStyleId(
-      await this.loadSettings().then((settings) => settings.workspace.lessonStyleId).catch(() => undefined)
-    )
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/lesson.css', lessonStyleCss(lessonStyleId))
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/quiz.js', LESSON_QUIZ_JS)
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.css', LESSON_FLASHCARD_CSS)
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.js', LESSON_FLASHCARD_JS)
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'RESOURCES.md', renderResources(workspace.name))
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'MISSION.md', renderMission(workspace.name, `学习 ${workspace.name}`))
+    await ensureWorkspaceLifecycleStructure(workspace, {
+      pathMeta,
+      loadSettings: () => this.loadSettings()
+    })
   }
 
   private async loadRegistry(): Promise<WorkspaceRegistry> {
@@ -1117,40 +1073,15 @@ export class TeachingWorkspaceService {
   }
 
   private async loadWorkspaceIndex(workspace: RegistryWorkspace): Promise<WorkspaceIndex> {
-    try {
-      const parsed = JSON.parse(await readFile(join(workspace.rootPath, '.teachos', 'index.json'), 'utf8')) as WorkspaceIndex
-      return {
-        id: workspace.id,
-        name: workspace.name,
-        rootPath: workspace.rootPath,
-        createdAt: parsed.createdAt ?? workspace.createdAt,
-        updatedAt: parsed.updatedAt ?? workspace.updatedAt,
-        lessons: Array.isArray(parsed.lessons)
-          ? parsed.lessons
-              .filter(isLessonSummary)
-              .map((lesson) => normalizeLessonSummary(workspace.rootPath, workspace.name, lesson))
-          : [],
-        pathMeta: normalizePathMeta(parsed.pathMeta)
-      }
-    } catch {
-      return {
-        id: workspace.id,
-        name: workspace.name,
-        rootPath: workspace.rootPath,
-        createdAt: workspace.createdAt,
-        updatedAt: workspace.updatedAt,
-        lessons: []
-      }
-    }
+    return loadWorkspaceLifecycleIndex(workspace)
   }
 
   private async saveWorkspaceIndex(rootPath: string, index: WorkspaceIndex): Promise<void> {
-    await atomicWriteFile(join(rootPath, '.teachos', 'index.json'), `${JSON.stringify(index, null, 2)}\n`)
+    await saveWorkspaceLifecycleIndex(rootPath, index)
   }
 
   private async appendSessionEvent(rootPath: string, event: SessionEvent): Promise<void> {
-    await mkdir(join(rootPath, '.teachos'), { recursive: true })
-    await appendFile(join(rootPath, '.teachos', 'sessions.jsonl'), `${JSON.stringify(event)}\n`, 'utf8')
+    await appendWorkspaceSessionEvent(rootPath, event)
   }
 
   private async existingRegistryWorkspaces(workspaces: RegistryWorkspace[]): Promise<RegistryWorkspace[]> {
@@ -1241,37 +1172,6 @@ function resolveLessonPath(rootPath: string, lessonPath: string): string {
   return target
 }
 
-async function atomicWriteFile(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`
-  await writeFile(tempPath, content, 'utf8')
-  await rename(tempPath, path)
-}
-
-async function writeIfMissing(path: string, content: string): Promise<void> {
-  if (await fileExists(path)) return
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, content, 'utf8')
-}
-
-async function writeWorkspaceScaffoldFileIfMissing(
-  rootPath: string,
-  pathMeta: Record<string, WorkspacePathMeta>,
-  relativePath: string,
-  content: string
-): Promise<void> {
-  if (isPathArchived(pathMeta, relativePath)) return
-  await writeIfMissing(join(rootPath, relativePath), content)
-}
-
-function isWorkspaceScaffoldPath(kind: WorkspaceItemKind, relativePath: string): boolean {
-  const path = normalizeWorkspaceRelativePath(relativePath)
-  if (!path) return false
-  if (kind === 'directory') return WORKSPACE_SCAFFOLD_DIRECTORIES.has(path)
-  if (kind === 'file') return WORKSPACE_SCAFFOLD_FILES.has(path)
-  return false
-}
-
 function deriveTopic(prompt: string, fallback: string): string {
   const cleaned = cleanText(prompt)
     .replace(/^我想(先)?学习/, '')
@@ -1297,52 +1197,6 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
-}
-
-function renderMission(topic: string, prompt: string): string {
-  const safeTopic = cleanText(topic) || '学习任务'
-  const safePrompt = cleanText(prompt) || `学习 ${safeTopic}`
-  return `# Mission: ${safeTopic}
-
-## Why
-${safePrompt}。这个工作区会把学习目标、可信资源、课程讲义和复习记录沉淀为可迁移的本地文件。
-
-## Success looks like
-- 能把模糊学习需求整理成一段可执行的 mission
-- 能从 mission 生成第一节可保存、可打印的 HTML lesson
-- 能在后续学习中持续积累 resources、reference 和 learning records
-
-## Constraints
-- 文件系统是真相来源，App 只负责索引、生成和预览
-- 每节 lesson 应短小，并包含一次明确的检索练习
-- 早期先使用本地结构化生成器，后续再接入 AI provider
-
-## Out of scope
-- 云同步、多用户权限和复杂 RAG
-- 把每节课做成重型 React SPA
-`
-}
-
-function renderResources(topic: string): string {
-  const safeTopic = cleanText(topic) || 'TeachOS'
-  return `# ${safeTopic} Resources
-
-## Knowledge
-
-- Local: teach/SKILL.md
-  定义 MISSION、RESOURCES、lessons、reference、learning-records 和 assets 的长期文件约定。Use for: 判断工作区是否完整。
-- Local: teaching-system-tech-stack.md
-  记录 Electron、React、本地文件、结构化生成和静态 HTML lesson 的 MVP 技术路线。Use for: 判断实现优先级。
-
-## Wisdom (Communities)
-
-- Local: 与用户的后续教学对话
-  用于验证 lesson 是否真的帮用户完成一个可观察的学习动作。
-
-## Gaps
-
-- 还需要为具体学习主题补充高信任外部资料。
-`
 }
 
 function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
@@ -1393,19 +1247,4 @@ function mimeTypeForPath(path: string): string {
   if (lower.endsWith('.woff2')) return 'font/woff2'
   if (lower.endsWith('.woff')) return 'font/woff'
   return 'application/octet-stream'
-}
-
-function isLessonSummary(value: unknown): value is LessonSummary {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Record<string, unknown>
-  return (
-    typeof record.id === 'string' &&
-    typeof record.title === 'string' &&
-    typeof record.objective === 'string' &&
-    typeof record.prompt === 'string' &&
-    typeof record.createdAt === 'string' &&
-    typeof record.durationMinutes === 'number' &&
-    typeof record.relativePath === 'string' &&
-    typeof record.absolutePath === 'string'
-  )
 }

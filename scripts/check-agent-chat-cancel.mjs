@@ -2,14 +2,14 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const [
-  teachingTypes,
+  systemApiTypes,
   preload,
   main,
   app,
   agentLoop,
   providerAdapter
 ] = await Promise.all([
-  readFile('src/shared/teaching-types.ts', 'utf8'),
+  readFile('src/shared/teaching-types/system-api.ts', 'utf8'),
   readFile('src/preload/index.ts', 'utf8'),
   readFile('src/main/index.ts', 'utf8'),
   readFile('src/renderer/src/App.tsx', 'utf8'),
@@ -18,7 +18,7 @@ const [
 ])
 
 assert.match(
-  teachingTypes,
+  systemApiTypes,
   /cancelAgentChatStream:\s*\(streamId:\s*string\)\s*=>\s*Promise<\{\s*canceled:\s*boolean\s*\}>/,
   'renderer API should expose agent chat cancellation'
 )

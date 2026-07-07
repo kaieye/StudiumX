@@ -1,0 +1,90 @@
+/* ================================================================
+   Alert Banners
+   ================================================================ */
+
+/* Inline alert (error/warning/info) */.inline-alert {
+  display: flex;
+  align-items: center;
+  max-width: 1180px;
+  min-height: 40px;
+  gap: 10px;
+  margin: 12px auto 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+}.inline-alert[data-severity="error"] {
+  color: #9c384e;
+  border: 1px solid #ffd4de;
+  background: #fff5f7;
+}.inline-alert[data-severity="warning"] {
+  color: #8a5a19;
+  border: 1px solid #ffe4b8;
+  background: #fffbf0;
+}.inline-alert[data-severity="info"] {
+  color: #3a5f9c;
+  border: 1px solid #d4e2ff;
+  background: #f5f9ff;
+}.inline-alert .alert-dismiss {
+  display: inline-flex;
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  transition: opacity 140ms ease, background 140ms ease;
+}.inline-alert .alert-dismiss:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* App-level error boundary card */.error-boundary-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 440px;
+  margin: 48px auto;
+  padding: 28px 24px;
+  text-align: center;
+  border: 1px solid #ffd4de;
+  border-radius: var(--radius-xl);
+  background: #fff5f7;
+  box-shadow: var(--shadow-panel);
+}.error-boundary-card h2 {
+  margin: 0 0 8px;
+  color: #9c384e;
+  font-size: 17px;
+  font-weight: 750;
+}.error-boundary-card p {
+  margin: 0 0 16px;
+  color: #b05162;
+  font-size: 13px;
+  line-height: 1.6;
+}.error-boundary-card button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  color: #9c384e;
+  border: 1px solid #ffd4de;
+  border-radius: var(--radius-full);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease;
+}.error-boundary-card button:hover {
+  background: #fff0f4;
+  box-shadow: var(--shadow-card);
+}
+
