@@ -1,3 +1,5 @@
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import type { ToolEntry, ToolContext } from './registry'
 import { fetchWithOptionalProxy } from '../../proxy-fetch'
 import { searchMany } from './web_search'
@@ -24,7 +26,7 @@ const MAX_REDIRECTS = 3
  * paths), capped at MAX_REDIRECTS hops.
  */
 async function fetchUrlText(targetUrl: string, ctx: ToolContext): Promise<string> {
-  const safe = assertSafeUrl(targetUrl)
+  const safe = await assertSafePublicHttpUrl(targetUrl)
   let current = safe
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const res = await fetchWithOptionalProxy(
@@ -43,7 +45,7 @@ async function fetchUrlText(targetUrl: string, ctx: ToolContext): Promise<string
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get('location')
       if (!location) throw new Error('重定向缺少 Location 头。')
-      current = assertSafeUrl(new URL(location, current).toString())
+      current = await assertSafePublicHttpUrl(new URL(location, current).toString())
       continue
     }
     if (!res.ok) throw new Error(`抓取失败：${res.status} ${res.statusText}`)
@@ -112,7 +114,7 @@ async function buildRestrictedWeChatFetchPayload(opts: {
   })
 }
 
-function assertSafeUrl(input: string): string {
+export async function assertSafePublicHttpUrl(input: string): Promise<string> {
   let url: URL
   try {
     url = new URL(input)
@@ -122,26 +124,81 @@ function assertSafeUrl(input: string): string {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`仅允许 http/https 协议，拒绝：${url.protocol}`)
   }
-  const host = url.hostname.toLowerCase()
-  if (host === 'localhost' || host === 'ip6-localhost' || host.endsWith('.localhost')) {
+  await assertPublicHost(url.hostname)
+  return url.toString()
+}
+
+async function assertPublicHost(hostname: string): Promise<void> {
+  const host = normalizeHostname(hostname)
+  if (host === 'localhost' || host === 'ip6-localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
     throw new Error('拒绝访问本地地址。')
   }
-  // Block IPv4 loopback / private / link-local ranges.
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
-    const parts = host.split('.').map((p) => Number(p))
-    const [a, b] = parts
-    if (
-      a === 10 ||
-      a === 127 ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 169 && b === 254) ||
-      a === 0
-    ) {
-      throw new Error('拒绝访问内网/回环地址。')
-    }
+
+  if (isIP(host)) {
+    assertPublicIpAddress(host)
+    return
   }
-  return url.toString()
+
+  const addresses = await lookup(host, { all: true, verbatim: true }).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`无法解析 URL 主机：${message}`)
+  })
+  if (addresses.length === 0) throw new Error('无法解析 URL 主机。')
+  for (const address of addresses) {
+    assertPublicIpAddress(address.address)
+  }
+}
+
+function assertPublicIpAddress(address: string): void {
+  const normalized = normalizeHostname(address)
+  const version = isIP(normalized)
+  if (version === 4 && isBlockedIpv4Address(normalized)) {
+    throw new Error('拒绝访问内网/回环地址。')
+  }
+  if (version === 6 && isBlockedIpv6Address(normalized)) {
+    throw new Error('拒绝访问内网/回环地址。')
+  }
+}
+
+function normalizeHostname(hostname: string): string {
+  return hostname
+    .trim()
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/\.$/, '')
+    .toLowerCase()
+}
+
+function isBlockedIpv4Address(address: string): boolean {
+  const parts = address.split('.').map((part) => Number(part))
+  const [a, b, c] = parts
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 0 && c === 0) ||
+    (a === 192 && b === 0 && c === 2) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) ||
+    a >= 224
+  )
+}
+
+function isBlockedIpv6Address(address: string): boolean {
+  if (address.includes('%')) return true
+  if (address === '::' || address === '::1' || address.startsWith('::')) return true
+  const firstSegment = Number.parseInt(address.split(':')[0] ?? '', 16)
+  if (!Number.isFinite(firstSegment)) return true
+  return (
+    (firstSegment & 0xfe00) === 0xfc00 ||
+    (firstSegment & 0xffc0) === 0xfe80 ||
+    (firstSegment & 0xff00) === 0xff00 ||
+    address.startsWith('2001:db8:')
+  )
 }
 
 function htmlToText(html: string): string {

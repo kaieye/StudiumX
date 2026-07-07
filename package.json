@@ -33,6 +33,8 @@
     "check:workspace-import-course": "node scripts/check-workspace-import-course.mjs",
     "check:workspace-removal": "node scripts/check-workspace-removal-state.mjs",
     "check:web-search-providers": "node scripts/check-web-search-providers.mjs",
+    "check:web-fetch-safe-url": "node scripts/check-web-fetch-safe-url.mjs",
+    "check:external-link-controls": "node scripts/check-external-link-controls.mjs",
     "check:memory-capture": "node scripts/check-memory-capture.mjs",
     "check:conversation-lesson-tool": "node scripts/check-conversation-lesson-tool.mjs",
     "check:workflow": "node scripts/check-teaching-workflow.mjs",

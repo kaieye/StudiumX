@@ -15,6 +15,7 @@ import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
 import { isPathInsideConfiguredRoot, isPathInsideRoot } from './path-access'
+import { openExternalHttpUrl } from './external-links'
 import {
   optionalString,
   parseAgentChatStreamPayload,
@@ -37,7 +38,6 @@ import {
   parseWorkspaceItemMetaPayload,
   parseWorkspaceItemRemovePayload,
   parseWorkspaceRemovePayload,
-  requireHttpUrl,
   requireStreamId,
   requireString,
   requireWindowControlAction
@@ -252,12 +252,7 @@ function registerTeachingIpc(
 
   ipcMain.handle('teach:open-external', async (_, rawUrl: unknown) => {
     const settings = await settingsService.load()
-    if (!settings.privacy.allowExternalLinks) {
-      return { ok: false, message: 'External links are disabled in privacy settings.' }
-    }
-    const url = requireHttpUrl(rawUrl)
-    await shell.openExternal(url)
-    return { ok: true }
+    return openExternalHttpUrl(rawUrl, settings, (url) => shell.openExternal(url))
   })
 
   ipcMain.handle('teach:show-notification', async (_, rawPayload: unknown) => {
@@ -424,7 +419,7 @@ async function applyAppBehavior(settings: TeachingSettingsV1): Promise<void> {
   logger.configure(settings.log.enabled, settings.log.retentionDays)
 }
 
-function createWindow(hidden = false): BrowserWindow {
+function createWindow(settingsService: TeachingSettingsService, hidden = false): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
@@ -458,7 +453,7 @@ function createWindow(hidden = false): BrowserWindow {
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    void openWindowExternalUrl(url, settingsService)
     return { action: 'deny' }
   })
 
@@ -510,12 +505,12 @@ if (!hasSingleInstanceLock) {
     registerTeachingIpc(workspaceService, settingsService)
 
     const startHidden = initialSettings.appBehavior.startMinimized || process.argv.includes('--hidden')
-    createWindow(startHidden)
+    createWindow(settingsService, startHidden)
 
     void applyAppBehavior(initialSettings)
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(settingsService)
     })
   })
 
@@ -534,6 +529,18 @@ if (!hasSingleInstanceLock) {
       app.quit()
     }
   })
+}
+
+async function openWindowExternalUrl(rawUrl: string, settingsService: TeachingSettingsService): Promise<void> {
+  try {
+    const settings = await settingsService.load()
+    const result = await openExternalHttpUrl(rawUrl, settings, (url) => shell.openExternal(url))
+    if (!result.ok) {
+      logger?.warn(`External link blocked: ${result.message ?? 'Unknown reason.'}`)
+    }
+  } catch (error) {
+    logger?.warn(`External link blocked: ${errorMessage(error)}`)
+  }
 }
 
 function installConsoleSink(log: Logger): void {
