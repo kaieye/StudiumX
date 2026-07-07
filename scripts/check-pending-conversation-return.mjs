@@ -2,16 +2,17 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const app = await readFile('src/renderer/src/App.tsx', 'utf8')
+const appStore = await readFile('src/renderer/src/app-shell/appStore.ts', 'utf8')
 const stateModule = await readFile('src/renderer/src/agent-conversation-state.ts', 'utf8')
 
 assert.match(
-  app,
+  appStore,
   /pendingAgentConversation:\s*PendingAgentConversation\s*\|\s*null/,
   'renderer should keep a local pending conversation while agentChatStream is running'
 )
 
 assert.match(
-  app,
+  appStore,
   /restorePendingAgentConversation:\s*\(\)\s*=>\s*void/,
   'renderer should expose a way to switch back to the pending conversation'
 )

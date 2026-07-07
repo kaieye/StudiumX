@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 
 const app = await readFile('src/renderer/src/App.tsx', 'utf8')
 const appStore = await readFile('src/renderer/src/app-shell/appStore.ts', 'utf8')
+const contextTransitions = await readFile('src/renderer/src/app-shell/contextTransitions.ts', 'utf8')
 
 assert.doesNotMatch(
   app,
@@ -24,18 +25,18 @@ assert.match(
 
 assert.match(
   app,
-  /setOverviewDialogMode\('teaching'\)[\s\S]*clearAgentChat\(\)/,
-  'new conversation navigation should open the overview composer in teaching mode'
+  /if \(item\.id === 'overview'\) \{\s*openWorkspaceTeachingMode\(\)\s*return\s*\}/,
+  'new conversation navigation should route through the app shell context transition'
 )
 
 assert.match(
-  appStore,
-  /selectCourseFolder:[\s\S]*overviewDialogMode:\s*'teaching'/,
+  contextTransitions,
+  /function selectCourseFolderContext[\s\S]*overviewDialogMode:\s*'teaching'/,
   'opening a course folder should switch the composer back to teaching mode'
 )
 
 assert.match(
-  appStore,
+  contextTransitions,
   /const hasCourseContent = selectedCourseRelativePath[\s\S]*selectedCourse\.sessionCount > 0[\s\S]*view: hasCourseContent \? 'lessons' : 'overview'/,
   'empty course folders should open the teaching dialog instead of the empty lesson library'
 )
@@ -47,8 +48,8 @@ assert.match(
 )
 
 assert.match(
-  appStore,
-  /openWorkspaceTeachingMode:[\s\S]*view:\s*'overview'[\s\S]*overviewDialogMode:\s*'teaching'/,
+  contextTransitions,
+  /function openWorkspaceTeaching[\s\S]*\.\.\.openTeachingConversation\(\)[\s\S]*selectedCourseRelativePath:\s*null/,
   'opening a workspace folder should enter the overview teaching dialog, not stay in chat mode'
 )
 
@@ -59,20 +60,20 @@ assert.match(
 )
 
 assert.match(
-  appStore,
-  /loadCourseHtmlFile: async \(file\) => \{[\s\S]*overviewDialogMode:\s*'teaching'/,
+  contextTransitions,
+  /function openLessonReaderContext[\s\S]*overviewDialogMode:\s*'teaching'/,
   'opening a course HTML file should keep the composer in teaching mode'
 )
 
 assert.match(
-  appStore,
-  /loadAgentConversation: async \(conversationId, workspaceId\) => \{[\s\S]*const isTeachingConversation = Boolean\(conversationCourseRelativePath\)[\s\S]*view:\s*isTeachingConversation \? 'overview' : 'agent'[\s\S]*overviewDialogMode:\s*isTeachingConversation \? 'teaching' : get\(\)\.overviewDialogMode/,
+  contextTransitions,
+  /function openAgentConversationContext[\s\S]*const isTeachingConversation = Boolean\(conversationCourseRelativePath\)[\s\S]*view:\s*isTeachingConversation \? 'overview' : 'agent'[\s\S]*overviewDialogMode:\s*isTeachingConversation \? 'teaching' : input\.currentOverviewDialogMode/,
   'opening a course conversation should enter the overview teaching dialog, not the normal chat view'
 )
 
 assert.match(
-  appStore,
-  /restorePendingAgentConversation:[\s\S]*view:\s*pending\.mode === 'teaching' \? 'overview' : 'agent'/,
+  contextTransitions,
+  /function restorePendingConversationContext[\s\S]*view:\s*pending\.mode === 'teaching' \? 'overview' : 'agent'/,
   'restoring a pending teaching conversation should keep the teaching dialog mode'
 )
 

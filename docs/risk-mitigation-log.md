@@ -2,6 +2,42 @@
 
 This log records codebase risk reviews and the concrete treatment applied after each review batch.
 
+## 2026-07-08: App Shell Context Transition Module
+
+Review lanes:
+
+- Sidebar primary view navigation.
+- Course folder, Lesson reader, Resource reader, and Agent conversation opening transitions.
+- Pending Agent conversation restore and workspace removal context cleanup.
+- Existing teaching-mode and pending-conversation source checks.
+
+Findings:
+
+- `App.tsx` still bypassed the store interface for the overview navigation path.
+- Cross-field app shell invariants were repeated in store actions: `view`, `overviewDialogMode`, reader state, selected Course, active conversation, pending conversation, and task prompt were patched inline.
+- Several checks asserted fragile source text instead of exercising the transition behavior through one module interface.
+
+Treatment:
+
+- Added `src/renderer/src/app-shell/contextTransitions.ts` as a pure App shell context transition Module. Its interface owns primary view transitions, Teaching conversation entry, Course selection, pending conversation restore, Agent conversation opening, Lesson/Resource reader entry, and removed-workspace cleanup.
+- Routed `src/renderer/src/app-shell/appStore.ts` and the sidebar overview navigation through the shared transition functions.
+- Added a focused transition fixture and updated teaching-mode / pending-conversation checks to assert behavior and wiring at the new interface.
+
+Verification:
+
+- `npm run check:app-shell-context-transitions`
+- `npm run check:teaching-mode`
+- `node scripts/check-pending-conversation-return.mjs`
+- `npm run check:agent-conversation-state`
+- `npm run check:sidebar-ui`
+- `npm run check:workspace-removal`
+- `npx tsc --noEmit`
+- `npm run build`
+
+Residual risk:
+
+- `MainArea` still derives render-time display state from several fields. The transition Module now concentrates state changes, but a future view-model pass could make render derivation similarly explicit if that code becomes a maintenance hotspot.
+
 ## 2026-07-08: IPC Contract Module
 
 Review lanes:

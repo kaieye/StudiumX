@@ -7,10 +7,7 @@ import {
   normalizeRendererSettings,
   runtimeProviderLabel
 } from '../workflows/settings'
-import {
-  courseRelativePathForAgentConversation,
-  isCourseAgentConversationPath
-} from '../../../shared/agent-conversation-catalog'
+import { isCourseAgentConversationPath } from '../../../shared/agent-conversation-catalog'
 import {
   activeTeachingConversationSummary,
   agentTurnsToMessages,
@@ -25,10 +22,27 @@ import {
   syncPendingAgentConversation,
   type PendingAgentConversation
 } from '../agent-conversation-state'
+import {
+  clearAgentConversationContext,
+  clearRemovedWorkspaceContext,
+  courseRelativePathForFile,
+  lessonToCoursePreviewFile,
+  openAgentConversationContext,
+  openLessonLibrary as openLessonLibraryContext,
+  openLessonReaderContext,
+  openPrimaryView,
+  openResourceReaderContext,
+  openTeachingConversation,
+  openWorkspaceTeaching,
+  restorePendingConversationContext,
+  selectCourseFolderContext,
+  type CoursePreviewFile,
+  type DialogMode,
+  type ResourcePreviewFile
+} from './contextTransitions'
 import { type LessonStyleId } from '../../../shared/lesson-styles'
 import { classifyProviderError } from '../../../shared/provider-error'
 import { deriveWorkspaceRemovalUiPatch } from '../../../shared/workspace-removal-state'
-import { courseRelativePathFromWorkspacePath } from '../../../shared/teaching-placement'
 import {
   type AgentChatMessage,
   type AgentChatStreamChunk,
@@ -70,19 +84,8 @@ export type UserError = {
   detail?: string
 }
 
-export type DialogMode = 'chat' | 'teaching'
-
-export type CoursePreviewFile = {
-  title: string
-  relativePath: string
-  absolutePath: string
-}
-
-export type ResourcePreviewFile = {
-  id: string
-  title: string
-  html: string
-}
+export type { CoursePreviewFile, DialogMode, ResourcePreviewFile } from './contextTransitions'
+export { lessonToCoursePreviewFile } from './contextTransitions'
 
 type LessonGenerationOptions = {
   prompt?: string
@@ -463,19 +466,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
   restorePendingAgentConversation: () => {
     const pending = get().pendingAgentConversation
     if (!pending) return
-    const courseRelativePath = courseRelativePathForAgentConversation(pending.summary.relativePath)
-    set({
-      view: pending.mode === 'teaching' ? 'overview' : 'agent',
-      overviewDialogMode: pending.mode === 'teaching' ? 'teaching' : get().overviewDialogMode,
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      agentTurns: pending.turns,
-      activeConversationId: pending.summary.id,
-      agentStatus: pending.status,
-      agentToolsSupported: pending.toolsSupported,
-      selectedCourseRelativePath: courseRelativePath,
-      selectedCourseWorkspaceId: courseRelativePath ? pending.workspaceId : null
-    })
+    set(restorePendingConversationContext(pending, get().overviewDialogMode))
   },
   loadGitBranches: async (workspaceRoot, options) => {
     const root = workspaceRoot.trim()
@@ -508,52 +499,20 @@ export const useAppStore = create<StoreState>((set, get) => ({
     set({ gitBranchesRoot: root, gitBranchesResult, gitBranchesLoading: false })
   },
   setView: (view) => {
-    set(view === 'resources' ? { view, selectedResourcePreviewFile: null } : { view })
+    set(openPrimaryView(view))
     if (view === 'review') void get().loadReviewCards()
   },
   setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
-  openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null, selectedResourcePreviewFile: null }),
-  openTeachingConversationView: () => set({
-    view: 'overview',
-    overviewDialogMode: 'teaching',
-    lessonReaderOpen: false,
-    selectedCoursePreviewFile: null,
-    selectedResourcePreviewFile: null
-  }),
+  openLessonLibrary: () => set(openLessonLibraryContext()),
+  openTeachingConversationView: () => set(openTeachingConversation()),
   openWorkspaceTeachingMode: () => {
-    get().clearAgentChat()
-    set({
-      view: 'overview',
-      overviewDialogMode: 'teaching',
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      selectedResourcePreviewFile: null,
-      selectedCourseRelativePath: null,
-      selectedCourseWorkspaceId: null
-    })
+    set(openWorkspaceTeaching())
   },
   selectCourseFolder: (selectedCourseRelativePath, workspaceId) => {
     const targetWorkspace = workspaceId
       ? get().appState.workspaces.find((workspace) => workspace.id === workspaceId) ?? null
       : get().appState.activeWorkspace
-    const selectedCourse = selectedCourseRelativePath
-      ? targetWorkspace?.courses.find((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)) ?? null
-      : null
-    const hasCourseContent = selectedCourseRelativePath
-      ? Boolean(selectedCourse && selectedCourse.sessionCount > 0)
-      : Boolean(targetWorkspace?.lessons.length)
-    set({
-      view: hasCourseContent ? 'lessons' : 'overview',
-      overviewDialogMode: 'teaching',
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      selectedResourcePreviewFile: null,
-      selectedCourseRelativePath,
-      selectedCourseWorkspaceId: selectedCourse ? targetWorkspace?.id ?? null : null,
-      ...(!hasCourseContent
-        ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
-        : {})
-    })
+    set(selectCourseFolderContext({ selectedCourseRelativePath, workspaceId, targetWorkspace }))
   },
   setSettingsSection: (settingsSection) => set({ settingsSection }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
@@ -963,25 +922,16 @@ export const useAppStore = create<StoreState>((set, get) => ({
     set({ error: null })
     try {
       const conversation = await api.readAgentConversation({ workspaceId: workspace.id, conversationId })
-      const latestUserTurn = [...conversation.turns].reverse().find((turn) => turn.role === 'user')
-      const conversationCourseRelativePath = courseRelativePathForAgentConversation(conversation.relativePath)
-      const isTeachingConversation = Boolean(conversationCourseRelativePath)
       set({
         appState: workspace.id === get().appState.activeWorkspace?.id
           ? get().appState
           : await api.selectWorkspace(workspace.id),
-        view: isTeachingConversation ? 'overview' : 'agent',
-        overviewDialogMode: isTeachingConversation ? 'teaching' : get().overviewDialogMode,
-        lessonReaderOpen: false,
-        selectedCoursePreviewFile: null,
-        agentTurns: conversation.turns,
-        activeConversationId: conversation.id,
-        agentStatus: '',
-        agentToolsSupported: null,
-        agentInput: '',
-        selectedCourseRelativePath: conversationCourseRelativePath,
-        selectedCourseWorkspaceId: conversationCourseRelativePath ? workspace.id : null,
-        taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
+        ...openAgentConversationContext({
+          conversation,
+          workspaceId: workspace.id,
+          currentOverviewDialogMode: get().overviewDialogMode,
+          currentTaskPrompt: get().taskPrompt
+        })
       })
     } catch (error) {
       set({ error: toUserError(error) })
@@ -1186,13 +1136,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
               selectedCourseRelativePath: null,
               selectedCourseWorkspaceId: null,
               taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-              agentTurns: [],
-              activeConversationId: null,
-              agentStatus: '',
-              agentInput: '',
-              agentToolsSupported: null,
-              agentChatBusy: false,
-              pendingAgentConversation: null,
+              ...clearAgentConversationContext()
             }
           : {})
       })
@@ -1224,7 +1168,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
         appState: state,
         error: null,
         ...(uiPatch.clearActiveConversation
-          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
+          ? clearAgentConversationContext()
           : {}),
         ...(uiPatch.clearSelectedCoursePreview
           ? { lessonReaderOpen: false, selectedCoursePreviewFile: null }
@@ -1256,21 +1200,12 @@ export const useAppStore = create<StoreState>((set, get) => ({
         appState: state,
         error: null,
         ...(clearsCurrentContext
-          ? {
-              view: state.activeWorkspace ? previous.view : 'overview',
-              lessonReaderOpen: false,
-              selectedCoursePreviewFile: null,
-              selectedCourseRelativePath: null,
-              selectedCourseWorkspaceId: null,
-              taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-              agentTurns: [],
-              activeConversationId: null,
-              agentStatus: '',
-              agentInput: '',
-              agentToolsSupported: null,
-              agentChatBusy: false,
-              pendingAgentConversation: null,
-            }
+          ? clearRemovedWorkspaceContext({
+              nextState: state,
+              previousView: previous.view,
+              nextPrompt,
+              defaultPrompt
+            })
           : {})
       })
     } catch (error) {
@@ -1282,21 +1217,13 @@ export const useAppStore = create<StoreState>((set, get) => ({
     if (!api) return
     const workspace = get().appState.activeWorkspace
     if (!workspace) return
-    set({
-      view: 'lessons',
-      overviewDialogMode: 'teaching',
-      lessonReaderOpen: true,
-      selectedCoursePreviewFile: lessonToCoursePreviewFile(lesson),
-      selectedResourcePreviewFile: null,
-      appState: {
-        ...get().appState,
-        selectedLessonPath: lesson.absolutePath,
-        previewHtml: loadingPreviewHtml(workspace),
-        previewUrl: ''
-      },
-      selectedCourseRelativePath: lesson.courseRelativePath,
-      selectedCourseWorkspaceId: workspace.id
-    })
+    set(openLessonReaderContext({
+      appState: get().appState,
+      workspace,
+      previewFile: lessonToCoursePreviewFile(lesson),
+      previewHtml: loadingPreviewHtml(workspace),
+      courseRelativePath: lesson.courseRelativePath
+    }))
     try {
       const result = await api.readLesson({
         workspaceId: workspace.id,
@@ -1312,21 +1239,13 @@ export const useAppStore = create<StoreState>((set, get) => ({
     if (!api) return
     const workspace = get().appState.activeWorkspace
     if (!workspace) return
-    set({
-      view: 'lessons',
-      overviewDialogMode: 'teaching',
-      lessonReaderOpen: true,
-      selectedCoursePreviewFile: file,
-      selectedResourcePreviewFile: null,
-      appState: {
-        ...get().appState,
-        selectedLessonPath: file.absolutePath,
-        previewHtml: loadingPreviewHtml(workspace),
-        previewUrl: ''
-      },
-      selectedCourseRelativePath: courseRelativePathForFile(file.relativePath),
-      selectedCourseWorkspaceId: workspace.id
-    })
+    set(openLessonReaderContext({
+      appState: get().appState,
+      workspace,
+      previewFile: file,
+      previewHtml: loadingPreviewHtml(workspace),
+      courseRelativePath: courseRelativePathForFile(file.relativePath)
+    }))
     try {
       const result = await api.readLesson({
         workspaceId: workspace.id,
@@ -1341,12 +1260,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
     }
   },
   openResourceHtmlPreview: (selectedResourcePreviewFile) => {
-    set({
-      view: 'resources',
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      selectedResourcePreviewFile
-    })
+    set(openResourceReaderContext(selectedResourcePreviewFile))
   },
   closeResourceHtmlPreview: () => set({ selectedResourcePreviewFile: null }),
   openPath: async (path) => {
@@ -1543,20 +1457,6 @@ export function titleFromFileName(fileName: string): string {
     .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
     .join(' ')
   return title || fileName
-}
-
-
-function courseRelativePathForFile(relativePath: string): string | null {
-  return courseRelativePathFromWorkspacePath(relativePath)
-}
-
-
-export function lessonToCoursePreviewFile(lesson: LessonSummary): CoursePreviewFile {
-  return {
-    title: lesson.sessionName || lesson.title,
-    relativePath: lesson.relativePath,
-    absolutePath: lesson.absolutePath
-  }
 }
 
 

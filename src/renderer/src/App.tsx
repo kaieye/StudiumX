@@ -395,6 +395,7 @@ function Sidebar() {
     settings,
     appState,
     setView,
+    openWorkspaceTeachingMode,
     openSettings,
     showNotification
   } = useAppStore()
@@ -417,15 +418,8 @@ function Sidebar() {
               type="button"
               onClick={() => {
                 if (item.id === 'overview') {
-                  useAppStore.getState().setOverviewDialogMode('teaching')
-                  useAppStore.getState().clearAgentChat()
-                  useAppStore.setState({
-                    selectedCourseRelativePath: null,
-                    selectedCourseWorkspaceId: null,
-                    lessonReaderOpen: false,
-                    selectedCoursePreviewFile: null,
-                    selectedResourcePreviewFile: null
-                  })
+                  openWorkspaceTeachingMode()
+                  return
                 }
                 if (item.id === 'resources') {
                   useAppStore.getState().closeResourceHtmlPreview()

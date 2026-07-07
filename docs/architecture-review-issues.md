@@ -195,3 +195,22 @@ Provider format facts leaked across main and renderer modules: tool support, aut
 Treatment:
 
 - 2026-07-08: Added a shared Provider format Module so main provider calls, model probing, response parsing, SSE parsing, and renderer settings reuse the same format interface.
+
+## Follow-up Treatment: App Shell Context Transitions
+
+Recommendation: Strong
+
+Files:
+
+- `src/renderer/src/app-shell/contextTransitions.ts`
+- `src/renderer/src/app-shell/appStore.ts`
+- `src/renderer/src/App.tsx`
+- `scripts/fixtures/app-shell-context-transitions.ts`
+
+Problem:
+
+App shell context changes were repeated across navigation, Course selection, pending Agent conversation restore, saved Agent conversation opening, Lesson reader entry, Resource reader entry, and workspace removal cleanup. The same invariants around `view`, `overviewDialogMode`, reader state, selected Course, active conversation, and pending conversation were protected partly by brittle source-text checks.
+
+Treatment:
+
+- 2026-07-08: Added a pure App shell context transition Module so the store and sidebar call one interface for cross-field transition patches, with a focused fixture covering the behavior.
