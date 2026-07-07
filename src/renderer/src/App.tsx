@@ -1454,7 +1454,21 @@ function useStudyPresence(snapshot: StudySnapshot): {
       })))
       setLastHeartbeatAt(Date.now())
     }
-  }, [activeTopic, snapshot.clientId, snapshot.focusMinutes, snapshot.nickname, snapshot.roomId, snapshot.seatIndex, snapshot.signalId, snapshot.spaceCode, snapshot.streakDays, snapshot.timerMode, snapshot.timerState])
+  }, [
+    activeTopic,
+    snapshot.clientId,
+    snapshot.focusMinutes,
+    snapshot.nickname,
+    snapshot.roomId,
+    snapshot.seatIndex,
+    snapshot.signalId,
+    snapshot.spaceCode,
+    snapshot.streakDays,
+    snapshot.timerMode,
+    snapshot.timerState,
+    snapshot.todayFocusSeconds,
+    snapshot.todaySessions
+  ])
 
   const sendEvent = (kind: StudyRoomEventKind, text: string, target: { roomId?: StudyRoomId; spaceCode?: string } = {}): void => {
     const current = snapshotRef.current
@@ -5216,12 +5230,6 @@ function StudySpace() {
   const spacePeers = presenceOnline
     ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode)
     : []
-  const allRoomPeers = studyRooms.reduce<Record<StudyRoomId, number>>((acc, room) => {
-    acc[room.id] = presenceOnline
-      ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id).length + (snapshot.roomId === room.id ? 1 : 0)
-      : 0
-    return acc
-  }, { silent: 0, sprint: 0, deep: 0, exam: 0 })
   const online = presenceOnline ? activePeers.length + 1 : 0
   const spaceOnline = presenceOnline ? spacePeers.length + 1 : 0
   const remoteOnline = presenceOnline ? activePeers.length : 0
@@ -5272,7 +5280,9 @@ function StudySpace() {
     }))
   ].sort((left, right) => right.todayFocusSeconds - left.todayFocusSeconds)
   const roomFocusSeconds = roomMembers.reduce((sum, member) => sum + member.todayFocusSeconds, 0)
+  const roomMaxFocusSeconds = Math.max(1, ...roomMembers.map((member) => member.todayFocusSeconds))
   const focusingCount = roomMembers.filter((member) => member.status === 'running' && member.timerMode === 'focus').length
+  const liveDeskMembers = roomMembers.slice(0, 5)
   const inviteUrl = studyInviteUrl(snapshot.spaceCode, snapshot.roomId)
   const signalMix = studySignals.map((signal) => {
     const members = roomMembers.filter((member) => member.signalId === signal.id)
@@ -5317,6 +5327,61 @@ function StudySpace() {
   const roomEvents = presence.events
     .filter((event) => event.spaceCode === snapshot.spaceCode && event.roomId === snapshot.roomId)
     .slice(0, 8)
+  const recentLiveEvents = roomEvents.slice(0, 3)
+  const roomSummaries = studyRooms.map((room) => {
+    const roomCycleInfo = getStudyRoomCycle(room, roomCycleNow)
+    const roomPeers = presenceOnline
+      ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id)
+      : []
+    const isLocalRoom = snapshot.roomId === room.id
+    const roomOnline = presenceOnline ? roomPeers.length + (isLocalRoom ? 1 : 0) : 0
+    const roomFocusing = presenceOnline
+      ? roomPeers.filter((peer) => peer.status === 'running' && peer.timerMode === 'focus').length
+        + (isLocalRoom && snapshot.timerState === 'running' && snapshot.timerMode === 'focus' ? 1 : 0)
+      : 0
+    const latestPeer = roomPeers.slice().sort((left, right) => right.updatedAt - left.updatedAt)[0]
+    const roomPeerClientIds = new Set(roomPeers.map((peer) => peer.clientId))
+    const latestEvent = presence.events.find((event) => (
+      event.spaceCode === snapshot.spaceCode
+      && event.roomId === room.id
+      && (
+        roomPeerClientIds.has(event.clientId)
+        || (isLocalRoom && event.clientId === snapshot.clientId)
+      )
+    ))
+    const latestText = latestEvent
+      ? latestEvent.text
+      : latestPeer
+        ? `${latestPeer.nickname} · ${formatStudySeatLabel(normalizeStudySeatIndex(latestPeer.seatIndex, latestPeer.roomId, latestPeer.clientId))} · ${studyMemberStatusLabel(latestPeer.status, latestPeer.timerMode)}`
+        : isLocalRoom
+          ? `${snapshot.nickname} · ${formatStudySeatLabel(userSeat)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}`
+          : presence.status === 'online'
+            ? '等待同学入座'
+            : presence.status === 'connecting'
+              ? '连接中'
+              : '待同步'
+    const latestMeta = latestEvent
+      ? formatStudyEventTime(latestEvent.createdAt)
+      : latestPeer
+        ? studyMemberFreshnessLabel(latestPeer, roomCycleNow)
+        : isLocalRoom
+          ? '我的当前房间'
+          : presence.status === 'online'
+            ? '实时在线'
+            : presence.status === 'connecting'
+              ? '正在连接'
+              : '本机席位'
+    return {
+      room,
+      cycle: roomCycleInfo,
+      online: roomOnline,
+      focusing: roomFocusing,
+      latestText,
+      latestMeta,
+      hasRemote: roomPeers.length > 0,
+      isActive: isLocalRoom
+    }
+  })
   const latestRoomEvent = roomEvents[0]
   const latestRemotePeer = activePeers
     .slice()
@@ -5424,10 +5489,68 @@ function StudySpace() {
     activeRoom.id === 'exam' ? '考试模拟间默认静音，不播放环境音' : `${activeRoom.ambient} 可在右侧开关`,
     '在线状态只广播匿名座位和学习信号，不上传学习任务内容'
   ]
+  const roomEventSenderRef = useRef(presence.sendEvent)
+  const lastFocusCompletionEventRef = useRef('')
+  const timerTransitionRef = useRef({
+    timerMode: snapshot.timerMode,
+    timerState: snapshot.timerState,
+    todaySessions: snapshot.todaySessions,
+    totalSessions: snapshot.totalSessions
+  })
 
   const emitRoomEvent = (kind: StudyRoomEventKind, text: string): void => {
     presence.sendEvent(kind, text)
   }
+
+  useEffect(() => {
+    roomEventSenderRef.current = presence.sendEvent
+  }, [presence.sendEvent])
+
+  useEffect(() => {
+    const previous = timerTransitionRef.current
+    timerTransitionRef.current = {
+      timerMode: snapshot.timerMode,
+      timerState: snapshot.timerState,
+      todaySessions: snapshot.todaySessions,
+      totalSessions: snapshot.totalSessions
+    }
+
+    const completedFocus = snapshot.timerMode === 'break'
+      && snapshot.timerState === 'idle'
+      && snapshot.totalSessions > previous.totalSessions
+    if (completedFocus) {
+      const completionKey = `${snapshot.clientId}:${snapshot.roomId}:${snapshot.totalSessions}:${snapshot.todaySessions}:${snapshot.focusMinutes}:${snapshot.breakMinutes}`
+      if (lastFocusCompletionEventRef.current !== completionKey) {
+        lastFocusCompletionEventRef.current = completionKey
+        roomEventSenderRef.current(
+          'task_done',
+          `${snapshot.nickname} 完成 ${snapshot.focusMinutes} 分钟专注，进入 ${snapshot.breakMinutes} 分钟休息。`,
+          { roomId: snapshot.roomId, spaceCode: snapshot.spaceCode }
+        )
+      }
+      void showNotification('学习空间', `完成 ${snapshot.focusMinutes} 分钟专注，进入休息。`)
+      return
+    }
+
+    const completedBreak = previous.timerMode === 'break'
+      && previous.timerState === 'running'
+      && snapshot.timerMode === 'focus'
+      && snapshot.timerState === 'idle'
+    if (completedBreak) {
+      void showNotification('学习空间', '休息结束，可以开始下一轮专注。')
+    }
+  }, [
+    showNotification,
+    snapshot.breakMinutes,
+    snapshot.clientId,
+    snapshot.focusMinutes,
+    snapshot.nickname,
+    snapshot.roomId,
+    snapshot.timerMode,
+    snapshot.timerState,
+    snapshot.todaySessions,
+    snapshot.totalSessions
+  ])
 
   useEffect(() => {
     persistStudySnapshot(snapshot)
@@ -5474,7 +5597,6 @@ function StudySpace() {
         }
 
         if (current.timerMode === 'focus') {
-          void showNotification('学习空间', `完成 ${current.focusMinutes} 分钟专注，进入休息。`)
           return {
             ...current,
             timerMode: 'break',
@@ -5491,7 +5613,6 @@ function StudySpace() {
           }
         }
 
-        void showNotification('学习空间', '休息结束，可以开始下一轮专注。')
         return {
           ...current,
           timerMode: 'focus',
@@ -5501,7 +5622,7 @@ function StudySpace() {
       })
     }, 1000)
     return () => window.clearInterval(id)
-  }, [showNotification, snapshot.timerState])
+  }, [snapshot.timerState])
 
   const updateTimerPreset = (focusMinutes: number, breakMinutes: number): void => {
     setSnapshot((current) => ({
@@ -5977,26 +6098,17 @@ function StudySpace() {
             <span>{snapshot.spaceCode}</span>
           </div>
           <div className="study-arrival-room-grid">
-            {studyRooms.map((room) => {
-              const roomCycleInfo = getStudyRoomCycle(room, roomCycleNow)
-              const roomOnline = allRoomPeers[room.id]
-              const roomFocusing = presenceOnline
-                ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id && peer.status === 'running' && peer.timerMode === 'focus').length
-                  + (snapshot.roomId === room.id && snapshot.timerState === 'running' && snapshot.timerMode === 'focus' ? 1 : 0)
-                : 0
-              const isActive = snapshot.roomId === room.id
-              return (
-                <button
-                  className={`study-arrival-room${isActive ? ' is-active' : ''}`}
-                  key={room.id}
-                  type="button"
-                  onClick={() => selectRoom(room)}
-                >
-                  <strong>{room.name}</strong>
-                  <span>{roomOnline}/{room.capacity} · {roomFocusing} 专注 · {roomCycleInfo.phase === 'focus' ? '专注' : '休息'} {formatStudyDuration(roomCycleInfo.remainingSeconds)}</span>
-                </button>
-              )
-            })}
+            {roomSummaries.map(({ room, cycle, online: roomOnline, focusing: roomFocusing, isActive }) => (
+              <button
+                className={`study-arrival-room${isActive ? ' is-active' : ''}`}
+                key={room.id}
+                type="button"
+                onClick={() => selectRoom(room)}
+              >
+                <strong>{room.name}</strong>
+                <span>{roomOnline}/{room.capacity} · {roomFocusing} 专注 · {cycle.phase === 'focus' ? '专注' : '休息'} {formatStudyDuration(cycle.remainingSeconds)}</span>
+              </button>
+            ))}
           </div>
           <details className="study-relay-settings">
             <summary>
@@ -6086,6 +6198,61 @@ function StudySpace() {
               <span>{liveLineCode}</span>
               <p>{liveLineText}</p>
               <em>{liveLineMeta}</em>
+            </div>
+
+            <div className="study-live-desk" aria-label="实时同桌桌面">
+              <div className="study-live-desk-head">
+                <div>
+                  <span className="study-kicker"><Users size={14} /> 实时同桌</span>
+                  <strong>{online} 个席位在线 · {focusingCount} 人专注</strong>
+                </div>
+                <em>{remoteHeartbeatLabel}</em>
+              </div>
+              <div className="study-live-desk-grid">
+                <div className="study-live-roster" aria-label="实时同桌状态">
+                  {liveDeskMembers.map((member) => {
+                    const seatLabel = formatStudySeatLabel(normalizeStudySeatIndex(member.seatIndex, member.roomId, member.clientId))
+                    const focusShare = Math.max(8, Math.round((member.todayFocusSeconds / roomMaxFocusSeconds) * 100))
+                    return (
+                      <div className={`study-live-peer${member.isSelf ? ' is-me' : ''}${member.status === 'running' ? ' is-running' : ''}`} key={member.clientId}>
+                        <span>{member.isSelf ? '我' : studySignalShortLabel(member.signalId)}</span>
+                        <div>
+                          <strong>{member.nickname}</strong>
+                          <small>{seatLabel} · {studySignalLabel(member.signalId)} · {formatStudyHours(member.todayFocusSeconds)}h</small>
+                          <i style={{ width: `${focusShare}%` }} />
+                        </div>
+                        <em>{studyMemberStatusLabel(member.status, member.timerMode)}</em>
+                      </div>
+                    )
+                  })}
+                  {remoteOnline === 0 ? (
+                    <div className="study-live-peer is-empty">
+                      <span><Plus size={12} /></span>
+                      <div>
+                        <strong>{presence.status === 'online' ? '等待远端同桌' : '等待重新同步'}</strong>
+                        <small>{presence.status === 'online' ? '邀请进入后这里会出现真实席位' : '连接恢复后才显示远端席位'}</small>
+                        <i />
+                      </div>
+                      <em>{connectionLabel}</em>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="study-live-events" aria-label="最近房间动态">
+                  {recentLiveEvents.length > 0 ? recentLiveEvents.map((event) => (
+                    <div className={`study-live-event is-${event.kind}`} key={event.id}>
+                      <span>{event.kind === 'checkin' ? 'IN' : event.kind === 'focus_start' ? 'GO' : event.kind === 'task_done' ? 'OK' : 'UP'}</span>
+                      <p>{event.text}</p>
+                      <em>{formatStudyEventTime(event.createdAt)}</em>
+                    </div>
+                  )) : (
+                    <div className="study-live-event is-empty">
+                      <span>--</span>
+                      <p>签到、开始或完成专注后会同步到同房间。</p>
+                      <em>{connectionLabel}</em>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="study-cinema-seat-deck">
@@ -6187,29 +6354,33 @@ function StudySpace() {
               <span style={{ width: `${roomCycle.progress}%` }} />
             </div>
           </div>
-          <div className="study-room-strip">
-            {studyRooms.map((room) => {
-              const isActive = room.id === snapshot.roomId
-              const roomCycleInfo = getStudyRoomCycle(room, roomCycleNow)
-              const roomOnline = allRoomPeers[room.id]
-              const roomFocusing = presenceOnline
-                ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id && peer.status === 'running' && peer.timerMode === 'focus').length
-                  + (snapshot.roomId === room.id && snapshot.timerState === 'running' && snapshot.timerMode === 'focus' ? 1 : 0)
-                : 0
+          <div className="study-room-strip" aria-label="在线房间目录">
+            {roomSummaries.map(({ room, cycle, online: roomOnline, focusing: roomFocusing, latestText, latestMeta, hasRemote, isActive }) => {
+              const roomFill = Math.min(100, Math.round((roomOnline / room.capacity) * 100))
               return (
                 <button
                   key={room.id}
                   type="button"
-                  className={`study-room-tab${isActive ? ' is-active' : ''}`}
+                  className={`study-room-tab${isActive ? ' is-active' : ''}${hasRemote ? ' has-remote' : ''}`}
                   onClick={() => selectRoom(room)}
                 >
-                  <strong>{room.name}</strong>
+                  <span className="study-room-tab-head">
+                    <strong>{room.name}</strong>
+                    <em>{cycle.phase === 'focus' ? '专注' : '休息'}</em>
+                  </span>
                   <span className="study-room-tab-meta">
                     <em>{roomOnline}/{room.capacity}</em>
                     <em>{roomFocusing} 专注</em>
                   </span>
                   <span className="study-room-tab-cycle">
-                    {roomCycleInfo.phase === 'focus' ? '专注' : '休息'} · {formatStudyDuration(roomCycleInfo.remainingSeconds)}
+                    {formatStudyDuration(cycle.remainingSeconds)} 后{cycle.nextLabel}
+                  </span>
+                  <span className="study-room-tab-activity">
+                    <b>{latestText}</b>
+                    <small>{latestMeta}</small>
+                  </span>
+                  <span className="study-room-tab-meter" aria-hidden="true">
+                    <i style={{ width: `${roomFill}%` }} />
                   </span>
                 </button>
               )

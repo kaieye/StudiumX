@@ -7,7 +7,7 @@ import { join } from 'node:path'
 const appUrl = process.env.STUDIUMX_STUDY_URL ?? 'http://localhost:5173/'
 const chromePath = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const debugPort = Number(process.env.STUDIUMX_CHROME_DEBUG_PORT ?? 9233)
-const timeoutMs = Number(process.env.STUDIUMX_STUDY_LIVE_TIMEOUT_MS ?? 30_000)
+const timeoutMs = Number(process.env.STUDIUMX_STUDY_LIVE_TIMEOUT_MS ?? 45_000)
 const pollMs = 1_500
 
 await assertAppIsRunning(appUrl)
@@ -42,30 +42,38 @@ try {
 
   assert.equal(result.clientA.hasStudy, true, 'first invite URL should open the study space view directly')
   assert.equal(result.clientB.hasStudy, true, 'second invite URL should open the study space view directly')
-  assert.deepEqual(result.clientA.counts, ['2', '2', '1'], 'first client should see one local and one remote session')
-  assert.deepEqual(result.clientB.counts, ['2', '2', '1'], 'second client should see one local and one remote session')
+  assert.deepEqual(result.clientA.counts, ['2', '3', '1'], 'first client should see two people in the room and three in the space')
+  assert.deepEqual(result.clientB.counts, ['2', '3', '1'], 'second client should see two people in the room and three in the space')
   assert.equal(result.clientA.remoteVerified, true, 'first client should show remote verification state')
   assert.equal(result.clientB.remoteVerified, true, 'second client should show remote verification state')
-  assert.equal(result.clientA.liveLineCode, 'PEER', 'first client stage should surface the remote peer heartbeat')
-  assert.equal(result.clientB.liveLineCode, 'PEER', 'second client stage should surface the remote peer heartbeat')
-  assert.match(result.clientA.liveLineText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'first client live line should describe the remote peer seat and status')
-  assert.match(result.clientB.liveLineText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client live line should describe the remote peer seat and status')
-  assert.equal(result.clientA.pulseCode, 'PEER', 'first client arrival pulse should surface the remote peer heartbeat')
-  assert.equal(result.clientB.pulseCode, 'PEER', 'second client arrival pulse should surface the remote peer heartbeat')
-  assert.match(result.clientA.pulseText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'first client arrival pulse should describe the remote peer seat and status')
-  assert.match(result.clientB.pulseText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client arrival pulse should describe the remote peer seat and status')
+  assert.equal(result.clientA.liveLineCode, 'OK', 'first client stage should surface the completed focus room event')
+  assert.equal(result.clientB.liveLineCode, 'OK', 'second client stage should surface the completed focus room event')
+  assert.match(result.clientA.liveLineText, /完成 5 分钟专注/, 'first client live line should describe the completed focus session')
+  assert.match(result.clientB.liveLineText, /完成 5 分钟专注/, 'second client live line should describe the completed focus session')
+  assert.match(result.clientA.focusCompletionEventText, /完成 5 分钟专注/, 'first client event stream should include the completed focus session')
+  assert.match(result.clientB.focusCompletionEventText, /完成 5 分钟专注/, 'second client event stream should include the remote completed focus session')
+  assert.equal(result.clientA.liveDeskRosterCount, 2, 'first client live desk should show local and remote classmates')
+  assert.equal(result.clientB.liveDeskRosterCount, 2, 'second client live desk should show local and remote classmates')
+  assert.match(result.clientA.liveDeskHeading, /2 个席位在线 · 0 人专注/, 'first client live desk should show real online and focus counts')
+  assert.match(result.clientB.liveDeskHeading, /2 个席位在线 · 0 人专注/, 'second client live desk should show real online and focus counts')
+  assert.match(result.clientA.liveDeskEventText, /完成 5 分钟专注/, 'first client live desk should show the completed focus event')
+  assert.match(result.clientB.liveDeskEventText, /完成 5 分钟专注/, 'second client live desk should show the remote completed focus event')
+  assert.equal(result.clientA.pulseCode, 'OK', 'first client arrival pulse should surface the completed focus room event')
+  assert.equal(result.clientB.pulseCode, 'OK', 'second client arrival pulse should surface the completed focus room event')
+  assert.match(result.clientA.pulseText, /完成 5 分钟专注/, 'first client arrival pulse should describe the completed focus session')
+  assert.match(result.clientB.pulseText, /完成 5 分钟专注/, 'second client arrival pulse should describe the completed focus session')
   assert.deepEqual(result.clientA.pulseStats, ['0', '1/1', '2/36'], 'first client arrival pulse should show real focus, heartbeat, and capacity stats')
   assert.deepEqual(result.clientB.pulseStats, ['0', '1/1', '2/36'], 'second client arrival pulse should show real focus, heartbeat, and capacity stats')
-  assert.equal(result.clientA.heroPulseCode, 'PEER', 'first client hero should surface the remote peer heartbeat')
-  assert.equal(result.clientB.heroPulseCode, 'PEER', 'second client hero should surface the remote peer heartbeat')
-  assert.match(result.clientA.heroPulseText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'first client hero should describe the remote peer seat and status')
-  assert.match(result.clientB.heroPulseText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client hero should describe the remote peer seat and status')
+  assert.equal(result.clientA.heroPulseCode, 'OK', 'first client hero should surface the completed focus room event')
+  assert.equal(result.clientB.heroPulseCode, 'OK', 'second client hero should surface the completed focus room event')
+  assert.match(result.clientA.heroPulseText, /完成 5 分钟专注/, 'first client hero should describe the completed focus session')
+  assert.match(result.clientB.heroPulseText, /完成 5 分钟专注/, 'second client hero should describe the completed focus session')
   assert.deepEqual(result.clientA.heroPulseStats, ['0 专注', '1/1 心跳', '2/36'], 'first client hero should show real focus, heartbeat, and capacity stats')
   assert.deepEqual(result.clientB.heroPulseStats, ['0 专注', '1/1 心跳', '2/36'], 'second client hero should show real focus, heartbeat, and capacity stats')
-  assert.equal(result.clientA.boardCode, 'PEER', 'first client room board should surface the remote peer heartbeat')
-  assert.equal(result.clientB.boardCode, 'PEER', 'second client room board should surface the remote peer heartbeat')
-  assert.match(result.clientA.boardText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'first client room board should describe the remote peer seat and status')
-  assert.match(result.clientB.boardText, /\d+号座.+专注|\d+号座.+暂停|\d+号座.+准备|\d+号座.+休息/, 'second client room board should describe the remote peer seat and status')
+  assert.equal(result.clientA.boardCode, 'OK', 'first client room board should surface the completed focus room event')
+  assert.equal(result.clientB.boardCode, 'OK', 'second client room board should surface the completed focus room event')
+  assert.match(result.clientA.boardText, /完成 5 分钟专注/, 'first client room board should describe the completed focus session')
+  assert.match(result.clientB.boardText, /完成 5 分钟专注/, 'second client room board should describe the completed focus session')
   assert.deepEqual(result.clientA.boardValues.slice(1, 3), ['1/1', '2/36'], 'first client room board should show real heartbeat and capacity values')
   assert.deepEqual(result.clientB.boardValues.slice(1, 3), ['1/1', '2/36'], 'second client room board should show real heartbeat and capacity values')
   assert.equal(result.clientA.boardRosterCount, 2, 'first client room board roster should include local and remote sessions')
@@ -88,6 +96,10 @@ try {
   assert.equal(result.clientB.activeRoomTabMeta.includes('2/36'), true, 'second client active room tab should show live occupancy')
   assert.match(result.clientA.activeRoomTabCycle, /专注|休息/, 'first client active room tab should show room cycle')
   assert.match(result.clientB.activeRoomTabCycle, /专注|休息/, 'second client active room tab should show room cycle')
+  assert.equal(result.clientA.sprintRoomTabMeta.includes('1/32'), true, 'first client room directory should show a real classmate in another room')
+  assert.equal(result.clientB.sprintRoomTabMeta.includes('1/32'), true, 'second client room directory should show a real classmate in another room')
+  assert.match(result.clientA.sprintRoomTabActivity, /跨房间同学|冲刺教室/, 'first client room directory should show another room activity')
+  assert.match(result.clientB.sprintRoomTabActivity, /跨房间同学|冲刺教室/, 'second client room directory should show another room activity')
   assert.notEqual(result.clientA.sessionId, result.clientB.sessionId, 'clients should use distinct session identities')
 
   console.log(`study presence live ok: ${result.spaceCode}`)
@@ -129,20 +141,45 @@ async function verifyTwoStudyClients(port, rootUrl, timeout) {
   inviteUrl.searchParams.set('studyRoom', 'silent')
   inviteUrl.searchParams.set('studyFreshSession', '1')
 
-  const targetA = await browser.send('Target.createTarget', { url: inviteUrl.href })
-  const targetB = await browser.send('Target.createTarget', { url: inviteUrl.href })
-  await delay(1_000)
-
-  const tabs = await fetch(`http://127.0.0.1:${port}/json`).then((response) => response.json())
-  const clientA = await connect(targetWebSocket(tabs, targetA.targetId))
-  const clientB = await connect(targetWebSocket(tabs, targetB.targetId))
-
-  await Promise.all([
-    clientA.send('Runtime.enable'),
-    clientB.send('Runtime.enable'),
-    clientA.send('Page.enable'),
-    clientB.send('Page.enable')
-  ])
+  const clientA = await openStudyClient(browser, port, inviteUrl.href, seededStudySnapshot({
+    nickname: '完成同学',
+    spaceCode,
+    roomId: 'silent',
+    timerState: 'running',
+    timerMode: 'focus',
+    focusMinutes: 5,
+    breakMinutes: 1,
+    remainingSeconds: 18,
+    contractText: '远端完成验证',
+    contractLocked: true
+  }))
+  const clientB = await openStudyClient(browser, port, inviteUrl.href, seededStudySnapshot({
+    nickname: '观察同学',
+    spaceCode,
+    roomId: 'silent',
+    timerState: 'idle',
+    timerMode: 'focus',
+    focusMinutes: 5,
+    breakMinutes: 1,
+    remainingSeconds: 5 * 60,
+    contractText: '',
+    contractLocked: false
+  }))
+  const sprintUrl = new URL(inviteUrl.href)
+  sprintUrl.searchParams.set('studyRoom', 'sprint')
+  const clientC = await openStudyClient(browser, port, sprintUrl.href, seededStudySnapshot({
+    nickname: '跨房间同学',
+    spaceCode,
+    roomId: 'sprint',
+    modeId: 'sync',
+    timerState: 'running',
+    timerMode: 'focus',
+    focusMinutes: 45,
+    breakMinutes: 10,
+    remainingSeconds: 45 * 60,
+    contractText: '冲刺教室验证',
+    contractLocked: true
+  }))
 
   let lastA = null
   let lastB = null
@@ -151,14 +188,106 @@ async function verifyTwoStudyClients(port, rootUrl, timeout) {
     await delay(pollMs)
     lastA = await readStudyPresence(clientA)
     lastB = await readStudyPresence(clientB)
-    if (lastA.hasStudy && lastB.hasStudy && lastA.counts[2] === '1' && lastB.counts[2] === '1') break
+    if (
+      lastA.hasStudy
+      && lastB.hasStudy
+      && lastA.counts[2] === '1'
+      && lastB.counts[2] === '1'
+      && lastA.counts[1] === '3'
+      && lastB.counts[1] === '3'
+      && /完成 5 分钟专注/.test(lastA.focusCompletionEventText)
+      && /完成 5 分钟专注/.test(lastB.focusCompletionEventText)
+      && lastA.pulseStats[0] === '0'
+      && lastB.pulseStats[0] === '0'
+      && lastA.liveDeskRosterCount === 2
+      && lastB.liveDeskRosterCount === 2
+      && /完成 5 分钟专注/.test(lastA.liveDeskEventText)
+      && /完成 5 分钟专注/.test(lastB.liveDeskEventText)
+      && lastA.sprintRoomTabMeta.includes('1/32')
+      && lastB.sprintRoomTabMeta.includes('1/32')
+    ) break
   }
 
-  clientA.close()
-  clientB.close()
+  await Promise.all([
+    clientA.close(),
+    clientB.close(),
+    clientC.close()
+  ])
   browser.close()
 
   return { spaceCode, clientA: lastA, clientB: lastB }
+}
+
+async function openStudyClient(browser, port, url, snapshot) {
+  const context = await browser.send('Target.createBrowserContext')
+  const target = await browser.send('Target.createTarget', {
+    url: 'about:blank',
+    browserContextId: context.browserContextId
+  })
+  const tabs = await fetch(`http://127.0.0.1:${port}/json`).then((response) => response.json())
+  const client = await connect(targetWebSocket(tabs, target.targetId))
+  await Promise.all([
+    client.send('Runtime.enable'),
+    client.send('Page.enable')
+  ])
+  await client.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `window.localStorage.setItem('teachos:study-space:v1', ${JSON.stringify(JSON.stringify(snapshot))});`
+  })
+  await client.send('Page.navigate', { url })
+  await waitForStudyMount(client)
+  return {
+    send: client.send,
+    async close() {
+      client.close()
+      await browser.send('Target.disposeBrowserContext', { browserContextId: context.browserContextId })
+    }
+  }
+}
+
+async function waitForStudyMount(client) {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < 8_000) {
+    const result = await client.send('Runtime.evaluate', {
+      returnByValue: true,
+      expression: `Boolean(document.querySelector('.study-space'))`
+    })
+    if (result.result.value === true) return
+    await delay(200)
+  }
+  throw new Error('Study space did not mount in Chrome tab')
+}
+
+function seededStudySnapshot(overrides) {
+  return {
+    clientId: 'studiumx-seeded-client',
+    nickname: '验证同学',
+    spaceCode: 'PUBLIC',
+    presenceRelayUrl: 'wss://broker.emqx.io:8084/mqtt',
+    signalId: 'reading',
+    modeId: 'free',
+    contractText: '',
+    contractLocked: false,
+    ambientEnabled: false,
+    ambientVolume: 0.45,
+    roomId: 'silent',
+    seatIndex: 0,
+    timerMode: 'focus',
+    timerState: 'idle',
+    focusMinutes: 5,
+    breakMinutes: 1,
+    remainingSeconds: 5 * 60,
+    todayFocusSeconds: 0,
+    todaySessions: 0,
+    totalFocusSeconds: 0,
+    totalSessions: 0,
+    streakDays: 0,
+    xp: 0,
+    lastStudyDate: new Date().toISOString().slice(0, 10),
+    tasks: [
+      { id: 'verify', title: '验证远端完成动态', done: false }
+    ],
+    ...overrides
+  }
 }
 
 function targetWebSocket(tabs, targetId) {
@@ -205,6 +334,21 @@ async function readStudyPresence(client) {
         roomTabCount: document.querySelectorAll('.study-room-tab').length,
         activeRoomTabMeta: q('.study-room-tab.is-active .study-room-tab-meta')?.textContent?.trim() ?? '',
         activeRoomTabCycle: q('.study-room-tab.is-active .study-room-tab-cycle')?.textContent?.trim() ?? '',
+        sprintRoomTabMeta: [...document.querySelectorAll('.study-room-tab')]
+          .find((node) => /冲刺教室/.test(node.textContent ?? ''))
+          ?.querySelector('.study-room-tab-meta')?.textContent?.trim() ?? '',
+        sprintRoomTabActivity: [...document.querySelectorAll('.study-room-tab')]
+          .find((node) => /冲刺教室/.test(node.textContent ?? ''))
+          ?.querySelector('.study-room-tab-activity')?.textContent?.trim() ?? '',
+        liveDeskHeading: q('.study-live-desk-head strong')?.textContent?.trim() ?? '',
+        liveDeskRosterCount: [...document.querySelectorAll('.study-live-roster .study-live-peer')]
+          .filter((node) => !node.classList.contains('is-empty')).length,
+        liveDeskEventText: [...document.querySelectorAll('.study-live-events .study-live-event p')]
+          .map((node) => node.textContent.trim())
+          .find((item) => /完成 5 分钟专注/.test(item)) ?? '',
+        focusCompletionEventText: [...document.querySelectorAll('.study-event-row.is-task_done p')]
+          .map((node) => node.textContent.trim())
+          .find((item) => /完成 5 分钟专注/.test(item)) ?? '',
         counts: [...document.querySelectorAll('.study-arrival-counts strong')].map((node) => node.textContent.trim()),
         remoteVerified: text.includes('已见远端') || text.includes('已收到 1 个远端同桌') || text.includes('1 位远端同学刚刚心跳') || text.includes('1/1 心跳'),
         sessionId: proofText.match(/会话身份([A-Z0-9]+)/)?.[1] ?? '',
