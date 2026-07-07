@@ -1,13 +1,10 @@
 import { Check, CheckCircle2, ChevronDown, Coffee, Copy, DoorOpen, ExternalLink, GitBranch, Info, KeyRound, LinkIcon, Lock, Maximize2, Monitor, Pause, Play, Plus, RefreshCw, RotateCcw, Settings, ShieldCheck, Sparkles, Star, Target, Timer, Trophy, Users, Volume2, VolumeX, X, Zap } from 'lucide-react'
 import type { CSSProperties, FormEvent } from 'react'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import studyRoomAmbience from '../assets/study-room-ambience.webp'
-import { STUDY_PRESENCE_BROKER_URL, studyModes, studyRooms, studySignals } from './constants'
-import { formatStudyDuration, formatStudyEventTime, formatStudyHours, formatStudyPresenceAge, formatStudySeatLabel, nextStudyStreak, normalizeStudyRelayUrl, normalizeStudySeatIndex, normalizeStudySpaceCode, persistStudySnapshot, randomStudySpaceCode, readStudySnapshot, studyMemberFreshnessLabel, studyMemberStatusLabel, studyPlantStage, studySignalLabel, studySignalShortLabel, studyVerificationUrl, syncStudyLocation, todayKey } from './domain'
-import { useStudyAmbient } from './useStudyAmbient'
-import { useStudyPresence } from './useStudyPresence'
-import type { StudyRoomEventKind, StudySnapshot, StudyTimerMode } from './types'
-import { createStudySpaceViewModel } from './viewModel'
+import { STUDY_PRESENCE_BROKER_URL, studyModes, studySignals } from './constants'
+import { formatStudyDuration, formatStudyEventTime, formatStudyHours, formatStudyPresenceAge, formatStudySeatLabel, normalizeStudySeatIndex, studyMemberFreshnessLabel, studyMemberStatusLabel, studyPlantStage, studySignalLabel, studySignalShortLabel, studyVerificationUrl } from './domain'
+import { useStudySession } from './session/useStudySession'
 import './styles.css'
 
 type StudySpaceProps = {
@@ -15,19 +12,48 @@ type StudySpaceProps = {
 }
 
 export function StudySpace({ showNotification }: StudySpaceProps) {
-  const [snapshot, setSnapshot] = useState<StudySnapshot>(() => readStudySnapshot())
-  const [roomCycleNow, setRoomCycleNow] = useState(() => Date.now())
   const [taskInput, setTaskInput] = useState('')
   const [editingName, setEditingName] = useState(false)
   const [nicknameDraft, setNicknameDraft] = useState('')
   const [spaceDraft, setSpaceDraft] = useState('')
-  const [relayDraft, setRelayDraft] = useState(snapshot.presenceRelayUrl)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [proofCopyState, setProofCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [verifyOpenState, setVerifyOpenState] = useState<'idle' | 'opened' | 'blocked'>('idle')
   const [focusTheaterOpen, setFocusTheaterOpen] = useState(false)
-  const presence = useStudyPresence(snapshot)
-  useStudyAmbient(snapshot.roomId, snapshot.ambientEnabled, snapshot.ambientVolume)
+  const session = useStudySession({
+    showNotification,
+    openFocusTheater: () => setFocusTheaterOpen(true)
+  })
+  const {
+    snapshot,
+    presence,
+    roomCycleNow,
+    viewModel,
+    emitRoomEvent,
+    updateTimerPreset,
+    selectRoom,
+    selectStudyMode,
+    toggleContract,
+    updateContractText,
+    saveNickname: saveSessionNickname,
+    joinSpace: joinSessionSpace,
+    createSpace: createSessionSpace,
+    saveRelayUrl: saveSessionRelayUrl,
+    resetRelayUrl: resetSessionRelayUrl,
+    toggleTimer,
+    followRoomCycle,
+    chooseSeat,
+    runHostAction,
+    resetTimer,
+    switchTimerMode,
+    addTask: addSessionTask,
+    toggleTask,
+    removeDoneTasks,
+    selectSignal,
+    toggleAmbientEnabled,
+    setAmbientVolume
+  } = session
+  const [relayDraft, setRelayDraft] = useState(snapshot.presenceRelayUrl)
   const {
     activeRoom,
     activeMode,
@@ -86,7 +112,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     hostChecklist,
     roomFeed,
     roomRules
-  } = createStudySpaceViewModel(snapshot, presence, roomCycleNow)
+  } = viewModel
   const hostActionIcon = hostActionKind === 'theater'
     ? <Maximize2 size={14} />
     : hostActionKind === 'lock'
@@ -94,81 +120,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
       : hostActionKind === 'sync'
         ? <RefreshCw size={14} />
         : <Play size={14} />
-  const roomEventSenderRef = useRef(presence.sendEvent)
-  const lastFocusCompletionEventRef = useRef('')
-  const timerTransitionRef = useRef({
-    timerMode: snapshot.timerMode,
-    timerState: snapshot.timerState,
-    todaySessions: snapshot.todaySessions,
-    totalSessions: snapshot.totalSessions
-  })
-
-  const emitRoomEvent = (kind: StudyRoomEventKind, text: string): void => {
-    presence.sendEvent(kind, text)
-  }
-
-  useEffect(() => {
-    roomEventSenderRef.current = presence.sendEvent
-  }, [presence.sendEvent])
-
-  useEffect(() => {
-    const previous = timerTransitionRef.current
-    timerTransitionRef.current = {
-      timerMode: snapshot.timerMode,
-      timerState: snapshot.timerState,
-      todaySessions: snapshot.todaySessions,
-      totalSessions: snapshot.totalSessions
-    }
-
-    const completedFocus = snapshot.timerMode === 'break'
-      && snapshot.timerState === 'idle'
-      && snapshot.totalSessions > previous.totalSessions
-    if (completedFocus) {
-      const completionKey = `${snapshot.clientId}:${snapshot.roomId}:${snapshot.totalSessions}:${snapshot.todaySessions}:${snapshot.focusMinutes}:${snapshot.breakMinutes}`
-      if (lastFocusCompletionEventRef.current !== completionKey) {
-        lastFocusCompletionEventRef.current = completionKey
-        roomEventSenderRef.current(
-          'task_done',
-          `${snapshot.nickname} 完成 ${snapshot.focusMinutes} 分钟专注，进入 ${snapshot.breakMinutes} 分钟休息。`,
-          { roomId: snapshot.roomId, spaceCode: snapshot.spaceCode }
-        )
-      }
-      void showNotification('学习空间', `完成 ${snapshot.focusMinutes} 分钟专注，进入休息。`)
-      return
-    }
-
-    const completedBreak = previous.timerMode === 'break'
-      && previous.timerState === 'running'
-      && snapshot.timerMode === 'focus'
-      && snapshot.timerState === 'idle'
-    if (completedBreak) {
-      void showNotification('学习空间', '休息结束，可以开始下一轮专注。')
-    }
-  }, [
-    showNotification,
-    snapshot.breakMinutes,
-    snapshot.clientId,
-    snapshot.focusMinutes,
-    snapshot.nickname,
-    snapshot.roomId,
-    snapshot.timerMode,
-    snapshot.timerState,
-    snapshot.todaySessions,
-    snapshot.totalSessions
-  ])
-
-  useEffect(() => {
-    persistStudySnapshot(snapshot)
-  }, [snapshot])
-
-  useEffect(() => {
-    syncStudyLocation(snapshot.spaceCode, snapshot.roomId)
-  }, [snapshot.roomId, snapshot.spaceCode])
-
-  useEffect(() => {
-    const id = window.setInterval(() => setRoomCycleNow(Date.now()), 1000)
-    return () => window.clearInterval(id)
-  }, [])
 
   useEffect(() => {
     if (!focusTheaterOpen) return undefined
@@ -179,148 +130,34 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [focusTheaterOpen])
 
-  useEffect(() => {
-    if (snapshot.timerState !== 'running') return undefined
-    const id = window.setInterval(() => {
-      setSnapshot((current) => {
-        const today = todayKey()
-        const studyingFocus = current.timerMode === 'focus'
-        const streakDays = studyingFocus ? nextStudyStreak(current.lastStudyDate, current.streakDays) : current.streakDays
-        const lastStudyDate = studyingFocus ? today : current.lastStudyDate
-        const todayFocusSeconds = studyingFocus ? current.todayFocusSeconds + 1 : current.todayFocusSeconds
-        const totalFocusSeconds = studyingFocus ? current.totalFocusSeconds + 1 : current.totalFocusSeconds
-
-        if (current.remainingSeconds > 1) {
-          return {
-            ...current,
-            remainingSeconds: current.remainingSeconds - 1,
-            todayFocusSeconds,
-            totalFocusSeconds,
-            streakDays,
-            lastStudyDate
-          }
-        }
-
-        if (current.timerMode === 'focus') {
-          return {
-            ...current,
-            timerMode: 'break',
-            timerState: 'idle',
-            remainingSeconds: current.breakMinutes * 60,
-            contractLocked: false,
-            todayFocusSeconds,
-            todaySessions: current.todaySessions + 1,
-            totalFocusSeconds,
-            totalSessions: current.totalSessions + 1,
-            streakDays,
-            xp: current.xp + Math.max(10, current.focusMinutes * 2),
-            lastStudyDate
-          }
-        }
-
-        return {
-          ...current,
-          timerMode: 'focus',
-          timerState: 'idle',
-          remainingSeconds: current.focusMinutes * 60
-        }
-      })
-    }, 1000)
-    return () => window.clearInterval(id)
-  }, [snapshot.timerState])
-
-  const updateTimerPreset = (focusMinutes: number, breakMinutes: number): void => {
-    setSnapshot((current) => ({
-      ...current,
-      focusMinutes,
-      breakMinutes,
-      timerMode: 'focus',
-      timerState: current.timerState === 'running' ? current.timerState : 'idle',
-      remainingSeconds: current.timerState === 'running' ? current.remainingSeconds : focusMinutes * 60
-    }))
-  }
-
-  const selectRoom = (room: typeof studyRooms[number]): void => {
-    if (room.id !== snapshot.roomId) {
-      presence.sendEvent('checkin', `${snapshot.nickname} 进入 ${room.name}。`, { roomId: room.id })
-    }
-    setSnapshot((current) => ({
-      ...current,
-      roomId: room.id,
-      seatIndex: normalizeStudySeatIndex(current.seatIndex, room.id, current.clientId),
-      focusMinutes: current.timerState === 'running' ? current.focusMinutes : room.sessionMinutes,
-      breakMinutes: current.timerState === 'running' ? current.breakMinutes : room.breakMinutes,
-      remainingSeconds: current.timerState === 'running' ? current.remainingSeconds : room.sessionMinutes * 60,
-      timerMode: current.timerState === 'running' ? current.timerMode : 'focus'
-    }))
-  }
-
-  const selectStudyMode = (mode: typeof studyModes[number]): void => {
-    const targetRoom = snapshot.timerState === 'running' ? snapshot.roomId : mode.roomId
-    if (targetRoom !== snapshot.roomId) {
-      const roomName = studyRooms.find((room) => room.id === targetRoom)?.name ?? activeRoom.name
-      presence.sendEvent('checkin', `${snapshot.nickname} 切换到 ${roomName}。`, { roomId: targetRoom })
-    }
-    setSnapshot((current) => ({
-      ...current,
-      modeId: mode.id,
-      roomId: current.timerState === 'running' ? current.roomId : mode.roomId,
-      seatIndex: current.timerState === 'running' ? current.seatIndex : normalizeStudySeatIndex(current.seatIndex, mode.roomId, current.clientId),
-      focusMinutes: current.timerState === 'running' ? current.focusMinutes : mode.focusMinutes,
-      breakMinutes: current.timerState === 'running' ? current.breakMinutes : mode.breakMinutes,
-      remainingSeconds: current.timerState === 'running' ? current.remainingSeconds : mode.focusMinutes * 60,
-      timerMode: current.timerState === 'running' ? current.timerMode : 'focus',
-      ambientEnabled: mode.id === 'exam' ? false : current.ambientEnabled
-    }))
-  }
-
-  const defaultContractText = (): string => {
-    const firstOpenTask = snapshot.tasks.find((task) => !task.done)?.title
-    return firstOpenTask || activeMode.name
-  }
-
-  const toggleContract = (): void => {
-    setSnapshot((current) => ({
-      ...current,
-      contractText: (current.contractText.trim() || defaultContractText()).slice(0, 120),
-      contractLocked: !current.contractLocked
-    }))
-  }
-
   const saveNickname = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    const nickname = nicknameDraft.trim().slice(0, 18)
-    if (nickname) {
-      setSnapshot((current) => ({ ...current, nickname }))
-    }
+    saveSessionNickname(nicknameDraft)
     setEditingName(false)
   }
 
   const joinSpace = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    const spaceCode = normalizeStudySpaceCode(spaceDraft)
-    setSnapshot((current) => ({ ...current, spaceCode }))
+    joinSessionSpace(spaceDraft)
     setSpaceDraft('')
     setCopyState('idle')
   }
 
   const createSpace = (): void => {
-    const spaceCode = randomStudySpaceCode()
-    setSnapshot((current) => ({ ...current, spaceCode }))
+    createSessionSpace()
     setSpaceDraft('')
     setCopyState('idle')
   }
 
   const saveRelayUrl = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    const relayUrl = normalizeStudyRelayUrl(relayDraft)
+    const relayUrl = saveSessionRelayUrl(relayDraft)
     setRelayDraft(relayUrl)
-    setSnapshot((current) => ({ ...current, presenceRelayUrl: relayUrl }))
   }
 
   const resetRelayUrl = (): void => {
     setRelayDraft(STUDY_PRESENCE_BROKER_URL)
-    setSnapshot((current) => ({ ...current, presenceRelayUrl: STUDY_PRESENCE_BROKER_URL }))
+    resetSessionRelayUrl()
   }
 
   const copyInvite = async (): Promise<void> => {
@@ -355,107 +192,9 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     }
   }
 
-  const toggleTimer = (): void => {
-    if (snapshot.timerState !== 'running' && snapshot.timerMode === 'focus') {
-      emitRoomEvent('focus_start', `${snapshot.nickname} 开始专注：${contractDisplay}`)
-    }
-    setSnapshot((current) => ({
-      ...current,
-      timerState: current.timerState === 'running' ? 'paused' : 'running',
-      ...(current.timerState === 'running'
-        ? {}
-        : {
-            contractText: (current.contractText.trim() || current.tasks.find((task) => !task.done)?.title || activeMode.name).slice(0, 120),
-            contractLocked: current.timerMode === 'focus' ? true : current.contractLocked
-          })
-    }))
-  }
-
-  const followRoomCycle = (): void => {
-    const nextContract = (snapshot.contractText.trim() || defaultContractText()).slice(0, 120)
-    if (roomCycle.phase === 'focus') {
-      emitRoomEvent('focus_start', `${snapshot.nickname} 跟随房间第 ${roomCycle.round} 轮开始专注：${nextContract}`)
-    }
-    setSnapshot((current) => ({
-      ...current,
-      focusMinutes: activeRoom.sessionMinutes,
-      breakMinutes: activeRoom.breakMinutes,
-      timerMode: roomCycle.phase,
-      timerState: 'running',
-      remainingSeconds: roomCycle.remainingSeconds,
-      contractText: nextContract,
-      contractLocked: roomCycle.phase === 'focus'
-    }))
-  }
-
-  const chooseSeat = (seatIndex: number): void => {
-    if (seatIndex === userSeat || peersBySeat.has(seatIndex)) return
-    const seatLabel = formatStudySeatLabel(seatIndex)
-    setSnapshot((current) => ({ ...current, seatIndex }))
-    emitRoomEvent('checkin', `${snapshot.nickname} 换到 ${seatLabel}。`)
-  }
-
-  const runHostAction = (): void => {
-    if (snapshot.timerState === 'running') {
-      setFocusTheaterOpen(true)
-      return
-    }
-    if (!snapshot.contractLocked && snapshot.timerMode === 'focus') {
-      toggleContract()
-      return
-    }
-    if (!followingRoomCycle) {
-      followRoomCycle()
-      return
-    }
-    toggleTimer()
-  }
-
-  const resetTimer = (): void => {
-    setSnapshot((current) => ({
-      ...current,
-      timerState: 'idle',
-      contractLocked: false,
-      remainingSeconds: (current.timerMode === 'focus' ? current.focusMinutes : current.breakMinutes) * 60
-    }))
-  }
-
-  const switchTimerMode = (timerMode: StudyTimerMode): void => {
-    setSnapshot((current) => ({
-      ...current,
-      timerMode,
-      timerState: current.timerState === 'running' ? 'paused' : current.timerState,
-      remainingSeconds: (timerMode === 'focus' ? current.focusMinutes : current.breakMinutes) * 60
-    }))
-  }
-
   const addTask = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    const title = taskInput.trim()
-    if (!title) return
-    setSnapshot((current) => ({
-      ...current,
-      tasks: [{ id: `${Date.now()}`, title: title.slice(0, 80), done: false }, ...current.tasks].slice(0, 8)
-    }))
-    setTaskInput('')
-  }
-
-  const toggleTask = (taskId: string): void => {
-    const task = snapshot.tasks.find((item) => item.id === taskId)
-    if (task && !task.done) {
-      emitRoomEvent('task_done', `${snapshot.nickname} 完成任务：${task.title}`)
-    }
-    setSnapshot((current) => ({
-      ...current,
-      tasks: current.tasks.map((task) => task.id === taskId ? { ...task, done: !task.done } : task)
-    }))
-  }
-
-  const removeDoneTasks = (): void => {
-    setSnapshot((current) => ({
-      ...current,
-      tasks: current.tasks.filter((task) => !task.done)
-    }))
+    if (addSessionTask(taskInput)) setTaskInput('')
   }
   const roomBackdropStyle = {
     '--study-room-image': `url(${studyRoomAmbience})`
@@ -1015,7 +754,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
               value={snapshot.contractText}
               disabled={snapshot.contractLocked}
               maxLength={120}
-              onChange={(event) => setSnapshot((current) => ({ ...current, contractText: event.target.value.slice(0, 120) }))}
+              onChange={(event) => updateContractText(event.target.value)}
               placeholder="例如：完成第 3 章笔记，做完 20 道题，或读完论文方法部分"
             />
             <div>
@@ -1036,7 +775,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
                   key={signal.id}
                   type="button"
                   className={snapshot.signalId === signal.id ? 'is-active' : ''}
-                  onClick={() => setSnapshot((current) => ({ ...current, signalId: signal.id }))}
+                  onClick={() => selectSignal(signal.id)}
                   title={signal.detail}
                 >
                   {signal.shortLabel}
@@ -1097,7 +836,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
             <button
               type="button"
               className={snapshot.ambientEnabled ? 'is-active' : ''}
-              onClick={() => setSnapshot((current) => ({ ...current, ambientEnabled: !current.ambientEnabled }))}
+              onClick={toggleAmbientEnabled}
               disabled={snapshot.roomId === 'exam'}
             >
               {snapshot.ambientEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
@@ -1110,7 +849,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
               step="0.05"
               value={snapshot.ambientVolume}
               disabled={!snapshot.ambientEnabled || snapshot.roomId === 'exam'}
-              onChange={(event) => setSnapshot((current) => ({ ...current, ambientVolume: Number(event.target.value) }))}
+              onChange={(event) => setAmbientVolume(Number(event.target.value))}
               aria-label="环境音音量"
             />
           </div>

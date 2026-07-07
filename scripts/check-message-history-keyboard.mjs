@@ -2,57 +2,58 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const app = await readFile('src/renderer/src/App.tsx', 'utf8')
+const appStore = await readFile('src/renderer/src/app-shell/appStore.ts', 'utf8')
 
 assert.match(
-  app,
+  appStore,
   /agentInputHistory:\s*string\[\]/,
   'renderer store should keep sent input text history'
 )
 
 assert.match(
-  app,
+  appStore,
   /const MAX_AGENT_INPUT_HISTORY = 20/,
   'sent input history should keep the latest 20 entries'
 )
 
 assert.match(
-  app,
+  appStore,
   /const AGENT_INPUT_HISTORY_STORAGE_KEY = 'teachos:agent-input-history'/,
   'sent input history should use a stable local storage key'
 )
 
 assert.match(
-  app,
+  appStore,
   /agentInputHistory:\s*readPersistedAgentInputHistory\(\)/,
   'renderer store should restore persisted sent input history on startup'
 )
 
 assert.match(
-  app,
+  appStore,
   /rememberAgentInput:\s*\(input:\s*string\)\s*=>\s*void/,
   'renderer store should expose a way to remember sent input text'
 )
 
 assert.match(
-  app,
+  appStore,
   /function appendAgentInputHistory\(history:\s*string\[\],\s*input:\s*string\):\s*string\[\]/,
   'sent input history should be normalized through a helper'
 )
 
 assert.match(
-  app,
+  appStore,
   /window\.localStorage\.getItem\(AGENT_INPUT_HISTORY_STORAGE_KEY\)/,
   'sent input history should be read from local storage'
 )
 
 assert.match(
-  app,
+  appStore,
   /window\.localStorage\.setItem\(\s*AGENT_INPUT_HISTORY_STORAGE_KEY,/,
   'sent input history should be saved to local storage'
 )
 
 assert.match(
-  app,
+  appStore,
   /persistAgentInputHistory\(nextHistory\)/,
   'remembering sent input should persist the updated history'
 )

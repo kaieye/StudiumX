@@ -13,7 +13,6 @@ import {
 import { runLessonGenerationPipeline, type LessonGenerationCallbacks } from './teaching-lesson-generation'
 import {
   cleanText,
-  collectTeachingFiles,
   directoryExists,
   fileExists,
   normalizeWorkspaceRelativePath,
@@ -82,6 +81,7 @@ import {
   type SessionEvent,
   type WorkspaceIndex
 } from './teaching-workspace/lifecycle'
+import { TeachingWorkspaceReviewModule } from './teaching-workspace/review'
 import type {
   ApplyLessonStylePayload,
   CreateWorkspacePayload,
@@ -94,12 +94,9 @@ import type {
   LessonStreamStatus,
   LessonSummary,
   ListReviewCardsResult,
-  ProgressSummary,
-  QuizResultEntry,
   ReadLessonPayload,
   ReadLessonResult,
   RecordProgressPayload,
-  ReviewCard,
   AgentConversationRecord,
   AgentConversationSummary,
   AgentChatMessage,
@@ -153,6 +150,7 @@ export class TeachingWorkspaceService {
   private readonly defaultRoot: string
   private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
   private readonly memoryStore: TeachingMemoryStore
+  private readonly reviewModule = new TeachingWorkspaceReviewModule()
 
   constructor(options: {
     registryPath: string
@@ -767,84 +765,24 @@ export class TeachingWorkspaceService {
   }
 
   /**
-   * Aggregate flashcards from every lesson's review file (and from lesson
-   * metadata) for the review deck.
+   * Aggregate durable flashcard review files for the review deck.
    */
   async listReviewCards(workspaceId: string): Promise<ListReviewCardsResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, workspaceId)
-    const files = await collectTeachingFiles(workspace.rootPath, (file) => file.toLowerCase().endsWith('-flashcards.json'))
-    const cards: ReviewCard[] = []
-    for (const filePath of files) {
-      const content = await readFile(filePath, 'utf8').catch(() => '')
-      const parsed = safeJsonParse(content)
-      if (!parsed || typeof parsed !== 'object') continue
-      const lessonId = String((parsed as { lessonId?: unknown }).lessonId ?? '')
-      const lessonTitle = String((parsed as { lessonTitle?: unknown }).lessonTitle ?? '')
-      const cardList = (parsed as { cards?: unknown }).cards
-      if (!Array.isArray(cardList)) continue
-      for (const item of cardList) {
-        const front = String((item as { front?: unknown }).front ?? '')
-        const back = String((item as { back?: unknown }).back ?? '')
-        if (front && back) cards.push({ lessonId, lessonTitle, front, back })
-      }
-    }
-    return { cards }
+    return this.reviewModule.listReviewCards(workspace)
   }
 
   async recordProgress(payload: RecordProgressPayload): Promise<GetProgressResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    const progressPath = join(workspace.rootPath, '.teachos', 'progress.json')
-    const existing = await this.readProgressFile(progressPath)
-    const byLesson = { ...existing.byLesson }
-    const lessonKey = payload.lessonId
-    const prev = byLesson[lessonKey] ?? { answered: 0, correct: 0 }
-    const merged = {
-      answered: prev.answered + payload.results.length,
-      correct: prev.correct + payload.results.filter((r) => r.correct).length
-    }
-    byLesson[lessonKey] = merged
-    const summary: ProgressSummary = {
-      totalAnswered: Object.values(byLesson).reduce((sum, entry) => sum + entry.answered, 0),
-      correct: Object.values(byLesson).reduce((sum, entry) => sum + entry.correct, 0),
-      byLesson
-    }
-    await atomicWriteFile(progressPath, `${JSON.stringify(summary, null, 2)}\n`)
-    return { workspaceId: workspace.id, progress: summary }
+    return this.reviewModule.recordProgress(workspace, payload)
   }
 
   async getProgress(workspaceId: string): Promise<GetProgressResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, workspaceId)
-    const progressPath = join(workspace.rootPath, '.teachos', 'progress.json')
-    const progress = await this.readProgressFile(progressPath)
-    return { workspaceId: workspace.id, progress }
-  }
-
-  private async readProgressFile(progressPath: string): Promise<ProgressSummary> {
-    const content = await readFile(progressPath, 'utf8').catch(() => '')
-    const parsed = safeJsonParse(content)
-    if (!parsed || typeof parsed !== 'object') {
-      return { totalAnswered: 0, correct: 0, byLesson: {} }
-    }
-    const byLessonRaw = (parsed as { byLesson?: unknown }).byLesson
-    const byLesson: ProgressSummary['byLesson'] = {}
-    if (byLessonRaw && typeof byLessonRaw === 'object') {
-      for (const [key, value] of Object.entries(byLessonRaw as Record<string, unknown>)) {
-        if (value && typeof value === 'object') {
-          byLesson[key] = {
-            answered: Number((value as { answered?: unknown }).answered ?? 0) || 0,
-            correct: Number((value as { correct?: unknown }).correct ?? 0) || 0
-          }
-        }
-      }
-    }
-    return {
-      totalAnswered: Number((parsed as { totalAnswered?: unknown }).totalAnswered ?? 0) || 0,
-      correct: Number((parsed as { correct?: unknown }).correct ?? 0) || 0,
-      byLesson
-    }
+    return this.reviewModule.getProgress(workspace)
   }
 
   async readLesson(payload: ReadLessonPayload): Promise<ReadLessonResult> {

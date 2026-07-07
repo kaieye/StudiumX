@@ -1,0 +1,326 @@
+.study-lobby {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr 0.95fr 1.25fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.study-lobby-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(39, 51, 63, 0.1);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 16px 44px rgba(26, 32, 44, 0.08);
+}
+
+.study-lobby-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.study-lobby-head strong {
+  flex: 0 0 auto;
+  max-width: 54%;
+  overflow: hidden;
+  color: #17201d;
+  font-size: 18px;
+  font-weight: 860;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-lobby-card p {
+  min-height: 42px;
+  margin: 0 0 12px;
+  color: rgba(23, 32, 29, 0.62);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.study-lobby-actions,
+.study-lobby-join,
+.study-relay-form {
+  display: flex;
+  gap: 8px;
+}
+
+.study-lobby-link {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  margin-top: 10px;
+  padding: 7px 9px;
+  color: rgba(23, 32, 29, 0.58);
+  border: 1px dashed rgba(63, 95, 89, 0.22);
+  border-radius: 13px;
+  background: rgba(249, 250, 246, 0.66);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.study-lobby-link svg {
+  color: #3f5f59;
+}
+
+.study-lobby-link span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-lobby-actions button,
+.study-lobby-join button,
+.study-lobby-join input,
+.study-relay-form button,
+.study-relay-form input {
+  min-height: 34px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 999px;
+  background: rgba(249, 250, 246, 0.9);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.study-lobby-actions button,
+.study-lobby-join button,
+.study-relay-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  color: #3f5f59;
+  cursor: pointer;
+}
+
+.study-lobby-join input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  color: #17201d;
+  text-transform: uppercase;
+}
+
+.study-relay-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  color: #17201d;
+}
+
+.study-lobby-meter {
+  height: 8px;
+  margin: 0 0 12px;
+  border-radius: 999px;
+  background: rgba(38, 47, 65, 0.09);
+  overflow: hidden;
+}
+
+.study-lobby-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #24a16c, #e5b955);
+}
+
+.study-lobby-start {
+  background:
+    linear-gradient(135deg, rgba(255, 249, 233, 0.92), rgba(238, 244, 238, 0.84)),
+    rgba(255, 255, 255, 0.78);
+}
+
+.study-room-directory {
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 1px solid rgba(39, 51, 63, 0.1);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 16px 44px rgba(26, 32, 44, 0.08);
+}
+
+.study-directory-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.study-directory-head h2 {
+  margin: 4px 0 0;
+  color: #17201d;
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 840;
+}
+
+.study-directory-head > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 11px;
+  color: rgba(23, 32, 29, 0.62);
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 999px;
+  background: rgba(249, 250, 246, 0.82);
+  font-size: 12px;
+  font-weight: 820;
+  white-space: nowrap;
+}
+
+.study-directory-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.study-directory-card {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(38, 47, 65, 0.1);
+  border-radius: 18px;
+  background: rgba(249, 250, 246, 0.84);
+}
+
+.study-directory-card.is-active {
+  border-color: rgba(63, 95, 89, 0.34);
+  background:
+    linear-gradient(135deg, rgba(255, 249, 233, 0.86), rgba(238, 244, 238, 0.82)),
+    rgba(255, 255, 255, 0.8);
+  box-shadow: 0 12px 28px rgba(35, 53, 61, 0.1);
+}
+
+.study-directory-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.study-directory-card-head strong,
+.study-directory-card-head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-directory-card-head strong {
+  color: #17201d;
+  font-size: 14px;
+  font-weight: 840;
+}
+
+.study-directory-card-head span {
+  flex: 0 0 auto;
+  color: #3f5f59;
+  font-size: 12px;
+  font-weight: 860;
+}
+
+.study-directory-card p {
+  min-height: 38px;
+  margin: 8px 0 10px;
+  color: rgba(23, 32, 29, 0.58);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.study-directory-meter {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(38, 47, 65, 0.09);
+  overflow: hidden;
+}
+
+.study-directory-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #24a16c, #e5b955);
+}
+
+.study-directory-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.study-directory-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  color: rgba(23, 32, 29, 0.6);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.64);
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.study-directory-card button {
+  width: 100%;
+  min-height: 32px;
+  color: #3f5f59;
+  border: 1px solid rgba(63, 95, 89, 0.22);
+  border-radius: 999px;
+  background: #eef4ee;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 840;
+  cursor: pointer;
+}
+
+.study-directory-card.is-active button {
+  color: #1f1a0b;
+  border-color: rgba(229, 185, 85, 0.3);
+  background: #ffe2a0;
+}
+
+.study-space-overview {
+  order: 4;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.study-space-overview div {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(39, 51, 63, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 12px 34px rgba(26, 32, 44, 0.07);
+}
+
+.study-space-overview span,
+.study-space-overview strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-space-overview span {
+  color: rgba(23, 32, 29, 0.54);
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.study-space-overview strong {
+  margin-top: 5px;
+  color: #17201d;
+  font-size: 14px;
+  font-weight: 820;
+}
+

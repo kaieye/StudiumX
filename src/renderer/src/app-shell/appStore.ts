@@ -1,0 +1,1625 @@
+import { create } from 'zustand'
+import i18n from '../i18n'
+import { initialWorkspaceViewFromUrl } from '../study-space'
+import {
+  applySettingsSideEffects,
+  emptySettings,
+  normalizeRendererSettings,
+  runtimeProviderLabel
+} from '../workflows/settings'
+import {
+  courseRelativePathForAgentConversation,
+  isCourseAgentConversationPath
+} from '../../../shared/agent-conversation-catalog'
+import {
+  activeTeachingConversationSummary,
+  agentTurnsToMessages,
+  applyAgentChatChunkToPending,
+  applyAgentChatStatusToPending,
+  applyAgentChatToolEventToPending,
+  cancelPendingAgentConversation,
+  createAgentConversationTurnDraft,
+  failPendingAgentConversation,
+  finishPendingAgentConversationSave,
+  reconcileAgentTurnsWithLocalProcess,
+  syncPendingAgentConversation,
+  type PendingAgentConversation
+} from '../agent-conversation-state'
+import { type LessonStyleId } from '../../../shared/lesson-styles'
+import { classifyProviderError } from '../../../shared/provider-error'
+import { deriveWorkspaceRemovalUiPatch } from '../../../shared/workspace-removal-state'
+import {
+  type AgentChatMessage,
+  type AgentChatStreamChunk,
+  type AgentChatStreamStatus,
+  type AgentChatStreamToolEvent,
+  type AgentChatMode,
+  type AgentChatTurn,
+  type CreateTeachingMemoryPayload,
+  type LessonStreamChunk,
+  type LessonStreamStatus,
+  type LessonSummary,
+  type ListUpstreamModelsResult,
+  type ProgressSummary,
+  type ProbeProviderPayload,
+  type ProbeProviderResult,
+  type RemoveTeachingGitWorktreePayload,
+  type ReviewCard,
+  type SettingsSection,
+  type TeachingGitBranchesResult,
+  type TeachingGitWorktreesResult,
+  type TeachingMemoryDiagnostics,
+  type TeachingMemoryRecord,
+  type TeachingAppState,
+  type TeachingRuntimeState,
+  type TeachingSettingsPatch,
+  type TeachingSettingsV1,
+  type TeachingWorkspaceSummary,
+  type UpdateTeachingMemoryPayload,
+  type WorkspaceItemKind,
+  type WorkspaceItemRemoveMode,
+  type WorkspaceView
+} from '../../../shared/teaching-types'
+
+type ErrorSeverity = 'error' | 'warning' | 'info'
+
+export type UserError = {
+  message: string
+  severity: ErrorSeverity
+  detail?: string
+}
+
+export type DialogMode = 'chat' | 'teaching'
+
+export type CoursePreviewFile = {
+  title: string
+  relativePath: string
+  absolutePath: string
+}
+
+export type ResourcePreviewFile = {
+  id: string
+  title: string
+  html: string
+}
+
+type LessonGenerationOptions = {
+  prompt?: string
+  messages?: AgentChatMessage[]
+}
+
+export type StoreState = {
+  view: WorkspaceView
+  settingsSection: SettingsSection
+  sidebarCollapsed: boolean
+  loading: boolean
+  generating: boolean
+  error: UserError | null
+  searchQuery: string
+  taskPrompt: string
+  overviewDialogMode: DialogMode
+  lessonReaderOpen: boolean
+  selectedCoursePreviewFile: CoursePreviewFile | null
+  selectedResourcePreviewFile: ResourcePreviewFile | null
+  selectedCourseRelativePath: string | null
+  selectedCourseWorkspaceId: string | null
+  appState: TeachingAppState
+  settings: TeachingSettingsV1
+  setView: (view: WorkspaceView) => void
+  setOverviewDialogMode: (mode: DialogMode) => void
+  openLessonLibrary: () => void
+  openTeachingConversationView: () => void
+  openWorkspaceTeachingMode: () => void
+  selectCourseFolder: (relativePath: string | null, workspaceId?: string | null) => void
+  setSettingsSection: (section: SettingsSection) => void
+  setSidebarCollapsed: (collapsed: boolean) => void
+  openSettings: (section?: SettingsSection) => void
+  setSearchQuery: (query: string) => void
+  setTaskPrompt: (prompt: string) => void
+  clearError: () => void
+  initialize: () => Promise<void>
+  updateSettings: (patch: TeachingSettingsPatch) => Promise<void>
+  pickDefaultRoot: () => Promise<void>
+  selectWorkspace: (workspaceId: string) => Promise<void>
+  createWorkspace: () => Promise<void>
+  importWorkspace: () => Promise<boolean>
+  importWorkspacePath: (rootPath: string) => Promise<boolean>
+  updateMission: () => Promise<void>
+  applyLessonStyle: (styleId: LessonStyleId) => Promise<void>
+  generateLesson: (options?: LessonGenerationOptions) => Promise<void>
+  generateLessonStream: (options?: LessonGenerationOptions) => Promise<void>
+  loadLesson: (lesson: LessonSummary) => Promise<void>
+  loadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
+  openResourceHtmlPreview: (file: ResourcePreviewFile) => void
+  closeResourceHtmlPreview: () => void
+  openPath: (path: string) => Promise<void>
+  openImportLocation: (path?: string) => Promise<void>
+  openExternal: (url: string) => Promise<void>
+  showNotification: (title: string, body: string) => Promise<void>
+  probeProvider: (payload: ProbeProviderPayload) => Promise<ProbeProviderResult>
+  listUpstreamModels: (payload: ProbeProviderPayload) => Promise<ListUpstreamModelsResult>
+  listGitWorktrees: (workspaceRoot: string) => Promise<TeachingGitWorktreesResult>
+  removeGitWorktree: (payload: RemoveTeachingGitWorktreePayload) => Promise<void>
+  listMemory: (workspaceRoot?: string) => Promise<void>
+  createMemory: (payload: CreateTeachingMemoryPayload) => Promise<boolean>
+  updateMemory: (memoryId: string, patch: UpdateTeachingMemoryPayload) => Promise<boolean>
+  deleteMemory: (memoryId: string, workspaceRoot?: string) => Promise<void>
+  loadMemoryDiagnostics: () => Promise<void>
+  loadReviewCards: () => Promise<void>
+  recordProgress: (lessonId: string, results: Array<{ lessonId: string; question: string; correct: boolean }>) => Promise<void>
+  reviewCards: ReviewCard[]
+  progress: ProgressSummary | null
+  memoryRecords: TeachingMemoryRecord[]
+  memoryDiagnostics: TeachingMemoryDiagnostics | null
+  agentTurns: AgentChatTurn[]
+  activeConversationId: string | null
+  agentChatBusy: boolean
+  agentStatus: string
+  agentInput: string
+  agentInputHistory: string[]
+  agentToolsSupported: boolean | null
+  pendingAgentConversation: PendingAgentConversation | null
+  gitBranchesRoot: string
+  gitBranchesResult: TeachingGitBranchesResult | null
+  gitBranchesLoading: boolean
+  setAgentInput: (input: string) => void
+  rememberAgentInput: (input: string) => void
+  clearAgentChat: () => void
+  cancelAgentChat: () => Promise<void>
+  restorePendingAgentConversation: () => void
+  loadGitBranches: (workspaceRoot: string, options?: { force?: boolean }) => Promise<void>
+  setGitBranchesResult: (workspaceRoot: string, result: TeachingGitBranchesResult) => void
+  loadAgentConversation: (conversationId: string, workspaceId?: string | null) => Promise<void>
+  agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode }) => Promise<void>
+  setWorkspaceItemMeta: (payload: { workspaceId?: string | null; relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
+  removeWorkspaceItem: (payload: { workspaceId?: string | null; relativePath: string; kind: WorkspaceItemKind; mode?: WorkspaceItemRemoveMode }) => Promise<void>
+  removeWorkspace: (payload: { workspaceId: string; mode?: WorkspaceItemRemoveMode }) => Promise<void>
+}
+
+
+// ================================================================
+// Defaults
+// ================================================================
+
+const defaultRuntime: TeachingRuntimeState = {
+  status: 'idle',
+  currentStep: 'ready',
+  queuedTasks: 0,
+  providerLabel: 'Local structured generator'
+}
+
+const emptyAppState: TeachingAppState = {
+  workspaces: [],
+  activeWorkspace: null,
+  temporaryConversations: [],
+  previewHtml: '',
+  previewUrl: '',
+  selectedLessonPath: null,
+  runtime: defaultRuntime
+}
+
+const defaultPrompt = ''
+
+const nextPrompt = '基于当前 mission，生成下一节短小、可复习、带检索练习的 HTML lesson。'
+
+// ================================================================
+// Error Mapping — converts raw errors to user-friendly messages
+// ================================================================
+
+export function toUserError(error: unknown): UserError {
+  const raw = error instanceof Error ? error.message : String(error)
+
+  // IPC validation errors
+  if (raw.includes('No handler registered for')) {
+    return {
+      message: i18n.t('errors.ipcHandlerMissing.message'),
+      severity: 'warning',
+      detail: i18n.t('errors.ipcHandlerMissing.detail')
+    }
+  }
+
+  if (raw.includes('未配置 API Key') || raw.includes('No API key') || raw.includes('API Key is required')) {
+    return {
+      message: i18n.t('errors.noApiKey.message'),
+      severity: 'warning',
+      detail: i18n.t('errors.noApiKey.detail')
+    }
+  }
+
+  const providerError = classifyProviderError(raw)
+  if (providerError) {
+    const suffix = providerError.providerMessage ? ` ${providerError.providerMessage}` : ''
+    if (providerError.kind === 'insufficient_balance') {
+      return {
+        message: i18n.t('errors.providerInsufficientBalance.message'),
+        severity: 'warning',
+        detail: `${i18n.t('errors.providerInsufficientBalance.detail')}${suffix}`
+      }
+    }
+    if (providerError.kind === 'authentication') {
+      return {
+        message: i18n.t('errors.providerAuth.message'),
+        severity: 'warning',
+        detail: `${i18n.t('errors.providerAuth.detail')}${suffix}`
+      }
+    }
+    if (providerError.kind === 'rate_limit') {
+      return {
+        message: i18n.t('errors.providerRateLimit.message'),
+        severity: 'warning',
+        detail: `${i18n.t('errors.providerRateLimit.detail')}${suffix}`
+      }
+    }
+    return {
+      message: i18n.t('errors.providerHttp.message'),
+      severity: 'warning',
+      detail: `${i18n.t('errors.providerHttp.detail', { status: providerError.status ?? '-' })}${suffix}`
+    }
+  }
+
+  if (raw.includes('IPC payload field')) {
+    const field = raw.match(/"([^"]+)"/)?.[1] ?? i18n.t('errors.missingField.fallbackField')
+    return {
+      message: i18n.t('errors.missingField.message'),
+      severity: 'warning',
+      detail: i18n.t('errors.missingField.detail', { field })
+    }
+  }
+
+  if (raw.includes('IPC payload must be an object')) {
+    return {
+      message: i18n.t('errors.badPayload.message'),
+      severity: 'warning',
+      detail: i18n.t('errors.badPayload.detail')
+    }
+  }
+
+  if (raw.includes('Unsupported window control action')) {
+    return {
+      message: i18n.t('errors.windowControl.message'),
+      severity: 'info',
+      detail: i18n.t('errors.windowControl.detail')
+    }
+  }
+
+  // Workspace errors
+  if (raw.includes('Workspace not found')) {
+    return {
+      message: i18n.t('errors.workspaceNotFound.message'),
+      severity: 'warning',
+      detail: i18n.t('errors.workspaceNotFound.detail')
+    }
+  }
+
+  if (raw.includes('not a directory') || raw.includes('Selected path')) {
+    return {
+      message: i18n.t('errors.invalidPath.message'),
+      severity: 'warning',
+      detail: i18n.t('errors.invalidPath.detail')
+    }
+  }
+
+  if (raw.includes('Mission prompt is required')) {
+    return {
+      message: i18n.t('errors.emptyMission.message'),
+      severity: 'info',
+      detail: i18n.t('errors.emptyMission.detail')
+    }
+  }
+
+  if (raw.includes('Lesson prompt is required')) {
+    return {
+      message: i18n.t('errors.emptyTask.message'),
+      severity: 'info',
+      detail: i18n.t('errors.emptyTask.detail')
+    }
+  }
+
+  if (raw.includes('outside the workspace lessons directory') || raw.includes('Path is outside')) {
+    return {
+      message: i18n.t('errors.pathRestricted.message'),
+      severity: 'warning',
+      detail: i18n.t('errors.pathRestricted.detail')
+    }
+  }
+
+  // File system errors
+  if (raw.includes('ENOENT') || raw.includes('no such file')) {
+    return {
+      message: i18n.t('errors.fileNotFound.message'),
+      severity: 'warning',
+      detail: i18n.t('errors.fileNotFound.detail')
+    }
+  }
+
+  if (raw.includes('EACCES') || raw.includes('permission denied')) {
+    return {
+      message: i18n.t('errors.accessDenied.message'),
+      severity: 'error',
+      detail: i18n.t('errors.accessDenied.detail')
+    }
+  }
+
+  // Generic fallback — don't expose raw stack traces
+  if (raw.includes('Error:') || raw.includes('TypeError:') || raw.includes('at ')) {
+    return {
+      message: i18n.t('errors.generic.message'),
+      severity: 'error',
+      detail: i18n.t('errors.generic.stackDetail')
+    }
+  }
+
+  return {
+    message: raw || i18n.t('errors.generic.message'),
+    severity: 'error',
+    detail: i18n.t('errors.generic.detail')
+  }
+}
+
+// ================================================================
+// Zustand Store
+// ================================================================
+
+const AGENT_INPUT_HISTORY_STORAGE_KEY = 'teachos:agent-input-history'
+const MAX_AGENT_INPUT_HISTORY = 20
+
+function appendAgentInputHistory(history: string[], input: string): string[] {
+  const value = input.trim()
+  if (!value) return history
+  const withoutCurrent = history.filter((item) => item !== value)
+  return [...withoutCurrent, value].slice(-MAX_AGENT_INPUT_HISTORY)
+}
+
+export function mergeAgentInputHistory(...sources: Array<string[] | undefined>): string[] {
+  return sources.flat().reduce<string[]>((history, input) => appendAgentInputHistory(history, input ?? ''), [])
+}
+
+function normalizeAgentInputHistory(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  return input.reduce<string[]>((history, item) => {
+    if (typeof item !== 'string') return history
+    return appendAgentInputHistory(history, item)
+  }, [])
+}
+
+function readPersistedAgentInputHistory(): string[] {
+  try {
+    const stored = window.localStorage.getItem(AGENT_INPUT_HISTORY_STORAGE_KEY)
+    if (!stored) return []
+    return normalizeAgentInputHistory(JSON.parse(stored))
+  } catch {
+    return []
+  }
+}
+
+function persistAgentInputHistory(history: string[]): void {
+  try {
+    window.localStorage.setItem(
+      AGENT_INPUT_HISTORY_STORAGE_KEY,
+      JSON.stringify(history.slice(-MAX_AGENT_INPUT_HISTORY))
+    )
+  } catch {
+    // Input history is a convenience feature; storage failures should not block sending.
+  }
+}
+
+export const useAppStore = create<StoreState>((set, get) => ({
+  view: initialWorkspaceViewFromUrl(),
+  settingsSection: 'general',
+  sidebarCollapsed: false,
+  loading: true,
+  generating: false,
+  error: null,
+  searchQuery: '',
+  taskPrompt: defaultPrompt,
+  overviewDialogMode: 'chat',
+  lessonReaderOpen: false,
+  selectedCoursePreviewFile: null,
+  selectedResourcePreviewFile: null,
+  selectedCourseRelativePath: null,
+  selectedCourseWorkspaceId: null,
+  appState: emptyAppState,
+  settings: emptySettings,
+  reviewCards: [],
+  progress: null,
+  memoryRecords: [],
+  memoryDiagnostics: null,
+  agentTurns: [],
+  activeConversationId: null,
+  agentChatBusy: false,
+  agentStatus: '',
+  agentInput: '',
+  agentInputHistory: readPersistedAgentInputHistory(),
+  agentToolsSupported: null,
+  pendingAgentConversation: null,
+  gitBranchesRoot: '',
+  gitBranchesResult: null,
+  gitBranchesLoading: false,
+  setAgentInput: (agentInput) => set({ agentInput }),
+  rememberAgentInput: (input) => {
+    const nextHistory = appendAgentInputHistory(get().agentInputHistory, input)
+    set({ agentInputHistory: nextHistory })
+    persistAgentInputHistory(nextHistory)
+  },
+  clearAgentChat: () => {
+    if (get().agentChatBusy && get().pendingAgentConversation) {
+      set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null })
+      return
+    }
+    set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null })
+  },
+  cancelAgentChat: async () => {
+    const api = window.teachingSystem
+    const pending = get().pendingAgentConversation
+    if (!pending || !get().agentChatBusy) return
+    set(cancelPendingAgentConversation({
+      pending,
+      activeConversationId: get().activeConversationId,
+      preserveToolsSupported: true
+    }))
+    await api?.cancelAgentChatStream(pending.summary.id).catch(() => undefined)
+  },
+  restorePendingAgentConversation: () => {
+    const pending = get().pendingAgentConversation
+    if (!pending) return
+    const courseRelativePath = courseRelativePathForAgentConversation(pending.summary.relativePath)
+    set({
+      view: pending.mode === 'teaching' ? 'overview' : 'agent',
+      overviewDialogMode: pending.mode === 'teaching' ? 'teaching' : get().overviewDialogMode,
+      lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
+      agentTurns: pending.turns,
+      activeConversationId: pending.summary.id,
+      agentStatus: pending.status,
+      agentToolsSupported: pending.toolsSupported,
+      selectedCourseRelativePath: courseRelativePath,
+      selectedCourseWorkspaceId: courseRelativePath ? pending.workspaceId : null
+    })
+  },
+  loadGitBranches: async (workspaceRoot, options) => {
+    const root = workspaceRoot.trim()
+    const api = window.teachingSystem
+    if (!root || !api) {
+      set({ gitBranchesRoot: '', gitBranchesResult: null, gitBranchesLoading: false })
+      return
+    }
+    const current = get()
+    if (!options?.force && current.gitBranchesRoot === root && (current.gitBranchesResult || current.gitBranchesLoading)) return
+
+    set({
+      gitBranchesRoot: root,
+      gitBranchesLoading: true,
+      ...(current.gitBranchesRoot === root ? {} : { gitBranchesResult: null })
+    })
+    try {
+      const result = await api.listGitBranches(root)
+      if (get().gitBranchesRoot === root) {
+        set({ gitBranchesResult: result, gitBranchesLoading: false })
+      }
+    } catch (error) {
+      if (get().gitBranchesRoot === root) {
+        set({ gitBranchesLoading: false, error: toUserError(error) })
+      }
+    }
+  },
+  setGitBranchesResult: (workspaceRoot, gitBranchesResult) => {
+    const root = workspaceRoot.trim()
+    set({ gitBranchesRoot: root, gitBranchesResult, gitBranchesLoading: false })
+  },
+  setView: (view) => {
+    set(view === 'resources' ? { view, selectedResourcePreviewFile: null } : { view })
+    if (view === 'review') void get().loadReviewCards()
+  },
+  setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
+  openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null, selectedResourcePreviewFile: null }),
+  openTeachingConversationView: () => set({
+    view: 'overview',
+    overviewDialogMode: 'teaching',
+    lessonReaderOpen: false,
+    selectedCoursePreviewFile: null,
+    selectedResourcePreviewFile: null
+  }),
+  openWorkspaceTeachingMode: () => {
+    get().clearAgentChat()
+    set({
+      view: 'overview',
+      overviewDialogMode: 'teaching',
+      lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
+      selectedResourcePreviewFile: null,
+      selectedCourseRelativePath: null,
+      selectedCourseWorkspaceId: null
+    })
+  },
+  selectCourseFolder: (selectedCourseRelativePath, workspaceId) => {
+    const targetWorkspace = workspaceId
+      ? get().appState.workspaces.find((workspace) => workspace.id === workspaceId) ?? null
+      : get().appState.activeWorkspace
+    const selectedCourse = selectedCourseRelativePath
+      ? targetWorkspace?.courses.find((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)) ?? null
+      : null
+    const hasCourseContent = selectedCourseRelativePath
+      ? Boolean(selectedCourse && selectedCourse.sessionCount > 0)
+      : Boolean(targetWorkspace?.lessons.length)
+    set({
+      view: hasCourseContent ? 'lessons' : 'overview',
+      overviewDialogMode: 'teaching',
+      lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
+      selectedResourcePreviewFile: null,
+      selectedCourseRelativePath,
+      selectedCourseWorkspaceId: selectedCourse ? targetWorkspace?.id ?? null : null,
+      ...(!hasCourseContent
+        ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
+        : {})
+    })
+  },
+  setSettingsSection: (settingsSection) => set({ settingsSection }),
+  setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+  openSettings: (section = 'general') => set({ view: 'settings', settingsSection: section }),
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setTaskPrompt: (taskPrompt) => set({ taskPrompt }),
+  clearError: () => set({ error: null }),
+  initialize: async () => {
+    set({ loading: true, error: null })
+    const api = window.teachingSystem
+    if (!api) {
+      console.warn('[TeachOS] preload API is not available; renderer is running without window.teachingSystem.')
+      set({ loading: false, error: null })
+      return
+    }
+    try {
+      const [state, rawSettings] = await Promise.all([
+        api.getState(),
+        api.getSettings()
+      ])
+      const settings = normalizeRendererSettings(rawSettings)
+      applySettingsSideEffects(settings)
+      set({
+        appState: state,
+        settings,
+        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+        loading: false
+      })
+    } catch (error) {
+      set({ loading: false, error: toUserError(error) })
+    }
+  },
+  updateSettings: async (patch) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const settings = normalizeRendererSettings(await api.updateSettings(patch))
+      applySettingsSideEffects(settings)
+      set({ settings, error: null })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  pickDefaultRoot: async () => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const currentPath = get().settings.workspace.defaultRoot
+      const result = await api.pickDirectory(currentPath)
+      if (result.canceled || !result.path) return
+      await get().updateSettings({ workspace: { defaultRoot: result.path } })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  selectWorkspace: async (workspaceId) => {
+    const api = window.teachingSystem
+    if (!api) return
+    set({ loading: true, error: null })
+    try {
+      const state = await api.selectWorkspace(workspaceId)
+      set({
+        appState: state,
+        lessonReaderOpen: false,
+        selectedCoursePreviewFile: null,
+        selectedCourseRelativePath: null,
+        selectedCourseWorkspaceId: null,
+        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+        agentTurns: [],
+        activeConversationId: null,
+        agentStatus: '',
+        agentToolsSupported: null,
+        pendingAgentConversation: null,
+        loading: false
+      })
+    } catch (error) {
+      set({ loading: false, error: toUserError(error) })
+    }
+  },
+  createWorkspace: async () => {
+    const api = window.teachingSystem
+    if (!api) return
+    const name = window.prompt(i18n.t('dialogs.createNameTitle'), i18n.t('dialogs.createNameDefault'))
+    if (!name) return
+    const prompt = window.prompt(i18n.t('dialogs.createMissionTitle'), i18n.t('dialogs.createMissionDefault', { name }))
+    if (!prompt) return
+    set({ loading: true, error: null })
+    try {
+      const state = await api.createWorkspace({ name, prompt })
+      set({
+        appState: state,
+        lessonReaderOpen: false,
+        selectedCoursePreviewFile: null,
+        selectedCourseRelativePath: null,
+        selectedCourseWorkspaceId: null,
+        taskPrompt: defaultPrompt,
+        agentTurns: [],
+        activeConversationId: null,
+        agentStatus: '',
+        agentToolsSupported: null,
+        pendingAgentConversation: null,
+        loading: false
+      })
+    } catch (error) {
+      set({ loading: false, error: toUserError(error) })
+    }
+  },
+  importWorkspace: async () => {
+    const api = window.teachingSystem
+    if (!api) return false
+    set({ loading: true, error: null })
+    try {
+      const result = await api.importWorkspace()
+      if (result.canceled || !result.state) {
+        set({ loading: false })
+        return false
+      }
+      set({
+        appState: result.state,
+        lessonReaderOpen: false,
+        selectedCoursePreviewFile: null,
+        selectedCourseRelativePath: null,
+        selectedCourseWorkspaceId: null,
+        taskPrompt: result.state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+        agentTurns: [],
+        activeConversationId: null,
+        agentStatus: '',
+        agentToolsSupported: null,
+        pendingAgentConversation: null,
+        loading: false
+      })
+      const settings = get().settings
+      if (settings.notifications.enabled && settings.notifications.workspaceImported) {
+        const wsName = result.state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
+        void get().showNotification(i18n.t('notify.imported.title'), i18n.t('notify.imported.body', { name: wsName }))
+      }
+      return true
+    } catch (error) {
+      set({ loading: false, error: toUserError(error) })
+      const settings = get().settings
+      if (settings.notifications.enabled && settings.notifications.errors) {
+        void get().showNotification(i18n.t('notify.importFailed.title'), toUserError(error).message)
+      }
+      return false
+    }
+  },
+  importWorkspacePath: async (rootPath) => {
+    const api = window.teachingSystem
+    if (!api) return false
+    const path = rootPath.trim()
+    if (!path) {
+      set({ error: { message: i18n.t('errors.invalidPath.message'), severity: 'warning', detail: i18n.t('errors.invalidPath.detail') } })
+      return false
+    }
+    set({ loading: true, error: null })
+    try {
+      const state = await api.importWorkspacePath(path)
+      set({
+        appState: state,
+        lessonReaderOpen: false,
+        selectedCoursePreviewFile: null,
+        selectedCourseRelativePath: null,
+        selectedCourseWorkspaceId: null,
+        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+        agentTurns: [],
+        activeConversationId: null,
+        agentStatus: '',
+        agentToolsSupported: null,
+        pendingAgentConversation: null,
+        loading: false
+      })
+      const settings = get().settings
+      if (settings.notifications.enabled && settings.notifications.workspaceImported) {
+        const wsName = state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
+        void get().showNotification(i18n.t('notify.imported.title'), i18n.t('notify.imported.body', { name: wsName }))
+      }
+      return true
+    } catch (error) {
+      const userError = toUserError(error)
+      set({ loading: false, error: userError })
+      const settings = get().settings
+      if (settings.notifications.enabled && settings.notifications.errors) {
+        void get().showNotification(i18n.t('notify.importFailed.title'), userError.message)
+      }
+      return false
+    }
+  },
+  openImportLocation: async (path) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const result = await api.openImportLocation(path)
+      if (!result.ok) {
+        set({ error: { message: i18n.t('errors.openPath'), severity: 'warning', detail: result.message } })
+      }
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  updateMission: async () => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    if (!workspace) return
+    const newPrompt = window.prompt(i18n.t('dialogs.updateMissionTitle'), workspace.missionExcerpt)
+    if (!newPrompt) return
+    set({ loading: true, error: null })
+    try {
+      const state = await api.updateMission({ workspaceId: workspace.id, prompt: newPrompt })
+      set({ appState: state, loading: false })
+    } catch (error) {
+      set({ loading: false, error: toUserError(error) })
+    }
+  },
+  applyLessonStyle: async (styleId) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const workspace = get().appState.activeWorkspace
+      if (workspace) {
+        const state = await api.applyLessonStyle({ workspaceId: workspace.id, styleId })
+        set({ appState: state })
+      }
+      await get().updateSettings({ workspace: { lessonStyleId: styleId } })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  generateLesson: async (options) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    const prompt = (options?.prompt ?? get().taskPrompt).trim()
+    const settings = get().settings
+    if (!workspace || !prompt) return
+    const lessonMessages = options?.messages ?? (
+      activeTeachingConversationSummary({
+        state: get().appState,
+        workspaceId: workspace.id,
+        activeConversationId: get().activeConversationId,
+        pendingAgentConversation: get().pendingAgentConversation
+      })
+        ? agentTurnsToMessages(get().agentTurns)
+        : []
+    )
+    if (
+      settings.workspace.confirmBeforeGenerating &&
+      !window.confirm(i18n.t('dialogs.confirmGenerate'))
+    ) {
+      return
+    }
+    set({
+      generating: true,
+      error: null,
+      appState: {
+        ...get().appState,
+        runtime: {
+          status: 'working',
+          currentStep: 'calling model',
+          queuedTasks: 1,
+          providerLabel: runtimeProviderLabel(settings)
+        }
+      }
+    })
+    try {
+      const result = await api.generateLesson({
+        workspaceId: workspace.id,
+        prompt,
+        courseName: suggestedCourseName(workspace, prompt),
+        messages: lessonMessages
+      })
+      set({
+        view: 'lessons',
+        lessonReaderOpen: true,
+        selectedCourseRelativePath: result.lesson.courseRelativePath,
+        selectedCourseWorkspaceId: workspace.id,
+        selectedCoursePreviewFile: lessonToCoursePreviewFile(result.lesson),
+        appState: result.state,
+        taskPrompt: nextPrompt,
+        generating: false
+      })
+      if (settings.workspace.autoOpenGeneratedLesson) {
+        void get().openPath(result.lesson.absolutePath)
+      }
+      if (settings.notifications.enabled && settings.notifications.lessonGenerated) {
+        const suffix = result.source === 'fallback'
+          ? (result.reason ? i18n.t('notify.lessonGenerated.fallbackWithReason', { reason: result.reason }) : i18n.t('notify.lessonGenerated.fallbackNoReason'))
+          : ''
+        void get().showNotification(i18n.t('notify.lessonGenerated.title'), i18n.t('notify.lessonGenerated.body', { title: result.lesson.title, path: result.lesson.relativePath, suffix }))
+      }
+    } catch (error) {
+      const userError = toUserError(error)
+      set({
+        generating: false,
+        error: userError,
+        appState: { ...get().appState, runtime: { ...defaultRuntime, status: 'error' } }
+      })
+      if (settings.notifications.enabled && settings.notifications.errors) {
+        void get().showNotification(i18n.t('notify.generateFailed.title'), userError.message)
+      }
+    }
+  },
+  generateLessonStream: async (options) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    const prompt = (options?.prompt ?? get().taskPrompt).trim()
+    const settings = get().settings
+    if (!workspace || !prompt) return
+    const lessonMessages = options?.messages ?? (
+      activeTeachingConversationSummary({
+        state: get().appState,
+        workspaceId: workspace.id,
+        activeConversationId: get().activeConversationId,
+        pendingAgentConversation: get().pendingAgentConversation
+      })
+        ? agentTurnsToMessages(get().agentTurns)
+        : []
+    )
+    if (
+      settings.workspace.confirmBeforeGenerating &&
+      !window.confirm(i18n.t('dialogs.confirmGenerate'))
+    ) {
+      return
+    }
+    set({
+      generating: true,
+      error: null,
+      appState: {
+        ...get().appState,
+        runtime: {
+          status: 'working',
+          currentStep: 'calling model',
+          queuedTasks: 1,
+          providerLabel: runtimeProviderLabel(settings)
+        }
+      }
+    })
+    let liveText = ''
+    try {
+      const done = await api.generateLessonStream(
+        {
+          workspaceId: workspace.id,
+          prompt,
+          courseName: suggestedCourseName(workspace, prompt),
+          messages: lessonMessages
+        },
+        (chunk: LessonStreamChunk) => {
+          liveText += chunk.delta
+          set({ appState: { ...get().appState, previewHtml: streamingPreviewHtml(liveText, workspace), previewUrl: '' } })
+        },
+        (status: LessonStreamStatus) => {
+          set({
+            appState: {
+              ...get().appState,
+              runtime: { ...get().appState.runtime, currentStep: stepLabel(status.step) }
+            }
+          })
+        }
+      )
+      if ('error' in done && done.error) {
+        const userError = toUserError(new Error(done.message))
+        set({ generating: false, error: userError })
+        if (settings.notifications.enabled && settings.notifications.errors) {
+          void get().showNotification(i18n.t('notify.generateFailed.title'), userError.message)
+        }
+        return
+      }
+      if (!('error' in done) && done.kind === 'lesson') {
+        set({
+          view: 'lessons',
+          lessonReaderOpen: true,
+          selectedCourseRelativePath: done.lesson.courseRelativePath,
+          selectedCourseWorkspaceId: workspace.id,
+          selectedCoursePreviewFile: lessonToCoursePreviewFile(done.lesson),
+          appState: done.state,
+          taskPrompt: nextPrompt,
+          generating: false
+        })
+        if (settings.workspace.autoOpenGeneratedLesson) {
+          void get().openPath(done.lesson.absolutePath)
+        }
+        if (settings.notifications.enabled && settings.notifications.lessonGenerated) {
+          const suffix = done.source === 'fallback'
+            ? (done.reason ? i18n.t('notify.lessonGenerated.fallbackWithReason', { reason: done.reason }) : i18n.t('notify.lessonGenerated.fallbackNoReason'))
+            : ''
+          void get().showNotification(i18n.t('notify.lessonGenerated.title'), i18n.t('notify.lessonGenerated.body', { title: done.lesson.title, path: done.lesson.relativePath, suffix }))
+        }
+      }
+    } catch (error) {
+      const userError = toUserError(error)
+      set({
+        generating: false,
+        error: userError,
+        appState: { ...get().appState, runtime: { ...defaultRuntime, status: 'error' } }
+      })
+    }
+  },
+  loadAgentConversation: async (conversationId, workspaceId) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const requestedWorkspaceId = workspaceId ?? get().appState.activeWorkspace?.id ?? null
+    const workspace = requestedWorkspaceId
+      ? get().appState.workspaces.find((item) => item.id === requestedWorkspaceId) ?? get().appState.activeWorkspace
+      : get().appState.activeWorkspace
+    if (!workspace) return
+    set({ error: null })
+    try {
+      const conversation = await api.readAgentConversation({ workspaceId: workspace.id, conversationId })
+      const latestUserTurn = [...conversation.turns].reverse().find((turn) => turn.role === 'user')
+      const conversationCourseRelativePath = courseRelativePathForAgentConversation(conversation.relativePath)
+      const isTeachingConversation = Boolean(conversationCourseRelativePath)
+      set({
+        appState: workspace.id === get().appState.activeWorkspace?.id
+          ? get().appState
+          : await api.selectWorkspace(workspace.id),
+        view: isTeachingConversation ? 'overview' : 'agent',
+        overviewDialogMode: isTeachingConversation ? 'teaching' : get().overviewDialogMode,
+        lessonReaderOpen: false,
+        selectedCoursePreviewFile: null,
+        agentTurns: conversation.turns,
+        activeConversationId: conversation.id,
+        agentStatus: '',
+        agentToolsSupported: null,
+        agentInput: '',
+        selectedCourseRelativePath: conversationCourseRelativePath,
+        selectedCourseWorkspaceId: conversationCourseRelativePath ? workspace.id : null,
+        taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
+      })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  agentChat: async (inputOverride, options) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    const input = (inputOverride ?? get().agentInput).trim()
+    if (!workspace || !input || get().agentChatBusy) return
+    const mode: AgentChatMode = options?.mode ?? (get().overviewDialogMode === 'teaching' ? 'teaching' : 'temporary')
+    const draft = createAgentConversationTurnDraft({
+      state: get().appState,
+      workspace,
+      input,
+      mode,
+      activeConversationId: get().activeConversationId,
+      currentTurns: get().agentTurns,
+      selectedCourseRelativePath: get().selectedCourseRelativePath,
+      currentSelectedLessonPath: get().appState.selectedLessonPath,
+      createdAt: new Date().toISOString(),
+      idSeed: Date.now()
+    })
+    const {
+      pendingConversationId,
+      sourceConversationId,
+      selectedCourseRelativePath,
+      selectedLessonPath,
+      assistantId,
+      priorMessages,
+      initialTurns,
+      pendingConversation
+    } = draft
+    set({
+      agentChatBusy: true,
+      agentInput: '',
+      agentStatus: pendingConversation.status,
+      agentToolsSupported: null,
+      agentTurns: initialTurns,
+      activeConversationId: pendingConversationId,
+      pendingAgentConversation: pendingConversation
+    })
+    try {
+      const done = await api.agentChatStream(
+        { streamId: pendingConversationId, workspaceId: workspace.id, mode, messages: priorMessages, userInput: input },
+        (chunk: AgentChatStreamChunk) => {
+          const patch = applyAgentChatChunkToPending({
+            pending: get().pendingAgentConversation,
+            activeConversationId: get().activeConversationId,
+            assistantId,
+            chunk
+          })
+          if (patch) set(patch)
+        },
+        (status: AgentChatStreamStatus) => {
+          const patch = applyAgentChatStatusToPending({
+            pending: get().pendingAgentConversation,
+            activeConversationId: get().activeConversationId,
+            assistantId,
+            status
+          })
+          if (patch) set(patch)
+        },
+        (event: AgentChatStreamToolEvent) => {
+          const patch = applyAgentChatToolEventToPending({
+            pending: get().pendingAgentConversation,
+            activeConversationId: get().activeConversationId,
+            assistantId,
+            event
+          })
+          if (patch) set(patch)
+        }
+      )
+      if ('canceled' in done) {
+        const pending = get().pendingAgentConversation
+        if (!pending || pending.summary.id !== pendingConversationId) return
+        set(cancelPendingAgentConversation({ pending, activeConversationId: get().activeConversationId }))
+        return
+      }
+      if ('error' in done && done.error) {
+        const pending = get().pendingAgentConversation
+        if (!pending || pending.summary.id !== pendingConversationId) return
+        const userError = toUserError(new Error(done.message))
+        set({
+          error: userError,
+          ...failPendingAgentConversation({
+            pending,
+            activeConversationId: get().activeConversationId,
+            assistantId
+          })
+        })
+        return
+      }
+      if (!('error' in done)) {
+        const pending = get().pendingAgentConversation
+        if (!pending || pending.summary.id !== pendingConversationId) return
+        const latestUserTurn = [...done.turns].reverse().find((turn) => turn.role === 'user')
+        const reconciledTurns = reconcileAgentTurnsWithLocalProcess(done.turns, pending.turns)
+        const savePatch = syncPendingAgentConversation({
+          pending,
+          pendingConversationId,
+          activeConversationId: get().activeConversationId,
+          patch: {
+            turns: reconciledTurns,
+            status: '保存对话…',
+            toolsSupported: done.toolsSupported
+          }
+        })
+        if (savePatch) set(savePatch)
+        set({
+          taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
+        })
+        try {
+          const saved = await api.saveAgentConversation({
+            workspaceId: workspace.id,
+            mode,
+            conversationId: pending?.sourceConversationId ?? null,
+            selectedLessonPath,
+            selectedCourseRelativePath,
+            turns: reconciledTurns
+          })
+          set({
+            appState: saved.state,
+            ...finishPendingAgentConversationSave({
+              pending,
+              activeConversationId: get().activeConversationId,
+              savedConversationId: saved.conversation.id,
+              turns: reconciledTurns,
+              toolsSupported: done.toolsSupported
+            })
+          })
+          // Lessons generated inside the conversation (generate_lesson tool):
+          // saved.state already contains them; mirror the direct-generation
+          // notifications and auto-open behavior without yanking the user
+          // away from the conversation.
+          const generatedLessons = done.generatedLessons ?? []
+          if (generatedLessons.length > 0) {
+            const settings = get().settings
+            const latest = generatedLessons[generatedLessons.length - 1]
+            if (latest && settings.workspace.autoOpenGeneratedLesson) {
+              void get().openPath(latest.absolutePath)
+            }
+            if (latest && settings.notifications.enabled && settings.notifications.lessonGenerated) {
+              void get().showNotification(
+                i18n.t('notify.lessonGenerated.title'),
+                i18n.t('notify.lessonGenerated.body', { title: latest.title, path: latest.relativePath, suffix: '' })
+              )
+            }
+          }
+        } catch (saveError) {
+          set({ error: toUserError(saveError) })
+        } finally {
+          if (get().pendingAgentConversation?.summary.id && get().pendingAgentConversation?.summary.id !== pendingConversationId) return
+          const visiblePatch = get().activeConversationId === pendingConversationId
+            ? { agentStatus: '' }
+            : {}
+          set({ agentChatBusy: false, ...visiblePatch })
+        }
+      }
+    } catch (error) {
+      const pending = get().pendingAgentConversation
+      if (!pending || pending.summary.id !== pendingConversationId) return
+      const userError = toUserError(error)
+      set({
+        error: userError,
+        ...failPendingAgentConversation({
+          pending,
+          activeConversationId: get().activeConversationId,
+          assistantId
+        })
+      })
+    }
+  },
+  setWorkspaceItemMeta: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = payload.workspaceId
+      ? get().appState.workspaces.find((item) => item.id === payload.workspaceId) ?? get().appState.activeWorkspace
+      : get().appState.activeWorkspace
+    if (!workspace) return
+    try {
+      const state = await api.setWorkspaceItemMeta({
+        workspaceId: workspace.id,
+        relativePath: payload.relativePath,
+        pinned: payload.pinned,
+        archived: payload.archived
+      })
+      const archivesWorkspaceRoot = normalizeRelativePath(payload.relativePath) === '' && payload.archived === true
+      const clearsCurrentContext =
+        archivesWorkspaceRoot &&
+        (get().appState.activeWorkspace?.id === workspace.id ||
+          get().selectedCourseWorkspaceId === workspace.id ||
+          get().pendingAgentConversation?.workspaceId === workspace.id)
+      set({
+        appState: state,
+        error: null,
+        ...(clearsCurrentContext
+          ? {
+              lessonReaderOpen: false,
+              selectedCoursePreviewFile: null,
+              selectedCourseRelativePath: null,
+              selectedCourseWorkspaceId: null,
+              taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+              agentTurns: [],
+              activeConversationId: null,
+              agentStatus: '',
+              agentInput: '',
+              agentToolsSupported: null,
+              agentChatBusy: false,
+              pendingAgentConversation: null,
+            }
+          : {})
+      })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  removeWorkspaceItem: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = payload.workspaceId
+      ? get().appState.workspaces.find((item) => item.id === payload.workspaceId) ?? get().appState.activeWorkspace
+      : get().appState.activeWorkspace
+    if (!workspace) return
+    const removalSnapshot = {
+      activeConversationId: get().activeConversationId,
+      selectedCoursePreviewFile: get().selectedCoursePreviewFile,
+      selectedCourseRelativePath: get().selectedCourseRelativePath
+    }
+    try {
+      const state = await api.removeWorkspaceItem({
+        workspaceId: workspace.id,
+        relativePath: payload.relativePath,
+        kind: payload.kind,
+        mode: payload.mode ?? 'disk'
+      })
+      const uiPatch = deriveWorkspaceRemovalUiPatch(payload, removalSnapshot, state)
+      set({
+        appState: state,
+        error: null,
+        ...(uiPatch.clearActiveConversation
+          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
+          : {}),
+        ...(uiPatch.clearSelectedCoursePreview
+          ? { lessonReaderOpen: false, selectedCoursePreviewFile: null }
+          : {}),
+        ...(uiPatch.clearSelectedCourseFolder
+          ? { selectedCourseRelativePath: null, selectedCourseWorkspaceId: null }
+          : {})
+      })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  removeWorkspace: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.workspaces.find((item) => item.id === payload.workspaceId)
+    if (!workspace) return
+    const previous = get()
+    const clearsCurrentContext =
+      previous.appState.activeWorkspace?.id === workspace.id ||
+      previous.selectedCourseWorkspaceId === workspace.id ||
+      previous.pendingAgentConversation?.workspaceId === workspace.id
+    try {
+      const state = await api.removeWorkspace({
+        workspaceId: workspace.id,
+        mode: payload.mode ?? 'disk'
+      })
+      set({
+        appState: state,
+        error: null,
+        ...(clearsCurrentContext
+          ? {
+              view: state.activeWorkspace ? previous.view : 'overview',
+              lessonReaderOpen: false,
+              selectedCoursePreviewFile: null,
+              selectedCourseRelativePath: null,
+              selectedCourseWorkspaceId: null,
+              taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+              agentTurns: [],
+              activeConversationId: null,
+              agentStatus: '',
+              agentInput: '',
+              agentToolsSupported: null,
+              agentChatBusy: false,
+              pendingAgentConversation: null,
+            }
+          : {})
+      })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  loadLesson: async (lesson) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    if (!workspace) return
+    set({
+      view: 'lessons',
+      overviewDialogMode: 'teaching',
+      lessonReaderOpen: true,
+      selectedCoursePreviewFile: lessonToCoursePreviewFile(lesson),
+      selectedResourcePreviewFile: null,
+      appState: {
+        ...get().appState,
+        selectedLessonPath: lesson.absolutePath,
+        previewHtml: loadingPreviewHtml(workspace),
+        previewUrl: ''
+      },
+      selectedCourseRelativePath: lesson.courseRelativePath,
+      selectedCourseWorkspaceId: workspace.id
+    })
+    try {
+      const result = await api.readLesson({
+        workspaceId: workspace.id,
+        lessonPath: lesson.absolutePath
+      })
+      set({ appState: { ...get().appState, selectedLessonPath: lesson.absolutePath, previewHtml: result.html, previewUrl: result.url } })
+    } catch (error) {
+      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
+    }
+  },
+  loadCourseHtmlFile: async (file) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    if (!workspace) return
+    set({
+      view: 'lessons',
+      overviewDialogMode: 'teaching',
+      lessonReaderOpen: true,
+      selectedCoursePreviewFile: file,
+      selectedResourcePreviewFile: null,
+      appState: {
+        ...get().appState,
+        selectedLessonPath: file.absolutePath,
+        previewHtml: loadingPreviewHtml(workspace),
+        previewUrl: ''
+      },
+      selectedCourseRelativePath: courseRelativePathForFile(file.relativePath),
+      selectedCourseWorkspaceId: workspace.id
+    })
+    try {
+      const result = await api.readLesson({
+        workspaceId: workspace.id,
+        lessonPath: file.absolutePath
+      })
+      set({
+        appState: { ...get().appState, selectedLessonPath: file.absolutePath, previewHtml: result.html, previewUrl: result.url },
+        selectedCoursePreviewFile: file
+      })
+    } catch (error) {
+      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
+    }
+  },
+  openResourceHtmlPreview: (selectedResourcePreviewFile) => {
+    set({
+      view: 'resources',
+      lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
+      selectedResourcePreviewFile
+    })
+  },
+  closeResourceHtmlPreview: () => set({ selectedResourcePreviewFile: null }),
+  openPath: async (path) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const result = await api.openPath(path)
+      if (!result.ok) {
+        set({ error: toUserError(new Error(result.message ?? i18n.t('errors.openPath'))) })
+      }
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  openExternal: async (url) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const result = await api.openExternal(url)
+      if (!result.ok) {
+        set({ error: toUserError(new Error(result.message ?? i18n.t('errors.openExternal'))) })
+      }
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  showNotification: async (title, body) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      await api.showNotification({ title, body })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  probeProvider: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return { ok: false, message: 'TeachOS preload API unavailable.' }
+    try {
+      return await api.probeProvider(payload)
+    } catch (error) {
+      return { ok: false, message: toUserError(error).message }
+    }
+  },
+  listUpstreamModels: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return { ok: false, message: 'TeachOS preload API unavailable.' }
+    try {
+      return await api.listUpstreamModels(payload)
+    } catch (error) {
+      return { ok: false, message: toUserError(error).message }
+    }
+  },
+  listGitWorktrees: async (workspaceRoot) => {
+    const api = window.teachingSystem
+    if (!api) return { ok: false, reason: 'error', message: 'TeachOS preload API unavailable.' }
+    try {
+      return await api.listGitWorktrees(workspaceRoot)
+    } catch (error) {
+      return { ok: false, reason: 'error', message: toUserError(error).message }
+    }
+  },
+  removeGitWorktree: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const result = await api.removeGitWorktree(payload)
+      if (!result.ok) {
+        set({ error: toUserError(new Error(result.message ?? 'Failed to remove worktree.')) })
+      }
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  listMemory: async (workspaceRoot) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const memoryRecords = await api.listMemory(workspaceRoot)
+      set({ memoryRecords })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  createMemory: async (payload) => {
+    const api = window.teachingSystem
+    if (!api) return false
+    try {
+      const memory = await api.createMemory(payload)
+      set((state) => ({ memoryRecords: [memory, ...state.memoryRecords.filter((item) => item.id !== memory.id)] }))
+      void get().loadMemoryDiagnostics()
+      return true
+    } catch (error) {
+      set({ error: toUserError(error) })
+      return false
+    }
+  },
+  updateMemory: async (memoryId, patch) => {
+    const api = window.teachingSystem
+    if (!api) return false
+    try {
+      const memory = await api.updateMemory(memoryId, patch)
+      set((state) => ({
+        memoryRecords: state.memoryRecords.map((item) => (item.id === memoryId ? memory : item))
+      }))
+      void get().loadMemoryDiagnostics()
+      return true
+    } catch (error) {
+      set({ error: toUserError(error) })
+      return false
+    }
+  },
+  deleteMemory: async (memoryId, workspaceRoot) => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      await api.deleteMemory(memoryId, workspaceRoot)
+      set((state) => ({ memoryRecords: state.memoryRecords.filter((item) => item.id !== memoryId) }))
+      void get().loadMemoryDiagnostics()
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  loadMemoryDiagnostics: async () => {
+    const api = window.teachingSystem
+    if (!api) return
+    try {
+      const memoryDiagnostics = await api.getMemoryDiagnostics()
+      set({ memoryDiagnostics })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  loadReviewCards: async () => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    if (!workspace) {
+      set({ reviewCards: [] })
+      return
+    }
+    try {
+      const result = await api.listReviewCards(workspace.id)
+      set({ reviewCards: result.cards })
+      void api.getProgress(workspace.id).then((res) => set({ progress: res.progress })).catch(() => {})
+    } catch (error) {
+      set({ error: toUserError(error), reviewCards: [] })
+    }
+  },
+  recordProgress: async (lessonId, results) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = get().appState.activeWorkspace
+    if (!workspace) return
+    try {
+      const res = await api.recordProgress({ workspaceId: workspace.id, lessonId, results })
+      set({ progress: res.progress })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  }
+}))
+
+
+// ================================================================
+// Store Helpers
+// ================================================================
+
+export function sameRelativePath(left: string, right: string): boolean {
+  return left.replace(/\\/g, '/') === right.replace(/\\/g, '/')
+}
+
+
+export function normalizeRelativePath(value: string): string {
+  return value.replace(/\\/g, '/')
+}
+
+
+export function userTurnInputHistory(turns: AgentChatTurn[]): string[] {
+  return turns
+    .filter((turn) => turn.role === 'user')
+    .map((turn) => turn.content)
+}
+
+
+export function titleFromFileName(fileName: string): string {
+  const stem = fileName
+    .replace(/\.[^.]+$/, '')
+    .replace(/^\d{4}-/, '')
+    .replace(/-reference$/i, '')
+  const title = stem
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(' ')
+  return title || fileName
+}
+
+
+function courseRelativePathForFile(relativePath: string): string | null {
+  const parts = normalizeRelativePath(relativePath).split('/').filter(Boolean)
+  if (parts[0] === 'courses' && parts[1]) return `courses/${parts[1]}`
+  if (parts[0] === 'lessons') return 'lessons'
+  return null
+}
+
+
+export function lessonToCoursePreviewFile(lesson: LessonSummary): CoursePreviewFile {
+  return {
+    title: lesson.sessionName || lesson.title,
+    relativePath: lesson.relativePath,
+    absolutePath: lesson.absolutePath
+  }
+}
+
+
+function suggestedCourseName(workspace: TeachingWorkspaceSummary, prompt: string): string {
+  const topic = prompt
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^我想(先)?学习/, '')
+    .replace(/^学习/, '')
+    .replace(/^如何/, '')
+    .split(/[。.!?？\n]/)[0]
+    ?.trim()
+
+  if (topic) return topic.slice(0, 32)
+  return workspace.courses[0]?.name ?? workspace.name
+}
+
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+
+function stepLabel(step: LessonStreamStatus['step']): string {
+  const labels: Record<LessonStreamStatus['step'], string> = {
+    calling: 'calling model',
+    streaming: 'streaming output',
+    validating: 'validating JSON',
+    rendering: 'rendering artifacts',
+    done: 'done',
+    error: 'error'
+  }
+  return labels[step]
+}
+
+
+function streamingPreviewHtml(liveText: string, workspace: TeachingWorkspaceSummary): string {
+  return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
+body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
+main{max-width:760px;margin:0 auto;padding:38px 30px}.badge{color:#4f7cf5;font-size:12px;font-weight:800;text-transform:uppercase}pre{white-space:pre-wrap;line-height:1.7;color:#40506a;background:#f4f7fb;border:1px solid #e8edf5;border-radius:16px;padding:18px;min-height:180px}
+</style></head><body><main><div class="badge">TeachOS · Streaming</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(i18n.t('preview.streamingHint'))}</p><pre>${escapeHtml(liveText || i18n.t('preview.streamingPlaceholder'))}</pre></main></body></html>`
+}
+
+
+function emptyPreviewHtml(workspace: TeachingWorkspaceSummary): string {
+  return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
+body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
+main{max-width:680px;margin:0 auto;padding:46px 34px}p{color:#68778f;line-height:1.8}.badge{color:#4f7cf5;font-size:12px;font-weight:800;text-transform:uppercase}
+</style></head><body><main><div class="badge">TeachOS</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(workspace.missionExcerpt)}</p><p>${escapeHtml(i18n.t('preview.emptyHint'))}</p></main></body></html>`
+}
+
+
+function loadingPreviewHtml(workspace: TeachingWorkspaceSummary): string {
+  return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
+body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
+main{display:grid;place-items:center;min-height:360px;padding:34px}p{color:#68778f}
+</style></head><body><main><div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(i18n.t('preview.loadingHint'))}</p></div></main></body></html>`
+}
+

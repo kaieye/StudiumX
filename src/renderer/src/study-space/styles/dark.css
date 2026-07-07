@@ -1,0 +1,703 @@
+:root[data-resolved-theme="dark"] .study-panel,
+:root[data-resolved-theme="dark"] .study-header-stats span,
+:root[data-resolved-theme="dark"] .study-room-tags span,
+:root[data-resolved-theme="dark"] .study-badges span,
+:root[data-resolved-theme="dark"] .study-clear-button {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-work-panel {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(32, 33, 34, 0.9), rgba(20, 22, 23, 0.84)),
+    var(--surface);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.22);
+}
+
+:root[data-resolved-theme="dark"] .study-work-panel::before {
+  background: linear-gradient(90deg, var(--green), #f6c35c);
+  opacity: 0.82;
+}
+
+:root[data-resolved-theme="dark"] .study-eyebrow,
+:root[data-resolved-theme="dark"] .study-kicker,
+:root[data-resolved-theme="dark"] .study-xp {
+  color: var(--accent);
+}
+
+:root[data-resolved-theme="dark"] .study-mode-switch,
+:root[data-resolved-theme="dark"] .study-presets button,
+:root[data-resolved-theme="dark"] .study-room-card,
+:root[data-resolved-theme="dark"] .study-seat-map,
+:root[data-resolved-theme="dark"] .study-task-summary div,
+:root[data-resolved-theme="dark"] .study-task-form input,
+:root[data-resolved-theme="dark"] .study-task-row,
+:root[data-resolved-theme="dark"] .study-level-track,
+:root[data-resolved-theme="dark"] .study-growth-grid div,
+:root[data-resolved-theme="dark"] .study-week-bars {
+  border-color: var(--line);
+  background: var(--surface-muted);
+}
+
+:root[data-resolved-theme="dark"] .study-mode-switch button.is-active,
+:root[data-resolved-theme="dark"] .study-presets button.is-active,
+:root[data-resolved-theme="dark"] .study-task-row > span,
+:root[data-resolved-theme="dark"] .study-seat {
+  background: #252528;
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-timer-face {
+  background:
+    radial-gradient(circle at center, var(--surface) 0 60%, transparent 61%),
+    conic-gradient(var(--accent) var(--study-progress), #252528 0);
+}
+
+:root[data-resolved-theme="dark"] .study-timer-face::after,
+:root[data-resolved-theme="dark"] .study-classmate-row {
+  border-color: var(--line);
+}
+
+:root[data-resolved-theme="dark"] .study-timer-face span,
+:root[data-resolved-theme="dark"] .study-room-card strong,
+:root[data-resolved-theme="dark"] .study-task-summary strong,
+:root[data-resolved-theme="dark"] .study-task-row strong,
+:root[data-resolved-theme="dark"] .study-growth-grid strong,
+:root[data-resolved-theme="dark"] .study-classmate-row strong {
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-live-dot {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+:root[data-resolved-theme="dark"] .study-seat.is-occupied {
+  border-color: var(--line-strong);
+  background: #2d3440;
+}
+
+:root[data-resolved-theme="dark"] .study-seat.is-user {
+  border-color: var(--green);
+  background: var(--green);
+}
+
+:root[data-resolved-theme="dark"] .study-xp {
+  background: var(--accent-soft);
+}
+
+:root[data-resolved-theme="dark"] .study-badges span.is-unlocked {
+  color: #f6c35c;
+  border-color: rgba(246, 195, 92, 0.28);
+  background: rgba(246, 195, 92, 0.12);
+}
+
+:root[data-resolved-theme="dark"] .study-classmate-row > span {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+:root[data-resolved-theme="dark"] .study-space {
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-hero {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(115deg, rgba(36, 38, 36, 0.96), rgba(31, 42, 45, 0.9) 48%, rgba(48, 45, 37, 0.84)),
+    #1d2322;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+}
+
+:root[data-resolved-theme="dark"] .study-hero::before {
+  background:
+    linear-gradient(90deg, transparent 0 58%, rgba(255, 255, 255, 0.06) 58% 59%, transparent 59%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 92px);
+}
+
+:root[data-resolved-theme="dark"] .study-hero::after {
+  background:
+    linear-gradient(90deg, rgba(24, 25, 23, 0.98) 0 34%, rgba(24, 27, 26, 0.78) 50%, rgba(9, 12, 15, 0.34) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.22)),
+    var(--study-room-image) center / cover no-repeat;
+}
+
+:root[data-resolved-theme="dark"] .study-hero h1,
+:root[data-resolved-theme="dark"] .study-hero-livebar strong,
+:root[data-resolved-theme="dark"] .study-stage-topline h2,
+:root[data-resolved-theme="dark"] .study-lobby-head strong,
+:root[data-resolved-theme="dark"] .study-directory-head h2,
+:root[data-resolved-theme="dark"] .study-directory-card-head strong,
+:root[data-resolved-theme="dark"] .study-host-copy strong,
+:root[data-resolved-theme="dark"] .study-host-checklist strong,
+:root[data-resolved-theme="dark"] .study-classmate-head strong,
+:root[data-resolved-theme="dark"] .study-live-proof-head strong,
+:root[data-resolved-theme="dark"] .study-live-proof-grid strong,
+:root[data-resolved-theme="dark"] .study-room-board-head strong,
+:root[data-resolved-theme="dark"] .study-room-board-grid strong,
+:root[data-resolved-theme="dark"] .study-signal-picker strong,
+:root[data-resolved-theme="dark"] .study-signal-mix-head strong,
+:root[data-resolved-theme="dark"] .study-room-tab strong,
+:root[data-resolved-theme="dark"] .study-room-metrics strong,
+:root[data-resolved-theme="dark"] .study-space-overview strong,
+:root[data-resolved-theme="dark"] .study-cycle-card strong,
+:root[data-resolved-theme="dark"] .study-online-summary strong,
+:root[data-resolved-theme="dark"] .study-companion-hero strong,
+:root[data-resolved-theme="dark"] .study-leader-row strong,
+:root[data-resolved-theme="dark"] .study-mode-card strong,
+:root[data-resolved-theme="dark"] .study-event-row strong,
+:root[data-resolved-theme="dark"] .study-name-modal h2 {
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-hero p,
+:root[data-resolved-theme="dark"] .study-hero-meta > span,
+:root[data-resolved-theme="dark"] .study-hero-livebar em,
+:root[data-resolved-theme="dark"] .study-hero-livebar small,
+:root[data-resolved-theme="dark"] .study-room-tab span,
+:root[data-resolved-theme="dark"] .study-room-tab-meta em,
+:root[data-resolved-theme="dark"] .study-room-metrics span,
+:root[data-resolved-theme="dark"] .study-space-overview span,
+:root[data-resolved-theme="dark"] .study-cycle-card span,
+:root[data-resolved-theme="dark"] .study-cycle-card small,
+:root[data-resolved-theme="dark"] .study-room-rules span,
+:root[data-resolved-theme="dark"] .study-lobby-card p,
+:root[data-resolved-theme="dark"] .study-directory-head > span,
+:root[data-resolved-theme="dark"] .study-directory-card p,
+:root[data-resolved-theme="dark"] .study-directory-meta span,
+:root[data-resolved-theme="dark"] .study-host-checklist span,
+:root[data-resolved-theme="dark"] .study-live-proof-grid span,
+:root[data-resolved-theme="dark"] .study-live-proof p,
+:root[data-resolved-theme="dark"] .study-room-board-head small,
+:root[data-resolved-theme="dark"] .study-room-board-grid span,
+:root[data-resolved-theme="dark"] .study-room-board-grid small,
+:root[data-resolved-theme="dark"] .study-room-board-roster em,
+:root[data-resolved-theme="dark"] .study-lobby-link,
+:root[data-resolved-theme="dark"] .study-signal-row,
+:root[data-resolved-theme="dark"] .study-feed-row p,
+:root[data-resolved-theme="dark"] .study-event-empty,
+:root[data-resolved-theme="dark"] .study-event-row p,
+:root[data-resolved-theme="dark"] .study-event-row strong small,
+:root[data-resolved-theme="dark"] .study-connection-card span,
+:root[data-resolved-theme="dark"] .study-connection-card small,
+:root[data-resolved-theme="dark"] .study-companion-hero span,
+:root[data-resolved-theme="dark"] .study-companion-hero p,
+:root[data-resolved-theme="dark"] .study-room-digest summary,
+:root[data-resolved-theme="dark"] .study-live-proof summary,
+:root[data-resolved-theme="dark"] .study-online-summary span,
+:root[data-resolved-theme="dark"] .study-invite-note,
+:root[data-resolved-theme="dark"] .study-leaderboard-head,
+:root[data-resolved-theme="dark"] .study-leader-row em,
+:root[data-resolved-theme="dark"] .study-mode-card span,
+:root[data-resolved-theme="dark"] .study-task-summary span,
+:root[data-resolved-theme="dark"] .study-contract label,
+:root[data-resolved-theme="dark"] .study-contract > div span,
+:root[data-resolved-theme="dark"] .study-empty-online,
+:root[data-resolved-theme="dark"] .study-name-modal p {
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .study-hero-meta > span,
+:root[data-resolved-theme="dark"] .study-hero-livebar,
+:root[data-resolved-theme="dark"] .study-hero-livebar small,
+:root[data-resolved-theme="dark"] .study-header-stats span,
+:root[data-resolved-theme="dark"] .study-session-label,
+:root[data-resolved-theme="dark"] .study-name-button,
+:root[data-resolved-theme="dark"] .study-connection-card,
+:root[data-resolved-theme="dark"] .study-relay-badge,
+:root[data-resolved-theme="dark"] .study-companion-hero,
+:root[data-resolved-theme="dark"] .study-companion-hero button,
+:root[data-resolved-theme="dark"] .study-online-summary div,
+:root[data-resolved-theme="dark"] .study-invite-note,
+:root[data-resolved-theme="dark"] .study-cycle-card,
+:root[data-resolved-theme="dark"] .study-lobby-card,
+:root[data-resolved-theme="dark"] .study-lobby-actions button,
+:root[data-resolved-theme="dark"] .study-lobby-join button,
+:root[data-resolved-theme="dark"] .study-lobby-join input,
+:root[data-resolved-theme="dark"] .study-relay-form button,
+:root[data-resolved-theme="dark"] .study-relay-form input,
+:root[data-resolved-theme="dark"] .study-room-directory,
+:root[data-resolved-theme="dark"] .study-directory-head > span,
+:root[data-resolved-theme="dark"] .study-directory-card,
+:root[data-resolved-theme="dark"] .study-directory-meta span,
+:root[data-resolved-theme="dark"] .study-ambient-control button,
+:root[data-resolved-theme="dark"] .study-space-overview div,
+:root[data-resolved-theme="dark"] .study-room-metrics div,
+:root[data-resolved-theme="dark"] .study-host-card,
+:root[data-resolved-theme="dark"] .study-host-checklist div,
+:root[data-resolved-theme="dark"] .study-host-actions button,
+:root[data-resolved-theme="dark"] .study-classmate-list,
+:root[data-resolved-theme="dark"] .study-classmate-row,
+:root[data-resolved-theme="dark"] .study-classmate-head > span,
+:root[data-resolved-theme="dark"] .study-room-board,
+:root[data-resolved-theme="dark"] .study-room-board-grid div,
+:root[data-resolved-theme="dark"] .study-room-board-roster span,
+:root[data-resolved-theme="dark"] .study-live-proof,
+:root[data-resolved-theme="dark"] .study-live-proof-grid div,
+:root[data-resolved-theme="dark"] .study-live-proof-actions button,
+:root[data-resolved-theme="dark"] .study-signal-mix,
+:root[data-resolved-theme="dark"] .study-signal-row > span,
+:root[data-resolved-theme="dark"] .study-room-rules span,
+:root[data-resolved-theme="dark"] .study-room-tab-meta em,
+:root[data-resolved-theme="dark"] .study-feed-row,
+:root[data-resolved-theme="dark"] .study-room-digest,
+:root[data-resolved-theme="dark"] .study-event-empty,
+:root[data-resolved-theme="dark"] .study-event-row,
+:root[data-resolved-theme="dark"] .study-leaderboard,
+:root[data-resolved-theme="dark"] .study-mode-card,
+:root[data-resolved-theme="dark"] .study-contract,
+:root[data-resolved-theme="dark"] .study-signal-picker,
+:root[data-resolved-theme="dark"] .study-signal-picker button,
+:root[data-resolved-theme="dark"] .study-contract textarea,
+:root[data-resolved-theme="dark"] .study-room-tab,
+:root[data-resolved-theme="dark"] .study-room-tags span,
+:root[data-resolved-theme="dark"] .study-badges span {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-name-button:hover,
+:root[data-resolved-theme="dark"] .study-ambient-control button.is-active,
+:root[data-resolved-theme="dark"] .study-mode-card.is-active,
+:root[data-resolved-theme="dark"] .study-contract.is-locked,
+:root[data-resolved-theme="dark"] .study-classmate-row.is-me,
+:root[data-resolved-theme="dark"] .study-leader-row.is-me {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-resolved-theme="dark"] .study-hero-livebar.has-peer {
+  border-color: rgba(114, 214, 167, 0.28);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(114, 214, 167, 0.1));
+}
+
+:root[data-resolved-theme="dark"] .study-room-board.has-peer {
+  border-color: rgba(114, 214, 167, 0.28);
+  background: linear-gradient(135deg, rgba(114, 214, 167, 0.12), rgba(255, 226, 160, 0.08));
+}
+
+:root[data-resolved-theme="dark"] .study-hero-livebar.is-offline > span,
+:root[data-resolved-theme="dark"] .study-hero-livebar.is-connecting > span,
+:root[data-resolved-theme="dark"] .study-room-board.is-offline .study-room-board-head > span,
+:root[data-resolved-theme="dark"] .study-room-board.is-connecting .study-room-board-head > span {
+  color: var(--text-muted);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme="dark"] .study-lobby-start {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme="dark"] .study-host-actions button:first-child {
+  color: #1b1608;
+  border-color: rgba(246, 195, 92, 0.34);
+  background: #f6c35c;
+}
+
+:root[data-resolved-theme="dark"] .study-companion-hero button:first-child {
+  color: #1b1608;
+  border-color: rgba(246, 195, 92, 0.34);
+  background: #f6c35c;
+}
+
+:root[data-resolved-theme="dark"] .study-live-proof-actions button:first-child {
+  color: #1b1608;
+  border-color: rgba(246, 195, 92, 0.34);
+  background: #f6c35c;
+}
+
+:root[data-resolved-theme="dark"] .study-directory-card.is-active {
+  border-color: rgba(114, 168, 143, 0.22);
+  background: rgba(114, 168, 143, 0.1);
+}
+
+:root[data-resolved-theme="dark"] .study-directory-card-head span {
+  color: var(--green);
+}
+
+:root[data-resolved-theme="dark"] .study-lobby-join input::placeholder {
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .study-relay-form input::placeholder {
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .study-room-actions button {
+  border-color: rgba(102, 194, 154, 0.24);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+:root[data-resolved-theme="dark"] .study-directory-card button {
+  border-color: rgba(102, 194, 154, 0.24);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+:root[data-resolved-theme="dark"] .study-directory-card.is-active button {
+  color: #1b1608;
+  border-color: rgba(246, 195, 92, 0.34);
+  background: #f6c35c;
+}
+
+:root[data-resolved-theme="dark"] .study-signal-picker button.is-active {
+  color: #1b1608;
+  border-color: rgba(246, 195, 92, 0.34);
+  background: #f6c35c;
+}
+
+:root[data-resolved-theme="dark"] .study-contract button {
+  border-color: rgba(102, 194, 154, 0.24);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+:root[data-resolved-theme="dark"] .study-contract textarea:disabled {
+  background: rgba(246, 195, 92, 0.12);
+}
+
+:root[data-resolved-theme="dark"] .study-feed-row span,
+:root[data-resolved-theme="dark"] .study-event-row > span,
+:root[data-resolved-theme="dark"] .study-connection-card strong,
+:root[data-resolved-theme="dark"] .study-relay-badge.is-online,
+:root[data-resolved-theme="dark"] .study-cycle-card button,
+:root[data-resolved-theme="dark"] .study-leader-row > span {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+:root[data-resolved-theme="dark"] .study-cycle-card.is-break button {
+  color: var(--accent);
+  border-color: rgba(138, 180, 255, 0.24);
+  background: var(--accent-soft);
+}
+
+:root[data-resolved-theme="dark"] .study-cycle-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-resolved-theme="dark"] .study-relay-badge.is-connecting {
+  color: #f6c35c;
+  border-color: rgba(246, 195, 92, 0.24);
+  background: rgba(246, 195, 92, 0.12);
+}
+
+:root[data-resolved-theme="dark"] .study-relay-badge.is-offline {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.24);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+:root[data-resolved-theme="dark"] .study-ambient-control {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-resolved-theme="dark"] .study-room-stage {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(31, 36, 35, 0.9), rgba(25, 29, 31, 0.94)),
+    linear-gradient(90deg, rgba(18, 20, 21, 0.76), rgba(18, 20, 21, 0.42)),
+    var(--study-room-image) center / cover no-repeat,
+    #171b1d;
+}
+
+:root[data-resolved-theme="dark"] .study-room-stage::before {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 32%),
+    radial-gradient(circle at 26% 10%, rgba(246, 195, 92, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.26));
+}
+
+:root[data-resolved-theme="dark"] .study-stage-window span {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(71, 86, 91, 0.82), rgba(51, 48, 39, 0.62)),
+    #263034;
+}
+
+:root[data-resolved-theme="dark"] .study-stage-scene {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.16), transparent 34%, rgba(255, 255, 255, 0.04));
+}
+
+:root[data-resolved-theme="dark"] .study-stage-board {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(28, 43, 38, 0.96), rgba(16, 27, 25, 0.96)),
+    #141f1d;
+}
+
+:root[data-resolved-theme="dark"] .study-stage-clock {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme="dark"] .study-stage-lamp::before {
+  background: #26332d;
+}
+
+:root[data-resolved-theme="dark"] .study-stage-desk {
+  background:
+    linear-gradient(180deg, rgba(82, 62, 43, 0.16), rgba(70, 52, 36, 0.42)),
+    #332b22;
+}
+
+:root[data-resolved-theme="dark"] .study-seat-map {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:root[data-resolved-theme="dark"] .study-seat {
+  color: rgba(255, 255, 255, 0.42);
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, #2a2d2e, #202425);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
+}
+
+:root[data-resolved-theme="dark"] .study-seat.is-occupied {
+  color: #eef5ed;
+  border-color: rgba(95, 145, 124, 0.35);
+  background:
+    linear-gradient(180deg, #5e7a70, #335246);
+}
+
+:root[data-resolved-theme="dark"] .study-seat.is-empty:hover {
+  color: var(--text);
+  border-color: rgba(114, 168, 143, 0.28);
+  background:
+    linear-gradient(180deg, #323738, #24292a);
+  box-shadow: 0 0 0 4px rgba(114, 168, 143, 0.12), 0 10px 22px rgba(0, 0, 0, 0.24);
+}
+
+:root[data-resolved-theme="dark"] .study-seat.is-user {
+  color: #1b1608;
+  border-color: rgba(246, 195, 92, 0.62);
+  background:
+    linear-gradient(180deg, #ffe1a0, #c99f3e);
+}
+
+:root[data-resolved-theme="dark"] .study-seat-avatar {
+  color: rgba(255, 255, 255, 0.52);
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-resolved-theme="dark"] .study-seat.is-occupied .study-seat-avatar {
+  color: #173126;
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(238, 245, 237, 0.86);
+}
+
+:root[data-resolved-theme="dark"] .study-seat.is-user .study-seat-avatar {
+  color: #1b1608;
+  border-color: rgba(27, 22, 8, 0.12);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+:root[data-resolved-theme="dark"] .study-room-tab.is-active,
+:root[data-resolved-theme="dark"] .study-classmate-row.is-me,
+:root[data-resolved-theme="dark"] .study-empty-online {
+  border-color: rgba(114, 168, 143, 0.22);
+  background: rgba(114, 168, 143, 0.1);
+}
+
+:root[data-resolved-theme="dark"] .study-room-tab.is-active .study-room-tab-meta em:first-child {
+  color: #1b1608;
+  background: #ffe2a0;
+}
+
+:root[data-resolved-theme="dark"] .study-room-tab-head > em,
+:root[data-resolved-theme="dark"] .study-room-tab-activity {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme="dark"] .study-room-tab-activity b {
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-room-tab-activity small {
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .study-room-tab-meter {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-resolved-theme="dark"] .study-name-modal {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+:root[data-resolved-theme="dark"] .study-name-modal input {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--surface-muted);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.2);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-body {
+  border-top-color: var(--line);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-live,
+:root[data-resolved-theme="dark"] .study-arrival-focus,
+:root[data-resolved-theme="dark"] .study-arrival-rooms {
+  border-color: var(--line);
+  background:
+    linear-gradient(180deg, rgba(32, 33, 34, 0.92), rgba(22, 23, 24, 0.86)),
+    var(--surface);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.28);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-live {
+  background:
+    linear-gradient(135deg, rgba(25, 40, 34, 0.86), rgba(45, 39, 24, 0.72)),
+    var(--surface);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-focus {
+  background:
+    linear-gradient(135deg, rgba(33, 38, 42, 0.92), rgba(24, 36, 32, 0.76)),
+    var(--surface);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-head h2,
+:root[data-resolved-theme="dark"] .study-arrival-summary strong,
+:root[data-resolved-theme="dark"] .study-arrival-clock,
+:root[data-resolved-theme="dark"] .study-arrival-counts strong,
+:root[data-resolved-theme="dark"] .study-room-pulse-main strong,
+:root[data-resolved-theme="dark"] .study-room-pulse-stats strong,
+:root[data-resolved-theme="dark"] .study-arrival-roster-seat strong,
+:root[data-resolved-theme="dark"] .study-presence-test strong,
+:root[data-resolved-theme="dark"] .study-online-proof-topic strong,
+:root[data-resolved-theme="dark"] .study-proof-row strong,
+:root[data-resolved-theme="dark"] .study-relay-status strong,
+:root[data-resolved-theme="dark"] .study-invite-strip strong,
+:root[data-resolved-theme="dark"] .study-arrival-room strong {
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-counts span,
+:root[data-resolved-theme="dark"] .study-arrival-summary,
+:root[data-resolved-theme="dark"] .study-room-pulse-main small,
+:root[data-resolved-theme="dark"] .study-room-pulse-stats span,
+:root[data-resolved-theme="dark"] .study-arrival-roster-seat small,
+:root[data-resolved-theme="dark"] .study-presence-test p,
+:root[data-resolved-theme="dark"] .study-online-proof summary,
+:root[data-resolved-theme="dark"] .study-online-proof-topic span,
+:root[data-resolved-theme="dark"] .study-proof-row span,
+:root[data-resolved-theme="dark"] .study-relay-settings summary,
+:root[data-resolved-theme="dark"] .study-arrival-focus p,
+:root[data-resolved-theme="dark"] .study-arrival-link,
+:root[data-resolved-theme="dark"] .study-relay-status,
+:root[data-resolved-theme="dark"] .study-relay-status span,
+:root[data-resolved-theme="dark"] .study-relay-status em,
+:root[data-resolved-theme="dark"] .study-invite-strip span,
+:root[data-resolved-theme="dark"] .study-arrival-room span {
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-counts div,
+:root[data-resolved-theme="dark"] .study-room-pulse,
+:root[data-resolved-theme="dark"] .study-room-pulse-stats div,
+:root[data-resolved-theme="dark"] .study-arrival-roster-seat,
+:root[data-resolved-theme="dark"] .study-presence-test,
+:root[data-resolved-theme="dark"] .study-online-proof,
+:root[data-resolved-theme="dark"] .study-relay-settings,
+:root[data-resolved-theme="dark"] .study-online-proof-topic,
+:root[data-resolved-theme="dark"] .study-proof-row,
+:root[data-resolved-theme="dark"] .study-arrival-link,
+:root[data-resolved-theme="dark"] .study-relay-status,
+:root[data-resolved-theme="dark"] .study-invite-strip div,
+:root[data-resolved-theme="dark"] .study-hero-join,
+:root[data-resolved-theme="dark"] .study-arrival-join input,
+:root[data-resolved-theme="dark"] .study-invite-join input,
+:root[data-resolved-theme="dark"] .study-arrival-relay input,
+:root[data-resolved-theme="dark"] .study-arrival-room {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+:root[data-resolved-theme="dark"] .study-room-pulse.has-peer {
+  border-color: rgba(114, 214, 167, 0.28);
+  background: linear-gradient(135deg, rgba(114, 214, 167, 0.12), rgba(255, 226, 160, 0.08));
+}
+
+:root[data-resolved-theme="dark"] .study-room-pulse.is-offline .study-room-pulse-main > span,
+:root[data-resolved-theme="dark"] .study-room-pulse.is-connecting .study-room-pulse-main > span {
+  color: var(--text-muted);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-room.is-active {
+  border-color: rgba(255, 226, 160, 0.34);
+  background: linear-gradient(135deg, rgba(255, 226, 160, 0.14), rgba(59, 95, 80, 0.18));
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-actions button,
+:root[data-resolved-theme="dark"] .study-arrival-join button,
+:root[data-resolved-theme="dark"] .study-hero-join button,
+:root[data-resolved-theme="dark"] .study-invite-join button,
+:root[data-resolved-theme="dark"] .study-arrival-relay button,
+:root[data-resolved-theme="dark"] .study-online-proof > button,
+:root[data-resolved-theme="dark"] .study-presence-test button {
+  color: #d9f4e5;
+  border-color: rgba(114, 214, 167, 0.22);
+  background: rgba(114, 214, 167, 0.12);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-actions button:first-child,
+:root[data-resolved-theme="dark"] .study-presence-test button {
+  color: #1b1608;
+  border-color: rgba(255, 226, 160, 0.42);
+  background: #ffe2a0;
+}
+
+:root[data-resolved-theme="dark"] .study-presence-test button:disabled {
+  color: var(--text-muted);
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme="dark"] .study-arrival-join input,
+:root[data-resolved-theme="dark"] .study-hero-join input,
+:root[data-resolved-theme="dark"] .study-invite-join input,
+:root[data-resolved-theme="dark"] .study-arrival-relay input {
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .study-hero-join input::placeholder {
+  color: var(--text-soft);
+}
+
+:root[data-resolved-theme="dark"] .study-hero-join svg {
+  color: var(--green);
+}
+
+:root[data-resolved-theme="dark"] .study-invite-join svg {
+  color: var(--green);
+}
+
+.main-area[data-view='studio'] {
+  background: #f8faf6;
+}
+
+.main-area[data-view='studio'] > .topbar {
+  display: none;
+}
+

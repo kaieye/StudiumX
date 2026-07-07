@@ -1,33 +1,20 @@
 import {
   ArrowUpRight,
   Bell,
-  Bot,
   BrainCircuit,
   CheckCircle2,
   ChevronDown,
-  Eye,
-  EyeOff,
-  ExternalLink,
   FileCheck2,
   FileText,
   FolderOpen,
-  FolderPlus,
-  GitBranch,
   Info,
-  KeyRound,
   Loader2,
   Minus,
   Monitor,
   Moon,
   Plus,
   RefreshCw,
-  RotateCcw,
-  Search,
-  ShieldCheck,
-  SlidersHorizontal,
-  Sparkles,
   Sun,
-  Trash2,
   Upload,
   X,
   type LucideIcon
@@ -36,10 +23,8 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  TEACHING_MODEL_PROVIDER_PRESETS,
   type CreateTeachingMemoryPayload,
   type ListUpstreamModelsResult,
-  type ModelReasoningEffort,
   type ProbeProviderPayload,
   type ProbeProviderResult,
   type RemoveTeachingGitWorktreePayload,
@@ -48,7 +33,6 @@ import {
   type TeachingMemoryDiagnostics,
   type TeachingMemoryRecord,
   type TeachingMemoryScope,
-  type TeachingModelProviderProfile,
   type TeachingSettingsPatch,
   type TeachingSettingsV1,
   type TeachingWorkspaceSummary,
@@ -57,7 +41,6 @@ import {
 } from '../../../../shared/teaching-types'
 import {
   activeModelProvider,
-  modelSettingsProviderIds,
   parallelSearchModeOptions,
   reasoningEffortDescription,
   reasoningEffortLabel,
@@ -68,6 +51,7 @@ import {
   webSearchBackendLabel,
   webSearchBackendOptions
 } from '../../workflows/settings'
+import { ModelProviderSettingsSection } from './sections/ModelProviderSettingsSection'
 
 export function SettingsView({
   section,
@@ -124,24 +108,7 @@ export function SettingsView({
 }) {
   const { t } = useTranslation()
   const worktreeRootPath = settings.worktree?.rootPath ?? ''
-  const providersById = new Map(settings.provider.providers.map((provider) => [provider.id, provider]))
-  const visibleModelProviders = modelSettingsProviderIds.map((id) => {
-    const preset = TEACHING_MODEL_PROVIDER_PRESETS.find((item) => item.id === id)!
-    return providersById.get(id) ?? { ...preset, apiKey: '' }
-  })
   const activeProvider = activeModelProvider(settings)
-  const activeModelSettingsProvider =
-    visibleModelProviders.find((provider) => provider.id === activeProvider.id) ?? visibleModelProviders[0]!
-  const isCustomModelProvider = activeModelSettingsProvider.id === 'custom'
-  const activeModelValue = activeModelSettingsProvider.models[0] ?? ''
-  const activeProviderProbePayload = {
-    baseUrl: activeModelSettingsProvider.baseUrl,
-    apiKey: activeModelSettingsProvider.apiKey,
-    endpointFormat: activeModelSettingsProvider.endpointFormat
-  } satisfies ProbeProviderPayload
-  const [providerStatus, setProviderStatus] = useState<string>('')
-  const [providerBusy, setProviderBusy] = useState(false)
-  const [apiKeyVisible, setApiKeyVisible] = useState(() => !settings.privacy.maskApiKeys)
   const [worktreeResult, setWorktreeResult] = useState<TeachingGitWorktreesResult | null>(null)
   const [worktreeBusyPath, setWorktreeBusyPath] = useState<string | null>(null)
   const [worktreeLoading, setWorktreeLoading] = useState(false)
@@ -169,63 +136,6 @@ export function SettingsView({
     void refreshWorktrees()
   }, [section, activeWorkspace?.rootPath, worktreeRootPath])
 
-  useEffect(() => {
-    setProviderStatus('')
-    setApiKeyVisible(!settings.privacy.maskApiKeys)
-  }, [activeModelSettingsProvider.id, settings.privacy.maskApiKeys])
-
-  const probeActiveProvider = async (): Promise<void> => {
-    setProviderBusy(true)
-    setProviderStatus(t('model.statusConnecting'))
-    const result = await onProbeProvider(activeProviderProbePayload)
-    setProviderBusy(false)
-    setProviderStatus(result.ok ? t('model.statusOk', { latency: result.latencyMs, count: result.modelIds.length }) : result.message)
-  }
-
-  const pullActiveProviderModels = async (): Promise<void> => {
-    setProviderBusy(true)
-    setProviderStatus(t('model.statusPulling'))
-    const result = await onListUpstreamModels(activeProviderProbePayload)
-    setProviderBusy(false)
-    if (!result.ok) {
-      setProviderStatus(result.message)
-      return
-    }
-    updateProviderModels(result.modelIds, result.modelIds.length > 0)
-    setProviderStatus(t('model.statusSynced', { count: result.modelIds.length }))
-  }
-
-  const updateProvider = (patch: Partial<TeachingModelProviderProfile>): void => {
-    const currentProvider = settings.provider.providers.find((provider) => provider.id === activeModelSettingsProvider.id)
-    const providers = currentProvider
-      ? settings.provider.providers.map((provider) =>
-          provider.id === activeModelSettingsProvider.id ? { ...provider, ...patch } : provider
-        )
-      : [...settings.provider.providers, { ...activeModelSettingsProvider, ...patch }]
-    void onUpdateSettings({
-      provider: {
-        providers
-      }
-    })
-  }
-
-  const updateProviderModels = (models: string[], syncGeneratorModel = true): void => {
-    const currentProvider = settings.provider.providers.find((provider) => provider.id === activeModelSettingsProvider.id)
-    const providers = currentProvider
-      ? settings.provider.providers.map((provider) =>
-          provider.id === activeModelSettingsProvider.id ? { ...provider, models } : provider
-        )
-      : [...settings.provider.providers, { ...activeModelSettingsProvider, models }]
-    void onUpdateSettings({
-      provider: {
-        providers
-      },
-      ...(syncGeneratorModel && settings.generator.providerId === activeModelSettingsProvider.id
-        ? { generator: { model: models[0] ?? '' } }
-        : {})
-    })
-  }
-
   const selectProvider = (providerId: string): void => {
     const provider = settings.provider.providers.find((item) => item.id === providerId) ?? activeProvider
     void onUpdateSettings({
@@ -236,45 +146,6 @@ export function SettingsView({
         endpointFormat: provider.endpointFormat
       }
     })
-  }
-
-  const selectModelProvider = (providerId: string): void => {
-    const provider = visibleModelProviders.find((item) => item.id === providerId) ?? activeModelSettingsProvider
-    const hasProvider = settings.provider.providers.some((item) => item.id === provider.id)
-    void onUpdateSettings({
-      provider: {
-        activeProviderId: provider.id,
-        providers: hasProvider ? settings.provider.providers : [...settings.provider.providers, provider]
-      },
-      generator: {
-        providerId: provider.id,
-        model: provider.models[0] ?? '',
-        endpointFormat: provider.endpointFormat
-      }
-    })
-  }
-
-  const resetActiveProviderToPreset = async (): Promise<void> => {
-    const preset = TEACHING_MODEL_PROVIDER_PRESETS.find((item) => item.id === activeModelSettingsProvider.id)
-    if (!preset) return
-    const resetProvider = { ...preset, apiKey: activeModelSettingsProvider.apiKey }
-    const providers = settings.provider.providers.some((provider) => provider.id === resetProvider.id)
-      ? settings.provider.providers.map((provider) =>
-          provider.id === resetProvider.id ? resetProvider : provider
-        )
-      : [...settings.provider.providers, resetProvider]
-    await onUpdateSettings({
-      provider: {
-        activeProviderId: resetProvider.id,
-        providers
-      },
-      generator: {
-        providerId: resetProvider.id,
-        model: resetProvider.models[0] ?? '',
-        endpointFormat: resetProvider.endpointFormat
-      }
-    })
-    setProviderStatus(t('model.statusReset'))
   }
 
   const refreshWorktrees = async (): Promise<void> => {
@@ -495,111 +366,13 @@ export function SettingsView({
         )}
 
         {section === 'model' && (
-          <SettingsPanel
-            title={t('model.title')}
-            subtitle={t('model.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label="Provider">
-                  <SettingsSelect
-                    value={activeModelSettingsProvider.id}
-                    options={visibleModelProviders.map((provider) => ({
-                      value: provider.id,
-                      label: provider.id === 'custom' ? 'Custom' : provider.name
-                    }))}
-                    onChange={selectModelProvider}
-                  />
-                </SettingsRow>
-                <SettingsRow label={t('model.apiKey.label')}>
-                  <div className="settings-inline-group">
-                    <SettingsTextInput
-                      type={apiKeyVisible ? 'text' : 'password'}
-                      value={activeModelSettingsProvider.apiKey}
-                      placeholder={t('model.apiKey.placeholder')}
-                      onChange={(apiKey) => updateProvider({ apiKey })}
-                    />
-                    <button
-                      className="icon-button soft"
-                      type="button"
-                      aria-label={apiKeyVisible ? t('model.apiKey.hide') : t('model.apiKey.show')}
-                      title={apiKeyVisible ? t('model.apiKey.hide') : t('model.apiKey.show')}
-                      onClick={() => setApiKeyVisible((visible) => !visible)}
-                    >
-                      {apiKeyVisible ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
-                  </div>
-                </SettingsRow>
-                <SettingsRow label={t('model.baseUrl')}>
-                  <SettingsTextInput
-                    value={activeModelSettingsProvider.baseUrl}
-                    onChange={(baseUrl) => updateProvider({ baseUrl })}
-                  />
-                </SettingsRow>
-                <SettingsRow label={t('model.models.label')}>
-                  {isCustomModelProvider ? (
-                    <SettingsTextInput
-                      value={activeModelValue}
-                      onChange={(model) => updateProviderModels(model ? [model] : [])}
-                    />
-                  ) : (
-                    <SettingsSelect
-                      value={
-                        activeModelSettingsProvider.models.includes(settings.generator.model)
-                          ? settings.generator.model
-                          : (activeModelSettingsProvider.models[0] ?? '')
-                      }
-                      options={activeModelSettingsProvider.models.map((model) => ({ value: model, label: model }))}
-                      onChange={(model) => {
-                        updateProviderModels([
-                          model,
-                          ...activeModelSettingsProvider.models.filter((item) => item !== model)
-                        ])
-                      }}
-                    />
-                  )}
-                </SettingsRow>
-                <SettingsRow label={t('reasoning.title')} detail={t('reasoning.settingsDetail')}>
-                  <SegmentedControl
-                    value={selectedReasoningEffort(settings)}
-                    options={reasoningEffortOptionsForSettings(settings).map((effort) => ({
-                      value: effort,
-                      label: reasoningEffortLabel(effort),
-                      icon: BrainCircuit
-                    }))}
-                    onChange={(reasoningEffort) => void onUpdateSettings({ generator: { reasoningEffort } })}
-                  />
-                </SettingsRow>
-                <SettingsRow label={t('model.actions.label')}>
-                  <div className="settings-actions">
-                    <button className="ghost-button" type="button" onClick={() => void probeActiveProvider()} disabled={providerBusy}>
-                      {providerBusy ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} />}
-                      {t('model.actions.test')}
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void pullActiveProviderModels()} disabled={providerBusy || activeModelSettingsProvider.endpointFormat === 'custom_endpoint'}>
-                      <RefreshCw size={15} />
-                      {t('model.actions.pull')}
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeModelSettingsProvider.docsUrl)} disabled={isCustomModelProvider || !activeModelSettingsProvider.docsUrl}>
-                      <ExternalLink size={15} />
-                      {t('model.actions.docs')}
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeModelSettingsProvider.apiKeyUrl)} disabled={isCustomModelProvider || !activeModelSettingsProvider.apiKeyUrl}>
-                      <KeyRound size={15} />
-                      {t('model.actions.key')}
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void resetActiveProviderToPreset()}>
-                      <RefreshCw size={15} />
-                      {t('model.actions.reset')}
-                    </button>
-                  </div>
-                </SettingsRow>
-                {providerStatus ? (
-                  <div className="settings-empty-note" role="status" aria-live="polite">
-                    {providerStatus}
-                  </div>
-                ) : null}
-              </SettingsCard>
-          </SettingsPanel>
+          <ModelProviderSettingsSection
+            settings={settings}
+            onUpdateSettings={onUpdateSettings}
+            onProbeProvider={onProbeProvider}
+            onListUpstreamModels={onListUpstreamModels}
+            onOpenExternal={onOpenExternal}
+          />
         )}
 
         {section === 'generation' && (
