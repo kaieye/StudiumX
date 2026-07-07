@@ -214,3 +214,21 @@ App shell context changes were repeated across navigation, Course selection, pen
 Treatment:
 
 - 2026-07-08: Added a pure App shell context transition Module so the store and sidebar call one interface for cross-field transition patches, with a focused fixture covering the behavior.
+
+## Follow-up Treatment: Study Session Transitions
+
+Recommendation: Strong
+
+Files:
+
+- `src/renderer/src/study-space/session/transitions.ts`
+- `src/renderer/src/study-space/session/useStudySession.ts`
+- `scripts/fixtures/study-session-transitions.ts`
+
+Problem:
+
+The Study Session hook mixed React effects with pure timer, room, mode, contract, task, and host-action transition rules. The deletion test showed that removing a transition Module would push those invariants back into the hook and UI handlers rather than deleting complexity.
+
+Treatment:
+
+- 2026-07-08: Added a pure Study Session transition Module so the hook keeps browser/presence effects while the Session state machine can be tested through one interface.

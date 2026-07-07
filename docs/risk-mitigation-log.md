@@ -2,6 +2,36 @@
 
 This log records codebase risk reviews and the concrete treatment applied after each review batch.
 
+## 2026-07-08: Study Session Transition Module
+
+Review lanes:
+
+- Study timer ticking and focus/break completion.
+- Room and study-mode selection while preserving running timers.
+- Contract locking, host action selection, task mutation, relay and ambient state changes.
+- Existing Study Space hook responsibilities.
+
+Findings:
+
+- `useStudySession` mixed React effects with pure Session transition rules.
+- Timer completion, streak/session/XP updates, room/mode transitions, contract defaults, and task toggling were hard to verify without rendering the hook.
+- The hook was acting as both Adapter for browser/presence effects and implementation for the Study Session state machine.
+
+Treatment:
+
+- Added `src/renderer/src/study-space/session/transitions.ts` as a pure Study Session transition Module.
+- Routed `useStudySession` through that Module for timer ticks, room/mode selection, contract/task changes, host action decisions, relay changes, and ambient controls.
+- Added a focused transition fixture covering timer completion, room/mode transitions, host action ordering, contract defaults, tasks, and relay normalization.
+
+Verification:
+
+- `npm run check:study-session-transitions`
+- `npx tsc --noEmit`
+
+Residual risk:
+
+- Notification and room-event dedupe still live in the hook because they depend on React lifecycle and presence Adapters. A future pass could represent those as declarative effects if the notification/event ordering becomes a maintenance hotspot.
+
 ## 2026-07-08: App Shell Context Transition Module
 
 Review lanes:
