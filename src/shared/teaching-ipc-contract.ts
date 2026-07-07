@@ -1,0 +1,67 @@
+import type { TeachingSystemApi } from './teaching-types'
+
+export type TeachingInvokeCapability = {
+  [Key in keyof TeachingSystemApi]: TeachingSystemApi[Key] extends (...args: any[]) => Promise<unknown>
+    ? Key
+    : never
+}[keyof TeachingSystemApi]
+
+export type TeachingEventChannel =
+  | 'lessonStreamChunk'
+  | 'lessonStreamStatus'
+  | 'agentChatChunk'
+  | 'agentChatStatus'
+  | 'agentChatTool'
+
+export const teachingInvokeChannels = {
+  getState: 'teach:get-state',
+  getSettings: 'teach:get-settings',
+  updateSettings: 'teach:update-settings',
+  selectWorkspace: 'teach:select-workspace',
+  createWorkspace: 'teach:create-workspace',
+  importWorkspace: 'teach:import-workspace',
+  importWorkspacePath: 'teach:import-workspace-path',
+  pickDirectory: 'teach:pick-directory',
+  openImportLocation: 'teach:open-import-location',
+  updateMission: 'teach:update-mission',
+  applyLessonStyle: 'teach:apply-lesson-style',
+  generateLesson: 'teach:generate-lesson',
+  readLesson: 'teach:read-lesson',
+  openPath: 'teach:open-path',
+  openExternal: 'teach:open-external',
+  showNotification: 'teach:show-notification',
+  controlWindow: 'teach:window-control',
+  probeProvider: 'teach:probe-provider',
+  listUpstreamModels: 'teach:list-upstream-models',
+  generateLessonStream: 'teach:generate-lesson-stream',
+  agentChatStream: 'teach:agent-chat-stream',
+  cancelAgentChatStream: 'teach:cancel-agent-chat-stream',
+  saveAgentConversation: 'teach:save-agent-conversation',
+  readAgentConversation: 'teach:read-agent-conversation',
+  setWorkspaceItemMeta: 'teach:set-workspace-item-meta',
+  removeWorkspaceItem: 'teach:remove-workspace-item',
+  removeWorkspace: 'teach:remove-workspace',
+  listReviewCards: 'teach:list-review-cards',
+  recordProgress: 'teach:record-progress',
+  getProgress: 'teach:get-progress',
+  listGitWorktrees: 'teach:list-git-worktrees',
+  removeGitWorktree: 'teach:remove-git-worktree',
+  listGitBranches: 'teach:list-git-branches',
+  switchGitBranch: 'teach:switch-git-branch',
+  createGitBranch: 'teach:create-git-branch',
+  listMemory: 'teach:list-memory',
+  getMemoryDiagnostics: 'teach:get-memory-diagnostics',
+  createMemory: 'teach:create-memory',
+  updateMemory: 'teach:update-memory',
+  deleteMemory: 'teach:delete-memory',
+  openLogFile: 'teach:open-log',
+  openAppDataDir: 'teach:open-app-data-dir'
+} satisfies Record<TeachingInvokeCapability, string>
+
+export const teachingEventChannels = {
+  lessonStreamChunk: 'teach:generate-lesson-chunk',
+  lessonStreamStatus: 'teach:generate-lesson-status',
+  agentChatChunk: 'teach:agent-chat-chunk',
+  agentChatStatus: 'teach:agent-chat-status',
+  agentChatTool: 'teach:agent-chat-tool'
+} satisfies Record<TeachingEventChannel, string>

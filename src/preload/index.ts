@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { TeachingSystemApi } from '../shared/teaching-types'
+import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
 import type {
   AgentChatStreamChunk,
   AgentChatStreamDone,
@@ -22,73 +23,73 @@ function registerIpcListener<T>(
 
 const api: TeachingSystemApi = {
   platform: process.platform,
-  getState: () => ipcRenderer.invoke('teach:get-state'),
-  getSettings: () => ipcRenderer.invoke('teach:get-settings'),
-  updateSettings: (patch) => ipcRenderer.invoke('teach:update-settings', patch),
-  selectWorkspace: (workspaceId) => ipcRenderer.invoke('teach:select-workspace', workspaceId),
-  createWorkspace: (payload) => ipcRenderer.invoke('teach:create-workspace', payload),
-  importWorkspace: () => ipcRenderer.invoke('teach:import-workspace'),
-  importWorkspacePath: (rootPath) => ipcRenderer.invoke('teach:import-workspace-path', rootPath),
-  pickDirectory: (defaultPath) => ipcRenderer.invoke('teach:pick-directory', defaultPath),
-  openImportLocation: (path) => ipcRenderer.invoke('teach:open-import-location', path),
-  updateMission: (payload) => ipcRenderer.invoke('teach:update-mission', payload),
-  applyLessonStyle: (payload) => ipcRenderer.invoke('teach:apply-lesson-style', payload),
-  generateLesson: (payload) => ipcRenderer.invoke('teach:generate-lesson', payload),
-  readLesson: (payload) => ipcRenderer.invoke('teach:read-lesson', payload),
-  openPath: (path) => ipcRenderer.invoke('teach:open-path', path),
-  openExternal: (url) => ipcRenderer.invoke('teach:open-external', url),
-  showNotification: (payload) => ipcRenderer.invoke('teach:show-notification', payload),
-  controlWindow: (action) => ipcRenderer.invoke('teach:window-control', action),
-  probeProvider: (payload) => ipcRenderer.invoke('teach:probe-provider', payload),
-  listUpstreamModels: (payload) => ipcRenderer.invoke('teach:list-upstream-models', payload),
+  getState: () => ipcRenderer.invoke(teachingInvokeChannels.getState),
+  getSettings: () => ipcRenderer.invoke(teachingInvokeChannels.getSettings),
+  updateSettings: (patch) => ipcRenderer.invoke(teachingInvokeChannels.updateSettings, patch),
+  selectWorkspace: (workspaceId) => ipcRenderer.invoke(teachingInvokeChannels.selectWorkspace, workspaceId),
+  createWorkspace: (payload) => ipcRenderer.invoke(teachingInvokeChannels.createWorkspace, payload),
+  importWorkspace: () => ipcRenderer.invoke(teachingInvokeChannels.importWorkspace),
+  importWorkspacePath: (rootPath) => ipcRenderer.invoke(teachingInvokeChannels.importWorkspacePath, rootPath),
+  pickDirectory: (defaultPath) => ipcRenderer.invoke(teachingInvokeChannels.pickDirectory, defaultPath),
+  openImportLocation: (path) => ipcRenderer.invoke(teachingInvokeChannels.openImportLocation, path),
+  updateMission: (payload) => ipcRenderer.invoke(teachingInvokeChannels.updateMission, payload),
+  applyLessonStyle: (payload) => ipcRenderer.invoke(teachingInvokeChannels.applyLessonStyle, payload),
+  generateLesson: (payload) => ipcRenderer.invoke(teachingInvokeChannels.generateLesson, payload),
+  readLesson: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readLesson, payload),
+  openPath: (path) => ipcRenderer.invoke(teachingInvokeChannels.openPath, path),
+  openExternal: (url) => ipcRenderer.invoke(teachingInvokeChannels.openExternal, url),
+  showNotification: (payload) => ipcRenderer.invoke(teachingInvokeChannels.showNotification, payload),
+  controlWindow: (action) => ipcRenderer.invoke(teachingInvokeChannels.controlWindow, action),
+  probeProvider: (payload) => ipcRenderer.invoke(teachingInvokeChannels.probeProvider, payload),
+  listUpstreamModels: (payload) => ipcRenderer.invoke(teachingInvokeChannels.listUpstreamModels, payload),
   generateLessonStream: (payload, onChunk, onStatus) => {
-    const offChunk = registerIpcListener<LessonStreamChunk>('teach:generate-lesson-chunk', onChunk)
-    const offStatus = registerIpcListener<LessonStreamStatus>('teach:generate-lesson-status', onStatus)
+    const offChunk = registerIpcListener<LessonStreamChunk>(teachingEventChannels.lessonStreamChunk, onChunk)
+    const offStatus = registerIpcListener<LessonStreamStatus>(teachingEventChannels.lessonStreamStatus, onStatus)
     return ipcRenderer
-      .invoke('teach:generate-lesson-stream', payload)
+      .invoke(teachingInvokeChannels.generateLessonStream, payload)
       .finally(() => {
         offChunk()
         offStatus()
       }) as Promise<LessonStreamDone>
   },
-  onLessonStreamChunk: (handler) => registerIpcListener<LessonStreamChunk>('teach:generate-lesson-chunk', handler),
-  onLessonStreamStatus: (handler) => registerIpcListener<LessonStreamStatus>('teach:generate-lesson-status', handler),
+  onLessonStreamChunk: (handler) => registerIpcListener<LessonStreamChunk>(teachingEventChannels.lessonStreamChunk, handler),
+  onLessonStreamStatus: (handler) => registerIpcListener<LessonStreamStatus>(teachingEventChannels.lessonStreamStatus, handler),
   agentChatStream: (payload, onChunk, onStatus, onTool) => {
-    const offChunk = registerIpcListener<AgentChatStreamChunk>('teach:agent-chat-chunk', onChunk)
-    const offStatus = registerIpcListener<AgentChatStreamStatus>('teach:agent-chat-status', onStatus)
-    const offTool = registerIpcListener<AgentChatStreamToolEvent>('teach:agent-chat-tool', onTool)
+    const offChunk = registerIpcListener<AgentChatStreamChunk>(teachingEventChannels.agentChatChunk, onChunk)
+    const offStatus = registerIpcListener<AgentChatStreamStatus>(teachingEventChannels.agentChatStatus, onStatus)
+    const offTool = registerIpcListener<AgentChatStreamToolEvent>(teachingEventChannels.agentChatTool, onTool)
     return ipcRenderer
-      .invoke('teach:agent-chat-stream', payload)
+      .invoke(teachingInvokeChannels.agentChatStream, payload)
       .finally(() => {
         offChunk()
         offStatus()
         offTool()
       }) as Promise<AgentChatStreamDone>
   },
-  cancelAgentChatStream: (streamId) => ipcRenderer.invoke('teach:cancel-agent-chat-stream', streamId),
-  onAgentChatChunk: (handler) => registerIpcListener<AgentChatStreamChunk>('teach:agent-chat-chunk', handler),
-  onAgentChatStatus: (handler) => registerIpcListener<AgentChatStreamStatus>('teach:agent-chat-status', handler),
-  onAgentChatTool: (handler) => registerIpcListener<AgentChatStreamToolEvent>('teach:agent-chat-tool', handler),
-  saveAgentConversation: (payload) => ipcRenderer.invoke('teach:save-agent-conversation', payload),
-  readAgentConversation: (payload) => ipcRenderer.invoke('teach:read-agent-conversation', payload),
-  setWorkspaceItemMeta: (payload) => ipcRenderer.invoke('teach:set-workspace-item-meta', payload),
-  removeWorkspaceItem: (payload) => ipcRenderer.invoke('teach:remove-workspace-item', payload),
-  removeWorkspace: (payload) => ipcRenderer.invoke('teach:remove-workspace', payload),
-  listReviewCards: (workspaceId) => ipcRenderer.invoke('teach:list-review-cards', workspaceId),
-  recordProgress: (payload) => ipcRenderer.invoke('teach:record-progress', payload),
-  getProgress: (workspaceId) => ipcRenderer.invoke('teach:get-progress', workspaceId),
-  listGitWorktrees: (workspaceRoot) => ipcRenderer.invoke('teach:list-git-worktrees', workspaceRoot),
-  removeGitWorktree: (payload) => ipcRenderer.invoke('teach:remove-git-worktree', payload),
-  listGitBranches: (workspaceRoot) => ipcRenderer.invoke('teach:list-git-branches', workspaceRoot),
-  switchGitBranch: (payload) => ipcRenderer.invoke('teach:switch-git-branch', payload),
-  createGitBranch: (payload) => ipcRenderer.invoke('teach:create-git-branch', payload),
-  listMemory: (workspaceRoot) => ipcRenderer.invoke('teach:list-memory', workspaceRoot),
-  getMemoryDiagnostics: () => ipcRenderer.invoke('teach:get-memory-diagnostics'),
-  createMemory: (payload) => ipcRenderer.invoke('teach:create-memory', payload),
-  updateMemory: (memoryId, patch) => ipcRenderer.invoke('teach:update-memory', memoryId, patch),
-  deleteMemory: (memoryId, workspaceRoot) => ipcRenderer.invoke('teach:delete-memory', memoryId, workspaceRoot),
-  openLogFile: () => ipcRenderer.invoke('teach:open-log'),
-  openAppDataDir: () => ipcRenderer.invoke('teach:open-app-data-dir')
+  cancelAgentChatStream: (streamId) => ipcRenderer.invoke(teachingInvokeChannels.cancelAgentChatStream, streamId),
+  onAgentChatChunk: (handler) => registerIpcListener<AgentChatStreamChunk>(teachingEventChannels.agentChatChunk, handler),
+  onAgentChatStatus: (handler) => registerIpcListener<AgentChatStreamStatus>(teachingEventChannels.agentChatStatus, handler),
+  onAgentChatTool: (handler) => registerIpcListener<AgentChatStreamToolEvent>(teachingEventChannels.agentChatTool, handler),
+  saveAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.saveAgentConversation, payload),
+  readAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readAgentConversation, payload),
+  setWorkspaceItemMeta: (payload) => ipcRenderer.invoke(teachingInvokeChannels.setWorkspaceItemMeta, payload),
+  removeWorkspaceItem: (payload) => ipcRenderer.invoke(teachingInvokeChannels.removeWorkspaceItem, payload),
+  removeWorkspace: (payload) => ipcRenderer.invoke(teachingInvokeChannels.removeWorkspace, payload),
+  listReviewCards: (workspaceId) => ipcRenderer.invoke(teachingInvokeChannels.listReviewCards, workspaceId),
+  recordProgress: (payload) => ipcRenderer.invoke(teachingInvokeChannels.recordProgress, payload),
+  getProgress: (workspaceId) => ipcRenderer.invoke(teachingInvokeChannels.getProgress, workspaceId),
+  listGitWorktrees: (workspaceRoot) => ipcRenderer.invoke(teachingInvokeChannels.listGitWorktrees, workspaceRoot),
+  removeGitWorktree: (payload) => ipcRenderer.invoke(teachingInvokeChannels.removeGitWorktree, payload),
+  listGitBranches: (workspaceRoot) => ipcRenderer.invoke(teachingInvokeChannels.listGitBranches, workspaceRoot),
+  switchGitBranch: (payload) => ipcRenderer.invoke(teachingInvokeChannels.switchGitBranch, payload),
+  createGitBranch: (payload) => ipcRenderer.invoke(teachingInvokeChannels.createGitBranch, payload),
+  listMemory: (workspaceRoot) => ipcRenderer.invoke(teachingInvokeChannels.listMemory, workspaceRoot),
+  getMemoryDiagnostics: () => ipcRenderer.invoke(teachingInvokeChannels.getMemoryDiagnostics),
+  createMemory: (payload) => ipcRenderer.invoke(teachingInvokeChannels.createMemory, payload),
+  updateMemory: (memoryId, patch) => ipcRenderer.invoke(teachingInvokeChannels.updateMemory, memoryId, patch),
+  deleteMemory: (memoryId, workspaceRoot) => ipcRenderer.invoke(teachingInvokeChannels.deleteMemory, memoryId, workspaceRoot),
+  openLogFile: () => ipcRenderer.invoke(teachingInvokeChannels.openLogFile),
+  openAppDataDir: () => ipcRenderer.invoke(teachingInvokeChannels.openAppDataDir)
 }
 
 contextBridge.exposeInMainWorld('teachingSystem', api)

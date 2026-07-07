@@ -63,6 +63,10 @@ Benefits:
 - Adapters stay thin.
 - Tests can cross one interface instead of matching source text.
 
+Treatment:
+
+- 2026-07-08: Added a shared IPC contract Module so main and preload Adapters reuse one channel interface, with a focused contract fixture covering unique invoke/event channels.
+
 ## 3. Narrow the Teaching Workspace Module
 
 Recommendation: Worth exploring

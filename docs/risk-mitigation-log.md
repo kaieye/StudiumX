@@ -2,6 +2,40 @@
 
 This log records codebase risk reviews and the concrete treatment applied after each review batch.
 
+## 2026-07-08: IPC Contract Module
+
+Review lanes:
+
+- Renderer-facing Teaching system invoke channels.
+- Lesson and Agent chat stream event channels.
+- Existing source checks for provider actions and lesson styles.
+
+Findings:
+
+- Main and preload Adapters repeated the same `teach:*` channel strings.
+- Source checks compensated by asserting literal channel strings in both Adapters, so channel edits had weak locality.
+- Payload parsing already had a deeper Module in `teaching-ipc-commands`; the remaining shallow seam was the channel contract itself.
+
+Treatment:
+
+- Added `src/shared/teaching-ipc-contract.ts` as the shared IPC contract Module. Its invoke map is typed against Promise-returning `TeachingSystemApi` capabilities, while stream events are named separately.
+- Routed `src/main/index.ts` and `src/preload/index.ts` through the shared invoke/event channel maps.
+- Added a focused IPC contract fixture and updated provider action / lesson style checks to assert shared-contract wiring instead of duplicated literal channels.
+
+Verification:
+
+- `npm run check:teaching-ipc-contract`
+- `npm run check:teaching-ipc-commands`
+- `npm run check:provider-actions`
+- `npm run check:lesson-styles`
+- `npm run check:agent-chat`
+- `npm run check:conversation-lesson-tool`
+- `npx tsc --noEmit`
+
+Residual risk:
+
+- Main handler registration is still in the Electron entry Module. Moving that safely would require injected Electron/dialog/shell/window Adapters and broader behavior fixtures; the current treatment intentionally deepens only the channel seam.
+
 ## 2026-07-08: Provider Format Module
 
 Review lanes:

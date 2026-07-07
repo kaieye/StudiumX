@@ -20,13 +20,17 @@ const [
   baseStyles,
   sharedAssets,
   workspace,
+  workspaceLifecycle,
   settings,
   ipcCommands,
   mainIndex,
   preload,
   app,
+  appStore,
+  rendererSettings,
   lessonStyleGallery,
   css,
+  mainCss,
   zh,
   en,
   themeEntries
@@ -35,13 +39,17 @@ const [
   readFile('src/shared/lesson-style-themes/base.ts', 'utf8'),
   readFile('src/shared/lesson-style-themes/assets.ts', 'utf8'),
   readFile('src/main/teaching-workspace.ts', 'utf8'),
+  readFile('src/main/teaching-workspace/lifecycle.ts', 'utf8'),
   readFile('src/main/teaching-settings.ts', 'utf8'),
   readFile('src/main/teaching-ipc-commands.ts', 'utf8'),
   readFile('src/main/index.ts', 'utf8'),
   readFile('src/preload/index.ts', 'utf8'),
   readFile('src/renderer/src/App.tsx', 'utf8'),
+  readFile('src/renderer/src/app-shell/appStore.ts', 'utf8'),
+  readFile('src/renderer/src/workflows/settings.ts', 'utf8'),
   readFile('src/renderer/src/views/resources/LessonStyleGallery.tsx', 'utf8'),
-  readFile('src/renderer/src/styles.css', 'utf8'),
+  readFile('src/renderer/src/styles/resources.css', 'utf8'),
+  readFile('src/renderer/src/styles/main.css', 'utf8'),
   readFile('src/renderer/src/i18n/locales/zh-CN.json', 'utf8'),
   readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8'),
   Promise.all(
@@ -116,8 +124,8 @@ assert.match(
 )
 
 assert.match(
-  workspace,
-  /'assets\/lesson\.css', lessonStyleCss\(lessonStyleId\)/,
+  workspaceLifecycle,
+  /writeWorkspaceScaffoldFileIfMissing\(workspace\.rootPath, effectivePathMeta, 'assets\/lesson\.css', lessonStyleCss\(lessonStyleId\)\)/,
   'workspace scaffolding should honor the configured lesson style'
 )
 
@@ -140,13 +148,13 @@ assert.match(
 
 assert.match(
   mainIndex,
-  /ipcMain\.handle\('teach:apply-lesson-style'/,
+  /ipcMain\.handle\(teachingInvokeChannels\.applyLessonStyle/,
   'main process should register the teach:apply-lesson-style handler'
 )
 
 assert.match(
   preload,
-  /applyLessonStyle: \(payload\) => ipcRenderer\.invoke\('teach:apply-lesson-style', payload\)/,
+  /applyLessonStyle: \(payload\) => ipcRenderer\.invoke\(teachingInvokeChannels\.applyLessonStyle, payload\)/,
   'preload should expose applyLessonStyle to the renderer'
 )
 
@@ -220,13 +228,13 @@ assert.match(
 )
 
 assert.match(
-  app,
+  appStore,
   /applyLessonStyle: async \(styleId\) => \{/,
   'the store should expose an applyLessonStyle action'
 )
 
 assert.match(
-  app,
+  rendererSettings,
   /lessonStyleId: DEFAULT_LESSON_STYLE_ID/,
   'renderer fallback settings should include the default lesson style'
 )
@@ -236,7 +244,7 @@ assert.match(css, /\.style-card\.is-selected/, 'styles.css should highlight the 
 assert.match(css, /\.style-card-chip-aa \{/, 'styles.css should style the type specimen chip')
 assert.match(css, /\.style-card-scale \{/, 'styles.css should style the tonal scale strip')
 assert.doesNotMatch(css, /\.style-card-badge/, 'styles.css should not keep styling a removed style card badge')
-assert.match(css, /\.reader-preview-back \{/, 'styles.css should position the resource preview back button')
+assert.match(mainCss, /\.reader-preview-back \{/, 'main.css should position the resource preview back button')
 assert.match(css, /\.style-card-apply\.is-current/, 'styles.css should style the current style apply button')
 
 // ----- i18n -----
