@@ -11,6 +11,7 @@ type AtlasFrame = {
 type TextureAtlas = {
   frames: Record<string, AtlasFrame>
   animations?: Record<string, string[]>
+  meta?: { scale?: number }
 }
 
 type AtlasImage = {
@@ -25,68 +26,80 @@ type SheetSpec = {
 
 const sheetSpecs = {
   workstation: {
-    imageUrl: new URL('./assets/marvis/img/workstation.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/img/workstation.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/img/workstation@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/img/workstation@2x.webp.json', import.meta.url).href
   },
   agent: {
-    imageUrl: new URL('./assets/marvis/img/agent.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/img/agent.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/img/agent@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/img/agent@2x.webp.json', import.meta.url).href
   },
   working: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/working.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/working.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/working@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/working@2x.webp.json', import.meta.url).href
   },
   standby: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/standby.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/standby.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/standby@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/standby@2x.webp.json', import.meta.url).href
   },
   talkingOnSeat: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/talking_on_seat.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/talking_on_seat.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/talking_on_seat@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/talking_on_seat@2x.webp.json', import.meta.url).href
   },
   peek: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/peek.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/peek.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/peek@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/peek@2x.webp.json', import.meta.url).href
   },
   sleeping: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/sleeping.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/sleeping.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/sleeping@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/sleeping@2x.webp.json', import.meta.url).href
+  },
+  walkingH: {
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_walking_h@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_walking_h@2x.webp.json', import.meta.url).href
+  },
+  walkingUp: {
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_walking_up@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_walking_up@2x.webp.json', import.meta.url).href
+  },
+  runningTreadmill: {
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_running_treadmill@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_running_treadmill@2x.webp.json', import.meta.url).href
   },
   screenWorkingMain: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_main.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_main.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_main@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_main@2x.webp.json', import.meta.url).href
   },
   screenWorkingApk: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_apk_use.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_apk_use.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_apk_use@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_apk_use@2x.webp.json', import.meta.url).href
   },
   screenWorkingFile: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_file_use.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_file_use.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_file_use@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_file_use@2x.webp.json', import.meta.url).href
   },
   screenWorkingWin: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_win_use.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_win_use.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_win_use@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_win_use@2x.webp.json', import.meta.url).href
   },
   screenWorkingSearch: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_search_or_browser_use.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_search_or_browser_use.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_search_or_browser_use@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_search_or_browser_use@2x.webp.json', import.meta.url).href
   },
   screenPlaying1: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing1.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing1.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing1@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing1@2x.webp.json', import.meta.url).href
   },
   screenPlaying2: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing2.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing2.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing2@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing2@2x.webp.json', import.meta.url).href
   },
   screenPlaying3: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing3.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing3.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing3@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing3@2x.webp.json', import.meta.url).href
   },
   catWalk: {
-    imageUrl: new URL('./assets/marvis/spritesheet/cat/fc_cat_walk_h.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/cat/fc_cat_walk_h.webp.json', import.meta.url).href
+    imageUrl: new URL('./assets/marvis/spritesheet/cat/fc_cat_walk_h@2x.webp', import.meta.url).href,
+    atlasUrl: new URL('./assets/marvis/spritesheet/cat/fc_cat_walk_h@2x.webp.json', import.meta.url).href
   }
 } as const satisfies Record<string, SheetSpec>
 
@@ -428,6 +441,20 @@ function pickFrame(sheet: AtlasImage, animationName: string, elapsed: number, fp
   return frames[index] ?? null
 }
 
+function atlasScale(atlas: TextureAtlas): number {
+  return atlas.meta?.scale && atlas.meta.scale > 0 ? atlas.meta.scale : 1
+}
+
+function logicalFrameSize(sheet: AtlasImage, frameName: string): { width: number; height: number } | null {
+  const frame = sheet.atlas.frames[frameName]
+  if (!frame) return null
+  const scale = atlasScale(sheet.atlas)
+  return {
+    width: frame.sourceSize.w / scale,
+    height: frame.sourceSize.h / scale
+  }
+}
+
 function drawAtlasFrame(
   ctx: CanvasRenderingContext2D,
   atlasImage: AtlasImage,
@@ -503,16 +530,16 @@ function drawTemplateSprites(
 
 function drawStaticFurniture(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets): void {
   for (const furniture of staticFurniture) {
-    const frame = assets.sheets.workstation.atlas.frames[furniture.frameName]
-    if (!frame) continue
+    const size = logicalFrameSize(assets.sheets.workstation, furniture.frameName)
+    if (!size) continue
     drawAtlasFrame(
       ctx,
       assets.sheets.workstation,
       furniture.frameName,
       furniture.x,
       furniture.y,
-      frame.sourceSize.w,
-      frame.sourceSize.h
+      size.width,
+      size.height
     )
   }
 }
@@ -564,29 +591,49 @@ function animationNameForSheet(sheet: SheetKey): string {
       return 'fc_screen_playing3'
     case 'catWalk':
       return 'fc_cat_walk_h'
+    case 'walkingH':
+      return 'runh'
+    case 'walkingUp':
+      return 'runup'
+    case 'runningTreadmill':
+      return 'fc_running_treadmill'
     default:
       return sheet
   }
 }
 
-function drawAgent(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, agent: AgentConfig, x: number, y: number, elapsed: number): void {
-  const sheet = assets.sheets[agent.actionSheet]
-  const frameName = pickFrame(sheet, agent.actionAnimation, elapsed)
+function drawAnimatedAgent(
+  ctx: CanvasRenderingContext2D,
+  sheet: AtlasImage,
+  animationName: string,
+  x: number,
+  y: number,
+  elapsed: number,
+  scale = agentVisualScale,
+  pivotY = 30,
+  fps = animationFps
+): void {
+  const frameName = pickFrame(sheet, animationName, elapsed, fps)
   if (!frameName) return
+  const size = logicalFrameSize(sheet, frameName)
+  if (!size) return
 
-  const width = 534 * agentVisualScale
-  const height = 400 * agentVisualScale
+  const width = size.width * scale
+  const height = size.height * scale
   const dx = x - width / 2
-  const dy = y - height / 2 - 30 * agentVisualScale
+  const dy = y - height / 2 - pivotY * scale
   drawAtlasFrame(ctx, sheet, frameName, dx, dy, width, height)
+}
+
+function drawAgent(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, agent: AgentConfig, x: number, y: number, elapsed: number): void {
+  drawAnimatedAgent(ctx, assets.sheets[agent.actionSheet], agent.actionAnimation, x, y, elapsed)
 }
 
 function drawAgentName(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, agent: AgentConfig, x: number, y: number): void {
   const sheet = assets.sheets.agent
-  const frame = sheet.atlas.frames[agent.nameFrame]
-  if (!frame) return
-  const width = frame.sourceSize.w
-  const height = frame.sourceSize.h
+  const size = logicalFrameSize(sheet, agent.nameFrame)
+  if (!size) return
+  const { width, height } = size
   drawAtlasFrame(ctx, sheet, agent.nameFrame, x - width / 2, y - 114, width, height)
 }
 
@@ -622,9 +669,42 @@ function drawCat(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, elapsed
   const sheet = assets.sheets.catWalk
   const frameName = pickFrame(sheet, 'fc_cat_walk_h', elapsed, 18)
   if (!frameName) return
+  const size = logicalFrameSize(sheet, frameName)
+  if (!size) return
   const x = 392 + Math.sin(elapsed / 1800) * 46
   const y = 820
-  drawAtlasFrame(ctx, sheet, frameName, x - 267 - 4, y - 400 + 80, 534, 400)
+  drawAtlasFrame(ctx, sheet, frameName, x - size.width / 2 - 4, y - size.height + 80, size.width, size.height)
+}
+
+function movingAgentPose(elapsed: number): { x: number; y: number; sheet: SheetKey; animation: string } {
+  const cycle = 7600
+  const progress = (elapsed % cycle) / cycle
+  if (progress < 0.52) {
+    const t = progress / 0.52
+    return {
+      x: 430 + t * 250,
+      y: 770,
+      sheet: 'walkingH',
+      animation: 'runh'
+    }
+  }
+
+  const t = (progress - 0.52) / 0.48
+  return {
+    x: 680,
+    y: 770 - t * 250,
+    sheet: 'walkingUp',
+    animation: 'runup'
+  }
+}
+
+function drawMovingAgent(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, elapsed: number): void {
+  const pose = movingAgentPose(elapsed)
+  drawAnimatedAgent(ctx, assets.sheets[pose.sheet], pose.animation, pose.x, pose.y, elapsed, 0.48)
+}
+
+function drawTreadmillRunner(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, elapsed: number): void {
+  drawAnimatedAgent(ctx, assets.sheets.runningTreadmill, 'fc_running_treadmill', 350, 438, elapsed, 0.42)
 }
 
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number): void {
@@ -668,6 +748,9 @@ function drawScene(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, elaps
   }
 
   drawStaticFurniture(ctx, assets)
+  agentLayer.push({ z: 430, draw: () => drawTreadmillRunner(ctx, assets, elapsed) })
+  const movingPose = movingAgentPose(elapsed)
+  agentLayer.push({ z: movingPose.y, draw: () => drawMovingAgent(ctx, assets, elapsed) })
   agentLayer.push({ z: 788, draw: () => drawCat(ctx, assets, elapsed) })
   agentLayer.sort((a, b) => a.z - b.z)
   for (const layer of agentLayer) layer.draw()
