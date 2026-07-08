@@ -14,6 +14,7 @@ import {
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
+import { resolveRegisteredGitWorkspaceRoot } from './teaching-git-access'
 import { isPathInsideConfiguredRoot, isPathInsideRoot } from './path-access'
 import { openExternalHttpUrl } from './external-links'
 import {
@@ -70,6 +71,11 @@ function registerTeachingIpc(
   settingsService: TeachingSettingsService
 ): void {
   const activeAgentChatStreams = new Map<string, AbortController>()
+
+  const resolveGitWorkspaceRoot = async (rawWorkspaceRoot: string) => {
+    const state = await service.getState()
+    return resolveRegisteredGitWorkspaceRoot(state.workspaces, rawWorkspaceRoot)
+  }
 
   ipcMain.handle(teachingInvokeChannels.getState, async () => service.getState())
   ipcMain.handle(teachingInvokeChannels.getSettings, async () => settingsService.load())
@@ -319,25 +325,33 @@ function registerTeachingIpc(
   ipcMain.handle(teachingInvokeChannels.removeGitWorktree, async (_, payload: unknown) => {
     const settings = await settingsService.load()
     const request = parseRemoveGitWorktreePayload(payload)
+    const access = await resolveGitWorkspaceRoot(request.workspaceRoot)
+    if (!access.ok) return { ok: false, message: access.message }
     return removeGitWorktreeForWorkspace({
-      workspaceRoot: request.workspaceRoot,
+      workspaceRoot: access.rootPath,
       worktreePath: request.worktreePath,
       worktreeRoot: settings.worktree.rootPath
     })
   })
 
-  ipcMain.handle(teachingInvokeChannels.listGitBranches, async (_, workspaceRootRaw: unknown) =>
-    getGitBranchesForWorkspace(requireString(workspaceRootRaw, 'workspaceRoot'))
-  )
+  ipcMain.handle(teachingInvokeChannels.listGitBranches, async (_, workspaceRootRaw: unknown) => {
+    const access = await resolveGitWorkspaceRoot(requireString(workspaceRootRaw, 'workspaceRoot'))
+    if (!access.ok) return access
+    return getGitBranchesForWorkspace(access.rootPath)
+  })
 
   ipcMain.handle(teachingInvokeChannels.switchGitBranch, async (_, payload: unknown) => {
     const request = parseGitBranchPayload(payload)
-    return switchGitBranchForWorkspace(request.workspaceRoot, request.branch)
+    const access = await resolveGitWorkspaceRoot(request.workspaceRoot)
+    if (!access.ok) return access
+    return switchGitBranchForWorkspace(access.rootPath, request.branch)
   })
 
   ipcMain.handle(teachingInvokeChannels.createGitBranch, async (_, payload: unknown) => {
     const request = parseGitBranchPayload(payload)
-    return createAndSwitchGitBranchForWorkspace(request.workspaceRoot, request.branch)
+    const access = await resolveGitWorkspaceRoot(request.workspaceRoot)
+    if (!access.ok) return access
+    return createAndSwitchGitBranchForWorkspace(access.rootPath, request.branch)
   })
 
   ipcMain.handle(teachingInvokeChannels.listMemory, async (_, workspaceRootRaw: unknown) =>

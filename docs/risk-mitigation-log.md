@@ -2,6 +2,38 @@
 
 This log records codebase risk reviews and the concrete treatment applied after each review batch.
 
+## 2026-07-08: Git IPC Workspace and Branch Guards
+
+Review lanes:
+
+- Renderer-facing Git IPC handlers for branch and worktree operations.
+- Main-process authority checks around `workspaceRoot`.
+- Git branch argument semantics for switch/create actions.
+
+Findings:
+
+- Git IPC handlers accepted `workspaceRoot` from the renderer and executed Git operations without first proving that the path was an exact registered Teaching workspace root.
+- Existing branch switching used `execFile`, so there was no shell injection path, but untrusted branch strings could still be interpreted by Git as option-like input or reflog shorthand before any local-branch existence check.
+- There was no focused fixture covering Git IPC access policy or branch argument hardening.
+
+Treatment:
+
+- Added `src/main/teaching-git-access.ts` as the Git workspace access Module. It resolves a requested root only when it exactly matches a registered Teaching workspace root.
+- Routed list/switch/create branch IPC handlers and worktree removal through the registered-root guard before calling Git helpers.
+- Tightened branch switching and creation so branch input must be a canonical local branch name; switching also requires the branch to exist locally and uses `git switch --no-guess` when available.
+- Added `check:teaching-git-guards`, backed by a temporary real Git repository fixture, to cover registered-root checks, option-like branch rejection, reflog shorthand rejection, missing branch rejection, and valid switch/create flows.
+
+Verification:
+
+- `npm run check:teaching-git-guards`
+- `npm run check:teaching-ipc-contract`
+- `npx tsc --noEmit`
+- `npm run build`
+
+Residual risk:
+
+- Worktree removal still delegates final safety to Git after the app confirms the worktree is listed by the repository and under the configured worktree root. A future pass could add realpath-based worktree-root checks if symlinked worktree roots become a supported workflow.
+
 ## 2026-07-08: Office Workbench Interaction Cleanup
 
 Review lanes:
