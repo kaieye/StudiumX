@@ -2,6 +2,37 @@
 
 This log records codebase risk reviews and the concrete treatment applied after each review batch.
 
+## 2026-07-08: Workspace Write Tool Symlink Guard
+
+Review lanes:
+
+- Agent-accessible `write_workspace_file` tool path containment.
+- Existing workspace read/write tool boundaries.
+- Regression coverage for filesystem edge cases around missing targets and symlinks.
+
+Findings:
+
+- `write_workspace_file` resolved relative paths and verified real paths after writes, but the pre-write existence check used `stat`.
+- A dangling symlink at the target leaf could look like a missing file to `stat`, then `writeFile` could follow the symlink and create the external target before the post-write realpath guard rejected it.
+- The existing workspace write fixture covered protected paths, Lesson HTML rejection, and overwrite rules, but not dangling symlink write targets.
+
+Treatment:
+
+- Added a pre-write `lstat` check in `src/main/ai/tools/workspace.ts` and reject symlink leaf targets before any write attempt.
+- Extended the workspace write fixture with a dangling symlink regression case that proves the external target is not created.
+- Added `check:workspace-write-tool` to `package.json` so the existing check script is part of the standard npm command surface.
+
+Verification:
+
+- `npm run check:workspace-write-tool`
+- `npm run check:tool-execution`
+- `npx tsc --noEmit`
+- `npm run build`
+
+Residual risk:
+
+- The tool now rejects all symlink leaf write targets, including symlinks that resolve inside the Teaching workspace. That is intentionally conservative; a future use case that needs editable in-workspace symlinks should add an explicit policy and fixtures before relaxing it.
+
 ## 2026-07-08: Study Session Transition Module
 
 Review lanes:

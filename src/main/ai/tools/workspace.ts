@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { Dirent } from 'node:fs'
 import type { ToolEntry, ToolContext } from './registry'
@@ -191,6 +191,19 @@ async function readTextFile(path: string, maxBytes = MAX_FILE_BYTES): Promise<st
   const buffer = await readFile(path)
   if (isBinaryBuffer(buffer)) throw new Error('检测到二进制文件，拒绝作为文本读取。')
   return buffer.toString('utf8')
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
+}
+
+async function lstatIfExists(path: string): Promise<Awaited<ReturnType<typeof lstat>> | null> {
+  try {
+    return await lstat(path)
+  } catch (error) {
+    if (isNotFoundError(error)) return null
+    throw error
+  }
 }
 
 function lineWindow(text: string, offset: number, limit: number): {
@@ -440,6 +453,11 @@ export const writeWorkspaceFileTool: ToolEntry = {
       const bytes = Buffer.byteLength(input.content, 'utf8')
       if (bytes > MAX_WRITE_BYTES) {
         throw new Error(`写入内容过大（${bytes} bytes），已超过 ${MAX_WRITE_BYTES} bytes 上限。`)
+      }
+
+      const linkInfo = await lstatIfExists(target.absolutePath)
+      if (linkInfo?.isSymbolicLink()) {
+        throw new Error('目标路径是符号链接，拒绝写入。')
       }
 
       const existing = await stat(target.absolutePath).catch(() => null)
