@@ -14,7 +14,7 @@ import {
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
-import { resolveRegisteredGitWorkspaceRoot } from './teaching-git-access'
+import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
 import { isPathInsideConfiguredRoot, isPathInsideRoot } from './path-access'
 import { openExternalHttpUrl } from './external-links'
 import {
@@ -74,7 +74,12 @@ function registerTeachingIpc(
 
   const resolveGitWorkspaceRoot = async (rawWorkspaceRoot: string) => {
     const state = await service.getState()
-    return resolveRegisteredGitWorkspaceRoot(state.workspaces, rawWorkspaceRoot)
+    return resolveRegisteredWorkspaceRoot(state.workspaces, rawWorkspaceRoot)
+  }
+
+  const resolveOptionalWorkspaceRoot = async (rawWorkspaceRoot: string | undefined) => {
+    const state = await service.getState()
+    return resolveOptionalRegisteredWorkspaceRoot(state.workspaces, rawWorkspaceRoot)
   }
 
   ipcMain.handle(teachingInvokeChannels.getState, async () => service.getState())
@@ -354,25 +359,38 @@ function registerTeachingIpc(
     return createAndSwitchGitBranchForWorkspace(access.rootPath, request.branch)
   })
 
-  ipcMain.handle(teachingInvokeChannels.listMemory, async (_, workspaceRootRaw: unknown) =>
-    service.listMemory(optionalString(workspaceRootRaw))
-  )
+  ipcMain.handle(teachingInvokeChannels.listMemory, async (_, workspaceRootRaw: unknown) => {
+    const access = await resolveOptionalWorkspaceRoot(optionalString(workspaceRootRaw))
+    if (!access.ok) throw new Error(access.message)
+    return service.listMemory(access.rootPath)
+  })
 
   ipcMain.handle(teachingInvokeChannels.getMemoryDiagnostics, async () =>
     service.getMemoryDiagnostics()
   )
 
-  ipcMain.handle(teachingInvokeChannels.createMemory, async (_, payload: unknown) =>
-    service.createMemory(parseCreateMemoryPayload(payload))
-  )
+  ipcMain.handle(teachingInvokeChannels.createMemory, async (_, payload: unknown) => {
+    const request = parseCreateMemoryPayload(payload)
+    const access = await resolveOptionalWorkspaceRoot(request.workspaceRoot)
+    if (!access.ok) throw new Error(access.message)
+    if (request.scope !== 'user' && !access.rootPath) {
+      throw new Error('Workspace memory requires a registered teaching workspace.')
+    }
+    return service.createMemory({ ...request, workspaceRoot: access.rootPath })
+  })
 
-  ipcMain.handle(teachingInvokeChannels.updateMemory, async (_, memoryIdRaw: unknown, patchRaw: unknown) =>
-    service.updateMemory(requireString(memoryIdRaw, 'memoryId'), parseUpdateMemoryPayload(patchRaw))
-  )
+  ipcMain.handle(teachingInvokeChannels.updateMemory, async (_, memoryIdRaw: unknown, patchRaw: unknown) => {
+    const patch = parseUpdateMemoryPayload(patchRaw)
+    const access = await resolveOptionalWorkspaceRoot(patch.workspaceRoot)
+    if (!access.ok) throw new Error(access.message)
+    return service.updateMemory(requireString(memoryIdRaw, 'memoryId'), { ...patch, workspaceRoot: access.rootPath })
+  })
 
-  ipcMain.handle(teachingInvokeChannels.deleteMemory, async (_, memoryIdRaw: unknown, workspaceRootRaw: unknown) =>
-    service.deleteMemory(requireString(memoryIdRaw, 'memoryId'), optionalString(workspaceRootRaw))
-  )
+  ipcMain.handle(teachingInvokeChannels.deleteMemory, async (_, memoryIdRaw: unknown, workspaceRootRaw: unknown) => {
+    const access = await resolveOptionalWorkspaceRoot(optionalString(workspaceRootRaw))
+    if (!access.ok) throw new Error(access.message)
+    return service.deleteMemory(requireString(memoryIdRaw, 'memoryId'), access.rootPath)
+  })
 
   // ---- Logging + diagnostics ----
   ipcMain.handle(teachingInvokeChannels.openLogFile, async () => {

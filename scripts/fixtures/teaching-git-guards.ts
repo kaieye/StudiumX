@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
-import { resolveRegisteredGitWorkspaceRoot } from '../../src/main/teaching-git-access'
+import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from '../../src/main/teaching-workspace-access'
 import {
   createAndSwitchGitBranchForWorkspace,
   getGitBranchesForWorkspace,
@@ -31,13 +31,19 @@ try {
   const outsideRoot = join(tempRoot, 'outside')
 
   const registered = [{ rootPath: workspaceRoot }]
-  assert.deepEqual(resolveRegisteredGitWorkspaceRoot(registered, workspaceRoot), {
+  assert.deepEqual(resolveRegisteredWorkspaceRoot(registered, workspaceRoot), {
     ok: true,
     rootPath: workspaceRoot
   })
-  assert.equal(resolveRegisteredGitWorkspaceRoot(registered, join(workspaceRoot, 'nested')).ok, false)
-  assert.equal(resolveRegisteredGitWorkspaceRoot(registered, outsideRoot).ok, false)
-  assert.equal(resolveRegisteredGitWorkspaceRoot(registered, '   ').reason, 'no_workspace')
+  assert.equal(resolveRegisteredWorkspaceRoot(registered, join(workspaceRoot, 'nested')).ok, false)
+  assert.equal(resolveRegisteredWorkspaceRoot(registered, outsideRoot).ok, false)
+  assert.equal(resolveRegisteredWorkspaceRoot(registered, '   ').reason, 'no_workspace')
+  assert.deepEqual(resolveOptionalRegisteredWorkspaceRoot(registered, undefined), { ok: true })
+  assert.deepEqual(resolveOptionalRegisteredWorkspaceRoot(registered, workspaceRoot), {
+    ok: true,
+    rootPath: workspaceRoot
+  })
+  assert.equal(resolveOptionalRegisteredWorkspaceRoot(registered, outsideRoot).ok, false)
 
   await execFile('git', ['init', workspaceRoot], { env: { ...process.env, LC_ALL: 'C', LANG: 'C' } })
   await git(workspaceRoot, ['config', 'user.email', 'teachos@example.test'])

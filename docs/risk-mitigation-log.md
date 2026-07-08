@@ -2,6 +2,39 @@
 
 This log records codebase risk reviews and the concrete treatment applied after each review batch.
 
+## 2026-07-08: Memory IPC Workspace Guard
+
+Review lanes:
+
+- Renderer-facing Memory IPC handlers for list/create/update/delete.
+- Workspace-scoped and project-scoped Learning memory records.
+- Reuse of main-process registered-workspace access policy.
+
+Findings:
+
+- Memory IPC accepted optional `workspaceRoot` values from the renderer and passed them directly into the Memory store.
+- The Memory store normalized paths, but it did not know which Teaching workspaces were actually registered in the app state.
+- Workspace/project memory creation could therefore tag a record with an arbitrary absolute path scope if the renderer supplied one.
+
+Treatment:
+
+- Generalized the registered workspace access Module to `src/main/teaching-workspace-access.ts` and added optional-root resolution for capabilities that may operate globally.
+- Routed Memory list/create/update/delete IPC handlers through the registered workspace guard.
+- Required workspace/project memory creation to include a registered Teaching workspace root, while preserving global user memory behavior.
+- Extended the Git guard fixture to cover optional registered-root resolution, so Git and Memory share the same tested access primitive.
+
+Verification:
+
+- `npm run check:teaching-git-guards`
+- `npm run check:memory-capture`
+- `npm run check:teaching-ipc-contract`
+- `npx tsc --noEmit`
+- `npm run build`
+
+Residual risk:
+
+- Memory IPC access is now guarded at the main-process handler layer. Internal Memory creation from the conversation runtime still trusts its service dependencies to pass the active Teaching workspace root; that path stays separate because it does not accept direct renderer path input.
+
 ## 2026-07-08: Git IPC Workspace and Branch Guards
 
 Review lanes:
@@ -18,7 +51,7 @@ Findings:
 
 Treatment:
 
-- Added `src/main/teaching-git-access.ts` as the Git workspace access Module. It resolves a requested root only when it exactly matches a registered Teaching workspace root.
+- Added `src/main/teaching-workspace-access.ts` as the registered workspace access Module. It resolves a requested root only when it exactly matches a registered Teaching workspace root.
 - Routed list/switch/create branch IPC handlers and worktree removal through the registered-root guard before calling Git helpers.
 - Tightened branch switching and creation so branch input must be a canonical local branch name; switching also requires the branch to exist locally and uses `git switch --no-guess` when available.
 - Added `check:teaching-git-guards`, backed by a temporary real Git repository fixture, to cover registered-root checks, option-like branch rejection, reflog shorthand rejection, missing branch rejection, and valid switch/create flows.
