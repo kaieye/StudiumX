@@ -24,84 +24,18 @@ type SheetSpec = {
   atlasUrl: string
 }
 
+// 现阶段仍借用 Marvis 的桌子和 working 动画占位；后续替换成 StudiumX 自己的 UI 资源时，
+// 优先替换这里的 URL 和 deskSlots 坐标，不再恢复旧演示场景的多角色装饰逻辑。
 const sheetSpecs = {
   workstation: {
     imageUrl: new URL('./assets/marvis/img/workstation@2x.webp', import.meta.url).href,
     atlasUrl: new URL('./assets/marvis/img/workstation@2x.webp.json', import.meta.url).href
   },
-  agent: {
-    imageUrl: new URL('./assets/marvis/img/agent@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/img/agent@2x.webp.json', import.meta.url).href
-  },
   working: {
     imageUrl: new URL('./assets/marvis/spritesheet/agent/working@2x.webp', import.meta.url).href,
     atlasUrl: new URL('./assets/marvis/spritesheet/agent/working@2x.webp.json', import.meta.url).href
-  },
-  standby: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/standby@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/standby@2x.webp.json', import.meta.url).href
-  },
-  talkingOnSeat: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/talking_on_seat@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/talking_on_seat@2x.webp.json', import.meta.url).href
-  },
-  peek: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/peek@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/peek@2x.webp.json', import.meta.url).href
-  },
-  sleeping: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/sleeping@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/sleeping@2x.webp.json', import.meta.url).href
-  },
-  walkingH: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_walking_h@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_walking_h@2x.webp.json', import.meta.url).href
-  },
-  walkingUp: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_walking_up@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_walking_up@2x.webp.json', import.meta.url).href
-  },
-  runningTreadmill: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_running_treadmill@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_running_treadmill@2x.webp.json', import.meta.url).href
-  },
-  screenWorkingMain: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_main@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_main@2x.webp.json', import.meta.url).href
-  },
-  screenWorkingApk: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_apk_use@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_apk_use@2x.webp.json', import.meta.url).href
-  },
-  screenWorkingFile: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_file_use@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_file_use@2x.webp.json', import.meta.url).href
-  },
-  screenWorkingWin: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_win_use@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_win_use@2x.webp.json', import.meta.url).href
-  },
-  screenWorkingSearch: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_search_or_browser_use@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_working_search_or_browser_use@2x.webp.json', import.meta.url).href
-  },
-  screenPlaying1: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing1@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing1@2x.webp.json', import.meta.url).href
-  },
-  screenPlaying2: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing2@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing2@2x.webp.json', import.meta.url).href
-  },
-  screenPlaying3: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing3@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/fc_screen_playing3@2x.webp.json', import.meta.url).href
-  },
-  catWalk: {
-    imageUrl: new URL('./assets/marvis/spritesheet/cat/fc_cat_walk_h@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/cat/fc_cat_walk_h@2x.webp.json', import.meta.url).href
   }
-} as const satisfies Record<string, SheetSpec>
+} satisfies Record<string, SheetSpec>
 
 type SheetKey = keyof typeof sheetSpecs
 type SheetMap = Record<SheetKey, AtlasImage>
@@ -169,25 +103,32 @@ type WorkbenchAssets = {
   workstationBossTemplate: WorkstationTemplate
 }
 
-type AgentType = 'main' | 'App Agent' | 'File Agent' | 'Computer Agent' | 'Browser Agent' | 'Search Agent'
+type DeskId = `desk-${number}`
 
-type AgentConfig = {
-  type: AgentType
-  displayName: string
-  subtitle: string
-  status: string
+type DeskSlot = {
+  id: DeskId
+  label: string
   slotIndex: number
-  actionSheet: SheetKey
-  actionAnimation: string
-  nameFrame: string
-  screenSheet: SheetKey
-  bubble?: string
-  mode: 'working' | 'idle' | 'slacking'
+  x: number
+  y: number
+  width: number
+  height: number
+  hitArea: { x: number; y: number; width: number; height: number }
+  seat: { x: number; y: number }
+  characterScale: number
+  z: number
+}
+
+type CharacterState = {
+  id: 'main'
+  name: string
+  assignedDeskId: DeskId | null
 }
 
 const officeWidth = 64 * 17
 const officeHeight = 64 * 14
 const stageShift = { x: 40, y: -20 }
+const canvasOutputScale = 2
 const officeScaleBoost = 1.1
 const compactScaleBoost = 0.66
 const workstationWidth = 64 * 3
@@ -214,89 +155,27 @@ const workstationPositions = [
   height: workstationHeight
 }))
 
-const agentConfigs: AgentConfig[] = [
-  {
-    type: 'main',
-    displayName: 'Marvis',
-    subtitle: 'Team Leader',
-    status: '统筹中',
-    slotIndex: 0,
-    actionSheet: 'working',
-    actionAnimation: 'working',
-    nameFrame: 'name_main.png',
-    screenSheet: 'screenWorkingMain',
-    bubble: '整理任务',
-    mode: 'working'
+const deskSlots: DeskSlot[] = workstationPositions.map((layout) => ({
+  id: `desk-${layout.slotIndex + 1}`,
+  label: `桌子 ${layout.slotIndex + 1}`,
+  slotIndex: layout.slotIndex,
+  x: layout.x,
+  y: layout.y,
+  width: layout.width,
+  height: layout.height,
+  hitArea: {
+    x: layout.x - layout.width / 2,
+    y: layout.y - 88,
+    width: layout.width,
+    height: layout.height + chairYOffset + 42
   },
-  {
-    type: 'App Agent',
-    displayName: 'App Agent',
-    subtitle: 'APP操作专员',
-    status: '执行中',
-    slotIndex: 1,
-    actionSheet: 'working',
-    actionAnimation: 'working',
-    nameFrame: 'name_App Agent.png',
-    screenSheet: 'screenWorkingApk',
-    mode: 'working'
+  seat: {
+    x: layout.x,
+    y: layout.y + 64
   },
-  {
-    type: 'File Agent',
-    displayName: 'File Agent',
-    subtitle: '数字资产管家',
-    status: '归档中',
-    slotIndex: 2,
-    actionSheet: 'talkingOnSeat',
-    actionAnimation: 'talking_on_seat',
-    nameFrame: 'name_File Agent.png',
-    screenSheet: 'screenWorkingFile',
-    bubble: '文件已归类',
-    mode: 'working'
-  },
-  {
-    type: 'Computer Agent',
-    displayName: 'Computer Agent',
-    subtitle: '电脑系统运维',
-    status: '待命',
-    slotIndex: 3,
-    actionSheet: 'standby',
-    actionAnimation: 'standby',
-    nameFrame: 'name_Computer Agent.png',
-    screenSheet: 'screenWorkingWin',
-    mode: 'idle'
-  },
-  {
-    type: 'Browser Agent',
-    displayName: 'Browser Agent',
-    subtitle: '网页交互专员',
-    status: '摸鱼中',
-    slotIndex: 4,
-    actionSheet: 'peek',
-    actionAnimation: 'peek',
-    nameFrame: 'name_Browser Agent.png',
-    screenSheet: 'screenPlaying1',
-    bubble: '先看一眼',
-    mode: 'slacking'
-  },
-  {
-    type: 'Search Agent',
-    displayName: 'Search Agent',
-    subtitle: '搜索专家',
-    status: '休息',
-    slotIndex: 5,
-    actionSheet: 'sleeping',
-    actionAnimation: 'sleeping',
-    nameFrame: 'name_Search Agent.png',
-    screenSheet: 'screenWorkingSearch',
-    mode: 'idle'
-  }
-]
-
-const staticFurniture = [
-  { name: 'water_bar', frameName: 'water_bar.png', x: 12, y: 60 },
-  { name: 'treadmill', frameName: 'treadmill.png', x: 12, y: 296 },
-  { name: 'toilet', frameName: 'toilet.png', x: 12, y: 574 }
-]
+  characterScale: agentVisualScale,
+  z: layout.y + 64
+}))
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -421,6 +300,8 @@ function computeTemplateCenter(
         ]
       : [])
   ]
+
+  if (!bounds.length) return { x: 0, y: 0 }
   const minX = Math.min(...bounds.map((bound) => bound.x1))
   const minY = Math.min(...bounds.map((bound) => bound.y1))
   const maxX = Math.max(...bounds.map((bound) => bound.x2))
@@ -443,6 +324,16 @@ function pickFrame(sheet: AtlasImage, animationName: string, elapsed: number, fp
 
 function atlasScale(atlas: TextureAtlas): number {
   return atlas.meta?.scale && atlas.meta.scale > 0 ? atlas.meta.scale : 1
+}
+
+function currentDevicePixelScale(ctx: CanvasRenderingContext2D): number {
+  const transform = ctx.getTransform()
+  const scale = Math.max(Math.hypot(transform.a, transform.b), Math.hypot(transform.c, transform.d))
+  return Number.isFinite(scale) && scale > 0 ? scale : 1
+}
+
+function roundToDevicePixel(value: number, pixelScale: number): number {
+  return Math.round(value * pixelScale) / pixelScale
 }
 
 function logicalFrameSize(sheet: AtlasImage, frameName: string): { width: number; height: number } | null {
@@ -469,12 +360,20 @@ function drawAtlasFrame(
   if (!entry) return
 
   const { frame, spriteSourceSize, sourceSize } = entry
-  const scaleX = width / sourceSize.w
-  const scaleY = height / sourceSize.h
-  const dx = x + spriteSourceSize.x * scaleX
-  const dy = y + spriteSourceSize.y * scaleY
-  const dw = spriteSourceSize.w * scaleX
-  const dh = spriteSourceSize.h * scaleY
+  const scale = atlasScale(atlasImage.atlas)
+  const logicalSourceWidth = sourceSize.w / scale
+  const logicalSourceHeight = sourceSize.h / scale
+  const logicalSpriteX = spriteSourceSize.x / scale
+  const logicalSpriteY = spriteSourceSize.y / scale
+  const logicalSpriteWidth = spriteSourceSize.w / scale
+  const logicalSpriteHeight = spriteSourceSize.h / scale
+  const scaleX = width / logicalSourceWidth
+  const scaleY = height / logicalSourceHeight
+  const pixelScale = currentDevicePixelScale(ctx)
+  const dx = roundToDevicePixel(x + logicalSpriteX * scaleX, pixelScale)
+  const dy = roundToDevicePixel(y + logicalSpriteY * scaleY, pixelScale)
+  const dw = roundToDevicePixel(logicalSpriteWidth * scaleX, pixelScale)
+  const dh = roundToDevicePixel(logicalSpriteHeight * scaleY, pixelScale)
 
   ctx.save()
   ctx.globalAlpha *= opacity
@@ -500,18 +399,6 @@ function worldSpritePosition(
   }
 }
 
-function worldRectPosition(
-  template: WorkstationTemplate,
-  rect: { x: number; y: number },
-  slot: { x: number; y: number },
-  pivot: { x: number; y: number }
-): { x: number; y: number } {
-  return {
-    x: slot.x - pivot.x + rect.x - template.center.x,
-    y: slot.y - pivot.y + rect.y - template.center.y
-  }
-}
-
 function drawTemplateSprites(
   ctx: CanvasRenderingContext2D,
   assets: WorkbenchAssets,
@@ -528,81 +415,7 @@ function drawTemplateSprites(
   }
 }
 
-function drawStaticFurniture(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets): void {
-  for (const furniture of staticFurniture) {
-    const size = logicalFrameSize(assets.sheets.workstation, furniture.frameName)
-    if (!size) continue
-    drawAtlasFrame(
-      ctx,
-      assets.sheets.workstation,
-      furniture.frameName,
-      furniture.x,
-      furniture.y,
-      size.width,
-      size.height
-    )
-  }
-}
-
-function drawScreen(
-  ctx: CanvasRenderingContext2D,
-  assets: WorkbenchAssets,
-  template: WorkstationTemplate,
-  slot: { x: number; y: number },
-  agent: AgentConfig,
-  elapsed: number
-): void {
-  const rect = template.computerContainerRect
-  if (!rect) return
-
-  const shellPosition = worldRectPosition(template, { x: rect.x - 2, y: rect.y - 2 }, slot, { x: 36, y: -81 })
-  drawAtlasFrame(ctx, assets.sheets.workstation, 'screen.png', shellPosition.x, shellPosition.y, 77, 48)
-
-  const screenPosition = worldRectPosition(template, rect, slot, { x: 36, y: -81 })
-  if (agent.mode === 'idle') {
-    const idleFrame = agent.type === 'main' ? 'screen_on.png' : 'screen_img.png'
-    drawAtlasFrame(ctx, assets.sheets.workstation, idleFrame, screenPosition.x, screenPosition.y, rect.width, rect.height)
-    return
-  }
-
-  const sheet = assets.sheets[agent.screenSheet]
-  const animationName = animationNameForSheet(agent.screenSheet)
-  const frameName = pickFrame(sheet, animationName, elapsed)
-  if (frameName) drawAtlasFrame(ctx, sheet, frameName, screenPosition.x, screenPosition.y, rect.width, rect.height)
-}
-
-function animationNameForSheet(sheet: SheetKey): string {
-  switch (sheet) {
-    case 'screenWorkingMain':
-      return 'fc_screen_working_main'
-    case 'screenWorkingApk':
-      return 'fc_screen_working_apk_use'
-    case 'screenWorkingFile':
-      return 'fc_screen_working_file_use'
-    case 'screenWorkingWin':
-      return 'fc_screen_working_win_use'
-    case 'screenWorkingSearch':
-      return 'fc_screen_working_search_or_browser_use'
-    case 'screenPlaying1':
-      return 'fc_screen_playing1'
-    case 'screenPlaying2':
-      return 'fc_screen_playing2'
-    case 'screenPlaying3':
-      return 'fc_screen_playing3'
-    case 'catWalk':
-      return 'fc_cat_walk_h'
-    case 'walkingH':
-      return 'runh'
-    case 'walkingUp':
-      return 'runup'
-    case 'runningTreadmill':
-      return 'fc_running_treadmill'
-    default:
-      return sheet
-  }
-}
-
-function drawAnimatedAgent(
+function drawAnimatedCharacter(
   ctx: CanvasRenderingContext2D,
   sheet: AtlasImage,
   animationName: string,
@@ -625,86 +438,8 @@ function drawAnimatedAgent(
   drawAtlasFrame(ctx, sheet, frameName, dx, dy, width, height)
 }
 
-function drawAgent(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, agent: AgentConfig, x: number, y: number, elapsed: number): void {
-  drawAnimatedAgent(ctx, assets.sheets[agent.actionSheet], agent.actionAnimation, x, y, elapsed)
-}
-
-function drawAgentName(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, agent: AgentConfig, x: number, y: number): void {
-  const sheet = assets.sheets.agent
-  const size = logicalFrameSize(sheet, agent.nameFrame)
-  if (!size) return
-  const { width, height } = size
-  drawAtlasFrame(ctx, sheet, agent.nameFrame, x - width / 2, y - 114, width, height)
-}
-
-function drawBubble(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
-  ctx.save()
-  ctx.font = '500 13px system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
-  const paddingX = 10
-  const width = Math.max(72, ctx.measureText(text).width + paddingX * 2)
-  const height = 28
-  const bx = x - width / 2
-  const by = y - 152
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.08)'
-  ctx.shadowBlur = 8
-  ctx.shadowOffsetY = 3
-  roundedRect(ctx, bx, by, width, height, 14)
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.94)'
-  ctx.fill()
-  ctx.shadowColor = 'transparent'
-  ctx.beginPath()
-  ctx.moveTo(x - 5, by + height - 1)
-  ctx.lineTo(x + 5, by + height - 1)
-  ctx.lineTo(x, by + height + 6)
-  ctx.closePath()
-  ctx.fill()
-  ctx.fillStyle = '#1f1f1f'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(text, x, by + height / 2)
-  ctx.restore()
-}
-
-function drawCat(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, elapsed: number): void {
-  const sheet = assets.sheets.catWalk
-  const frameName = pickFrame(sheet, 'fc_cat_walk_h', elapsed, 18)
-  if (!frameName) return
-  const size = logicalFrameSize(sheet, frameName)
-  if (!size) return
-  const x = 392 + Math.sin(elapsed / 1800) * 46
-  const y = 820
-  drawAtlasFrame(ctx, sheet, frameName, x - size.width / 2 - 4, y - size.height + 80, size.width, size.height)
-}
-
-function movingAgentPose(elapsed: number): { x: number; y: number; sheet: SheetKey; animation: string } {
-  const cycle = 7600
-  const progress = (elapsed % cycle) / cycle
-  if (progress < 0.52) {
-    const t = progress / 0.52
-    return {
-      x: 430 + t * 250,
-      y: 770,
-      sheet: 'walkingH',
-      animation: 'runh'
-    }
-  }
-
-  const t = (progress - 0.52) / 0.48
-  return {
-    x: 680,
-    y: 770 - t * 250,
-    sheet: 'walkingUp',
-    animation: 'runup'
-  }
-}
-
-function drawMovingAgent(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, elapsed: number): void {
-  const pose = movingAgentPose(elapsed)
-  drawAnimatedAgent(ctx, assets.sheets[pose.sheet], pose.animation, pose.x, pose.y, elapsed, 0.48)
-}
-
-function drawTreadmillRunner(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, elapsed: number): void {
-  drawAnimatedAgent(ctx, assets.sheets.runningTreadmill, 'fc_running_treadmill', 350, 438, elapsed, 0.42)
+function drawWorkingCharacter(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, slot: DeskSlot, elapsed: number): void {
+  drawAnimatedCharacter(ctx, assets.sheets.working, 'working', slot.seat.x, slot.seat.y, elapsed, slot.characterScale)
 }
 
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number): void {
@@ -717,7 +452,56 @@ function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width:
   ctx.closePath()
 }
 
-function drawScene(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, elapsed: number): void {
+function drawDeskHitArea(ctx: CanvasRenderingContext2D, slot: DeskSlot, isHovered: boolean, isSelected: boolean): void {
+  if (!isHovered && !isSelected) return
+
+  const { x, y, width, height } = slot.hitArea
+  ctx.save()
+  roundedRect(ctx, x, y, width, height, 18)
+  ctx.fillStyle = isSelected ? 'rgba(86, 140, 255, 0.12)' : 'rgba(86, 140, 255, 0.08)'
+  ctx.fill()
+  ctx.lineWidth = isSelected ? 2 : 1.5
+  ctx.strokeStyle = isSelected ? 'rgba(68, 121, 255, 0.82)' : 'rgba(68, 121, 255, 0.46)'
+  ctx.stroke()
+
+  ctx.font = '600 13px system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const badgeWidth = Math.max(56, ctx.measureText(slot.label).width + 20)
+  const badgeHeight = 26
+  const badgeX = x + width / 2 - badgeWidth / 2
+  const badgeY = y - 12
+  roundedRect(ctx, badgeX, badgeY, badgeWidth, badgeHeight, 13)
+  ctx.fillStyle = isSelected ? 'rgba(68, 121, 255, 0.92)' : 'rgba(255, 255, 255, 0.95)'
+  ctx.fill()
+  ctx.fillStyle = isSelected ? '#ffffff' : '#3454a8'
+  ctx.fillText(isSelected ? '正在工作' : slot.label, x + width / 2, badgeY + badgeHeight / 2)
+  ctx.restore()
+}
+
+function findDeskAt(point: { x: number; y: number }): DeskSlot | null {
+  for (const slot of [...deskSlots].reverse()) {
+    const { x, y, width, height } = slot.hitArea
+    if (point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height) return slot
+  }
+  return null
+}
+
+function canvasPointToScene(event: MouseEvent, canvas: HTMLCanvasElement): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect()
+  return {
+    x: ((event.clientX - rect.left) / Math.max(rect.width, 1)) * officeWidth - stageShift.x,
+    y: ((event.clientY - rect.top) / Math.max(rect.height, 1)) * officeHeight - stageShift.y
+  }
+}
+
+function drawScene(
+  ctx: CanvasRenderingContext2D,
+  assets: WorkbenchAssets,
+  elapsed: number,
+  character: CharacterState,
+  hoveredDeskId: DeskId | null
+): void {
   ctx.clearRect(0, 0, officeWidth, officeHeight)
   ctx.fillStyle = '#f7f7f7'
   ctx.fillRect(0, 0, officeWidth, officeHeight)
@@ -725,42 +509,29 @@ function drawScene(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, elaps
   ctx.save()
   ctx.translate(stageShift.x, stageShift.y)
 
-  const agentLayer: Array<{ z: number; draw: () => void }> = []
-  for (const layout of workstationPositions) {
-    const agent = agentConfigs.find((item) => item.slotIndex === layout.slotIndex)
-    const template = layout.slotIndex === 0 ? assets.workstationBossTemplate : assets.workstationTemplate
+  const depthLayers: Array<{ z: number; draw: () => void }> = []
+  for (const slot of deskSlots) {
+    const template = slot.slotIndex === 0 ? assets.workstationBossTemplate : assets.workstationTemplate
+    const isSelected = character.assignedDeskId === slot.id
+    const isHovered = hoveredDeskId === slot.id
 
-    drawTemplateSprites(ctx, assets, template, template.deskSprites, layout, { x: 36, y: -80 })
-    if (agent) {
-      agentLayer.push({
-        z: layout.y,
-        draw: () => drawScreen(ctx, assets, template, layout, agent, elapsed)
-      })
-      agentLayer.push({
-        z: layout.y + 64,
-        draw: () => drawAgent(ctx, assets, agent, layout.x, layout.y + 64, elapsed)
+    drawDeskHitArea(ctx, slot, isHovered, isSelected)
+    drawTemplateSprites(ctx, assets, template, template.deskSprites, slot, { x: 36, y: -80 })
+
+    if (isSelected) {
+      depthLayers.push({
+        z: slot.z,
+        draw: () => drawWorkingCharacter(ctx, assets, slot, elapsed)
       })
     }
-    agentLayer.push({
-      z: layout.y + chairYOffset,
-      draw: () => drawTemplateSprites(ctx, assets, template, template.chairSprites, layout, { x: 34, y: -80 })
+    depthLayers.push({
+      z: slot.y + chairYOffset,
+      draw: () => drawTemplateSprites(ctx, assets, template, template.chairSprites, slot, { x: 34, y: -80 })
     })
   }
 
-  drawStaticFurniture(ctx, assets)
-  agentLayer.push({ z: 430, draw: () => drawTreadmillRunner(ctx, assets, elapsed) })
-  const movingPose = movingAgentPose(elapsed)
-  agentLayer.push({ z: movingPose.y, draw: () => drawMovingAgent(ctx, assets, elapsed) })
-  agentLayer.push({ z: 788, draw: () => drawCat(ctx, assets, elapsed) })
-  agentLayer.sort((a, b) => a.z - b.z)
-  for (const layer of agentLayer) layer.draw()
-
-  for (const agent of agentConfigs) {
-    const layout = workstationPositions[agent.slotIndex]
-    if (!layout) continue
-    drawAgentName(ctx, assets, agent, layout.x, layout.y + 64)
-    if (agent.bubble) drawBubble(ctx, agent.bubble, layout.x, layout.y + 64)
-  }
+  depthLayers.sort((a, b) => a.z - b.z)
+  for (const layer of depthLayers) layer.draw()
 
   ctx.restore()
 }
@@ -791,6 +562,8 @@ export function OfficeWorkbench() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const assetsRef = useRef<WorkbenchAssets | null>(null)
+  const characterRef = useRef<CharacterState>({ id: 'main', name: 'StudiumX', assignedDeskId: 'desk-1' })
+  const hoveredDeskIdRef = useRef<DeskId | null>(null)
 
   useEffect(() => {
     const stage = stageRef.current
@@ -811,6 +584,75 @@ export function OfficeWorkbench() {
   }, [])
 
   useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const selectedDeskLabel = () =>
+      deskSlots.find((slot) => slot.id === characterRef.current.assignedDeskId)?.label ?? '未选择桌子'
+
+    const syncCanvasAccessibility = () => {
+      canvas.setAttribute('aria-label', `StudiumX 工作区：当前在${selectedDeskLabel()}，使用方向键切换桌子`)
+    }
+
+    const selectDesk = (slot: DeskSlot) => {
+      characterRef.current = { ...characterRef.current, assignedDeskId: slot.id }
+      hoveredDeskIdRef.current = slot.id
+      canvas.style.cursor = 'pointer'
+      syncCanvasAccessibility()
+    }
+
+    const updateHover = (event: MouseEvent) => {
+      const slot = findDeskAt(canvasPointToScene(event, canvas))
+      hoveredDeskIdRef.current = slot?.id ?? null
+      canvas.style.cursor = slot ? 'pointer' : 'default'
+    }
+
+    const handleClick = (event: MouseEvent) => {
+      const slot = findDeskAt(canvasPointToScene(event, canvas))
+      if (!slot) return
+      selectDesk(slot)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const currentIndex = deskSlots.findIndex((slot) => slot.id === characterRef.current.assignedDeskId)
+      let nextIndex: number | null = null
+
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % deskSlots.length
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        nextIndex = currentIndex === -1 ? deskSlots.length - 1 : (currentIndex - 1 + deskSlots.length) % deskSlots.length
+      } else if (event.key === 'Home') {
+        nextIndex = 0
+      } else if (event.key === 'End') {
+        nextIndex = deskSlots.length - 1
+      }
+
+      if (nextIndex === null) return
+      event.preventDefault()
+      selectDesk(deskSlots[nextIndex])
+    }
+
+    const handlePointerLeave = () => {
+      hoveredDeskIdRef.current = null
+      canvas.style.cursor = 'default'
+    }
+
+    syncCanvasAccessibility()
+    canvas.addEventListener('pointermove', updateHover)
+    canvas.addEventListener('click', handleClick)
+    canvas.addEventListener('keydown', handleKeyDown)
+    canvas.addEventListener('pointerleave', handlePointerLeave)
+
+    return () => {
+      canvas.removeEventListener('pointermove', updateHover)
+      canvas.removeEventListener('click', handleClick)
+      canvas.removeEventListener('keydown', handleKeyDown)
+      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      canvas.style.cursor = 'default'
+    }
+  }, [])
+
+  useEffect(() => {
     let canceled = false
     let animationFrame = 0
 
@@ -825,23 +667,28 @@ export function OfficeWorkbench() {
         if (!canvas || !ctx) return
 
         const render = (time: number) => {
-          const dpr = window.devicePixelRatio || 1
-          const nextWidth = Math.round(officeWidth * dpr)
-          const nextHeight = Math.round(officeHeight * dpr)
+          const rect = canvas.getBoundingClientRect()
+          const visualScale = rect.width > 0 ? rect.width / officeWidth : 1
+          const outputScale = Math.max(window.devicePixelRatio || 1, canvasOutputScale)
+          const renderScale = visualScale * outputScale
+          const nextWidth = Math.max(1, Math.round(officeWidth * renderScale))
+          const nextHeight = Math.max(1, Math.round(officeHeight * renderScale))
           if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
             canvas.width = nextWidth
             canvas.height = nextHeight
           }
           ctx.save()
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-          drawScene(ctx, assets, time)
+          ctx.imageSmoothingEnabled = true
+          ctx.imageSmoothingQuality = 'high'
+          ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0)
+          drawScene(ctx, assets, time, characterRef.current, hoveredDeskIdRef.current)
           ctx.restore()
           animationFrame = requestAnimationFrame(render)
         }
 
         animationFrame = requestAnimationFrame(render)
       } catch (error) {
-        console.error('Failed to load Marvis workbench assets', error)
+        console.error('Failed to load StudiumX workbench assets', error)
       }
     }
 
@@ -859,7 +706,9 @@ export function OfficeWorkbench() {
         <canvas
           ref={canvasRef}
           className="office-workbench-canvas"
-          aria-label="Marvis 办公室工作区场景"
+          aria-label="StudiumX 工作区：当前在桌子 1，使用方向键切换桌子"
+          aria-live="polite"
+          tabIndex={0}
         />
       </div>
     </section>

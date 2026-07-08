@@ -2,6 +2,34 @@
 
 This log records codebase risk reviews and the concrete treatment applied after each review batch.
 
+## 2026-07-08: Office Workbench Interaction Cleanup
+
+Review lanes:
+
+- Workbench canvas asset loading and render complexity.
+- Domain fit of the visible Workbench scene.
+- Pointer and keyboard access for desk selection.
+
+Findings:
+
+- The Workbench scene still loaded and orchestrated a multi-role demo office that did not map cleanly to the current StudiumX Teaching workspace domain.
+- The canvas loaded many sprite atlases and maintained per-role animation branches even though the first useful interaction is assigning one Study character to a desk.
+- The new desk-selection interaction needed a keyboard path and visible focus state before being committed.
+
+Treatment:
+
+- Reduced `OfficeWorkbench` to the workstation and working-character atlases, with desk slots as the stable interaction model.
+- Replaced per-role animation branches with a single StudiumX character that can be assigned to any desk by pointer.
+- Added keyboard desk selection with Arrow/Home/End keys, dynamic aria labeling, and a visible focus outline for the canvas.
+
+Verification:
+
+- `npm run build`
+
+Residual risk:
+
+- This batch is verified by TypeScript and production bundling only. A future browser-level fixture should exercise canvas hit testing and keyboard desk selection if Workbench interactions continue to grow.
+
 ## 2026-07-08: Workspace Write Tool Symlink Guard
 
 Review lanes:

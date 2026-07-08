@@ -41,6 +41,11 @@
   aspect-ratio: 1088 / 896;
 }
 
+.office-workbench-canvas:focus-visible {
+  outline: 3px solid rgba(68, 121, 255, 0.86);
+  outline-offset: 4px;
+}
+
 @media (max-width: 720px) {
   .office-workbench-page {
     width: 100vw;
