@@ -12,7 +12,8 @@
     "agent": "Chat",
     "lessons": "Lessons",
     "resources": "Resources",
-    "studio": "Study space"
+    "studio": "Study space",
+    "workbench": "Workbench"
   },
   "sidebar": {
     "aria": "Main navigation",

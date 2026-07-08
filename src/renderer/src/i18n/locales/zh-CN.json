@@ -12,7 +12,8 @@
     "agent": "对话",
     "lessons": "课程",
     "resources": "资源",
-    "studio": "学习空间"
+    "studio": "学习空间",
+    "workbench": "工作区"
   },
   "sidebar": {
     "aria": "主导航",

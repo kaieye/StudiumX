@@ -254,6 +254,7 @@ export function applyStudyInviteParams(snapshot: StudySnapshot): StudySnapshot {
 export function initialWorkspaceViewFromUrl(): WorkspaceView {
   try {
     const params = new URLSearchParams(window.location.search)
+    if (params.has('workbench') || params.has('office')) return 'workbench'
     return params.has('studySpace') || params.has('space') || params.has('studyRoom') || params.has('room')
       ? 'studio'
       : 'agent'

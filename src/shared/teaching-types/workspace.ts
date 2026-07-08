@@ -1,7 +1,7 @@
 import type { AgentChatMessage, AgentConversationSummary } from './agent'
 import type { TeachingGitWorkspaceInfo } from './git'
 
-export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'studio' | 'review' | 'settings'
+export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'studio' | 'workbench' | 'review' | 'settings'
 
 export type WorkflowStepState = 'done' | 'active' | 'waiting' | 'error'
 

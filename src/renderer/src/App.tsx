@@ -68,6 +68,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import i18n from './i18n'
 import { StudySpace } from './study-space'
+import { OfficeWorkbench } from './views/workbench/OfficeWorkbench'
 import { buildAgentProcessTimeline } from './agent-process-timeline'
 import {
   lessonToCoursePreviewFile,
@@ -123,7 +124,8 @@ import {
 const navItems = [
   { id: 'overview', icon: Bot },
   { id: 'resources', icon: LibraryBig },
-  { id: 'studio', icon: DoorOpen }
+  { id: 'studio', icon: DoorOpen },
+  { id: 'workbench', icon: Wrench }
 ] satisfies Array<{ id: WorkspaceView; icon: LucideIcon }>
 
 function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
@@ -2155,6 +2157,10 @@ function MainArea() {
 
       {view === 'studio' && (
         <StudySpace showNotification={showNotification} />
+      )}
+
+      {view === 'workbench' && (
+        <OfficeWorkbench />
       )}
     </main>
   )

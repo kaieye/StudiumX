@@ -12,6 +12,7 @@
 @import "./styles/workflow.css";
 @import "./styles/lessons.css";
 @import "./styles/resources.css";
+@import "./views/workbench/office-workbench.css";
 @import "./styles/utilities.css";
 @import "./styles/responsive.css";
 @import "./styles/theme.css";

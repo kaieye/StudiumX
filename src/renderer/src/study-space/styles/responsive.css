@@ -22,7 +22,9 @@
 
 @media (max-width: 900px) {
   .app-shell:has(.main-area[data-view='studio']) .sidebar,
-    .app-shell:has(.main-area[data-view='studio']) .sidebar-resizer {
+    .app-shell:has(.main-area[data-view='studio']) .sidebar-resizer,
+    .app-shell:has(.main-area[data-view='workbench']) .sidebar,
+    .app-shell:has(.main-area[data-view='workbench']) .sidebar-resizer {
       display: none;
     }
 
