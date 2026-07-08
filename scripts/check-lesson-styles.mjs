@@ -15,10 +15,15 @@ const STYLE_IDS = [
   'terminal'
 ]
 
+const FULL_CSS_THEME_IDS = ['manuscript', 'chalkboard', 'editorial', 'blueprint', 'poster']
+
 const [
   styles,
   baseStyles,
+  lessonMarkupContract,
+  lessonRenderer,
   sharedAssets,
+  lessonStyleSample,
   workspace,
   workspaceLifecycle,
   settings,
@@ -33,11 +38,15 @@ const [
   mainCss,
   zh,
   en,
-  themeEntries
+  themeEntries,
+  fullCssThemeEntries
 ] = await Promise.all([
   readFile('src/shared/lesson-styles.ts', 'utf8'),
   readFile('src/shared/lesson-style-themes/base.ts', 'utf8'),
+  readFile('src/shared/lesson-style-themes/contract.ts', 'utf8'),
+  readFile('src/main/ai/lesson-renderer.ts', 'utf8'),
   readFile('src/shared/lesson-style-themes/assets.ts', 'utf8'),
+  readFile('src/renderer/src/lesson-style-sample.ts', 'utf8'),
   readFile('src/main/teaching-workspace.ts', 'utf8'),
   readFile('src/main/teaching-workspace/lifecycle.ts', 'utf8'),
   readFile('src/main/teaching-settings.ts', 'utf8'),
@@ -57,12 +66,90 @@ const [
       id,
       await readFile(`src/shared/lesson-style-themes/${id}.ts`, 'utf8')
     ])
+  ),
+  Promise.all(
+    FULL_CSS_THEME_IDS.map(async (id) => [
+      id,
+      id === 'manuscript'
+        ? await readFile('src/shared/lesson-style-themes/manuscript.ts', 'utf8')
+        : await readFile(`src/shared/lesson-style-themes/css/${id}.ts`, 'utf8')
+    ])
   )
 ])
 
 const themeSources = Object.fromEntries(themeEntries)
+const fullCssThemeSources = Object.fromEntries(fullCssThemeEntries)
+
+function extractStringRecord(source, exportName) {
+  const match = source.match(new RegExp(`export const ${exportName} = \\{([\\s\\S]*?)\\} as const`))
+  assert.ok(match, `${exportName} should be exported as a const object`)
+
+  const record = {}
+  for (const [, key, value] of match[1].matchAll(/^\s+(\w+): '([^']+)'/gm)) {
+    record[key] = value
+  }
+  return record
+}
+
+const contractClasses = extractStringRecord(lessonMarkupContract, 'LESSON_MARKUP_CLASSES')
+const contractDataAttributes = extractStringRecord(lessonMarkupContract, 'LESSON_MARKUP_DATA_ATTRIBUTES')
+const contractDatasetKeys = extractStringRecord(lessonMarkupContract, 'LESSON_MARKUP_DATASET_KEYS')
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+const requiredClassKeys = [
+  'page',
+  'hero',
+  'heroKicker',
+  'missionCard',
+  'compactList',
+  'tip',
+  'practice',
+  'generatedQuiz',
+  'quizCard',
+  'quizChoices',
+  'quizFill',
+  'quizExplanation',
+  'flashcards',
+  'flashcard',
+  'flashcardFace',
+  'flashcardFront',
+  'flashcardBack',
+  'flashcardSelf',
+  'isSelected',
+  'isCorrect',
+  'isWrong',
+  'isFlipped'
+]
+
+const requiredDataAttributeKeys = ['quizType', 'quizAnswer', 'quizChoice', 'flashcardRating', 'quizReady']
 
 // ----- shared theme modules -----
+
+for (const key of requiredClassKeys) {
+  assert.ok(contractClasses[key], `lesson markup contract should name the "${key}" class`)
+}
+
+for (const key of requiredDataAttributeKeys) {
+  assert.ok(contractDataAttributes[key], `lesson markup contract should name the "${key}" data attribute`)
+  assert.ok(contractDatasetKeys[key], `lesson markup contract should name the "${key}" dataset key`)
+}
+
+for (const name of [
+  'LESSON_MARKUP_CLASSES',
+  'LESSON_MARKUP_DATA_ATTRIBUTES',
+  'LESSON_MARKUP_DATASET_KEYS',
+  'LESSON_MARKUP_SELECTORS',
+  'LESSON_INTERACTION_SOURCE'
+]) {
+  assert.match(
+    styles,
+    new RegExp(name),
+    `${name} should be re-exported by the public lesson-styles module`
+  )
+}
 
 for (const id of STYLE_IDS) {
   const symbol = id.toUpperCase()
@@ -90,6 +177,48 @@ for (const selector of ['.lesson-hero', '.mission-card', '.quiz-card', '.compact
   )
 }
 
+for (const key of [
+  'page',
+  'hero',
+  'heroKicker',
+  'missionCard',
+  'compactList',
+  'tip',
+  'practice',
+  'generatedQuiz',
+  'quizCard',
+  'quizChoices',
+  'quizFill',
+  'quizExplanation',
+  'flashcards',
+  'flashcard',
+  'flashcardFront',
+  'flashcardBack',
+  'flashcardSelf',
+  'isSelected',
+  'isCorrect',
+  'isWrong'
+]) {
+  assert.ok(
+    baseStyles.includes(`.${contractClasses[key]}`),
+    `base lesson CSS should style the contract class "${contractClasses[key]}"`
+  )
+}
+
+for (const [id, source] of Object.entries(fullCssThemeSources)) {
+  for (const key of ['hero', 'missionCard', 'quizCard', 'quizFill', 'quizExplanation', 'flashcard', 'flashcardSelf']) {
+    assert.ok(
+      source.includes(`.${contractClasses[key]}`),
+      `${id} theme CSS should keep styling the contract class "${contractClasses[key]}"`
+    )
+  }
+}
+
+assert.ok(
+  fullCssThemeSources.poster.includes(`[${contractDataAttributes.flashcardRating}="again"]`),
+  'poster theme CSS should key flashcard rating accents off the contract data-rating attribute'
+)
+
 assert.match(
   baseStyles,
   /\.flashcards \.flashcard \{/,
@@ -106,6 +235,118 @@ for (const name of ['LESSON_QUIZ_JS', 'LESSON_FLASHCARD_CSS', 'LESSON_FLASHCARD_
     styles,
     new RegExp(name),
     `${name} should be re-exported by the public lesson-styles module`
+  )
+}
+
+for (const key of [
+  'practice',
+  'generatedQuiz',
+  'quizCard',
+  'quizFill',
+  'quizExplanation',
+  'isSelected',
+  'isCorrect',
+  'isWrong',
+  'isFlipped'
+]) {
+  assert.ok(
+    sharedAssets.includes(`LESSON_MARKUP_CLASSES.${key}`),
+    `shared lesson assets should consume the contract class "${key}"`
+  )
+}
+
+for (const key of requiredDataAttributeKeys) {
+  assert.ok(
+    sharedAssets.includes(`LESSON_MARKUP_DATA_ATTRIBUTES.${key}`) ||
+      sharedAssets.includes(`LESSON_MARKUP_DATASET_KEYS.${key}`),
+    `shared lesson assets should consume the contract data key "${key}"`
+  )
+}
+
+for (const key of [
+  'page',
+  'hero',
+  'heroKicker',
+  'missionCard',
+  'compactList',
+  'tip',
+  'practice',
+  'quizCard',
+  'quizChoices',
+  'quizFill',
+  'quizExplanation',
+  'flashcards',
+  'flashcard',
+  'flashcardFace',
+  'flashcardFront',
+  'flashcardBack',
+  'flashcardSelf'
+]) {
+  assert.ok(
+    lessonStyleSample.includes(`cls.${key}`),
+    `lesson style sample should render the contract class "${key}"`
+  )
+}
+
+for (const key of ['quizType', 'quizAnswer', 'quizChoice', 'flashcardRating']) {
+  assert.ok(
+    lessonStyleSample.includes(`data.${key}`),
+    `lesson style sample should render the contract data attribute "${key}"`
+  )
+}
+
+// ----- main lesson renderer markup contract -----
+
+assert.match(
+  lessonRenderer,
+  /LESSON_MARKUP_CLASSES[\s\S]*LESSON_MARKUP_DATA_ATTRIBUTES[\s\S]*from '..\/..\/shared\/lesson-style-themes\/contract'/,
+  'lesson renderer should import the shared lesson markup contract'
+)
+
+for (const key of [
+  'page',
+  'hero',
+  'heroKicker',
+  'missionCard',
+  'compactList',
+  'practice',
+  'quizCard',
+  'quizChoices',
+  'quizFill',
+  'quizExplanation',
+  'flashcards',
+  'flashcard',
+  'flashcardFace',
+  'flashcardFront',
+  'flashcardBack',
+  'flashcardSelf'
+]) {
+  assert.ok(
+    lessonRenderer.includes(`cls.${key}`) || lessonRenderer.includes(`LESSON_MARKUP_CLASSES.${key}`),
+    `lesson renderer should render the contract class "${key}"`
+  )
+}
+
+for (const key of ['quizType', 'quizAnswer', 'quizChoice', 'flashcardRating']) {
+  assert.ok(
+    lessonRenderer.includes(`data.${key}`) || lessonRenderer.includes(`LESSON_MARKUP_DATA_ATTRIBUTES.${key}`),
+    `lesson renderer should render the contract data attribute "${key}"`
+  )
+}
+
+for (const value of Object.values(contractClasses)) {
+  assert.doesNotMatch(
+    lessonRenderer,
+    new RegExp(`class="(?:[^"]*\\s)?${escapeRegExp(value)}(?:\\s[^"]*)?"`),
+    `lesson renderer should not hard-code the contract class "${value}"`
+  )
+}
+
+for (const value of Object.values(contractDataAttributes)) {
+  assert.doesNotMatch(
+    lessonRenderer,
+    new RegExp(`\\s${escapeRegExp(value)}=`),
+    `lesson renderer should not hard-code the contract data attribute "${value}"`
   )
 }
 

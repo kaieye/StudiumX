@@ -93,13 +93,11 @@ import {
   selectedReasoningEffort
 } from './workflows/settings'
 import {
-  courseRelativePathForAgentConversation,
-  isCourseAgentConversationPath
-} from '../../shared/agent-conversation-catalog'
+  projectVisibleAgentConversationWorkspaces,
+  projectVisibleSidebarConversations
+} from './agent-conversation-projection'
 import {
-  findConversationSummary,
   isPendingConversationSummary,
-  type PendingAgentConversation,
   type SidebarConversationSummary
 } from './agent-conversation-state'
 import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
@@ -498,13 +496,18 @@ function WorkspaceCourseSection({
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
   const showAllCourseFiles = useAppStore((s) => s.settings.workspace.showAllCourseFiles)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
-  const workspacesWithPending = useMemo(
-    () => withPendingCourseConversation(workspaces, pendingAgentConversation),
+  const visibleConversationWorkspaces = useMemo(
+    () => projectVisibleAgentConversationWorkspaces({
+      workspaces,
+      activeWorkspace: null,
+      selectedCourseWorkspaceId: null,
+      pendingAgentConversation
+    }),
     [pendingAgentConversation, workspaces]
   )
   const workspaceFolders = useMemo(
-    () => listSidebarWorkspaceFolders(workspacesWithPending, showAllCourseFiles),
-    [showAllCourseFiles, workspacesWithPending]
+    () => listSidebarWorkspaceFolders(visibleConversationWorkspaces.workspaces, showAllCourseFiles),
+    [showAllCourseFiles, visibleConversationWorkspaces.workspaces]
   )
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [importDialogOpen, setImportDialogOpen] = useState(false)
@@ -706,13 +709,11 @@ function SidebarConversationSection({
   const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
   const view = useAppStore((s) => s.view)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
-  const storedPendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
-  const pendingAgentConversation = storedPendingAgentConversation &&
-    storedPendingAgentConversation.workspaceId === workspace?.id &&
-    !isCourseAgentConversationPath(storedPendingAgentConversation.summary.relativePath)
-    ? storedPendingAgentConversation
-    : null
-  const conversationsWithPending: SidebarConversationSummary[] = pendingAgentConversation ? [pendingAgentConversation.summary, ...conversations.filter((conversation) => !sameRelativePath(conversation.relativePath, pendingAgentConversation.summary.relativePath))] : conversations
+  const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
+  const conversationsWithPending: SidebarConversationSummary[] = useMemo(
+    () => projectVisibleSidebarConversations({ workspace, conversations, pendingAgentConversation }),
+    [conversations, pendingAgentConversation, workspace]
+  )
   const ensureActiveWorkspace = async (): Promise<void> => {}
 
   return (
@@ -1292,54 +1293,6 @@ function workspaceContextLabel(rootPath: string, name: string): string {
   if (parts.length < 2) return ''
   const parent = parts[parts.length - 2] ?? ''
   return !parent || parent.toLowerCase() === name.toLowerCase() ? '' : parent
-}
-
-function withPendingCourseConversation(
-  workspaces: TeachingWorkspaceSummary[],
-  pendingAgentConversation: PendingAgentConversation | null
-): TeachingWorkspaceSummary[] {
-  if (!pendingAgentConversation || !isCourseAgentConversationPath(pendingAgentConversation.summary.relativePath)) return workspaces
-  const courseRelativePath = courseRelativePathForAgentConversation(pendingAgentConversation.summary.relativePath)
-  if (!courseRelativePath) return workspaces
-
-  let changed = false
-  const nextWorkspaces = workspaces.map((workspace) => {
-    if (workspace.id !== pendingAgentConversation.workspaceId) return workspace
-    let workspaceChanged = false
-    const conversations = upsertConversationSummary(workspace.conversations, pendingAgentConversation.summary)
-    if (conversations !== workspace.conversations) workspaceChanged = true
-    const courses = workspace.courses.map((course) => {
-      if (!sameRelativePath(course.relativePath, courseRelativePath)) return course
-      const courseConversations = upsertConversationSummary(course.conversations, pendingAgentConversation.summary)
-      if (courseConversations === course.conversations) return course
-      workspaceChanged = true
-      return {
-        ...course,
-        conversations: courseConversations,
-        sessionCount: course.sessions.length + courseConversations.length
-      }
-    })
-    if (!workspaceChanged) return workspace
-    changed = true
-    return {
-      ...workspace,
-      conversations,
-      courses
-    }
-  })
-
-  return changed ? nextWorkspaces : workspaces
-}
-
-function upsertConversationSummary(
-  conversations: AgentConversationSummary[],
-  conversation: AgentConversationSummary
-): AgentConversationSummary[] {
-  const withoutCurrent = conversations.filter((item) =>
-    item.id !== conversation.id && !sameRelativePath(item.relativePath, conversation.relativePath)
-  )
-  if (withoutCurrent.length === conversations.length && conversations[0]?.id === conversation.id) return conversations
-  return [conversation, ...withoutCurrent]
 }
 
 function workspaceNodeKey(workspaceId: string, relativePath: string): string {
@@ -1955,16 +1908,16 @@ function MainArea() {
   const active = appState.activeWorkspace
   const selectedCourseWorkspaceId = useAppStore((s) => s.selectedCourseWorkspaceId)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
-  const workspacesWithPending = useMemo(
-    () => withPendingCourseConversation(appState.workspaces, pendingAgentConversation),
-    [appState.workspaces, pendingAgentConversation]
+  const visibleConversationWorkspaces = useMemo(
+    () => projectVisibleAgentConversationWorkspaces({
+      workspaces: appState.workspaces,
+      activeWorkspace: active,
+      selectedCourseWorkspaceId,
+      pendingAgentConversation
+    }),
+    [active, appState.workspaces, pendingAgentConversation, selectedCourseWorkspaceId]
   )
-  const activeWithPending = active
-    ? workspacesWithPending.find((workspace) => workspace.id === active.id) ?? active
-    : null
-  const selectedCourseWorkspace = selectedCourseWorkspaceId
-    ? workspacesWithPending.find((workspace) => workspace.id === selectedCourseWorkspaceId) ?? activeWithPending
-    : activeWithPending
+  const selectedCourseWorkspace = visibleConversationWorkspaces.selectedCourseWorkspace
   const courses = selectedCourseWorkspace?.courses ?? []
   const selectedCourseRelativePath = useAppStore((s) => s.selectedCourseRelativePath)
   const selectedCourse = selectedCourseRelativePath

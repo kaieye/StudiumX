@@ -22,6 +22,13 @@ import { DEFAULT_LESSON_STYLE_ID, LESSON_STYLE_IDS } from './lesson-style-themes
 import type { LessonStyleDefinition, LessonStyleId } from './lesson-style-themes/types'
 
 export { buildLessonCss } from './lesson-style-themes/base'
+export {
+  LESSON_INTERACTION_SOURCE,
+  LESSON_MARKUP_CLASSES,
+  LESSON_MARKUP_DATA_ATTRIBUTES,
+  LESSON_MARKUP_DATASET_KEYS,
+  LESSON_MARKUP_SELECTORS
+} from './lesson-style-themes/contract'
 export { LESSON_FLASHCARD_CSS, LESSON_FLASHCARD_JS, LESSON_QUIZ_JS } from './lesson-style-themes/assets'
 export { BLUEPRINT_CSS, BLUEPRINT_STYLE, BLUEPRINT_TOKENS } from './lesson-style-themes/blueprint'
 export { CHALKBOARD_CSS, CHALKBOARD_STYLE, CHALKBOARD_TOKENS } from './lesson-style-themes/chalkboard'

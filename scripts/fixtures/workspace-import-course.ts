@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -114,6 +114,42 @@ try {
     pinnedSidebarWorkspaceFolders[0]?.node.pinned,
     true,
     'pinning a top-level workspace folder should expose its pinned state in the left course directory'
+  )
+
+  const pathMetaLesson = 'lessons/0001-existing.html'
+  await service.setWorkspaceItemMeta({
+    workspaceId: current.id,
+    relativePath: pathMetaLesson,
+    pinned: true
+  })
+  let workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.teachos', 'index.json'), 'utf8'))
+  assert.deepEqual(
+    workspaceIndex.pathMeta[pathMetaLesson],
+    { pinned: true },
+    'workspace item metadata should record a pinned path'
+  )
+  await service.setWorkspaceItemMeta({
+    workspaceId: current.id,
+    relativePath: pathMetaLesson,
+    archived: true
+  })
+  workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.teachos', 'index.json'), 'utf8'))
+  assert.deepEqual(
+    workspaceIndex.pathMeta[pathMetaLesson],
+    { pinned: true, archived: true },
+    'workspace item metadata should merge archived without dropping pinned'
+  )
+  await service.setWorkspaceItemMeta({
+    workspaceId: current.id,
+    relativePath: pathMetaLesson,
+    pinned: null,
+    archived: null
+  })
+  workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.teachos', 'index.json'), 'utf8'))
+  assert.equal(
+    workspaceIndex.pathMeta?.[pathMetaLesson],
+    undefined,
+    'workspace item metadata should remove empty pathMeta entries after clearing flags'
   )
 
   const archiveRoot = join(tempRoot, 'workspace-archive')

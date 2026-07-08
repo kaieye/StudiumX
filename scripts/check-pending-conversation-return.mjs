@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+import { build } from 'esbuild'
 
 const app = await readFile('src/renderer/src/App.tsx', 'utf8')
 const appStore = await readFile('src/renderer/src/app-shell/appStore.ts', 'utf8')
 const stateModule = await readFile('src/renderer/src/agent-conversation-state.ts', 'utf8')
+const projectionModule = await readFile('src/renderer/src/agent-conversation-projection.ts', 'utf8')
 
 assert.match(
   appStore,
@@ -18,27 +23,27 @@ assert.match(
 )
 
 assert.match(
-  app,
-  /pendingAgentConversation \? \[pendingAgentConversation\.summary, \.\.\.conversations\.filter\(\(conversation\) => !sameRelativePath\(conversation\.relativePath, pendingAgentConversation\.summary\.relativePath\)\)\] : conversations/,
-  'sidebar conversation list should include only temporary pending conversations before they are saved'
+  projectionModule,
+  /export function projectVisibleSidebarConversations/,
+  'renderer should project pending flat sidebar conversations outside App.tsx'
 )
 
 assert.match(
-  app,
-  /!isCourseAgentConversationPath\(storedPendingAgentConversation\.summary\.relativePath\)/,
+  projectionModule,
+  /isCourseAgentConversationPath\(pendingAgentConversation\.summary\.relativePath\)/,
   'course-scoped pending conversations should stay out of the flat conversation section'
 )
 
 assert.match(
-  app,
-  /withPendingCourseConversation\(workspaces, pendingAgentConversation\)/,
-  'course sidebar should merge course-scoped pending conversations into the course tree'
+  projectionModule,
+  /function withPendingCourseConversation/,
+  'course-scoped pending conversations should be merged by the projection module'
 )
 
 assert.match(
   app,
-  /withPendingCourseConversation\(appState\.workspaces, pendingAgentConversation\)/,
-  'course library should merge course-scoped pending conversations before rendering course cards'
+  /projectVisibleAgentConversationWorkspaces\(/,
+  'App should consume projected visible workspace data instead of implementing pending insertion'
 )
 
 assert.match(
@@ -64,5 +69,26 @@ assert.match(
   /activeConversationId === pending\.summary\.id[\s\S]*activeConversationId:\s*savedConversationId/,
   'saving should replace the pending active id with the persisted id only when the pending conversation is still active'
 )
+
+const tempParent = join(process.cwd(), '.teachos')
+await mkdir(tempParent, { recursive: true })
+const tempRoot = await mkdtemp(join(tempParent, 'agent-conversation-projection-check-'))
+const outfile = join(tempRoot, 'agent-conversation-projection.mjs')
+
+try {
+  await build({
+    absWorkingDir: process.cwd(),
+    entryPoints: [join(process.cwd(), 'scripts', 'fixtures', 'agent-conversation-projection.ts')],
+    bundle: true,
+    packages: 'external',
+    platform: 'node',
+    format: 'esm',
+    outfile,
+    logLevel: 'silent'
+  })
+  await import(pathToFileURL(outfile).href)
+} finally {
+  await rm(tempRoot, { recursive: true, force: true })
+}
 
 console.log('pending conversation return path ok')

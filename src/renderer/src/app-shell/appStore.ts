@@ -53,7 +53,6 @@ import {
   type AgentChatTurn,
   type CreateTeachingMemoryPayload,
   type LessonStreamChunk,
-  type LessonStreamStatus,
   type LessonSummary,
   type ListUpstreamModelsResult,
   type ProgressSummary,
@@ -76,6 +75,20 @@ import {
   type WorkspaceItemRemoveMode,
   type WorkspaceView
 } from '../../../shared/teaching-types'
+import {
+  appendStreamingPreview,
+  beginLessonGeneration,
+  directLessonDonePatch,
+  effectsForAgentGeneratedLessons,
+  effectsForGeneratedLesson,
+  failLessonGeneration,
+  failStreamingLessonGeneration,
+  lessonGenerationDefaultRuntime,
+  streamedLessonDonePatch,
+  suggestedCourseName,
+  updateStreamingStatus,
+  type LessonGenerationNotificationIntent
+} from './lessonGenerationFlow'
 
 type ErrorSeverity = 'error' | 'warning' | 'info'
 
@@ -186,12 +199,7 @@ export type StoreState = {
 // Defaults
 // ================================================================
 
-const defaultRuntime: TeachingRuntimeState = {
-  status: 'idle',
-  currentStep: 'ready',
-  queuedTasks: 0,
-  providerLabel: 'Local structured generator'
-}
+const defaultRuntime: TeachingRuntimeState = lessonGenerationDefaultRuntime
 
 const emptyAppState: TeachingAppState = {
   workspaces: [],
@@ -406,6 +414,23 @@ function persistAgentInputHistory(history: string[]): void {
   } catch {
     // Input history is a convenience feature; storage failures should not block sending.
   }
+}
+
+function lessonEffectSettings(settings: TeachingSettingsV1) {
+  return {
+    autoOpenGeneratedLesson: settings.workspace.autoOpenGeneratedLesson,
+    notificationsEnabled: settings.notifications.enabled,
+    lessonGeneratedNotifications: settings.notifications.lessonGenerated
+  }
+}
+
+function lessonGeneratedNotificationBody(intent: LessonGenerationNotificationIntent): string {
+  const suffix = intent.source === 'fallback'
+    ? (intent.reason
+        ? i18n.t('notify.lessonGenerated.fallbackWithReason', { reason: intent.reason })
+        : i18n.t('notify.lessonGenerated.fallbackNoReason'))
+    : ''
+  return i18n.t('notify.lessonGenerated.body', { title: intent.title, path: intent.path, suffix })
 }
 
 export const useAppStore = create<StoreState>((set, get) => ({
@@ -729,19 +754,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
     ) {
       return
     }
-    set({
-      generating: true,
-      error: null,
-      appState: {
-        ...get().appState,
-        runtime: {
-          status: 'working',
-          currentStep: 'calling model',
-          queuedTasks: 1,
-          providerLabel: runtimeProviderLabel(settings)
-        }
-      }
-    })
+    set(beginLessonGeneration({ appState: get().appState, providerLabel: runtimeProviderLabel(settings) }))
     try {
       const result = await api.generateLesson({
         workspaceId: workspace.id,
@@ -749,32 +762,20 @@ export const useAppStore = create<StoreState>((set, get) => ({
         courseName: suggestedCourseName(workspace, prompt),
         messages: lessonMessages
       })
-      set({
-        view: 'lessons',
-        lessonReaderOpen: true,
-        selectedCourseRelativePath: result.lesson.courseRelativePath,
-        selectedCourseWorkspaceId: workspace.id,
-        selectedCoursePreviewFile: lessonToCoursePreviewFile(result.lesson),
-        appState: result.state,
-        taskPrompt: nextPrompt,
-        generating: false
+      set(directLessonDonePatch({ result, workspaceId: workspace.id, nextPrompt }))
+      const effects = effectsForGeneratedLesson({
+        lesson: result.lesson,
+        source: result.source,
+        reason: result.reason,
+        settings: lessonEffectSettings(settings)
       })
-      if (settings.workspace.autoOpenGeneratedLesson) {
-        void get().openPath(result.lesson.absolutePath)
-      }
-      if (settings.notifications.enabled && settings.notifications.lessonGenerated) {
-        const suffix = result.source === 'fallback'
-          ? (result.reason ? i18n.t('notify.lessonGenerated.fallbackWithReason', { reason: result.reason }) : i18n.t('notify.lessonGenerated.fallbackNoReason'))
-          : ''
-        void get().showNotification(i18n.t('notify.lessonGenerated.title'), i18n.t('notify.lessonGenerated.body', { title: result.lesson.title, path: result.lesson.relativePath, suffix }))
+      if (effects.openPath) void get().openPath(effects.openPath)
+      if (effects.lessonGeneratedNotification) {
+        void get().showNotification(i18n.t('notify.lessonGenerated.title'), lessonGeneratedNotificationBody(effects.lessonGeneratedNotification))
       }
     } catch (error) {
       const userError = toUserError(error)
-      set({
-        generating: false,
-        error: userError,
-        appState: { ...get().appState, runtime: { ...defaultRuntime, status: 'error' } }
-      })
+      set(failLessonGeneration({ appState: get().appState, error: userError }))
       if (settings.notifications.enabled && settings.notifications.errors) {
         void get().showNotification(i18n.t('notify.generateFailed.title'), userError.message)
       }
@@ -803,19 +804,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
     ) {
       return
     }
-    set({
-      generating: true,
-      error: null,
-      appState: {
-        ...get().appState,
-        runtime: {
-          status: 'working',
-          currentStep: 'calling model',
-          queuedTasks: 1,
-          providerLabel: runtimeProviderLabel(settings)
-        }
-      }
-    })
+    set(beginLessonGeneration({ appState: get().appState, providerLabel: runtimeProviderLabel(settings) }))
     let liveText = ''
     try {
       const done = await api.generateLessonStream(
@@ -827,53 +816,46 @@ export const useAppStore = create<StoreState>((set, get) => ({
         },
         (chunk: LessonStreamChunk) => {
           liveText += chunk.delta
-          set({ appState: { ...get().appState, previewHtml: streamingPreviewHtml(liveText, workspace), previewUrl: '' } })
-        },
-        (status: LessonStreamStatus) => {
-          set({
-            appState: {
-              ...get().appState,
-              runtime: { ...get().appState.runtime, currentStep: stepLabel(status.step) }
+          set(appendStreamingPreview({
+            appState: get().appState,
+            liveText,
+            workspace,
+            labels: {
+              language: i18n.language,
+              hint: i18n.t('preview.streamingHint'),
+              placeholder: i18n.t('preview.streamingPlaceholder')
             }
-          })
+          }))
+        },
+        (status) => {
+          set(updateStreamingStatus({ appState: get().appState, status }))
         }
       )
       if ('error' in done && done.error) {
         const userError = toUserError(new Error(done.message))
-        set({ generating: false, error: userError })
+        set(failStreamingLessonGeneration(userError))
         if (settings.notifications.enabled && settings.notifications.errors) {
           void get().showNotification(i18n.t('notify.generateFailed.title'), userError.message)
         }
         return
       }
       if (!('error' in done) && done.kind === 'lesson') {
-        set({
-          view: 'lessons',
-          lessonReaderOpen: true,
-          selectedCourseRelativePath: done.lesson.courseRelativePath,
-          selectedCourseWorkspaceId: workspace.id,
-          selectedCoursePreviewFile: lessonToCoursePreviewFile(done.lesson),
-          appState: done.state,
-          taskPrompt: nextPrompt,
-          generating: false
+        const patch = streamedLessonDonePatch({ done, workspaceId: workspace.id, nextPrompt })
+        if (patch) set(patch)
+        const effects = effectsForGeneratedLesson({
+          lesson: done.lesson,
+          source: done.source,
+          reason: done.reason,
+          settings: lessonEffectSettings(settings)
         })
-        if (settings.workspace.autoOpenGeneratedLesson) {
-          void get().openPath(done.lesson.absolutePath)
-        }
-        if (settings.notifications.enabled && settings.notifications.lessonGenerated) {
-          const suffix = done.source === 'fallback'
-            ? (done.reason ? i18n.t('notify.lessonGenerated.fallbackWithReason', { reason: done.reason }) : i18n.t('notify.lessonGenerated.fallbackNoReason'))
-            : ''
-          void get().showNotification(i18n.t('notify.lessonGenerated.title'), i18n.t('notify.lessonGenerated.body', { title: done.lesson.title, path: done.lesson.relativePath, suffix }))
+        if (effects.openPath) void get().openPath(effects.openPath)
+        if (effects.lessonGeneratedNotification) {
+          void get().showNotification(i18n.t('notify.lessonGenerated.title'), lessonGeneratedNotificationBody(effects.lessonGeneratedNotification))
         }
       }
     } catch (error) {
       const userError = toUserError(error)
-      set({
-        generating: false,
-        error: userError,
-        appState: { ...get().appState, runtime: { ...defaultRuntime, status: 'error' } }
-      })
+      set(failLessonGeneration({ appState: get().appState, error: userError }))
     }
   },
   loadAgentConversation: async (conversationId, workspaceId) => {
@@ -1036,14 +1018,17 @@ export const useAppStore = create<StoreState>((set, get) => ({
           const generatedLessons = done.generatedLessons ?? []
           if (generatedLessons.length > 0) {
             const settings = get().settings
-            const latest = generatedLessons[generatedLessons.length - 1]
-            if (latest && settings.workspace.autoOpenGeneratedLesson) {
-              void get().openPath(latest.absolutePath)
+            const effects = effectsForAgentGeneratedLessons({
+              lessons: generatedLessons,
+              settings: lessonEffectSettings(settings)
+            })
+            if (effects.openPath) {
+              void get().openPath(effects.openPath)
             }
-            if (latest && settings.notifications.enabled && settings.notifications.lessonGenerated) {
+            if (effects.lessonGeneratedNotification) {
               void get().showNotification(
                 i18n.t('notify.lessonGenerated.title'),
-                i18n.t('notify.lessonGenerated.body', { title: latest.title, path: latest.relativePath, suffix: '' })
+                lessonGeneratedNotificationBody(effects.lessonGeneratedNotification)
               )
             }
           }
@@ -1421,21 +1406,6 @@ export function titleFromFileName(fileName: string): string {
 }
 
 
-function suggestedCourseName(workspace: TeachingWorkspaceSummary, prompt: string): string {
-  const topic = prompt
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^我想(先)?学习/, '')
-    .replace(/^学习/, '')
-    .replace(/^如何/, '')
-    .split(/[。.!?？\n]/)[0]
-    ?.trim()
-
-  if (topic) return topic.slice(0, 32)
-  return workspace.courses[0]?.name ?? workspace.name
-}
-
-
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -1443,27 +1413,6 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
-}
-
-
-function stepLabel(step: LessonStreamStatus['step']): string {
-  const labels: Record<LessonStreamStatus['step'], string> = {
-    calling: 'calling model',
-    streaming: 'streaming output',
-    validating: 'validating JSON',
-    rendering: 'rendering artifacts',
-    done: 'done',
-    error: 'error'
-  }
-  return labels[step]
-}
-
-
-function streamingPreviewHtml(liveText: string, workspace: TeachingWorkspaceSummary): string {
-  return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
-body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
-main{max-width:760px;margin:0 auto;padding:38px 30px}.badge{color:#4f7cf5;font-size:12px;font-weight:800;text-transform:uppercase}pre{white-space:pre-wrap;line-height:1.7;color:#40506a;background:#f4f7fb;border:1px solid #e8edf5;border-radius:16px;padding:18px;min-height:180px}
-</style></head><body><main><div class="badge">TeachOS · Streaming</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(i18n.t('preview.streamingHint'))}</p><pre>${escapeHtml(liveText || i18n.t('preview.streamingPlaceholder'))}</pre></main></body></html>`
 }
 
 

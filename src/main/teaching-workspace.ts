@@ -16,8 +16,6 @@ import {
   directoryExists,
   fileExists,
   normalizeWorkspaceRelativePath,
-  pathRemovedByWorkspaceItem,
-  prunePathMeta,
   slugify,
   toWorkspaceRelativePath,
   type WorkspacePathMeta
@@ -72,7 +70,6 @@ import {
   appendSessionEvent as appendWorkspaceSessionEvent,
   atomicWriteFile,
   ensureWorkspaceStructure as ensureWorkspaceLifecycleStructure,
-  isWorkspaceScaffoldPath,
   loadWorkspaceIndex as loadWorkspaceLifecycleIndex,
   renderMission,
   renderResources,
@@ -81,6 +78,15 @@ import {
   type SessionEvent,
   type WorkspaceIndex
 } from './teaching-workspace/lifecycle'
+import {
+  archiveWorkspaceItemPathMeta,
+  mergeWorkspaceItemPathMeta,
+  planTemporaryConversationDiskRemoval,
+  planWorkspaceItemDiskRemoval,
+  pruneWorkspaceIndexForItemRemoval,
+  pruneWorkspacePathMetaForItemRemoval,
+  shouldArchiveWorkspaceItem
+} from './teaching-workspace/item-lifecycle'
 import { TeachingWorkspaceReviewModule } from './teaching-workspace/review'
 import type {
   ApplyLessonStylePayload,
@@ -500,35 +506,13 @@ export class TeachingWorkspaceService {
       const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
       if (await this.hasTemporaryConversation(id)) {
         const index = await this.loadTemporaryConversationIndex()
-        const pathMeta = { ...(index.pathMeta ?? {}) }
-        const existing = pathMeta[relativePath] ?? {}
-        const merged: WorkspacePathMeta = { ...existing }
-        if (payload.pinned === null) delete merged.pinned
-        else if (payload.pinned !== undefined) merged.pinned = payload.pinned
-        if (payload.archived === null) delete merged.archived
-        else if (payload.archived !== undefined) merged.archived = payload.archived
-        if (merged.pinned === undefined && merged.archived === undefined) {
-          delete pathMeta[relativePath]
-        } else {
-          pathMeta[relativePath] = merged
-        }
+        const pathMeta = mergeWorkspaceItemPathMeta(index.pathMeta, relativePath, payload)
         await this.saveTemporaryConversationIndex({ ...index, pathMeta })
         return this.buildState(registry, workspace.id, null)
       }
     }
     const index = await this.loadWorkspaceIndex(workspace)
-    const pathMeta = { ...(index.pathMeta ?? {}) }
-    const existing = pathMeta[relativePath] ?? {}
-    const merged: WorkspacePathMeta = { ...existing }
-    if (payload.pinned === null) delete merged.pinned
-    else if (payload.pinned !== undefined) merged.pinned = payload.pinned
-    if (payload.archived === null) delete merged.archived
-    else if (payload.archived !== undefined) merged.archived = payload.archived
-    if (merged.pinned === undefined && merged.archived === undefined) {
-      delete pathMeta[relativePath]
-    } else {
-      pathMeta[relativePath] = merged
-    }
+    const pathMeta = mergeWorkspaceItemPathMeta(index.pathMeta, relativePath, payload)
     await this.saveWorkspaceIndex(workspace.rootPath, { ...index, pathMeta, updatedAt: new Date().toISOString() })
     return this.buildState(registry, workspace.id, null)
   }
@@ -543,7 +527,7 @@ export class TeachingWorkspaceService {
       throw new Error('Path is outside the workspace.')
     }
 
-    if ((payload.mode ?? 'disk') === 'list') {
+    if (shouldArchiveWorkspaceItem(payload.mode)) {
       return this.archiveWorkspaceItem(registry, workspace, relativePath, payload.kind)
     }
 
@@ -553,50 +537,25 @@ export class TeachingWorkspaceService {
       const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
       if (isRootAgentConversationMarkdownRelativePath(relativePath) && await this.hasTemporaryConversation(id)) {
         const index = await this.loadTemporaryConversationIndex()
-        const jsonPath = join(this.appDataRoot, agentConversationJsonRelativePath(id, 'conversations'))
-        const mdPath = join(this.appDataRoot, agentConversationMarkdownRelativePath(id, 'conversations'))
-        await unlink(jsonPath).catch(() => {})
-        await unlink(mdPath).catch(() => {})
+        const plan = planTemporaryConversationDiskRemoval(this.appDataRoot, relativePath)
+        for (const file of plan.files) await unlink(file).catch(() => {})
         await this.saveTemporaryConversationIndex({
           ...index,
-          pathMeta: prunePathMeta(index.pathMeta, relativePath)
+          pathMeta: pruneWorkspacePathMetaForItemRemoval(index.pathMeta, { relativePath, kind: payload.kind })
         })
         return this.buildState(registry, workspace.id, null)
       }
-      const conversationDir = dirname(relativePath).replace(/\\/g, '/')
-      const jsonPath = join(workspace.rootPath, agentConversationJsonRelativePath(id, conversationDir))
-      const mdPath = join(workspace.rootPath, agentConversationMarkdownRelativePath(id, conversationDir))
-      await unlink(jsonPath).catch(() => {})
-      await unlink(mdPath).catch(() => {})
-    } else if (payload.kind === 'directory') {
-      await rm(absolutePath, { recursive: true, force: true })
-    } else {
-      await unlink(absolutePath).catch(() => {})
-      // If this is an indexed lesson, also clear its sibling artifacts and index entry.
-      const lessonMatch = index.lessons.find(
-        (lesson) => resolve(lesson.absolutePath).toLowerCase() === absolutePath.toLowerCase()
-      )
-      if (lessonMatch) {
-        const dir = dirname(lessonMatch.absolutePath)
-        const base = basename(lessonMatch.absolutePath).replace(/\.html$/i, '')
-        for (const suffix of ['-reference.html', '.md', '-flashcards.json']) {
-          await unlink(join(dir, `${base}${suffix}`)).catch(() => {})
-        }
-      }
     }
 
-    // Drop the index entry for a removed lesson, and prune pathMeta for this path + descendants.
-    const remainingLessons = index.lessons.filter(
-      (lesson) => !pathRemovedByWorkspaceItem(payload.kind, relativePath, lesson.relativePath)
-    )
-    const prunedMeta = prunePathMeta(index.pathMeta, relativePath)
-    const nextPathMeta = isWorkspaceScaffoldPath(payload.kind, relativePath)
-      ? { ...prunedMeta, [relativePath]: { archived: true } }
-      : prunedMeta
+    const plan = planWorkspaceItemDiskRemoval(workspace.rootPath, index, { relativePath, kind: payload.kind })
+    for (const directory of plan.directories) await rm(directory, { recursive: true, force: true })
+    for (const file of plan.files) await unlink(file).catch(() => {})
+
+    const { lessons, pathMeta } = pruneWorkspaceIndexForItemRemoval(index, { relativePath, kind: payload.kind })
     await this.saveWorkspaceIndex(workspace.rootPath, {
       ...index,
-      lessons: remainingLessons,
-      pathMeta: nextPathMeta,
+      lessons,
+      pathMeta,
       updatedAt: new Date().toISOString()
     })
 
@@ -634,16 +593,14 @@ export class TeachingWorkspaceService {
       const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
       if (isRootAgentConversationMarkdownRelativePath(relativePath) && await this.hasTemporaryConversation(id)) {
         const index = await this.loadTemporaryConversationIndex()
-        const pathMeta = { ...(index.pathMeta ?? {}) }
-        pathMeta[relativePath] = { ...(pathMeta[relativePath] ?? {}), archived: true }
+        const pathMeta = archiveWorkspaceItemPathMeta(index.pathMeta, relativePath)
         await this.saveTemporaryConversationIndex({ ...index, pathMeta })
         return this.buildState(registry, workspace.id, null)
       }
     }
 
     const index = await this.loadWorkspaceIndex(workspace)
-    const pathMeta = { ...(index.pathMeta ?? {}) }
-    pathMeta[relativePath] = { ...(pathMeta[relativePath] ?? {}), archived: true }
+    const pathMeta = archiveWorkspaceItemPathMeta(index.pathMeta, relativePath)
     await this.saveWorkspaceIndex(workspace.rootPath, {
       ...index,
       pathMeta,
