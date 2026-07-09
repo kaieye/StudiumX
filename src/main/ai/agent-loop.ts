@@ -11,6 +11,12 @@ import {
 } from './provider-adapter'
 import { ContextEstimator, type TokenEstimate } from './context-estimator'
 import { applyRequestHistoryHygiene } from './request-history-hygiene'
+import {
+  ContextCompactor,
+  inferContextWindowTokens,
+  type ContextCompactionEvent,
+  type ContextCompactionOptions
+} from './context-compactor'
 import type { ToolHandlerMap, ToolRuntimeEvent } from './tools/registry'
 import type {
   TeachingSettingsV1,
@@ -40,6 +46,7 @@ export type AgentLoopEvent =
   | { type: 'tool_result'; toolCallId: string; name: string; result: string; isError: boolean }
   | { type: 'context_estimated'; estimate: TokenEstimate }
   | { type: 'context_hygiene_applied'; changed: boolean; savedTokens: number; compactedToolResults: number; digestedToolResults: number; compactedToolCallArgs: number }
+  | ContextCompactionEvent
   | { type: 'token'; delta: string }
   | ToolRuntimeEvent
 
@@ -56,6 +63,7 @@ export type RunAgentLoopOptions = {
   maxIterationsErrorMessage?: string
   signal?: AbortSignal
   callbacks?: { onEvent?: (e: AgentLoopEvent) => void }
+  contextCompaction?: ContextCompactionOptions
 }
 
 export type RunAgentLoopResult = {
@@ -88,10 +96,58 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     opts.callbacks?.onEvent?.(e)
   }
   const estimator = new ContextEstimator()
-  const prepareMessagesForProvider = (messages: ChatMessage[], tools: ToolDefinition[]): ChatMessage[] => {
+  const compactor = new ContextCompactor({
+    estimator,
+    enabled: opts.contextCompaction?.enabled ?? true,
+    contextWindowTokens:
+      opts.contextCompaction?.contextWindowTokens ?? inferContextWindowTokens(opts.settings.generator.model),
+    softThresholdTokens: opts.contextCompaction?.softThresholdTokens,
+    hardThresholdTokens: opts.contextCompaction?.hardThresholdTokens,
+    softThresholdRatio: opts.contextCompaction?.softThresholdRatio,
+    hardThresholdRatio: opts.contextCompaction?.hardThresholdRatio,
+    normalTailRatio: opts.contextCompaction?.normalTailRatio,
+    aggressiveTailRatio: opts.contextCompaction?.aggressiveTailRatio,
+    minTailMessages: opts.contextCompaction?.minTailMessages,
+    minMessagesToCompact: opts.contextCompaction?.minMessagesToCompact,
+    summaryInputTokenLimit: opts.contextCompaction?.summaryInputTokenLimit,
+    maxSummaryTokens: opts.contextCompaction?.maxSummaryTokens,
+    failureCooldownMs: opts.contextCompaction?.failureCooldownMs,
+    force: opts.contextCompaction?.force,
+    now: opts.contextCompaction?.now,
+    summarize: async (request) => {
+      const summarySettings: TeachingSettingsV1 = {
+        ...opts.settings,
+        generator: {
+          ...opts.settings.generator,
+          maxOutputTokens: Math.min(opts.settings.generator.maxOutputTokens, request.maxSummaryTokens)
+        }
+      }
+      if (!toolsSupportedForFormat(summarySettings.generator.endpointFormat)) {
+        const summary = await callProvider({
+          settings: summarySettings,
+          provider: opts.provider,
+          request: legacyRequestFromMessages(request.messages),
+          signal: opts.signal
+        })
+        return summary.text
+      }
+      const summary = await callChatProvider({
+        settings: summarySettings,
+        provider: opts.provider,
+        request: {
+          messages: request.messages,
+          tools: [],
+          toolChoice: 'none',
+          jsonMode: false
+        },
+        signal: opts.signal
+      })
+      return summary.text
+    }
+  })
+  const prepareMessagesForProvider = async (messages: ChatMessage[], tools: ToolDefinition[]): Promise<ChatMessage[]> => {
     const hygiene = applyRequestHistoryHygiene(messages, {}, estimator)
     const estimate = estimator.estimateRequest(hygiene.messages, { tools })
-    emit({ type: 'context_estimated', estimate })
     emit({
       type: 'context_hygiene_applied',
       changed: hygiene.changed,
@@ -100,7 +156,14 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       digestedToolResults: hygiene.stats.digestedToolResults,
       compactedToolCallArgs: hygiene.stats.compactedToolCallArgs
     })
-    return hygiene.messages
+    const compaction = await compactor.compactIfNeeded({
+      messages: hygiene.messages,
+      tools,
+      estimate
+    })
+    for (const event of compaction.events) emit(event)
+    emit({ type: 'context_estimated', estimate: compaction.estimateAfter })
+    return compaction.messages
   }
   let degradedReason: string | undefined
   let iterations = 0
@@ -126,7 +189,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       const result = await callProvider({
         settings: opts.settings,
         provider: opts.provider,
-        request: legacyRequestFromMessages(prepareMessagesForProvider(transcript, [])),
+        request: legacyRequestFromMessages(await prepareMessagesForProvider(transcript, [])),
         signal: opts.signal
       })
       if (isCanceled()) return canceledResult(false)
@@ -169,7 +232,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         settings: opts.settings,
         provider: opts.provider,
         request: {
-          messages: prepareMessagesForProvider(transcript, opts.tools),
+          messages: await prepareMessagesForProvider(transcript, opts.tools),
           tools: opts.tools,
           toolChoice: 'auto',
           jsonMode: opts.jsonMode === true
@@ -283,7 +346,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       settings: opts.settings,
       provider: opts.provider,
       request: {
-        messages: prepareMessagesForProvider(transcript, []),
+        messages: await prepareMessagesForProvider(transcript, []),
         tools: [],
         toolChoice: 'none',
         jsonMode: opts.jsonMode === true
@@ -345,7 +408,11 @@ function legacyRequestFromMessages(messages: ChatMessage[]): {
   userPrompt: string
   jsonMode: boolean
 } {
-  const system = messages.find((m) => m.role === 'system')?.content ?? ''
+  const system = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content)
+    .filter(Boolean)
+    .join('\n\n')
   // Fold prior turns into the user prompt so the degraded path retains context.
   const turns = messages
     .filter((m) => m.role === 'user' || m.role === 'assistant')

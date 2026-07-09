@@ -5,6 +5,7 @@ import { resolveActiveProvider, type ChatMessage, type ToolDefinition } from './
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
 import { createAskToolEntry } from './ai/tools/ask'
 import { createDelegationToolEntries } from './ai/tools/delegation'
+import type { ContextCompactionOptions } from './ai/context-compactor'
 import {
   buildLearnerMemoryCandidate,
   buildMemoryConsentPrompt,
@@ -233,6 +234,7 @@ export async function runTeachingConversationTurn(
       lessonToolEnabled && generatedLessons.length === 0 && isLessonGenerationRequest(userInput),
     maxIterationsErrorMessage:
       '工具调用上限已用完，generate_lesson 尚未执行，所以课程尚未生成。请重试，或在设置里提高工具调用上限。',
+    contextCompaction: buildContextCompactionOptions(payload.contextCompaction),
     signal: stream.signal,
     callbacks: {
       onEvent: (event) => {
@@ -280,6 +282,24 @@ export async function runTeachingConversationTurn(
             streamId,
             status: 'tool_done',
             message: `子任务取消：${event.child.label}`
+          })
+        } else if (event.type === 'context_compaction_started') {
+          stream.onStatus({
+            streamId,
+            status: 'thinking',
+            message: `上下文压缩开始：${contextCompactionReasonLabel(event.reason)}`
+          })
+        } else if (event.type === 'context_compaction_completed') {
+          stream.onStatus({
+            streamId,
+            status: 'thinking',
+            message: `上下文压缩完成：约节省 ${Math.max(0, event.replacedTokens - event.summaryTokens)} token`
+          })
+        } else if (event.type === 'context_compaction_failed') {
+          stream.onStatus({
+            streamId,
+            status: 'thinking',
+            message: `上下文压缩失败，已保留原始历史：${event.error}`
           })
         }
       }
@@ -600,6 +620,26 @@ function appendToLastAssistantMessage(messages: ChatMessage[], extra: string): C
 
 function cleanText(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
+}
+
+function buildContextCompactionOptions(
+  request: AgentChatStreamPayload['contextCompaction']
+): ContextCompactionOptions | undefined {
+  if (!request) return undefined
+  return {
+    enabled: request.enabled,
+    force: request.force,
+    contextWindowTokens: request.contextWindowTokens,
+    softThresholdTokens: request.softThresholdTokens,
+    hardThresholdTokens: request.hardThresholdTokens
+  }
+}
+
+function contextCompactionReasonLabel(reason: string): string {
+  if (reason === 'hard_threshold') return '接近硬阈值'
+  if (reason === 'soft_threshold') return '接近上下文阈值'
+  if (reason === 'manual') return '手动触发'
+  return reason
 }
 
 function safeParseJson(value: string): unknown {

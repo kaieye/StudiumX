@@ -1,4 +1,5 @@
 import type {
+  AgentChatContextCompactionRequest,
   AgentChatMessage,
   AgentChatStreamPayload,
   AgentChatTurn,
@@ -101,9 +102,25 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
     mode: record.mode === 'teaching' ? 'teaching' : record.mode === 'temporary' ? 'temporary' : undefined,
     context: optionalString(record.context),
+    contextCompaction: parseAgentChatContextCompaction(record.contextCompaction),
     messages: parseAgentChatMessages(record.messages),
     userInput: requireString(record.userInput, 'userInput')
   }
+}
+
+function parseAgentChatContextCompaction(value: unknown): AgentChatContextCompactionRequest | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const request: AgentChatContextCompactionRequest = {}
+  if (typeof record.force === 'boolean') request.force = record.force
+  if (typeof record.enabled === 'boolean') request.enabled = record.enabled
+  const contextWindowTokens = optionalPositiveInteger(record.contextWindowTokens, 2_000, 2_000_000)
+  const softThresholdTokens = optionalPositiveInteger(record.softThresholdTokens, 512, 2_000_000)
+  const hardThresholdTokens = optionalPositiveInteger(record.hardThresholdTokens, 512, 2_000_000)
+  if (contextWindowTokens !== undefined) request.contextWindowTokens = contextWindowTokens
+  if (softThresholdTokens !== undefined) request.softThresholdTokens = softThresholdTokens
+  if (hardThresholdTokens !== undefined) request.hardThresholdTokens = hardThresholdTokens
+  return Object.keys(request).length > 0 ? request : undefined
 }
 
 export function decodeToolAnswerPayload(payload: unknown): {
@@ -383,6 +400,14 @@ export function parseStreamId(value: string): string {
 
 export function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function optionalPositiveInteger(value: unknown, min: number, max: number): number | undefined {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(parsed)) return undefined
+  const rounded = Math.floor(parsed)
+  if (rounded < min || rounded > max) return undefined
+  return rounded
 }
 
 export function requireMemoryScope(value: unknown): 'user' | 'workspace' | 'project' {

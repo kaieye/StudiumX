@@ -701,8 +701,17 @@ export type AgentChatStreamPayload = {
   workspaceId?: string
   mode?: AgentChatMode
   context?: string
+  contextCompaction?: AgentChatContextCompactionRequest
   messages: AgentChatMessage[]
   userInput: string
+}
+
+export type AgentChatContextCompactionRequest = {
+  force?: boolean
+  enabled?: boolean
+  contextWindowTokens?: number
+  softThresholdTokens?: number
+  hardThresholdTokens?: number
 }
 
 export type AgentChatStreamChunk = {

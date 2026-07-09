@@ -15,6 +15,16 @@ assert.deepEqual(
     streamId: 'pending-123',
     workspaceId: 'workspace-1',
     mode: 'temporary',
+    context: undefined,
+    contextCompaction: {
+      force: true,
+      enabled: true,
+      contextWindowTokens: 4096,
+      softThresholdTokens: 2048,
+      hardThresholdTokens: 3072,
+      now: 'ignored',
+      failureCooldownMs: 1
+    },
     userInput: ' hello ',
     messages: [
       { role: 'system', content: 'ignored by runtime later' },
@@ -27,6 +37,14 @@ assert.deepEqual(
     streamId: 'pending-123',
     workspaceId: 'workspace-1',
     mode: 'temporary',
+    context: undefined,
+    contextCompaction: {
+      force: true,
+      enabled: true,
+      contextWindowTokens: 4096,
+      softThresholdTokens: 2048,
+      hardThresholdTokens: 3072
+    },
     userInput: ' hello ',
     messages: [
       { role: 'system', content: 'ignored by runtime later', toolCallId: undefined, toolCalls: undefined },

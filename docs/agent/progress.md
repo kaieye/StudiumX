@@ -11,7 +11,7 @@
 | Phase 0：基线测试与诊断 | 已完成 | `5ffcaa9` | 已补 ToolRegistry、agent loop、web tools 基线 check，并新增基础 usage/diagnostic 类型。 |
 | Phase 1：搜索 runtime 深模块 | 已完成 | `cfda6ab` | 已抽出 SearchRuntime，搜索/抓取工具改为薄封装，并新增结构化 sources、attempts 和抓取安全测试。 |
 | Phase 2：发送前 context hygiene | 已完成 | `fdf9ea1` | 已新增发送前历史清理、CJK 友好估算和最小诊断事件。 |
-| Phase 3：自动与手动压缩 | 未开始 | - | 依赖 Phase 2 的 estimator/hygiene。 |
+| Phase 3：自动与手动压缩 | 已完成 | `pending` | 已新增 ContextCompactor、自动/手动触发、reference-only 摘要、失败 cooldown 和压缩事件。 |
 | Phase 4：只读子 agent | 已完成 | `6bf0fee` | 已新增 DelegationRuntime、delegate_task/read_only_task 和只读 profile 工具边界。 |
 | Phase 5：并行任务与状态 UI | 未开始 | - | 依赖 Phase 4。 |
 | Phase 6：持久化与恢复 | 未开始 | - | 依赖 sources、child run、compaction metadata 的实际落地。 |
@@ -136,6 +136,42 @@
 
 - `npm run check:agent-chat` 未通过，失败点是临时会话 prompt 文案断言期望匹配 `学习者画像和课程概览`，实际 prompt 为 `学习者画像、课程概览和当前打开页面...`；本阶段未改该路径，未混入无关修复。
 
+### Phase 3：自动与手动压缩
+
+完成内容：
+
+- 新增 `ContextCompactor`，在发送给 provider 前基于本地估算、模型上下文窗口和 soft/hard thresholds 判断是否压缩较旧历史。
+- 自动压缩通过同一 provider 生成 reference-only summary message，并明确最新用户消息优先。
+- 压缩边界保护最近 tail、最新用户消息和 tool call/result 配对，避免发给 provider 的消息出现孤立 tool result。
+- 摘要生成失败时保留原始发送历史，并记录 `context_compaction_failed` 事件和 cooldown，避免每轮重复失败。
+- `runAgentLoop` 在 hygiene 后、provider 调用前接入 compactor；返回的 result transcript 仍保留原始完整历史，不把发送投影写回持久化。
+- 新增 `context_compaction_started`、`context_compaction_completed`、`context_compaction_failed` 事件，并在教学 runtime 中映射为现有状态流。
+- `AgentChatStreamPayload.contextCompaction.force` 提供 main process 层手动触发入口，解析器只暴露少量白名单参数。
+- 新增 `check:context-compactor` 和 `check:agent-loop-context-compaction`，覆盖阈值触发、reference-only 摘要、最新消息保留、tool pair、失败回退和 cooldown。
+
+提交：
+
+- `pending`
+
+验证：
+
+- `npm run check:context-compactor`
+- `npm run check:agent-loop-context-compaction`
+- `npm run check:agent-loop-context-hygiene`
+- `npm run check:agent-loop-baseline`
+- `npm run check:agent-loop-empty-final`
+- `npm run check:agent-tool-registry`
+- `npm run check:agent-delegation-runtime`
+- `npm run check:teaching-ipc-commands`
+- `npm run check:conversation-lesson-tool`
+- `npx tsc --noEmit`
+
+剩余风险：
+
+- `npm run check:agent-chat` 仍是 Phase 2 记录的既有失败，失败点仍为临时会话 prompt 文案断言，本阶段未混入无关修复。
+- 压缩摘要目前只作为发送投影注入，不持久化 compaction metadata 或 replaced turn ids；这属于 Phase 6。
+- 手动入口只在 main/process payload 层可用，尚未做 UI 按钮或诊断面板。
+
 ### Phase 4：只读子 agent
 
 完成内容：
@@ -173,7 +209,6 @@
 
 ## 未开始
 
-- Phase 3：自动与手动压缩。
 - Phase 5：并行任务与状态 UI。
 - Phase 6：持久化与恢复。
 
