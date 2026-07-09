@@ -50,6 +50,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   padding-top: 52px;
 }.app-shell.platform-win32 .sidebar {
   padding-top: calc(var(--window-chrome-height) + 4px);
+  -webkit-app-region: no-drag;
 }.sidebar.is-collapsed {
   width: 0;
   min-width: 0;

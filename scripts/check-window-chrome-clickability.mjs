@@ -38,6 +38,18 @@ assert.match(
 
 assert.match(
   css,
+  /\.windows-window-chrome__left \{[\s\S]*-webkit-app-region: no-drag;/,
+  'Windows sidebar toggle hit area must stay clickable'
+)
+
+assert.match(
+  css,
+  /\.windows-sidebar-toggle \{[\s\S]*-webkit-app-region: no-drag;/,
+  'Windows sidebar toggle button must stay outside the drag region'
+)
+
+assert.match(
+  css,
   /\.topbar \{[\s\S]*-webkit-app-region: drag;/,
   'Main page topbars should stay draggable on frameless Windows windows'
 )
@@ -52,4 +64,10 @@ assert.match(
   css,
   /\.app-shell\.platform-win32 \.topbar::after \{[\s\S]*width: var\(--window-control-overlay-width\);[\s\S]*-webkit-app-region: no-drag;/,
   'Windows topbars should reserve a no-drag hit region below the window controls'
+)
+
+assert.match(
+  css,
+  /\.app-shell\.platform-win32 \.sidebar \{[\s\S]*-webkit-app-region: no-drag;/,
+  'Windows sidebar content should not drag the whole window'
 )
