@@ -462,10 +462,25 @@ function resolveProxyUrl(settings: TeachingSettingsV1): string {
   return settings.provider.proxy.enabled ? settings.provider.proxy.url.trim() : ''
 }
 
+function buildWindowsTitleBarOverlay(): Electron.TitleBarOverlay {
+  return {
+    color: '#00000000',
+    symbolColor: nativeTheme.shouldUseDarkColors ? '#f5f5f5' : '#1f1f1f',
+    height: 48
+  }
+}
+
 /** Apply app-behavior settings (login item, tray, logging) to the live process. */
 async function applyAppBehavior(settings: TeachingSettingsV1): Promise<void> {
   try {
     nativeTheme.themeSource = settings.theme
+    if (process.platform === 'win32') {
+      for (const targetWindow of BrowserWindow.getAllWindows()) {
+        if (!targetWindow.isDestroyed()) {
+          targetWindow.setTitleBarOverlay(buildWindowsTitleBarOverlay())
+        }
+      }
+    }
     app.setLoginItemSettings({
       openAtLogin: settings.appBehavior.openAtLogin,
       args: settings.appBehavior.startMinimized ? ['--hidden'] : []
@@ -481,7 +496,8 @@ function buildDesktopWindowVisualOptions(): Electron.BrowserWindowConstructorOpt
   if (process.platform === 'win32') {
     return {
       backgroundColor: '#00000000',
-      frame: false,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: buildWindowsTitleBarOverlay(),
       backgroundMaterial: 'acrylic'
     }
   }

@@ -41,6 +41,7 @@ iframe,
 select,
 a,
 [role="button"] {
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }::selection {
   background: rgba(79, 124, 245, 0.26);

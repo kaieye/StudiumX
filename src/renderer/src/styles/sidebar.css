@@ -10,6 +10,7 @@
   background: var(--app-shell-sidebar-bg);
   user-select: none;
   -webkit-user-select: none;
+  app-region: drag;
   -webkit-app-region: drag;
   overflow-x: hidden;
   overflow-y: auto;
@@ -24,6 +25,7 @@
   outline: 0;
   background: var(--app-shell-sidebar-bg);
   cursor: col-resize;
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.sidebar-resizer::before {
   content: "";
@@ -51,7 +53,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }.app-shell.platform-darwin .sidebar {
   padding-top: 52px;
 }.app-shell.platform-win32 .sidebar {
-  padding-top: calc(var(--window-chrome-height) + 4px);
+  padding-top: calc(var(--window-chrome-height) + 8px);
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.sidebar.is-collapsed {
   width: 0;
@@ -170,36 +173,49 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 /* ----- Nav ----- */.nav-list {
   display: grid;
-  gap: 5px;
+  gap: 4px;
   margin-top: 0;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }.nav-item {
   display: inline-flex;
   align-items: center;
   width: 100%;
-  height: 38px;
-  gap: 10px;
-  padding: 0 11px;
-  color: #5c6a80;
-  border: 0;
-  border-radius: 12px;
+  height: 32px;
+  gap: 8px;
+  padding: 0 8px;
+  color: #303846;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 500;
   overflow: hidden;
   text-align: left;
   transition:
     background 160ms ease,
     color 160ms ease,
+    box-shadow 160ms ease,
     gap 180ms ease,
     padding 180ms ease;
+}.nav-item svg {
+  flex: 0 0 auto;
+  color: #4c5667;
+  stroke-width: 1.8;
 }.nav-item:hover {
-  background: rgba(108, 162, 221, 0.1);
-  color: #3c4d68;
+  background: rgba(12, 18, 28, 0.045);
+  color: #1f2733;
 }.nav-item.is-active {
-  color: #1d2940;
-  background: #e3e9ed;
-  box-shadow: none;
-  font-weight: 650;
+  color: #18202c;
+  border-color: rgba(15, 23, 42, 0.045);
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.1),
+    0 2px 7px rgba(15, 23, 42, 0.06);
+  font-weight: 600;
+}.nav-item:hover svg,
+.nav-item.is-active svg {
+  color: currentColor;
 }
 
 /* ----- Sections ----- */.sidebar-section {
@@ -209,6 +225,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   min-height: 0;
   overflow-y: auto;
   padding-top: 2px;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }.sidebar-section.grow {
   flex: 1;
   min-height: 0;
@@ -625,6 +643,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   margin-top: auto;
   padding-top: 14px;
   border-top: 1px solid var(--line-muted);
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
   transition:
     gap 180ms ease,
     border-color 180ms ease,

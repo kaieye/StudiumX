@@ -132,6 +132,30 @@ assert.match(
 
 assert.match(
   css,
+  /\.nav-item \{[\s\S]*height: 32px;[\s\S]*gap: 8px;[\s\S]*padding: 0 8px;[\s\S]*border: 1px solid transparent;[\s\S]*border-radius: 8px;/,
+  'primary sidebar nav items should match the compact Zcode-like row geometry'
+)
+
+assert.match(
+  css,
+  /\.app-shell\.platform-win32 \.sidebar \{[\s\S]*padding-top: calc\(var\(--window-chrome-height\) \+ 8px\);/,
+  'Windows primary sidebar nav should sit slightly higher under the titlebar like Zcode'
+)
+
+assert.match(
+  css,
+  /\.nav-item\.is-active \{[\s\S]*border-color: rgba\(15, 23, 42, 0\.045\);[\s\S]*background: #ffffff;[\s\S]*0 1px 2px rgba\(15, 23, 42, 0\.1\),[\s\S]*0 2px 7px rgba\(15, 23, 42, 0\.06\);/,
+  'primary sidebar nav active state should use a light Zcode-like shadow'
+)
+
+assert.match(
+  css,
+  /:root\[data-resolved-theme="dark"\] \.nav-item\.is-active \{[\s\S]*background: rgba\(255, 255, 255, 0\.08\);[\s\S]*0 1px 2px rgba\(0, 0, 0, 0\.26\),/,
+  'dark theme should keep the primary sidebar nav shadow subtle'
+)
+
+assert.match(
+  css,
   /\.section-folder-chevron \{[\s\S]*opacity: 0;/,
   'section chevrons should be hidden by default'
 )
@@ -162,14 +186,14 @@ assert.doesNotMatch(
 
 assert.match(
   app,
-  /\{readingResourceHtml \? \([\s\S]*renderSidebarToggle\('icon-button reader-sidebar-toggle'\)[\s\S]*className="icon-button reader-preview-back"[\s\S]*onClick=\{closeResourceHtmlPreview\}/,
-  'resource HTML reader views should render floating sidebar and back buttons instead of a topbar'
+  /\{readingResourceHtml \? \(\s*<>\s*\{!isWindows && renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\}[\s\S]*className=\{`icon-button reader-preview-back\$\{isWindows \? ' reader-preview-back--alone' : ''\}`\}[\s\S]*onClick=\{closeResourceHtmlPreview\}/,
+  'resource HTML reader views should render a non-Windows floating sidebar button and a Windows-safe floating back button instead of a topbar'
 )
 
 assert.match(
   app,
-  /\) : readingCourseHtml \|\| readingMarkdown \? \(\s*renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\s*\) : \(\s*<header className="topbar">/,
-  'lesson HTML and Markdown reader views should keep the floating sidebar toggle without a topbar'
+  /\) : readingCourseHtml \|\| readingMarkdown \? \(\s*!isWindows \? renderSidebarToggle\('icon-button reader-sidebar-toggle'\) : null\s*\) : \(\s*<header className="topbar">/,
+  'lesson HTML and Markdown reader views should keep the non-Windows floating sidebar toggle without a topbar'
 )
 
 assert.match(

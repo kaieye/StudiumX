@@ -228,7 +228,14 @@ function App() {
 
   return (
     <AppErrorBoundary>
-      <div className="app-frame">
+      <div className={`app-frame${platformClass}`} style={appShellStyle}>
+        {isWindows && (
+          <div
+            className={`windows-sidebar-drag-region${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
+            aria-hidden="true"
+          />
+        )}
+        {isWindows && <WindowsSidebarToggleChrome />}
         {isWindows && <WindowsWindowChrome />}
         {showTitlebar && <WindowTitlebar />}
         <div
@@ -369,26 +376,42 @@ function WindowTitlebar() {
   )
 }
 
-function WindowsWindowChrome() {
+function WindowsSidebarToggleChrome() {
   const { t } = useTranslation()
   const { sidebarCollapsed, setSidebarCollapsed } = useAppStore()
+  const toggleSidebar = (): void => setSidebarCollapsed(!useAppStore.getState().sidebarCollapsed)
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    toggleSidebar()
+  }
+  const handleClick = (event: ReactMouseEvent<HTMLButtonElement>): void => {
+    if (event.detail !== 0) {
+      event.preventDefault()
+      return
+    }
+    toggleSidebar()
+  }
 
   return (
-    <div className="windows-window-chrome">
-      <div className="windows-window-chrome__left">
-        <button
-          className="icon-button windows-sidebar-toggle"
-          type="button"
-          aria-label={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
-          title={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-        >
-          <PanelLeft size={17} />
-        </button>
-      </div>
-      <WindowControlButtons />
+    <div className="windows-sidebar-toggle-chrome">
+      <button
+        className="icon-button windows-sidebar-toggle"
+        type="button"
+        aria-label={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
+        title={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
+        onClick={handleClick}
+        onPointerDown={handlePointerDown}
+      >
+        <PanelLeft className="windows-sidebar-action-icon" size={17} aria-hidden="true" />
+      </button>
     </div>
   )
+}
+
+function WindowsWindowChrome() {
+  return <div className="windows-window-chrome" aria-hidden="true" />
 }
 
 // ================================================================

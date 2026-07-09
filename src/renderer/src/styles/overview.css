@@ -54,6 +54,7 @@
   scroll-behavior: smooth;
   user-select: text;
   -webkit-user-select: text;
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.overview-dialog-thread-inner {
   display: flex;
@@ -77,6 +78,7 @@
   max-width: 92%;
   user-select: text;
   -webkit-user-select: text;
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.overview-dialog-message > .markdown-message {
   margin: 0;
@@ -310,6 +312,7 @@
   box-shadow:
     0 18px 42px rgba(20, 47, 95, 0.16),
     0 2px 8px rgba(20, 47, 95, 0.08);
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.row-context-menu-item {
   display: flex;
@@ -364,6 +367,7 @@
   padding: 24px;
   background: rgba(20, 47, 95, 0.18);
   backdrop-filter: blur(12px);
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.import-dialog {
   display: grid;
@@ -439,6 +443,7 @@
   padding: 24px;
   background: rgba(20, 47, 95, 0.18);
   backdrop-filter: blur(12px);
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.remove-dialog {
   width: min(440px, calc(100vw - 32px));

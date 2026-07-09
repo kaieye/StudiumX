@@ -33,6 +33,7 @@
   line-height: 1.65;
   user-select: text;
   -webkit-user-select: text;
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.markdown-message--assistant {
   border-color: transparent;
@@ -148,6 +149,7 @@
   box-shadow: 0 8px 20px rgba(20, 47, 95, 0.05);
   user-select: text;
   -webkit-user-select: text;
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.agent-process-panel.is-compact {
   border-radius: 11px;

@@ -38,6 +38,7 @@
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.reader-sidebar-toggle:hover {
   background: #fff;
@@ -52,6 +53,7 @@
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.reader-preview-back:hover {
   background: #fff;
@@ -68,6 +70,7 @@
   border-bottom: 0;
   background: rgba(255, 255, 255, 0.86);
   backdrop-filter: blur(18px);
+  app-region: drag;
   -webkit-app-region: drag;
 }.app-shell.platform-win32 .topbar {
   min-height: max(48px, var(--window-chrome-height));
@@ -79,6 +82,7 @@
   right: 0;
   width: var(--window-control-overlay-width);
   height: var(--window-chrome-height);
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.app-shell.platform-win32.is-sidebar-collapsed .topbar {
   padding-left: calc(20px + var(--window-chrome-left-width));
@@ -89,6 +93,7 @@
   left: 0;
   width: var(--window-chrome-left-width);
   height: var(--window-chrome-height);
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.app-shell.platform-win32 .main-area[data-reading-html='true'],
 .app-shell.platform-win32 .main-area[data-reading-markdown='true'] {
@@ -104,11 +109,13 @@
   font-size: 13px;
   font-weight: 600;
 }.crumb .icon-button {
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }.topbar-actions {
   display: flex;
   align-items: center;
   gap: 10px;
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }
 
