@@ -8,6 +8,8 @@
   padding: 4px 4px 12px 10px;
   border-right: 0;
   background: var(--app-shell-sidebar-bg);
+  user-select: none;
+  -webkit-user-select: none;
   -webkit-app-region: drag;
   overflow-x: hidden;
   overflow-y: auto;
@@ -160,6 +162,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-size: 13px;
 }.search-box input::placeholder {
   color: #a8b2c3;
+}.sidebar input,
+.sidebar textarea {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* ----- Nav ----- */.nav-list {

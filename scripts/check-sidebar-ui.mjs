@@ -120,6 +120,18 @@ assert.match(
 
 assert.match(
   css,
+  /\.sidebar \{[\s\S]*user-select: none;[\s\S]*-webkit-user-select: none;/,
+  'sidebar chrome should not allow accidental text selection'
+)
+
+assert.match(
+  css,
+  /\.sidebar input,[\s\S]*\.sidebar textarea \{[\s\S]*user-select: text;[\s\S]*-webkit-user-select: text;/,
+  'sidebar form fields should still allow text selection'
+)
+
+assert.match(
+  css,
   /\.section-folder-chevron \{[\s\S]*opacity: 0;/,
   'section chevrons should be hidden by default'
 )
