@@ -13,7 +13,7 @@
 | Phase 2：发送前 context hygiene | 已完成 | `fdf9ea1` | 已新增发送前历史清理、CJK 友好估算和最小诊断事件。 |
 | Phase 3：自动与手动压缩 | 已完成 | `37c7bf3` | 已新增 ContextCompactor、自动/手动触发、reference-only 摘要、失败 cooldown 和压缩事件。 |
 | Phase 4：只读子 agent | 已完成 | `6bf0fee` | 已新增 DelegationRuntime、delegate_task/read_only_task 和只读 profile 工具边界。 |
-| Phase 5：并行任务与状态 UI | 已完成 | `bd48bb5` | 已新增 `parallel_tasks`、并发槽、子任务状态流和过程面板展示。 |
+| Phase 5：并行任务与状态 UI | 已完成 | `633c4a1` | 已新增 `parallel_tasks`、并发槽、子任务状态流和过程面板展示。 |
 | Phase 6：持久化与恢复 | 未开始 | - | 依赖 sources、child run、compaction metadata 的实际落地。 |
 
 ## 已完成
@@ -218,7 +218,7 @@
 
 提交：
 
-- `bd48bb5`
+- `633c4a1`
 
 验证：
 
