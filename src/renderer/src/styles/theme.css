@@ -1,0 +1,236 @@
+/* ================================================================
+   Dark theme runtime overrides
+   ================================================================ */:root[data-resolved-theme="dark"] body,
+:root[data-resolved-theme="dark"] .app-frame {
+  background: #0f0f10;
+  color: var(--text);
+}:root[data-resolved-theme="dark"] .lesson-course-card.is-selected .lesson-card-spine {
+  color: #10131a;
+}:root[data-resolved-theme="dark"] .window-titlebar {
+  background:
+    linear-gradient(180deg, rgba(18, 18, 20, 0.96), rgba(15, 15, 16, 0.92)),
+    #0f0f10;
+  color: var(--text);
+}:root[data-resolved-theme="dark"] .app-shell,
+:root[data-resolved-theme="dark"] .main-area,
+:root[data-resolved-theme="dark"] .overview-dialog-shell {
+  background: #101010;
+}:root[data-resolved-theme="dark"] .sidebar,
+:root[data-resolved-theme="dark"] .sidebar-resizer {
+  background:
+    linear-gradient(180deg, rgba(21, 21, 23, 0.98), rgba(15, 15, 16, 0.98));
+}:root[data-resolved-theme="dark"] .sidebar-resizer::before {
+  background: rgba(148, 163, 184, 0.14);
+}:root[data-resolved-theme="dark"] .topbar {
+  background: rgba(17, 17, 18, 0.86);
+}:root[data-resolved-theme="dark"] .search-box,
+:root[data-resolved-theme="dark"] .search-box:focus-within,
+:root[data-resolved-theme="dark"] .ghost-button,
+:root[data-resolved-theme="dark"] .icon-button:hover,
+:root[data-resolved-theme="dark"] .composer-tool,
+:root[data-resolved-theme="dark"] .overview-dialog-card,
+:root[data-resolved-theme="dark"] .lesson-card,
+:root[data-resolved-theme="dark"] .preview-panel,
+:root[data-resolved-theme="dark"] .resource-panel,
+:root[data-resolved-theme="dark"] .records-panel,
+:root[data-resolved-theme="dark"] .runtime-panel,
+:root[data-resolved-theme="dark"] .resource-row,
+:root[data-resolved-theme="dark"] .style-gallery-preview,
+:root[data-resolved-theme="dark"] .style-card,
+:root[data-resolved-theme="dark"] .empty-state,
+:root[data-resolved-theme="dark"] .row-context-menu-dropdown,
+:root[data-resolved-theme="dark"] .import-dialog,
+:root[data-resolved-theme="dark"] .remove-dialog {
+  border-color: var(--line);
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}:root[data-resolved-theme="dark"] .brand-title,
+:root[data-resolved-theme="dark"] .overview-copy h1,
+:root[data-resolved-theme="dark"] .composer-header strong,
+:root[data-resolved-theme="dark"] .lesson-body h3,
+:root[data-resolved-theme="dark"] .empty-state h3,
+:root[data-resolved-theme="dark"] .resource-row h3,
+:root[data-resolved-theme="dark"] .style-gallery-preview-title strong,
+:root[data-resolved-theme="dark"] .style-card-body strong,
+:root[data-resolved-theme="dark"] .course-group-title,
+:root[data-resolved-theme="dark"] .import-dialog-header h2,
+:root[data-resolved-theme="dark"] .import-dialog-field input,
+:root[data-resolved-theme="dark"] .overview-dialog-message.is-assistant > .markdown-message {
+  color: var(--text);
+}:root[data-resolved-theme="dark"] .nav-item,
+:root[data-resolved-theme="dark"] .workspace-item,
+:root[data-resolved-theme="dark"] .workspace-node-row,
+:root[data-resolved-theme="dark"] .workspace-conversation-row,
+:root[data-resolved-theme="dark"] .overview-dialog-hint,
+:root[data-resolved-theme="dark"] .overview-dialog-icon,
+:root[data-resolved-theme="dark"] .overview-dialog-access,
+:root[data-resolved-theme="dark"] .overview-dialog-model,
+:root[data-resolved-theme="dark"] .row-context-menu-item,
+:root[data-resolved-theme="dark"] .import-dialog-header span,
+:root[data-resolved-theme="dark"] .import-dialog-field span {
+  color: var(--text-muted);
+}:root[data-resolved-theme="dark"] .nav-item:hover,
+:root[data-resolved-theme="dark"] .workspace-item:hover,
+:root[data-resolved-theme="dark"] .workspace-node-row:hover,
+:root[data-resolved-theme="dark"] .workspace-conversation-row:hover,
+:root[data-resolved-theme="dark"] .workspace-conversation-row:focus-within,
+:root[data-resolved-theme="dark"] .overview-dialog-icon:hover,
+:root[data-resolved-theme="dark"] .overview-dialog-access:hover,
+:root[data-resolved-theme="dark"] .overview-dialog-model:hover,
+:root[data-resolved-theme="dark"] .row-context-menu-item:hover,
+:root[data-resolved-theme="dark"] .row-context-menu-item:focus-visible {
+  color: var(--text);
+  background: var(--surface-hover);
+}:root[data-resolved-theme="dark"] .nav-item.is-active,
+:root[data-resolved-theme="dark"] .workspace-item.is-selected,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-html-file,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-conversation,
+:root[data-resolved-theme="dark"] .workspace-conversation-row.is-selected,
+:root[data-resolved-theme="dark"] .dialog-mode-switch-btn.is-active {
+  color: var(--text);
+  background: rgba(138, 180, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(138, 180, 255, 0.18);
+}:root[data-resolved-theme="dark"] .workspace-node-row.is-workspace-folder,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-workspace-folder.is-selected,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-course-folder,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-course-folder.is-selected {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}:root[data-resolved-theme="dark"] .reader-sidebar-toggle,
+:root[data-resolved-theme="dark"] .reader-preview-back,
+:root[data-resolved-theme="dark"] .overview-dialog-statusbar,
+:root[data-resolved-theme="dark"] .dialog-mode-switch,
+:root[data-resolved-theme="dark"] .markdown-message,
+:root[data-resolved-theme="dark"] .agent-process-panel,
+:root[data-resolved-theme="dark"] .lesson-id,
+:root[data-resolved-theme="dark"] .resource-row span,
+:root[data-resolved-theme="dark"] .style-gallery-preview-head,
+:root[data-resolved-theme="dark"] .style-gallery-hint {
+  border-color: var(--line);
+  background: var(--surface-muted);
+  color: var(--text);
+}:root[data-resolved-theme="dark"] .markdown-message--assistant,
+:root[data-resolved-theme="dark"] .overview-dialog-message.is-assistant > .markdown-message {
+  background: transparent;
+  border-color: transparent;
+}:root[data-resolved-theme="dark"] .markdown-message--user,
+:root[data-resolved-theme="dark"] .overview-dialog-message.is-user > .markdown-message {
+  color: var(--text);
+  background: #2a2a2d;
+}:root[data-resolved-theme="dark"] .markdown-message pre,
+:root[data-resolved-theme="dark"] .markdown-message--user pre {
+  border-color: var(--line);
+  background: #0b0b0c;
+  color: #f2f2f3;
+}:root[data-resolved-theme="dark"] .markdown-message :not(pre) > code,
+:root[data-resolved-theme="dark"] .markdown-message--user :not(pre) > code {
+  background: rgba(231, 237, 247, 0.1);
+  color: #dce7ff;
+}:root[data-resolved-theme="dark"] .agent-process-header {
+  border-bottom-color: var(--line);
+  color: var(--text-muted);
+}:root[data-resolved-theme="dark"] .agent-process-header strong,
+:root[data-resolved-theme="dark"] .agent-process-event-copy strong,
+:root[data-resolved-theme="dark"] .tool-call-trigger strong,
+:root[data-resolved-theme="dark"] .tool-call-section pre {
+  color: var(--text);
+}:root[data-resolved-theme="dark"] .agent-process-header span,
+:root[data-resolved-theme="dark"] .agent-process-event-copy small,
+:root[data-resolved-theme="dark"] .agent-process-tool-detail-trigger svg {
+  color: var(--text-soft);
+}:root[data-resolved-theme="dark"] .agent-process-event-icon {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+}:root[data-resolved-theme="dark"] .agent-process-tool-detail-trigger {
+  border-color: var(--line);
+  background: #252528;
+  color: var(--text-muted);
+}:root[data-resolved-theme="dark"] .agent-process-tool-detail-trigger:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+  color: var(--text);
+}:root[data-resolved-theme="dark"] .tool-call-card,
+:root[data-resolved-theme="dark"] .tool-call-body.is-inline {
+  border-color: var(--line);
+  background: #151517;
+}:root[data-resolved-theme="dark"] .tool-call-card.is-error {
+  border-color: rgba(255, 122, 112, 0.32);
+  background: rgba(255, 122, 112, 0.08);
+}:root[data-resolved-theme="dark"] .tool-call-trigger,
+:root[data-resolved-theme="dark"] .tool-call-body,
+:root[data-resolved-theme="dark"] .tool-call-section > div {
+  color: var(--text-muted);
+}:root[data-resolved-theme="dark"] .tool-call-section pre {
+  border-color: var(--line);
+  background: #0b0b0c;
+}:root[data-resolved-theme="dark"] .overview-dialog-card textarea,
+:root[data-resolved-theme="dark"] .composer-tool textarea,
+:root[data-resolved-theme="dark"] .search-box input {
+  color: var(--text);
+  caret-color: var(--accent);
+}:root[data-resolved-theme="dark"] .overview-dialog-card textarea::placeholder,
+:root[data-resolved-theme="dark"] .composer-tool textarea::placeholder,
+:root[data-resolved-theme="dark"] .search-box input::placeholder {
+  color: var(--text-soft);
+}:root[data-resolved-theme="dark"] .tool-pills button,
+:root[data-resolved-theme="dark"] .assistant-badge,
+:root[data-resolved-theme="dark"] .state-chip,
+:root[data-resolved-theme="dark"] .empty-state-action,
+:root[data-resolved-theme="dark"] .style-card-apply,
+:root[data-resolved-theme="dark"] .overview-dialog-access.is-active {
+  border-color: rgba(138, 180, 255, 0.24);
+  background: var(--accent-soft);
+  color: var(--accent);
+}:root[data-resolved-theme="dark"] .style-card:hover {
+  border-color: var(--line-strong);
+}:root[data-resolved-theme="dark"] .style-card-apply:hover {
+  background: rgba(80, 132, 255, 0.22);
+}:root[data-resolved-theme="dark"] .style-card-apply.is-current,
+:root[data-resolved-theme="dark"] .style-card-apply.is-current:hover {
+  border-color: rgba(102, 194, 154, 0.24);
+  background: var(--green-soft);
+  color: var(--green);
+}:root[data-resolved-theme="dark"] .remove-dialog-option {
+  border-color: var(--line);
+  background: var(--surface-muted);
+  color: var(--text);
+}:root[data-resolved-theme="dark"] .remove-dialog-option:hover,
+:root[data-resolved-theme="dark"] .remove-dialog-option:focus-visible {
+  border-color: var(--line-strong);
+  background: #252528;
+}:root[data-resolved-theme="dark"] .remove-dialog-option.is-danger:hover,
+:root[data-resolved-theme="dark"] .remove-dialog-option.is-danger:focus-visible {
+  border-color: rgba(255, 122, 112, 0.32);
+  background: rgba(255, 122, 112, 0.1);
+}:root[data-resolved-theme="dark"] .remove-dialog-option-icon {
+  color: var(--accent);
+  background: var(--accent-soft);
+}:root[data-resolved-theme="dark"] .remove-dialog-option.is-danger .remove-dialog-option-icon {
+  color: var(--red);
+  background: rgba(255, 122, 112, 0.14);
+}:root[data-resolved-theme="dark"] .primary-button,
+:root[data-resolved-theme="dark"] .overview-dialog-send {
+  color: #111111;
+  background: #f2f2f3;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+}:root[data-resolved-theme="dark"] .primary-button:hover,
+:root[data-resolved-theme="dark"] .overview-dialog-send:hover:not(:disabled) {
+  color: #111111;
+  background: #ffffff;
+}:root[data-resolved-theme="dark"] .import-dialog-field input {
+  border-color: var(--line);
+  background: #141414;
+}:root[data-resolved-theme="dark"] .import-dialog-backdrop,
+:root[data-resolved-theme="dark"] .remove-dialog-backdrop {
+  background: rgba(0, 0, 0, 0.42);
+}:root[data-resolved-theme="dark"] .skeleton {
+  background: linear-gradient(90deg, #192231 25%, #243044 37%, #192231 63%);
+}:root[data-resolved-theme="dark"] *::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}:root[data-resolved-theme="dark"] *::-webkit-scrollbar-thumb {
+  border-color: var(--scrollbar-track);
+  background: var(--scrollbar-thumb);
+}:root[data-resolved-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}

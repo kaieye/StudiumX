@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, unlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
@@ -8,20 +8,14 @@ import { isPathInsideRoot } from './path-access'
 import {
   buildCourseSummaries,
   buildWorkspaceCatalog,
-  normalizeLessonSummary,
   readMissionSummary
 } from './teaching-workspace-catalog'
 import { runLessonGenerationPipeline, type LessonGenerationCallbacks } from './teaching-lesson-generation'
 import {
   cleanText,
-  collectTeachingFiles,
   directoryExists,
   fileExists,
-  isPathArchived,
-  normalizePathMeta,
   normalizeWorkspaceRelativePath,
-  pathRemovedByWorkspaceItem,
-  prunePathMeta,
   slugify,
   toWorkspaceRelativePath,
   type WorkspacePathMeta
@@ -42,9 +36,6 @@ import { resolveActiveProvider } from './ai/provider-adapter'
 import { runTeachingConversationTurn, type TemporaryChatContext } from './teaching-conversation-runtime'
 import type { LessonPlanSource } from '../shared/lesson-schema'
 import {
-  LESSON_FLASHCARD_CSS,
-  LESSON_FLASHCARD_JS,
-  LESSON_QUIZ_JS,
   lessonStyleCss,
   normalizeLessonStyleId
 } from '../shared/lesson-styles'
@@ -61,9 +52,42 @@ import {
   normalizeAgentConversationDirectory
 } from '../shared/agent-conversation-catalog'
 import {
-  ensurePreviewBaseTag,
-  injectPreviewMarkdownLinkBridge
-} from '../shared/preview-markdown-bridge'
+  EMPTY_REGISTRY,
+  applyRegistryWorkspaceMeta,
+  assertSafeWorkspaceRootForRemoval,
+  findWorkspace,
+  isRegistryWorkspace,
+  orderRegistryWorkspaces,
+  samePath,
+  sameRegistryWorkspaceOrder,
+  touchRegistryWorkspace,
+  upsertRegistryWorkspace,
+  visibleRegistryWorkspaces,
+  type RegistryWorkspace,
+  type WorkspaceRegistry
+} from './teaching-workspace/registry'
+import {
+  appendSessionEvent as appendWorkspaceSessionEvent,
+  atomicWriteFile,
+  ensureWorkspaceStructure as ensureWorkspaceLifecycleStructure,
+  loadWorkspaceIndex as loadWorkspaceLifecycleIndex,
+  renderMission,
+  renderResources,
+  saveWorkspaceIndex as saveWorkspaceLifecycleIndex,
+  writeIfMissing,
+  type SessionEvent,
+  type WorkspaceIndex
+} from './teaching-workspace/lifecycle'
+import {
+  archiveWorkspaceItemPathMeta,
+  mergeWorkspaceItemPathMeta,
+  planTemporaryConversationDiskRemoval,
+  planWorkspaceItemDiskRemoval,
+  pruneWorkspaceIndexForItemRemoval,
+  pruneWorkspacePathMetaForItemRemoval,
+  shouldArchiveWorkspaceItem
+} from './teaching-workspace/item-lifecycle'
+import { TeachingWorkspaceReviewModule } from './teaching-workspace/review'
 import type {
   ApplyLessonStylePayload,
   CreateWorkspacePayload,
@@ -76,13 +100,9 @@ import type {
   LessonStreamStatus,
   LessonSummary,
   ListReviewCardsResult,
-  ProgressSummary,
-  QuizResultEntry,
   ReadLessonPayload,
   ReadLessonResult,
-  ReadWorkspaceMarkdownPayload,
   RecordProgressPayload,
-  ReviewCard,
   AgentConversationRecord,
   AgentConversationSummary,
   AgentChatMessage,
@@ -94,8 +114,6 @@ import type {
   ReadAgentConversationPayload,
   SaveAgentConversationPayload,
   SaveAgentConversationResult,
-  SaveWorkspaceMarkdownPayload,
-  SaveWorkspaceMarkdownResult,
   TeachingMemoryDiagnostics,
   TeachingMemoryRecord,
   TeachingAppState,
@@ -103,38 +121,12 @@ import type {
   TeachingSettingsV1,
   TeachingWorkspaceSummary,
   WorkspaceItemKind,
-  WorkspaceMarkdownDocument,
   WorkspaceItemMetaPayload,
   WorkspaceItemRemovePayload,
   WorkspaceRemovePayload,
   UpdateTeachingMemoryPayload,
   UpdateMissionPayload
 } from '../shared/teaching-types'
-
-type RegistryWorkspace = {
-  id: string
-  name: string
-  rootPath: string
-  createdAt: string
-  updatedAt: string
-  pinned?: boolean
-  archived?: boolean
-}
-
-type WorkspaceRegistry = {
-  activeWorkspaceId: string | null
-  workspaces: RegistryWorkspace[]
-}
-
-type WorkspaceIndex = {
-  id: string
-  name: string
-  rootPath: string
-  createdAt: string
-  updatedAt: string
-  lessons: LessonSummary[]
-  pathMeta?: Record<string, WorkspacePathMeta>
-}
 
 type ConversationIndex = {
   pathMeta?: Record<string, WorkspacePathMeta>
@@ -149,18 +141,6 @@ type AgentConversationLocation = {
 export type WorkspacePreviewFile = {
   absolutePath: string
   mimeType: string
-  relativePath: string
-  workspaceId: string
-}
-
-type SessionEvent = {
-  id: string
-  kind: 'workspace_created' | 'workspace_imported' | 'mission_updated' | 'lesson_generated' | 'lesson_style_applied' | 'agent_conversation_recorded'
-  timestamp: string
-  workspaceId: string
-  prompt?: string
-  paths?: string[]
-  meta?: { source?: LessonPlanSource; reason?: string; model?: string; styleId?: string }
 }
 
 const DEFAULT_RUNTIME: TeachingRuntimeState = {
@@ -170,53 +150,13 @@ const DEFAULT_RUNTIME: TeachingRuntimeState = {
   providerLabel: 'Local structured generator'
 }
 
-const EMPTY_REGISTRY: WorkspaceRegistry = {
-  activeWorkspaceId: null,
-  workspaces: []
-}
-
-const WORKSPACE_SCAFFOLD_DIRECTORIES = new Set([
-  'lessons',
-  'conversation',
-  'reference',
-  'learning-records',
-  'reviews',
-  'assets'
-])
-
-const WORKSPACE_SCAFFOLD_FILES = new Set([
-  'MISSION.md',
-  'RESOURCES.md',
-  'GLOSSARY.md',
-  'NOTES.md',
-  'assets/lesson.css',
-  'assets/quiz.js',
-  'assets/flashcards.css',
-  'assets/flashcards.js'
-])
-
-const ROOT_MARKDOWN_DOCUMENTS = new Set([
-  'MISSION.md',
-  'RESOURCES.md',
-  'GLOSSARY.md',
-  'NOTES.md'
-])
-
-const MARKDOWN_DOCUMENT_DIRECTORIES = [
-  'courses',
-  'lessons',
-  'learning-records',
-  'reviews',
-  'reference',
-  'conversation'
-]
-
 export class TeachingWorkspaceService {
   private readonly registryPath: string
   private readonly appDataRoot: string
   private readonly defaultRoot: string
   private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
   private readonly memoryStore: TeachingMemoryStore
+  private readonly reviewModule = new TeachingWorkspaceReviewModule()
 
   constructor(options: {
     registryPath: string
@@ -566,35 +506,13 @@ export class TeachingWorkspaceService {
       const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
       if (await this.hasTemporaryConversation(id)) {
         const index = await this.loadTemporaryConversationIndex()
-        const pathMeta = { ...(index.pathMeta ?? {}) }
-        const existing = pathMeta[relativePath] ?? {}
-        const merged: WorkspacePathMeta = { ...existing }
-        if (payload.pinned === null) delete merged.pinned
-        else if (payload.pinned !== undefined) merged.pinned = payload.pinned
-        if (payload.archived === null) delete merged.archived
-        else if (payload.archived !== undefined) merged.archived = payload.archived
-        if (merged.pinned === undefined && merged.archived === undefined) {
-          delete pathMeta[relativePath]
-        } else {
-          pathMeta[relativePath] = merged
-        }
+        const pathMeta = mergeWorkspaceItemPathMeta(index.pathMeta, relativePath, payload)
         await this.saveTemporaryConversationIndex({ ...index, pathMeta })
         return this.buildState(registry, workspace.id, null)
       }
     }
     const index = await this.loadWorkspaceIndex(workspace)
-    const pathMeta = { ...(index.pathMeta ?? {}) }
-    const existing = pathMeta[relativePath] ?? {}
-    const merged: WorkspacePathMeta = { ...existing }
-    if (payload.pinned === null) delete merged.pinned
-    else if (payload.pinned !== undefined) merged.pinned = payload.pinned
-    if (payload.archived === null) delete merged.archived
-    else if (payload.archived !== undefined) merged.archived = payload.archived
-    if (merged.pinned === undefined && merged.archived === undefined) {
-      delete pathMeta[relativePath]
-    } else {
-      pathMeta[relativePath] = merged
-    }
+    const pathMeta = mergeWorkspaceItemPathMeta(index.pathMeta, relativePath, payload)
     await this.saveWorkspaceIndex(workspace.rootPath, { ...index, pathMeta, updatedAt: new Date().toISOString() })
     return this.buildState(registry, workspace.id, null)
   }
@@ -609,7 +527,7 @@ export class TeachingWorkspaceService {
       throw new Error('Path is outside the workspace.')
     }
 
-    if ((payload.mode ?? 'disk') === 'list') {
+    if (shouldArchiveWorkspaceItem(payload.mode)) {
       return this.archiveWorkspaceItem(registry, workspace, relativePath, payload.kind)
     }
 
@@ -619,50 +537,25 @@ export class TeachingWorkspaceService {
       const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
       if (isRootAgentConversationMarkdownRelativePath(relativePath) && await this.hasTemporaryConversation(id)) {
         const index = await this.loadTemporaryConversationIndex()
-        const jsonPath = join(this.appDataRoot, agentConversationJsonRelativePath(id, 'conversations'))
-        const mdPath = join(this.appDataRoot, agentConversationMarkdownRelativePath(id, 'conversations'))
-        await unlink(jsonPath).catch(() => {})
-        await unlink(mdPath).catch(() => {})
+        const plan = planTemporaryConversationDiskRemoval(this.appDataRoot, relativePath)
+        for (const file of plan.files) await unlink(file).catch(() => {})
         await this.saveTemporaryConversationIndex({
           ...index,
-          pathMeta: prunePathMeta(index.pathMeta, relativePath)
+          pathMeta: pruneWorkspacePathMetaForItemRemoval(index.pathMeta, { relativePath, kind: payload.kind })
         })
         return this.buildState(registry, workspace.id, null)
       }
-      const conversationDir = dirname(relativePath).replace(/\\/g, '/')
-      const jsonPath = join(workspace.rootPath, agentConversationJsonRelativePath(id, conversationDir))
-      const mdPath = join(workspace.rootPath, agentConversationMarkdownRelativePath(id, conversationDir))
-      await unlink(jsonPath).catch(() => {})
-      await unlink(mdPath).catch(() => {})
-    } else if (payload.kind === 'directory') {
-      await rm(absolutePath, { recursive: true, force: true })
-    } else {
-      await unlink(absolutePath).catch(() => {})
-      // If this is an indexed lesson, also clear its sibling artifacts and index entry.
-      const lessonMatch = index.lessons.find(
-        (lesson) => resolve(lesson.absolutePath).toLowerCase() === absolutePath.toLowerCase()
-      )
-      if (lessonMatch) {
-        const dir = dirname(lessonMatch.absolutePath)
-        const base = basename(lessonMatch.absolutePath).replace(/\.html$/i, '')
-        for (const suffix of ['-reference.html', '.md', '-flashcards.json']) {
-          await unlink(join(dir, `${base}${suffix}`)).catch(() => {})
-        }
-      }
     }
 
-    // Drop the index entry for a removed lesson, and prune pathMeta for this path + descendants.
-    const remainingLessons = index.lessons.filter(
-      (lesson) => !pathRemovedByWorkspaceItem(payload.kind, relativePath, lesson.relativePath)
-    )
-    const prunedMeta = prunePathMeta(index.pathMeta, relativePath)
-    const nextPathMeta = isWorkspaceScaffoldPath(payload.kind, relativePath)
-      ? { ...prunedMeta, [relativePath]: { archived: true } }
-      : prunedMeta
+    const plan = planWorkspaceItemDiskRemoval(workspace.rootPath, index, { relativePath, kind: payload.kind })
+    for (const directory of plan.directories) await rm(directory, { recursive: true, force: true })
+    for (const file of plan.files) await unlink(file).catch(() => {})
+
+    const { lessons, pathMeta } = pruneWorkspaceIndexForItemRemoval(index, { relativePath, kind: payload.kind })
     await this.saveWorkspaceIndex(workspace.rootPath, {
       ...index,
-      lessons: remainingLessons,
-      pathMeta: nextPathMeta,
+      lessons,
+      pathMeta,
       updatedAt: new Date().toISOString()
     })
 
@@ -674,7 +567,8 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     const mode = payload.mode ?? 'disk'
     if (mode === 'disk') {
-      assertSafeWorkspaceRootForRemoval(workspace.rootPath)
+      const settings = await this.loadSettings()
+      assertSafeWorkspaceRootForRemoval(workspace.rootPath, [this.defaultRoot, settings.workspace.defaultRoot])
       await rm(workspace.rootPath, { recursive: true, force: true })
     }
     const workspaces = orderRegistryWorkspaces(registry.workspaces.filter((entry) => entry.id !== workspace.id))
@@ -699,16 +593,14 @@ export class TeachingWorkspaceService {
       const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
       if (isRootAgentConversationMarkdownRelativePath(relativePath) && await this.hasTemporaryConversation(id)) {
         const index = await this.loadTemporaryConversationIndex()
-        const pathMeta = { ...(index.pathMeta ?? {}) }
-        pathMeta[relativePath] = { ...(pathMeta[relativePath] ?? {}), archived: true }
+        const pathMeta = archiveWorkspaceItemPathMeta(index.pathMeta, relativePath)
         await this.saveTemporaryConversationIndex({ ...index, pathMeta })
         return this.buildState(registry, workspace.id, null)
       }
     }
 
     const index = await this.loadWorkspaceIndex(workspace)
-    const pathMeta = { ...(index.pathMeta ?? {}) }
-    pathMeta[relativePath] = { ...(pathMeta[relativePath] ?? {}), archived: true }
+    const pathMeta = archiveWorkspaceItemPathMeta(index.pathMeta, relativePath)
     await this.saveWorkspaceIndex(workspace.rootPath, {
       ...index,
       pathMeta,
@@ -830,84 +722,24 @@ export class TeachingWorkspaceService {
   }
 
   /**
-   * Aggregate flashcards from every lesson's review file (and from lesson
-   * metadata) for the review deck.
+   * Aggregate durable flashcard review files for the review deck.
    */
   async listReviewCards(workspaceId: string): Promise<ListReviewCardsResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, workspaceId)
-    const files = await collectTeachingFiles(workspace.rootPath, (file) => file.toLowerCase().endsWith('-flashcards.json'))
-    const cards: ReviewCard[] = []
-    for (const filePath of files) {
-      const content = await readFile(filePath, 'utf8').catch(() => '')
-      const parsed = safeJsonParse(content)
-      if (!parsed || typeof parsed !== 'object') continue
-      const lessonId = String((parsed as { lessonId?: unknown }).lessonId ?? '')
-      const lessonTitle = String((parsed as { lessonTitle?: unknown }).lessonTitle ?? '')
-      const cardList = (parsed as { cards?: unknown }).cards
-      if (!Array.isArray(cardList)) continue
-      for (const item of cardList) {
-        const front = String((item as { front?: unknown }).front ?? '')
-        const back = String((item as { back?: unknown }).back ?? '')
-        if (front && back) cards.push({ lessonId, lessonTitle, front, back })
-      }
-    }
-    return { cards }
+    return this.reviewModule.listReviewCards(workspace)
   }
 
   async recordProgress(payload: RecordProgressPayload): Promise<GetProgressResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    const progressPath = join(workspace.rootPath, '.teachos', 'progress.json')
-    const existing = await this.readProgressFile(progressPath)
-    const byLesson = { ...existing.byLesson }
-    const lessonKey = payload.lessonId
-    const prev = byLesson[lessonKey] ?? { answered: 0, correct: 0 }
-    const merged = {
-      answered: prev.answered + payload.results.length,
-      correct: prev.correct + payload.results.filter((r) => r.correct).length
-    }
-    byLesson[lessonKey] = merged
-    const summary: ProgressSummary = {
-      totalAnswered: Object.values(byLesson).reduce((sum, entry) => sum + entry.answered, 0),
-      correct: Object.values(byLesson).reduce((sum, entry) => sum + entry.correct, 0),
-      byLesson
-    }
-    await atomicWriteFile(progressPath, `${JSON.stringify(summary, null, 2)}\n`)
-    return { workspaceId: workspace.id, progress: summary }
+    return this.reviewModule.recordProgress(workspace, payload)
   }
 
   async getProgress(workspaceId: string): Promise<GetProgressResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, workspaceId)
-    const progressPath = join(workspace.rootPath, '.teachos', 'progress.json')
-    const progress = await this.readProgressFile(progressPath)
-    return { workspaceId: workspace.id, progress }
-  }
-
-  private async readProgressFile(progressPath: string): Promise<ProgressSummary> {
-    const content = await readFile(progressPath, 'utf8').catch(() => '')
-    const parsed = safeJsonParse(content)
-    if (!parsed || typeof parsed !== 'object') {
-      return { totalAnswered: 0, correct: 0, byLesson: {} }
-    }
-    const byLessonRaw = (parsed as { byLesson?: unknown }).byLesson
-    const byLesson: ProgressSummary['byLesson'] = {}
-    if (byLessonRaw && typeof byLessonRaw === 'object') {
-      for (const [key, value] of Object.entries(byLessonRaw as Record<string, unknown>)) {
-        if (value && typeof value === 'object') {
-          byLesson[key] = {
-            answered: Number((value as { answered?: unknown }).answered ?? 0) || 0,
-            correct: Number((value as { correct?: unknown }).correct ?? 0) || 0
-          }
-        }
-      }
-    }
-    return {
-      totalAnswered: Number((parsed as { totalAnswered?: unknown }).totalAnswered ?? 0) || 0,
-      correct: Number((parsed as { correct?: unknown }).correct ?? 0) || 0,
-      byLesson
-    }
+    return this.reviewModule.getProgress(workspace)
   }
 
   async readLesson(payload: ReadLessonPayload): Promise<ReadLessonResult> {
@@ -922,40 +754,18 @@ export class TeachingWorkspaceService {
     }
   }
 
-  async readWorkspaceMarkdown(payload: ReadWorkspaceMarkdownPayload): Promise<WorkspaceMarkdownDocument> {
-    const registry = await this.ensureRegistry()
-    const workspace = findWorkspace(registry, payload.workspaceId)
-    const target = resolveWorkspaceMarkdownPath(workspace.rootPath, payload.documentPath)
-    return readWorkspaceMarkdownDocument(workspace.rootPath, target)
-  }
-
-  async saveWorkspaceMarkdown(payload: SaveWorkspaceMarkdownPayload): Promise<SaveWorkspaceMarkdownResult> {
-    const registry = await this.ensureRegistry()
-    const workspace = findWorkspace(registry, payload.workspaceId)
-    const target = resolveWorkspaceMarkdownPath(workspace.rootPath, payload.documentPath)
-    await atomicWriteFile(target, payload.content)
-    const now = new Date().toISOString()
-    const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
-    await this.saveRegistry(nextRegistry)
-    return {
-      state: await this.buildState(nextRegistry, workspace.id, target),
-      document: await readWorkspaceMarkdownDocument(workspace.rootPath, target)
-    }
-  }
-
   async resolvePreviewFile(workspaceId: string, relativePath: string): Promise<WorkspacePreviewFile | null> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, workspaceId)
     const normalizedRelativePath = normalizeWorkspaceRelativePath(relativePath)
     if (!normalizedRelativePath) return null
     const target = resolve(join(workspace.rootPath, normalizedRelativePath))
-    if (!isPreviewFilePathAllowed(workspace.rootPath, target)) return null
+    const allowedRoots = [resolve(workspace.rootPath, 'courses'), resolve(workspace.rootPath, 'lessons'), resolve(workspace.rootPath, 'assets')]
+    if (!allowedRoots.some((base) => isPathInsideRoot(base, target))) return null
     if (!(await fileExists(target))) return null
     return {
       absolutePath: target,
-      mimeType: mimeTypeForPath(target),
-      relativePath: normalizedRelativePath,
-      workspaceId: workspace.id
+      mimeType: mimeTypeForPath(target)
     }
   }
 
@@ -1126,25 +936,10 @@ export class TeachingWorkspaceService {
     workspace: RegistryWorkspace,
     pathMeta?: Record<string, WorkspacePathMeta>
   ): Promise<void> {
-    const effectivePathMeta = pathMeta ?? (await this.loadWorkspaceIndex(workspace).then((index) => index.pathMeta ?? {}).catch(() => ({})))
-    await mkdir(workspace.rootPath, { recursive: true })
-    await Promise.all([
-      ...Array.from(WORKSPACE_SCAFFOLD_DIRECTORIES)
-        .filter((relativePath) => !isPathArchived(effectivePathMeta, relativePath))
-        .map((relativePath) => mkdir(join(workspace.rootPath, relativePath), { recursive: true })),
-      mkdir(join(workspace.rootPath, '.teachos'), { recursive: true })
-    ])
-    const lessonStyleId = normalizeLessonStyleId(
-      await this.loadSettings().then((settings) => settings.workspace.lessonStyleId).catch(() => undefined)
-    )
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/lesson.css', lessonStyleCss(lessonStyleId))
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/quiz.js', LESSON_QUIZ_JS)
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.css', LESSON_FLASHCARD_CSS)
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'assets/flashcards.js', LESSON_FLASHCARD_JS)
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'RESOURCES.md', renderResources(workspace.name))
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'GLOSSARY.md', renderGlossary())
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'NOTES.md', renderNotes())
-    await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'MISSION.md', renderMission(workspace.name, `学习 ${workspace.name}`))
+    await ensureWorkspaceLifecycleStructure(workspace, {
+      pathMeta,
+      loadSettings: () => this.loadSettings()
+    })
   }
 
   private async loadRegistry(): Promise<WorkspaceRegistry> {
@@ -1173,40 +968,15 @@ export class TeachingWorkspaceService {
   }
 
   private async loadWorkspaceIndex(workspace: RegistryWorkspace): Promise<WorkspaceIndex> {
-    try {
-      const parsed = JSON.parse(await readFile(join(workspace.rootPath, '.teachos', 'index.json'), 'utf8')) as WorkspaceIndex
-      return {
-        id: workspace.id,
-        name: workspace.name,
-        rootPath: workspace.rootPath,
-        createdAt: parsed.createdAt ?? workspace.createdAt,
-        updatedAt: parsed.updatedAt ?? workspace.updatedAt,
-        lessons: Array.isArray(parsed.lessons)
-          ? parsed.lessons
-              .filter(isLessonSummary)
-              .map((lesson) => normalizeLessonSummary(workspace.rootPath, workspace.name, lesson))
-          : [],
-        pathMeta: normalizePathMeta(parsed.pathMeta)
-      }
-    } catch {
-      return {
-        id: workspace.id,
-        name: workspace.name,
-        rootPath: workspace.rootPath,
-        createdAt: workspace.createdAt,
-        updatedAt: workspace.updatedAt,
-        lessons: []
-      }
-    }
+    return loadWorkspaceLifecycleIndex(workspace)
   }
 
   private async saveWorkspaceIndex(rootPath: string, index: WorkspaceIndex): Promise<void> {
-    await atomicWriteFile(join(rootPath, '.teachos', 'index.json'), `${JSON.stringify(index, null, 2)}\n`)
+    await saveWorkspaceLifecycleIndex(rootPath, index)
   }
 
   private async appendSessionEvent(rootPath: string, event: SessionEvent): Promise<void> {
-    await mkdir(join(rootPath, '.teachos'), { recursive: true })
-    await appendFile(join(rootPath, '.teachos', 'sessions.jsonl'), `${JSON.stringify(event)}\n`, 'utf8')
+    await appendWorkspaceSessionEvent(rootPath, event)
   }
 
   private async existingRegistryWorkspaces(workspaces: RegistryWorkspace[]): Promise<RegistryWorkspace[]> {
@@ -1284,67 +1054,6 @@ function lessonToolStepMessage(step: string): string {
   }
 }
 
-function upsertRegistryWorkspace(
-  registry: WorkspaceRegistry,
-  entry: RegistryWorkspace,
-  activeWorkspaceId: string
-): WorkspaceRegistry {
-  const others = registry.workspaces.filter((workspace) => workspace.id !== entry.id)
-  return { activeWorkspaceId, workspaces: orderRegistryWorkspaces([entry, ...others]) }
-}
-
-function touchRegistryWorkspace(
-  registry: WorkspaceRegistry,
-  workspaceId: string,
-  updatedAt: string
-): WorkspaceRegistry {
-  return {
-    activeWorkspaceId: workspaceId,
-    workspaces: orderRegistryWorkspaces(registry.workspaces.map((workspace) =>
-      workspace.id === workspaceId ? { ...workspace, updatedAt } : workspace
-    ))
-  }
-}
-
-function orderRegistryWorkspaces(workspaces: RegistryWorkspace[]): RegistryWorkspace[] {
-  return workspaces
-    .map((workspace, index) => ({ workspace, index }))
-    .sort((left, right) => {
-      const leftPinned = left.workspace.pinned ? 1 : 0
-      const rightPinned = right.workspace.pinned ? 1 : 0
-      if (leftPinned !== rightPinned) return rightPinned - leftPinned
-      return left.index - right.index
-    })
-    .map(({ workspace }) => workspace)
-}
-
-function visibleRegistryWorkspaces(workspaces: RegistryWorkspace[]): RegistryWorkspace[] {
-  return workspaces.filter((workspace) => !workspace.archived)
-}
-
-function applyRegistryWorkspaceMeta(
-  workspace: RegistryWorkspace,
-  patch: Pick<WorkspaceItemMetaPayload, 'pinned' | 'archived'>
-): RegistryWorkspace {
-  const next = { ...workspace }
-  if (patch.pinned === null) delete next.pinned
-  else if (patch.pinned !== undefined) next.pinned = patch.pinned
-  if (patch.archived === null) delete next.archived
-  else if (patch.archived !== undefined) next.archived = patch.archived
-  return next
-}
-
-function sameRegistryWorkspaceOrder(left: RegistryWorkspace[], right: RegistryWorkspace[]): boolean {
-  if (left.length !== right.length) return false
-  return left.every((workspace, index) => workspace.id === right[index]?.id)
-}
-
-function findWorkspace(registry: WorkspaceRegistry, workspaceId: string): RegistryWorkspace {
-  const workspace = registry.workspaces.find((entry) => entry.id === workspaceId)
-  if (!workspace) throw new Error('Workspace not found.')
-  return workspace
-}
-
 function upsertLesson(lessons: LessonSummary[], lesson: LessonSummary): LessonSummary[] {
   return [lesson, ...lessons.filter((item) => item.absolutePath !== lesson.absolutePath)]
 }
@@ -1356,78 +1065,6 @@ function resolveLessonPath(rootPath: string, lessonPath: string): string {
     throw new Error('Lesson path is outside the workspace lessons directory.')
   }
   return target
-}
-
-function resolveWorkspaceMarkdownPath(rootPath: string, documentPath: string): string {
-  const target = isAbsolute(documentPath) ? resolve(documentPath) : resolve(rootPath, documentPath)
-  if (!isWorkspaceMarkdownPathAllowed(rootPath, target)) {
-    throw new Error('Markdown path is outside the allowed workspace documents.')
-  }
-  return target
-}
-
-function isWorkspaceMarkdownPathAllowed(rootPath: string, targetPath: string): boolean {
-  const relativePath = normalizeWorkspaceRelativePath(toWorkspaceRelativePath(rootPath, targetPath))
-  if (!relativePath || relativePath.includes('../')) return false
-  if (!targetPath.toLowerCase().endsWith('.md')) return false
-  if (ROOT_MARKDOWN_DOCUMENTS.has(relativePath)) return true
-  return MARKDOWN_DOCUMENT_DIRECTORIES.some((dir) => {
-    const base = resolve(rootPath, dir)
-    return isPathInsideRoot(base, targetPath)
-  })
-}
-
-function isPreviewFilePathAllowed(rootPath: string, targetPath: string): boolean {
-  const normalizedTarget = resolve(targetPath)
-  const allowedRoots = [
-    resolve(rootPath, 'courses'),
-    resolve(rootPath, 'lessons'),
-    resolve(rootPath, 'assets')
-  ]
-  if (allowedRoots.some((base) => isPathInsideRoot(base, normalizedTarget))) return true
-  return isWorkspaceMarkdownPathAllowed(rootPath, normalizedTarget)
-}
-
-function samePath(left: string, right: string): boolean {
-  return resolve(left).toLowerCase() === resolve(right).toLowerCase()
-}
-
-function assertSafeWorkspaceRootForRemoval(rootPath: string): void {
-  const root = resolve(rootPath)
-  if (samePath(root, dirname(root))) {
-    throw new Error('Cannot remove a filesystem root as a workspace.')
-  }
-}
-
-async function atomicWriteFile(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
-  await writeFile(tempPath, content, 'utf8')
-  await rename(tempPath, path)
-}
-
-async function writeIfMissing(path: string, content: string): Promise<void> {
-  if (await fileExists(path)) return
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, content, 'utf8')
-}
-
-async function writeWorkspaceScaffoldFileIfMissing(
-  rootPath: string,
-  pathMeta: Record<string, WorkspacePathMeta>,
-  relativePath: string,
-  content: string
-): Promise<void> {
-  if (isPathArchived(pathMeta, relativePath)) return
-  await writeIfMissing(join(rootPath, relativePath), content)
-}
-
-function isWorkspaceScaffoldPath(kind: WorkspaceItemKind, relativePath: string): boolean {
-  const path = normalizeWorkspaceRelativePath(relativePath)
-  if (!path) return false
-  if (kind === 'directory') return WORKSPACE_SCAFFOLD_DIRECTORIES.has(path)
-  if (kind === 'file') return WORKSPACE_SCAFFOLD_FILES.has(path)
-  return false
 }
 
 function deriveTopic(prompt: string, fallback: string): string {
@@ -1448,30 +1085,6 @@ function safeJsonParse(text: string): unknown {
   }
 }
 
-async function readWorkspaceMarkdownDocument(
-  rootPath: string,
-  absolutePath: string
-): Promise<WorkspaceMarkdownDocument> {
-  const [content, info] = await Promise.all([
-    readFile(absolutePath, 'utf8'),
-    stat(absolutePath).catch(() => null)
-  ])
-  const relativePath = normalizeWorkspaceRelativePath(toWorkspaceRelativePath(rootPath, absolutePath))
-  return {
-    title: cleanText(/^#\s+(.+)$/m.exec(content)?.[1] ?? titleFromMarkdownPath(relativePath)),
-    relativePath,
-    absolutePath,
-    content,
-    updatedAt: info?.mtime ? info.mtime.toISOString() : null
-  }
-}
-
-function titleFromMarkdownPath(relativePath: string): string {
-  const name = basename(relativePath)
-  if (ROOT_MARKDOWN_DOCUMENTS.has(name)) return name.replace(/\.md$/i, '')
-  return name.replace(/\.md$/i, '').replace(/[-_]+/g, ' ')
-}
-
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -1479,92 +1092,6 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
-}
-
-function renderMission(topic: string, prompt: string): string {
-  const safeTopic = cleanText(topic) || '学习任务'
-  const safePrompt = cleanText(prompt) || `学习 ${safeTopic}`
-  return `# Mission: ${safeTopic}
-
-## Why
-${safePrompt}。这个工作区会把学习目标、可信资源、课程讲义和复习记录沉淀为可迁移的本地文件。
-
-## Success looks like
-- 能把模糊学习需求整理成一段可执行的 mission
-- 能从 mission 生成第一节可保存、可打印的 HTML lesson
-- 能在后续学习中持续积累 resources、reference 和 learning records
-
-## Constraints
-- 文件系统是真相来源，App 只负责索引、生成和预览
-- 每节 lesson 应短小，并包含一次明确的检索练习
-- 早期先使用本地结构化生成器，后续再接入 AI provider
-
-## Out of scope
-- 云同步、多用户权限和复杂 RAG
-- 把每节课做成重型 React SPA
-`
-}
-
-function renderResources(topic: string): string {
-  const safeTopic = cleanText(topic) || 'TeachOS'
-  return `# ${safeTopic} Resources
-
-## Knowledge
-
-- Local: teach/SKILL.md
-  定义 MISSION、RESOURCES、lessons、reference、learning-records 和 assets 的长期文件约定。Use for: 判断工作区是否完整。
-- Local: teaching-system-tech-stack.md
-  记录 Electron、React、本地文件、结构化生成和静态 HTML lesson 的 MVP 技术路线。Use for: 判断实现优先级。
-
-## Wisdom (Communities)
-
-- Local: 与用户的后续教学对话
-  用于验证 lesson 是否真的帮用户完成一个可观察的学习动作。
-
-## Gaps
-
-- 还需要为具体学习主题补充高信任外部资料。
-`
-}
-
-/**
- * Glossary scaffold. Starts as a placeholder; the conversation agent and the
- * lesson pipeline incrementally promote terms here as lessons touch them.
- * The lesson generator reads this file so terminology stays consistent across
- * lessons without re-defining known terms.
- */
-function renderGlossary(): string {
-  return `# Glossary
-
-本表记录已在本工作区确立的术语写法，供所有课程沿用。未触达的术语留空；每节课引入新术语后由教学对话增量补充（用 write_workspace_file 覆盖本文件，追加到对应分区）。
-
-## 通用
-
-- LLM：大语言模型
-- Token：模型处理文本的最小单位
-- Prompt：送给模型的输入
-- Context window：模型一次能接收的最大 token 数
-
-## 主题相关
-
-_占位：本工作区学习主题涉及的核心术语会在对应课程触达后由对话补充到这里。_
-`
-}
-
-/**
- * Notes scaffold. A scratchpad for learner preferences and working notes the
- * conversation agent maintains; the lesson generator reads it to honor
- * declared preferences (depth, language, citation style, etc.).
- */
-function renderNotes(): string {
-  return `# Notes
-
-记录用户的学习偏好与工作备忘，供课程生成时参考。由教学对话维护：用户表达偏好或背景时，用 write_workspace_file（overwrite: true）增量更新本文件。
-
-- 语言：中文讲解，专业术语保留英文
-- 深度：暂未确认
-- 其他：暂无
-`
 }
 
 function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
@@ -1592,7 +1119,9 @@ function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
 }
 
 function withPreviewBase(html: string, baseHref: string): string {
-  return injectPreviewMarkdownLinkBridge(ensurePreviewBaseTag(html, baseHref))
+  const baseTag = `<base href="${baseHref}" />`
+  if (/<base\s/i.test(html)) return html
+  return html.replace(/<head([^>]*)>/i, `<head$1>\n  ${baseTag}`)
 }
 
 function toPreviewUrl(workspaceId: string, relativePath: string): string {
@@ -1602,7 +1131,6 @@ function toPreviewUrl(workspaceId: string, relativePath: string): string {
 function mimeTypeForPath(path: string): string {
   const lower = path.toLowerCase()
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html; charset=utf-8'
-  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'text/markdown; charset=utf-8'
   if (lower.endsWith('.css')) return 'text/css; charset=utf-8'
   if (lower.endsWith('.js')) return 'text/javascript; charset=utf-8'
   if (lower.endsWith('.json')) return 'application/json; charset=utf-8'
@@ -1614,31 +1142,4 @@ function mimeTypeForPath(path: string): string {
   if (lower.endsWith('.woff2')) return 'font/woff2'
   if (lower.endsWith('.woff')) return 'font/woff'
   return 'application/octet-stream'
-}
-
-function isRegistryWorkspace(value: unknown): value is RegistryWorkspace {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Record<string, unknown>
-  return (
-    typeof record.id === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.rootPath === 'string' &&
-    typeof record.createdAt === 'string' &&
-    typeof record.updatedAt === 'string'
-  )
-}
-
-function isLessonSummary(value: unknown): value is LessonSummary {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Record<string, unknown>
-  return (
-    typeof record.id === 'string' &&
-    typeof record.title === 'string' &&
-    typeof record.objective === 'string' &&
-    typeof record.prompt === 'string' &&
-    typeof record.createdAt === 'string' &&
-    typeof record.durationMinutes === 'number' &&
-    typeof record.relativePath === 'string' &&
-    typeof record.absolutePath === 'string'
-  )
 }

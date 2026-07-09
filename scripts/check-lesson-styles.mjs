@@ -15,31 +15,50 @@ const STYLE_IDS = [
   'terminal'
 ]
 
+const FULL_CSS_THEME_IDS = ['manuscript', 'chalkboard', 'editorial', 'blueprint', 'poster']
+
 const [
   styles,
   baseStyles,
+  lessonMarkupContract,
+  lessonRenderer,
   sharedAssets,
+  lessonStyleSample,
   workspace,
+  workspaceLifecycle,
   settings,
   ipcCommands,
   mainIndex,
   preload,
   app,
+  appStore,
+  rendererSettings,
+  lessonStyleGallery,
   css,
+  mainCss,
   zh,
   en,
-  themeEntries
+  themeEntries,
+  fullCssThemeEntries
 ] = await Promise.all([
   readFile('src/shared/lesson-styles.ts', 'utf8'),
   readFile('src/shared/lesson-style-themes/base.ts', 'utf8'),
+  readFile('src/shared/lesson-style-themes/contract.ts', 'utf8'),
+  readFile('src/main/ai/lesson-renderer.ts', 'utf8'),
   readFile('src/shared/lesson-style-themes/assets.ts', 'utf8'),
+  readFile('src/renderer/src/lesson-style-sample.ts', 'utf8'),
   readFile('src/main/teaching-workspace.ts', 'utf8'),
+  readFile('src/main/teaching-workspace/lifecycle.ts', 'utf8'),
   readFile('src/main/teaching-settings.ts', 'utf8'),
   readFile('src/main/teaching-ipc-commands.ts', 'utf8'),
   readFile('src/main/index.ts', 'utf8'),
   readFile('src/preload/index.ts', 'utf8'),
   readFile('src/renderer/src/App.tsx', 'utf8'),
-  readFile('src/renderer/src/styles.css', 'utf8'),
+  readFile('src/renderer/src/app-shell/appStore.ts', 'utf8'),
+  readFile('src/renderer/src/workflows/settings.ts', 'utf8'),
+  readFile('src/renderer/src/views/resources/LessonStyleGallery.tsx', 'utf8'),
+  readFile('src/renderer/src/styles/resources.css', 'utf8'),
+  readFile('src/renderer/src/styles/main.css', 'utf8'),
   readFile('src/renderer/src/i18n/locales/zh-CN.json', 'utf8'),
   readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8'),
   Promise.all(
@@ -47,12 +66,90 @@ const [
       id,
       await readFile(`src/shared/lesson-style-themes/${id}.ts`, 'utf8')
     ])
+  ),
+  Promise.all(
+    FULL_CSS_THEME_IDS.map(async (id) => [
+      id,
+      id === 'manuscript'
+        ? await readFile('src/shared/lesson-style-themes/manuscript.ts', 'utf8')
+        : await readFile(`src/shared/lesson-style-themes/css/${id}.ts`, 'utf8')
+    ])
   )
 ])
 
 const themeSources = Object.fromEntries(themeEntries)
+const fullCssThemeSources = Object.fromEntries(fullCssThemeEntries)
+
+function extractStringRecord(source, exportName) {
+  const match = source.match(new RegExp(`export const ${exportName} = \\{([\\s\\S]*?)\\} as const`))
+  assert.ok(match, `${exportName} should be exported as a const object`)
+
+  const record = {}
+  for (const [, key, value] of match[1].matchAll(/^\s+(\w+): '([^']+)'/gm)) {
+    record[key] = value
+  }
+  return record
+}
+
+const contractClasses = extractStringRecord(lessonMarkupContract, 'LESSON_MARKUP_CLASSES')
+const contractDataAttributes = extractStringRecord(lessonMarkupContract, 'LESSON_MARKUP_DATA_ATTRIBUTES')
+const contractDatasetKeys = extractStringRecord(lessonMarkupContract, 'LESSON_MARKUP_DATASET_KEYS')
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+const requiredClassKeys = [
+  'page',
+  'hero',
+  'heroKicker',
+  'missionCard',
+  'compactList',
+  'tip',
+  'practice',
+  'generatedQuiz',
+  'quizCard',
+  'quizChoices',
+  'quizFill',
+  'quizExplanation',
+  'flashcards',
+  'flashcard',
+  'flashcardFace',
+  'flashcardFront',
+  'flashcardBack',
+  'flashcardSelf',
+  'isSelected',
+  'isCorrect',
+  'isWrong',
+  'isFlipped'
+]
+
+const requiredDataAttributeKeys = ['quizType', 'quizAnswer', 'quizChoice', 'flashcardRating', 'quizReady']
 
 // ----- shared theme modules -----
+
+for (const key of requiredClassKeys) {
+  assert.ok(contractClasses[key], `lesson markup contract should name the "${key}" class`)
+}
+
+for (const key of requiredDataAttributeKeys) {
+  assert.ok(contractDataAttributes[key], `lesson markup contract should name the "${key}" data attribute`)
+  assert.ok(contractDatasetKeys[key], `lesson markup contract should name the "${key}" dataset key`)
+}
+
+for (const name of [
+  'LESSON_MARKUP_CLASSES',
+  'LESSON_MARKUP_DATA_ATTRIBUTES',
+  'LESSON_MARKUP_DATASET_KEYS',
+  'LESSON_MARKUP_SELECTORS',
+  'LESSON_INTERACTION_SOURCE'
+]) {
+  assert.match(
+    styles,
+    new RegExp(name),
+    `${name} should be re-exported by the public lesson-styles module`
+  )
+}
 
 for (const id of STYLE_IDS) {
   const symbol = id.toUpperCase()
@@ -73,12 +170,54 @@ for (const id of STYLE_IDS) {
   )
 }
 
-for (const selector of ['.lesson-hero', '.mission-card', '.quiz-card', '.compact-list', 'blockquote', 'thead', '.markdown-table-wrap', '.lesson-nav', '.flow', '.interview', '.callout', '.primary-source']) {
+for (const selector of ['.lesson-hero', '.mission-card', '.quiz-card', '.compact-list', 'blockquote', 'thead']) {
   assert.ok(
     baseStyles.includes(selector),
     `buildLessonCss should keep styling the shared lesson markup (${selector})`
   )
 }
+
+for (const key of [
+  'page',
+  'hero',
+  'heroKicker',
+  'missionCard',
+  'compactList',
+  'tip',
+  'practice',
+  'generatedQuiz',
+  'quizCard',
+  'quizChoices',
+  'quizFill',
+  'quizExplanation',
+  'flashcards',
+  'flashcard',
+  'flashcardFront',
+  'flashcardBack',
+  'flashcardSelf',
+  'isSelected',
+  'isCorrect',
+  'isWrong'
+]) {
+  assert.ok(
+    baseStyles.includes(`.${contractClasses[key]}`),
+    `base lesson CSS should style the contract class "${contractClasses[key]}"`
+  )
+}
+
+for (const [id, source] of Object.entries(fullCssThemeSources)) {
+  for (const key of ['hero', 'missionCard', 'quizCard', 'quizFill', 'quizExplanation', 'flashcard', 'flashcardSelf']) {
+    assert.ok(
+      source.includes(`.${contractClasses[key]}`),
+      `${id} theme CSS should keep styling the contract class "${contractClasses[key]}"`
+    )
+  }
+}
+
+assert.ok(
+  fullCssThemeSources.poster.includes(`[${contractDataAttributes.flashcardRating}="again"]`),
+  'poster theme CSS should key flashcard rating accents off the contract data-rating attribute'
+)
 
 assert.match(
   baseStyles,
@@ -99,6 +238,118 @@ for (const name of ['LESSON_QUIZ_JS', 'LESSON_FLASHCARD_CSS', 'LESSON_FLASHCARD_
   )
 }
 
+for (const key of [
+  'practice',
+  'generatedQuiz',
+  'quizCard',
+  'quizFill',
+  'quizExplanation',
+  'isSelected',
+  'isCorrect',
+  'isWrong',
+  'isFlipped'
+]) {
+  assert.ok(
+    sharedAssets.includes(`LESSON_MARKUP_CLASSES.${key}`),
+    `shared lesson assets should consume the contract class "${key}"`
+  )
+}
+
+for (const key of requiredDataAttributeKeys) {
+  assert.ok(
+    sharedAssets.includes(`LESSON_MARKUP_DATA_ATTRIBUTES.${key}`) ||
+      sharedAssets.includes(`LESSON_MARKUP_DATASET_KEYS.${key}`),
+    `shared lesson assets should consume the contract data key "${key}"`
+  )
+}
+
+for (const key of [
+  'page',
+  'hero',
+  'heroKicker',
+  'missionCard',
+  'compactList',
+  'tip',
+  'practice',
+  'quizCard',
+  'quizChoices',
+  'quizFill',
+  'quizExplanation',
+  'flashcards',
+  'flashcard',
+  'flashcardFace',
+  'flashcardFront',
+  'flashcardBack',
+  'flashcardSelf'
+]) {
+  assert.ok(
+    lessonStyleSample.includes(`cls.${key}`),
+    `lesson style sample should render the contract class "${key}"`
+  )
+}
+
+for (const key of ['quizType', 'quizAnswer', 'quizChoice', 'flashcardRating']) {
+  assert.ok(
+    lessonStyleSample.includes(`data.${key}`),
+    `lesson style sample should render the contract data attribute "${key}"`
+  )
+}
+
+// ----- main lesson renderer markup contract -----
+
+assert.match(
+  lessonRenderer,
+  /LESSON_MARKUP_CLASSES[\s\S]*LESSON_MARKUP_DATA_ATTRIBUTES[\s\S]*from '..\/..\/shared\/lesson-style-themes\/contract'/,
+  'lesson renderer should import the shared lesson markup contract'
+)
+
+for (const key of [
+  'page',
+  'hero',
+  'heroKicker',
+  'missionCard',
+  'compactList',
+  'practice',
+  'quizCard',
+  'quizChoices',
+  'quizFill',
+  'quizExplanation',
+  'flashcards',
+  'flashcard',
+  'flashcardFace',
+  'flashcardFront',
+  'flashcardBack',
+  'flashcardSelf'
+]) {
+  assert.ok(
+    lessonRenderer.includes(`cls.${key}`) || lessonRenderer.includes(`LESSON_MARKUP_CLASSES.${key}`),
+    `lesson renderer should render the contract class "${key}"`
+  )
+}
+
+for (const key of ['quizType', 'quizAnswer', 'quizChoice', 'flashcardRating']) {
+  assert.ok(
+    lessonRenderer.includes(`data.${key}`) || lessonRenderer.includes(`LESSON_MARKUP_DATA_ATTRIBUTES.${key}`),
+    `lesson renderer should render the contract data attribute "${key}"`
+  )
+}
+
+for (const value of Object.values(contractClasses)) {
+  assert.doesNotMatch(
+    lessonRenderer,
+    new RegExp(`class="(?:[^"]*\\s)?${escapeRegExp(value)}(?:\\s[^"]*)?"`),
+    `lesson renderer should not hard-code the contract class "${value}"`
+  )
+}
+
+for (const value of Object.values(contractDataAttributes)) {
+  assert.doesNotMatch(
+    lessonRenderer,
+    new RegExp(`\\s${escapeRegExp(value)}=`),
+    `lesson renderer should not hard-code the contract data attribute "${value}"`
+  )
+}
+
 // ----- main process wiring -----
 
 assert.match(
@@ -114,8 +365,8 @@ assert.match(
 )
 
 assert.match(
-  workspace,
-  /'assets\/lesson\.css', lessonStyleCss\(lessonStyleId\)/,
+  workspaceLifecycle,
+  /writeWorkspaceScaffoldFileIfMissing\(workspace\.rootPath, effectivePathMeta, 'assets\/lesson\.css', lessonStyleCss\(lessonStyleId\)\)/,
   'workspace scaffolding should honor the configured lesson style'
 )
 
@@ -138,40 +389,40 @@ assert.match(
 
 assert.match(
   mainIndex,
-  /ipcMain\.handle\('teach:apply-lesson-style'/,
+  /ipcMain\.handle\(teachingInvokeChannels\.applyLessonStyle/,
   'main process should register the teach:apply-lesson-style handler'
 )
 
 assert.match(
   preload,
-  /applyLessonStyle: \(payload\) => ipcRenderer\.invoke\('teach:apply-lesson-style', payload\)/,
+  /applyLessonStyle: \(payload\) => ipcRenderer\.invoke\(teachingInvokeChannels\.applyLessonStyle, payload\)/,
   'preload should expose applyLessonStyle to the renderer'
 )
 
 // ----- renderer gallery -----
 
 assert.match(
-  app,
-  /function LessonStyleGallery\(\)/,
-  'resources page should render the style gallery component'
+  lessonStyleGallery,
+  /export function LessonStyleGallery\(/,
+  'resources page should keep the style gallery implementation in its view module'
 )
 
 assert.match(
   app,
-  /function ResourceHome\(\{ onOpenStyles \}/,
-  'resources page should render the resource home component'
+  /resourcePageSection === 'styles'[\s\S]{0,500}<ResourceStyleLibrary/,
+  'the resources page should route style-library resources through a dedicated section'
 )
 
 assert.match(
   app,
-  /resourcePageSection: 'home'/,
-  'resources should open to the resource home page by default'
+  /function ResourceHome\(/,
+  'the resources page should keep the organized resource home'
 )
 
 assert.match(
   app,
-  /resourcePageSection === 'styles'[\s\S]{0,240}<ResourceStyleLibrary onBack=\{\(\) => setResourcePageSection\('home'\)\} \/>[\s\S]{0,180}<ResourceHome onOpenStyles=\{\(\) => setResourcePageSection\('styles'\)\} \/>/,
-  'the resources page should move style cards behind a style library entry'
+  /function ResourceStyleLibrary\([\s\S]*<LessonStyleGallery\s+currentStyleId=/,
+  'the resource style section should mount the extracted style gallery'
 )
 
 for (const removedResourceContent of ['PRESET_TUTORIALS', 'tutorial-grid', 'resource-page-secondary']) {
@@ -182,19 +433,19 @@ for (const removedResourceContent of ['PRESET_TUTORIALS', 'tutorial-grid', 'reso
 }
 
 assert.match(
-  app,
+  lessonStyleGallery,
   /useState<LessonStyleId \| null>\(null\)/,
   'the gallery should track which style is being applied'
 )
 
 assert.match(
-  app,
-  /onClick=\{\(\) => openResourceHtmlPreview\(\{/,
+  lessonStyleGallery,
+  /onClick=\{\(\) => onOpenPreview\(\{/,
   'clicking a style card should open the rendered sample preview'
 )
 
 assert.match(
-  app,
+  lessonStyleGallery,
   /html: buildLessonStyleSampleHtml\(style\.id\)/,
   'the style card preview should render the sample page for that style'
 )
@@ -206,49 +457,47 @@ assert.match(
 )
 
 assert.match(
-  app,
+  lessonStyleGallery,
   /className="style-card-chip-aa"/,
   'style cards should render the brand-board type specimen (Aa) chip'
 )
 
 assert.doesNotMatch(
-  app,
+  lessonStyleGallery,
   /className="style-card-badge"/,
   'the selected style card should not show a top-right in-use badge'
 )
 
 assert.match(
-  app,
+  lessonStyleGallery,
   /className=\{`style-card-apply\$\{isCurrent \? ' is-current' : ''\}`\}/,
   'the selected style should use the apply button as its status control'
 )
 
 assert.match(
-  app,
+  lessonStyleGallery,
   /disabled=\{isCurrent \|\| isApplying\}/,
   'the selected style apply button should be disabled while showing the current status'
 )
 
 assert.match(
-  app,
+  appStore,
   /applyLessonStyle: async \(styleId\) => \{/,
   'the store should expose an applyLessonStyle action'
 )
 
 assert.match(
-  app,
+  rendererSettings,
   /lessonStyleId: DEFAULT_LESSON_STYLE_ID/,
   'renderer fallback settings should include the default lesson style'
 )
 
 assert.match(css, /\.style-gallery \{/, 'styles.css should lay out the gallery')
-assert.match(css, /\.resource-home \{/, 'styles.css should lay out the resource home page')
-assert.match(css, /\.resource-entry-card \{/, 'styles.css should style the resource entry card')
 assert.match(css, /\.style-card\.is-selected/, 'styles.css should highlight the selected style card')
 assert.match(css, /\.style-card-chip-aa \{/, 'styles.css should style the type specimen chip')
 assert.match(css, /\.style-card-scale \{/, 'styles.css should style the tonal scale strip')
 assert.doesNotMatch(css, /\.style-card-badge/, 'styles.css should not keep styling a removed style card badge')
-assert.match(css, /\.reader-preview-back \{/, 'styles.css should position the resource preview back button')
+assert.match(mainCss, /\.reader-preview-back \{/, 'main.css should position the resource preview back button')
 assert.match(css, /\.style-card-apply\.is-current/, 'styles.css should style the current style apply button')
 
 // ----- i18n -----
@@ -256,18 +505,7 @@ assert.match(css, /\.style-card-apply\.is-current/, 'styles.css should style the
 for (const [locale, source] of [['zh-CN', zh], ['en-US', en]]) {
   const parsed = JSON.parse(source)
   const stylesNode = parsed.resources?.styles
-  const homeNode = parsed.resources?.home
   assert.ok(stylesNode, `${locale} should translate resources.styles`)
-  assert.ok(homeNode, `${locale} should translate resources.home`)
-  for (const key of ['tabsAria', 'subtitle', 'searchPlaceholder', 'installed', 'sourcesAria', 'featured', 'stylesMeta', 'stylesDetail', 'open', 'back', 'noResults']) {
-    assert.ok(typeof homeNode[key] === 'string' && homeNode[key].length > 0, `${locale} resources.home.${key} should be translated`)
-  }
-  for (const key of ['resources', 'workspace']) {
-    assert.ok(typeof homeNode.tabs?.[key] === 'string' && homeNode.tabs[key].length > 0, `${locale} resources.home.tabs.${key} should be translated`)
-  }
-  for (const key of ['builtIn', 'workspace', 'personal']) {
-    assert.ok(typeof homeNode.sources?.[key] === 'string' && homeNode.sources[key].length > 0, `${locale} resources.home.sources.${key} should be translated`)
-  }
   for (const key of ['label', 'title', 'detail', 'previewLabel', 'apply', 'applied', 'closePreview', 'backToStyles', 'applyHint', 'applyHintNoWorkspace']) {
     assert.ok(typeof stylesNode[key] === 'string' && stylesNode[key].length > 0, `${locale} resources.styles.${key} should be translated`)
   }

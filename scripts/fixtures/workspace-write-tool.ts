@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -79,6 +79,32 @@ try {
     content: '<!doctype html><title>overwrite</title>'
   }))
   assert.match(duplicateResult.error, /文件已存在/, 'write_workspace_file should not overwrite by default')
+
+  const outsideTarget = join(tempRoot, 'outside-created-through-dangling-symlink.md')
+  const danglingLinkRelativePath = 'reference/dangling-link.md'
+  await mkdir(join(workspace.rootPath, 'reference'), { recursive: true })
+  let symlinkCreated = false
+  try {
+    await symlink(outsideTarget, join(workspace.rootPath, danglingLinkRelativePath))
+    symlinkCreated = true
+  } catch (error) {
+    const code = (error as { code?: string }).code
+    if (code !== 'EPERM' && code !== 'EACCES') throw error
+  }
+
+  if (symlinkCreated) {
+    const danglingSymlinkResult = JSON.parse(await handlers.write_workspace_file({
+      path: danglingLinkRelativePath,
+      content: 'must not be written outside the workspace',
+      overwrite: true
+    }))
+    assert.match(danglingSymlinkResult.error, /符号链接/, 'dangling symlink write targets should be rejected')
+    assert.equal(
+      await stat(outsideTarget).then(() => true).catch(() => false),
+      false,
+      'rejected dangling symlink write must not create the external target'
+    )
+  }
 
   console.log('workspace write tool boundaries ok')
 } finally {

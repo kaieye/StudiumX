@@ -4,41 +4,15 @@ import type {
   ProbeProviderPayload,
   ProbeProviderResult
 } from '../shared/teaching-types'
-import {
-  upstreamAnthropicMessagesUrl,
-  upstreamOpenAiCustomEndpointUrl,
-  upstreamOpenAiModelsUrl
-} from '../shared/openai-compat-url'
 import { fetchWithOptionalProxy } from './proxy-fetch'
+import { providerFormatAdapter, providerProbeHeaders } from '../shared/provider-format'
+
+export { providerProbeHeaders } from '../shared/provider-format'
 
 const PROBE_TIMEOUT_MS = 10_000
 const DIRECT_PROBE_TIMEOUT_MS = 5_000
-const ANTHROPIC_VERSION = '2023-06-01'
 
 type ProviderProbeFetch = typeof fetchWithOptionalProxy
-
-/**
- * Auth headers per endpoint format — ported from Kun. Anthropic Messages
- * uses `x-api-key` + `anthropic-version`; everything else uses `Bearer`.
- */
-export function providerProbeHeaders(
-  endpointFormat: ModelEndpointFormat,
-  apiKey: string
-): Record<string, string> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  const key = apiKey.trim()
-  if (endpointFormat === 'messages') {
-    headers['anthropic-version'] = ANTHROPIC_VERSION
-    if (key) headers['x-api-key'] = key
-    return headers
-  }
-  if (key) headers.Authorization = `Bearer ${key}`
-  return headers
-}
-
-function isCustomEndpointFormat(format: ModelEndpointFormat): boolean {
-  return format === 'custom_endpoint'
-}
 
 /**
  * Probe a model provider by listing its models endpoint. Runs in the main
@@ -53,14 +27,15 @@ export async function probeModelProvider(
   if (!/^https?:\/\//i.test(baseUrl)) {
     return { ok: false, message: 'Base URL 必须以 http:// 或 https:// 开头。' }
   }
-  if (isCustomEndpointFormat(request.endpointFormat)) {
+  const format = providerFormatAdapter(request.endpointFormat)
+  if (!format.probeSupported) {
     return {
       ok: false,
-      message: 'Custom endpoint 模式不支持 /models 探测，请手动添加模型 ID。'
+      message: format.unsupportedProbeMessage ?? '当前端点格式不支持 /models 探测，请手动添加模型 ID。'
     }
   }
 
-  const url = modelsUrlFor(request.endpointFormat, baseUrl)
+  const url = format.modelsUrl(baseUrl)
   const startedAt = Date.now()
   let res: Response
   let text: string
@@ -97,7 +72,7 @@ export async function probeModelProvider(
     }
   }
 
-  const modelIds = parseModelIds(text, request.endpointFormat)
+  const modelIds = format.parseModelIds(text)
   if (modelIds.length === 0) {
     return { ok: false, message: '连接成功，但未解析到任何模型 ID。' }
   }
@@ -121,49 +96,6 @@ export async function fetchUpstreamModels(
   )
   if (!result.ok) return { ok: false, message: result.message }
   return { ok: true, modelIds: result.modelIds }
-}
-
-function modelsUrlFor(endpointFormat: ModelEndpointFormat, baseUrl: string): string {
-  // Anthropic Messages providers (e.g. MiniMax /anthropic) expose a models list
-  // under the OpenAI-compat path too, but their native base differs. We probe
-  // the OpenAI-compat /models first; if the base is the anthropic endpoint we
-  // fall back to GET on the messages base root which some gateways support.
-  if (endpointFormat === 'messages') {
-    return upstreamOpenAiModelsUrl(baseUrl)
-  }
-  return upstreamOpenAiModelsUrl(baseUrl)
-}
-
-function parseModelIds(body: string, endpointFormat: ModelEndpointFormat): string[] {
-  try {
-    const parsed = JSON.parse(body) as unknown
-    if (endpointFormat === 'messages' && parsed && typeof parsed === 'object') {
-      const data = (parsed as { data?: unknown }).data
-      if (Array.isArray(data)) {
-        return data
-          .map((item) => (typeof item === 'string' ? item : (item as { id?: string })?.id ?? ''))
-          .filter((id): id is string => Boolean(id) && typeof id === 'string')
-      }
-      // Anthropic-style `{ "models": [{ "id": "..." }] }`
-      const models = (parsed as { models?: unknown }).models
-      if (Array.isArray(models)) {
-        return models
-          .map((item) => (item as { id?: string })?.id ?? '')
-          .filter((id): id is string => Boolean(id))
-      }
-    }
-    if (parsed && typeof parsed === 'object') {
-      const data = (parsed as { data?: unknown }).data
-      if (Array.isArray(data)) {
-        return data
-          .map((item) => (typeof item === 'string' ? item : (item as { id?: string })?.id ?? ''))
-          .filter((id): id is string => Boolean(id) && typeof id === 'string')
-      }
-    }
-  } catch {
-    // fall through
-  }
-  return []
 }
 
 function providerProbeFailureMessage(error: unknown, url: string): string {
@@ -200,5 +132,3 @@ function truncateBody(body: string): string {
   const trimmed = body.trim().slice(0, 200)
   return trimmed ? `：${trimmed}` : ''
 }
-
-export { upstreamAnthropicMessagesUrl, upstreamOpenAiCustomEndpointUrl }

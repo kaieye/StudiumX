@@ -1,0 +1,113 @@
+/* ================================================================
+   TeachOS Design System — inspired by Kun/codex Neo-Minimalism
+   ================================================================ */:root {
+  /* ----- Typography ----- */
+  font-family:
+    Inter, "SF Pro Text", "PingFang SC", "Microsoft YaHei",
+    ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+
+  /* ----- Surfaces ----- */
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-solid: #ffffff;
+  --surface-muted: #f4f6fa;
+  --surface-subtle: #f8fafc;
+  --surface-hover: rgba(59, 110, 187, 0.065);
+
+  /* ----- Borders ----- */
+  --line: #e8edf5;
+  --line-strong: #dce4f0;
+  --line-muted: rgba(20, 47, 95, 0.085);
+
+  /* ----- Text ----- */
+  --text: #24324a;
+  --text-muted: #68778f;
+  --text-soft: #9aa7ba;
+  --text-faint: #b0bccd;
+
+  /* ----- Accent ----- */
+  --accent: #4f7cf5;
+  --accent-soft: #edf4ff;
+  --accent-hover: #3f6ee8;
+
+  /* ----- Scrollbars ----- */
+  --scrollbar-track: #eef3fb;
+  --scrollbar-thumb: rgba(104, 119, 143, 0.38);
+  --scrollbar-thumb-hover: rgba(104, 119, 143, 0.56);
+
+  /* ----- Semantic ----- */
+  --green: #2f9b73;
+  --green-soft: #eaf8f2;
+  --amber: #b57617;
+  --amber-soft: #fff6e7;
+  --rose: #c45772;
+  --rose-soft: #fff0f4;
+  --red: #d6493f;
+
+  /* ----- Shadows (soft elevation) ----- */
+  --shadow-card: 0 10px 28px rgba(20, 47, 95, 0.06);
+  --shadow-card-hover: 0 14px 36px rgba(20, 47, 95, 0.09);
+  --shadow-panel: 0 16px 44px rgba(20, 47, 95, 0.06);
+  --shadow-composer: 0 18px 46px rgba(20, 47, 95, 0.1);
+  --shadow-float: 0 22px 58px rgba(20, 47, 95, 0.07);
+
+  /* ----- Radius (unified scale) ----- */
+  --radius-xl: 24px;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 11px;
+  --radius-xs: 8px;
+  --radius-full: 999px;
+
+  /* ----- Spacing scale ----- */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 14px;
+  --space-lg: 22px;
+  --space-xl: 34px;
+  --space-2xl: 48px;
+
+  /* ----- Sizing ----- */
+  --sidebar-width: 232px;
+  --titlebar-height: 36px;
+  --topbar-height: 56px;
+}:root[data-resolved-theme="dark"] {
+  --surface: rgba(24, 24, 27, 0.86);
+  --surface-solid: #18181b;
+  --surface-muted: #202124;
+  --surface-subtle: #111113;
+  --surface-hover: rgba(255, 255, 255, 0.075);
+
+  --line: rgba(245, 245, 245, 0.16);
+  --line-strong: rgba(245, 245, 245, 0.24);
+  --line-muted: rgba(245, 245, 245, 0.1);
+
+  --text: #f2f2f3;
+  --text-muted: #b6b6bb;
+  --text-soft: #85858d;
+  --text-faint: #66666d;
+
+  --accent: #8ab4ff;
+  --accent-soft: rgba(80, 132, 255, 0.16);
+  --accent-hover: #abc8ff;
+
+  --scrollbar-track: #101010;
+  --scrollbar-thumb: rgba(180, 180, 185, 0.34);
+  --scrollbar-thumb-hover: rgba(205, 205, 210, 0.52);
+
+  --green: #66c29a;
+  --green-soft: rgba(102, 194, 154, 0.14);
+  --amber: #e1a95a;
+  --amber-soft: rgba(225, 169, 90, 0.14);
+  --rose: #e889a1;
+  --rose-soft: rgba(232, 137, 161, 0.14);
+  --red: #ff7a70;
+
+  --shadow-card: 0 12px 34px rgba(0, 0, 0, 0.24);
+  --shadow-card-hover: 0 16px 42px rgba(0, 0, 0, 0.32);
+  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.28);
+  --shadow-composer: 0 18px 46px rgba(0, 0, 0, 0.34);
+  --shadow-float: 0 24px 62px rgba(0, 0, 0, 0.34);
+}

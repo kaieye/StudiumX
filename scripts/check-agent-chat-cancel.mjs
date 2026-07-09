@@ -2,30 +2,32 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const [
-  teachingTypes,
+  systemApiTypes,
   preload,
   main,
   app,
+  appStore,
   agentLoop,
   providerAdapter
 ] = await Promise.all([
-  readFile('src/shared/teaching-types.ts', 'utf8'),
+  readFile('src/shared/teaching-types/system-api.ts', 'utf8'),
   readFile('src/preload/index.ts', 'utf8'),
   readFile('src/main/index.ts', 'utf8'),
   readFile('src/renderer/src/App.tsx', 'utf8'),
+  readFile('src/renderer/src/app-shell/appStore.ts', 'utf8'),
   readFile('src/main/ai/agent-loop.ts', 'utf8'),
   readFile('src/main/ai/provider-adapter.ts', 'utf8')
 ])
 
 assert.match(
-  teachingTypes,
+  systemApiTypes,
   /cancelAgentChatStream:\s*\(streamId:\s*string\)\s*=>\s*Promise<\{\s*canceled:\s*boolean\s*\}>/,
   'renderer API should expose agent chat cancellation'
 )
 
 assert.match(
   preload,
-  /cancelAgentChatStream:\s*\(streamId\)\s*=>\s*ipcRenderer\.invoke\('teach:cancel-agent-chat-stream',\s*streamId\)/,
+  /cancelAgentChatStream:\s*\(streamId\)\s*=>\s*ipcRenderer\.invoke\(teachingInvokeChannels\.cancelAgentChatStream,\s*streamId\)/,
   'preload should bridge cancelAgentChatStream to ipcMain'
 )
 
@@ -37,12 +39,12 @@ assert.match(
 
 assert.match(
   main,
-  /ipcMain\.handle\('teach:cancel-agent-chat-stream'[\s\S]*controller\.abort\(\)/,
+  /ipcMain\.handle\(teachingInvokeChannels\.cancelAgentChatStream[\s\S]*controller\.abort\(\)/,
   'main process should abort the matching stream on cancel'
 )
 
 assert.match(
-  app,
+  appStore,
   /cancelAgentChat:\s*async\s*\(\)\s*=>[\s\S]*cancelAgentChatStream\(pending\.summary\.id\)/,
   'renderer store should call the cancel API for the active pending conversation'
 )

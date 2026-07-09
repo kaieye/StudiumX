@@ -1,0 +1,78 @@
+/* ================================================================
+   Workflow Grid
+   ================================================================ */.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 1100px;
+  margin: 0 auto 32px;
+}.workflow-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 72px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}.workflow-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card-hover);
+}.workflow-card[data-status="active"] {
+  border-color: #c9d9ff;
+  box-shadow: 0 10px 28px rgba(79, 124, 245, 0.1);
+}.workflow-card[data-status="error"] {
+  border-color: #ffd4de;
+  background: #fff5f7;
+}.workflow-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+}.workflow-card span {
+  min-width: 0;
+  flex: 1;
+  color: #6d7b91;
+  font-size: 13px;
+  font-weight: 650;
+}.workflow-card strong {
+  color: #25354f;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+/* Active workflow step pulse */.workflow-card[data-status="active"] .workflow-icon {
+  position: relative;
+}.workflow-card[data-status="active"] .workflow-icon::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 1.5px solid var(--accent);
+  opacity: 0.3;
+  animation: workflow-pulse 1.8s ease-in-out infinite;
+}@keyframes workflow-pulse {
+  0%, 100% { opacity: 0.2; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.06); }
+}
+
+/* Tone variants */.tone-green .workflow-icon {
+  color: var(--green);
+  background: var(--green-soft);
+}.tone-blue .workflow-icon {
+  color: var(--accent);
+  background: var(--accent-soft);
+}.tone-amber .workflow-icon {
+  color: var(--amber);
+  background: var(--amber-soft);
+}.tone-rose .workflow-icon {
+  color: var(--rose);
+  background: var(--rose-soft);
+}

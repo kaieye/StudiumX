@@ -14,10 +14,9 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
-  Eye,
-  EyeOff,
-  ExternalLink,
-  FileCheck2,
+  Coffee,
+  Copy,
+  DoorOpen,
   FileText,
   Folder,
   FolderOpen,
@@ -26,31 +25,33 @@ import {
   GitFork,
   History,
   Info,
-  KeyRound,
   LibraryBig,
+  LinkIcon,
   Loader2,
-  Lock,
   Maximize2,
   MessageSquare,
   Minus,
-  Monitor,
-  Moon,
   MoreHorizontal,
   PanelLeft,
-  Palette,
+  Pause,
   PenLine,
   Pin,
   PinOff,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
-  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Star,
   Square,
-  Sun,
+  Target,
+  Timer,
+  Trophy,
+  Users,
+  Volume2,
+  VolumeX,
   Play,
   SendHorizontal,
   Upload,
@@ -61,265 +62,70 @@ import {
 } from 'lucide-react'
 import type { CSSProperties, ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Component, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Component, Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { create } from 'zustand'
 import i18n from './i18n'
+import { StudySpace } from './study-space'
+import { OfficeWorkbench } from './views/workbench/OfficeWorkbench'
 import { buildAgentProcessTimeline } from './agent-process-timeline'
-import { MarkdownEditor } from './markdown-editor'
-import { MarkdownPreview } from './markdown-preview'
 import {
-  courseRelativePathForAgentConversation,
-  isCourseAgentConversationPath
-} from '../../shared/agent-conversation-catalog'
+  lessonToCoursePreviewFile,
+  mergeAgentInputHistory,
+  normalizeRelativePath,
+  sameRelativePath,
+  titleFromFileName,
+  toUserError,
+  useAppStore,
+  userTurnInputHistory,
+  type CoursePreviewFile,
+  type DialogMode
+} from './app-shell/appStore'
+import { LessonStyleGallery } from './views/resources/LessonStyleGallery'
+import { SettingsView } from './views/settings/SettingsView'
 import {
-  activeTeachingConversationSummary,
-  agentTurnsToMessages,
-  applyAgentChatChunkToPending,
-  applyAgentChatStatusToPending,
-  applyAgentChatToolEventToPending,
-  cancelPendingAgentConversation,
-  createAgentConversationTurnDraft,
-  failPendingAgentConversation,
-  findConversationSummary,
-  finishPendingAgentConversationSave,
+  activeModelProvider,
+  applySettingsSideEffects,
+  DARK_THEME_MEDIA_QUERY,
+  reasoningEffortDescription,
+  reasoningEffortLabel,
+  reasoningEffortOptionsForSettings,
+  selectedReasoningEffort
+} from './workflows/settings'
+import {
+  LESSON_STYLES,
+  normalizeLessonStyleId,
+  type LessonStyleId
+} from '../../shared/lesson-styles'
+import {
+  projectVisibleAgentConversationWorkspaces,
+  projectVisibleSidebarConversations
+} from './agent-conversation-projection'
+import {
   isPendingConversationSummary,
   parseAskToolCall,
-  reconcileAgentTurnsWithLocalProcess,
   selectPendingAsk,
-  syncPendingAgentConversation,
-  type PendingAgentConversation,
-  type PendingAsk,
-  type PendingConversationStorePatch,
   type SidebarConversationSummary
 } from './agent-conversation-state'
 import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
 import {
-  parsePreviewExternalHref,
-  parsePreviewMarkdownHref,
-  PREVIEW_EXTERNAL_LINK_MESSAGE,
-  PREVIEW_MARKDOWN_LINK_MESSAGE
-} from '../../shared/preview-markdown-bridge'
-import {
-  DEFAULT_LESSON_STYLE_ID,
-  LESSON_STYLES,
-  normalizeLessonStyleId,
-  type LessonStyleId,
-  type LessonStyleTokens
-} from '../../shared/lesson-styles'
-import { buildLessonStyleSampleHtml } from './lesson-style-sample'
-import { classifyProviderError } from '../../shared/provider-error'
-import { deriveWorkspaceRemovalUiPatch } from '../../shared/workspace-removal-state'
-import {
-  PARALLEL_SEARCH_MODES,
-  TEACHING_MODEL_PROVIDER_PRESETS,
-  WEB_SEARCH_BACKENDS,
-  type AgentChatMessage,
   type AgentChatProcessEvent,
-  type AgentChatStreamChunk,
-  type AgentChatStreamStatus,
-  type AgentChatStreamToolEvent,
-  type AgentChatMode,
   type AgentChatTurn,
   type AgentConversationSummary,
   type AskAnswer,
   type AskQuestion,
-  type CreateTeachingMemoryPayload,
-  type GitBranchPayload,
-  type LessonStreamChunk,
-  type LessonStreamStatus,
   type LessonSummary,
-  type ListUpstreamModelsResult,
-  type ProgressSummary,
-  type ProbeProviderPayload,
-  type ProbeProviderResult,
-  type RemoveTeachingGitWorktreePayload,
-  type ReviewCard,
-  type SettingsSection,
-  type TeachingGitBranchesResult,
   type TeachingGitBranchRow,
-  type TeachingGitWorktreesResult,
-  type TeachingMemoryDiagnostics,
-  type TeachingMemoryRecord,
-  type TeachingMemoryScope,
-  type TeachingModelProviderProfile,
   type ModelReasoningEffort,
-  type TeachingAppState,
   type TeachingRuntimeState,
-  type TeachingSettingsPatch,
-  type TeachingSettingsV1,
   type TeachingWorkspaceSummary,
-  type UpdateTeachingMemoryPayload,
-  type WebSearchBackend,
   type WindowControlAction,
   type WorkspaceFileNode,
   type WorkspaceItemKind,
-  type WorkspaceItemRemoveMode,
-  type WorkspaceMarkdownDocument,
   type WorkspaceView
 } from '../../shared/teaching-types'
-
-// ================================================================
-// Types
-// ================================================================
-
-type ErrorSeverity = 'error' | 'warning' | 'info'
-
-type UserError = {
-  message: string
-  severity: ErrorSeverity
-  detail?: string
-}
-
-type DialogMode = 'chat' | 'teaching'
-
-type ResourcePageSection = 'home' | 'styles'
-
-type CoursePreviewFile = {
-  title: string
-  relativePath: string
-  absolutePath: string
-}
-
-type ResourcePreviewFile = {
-  id: string
-  title: string
-  html: string
-}
-
-type FloatingTemporaryChatState = {
-  turns: AgentChatTurn[]
-  pending: PendingAgentConversation | null
-  activeConversationId: string | null
-  savedConversationId: string | null
-  busy: boolean
-  status: string
-  toolsSupported: boolean | null
-  error: string | null
-}
-
-type HtmlAiPanelRatio = {
-  rx: number
-  ry: number
-  rw: number
-  rh: number
-}
-
-type HtmlAiPanelPixels = {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-type HtmlAiPanelViewport = {
-  width: number
-  height: number
-}
-
-type LessonGenerationOptions = {
-  prompt?: string
-  messages?: AgentChatMessage[]
-}
-
-type StoreState = {
-  view: WorkspaceView
-  settingsSection: SettingsSection
-  sidebarCollapsed: boolean
-  loading: boolean
-  generating: boolean
-  error: UserError | null
-  searchQuery: string
-  taskPrompt: string
-  overviewDialogMode: DialogMode
-  resourcePageSection: ResourcePageSection
-  lessonReaderOpen: boolean
-  selectedCoursePreviewFile: CoursePreviewFile | null
-  selectedResourcePreviewFile: ResourcePreviewFile | null
-  selectedMarkdownDocument: WorkspaceMarkdownDocument | null
-  markdownDraft: string
-  markdownSaving: boolean
-  selectedCourseRelativePath: string | null
-  selectedCourseWorkspaceId: string | null
-  appState: TeachingAppState
-  settings: TeachingSettingsV1
-  setView: (view: WorkspaceView) => void
-  setOverviewDialogMode: (mode: DialogMode) => void
-  openLessonLibrary: () => void
-  openTeachingConversationView: () => void
-  openWorkspaceTeachingMode: () => void
-  selectCourseFolder: (relativePath: string | null, workspaceId?: string | null) => void
-  setSettingsSection: (section: SettingsSection) => void
-  setSidebarCollapsed: (collapsed: boolean) => void
-  openSettings: (section?: SettingsSection) => void
-  setSearchQuery: (query: string) => void
-  setTaskPrompt: (prompt: string) => void
-  setResourcePageSection: (section: ResourcePageSection) => void
-  clearError: () => void
-  initialize: () => Promise<void>
-  updateSettings: (patch: TeachingSettingsPatch) => Promise<void>
-  pickDefaultRoot: () => Promise<void>
-  selectWorkspace: (workspaceId: string) => Promise<void>
-  createWorkspace: () => Promise<void>
-  importWorkspace: () => Promise<boolean>
-  importWorkspacePath: (rootPath: string) => Promise<boolean>
-  updateMission: () => Promise<void>
-  applyLessonStyle: (styleId: LessonStyleId) => Promise<void>
-  generateLesson: (options?: LessonGenerationOptions) => Promise<void>
-  generateLessonStream: (options?: LessonGenerationOptions) => Promise<void>
-  loadLesson: (lesson: LessonSummary) => Promise<void>
-  loadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
-  loadWorkspaceMarkdownFile: (file: CoursePreviewFile, workspaceId?: string | null) => Promise<void>
-  setMarkdownDraft: (content: string) => void
-  saveMarkdownDocument: () => Promise<void>
-  openResourceHtmlPreview: (file: ResourcePreviewFile) => void
-  closeResourceHtmlPreview: () => void
-  openPath: (path: string) => Promise<void>
-  openImportLocation: (path?: string) => Promise<void>
-  openExternal: (url: string) => Promise<void>
-  showNotification: (title: string, body: string) => Promise<void>
-  probeProvider: (payload: ProbeProviderPayload) => Promise<ProbeProviderResult>
-  listUpstreamModels: (payload: ProbeProviderPayload) => Promise<ListUpstreamModelsResult>
-  listGitWorktrees: (workspaceRoot: string) => Promise<TeachingGitWorktreesResult>
-  removeGitWorktree: (payload: RemoveTeachingGitWorktreePayload) => Promise<void>
-  listMemory: (workspaceRoot?: string) => Promise<void>
-  createMemory: (payload: CreateTeachingMemoryPayload) => Promise<boolean>
-  updateMemory: (memoryId: string, patch: UpdateTeachingMemoryPayload) => Promise<boolean>
-  deleteMemory: (memoryId: string, workspaceRoot?: string) => Promise<void>
-  loadMemoryDiagnostics: () => Promise<void>
-  loadReviewCards: () => Promise<void>
-  recordProgress: (lessonId: string, results: Array<{ lessonId: string; question: string; correct: boolean }>) => Promise<void>
-  reviewCards: ReviewCard[]
-  progress: ProgressSummary | null
-  memoryRecords: TeachingMemoryRecord[]
-  memoryDiagnostics: TeachingMemoryDiagnostics | null
-  agentTurns: AgentChatTurn[]
-  activeConversationId: string | null
-  agentChatBusy: boolean
-  agentStatus: string
-  agentInput: string
-  agentInputHistory: string[]
-  agentToolsSupported: boolean | null
-  pendingAgentConversation: PendingAgentConversation | null
-  gitBranchesRoot: string
-  gitBranchesResult: TeachingGitBranchesResult | null
-  gitBranchesLoading: boolean
-  setAgentInput: (input: string) => void
-  rememberAgentInput: (input: string) => void
-  clearAgentChat: () => void
-  cancelAgentChat: () => Promise<void>
-  restorePendingAgentConversation: () => void
-  loadGitBranches: (workspaceRoot: string, options?: { force?: boolean }) => Promise<void>
-  setGitBranchesResult: (workspaceRoot: string, result: TeachingGitBranchesResult) => void
-  loadAgentConversation: (conversationId: string, workspaceId?: string | null) => Promise<void>
-  agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode }) => Promise<void>
-  setWorkspaceItemMeta: (payload: { workspaceId?: string | null; relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
-  removeWorkspaceItem: (payload: { workspaceId?: string | null; relativePath: string; kind: WorkspaceItemKind; mode?: WorkspaceItemRemoveMode }) => Promise<void>
-  removeWorkspace: (payload: { workspaceId: string; mode?: WorkspaceItemRemoveMode }) => Promise<void>
-}
 
 // ================================================================
 // Constants
@@ -327,831 +133,14 @@ type StoreState = {
 
 const navItems = [
   { id: 'overview', icon: Bot },
-  { id: 'resources', icon: LibraryBig }
+  { id: 'resources', icon: LibraryBig },
+  { id: 'studio', icon: DoorOpen },
+  { id: 'workbench', icon: Wrench }
 ] satisfies Array<{ id: WorkspaceView; icon: LucideIcon }>
-
-const defaultRuntime: TeachingRuntimeState = {
-  status: 'idle',
-  currentStep: 'ready',
-  queuedTasks: 0,
-  providerLabel: 'Local structured generator'
-}
-
-const emptyAppState: TeachingAppState = {
-  workspaces: [],
-  activeWorkspace: null,
-  temporaryConversations: [],
-  previewHtml: '',
-  previewUrl: '',
-  selectedLessonPath: null,
-  runtime: defaultRuntime
-}
-
-const emptySettings: TeachingSettingsV1 = {
-  version: 1,
-  locale: 'zh-CN',
-  theme: 'system',
-  uiFontScale: 1,
-  density: 'comfortable',
-  provider: {
-    activeProviderId: 'deepseek',
-    providers: TEACHING_MODEL_PROVIDER_PRESETS.map((preset) => ({ ...preset, apiKey: '' })),
-    proxy: {
-      enabled: false,
-      url: ''
-    }
-  },
-  generator: {
-    providerId: 'deepseek',
-    model: 'deepseek-v4-flash',
-    endpointFormat: 'chat_completions',
-    temperature: 0.4,
-    maxOutputTokens: 4096,
-    lessonDurationMinutes: 15,
-    includeRetrievalPractice: true,
-    generateReference: true,
-    generateLearningRecord: true,
-    structuredOutput: true,
-    streaming: false,
-    reasoningEffort: 'auto',
-    requestTimeoutMs: 60_000
-  },
-  workspace: {
-    defaultRoot: '',
-    confirmBeforeGenerating: false,
-    autoOpenGeneratedLesson: false,
-    showAllCourseFiles: false,
-    lessonStyleId: DEFAULT_LESSON_STYLE_ID
-  },
-  worktree: {
-    rootPath: ''
-  },
-  memory: {
-    enabled: true,
-    maxInjected: 4
-  },
-  tools: {
-    enabled: false,
-    workspaceRead: true,
-    webSearch: true,
-    webFetch: false,
-    maxIterations: 0
-  },
-  webSearch: {
-    backend: 'auto',
-    fallbackEnabled: true,
-    maxResults: 5,
-    searxngUrl: '',
-    braveApiKey: '',
-    firecrawlApiKey: '',
-    firecrawlApiUrl: '',
-    tavilyApiKey: '',
-    exaApiKey: '',
-    parallelApiKey: '',
-    parallelSearchMode: 'agentic',
-    xaiApiKey: '',
-    xaiModel: 'grok-4.3'
-  },
-  notifications: {
-    enabled: true,
-    lessonGenerated: true,
-    workspaceImported: true,
-    errors: true
-  },
-  privacy: {
-    maskApiKeys: true,
-    allowExternalLinks: true
-  },
-  appBehavior: {
-    openAtLogin: false,
-    startMinimized: false,
-    closeAction: 'quit',
-    closeToTray: false
-  },
-  log: {
-    enabled: true,
-    retentionDays: 14
-  }
-}
-
-function clearMarkdownDocumentPatch(): Pick<
-  StoreState,
-  'selectedMarkdownDocument' | 'markdownDraft' | 'markdownSaving'
-> {
-  return {
-    selectedMarkdownDocument: null,
-    markdownDraft: '',
-    markdownSaving: false
-  }
-}
-
-function normalizeRendererSettings(input: TeachingSettingsPatch | TeachingSettingsV1 | null | undefined): TeachingSettingsV1 {
-  const settings = input ?? {}
-
-  return {
-    ...emptySettings,
-    ...settings,
-    provider: {
-      ...emptySettings.provider,
-      ...(settings.provider ?? {}),
-      proxy: {
-        ...emptySettings.provider.proxy,
-        ...(settings.provider?.proxy ?? {})
-      },
-      providers:
-        Array.isArray(settings.provider?.providers) && settings.provider.providers.length > 0
-          ? settings.provider.providers
-          : emptySettings.provider.providers
-    },
-    generator: {
-      ...emptySettings.generator,
-      ...(settings.generator ?? {})
-    },
-    workspace: {
-      ...emptySettings.workspace,
-      ...(settings.workspace ?? {})
-    },
-    worktree: {
-      ...emptySettings.worktree,
-      ...(settings.worktree ?? {})
-    },
-    memory: {
-      ...emptySettings.memory,
-      ...(settings.memory ?? {})
-    },
-    tools: {
-      ...emptySettings.tools,
-      ...(settings.tools ?? {})
-    },
-    webSearch: {
-      ...emptySettings.webSearch,
-      ...(settings.webSearch ?? {})
-    },
-    notifications: {
-      ...emptySettings.notifications,
-      ...(settings.notifications ?? {})
-    },
-    privacy: {
-      ...emptySettings.privacy,
-      ...(settings.privacy ?? {})
-    },
-    appBehavior: {
-      ...emptySettings.appBehavior,
-      ...(settings.appBehavior ?? {})
-    },
-    log: {
-      ...emptySettings.log,
-      ...(settings.log ?? {})
-    }
-  }
-}
-
-const defaultPrompt = ''
-
-const nextPrompt = '基于当前 mission，生成下一节短小、可复习、带检索练习的 HTML lesson。'
-
-const MAX_HTML_CHAT_CONTEXT_LENGTH = 6000
-const HTML_AI_PANEL_STORAGE_KEY = 'teachos-html-ai-panel-ratio'
-const HTML_AI_PANEL_MIN_WIDTH = 340
-const HTML_AI_PANEL_MIN_HEIGHT = 360
-const HTML_AI_PANEL_MAX_WIDTH = 760
-const HTML_AI_PANEL_MAX_HEIGHT = 860
-const HTML_AI_PANEL_MARGIN = 16
-
-function emptyFloatingTemporaryChatState(): FloatingTemporaryChatState {
-  return {
-    turns: [],
-    pending: null,
-    activeConversationId: null,
-    savedConversationId: null,
-    busy: false,
-    status: '',
-    toolsSupported: null,
-    error: null
-  }
-}
-
-function viewportFromWindow(): HtmlAiPanelViewport {
-  if (typeof window === 'undefined') return { width: 1280, height: 800 }
-  return { width: window.innerWidth, height: window.innerHeight }
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
-
-function loadHtmlAiPanelRatio(): HtmlAiPanelRatio | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(HTML_AI_PANEL_STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<HtmlAiPanelRatio>
-    if (
-      typeof parsed.rx === 'number' &&
-      typeof parsed.ry === 'number' &&
-      typeof parsed.rw === 'number' &&
-      typeof parsed.rh === 'number'
-    ) {
-      return parsed as HtmlAiPanelRatio
-    }
-  } catch {
-    // Panel geometry is cosmetic; ignore bad persisted state.
-  }
-  return null
-}
-
-function saveHtmlAiPanelRatio(ratio: HtmlAiPanelRatio): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(HTML_AI_PANEL_STORAGE_KEY, JSON.stringify(ratio))
-  } catch {
-    // Persisting geometry should not affect chat behavior.
-  }
-}
-
-function defaultHtmlAiPanelRatio(viewport: HtmlAiPanelViewport): HtmlAiPanelRatio {
-  const maxWidth = Math.max(280, viewport.width - HTML_AI_PANEL_MARGIN * 2)
-  const maxHeight = Math.max(320, viewport.height - HTML_AI_PANEL_MARGIN * 2)
-  const width = clampNumber(
-    Math.min(Math.max(420, viewport.width * 0.34), HTML_AI_PANEL_MAX_WIDTH),
-    Math.min(HTML_AI_PANEL_MIN_WIDTH, maxWidth),
-    maxWidth
-  )
-  const height = clampNumber(
-    Math.min(Math.max(640, viewport.height * 0.72), HTML_AI_PANEL_MAX_HEIGHT),
-    Math.min(HTML_AI_PANEL_MIN_HEIGHT, maxHeight),
-    maxHeight
-  )
-  return {
-    rx: (viewport.width - width - 24) / viewport.width,
-    ry: (viewport.height - height - 24) / viewport.height,
-    rw: width / viewport.width,
-    rh: height / viewport.height
-  }
-}
-
-function htmlAiPanelRatioToPixels(
-  ratio: HtmlAiPanelRatio,
-  viewport: HtmlAiPanelViewport
-): HtmlAiPanelPixels {
-  const maxWidth = Math.max(280, viewport.width - HTML_AI_PANEL_MARGIN * 2)
-  const maxHeight = Math.max(320, viewport.height - HTML_AI_PANEL_MARGIN * 2)
-  const width = Math.round(clampNumber(
-    ratio.rw * viewport.width,
-    Math.min(HTML_AI_PANEL_MIN_WIDTH, maxWidth),
-    Math.min(HTML_AI_PANEL_MAX_WIDTH, maxWidth)
-  ))
-  const height = Math.round(clampNumber(
-    ratio.rh * viewport.height,
-    Math.min(HTML_AI_PANEL_MIN_HEIGHT, maxHeight),
-    Math.min(HTML_AI_PANEL_MAX_HEIGHT, maxHeight)
-  ))
-  const maxX = Math.max(HTML_AI_PANEL_MARGIN, viewport.width - width - HTML_AI_PANEL_MARGIN)
-  const maxY = Math.max(HTML_AI_PANEL_MARGIN, viewport.height - height - HTML_AI_PANEL_MARGIN)
-  return {
-    x: Math.round(clampNumber(ratio.rx * viewport.width, HTML_AI_PANEL_MARGIN, maxX)),
-    y: Math.round(clampNumber(ratio.ry * viewport.height, HTML_AI_PANEL_MARGIN, maxY)),
-    width,
-    height
-  }
-}
-
-function htmlAiPanelPixelsToRatio(
-  pixels: HtmlAiPanelPixels,
-  viewport: HtmlAiPanelViewport
-): HtmlAiPanelRatio {
-  return {
-    rx: pixels.x / viewport.width,
-    ry: pixels.y / viewport.height,
-    rw: pixels.width / viewport.width,
-    rh: pixels.height / viewport.height
-  }
-}
-
-function initialHtmlAiPanelRatio(): HtmlAiPanelRatio {
-  return loadHtmlAiPanelRatio() ?? defaultHtmlAiPanelRatio(viewportFromWindow())
-}
-
-function useHtmlAiPanelGeometry() {
-  const panelRef = useRef<HTMLElement | null>(null)
-  const [ratio, setRatio] = useState<HtmlAiPanelRatio>(() => initialHtmlAiPanelRatio())
-  const ratioRef = useRef(ratio)
-  const [, setViewportTick] = useState(0)
-
-  useEffect(() => {
-    ratioRef.current = ratio
-  }, [ratio])
-
-  useEffect(() => {
-    const onResize = (): void => setViewportTick((value) => value + 1)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-
-  const pixels = htmlAiPanelRatioToPixels(ratio, viewportFromWindow())
-
-  const commitPixels = useCallback((pixelsToCommit: HtmlAiPanelPixels): void => {
-    const nextRatio = htmlAiPanelPixelsToRatio(pixelsToCommit, viewportFromWindow())
-    ratioRef.current = nextRatio
-    setRatio(nextRatio)
-    saveHtmlAiPanelRatio(nextRatio)
-  }, [])
-
-  const handleHeaderPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>): void => {
-    if ((event.target as HTMLElement).closest('button, textarea, input, a')) return
-    const panel = panelRef.current
-    if (!panel) return
-
-    const viewport = viewportFromWindow()
-    const startPointerX = event.clientX
-    const startPointerY = event.clientY
-    const startPixels = htmlAiPanelRatioToPixels(ratioRef.current, viewport)
-    const previousCursor = document.body.style.cursor
-    const previousUserSelect = document.body.style.userSelect
-
-    panel.style.transition = 'none'
-    panel.style.willChange = 'transform'
-    document.body.style.cursor = 'grabbing'
-    document.body.style.userSelect = 'none'
-
-    const handlePointerMove = (moveEvent: PointerEvent): void => {
-      const dx = moveEvent.clientX - startPointerX
-      const dy = moveEvent.clientY - startPointerY
-      const currentViewport = viewportFromWindow()
-      const maxX = Math.max(HTML_AI_PANEL_MARGIN, currentViewport.width - startPixels.width - HTML_AI_PANEL_MARGIN)
-      const maxY = Math.max(HTML_AI_PANEL_MARGIN, currentViewport.height - startPixels.height - HTML_AI_PANEL_MARGIN)
-      const nextX = clampNumber(startPixels.x + dx, HTML_AI_PANEL_MARGIN, maxX)
-      const nextY = clampNumber(startPixels.y + dy, HTML_AI_PANEL_MARGIN, maxY)
-      panel.style.transform = `translate(${nextX - startPixels.x}px, ${nextY - startPixels.y}px)`
-    }
-
-    const finishPointerDrag = (upEvent: PointerEvent): void => {
-      const dx = upEvent.clientX - startPointerX
-      const dy = upEvent.clientY - startPointerY
-      const currentViewport = viewportFromWindow()
-      const maxX = Math.max(HTML_AI_PANEL_MARGIN, currentViewport.width - startPixels.width - HTML_AI_PANEL_MARGIN)
-      const maxY = Math.max(HTML_AI_PANEL_MARGIN, currentViewport.height - startPixels.height - HTML_AI_PANEL_MARGIN)
-      const nextPixels = {
-        ...startPixels,
-        x: clampNumber(startPixels.x + dx, HTML_AI_PANEL_MARGIN, maxX),
-        y: clampNumber(startPixels.y + dy, HTML_AI_PANEL_MARGIN, maxY)
-      }
-
-      panel.style.transform = ''
-      panel.style.willChange = ''
-      document.body.style.cursor = previousCursor
-      document.body.style.userSelect = previousUserSelect
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', finishPointerDrag)
-      window.removeEventListener('pointercancel', finishPointerDrag)
-      commitPixels(nextPixels)
-    }
-
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', finishPointerDrag)
-    window.addEventListener('pointercancel', finishPointerDrag)
-    event.preventDefault()
-  }, [commitPixels])
-
-  const handleResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
-    const panel = panelRef.current
-    if (!panel) return
-
-    const startPointerX = event.clientX
-    const startPointerY = event.clientY
-    const startPixels = htmlAiPanelRatioToPixels(ratioRef.current, viewportFromWindow())
-    const fixedRight = startPixels.x + startPixels.width
-    const fixedBottom = startPixels.y + startPixels.height
-    const previousCursor = document.body.style.cursor
-    const previousUserSelect = document.body.style.userSelect
-
-    panel.style.transition = 'none'
-    panel.style.willChange = 'left, top, width, height'
-    document.body.style.cursor = 'nwse-resize'
-    document.body.style.userSelect = 'none'
-
-    const handlePointerMove = (moveEvent: PointerEvent): void => {
-      const dx = moveEvent.clientX - startPointerX
-      const dy = moveEvent.clientY - startPointerY
-      const maxWidth = Math.min(HTML_AI_PANEL_MAX_WIDTH, fixedRight - HTML_AI_PANEL_MARGIN)
-      const maxHeight = Math.min(HTML_AI_PANEL_MAX_HEIGHT, fixedBottom - HTML_AI_PANEL_MARGIN)
-      const minWidth = Math.min(HTML_AI_PANEL_MIN_WIDTH, maxWidth)
-      const minHeight = Math.min(HTML_AI_PANEL_MIN_HEIGHT, maxHeight)
-      const nextWidth = clampNumber(startPixels.width - dx, minWidth, maxWidth)
-      const nextHeight = clampNumber(startPixels.height - dy, minHeight, maxHeight)
-      const nextX = fixedRight - nextWidth
-      const nextY = fixedBottom - nextHeight
-      panel.style.left = `${Math.round(nextX)}px`
-      panel.style.top = `${Math.round(nextY)}px`
-      panel.style.width = `${Math.round(nextWidth)}px`
-      panel.style.height = `${Math.round(nextHeight)}px`
-    }
-
-    const finishPointerResize = (): void => {
-      const rect = panel.getBoundingClientRect()
-      const maxWidth = Math.min(HTML_AI_PANEL_MAX_WIDTH, fixedRight - HTML_AI_PANEL_MARGIN)
-      const maxHeight = Math.min(HTML_AI_PANEL_MAX_HEIGHT, fixedBottom - HTML_AI_PANEL_MARGIN)
-      const minWidth = Math.min(HTML_AI_PANEL_MIN_WIDTH, maxWidth)
-      const minHeight = Math.min(HTML_AI_PANEL_MIN_HEIGHT, maxHeight)
-      const width = Math.round(clampNumber(rect.width, minWidth, maxWidth))
-      const height = Math.round(clampNumber(rect.height, minHeight, maxHeight))
-      const nextPixels = {
-        x: Math.round(fixedRight - width),
-        y: Math.round(fixedBottom - height),
-        width,
-        height
-      }
-
-      panel.style.left = ''
-      panel.style.top = ''
-      panel.style.width = ''
-      panel.style.height = ''
-      panel.style.willChange = ''
-      document.body.style.cursor = previousCursor
-      document.body.style.userSelect = previousUserSelect
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', finishPointerResize)
-      window.removeEventListener('pointercancel', finishPointerResize)
-      commitPixels(nextPixels)
-    }
-
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', finishPointerResize)
-    window.addEventListener('pointercancel', finishPointerResize)
-    event.preventDefault()
-    event.stopPropagation()
-  }, [commitPixels])
-
-  return {
-    panelRef,
-    pixels,
-    handleHeaderPointerDown,
-    handleResizePointerDown
-  }
-}
-
-function mergeFloatingTemporaryChatPatch(
-  state: FloatingTemporaryChatState,
-  patch: PendingConversationStorePatch
-): FloatingTemporaryChatState {
-  return {
-    ...state,
-    pending: 'pendingAgentConversation' in patch ? patch.pendingAgentConversation ?? null : state.pending,
-    turns: patch.agentTurns ?? state.turns,
-    activeConversationId: 'activeConversationId' in patch ? patch.activeConversationId ?? null : state.activeConversationId,
-    busy: patch.agentChatBusy ?? state.busy,
-    status: 'agentStatus' in patch ? patch.agentStatus ?? '' : state.status,
-    toolsSupported: 'agentToolsSupported' in patch ? patch.agentToolsSupported ?? null : state.toolsSupported
-  }
-}
-
-function buildHtmlChatContext(file: CoursePreviewFile, html: string): string {
-  const text = extractVisibleTextFromHtml(html)
-  const lines = [
-    `当前打开的 HTML：${file.title}`,
-    `路径：${file.relativePath}`,
-    text ? `可见文本：\n${text}` : ''
-  ].filter(Boolean)
-  return lines.join('\n\n').slice(0, MAX_HTML_CHAT_CONTEXT_LENGTH)
-}
-
-function extractVisibleTextFromHtml(html: string): string {
-  if (!html.trim()) return ''
-  try {
-    const doc = new DOMParser().parseFromString(html, 'text/html')
-    doc.querySelectorAll('script, style, noscript, svg, canvas').forEach((node) => node.remove())
-    const title = doc.title?.trim()
-    const body = (doc.body?.textContent ?? '').replace(/\s+/g, ' ').trim()
-    return [title, body].filter(Boolean).join('\n').slice(0, MAX_HTML_CHAT_CONTEXT_LENGTH)
-  } catch {
-    return html
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, MAX_HTML_CHAT_CONTEXT_LENGTH)
-  }
-}
-
-const settingsNavItems = [
-  { id: 'general', icon: Settings },
-  { id: 'appearance', icon: Palette },
-  { id: 'model', icon: Bot },
-  { id: 'generation', icon: SlidersHorizontal },
-  { id: 'tools', icon: Wrench },
-  { id: 'search', icon: Search },
-  { id: 'workspace', icon: FolderOpen },
-  { id: 'worktree', icon: GitBranch },
-  { id: 'memory', icon: BrainCircuit },
-  { id: 'notifications', icon: Bell },
-  { id: 'privacy', icon: Lock },
-  { id: 'about', icon: Info }
-] satisfies Array<{ id: SettingsSection; icon: LucideIcon }>
-
-const webSearchBackendOptions = WEB_SEARCH_BACKENDS
-  .filter((backend) => backend !== 'duckduckgo')
-  .map((backend) => ({ value: backend, label: webSearchBackendLabel(backend) }))
-
-const parallelSearchModeOptions = PARALLEL_SEARCH_MODES.map((mode) => ({
-  value: mode,
-  label: mode
-}))
-
-const modelSettingsProviderIds = ['deepseek', 'glm', 'custom'] as const
-
-function webSearchBackendLabel(backend: WebSearchBackend): string {
-  switch (backend) {
-    case 'auto':
-      return 'Auto'
-    case 'firecrawl':
-      return 'Firecrawl'
-    case 'parallel':
-      return 'Parallel'
-    case 'tavily':
-      return 'Tavily'
-    case 'exa':
-      return 'Exa'
-    case 'searxng':
-      return 'SearXNG'
-    case 'brave':
-      return 'Brave Search'
-    case 'ddgs':
-    case 'duckduckgo':
-      return 'DDGS / DuckDuckGo'
-    case 'xai':
-      return 'xAI Grok'
-  }
-}
 
 function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
   const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number }
   return Boolean(nativeEvent.isComposing || nativeEvent.keyCode === 229)
-}
-
-// ================================================================
-// Settings helpers — resolve active provider, runtime label, theme side effects
-// ================================================================
-
-const DARK_THEME_MEDIA_QUERY = '(prefers-color-scheme: dark)'
-type ResolvedTheme = 'light' | 'dark'
-
-function activeModelProvider(settings: TeachingSettingsV1): TeachingModelProviderProfile {
-  const provider =
-    settings.provider.providers.find((item) => item.id === settings.generator.providerId) ??
-    settings.provider.providers.find((item) => item.id === settings.provider.activeProviderId) ??
-    settings.provider.providers[0]
-  return provider
-}
-
-function runtimeProviderLabel(settings: TeachingSettingsV1): string {
-  const provider = activeModelProvider(settings)
-  const model = settings.generator.model || i18n.t('common.auto')
-  return `${provider?.name ?? i18n.t('common.modelProvider')} · ${model}`
-}
-
-function providerHost(provider: TeachingModelProviderProfile): string {
-  try {
-    return new URL(provider.baseUrl).hostname.toLowerCase()
-  } catch {
-    return provider.baseUrl.toLowerCase()
-  }
-}
-
-function formatLessonIndex(id: string): string {
-  const numeric = id.match(/\d+/)?.[0]
-  if (!numeric) return id
-  return String(Number.parseInt(numeric, 10)).padStart(2, '0')
-}
-
-function stripLessonIndexPrefix(name: string, id: string): string {
-  if (!id || !name.startsWith(id)) return name
-  const rest = name.slice(id.length).replace(/^[\s._-]+/, '')
-  return rest || name
-}
-
-function isDeepSeekReasoningProvider(provider: TeachingModelProviderProfile, model: string): boolean {
-  const host = providerHost(provider)
-  return provider.id === 'deepseek' || host.includes('deepseek.com') || /^deepseek[-_.]/i.test(model)
-}
-
-function isClaudeReasoningProvider(provider: TeachingModelProviderProfile, model: string): boolean {
-  return provider.id === 'anthropic' || /^claude-(opus|sonnet|haiku|fable|mythos)/i.test(model)
-}
-
-function isMiniMaxOpenAiProvider(provider: TeachingModelProviderProfile): boolean {
-  const host = providerHost(provider)
-  return host.includes('minimaxi.com') && !provider.baseUrl.toLowerCase().includes('/anthropic')
-}
-
-function supportsOpenAiReasoningEffort(provider: TeachingModelProviderProfile, model: string): boolean {
-  const host = providerHost(provider)
-  return (
-    provider.id === 'custom' ||
-    provider.id === 'xiaomi' ||
-    host.includes('openai.com') ||
-    host.includes('xiaomimimo.com') ||
-    /^mimo[-_.]/i.test(model) ||
-    /^o\d/i.test(model) ||
-    /^gpt-5/i.test(model)
-  )
-}
-
-function reasoningEffortOptionsForSettings(settings: TeachingSettingsV1): ModelReasoningEffort[] {
-  const provider = activeModelProvider(settings)
-  const model = settings.generator.model
-  if (isDeepSeekReasoningProvider(provider, model)) return ['auto', 'high', 'max']
-  if (isClaudeReasoningProvider(provider, model)) return ['auto', 'off', 'low', 'medium', 'high', 'xhigh', 'max']
-  if (isMiniMaxOpenAiProvider(provider)) return ['auto', 'off', 'high']
-  if (supportsOpenAiReasoningEffort(provider, model)) return ['auto', 'off', 'low', 'medium', 'high']
-  return ['auto']
-}
-
-function selectedReasoningEffort(settings: TeachingSettingsV1): ModelReasoningEffort {
-  const value = settings.generator.reasoningEffort ?? 'auto'
-  return reasoningEffortOptionsForSettings(settings).includes(value) ? value : 'auto'
-}
-
-function reasoningEffortLabel(effort: ModelReasoningEffort): string {
-  return i18n.t(`reasoning.effort.${effort}`)
-}
-
-function reasoningEffortDescription(effort: ModelReasoningEffort): string {
-  return i18n.t(`reasoning.description.${effort}`)
-}
-
-function systemThemePreference(): ResolvedTheme {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light'
-  return window.matchMedia(DARK_THEME_MEDIA_QUERY).matches ? 'dark' : 'light'
-}
-
-function resolveThemePreference(theme: TeachingSettingsV1['theme']): ResolvedTheme {
-  return theme === 'system' ? systemThemePreference() : theme
-}
-
-function applySettingsSideEffects(settings: TeachingSettingsV1): void {
-  const root = document.documentElement
-  const resolvedTheme = resolveThemePreference(settings.theme)
-  root.dataset.theme = settings.theme
-  root.dataset.resolvedTheme = resolvedTheme
-  root.dataset.density = settings.density
-  root.style.fontSize = `${settings.uiFontScale * 100}%`
-  root.style.colorScheme = resolvedTheme
-  void i18n.changeLanguage(settings.locale)
-}
-
-// ================================================================
-// Error Mapping — converts raw errors to user-friendly messages
-// ================================================================
-
-function toUserError(error: unknown): UserError {
-  const raw = error instanceof Error ? error.message : String(error)
-
-  // IPC validation errors
-  if (raw.includes('No handler registered for')) {
-    return {
-      message: i18n.t('errors.ipcHandlerMissing.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.ipcHandlerMissing.detail')
-    }
-  }
-
-  if (raw.includes('未配置 API Key') || raw.includes('No API key') || raw.includes('API Key is required')) {
-    return {
-      message: i18n.t('errors.noApiKey.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.noApiKey.detail')
-    }
-  }
-
-  const providerError = classifyProviderError(raw)
-  if (providerError) {
-    const suffix = providerError.providerMessage ? ` ${providerError.providerMessage}` : ''
-    if (providerError.kind === 'insufficient_balance') {
-      return {
-        message: i18n.t('errors.providerInsufficientBalance.message'),
-        severity: 'warning',
-        detail: `${i18n.t('errors.providerInsufficientBalance.detail')}${suffix}`
-      }
-    }
-    if (providerError.kind === 'authentication') {
-      return {
-        message: i18n.t('errors.providerAuth.message'),
-        severity: 'warning',
-        detail: `${i18n.t('errors.providerAuth.detail')}${suffix}`
-      }
-    }
-    if (providerError.kind === 'rate_limit') {
-      return {
-        message: i18n.t('errors.providerRateLimit.message'),
-        severity: 'warning',
-        detail: `${i18n.t('errors.providerRateLimit.detail')}${suffix}`
-      }
-    }
-    return {
-      message: i18n.t('errors.providerHttp.message'),
-      severity: 'warning',
-      detail: `${i18n.t('errors.providerHttp.detail', { status: providerError.status ?? '-' })}${suffix}`
-    }
-  }
-
-  if (raw.includes('IPC payload field')) {
-    const field = raw.match(/"([^"]+)"/)?.[1] ?? i18n.t('errors.missingField.fallbackField')
-    return {
-      message: i18n.t('errors.missingField.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.missingField.detail', { field })
-    }
-  }
-
-  if (raw.includes('IPC payload must be an object')) {
-    return {
-      message: i18n.t('errors.badPayload.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.badPayload.detail')
-    }
-  }
-
-  if (raw.includes('Unsupported window control action')) {
-    return {
-      message: i18n.t('errors.windowControl.message'),
-      severity: 'info',
-      detail: i18n.t('errors.windowControl.detail')
-    }
-  }
-
-  // Workspace errors
-  if (raw.includes('Workspace not found')) {
-    return {
-      message: i18n.t('errors.workspaceNotFound.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.workspaceNotFound.detail')
-    }
-  }
-
-  if (raw.includes('not a directory') || raw.includes('Selected path')) {
-    return {
-      message: i18n.t('errors.invalidPath.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.invalidPath.detail')
-    }
-  }
-
-  if (raw.includes('Mission prompt is required')) {
-    return {
-      message: i18n.t('errors.emptyMission.message'),
-      severity: 'info',
-      detail: i18n.t('errors.emptyMission.detail')
-    }
-  }
-
-  if (raw.includes('Lesson prompt is required')) {
-    return {
-      message: i18n.t('errors.emptyTask.message'),
-      severity: 'info',
-      detail: i18n.t('errors.emptyTask.detail')
-    }
-  }
-
-  if (raw.includes('outside the workspace lessons directory') || raw.includes('Path is outside')) {
-    return {
-      message: i18n.t('errors.pathRestricted.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.pathRestricted.detail')
-    }
-  }
-
-  // File system errors
-  if (raw.includes('ENOENT') || raw.includes('no such file')) {
-    return {
-      message: i18n.t('errors.fileNotFound.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.fileNotFound.detail')
-    }
-  }
-
-  if (raw.includes('EACCES') || raw.includes('permission denied')) {
-    return {
-      message: i18n.t('errors.accessDenied.message'),
-      severity: 'error',
-      detail: i18n.t('errors.accessDenied.detail')
-    }
-  }
-
-  // Generic fallback — don't expose raw stack traces
-  if (raw.includes('Error:') || raw.includes('TypeError:') || raw.includes('at ')) {
-    return {
-      message: i18n.t('errors.generic.message'),
-      severity: 'error',
-      detail: i18n.t('errors.generic.stackDetail')
-    }
-  }
-
-  return {
-    message: raw || i18n.t('errors.generic.message'),
-    severity: 'error',
-    detail: i18n.t('errors.generic.detail')
-  }
 }
 
 // ================================================================
@@ -1198,1255 +187,6 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
     )
   }
 }
-
-// ================================================================
-// Zustand Store
-// ================================================================
-
-const AGENT_INPUT_HISTORY_STORAGE_KEY = 'teachos:agent-input-history'
-const MAX_AGENT_INPUT_HISTORY = 20
-
-function appendAgentInputHistory(history: string[], input: string): string[] {
-  const value = input.trim()
-  if (!value) return history
-  const withoutCurrent = history.filter((item) => item !== value)
-  return [...withoutCurrent, value].slice(-MAX_AGENT_INPUT_HISTORY)
-}
-
-function mergeAgentInputHistory(...sources: Array<string[] | undefined>): string[] {
-  return sources.flat().reduce<string[]>((history, input) => appendAgentInputHistory(history, input ?? ''), [])
-}
-
-function normalizeAgentInputHistory(input: unknown): string[] {
-  if (!Array.isArray(input)) return []
-  return input.reduce<string[]>((history, item) => {
-    if (typeof item !== 'string') return history
-    return appendAgentInputHistory(history, item)
-  }, [])
-}
-
-function readPersistedAgentInputHistory(): string[] {
-  try {
-    const stored = window.localStorage.getItem(AGENT_INPUT_HISTORY_STORAGE_KEY)
-    if (!stored) return []
-    return normalizeAgentInputHistory(JSON.parse(stored))
-  } catch {
-    return []
-  }
-}
-
-function persistAgentInputHistory(history: string[]): void {
-  try {
-    window.localStorage.setItem(
-      AGENT_INPUT_HISTORY_STORAGE_KEY,
-      JSON.stringify(history.slice(-MAX_AGENT_INPUT_HISTORY))
-    )
-  } catch {
-    // Input history is a convenience feature; storage failures should not block sending.
-  }
-}
-
-const useAppStore = create<StoreState>((set, get) => ({
-  view: 'agent',
-  settingsSection: 'general',
-  sidebarCollapsed: false,
-  loading: true,
-  generating: false,
-  error: null,
-  searchQuery: '',
-  taskPrompt: defaultPrompt,
-  overviewDialogMode: 'chat',
-  resourcePageSection: 'home',
-  lessonReaderOpen: false,
-  selectedCoursePreviewFile: null,
-  selectedResourcePreviewFile: null,
-  selectedMarkdownDocument: null,
-  markdownDraft: '',
-  markdownSaving: false,
-  selectedCourseRelativePath: null,
-  selectedCourseWorkspaceId: null,
-  appState: emptyAppState,
-  settings: emptySettings,
-  reviewCards: [],
-  progress: null,
-  memoryRecords: [],
-  memoryDiagnostics: null,
-  agentTurns: [],
-  activeConversationId: null,
-  agentChatBusy: false,
-  agentStatus: '',
-  agentInput: '',
-  agentInputHistory: readPersistedAgentInputHistory(),
-  agentToolsSupported: null,
-  pendingAgentConversation: null,
-  gitBranchesRoot: '',
-  gitBranchesResult: null,
-  gitBranchesLoading: false,
-  setAgentInput: (agentInput) => set({ agentInput }),
-  rememberAgentInput: (input) => {
-    const nextHistory = appendAgentInputHistory(get().agentInputHistory, input)
-    set({ agentInputHistory: nextHistory })
-    persistAgentInputHistory(nextHistory)
-  },
-  clearAgentChat: () => {
-    if (get().agentChatBusy && get().pendingAgentConversation) {
-      set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null })
-      return
-    }
-    set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null })
-  },
-  cancelAgentChat: async () => {
-    const api = window.teachingSystem
-    const pending = get().pendingAgentConversation
-    if (!pending || !get().agentChatBusy) return
-    set(cancelPendingAgentConversation({
-      pending,
-      activeConversationId: get().activeConversationId,
-      preserveToolsSupported: true
-    }))
-    await api?.cancelAgentChatStream(pending.summary.id).catch(() => undefined)
-  },
-  restorePendingAgentConversation: () => {
-    const pending = get().pendingAgentConversation
-    if (!pending) return
-    const courseRelativePath = courseRelativePathForAgentConversation(pending.summary.relativePath)
-    set({
-      view: pending.mode === 'teaching' ? 'overview' : 'agent',
-      overviewDialogMode: pending.mode === 'teaching' ? 'teaching' : get().overviewDialogMode,
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      agentTurns: pending.turns,
-      activeConversationId: pending.summary.id,
-      agentStatus: pending.status,
-      agentToolsSupported: pending.toolsSupported,
-      selectedCourseRelativePath: courseRelativePath,
-      selectedCourseWorkspaceId: courseRelativePath ? pending.workspaceId : null
-    })
-  },
-  loadGitBranches: async (workspaceRoot, options) => {
-    const root = workspaceRoot.trim()
-    const api = window.teachingSystem
-    if (!root || !api) {
-      set({ gitBranchesRoot: '', gitBranchesResult: null, gitBranchesLoading: false })
-      return
-    }
-    const current = get()
-    if (!options?.force && current.gitBranchesRoot === root && (current.gitBranchesResult || current.gitBranchesLoading)) return
-
-    set({
-      gitBranchesRoot: root,
-      gitBranchesLoading: true,
-      ...(current.gitBranchesRoot === root ? {} : { gitBranchesResult: null })
-    })
-    try {
-      const result = await api.listGitBranches(root)
-      if (get().gitBranchesRoot === root) {
-        set({ gitBranchesResult: result, gitBranchesLoading: false })
-      }
-    } catch (error) {
-      if (get().gitBranchesRoot === root) {
-        set({ gitBranchesLoading: false, error: toUserError(error) })
-      }
-    }
-  },
-  setGitBranchesResult: (workspaceRoot, gitBranchesResult) => {
-    const root = workspaceRoot.trim()
-    set({ gitBranchesRoot: root, gitBranchesResult, gitBranchesLoading: false })
-  },
-  setView: (view) => {
-    set(view === 'lessons'
-      ? { view }
-      : view === 'resources'
-        ? { view, resourcePageSection: 'home', selectedResourcePreviewFile: null, ...clearMarkdownDocumentPatch() }
-        : { view, ...clearMarkdownDocumentPatch() })
-    if (view === 'review') void get().loadReviewCards()
-  },
-  setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
-  setResourcePageSection: (resourcePageSection) => set({ resourcePageSection }),
-  openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null, selectedResourcePreviewFile: null, ...clearMarkdownDocumentPatch() }),
-  openTeachingConversationView: () => set({
-    view: 'overview',
-    overviewDialogMode: 'teaching',
-    lessonReaderOpen: false,
-    selectedCoursePreviewFile: null,
-    selectedResourcePreviewFile: null,
-    ...clearMarkdownDocumentPatch()
-  }),
-  openWorkspaceTeachingMode: () => {
-    get().clearAgentChat()
-    set({
-      view: 'overview',
-      overviewDialogMode: 'teaching',
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      selectedResourcePreviewFile: null,
-      ...clearMarkdownDocumentPatch(),
-      selectedCourseRelativePath: null,
-      selectedCourseWorkspaceId: null
-    })
-  },
-  selectCourseFolder: (selectedCourseRelativePath, workspaceId) => {
-    const targetWorkspace = workspaceId
-      ? get().appState.workspaces.find((workspace) => workspace.id === workspaceId) ?? null
-      : get().appState.activeWorkspace
-    const selectedCourse = selectedCourseRelativePath
-      ? targetWorkspace?.courses.find((course) => sameRelativePath(course.relativePath, selectedCourseRelativePath)) ?? null
-      : null
-    const hasCourseContent = selectedCourseRelativePath
-      ? Boolean(selectedCourse && selectedCourse.sessionCount > 0)
-      : Boolean(targetWorkspace?.lessons.length)
-    set({
-      view: hasCourseContent ? 'lessons' : 'overview',
-      overviewDialogMode: 'teaching',
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      selectedResourcePreviewFile: null,
-      ...clearMarkdownDocumentPatch(),
-      selectedCourseRelativePath,
-      selectedCourseWorkspaceId: selectedCourse ? targetWorkspace?.id ?? null : null,
-      ...(!hasCourseContent
-        ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
-        : {})
-    })
-  },
-  setSettingsSection: (settingsSection) => set({ settingsSection }),
-  setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
-  openSettings: (section = 'general') => set({ view: 'settings', settingsSection: section }),
-  setSearchQuery: (searchQuery) => set({ searchQuery }),
-  setTaskPrompt: (taskPrompt) => set({ taskPrompt }),
-  setMarkdownDraft: (markdownDraft) => set({ markdownDraft }),
-  clearError: () => set({ error: null }),
-  initialize: async () => {
-    set({ loading: true, error: null })
-    const api = window.teachingSystem
-    if (!api) {
-      console.warn('[TeachOS] preload API is not available; renderer is running without window.teachingSystem.')
-      set({ loading: false, error: null })
-      return
-    }
-    try {
-      const [state, rawSettings] = await Promise.all([
-        api.getState(),
-        api.getSettings()
-      ])
-      const settings = normalizeRendererSettings(rawSettings)
-      applySettingsSideEffects(settings)
-      set({
-        appState: state,
-        settings,
-        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        loading: false
-      })
-    } catch (error) {
-      set({ loading: false, error: toUserError(error) })
-    }
-  },
-  updateSettings: async (patch) => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      const settings = normalizeRendererSettings(await api.updateSettings(patch))
-      applySettingsSideEffects(settings)
-      set({ settings, error: null })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  pickDefaultRoot: async () => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      const currentPath = get().settings.workspace.defaultRoot
-      const result = await api.pickDirectory(currentPath)
-      if (result.canceled || !result.path) return
-      await get().updateSettings({ workspace: { defaultRoot: result.path } })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  selectWorkspace: async (workspaceId) => {
-    const api = window.teachingSystem
-    if (!api) return
-    set({ loading: true, error: null })
-    try {
-      const state = await api.selectWorkspace(workspaceId)
-      set({
-        appState: state,
-        lessonReaderOpen: false,
-        selectedCoursePreviewFile: null,
-        ...clearMarkdownDocumentPatch(),
-        selectedCourseRelativePath: null,
-        selectedCourseWorkspaceId: null,
-        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        agentTurns: [],
-        activeConversationId: null,
-        agentStatus: '',
-        agentToolsSupported: null,
-        pendingAgentConversation: null,
-        loading: false
-      })
-    } catch (error) {
-      set({ loading: false, error: toUserError(error) })
-    }
-  },
-  createWorkspace: async () => {
-    const api = window.teachingSystem
-    if (!api) return
-    const name = window.prompt(i18n.t('dialogs.createNameTitle'), i18n.t('dialogs.createNameDefault'))
-    if (!name) return
-    const prompt = window.prompt(i18n.t('dialogs.createMissionTitle'), i18n.t('dialogs.createMissionDefault', { name }))
-    if (!prompt) return
-    set({ loading: true, error: null })
-    try {
-      const state = await api.createWorkspace({ name, prompt })
-      set({
-        appState: state,
-        lessonReaderOpen: false,
-        selectedCoursePreviewFile: null,
-        ...clearMarkdownDocumentPatch(),
-        selectedCourseRelativePath: null,
-        selectedCourseWorkspaceId: null,
-        taskPrompt: defaultPrompt,
-        agentTurns: [],
-        activeConversationId: null,
-        agentStatus: '',
-        agentToolsSupported: null,
-        pendingAgentConversation: null,
-        loading: false
-      })
-    } catch (error) {
-      set({ loading: false, error: toUserError(error) })
-    }
-  },
-  importWorkspace: async () => {
-    const api = window.teachingSystem
-    if (!api) return false
-    set({ loading: true, error: null })
-    try {
-      const result = await api.importWorkspace()
-      if (result.canceled || !result.state) {
-        set({ loading: false })
-        return false
-      }
-      set({
-        appState: result.state,
-        lessonReaderOpen: false,
-        selectedCoursePreviewFile: null,
-        ...clearMarkdownDocumentPatch(),
-        selectedCourseRelativePath: null,
-        selectedCourseWorkspaceId: null,
-        taskPrompt: result.state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        agentTurns: [],
-        activeConversationId: null,
-        agentStatus: '',
-        agentToolsSupported: null,
-        pendingAgentConversation: null,
-        loading: false
-      })
-      const settings = get().settings
-      if (settings.notifications.enabled && settings.notifications.workspaceImported) {
-        const wsName = result.state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
-        void get().showNotification(i18n.t('notify.imported.title'), i18n.t('notify.imported.body', { name: wsName }))
-      }
-      return true
-    } catch (error) {
-      set({ loading: false, error: toUserError(error) })
-      const settings = get().settings
-      if (settings.notifications.enabled && settings.notifications.errors) {
-        void get().showNotification(i18n.t('notify.importFailed.title'), toUserError(error).message)
-      }
-      return false
-    }
-  },
-  importWorkspacePath: async (rootPath) => {
-    const api = window.teachingSystem
-    if (!api) return false
-    const path = rootPath.trim()
-    if (!path) {
-      set({ error: { message: i18n.t('errors.invalidPath.message'), severity: 'warning', detail: i18n.t('errors.invalidPath.detail') } })
-      return false
-    }
-    set({ loading: true, error: null })
-    try {
-      const state = await api.importWorkspacePath(path)
-      set({
-        appState: state,
-        lessonReaderOpen: false,
-        selectedCoursePreviewFile: null,
-        ...clearMarkdownDocumentPatch(),
-        selectedCourseRelativePath: null,
-        selectedCourseWorkspaceId: null,
-        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        agentTurns: [],
-        activeConversationId: null,
-        agentStatus: '',
-        agentToolsSupported: null,
-        pendingAgentConversation: null,
-        loading: false
-      })
-      const settings = get().settings
-      if (settings.notifications.enabled && settings.notifications.workspaceImported) {
-        const wsName = state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
-        void get().showNotification(i18n.t('notify.imported.title'), i18n.t('notify.imported.body', { name: wsName }))
-      }
-      return true
-    } catch (error) {
-      const userError = toUserError(error)
-      set({ loading: false, error: userError })
-      const settings = get().settings
-      if (settings.notifications.enabled && settings.notifications.errors) {
-        void get().showNotification(i18n.t('notify.importFailed.title'), userError.message)
-      }
-      return false
-    }
-  },
-  openImportLocation: async (path) => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      const result = await api.openImportLocation(path)
-      if (!result.ok) {
-        set({ error: { message: i18n.t('errors.openPath'), severity: 'warning', detail: result.message } })
-      }
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  updateMission: async () => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = get().appState.activeWorkspace
-    if (!workspace) return
-    const newPrompt = window.prompt(i18n.t('dialogs.updateMissionTitle'), workspace.missionExcerpt)
-    if (!newPrompt) return
-    set({ loading: true, error: null })
-    try {
-      const state = await api.updateMission({ workspaceId: workspace.id, prompt: newPrompt })
-      set({ appState: state, loading: false })
-    } catch (error) {
-      set({ loading: false, error: toUserError(error) })
-    }
-  },
-  applyLessonStyle: async (styleId) => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      const workspace = get().appState.activeWorkspace
-      if (workspace) {
-        const state = await api.applyLessonStyle({ workspaceId: workspace.id, styleId })
-        set({ appState: state })
-      }
-      await get().updateSettings({ workspace: { lessonStyleId: styleId } })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  generateLesson: async (options) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = get().appState.activeWorkspace
-    const prompt = (options?.prompt ?? get().taskPrompt).trim()
-    const settings = get().settings
-    if (!workspace || !prompt) return
-    const lessonMessages = options?.messages ?? (
-      activeTeachingConversationSummary({
-        state: get().appState,
-        workspaceId: workspace.id,
-        activeConversationId: get().activeConversationId,
-        pendingAgentConversation: get().pendingAgentConversation
-      })
-        ? agentTurnsToMessages(get().agentTurns)
-        : []
-    )
-    if (
-      settings.workspace.confirmBeforeGenerating &&
-      !window.confirm(i18n.t('dialogs.confirmGenerate'))
-    ) {
-      return
-    }
-    set({
-      generating: true,
-      error: null,
-      appState: {
-        ...get().appState,
-        runtime: {
-          status: 'working',
-          currentStep: 'calling model',
-          queuedTasks: 1,
-          providerLabel: runtimeProviderLabel(settings)
-        }
-      }
-    })
-    try {
-      const result = await api.generateLesson({
-        workspaceId: workspace.id,
-        prompt,
-        courseName: suggestedCourseName(workspace, prompt),
-        messages: lessonMessages
-      })
-      set({
-        view: 'lessons',
-        lessonReaderOpen: true,
-        selectedCourseRelativePath: result.lesson.courseRelativePath,
-        selectedCourseWorkspaceId: workspace.id,
-        selectedCoursePreviewFile: lessonToCoursePreviewFile(result.lesson),
-        ...clearMarkdownDocumentPatch(),
-        appState: result.state,
-        taskPrompt: nextPrompt,
-        generating: false
-      })
-      if (settings.workspace.autoOpenGeneratedLesson) {
-        void get().openPath(result.lesson.absolutePath)
-      }
-      if (settings.notifications.enabled && settings.notifications.lessonGenerated) {
-        const suffix = result.source === 'fallback'
-          ? (result.reason ? i18n.t('notify.lessonGenerated.fallbackWithReason', { reason: result.reason }) : i18n.t('notify.lessonGenerated.fallbackNoReason'))
-          : ''
-        void get().showNotification(i18n.t('notify.lessonGenerated.title'), i18n.t('notify.lessonGenerated.body', { title: result.lesson.title, path: result.lesson.relativePath, suffix }))
-      }
-    } catch (error) {
-      const userError = toUserError(error)
-      set({
-        generating: false,
-        error: userError,
-        appState: { ...get().appState, runtime: { ...defaultRuntime, status: 'error' } }
-      })
-      if (settings.notifications.enabled && settings.notifications.errors) {
-        void get().showNotification(i18n.t('notify.generateFailed.title'), userError.message)
-      }
-    }
-  },
-  generateLessonStream: async (options) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = get().appState.activeWorkspace
-    const prompt = (options?.prompt ?? get().taskPrompt).trim()
-    const settings = get().settings
-    if (!workspace || !prompt) return
-    const lessonMessages = options?.messages ?? (
-      activeTeachingConversationSummary({
-        state: get().appState,
-        workspaceId: workspace.id,
-        activeConversationId: get().activeConversationId,
-        pendingAgentConversation: get().pendingAgentConversation
-      })
-        ? agentTurnsToMessages(get().agentTurns)
-        : []
-    )
-    if (
-      settings.workspace.confirmBeforeGenerating &&
-      !window.confirm(i18n.t('dialogs.confirmGenerate'))
-    ) {
-      return
-    }
-    set({
-      generating: true,
-      error: null,
-      appState: {
-        ...get().appState,
-        runtime: {
-          status: 'working',
-          currentStep: 'calling model',
-          queuedTasks: 1,
-          providerLabel: runtimeProviderLabel(settings)
-        }
-      }
-    })
-    let liveText = ''
-    try {
-      const done = await api.generateLessonStream(
-        {
-          workspaceId: workspace.id,
-          prompt,
-          courseName: suggestedCourseName(workspace, prompt),
-          messages: lessonMessages
-        },
-        (chunk: LessonStreamChunk) => {
-          liveText += chunk.delta
-          set({ appState: { ...get().appState, previewHtml: streamingPreviewHtml(liveText, workspace), previewUrl: '' } })
-        },
-        (status: LessonStreamStatus) => {
-          set({
-            appState: {
-              ...get().appState,
-              runtime: { ...get().appState.runtime, currentStep: stepLabel(status.step) }
-            }
-          })
-        }
-      )
-      if ('error' in done && done.error) {
-        const userError = toUserError(new Error(done.message))
-        set({ generating: false, error: userError })
-        if (settings.notifications.enabled && settings.notifications.errors) {
-          void get().showNotification(i18n.t('notify.generateFailed.title'), userError.message)
-        }
-        return
-      }
-      if (!('error' in done) && done.kind === 'lesson') {
-        set({
-          view: 'lessons',
-          lessonReaderOpen: true,
-          selectedCourseRelativePath: done.lesson.courseRelativePath,
-          selectedCourseWorkspaceId: workspace.id,
-          selectedCoursePreviewFile: lessonToCoursePreviewFile(done.lesson),
-          ...clearMarkdownDocumentPatch(),
-          appState: done.state,
-          taskPrompt: nextPrompt,
-          generating: false
-        })
-        if (settings.workspace.autoOpenGeneratedLesson) {
-          void get().openPath(done.lesson.absolutePath)
-        }
-        if (settings.notifications.enabled && settings.notifications.lessonGenerated) {
-          const suffix = done.source === 'fallback'
-            ? (done.reason ? i18n.t('notify.lessonGenerated.fallbackWithReason', { reason: done.reason }) : i18n.t('notify.lessonGenerated.fallbackNoReason'))
-            : ''
-          void get().showNotification(i18n.t('notify.lessonGenerated.title'), i18n.t('notify.lessonGenerated.body', { title: done.lesson.title, path: done.lesson.relativePath, suffix }))
-        }
-      }
-    } catch (error) {
-      const userError = toUserError(error)
-      set({
-        generating: false,
-        error: userError,
-        appState: { ...get().appState, runtime: { ...defaultRuntime, status: 'error' } }
-      })
-    }
-  },
-  loadAgentConversation: async (conversationId, workspaceId) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const requestedWorkspaceId = workspaceId ?? get().appState.activeWorkspace?.id ?? null
-    const workspace = requestedWorkspaceId
-      ? get().appState.workspaces.find((item) => item.id === requestedWorkspaceId) ?? get().appState.activeWorkspace
-      : get().appState.activeWorkspace
-    if (!workspace) return
-    set({ error: null })
-    try {
-      const conversation = await api.readAgentConversation({ workspaceId: workspace.id, conversationId })
-      const latestUserTurn = [...conversation.turns].reverse().find((turn) => turn.role === 'user')
-      const conversationCourseRelativePath = courseRelativePathForAgentConversation(conversation.relativePath)
-      const isTeachingConversation = Boolean(conversationCourseRelativePath)
-      set({
-        appState: workspace.id === get().appState.activeWorkspace?.id
-          ? get().appState
-          : await api.selectWorkspace(workspace.id),
-        view: isTeachingConversation ? 'overview' : 'agent',
-        overviewDialogMode: isTeachingConversation ? 'teaching' : get().overviewDialogMode,
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      ...clearMarkdownDocumentPatch(),
-      agentTurns: conversation.turns,
-        activeConversationId: conversation.id,
-        agentStatus: '',
-        agentToolsSupported: null,
-        agentInput: '',
-        selectedCourseRelativePath: conversationCourseRelativePath,
-        selectedCourseWorkspaceId: conversationCourseRelativePath ? workspace.id : null,
-        taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
-      })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  agentChat: async (inputOverride, options) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = get().appState.activeWorkspace
-    const input = (inputOverride ?? get().agentInput).trim()
-    if (!workspace || !input || get().agentChatBusy) return
-    const mode: AgentChatMode = options?.mode ?? (get().overviewDialogMode === 'teaching' ? 'teaching' : 'temporary')
-    const draft = createAgentConversationTurnDraft({
-      state: get().appState,
-      workspace,
-      input,
-      mode,
-      activeConversationId: get().activeConversationId,
-      currentTurns: get().agentTurns,
-      selectedCourseRelativePath: get().selectedCourseRelativePath,
-      currentSelectedLessonPath: get().appState.selectedLessonPath,
-      createdAt: new Date().toISOString(),
-      idSeed: Date.now()
-    })
-    const {
-      pendingConversationId,
-      sourceConversationId,
-      selectedCourseRelativePath,
-      selectedLessonPath,
-      assistantId,
-      priorMessages,
-      initialTurns,
-      pendingConversation
-    } = draft
-    set({
-      agentChatBusy: true,
-      agentInput: '',
-      agentStatus: pendingConversation.status,
-      agentToolsSupported: null,
-      agentTurns: initialTurns,
-      activeConversationId: pendingConversationId,
-      pendingAgentConversation: pendingConversation
-    })
-    try {
-      const done = await api.agentChatStream(
-        { streamId: pendingConversationId, workspaceId: workspace.id, mode, messages: priorMessages, userInput: input },
-        (chunk: AgentChatStreamChunk) => {
-          const patch = applyAgentChatChunkToPending({
-            pending: get().pendingAgentConversation,
-            activeConversationId: get().activeConversationId,
-            assistantId,
-            chunk
-          })
-          if (patch) set(patch)
-        },
-        (status: AgentChatStreamStatus) => {
-          const patch = applyAgentChatStatusToPending({
-            pending: get().pendingAgentConversation,
-            activeConversationId: get().activeConversationId,
-            assistantId,
-            status
-          })
-          if (patch) set(patch)
-        },
-        (event: AgentChatStreamToolEvent) => {
-          const patch = applyAgentChatToolEventToPending({
-            pending: get().pendingAgentConversation,
-            activeConversationId: get().activeConversationId,
-            assistantId,
-            event
-          })
-          if (patch) set(patch)
-        }
-      )
-      if ('canceled' in done) {
-        const pending = get().pendingAgentConversation
-        if (!pending || pending.summary.id !== pendingConversationId) return
-        set(cancelPendingAgentConversation({ pending, activeConversationId: get().activeConversationId }))
-        return
-      }
-      if ('error' in done && done.error) {
-        const pending = get().pendingAgentConversation
-        if (!pending || pending.summary.id !== pendingConversationId) return
-        const userError = toUserError(new Error(done.message))
-        set({
-          error: userError,
-          ...failPendingAgentConversation({
-            pending,
-            activeConversationId: get().activeConversationId,
-            assistantId
-          })
-        })
-        return
-      }
-      if (!('error' in done)) {
-        const pending = get().pendingAgentConversation
-        if (!pending || pending.summary.id !== pendingConversationId) return
-        const latestUserTurn = [...done.turns].reverse().find((turn) => turn.role === 'user')
-        const reconciledTurns = reconcileAgentTurnsWithLocalProcess(done.turns, pending.turns)
-        const savePatch = syncPendingAgentConversation({
-          pending,
-          pendingConversationId,
-          activeConversationId: get().activeConversationId,
-          patch: {
-            turns: reconciledTurns,
-            status: '保存对话…',
-            toolsSupported: done.toolsSupported
-          }
-        })
-        if (savePatch) set(savePatch)
-        set({
-          taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
-        })
-        try {
-          const saved = await api.saveAgentConversation({
-            workspaceId: workspace.id,
-            mode,
-            conversationId: pending?.sourceConversationId ?? null,
-            selectedLessonPath,
-            selectedCourseRelativePath,
-            turns: reconciledTurns
-          })
-          set({
-            appState: saved.state,
-            ...finishPendingAgentConversationSave({
-              pending,
-              activeConversationId: get().activeConversationId,
-              savedConversationId: saved.conversation.id,
-              turns: reconciledTurns,
-              toolsSupported: done.toolsSupported
-            })
-          })
-          // Lessons generated inside the conversation (generate_lesson tool):
-          // saved.state already contains them; mirror the direct-generation
-          // notifications and auto-open behavior without yanking the user
-          // away from the conversation.
-          const generatedLessons = done.generatedLessons ?? []
-          if (generatedLessons.length > 0) {
-            const settings = get().settings
-            const latest = generatedLessons[generatedLessons.length - 1]
-            if (latest && settings.workspace.autoOpenGeneratedLesson) {
-              void get().openPath(latest.absolutePath)
-            }
-            if (latest && settings.notifications.enabled && settings.notifications.lessonGenerated) {
-              void get().showNotification(
-                i18n.t('notify.lessonGenerated.title'),
-                i18n.t('notify.lessonGenerated.body', { title: latest.title, path: latest.relativePath, suffix: '' })
-              )
-            }
-          }
-        } catch (saveError) {
-          set({ error: toUserError(saveError) })
-        } finally {
-          if (get().pendingAgentConversation?.summary.id && get().pendingAgentConversation?.summary.id !== pendingConversationId) return
-          const visiblePatch = get().activeConversationId === pendingConversationId
-            ? { agentStatus: '' }
-            : {}
-          set({ agentChatBusy: false, ...visiblePatch })
-        }
-      }
-    } catch (error) {
-      const pending = get().pendingAgentConversation
-      if (!pending || pending.summary.id !== pendingConversationId) return
-      const userError = toUserError(error)
-      set({
-        error: userError,
-        ...failPendingAgentConversation({
-          pending,
-          activeConversationId: get().activeConversationId,
-          assistantId
-        })
-      })
-    }
-  },
-  setWorkspaceItemMeta: async (payload) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = payload.workspaceId
-      ? get().appState.workspaces.find((item) => item.id === payload.workspaceId) ?? get().appState.activeWorkspace
-      : get().appState.activeWorkspace
-    if (!workspace) return
-    try {
-      const state = await api.setWorkspaceItemMeta({
-        workspaceId: workspace.id,
-        relativePath: payload.relativePath,
-        pinned: payload.pinned,
-        archived: payload.archived
-      })
-      const archivesWorkspaceRoot = normalizeRelativePath(payload.relativePath) === '' && payload.archived === true
-      const clearsCurrentContext =
-        archivesWorkspaceRoot &&
-        (get().appState.activeWorkspace?.id === workspace.id ||
-          get().selectedCourseWorkspaceId === workspace.id ||
-          get().pendingAgentConversation?.workspaceId === workspace.id)
-      set({
-        appState: state,
-        error: null,
-        ...(clearsCurrentContext
-          ? {
-              lessonReaderOpen: false,
-              selectedCoursePreviewFile: null,
-              ...clearMarkdownDocumentPatch(),
-              selectedCourseRelativePath: null,
-              selectedCourseWorkspaceId: null,
-              taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-              agentTurns: [],
-              activeConversationId: null,
-              agentStatus: '',
-              agentInput: '',
-              agentToolsSupported: null,
-              agentChatBusy: false,
-              pendingAgentConversation: null,
-            }
-          : {})
-      })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  removeWorkspaceItem: async (payload) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = payload.workspaceId
-      ? get().appState.workspaces.find((item) => item.id === payload.workspaceId) ?? get().appState.activeWorkspace
-      : get().appState.activeWorkspace
-    if (!workspace) return
-    const removalSnapshot = {
-      activeConversationId: get().activeConversationId,
-      selectedCoursePreviewFile: get().selectedCoursePreviewFile ?? get().selectedMarkdownDocument,
-      selectedCourseRelativePath: get().selectedCourseRelativePath
-    }
-    try {
-      const state = await api.removeWorkspaceItem({
-        workspaceId: workspace.id,
-        relativePath: payload.relativePath,
-        kind: payload.kind,
-        mode: payload.mode ?? 'disk'
-      })
-      const uiPatch = deriveWorkspaceRemovalUiPatch(payload, removalSnapshot, state)
-      set({
-        appState: state,
-        error: null,
-        ...(uiPatch.clearActiveConversation
-          ? { agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null }
-          : {}),
-        ...(uiPatch.clearSelectedCoursePreview
-          ? { lessonReaderOpen: false, selectedCoursePreviewFile: null, ...clearMarkdownDocumentPatch() }
-          : {}),
-        ...(uiPatch.clearSelectedCourseFolder
-          ? { selectedCourseRelativePath: null, selectedCourseWorkspaceId: null }
-          : {})
-      })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  removeWorkspace: async (payload) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = get().appState.workspaces.find((item) => item.id === payload.workspaceId)
-    if (!workspace) return
-    const previous = get()
-    const clearsCurrentContext =
-      previous.appState.activeWorkspace?.id === workspace.id ||
-      previous.selectedCourseWorkspaceId === workspace.id ||
-      previous.pendingAgentConversation?.workspaceId === workspace.id
-    try {
-      const state = await api.removeWorkspace({
-        workspaceId: workspace.id,
-        mode: payload.mode ?? 'disk'
-      })
-      set({
-        appState: state,
-        error: null,
-        ...(clearsCurrentContext
-          ? {
-              view: state.activeWorkspace ? previous.view : 'overview',
-              lessonReaderOpen: false,
-              selectedCoursePreviewFile: null,
-              ...clearMarkdownDocumentPatch(),
-              selectedCourseRelativePath: null,
-              selectedCourseWorkspaceId: null,
-              taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-              agentTurns: [],
-              activeConversationId: null,
-              agentStatus: '',
-              agentInput: '',
-              agentToolsSupported: null,
-              agentChatBusy: false,
-              pendingAgentConversation: null,
-            }
-          : {})
-      })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  loadLesson: async (lesson) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = get().appState.activeWorkspace
-    if (!workspace) return
-    set({
-      view: 'lessons',
-      overviewDialogMode: 'teaching',
-      lessonReaderOpen: true,
-      selectedCoursePreviewFile: lessonToCoursePreviewFile(lesson),
-      selectedResourcePreviewFile: null,
-      ...clearMarkdownDocumentPatch(),
-      appState: {
-        ...get().appState,
-        selectedLessonPath: lesson.absolutePath,
-        previewHtml: loadingPreviewHtml(workspace),
-        previewUrl: ''
-      },
-      selectedCourseRelativePath: lesson.courseRelativePath,
-      selectedCourseWorkspaceId: workspace.id
-    })
-    try {
-      const result = await api.readLesson({
-        workspaceId: workspace.id,
-        lessonPath: lesson.absolutePath
-      })
-      set({ appState: { ...get().appState, selectedLessonPath: lesson.absolutePath, previewHtml: result.html, previewUrl: result.url } })
-    } catch (error) {
-      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
-    }
-  },
-  loadCourseHtmlFile: async (file) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = get().appState.activeWorkspace
-    if (!workspace) return
-    set({
-      view: 'lessons',
-      overviewDialogMode: 'teaching',
-      lessonReaderOpen: true,
-      selectedCoursePreviewFile: file,
-      selectedResourcePreviewFile: null,
-      ...clearMarkdownDocumentPatch(),
-      appState: {
-        ...get().appState,
-        selectedLessonPath: file.absolutePath,
-        previewHtml: loadingPreviewHtml(workspace),
-        previewUrl: ''
-      },
-      selectedCourseRelativePath: courseRelativePathForFile(file.relativePath),
-      selectedCourseWorkspaceId: workspace.id
-    })
-    try {
-      const result = await api.readLesson({
-        workspaceId: workspace.id,
-        lessonPath: file.absolutePath
-      })
-      set({
-        appState: { ...get().appState, selectedLessonPath: file.absolutePath, previewHtml: result.html, previewUrl: result.url },
-        selectedCoursePreviewFile: file
-      })
-    } catch (error) {
-      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
-    }
-  },
-  loadWorkspaceMarkdownFile: async (file, workspaceId) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = workspaceId
-      ? get().appState.workspaces.find((item) => item.id === workspaceId) ?? get().appState.activeWorkspace
-      : get().appState.activeWorkspace
-    if (!workspace) return
-    set({
-      view: 'lessons',
-      overviewDialogMode: 'teaching',
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      selectedResourcePreviewFile: null,
-      selectedMarkdownDocument: {
-        title: file.title,
-        relativePath: file.relativePath,
-        absolutePath: file.absolutePath,
-        content: '',
-        updatedAt: null
-      },
-      markdownDraft: '',
-      markdownSaving: false,
-      appState: {
-        ...get().appState,
-        selectedLessonPath: file.absolutePath,
-        previewHtml: '',
-        previewUrl: ''
-      },
-      selectedCourseRelativePath: courseRelativePathForFile(file.relativePath),
-      selectedCourseWorkspaceId: workspace.id
-    })
-    try {
-      const document = await api.readWorkspaceMarkdown({
-        workspaceId: workspace.id,
-        documentPath: file.absolutePath
-      })
-      set({
-        selectedMarkdownDocument: document,
-        markdownDraft: document.content,
-        appState: { ...get().appState, selectedLessonPath: document.absolutePath }
-      })
-    } catch (error) {
-      set({ error: toUserError(error), ...clearMarkdownDocumentPatch() })
-    }
-  },
-  saveMarkdownDocument: async () => {
-    const api = window.teachingSystem
-    if (!api) return
-    const document = get().selectedMarkdownDocument
-    const workspace = get().selectedCourseWorkspaceId
-      ? get().appState.workspaces.find((item) => item.id === get().selectedCourseWorkspaceId) ?? get().appState.activeWorkspace
-      : get().appState.activeWorkspace
-    if (!document || !workspace) return
-    set({ markdownSaving: true, error: null })
-    try {
-      const result = await api.saveWorkspaceMarkdown({
-        workspaceId: workspace.id,
-        documentPath: document.absolutePath,
-        content: get().markdownDraft
-      })
-      set({
-        appState: result.state,
-        selectedMarkdownDocument: result.document,
-        markdownDraft: result.document.content,
-        markdownSaving: false
-      })
-    } catch (error) {
-      set({ error: toUserError(error), markdownSaving: false })
-    }
-  },
-  openResourceHtmlPreview: (selectedResourcePreviewFile) => {
-    set({
-      view: 'resources',
-      resourcePageSection: 'styles',
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      ...clearMarkdownDocumentPatch(),
-      selectedResourcePreviewFile
-    })
-  },
-  closeResourceHtmlPreview: () => set({ selectedResourcePreviewFile: null }),
-  openPath: async (path) => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      const result = await api.openPath(path)
-      if (!result.ok) {
-        set({ error: toUserError(new Error(result.message ?? i18n.t('errors.openPath'))) })
-      }
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  openExternal: async (url) => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      const result = await api.openExternal(url)
-      if (!result.ok) {
-        set({ error: toUserError(new Error(result.message ?? i18n.t('errors.openExternal'))) })
-      }
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  showNotification: async (title, body) => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      await api.showNotification({ title, body })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  probeProvider: async (payload) => {
-    const api = window.teachingSystem
-    if (!api) return { ok: false, message: 'TeachOS preload API unavailable.' }
-    try {
-      return await api.probeProvider(payload)
-    } catch (error) {
-      return { ok: false, message: toUserError(error).message }
-    }
-  },
-  listUpstreamModels: async (payload) => {
-    const api = window.teachingSystem
-    if (!api) return { ok: false, message: 'TeachOS preload API unavailable.' }
-    try {
-      return await api.listUpstreamModels(payload)
-    } catch (error) {
-      return { ok: false, message: toUserError(error).message }
-    }
-  },
-  listGitWorktrees: async (workspaceRoot) => {
-    const api = window.teachingSystem
-    if (!api) return { ok: false, reason: 'error', message: 'TeachOS preload API unavailable.' }
-    try {
-      return await api.listGitWorktrees(workspaceRoot)
-    } catch (error) {
-      return { ok: false, reason: 'error', message: toUserError(error).message }
-    }
-  },
-  removeGitWorktree: async (payload) => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      const result = await api.removeGitWorktree(payload)
-      if (!result.ok) {
-        set({ error: toUserError(new Error(result.message ?? 'Failed to remove worktree.')) })
-      }
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  listMemory: async (workspaceRoot) => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      const memoryRecords = await api.listMemory(workspaceRoot)
-      set({ memoryRecords })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  createMemory: async (payload) => {
-    const api = window.teachingSystem
-    if (!api) return false
-    try {
-      const memory = await api.createMemory(payload)
-      set((state) => ({ memoryRecords: [memory, ...state.memoryRecords.filter((item) => item.id !== memory.id)] }))
-      void get().loadMemoryDiagnostics()
-      return true
-    } catch (error) {
-      set({ error: toUserError(error) })
-      return false
-    }
-  },
-  updateMemory: async (memoryId, patch) => {
-    const api = window.teachingSystem
-    if (!api) return false
-    try {
-      const memory = await api.updateMemory(memoryId, patch)
-      set((state) => ({
-        memoryRecords: state.memoryRecords.map((item) => (item.id === memoryId ? memory : item))
-      }))
-      void get().loadMemoryDiagnostics()
-      return true
-    } catch (error) {
-      set({ error: toUserError(error) })
-      return false
-    }
-  },
-  deleteMemory: async (memoryId, workspaceRoot) => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      await api.deleteMemory(memoryId, workspaceRoot)
-      set((state) => ({ memoryRecords: state.memoryRecords.filter((item) => item.id !== memoryId) }))
-      void get().loadMemoryDiagnostics()
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  loadMemoryDiagnostics: async () => {
-    const api = window.teachingSystem
-    if (!api) return
-    try {
-      const memoryDiagnostics = await api.getMemoryDiagnostics()
-      set({ memoryDiagnostics })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  },
-  loadReviewCards: async () => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = get().appState.activeWorkspace
-    if (!workspace) {
-      set({ reviewCards: [] })
-      return
-    }
-    try {
-      const result = await api.listReviewCards(workspace.id)
-      set({ reviewCards: result.cards })
-      void api.getProgress(workspace.id).then((res) => set({ progress: res.progress })).catch(() => {})
-    } catch (error) {
-      set({ error: toUserError(error), reviewCards: [] })
-    }
-  },
-  recordProgress: async (lessonId, results) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = get().appState.activeWorkspace
-    if (!workspace) return
-    try {
-      const res = await api.recordProgress({ workspaceId: workspace.id, lessonId, results })
-      set({ progress: res.progress })
-    } catch (error) {
-      set({ error: toUserError(error) })
-    }
-  }
-}))
 
 // ================================================================
 // Main App Component
@@ -2665,6 +405,7 @@ function Sidebar() {
     settings,
     appState,
     setView,
+    openWorkspaceTeachingMode,
     openSettings,
     showNotification
   } = useAppStore()
@@ -2672,7 +413,6 @@ function Sidebar() {
   const active = appState.activeWorkspace
   const selectedLessonPath = appState.selectedLessonPath
   const lessonReaderOpen = useAppStore((s) => s.lessonReaderOpen)
-  const selectedMarkdownDocument = useAppStore((s) => s.selectedMarkdownDocument)
   const [coursesExpanded, setCoursesExpanded] = useState(true)
   const [conversationsExpanded, setConversationsExpanded] = useState(true)
 
@@ -2688,16 +428,8 @@ function Sidebar() {
               type="button"
               onClick={() => {
                 if (item.id === 'overview') {
-                  useAppStore.getState().setOverviewDialogMode('teaching')
-                  useAppStore.getState().clearAgentChat()
-                  useAppStore.setState({
-                    selectedCourseRelativePath: null,
-                    selectedCourseWorkspaceId: null,
-                    lessonReaderOpen: false,
-                    selectedCoursePreviewFile: null,
-                    selectedResourcePreviewFile: null,
-                    ...clearMarkdownDocumentPatch()
-                  })
+                  openWorkspaceTeachingMode()
+                  return
                 }
                 if (item.id === 'resources') {
                   useAppStore.getState().closeResourceHtmlPreview()
@@ -2717,7 +449,7 @@ function Sidebar() {
           workspaces={appState.workspaces}
           activeWorkspaceId={active?.id ?? null}
           expanded={coursesExpanded}
-          selectedLessonPath={view === 'lessons' && (lessonReaderOpen || selectedMarkdownDocument) ? selectedLessonPath : null}
+          selectedLessonPath={view === 'lessons' && lessonReaderOpen ? selectedLessonPath : null}
           onToggle={() => setCoursesExpanded((expanded) => !expanded)}
         />
         <SidebarConversationSection
@@ -2769,7 +501,6 @@ function WorkspaceCourseSection({
   const selectWorkspace = useAppStore((s) => s.selectWorkspace)
   const loadLesson = useAppStore((s) => s.loadLesson)
   const loadCourseHtmlFile = useAppStore((s) => s.loadCourseHtmlFile)
-  const loadWorkspaceMarkdownFile = useAppStore((s) => s.loadWorkspaceMarkdownFile)
   const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
   const view = useAppStore((s) => s.view)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
@@ -2777,13 +508,18 @@ function WorkspaceCourseSection({
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
   const showAllCourseFiles = useAppStore((s) => s.settings.workspace.showAllCourseFiles)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
-  const workspacesWithPending = useMemo(
-    () => withPendingCourseConversation(workspaces, pendingAgentConversation),
+  const visibleConversationWorkspaces = useMemo(
+    () => projectVisibleAgentConversationWorkspaces({
+      workspaces,
+      activeWorkspace: null,
+      selectedCourseWorkspaceId: null,
+      pendingAgentConversation
+    }),
     [pendingAgentConversation, workspaces]
   )
   const workspaceFolders = useMemo(
-    () => listSidebarWorkspaceFolders(workspacesWithPending, showAllCourseFiles),
-    [showAllCourseFiles, workspacesWithPending]
+    () => listSidebarWorkspaceFolders(visibleConversationWorkspaces.workspaces, showAllCourseFiles),
+    [showAllCourseFiles, visibleConversationWorkspaces.workspaces]
   )
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [importDialogOpen, setImportDialogOpen] = useState(false)
@@ -2860,7 +596,6 @@ function WorkspaceCourseSection({
                     onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
                     onOpenPath={(path) => void openPath(path)}
                     onOpenHtmlFile={(file) => void loadCourseHtmlFile(file)}
-                    onOpenMarkdownFile={(file) => void loadWorkspaceMarkdownFile(file, workspace.id)}
                     onOpenCourse={(relativePath) => selectCourseFolder(relativePath, workspace.id)}
                     onOpenLesson={(lesson) => {
                       void loadLesson(lesson)
@@ -2986,13 +721,11 @@ function SidebarConversationSection({
   const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
   const view = useAppStore((s) => s.view)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
-  const storedPendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
-  const pendingAgentConversation = storedPendingAgentConversation &&
-    storedPendingAgentConversation.workspaceId === workspace?.id &&
-    !isCourseAgentConversationPath(storedPendingAgentConversation.summary.relativePath)
-    ? storedPendingAgentConversation
-    : null
-  const conversationsWithPending: SidebarConversationSummary[] = pendingAgentConversation ? [pendingAgentConversation.summary, ...conversations.filter((conversation) => !sameRelativePath(conversation.relativePath, pendingAgentConversation.summary.relativePath))] : conversations
+  const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
+  const conversationsWithPending: SidebarConversationSummary[] = useMemo(
+    () => projectVisibleSidebarConversations({ workspace, conversations, pendingAgentConversation }),
+    [conversations, pendingAgentConversation, workspace]
+  )
   const ensureActiveWorkspace = async (): Promise<void> => {}
 
   return (
@@ -3362,7 +1095,6 @@ function WorkspaceFileNodeRow({
   onEnsureWorkspaceSelected,
   onOpenPath,
   onOpenHtmlFile,
-  onOpenMarkdownFile,
   onOpenCourse,
   onOpenLesson,
   onOpenConversation
@@ -3378,7 +1110,6 @@ function WorkspaceFileNodeRow({
   onEnsureWorkspaceSelected: () => Promise<void>
   onOpenPath: (path: string) => void
   onOpenHtmlFile?: (file: CoursePreviewFile) => void
-  onOpenMarkdownFile?: (file: CoursePreviewFile) => void
   onOpenCourse?: (relativePath: string, workspaceId: string) => void
   onOpenLesson: (lesson: LessonSummary) => void
   onOpenConversation: (conversationId: string) => void
@@ -3399,9 +1130,8 @@ function WorkspaceFileNodeRow({
   const isWorkspaceFolder = treeRoot === 'courses' && level === 0 && isDirectory && normalizeRelativePath(node.relativePath) === ''
   const isCourseFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && isSidebarCourseFolderPath(node.relativePath)
   const isHtmlFile = !isDirectory && node.name.toLowerCase().endsWith('.html')
-  const isMarkdownFile = !isDirectory && node.name.toLowerCase().endsWith('.md')
   const isSelected = Boolean(
-    (((lesson || (treeRoot === 'courses' && (isHtmlFile || isMarkdownFile))) && node.absolutePath === selectedLessonPath) ||
+    (((lesson || (treeRoot === 'courses' && isHtmlFile)) && node.absolutePath === selectedLessonPath) ||
       (conversation && conversation.id === activeConversationId))
   )
   const itemKind: WorkspaceItemKind = conversation ? 'conversation' : isDirectory ? 'directory' : 'file'
@@ -3444,16 +1174,8 @@ function WorkspaceFileNodeRow({
       else onOpenConversation(conversation.id)
       return
     }
-    if (treeRoot === 'courses' && onOpenHtmlFile && isHtmlFile) {
+    if (treeRoot === 'courses' && onOpenHtmlFile && node.name.toLowerCase().endsWith('.html')) {
       onOpenHtmlFile({
-        title: titleFromFileName(node.name),
-        relativePath: node.relativePath,
-        absolutePath: node.absolutePath
-      })
-      return
-    }
-    if (treeRoot === 'courses' && onOpenMarkdownFile && isMarkdownFile) {
-      onOpenMarkdownFile({
         title: titleFromFileName(node.name),
         relativePath: node.relativePath,
         absolutePath: node.absolutePath
@@ -3501,7 +1223,7 @@ function WorkspaceFileNodeRow({
   return (
     <div className="workspace-node">
       <div
-        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${isMarkdownFile ? 'is-markdown-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
+        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
         style={{ paddingLeft: 4 + level * 12 }}
         role="treeitem"
         aria-expanded={isDirectory ? isExpanded : undefined}
@@ -3561,7 +1283,6 @@ function WorkspaceFileNodeRow({
                 onEnsureWorkspaceSelected={onEnsureWorkspaceSelected}
                 onOpenPath={onOpenPath}
                 onOpenHtmlFile={onOpenHtmlFile}
-                onOpenMarkdownFile={onOpenMarkdownFile}
                 onOpenCourse={onOpenCourse}
                 onOpenLesson={onOpenLesson}
                 onOpenConversation={onOpenConversation}
@@ -3586,62 +1307,6 @@ function workspaceContextLabel(rootPath: string, name: string): string {
   return !parent || parent.toLowerCase() === name.toLowerCase() ? '' : parent
 }
 
-function sameRelativePath(left: string, right: string): boolean {
-  return left.replace(/\\/g, '/') === right.replace(/\\/g, '/')
-}
-
-function normalizeRelativePath(value: string): string {
-  return value.replace(/\\/g, '/')
-}
-
-function withPendingCourseConversation(
-  workspaces: TeachingWorkspaceSummary[],
-  pendingAgentConversation: PendingAgentConversation | null
-): TeachingWorkspaceSummary[] {
-  if (!pendingAgentConversation || !isCourseAgentConversationPath(pendingAgentConversation.summary.relativePath)) return workspaces
-  const courseRelativePath = courseRelativePathForAgentConversation(pendingAgentConversation.summary.relativePath)
-  if (!courseRelativePath) return workspaces
-
-  let changed = false
-  const nextWorkspaces = workspaces.map((workspace) => {
-    if (workspace.id !== pendingAgentConversation.workspaceId) return workspace
-    let workspaceChanged = false
-    const conversations = upsertConversationSummary(workspace.conversations, pendingAgentConversation.summary)
-    if (conversations !== workspace.conversations) workspaceChanged = true
-    const courses = workspace.courses.map((course) => {
-      if (!sameRelativePath(course.relativePath, courseRelativePath)) return course
-      const courseConversations = upsertConversationSummary(course.conversations, pendingAgentConversation.summary)
-      if (courseConversations === course.conversations) return course
-      workspaceChanged = true
-      return {
-        ...course,
-        conversations: courseConversations,
-        sessionCount: course.sessions.length + courseConversations.length
-      }
-    })
-    if (!workspaceChanged) return workspace
-    changed = true
-    return {
-      ...workspace,
-      conversations,
-      courses
-    }
-  })
-
-  return changed ? nextWorkspaces : workspaces
-}
-
-function upsertConversationSummary(
-  conversations: AgentConversationSummary[],
-  conversation: AgentConversationSummary
-): AgentConversationSummary[] {
-  const withoutCurrent = conversations.filter((item) =>
-    item.id !== conversation.id && !sameRelativePath(item.relativePath, conversation.relativePath)
-  )
-  if (withoutCurrent.length === conversations.length && conversations[0]?.id === conversation.id) return conversations
-  return [conversation, ...withoutCurrent]
-}
-
 function workspaceNodeKey(workspaceId: string, relativePath: string): string {
   return `${workspaceId}:${normalizeRelativePath(relativePath)}`
 }
@@ -3649,78 +1314,6 @@ function workspaceNodeKey(workspaceId: string, relativePath: string): string {
 function isSidebarCourseFolderPath(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath)
   return normalized === 'lessons' || /^courses\/[^/]+$/i.test(normalized)
-}
-
-function userTurnInputHistory(turns: AgentChatTurn[]): string[] {
-  return turns
-    .filter((turn) => turn.role === 'user')
-    .map((turn) => turn.content)
-}
-
-function titleFromFileName(fileName: string): string {
-  const stem = fileName
-    .replace(/\.[^.]+$/, '')
-    .replace(/^\d{4}-/, '')
-    .replace(/-reference$/i, '')
-  const title = stem
-    .split(/[-_]+/)
-    .filter(Boolean)
-    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-    .join(' ')
-  return title || fileName
-}
-
-function courseRelativePathForFile(relativePath: string): string | null {
-  const parts = normalizeRelativePath(relativePath).split('/').filter(Boolean)
-  if (parts[0] === 'courses' && parts[1]) return `courses/${parts[1]}`
-  if (parts[0] === 'lessons') return 'lessons'
-  return null
-}
-
-function lessonToCoursePreviewFile(lesson: LessonSummary): CoursePreviewFile {
-  return {
-    title: lesson.sessionName || lesson.title,
-    relativePath: lesson.relativePath,
-    absolutePath: lesson.absolutePath
-  }
-}
-
-function MarkdownDocumentPanel({
-  document,
-  draft,
-  workspaceId,
-  onDraftChange,
-  onSave,
-  onOpenExternal
-}: {
-  document: WorkspaceMarkdownDocument
-  draft: string
-  workspaceId: string | null
-  onDraftChange: (content: string) => void
-  onSave: () => void
-  onOpenExternal: (href: string) => void
-}) {
-  const { t } = useTranslation()
-
-  return (
-    <section className="markdown-document-panel" aria-label={document.title}>
-      <div className="markdown-document-body">
-        <div className="markdown-document-editor">
-          <MarkdownEditor value={draft} onChange={onDraftChange} onSave={onSave} />
-        </div>
-        <div className="markdown-document-preview">
-          <MarkdownPreview
-            source={draft}
-            workspaceId={workspaceId}
-            documentRelativePath={document.relativePath}
-            emptyTitle={t('markdown.emptyTitle')}
-            emptyHint={t('markdown.emptyHint')}
-            onOpenExternal={onOpenExternal}
-          />
-        </div>
-      </div>
-    </section>
-  )
 }
 
 /** Truncate the middle of a string so long branch names fit the trigger button. */
@@ -4297,15 +1890,11 @@ function MainArea() {
     error,
     appState,
     settings,
-    resourcePageSection,
     lessonReaderOpen,
     selectedCoursePreviewFile,
     selectedResourcePreviewFile,
-    selectedMarkdownDocument,
-    markdownDraft,
     setView,
     setSidebarCollapsed,
-    setResourcePageSection,
     openSettings,
     closeResourceHtmlPreview,
     pickDefaultRoot,
@@ -4314,15 +1903,14 @@ function MainArea() {
     createWorkspace,
     importWorkspace,
     updateMission,
+    applyLessonStyle,
     generateLesson,
     loadLesson,
-    loadWorkspaceMarkdownFile,
-    setMarkdownDraft,
-    saveMarkdownDocument,
     openLessonLibrary,
+    openResourceHtmlPreview,
     openPath,
-    openExternal,
-    clearError
+    clearError,
+    showNotification
   } = useAppStore()
 
   useEffect(() => {
@@ -4332,16 +1920,16 @@ function MainArea() {
   const active = appState.activeWorkspace
   const selectedCourseWorkspaceId = useAppStore((s) => s.selectedCourseWorkspaceId)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
-  const workspacesWithPending = useMemo(
-    () => withPendingCourseConversation(appState.workspaces, pendingAgentConversation),
-    [appState.workspaces, pendingAgentConversation]
+  const visibleConversationWorkspaces = useMemo(
+    () => projectVisibleAgentConversationWorkspaces({
+      workspaces: appState.workspaces,
+      activeWorkspace: active,
+      selectedCourseWorkspaceId,
+      pendingAgentConversation
+    }),
+    [active, appState.workspaces, pendingAgentConversation, selectedCourseWorkspaceId]
   )
-  const activeWithPending = active
-    ? workspacesWithPending.find((workspace) => workspace.id === active.id) ?? active
-    : null
-  const selectedCourseWorkspace = selectedCourseWorkspaceId
-    ? workspacesWithPending.find((workspace) => workspace.id === selectedCourseWorkspaceId) ?? activeWithPending
-    : activeWithPending
+  const selectedCourseWorkspace = visibleConversationWorkspaces.selectedCourseWorkspace
   const courses = selectedCourseWorkspace?.courses ?? []
   const selectedCourseRelativePath = useAppStore((s) => s.selectedCourseRelativePath)
   const selectedCourse = selectedCourseRelativePath
@@ -4352,7 +1940,6 @@ function MainArea() {
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? null
   const selectedPreviewFile = selectedCoursePreviewFile ?? (selectedLesson ? lessonToCoursePreviewFile(selectedLesson) : null)
   const readingCourseHtml = Boolean(lessonReaderOpen && selectedPreviewFile)
-  const readingMarkdown = view === 'lessons' && Boolean(selectedMarkdownDocument)
   const readingResourceHtml = view === 'resources' && Boolean(selectedResourcePreviewFile)
   const readingHtml = readingCourseHtml || readingResourceHtml
   const lessonFrameKey = selectedPreviewFile
@@ -4361,6 +1948,7 @@ function MainArea() {
   const resourceFrameKey = selectedResourcePreviewFile
     ? `${selectedResourcePreviewFile.id}:${selectedResourcePreviewFile.html.length}`
     : 'empty-resource-preview'
+  const [resourcePageSection, setResourcePageSection] = useState<'home' | 'styles'>('home')
   const renderSidebarToggle = (className = 'icon-button') => (
     <button
       className={className}
@@ -4371,35 +1959,6 @@ function MainArea() {
       <PanelLeft size={17} />
     </button>
   )
-
-  useEffect(() => {
-    const handlePreviewMessage = (event: MessageEvent): void => {
-      const data = event.data as { type?: unknown; href?: unknown } | null
-      if (!data || typeof data.href !== 'string') return
-      if (data.type === PREVIEW_MARKDOWN_LINK_MESSAGE) {
-        const target = parsePreviewMarkdownHref(data.href)
-        if (!target) return
-        const workspace = appState.workspaces.find((item) => item.id === target.workspaceId)
-        if (!workspace) return
-        void loadWorkspaceMarkdownFile(
-          {
-            title: titleFromFileName(target.relativePath),
-            relativePath: target.relativePath,
-            absolutePath: target.relativePath
-          },
-          workspace.id
-        )
-        return
-      }
-      if (data.type === PREVIEW_EXTERNAL_LINK_MESSAGE) {
-        const href = parsePreviewExternalHref(data.href)
-        if (href) void openExternal(href)
-      }
-    }
-
-    window.addEventListener('message', handlePreviewMessage)
-    return () => window.removeEventListener('message', handlePreviewMessage)
-  }, [appState.workspaces, loadWorkspaceMarkdownFile, openExternal])
 
   // Show skeleton during initial load
   if (loading && !active) {
@@ -4432,7 +1991,7 @@ function MainArea() {
             <ArrowLeft size={17} />
           </button>
         </>
-      ) : readingCourseHtml || readingMarkdown ? (
+      ) : readingCourseHtml ? (
         renderSidebarToggle('icon-button reader-sidebar-toggle')
       ) : (
         <header className="topbar">
@@ -4500,17 +2059,8 @@ function MainArea() {
       )}
 
       {view === 'lessons' && (
-        <section
-          className="lesson-course-view"
-          aria-label={t('nav.lessons')}
-          data-reading-html={readingCourseHtml ? 'true' : undefined}
-          data-reading-markdown={readingMarkdown ? 'true' : undefined}
-        >
-          <div
-            className="lesson-course-stage"
-            data-reading-html={readingCourseHtml ? 'true' : undefined}
-            data-reading-markdown={readingMarkdown ? 'true' : undefined}
-          >
+        <section className="lesson-course-view" aria-label={t('nav.lessons')} data-reading-html={readingCourseHtml ? 'true' : undefined}>
+          <div className="lesson-course-stage" data-reading-html={readingCourseHtml ? 'true' : undefined}>
             {readingCourseHtml && selectedPreviewFile ? (
               <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
                 <div className="lesson-reader-frame-wrap">
@@ -4524,15 +2074,6 @@ function MainArea() {
                   />
                 </div>
               </section>
-            ) : readingMarkdown && selectedMarkdownDocument ? (
-              <MarkdownDocumentPanel
-                document={selectedMarkdownDocument}
-                draft={markdownDraft}
-                workspaceId={selectedCourseWorkspaceId}
-                onDraftChange={setMarkdownDraft}
-                onSave={() => void saveMarkdownDocument()}
-                onOpenExternal={(href) => void openExternal(href)}
-              />
             ) : (
               <section className="lesson-course-library" aria-label={t('lessons.libraryTitle')}>
                 <div className="lesson-library-header">
@@ -4617,638 +2158,91 @@ function MainArea() {
             </section>
           ) : (
             resourcePageSection === 'styles' ? (
-              <ResourceStyleLibrary onBack={() => setResourcePageSection('home')} />
+              <ResourceStyleLibrary
+                currentStyleId={settings.workspace.lessonStyleId}
+                onApplyLessonStyle={applyLessonStyle}
+                onOpenPreview={openResourceHtmlPreview}
+                onBack={() => setResourcePageSection('home')}
+              />
             ) : (
-              <ResourceHome onOpenStyles={() => setResourcePageSection('styles')} />
+              <ResourceHome
+                currentStyleId={settings.workspace.lessonStyleId}
+                onOpenStyles={() => setResourcePageSection('styles')}
+              />
             )
           )}
         </section>
       )}
 
-      {readingCourseHtml && selectedPreviewFile ? (
-        <HtmlTemporaryChat
-          active={active}
-          html={appState.previewHtml}
-          previewFile={selectedPreviewFile}
-          selectedLessonPath={appState.selectedLessonPath}
-        />
-      ) : null}
+      {view === 'studio' && (
+        <StudySpace showNotification={showNotification} />
+      )}
+
+      {view === 'workbench' && (
+        <OfficeWorkbench />
+      )}
     </main>
   )
 }
 
-function HtmlTemporaryChat({
-  active,
-  html,
-  previewFile,
-  selectedLessonPath
+function ResourceHome({
+  currentStyleId,
+  onOpenStyles
 }: {
-  active: TeachingWorkspaceSummary | null
-  html: string
-  previewFile: CoursePreviewFile
-  selectedLessonPath: string | null
+  currentStyleId: unknown
+  onOpenStyles: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [input, setInput] = useState('')
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [historyLoadingId, setHistoryLoadingId] = useState<string | null>(null)
-  const [chatState, setChatState] = useState<FloatingTemporaryChatState>(() => emptyFloatingTemporaryChatState())
-  const temporaryConversations = useAppStore((s) => s.appState.temporaryConversations)
-  const chatStateRef = useRef(chatState)
-  const inputRef = useRef<HTMLTextAreaElement | null>(null)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  const {
-    panelRef,
-    pixels: panelPixels,
-    handleHeaderPointerDown,
-    handleResizePointerDown
-  } = useHtmlAiPanelGeometry()
-  const contextKey = `${active?.id ?? 'no-workspace'}:${previewFile.absolutePath}`
-  const pageContext = useMemo(
-    () => buildHtmlChatContext(previewFile, html),
-    [html, previewFile]
-  )
-  const pendingAsk = chatState.activeConversationId
-    ? selectPendingAsk(chatState.turns, chatState.activeConversationId)
-    : null
-  const hasConversation = chatState.turns.length > 0
-  const canSend = Boolean(active && input.trim() && !chatState.busy && !pendingAsk)
-  const activeAssistantTurnId = chatState.busy
-    ? [...chatState.turns].reverse().find((turn) => turn.role === 'assistant')?.id ?? null
-    : null
-  const suggestions = [
-    '总结当前页面的要点',
-    '把这一页变成 3 个复习问题',
-    '用更简单的话解释这一页'
-  ]
-
-  chatStateRef.current = chatState
-
-  useEffect(() => {
-    setOpen(false)
-    setHistoryOpen(false)
-    setInput('')
-    setChatState(emptyFloatingTemporaryChatState())
-    return () => {
-      const current = chatStateRef.current
-      if (current.busy && current.activeConversationId) {
-        void window.teachingSystem?.cancelAgentChatStream(current.activeConversationId)
-      }
-    }
-  }, [contextKey])
-
-  useEffect(() => {
-    if (!open) return
-    const id = window.setTimeout(() => inputRef.current?.focus(), 80)
-    return () => window.clearTimeout(id)
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const node = scrollRef.current
-    if (!node) return
-    node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
-  }, [open, chatState.turns, chatState.status, pendingAsk])
-
-  const applyChatPatch = (
-    buildPatch: (state: FloatingTemporaryChatState) => PendingConversationStorePatch | null
-  ): void => {
-    setChatState((state) => {
-      const patch = buildPatch(state)
-      return patch ? mergeFloatingTemporaryChatPatch(state, patch) : state
-    })
-  }
-
-  const cancelCurrentStream = async (): Promise<void> => {
-    const current = chatStateRef.current
-    if (!current.busy || !current.activeConversationId || !current.pending) return
-    setChatState((state) =>
-      state.pending
-        ? mergeFloatingTemporaryChatPatch(state, cancelPendingAgentConversation({
-            pending: state.pending,
-            activeConversationId: state.activeConversationId,
-            preserveToolsSupported: true
-          }))
-        : { ...state, busy: false, status: '' }
-    )
-    await window.teachingSystem?.cancelAgentChatStream(current.activeConversationId).catch(() => undefined)
-  }
-
-  const sendPrompt = async (rawPrompt: string): Promise<void> => {
-    const api = window.teachingSystem
-    const workspace = active
-    const prompt = rawPrompt.trim()
-    const current = chatStateRef.current
-    if (!api || !workspace || !prompt || current.busy) return
-
-    const draft = createAgentConversationTurnDraft({
-      state: useAppStore.getState().appState,
-      workspace,
-      input: prompt,
-      mode: 'temporary',
-      activeConversationId: current.savedConversationId,
-      currentTurns: current.turns,
-      selectedCourseRelativePath: null,
-      currentSelectedLessonPath: selectedLessonPath ?? previewFile.absolutePath,
-      createdAt: new Date().toISOString(),
-      idSeed: Date.now()
-    })
-    const {
-      pendingConversationId,
-      selectedLessonPath: draftSelectedLessonPath,
-      assistantId,
-      priorMessages,
-      initialTurns,
-      pendingConversation
-    } = draft
-
-    setInput('')
-    setOpen(true)
-    setChatState((state) => ({
-      ...state,
-      turns: initialTurns,
-      pending: pendingConversation,
-      activeConversationId: pendingConversationId,
-      busy: true,
-      status: pendingConversation.status,
-      toolsSupported: null,
-      error: null
-    }))
-
-    try {
-      const done = await api.agentChatStream(
-        {
-          streamId: pendingConversationId,
-          workspaceId: workspace.id,
-          mode: 'temporary',
-          context: pageContext,
-          messages: priorMessages,
-          userInput: prompt
-        },
-        (chunk) => {
-          applyChatPatch((state) => applyAgentChatChunkToPending({
-            pending: state.pending,
-            activeConversationId: state.activeConversationId,
-            assistantId,
-            chunk
-          }))
-        },
-        (status) => {
-          applyChatPatch((state) => applyAgentChatStatusToPending({
-            pending: state.pending,
-            activeConversationId: state.activeConversationId,
-            assistantId,
-            status
-          }))
-        },
-        (event) => {
-          applyChatPatch((state) => applyAgentChatToolEventToPending({
-            pending: state.pending,
-            activeConversationId: state.activeConversationId,
-            assistantId,
-            event
-          }))
-        }
-      )
-
-      if ('canceled' in done) {
-        setChatState((state) =>
-          state.pending?.summary.id === pendingConversationId
-            ? mergeFloatingTemporaryChatPatch(state, cancelPendingAgentConversation({
-                pending: state.pending,
-                activeConversationId: state.activeConversationId,
-                preserveToolsSupported: true
-              }))
-            : state
-        )
-        return
-      }
-
-      if ('error' in done && done.error) {
-        const userError = toUserError(new Error(done.message))
-        setChatState((state) =>
-          state.pending?.summary.id === pendingConversationId
-            ? {
-                ...mergeFloatingTemporaryChatPatch(state, failPendingAgentConversation({
-                  pending: state.pending,
-                  activeConversationId: state.activeConversationId,
-                  assistantId
-                })),
-                error: userError.message
-              }
-            : { ...state, error: userError.message, busy: false, status: '' }
-        )
-        return
-      }
-
-      if (!('error' in done)) {
-        const latest = chatStateRef.current
-        const pending = latest.pending
-        if (!pending || pending.summary.id !== pendingConversationId) return
-        const reconciledTurns = reconcileAgentTurnsWithLocalProcess(done.turns, pending.turns)
-        setChatState((state) =>
-          state.pending?.summary.id === pendingConversationId
-            ? {
-                ...state,
-                turns: reconciledTurns,
-                pending: {
-                  ...state.pending,
-                  turns: reconciledTurns,
-                  status: '保存对话…',
-                  toolsSupported: done.toolsSupported
-                },
-                status: '保存对话…',
-                toolsSupported: done.toolsSupported
-              }
-            : state
-        )
-        try {
-          const saved = await api.saveAgentConversation({
-            workspaceId: workspace.id,
-            mode: 'temporary',
-            conversationId: pending.sourceConversationId ?? latest.savedConversationId,
-            selectedLessonPath: draftSelectedLessonPath ?? selectedLessonPath ?? previewFile.absolutePath,
-            selectedCourseRelativePath: null,
-            turns: reconciledTurns
-          })
-          useAppStore.setState({ appState: saved.state })
-          setChatState((state) =>
-            state.pending?.summary.id === pendingConversationId
-              ? {
-                  ...mergeFloatingTemporaryChatPatch(state, finishPendingAgentConversationSave({
-                    pending: state.pending,
-                    activeConversationId: state.activeConversationId,
-                    savedConversationId: saved.conversation.id,
-                    turns: reconciledTurns,
-                    toolsSupported: done.toolsSupported
-                  })),
-                  savedConversationId: saved.conversation.id,
-                  busy: false,
-                  status: '',
-                  error: null
-                }
-              : state
-          )
-        } catch (saveError) {
-          const userError = toUserError(saveError)
-          setChatState((state) => ({
-            ...state,
-            pending: null,
-            busy: false,
-            status: '',
-            error: userError.message
-          }))
-        }
-      }
-    } catch (error) {
-      const userError = toUserError(error)
-      setChatState((state) =>
-        state.pending?.summary.id === pendingConversationId
-          ? {
-              ...mergeFloatingTemporaryChatPatch(state, failPendingAgentConversation({
-                pending: state.pending,
-                activeConversationId: state.activeConversationId,
-                assistantId
-              })),
-              error: userError.message
-            }
-          : { ...state, busy: false, status: '', error: userError.message }
-      )
-    }
-  }
-
-  const answerAsk = (answers: AskAnswer[]): void => {
-    if (!pendingAsk) return
-    void window.teachingSystem?.answerAgentChatTool(
-      pendingAsk.streamId,
-      pendingAsk.toolCallId,
-      answers
-    )
-  }
-
-  const loadHistoryConversation = async (conversation: AgentConversationSummary): Promise<void> => {
-    const api = window.teachingSystem
-    if (!api || !active || chatStateRef.current.busy) return
-    setHistoryLoadingId(conversation.id)
-    try {
-      const record = await api.readAgentConversation({
-        workspaceId: active.id,
-        conversationId: conversation.id
-      })
-      setInput('')
-      setHistoryOpen(false)
-      setChatState((state) => ({
-        ...state,
-        turns: record.turns,
-        pending: null,
-        activeConversationId: record.id,
-        savedConversationId: record.id,
-        busy: false,
-        status: '',
-        toolsSupported: null,
-        error: null
-      }))
-      window.requestAnimationFrame(() => {
-        const node = scrollRef.current
-        if (node) node.scrollTo({ top: node.scrollHeight })
-      })
-    } catch (error) {
-      const userError = toUserError(error)
-      setChatState((state) => ({ ...state, error: userError.message }))
-    } finally {
-      setHistoryLoadingId(null)
-    }
-  }
-
-  const resetConversation = (): void => {
-    if (chatStateRef.current.busy) return
-    setInput('')
-    setHistoryOpen(false)
-    setChatState(emptyFloatingTemporaryChatState())
-    window.requestAnimationFrame(() => inputRef.current?.focus())
-  }
-
-  const handleSubmit = (event: FormEvent): void => {
-    event.preventDefault()
-    if (!canSend) return
-    void sendPrompt(input)
-  }
-
-  return (
-    <div className={`html-ai-dock${open ? ' is-open' : ''}`}>
-      {open ? (
-        <section
-          ref={panelRef}
-          className="html-ai-panel"
-          aria-label="AI 临时对话"
-          style={{
-            left: panelPixels.x,
-            top: panelPixels.y,
-            width: panelPixels.width,
-            height: panelPixels.height
-          }}
-        >
-          <header
-            className="html-ai-panel-header"
-            title="拖动窗口"
-            onPointerDown={handleHeaderPointerDown}
-          >
-            <div className="html-ai-title">
-              <span className="html-ai-title-icon"><Bot size={16} /></span>
-              <span>
-                <strong>AI 临时对话</strong>
-                <small>{previewFile.title}</small>
-              </span>
-            </div>
-            <div className="html-ai-actions">
-              <button
-                type="button"
-                aria-label="历史对话"
-                aria-pressed={historyOpen}
-                title="历史对话"
-                onClick={() => setHistoryOpen((value) => !value)}
-                disabled={chatState.busy}
-              >
-                <History size={14} />
-              </button>
-              <button type="button" aria-label="新对话" title="新对话" onClick={resetConversation} disabled={chatState.busy}>
-                <Plus size={14} />
-              </button>
-              <button type="button" aria-label="清空对话" title="清空对话" onClick={resetConversation} disabled={chatState.busy || !hasConversation}>
-                <Trash2 size={14} />
-              </button>
-              <button type="button" aria-label="关闭 AI 对话" title="关闭" onClick={() => setOpen(false)}>
-                <X size={14} />
-              </button>
-            </div>
-          </header>
-
-          {historyOpen ? (
-            <div className="html-ai-history-panel">
-              <div className="html-ai-history-head">
-                <strong>历史对话</strong>
-                <button type="button" aria-label="关闭历史对话" onClick={() => setHistoryOpen(false)}>
-                  <X size={13} />
-                </button>
-              </div>
-              <div className="html-ai-history-list">
-                {temporaryConversations.length === 0 ? (
-                  <div className="html-ai-history-empty">暂无历史对话</div>
-                ) : (
-                  temporaryConversations.map((conversation) => {
-                    const isSelected = chatState.savedConversationId === conversation.id || chatState.activeConversationId === conversation.id
-                    const updatedAt = new Date(conversation.updatedAt)
-                    const updatedLabel = Number.isFinite(updatedAt.getTime())
-                      ? updatedAt.toLocaleString(i18n.language)
-                      : conversation.updatedAt
-                    return (
-                      <button
-                        key={conversation.id}
-                        type="button"
-                        className={`html-ai-history-row${isSelected ? ' is-selected' : ''}`}
-                        onClick={() => void loadHistoryConversation(conversation)}
-                        disabled={Boolean(historyLoadingId)}
-                      >
-                        <MessageSquare size={14} />
-                        <span>
-                          <strong>{conversation.title}</strong>
-                          <small>{updatedLabel} · {conversation.messageCount} 条</small>
-                        </span>
-                        {historyLoadingId === conversation.id ? <Loader2 className="spin" size={13} /> : null}
-                      </button>
-                    )
-                  })
-                )}
-              </div>
-            </div>
-          ) : null}
-
-          <div ref={scrollRef} className="html-ai-thread">
-            {!hasConversation && !chatState.error ? (
-              <div className="html-ai-empty">
-                <Sparkles size={28} />
-                <strong>询问当前页面</strong>
-                <span>{previewFile.title}</span>
-                <div className="html-ai-suggestions">
-                  {suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      onClick={() => void sendPrompt(suggestion)}
-                      disabled={!active || chatState.busy}
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {chatState.turns.map((turn) => {
-              const isBusyTurn = turn.id === activeAssistantTurnId
-              const hasProcess =
-                turn.role === 'assistant' &&
-                (Boolean(turn.processEvents?.length) || Boolean(turn.toolCalls?.length))
-              const content = turn.content || (turn.role === 'assistant' && isBusyTurn && !hasProcess ? '正在回复…' : '')
-              return (
-                <div key={turn.id} className={`html-ai-message is-${turn.role}`}>
-                  {turn.role === 'assistant' ? (
-                    <span className="html-ai-avatar"><Bot size={14} /></span>
-                  ) : null}
-                  <div className="html-ai-bubble">
-                    {turn.role === 'assistant' ? <AgentProcessPanel turn={turn} busy={isBusyTurn} compact /> : null}
-                    {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
-                    {turn.role === 'assistant' ? <AskQABlock turn={turn} /> : null}
-                  </div>
-                </div>
-              )
-            })}
-
-            {pendingAsk ? (
-              <div className="html-ai-ask">
-                <AskCard
-                  questions={pendingAsk.questions}
-                  onSubmit={answerAsk}
-                  onDismiss={() => answerAsk([])}
-                  onCancel={() => void cancelCurrentStream()}
-                />
-              </div>
-            ) : null}
-
-            {chatState.error ? (
-              <div className="html-ai-error" role="alert">
-                <AlertCircle size={14} />
-                <span>{chatState.error}</span>
-              </div>
-            ) : null}
-          </div>
-
-          <form className="html-ai-composer" onSubmit={handleSubmit}>
-            <textarea
-              ref={inputRef}
-              value={input}
-              rows={1}
-              placeholder={pendingAsk ? '请先回答上方追问…' : '输入对当前页面的问题…'}
-              disabled={Boolean(pendingAsk)}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  setOpen(false)
-                  return
-                }
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  if (isInputComposing(event)) return
-                  event.preventDefault()
-                  if (canSend) void sendPrompt(input)
-                }
-              }}
-            />
-            <button
-              className="html-ai-send"
-              type={chatState.busy ? 'button' : 'submit'}
-              aria-label={chatState.busy ? '中断对话' : '发送'}
-              title={chatState.busy ? '中断对话' : '发送'}
-              disabled={chatState.busy ? false : !canSend}
-              onClick={chatState.busy ? () => void cancelCurrentStream() : undefined}
-            >
-              {chatState.busy ? <Square size={15} /> : <SendHorizontal size={16} />}
-            </button>
-          </form>
-
-          <div className="html-ai-statusbar">
-            <span>temporary</span>
-            <span>{chatState.status || (chatState.busy ? '处理中…' : '空闲')}</span>
-          </div>
-
-          <div
-            className="html-ai-resize-handle"
-            role="presentation"
-            title="调整大小"
-            onPointerDown={handleResizePointerDown}
-          />
-        </section>
-      ) : null}
-
-      {!open ? (
-        <button
-          className={`html-ai-button${chatState.busy ? ' is-busy' : ''}`}
-          type="button"
-          aria-label="打开 AI 临时对话"
-          title="AI 临时对话"
-          onClick={() => setOpen(true)}
-        >
-          {chatState.busy ? <Loader2 className="spin" size={19} /> : <Sparkles size={19} />}
-          <span>AI</span>
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
-// ================================================================
-// Resource pages
-// ================================================================
-
-function ResourceHome({ onOpenStyles }: { onOpenStyles: () => void }) {
   const { t } = useTranslation()
-  const savedStyleId = useAppStore((s) => s.settings.workspace.lessonStyleId)
-  const currentStyleId = normalizeLessonStyleId(savedStyleId)
-  const currentStyleName = t(`resources.styles.items.${currentStyleId}.name`)
   const [query, setQuery] = useState('')
-
-  const entries = useMemo(
-    () => [
-      {
-        id: 'styles',
-        title: t('resources.styles.title'),
-        detail: t('resources.home.stylesDetail', {
-          count: LESSON_STYLES.length,
-          style: currentStyleName
-        }),
-        meta: t('resources.home.stylesMeta'),
-        action: t('resources.home.open')
-      }
-    ],
-    [currentStyleName, t]
-  )
-  const normalizedQuery = query.trim().toLocaleLowerCase()
-  const visibleEntries = normalizedQuery
-    ? entries.filter((entry) =>
-        `${entry.title} ${entry.detail} ${entry.meta}`.toLocaleLowerCase().includes(normalizedQuery)
-      )
-    : entries
+  const normalizedCurrentStyleId = normalizeLessonStyleId(currentStyleId)
+  const currentStyleName = t(`resources.styles.items.${normalizedCurrentStyleId}.name`)
+  const entries = [
+    {
+      id: 'lesson-styles',
+      title: t('resources.styles.title'),
+      detail: t('resources.home.stylesDetail', {
+        count: LESSON_STYLES.length,
+        style: currentStyleName
+      }),
+      meta: t('resources.home.stylesMeta'),
+      action: t('resources.home.open'),
+      onClick: onOpenStyles
+    }
+  ]
+  const filteredEntries = entries.filter((entry) => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return true
+    return [entry.title, entry.detail, entry.meta].some((value) => value.toLowerCase().includes(needle))
+  })
 
   return (
     <div className="resource-home">
       <div className="resource-home-tabs" role="tablist" aria-label={t('resources.home.tabsAria')}>
-        <button type="button" role="tab" aria-selected="true" className="is-active">
+        <button className="is-active" type="button">
           {t('resources.home.tabs.resources')}
         </button>
-        <button type="button" role="tab" aria-selected="false" disabled>
+        <button type="button" disabled>
           {t('resources.home.tabs.workspace')}
         </button>
       </div>
-
       <div className="resource-home-head">
         <h1>{t('resources.title')}</h1>
         <p>{t('resources.home.subtitle')}</p>
       </div>
-
       <label className="resource-home-search">
-        <Search size={15} />
+        <Search size={16} />
         <input
           type="search"
           value={query}
           placeholder={t('resources.home.searchPlaceholder')}
-          onChange={(event) => setQuery(event.currentTarget.value)}
+          onChange={(event) => setQuery(event.target.value)}
         />
       </label>
-
       <section className="resource-installed-strip" aria-label={t('resources.home.installed')}>
         <div className="resource-installed-head">
           <strong>{t('resources.home.installed')}</strong>
           <span className="resource-icon-button" aria-hidden="true">
-            <Settings size={15} />
+            <CheckCircle2 size={15} />
           </span>
         </div>
         <div className="resource-installed-icons">
@@ -5259,37 +2253,34 @@ function ResourceHome({ onOpenStyles }: { onOpenStyles: () => void }) {
             title={t('resources.styles.title')}
             onClick={onOpenStyles}
           >
-            <Palette size={22} />
+            <SlidersHorizontal size={17} />
           </button>
         </div>
       </section>
-
       <div className="resource-source-row" aria-label={t('resources.home.sourcesAria')}>
         <span className="is-active">{t('resources.home.sources.builtIn')}</span>
         <span>{t('resources.home.sources.workspace')}</span>
         <span>{t('resources.home.sources.personal')}</span>
       </div>
-
       <section className="resource-directory-section">
         <div className="resource-section-label">
           <h2>{t('resources.home.featured')}</h2>
           <span className="resource-section-line" aria-hidden="true" />
           <span className="resource-icon-button" aria-hidden="true">
-            <SlidersHorizontal size={15} />
+            <LibraryBig size={15} />
           </span>
         </div>
-
-        {visibleEntries.length > 0 ? (
+        {filteredEntries.length ? (
           <div className="resource-entry-grid">
-            {visibleEntries.map((entry) => (
+            {filteredEntries.map((entry) => (
               <button
                 key={entry.id}
                 className="resource-entry-card"
                 type="button"
-                onClick={onOpenStyles}
+                onClick={entry.onClick}
               >
                 <span className="resource-entry-icon resource-entry-icon--styles">
-                  <Palette size={22} />
+                  <SlidersHorizontal size={18} />
                 </span>
                 <span className="resource-entry-body">
                   <strong>{entry.title}</strong>
@@ -5297,7 +2288,7 @@ function ResourceHome({ onOpenStyles }: { onOpenStyles: () => void }) {
                 </span>
                 <span className="resource-entry-action">
                   {entry.action}
-                  <ArrowUpRight size={13} />
+                  <ArrowUpRight size={14} />
                 </span>
               </button>
             ))}
@@ -5310,142 +2301,33 @@ function ResourceHome({ onOpenStyles }: { onOpenStyles: () => void }) {
   )
 }
 
-function ResourceStyleLibrary({ onBack }: { onBack: () => void }) {
+function ResourceStyleLibrary({
+  currentStyleId,
+  onApplyLessonStyle,
+  onOpenPreview,
+  onBack
+}: {
+  currentStyleId: unknown
+  onApplyLessonStyle: (styleId: LessonStyleId) => Promise<void>
+  onOpenPreview: Parameters<typeof LessonStyleGallery>[0]['onOpenPreview']
+  onBack: () => void
+}) {
   const { t } = useTranslation()
   return (
     <div className="resource-style-page">
       <button className="resource-back-button" type="button" onClick={onBack}>
-        <ArrowLeft size={15} />
+        <ArrowLeft size={16} />
         {t('resources.home.back')}
       </button>
       <div className="resource-style-head">
         <h1>{t('resources.styles.title')}</h1>
         <p>{t('resources.styles.detail')}</p>
       </div>
-      <LessonStyleGallery />
-    </div>
-  )
-}
-
-// ================================================================
-// Lesson style gallery (resources page)
-// ================================================================
-
-/** Perceived luminance check so text stays readable on the accent chip. */
-function isLightColor(color: string): boolean {
-  const hex = color.trim().match(/^#([0-9a-f]{6})$/i)?.[1]
-  if (!hex) return false
-  const r = parseInt(hex.slice(0, 2), 16)
-  const g = parseInt(hex.slice(2, 4), 16)
-  const b = parseInt(hex.slice(4, 6), 16)
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62
-}
-
-/** Heading font stack of a theme ('inherit' falls back to the body stack). */
-function styleCardFontStack(tokens: LessonStyleTokens): string {
-  return tokens.fontHeading === 'inherit' ? tokens.fontBody : tokens.fontHeading
-}
-
-/** First family of the heading stack, shown as the specimen label. */
-function styleCardFontLabel(tokens: LessonStyleTokens): string {
-  const first = styleCardFontStack(tokens).split(',')[0]?.replace(/["']/g, '').trim()
-  return first || 'System'
-}
-
-function LessonStyleGallery() {
-  const { t } = useTranslation()
-  const savedStyleId = useAppStore((s) => s.settings.workspace.lessonStyleId)
-  const applyLessonStyle = useAppStore((s) => s.applyLessonStyle)
-  const openResourceHtmlPreview = useAppStore((s) => s.openResourceHtmlPreview)
-  const currentStyleId = normalizeLessonStyleId(savedStyleId)
-  const [applyingStyleId, setApplyingStyleId] = useState<LessonStyleId | null>(null)
-
-  const applyStyle = async (styleId: LessonStyleId): Promise<void> => {
-    setApplyingStyleId(styleId)
-    try {
-      await applyLessonStyle(styleId)
-    } finally {
-      setApplyingStyleId(null)
-    }
-  }
-
-  return (
-    <div className="style-gallery is-card-only">
-      <div className="style-gallery-cards">
-        {LESSON_STYLES.map((style) => {
-          const isCurrent = style.id === currentStyleId
-          const isApplying = applyingStyleId === style.id
-          const { tokens } = style
-          return (
-            <article
-              className={`style-card${isCurrent ? ' is-selected' : ''}`}
-              key={style.id}
-            >
-              <button
-                className="style-card-preview"
-                type="button"
-                aria-pressed={isCurrent}
-                onClick={() => openResourceHtmlPreview({
-                  id: `style-${style.id}`,
-                  title: t(`resources.styles.items.${style.id}.name`),
-                  html: buildLessonStyleSampleHtml(style.id)
-                })}
-              >
-                <span aria-hidden className="style-card-thumb" style={{ background: tokens.pageBg, borderColor: tokens.line }}>
-                  <span
-                    className="style-card-chip style-card-chip-color"
-                    style={{ background: tokens.accent, color: isLightColor(tokens.accent) ? '#20242a' : '#ffffff' }}
-                  >
-                    <span className="style-card-chip-label">Primary</span>
-                    <span className="style-card-chip-hex">
-                      {tokens.accent.startsWith('#') ? tokens.accent.toUpperCase() : ''}
-                    </span>
-                  </span>
-                  <span className="style-card-chip style-card-chip-type" style={{ background: tokens.panel, borderColor: tokens.line }}>
-                    <span
-                      className="style-card-chip-aa"
-                      style={{ color: tokens.heading, fontFamily: styleCardFontStack(tokens) }}
-                    >
-                      Aa
-                    </span>
-                    <span className="style-card-chip-font" style={{ color: tokens.muted }}>
-                      {styleCardFontLabel(tokens)}
-                    </span>
-                  </span>
-                  <span className="style-card-chip style-card-chip-ui" style={{ background: tokens.panel, borderColor: tokens.line }}>
-                    <span className="style-card-chip-buttons">
-                      <span className="style-card-chip-btn" style={{ background: tokens.accent }} />
-                      <span className="style-card-chip-btn is-outline" style={{ borderColor: tokens.muted }} />
-                    </span>
-                    <span className="style-card-chip-line" style={{ background: tokens.accent, width: '54%' }} />
-                    <span className="style-card-chip-line" style={{ background: tokens.muted, width: '88%' }} />
-                    <span className="style-card-chip-line" style={{ background: tokens.muted, width: '68%' }} />
-                  </span>
-                  <span className="style-card-scale" style={{ borderColor: tokens.line }}>
-                    {[tokens.ink, tokens.muted, tokens.accent, tokens.soft, tokens.panel, tokens.pageBg].map((swatch, index) => (
-                      <span key={index} style={{ background: swatch }} />
-                    ))}
-                  </span>
-                </span>
-                <span className="style-card-body">
-                  <strong>{t(`resources.styles.items.${style.id}.name`)}</strong>
-                  <span>{t(`resources.styles.items.${style.id}.detail`)}</span>
-                </span>
-              </button>
-              <button
-                className={`style-card-apply${isCurrent ? ' is-current' : ''}`}
-                type="button"
-                aria-current={isCurrent ? 'true' : undefined}
-                disabled={isCurrent || isApplying}
-                onClick={() => void applyStyle(style.id)}
-              >
-                {isApplying ? <Loader2 className="spin" size={13} /> : isCurrent ? <CheckCircle2 size={13} /> : <Check size={13} />}
-                {isCurrent ? t('resources.styles.applied') : t('resources.styles.apply')}
-              </button>
-            </article>
-          )
-        })}
-      </div>
+      <LessonStyleGallery
+        currentStyleId={currentStyleId}
+        onApplyLessonStyle={onApplyLessonStyle}
+        onOpenPreview={onOpenPreview}
+      />
     </div>
   )
 }
@@ -5593,7 +2475,6 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const isTeachingMode = view !== 'agent' && overviewDialogMode === 'teaching'
   const inputValue = agentInput
   const busy = isTeachingMode ? generating || agentChatBusy : agentChatBusy
-  const canSend = Boolean(active && inputValue.trim() && !busy)
   const hasConversation = agentTurns.length > 0
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -5603,6 +2484,11 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
   const viewingBusyPendingConversation = agentChatBusy && activeConversationId === pendingAgentConversation?.summary.id
   const canCancelAgentChat = agentChatBusy && Boolean(pendingAgentConversation)
+  const pendingAskStreamId = pendingAgentConversation?.summary.id ?? null
+  const pendingAsk = pendingAskStreamId
+    ? selectPendingAsk(agentTurns, pendingAskStreamId)
+    : null
+  const canSend = Boolean(active && inputValue.trim() && !busy && !pendingAsk)
   const sentInputHistory = useMemo(
     () => mergeAgentInputHistory(agentInputHistory, userTurnInputHistory(agentTurns)),
     [agentInputHistory, agentTurns]
@@ -5630,6 +2516,14 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     if (!canSend) return
     if (isTeachingMode) submitTeachingPrompt(inputValue)
     else submitChatPrompt(inputValue)
+  }
+  const answerAsk = (answers: AskAnswer[]): void => {
+    if (!pendingAsk) return
+    void window.teachingSystem?.answerAgentChatTool(
+      pendingAsk.streamId,
+      pendingAsk.toolCallId,
+      answers
+    )
   }
   const setInputFromHistory = (value: string): void => {
     setAgentInput(value)
@@ -5677,22 +2571,10 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     const node = scrollRef.current
     if (!node) return
     node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
-  }, [agentTurns, agentStatus])
+  }, [agentTurns, agentStatus, pendingAsk])
   const activeAssistantTurnId = viewingBusyPendingConversation
     ? [...agentTurns].reverse().find((turn) => turn.role === 'assistant')?.id
     : null
-  const pendingAskStreamId = pendingAgentConversation?.summary.id ?? null
-  const pendingAsk = pendingAskStreamId
-    ? selectPendingAsk(agentTurns, pendingAskStreamId)
-    : null
-  const answerAsk = (answers: AskAnswer[]): void => {
-    if (!pendingAsk) return
-    void window.teachingSystem?.answerAgentChatTool(
-      pendingAsk.streamId,
-      pendingAsk.toolCallId,
-      answers
-    )
-  }
 
   return (
     <section
@@ -5715,7 +2597,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
               >
                 {turn.role === 'assistant' && <AgentProcessPanel turn={turn} busy={isBusyTurn} compact />}
                 {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
-                {turn.role === 'assistant' && <AskQABlock turn={turn} />}
+                {turn.role === 'assistant' ? <AskQABlock turn={turn} /> : null}
               </div>
             )
           })}
@@ -5723,7 +2605,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         </div>
       )}
 
-      {!(hasConversation && isTeachingMode) && <DialogModeSwitch />}
+      <DialogModeSwitch />
       {pendingAsk && (
         <div className="overview-dialog-stack ask-stack">
           <AskCard
@@ -5747,11 +2629,14 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             ref={inputRef}
             value={inputValue}
             aria-label={t('overview.taskAria')}
-            placeholder={active
+            placeholder={pendingAsk
+              ? '请先回答上方追问...'
+              : active
               ? isTeachingMode
                 ? '说说你想学什么、当前基础，以及希望先解决什么问题…'
                 : '输入对话内容...'
               : t('overview.placeholderEmpty')}
+            disabled={Boolean(pendingAsk)}
             onChange={(event) => {
               setAgentInput(event.target.value)
               setInputHistoryIndex(null)
@@ -5998,12 +2883,19 @@ function AskCard({
     setSelected((prev) => {
       const current = prev[question.id] ?? []
       if (question.multiSelect) {
-        const next = current.includes(label) ? current.filter((l) => l !== label) : [...current, label]
+        const next = current.includes(label) ? current.filter((item) => item !== label) : [...current, label]
         return { ...prev, [question.id]: next }
       }
       return { ...prev, [question.id]: [label] }
     })
   }
+
+  const collectAnswers = (): AskAnswer[] =>
+    questions.map((item) => {
+      const typed = (custom[item.id] ?? '').trim()
+      if (typed) return { questionId: item.id, selected: [typed] }
+      return { questionId: item.id, selected: selected[item.id] ?? [] }
+    })
 
   const advanceOrSubmit = (): void => {
     const answers = collectAnswers()
@@ -6014,30 +2906,18 @@ function AskCard({
     }
   }
 
-  const collectAnswers = (): AskAnswer[] =>
-    questions.map((q) => {
-      const typed = (custom[q.id] ?? '').trim()
-      if (typed) return { questionId: q.id, selected: [typed] }
-      return { questionId: q.id, selected: selected[q.id] ?? [] }
-    })
-
   const handleOptionClick = (label: string): void => {
     toggle(label)
     if (!question.multiSelect) {
-      // Single-select: auto-advance after a brief tick so the user sees
-      // the selection highlight before the next question animates in.
-      // Reads prior answers from the render-snapshot `selected`/`custom`
-      // (stable for already-answered questions) and overrides the current
-      // question with the clicked label — no state-updater side effects.
       window.setTimeout(() => {
-        const answers: AskAnswer[] = questions.map((q) => {
-          if (q.id === question.id) return { questionId: q.id, selected: [label] }
-          const typed = (custom[q.id] ?? '').trim()
-          if (typed) return { questionId: q.id, selected: [typed] }
-          return { questionId: q.id, selected: selected[q.id] ?? [] }
+        const answers: AskAnswer[] = questions.map((item) => {
+          if (item.id === question.id) return { questionId: item.id, selected: [label] }
+          const typed = (custom[item.id] ?? '').trim()
+          if (typed) return { questionId: item.id, selected: [typed] }
+          return { questionId: item.id, selected: selected[item.id] ?? [] }
         })
         if (active < total - 1) {
-          setActive((a) => a + 1)
+          setActive((current) => current + 1)
         } else {
           onSubmit(answers)
         }
@@ -6059,19 +2939,19 @@ function AskCard({
 
       {total > 1 && active > 0 && (
         <div className="ask-card__crumbs">
-          {questions.slice(0, active).map((q) => {
-            const typed = (custom[q.id] ?? '').trim()
-            const picked = typed || (selected[q.id] ?? []).join('、')
+          {questions.slice(0, active).map((item) => {
+            const typed = (custom[item.id] ?? '').trim()
+            const picked = typed || (selected[item.id] ?? []).join('、')
             return (
               <button
-                key={q.id}
+                key={item.id}
                 type="button"
                 className="ask-card__crumb"
-                onClick={() => setActive(questions.indexOf(q))}
-                title={q.prompt}
+                onClick={() => setActive(questions.indexOf(item))}
+                title={item.prompt}
               >
-                <span className="ask-card__crumb-label">{q.header ?? compactPrompt(q.prompt)}</span>
-                <span className="ask-card__crumb-value">{picked || '—'}</span>
+                <span className="ask-card__crumb-label">{item.header ?? compactPrompt(item.prompt)}</span>
+                <span className="ask-card__crumb-value">{picked || '-'}</span>
               </button>
             )
           })}
@@ -6085,12 +2965,12 @@ function AskCard({
 
       <div className="ask-options">
         {question.options.map((option) => {
-          const isSel = currentSelected.includes(option.label) && !customActive
+          const isSelected = currentSelected.includes(option.label) && !customActive
           return (
             <button
               key={option.label}
               type="button"
-              className={`ask-option${isSel ? ' is-selected' : ''}`}
+              className={`ask-option${isSelected ? ' is-selected' : ''}`}
               onClick={() => handleOptionClick(option.label)}
             >
               <span className="ask-option__label">{option.label}</span>
@@ -6160,13 +3040,7 @@ function AskCard({
 
 function AskQABlock({ turn }: { turn: AgentChatTurn }) {
   const parsed = parseAskToolCall(turn)
-  if (!parsed || parsed.result === undefined) return null
-  // Don't render the inline Q&A if the ask errored — the process timeline
-  // already shows "失败"; a partial result would be misleading.
-  if (parsed.isError) return null
-  // The tool_result text already contains each question prompt plus the
-  // user's selection (see formatAskAnswers in ask.ts), so render it as a
-  // single self-contained block rather than re-deriving the structure.
+  if (!parsed || parsed.result === undefined || parsed.isError) return null
   return (
     <div className="ask-qa-block">
       <div className="ask-qa-block__head">
@@ -6188,7 +3062,7 @@ function AskQABlock({ turn }: { turn: AgentChatTurn }) {
 
 function compactPrompt(prompt: string): string {
   const trimmed = prompt.replace(/\s+/g, ' ').trim()
-  return trimmed.length > 18 ? `${trimmed.slice(0, 17)}…` : trimmed
+  return trimmed.length > 18 ? `${trimmed.slice(0, 17)}...` : trimmed
 }
 
 function ToolCallCard({ toolCall }: { toolCall: NonNullable<AgentChatTurn['toolCalls']>[number] }) {
@@ -6196,9 +3070,6 @@ function ToolCallCard({ toolCall }: { toolCall: NonNullable<AgentChatTurn['toolC
   const name = toolCall.name || 'tool'
   const argsPretty = prettyJson(toolCall.arguments)
   const hasResult = toolCall.result !== undefined
-  // The `ask` tool is rendered elsewhere: pending state by the floating
-  // AskCard, answered state by the inline AskQABlock. Keep the process
-  // timeline entry minimal so the Q&A isn't shown twice.
   if (name === 'ask') {
     return (
       <div className="tool-call-card is-ask">
@@ -6248,1511 +3119,6 @@ function ToolCallCard({ toolCall }: { toolCall: NonNullable<AgentChatTurn['toolC
   )
 }
 
-function SettingsView({
-  section,
-  settings,
-  activeWorkspace,
-  onClose,
-  onSectionChange,
-  onUpdateSettings,
-  onPickDefaultRoot,
-  onCreateWorkspace,
-  onImportWorkspace,
-  onOpenPath,
-  onOpenExternal,
-  onTestNotification,
-  onProbeProvider,
-  onListUpstreamModels,
-  onListGitWorktrees,
-  onRemoveGitWorktree,
-  memoryRecords,
-  memoryDiagnostics,
-  onListMemory,
-  onCreateMemory,
-  onUpdateMemory,
-  onDeleteMemory,
-  onLoadMemoryDiagnostics,
-  onOpenLogFile,
-  onOpenAppDataDir
-}: {
-  section: SettingsSection
-  settings: TeachingSettingsV1
-  activeWorkspace: TeachingWorkspaceSummary | null
-  onClose: () => void
-  onSectionChange: (section: SettingsSection) => void
-  onUpdateSettings: (patch: TeachingSettingsPatch) => Promise<void>
-  onPickDefaultRoot: () => Promise<void>
-  onCreateWorkspace: () => Promise<void>
-  onImportWorkspace: () => Promise<boolean>
-  onOpenPath: (path: string) => Promise<void>
-  onOpenExternal: (url: string) => Promise<void>
-  onTestNotification: () => Promise<void>
-  onProbeProvider: (payload: ProbeProviderPayload) => Promise<ProbeProviderResult>
-  onListUpstreamModels: (payload: ProbeProviderPayload) => Promise<ListUpstreamModelsResult>
-  onListGitWorktrees: (workspaceRoot: string) => Promise<TeachingGitWorktreesResult>
-  onRemoveGitWorktree: (payload: RemoveTeachingGitWorktreePayload) => Promise<void>
-  memoryRecords: TeachingMemoryRecord[]
-  memoryDiagnostics: TeachingMemoryDiagnostics | null
-  onListMemory: (workspaceRoot?: string) => Promise<void>
-  onCreateMemory: (payload: CreateTeachingMemoryPayload) => Promise<boolean>
-  onUpdateMemory: (memoryId: string, patch: UpdateTeachingMemoryPayload) => Promise<boolean>
-  onDeleteMemory: (memoryId: string, workspaceRoot?: string) => Promise<void>
-  onLoadMemoryDiagnostics: () => Promise<void>
-  onOpenLogFile: () => Promise<void>
-  onOpenAppDataDir: () => Promise<void>
-}) {
-  const { t } = useTranslation()
-  const worktreeRootPath = settings.worktree?.rootPath ?? ''
-  const providersById = new Map(settings.provider.providers.map((provider) => [provider.id, provider]))
-  const visibleModelProviders = modelSettingsProviderIds.map((id) => {
-    const preset = TEACHING_MODEL_PROVIDER_PRESETS.find((item) => item.id === id)!
-    return providersById.get(id) ?? { ...preset, apiKey: '' }
-  })
-  const activeProvider = activeModelProvider(settings)
-  const activeModelSettingsProvider =
-    visibleModelProviders.find((provider) => provider.id === activeProvider.id) ?? visibleModelProviders[0]!
-  const isCustomModelProvider = activeModelSettingsProvider.id === 'custom'
-  const activeModelValue = activeModelSettingsProvider.models[0] ?? ''
-  const activeProviderProbePayload = {
-    baseUrl: activeModelSettingsProvider.baseUrl,
-    apiKey: activeModelSettingsProvider.apiKey,
-    endpointFormat: activeModelSettingsProvider.endpointFormat
-  } satisfies ProbeProviderPayload
-  const [providerStatus, setProviderStatus] = useState<string>('')
-  const [providerBusy, setProviderBusy] = useState(false)
-  const [apiKeyVisible, setApiKeyVisible] = useState(() => !settings.privacy.maskApiKeys)
-  const [worktreeResult, setWorktreeResult] = useState<TeachingGitWorktreesResult | null>(null)
-  const [worktreeBusyPath, setWorktreeBusyPath] = useState<string | null>(null)
-  const [worktreeLoading, setWorktreeLoading] = useState(false)
-  const [memoryScopeFilter, setMemoryScopeFilter] = useState<'all' | TeachingMemoryScope>('all')
-  const [memoryDialog, setMemoryDialog] = useState<null | { mode: 'create' } | { mode: 'edit' | 'view'; memory: TeachingMemoryRecord }>(null)
-  const [memoryDraft, setMemoryDraft] = useState<{ content: string; scope: TeachingMemoryScope; tags: string; confidence: number }>({
-    content: '',
-    scope: 'workspace',
-    tags: '',
-    confidence: 1
-  })
-
-  useEffect(() => {
-    if (section !== 'memory') return
-    void onListMemory(activeWorkspace?.rootPath)
-    void onLoadMemoryDiagnostics()
-  }, [section, activeWorkspace?.rootPath, onListMemory, onLoadMemoryDiagnostics])
-
-  useEffect(() => {
-    if (section !== 'worktree') return
-    if (!activeWorkspace?.rootPath) {
-      setWorktreeResult(null)
-      return
-    }
-    void refreshWorktrees()
-  }, [section, activeWorkspace?.rootPath, worktreeRootPath])
-
-  useEffect(() => {
-    setProviderStatus('')
-    setApiKeyVisible(!settings.privacy.maskApiKeys)
-  }, [activeModelSettingsProvider.id, settings.privacy.maskApiKeys])
-
-  const probeActiveProvider = async (): Promise<void> => {
-    setProviderBusy(true)
-    setProviderStatus(t('model.statusConnecting'))
-    const result = await onProbeProvider(activeProviderProbePayload)
-    setProviderBusy(false)
-    setProviderStatus(result.ok ? t('model.statusOk', { latency: result.latencyMs, count: result.modelIds.length }) : result.message)
-  }
-
-  const pullActiveProviderModels = async (): Promise<void> => {
-    setProviderBusy(true)
-    setProviderStatus(t('model.statusPulling'))
-    const result = await onListUpstreamModels(activeProviderProbePayload)
-    setProviderBusy(false)
-    if (!result.ok) {
-      setProviderStatus(result.message)
-      return
-    }
-    updateProviderModels(result.modelIds, result.modelIds.length > 0)
-    setProviderStatus(t('model.statusSynced', { count: result.modelIds.length }))
-  }
-
-  const updateProvider = (patch: Partial<TeachingModelProviderProfile>): void => {
-    const currentProvider = settings.provider.providers.find((provider) => provider.id === activeModelSettingsProvider.id)
-    const providers = currentProvider
-      ? settings.provider.providers.map((provider) =>
-          provider.id === activeModelSettingsProvider.id ? { ...provider, ...patch } : provider
-        )
-      : [...settings.provider.providers, { ...activeModelSettingsProvider, ...patch }]
-    void onUpdateSettings({
-      provider: {
-        providers
-      }
-    })
-  }
-
-  const updateProviderModels = (models: string[], syncGeneratorModel = true): void => {
-    const currentProvider = settings.provider.providers.find((provider) => provider.id === activeModelSettingsProvider.id)
-    const providers = currentProvider
-      ? settings.provider.providers.map((provider) =>
-          provider.id === activeModelSettingsProvider.id ? { ...provider, models } : provider
-        )
-      : [...settings.provider.providers, { ...activeModelSettingsProvider, models }]
-    void onUpdateSettings({
-      provider: {
-        providers
-      },
-      ...(syncGeneratorModel && settings.generator.providerId === activeModelSettingsProvider.id
-        ? { generator: { model: models[0] ?? '' } }
-        : {})
-    })
-  }
-
-  const selectProvider = (providerId: string): void => {
-    const provider = settings.provider.providers.find((item) => item.id === providerId) ?? activeProvider
-    void onUpdateSettings({
-      provider: { activeProviderId: provider.id },
-      generator: {
-        providerId: provider.id,
-        model: provider.models[0] ?? '',
-        endpointFormat: provider.endpointFormat
-      }
-    })
-  }
-
-  const selectModelProvider = (providerId: string): void => {
-    const provider = visibleModelProviders.find((item) => item.id === providerId) ?? activeModelSettingsProvider
-    const hasProvider = settings.provider.providers.some((item) => item.id === provider.id)
-    void onUpdateSettings({
-      provider: {
-        activeProviderId: provider.id,
-        providers: hasProvider ? settings.provider.providers : [...settings.provider.providers, provider]
-      },
-      generator: {
-        providerId: provider.id,
-        model: provider.models[0] ?? '',
-        endpointFormat: provider.endpointFormat
-      }
-    })
-  }
-
-  const resetActiveProviderToPreset = async (): Promise<void> => {
-    const preset = TEACHING_MODEL_PROVIDER_PRESETS.find((item) => item.id === activeModelSettingsProvider.id)
-    if (!preset) return
-    const resetProvider = { ...preset, apiKey: activeModelSettingsProvider.apiKey }
-    const providers = settings.provider.providers.some((provider) => provider.id === resetProvider.id)
-      ? settings.provider.providers.map((provider) =>
-          provider.id === resetProvider.id ? resetProvider : provider
-        )
-      : [...settings.provider.providers, resetProvider]
-    await onUpdateSettings({
-      provider: {
-        activeProviderId: resetProvider.id,
-        providers
-      },
-      generator: {
-        providerId: resetProvider.id,
-        model: resetProvider.models[0] ?? '',
-        endpointFormat: resetProvider.endpointFormat
-      }
-    })
-    setProviderStatus(t('model.statusReset'))
-  }
-
-  const refreshWorktrees = async (): Promise<void> => {
-    if (!activeWorkspace?.rootPath) return
-    setWorktreeLoading(true)
-    try {
-      const result = await onListGitWorktrees(activeWorkspace.rootPath)
-      setWorktreeResult(result)
-    } finally {
-      setWorktreeLoading(false)
-    }
-  }
-
-  const removeWorktree = async (path: string): Promise<void> => {
-    if (!activeWorkspace?.rootPath) return
-    setWorktreeBusyPath(path)
-    try {
-      await onRemoveGitWorktree({ workspaceRoot: activeWorkspace.rootPath, worktreePath: path })
-      await refreshWorktrees()
-    } finally {
-      setWorktreeBusyPath(null)
-    }
-  }
-
-  const filteredMemoryRecords = memoryScopeFilter === 'all'
-    ? memoryRecords
-    : memoryRecords.filter((record) => record.scope === memoryScopeFilter)
-
-  const beginCreateMemory = (): void => {
-    setMemoryDraft({ content: '', scope: 'workspace', tags: '', confidence: 1 })
-    setMemoryDialog({ mode: 'create' })
-  }
-
-  const beginEditMemory = (memory: TeachingMemoryRecord): void => {
-    setMemoryDraft({
-      content: memory.content,
-      scope: memory.scope,
-      tags: memory.tags.join(', '),
-      confidence: memory.confidence ?? 1
-    })
-    setMemoryDialog({ mode: 'edit', memory })
-  }
-
-  const saveMemoryDraft = async (): Promise<void> => {
-    const payload = {
-      content: memoryDraft.content.trim(),
-      scope: memoryDraft.scope,
-      tags: memoryDraft.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
-      confidence: memoryDraft.confidence,
-      workspaceRoot: activeWorkspace?.rootPath
-    } satisfies CreateTeachingMemoryPayload
-    if (!payload.content) return
-    const ok = memoryDialog?.mode === 'edit'
-      ? await onUpdateMemory(memoryDialog.memory.id, payload)
-      : await onCreateMemory(payload)
-    if (ok) setMemoryDialog(null)
-  }
-
-  return (
-    <div className="settings-floating-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose()
-    }}>
-      <section className="settings-view" aria-label={t('settings.aria')} role="dialog" aria-modal="true">
-        <button className="settings-close-button" type="button" aria-label={t('settings.close')} onClick={onClose}>
-          <X size={17} />
-        </button>
-        <aside className="settings-nav" aria-label={t('settings.navAria')}>
-        <div className="settings-nav-heading">{t('settings.navHeading')}</div>
-        {settingsNavItems.map((item) => {
-          const Icon = item.icon
-          return (
-            <button
-              className={`settings-nav-item ${section === item.id ? 'is-active' : ''}`}
-              key={item.id}
-              type="button"
-              onClick={() => onSectionChange(item.id)}
-            >
-              <Icon size={17} />
-              <span>
-                <strong>{t(`settingsSection.${item.id}.label`)}</strong>
-                <small>{t(`settingsSection.${item.id}.detail`)}</small>
-              </span>
-            </button>
-          )
-        })}
-      </aside>
-
-      <div className="settings-content">
-        {section === 'general' && (
-          <SettingsPanel
-            title={t('general.title')}
-            subtitle={t('general.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('general.theme.label')} detail={t('general.theme.detail')}>
-                <SegmentedControl
-                  value={settings.theme}
-                  options={[
-                    { value: 'system', label: t('general.theme.system'), icon: Monitor },
-                    { value: 'light', label: t('general.theme.light'), icon: Sun },
-                    { value: 'dark', label: t('general.theme.dark'), icon: Moon }
-                  ]}
-                  onChange={(theme) => void onUpdateSettings({ theme })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.language.label')} detail={t('general.language.detail')}>
-                <SegmentedControl
-                  value={settings.locale}
-                  options={[
-                    { value: 'zh-CN', label: t('general.language.zh') },
-                    { value: 'en-US', label: t('general.language.en') }
-                  ]}
-                  onChange={(locale) => void onUpdateSettings({ locale })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.density.label')} detail={t('general.density.detail')}>
-                <SegmentedControl
-                  value={settings.density}
-                  options={[
-                    { value: 'comfortable', label: t('general.density.comfortable') },
-                    { value: 'compact', label: t('general.density.compact') }
-                  ]}
-                  onChange={(density) => void onUpdateSettings({ density })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.fontScale.label')} detail={`${Math.round(settings.uiFontScale * 100)}%`}>
-                <input
-                  className="settings-range"
-                  min="0.8"
-                  max="1.2"
-                  step="0.05"
-                  type="range"
-                  value={settings.uiFontScale}
-                  onChange={(event) => void onUpdateSettings({ uiFontScale: Number(event.target.value) })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.closeAction.label')} detail={settings.appBehavior.closeAction === 'tray' ? t('general.closeAction.detailTray') : t('general.closeAction.detailQuit')}>
-                <SegmentedControl
-                  value={settings.appBehavior.closeAction}
-                  options={[
-                    { value: 'quit', label: t('general.closeAction.quit') },
-                    { value: 'tray', label: t('general.closeAction.tray') }
-                  ]}
-                  onChange={(closeAction) => void onUpdateSettings({ appBehavior: { closeAction, closeToTray: closeAction === 'tray' } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.openAtLogin.label')} detail={t('general.openAtLogin.detail')}>
-                <ToggleSwitch
-                  checked={settings.appBehavior.openAtLogin}
-                  onChange={(openAtLogin) => void onUpdateSettings({ appBehavior: { openAtLogin } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.startMinimized.label')} detail={t('general.startMinimized.detail')}>
-                <ToggleSwitch
-                  checked={settings.appBehavior.startMinimized}
-                  onChange={(startMinimized) => void onUpdateSettings({ appBehavior: { startMinimized } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.log.label')} detail={t('general.log.detail', { state: settings.log.enabled ? t('general.log.enabled') : t('general.log.disabled'), days: settings.log.retentionDays })}>
-                <div className="settings-inline-group">
-                  <ToggleSwitch
-                    checked={settings.log.enabled}
-                    onChange={(enabled) => void onUpdateSettings({ log: { enabled } })}
-                  />
-                  <NumberInput
-                    max={90}
-                    min={1}
-                    step={1}
-                    value={settings.log.retentionDays}
-                    onChange={(retentionDays) => void onUpdateSettings({ log: { retentionDays } })}
-                  />
-                </div>
-              </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'appearance' && (
-          <SettingsPanel
-            title={t('appearance.title')}
-            subtitle={t('appearance.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('general.theme.label')} detail={t('general.theme.detail')}>
-                <SegmentedControl
-                  value={settings.theme}
-                  options={[
-                    { value: 'system', label: t('general.theme.system'), icon: Monitor },
-                    { value: 'light', label: t('general.theme.light'), icon: Sun },
-                    { value: 'dark', label: t('general.theme.dark'), icon: Moon }
-                  ]}
-                  onChange={(theme) => void onUpdateSettings({ theme })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.density.label')} detail={settings.density === 'compact' ? t('general.density.compact') : t('general.density.comfortable')}>
-                <SegmentedControl
-                  value={settings.density}
-                  options={[
-                    { value: 'comfortable', label: t('general.density.comfortable') },
-                    { value: 'compact', label: t('general.density.compact') }
-                  ]}
-                  onChange={(density) => void onUpdateSettings({ density })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.fontScale.label')} detail={`${Math.round(settings.uiFontScale * 100)}%`}>
-                <input
-                  className="settings-range"
-                  min="0.8"
-                  max="1.2"
-                  step="0.05"
-                  type="range"
-                  value={settings.uiFontScale}
-                  onChange={(event) => void onUpdateSettings({ uiFontScale: Number(event.target.value) })}
-                />
-              </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'model' && (
-          <SettingsPanel
-            title={t('model.title')}
-            subtitle={t('model.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label="Provider">
-                  <SettingsSelect
-                    value={activeModelSettingsProvider.id}
-                    options={visibleModelProviders.map((provider) => ({
-                      value: provider.id,
-                      label: provider.id === 'custom' ? 'Custom' : provider.name
-                    }))}
-                    onChange={selectModelProvider}
-                  />
-                </SettingsRow>
-                <SettingsRow label={t('model.apiKey.label')}>
-                  <div className="settings-inline-group">
-                    <SettingsTextInput
-                      type={apiKeyVisible ? 'text' : 'password'}
-                      value={activeModelSettingsProvider.apiKey}
-                      placeholder={t('model.apiKey.placeholder')}
-                      onChange={(apiKey) => updateProvider({ apiKey })}
-                    />
-                    <button
-                      className="icon-button soft"
-                      type="button"
-                      aria-label={apiKeyVisible ? t('model.apiKey.hide') : t('model.apiKey.show')}
-                      title={apiKeyVisible ? t('model.apiKey.hide') : t('model.apiKey.show')}
-                      onClick={() => setApiKeyVisible((visible) => !visible)}
-                    >
-                      {apiKeyVisible ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
-                  </div>
-                </SettingsRow>
-                <SettingsRow label={t('model.baseUrl')}>
-                  <SettingsTextInput
-                    value={activeModelSettingsProvider.baseUrl}
-                    onChange={(baseUrl) => updateProvider({ baseUrl })}
-                  />
-                </SettingsRow>
-                <SettingsRow label={t('model.models.label')}>
-                  {isCustomModelProvider ? (
-                    <SettingsTextInput
-                      value={activeModelValue}
-                      onChange={(model) => updateProviderModels(model ? [model] : [])}
-                    />
-                  ) : (
-                    <SettingsSelect
-                      value={
-                        activeModelSettingsProvider.models.includes(settings.generator.model)
-                          ? settings.generator.model
-                          : (activeModelSettingsProvider.models[0] ?? '')
-                      }
-                      options={activeModelSettingsProvider.models.map((model) => ({ value: model, label: model }))}
-                      onChange={(model) => {
-                        updateProviderModels([
-                          model,
-                          ...activeModelSettingsProvider.models.filter((item) => item !== model)
-                        ])
-                      }}
-                    />
-                  )}
-                </SettingsRow>
-                <SettingsRow label={t('reasoning.title')} detail={t('reasoning.settingsDetail')}>
-                  <SegmentedControl
-                    value={selectedReasoningEffort(settings)}
-                    options={reasoningEffortOptionsForSettings(settings).map((effort) => ({
-                      value: effort,
-                      label: reasoningEffortLabel(effort),
-                      icon: BrainCircuit
-                    }))}
-                    onChange={(reasoningEffort) => void onUpdateSettings({ generator: { reasoningEffort } })}
-                  />
-                </SettingsRow>
-                <SettingsRow label={t('model.actions.label')}>
-                  <div className="settings-actions">
-                    <button className="ghost-button" type="button" onClick={() => void probeActiveProvider()} disabled={providerBusy}>
-                      {providerBusy ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} />}
-                      {t('model.actions.test')}
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void pullActiveProviderModels()} disabled={providerBusy || activeModelSettingsProvider.endpointFormat === 'custom_endpoint'}>
-                      <RefreshCw size={15} />
-                      {t('model.actions.pull')}
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeModelSettingsProvider.docsUrl)} disabled={isCustomModelProvider || !activeModelSettingsProvider.docsUrl}>
-                      <ExternalLink size={15} />
-                      {t('model.actions.docs')}
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void onOpenExternal(activeModelSettingsProvider.apiKeyUrl)} disabled={isCustomModelProvider || !activeModelSettingsProvider.apiKeyUrl}>
-                      <KeyRound size={15} />
-                      {t('model.actions.key')}
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void resetActiveProviderToPreset()}>
-                      <RefreshCw size={15} />
-                      {t('model.actions.reset')}
-                    </button>
-                  </div>
-                </SettingsRow>
-                {providerStatus ? (
-                  <div className="settings-empty-note" role="status" aria-live="polite">
-                    {providerStatus}
-                  </div>
-                ) : null}
-              </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'generation' && (
-          <SettingsPanel
-            title={t('generation.title')}
-            subtitle={t('generation.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('generation.provider')} detail={activeProvider.name}>
-                <SettingsSelect
-                  value={settings.generator.providerId}
-                  options={settings.provider.providers.map((provider) => ({
-                    value: provider.id,
-                    label: provider.name
-                  }))}
-                  onChange={selectProvider}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.model.label')} detail={settings.generator.model || t('generation.model.none')}>
-                <SettingsSelect
-                  value={settings.generator.model}
-                  options={activeProvider.models.map((model) => ({ value: model, label: model }))}
-                  onChange={(model) => void onUpdateSettings({ generator: { model } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('reasoning.title')} detail={reasoningEffortDescription(selectedReasoningEffort(settings))}>
-                <SegmentedControl
-                  value={selectedReasoningEffort(settings)}
-                  options={reasoningEffortOptionsForSettings(settings).map((effort) => ({
-                    value: effort,
-                    label: reasoningEffortLabel(effort),
-                    icon: BrainCircuit
-                  }))}
-                  onChange={(reasoningEffort) => void onUpdateSettings({ generator: { reasoningEffort } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.temperature')} detail={settings.generator.temperature.toFixed(2)}>
-                <NumberInput
-                  max={2}
-                  min={0}
-                  step={0.05}
-                  value={settings.generator.temperature}
-                  onChange={(temperature) => void onUpdateSettings({ generator: { temperature } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.maxTokens')} detail={`${settings.generator.maxOutputTokens}`}>
-                <NumberInput
-                  max={32768}
-                  min={512}
-                  step={256}
-                  value={settings.generator.maxOutputTokens}
-                  onChange={(maxOutputTokens) => void onUpdateSettings({ generator: { maxOutputTokens } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.duration.label')} detail={t('generation.duration.detail', { count: settings.generator.lessonDurationMinutes })}>
-                <NumberInput
-                  max={60}
-                  min={5}
-                  step={1}
-                  value={settings.generator.lessonDurationMinutes}
-                  onChange={(lessonDurationMinutes) => void onUpdateSettings({ generator: { lessonDurationMinutes } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.retrieval.label')} detail={t('generation.retrieval.detail')}>
-                <ToggleSwitch
-                  checked={settings.generator.includeRetrievalPractice}
-                  onChange={(includeRetrievalPractice) => void onUpdateSettings({ generator: { includeRetrievalPractice } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.reference.label')} detail={t('generation.reference.detail')}>
-                <ToggleSwitch
-                  checked={settings.generator.generateReference}
-                  onChange={(generateReference) => void onUpdateSettings({ generator: { generateReference } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.learningRecord.label')} detail={t('generation.learningRecord.detail')}>
-                <ToggleSwitch
-                  checked={settings.generator.generateLearningRecord}
-                  onChange={(generateLearningRecord) => void onUpdateSettings({ generator: { generateLearningRecord } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.structured.label')} detail={t('generation.structured.detail')}>
-                <ToggleSwitch
-                  checked={settings.generator.structuredOutput}
-                  onChange={(structuredOutput) => void onUpdateSettings({ generator: { structuredOutput } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.streaming.label')} detail={t('generation.streaming.detail')}>
-                <ToggleSwitch
-                  checked={settings.generator.streaming}
-                  onChange={(streaming) => void onUpdateSettings({ generator: { streaming } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.timeout.label')} detail={t('generation.timeout.detail', { seconds: Math.round(settings.generator.requestTimeoutMs / 1000) })}>
-                <NumberInput
-                  max={300000}
-                  min={5000}
-                  step={5000}
-                  value={settings.generator.requestTimeoutMs}
-                  onChange={(requestTimeoutMs) => void onUpdateSettings({ generator: { requestTimeoutMs } })}
-                />
-              </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'tools' && (
-          <SettingsPanel
-            title="工具调用"
-            subtitle="允许 Agent 与课程生成调用 web 搜索等工具"
-          >
-            <SettingsCard>
-              <SettingsRow label="启用工具调用" detail="开启后 Agent 与课程生成可调用工具">
-                <ToggleSwitch
-                  checked={settings.tools.enabled}
-                  onChange={(enabled) => void onUpdateSettings({ tools: { enabled } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="工作区文件工具" detail="允许 Agent 列出、读取、搜索、写入当前教学工作区文件">
-                <ToggleSwitch
-                  checked={settings.tools.workspaceRead}
-                  onChange={(workspaceRead) => void onUpdateSettings({ tools: { workspaceRead } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="web_search（多后端）" detail="自动使用 SearXNG、Brave Search 或 DuckDuckGo Lite 检索最新和课程外信息">
-                <ToggleSwitch
-                  checked={settings.tools.webSearch}
-                  onChange={(webSearch) => void onUpdateSettings({ tools: { webSearch } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="web_fetch" detail="抓取指定 URL 正文（带 SSRF 防护）">
-                <ToggleSwitch
-                  checked={settings.tools.webFetch}
-                  onChange={(webFetch) => void onUpdateSettings({ tools: { webFetch } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="最大工具调用轮数" detail="默认 0（不限）；设为正数时，控制单次任务的最大工具往返">
-                <NumberInput
-                  max={60}
-                  min={0}
-                  step={1}
-                  value={settings.tools.maxIterations}
-                  onChange={(maxIterations) => void onUpdateSettings({ tools: { maxIterations } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="端点格式支持" detail={
-                settings.generator.endpointFormat === 'chat_completions' || settings.generator.endpointFormat === 'custom_endpoint'
-                  ? `当前「${settings.generator.endpointFormat}」支持工具调用`
-                  : `当前「${settings.generator.endpointFormat}」不支持工具调用，将降级为纯文本`
-              }>
-                <span style={{ fontSize: 13, color: '#68778f' }}>
-                  {settings.generator.endpointFormat}
-                </span>
-              </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'search' && (
-          <SettingsPanel
-            title="搜索配置"
-            subtitle="选择 web_search 的后端，并配置 Firecrawl、Parallel、Tavily、Exa、SearXNG、Brave、DDGS 或 xAI。"
-          >
-            <SettingsCard>
-              <SettingsRow label="搜索后端" detail={`当前：${webSearchBackendLabel(settings.webSearch.backend)}`}>
-                <SettingsSelect<WebSearchBackend>
-                  value={settings.webSearch.backend}
-                  options={webSearchBackendOptions}
-                  onChange={(backend) => void onUpdateSettings({ webSearch: { backend } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="失败自动回退" detail="Auto 模式下某个后端失败或返回空结果时继续尝试下一个。">
-                <ToggleSwitch
-                  checked={settings.webSearch.fallbackEnabled}
-                  onChange={(fallbackEnabled) => void onUpdateSettings({ webSearch: { fallbackEnabled } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="默认结果数" detail={`${settings.webSearch.maxResults} 条`}>
-                <NumberInput
-                  max={20}
-                  min={1}
-                  step={1}
-                  value={settings.webSearch.maxResults}
-                  onChange={(maxResults) => void onUpdateSettings({ webSearch: { maxResults } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-            </SettingsCard>
-
-            <SettingsCard>
-              <SettingsRow label="Firecrawl API Key" detail="用于 Firecrawl 云端搜索。自托管实例可只填 API URL。">
-                <SettingsTextInput
-                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
-                  value={settings.webSearch.firecrawlApiKey}
-                  placeholder="fc-..."
-                  onChange={(firecrawlApiKey) => void onUpdateSettings({ webSearch: { firecrawlApiKey } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="Firecrawl API URL" detail="留空使用 https://api.firecrawl.dev；自托管时填写实例地址。">
-                <SettingsTextInput
-                  value={settings.webSearch.firecrawlApiUrl}
-                  placeholder="http://localhost:3002"
-                  onChange={(firecrawlApiUrl) => void onUpdateSettings({ webSearch: { firecrawlApiUrl } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="Parallel API Key" detail="agentic 会映射到 pro processor；fast / one-shot 映射到 base。">
-                <SettingsTextInput
-                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
-                  value={settings.webSearch.parallelApiKey}
-                  placeholder="Parallel API Key"
-                  onChange={(parallelApiKey) => void onUpdateSettings({ webSearch: { parallelApiKey } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="Parallel 搜索模式" detail={settings.webSearch.parallelSearchMode}>
-                <SettingsSelect
-                  value={settings.webSearch.parallelSearchMode}
-                  options={parallelSearchModeOptions}
-                  onChange={(parallelSearchMode) => void onUpdateSettings({ webSearch: { parallelSearchMode } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="Tavily API Key" detail="用于 Tavily Search API。">
-                <SettingsTextInput
-                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
-                  value={settings.webSearch.tavilyApiKey}
-                  placeholder="tvly-..."
-                  onChange={(tavilyApiKey) => void onUpdateSettings({ webSearch: { tavilyApiKey } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="Exa API Key" detail="用于 Exa 语义搜索。">
-                <SettingsTextInput
-                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
-                  value={settings.webSearch.exaApiKey}
-                  placeholder="Exa API Key"
-                  onChange={(exaApiKey) => void onUpdateSettings({ webSearch: { exaApiKey } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="SearXNG URL" detail="自托管或可信实例地址；需要启用 JSON format。">
-                <SettingsTextInput
-                  value={settings.webSearch.searxngUrl}
-                  placeholder="http://localhost:8888"
-                  onChange={(searxngUrl) => void onUpdateSettings({ webSearch: { searxngUrl } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="Brave Search API Key" detail="Brave Search Data API。">
-                <SettingsTextInput
-                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
-                  value={settings.webSearch.braveApiKey}
-                  placeholder="Brave Search API Key"
-                  onChange={(braveApiKey) => void onUpdateSettings({ webSearch: { braveApiKey } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="xAI API Key" detail="显式选择 xAI 后通过 Grok server-side web_search 搜索。">
-                <SettingsTextInput
-                  type={settings.privacy.maskApiKeys ? 'password' : 'text'}
-                  value={settings.webSearch.xaiApiKey}
-                  placeholder="xai-..."
-                  onChange={(xaiApiKey) => void onUpdateSettings({ webSearch: { xaiApiKey } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-              <SettingsRow label="xAI 模型" detail="用于 Responses API 的 Grok 模型。">
-                <SettingsTextInput
-                  value={settings.webSearch.xaiModel}
-                  placeholder="grok-4.3"
-                  onChange={(xaiModel) => void onUpdateSettings({ webSearch: { xaiModel } } as TeachingSettingsPatch)}
-                />
-              </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'workspace' && (
-          <SettingsPanel
-            title={t('workspace.title')}
-            subtitle={t('workspace.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('workspace.defaultRoot.label')} detail={settings.workspace.defaultRoot || t('workspace.defaultRoot.none')}>
-                <div className="settings-actions">
-                  <button className="ghost-button" type="button" onClick={() => void onPickDefaultRoot()}>
-                    <FolderOpen size={15} />
-                    {t('workspace.defaultRoot.choose')}
-                  </button>
-                  <button className="ghost-button" type="button" onClick={() => void onOpenPath(settings.workspace.defaultRoot)} disabled={!settings.workspace.defaultRoot}>
-                    <ArrowUpRight size={15} />
-                    {t('workspace.defaultRoot.open')}
-                  </button>
-                </div>
-              </SettingsRow>
-              <SettingsRow label={t('workspace.confirm.label')} detail={t('workspace.confirm.detail')}>
-                <ToggleSwitch
-                  checked={settings.workspace.confirmBeforeGenerating}
-                  onChange={(confirmBeforeGenerating) => void onUpdateSettings({ workspace: { confirmBeforeGenerating } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('workspace.autoOpen.label')} detail={t('workspace.autoOpen.detail')}>
-                <ToggleSwitch
-                  checked={settings.workspace.autoOpenGeneratedLesson}
-                  onChange={(autoOpenGeneratedLesson) => void onUpdateSettings({ workspace: { autoOpenGeneratedLesson } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('workspace.showAllCourseFiles.label')} detail={t('workspace.showAllCourseFiles.detail')}>
-                <ToggleSwitch
-                  checked={settings.workspace.showAllCourseFiles}
-                  onChange={(showAllCourseFiles) => void onUpdateSettings({ workspace: { showAllCourseFiles } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('workspace.current.label')} detail={activeWorkspace?.rootPath ?? t('workspace.current.none')}>
-                <div className="settings-actions">
-                  <button className="ghost-button" type="button" onClick={() => void onCreateWorkspace()}>
-                    <Plus size={15} />
-                    {t('workspace.current.create')}
-                  </button>
-                  <button className="ghost-button" type="button" onClick={() => void onImportWorkspace()}>
-                    <Upload size={15} />
-                    {t('workspace.current.import')}
-                  </button>
-                  <button className="ghost-button" type="button" onClick={() => activeWorkspace && void onOpenPath(activeWorkspace.rootPath)} disabled={!activeWorkspace}>
-                    <ArrowUpRight size={15} />
-                    {t('workspace.current.open')}
-                  </button>
-                </div>
-              </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'worktree' && (
-          <SettingsPanel
-            title={t('worktree.title')}
-            subtitle={t('worktree.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('worktree.root.label')} detail={worktreeRootPath || t('worktree.root.none')}>
-                <div className="settings-actions">
-                  <button className="ghost-button" type="button" onClick={() => void onOpenPath(worktreeRootPath)} disabled={!worktreeRootPath}>
-                    <ArrowUpRight size={15} />
-                    {t('worktree.root.open')}
-                  </button>
-                </div>
-              </SettingsRow>
-              <SettingsRow label={t('worktree.current.label')} detail={activeWorkspace?.git?.repositoryRoot ?? t('worktree.current.none')}>
-                <div className="settings-inline-group">
-                  <span className="settings-status-badge">
-                    {activeWorkspace?.git?.currentBranch ?? t('worktree.current.notGit')}
-                  </span>
-                  <button className="ghost-button" type="button" onClick={() => void refreshWorktrees()} disabled={!activeWorkspace || worktreeLoading}>
-                    {worktreeLoading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
-                    {t('worktree.refresh')}
-                  </button>
-                </div>
-              </SettingsRow>
-            </SettingsCard>
-
-            <SettingsCard>
-              {worktreeResult?.ok === false ? (
-                <div className="settings-empty-note">{worktreeResult.message}</div>
-              ) : !worktreeResult?.ok || worktreeResult.worktrees.length === 0 ? (
-                <div className="settings-empty-note">{t('worktree.empty')}</div>
-              ) : (
-                worktreeResult.worktrees.map((worktree) => (
-                  <div className="settings-list-row" key={worktree.path}>
-                    <div className="settings-list-copy">
-                      <strong>{worktree.branch ?? t('worktree.detached')}</strong>
-                      <span>{worktree.path}</span>
-                      <span>
-                        {worktree.isPrimary ? t('worktree.primary') : t('worktree.linked')}
-                        {worktree.createdAt ? ` · ${new Date(worktree.createdAt).toLocaleString(settings.locale)}` : ''}
-                      </span>
-                    </div>
-                    <div className="settings-row-control">
-                      <button
-                        className="ghost-button danger"
-                        type="button"
-                        disabled={worktree.isPrimary || worktreeBusyPath === worktree.path}
-                        onClick={() => void removeWorktree(worktree.path)}
-                      >
-                        {worktreeBusyPath === worktree.path ? <Loader2 className="spin" size={15} /> : <X size={15} />}
-                        {t('worktree.remove')}
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'memory' && (
-          <SettingsPanel
-            title={t('memory.title')}
-            subtitle={t('memory.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('memory.enable.label')} detail={t('memory.enable.detail')}>
-                <ToggleSwitch
-                  checked={settings.memory.enabled}
-                  onChange={(enabled) => void onUpdateSettings({ memory: { enabled } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('memory.maxInjected.label')} detail={t('memory.maxInjected.detail', { count: settings.memory.maxInjected })}>
-                <NumberInput
-                  min={1}
-                  max={12}
-                  step={1}
-                  value={settings.memory.maxInjected}
-                  onChange={(maxInjected) => void onUpdateSettings({ memory: { maxInjected } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('memory.diagnostics.label')} detail={memoryDiagnostics ? t('memory.diagnostics.detail', { active: memoryDiagnostics.activeCount, deleted: memoryDiagnostics.tombstoneCount }) : t('memory.diagnostics.loading')}>
-                <button className="ghost-button" type="button" onClick={() => void onLoadMemoryDiagnostics()}>
-                  <RefreshCw size={15} />
-                  {t('memory.refresh')}
-                </button>
-              </SettingsRow>
-            </SettingsCard>
-
-            <SettingsCard>
-              <div className="settings-toolbar">
-                <div className="settings-filter-group">
-                  {(['all', 'user', 'workspace', 'project'] as const).map((scope) => (
-                    <button
-                      key={scope}
-                      className={memoryScopeFilter === scope ? 'is-active' : ''}
-                      type="button"
-                      onClick={() => setMemoryScopeFilter(scope)}
-                    >
-                      {t(`memory.scope.${scope}`)}
-                    </button>
-                  ))}
-                </div>
-                <button className="ghost-button strong" type="button" onClick={beginCreateMemory}>
-                  <Plus size={15} />
-                  {t('memory.create')}
-                </button>
-              </div>
-
-              {filteredMemoryRecords.length === 0 ? (
-                <div className="settings-empty-note">{t('memory.empty')}</div>
-              ) : (
-                filteredMemoryRecords.map((memory) => (
-                  <div className="settings-list-row" key={memory.id}>
-                    <div className="settings-list-copy">
-                      <strong>{memory.content}</strong>
-                      <span>{[memory.scope, ...(memory.tags ?? [])].join(' · ')}</span>
-                      <span>{memory.disabledAt ? t('memory.disabled') : t('memory.confidence', { value: memory.confidence.toFixed(2) })}</span>
-                    </div>
-                    <div className="settings-row-control">
-                      <div className="settings-actions">
-                        <button className="ghost-button" type="button" onClick={() => setMemoryDialog({ mode: 'view', memory })}>
-                          <Info size={15} />
-                          {t('memory.view')}
-                        </button>
-                        <button className="ghost-button" type="button" onClick={() => beginEditMemory(memory)}>
-                          <FileCheck2 size={15} />
-                          {t('memory.edit')}
-                        </button>
-                        <button className="ghost-button" type="button" disabled={Boolean(memory.disabledAt)} onClick={() => void onUpdateMemory(memory.id, { disabled: true, workspaceRoot: activeWorkspace?.rootPath })}>
-                          <Minus size={15} />
-                          {t('memory.disable')}
-                        </button>
-                        <button className="ghost-button danger" type="button" onClick={() => void onDeleteMemory(memory.id, activeWorkspace?.rootPath)}>
-                          <X size={15} />
-                          {t('memory.delete')}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </SettingsCard>
-
-            {memoryDialog && (
-              <MemoryDialog
-                dialog={memoryDialog}
-                draft={memoryDraft}
-                locale={settings.locale}
-                onChange={setMemoryDraft}
-                onClose={() => setMemoryDialog(null)}
-                onSave={() => void saveMemoryDraft()}
-                t={t}
-              />
-            )}
-          </SettingsPanel>
-        )}
-
-        {section === 'notifications' && (
-          <SettingsPanel
-            title={t('notifications.title')}
-            subtitle={t('notifications.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('notifications.enabled.label')} detail={settings.notifications.enabled ? t('notifications.enabled.on') : t('notifications.enabled.off')}>
-                <ToggleSwitch
-                  checked={settings.notifications.enabled}
-                  onChange={(enabled) => void onUpdateSettings({ notifications: { enabled } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('notifications.lesson.label')} detail={t('notifications.lesson.detail')}>
-                <ToggleSwitch
-                  checked={settings.notifications.lessonGenerated}
-                  onChange={(lessonGenerated) => void onUpdateSettings({ notifications: { lessonGenerated } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('notifications.imported.label')} detail={t('notifications.imported.detail')}>
-                <ToggleSwitch
-                  checked={settings.notifications.workspaceImported}
-                  onChange={(workspaceImported) => void onUpdateSettings({ notifications: { workspaceImported } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('notifications.errors.label')} detail={t('notifications.errors.detail')}>
-                <ToggleSwitch
-                  checked={settings.notifications.errors}
-                  onChange={(errors) => void onUpdateSettings({ notifications: { errors } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('notifications.test.label')} detail={t('notifications.test.detail')}>
-                <button className="ghost-button" type="button" onClick={() => void onTestNotification()}>
-                  <Bell size={15} />
-                  {t('notifications.test.button')}
-                </button>
-              </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'privacy' && (
-          <SettingsPanel
-            title={t('privacy.title')}
-            subtitle={t('privacy.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('privacy.maskKey.label')} detail={t('privacy.maskKey.detail')}>
-                <ToggleSwitch
-                  checked={settings.privacy.maskApiKeys}
-                  onChange={(maskApiKeys) => void onUpdateSettings({ privacy: { maskApiKeys } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('privacy.externalLinks.label')} detail={t('privacy.externalLinks.detail')}>
-                <ToggleSwitch
-                  checked={settings.privacy.allowExternalLinks}
-                  onChange={(allowExternalLinks) => void onUpdateSettings({ privacy: { allowExternalLinks } })}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('privacy.proxy.label')} detail={settings.provider.proxy.enabled ? (settings.provider.proxy.url || t('privacy.proxy.on')) : t('privacy.proxy.off')}>
-                <div className="settings-inline-group">
-                  <ToggleSwitch
-                    checked={settings.provider.proxy.enabled}
-                    onChange={(enabled) => void onUpdateSettings({ provider: { proxy: { enabled } } })}
-                  />
-                  <SettingsTextInput
-                    value={settings.provider.proxy.url}
-                    placeholder={t('privacy.proxy.placeholder')}
-                    onChange={(url) => void onUpdateSettings({ provider: { proxy: { url } } })}
-                  />
-                </div>
-              </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'about' && (
-          <SettingsPanel
-            title={t('about.title')}
-            subtitle={t('about.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('about.runtime')} detail={runtimeProviderLabel(settings)}>
-                <span className="settings-status-badge">{settings.generator.streaming ? t('about.streaming') : t('about.oneShot')}</span>
-              </SettingsRow>
-              <SettingsRow label={t('about.currentWorkspace.label')} detail={activeWorkspace?.rootPath ?? t('about.currentWorkspace.none')}>
-                <button className="ghost-button" type="button" onClick={() => activeWorkspace && void onOpenPath(activeWorkspace.rootPath)} disabled={!activeWorkspace}>
-                  <FolderOpen size={15} />
-                  {t('about.currentWorkspace.open')}
-                </button>
-              </SettingsRow>
-              <SettingsRow label={t('about.logFile.label')} detail={t('about.logFile.detail', { days: settings.log.retentionDays })}>
-                <button className="ghost-button" type="button" onClick={() => void onOpenLogFile()}>
-                  <FileText size={15} />
-                  {t('about.logFile.open')}
-                </button>
-              </SettingsRow>
-              <SettingsRow label={t('about.appData.label')} detail={t('about.appData.detail')}>
-                <button className="ghost-button" type="button" onClick={() => void onOpenAppDataDir()}>
-                  <ArrowUpRight size={15} />
-                  {t('about.appData.open')}
-                </button>
-              </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-      </div>
-      </section>
-    </div>
-  )
-}
-
-function SettingsPanel({
-  title,
-  subtitle,
-  children
-}: {
-  title: string
-  subtitle: string
-  children: ReactNode
-}) {
-  return (
-    <div className="settings-panel">
-      <div className="settings-panel-heading">
-        <h2>{title}</h2>
-        <p>{subtitle}</p>
-      </div>
-      <div className="settings-panel-body">{children}</div>
-    </div>
-  )
-}
-
-function SettingsCard({
-  children,
-  className = ''
-}: {
-  children: ReactNode
-  className?: string
-}) {
-  return <div className={`settings-card ${className}`}>{children}</div>
-}
-
-function SettingsRow({
-  label,
-  detail,
-  children
-}: {
-  label: string
-  detail?: string
-  children: ReactNode
-}) {
-  return (
-    <div className="settings-row">
-      <div className="settings-row-copy">
-        <strong>{label}</strong>
-        {detail && <span>{detail}</span>}
-      </div>
-      <div className="settings-row-control">{children}</div>
-    </div>
-  )
-}
-
-function ToggleSwitch({
-  checked,
-  onChange
-}: {
-  checked: boolean
-  onChange: (checked: boolean) => void
-}) {
-  return (
-    <button
-      className="toggle-switch"
-      data-state={checked ? 'checked' : 'unchecked'}
-      role="switch"
-      aria-checked={checked}
-      type="button"
-      onClick={() => onChange(!checked)}
-    >
-      <span />
-    </button>
-  )
-}
-
-function SegmentedControl<T extends string>({
-  value,
-  options,
-  onChange
-}: {
-  value: T
-  options: Array<{ value: T; label: string; icon?: LucideIcon }>
-  onChange: (value: T) => void
-}) {
-  return (
-    <div className="segmented-control">
-      {options.map((option) => {
-        const Icon = option.icon
-        return (
-          <button
-            className={option.value === value ? 'is-active' : ''}
-            key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-          >
-            {Icon && <Icon size={14} />}
-            {option.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function SettingsTextInput({
-  value,
-  placeholder,
-  type = 'text',
-  onChange
-}: {
-  value: string
-  placeholder?: string
-  type?: 'text' | 'password'
-  onChange: (value: string) => void
-}) {
-  return (
-    <input
-      className="settings-input"
-      type={type}
-      value={value}
-      placeholder={placeholder}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  )
-}
-
-function SettingsSelect<T extends string>({
-  value,
-  options,
-  onChange
-}: {
-  value: T
-  options: Array<{ value: T; label: string }>
-  onChange: (value: T) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [highlightedIndex, setHighlightedIndex] = useState(() => Math.max(0, options.findIndex((option) => option.value === value)))
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  const listId = useId()
-  const selectedOption = options.find((option) => option.value === value) ?? options[0]
-
-  useEffect(() => {
-    setHighlightedIndex(Math.max(0, options.findIndex((option) => option.value === value)))
-  }, [options, value])
-
-  useEffect(() => {
-    if (!open) return
-
-    const handlePointerDown = (event: PointerEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false)
-      }
-    }
-
-    const handleEscape = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        setOpen(false)
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleEscape)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleEscape)
-    }
-  }, [open])
-
-  const toggleOpen = (): void => {
-    if (!options.length) return
-    setOpen((current) => !current)
-  }
-
-  const selectOption = (nextValue: T): void => {
-    onChange(nextValue)
-    setOpen(false)
-  }
-
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
-    if (!options.length) return
-
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      if (open) {
-        const option = options[highlightedIndex] ?? selectedOption
-        if (option) selectOption(option.value)
-        return
-      }
-      setOpen(true)
-      return
-    }
-
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      if (!open) setOpen(true)
-      const direction = event.key === 'ArrowDown' ? 1 : -1
-      setHighlightedIndex((current) => {
-        const baseIndex = current < 0 ? Math.max(0, options.findIndex((option) => option.value === value)) : current
-        return (baseIndex + direction + options.length) % options.length
-      })
-      return
-    }
-
-    if (event.key === 'Home') {
-      event.preventDefault()
-      setOpen(true)
-      setHighlightedIndex(0)
-      return
-    }
-
-    if (event.key === 'End') {
-      event.preventDefault()
-      setOpen(true)
-      setHighlightedIndex(Math.max(0, options.length - 1))
-    }
-  }
-
-  return (
-    <div className={`settings-select ${open ? 'is-open' : ''}`} ref={rootRef}>
-      <button
-        aria-controls={listId}
-        aria-expanded={open}
-        className="settings-select-trigger"
-        type="button"
-        onClick={toggleOpen}
-        onKeyDown={handleKeyDown}
-      >
-        <span className="settings-select-trigger-copy">
-          <span className="settings-select-trigger-value">{selectedOption?.label ?? ''}</span>
-        </span>
-        <ChevronDown className="settings-select-trigger-icon" size={15} />
-      </button>
-
-      {open && (
-        <div className="settings-select-menu" id={listId} role="listbox" aria-activedescendant={`${listId}-${highlightedIndex}`}>
-          {options.map((option, index) => {
-            const selected = option.value === value
-            const highlighted = index === highlightedIndex
-            return (
-              <button
-                aria-selected={selected}
-                className={`settings-select-option ${selected ? 'is-selected' : ''} ${highlighted ? 'is-highlighted' : ''}`}
-                id={`${listId}-${index}`}
-                key={option.value}
-                role="option"
-                type="button"
-                onMouseEnter={() => setHighlightedIndex(index)}
-                onClick={() => selectOption(option.value)}
-              >
-                <span>{option.label}</span>
-                {selected && <CheckCircle2 size={14} />}
-              </button>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function NumberInput({
-  value,
-  min,
-  max,
-  step,
-  onChange
-}: {
-  value: number
-  min: number
-  max: number
-  step: number
-  onChange: (value: number) => void
-}) {
-  return (
-    <input
-      className="settings-number"
-      max={max}
-      min={min}
-      step={step}
-      type="number"
-      value={value}
-      onChange={(event) => onChange(Number(event.target.value))}
-    />
-  )
-}
-
-function MemoryDialog({
-  dialog,
-  draft,
-  locale,
-  onChange,
-  onClose,
-  onSave,
-  t
-}: {
-  dialog: { mode: 'create' } | { mode: 'edit' | 'view'; memory: TeachingMemoryRecord }
-  draft: { content: string; scope: TeachingMemoryScope; tags: string; confidence: number }
-  locale: string
-  onChange: (draft: { content: string; scope: TeachingMemoryScope; tags: string; confidence: number }) => void
-  onClose: () => void
-  onSave: () => void
-  t: (key: string, options?: Record<string, unknown>) => string
-}) {
-  const editable = dialog.mode !== 'view'
-  const memory = dialog.mode === 'create' ? null : dialog.memory
-  const title = dialog.mode === 'create'
-    ? t('memory.dialog.create')
-    : dialog.mode === 'edit'
-      ? t('memory.dialog.edit')
-      : t('memory.dialog.view')
-
-  return (
-    <div className="memory-dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose()
-    }}>
-      <section className="memory-dialog" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="memory-dialog-header">
-          <div>
-            <strong>{title}</strong>
-            {memory && (
-              <span>
-                {memory.scope} · {new Date(memory.updatedAt).toLocaleString(locale)}
-              </span>
-            )}
-          </div>
-          <button className="settings-close-button" type="button" onClick={onClose} aria-label={t('memory.dialog.close')}>
-            <X size={16} />
-          </button>
-        </div>
-        <div className="memory-dialog-body">
-          {editable ? (
-            <>
-              <textarea
-                className="settings-textarea"
-                value={draft.content}
-                placeholder={t('memory.dialog.contentPlaceholder')}
-                onChange={(event) => onChange({ ...draft, content: event.target.value })}
-              />
-              <div className="settings-inline-group">
-                {dialog.mode === 'create' && (
-                  <SettingsSelect
-                    value={draft.scope}
-                    options={[
-                      { value: 'workspace', label: t('memory.scope.workspace') },
-                      { value: 'project', label: t('memory.scope.project') },
-                      { value: 'user', label: t('memory.scope.user') }
-                    ]}
-                    onChange={(scope) => onChange({ ...draft, scope })}
-                  />
-                )}
-                <SettingsTextInput
-                  value={draft.tags}
-                  placeholder={t('memory.dialog.tagsPlaceholder')}
-                  onChange={(tags) => onChange({ ...draft, tags })}
-                />
-                <NumberInput
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  value={draft.confidence}
-                  onChange={(confidence) => onChange({ ...draft, confidence })}
-                />
-              </div>
-            </>
-          ) : (
-            <div className="memory-dialog-readonly">{memory?.content}</div>
-          )}
-        </div>
-        <div className="memory-dialog-footer">
-          <button className="ghost-button" type="button" onClick={onClose}>
-            {t('memory.dialog.cancel')}
-          </button>
-          {editable ? (
-            <button className="ghost-button strong" type="button" onClick={onSave} disabled={!draft.content.trim()}>
-              {t('memory.dialog.save')}
-            </button>
-          ) : null}
-        </div>
-      </section>
-    </div>
-  )
-}
-
 // ================================================================
 // Empty State Component
 // ================================================================
@@ -7789,6 +3155,18 @@ function EmptyState({
 // Helpers
 // ================================================================
 
+function formatLessonIndex(id: string): string {
+  const numeric = id.match(/\d+/)?.[0]
+  if (!numeric) return id
+  return String(Number.parseInt(numeric, 10)).padStart(2, '0')
+}
+
+function stripLessonIndexPrefix(name: string, id: string): string {
+  if (!id || !name.startsWith(id)) return name
+  const rest = name.slice(id.length).replace(/^[\s._-]+/, '')
+  return rest || name
+}
+
 function runtimeMeterWidth(
   runtime: TeachingRuntimeState,
   active: TeachingWorkspaceSummary | null,
@@ -7802,41 +3180,6 @@ function runtimeMeterWidth(
   return '16%'
 }
 
-function suggestedCourseName(workspace: TeachingWorkspaceSummary, prompt: string): string {
-  const topic = prompt
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^我想(先)?学习/, '')
-    .replace(/^学习/, '')
-    .replace(/^如何/, '')
-    .split(/[。.!?？\n]/)[0]
-    ?.trim()
-
-  if (topic) return topic.slice(0, 32)
-  return workspace.courses[0]?.name ?? workspace.name
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-function stepLabel(step: LessonStreamStatus['step']): string {
-  const labels: Record<LessonStreamStatus['step'], string> = {
-    calling: 'calling model',
-    streaming: 'streaming output',
-    validating: 'validating JSON',
-    rendering: 'rendering artifacts',
-    done: 'done',
-    error: 'error'
-  }
-  return labels[step]
-}
-
 function prettyJson(value: string): string {
   if (!value) return ''
   try {
@@ -7844,27 +3187,6 @@ function prettyJson(value: string): string {
   } catch {
     return value
   }
-}
-
-function streamingPreviewHtml(liveText: string, workspace: TeachingWorkspaceSummary): string {
-  return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
-body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
-main{max-width:760px;margin:0 auto;padding:38px 30px}.badge{color:#4f7cf5;font-size:12px;font-weight:800;text-transform:uppercase}pre{white-space:pre-wrap;line-height:1.7;color:#40506a;background:#f4f7fb;border:1px solid #e8edf5;border-radius:16px;padding:18px;min-height:180px}
-</style></head><body><main><div class="badge">TeachOS · Streaming</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(i18n.t('preview.streamingHint'))}</p><pre>${escapeHtml(liveText || i18n.t('preview.streamingPlaceholder'))}</pre></main></body></html>`
-}
-
-function emptyPreviewHtml(workspace: TeachingWorkspaceSummary): string {
-  return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
-body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
-main{max-width:680px;margin:0 auto;padding:46px 34px}p{color:#68778f;line-height:1.8}.badge{color:#4f7cf5;font-size:12px;font-weight:800;text-transform:uppercase}
-</style></head><body><main><div class="badge">TeachOS</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(workspace.missionExcerpt)}</p><p>${escapeHtml(i18n.t('preview.emptyHint'))}</p></main></body></html>`
-}
-
-function loadingPreviewHtml(workspace: TeachingWorkspaceSummary): string {
-  return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
-body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
-main{display:grid;place-items:center;min-height:360px;padding:34px}p{color:#68778f}
-</style></head><body><main><div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(i18n.t('preview.loadingHint'))}</p></div></main></body></html>`
 }
 
 export { App, AppErrorBoundary }

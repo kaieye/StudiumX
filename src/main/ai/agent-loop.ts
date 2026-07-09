@@ -18,6 +18,7 @@ import {
   type ContextCompactionOptions
 } from './context-compactor'
 import type { ToolHandlerMap, ToolRuntimeEvent } from './tools/registry'
+import { executeToolCall } from './tools/execution'
 import type {
   TeachingSettingsV1,
   TeachingModelProviderProfile
@@ -296,29 +297,19 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     for (const call of result.toolCalls) {
       if (isCanceled()) return canceledResult(true)
       emit({ type: 'tool_call', toolCall: call })
-      let payload: string
-      let isError = false
-      try {
-        const args = safeParseArgs(call.function.arguments)
-        const handler = opts.toolHandlers[call.function.name]
-        if (!handler) throw new Error(`未知工具：${call.function.name}`)
-        payload = await handler(args, {
-          toolCallId: call.id,
-          toolName: call.function.name,
-          emit: (event) => emit(event)
-        })
-      } catch (e) {
-        isError = true
-        payload = JSON.stringify({ error: e instanceof Error ? e.message : String(e) })
-      }
+      const toolResult = await executeToolCall(opts.toolHandlers, call, {
+        toolCallId: call.id,
+        toolName: call.function.name,
+        emit: (event) => emit(event)
+      })
       if (isCanceled()) return canceledResult(true)
-      transcript.push({ role: 'tool', tool_call_id: call.id, content: payload })
+      transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
       emit({
         type: 'tool_result',
-        toolCallId: call.id,
-        name: call.function.name,
-        result: payload,
-        isError
+        toolCallId: toolResult.toolCallId,
+        name: toolResult.name,
+        result: toolResult.content,
+        isError: toolResult.isError
       })
     }
     emit({ type: 'status', status: 'tool_done' })
@@ -423,13 +414,4 @@ function legacyRequestFromMessages(messages: ChatMessage[]): {
   const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content ?? ''
   const userPrompt = turns.length > 1 ? `${turns.slice(0, -1).join('\n\n')}\n\n最新用户消息：${lastUser}` : lastUser
   return { systemPrompt: system, userPrompt, jsonMode: false }
-}
-
-function safeParseArgs(raw: string): unknown {
-  if (!raw) return {}
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return {}
-  }
 }

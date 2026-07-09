@@ -7,6 +7,10 @@ export function assertSafeUrl(input: string): string {
   return assertSafeFetchUrl(input)
 }
 
+export async function assertSafePublicHttpUrl(input: string): Promise<string> {
+  return assertSafeFetchUrl(input)
+}
+
 export { assertSafeFetchUrl }
 
 export const webFetchTool: ToolEntry = {

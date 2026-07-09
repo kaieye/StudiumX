@@ -48,6 +48,25 @@ try {
     assert.match(html, /<!doctype html>/i)
   }
 
+  const customCourse = await service.generateLesson({
+    workspaceId: workspace.id,
+    prompt: '继续学习 Spring Boot 配置',
+    courseName: 'Spring Boot Track',
+    messages: []
+  })
+
+  assert.equal(customCourse.kind, 'lesson')
+  if (customCourse.kind === 'lesson') {
+    assert.equal(customCourse.lesson.courseRelativePath, 'courses/spring-boot-track')
+    assert.equal(customCourse.lesson.sessionRelativePath, 'courses/spring-boot-track/lesson')
+    assert.match(customCourse.lesson.relativePath, /^courses\/spring-boot-track\/lesson\/0002-.+\.html$/)
+    assert.equal(
+      await stat(join(workspace.rootPath, 'courses', 'spring-boot-track', 'conversation')).then((info) => info.isDirectory()).catch(() => false),
+      true,
+      'custom Course generation should prepare the sibling conversation directory'
+    )
+  }
+
   console.log('concept overview lesson generation ok')
 } finally {
   if (tempRoot) await rm(tempRoot, { recursive: true, force: true })

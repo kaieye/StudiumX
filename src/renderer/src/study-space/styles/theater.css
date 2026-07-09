@@ -1,0 +1,292 @@
+.study-theater {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(10, 14, 16, 0.62);
+  backdrop-filter: blur(18px);
+}
+
+.study-theater-surface {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(1180px, 100%);
+  min-height: min(760px, calc(100vh - 44px));
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 28px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(12, 16, 18, 0.18), rgba(12, 16, 18, 0.72)),
+    linear-gradient(90deg, rgba(12, 16, 18, 0.76), rgba(12, 16, 18, 0.18), rgba(12, 16, 18, 0.64)),
+    var(--study-room-image) center / cover no-repeat;
+  box-shadow: 0 32px 120px rgba(0, 0, 0, 0.42);
+}
+
+.study-theater-surface::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(255, 232, 174, 0.24), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.28));
+}
+
+.study-theater-topbar,
+.study-theater-center,
+.study-theater-bottom {
+  position: relative;
+  z-index: 1;
+}
+
+.study-theater-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+}
+
+.study-theater-topbar > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.study-theater-topbar strong {
+  overflow: hidden;
+  color: #fff7df;
+  font-size: 15px;
+  font-weight: 840;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-theater-topbar button {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  color: #fff7df;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+
+.study-theater-center {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  padding: 34px;
+  text-align: center;
+}
+
+.study-theater-center > span {
+  color: rgba(255, 247, 223, 0.74);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.study-theater-center > strong {
+  color: #fff7df;
+  font-family: 'Cascadia Code', Consolas, 'SFMono-Regular', monospace;
+  font-size: clamp(72px, 12vw, 152px);
+  line-height: 0.9;
+  font-weight: 840;
+  text-shadow: 0 20px 60px rgba(0, 0, 0, 0.36);
+}
+
+.study-theater-center p {
+  max-width: min(720px, 100%);
+  margin: 0;
+  color: rgba(255, 247, 223, 0.86);
+  font-size: clamp(16px, 2vw, 24px);
+  line-height: 1.45;
+  font-weight: 740;
+  overflow-wrap: anywhere;
+}
+
+.study-theater-host {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: min(780px, 100%);
+}
+
+.study-theater-host span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  max-width: min(320px, 100%);
+  padding: 0 10px;
+  color: rgba(255, 247, 223, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(12, 16, 18, 0.34);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.study-theater-host em {
+  color: rgba(255, 247, 223, 0.58);
+  font-style: normal;
+}
+
+.study-theater-progress {
+  width: min(520px, 100%);
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.study-theater-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ffe2a0, #72d6a7);
+}
+
+.study-theater.is-break .study-theater-progress span {
+  background: linear-gradient(90deg, #b7e4ff, #ffe2a0);
+}
+
+.study-theater-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px;
+  align-items: center;
+  margin: 0 18px 18px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 22px;
+  background: rgba(12, 16, 18, 0.42);
+  backdrop-filter: blur(18px);
+}
+
+.study-theater-cycle {
+  min-width: 0;
+}
+
+.study-theater-cycle span,
+.study-theater-cycle strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-theater-cycle span {
+  color: rgba(255, 247, 223, 0.62);
+  font-size: 11px;
+  font-weight: 840;
+}
+
+.study-theater-cycle strong {
+  margin-top: 4px;
+  color: #fff7df;
+  font-size: 14px;
+  font-weight: 840;
+}
+
+.study-theater-peers,
+.study-theater-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.study-theater-peers span {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: #eaf7ef;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(114, 168, 143, 0.38);
+  font-size: 12px;
+  font-weight: 840;
+}
+
+.study-theater-peers span.is-me {
+  color: #1f1a0b;
+  background: #ffe2a0;
+}
+
+.study-theater-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 13px;
+  color: #fff7df;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 840;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.study-name-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(17, 22, 24, 0.35);
+  backdrop-filter: blur(10px);
+}
+
+.study-name-modal {
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid rgba(38, 47, 65, 0.12);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(17, 22, 24, 0.22);
+}
+
+.study-name-modal h2 {
+  margin: 0;
+  color: #17201d;
+  font-size: 18px;
+}
+
+.study-name-modal p {
+  margin: 8px 0 14px;
+  color: rgba(23, 32, 29, 0.62);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.study-name-modal input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  color: #17201d;
+  border: 1px solid rgba(38, 47, 65, 0.14);
+  border-radius: 12px;
+  font: inherit;
+}
+
+.study-name-modal div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}

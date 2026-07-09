@@ -14,19 +14,17 @@ import {
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
+import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
 import { isPathInsideConfiguredRoot, isPathInsideRoot } from './path-access'
+import { openExternalHttpUrl } from './external-links'
 import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import {
-  ensurePreviewBaseTag,
-  injectPreviewMarkdownLinkBridge
-} from '../shared/preview-markdown-bridge'
-import {
+  decodeToolAnswerPayload,
   optionalString,
   parseAgentChatStreamPayload,
   parseApplyLessonStylePayload,
   parseCreateMemoryPayload,
   parseCreateWorkspacePayload,
-  decodeToolAnswerPayload,
   parseGenerateLessonPayload,
   parseGitBranchPayload,
   parseListUpstreamModelsPayload,
@@ -34,23 +32,21 @@ import {
   parseProbeProviderPayload,
   parseReadAgentConversationPayload,
   parseReadLessonPayload,
-  parseReadWorkspaceMarkdownPayload,
   parseRecordProgressPayload,
   parseRemoveGitWorktreePayload,
   parseSaveAgentConversationPayload,
-  parseSaveWorkspaceMarkdownPayload,
   parseSettingsPatch,
   parseUpdateMemoryPayload,
   parseUpdateMissionPayload,
   parseWorkspaceItemMetaPayload,
   parseWorkspaceItemRemovePayload,
   parseWorkspaceRemovePayload,
-  requireHttpUrl,
   requireStreamId,
   requireString,
   requireWindowControlAction
 } from './teaching-ipc-commands'
 import type { TeachingSettingsV1 } from '../shared/teaching-types'
+import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
@@ -78,23 +74,33 @@ function registerTeachingIpc(
 ): void {
   const activeAgentChatStreams = new Map<string, AbortController>()
 
-  ipcMain.handle('teach:get-state', async () => service.getState())
-  ipcMain.handle('teach:get-settings', async () => settingsService.load())
-  ipcMain.handle('teach:update-settings', async (_, payload: unknown) => {
+  const resolveGitWorkspaceRoot = async (rawWorkspaceRoot: string) => {
+    const state = await service.getState()
+    return resolveRegisteredWorkspaceRoot(state.workspaces, rawWorkspaceRoot)
+  }
+
+  const resolveOptionalWorkspaceRoot = async (rawWorkspaceRoot: string | undefined) => {
+    const state = await service.getState()
+    return resolveOptionalRegisteredWorkspaceRoot(state.workspaces, rawWorkspaceRoot)
+  }
+
+  ipcMain.handle(teachingInvokeChannels.getState, async () => service.getState())
+  ipcMain.handle(teachingInvokeChannels.getSettings, async () => settingsService.load())
+  ipcMain.handle(teachingInvokeChannels.updateSettings, async (_, payload: unknown) => {
     const settings = await settingsService.patch(parseSettingsPatch(payload))
     void applyAppBehavior(settings)
     return settings
   })
 
-  ipcMain.handle('teach:select-workspace', async (_, workspaceId: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.selectWorkspace, async (_, workspaceId: unknown) =>
     service.selectWorkspace(requireString(workspaceId, 'workspaceId'))
   )
 
-  ipcMain.handle('teach:create-workspace', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.createWorkspace, async (_, payload: unknown) =>
     service.createWorkspace(parseCreateWorkspacePayload(payload))
   )
 
-  ipcMain.handle('teach:import-workspace', async () => {
+  ipcMain.handle(teachingInvokeChannels.importWorkspace, async () => {
     const mainWindow = BrowserWindow.getFocusedWindow()
     const result = mainWindow
       ? await dialog.showOpenDialog(mainWindow, {
@@ -115,11 +121,11 @@ function registerTeachingIpc(
     }
   })
 
-  ipcMain.handle('teach:import-workspace-path', async (_, rootPathRaw: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.importWorkspacePath, async (_, rootPathRaw: unknown) =>
     service.importWorkspace(requireString(rootPathRaw, 'rootPath').trim())
   )
 
-  ipcMain.handle('teach:pick-directory', async (_, defaultPath: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.pickDirectory, async (_, defaultPath: unknown) => {
     const mainWindow = BrowserWindow.getFocusedWindow()
     const options: Electron.OpenDialogOptions = {
       title: '选择目录',
@@ -133,7 +139,7 @@ function registerTeachingIpc(
     return { canceled: result.canceled || !path, path }
   })
 
-  ipcMain.handle('teach:open-import-location', async (_, rawPath: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.openImportLocation, async (_, rawPath: unknown) => {
     const settings = await settingsService.load()
     const requestedPath = optionalString(rawPath)
     const basePath = requestedPath ?? (settings.workspace.defaultRoot || app.getPath('documents'))
@@ -145,27 +151,27 @@ function registerTeachingIpc(
     return { ok: message.length === 0, message: message || undefined }
   })
 
-  ipcMain.handle('teach:update-mission', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.updateMission, async (_, payload: unknown) =>
     service.updateMission(parseUpdateMissionPayload(payload))
   )
 
-  ipcMain.handle('teach:apply-lesson-style', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.applyLessonStyle, async (_, payload: unknown) =>
     service.applyLessonStyle(parseApplyLessonStylePayload(payload))
   )
 
-  ipcMain.handle('teach:generate-lesson', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.generateLesson, async (_, payload: unknown) =>
     service.generateLesson(parseGenerateLessonPayload(payload))
   )
 
-  ipcMain.handle('teach:generate-lesson-stream', async (event, payload: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.generateLessonStream, async (event, payload: unknown) => {
     const parsed = parseGenerateLessonPayload(payload)
     const streamId = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     const sender = event.sender
     try {
       const result = await service.generateLessonStream(parsed, {
         streamId,
-        onChunk: (chunk) => safeSend(sender, 'teach:generate-lesson-chunk', chunk),
-        onStatus: (status) => safeSend(sender, 'teach:generate-lesson-status', status)
+        onChunk: (chunk) => safeSend(sender, teachingEventChannels.lessonStreamChunk, chunk),
+        onStatus: (status) => safeSend(sender, teachingEventChannels.lessonStreamStatus, status)
       })
       return { streamId, ...result }
     } catch (error) {
@@ -175,7 +181,7 @@ function registerTeachingIpc(
     }
   })
 
-  ipcMain.handle('teach:agent-chat-stream', async (event, payload: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.agentChatStream, async (event, payload: unknown) => {
     const parsed = parseAgentChatStreamPayload(payload)
     const streamId = parsed.streamId ?? `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     const sender = event.sender
@@ -185,9 +191,9 @@ function registerTeachingIpc(
       const result = await service.agentChatStream(parsed, {
         streamId,
         signal: controller.signal,
-        onChunk: (chunk) => safeSend(sender, 'teach:agent-chat-chunk', chunk),
-        onStatus: (status) => safeSend(sender, 'teach:agent-chat-status', status),
-        onTool: (toolEvent) => safeSend(sender, 'teach:agent-chat-tool', toolEvent)
+        onChunk: (chunk) => safeSend(sender, teachingEventChannels.agentChatChunk, chunk),
+        onStatus: (status) => safeSend(sender, teachingEventChannels.agentChatStatus, status),
+        onTool: (toolEvent) => safeSend(sender, teachingEventChannels.agentChatTool, toolEvent)
       })
       if ('canceled' in result) {
         return { streamId, canceled: true as const }
@@ -210,57 +216,48 @@ function registerTeachingIpc(
     }
   })
 
-  ipcMain.handle('teach:cancel-agent-chat-stream', async (_, rawStreamId: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.cancelAgentChatStream, async (_, rawStreamId: unknown) => {
     const streamId = requireStreamId(rawStreamId)
     const controller = activeAgentChatStreams.get(streamId)
     if (controller) {
       controller.abort()
       activeAgentChatStreams.delete(streamId)
     }
-    // Reject any in-flight ask resolvers so their blocked handlers don't dangle.
     cancelStreamAskPending(streamId)
-    return { canceled: true }
+    return { canceled: Boolean(controller) }
   })
 
-  ipcMain.handle('teach:agent-chat-tool-answer', async (_, payload: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.answerAgentChatTool, async (_, payload: unknown) => {
     const decoded = decodeToolAnswerPayload(payload)
     resolveAskPending(decoded.streamId, decoded.toolCallId, decoded.answers)
     return { ok: true }
   })
 
-  ipcMain.handle('teach:save-agent-conversation', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.saveAgentConversation, async (_, payload: unknown) =>
     service.saveAgentConversation(parseSaveAgentConversationPayload(payload))
   )
 
-  ipcMain.handle('teach:read-agent-conversation', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.readAgentConversation, async (_, payload: unknown) =>
     service.readAgentConversation(parseReadAgentConversationPayload(payload))
   )
 
-  ipcMain.handle('teach:set-workspace-item-meta', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.setWorkspaceItemMeta, async (_, payload: unknown) =>
     service.setWorkspaceItemMeta(parseWorkspaceItemMetaPayload(payload))
   )
 
-  ipcMain.handle('teach:remove-workspace-item', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.removeWorkspaceItem, async (_, payload: unknown) =>
     service.removeWorkspaceItem(parseWorkspaceItemRemovePayload(payload))
   )
 
-  ipcMain.handle('teach:remove-workspace', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.removeWorkspace, async (_, payload: unknown) =>
     service.removeWorkspace(parseWorkspaceRemovePayload(payload))
   )
 
-  ipcMain.handle('teach:read-lesson', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.readLesson, async (_, payload: unknown) =>
     service.readLesson(parseReadLessonPayload(payload))
   )
 
-  ipcMain.handle('teach:read-workspace-markdown', async (_, payload: unknown) =>
-    service.readWorkspaceMarkdown(parseReadWorkspaceMarkdownPayload(payload))
-  )
-
-  ipcMain.handle('teach:save-workspace-markdown', async (_, payload: unknown) =>
-    service.saveWorkspaceMarkdown(parseSaveWorkspaceMarkdownPayload(payload))
-  )
-
-  ipcMain.handle('teach:open-path', async (_, rawPath: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.openPath, async (_, rawPath: unknown) => {
     const target = resolve(String(rawPath ?? ''))
     const state = await service.getState()
     const settings = await settingsService.load()
@@ -275,17 +272,12 @@ function registerTeachingIpc(
     return { ok: message.length === 0, message: message || undefined }
   })
 
-  ipcMain.handle('teach:open-external', async (_, rawUrl: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.openExternal, async (_, rawUrl: unknown) => {
     const settings = await settingsService.load()
-    if (!settings.privacy.allowExternalLinks) {
-      return { ok: false, message: 'External links are disabled in privacy settings.' }
-    }
-    const url = requireHttpUrl(rawUrl)
-    await shell.openExternal(url)
-    return { ok: true }
+    return openExternalHttpUrl(rawUrl, settings, (url) => shell.openExternal(url))
   })
 
-  ipcMain.handle('teach:show-notification', async (_, rawPayload: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.showNotification, async (_, rawPayload: unknown) => {
     const settings = await settingsService.load()
     if (!settings.notifications.enabled) return
     if (!Notification.isSupported()) return
@@ -293,7 +285,7 @@ function registerTeachingIpc(
     new Notification({ title: payload.title, body: payload.body }).show()
   })
 
-  ipcMain.handle('teach:window-control', (event, rawAction: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.controlWindow, (event, rawAction: unknown) => {
     const targetWindow = BrowserWindow.fromWebContents(event.sender)
     if (!targetWindow) return
     const action = requireWindowControlAction(rawAction)
@@ -311,13 +303,13 @@ function registerTeachingIpc(
   })
 
   // ---- Provider probe + upstream model list ----
-  ipcMain.handle('teach:probe-provider', async (_, payload: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.probeProvider, async (_, payload: unknown) => {
     const settings = await settingsService.load()
     const request = parseProbeProviderPayload(payload)
     return probeModelProvider(request, resolveProxyUrl(settings))
   })
 
-  ipcMain.handle('teach:list-upstream-models', async (_, payload: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.listUpstreamModels, async (_, payload: unknown) => {
     const settings = await settingsService.load()
     const request = parseListUpstreamModelsPayload(payload, settings.provider.providers)
     if (!request) return { ok: false, message: '未找到该 provider。' }
@@ -325,19 +317,19 @@ function registerTeachingIpc(
   })
 
   // ---- Review cards + progress ----
-  ipcMain.handle('teach:list-review-cards', async (_, workspaceIdRaw: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.listReviewCards, async (_, workspaceIdRaw: unknown) =>
     service.listReviewCards(requireString(workspaceIdRaw, 'workspaceId'))
   )
 
-  ipcMain.handle('teach:record-progress', async (_, payload: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.recordProgress, async (_, payload: unknown) =>
     service.recordProgress(parseRecordProgressPayload(payload))
   )
 
-  ipcMain.handle('teach:get-progress', async (_, workspaceIdRaw: unknown) =>
+  ipcMain.handle(teachingInvokeChannels.getProgress, async (_, workspaceIdRaw: unknown) =>
     service.getProgress(requireString(workspaceIdRaw, 'workspaceId'))
   )
 
-  ipcMain.handle('teach:list-git-worktrees', async (_, workspaceRootRaw: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.listGitWorktrees, async (_, workspaceRootRaw: unknown) => {
     const settings = await settingsService.load()
     return listGitWorktreesForWorkspace(
       requireString(workspaceRootRaw, 'workspaceRoot'),
@@ -345,57 +337,78 @@ function registerTeachingIpc(
     )
   })
 
-  ipcMain.handle('teach:remove-git-worktree', async (_, payload: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.removeGitWorktree, async (_, payload: unknown) => {
     const settings = await settingsService.load()
     const request = parseRemoveGitWorktreePayload(payload)
+    const access = await resolveGitWorkspaceRoot(request.workspaceRoot)
+    if (!access.ok) return { ok: false, message: access.message }
     return removeGitWorktreeForWorkspace({
-      workspaceRoot: request.workspaceRoot,
+      workspaceRoot: access.rootPath,
       worktreePath: request.worktreePath,
       worktreeRoot: settings.worktree.rootPath
     })
   })
 
-  ipcMain.handle('teach:list-git-branches', async (_, workspaceRootRaw: unknown) =>
-    getGitBranchesForWorkspace(requireString(workspaceRootRaw, 'workspaceRoot'))
-  )
-
-  ipcMain.handle('teach:switch-git-branch', async (_, payload: unknown) => {
-    const request = parseGitBranchPayload(payload)
-    return switchGitBranchForWorkspace(request.workspaceRoot, request.branch)
+  ipcMain.handle(teachingInvokeChannels.listGitBranches, async (_, workspaceRootRaw: unknown) => {
+    const access = await resolveGitWorkspaceRoot(requireString(workspaceRootRaw, 'workspaceRoot'))
+    if (!access.ok) return access
+    return getGitBranchesForWorkspace(access.rootPath)
   })
 
-  ipcMain.handle('teach:create-git-branch', async (_, payload: unknown) => {
+  ipcMain.handle(teachingInvokeChannels.switchGitBranch, async (_, payload: unknown) => {
     const request = parseGitBranchPayload(payload)
-    return createAndSwitchGitBranchForWorkspace(request.workspaceRoot, request.branch)
+    const access = await resolveGitWorkspaceRoot(request.workspaceRoot)
+    if (!access.ok) return access
+    return switchGitBranchForWorkspace(access.rootPath, request.branch)
   })
 
-  ipcMain.handle('teach:list-memory', async (_, workspaceRootRaw: unknown) =>
-    service.listMemory(optionalString(workspaceRootRaw))
-  )
+  ipcMain.handle(teachingInvokeChannels.createGitBranch, async (_, payload: unknown) => {
+    const request = parseGitBranchPayload(payload)
+    const access = await resolveGitWorkspaceRoot(request.workspaceRoot)
+    if (!access.ok) return access
+    return createAndSwitchGitBranchForWorkspace(access.rootPath, request.branch)
+  })
 
-  ipcMain.handle('teach:get-memory-diagnostics', async () =>
+  ipcMain.handle(teachingInvokeChannels.listMemory, async (_, workspaceRootRaw: unknown) => {
+    const access = await resolveOptionalWorkspaceRoot(optionalString(workspaceRootRaw))
+    if (!access.ok) throw new Error(access.message)
+    return service.listMemory(access.rootPath)
+  })
+
+  ipcMain.handle(teachingInvokeChannels.getMemoryDiagnostics, async () =>
     service.getMemoryDiagnostics()
   )
 
-  ipcMain.handle('teach:create-memory', async (_, payload: unknown) =>
-    service.createMemory(parseCreateMemoryPayload(payload))
-  )
+  ipcMain.handle(teachingInvokeChannels.createMemory, async (_, payload: unknown) => {
+    const request = parseCreateMemoryPayload(payload)
+    const access = await resolveOptionalWorkspaceRoot(request.workspaceRoot)
+    if (!access.ok) throw new Error(access.message)
+    if (request.scope !== 'user' && !access.rootPath) {
+      throw new Error('Workspace memory requires a registered teaching workspace.')
+    }
+    return service.createMemory({ ...request, workspaceRoot: access.rootPath })
+  })
 
-  ipcMain.handle('teach:update-memory', async (_, memoryIdRaw: unknown, patchRaw: unknown) =>
-    service.updateMemory(requireString(memoryIdRaw, 'memoryId'), parseUpdateMemoryPayload(patchRaw))
-  )
+  ipcMain.handle(teachingInvokeChannels.updateMemory, async (_, memoryIdRaw: unknown, patchRaw: unknown) => {
+    const patch = parseUpdateMemoryPayload(patchRaw)
+    const access = await resolveOptionalWorkspaceRoot(patch.workspaceRoot)
+    if (!access.ok) throw new Error(access.message)
+    return service.updateMemory(requireString(memoryIdRaw, 'memoryId'), { ...patch, workspaceRoot: access.rootPath })
+  })
 
-  ipcMain.handle('teach:delete-memory', async (_, memoryIdRaw: unknown, workspaceRootRaw: unknown) =>
-    service.deleteMemory(requireString(memoryIdRaw, 'memoryId'), optionalString(workspaceRootRaw))
-  )
+  ipcMain.handle(teachingInvokeChannels.deleteMemory, async (_, memoryIdRaw: unknown, workspaceRootRaw: unknown) => {
+    const access = await resolveOptionalWorkspaceRoot(optionalString(workspaceRootRaw))
+    if (!access.ok) throw new Error(access.message)
+    return service.deleteMemory(requireString(memoryIdRaw, 'memoryId'), access.rootPath)
+  })
 
   // ---- Logging + diagnostics ----
-  ipcMain.handle('teach:open-log', async () => {
+  ipcMain.handle(teachingInvokeChannels.openLogFile, async () => {
     const message = await shell.openPath(logger.path)
     return { ok: message.length === 0, message: message || undefined }
   })
 
-  ipcMain.handle('teach:open-app-data-dir', async () => {
+  ipcMain.handle(teachingInvokeChannels.openAppDataDir, async () => {
     const message = await shell.openPath(app.getPath('userData'))
     return { ok: message.length === 0, message: message || undefined }
   })
@@ -414,12 +427,7 @@ function registerPreviewProtocol(service: TeachingWorkspaceService): void {
       const file = await service.resolvePreviewFile(workspaceId, relativePath)
       if (!file) return new Response('Not found', { status: 404 })
       const body = await readFile(file.absolutePath)
-      const responseBody = file.mimeType.startsWith('text/html')
-        ? injectPreviewMarkdownLinkBridge(
-            ensurePreviewBaseTag(body.toString('utf8'), request.url)
-          )
-        : body
-      return new Response(responseBody, {
+      return new Response(body, {
         headers: {
           'Content-Type': file.mimeType,
           'Cache-Control': 'no-store'
@@ -454,7 +462,7 @@ async function applyAppBehavior(settings: TeachingSettingsV1): Promise<void> {
   logger.configure(settings.log.enabled, settings.log.retentionDays)
 }
 
-function createWindow(hidden = false): BrowserWindow {
+function createWindow(settingsService: TeachingSettingsService, hidden = false): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
@@ -478,12 +486,6 @@ function createWindow(hidden = false): BrowserWindow {
     logger?.error(`Preload failed at ${preloadPath}: ${error.stack ?? error.message}`)
   })
 
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (isAppShellNavigation(url)) return
-    event.preventDefault()
-    if (isHttpUrl(url)) void shell.openExternal(url)
-  })
-
   mainWindow.once('ready-to-show', () => {
     if (!hidden) mainWindow.show()
   })
@@ -494,7 +496,7 @@ function createWindow(hidden = false): BrowserWindow {
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (isHttpUrl(url)) void shell.openExternal(url)
+    void openWindowExternalUrl(url, settingsService)
     return { action: 'deny' }
   })
 
@@ -505,25 +507,6 @@ function createWindow(hidden = false): BrowserWindow {
   }
 
   return mainWindow
-}
-
-function isAppShellNavigation(url: string): boolean {
-  if (isDev && process.env.ELECTRON_RENDERER_URL && url.startsWith(process.env.ELECTRON_RENDERER_URL)) return true
-  try {
-    const parsed = new URL(url)
-    return parsed.protocol === 'file:' || parsed.protocol === `${PREVIEW_PROTOCOL}:`
-  } catch {
-    return false
-  }
-}
-
-function isHttpUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url)
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-  } catch {
-    return false
-  }
 }
 
 function focusExistingWindow(): void {
@@ -565,12 +548,12 @@ if (!hasSingleInstanceLock) {
     registerTeachingIpc(workspaceService, settingsService)
 
     const startHidden = initialSettings.appBehavior.startMinimized || process.argv.includes('--hidden')
-    createWindow(startHidden)
+    createWindow(settingsService, startHidden)
 
     void applyAppBehavior(initialSettings)
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(settingsService)
     })
   })
 
@@ -589,6 +572,18 @@ if (!hasSingleInstanceLock) {
       app.quit()
     }
   })
+}
+
+async function openWindowExternalUrl(rawUrl: string, settingsService: TeachingSettingsService): Promise<void> {
+  try {
+    const settings = await settingsService.load()
+    const result = await openExternalHttpUrl(rawUrl, settings, (url) => shell.openExternal(url))
+    if (!result.ok) {
+      logger?.warn(`External link blocked: ${result.message ?? 'Unknown reason.'}`)
+    }
+  } catch (error) {
+    logger?.warn(`External link blocked: ${errorMessage(error)}`)
+  }
 }
 
 function installConsoleSink(log: Logger): void {

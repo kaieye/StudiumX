@@ -109,10 +109,7 @@ export async function getGitBranchesForWorkspace(
     const repositoryRoot = (await runGit(trimmed, ['rev-parse', '--show-toplevel'])).trim()
     const currentRaw = (await runGit(trimmed, ['branch', '--show-current'])).trim()
     const currentBranch = currentRaw || null
-    const branchLines = (await runGit(trimmed, ['branch', '--format=%(refname:short)']))
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
+    const branchLines = await listLocalBranchNames(trimmed)
     const branchSet = new Set(branchLines)
     if (currentBranch && !branchSet.has(currentBranch)) branchSet.add(currentBranch)
 
@@ -161,8 +158,13 @@ export async function switchGitBranchForWorkspace(
   }
   if (!branch) return { ok: false, reason: 'error', message: 'Branch name is required.' }
   try {
+    await requireCanonicalBranchName(workspaceRoot, branch)
+    const branchSet = new Set(await listLocalBranchNames(workspaceRoot))
+    if (!branchSet.has(branch)) {
+      return { ok: false, reason: 'error', message: 'Branch does not exist in this repository.' }
+    }
     try {
-      await runGit(workspaceRoot, ['switch', branch], 20_000)
+      await runGit(workspaceRoot, ['switch', '--no-guess', branch], 20_000)
     } catch {
       // Older git (< 2.23) has no `switch`; fall back to `checkout`.
       await runGit(workspaceRoot, ['checkout', branch], 20_000)
@@ -184,7 +186,7 @@ export async function createAndSwitchGitBranchForWorkspace(
   }
   if (!branch) return { ok: false, reason: 'error', message: 'Branch name is required.' }
   try {
-    await runGit(workspaceRoot, ['check-ref-format', '--branch', branch])
+    await requireCanonicalBranchName(workspaceRoot, branch)
     try {
       await runGit(workspaceRoot, ['switch', '-c', branch], 20_000)
     } catch {
@@ -203,6 +205,20 @@ async function resolveRepositoryRoot(workspaceRoot: string): Promise<string> {
 async function readCurrentBranch(workspaceRoot: string): Promise<string | null> {
   const branch = (await runGit(workspaceRoot, ['branch', '--show-current'])).trim()
   return branch || null
+}
+
+async function listLocalBranchNames(workspaceRoot: string): Promise<string[]> {
+  return (await runGit(workspaceRoot, ['branch', '--format=%(refname:short)']))
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+async function requireCanonicalBranchName(workspaceRoot: string, branch: string): Promise<void> {
+  const canonical = (await runGit(workspaceRoot, ['check-ref-format', '--branch', branch])).trim()
+  if (canonical !== branch) {
+    throw new Error('Branch name must be a canonical local branch name.')
+  }
 }
 
 async function listWorktreesInternal(workspaceRoot: string): Promise<ParsedWorktree[]> {

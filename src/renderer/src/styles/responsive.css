@@ -1,0 +1,138 @@
+/* ================================================================
+   Responsive
+   ================================================================ */@media (max-width: 1180px) {
+:root {
+    --sidebar-width: 220px;
+  }.content-grid {
+    grid-template-columns: 1fr;
+    max-width: 900px;
+  }.main-area[data-view='lessons'] .content-grid {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }.preview-panel {
+    max-width: 900px;
+  }.lower-grid {
+    grid-template-columns: 1fr;
+    max-width: 900px;
+  }.style-gallery.has-preview,
+  .style-gallery.is-card-only {
+    grid-template-columns: 1fr;
+  }.style-gallery-preview {
+    min-height: 460px;
+  }.style-gallery.has-preview .style-gallery-cards,
+  .style-gallery.is-card-only .style-gallery-cards {
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  }.workspace-hero,
+  .overview-banner {
+    grid-template-columns: 1fr;
+    max-width: 900px;
+  }.mission-strip {
+    max-width: 900px;
+  }.workflow-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 900px;
+  }.lesson-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
+  }.lesson-course-stage {
+    padding: 24px 24px 20px;
+  }
+}@media (max-width: 900px) {
+body {
+    overflow: auto;
+  }.app-frame {
+    height: auto;
+    min-height: 100vh;
+  }.app-shell,
+  .app-shell.is-sidebar-collapsed {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+  }.sidebar-resizer {
+    display: none;
+  }.sidebar {
+    grid-column: 1;
+    position: static;
+  }.main-area {
+    grid-column: 1;
+    overflow: visible;
+    padding: 0 0 24px;
+  }.main-area[data-view='lessons'] {
+    overflow: visible;
+  }.main-area[data-view='lessons'] .composer-tool {
+    width: auto;
+    margin: 0 14px 14px;
+  }.main-area[data-view='lessons'] .content-grid {
+    grid-template-columns: 1fr;
+    padding: 0 14px 18px;
+  }.main-area[data-view='lessons'] .preview-frame {
+    min-height: 70vh;
+  }.lesson-course-stage {
+    padding: 20px 16px 16px;
+  }.lesson-card-grid {
+    grid-template-columns: 1fr;
+  }.lesson-bottom-composer {
+    padding: 10px 16px 14px;
+  }.workflow-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }.hero-copy h1,
+  .overview-copy h1 {
+    font-size: 32px;
+  }.composer-tool {
+    max-width: 100%;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }.overview-dialog-shell {
+    padding: 24px 18px 16px;
+  }
+}@media (max-width: 640px) {
+.topbar,
+  .topbar-actions,
+  .composer-footer,
+  .lesson-card,
+  .mission-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }.workflow-grid {
+    grid-template-columns: 1fr;
+  }.hero-copy h1 {
+    font-size: 26px;
+  }.ghost-button,
+  .primary-button {
+    width: 100%;
+  }.state-chip {
+    width: fit-content;
+  }.workspace-hero,
+  .overview-banner {
+    margin: 20px 12px 18px;
+    padding-inline: 0;
+  }.workflow-grid {
+    grid-template-columns: 1fr;
+    margin: 0 12px 28px;
+  }.composer-tool {
+    margin: 0 0 18px;
+  }.overview-dialog-shell {
+    padding: 20px 12px 12px;
+  }.overview-dialog-card {
+    border-radius: 18px 18px 0 0;
+    min-height: 96px;
+  }.overview-dialog-footer,
+  .overview-dialog-statusbar,
+  .overview-dialog-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }.overview-dialog-tools,
+  .overview-dialog-status-group {
+    width: 100%;
+  }.overview-dialog-actions {
+    width: 100%;
+    gap: 6px;
+  }.overview-dialog-model {
+    max-width: 100%;
+    justify-content: flex-start;
+  }.overview-dialog-statusbar {
+    gap: 4px;
+    border-radius: 0 0 18px 18px;
+  }.overview-dialog-send {
+    align-self: flex-end;
+  }
+}

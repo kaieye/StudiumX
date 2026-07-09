@@ -1,16 +1,13 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { listAgentConversations, sortAgentConversationSummaries } from './teaching-agent-conversations'
 import {
-  clampTitle,
   cleanText,
   collectTeachingFiles,
   compactMarkdown,
   fileExists,
   formatDate,
   isPathArchived,
-  normalizeWorkspaceRelativePath,
-  slugify,
   titleFromFilename,
   toWorkspaceRelativePath,
   workspaceRelativePath,
@@ -30,6 +27,13 @@ import type {
   TeachingWorkspaceSummary,
   WorkspaceFileNode
 } from '../shared/teaching-types'
+import {
+  DEFAULT_COURSE_RELATIVE_PATH,
+  deriveLessonPlacementFromRelativePath,
+  describeCoursePlacement,
+  isDefaultCourseRelativePath,
+  normalizeTeachingRelativePath
+} from '../shared/teaching-placement'
 
 export type WorkspaceCatalogWorkspace = {
   id: string
@@ -129,15 +133,15 @@ export function buildCourseSummaries(
     conversations: AgentConversationSummary[]
   }>()
   const ensureCourse = (relativePath: string): NonNullable<ReturnType<typeof courseMap.get>> => {
-    const normalized = normalizeWorkspaceRelativePath(relativePath) || 'lessons'
+    const normalized = normalizeTeachingRelativePath(relativePath) || DEFAULT_COURSE_RELATIVE_PATH
     const existing = courseMap.get(normalized)
     if (existing) return existing
-    const name = normalized === 'lessons' ? clampTitle(workspace.name) : titleFromFilename(basename(normalized))
+    const placement = describeCoursePlacement({ workspaceName: workspace.name, courseRelativePath: normalized })
     const course = {
-      id: slugify(name, 'course'),
-      name,
-      relativePath: normalized,
-      absolutePath: join(workspace.rootPath, normalized),
+      id: placement.courseId,
+      name: placement.courseName,
+      relativePath: placement.courseRelativePath,
+      absolutePath: join(workspace.rootPath, placement.courseRelativePath),
       sessions: [],
       conversations: []
     }
@@ -145,8 +149,8 @@ export function buildCourseSummaries(
     return course
   }
 
-  if (!isPathArchived(pathMeta, 'lessons')) {
-    ensureCourse('lessons')
+  if (!isPathArchived(pathMeta, DEFAULT_COURSE_RELATIVE_PATH)) {
+    ensureCourse(DEFAULT_COURSE_RELATIVE_PATH)
   }
   for (const lesson of lessons) {
     if (isPathArchived(pathMeta, lesson.courseRelativePath)) continue
@@ -182,8 +186,8 @@ export function buildCourseSummaries(
       }
     })
     .sort((left, right) => {
-      if (left.relativePath === 'lessons') return -1
-      if (right.relativePath === 'lessons') return 1
+      if (isDefaultCourseRelativePath(left.relativePath)) return -1
+      if (isDefaultCourseRelativePath(right.relativePath)) return 1
       return left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
     })
 }
@@ -431,26 +435,15 @@ function deriveLessonPlacementFromPath(
   | 'sessionAbsolutePath'
 > {
   const relativePath = toWorkspaceRelativePath(rootPath, absolutePath)
-  const parts = relativePath.split('/').filter(Boolean)
-  const file = basename(absolutePath)
-  const courseRelativePath = parts[0] === 'courses' && parts[1]
-    ? workspaceRelativePath('courses', parts[1])
-    : workspaceRelativePath('lessons')
-  const courseName = courseRelativePath === 'lessons'
-    ? clampTitle(workspaceName)
-    : titleFromFilename(parts[1] ?? workspaceName)
-  const courseId = slugify(courseName, 'course')
-  const idMatch = /^(\d{4})-/.exec(file)
-  const sessionId = idMatch?.[1] ? `lesson-${idMatch[1]}` : `lesson-${parts.at(-1)?.slice(0, 4) || '0000'}`
-  const sessionRelativePath = dirname(relativePath).replace(/\\/g, '/')
+  const placement = deriveLessonPlacementFromRelativePath({ workspaceName, relativePath })
   return {
-    courseId,
-    courseName,
-    courseRelativePath,
-    courseAbsolutePath: join(rootPath, courseRelativePath),
-    sessionId,
-    sessionName: titleFromFilename(file),
-    sessionRelativePath,
-    sessionAbsolutePath: join(rootPath, sessionRelativePath)
+    courseId: placement.courseId,
+    courseName: placement.courseName,
+    courseRelativePath: placement.courseRelativePath,
+    courseAbsolutePath: join(rootPath, placement.courseRelativePath),
+    sessionId: placement.sessionId,
+    sessionName: placement.sessionName,
+    sessionRelativePath: placement.sessionRelativePath,
+    sessionAbsolutePath: join(rootPath, placement.sessionRelativePath)
   }
 }

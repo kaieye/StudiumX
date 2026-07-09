@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -122,6 +122,42 @@ try {
     pinnedSidebarWorkspaceFolders[0]?.node.pinned,
     true,
     'pinning a top-level workspace folder should expose its pinned state in the left course directory'
+  )
+
+  const pathMetaLesson = 'lessons/0001-existing.html'
+  await service.setWorkspaceItemMeta({
+    workspaceId: current.id,
+    relativePath: pathMetaLesson,
+    pinned: true
+  })
+  let workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.teachos', 'index.json'), 'utf8'))
+  assert.deepEqual(
+    workspaceIndex.pathMeta[pathMetaLesson],
+    { pinned: true },
+    'workspace item metadata should record a pinned path'
+  )
+  await service.setWorkspaceItemMeta({
+    workspaceId: current.id,
+    relativePath: pathMetaLesson,
+    archived: true
+  })
+  workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.teachos', 'index.json'), 'utf8'))
+  assert.deepEqual(
+    workspaceIndex.pathMeta[pathMetaLesson],
+    { pinned: true, archived: true },
+    'workspace item metadata should merge archived without dropping pinned'
+  )
+  await service.setWorkspaceItemMeta({
+    workspaceId: current.id,
+    relativePath: pathMetaLesson,
+    pinned: null,
+    archived: null
+  })
+  workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.teachos', 'index.json'), 'utf8'))
+  assert.equal(
+    workspaceIndex.pathMeta?.[pathMetaLesson],
+    undefined,
+    'workspace item metadata should remove empty pathMeta entries after clearing flags'
   )
 
   const archiveRoot = join(tempRoot, 'workspace-archive')
@@ -264,26 +300,56 @@ try {
     'left course directory workspace folders should stay aligned after removing a workspace from the list'
   )
 
-  const diskRemovalRoot = join(tempRoot, 'workspace-remove-from-disk')
-  await mkdir(diskRemovalRoot, { recursive: true })
-  await writeFile(join(diskRemovalRoot, 'MISSION.md'), '# Mission: Remove From Disk\n', 'utf8')
-  await writeFile(join(diskRemovalRoot, 'RESOURCES.md'), '# Resources\n', 'utf8')
-  const diskRemovalState = await service.importWorkspace(diskRemovalRoot)
-  const diskRemovalWorkspace = diskRemovalState.activeWorkspace
-  assert.ok(diskRemovalWorkspace)
-  const afterWorkspaceDiskRemoval = await service.removeWorkspace({
-    workspaceId: diskRemovalWorkspace.id,
+  const managedDiskRemovalState = await service.createWorkspace({
+    name: 'managed-workspace-remove-from-disk',
+    prompt: '学习托管工作区删除'
+  })
+  const managedDiskRemovalWorkspace = managedDiskRemovalState.activeWorkspace
+  assert.ok(managedDiskRemovalWorkspace)
+  const managedDiskRemovalRoot = managedDiskRemovalWorkspace.rootPath
+  const afterManagedWorkspaceDiskRemoval = await service.removeWorkspace({
+    workspaceId: managedDiskRemovalWorkspace.id,
     mode: 'disk'
   })
   assert.equal(
-    afterWorkspaceDiskRemoval.workspaces.some((workspace) => workspace.id === diskRemovalWorkspace.id),
+    afterManagedWorkspaceDiskRemoval.workspaces.some((workspace) => workspace.id === managedDiskRemovalWorkspace.id),
     false,
-    'removing a workspace from disk should hide its folder from the left course directory'
+    'removing a managed workspace from disk should hide its folder from the left course directory'
   )
   assert.equal(
-    await stat(diskRemovalRoot).then(() => true).catch(() => false),
+    await stat(managedDiskRemovalRoot).then(() => true).catch(() => false),
     false,
-    'removing a workspace from disk should delete the workspace folder itself'
+    'removing a managed workspace from disk should delete the workspace folder itself'
+  )
+
+  const importedDiskRemovalRoot = join(tempRoot, 'imported-workspace-remove-from-disk')
+  await mkdir(importedDiskRemovalRoot, { recursive: true })
+  await writeFile(join(importedDiskRemovalRoot, 'MISSION.md'), '# Mission: Imported Remove From Disk\n', 'utf8')
+  await writeFile(join(importedDiskRemovalRoot, 'RESOURCES.md'), '# Resources\n', 'utf8')
+  const importedDiskRemovalState = await service.importWorkspace(importedDiskRemovalRoot)
+  const importedDiskRemovalWorkspace = importedDiskRemovalState.activeWorkspace
+  assert.ok(importedDiskRemovalWorkspace)
+  await assert.rejects(
+    () => service.removeWorkspace({
+      workspaceId: importedDiskRemovalWorkspace.id,
+      mode: 'disk'
+    }),
+    /Only workspaces inside the configured TeachOS workspace root/,
+    'removing an imported workspace from disk should be denied'
+  )
+  assert.equal(
+    await stat(importedDiskRemovalRoot).then(() => true).catch(() => false),
+    true,
+    'denying disk removal for an imported workspace should keep its files'
+  )
+  const afterImportedWorkspaceListRemoval = await service.removeWorkspace({
+    workspaceId: importedDiskRemovalWorkspace.id,
+    mode: 'list'
+  })
+  assert.equal(
+    afterImportedWorkspaceListRemoval.workspaces.some((workspace) => workspace.id === importedDiskRemovalWorkspace.id),
+    false,
+    'removing an imported workspace from the list should still hide it from the left course directory'
   )
 
   console.log('workspace course sidebar aggregation ok')

@@ -628,7 +628,7 @@ export function assertSafeFetchUrl(input: string): string {
 
 function assertSafeHost(input: string): void {
   const host = normalizedHostname(input)
-  if (host === 'localhost' || host === 'ip6-localhost' || host.endsWith('.localhost')) {
+  if (host === 'localhost' || host === 'ip6-localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
     throw new Error('拒绝访问本地地址。')
   }
   if (host === 'metadata.google.internal' || host === 'metadata') {
@@ -659,9 +659,14 @@ function isUnsafeIpv4(address: string): boolean {
     (a === 100 && b >= 64 && b <= 127) ||
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 0 && c === 0) ||
+    (a === 192 && b === 0 && c === 2) ||
     (a === 192 && b === 168) ||
     (a === 198 && (b === 18 || b === 19)) ||
-    (a === 169 && b === 254 && c === 169 && d === 254)
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) ||
+    (a === 169 && b === 254 && c === 169 && d === 254) ||
+    a >= 224
   )
 }
 

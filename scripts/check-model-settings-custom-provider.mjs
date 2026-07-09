@@ -1,29 +1,29 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const teachingTypes = await readFile('src/shared/teaching-types.ts', 'utf8')
-assert.match(teachingTypes, /id: 'custom'/)
-assert.match(teachingTypes, /baseUrl: ''/)
-assert.match(teachingTypes, /models: \[\]/)
-assert.match(teachingTypes, /docsUrl: ''/)
-assert.match(teachingTypes, /apiKeyUrl: ''/)
+const teachingSettingsTypes = await readFile('src/shared/teaching-types/settings.ts', 'utf8')
+assert.match(teachingSettingsTypes, /id: 'custom'/)
+assert.match(teachingSettingsTypes, /baseUrl: ''/)
+assert.match(teachingSettingsTypes, /models: \[\]/)
+assert.match(teachingSettingsTypes, /docsUrl: ''/)
+assert.match(teachingSettingsTypes, /apiKeyUrl: ''/)
 
 const teachingSettings = await readFile('src/main/teaching-settings.ts', 'utf8')
 assert.match(teachingSettings, /const isCustomProvider = id === 'custom'/)
 assert.match(teachingSettings, /docsUrl: isCustomProvider \? '' : normalizeString\(input\.docsUrl\) \|\| base\.docsUrl/)
 assert.match(teachingSettings, /apiKeyUrl: isCustomProvider \? '' : normalizeString\(input\.apiKeyUrl\) \|\| base\.apiKeyUrl/)
 
-const app = await readFile('src/renderer/src/App.tsx', 'utf8')
-const modelRowIndex = app.indexOf("label={t('model.models.label')}")
+const modelProviderSection = await readFile('src/renderer/src/views/settings/sections/ModelProviderSettingsSection.tsx', 'utf8')
+const modelRowIndex = modelProviderSection.indexOf("label={t('model.models.label')}")
 
 assert.notEqual(modelRowIndex, -1)
 
-const modelRowChunk = app.slice(modelRowIndex, modelRowIndex + 1200)
+const modelRowChunk = modelProviderSection.slice(modelRowIndex, modelRowIndex + 1200)
 assert.match(modelRowChunk, /isCustomModelProvider \?/)
 assert.match(modelRowChunk, /<SettingsTextInput/)
 assert.match(modelRowChunk, /<SettingsSelect/)
-assert.match(app, /isCustomModelProvider \|\| !activeModelSettingsProvider\.docsUrl/)
-assert.match(app, /isCustomModelProvider \|\| !activeModelSettingsProvider\.apiKeyUrl/)
+assert.match(modelProviderSection, /isCustomModelProvider \|\| !activeModelSettingsProvider\.docsUrl/)
+assert.match(modelProviderSection, /isCustomModelProvider \|\| !activeModelSettingsProvider\.apiKeyUrl/)
 
 const zh = JSON.parse(await readFile('src/renderer/src/i18n/locales/zh-CN.json', 'utf8'))
 const en = JSON.parse(await readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8'))
