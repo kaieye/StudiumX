@@ -17,6 +17,13 @@ async function readReachableCss(entryPath, seen = new Set()) {
 
 const css = await readReachableCss('src/renderer/src/styles.css')
 
+function cssRule(selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = css.match(new RegExp(`${escaped}\\s*\\{([\\s\\S]*?)\\}`))
+  assert.ok(match, `Missing CSS rule for ${selector}`)
+  return match[1]
+}
+
 assert.match(
   css,
   /\.windows-window-chrome \{[\s\S]*-webkit-app-region: drag;/,
@@ -31,6 +38,18 @@ assert.match(
 
 assert.match(
   css,
-  /\.app-shell\.platform-win32 \.topbar \{[\s\S]*-webkit-app-region: no-drag;/,
-  'Main page topbars must not register a drag region under the Windows window controls'
+  /\.topbar \{[\s\S]*-webkit-app-region: drag;/,
+  'Main page topbars should stay draggable on frameless Windows windows'
+)
+
+assert.doesNotMatch(
+  cssRule('.app-shell.platform-win32 .topbar'),
+  /-webkit-app-region:\s*no-drag;/,
+  'Windows topbar overrides must not disable topbar dragging'
+)
+
+assert.match(
+  css,
+  /\.app-shell\.platform-win32 \.topbar::after \{[\s\S]*width: var\(--window-control-overlay-width\);[\s\S]*-webkit-app-region: no-drag;/,
+  'Windows topbars should reserve a no-drag hit region below the window controls'
 )

@@ -72,6 +72,13 @@
 }.app-shell.platform-win32 .topbar {
   min-height: max(48px, var(--window-chrome-height));
   padding-right: calc(20px + var(--window-control-overlay-width));
+}.app-shell.platform-win32 .topbar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--window-control-overlay-width);
+  height: var(--window-chrome-height);
   -webkit-app-region: no-drag;
 }.app-shell.platform-win32.is-sidebar-collapsed .topbar {
   padding-left: calc(20px + var(--window-chrome-left-width));
