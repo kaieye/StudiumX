@@ -35,6 +35,7 @@ const [
   rendererSettings,
   lessonStyleGallery,
   css,
+  responsiveCss,
   mainCss,
   zh,
   en,
@@ -58,6 +59,7 @@ const [
   readFile('src/renderer/src/workflows/settings.ts', 'utf8'),
   readFile('src/renderer/src/views/resources/LessonStyleGallery.tsx', 'utf8'),
   readFile('src/renderer/src/styles/resources.css', 'utf8'),
+  readFile('src/renderer/src/styles/responsive.css', 'utf8'),
   readFile('src/renderer/src/styles/main.css', 'utf8'),
   readFile('src/renderer/src/i18n/locales/zh-CN.json', 'utf8'),
   readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8'),
@@ -421,6 +423,24 @@ assert.match(
 
 assert.match(
   app,
+  /function ResourceHome\([\s\S]*useAppStore\(\(s\) => s\.settings\.workspace\.lessonStyleId\)[\s\S]*normalizeLessonStyleId/,
+  'the resource home should read and normalize the current style like the main resource design'
+)
+
+assert.match(
+  app,
+  /role="tab" aria-selected="true" className="is-active"[\s\S]*role="tab" aria-selected="false" disabled/,
+  'the resource home tabs should preserve the main tab semantics'
+)
+
+assert.match(
+  app,
+  /<Settings size=\{15\} \/>[\s\S]*<Palette size=\{22\} \/>[\s\S]*<SlidersHorizontal size=\{15\} \/>/,
+  'the resource home should preserve the main resource icon hierarchy'
+)
+
+assert.match(
+  app,
   /function ResourceStyleLibrary\([\s\S]*<LessonStyleGallery\s+currentStyleId=/,
   'the resource style section should mount the extracted style gallery'
 )
@@ -499,6 +519,27 @@ assert.match(css, /\.style-card-scale \{/, 'styles.css should style the tonal sc
 assert.doesNotMatch(css, /\.style-card-badge/, 'styles.css should not keep styling a removed style card badge')
 assert.match(mainCss, /\.reader-preview-back \{/, 'main.css should position the resource preview back button')
 assert.match(css, /\.style-card-apply\.is-current/, 'styles.css should style the current style apply button')
+assert.match(css, /\.resource-home \{\s*max-width: 728px;/, 'resources.css should preserve the main centered resource home width')
+assert.match(
+  css,
+  /\.resource-installed-icon--styles,[\s\S]*linear-gradient\(135deg, #2bb3d9/,
+  'resources.css should preserve the main installed style icon treatment'
+)
+assert.match(
+  css,
+  /\.resource-entry-grid \{[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/,
+  'resources.css should preserve the main two-column resource directory'
+)
+assert.match(
+  responsiveCss,
+  /\.resource-page \{\s*padding-inline: 18px;[\s\S]*\.resource-entry-grid \{\s*grid-template-columns: 1fr;/,
+  'responsive.css should preserve the main medium-width resource directory collapse'
+)
+assert.match(
+  responsiveCss,
+  /\.resource-page \{\s*padding: 16px 12px 36px;[\s\S]*\.resource-home-head h1,/,
+  'responsive.css should preserve the main mobile resource page spacing and title scale'
+)
 
 // ----- i18n -----
 

@@ -13,6 +13,16 @@
   }.lower-grid {
     grid-template-columns: 1fr;
     max-width: 900px;
+  }.resource-page {
+    padding-inline: 18px;
+  }.resource-home {
+    max-width: 760px;
+  }.resource-entry-grid {
+    grid-template-columns: 1fr;
+    row-gap: 10px;
+  }.resource-source-row {
+    overflow-x: auto;
+    padding-bottom: 2px;
   }.style-gallery.has-preview,
   .style-gallery.is-card-only {
     grid-template-columns: 1fr;
@@ -110,6 +120,18 @@ body {
     margin: 0 12px 28px;
   }.composer-tool {
     margin: 0 0 18px;
+  }.resource-page {
+    padding: 16px 12px 36px;
+  }.resource-home-tabs {
+    margin-bottom: 20px;
+  }.resource-home-head h1,
+  .resource-style-head h1 {
+    font-size: 27px;
+  }.resource-entry-card {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }.resource-entry-action {
+    grid-column: 2;
+    justify-self: start;
   }.overview-dialog-shell {
     padding: 20px 12px 12px;
   }.overview-dialog-card {

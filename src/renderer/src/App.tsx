@@ -33,6 +33,7 @@ import {
   Minus,
   MoreHorizontal,
   PanelLeft,
+  Palette,
   Pause,
   PenLine,
   Pin,
@@ -2165,10 +2166,7 @@ function MainArea() {
                 onBack={() => setResourcePageSection('home')}
               />
             ) : (
-              <ResourceHome
-                currentStyleId={settings.workspace.lessonStyleId}
-                onOpenStyles={() => setResourcePageSection('styles')}
-              />
+              <ResourceHome onOpenStyles={() => setResourcePageSection('styles')} />
             )
           )}
         </section>
@@ -2185,43 +2183,42 @@ function MainArea() {
   )
 }
 
-function ResourceHome({
-  currentStyleId,
-  onOpenStyles
-}: {
-  currentStyleId: unknown
-  onOpenStyles: () => void
-}) {
+function ResourceHome({ onOpenStyles }: { onOpenStyles: () => void }) {
   const { t } = useTranslation()
+  const savedStyleId = useAppStore((s) => s.settings.workspace.lessonStyleId)
+  const currentStyleId = normalizeLessonStyleId(savedStyleId)
+  const currentStyleName = t(`resources.styles.items.${currentStyleId}.name`)
   const [query, setQuery] = useState('')
-  const normalizedCurrentStyleId = normalizeLessonStyleId(currentStyleId)
-  const currentStyleName = t(`resources.styles.items.${normalizedCurrentStyleId}.name`)
-  const entries = [
-    {
-      id: 'lesson-styles',
-      title: t('resources.styles.title'),
-      detail: t('resources.home.stylesDetail', {
-        count: LESSON_STYLES.length,
-        style: currentStyleName
-      }),
-      meta: t('resources.home.stylesMeta'),
-      action: t('resources.home.open'),
-      onClick: onOpenStyles
-    }
-  ]
-  const filteredEntries = entries.filter((entry) => {
-    const needle = query.trim().toLowerCase()
-    if (!needle) return true
-    return [entry.title, entry.detail, entry.meta].some((value) => value.toLowerCase().includes(needle))
-  })
+
+  const entries = useMemo(
+    () => [
+      {
+        id: 'styles',
+        title: t('resources.styles.title'),
+        detail: t('resources.home.stylesDetail', {
+          count: LESSON_STYLES.length,
+          style: currentStyleName
+        }),
+        meta: t('resources.home.stylesMeta'),
+        action: t('resources.home.open')
+      }
+    ],
+    [currentStyleName, t]
+  )
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visibleEntries = normalizedQuery
+    ? entries.filter((entry) =>
+        `${entry.title} ${entry.detail} ${entry.meta}`.toLocaleLowerCase().includes(normalizedQuery)
+      )
+    : entries
 
   return (
     <div className="resource-home">
       <div className="resource-home-tabs" role="tablist" aria-label={t('resources.home.tabsAria')}>
-        <button className="is-active" type="button">
+        <button type="button" role="tab" aria-selected="true" className="is-active">
           {t('resources.home.tabs.resources')}
         </button>
-        <button type="button" disabled>
+        <button type="button" role="tab" aria-selected="false" disabled>
           {t('resources.home.tabs.workspace')}
         </button>
       </div>
@@ -2230,19 +2227,19 @@ function ResourceHome({
         <p>{t('resources.home.subtitle')}</p>
       </div>
       <label className="resource-home-search">
-        <Search size={16} />
+        <Search size={15} />
         <input
           type="search"
           value={query}
           placeholder={t('resources.home.searchPlaceholder')}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => setQuery(event.currentTarget.value)}
         />
       </label>
       <section className="resource-installed-strip" aria-label={t('resources.home.installed')}>
         <div className="resource-installed-head">
           <strong>{t('resources.home.installed')}</strong>
           <span className="resource-icon-button" aria-hidden="true">
-            <CheckCircle2 size={15} />
+            <Settings size={15} />
           </span>
         </div>
         <div className="resource-installed-icons">
@@ -2253,7 +2250,7 @@ function ResourceHome({
             title={t('resources.styles.title')}
             onClick={onOpenStyles}
           >
-            <SlidersHorizontal size={17} />
+            <Palette size={22} />
           </button>
         </div>
       </section>
@@ -2267,20 +2264,20 @@ function ResourceHome({
           <h2>{t('resources.home.featured')}</h2>
           <span className="resource-section-line" aria-hidden="true" />
           <span className="resource-icon-button" aria-hidden="true">
-            <LibraryBig size={15} />
+            <SlidersHorizontal size={15} />
           </span>
         </div>
-        {filteredEntries.length ? (
+        {visibleEntries.length > 0 ? (
           <div className="resource-entry-grid">
-            {filteredEntries.map((entry) => (
+            {visibleEntries.map((entry) => (
               <button
                 key={entry.id}
                 className="resource-entry-card"
                 type="button"
-                onClick={entry.onClick}
+                onClick={onOpenStyles}
               >
                 <span className="resource-entry-icon resource-entry-icon--styles">
-                  <SlidersHorizontal size={18} />
+                  <Palette size={22} />
                 </span>
                 <span className="resource-entry-body">
                   <strong>{entry.title}</strong>
@@ -2288,7 +2285,7 @@ function ResourceHome({
                 </span>
                 <span className="resource-entry-action">
                   {entry.action}
-                  <ArrowUpRight size={14} />
+                  <ArrowUpRight size={13} />
                 </span>
               </button>
             ))}
@@ -2316,7 +2313,7 @@ function ResourceStyleLibrary({
   return (
     <div className="resource-style-page">
       <button className="resource-back-button" type="button" onClick={onBack}>
-        <ArrowLeft size={16} />
+        <ArrowLeft size={15} />
         {t('resources.home.back')}
       </button>
       <div className="resource-style-head">
