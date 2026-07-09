@@ -53,7 +53,9 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }.app-shell.platform-darwin .sidebar {
   padding-top: 52px;
 }.app-shell.platform-win32 .sidebar {
-  padding-top: calc(var(--window-chrome-height) + 8px);
+  margin-top: var(--window-chrome-height);
+  height: calc(100% - var(--window-chrome-height));
+  padding-top: 0;
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }.sidebar.is-collapsed {

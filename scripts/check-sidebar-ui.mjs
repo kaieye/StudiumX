@@ -138,7 +138,7 @@ assert.match(
 
 assert.match(
   css,
-  /\.app-shell\.platform-win32 \.sidebar \{[\s\S]*padding-top: calc\(var\(--window-chrome-height\) \+ 8px\);/,
+  /\.app-shell\.platform-win32 \.sidebar \{[\s\S]*margin-top: var\(--window-chrome-height\);[\s\S]*padding-top: 0;/,
   'Windows primary sidebar nav should sit slightly higher under the titlebar like Zcode'
 )
 

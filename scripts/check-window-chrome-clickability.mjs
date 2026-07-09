@@ -43,6 +43,12 @@ assert.match(
   'Windows BrowserWindow should use hidden transparent titlebar overlay mode like Zcode'
 )
 
+assert.match(
+  main,
+  /function buildWindowsTitleBarOverlay\(\): Electron\.TitleBarOverlay \{[\s\S]*height: 32/,
+  'Windows native titlebar overlay should match the compact app chrome height'
+)
+
 assert.doesNotMatch(
   windowsVisualOptions,
   /frame: false/,
@@ -57,8 +63,20 @@ assert.match(
 
 assert.match(
   css,
-  /\.app-frame\.platform-win32 \{[\s\S]*--window-chrome-height: 48px;[\s\S]*--window-control-overlay-width: 138px;/,
+  /\.app-frame\.platform-win32 \{[\s\S]*--window-chrome-height: 32px;[\s\S]*--window-control-overlay-width: 138px;/,
   'Windows app frame should align chrome metrics with the native titlebar overlay'
+)
+
+assert.match(
+  cssRule('.app-shell.platform-win32 .topbar'),
+  /(?:^|\n)\s*min-height:\s*var\(--window-chrome-height\);/,
+  'Windows main topbar should use the compact chrome height instead of forcing 48px'
+)
+
+assert.match(
+  cssRule('.app-shell.platform-win32 .topbar .ghost-button,\n.app-shell.platform-win32 .topbar .primary-button'),
+  /(?:^|\n)\s*height:\s*30px;/,
+  'Windows topbar buttons should fit inside the compact 32px chrome'
 )
 
 assert.match(
@@ -131,7 +149,7 @@ assert.match(
 
 assert.match(
   css,
-  /\.windows-sidebar-drag-region \{[\s\S]*position: absolute;[\s\S]*left: var\(--window-chrome-left-width\);[\s\S]*width: calc\(var\(--sidebar-width\) - var\(--window-chrome-left-width\)\);[\s\S]*height: calc\(var\(--window-chrome-height\) \+ 8px\);[\s\S]*app-region: drag;[\s\S]*-webkit-app-region: drag;/,
+  /\.windows-sidebar-drag-region \{[\s\S]*position: absolute;[\s\S]*left: var\(--window-chrome-left-width\);[\s\S]*width: calc\(var\(--sidebar-width\) - var\(--window-chrome-left-width\)\);[\s\S]*height: var\(--window-chrome-height\);[\s\S]*app-region: drag;[\s\S]*-webkit-app-region: drag;/,
   'Windows sidebar top blank space should be an explicit draggable strip that does not sit under the sidebar toggle'
 )
 
@@ -143,11 +161,11 @@ assert.match(
 
 assert.match(
   css,
-  /\.app-shell\.platform-win32 \.sidebar \{[\s\S]*padding-top: calc\(var\(--window-chrome-height\) \+ 8px\);/,
-  'Windows sidebar content should sit below the extended draggable sidebar top strip'
+  /\.app-shell\.platform-win32 \.sidebar \{[\s\S]*margin-top: var\(--window-chrome-height\);[\s\S]*height: calc\(100% - var\(--window-chrome-height\)\);[\s\S]*padding-top: 0;/,
+  'Windows sidebar should start below the explicit sidebar-top drag strip instead of covering it'
 )
 
-assertAppRegion('.app-shell.platform-win32 .sidebar', 'no-drag', 'Windows sidebar itself must not sit under the toggle as a drag region')
+assertAppRegion('.app-shell.platform-win32 .sidebar', 'no-drag', 'Windows sidebar content should not cover the collapse button as a drag region')
 
 assertAppRegion('.nav-list', 'no-drag', 'Windows sidebar navigation buttons must stay clickable')
 

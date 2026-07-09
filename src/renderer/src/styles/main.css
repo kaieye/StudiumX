@@ -73,8 +73,13 @@
   app-region: drag;
   -webkit-app-region: drag;
 }.app-shell.platform-win32 .topbar {
-  min-height: max(48px, var(--window-chrome-height));
+  min-height: var(--window-chrome-height);
   padding-right: calc(20px + var(--window-control-overlay-width));
+}.app-shell.platform-win32 .topbar .ghost-button,
+.app-shell.platform-win32 .topbar .primary-button {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 10px;
 }.app-shell.platform-win32 .topbar::after {
   content: "";
   position: absolute;

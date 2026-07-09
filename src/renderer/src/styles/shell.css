@@ -12,7 +12,7 @@
   overflow: hidden;
   background: #f7f9fe;
 }.app-frame.platform-win32 {
-  --window-chrome-height: 48px;
+  --window-chrome-height: 32px;
   --window-control-overlay-width: 138px;
 }
 
@@ -91,7 +91,7 @@
   left: var(--window-chrome-left-width);
   z-index: 210;
   width: calc(var(--sidebar-width) - var(--window-chrome-left-width));
-  height: calc(var(--window-chrome-height) + 8px);
+  height: var(--window-chrome-height);
   app-region: drag;
   -webkit-app-region: drag;
 }.windows-sidebar-drag-region.is-sidebar-collapsed {

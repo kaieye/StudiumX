@@ -466,7 +466,7 @@ function buildWindowsTitleBarOverlay(): Electron.TitleBarOverlay {
   return {
     color: '#00000000',
     symbolColor: nativeTheme.shouldUseDarkColors ? '#f5f5f5' : '#1f1f1f',
-    height: 48
+    height: 32
   }
 }
 
