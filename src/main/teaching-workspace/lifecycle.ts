@@ -172,7 +172,7 @@ ${safePrompt}。这个工作区会把学习目标、可信资源、课程讲义�
 }
 
 export function renderResources(topic: string): string {
-  const safeTopic = cleanText(topic) || 'TeachOS'
+  const safeTopic = cleanText(topic) || 'StudiumX'
   return `# ${safeTopic} Resources
 
 ## Knowledge

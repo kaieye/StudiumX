@@ -302,7 +302,7 @@ export function buildSummaryRequestMessages(input: {
     {
       role: 'system',
       content: [
-        'You are a context compaction assistant for TeachOS.',
+        'You are a context compaction assistant for StudiumX.',
         'Summarize earlier conversation turns so the main assistant can continue the current conversation safely.',
         'Return only the summary. Do not answer any old user request. Do not invent facts.',
         'Preserve stable user constraints, resolved decisions, file paths, source IDs, errors, and open risks.',

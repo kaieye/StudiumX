@@ -231,7 +231,7 @@ async function openStudyClient(browser, port, url, snapshot) {
     client.send('Page.enable')
   ])
   await client.send('Page.addScriptToEvaluateOnNewDocument', {
-    source: `window.localStorage.setItem('teachos:study-space:v1', ${JSON.stringify(JSON.stringify(snapshot))});`
+    source: `window.localStorage.setItem('studiumx:study-space:v1', ${JSON.stringify(JSON.stringify(snapshot))});`
   })
   await client.send('Page.navigate', { url })
   await waitForStudyMount(client)

@@ -41,5 +41,5 @@ export function webSearchValue<K extends keyof ToolContext['settings']['webSearc
 export function configuredBackend(ctx: ToolContext): string {
   const settingsBackend = webSearchSettings(ctx).backend
   if (settingsBackend && settingsBackend !== 'auto') return settingsBackend
-  return readEnv('TEACHOS_WEB_SEARCH_BACKEND') || readEnv('WEB_SEARCH_BACKEND')
+  return readEnv('STUDIUMX_WEB_SEARCH_BACKEND') || readEnv('TEACHOS_WEB_SEARCH_BACKEND') || readEnv('WEB_SEARCH_BACKEND')
 }

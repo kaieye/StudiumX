@@ -20,7 +20,7 @@ const wechatWallHtml = `
     <script>
       var msg_title = "AI 教学系统优化实战";
       var msg_desc = "讲解 web_search 如何处理微信受限页面。";
-      var nickname = "TeachOS研究所";
+      var nickname = "StudiumX研究所";
       var ct = "1767225600";
     </script>
   </head>
@@ -46,7 +46,7 @@ const duckDuckGoHtml = `
       </tr>
       <tr>
         <td class='result-snippet'>
-          TeachOS研究所发布的微信文章摘要，讲解 web_search 如何处理受限页面。
+          StudiumX研究所发布的微信文章摘要，讲解 web_search 如何处理受限页面。
         </td>
       </tr>
     </table>
@@ -85,7 +85,7 @@ try {
   assert.equal(fetchPayload.access, 'restricted')
   assert.match(fetchPayload.reason, /微信/)
   assert.equal(fetchPayload.metadata.title, 'AI 教学系统优化实战')
-  assert.equal(fetchPayload.metadata.author, 'TeachOS研究所')
+  assert.equal(fetchPayload.metadata.author, 'StudiumX研究所')
   assert.equal(fetchPayload.results[0]?.url, fallbackUrl)
   assert.doesNotMatch(fetchPayload.text ?? '', /请在微信客户端打开/)
   assert.match(fetchPayload.guidance, /不能声称已读取原文全文/)

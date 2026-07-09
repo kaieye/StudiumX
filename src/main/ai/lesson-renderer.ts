@@ -175,7 +175,7 @@ ${plan.quiz.map((item) => renderQuizCard(item)).join('\n')}
 
   const metadata = generator.structuredOutput
     ? `
-  <script type="application/json" id="teachos-lesson-metadata">${safeJsonScript({
+  <script type="application/json" id="studiumx-lesson-metadata">${safeJsonScript({
         lesson,
         mission,
         workspaceName,
@@ -327,7 +327,7 @@ ${body}
 
 ---
 
-_本记录由 TeachOS 在生成课程时自动落盘，供后续课程的 zone of proximal development 决策使用；对话中若展示了新的理解或纠正了误解，应另起一条 learning-record。_
+_本记录由 StudiumX 在生成课程时自动落盘，供后续课程的 zone of proximal development 决策使用；对话中若展示了新的理解或纠正了误解，应另起一条 learning-record。_
 `
 }
 

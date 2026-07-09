@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'node:
 import { dirname, join } from 'node:path'
 
 /**
- * Minimal file logger — writes to `userData/teachos.log` and rotates by
+ * Minimal file logger — writes to `userData/studiumx.log` and rotates by
  * retention window. The main process pipes console warnings/errors here so
  * users can attach diagnostics from Settings > 通用.
  */
@@ -14,7 +14,7 @@ export class Logger {
   private flushing = false
 
   constructor(options: { userDataPath: string; enabled: boolean; retentionDays: number }) {
-    this.logPath = join(options.userDataPath, 'teachos.log')
+    this.logPath = join(options.userDataPath, 'studiumx.log')
     this.enabled = options.enabled
     this.retentionDays = options.retentionDays
   }
@@ -67,7 +67,7 @@ export class Logger {
     const files = await readdir(dir).catch(() => [])
     const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000
     for (const file of files) {
-      if (!file.startsWith('teachos') || !file.endsWith('.log')) continue
+      if ((!file.startsWith('studiumx') && !file.startsWith('teachos')) || !file.endsWith('.log')) continue
       const full = join(dir, file)
       const info = await stat(full).catch(() => null)
       if (info && info.mtimeMs < cutoff) await unlink(full).catch(() => {})
@@ -78,7 +78,7 @@ export class Logger {
     const exists = await stat(this.logPath).then((info) => info.isFile()).catch(() => false)
     if (!exists) return null
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const archive = join(dirname(this.logPath), `teachos-${stamp}.log`)
+    const archive = join(dirname(this.logPath), `studiumx-${stamp}.log`)
     try {
       await rename(this.logPath, archive)
       return archive

@@ -10,7 +10,7 @@ import { buildDefaultRegistry, buildToolContext } from '../../src/main/ai/tools/
 let tempRoot = ''
 
 try {
-  tempRoot = await mkdtemp(join(tmpdir(), 'teachos-workspace-write-tool-'))
+  tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-workspace-write-tool-'))
   const defaultRoot = join(tempRoot, 'workspaces')
   const settings = defaultSettings(defaultRoot)
   settings.tools.enabled = true
@@ -19,7 +19,7 @@ try {
   settings.tools.webFetch = false
 
   const service = new TeachingWorkspaceService({
-    registryPath: join(tempRoot, 'user-data', 'teachos-workspaces.json'),
+    registryPath: join(tempRoot, 'user-data', 'studiumx-workspaces.json'),
     defaultRoot,
     settingsProvider: async () => settings
   })

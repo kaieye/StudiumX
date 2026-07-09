@@ -19,4 +19,5 @@ pnpm-debug.log*
 Thumbs.db
 
 .teachos/
+.studiumx/
 conversations/

@@ -22,7 +22,7 @@ type RecordedRequest = {
 }
 
 const requests: RecordedRequest[] = []
-let scenario: 'success' | 'child-error' = 'success'
+let scenario: 'success' | 'child-error' | 'parallel' = 'success'
 
 const makeToolCall = (id: string, name: string, args: unknown): ToolCall => ({
   id,
@@ -50,8 +50,38 @@ const server = createServer(async (req, res) => {
   if (phase === 'parent') {
     const toolResult = body.messages?.find((message) => message.role === 'tool')
     if (toolResult) {
-      const payload = JSON.parse(String(toolResult.content ?? '{}')) as { status?: string; summary?: string }
+      const payload = JSON.parse(String(toolResult.content ?? '{}')) as { status?: string; summary?: string; mode?: string; completed?: number; total?: number }
+      if (payload.mode === 'parallel') {
+        reply({ role: 'assistant', content: `父任务已整合并行结果：${payload.status} ${payload.completed}/${payload.total}` })
+        return
+      }
       reply({ role: 'assistant', content: `父任务已整合：${payload.status} ${payload.summary ?? ''}` })
+      return
+    }
+    if (scenario === 'parallel') {
+      reply({
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          makeToolCall('call-parallel', 'parallel_tasks', {
+            concurrency: 2,
+            tasks: [
+              {
+                label: '检查 mission',
+                prompt: '读取 MISSION.md，并用一句话总结学习目标。',
+                profile: 'workspace_audit',
+                maxIterations: 3
+              },
+              {
+                label: '检查 resources',
+                prompt: '读取 RESOURCES.md，并用一句话总结资料范围。',
+                profile: 'workspace_audit',
+                maxIterations: 3
+              }
+            ]
+          })
+        ]
+      })
       return
     }
     reply({
@@ -76,14 +106,20 @@ const server = createServer(async (req, res) => {
 
   const hasToolResult = body.messages?.some((message) => message.role === 'tool') ?? false
   if (!hasToolResult) {
+    const taskText = String(body.messages?.find((message) => message.role === 'user')?.content ?? '')
+    const path = taskText.includes('RESOURCES.md') ? 'RESOURCES.md' : 'MISSION.md'
     reply({
       role: 'assistant',
       content: null,
-      tool_calls: [makeToolCall('call-read-mission', 'read_workspace_file', { path: 'MISSION.md' })]
+      tool_calls: [makeToolCall(`call-read-${path.toLowerCase().replace(/[^a-z]+/g, '-')}`, 'read_workspace_file', { path })]
     })
     return
   }
-  reply({ role: 'assistant', content: 'MISSION.md 表明学习目标是掌握 RAG 面试解释。' })
+  const toolText = String(body.messages?.find((message) => message.role === 'tool')?.content ?? '')
+  reply({
+    role: 'assistant',
+    content: toolText.includes('RESOURCES') ? 'RESOURCES.md 表明资料范围是 RAG 论文与面试题。' : 'MISSION.md 表明学习目标是掌握 RAG 面试解释。'
+  })
 })
 
 const listen = (srv: typeof server): Promise<void> => new Promise((resolve, reject) => {
@@ -102,8 +138,9 @@ try {
   const address = server.address()
   assert.ok(address && typeof address === 'object')
 
-  tempRoot = await mkdtemp(join(tmpdir(), 'teachos-agent-delegation-'))
+  tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-agent-delegation-'))
   await writeFile(join(tempRoot, 'MISSION.md'), '# Mission\n\n掌握 RAG 面试解释。\n', 'utf8')
+  await writeFile(join(tempRoot, 'RESOURCES.md'), '# Resources\n\nRAG 论文与面试题。\n', 'utf8')
 
   const settings = defaultSettings(join(tempRoot, 'workspaces'))
   settings.provider.activeProviderId = 'custom'
@@ -141,6 +178,7 @@ try {
     parentRegistry.register(tool)
   }
   assert.equal(parentRegistry.definitions().some((tool) => tool.function.name === 'delegate_task'), true)
+  assert.equal(parentRegistry.definitions().some((tool) => tool.function.name === 'parallel_tasks'), true)
   assert.equal(parentRegistry.definitions().some((tool) => tool.function.name === 'write_workspace_file'), true)
 
   const runParent = async (): Promise<{ events: AgentLoopEvent[]; result: Awaited<ReturnType<typeof runAgentLoop>> }> => {
@@ -205,6 +243,42 @@ try {
   assert.match(failedPayload.summary ?? '', /未知工具：write_workspace_file/)
   assert.ok(childError.events.some((event) => event.type === 'child_run_failed'))
   assert.equal(childError.result.stopReason, 'final_answer', 'child failure should not crash the parent loop')
+
+  scenario = 'parallel'
+  requests.length = 0
+  const parallel = await runParent()
+  assert.equal(parallel.result.stopReason, 'final_answer')
+  assert.match(parallel.result.finalText, /父任务已整合并行结果：completed 2\/2/)
+  assert.equal(parallel.result.messages.filter((message) => message.role === 'tool').length, 1, 'parent transcript should store only the parallel_tasks tool result')
+  const parallelPayload = JSON.parse(String(parallel.result.messages.find((message) => message.role === 'tool')?.content ?? '{}')) as {
+    mode?: string
+    status?: string
+    total?: number
+    completed?: number
+    concurrency?: number
+    results?: Array<{ label?: string; status?: string; filesRead?: string[] }>
+    usage?: { toolCalls?: number }
+  }
+  assert.equal(parallelPayload.mode, 'parallel')
+  assert.equal(parallelPayload.status, 'completed')
+  assert.equal(parallelPayload.total, 2)
+  assert.equal(parallelPayload.completed, 2)
+  assert.equal(parallelPayload.concurrency, 2)
+  assert.deepEqual(
+    parallelPayload.results?.map((result) => result.label),
+    ['检查 mission', '检查 resources']
+  )
+  assert.deepEqual(parallelPayload.results?.[0]?.filesRead, ['MISSION.md'])
+  assert.deepEqual(parallelPayload.results?.[1]?.filesRead, ['RESOURCES.md'])
+  assert.equal(parallelPayload.usage?.toolCalls, 2)
+  assert.equal(parallel.events.filter((event) => event.type === 'child_run_queued').length, 2)
+  assert.equal(parallel.events.filter((event) => event.type === 'child_run_started').length, 2)
+  assert.equal(parallel.events.filter((event) => event.type === 'child_run_completed').length, 2)
+  assert.equal(
+    parallel.events.some((event) => event.type === 'tool_call' && event.toolCall.function.name === 'read_workspace_file'),
+    false,
+    'parallel child tool calls should not be emitted as parent tool calls'
+  )
 
   console.log('agent delegation runtime ok')
 } finally {

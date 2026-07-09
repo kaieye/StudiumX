@@ -125,7 +125,7 @@
 
 ## Phase 5：并行任务与状态 UI
 
-状态：未开始。
+状态：已完成。
 
 目标：支持多个独立只读任务并发执行，并让用户看见状态。
 
@@ -142,6 +142,14 @@
 - 2-3 个子任务可以并发执行。
 - 一个任务失败不影响其他任务完成。
 - UI 能展示子任务状态和错误。
+
+落地记录：
+
+- 已新增 `parallel_tasks` 工具，支持 1-8 个只读 child task，默认并发 3、最大并发 4。
+- 已复用 Phase 4 的只读 child profile 和工具白名单，child 仍不能写入、生成课程、ask 或递归派发。
+- 已新增 queued/running/progress/completed/failed/canceled 状态映射，renderer 过程面板可展示子任务状态。
+- 已聚合每个 child 的 label/profile/status/summary/filesRead/citations 和 toolCalls usage；父 transcript 只保存 `parallel_tasks` 的聚合工具结果。
+- 已补 `check:agent-delegation-runtime` 与 `check:agent-conversation-state` 覆盖并行任务和状态 UI。
 
 建议 commit：
 

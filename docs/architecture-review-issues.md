@@ -1,8 +1,8 @@
-# TeachOS Architecture Review Issues
+# StudiumX Architecture Review Issues
 
 Date: 2026-07-04
 
-Source: architecture review of the TeachOS codebase. These are deepening candidates only; no module interfaces are proposed here.
+Source: architecture review of the StudiumX codebase. These are deepening candidates only; no module interfaces are proposed here.
 
 ## 1. Deepen Course and Session Placement
 

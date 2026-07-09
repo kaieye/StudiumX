@@ -1,4 +1,4 @@
-function setupTeachOsQuizCards(root = document) {
+function setupStudiumXQuizCards(root = document) {
   root.querySelectorAll('.quiz-card').forEach((card) => {
     if (card.dataset.quizReady === 'true') return;
     card.dataset.quizReady = 'true';
@@ -12,7 +12,7 @@ function setupTeachOsQuizCards(root = document) {
       if (explanation) explanation.style.display = correct ? 'block' : 'none';
       try {
         window.parent.postMessage({
-          source: 'teachos-lesson',
+          source: 'studiumx-lesson',
           kind: 'quiz',
           question: card.querySelector('p')?.textContent || '',
           correct
@@ -100,7 +100,7 @@ window.Quiz = class Quiz {
   constructor(items = [], options = {}) {
     const mount = typeof options.mount === 'string' ? document.querySelector(options.mount) : options.mount;
     const section = mount || document.createElement('section');
-    section.classList.add('practice', 'teachos-generated-quiz');
+    section.classList.add('practice', 'studiumx-generated-quiz');
 
     if (!mount) {
       const title = document.createElement('h2');
@@ -116,12 +116,12 @@ window.Quiz = class Quiz {
       else document.body.append(section);
     }
 
-    setupTeachOsQuizCards(section);
+    setupStudiumXQuizCards(section);
   }
 };
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => setupTeachOsQuizCards());
+  document.addEventListener('DOMContentLoaded', () => setupStudiumXQuizCards());
 } else {
-  setupTeachOsQuizCards();
+  setupStudiumXQuizCards();
 }

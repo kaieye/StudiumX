@@ -53,7 +53,8 @@ import {
 } from '../shared/agent-conversation-catalog'
 import {
   ensurePreviewBaseTag,
-  injectPreviewMarkdownLinkBridge
+  injectPreviewMarkdownLinkBridge,
+  PREVIEW_PROTOCOL
 } from '../shared/preview-markdown-bridge'
 import {
   EMPTY_REGISTRY,
@@ -1201,7 +1202,7 @@ function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
 </head>
 <body>
   <main>
-    <div class="badge">TeachOS</div>
+    <div class="badge">StudiumX</div>
     <h1>${escapeHtml(workspace.missionTitle)}</h1>
     <p>${escapeHtml(workspace.missionExcerpt)}</p>
     <p>点击生成按钮后，静态 HTML lesson 会保存到当前课程的 lessons 文件夹，并在这里预览。</p>
@@ -1215,7 +1216,7 @@ function withPreviewBase(html: string, baseHref: string): string {
 }
 
 function toPreviewUrl(workspaceId: string, relativePath: string): string {
-  return `teachos-preview://${encodeURIComponent(workspaceId)}/${relativePath.split('/').map(encodeURIComponent).join('/')}`
+  return `${PREVIEW_PROTOCOL}://${encodeURIComponent(workspaceId)}/${relativePath.split('/').map(encodeURIComponent).join('/')}`
 }
 
 function mimeTypeForPath(path: string): string {

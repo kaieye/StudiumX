@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url'
 
 import { build } from 'esbuild'
 
-const tempParent = join(process.cwd(), '.teachos')
+const tempParent = join(process.cwd(), '.studiumx')
 await mkdir(tempParent, { recursive: true })
 const tempRoot = await mkdtemp(join(tempParent, 'web-fetch-safe-url-'))
 const outfile = join(tempRoot, 'web-fetch-safe-url.mjs')

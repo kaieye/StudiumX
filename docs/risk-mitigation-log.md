@@ -337,13 +337,13 @@ Review lanes:
 
 Findings:
 
-- `removeWorkspace({ mode: 'disk' })` prevented deleting a filesystem root, but it allowed recursive deletion of any imported directory after `importWorkspace` registered it as a TeachOS workspace.
+- `removeWorkspace({ mode: 'disk' })` prevented deleting a filesystem root, but it allowed recursive deletion of any imported directory after `importWorkspace` registered it as a StudiumX workspace.
 - `importWorkspace` intentionally supports arbitrary user-selected directories and initializes them with `.teachos` metadata, so a marker-file check alone would not prove that the whole directory is safe to remove from disk.
 
 Treatment:
 
-- Tightened workspace disk removal so only workspaces inside the configured TeachOS workspace root can be recursively deleted.
-- Kept external imported workspaces removable from the TeachOS list while preserving their files on disk.
+- Tightened workspace disk removal so only workspaces inside the configured StudiumX workspace root can be recursively deleted.
+- Kept external imported workspaces removable from the StudiumX list while preserving their files on disk.
 - Extended the workspace import fixture to cover both allowed managed-workspace disk removal and denied imported-workspace disk removal.
 
 Verification:
@@ -353,7 +353,7 @@ Verification:
 
 Residual risk:
 
-- The renderer still offers the disk-removal action for imported top-level workspaces and surfaces the backend denial as an error. A future UX pass should hide or disable that destructive option when the workspace root is outside the managed TeachOS root.
+- The renderer still offers the disk-removal action for imported top-level workspaces and surfaces the backend denial as an error. A future UX pass should hide or disable that destructive option when the workspace root is outside the managed StudiumX root.
 
 ## 2026-07-07: External Link and web_fetch Hardening
 

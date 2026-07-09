@@ -18,8 +18,14 @@ assert.match(
 
 assert.match(
   appStore,
-  /const AGENT_INPUT_HISTORY_STORAGE_KEY = 'teachos:agent-input-history'/,
-  'sent input history should use a stable local storage key'
+  /const AGENT_INPUT_HISTORY_STORAGE_KEY = 'studiumx:agent-input-history'/,
+  'sent input history should use the StudiumX local storage key'
+)
+
+assert.match(
+  appStore,
+  /const LEGACY_AGENT_INPUT_HISTORY_STORAGE_KEY = 'teachos:agent-input-history'/,
+  'sent input history should keep the legacy local storage key for migration'
 )
 
 assert.match(

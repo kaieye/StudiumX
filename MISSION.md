@@ -1,7 +1,7 @@
-# Mission: TeachOS
+# Mission: StudiumX
 
 ## Why
-学习 TeachOS。这个工作区会把学习目标、可信资源、课程讲义和复习记录沉淀为可迁移的本地文件。
+学习 StudiumX。这个工作区会把学习目标、可信资源、课程讲义和复习记录沉淀为可迁移的本地文件。
 
 ## Success looks like
 - 能把模糊学习需求整理成一段可执行的 mission

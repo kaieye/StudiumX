@@ -30,6 +30,7 @@ export type ToolRuntimeChildRunRecord = {
 }
 
 export type ToolRuntimeEvent =
+  | { type: 'child_run_queued'; child: ToolRuntimeChildRunRecord }
   | { type: 'child_run_started'; child: ToolRuntimeChildRunRecord }
   | { type: 'child_run_delta'; childRunId: string; message: string }
   | { type: 'child_run_completed'; child: ToolRuntimeChildRunRecord }

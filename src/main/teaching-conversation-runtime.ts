@@ -259,11 +259,23 @@ export async function runTeachingConversationTurn(
             result: event.result,
             isError: event.isError
           })
+        } else if (event.type === 'child_run_queued') {
+          stream.onStatus({
+            streamId,
+            status: 'tool_running',
+            message: `子任务排队：${event.child.label}`
+          })
         } else if (event.type === 'child_run_started') {
           stream.onStatus({
             streamId,
             status: 'tool_running',
             message: `子任务开始：${event.child.label}`
+          })
+        } else if (event.type === 'child_run_delta') {
+          stream.onStatus({
+            streamId,
+            status: 'tool_running',
+            message: `子任务进度：${event.childRunId}：${event.message}`
           })
         } else if (event.type === 'child_run_completed') {
           stream.onStatus({
@@ -807,7 +819,7 @@ function isLessonGenerationRequest(input: string): boolean {
 }
 
 const AGENT_CHAT_SYSTEM_PROMPT =
-  '你是 TeachOS 的教学助手，负责这个教学工作区里的完整学习闭环：澄清学习需求、答疑、维护工作区文件、决定何时生成课程。' +
+  '你是 StudiumX 的教学助手，负责这个教学工作区里的完整学习闭环：澄清学习需求、答疑、维护工作区文件、决定何时生成课程。' +
   '用户进入“教学”对话时，等价于在发送真实需求的同时引用了 teach skill：把它当作教学方法论，而不是必须照本宣科的固定流程。' +
   '保持主动判断：可以先回答、先澄清、读取工作区或建议下一步；只有在学习者基础/身份、目标、约束或第一步动作确实会影响教学质量时，才问 1 到 3 个具体问题，问完即止。' +
   '不要默认用户属于编程、AI、学生或任何固定人群；问题示例必须跟随用户当前主题、身份和场景。' +
@@ -827,7 +839,7 @@ const LESSON_TOOL_POLICY_PROMPT = [
   '在当前轮次没有收到 generate_lesson 的 ok:true 工具结果之前，不要说课程已经生成、正在生成、开始生成或已保存。',
   '用户明确表示“直接生成、别问了”时，跳过澄清，基于已知信息与 MISSION.md 直接调用 generate_lesson。',
   '生成成功后：向用户简短汇报课程标题与保存路径，并给一句下一步建议。生成失败时：如实转述失败原因，可建议重试或调整，不要假装已生成，也不要改用其他方式硬写课程文件。',
-  '生成成功后的增量维护（与汇报同轮完成，不要拖到下一轮）：若本课引入了新术语，立即用 write_workspace_file（overwrite: true）把 GLOSSARY.md 对应分区增量更新（追加或把占位项转正）；若用户在近期对话中展示了非平凡理解或纠正了误解，写一条 learning-records/00NN-<slug>.md（判定 + 对未来课程的影响）。这两步是 TeachOS 学习闭环的核心，不是可选项。',
+  '生成成功后的增量维护（与汇报同轮完成，不要拖到下一轮）：若本课引入了新术语，立即用 write_workspace_file（overwrite: true）把 GLOSSARY.md 对应分区增量更新（追加或把占位项转正）；若用户在近期对话中展示了非平凡理解或纠正了误解，写一条 learning-records/00NN-<slug>.md（判定 + 对未来课程的影响）。这两步是 StudiumX 学习闭环的核心，不是可选项。',
   '</lesson-generation-policy>'
 ].join('\n')
 
@@ -885,7 +897,7 @@ const GENERATE_LESSON_TOOL_DEFINITION: ToolDefinition = {
 }
 
 const TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT =
-  '你是 TeachOS 的临时会话助手。' +
+  '你是 StudiumX 的临时会话助手。' +
   '回答使用简洁、准确的中文。' +
   '当前不会提供工作区文件访问，也不会提供教学工作区工具；不要声称自己查看了本地文件、课程正文、mission、resources 或学习记录。' +
   '当用户询问现有课程时，只能基于已注入的课程概览回答；当用户要基于具体工作区文件继续学习时，提示其切换到教学对话。'

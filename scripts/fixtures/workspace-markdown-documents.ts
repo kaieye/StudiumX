@@ -9,19 +9,21 @@ import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import {
   ensurePreviewBaseTag,
   injectPreviewMarkdownLinkBridge,
+  LEGACY_PREVIEW_PROTOCOL,
   parsePreviewExternalHref,
   parsePreviewMarkdownHref,
   PREVIEW_EXTERNAL_LINK_MESSAGE,
-  PREVIEW_MARKDOWN_LINK_MESSAGE
+  PREVIEW_MARKDOWN_LINK_MESSAGE,
+  PREVIEW_PROTOCOL
 } from '../../src/shared/preview-markdown-bridge'
 
 let tempRoot = ''
 
 try {
-  tempRoot = await mkdtemp(join(tmpdir(), 'teachos-workspace-markdown-'))
+  tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-workspace-markdown-'))
   const defaultRoot = join(tempRoot, 'workspaces')
   const service = new TeachingWorkspaceService({
-    registryPath: join(tempRoot, 'user-data', 'teachos-workspaces.json'),
+    registryPath: join(tempRoot, 'user-data', 'studiumx-workspaces.json'),
     defaultRoot,
     settingsProvider: async () => defaultSettings(defaultRoot)
   })
@@ -100,12 +102,17 @@ try {
   assert.match(
     lessonPreview.html,
     new RegExp(PREVIEW_EXTERNAL_LINK_MESSAGE),
-    'lesson preview HTML should intercept external links instead of letting the iframe navigate away from TeachOS'
+    'lesson preview HTML should intercept external links instead of letting the iframe navigate away from StudiumX'
   )
   assert.deepEqual(
-    parsePreviewMarkdownHref(`teachos-preview://${encodeURIComponent(workspace.id)}/MISSION.md`),
+    parsePreviewMarkdownHref(`${PREVIEW_PROTOCOL}://${encodeURIComponent(workspace.id)}/MISSION.md`),
     { workspaceId: workspace.id, relativePath: 'MISSION.md' },
-    'preview markdown bridge should parse teachos-preview Markdown links for the app shell'
+    'preview markdown bridge should parse studiumx-preview Markdown links for the app shell'
+  )
+  assert.deepEqual(
+    parsePreviewMarkdownHref(`${LEGACY_PREVIEW_PROTOCOL}://${encodeURIComponent(workspace.id)}/MISSION.md`),
+    { workspaceId: workspace.id, relativePath: 'MISSION.md' },
+    'preview markdown bridge should keep parsing legacy teachos-preview Markdown links'
   )
   assert.equal(
     parsePreviewExternalHref('https://example.com/docs?x=1#intro'),
@@ -113,7 +120,7 @@ try {
     'preview bridge should allow http(s) external links'
   )
   assert.equal(
-    parsePreviewExternalHref(`teachos-preview://${encodeURIComponent(workspace.id)}/MISSION.md`),
+    parsePreviewExternalHref(`${PREVIEW_PROTOCOL}://${encodeURIComponent(workspace.id)}/MISSION.md`),
     null,
     'preview bridge should not treat internal preview links as external links'
   )
@@ -121,14 +128,14 @@ try {
   assert.equal(protocolPreviewFile?.relativePath, 'courses/demo/lesson/0001-md-nav.html')
   assert.equal(protocolPreviewFile?.workspaceId, workspace.id)
   assert.equal(protocolPreviewFile?.mimeType, 'text/html; charset=utf-8')
-  const protocolPreviewUrl = `teachos-preview://${encodeURIComponent(workspace.id)}/courses/demo/lesson/0001-md-nav.html`
+  const protocolPreviewUrl = `${PREVIEW_PROTOCOL}://${encodeURIComponent(workspace.id)}/courses/demo/lesson/0001-md-nav.html`
   const protocolHtml = injectPreviewMarkdownLinkBridge(
     ensurePreviewBaseTag(await readFile(protocolPreviewFile.absolutePath, 'utf8'), protocolPreviewUrl)
   )
   assert.match(
     protocolHtml,
     new RegExp(`<base href="${protocolPreviewUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`),
-    'preview protocol HTML should receive a teachos-preview base tag'
+    'preview protocol HTML should receive a studiumx-preview base tag'
   )
   assert.match(
     protocolHtml,
@@ -138,7 +145,7 @@ try {
   assert.match(
     protocolHtml,
     new RegExp(PREVIEW_EXTERNAL_LINK_MESSAGE),
-    'preview protocol HTML should intercept external links before the iframe navigates away from TeachOS'
+    'preview protocol HTML should intercept external links before the iframe navigates away from StudiumX'
   )
 
   await assert.rejects(

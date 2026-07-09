@@ -132,7 +132,7 @@ try {
   const address = server.address()
   assert.ok(address && typeof address === 'object')
 
-  tempRoot = await mkdtemp(join(tmpdir(), 'teachos-agent-loop-context-hygiene-'))
+  tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-agent-loop-context-hygiene-'))
   const settings = defaultSettings(join(tempRoot, 'workspaces'))
   settings.provider.activeProviderId = 'custom'
   settings.generator.providerId = 'custom'

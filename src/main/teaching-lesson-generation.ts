@@ -276,7 +276,7 @@ async function produceLessonPlan(opts: {
       parseError = parsed.error
     } catch (error) {
       const reason = error instanceof ProviderAdapterError ? adapterReason(error) : (error instanceof Error ? error.message : '未知错误')
-      console.warn(`[TeachOS] Tool-augmented lesson generation fell back to single-shot: ${reason}`)
+      console.warn(`[StudiumX] Tool-augmented lesson generation fell back to single-shot: ${reason}`)
       // fall through to the single-shot path below
     }
   }
@@ -524,7 +524,7 @@ function parsePlan(text: string): { plan: LessonPlan; error?: undefined } | { pl
       .slice(0, 5)
       .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
       .join('；')
-    console.warn('[TeachOS] Lesson plan schema validation failed:', issues)
+    console.warn('[StudiumX] Lesson plan schema validation failed:', issues)
     return { plan: null, error: `结构校验失败：${issues}` }
   }
   return { plan: sanitizePlan(result.data) }
@@ -581,7 +581,7 @@ function localFallbackPlan(
     quiz: includeQuiz
       ? [{
           type: 'single',
-          question: 'TeachOS 里最应该长期保存的真相来源是什么？',
+          question: 'StudiumX 里最应该长期保存的真相来源是什么？',
           choices: ['运行时内存状态', '工作区文件资产', '单次聊天窗口'],
           answer: 1,
           explanation: '工作区文件能脱离 App 长期保存。'
@@ -590,7 +590,7 @@ function localFallbackPlan(
     flashcards: [],
     callouts: [],
     referenceNotes: '先写 mission，再决定第一课；课程输出到 lessons/*.html；对话记录写入 conversation/*.md。',
-    learningRecordNote: `本节围绕「${mission.title}」建立了可复用的 TeachOS 学习闭环。`
+    learningRecordNote: `本节围绕「${mission.title}」建立了可复用的 StudiumX 学习闭环。`
   }
 }
 

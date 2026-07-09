@@ -4,7 +4,7 @@ import { defaultSettings } from '../../src/main/teaching-settings'
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from '../../src/main/ai/tools/registry'
 import type { ToolEntry } from '../../src/main/ai/tools/registry'
 
-const settings = defaultSettings('C:\\teachos-test-workspaces')
+const settings = defaultSettings('C:\\studiumx-test-workspaces')
 settings.tools.enabled = true
 settings.tools.workspaceRead = true
 settings.tools.webSearch = true

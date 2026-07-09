@@ -8,7 +8,7 @@ export const LESSON_MARKUP_CLASSES = {
   compactList: 'compact-list',
   tip: 'tip',
   practice: 'practice',
-  generatedQuiz: 'teachos-generated-quiz',
+  generatedQuiz: 'studiumx-generated-quiz',
   quizCard: 'quiz-card',
   quizChoices: 'quiz-choices',
   quizFill: 'quiz-fill',
@@ -62,4 +62,4 @@ export const LESSON_MARKUP_SELECTORS = {
   flashcardSelfButton: `${selectorFor(LESSON_MARKUP_CLASSES.flashcardSelf)} button`
 } as const
 
-export const LESSON_INTERACTION_SOURCE = 'teachos-lesson'
+export const LESSON_INTERACTION_SOURCE = 'studiumx-lesson'

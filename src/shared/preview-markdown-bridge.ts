@@ -1,7 +1,11 @@
-export const PREVIEW_MARKDOWN_LINK_MESSAGE = 'teachos:open-markdown'
-export const PREVIEW_EXTERNAL_LINK_MESSAGE = 'teachos:open-external'
+export const PREVIEW_PROTOCOL = 'studiumx-preview'
+export const LEGACY_PREVIEW_PROTOCOL = 'teachos-preview'
+export const PREVIEW_MARKDOWN_LINK_MESSAGE = 'studiumx:open-markdown'
+export const PREVIEW_EXTERNAL_LINK_MESSAGE = 'studiumx:open-external'
+export const LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE = 'teachos:open-markdown'
+export const LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE = 'teachos:open-external'
 
-const BRIDGE_SCRIPT_ID = 'teachos-markdown-link-bridge'
+const BRIDGE_SCRIPT_ID = 'studiumx-markdown-link-bridge'
 
 export type PreviewMarkdownLink = {
   workspaceId: string
@@ -11,8 +15,8 @@ export type PreviewMarkdownLink = {
 function markdownBridgeScript(): string {
   return `<script id="${BRIDGE_SCRIPT_ID}">
 (() => {
-  if (window.__teachosMarkdownLinkBridge) return;
-  window.__teachosMarkdownLinkBridge = true;
+  if (window.__studiumxMarkdownLinkBridge) return;
+  window.__studiumxMarkdownLinkBridge = true;
   document.addEventListener('click', (event) => {
     const target = event.target;
     const anchor = target instanceof Element ? target.closest('a[href]') : null;
@@ -23,7 +27,7 @@ function markdownBridgeScript(): string {
     } catch {
       return;
     }
-    if (url.protocol === 'teachos-preview:') {
+    if (${JSON.stringify([`${PREVIEW_PROTOCOL}:`, `${LEGACY_PREVIEW_PROTOCOL}:`])}.includes(url.protocol)) {
       const path = decodeURIComponent(url.pathname);
       if (!/\\.(?:md|markdown)$/i.test(path)) return;
       event.preventDefault();
@@ -58,7 +62,7 @@ export function parsePreviewMarkdownHref(href: string): PreviewMarkdownLink | nu
   } catch {
     return null
   }
-  if (url.protocol !== 'teachos-preview:') return null
+  if (url.protocol !== `${PREVIEW_PROTOCOL}:` && url.protocol !== `${LEGACY_PREVIEW_PROTOCOL}:`) return null
 
   const workspaceId = decodeURIComponent(url.hostname)
   const relativePath = url.pathname

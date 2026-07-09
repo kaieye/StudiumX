@@ -381,7 +381,8 @@ export function toUserError(error: unknown): UserError {
 // Zustand Store
 // ================================================================
 
-const AGENT_INPUT_HISTORY_STORAGE_KEY = 'teachos:agent-input-history'
+const AGENT_INPUT_HISTORY_STORAGE_KEY = 'studiumx:agent-input-history'
+const LEGACY_AGENT_INPUT_HISTORY_STORAGE_KEY = 'teachos:agent-input-history'
 const MAX_AGENT_INPUT_HISTORY = 20
 
 function appendAgentInputHistory(history: string[], input: string): string[] {
@@ -405,9 +406,13 @@ function normalizeAgentInputHistory(input: unknown): string[] {
 
 function readPersistedAgentInputHistory(): string[] {
   try {
-    const stored = window.localStorage.getItem(AGENT_INPUT_HISTORY_STORAGE_KEY)
+    const stored =
+      window.localStorage.getItem(AGENT_INPUT_HISTORY_STORAGE_KEY) ??
+      window.localStorage.getItem(LEGACY_AGENT_INPUT_HISTORY_STORAGE_KEY)
     if (!stored) return []
-    return normalizeAgentInputHistory(JSON.parse(stored))
+    const history = normalizeAgentInputHistory(JSON.parse(stored))
+    window.localStorage.setItem(AGENT_INPUT_HISTORY_STORAGE_KEY, JSON.stringify(history))
+    return history
   } catch {
     return []
   }
@@ -561,7 +566,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
     set({ loading: true, error: null })
     const api = window.teachingSystem
     if (!api) {
-      console.warn('[TeachOS] preload API is not available; renderer is running without window.teachingSystem.')
+      console.warn('[StudiumX] preload API is not available; renderer is running without window.teachingSystem.')
       set({ loading: false, error: null })
       return
     }
@@ -1322,7 +1327,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
   },
   probeProvider: async (payload) => {
     const api = window.teachingSystem
-    if (!api) return { ok: false, message: 'TeachOS preload API unavailable.' }
+    if (!api) return { ok: false, message: 'StudiumX preload API unavailable.' }
     try {
       return await api.probeProvider(payload)
     } catch (error) {
@@ -1331,7 +1336,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
   },
   listUpstreamModels: async (payload) => {
     const api = window.teachingSystem
-    if (!api) return { ok: false, message: 'TeachOS preload API unavailable.' }
+    if (!api) return { ok: false, message: 'StudiumX preload API unavailable.' }
     try {
       return await api.listUpstreamModels(payload)
     } catch (error) {
@@ -1340,7 +1345,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
   },
   listGitWorktrees: async (workspaceRoot) => {
     const api = window.teachingSystem
-    if (!api) return { ok: false, reason: 'error', message: 'TeachOS preload API unavailable.' }
+    if (!api) return { ok: false, reason: 'error', message: 'StudiumX preload API unavailable.' }
     try {
       return await api.listGitWorktrees(workspaceRoot)
     } catch (error) {
@@ -1498,7 +1503,7 @@ function emptyPreviewHtml(workspace: TeachingWorkspaceSummary): string {
   return `<!doctype html><html lang="${i18n.language}"><head><meta charset="utf-8" /><style>
 body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
 main{max-width:680px;margin:0 auto;padding:46px 34px}p{color:#68778f;line-height:1.8}.badge{color:#4f7cf5;font-size:12px;font-weight:800;text-transform:uppercase}
-</style></head><body><main><div class="badge">TeachOS</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(workspace.missionExcerpt)}</p><p>${escapeHtml(i18n.t('preview.emptyHint'))}</p></main></body></html>`
+</style></head><body><main><div class="badge">StudiumX</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(workspace.missionExcerpt)}</p><p>${escapeHtml(i18n.t('preview.emptyHint'))}</p></main></body></html>`
 }
 
 

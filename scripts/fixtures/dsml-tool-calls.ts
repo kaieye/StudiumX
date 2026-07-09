@@ -83,7 +83,7 @@ try {
   const address = server.address()
   assert.ok(address && typeof address === 'object')
 
-  tempRoot = await mkdtemp(join(tmpdir(), 'teachos-dsml-tool-calls-'))
+  tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-dsml-tool-calls-'))
   const settings = defaultSettings(join(tempRoot, 'workspaces'))
   settings.provider.activeProviderId = 'custom'
   settings.generator.providerId = 'custom'

@@ -29,7 +29,7 @@
     "lessonsCount": "{{count}} lessons",
     "notifications": "Notifications",
     "settings": "Settings",
-    "notificationCenterTitle": "TeachOS Notifications",
+    "notificationCenterTitle": "StudiumX Notifications",
     "notificationCenterOn": "Notification settings opened.",
     "notificationCenterOff": "Notifications are off — re-enable them here.",
     "conversations": "Conversations",
@@ -54,7 +54,7 @@
       "listTitle": "Remove from list only",
       "listDetail": "Hide this item while keeping files on disk.",
       "diskTitle": "Remove from disk",
-      "diskDetail": "Delete local files. This cannot be undone in TeachOS."
+      "diskDetail": "Delete local files. This cannot be undone in StudiumX."
     }
   },
   "sidebarResizer": {
@@ -176,7 +176,7 @@
       "installed": "Enabled",
       "sourcesAria": "Resource sources",
       "sources": {
-        "builtIn": "Provided by TeachOS",
+        "builtIn": "Provided by StudiumX",
         "workspace": "Provided by your workspace",
         "personal": "Personal"
       },
@@ -215,7 +215,7 @@
     "tutorials": {
       "start": {
         "title": "Getting started",
-        "detail": "Learn the basics and get up to speed with TeachOS.",
+        "detail": "Learn the basics and get up to speed with StudiumX.",
         "tag": "Beginner"
       },
       "concepts": {
@@ -280,7 +280,7 @@
   },
   "general": {
     "title": "General",
-    "subtitle": "Local preferences are saved to TeachOS's app data folder.",
+    "subtitle": "Local preferences are saved to StudiumX's app data folder.",
     "theme": { "label": "Theme", "detail": "Follow system, light, or dark.", "system": "System", "light": "Light", "dark": "Dark" },
     "language": { "label": "Language", "detail": "Interface display language.", "zh": "中文", "en": "English" },
     "density": { "label": "Density", "detail": "Compact mode reduces row height and panel spacing.", "comfortable": "Comfortable", "compact": "Compact" },
@@ -418,13 +418,13 @@
   },
   "privacy": {
     "title": "Privacy",
-    "subtitle": "TeachOS is local-first by default; settings, the workspace index, and lesson files all stay on this machine.",
+    "subtitle": "StudiumX is local-first by default; settings, the workspace index, and lesson files all stay on this machine.",
     "maskKey": { "label": "Mask API key", "detail": "Show keys in a password field on the settings page." },
     "externalLinks": { "label": "Allow external links", "detail": "Controls the provider docs and key-page buttons." },
     "proxy": { "label": "Provider Proxy", "on": "Enabled", "off": "Disabled", "placeholder": "http://127.0.0.1:7890" }
   },
   "about": {
-    "title": "About TeachOS",
+    "title": "About StudiumX",
     "subtitle": "Diagnostics entry and current runtime info, to verify the full chain after migration.",
     "runtime": "Current runtime",
     "streaming": "Streaming",
@@ -434,7 +434,7 @@
     "appData": { "label": "App data folder", "detail": "Where settings, the workspace registry, and logs live.", "open": "Open folder" }
   },
   "errors": {
-    "ipcHandlerMissing": { "message": "Restart required", "detail": "TeachOS is running an older main process than this window. Restart the app to load the latest handlers." },
+    "ipcHandlerMissing": { "message": "Restart required", "detail": "StudiumX is running an older main process than this window. Restart the app to load the latest handlers." },
     "noApiKey": { "message": "API key required", "detail": "Open Model settings and add an API key before using chat." },
     "providerInsufficientBalance": { "message": "Provider balance is insufficient", "detail": "The upstream model service returned 402 Payment Required. Add credits, switch provider, or use another available model." },
     "providerAuth": { "message": "Provider authentication failed", "detail": "Check the current provider API key, base URL, and endpoint format." },
@@ -470,11 +470,11 @@
     "confirmGenerate": "This will generate a lesson, reference, and learning record from the current task. Continue?"
   },
   "notify": {
-    "imported": { "title": "Workspace imported", "body": "{{name}} has been added to TeachOS.", "fallbackName": "Teaching workspace" },
+    "imported": { "title": "Workspace imported", "body": "{{name}} has been added to StudiumX.", "fallbackName": "Teaching workspace" },
     "importFailed": { "title": "Import failed" },
     "lessonGenerated": { "title": "Lesson generated", "body": "{{title}} saved to {{path}}{{suffix}}", "fallbackWithReason": "(local fallback: {{reason}})", "fallbackNoReason": "(local fallback)" },
     "generateFailed": { "title": "Generation failed" },
-    "test": { "title": "TeachOS notification test", "body": "Notification settings are wired up correctly." }
+    "test": { "title": "StudiumX notification test", "body": "Notification settings are wired up correctly." }
   },
   "preview": {
     "streamingHint": "Receiving model output; it'll be rendered as a finished lesson once complete.",

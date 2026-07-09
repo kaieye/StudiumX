@@ -102,7 +102,7 @@ export function assertSafeWorkspaceRootForRemoval(rootPath: string, managedRoots
   )
   if (!isManagedWorkspace) {
     throw new Error(
-      'Only workspaces inside the configured TeachOS workspace root can be removed from disk. Remove this imported workspace from the list instead.'
+      'Only workspaces inside the configured StudiumX workspace root can be removed from disk. Remove this imported workspace from the list instead.'
     )
   }
 }

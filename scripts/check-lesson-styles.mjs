@@ -471,7 +471,7 @@ assert.match(
 
 assert.match(
   app,
-  /className="icon-button reader-preview-back"[\s\S]*aria-label=\{t\('resources\.styles\.backToStyles'\)\}[\s\S]*onClick=\{closeResourceHtmlPreview\}/,
+  /reader-preview-back[\s\S]*aria-label=\{t\('resources\.styles\.backToStyles'\)\}[\s\S]*onClick=\{closeResourceHtmlPreview\}/,
   'resource style previews should expose a floating back button'
 )
 

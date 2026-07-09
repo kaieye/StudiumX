@@ -334,7 +334,7 @@ export const listWorkspaceTool: ToolEntry = {
     function: {
       name: 'list_workspace',
       description:
-        '列出当前 TeachOS 教学工作区内的目录内容。只读、限定在当前工作区内；递归模式会跳过 .git、node_modules、构建输出和隐藏噪声目录。',
+        '列出当前 StudiumX 教学工作区内的目录内容。只读、限定在当前工作区内；递归模式会跳过 .git、node_modules、构建输出和隐藏噪声目录。',
       parameters: {
         type: 'object',
         properties: {
@@ -374,7 +374,7 @@ export const readWorkspaceFileTool: ToolEntry = {
     function: {
       name: 'read_workspace_file',
       description:
-        '读取当前 TeachOS 教学工作区内的文本文件。只读、限定在当前工作区内；支持 offset/limit 分页，并返回带行号的内容。',
+        '读取当前 StudiumX 教学工作区内的文本文件。只读、限定在当前工作区内；支持 offset/limit 分页，并返回带行号的内容。',
       parameters: {
         type: 'object',
         properties: {
@@ -421,7 +421,7 @@ export const writeWorkspaceFileTool: ToolEntry = {
     function: {
       name: 'write_workspace_file',
       description:
-        '写入当前 TeachOS 教学工作区内的文本文件。限定在当前工作区内；会自动创建父目录；默认不覆盖已有文件。适合维护 MISSION.md、RESOURCES.md、GLOSSARY.md、NOTES.md、reference/*.html、learning-records/*.md 等文件。注意：lessons/ 目录下的课程 HTML 不能用本工具写入，请改用 generate_lesson 工具（它会统一编号、渲染模板并登记到课程索引）。',
+        '写入当前 StudiumX 教学工作区内的文本文件。限定在当前工作区内；会自动创建父目录；默认不覆盖已有文件。适合维护 MISSION.md、RESOURCES.md、GLOSSARY.md、NOTES.md、reference/*.html、learning-records/*.md 等文件。注意：lessons/ 目录下的课程 HTML 不能用本工具写入，请改用 generate_lesson 工具（它会统一编号、渲染模板并登记到课程索引）。',
       parameters: {
         type: 'object',
         properties: {
@@ -493,7 +493,7 @@ export const searchWorkspaceTool: ToolEntry = {
     function: {
       name: 'search_workspace',
       description:
-        '在当前 TeachOS 教学工作区内搜索文本。只读、限定在当前工作区内；返回 path:line:text 形式的匹配，最多 120 条。',
+        '在当前 StudiumX 教学工作区内搜索文本。只读、限定在当前工作区内；返回 path:line:text 形式的匹配，最多 120 条。',
       parameters: {
         type: 'object',
         properties: {
@@ -564,7 +564,7 @@ export const globWorkspaceTool: ToolEntry = {
     function: {
       name: 'glob_workspace',
       description:
-        '按 glob 模式查找当前 TeachOS 教学工作区内的文件。支持 *、?、**，只返回相对路径，最多 500 条。',
+        '按 glob 模式查找当前 StudiumX 教学工作区内的文件。支持 *、?、**，只返回相对路径，最多 500 条。',
       parameters: {
         type: 'object',
         properties: {

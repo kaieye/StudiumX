@@ -16,18 +16,21 @@ import {
   type WebSearchBackend
 } from '../shared/teaching-types'
 
-const SETTINGS_FILE_NAME = 'teachos-settings.json'
+const SETTINGS_FILE_NAME = 'studiumx-settings.json'
+const LEGACY_SETTINGS_FILE_NAME = 'teachos-settings.json'
 const DEFAULT_UI_FONT_SCALE = 1
 const MIN_UI_FONT_SCALE = 0.8
 const MAX_UI_FONT_SCALE = 1.2
 
 export class TeachingSettingsService {
   private readonly settingsPath: string
+  private readonly legacySettingsPath: string
   private readonly fallbackDefaultRoot: string
   private cache: TeachingSettingsV1 | null = null
 
   constructor(options: { userDataPath: string; defaultRoot: string }) {
     this.settingsPath = join(options.userDataPath, SETTINGS_FILE_NAME)
+    this.legacySettingsPath = join(options.userDataPath, LEGACY_SETTINGS_FILE_NAME)
     this.fallbackDefaultRoot = options.defaultRoot
   }
 
@@ -39,6 +42,11 @@ export class TeachingSettingsService {
       parsed = JSON.parse(await readFile(this.settingsPath, 'utf8'))
     } catch (error) {
       if (isErrno(error) && error.code === 'ENOENT') {
+        const legacySettings = await this.loadLegacySettings()
+        if (legacySettings) {
+          this.cache = await this.save(normalizeSettings(legacySettings, this.fallbackDefaultRoot))
+          return this.cache
+        }
         this.cache = await this.ensureSettings(defaultSettings(this.fallbackDefaultRoot))
         return this.cache
       }
@@ -85,11 +93,21 @@ export class TeachingSettingsService {
     try {
       const exists = await stat(this.settingsPath).then((info) => info.isFile()).catch(() => false)
       if (exists) await rename(this.settingsPath, backupPath)
-      console.warn(`[TeachOS] Invalid settings were replaced with defaults: ${reason}. Backup: ${backupPath}`)
+      console.warn(`[StudiumX] Invalid settings were replaced with defaults: ${reason}. Backup: ${backupPath}`)
     } catch {
-      console.warn(`[TeachOS] Invalid settings were replaced with defaults: ${reason}. Backup could not be written.`)
+      console.warn(`[StudiumX] Invalid settings were replaced with defaults: ${reason}. Backup could not be written.`)
     }
     return this.save(defaultSettings(this.fallbackDefaultRoot))
+  }
+
+  private async loadLegacySettings(): Promise<unknown | null> {
+    try {
+      return JSON.parse(await readFile(this.legacySettingsPath, 'utf8'))
+    } catch (error) {
+      if (isErrno(error) && error.code === 'ENOENT') return null
+      if (error instanceof SyntaxError) return null
+      throw error
+    }
   }
 }
 

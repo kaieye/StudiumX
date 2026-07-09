@@ -20,15 +20,35 @@ export type ChildRunInput = {
   timeoutMs?: number
 }
 
+export type ParallelChildRunInput = {
+  tasks: ChildRunInput[]
+  concurrency?: number
+}
+
 export type ChildRunUsage = NonNullable<ToolRuntimeChildRunRecord['usage']>
 
 export type ChildRunResult = {
   childRunId: string
+  label: string
+  profile: ChildAgentProfile
   status: ChildRunStatus
   summary: string
   error?: string
   citations?: Array<{ sourceId: string; url: string; title?: string }>
   filesRead?: string[]
+  usage?: ChildRunUsage
+}
+
+export type ParallelChildRunResult = {
+  mode: 'parallel'
+  status: 'completed' | 'partial' | 'failed' | 'canceled'
+  total: number
+  completed: number
+  failed: number
+  canceled: number
+  concurrency: number
+  summary: string
+  results: ChildRunResult[]
   usage?: ChildRunUsage
 }
 
@@ -53,6 +73,9 @@ const DEFAULT_CHILD_MAX_ITERATIONS = 4
 const MAX_CHILD_MAX_ITERATIONS = 10
 const DEFAULT_CHILD_TIMEOUT_MS = 120_000
 const MAX_CHILD_TIMEOUT_MS = 300_000
+const MAX_PARALLEL_CHILD_TASKS = 8
+const DEFAULT_PARALLEL_CHILD_CONCURRENCY = 3
+const MAX_PARALLEL_CHILD_CONCURRENCY = 4
 
 const WORKSPACE_READ_TOOL_NAMES = [
   'list_workspace',
@@ -125,6 +148,7 @@ export class DelegationRuntime {
 
   async runChild(input: ChildRunInput, options: DelegationRuntimeRunOptions = {}): Promise<ChildRunResult> {
     const normalized = normalizeChildRunInput(input, this.settings.tools.maxIterations)
+    const emit = options.emit ?? (() => undefined)
     const childRunId = this.createChildRunId()
     const record = this.store.create({
       id: childRunId,
@@ -133,6 +157,47 @@ export class DelegationRuntime {
       prompt: normalized.prompt,
       parentStreamId: this.parentStreamId
     })
+    emit({ type: 'child_run_queued', child: toRuntimeRecord(record) })
+    return this.runQueuedChild(childRunId, normalized, options)
+  }
+
+  async runChildren(input: ParallelChildRunInput, options: DelegationRuntimeRunOptions = {}): Promise<ParallelChildRunResult> {
+    const tasks = Array.isArray(input.tasks) ? input.tasks : []
+    if (tasks.length === 0) throw new Error('parallel_tasks 缺少 tasks。')
+    if (tasks.length > MAX_PARALLEL_CHILD_TASKS) {
+      throw new Error(`parallel_tasks 最多支持 ${MAX_PARALLEL_CHILD_TASKS} 个子任务。`)
+    }
+    const concurrency = clampInteger(
+      input.concurrency,
+      1,
+      Math.min(MAX_PARALLEL_CHILD_CONCURRENCY, tasks.length),
+      Math.min(DEFAULT_PARALLEL_CHILD_CONCURRENCY, tasks.length)
+    )
+    const queued = tasks.map((task) => {
+      const normalized = normalizeChildRunInput(task, this.settings.tools.maxIterations)
+      const childRunId = this.createChildRunId()
+      const record = this.store.create({
+        id: childRunId,
+        label: normalized.label,
+        profile: normalized.profile,
+        prompt: normalized.prompt,
+        parentStreamId: this.parentStreamId
+      })
+      options.emit?.({ type: 'child_run_queued', child: toRuntimeRecord(record) })
+      return { childRunId, normalized }
+    })
+
+    const results = await mapWithConcurrencyLimit(queued, concurrency, ({ childRunId, normalized }) =>
+      this.runQueuedChild(childRunId, normalized, options)
+    )
+    return buildParallelChildRunResult(results, concurrency)
+  }
+
+  private async runQueuedChild(
+    childRunId: string,
+    normalized: Required<ChildRunInput> & { profile: ChildAgentProfile },
+    options: DelegationRuntimeRunOptions
+  ): Promise<ChildRunResult> {
     const emit = options.emit ?? (() => undefined)
     const emitRecord = (type: ToolRuntimeEvent['type'], child: ToolRuntimeChildRunRecord): void => {
       if (type === 'child_run_delta') return
@@ -181,7 +246,7 @@ export class DelegationRuntime {
           completedAt: new Date().toISOString()
         })
         emitRecord('child_run_canceled', toRuntimeRecord(canceled))
-        return { childRunId, status: 'canceled', summary, filesRead, citations, usage }
+        return { childRunId, label: normalized.label, profile: normalized.profile, status: 'canceled', summary, filesRead, citations, usage }
       }
       if (result.error) {
         const childError = latestChildToolError(childEvents) ?? result.error
@@ -195,6 +260,8 @@ export class DelegationRuntime {
         emitRecord('child_run_failed', toRuntimeRecord(failed))
         return {
           childRunId,
+          label: normalized.label,
+          profile: normalized.profile,
           status: 'failed',
           summary: failed.summary ?? '',
           error: childError,
@@ -212,7 +279,7 @@ export class DelegationRuntime {
         completedAt: new Date().toISOString()
       })
       emitRecord('child_run_completed', toRuntimeRecord(completed))
-      return { childRunId, status: 'completed', summary, filesRead, citations, usage }
+      return { childRunId, label: normalized.label, profile: normalized.profile, status: 'completed', summary, filesRead, citations, usage }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const failed = this.store.update(childRunId, {
@@ -225,6 +292,8 @@ export class DelegationRuntime {
       emitRecord('child_run_failed', toRuntimeRecord(failed))
       return {
         childRunId,
+        label: normalized.label,
+        profile: normalized.profile,
         status: 'failed',
         summary: failed.summary ?? '',
         error: message,
@@ -307,7 +376,7 @@ function buildChildMessages(input: Required<ChildRunInput> & { profile: ChildAge
     {
       role: 'system',
       content: [
-        '你是 TeachOS 的只读 child agent。你的任务是完成父 agent 派发的一个窄任务，并返回可直接给父 agent 使用的摘要。',
+        '你是 StudiumX 的只读 child agent。你的任务是完成父 agent 派发的一个窄任务，并返回可直接给父 agent 使用的摘要。',
         '你只能做读取、检索、抓取和分析；不要写文件、生成课程、询问用户、派发子任务或修改任何工作区状态。',
         '如果需要工作区信息，使用只读工作区工具。若工具不可用，明确说明无法验证，不要假装读取过文件。',
         '最终答复保持简洁，列出关键结论、必要的文件路径或来源链接，以及仍不确定的点。'
@@ -332,6 +401,84 @@ function withTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: num
 
 function childUsage(messages: ChatMessage[]): ChildRunUsage {
   return { toolCalls: messages.filter((message) => message.role === 'tool').length }
+}
+
+function buildParallelChildRunResult(results: ChildRunResult[], concurrency: number): ParallelChildRunResult {
+  const completed = results.filter((result) => result.status === 'completed').length
+  const failed = results.filter((result) => result.status === 'failed').length
+  const canceled = results.filter((result) => result.status === 'canceled').length
+  const status = completed === results.length
+    ? 'completed'
+    : completed > 0
+      ? 'partial'
+      : canceled === results.length
+        ? 'canceled'
+        : 'failed'
+  const summaryLines = [
+    `并行子任务完成：${completed}/${results.length} 成功，${failed} 失败，${canceled} 取消。`,
+    '',
+    ...results.map((result, index) => [
+      `### ${index + 1}. ${result.label} (${result.status})`,
+      compactChildSummary(result.summary),
+      result.filesRead?.length ? `Files read: ${result.filesRead.join(', ')}` : '',
+      result.citations?.length ? `Sources: ${result.citations.map((item) => item.url).join(', ')}` : ''
+    ].filter(Boolean).join('\n'))
+  ]
+  return {
+    mode: 'parallel',
+    status,
+    total: results.length,
+    completed,
+    failed,
+    canceled,
+    concurrency,
+    summary: summaryLines.join('\n\n'),
+    results,
+    usage: aggregateChildUsage(results)
+  }
+}
+
+async function mapWithConcurrencyLimit<TIn, TOut>(
+  items: TIn[],
+  concurrency: number,
+  worker: (item: TIn, index: number) => Promise<TOut>
+): Promise<TOut[]> {
+  const limit = Math.max(1, Math.min(concurrency, items.length))
+  const results = new Array<TOut>(items.length)
+  let nextIndex = 0
+  await Promise.all(
+    new Array(limit).fill(null).map(async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex
+        nextIndex += 1
+        results[index] = await worker(items[index], index)
+      }
+    })
+  )
+  return results
+}
+
+function aggregateChildUsage(results: ChildRunResult[]): ChildRunUsage {
+  const usage: ChildRunUsage = { toolCalls: 0 }
+  for (const result of results) {
+    usage.toolCalls += result.usage?.toolCalls ?? 0
+    usage.promptTokens = sumOptional(usage.promptTokens, result.usage?.promptTokens)
+    usage.completionTokens = sumOptional(usage.completionTokens, result.usage?.completionTokens)
+    usage.totalTokens = sumOptional(usage.totalTokens, result.usage?.totalTokens)
+  }
+  return usage
+}
+
+function sumOptional(left: number | undefined, right: number | undefined): number | undefined {
+  if (right === undefined) return left
+  return (left ?? 0) + right
+}
+
+function compactChildSummary(value: string): string {
+  const maxLength = 4000
+  const normalized = value.replace(/\s+$/g, '').trim()
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength - 1)}…`
 }
 
 function latestChildToolError(events: AgentLoopEvent[]): string | null {

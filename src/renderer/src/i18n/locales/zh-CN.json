@@ -29,7 +29,7 @@
     "lessonsCount": "{{count}} 课",
     "notifications": "通知",
     "settings": "设置",
-    "notificationCenterTitle": "TeachOS 通知中心",
+    "notificationCenterTitle": "StudiumX 通知中心",
     "notificationCenterOn": "通知设置已打开。",
     "notificationCenterOff": "通知已关闭，可在这里重新启用。",
     "conversations": "对话",
@@ -54,7 +54,7 @@
       "listTitle": "仅从列表中移除",
       "listDetail": "隐藏这项内容，磁盘文件保持不变。",
       "diskTitle": "从磁盘中移除",
-      "diskDetail": "删除本地文件，无法从 TeachOS 内撤销。"
+      "diskDetail": "删除本地文件，无法从 StudiumX 内撤销。"
     }
   },
   "sidebarResizer": {
@@ -176,7 +176,7 @@
       "installed": "已启用",
       "sourcesAria": "资源来源",
       "sources": {
-        "builtIn": "由 TeachOS 提供",
+        "builtIn": "由 StudiumX 提供",
         "workspace": "由你的工作空间提供",
         "personal": "个人"
       },
@@ -215,7 +215,7 @@
     "tutorials": {
       "start": {
         "title": "入门指南",
-        "detail": "了解 TeachOS 的基本概念与上手流程。",
+        "detail": "了解 StudiumX 的基本概念与上手流程。",
         "tag": "入门"
       },
       "concepts": {
@@ -280,7 +280,7 @@
   },
   "general": {
     "title": "通用",
-    "subtitle": "本地偏好会保存到 TeachOS 的应用数据目录。",
+    "subtitle": "本地偏好会保存到 StudiumX 的应用数据目录。",
     "theme": { "label": "主题", "detail": "跟随系统、浅色或深色。", "system": "系统", "light": "浅色", "dark": "深色" },
     "language": { "label": "语言", "detail": "界面显示语言。", "zh": "中文", "en": "English" },
     "density": { "label": "界面密度", "detail": "紧凑模式会减少行高和面板间距。", "comfortable": "舒适", "compact": "紧凑" },
@@ -418,13 +418,13 @@
   },
   "privacy": {
     "title": "隐私",
-    "subtitle": "TeachOS 默认本地优先，设置、工作区索引和课程文件都存放在本机。",
+    "subtitle": "StudiumX 默认本地优先，设置、工作区索引和课程文件都存放在本机。",
     "maskKey": { "label": "隐藏 API Key", "detail": "设置页用密码输入框显示密钥。" },
     "externalLinks": { "label": "允许打开外部链接", "detail": "控制 provider 文档和 Key 页面按钮。" },
     "proxy": { "label": "Provider Proxy", "on": "已启用", "off": "未启用", "placeholder": "http://127.0.0.1:7890" }
   },
   "about": {
-    "title": "关于 TeachOS",
+    "title": "关于 StudiumX",
     "subtitle": "诊断入口和当前运行时信息，便于检查迁移后的完整链路。",
     "runtime": "当前 Runtime",
     "streaming": "Streaming",
@@ -434,7 +434,7 @@
     "appData": { "label": "应用数据目录", "detail": "settings、workspace registry 和日志所在位置。", "open": "打开目录" }
   },
   "errors": {
-    "ipcHandlerMissing": { "message": "需要重启应用", "detail": "当前窗口连接的是旧版 Electron main 进程。请重启 TeachOS 以加载最新的通信处理器。" },
+    "ipcHandlerMissing": { "message": "需要重启应用", "detail": "当前窗口连接的是旧版 Electron main 进程。请重启 StudiumX 以加载最新的通信处理器。" },
     "noApiKey": { "message": "需要配置 API Key", "detail": "请打开模型设置并填写 API Key，然后再使用对话。" },
     "providerInsufficientBalance": { "message": "Provider 余额不足", "detail": "上游模型服务返回 402 Payment Required。请充值、切换 provider 或换用可用模型。" },
     "providerAuth": { "message": "Provider 认证失败", "detail": "请检查当前 provider 的 API Key、Base URL 和端点格式。" },
@@ -470,11 +470,11 @@
     "confirmGenerate": "将根据当前任务生成 lesson、reference 和 learning record。继续吗？"
   },
   "notify": {
-    "imported": { "title": "工作区已导入", "body": "{{name}} 已加入 TeachOS。", "fallbackName": "教学工作区" },
+    "imported": { "title": "工作区已导入", "body": "{{name}} 已加入 StudiumX。", "fallbackName": "教学工作区" },
     "importFailed": { "title": "导入失败" },
     "lessonGenerated": { "title": "课程已生成", "body": "{{title}} 已保存到 {{path}}{{suffix}}", "fallbackWithReason": "（本地回退：{{reason}}）", "fallbackNoReason": "（本地回退）" },
     "generateFailed": { "title": "生成失败" },
-    "test": { "title": "TeachOS 通知测试", "body": "通知设置已正确连接。" }
+    "test": { "title": "StudiumX 通知测试", "body": "通知设置已正确连接。" }
   },
   "preview": {
     "streamingHint": "正在接收模型输出，完成后会渲染为正式 lesson。",

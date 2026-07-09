@@ -8,7 +8,7 @@ const contextTransitions = await readFile('src/renderer/src/app-shell/contextTra
 assert.doesNotMatch(
   app,
   /我想先学习如何把 teach 技能包的 MISSION、RESOURCES 和 lessons 组织成一个 Electron 桌面应用的 MVP/,
-  'overview composer should not prefill the old TeachOS MVP learning prompt'
+  'overview composer should not prefill the old StudiumX MVP learning prompt'
 )
 
 assert.match(

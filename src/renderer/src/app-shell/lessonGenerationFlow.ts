@@ -230,7 +230,7 @@ function streamingPreviewHtml(
   return `<!doctype html><html lang="${labels.language}"><head><meta charset="utf-8" /><style>
 body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;color:#24324a;background:#fbfcff}
 main{max-width:760px;margin:0 auto;padding:38px 30px}.badge{color:#4f7cf5;font-size:12px;font-weight:800;text-transform:uppercase}pre{white-space:pre-wrap;line-height:1.7;color:#40506a;background:#f4f7fb;border:1px solid #e8edf5;border-radius:16px;padding:18px;min-height:180px}
-</style></head><body><main><div class="badge">TeachOS · Streaming</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(labels.hint)}</p><pre>${escapeHtml(liveText || labels.placeholder)}</pre></main></body></html>`
+</style></head><body><main><div class="badge">StudiumX · Streaming</div><h1>${escapeHtml(workspace.missionTitle)}</h1><p>${escapeHtml(labels.hint)}</p><pre>${escapeHtml(liveText || labels.placeholder)}</pre></main></body></html>`
 }
 
 function escapeHtml(value: string): string {

@@ -592,6 +592,22 @@ function agentProcessStatusCopy(
         .trim()
       return { title: `generate_lesson：${phase || '生成课程'}`, detail: '课程生成工具' }
     }
+    const childPrefixes: Array<[string, string]> = [
+      ['子任务排队：', '子任务排队'],
+      ['子任务开始：', '子任务运行'],
+      ['子任务进度：', '子任务进度'],
+      ['子任务完成：', '子任务完成'],
+      ['子任务失败：', '子任务失败'],
+      ['子任务取消：', '子任务取消']
+    ]
+    for (const [prefix, title] of childPrefixes) {
+      if (trimmed.startsWith(prefix)) {
+        return {
+          title,
+          detail: compactText(trimmed.slice(prefix.length), 180)
+        }
+      }
+    }
     if (status === 'tool_running' && /^[\w.-]+$/.test(trimmed)) {
       return { title: `准备调用：${trimmed}` }
     }

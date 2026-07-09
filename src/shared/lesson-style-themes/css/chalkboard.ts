@@ -288,7 +288,7 @@ tbody tr:nth-child(even) {
 .qa-block,
 .quiz-card,
 .summary,
-.teachos-generated-quiz {
+.studiumx-generated-quiz {
   border: 2px dashed var(--line);
   border-radius: 12px;
   background: rgba(236, 242, 230, 0.05);
@@ -433,11 +433,11 @@ tbody tr:nth-child(even) {
 /* —— 测验 —— */
 
 .practice,
-.teachos-generated-quiz {
+.studiumx-generated-quiz {
   margin-top: 30px;
 }
 
-.teachos-generated-quiz {
+.studiumx-generated-quiz {
   padding: 20px;
 }
 
@@ -612,7 +612,7 @@ footer p {
   .qa-block h3,
   .answer,
   .summary,
-  .teachos-generated-quiz {
+  .studiumx-generated-quiz {
     padding-right: 16px;
     padding-left: 16px;
   }

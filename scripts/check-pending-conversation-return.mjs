@@ -70,7 +70,7 @@ assert.match(
   'saving should replace the pending active id with the persisted id only when the pending conversation is still active'
 )
 
-const tempParent = join(process.cwd(), '.teachos')
+const tempParent = join(process.cwd(), '.studiumx')
 await mkdir(tempParent, { recursive: true })
 const tempRoot = await mkdtemp(join(tempParent, 'agent-conversation-projection-check-'))
 const outfile = join(tempRoot, 'agent-conversation-projection.mjs')

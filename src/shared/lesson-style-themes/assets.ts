@@ -6,7 +6,7 @@ import {
   LESSON_MARKUP_SELECTORS
 } from './contract'
 
-export const LESSON_QUIZ_JS = `var teachOsLessonQuizContract = ${JSON.stringify({
+export const LESSON_QUIZ_JS = `var studiumXLessonQuizContract = ${JSON.stringify({
   classes: {
     practice: LESSON_MARKUP_CLASSES.practice,
     generatedQuiz: LESSON_MARKUP_CLASSES.generatedQuiz,
@@ -36,8 +36,8 @@ export const LESSON_QUIZ_JS = `var teachOsLessonQuizContract = ${JSON.stringify(
   source: LESSON_INTERACTION_SOURCE
 })};
 
-function setupTeachOsQuizCards(root = document) {
-  const contract = teachOsLessonQuizContract;
+function setupStudiumXQuizCards(root = document) {
+  const contract = studiumXLessonQuizContract;
   root.querySelectorAll(contract.selectors.quizCard).forEach((card) => {
     if (card.dataset[contract.datasetKeys.quizReady] === 'true') return;
     card.dataset[contract.datasetKeys.quizReady] = 'true';
@@ -102,7 +102,7 @@ function setupTeachOsQuizCards(root = document) {
 }
 
 function appendFillQuizCard(container, item, index) {
-  const contract = teachOsLessonQuizContract;
+  const contract = studiumXLessonQuizContract;
   const card = document.createElement('article');
   card.className = contract.classes.quizCard;
   card.dataset[contract.datasetKeys.quizType] = 'fill';
@@ -140,7 +140,7 @@ window.Quiz = class Quiz {
   constructor(items = [], options = {}) {
     const mount = typeof options.mount === 'string' ? document.querySelector(options.mount) : options.mount;
     const section = mount || document.createElement('section');
-    section.classList.add(teachOsLessonQuizContract.classes.practice, teachOsLessonQuizContract.classes.generatedQuiz);
+    section.classList.add(studiumXLessonQuizContract.classes.practice, studiumXLessonQuizContract.classes.generatedQuiz);
 
     if (!mount) {
       const title = document.createElement('h2');
@@ -156,14 +156,14 @@ window.Quiz = class Quiz {
       else document.body.append(section);
     }
 
-    setupTeachOsQuizCards(section);
+    setupStudiumXQuizCards(section);
   }
 };
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => setupTeachOsQuizCards());
+  document.addEventListener('DOMContentLoaded', () => setupStudiumXQuizCards());
 } else {
-  setupTeachOsQuizCards();
+  setupStudiumXQuizCards();
 }
 `
 
@@ -186,7 +186,7 @@ export const LESSON_FLASHCARD_CSS = `.flashcards { display: grid; gap: 12px; }
 .quiz-explanation { display: none; margin: 6px 0 0; color: #65748a; font-size: 14px; }
 `
 
-export const LESSON_FLASHCARD_JS = `var teachOsLessonFlashcardContract = ${JSON.stringify({
+export const LESSON_FLASHCARD_JS = `var studiumXLessonFlashcardContract = ${JSON.stringify({
   classes: {
     isFlipped: LESSON_MARKUP_CLASSES.isFlipped
   },
@@ -200,8 +200,8 @@ export const LESSON_FLASHCARD_JS = `var teachOsLessonFlashcardContract = ${JSON.
   source: LESSON_INTERACTION_SOURCE
 })};
 
-document.querySelectorAll(teachOsLessonFlashcardContract.selectors.flashcard).forEach((card) => {
-  const contract = teachOsLessonFlashcardContract;
+document.querySelectorAll(studiumXLessonFlashcardContract.selectors.flashcard).forEach((card) => {
+  const contract = studiumXLessonFlashcardContract;
   const flip = () => card.classList.toggle(contract.classes.isFlipped);
   card.addEventListener('click', flip);
   card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });

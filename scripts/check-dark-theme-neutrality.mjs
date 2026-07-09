@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron')
-const tempDir = await mkdtemp(join(tmpdir(), 'teachos-dark-neutral-'))
+const tempDir = await mkdtemp(join(tmpdir(), 'studiumx-dark-neutral-'))
 
 try {
   const stylesHref = pathToFileURL(resolve('src/renderer/src/styles.css')).href

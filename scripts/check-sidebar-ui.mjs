@@ -330,7 +330,9 @@ assert.match(
 
 assert.match(zh, /"addCourseProject": "添加项目"/, 'Chinese locale should label the add project button')
 assert.match(en, /"addCourseProject": "Add project"/, 'English locale should label the add project button')
-assert.doesNotMatch(zh, /StudiumX/, 'Chinese removal copy should use the current TeachOS product name')
-assert.doesNotMatch(en, /StudiumX/, 'English removal copy should use the current TeachOS product name')
+assert.match(zh, /StudiumX/, 'Chinese locale should use the current StudiumX product name')
+assert.match(en, /StudiumX/, 'English locale should use the current StudiumX product name')
+assert.doesNotMatch(zh, /TeachOS/, 'Chinese locale should not use the old TeachOS product name')
+assert.doesNotMatch(en, /TeachOS/, 'English locale should not use the old TeachOS product name')
 
 console.log('sidebar ui behavior ok')

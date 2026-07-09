@@ -1,6 +1,6 @@
-# TeachOS
+# StudiumX
 
-TeachOS is a local teaching workspace context. It turns a learner's goals, trusted resources, lessons, conversations, and review records into durable files that can be moved outside the app.
+StudiumX is a local teaching workspace context. It turns a learner's goals, trusted resources, lessons, conversations, and review records into durable files that can be moved outside the app.
 
 ## Language
 

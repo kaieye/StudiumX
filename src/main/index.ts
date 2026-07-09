@@ -13,11 +13,17 @@ import {
 } from './teaching-git'
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
+import { copyFirstExistingLegacyFileIfMissing, legacyUserDataCandidatePaths } from './app-data-migration'
 import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
 import { isPathInsideConfiguredRoot, isPathInsideRoot } from './path-access'
 import { openExternalHttpUrl } from './external-links'
-import { ensurePreviewBaseTag, injectPreviewMarkdownLinkBridge } from '../shared/preview-markdown-bridge'
+import {
+  ensurePreviewBaseTag,
+  injectPreviewMarkdownLinkBridge,
+  LEGACY_PREVIEW_PROTOCOL,
+  PREVIEW_PROTOCOL
+} from '../shared/preview-markdown-bridge'
 import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import {
   decodeToolAnswerPayload,
@@ -54,22 +60,26 @@ import { teachingEventChannels, teachingInvokeChannels } from '../shared/teachin
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL)
-const PREVIEW_PROTOCOL = 'teachos-preview'
+const APP_NAME = 'StudiumX'
+const REGISTRY_FILE_NAME = 'studiumx-workspaces.json'
+const LEGACY_REGISTRY_FILE_NAME = 'teachos-workspaces.json'
+const SETTINGS_FILE_NAME = 'studiumx-settings.json'
+const LEGACY_SETTINGS_FILE_NAME = 'teachos-settings.json'
 
 let logger: Logger
 let tray: TrayManager
 
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: PREVIEW_PROTOCOL,
+protocol.registerSchemesAsPrivileged(
+  [PREVIEW_PROTOCOL, LEGACY_PREVIEW_PROTOCOL].map((scheme) => ({
+    scheme,
     privileges: {
       standard: true,
       secure: true,
       supportFetchAPI: true,
       corsEnabled: false
     }
-  }
-])
+  }))
+)
 
 function registerTeachingIpc(
   service: TeachingWorkspaceService,
@@ -426,7 +436,7 @@ function registerTeachingIpc(
 }
 
 function registerPreviewProtocol(service: TeachingWorkspaceService): void {
-  protocol.handle(PREVIEW_PROTOCOL, async (request) => {
+  const handlePreviewRequest = async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url)
       const workspaceId = decodeURIComponent(url.hostname)
@@ -451,7 +461,10 @@ function registerPreviewProtocol(service: TeachingWorkspaceService): void {
       logger?.warn(`Preview protocol failed: ${errorMessage(error)}`)
       return new Response('Preview unavailable', { status: 500 })
     }
-  })
+  }
+
+  protocol.handle(PREVIEW_PROTOCOL, handlePreviewRequest)
+  protocol.handle(LEGACY_PREVIEW_PROTOCOL, handlePreviewRequest)
 }
 
 function safeSend(sender: Electron.WebContents, channel: string, payload: unknown): void {
@@ -517,7 +530,7 @@ function createWindow(
     height: 860,
     minWidth: 1100,
     minHeight: 720,
-    title: 'TeachOS',
+    title: APP_NAME,
     autoHideMenuBar: true,
     show: false,
     ...buildDesktopWindowVisualOptions(),
@@ -572,8 +585,22 @@ if (!hasSingleInstanceLock) {
   app.quit()
 } else {
   app.whenReady().then(async () => {
+    app.setName(APP_NAME)
+    app.setAppUserModelId('com.local.studiumx')
+
+    const appDataPath = app.getPath('appData')
     const userDataPath = app.getPath('userData')
-    const defaultRoot = join(app.getPath('documents'), 'TeachOS Workspaces')
+    const defaultRoot = join(app.getPath('documents'), `${APP_NAME} Workspaces`)
+    const registryPath = join(userDataPath, REGISTRY_FILE_NAME)
+    const legacyUserDataPaths = legacyUserDataCandidatePaths(appDataPath, userDataPath)
+    await copyFirstExistingLegacyFileIfMissing(registryPath, [
+      join(userDataPath, LEGACY_REGISTRY_FILE_NAME),
+      ...legacyUserDataPaths.map((path) => join(path, LEGACY_REGISTRY_FILE_NAME))
+    ])
+    await copyFirstExistingLegacyFileIfMissing(join(userDataPath, SETTINGS_FILE_NAME), [
+      join(userDataPath, LEGACY_SETTINGS_FILE_NAME),
+      ...legacyUserDataPaths.map((path) => join(path, LEGACY_SETTINGS_FILE_NAME))
+    ])
 
     const settingsService = new TeachingSettingsService({ userDataPath, defaultRoot })
     const initialSettings = await settingsService.load()
@@ -588,7 +615,7 @@ if (!hasSingleInstanceLock) {
     tray = new TrayManager(logger)
 
     const workspaceService = new TeachingWorkspaceService({
-      registryPath: join(userDataPath, 'teachos-workspaces.json'),
+      registryPath,
       defaultRoot,
       settingsProvider: () => settingsService.load()
     })

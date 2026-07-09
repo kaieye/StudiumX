@@ -160,6 +160,30 @@ assert.equal(patch.agentTurns?.at(-1)?.toolCalls?.[0]?.result, '{"ok":true}')
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'tool_result')
 pending = patch.pendingAgentConversation!
 
+patch = applyAgentChatStatusToPending({
+  pending,
+  activeConversationId: draft.pendingConversationId,
+  assistantId: draft.assistantId,
+  status: { streamId: draft.pendingConversationId, status: 'tool_running', message: '子任务排队：检查 resources' },
+  updatedAt: '2026-01-02T00:00:04.250Z'
+})
+assert.ok(patch)
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '子任务排队')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.detail, '检查 resources')
+pending = patch.pendingAgentConversation!
+
+patch = applyAgentChatStatusToPending({
+  pending,
+  activeConversationId: draft.pendingConversationId,
+  assistantId: draft.assistantId,
+  status: { streamId: draft.pendingConversationId, status: 'tool_running', message: '子任务进度：child-1：thinking' },
+  updatedAt: '2026-01-02T00:00:04.500Z'
+})
+assert.ok(patch)
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '子任务进度')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.detail, 'child-1：thinking')
+pending = patch.pendingAgentConversation!
+
 assert.equal(
   applyAgentChatChunkToPending({
     pending,

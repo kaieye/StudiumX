@@ -1,5 +1,7 @@
 import type { WorkspaceView } from '../../../shared/teaching-types'
 import {
+  LEGACY_STUDY_SPACE_SESSION_CLIENT_KEY,
+  LEGACY_STUDY_SPACE_STORAGE_KEY,
   STUDY_DAY_MS,
   STUDY_PRESENCE_BROKER_URL,
   STUDY_PRESENCE_CLIENT_PREFIX,
@@ -203,7 +205,12 @@ export function readStudySessionClientId(): string {
   try {
     const params = new URLSearchParams(window.location.search)
     const forceFreshSession = params.get('studyFreshSession') === '1'
-    const stored = window.sessionStorage.getItem(STUDY_SPACE_SESSION_CLIENT_KEY)
+    const stored =
+      window.sessionStorage.getItem(STUDY_SPACE_SESSION_CLIENT_KEY) ??
+      window.sessionStorage.getItem(LEGACY_STUDY_SPACE_SESSION_CLIENT_KEY)
+    if (stored?.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)) {
+      window.sessionStorage.setItem(STUDY_SPACE_SESSION_CLIENT_KEY, stored)
+    }
     if (!forceFreshSession && stored?.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)) return stored
     const nextClientId = randomStudyClientId()
     window.sessionStorage.setItem(STUDY_SPACE_SESSION_CLIENT_KEY, nextClientId)
@@ -265,8 +272,12 @@ export function initialWorkspaceViewFromUrl(): WorkspaceView {
 
 export function readStudySnapshot(): StudySnapshot {
   try {
-    const stored = window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY)
-    return applyStudyInviteParams(applyStudySessionIdentity(normalizeStudySnapshot(stored ? JSON.parse(stored) : null)))
+    const stored =
+      window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY) ??
+      window.localStorage.getItem(LEGACY_STUDY_SPACE_STORAGE_KEY)
+    const snapshot = applyStudyInviteParams(applyStudySessionIdentity(normalizeStudySnapshot(stored ? JSON.parse(stored) : null)))
+    window.localStorage.setItem(STUDY_SPACE_STORAGE_KEY, JSON.stringify(snapshot))
+    return snapshot
   } catch {
     return applyStudyInviteParams(applyStudySessionIdentity(normalizeStudySnapshot(null)))
   }

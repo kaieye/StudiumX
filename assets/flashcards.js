@@ -5,7 +5,7 @@ document.querySelectorAll('.flashcard').forEach((card) => {
   card.querySelectorAll('.flashcard-self button').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      try { window.parent.postMessage({ source: 'teachos-lesson', kind: 'flashcard', rating: btn.getAttribute('data-rating') }, '*'); } catch {}
+      try { window.parent.postMessage({ source: 'studiumx-lesson', kind: 'flashcard', rating: btn.getAttribute('data-rating') }, '*'); } catch {}
     });
   });
 });

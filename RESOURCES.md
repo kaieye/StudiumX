@@ -1,4 +1,4 @@
-# TeachOS Resources
+# StudiumX Resources
 
 ## Knowledge
 

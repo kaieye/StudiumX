@@ -1,7 +1,9 @@
 import type { StudyModeId, StudyRoomId, StudySignalId, StudySnapshot } from './types'
 
-export const STUDY_SPACE_STORAGE_KEY = 'teachos:study-space:v1'
-export const STUDY_SPACE_SESSION_CLIENT_KEY = 'teachos:study-space:session-client:v1'
+export const STUDY_SPACE_STORAGE_KEY = 'studiumx:study-space:v1'
+export const LEGACY_STUDY_SPACE_STORAGE_KEY = 'teachos:study-space:v1'
+export const STUDY_SPACE_SESSION_CLIENT_KEY = 'studiumx:study-space:session-client:v1'
+export const LEGACY_STUDY_SPACE_SESSION_CLIENT_KEY = 'teachos:study-space:session-client:v1'
 export const STUDY_DAY_MS = 24 * 60 * 60 * 1000
 export const STUDY_PRESENCE_BROKER_URL = 'wss://broker.emqx.io:8084/mqtt'
 export const STUDY_PRESENCE_RELAY_URLS = [

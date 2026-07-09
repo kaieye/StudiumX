@@ -303,7 +303,7 @@ try {
   const address = server.address()
   assert.ok(address && typeof address === 'object')
 
-  tempRoot = await mkdtemp(join(tmpdir(), 'teachos-conversation-lesson-'))
+  tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-conversation-lesson-'))
   const defaultRoot = join(tempRoot, 'workspaces')
   const settings = defaultSettings(defaultRoot)
   settings.provider.activeProviderId = 'deepseek'
@@ -328,7 +328,7 @@ try {
   )
 
   const service = new TeachingWorkspaceService({
-    registryPath: join(tempRoot, 'user-data', 'teachos-workspaces.json'),
+    registryPath: join(tempRoot, 'user-data', 'studiumx-workspaces.json'),
     defaultRoot,
     settingsProvider: async () => settings
   })
@@ -442,7 +442,7 @@ try {
   // --- Scenario 4: a new learner can enter with a broad topic, answer one
   // clarification question, and have the agent decide to generate the first
   // lesson. If the tool budget runs out immediately after the mission write,
-  // TeachOS must still recover and write the promised lesson.
+  // StudiumX must still recover and write the promised lesson.
   conversationMode = 'onboarding-budget-exhaustion'
   onboardingConversationRequests = 0
   pipelineMode = 'success'

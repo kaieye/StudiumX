@@ -2,6 +2,7 @@ import MarkdownIt from 'markdown-it'
 import markdownItMark from 'markdown-it-mark'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { useEffect, useMemo, useRef } from 'react'
+import { PREVIEW_PROTOCOL } from '../../shared/preview-markdown-bridge'
 
 const COPY_DEFAULT_HTML = '<span class="markdown-copy-icon markdown-copy-icon--default">copy</span>'
 const COPY_DONE_HTML = '<span class="markdown-copy-icon markdown-copy-icon--done">copied</span>'
@@ -107,7 +108,7 @@ function buildPreviewResourceUrl(
   if (!relativePath) return src
 
   const path = relativePath.split('/').filter(Boolean).map((part) => encodeURIComponent(part)).join('/')
-  return `teachos-preview://${encodeURIComponent(workspaceId)}/${path}`
+  return `${PREVIEW_PROTOCOL}://${encodeURIComponent(workspaceId)}/${path}`
 }
 
 function rewriteLocalImages(

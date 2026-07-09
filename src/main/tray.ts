@@ -9,8 +9,8 @@ const TRAY_ICON_DATA_URL =
 type TrayLocale = 'zh-CN' | 'en-US'
 
 const TRAY_LABELS: Record<TrayLocale, { show: string; quit: string }> = {
-  'zh-CN': { show: '显示 TeachOS', quit: '退出' },
-  'en-US': { show: 'Show TeachOS', quit: 'Quit' }
+  'zh-CN': { show: '显示 StudiumX', quit: '退出' },
+  'en-US': { show: 'Show StudiumX', quit: 'Quit' }
 }
 
 /**
@@ -54,7 +54,7 @@ export class TrayManager {
   private ensureTray(): void {
     if (this.tray) return
     this.tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON_DATA_URL))
-    this.tray.setToolTip('TeachOS')
+    this.tray.setToolTip('StudiumX')
     this.tray.on('click', () => this.show())
     this.logger?.info('Tray initialized')
   }

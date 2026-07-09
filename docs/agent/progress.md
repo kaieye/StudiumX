@@ -13,7 +13,7 @@
 | Phase 2：发送前 context hygiene | 已完成 | `fdf9ea1` | 已新增发送前历史清理、CJK 友好估算和最小诊断事件。 |
 | Phase 3：自动与手动压缩 | 已完成 | `37c7bf3` | 已新增 ContextCompactor、自动/手动触发、reference-only 摘要、失败 cooldown 和压缩事件。 |
 | Phase 4：只读子 agent | 已完成 | `6bf0fee` | 已新增 DelegationRuntime、delegate_task/read_only_task 和只读 profile 工具边界。 |
-| Phase 5：并行任务与状态 UI | 未开始 | - | 依赖 Phase 4。 |
+| Phase 5：并行任务与状态 UI | 已完成 | `bd48bb5` | 已新增 `parallel_tasks`、并发槽、子任务状态流和过程面板展示。 |
 | Phase 6：持久化与恢复 | 未开始 | - | 依赖 sources、child run、compaction metadata 的实际落地。 |
 
 ## 已完成
@@ -200,8 +200,38 @@
 剩余风险：
 
 - child run 目前只在内存中执行，未持久化 child transcript 或 metadata；这属于 Phase 6。
-- UI 暂用现有 status/process timeline 展示子任务开始/完成/失败，没有独立 child run 列表；并发与状态 UI 留到 Phase 5。
-- 未新增 `parallel_tasks`，仍是单个前台 child task。
+- UI 暂用现有 status/process timeline 展示子任务开始/完成/失败；并发与状态 UI 已在 Phase 5 补齐。
+- `parallel_tasks` 已在 Phase 5 补齐，Phase 4 的单 child 能力继续作为兼容入口保留。
+
+### Phase 5：并行任务与状态 UI
+
+完成内容：
+
+- 新增 `parallel_tasks` 工具，父 agent 可一次派发 1-8 个相互独立的只读 child task。
+- `DelegationRuntime` 新增并发执行入口，默认 3 个并发槽、最大 4 个并发槽，并复用每个 child 的只读 profile、timeout、maxIterations 和工具白名单。
+- 并行任务按输入顺序返回聚合结果，包含 completed/failed/canceled 计数、每个 child 的 label/profile/status/summary/filesRead/citations，以及聚合 toolCalls usage。
+- 新增 `child_run_queued` 和 `child_run_delta` 事件；教学 runtime 将 queued/running/progress/completed/failed/canceled 映射到现有 status stream。
+- renderer 过程面板识别“子任务排队/运行/进度/完成/失败/取消”，让用户能看到每个 child run 的状态；详细聚合结果仍保存在 `parallel_tasks` 工具结果里。
+- 新增 app data 迁移 helper，修复 StudiumX 重命名后只查新 userData 目录导致旧 `teachos-settings.json` / `teachos-workspaces.json` 漏迁移的问题。
+- 新增 `check:app-data-migration`，覆盖旧 app 名目录到新目录的 settings/registry 迁移和不覆盖现有新文件。
+- 扩展 `check:agent-delegation-runtime` 和 `check:agent-conversation-state`，覆盖并行 child、队列事件、子任务状态 UI 文案和父上下文隔离。
+
+提交：
+
+- `bd48bb5`
+
+验证：
+
+- `npm run check:app-data-migration`
+- `npm run check:agent-delegation-runtime`
+- `npm run check:agent-conversation-state`
+- `npx tsc --noEmit`
+
+剩余风险：
+
+- child run 仍未以独立 metadata 持久化到 conversation record；当前通过 process events 和 `parallel_tasks` 工具结果可回看，完整 child-run 持久化属于 Phase 6。
+- 搜索 sources、压缩 replaced turn ids、大型 tool result blob 归档仍未落地，属于 Phase 6。
+- 尚未引入 pi-main 风格 SDK/extension/provider hooks；需要先完成持久化和 tool contract 深化。
 
 ## 进行中
 
@@ -209,7 +239,6 @@
 
 ## 未开始
 
-- Phase 5：并行任务与状态 UI。
 - Phase 6：持久化与恢复。
 
 ## 更新规则

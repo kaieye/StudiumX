@@ -9,13 +9,13 @@ import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 let tempRoot = ''
 
 try {
-  tempRoot = await mkdtemp(join(tmpdir(), 'teachos-concept-overview-'))
+  tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-concept-overview-'))
   const defaultRoot = join(tempRoot, 'workspaces')
   const settings = defaultSettings(defaultRoot)
   settings.provider.providers = settings.provider.providers.map((provider) => ({ ...provider, apiKey: '' }))
 
   const service = new TeachingWorkspaceService({
-    registryPath: join(tempRoot, 'user-data', 'teachos-workspaces.json'),
+    registryPath: join(tempRoot, 'user-data', 'studiumx-workspaces.json'),
     defaultRoot,
     settingsProvider: async () => settings
   })

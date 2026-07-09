@@ -26,7 +26,7 @@ async function git(cwd: string, args: string[]): Promise<string> {
 let tempRoot = ''
 
 try {
-  tempRoot = await mkdtemp(join(tmpdir(), 'teachos-git-guards-'))
+  tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-git-guards-'))
   const workspaceRoot = join(tempRoot, 'workspace')
   const outsideRoot = join(tempRoot, 'outside')
 
@@ -46,8 +46,8 @@ try {
   assert.equal(resolveOptionalRegisteredWorkspaceRoot(registered, outsideRoot).ok, false)
 
   await execFile('git', ['init', workspaceRoot], { env: { ...process.env, LC_ALL: 'C', LANG: 'C' } })
-  await git(workspaceRoot, ['config', 'user.email', 'teachos@example.test'])
-  await git(workspaceRoot, ['config', 'user.name', 'TeachOS Test'])
+  await git(workspaceRoot, ['config', 'user.email', 'studiumx@example.test'])
+  await git(workspaceRoot, ['config', 'user.name', 'StudiumX Test'])
   await writeFile(join(workspaceRoot, 'README.md'), '# Workspace\n', 'utf8')
   await git(workspaceRoot, ['add', 'README.md'])
   await git(workspaceRoot, ['commit', '-m', 'Initial commit'])

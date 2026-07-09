@@ -6,13 +6,13 @@ import { build } from 'esbuild'
 
 const tempParent = join(process.cwd(), '.studiumx')
 await mkdir(tempParent, { recursive: true })
-const tempRoot = await mkdtemp(join(tempParent, 'path-access-check-'))
-const outfile = join(tempRoot, 'path-access.mjs')
+const tempRoot = await mkdtemp(join(tempParent, 'app-data-migration-'))
+const outfile = join(tempRoot, 'app-data-migration.mjs')
 
 try {
   await build({
     absWorkingDir: process.cwd(),
-    entryPoints: [join(process.cwd(), 'scripts', 'fixtures', 'path-access.ts')],
+    entryPoints: [join(process.cwd(), 'scripts', 'fixtures', 'app-data-migration.ts')],
     bundle: true,
     packages: 'external',
     platform: 'node',

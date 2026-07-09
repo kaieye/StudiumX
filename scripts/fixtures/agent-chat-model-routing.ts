@@ -60,7 +60,7 @@ try {
   const address = server.address()
   assert.ok(address && typeof address === 'object')
 
-  tempRoot = await mkdtemp(join(tmpdir(), 'teachos-agent-chat-'))
+  tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-agent-chat-'))
   const defaultRoot = join(tempRoot, 'workspaces')
   const settings = defaultSettings(defaultRoot)
   settings.provider.activeProviderId = 'deepseek'
@@ -84,7 +84,7 @@ try {
   )
 
   const service = new TeachingWorkspaceService({
-    registryPath: join(tempRoot, 'user-data', 'teachos-workspaces.json'),
+    registryPath: join(tempRoot, 'user-data', 'studiumx-workspaces.json'),
     defaultRoot,
     settingsProvider: async () => settings
   })

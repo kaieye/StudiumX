@@ -115,6 +115,8 @@ import {
 } from './agent-conversation-state'
 import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
 import {
+  LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE,
+  LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE,
   parsePreviewExternalHref,
   parsePreviewMarkdownHref,
   PREVIEW_EXTERNAL_LINK_MESSAGE,
@@ -169,7 +171,7 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('[TeachOS] uncaught render error:', error, info.componentStack)
+    console.error('[StudiumX] uncaught render error:', error, info.componentStack)
   }
 
   private handleReload = (): void => {
@@ -2114,12 +2116,12 @@ function MainArea() {
     const handlePreviewMessage = (event: MessageEvent): void => {
       const data = event.data as { type?: unknown; href?: unknown }
       if (!data || typeof data.type !== 'string' || typeof data.href !== 'string') return
-      if (data.type === PREVIEW_EXTERNAL_LINK_MESSAGE) {
+      if (data.type === PREVIEW_EXTERNAL_LINK_MESSAGE || data.type === LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE) {
         const href = parsePreviewExternalHref(data.href)
         if (href) void openExternal(href)
         return
       }
-      if (data.type === PREVIEW_MARKDOWN_LINK_MESSAGE) {
+      if (data.type === PREVIEW_MARKDOWN_LINK_MESSAGE || data.type === LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE) {
         const target = parsePreviewMarkdownHref(data.href)
         if (!target) return
         const workspace = appState.workspaces.find((item) => item.id === target.workspaceId)
@@ -2145,7 +2147,7 @@ function MainArea() {
       <main className="main-area">
         <div className="topbar">
           <div className="crumb">
-            <span>TeachOS</span>
+            <span>StudiumX</span>
           </div>
         </div>
         <div style={{ maxWidth: 760, margin: '36px auto', padding: '0 24px' }}>

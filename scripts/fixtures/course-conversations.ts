@@ -10,11 +10,11 @@ import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 let tempRoot = ''
 
 try {
-  tempRoot = await mkdtemp(join(tmpdir(), 'teachos-course-conversations-'))
+  tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-course-conversations-'))
   const defaultRoot = join(tempRoot, 'workspaces')
   const settings = defaultSettings(defaultRoot)
   const service = new TeachingWorkspaceService({
-    registryPath: join(tempRoot, 'user-data', 'teachos-workspaces.json'),
+    registryPath: join(tempRoot, 'user-data', 'studiumx-workspaces.json'),
     defaultRoot,
     settingsProvider: async () => settings
   })
