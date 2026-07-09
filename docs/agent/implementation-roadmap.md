@@ -157,15 +157,15 @@
 
 ## Phase 6：持久化与恢复
 
-状态：未开始。
+状态：进行中（Phase 6A 已完成）。
 
 目标：让 child runs、压缩摘要和搜索 sources 可审计。
 
 工作：
 
-- child transcript 或摘要持久化。
-- conversation record 中记录 compression item metadata。
-- sources 存入 turn metadata，支持 UI 引用回看。
+- 已完成：child run 摘要、状态、filesRead、citations 和 usage 持久化到 final assistant turn metadata。
+- 已完成：conversation record 中记录 compaction/hygiene/context estimate metadata。
+- 已完成：sources 存入 turn metadata，并在 Markdown 导出中可回看。
 - 启动时标记 orphan child run 为 canceled 或 recoverable。
 - 大型 tool result 归档到单独 blob，JSON turn 保留 digest、preview 和归档路径。
 - 明确 learner memory、conversation compaction、archived retrieval 三类数据边界。
@@ -177,9 +177,16 @@
 - 诊断视图可以解释一次回答用过哪些能力。
 - 长会话 JSON 不再因为大型工具结果无限膨胀。
 
+落地记录：
+
+- 已新增 `AgentTurnMetadata` 和 `agent-run-audit` extractor，保存 sources、childRuns、compactions、contextHygiene、contextEstimate 和大型 tool result 诊断。
+- 已在 `runTeachingConversationTurn` 收集结构化 loop events，并把 audit metadata 附到本轮最终 assistant turn。
+- 已在 conversation JSON reader 显式 normalize/cap metadata，Markdown 导出显示 Sources、Child runs、Context compaction 和 Tool result diagnostics。
+- 已新增 `check:agent-conversation-audit-metadata` 覆盖 extractor、roundtrip、Markdown 和 malformed metadata 兼容。
+
 建议 commit：
 
-- `feat(agent): persist child runs and context diagnostics`
+- 已用 `66895da feat(agent): persist conversation audit metadata`
 
 ## 风险清单
 

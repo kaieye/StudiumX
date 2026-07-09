@@ -6,16 +6,16 @@
 
 `src/main/teaching-agent-conversations.ts` 持久化完整 JSON turns。Markdown 展示会截断 tool result，但 JSON 中仍保留完整内容。
 
+Phase 6A 已在 `AgentChatTurn.metadata` 中保存审计 metadata：sources、child run 摘要、compaction/hygiene/context estimate 和大型 tool result 诊断。读取旧 JSON 时会 normalize/cap 这些字段，避免 malformed metadata 污染记录。
+
 `src/shared/teaching-memory-capture.ts` 已有 learner profile memory 捕获、去重和同意流程。这是长期用户画像，不是 conversation compaction。
 
-`src/shared/teaching-types.ts` 已有 `AgentChatMessage` / `AgentChatTurn`，但还没有：
+`src/shared/teaching-types.ts` 已有 `AgentChatMessage` / `AgentChatTurn` 和 `AgentTurnMetadata`。仍缺：
 
-- compaction metadata。
-- child run metadata。
-- source/citation metadata。
 - replaced turn ids。
-- token estimate。
 - checkpoint 或 archived-history 索引。
+- child transcript 独立持久化。
+- 大型 tool result blob 归档。
 
 ## 数据分层
 
@@ -100,30 +100,28 @@ type AgentSourceMetadata = {
 
 ## 推荐类型扩展
 
-可以在 `AgentChatTurn` 上增加可选 metadata，而不是引入完全不同的 turn 类型：
+`AgentChatTurn` 已增加可选 metadata，而不是引入完全不同的 turn 类型：
 
 ```ts
 type AgentTurnMetadata = {
   sources?: AgentSourceMetadata[]
-  compaction?: AgentCompactionMetadata
+  compactions?: AgentCompactionMetadata[]
   childRuns?: AgentChildRunMetadata[]
-  contextEstimate?: {
-    promptTokens?: number
-    localEstimateTokens?: number
-    hygieneSavedTokens?: number
-  }
+  contextHygiene?: AgentContextHygieneMetadata[]
+  contextEstimate?: AgentContextEstimateMetadata
+  toolResults?: AgentToolResultDiagnostic[]
 }
 ```
 
-这样旧数据仍可读取，新 UI 可以逐步识别 metadata。
+这样旧数据仍可读取，新 UI 可以逐步识别 metadata。当前 metadata 是审计数据；续聊 provider history projection 仍只发送 role/content。
 
 ## 持久化策略
 
 v1：
 
 - 原始 turns 全量保存。
-- compaction summary 作为特殊 assistant/system-like turn 或 metadata 保存。
-- child run 只保存最终摘要和状态。
+- compaction summary 仍只作为发送投影注入；metadata 保存 compaction 诊断、sourceDigest 和 token/message 计数。
+- child run 只保存最终摘要、状态、filesRead、citations 和 usage。
 - sources 保存到相关 assistant turn metadata。
 
 v2：
