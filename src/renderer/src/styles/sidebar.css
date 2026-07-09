@@ -176,7 +176,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 /* ----- Nav ----- */.nav-list {
   display: grid;
   gap: 4px;
-  margin-top: 0;
+  margin-top: 12px;
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }.nav-item {

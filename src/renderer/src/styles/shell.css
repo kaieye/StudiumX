@@ -100,7 +100,7 @@
   height: var(--window-chrome-height);
 }.windows-sidebar-toggle-chrome {
   position: absolute;
-  top: 0;
+  top: 8px;
   left: 0;
   z-index: 230;
   display: grid;
