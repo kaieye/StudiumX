@@ -6,6 +6,7 @@ import type {
   LessonSummary,
   TeachingAppState,
   TeachingWorkspaceSummary,
+  WorkspaceMarkdownDocument,
   WorkspaceView
 } from '../../../shared/teaching-types'
 import type { PendingAgentConversation } from '../agent-conversation-state'
@@ -32,6 +33,9 @@ export type AppShellTransitionPatch = {
   lessonReaderOpen?: boolean
   selectedCoursePreviewFile?: CoursePreviewFile | null
   selectedResourcePreviewFile?: ResourcePreviewFile | null
+  selectedMarkdownDocument?: WorkspaceMarkdownDocument | null
+  markdownDraft?: string
+  markdownSaving?: boolean
   selectedCourseRelativePath?: string | null
   selectedCourseWorkspaceId?: string | null
   taskPrompt?: string
@@ -42,6 +46,17 @@ export type AppShellTransitionPatch = {
   agentToolsSupported?: boolean | null
   agentChatBusy?: boolean
   pendingAgentConversation?: PendingAgentConversation | null
+}
+
+export function clearMarkdownDocumentContext(): Pick<
+  AppShellTransitionPatch,
+  'selectedMarkdownDocument' | 'markdownDraft' | 'markdownSaving'
+> {
+  return {
+    selectedMarkdownDocument: null,
+    markdownDraft: '',
+    markdownSaving: false
+  }
 }
 
 export function clearAgentConversationContext(): AppShellTransitionPatch {
@@ -67,7 +82,8 @@ export function openLessonLibrary(): AppShellTransitionPatch {
     view: 'lessons',
     lessonReaderOpen: false,
     selectedCoursePreviewFile: null,
-    selectedResourcePreviewFile: null
+    selectedResourcePreviewFile: null,
+    ...clearMarkdownDocumentContext()
   }
 }
 
@@ -77,7 +93,8 @@ export function openTeachingConversation(): AppShellTransitionPatch {
     overviewDialogMode: 'teaching',
     lessonReaderOpen: false,
     selectedCoursePreviewFile: null,
-    selectedResourcePreviewFile: null
+    selectedResourcePreviewFile: null,
+    ...clearMarkdownDocumentContext()
   }
 }
 
@@ -101,6 +118,7 @@ export function activateWorkspaceContext(input: {
     lessonReaderOpen: false,
     selectedCoursePreviewFile: null,
     selectedResourcePreviewFile: null,
+    ...clearMarkdownDocumentContext(),
     selectedCourseRelativePath: null,
     selectedCourseWorkspaceId: null,
     taskPrompt: input.taskPrompt,
@@ -126,6 +144,7 @@ export function selectCourseFolderContext(input: {
     lessonReaderOpen: false,
     selectedCoursePreviewFile: null,
     selectedResourcePreviewFile: null,
+    ...clearMarkdownDocumentContext(),
     selectedCourseRelativePath,
     selectedCourseWorkspaceId: selectedCourse ? targetWorkspace?.id ?? null : null,
     ...(!hasCourseContent ? clearAgentConversationContext() : {})
@@ -142,6 +161,7 @@ export function restorePendingConversationContext(
     overviewDialogMode: pending.mode === 'teaching' ? 'teaching' : currentOverviewDialogMode,
     lessonReaderOpen: false,
     selectedCoursePreviewFile: null,
+    ...clearMarkdownDocumentContext(),
     agentTurns: pending.turns,
     activeConversationId: pending.summary.id,
     agentStatus: pending.status,
@@ -165,6 +185,7 @@ export function openAgentConversationContext(input: {
     overviewDialogMode: isTeachingConversation ? 'teaching' : input.currentOverviewDialogMode,
     lessonReaderOpen: false,
     selectedCoursePreviewFile: null,
+    ...clearMarkdownDocumentContext(),
     agentTurns: input.conversation.turns,
     activeConversationId: input.conversation.id,
     agentStatus: '',
@@ -189,6 +210,7 @@ export function openLessonReaderContext(input: {
     lessonReaderOpen: true,
     selectedCoursePreviewFile: input.previewFile,
     selectedResourcePreviewFile: null,
+    ...clearMarkdownDocumentContext(),
     appState: {
       ...input.appState,
       selectedLessonPath: input.previewFile.absolutePath,
@@ -205,7 +227,8 @@ export function openResourceReaderContext(selectedResourcePreviewFile: ResourceP
     view: 'resources',
     lessonReaderOpen: false,
     selectedCoursePreviewFile: null,
-    selectedResourcePreviewFile
+    selectedResourcePreviewFile,
+    ...clearMarkdownDocumentContext()
   }
 }
 
@@ -219,6 +242,7 @@ export function clearRemovedWorkspaceContext(input: {
     view: input.nextState.activeWorkspace ? input.previousView : 'overview',
     lessonReaderOpen: false,
     selectedCoursePreviewFile: null,
+    ...clearMarkdownDocumentContext(),
     selectedCourseRelativePath: null,
     selectedCourseWorkspaceId: null,
     taskPrompt: input.nextState.activeWorkspace?.lessons.length ? input.nextPrompt : input.defaultPrompt,

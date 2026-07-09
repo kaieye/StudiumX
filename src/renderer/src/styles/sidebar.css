@@ -438,6 +438,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   color: #22324b;
   background: rgba(79, 124, 245, 0.1);
 }.workspace-node-row.is-selected.is-html-file,
+.workspace-node-row.is-selected.is-markdown-file,
 .workspace-node-row.is-selected.is-conversation {
   color: #22324b;
   background: rgba(79, 124, 245, 0.1);

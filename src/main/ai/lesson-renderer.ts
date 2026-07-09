@@ -226,12 +226,6 @@ ${plan.quiz.map((item) => renderQuizCard(item)).join('\n')}
 
 ${renderLessonTopNav({ assetBase, nav, glossaryAvailable: opts.glossaryAvailable ?? false })}
 
-    <section class="${cls.missionCard}">
-      <span>Mission</span>
-      <strong>${escapeHtml(mission.title)}</strong>
-      <p>${escapeHtml(mission.excerpt)}</p>
-    </section>
-
 ${sections}
 
 ${extras}

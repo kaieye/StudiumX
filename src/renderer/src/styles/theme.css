@@ -85,6 +85,7 @@
 }:root[data-resolved-theme="dark"] .nav-item.is-active,
 :root[data-resolved-theme="dark"] .workspace-item.is-selected,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-html-file,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-markdown-file,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-conversation,
 :root[data-resolved-theme="dark"] .workspace-conversation-row.is-selected,
 :root[data-resolved-theme="dark"] .dialog-mode-switch-btn.is-active {
@@ -151,9 +152,25 @@
   background: var(--surface-hover);
   color: var(--text);
 }:root[data-resolved-theme="dark"] .tool-call-card,
-:root[data-resolved-theme="dark"] .tool-call-body.is-inline {
+:root[data-resolved-theme="dark"] .tool-call-body.is-inline,
+:root[data-resolved-theme="dark"] .markdown-document-editor {
   border-color: var(--line);
   background: #151517;
+}:root[data-resolved-theme="dark"] .markdown-document-panel,
+:root[data-resolved-theme="dark"] .markdown-document-preview {
+  background: #101010;
+}:root[data-resolved-theme="dark"] .markdown-code-editor .cm-panels {
+  border-color: var(--line);
+  background: #18181b;
+  color: var(--text-muted);
+}:root[data-resolved-theme="dark"] .markdown-prose :not(pre) > code,
+:root[data-resolved-theme="dark"] .markdown-prose th {
+  border-color: var(--line);
+  background: #1f1f23;
+}:root[data-resolved-theme="dark"] .markdown-prose pre {
+  border-color: var(--line);
+  background: #09090b;
+  color: #f2f2f3;
 }:root[data-resolved-theme="dark"] .tool-call-card.is-error {
   border-color: rgba(255, 122, 112, 0.32);
   background: rgba(255, 122, 112, 0.08);

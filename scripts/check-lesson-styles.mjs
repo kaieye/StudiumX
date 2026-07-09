@@ -309,7 +309,6 @@ for (const key of [
   'page',
   'hero',
   'heroKicker',
-  'missionCard',
   'compactList',
   'practice',
   'quizCard',

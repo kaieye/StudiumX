@@ -421,7 +421,7 @@ export const writeWorkspaceFileTool: ToolEntry = {
     function: {
       name: 'write_workspace_file',
       description:
-        '写入当前 TeachOS 教学工作区内的文本文件。限定在当前工作区内；会自动创建父目录；默认不覆盖已有文件。适合维护 MISSION.md、RESOURCES.md、NOTES.md、reference/*.html、learning-records/*.md 等文件。注意：lessons/ 目录下的课程 HTML 不能用本工具写入，请改用 generate_lesson 工具（它会统一编号、渲染模板并登记到课程索引）。',
+        '写入当前 TeachOS 教学工作区内的文本文件。限定在当前工作区内；会自动创建父目录；默认不覆盖已有文件。适合维护 MISSION.md、RESOURCES.md、GLOSSARY.md、NOTES.md、reference/*.html、learning-records/*.md 等文件。注意：lessons/ 目录下的课程 HTML 不能用本工具写入，请改用 generate_lesson 工具（它会统一编号、渲染模板并登记到课程索引）。',
       parameters: {
         type: 'object',
         properties: {

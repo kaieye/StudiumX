@@ -17,6 +17,7 @@ import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
 import { isPathInsideConfiguredRoot, isPathInsideRoot } from './path-access'
 import { openExternalHttpUrl } from './external-links'
+import { ensurePreviewBaseTag, injectPreviewMarkdownLinkBridge } from '../shared/preview-markdown-bridge'
 import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import {
   decodeToolAnswerPayload,
@@ -32,9 +33,11 @@ import {
   parseProbeProviderPayload,
   parseReadAgentConversationPayload,
   parseReadLessonPayload,
+  parseReadWorkspaceMarkdownPayload,
   parseRecordProgressPayload,
   parseRemoveGitWorktreePayload,
   parseSaveAgentConversationPayload,
+  parseSaveWorkspaceMarkdownPayload,
   parseSettingsPatch,
   parseUpdateMemoryPayload,
   parseUpdateMissionPayload,
@@ -257,6 +260,14 @@ function registerTeachingIpc(
     service.readLesson(parseReadLessonPayload(payload))
   )
 
+  ipcMain.handle(teachingInvokeChannels.readWorkspaceMarkdown, async (_, payload: unknown) =>
+    service.readWorkspaceMarkdown(parseReadWorkspaceMarkdownPayload(payload))
+  )
+
+  ipcMain.handle(teachingInvokeChannels.saveWorkspaceMarkdown, async (_, payload: unknown) =>
+    service.saveWorkspaceMarkdown(parseSaveWorkspaceMarkdownPayload(payload))
+  )
+
   ipcMain.handle(teachingInvokeChannels.openPath, async (_, rawPath: unknown) => {
     const target = resolve(String(rawPath ?? ''))
     const state = await service.getState()
@@ -427,7 +438,10 @@ function registerPreviewProtocol(service: TeachingWorkspaceService): void {
       const file = await service.resolvePreviewFile(workspaceId, relativePath)
       if (!file) return new Response('Not found', { status: 404 })
       const body = await readFile(file.absolutePath)
-      return new Response(body, {
+      const responseBody = file.mimeType.startsWith('text/html')
+        ? injectPreviewMarkdownLinkBridge(ensurePreviewBaseTag(body.toString('utf8'), request.url))
+        : body
+      return new Response(responseBody, {
         headers: {
           'Content-Type': file.mimeType,
           'Cache-Control': 'no-store'

@@ -34,6 +34,8 @@ export type LessonGenerationWorkspace = {
 
 export type LessonGenerationCallbacks = AdapterCallbacks
 
+const MIN_LESSON_PLAN_OUTPUT_TOKENS = 8192
+
 export type LessonGenerationMemoryRetriever = (options: {
   query: string
   workspaceRoot: string
@@ -209,6 +211,7 @@ async function produceLessonPlan(opts: {
   if (!provider || !provider.apiKey.trim()) {
     return { plan: localFallbackPlan(prompt, mission, sequence, settings), source: 'fallback', reason: '未配置 API Key' }
   }
+  const lessonPlanSettings = withLessonPlanOutputBudget(settings)
 
   const systemPrompt = buildLessonSystemPrompt({
     missionTitle: mission.title,
@@ -234,16 +237,16 @@ async function produceLessonPlan(opts: {
   // before emitting the LessonPlan JSON. Only for chat_completions /
   // custom_endpoint formats. Transport errors fall through to single-shot.
   const useTools =
-    settings.tools.enabled &&
-    toolsSupportedForFormat(settings.generator.endpointFormat) &&
-    buildDefaultRegistry(settings, { workspaceRoot: workspace.rootPath }).definitions().length > 0
+    lessonPlanSettings.tools.enabled &&
+    toolsSupportedForFormat(lessonPlanSettings.generator.endpointFormat) &&
+    buildDefaultRegistry(lessonPlanSettings, { workspaceRoot: workspace.rootPath }).definitions().length > 0
   if (useTools) {
     try {
       const researchSystemPrompt = `${LESSON_RESEARCH_PREFIX}\n\n${systemPrompt}`
-      const ctx = buildToolContext(settings, { workspaceRoot: workspace.rootPath })
-      const registry = buildDefaultRegistry(settings, { workspaceRoot: workspace.rootPath })
+      const ctx = buildToolContext(lessonPlanSettings, { workspaceRoot: workspace.rootPath })
+      const registry = buildDefaultRegistry(lessonPlanSettings, { workspaceRoot: workspace.rootPath })
       const loopResult = await runAgentLoop({
-        settings,
+        settings: lessonPlanSettings,
         provider,
         messages: [
           { role: 'system', content: researchSystemPrompt },
@@ -251,6 +254,7 @@ async function produceLessonPlan(opts: {
         ],
         tools: registry.definitions(),
         toolHandlers: registry.handlerMap(ctx),
+        jsonMode: true,
         maxIterations: settings.tools.maxIterations,
         callbacks: {
           onEvent: (e) => {
@@ -281,8 +285,8 @@ async function produceLessonPlan(opts: {
     let resultText = ''
     try {
       const result = settings.generator.streaming
-        ? await streamProvider({ settings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
-        : await callProvider({ settings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
+        ? await streamProvider({ settings: lessonPlanSettings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
+        : await callProvider({ settings: lessonPlanSettings, provider, request: { systemPrompt, userPrompt, jsonMode: true }, callbacks })
       resultText = result.text
     } catch (error) {
       const reason = error instanceof ProviderAdapterError ? adapterReason(error) : (error instanceof Error ? error.message : '未知错误')
@@ -302,7 +306,7 @@ async function produceLessonPlan(opts: {
   try {
     const repairUserPrompt = `${userPrompt}\n\n---\n\n${buildLessonRepairPrompt({ rawOutput, validationError: parseError })}`
     const repaired = await callProvider({
-      settings,
+      settings: lessonPlanSettings,
       provider,
       request: { systemPrompt, userPrompt: repairUserPrompt, jsonMode: true },
       callbacks
@@ -317,7 +321,61 @@ async function produceLessonPlan(opts: {
   if (reparsed.plan) {
     return { plan: reparsed.plan, source: 'ai', reason: '首次输出未通过校验，已自动修复' }
   }
-  throw new LessonGenerationError(`AI 两次输出均未通过课程计划校验：${reparsed.error}`)
+
+  callbacks.onStatus?.('calling')
+  let compactText = ''
+  try {
+    const compact = await callProvider({
+      settings: lessonPlanSettings,
+      provider,
+      request: {
+        systemPrompt,
+        userPrompt: buildCompactLessonRegenerationPrompt({
+          userPrompt,
+          validationError: reparsed.error
+        }),
+        jsonMode: true
+      },
+      callbacks
+    })
+    compactText = compact.text
+  } catch (error) {
+    const reason = error instanceof ProviderAdapterError ? adapterReason(error) : (error instanceof Error ? error.message : '未知错误')
+    throw new LessonGenerationError(`课程计划紧凑重试请求失败：${reason}（修复轮校验错误：${reparsed.error}）`)
+  }
+  callbacks.onStatus?.('validating')
+  const compactParsed = parsePlan(compactText)
+  if (compactParsed.plan) {
+    return { plan: compactParsed.plan, source: 'ai', reason: '首次输出和修复均未通过校验，已用紧凑重试重新生成' }
+  }
+  throw new LessonGenerationError(`AI 三次输出均未通过课程计划校验：${compactParsed.error}`)
+}
+
+function withLessonPlanOutputBudget(settings: TeachingSettingsV1): TeachingSettingsV1 {
+  if (settings.generator.maxOutputTokens >= MIN_LESSON_PLAN_OUTPUT_TOKENS) return settings
+  return {
+    ...settings,
+    generator: {
+      ...settings.generator,
+      maxOutputTokens: MIN_LESSON_PLAN_OUTPUT_TOKENS
+    }
+  }
+}
+
+function buildCompactLessonRegenerationPrompt(opts: {
+  userPrompt: string
+  validationError: string
+}): string {
+  return `${opts.userPrompt}
+
+---
+
+前两次课程计划输出仍未通过 JSON 校验。
+
+最近一次校验错误：
+${opts.validationError}
+
+请紧凑重试：不要复述分析，不要引用上一次原文，不要使用 markdown 围栏，只输出一个完整且符合系统结构的 JSON 对象。内容可以更短，但必须包含所有必填字段。`
 }
 
 async function writeLessonArtifacts(opts: {

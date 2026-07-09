@@ -1,11 +1,28 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { build } from 'esbuild'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
+const tempRoot = await mkdtemp(join(tmpdir(), 'lesson-markdown-rendering-check-'))
+const outfile = join(tempRoot, 'lesson-renderer.mjs')
+
+try {
+await build({
+  entryPoints: [join(process.cwd(), 'src', 'main', 'ai', 'lesson-renderer.ts')],
+  outfile,
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node22',
+  logLevel: 'silent'
+})
 const {
   renderLessonHtmlFromPlan,
   renderReferenceHtmlFromPlan,
   renderLearningRecordFromPlan
-} = await import('../src/main/ai/lesson-renderer.ts')
+} = await import(pathToFileURL(outfile).href)
 
 const markdownTable = `| 概念 | 写法 | 分数 |
 | --- | :---: | ---: |
@@ -269,3 +286,6 @@ assert.match(referenceHtml2, /<pre class="flow">/, 'reference page should render
 assert.doesNotMatch(referenceHtml2, /<section class="mission-card">/, 'reference page should not carry the old mission-card')
 
 console.log('check:lesson-markdown-rendering passed')
+} finally {
+  await rm(tempRoot, { recursive: true, force: true })
+}

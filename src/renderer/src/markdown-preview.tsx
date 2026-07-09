@@ -66,15 +66,19 @@ function createMarkdownRenderer(): MarkdownIt {
 
 const markdownRenderer = createMarkdownRenderer()
 
-function buildPreviewResourceUrl(
-  src: string,
-  workspaceId?: string | null,
-  documentRelativePath?: string
-): string {
-  if (!workspaceId || !documentRelativePath) return src
-  if (/^(?:https?:|data:|blob:|teachos-preview:|mailto:|#)/i.test(src)) return src
+function isSpecialHref(value: string): boolean {
+  return /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(value)
+}
 
-  const cleanSource = src.replace(/\\/g, '/')
+function stripHashAndQuery(value: string): string {
+  const marker = value.search(/[?#]/)
+  return marker === -1 ? value : value.slice(0, marker)
+}
+
+function resolveWorkspaceRelativePath(src: string, documentRelativePath?: string): string | null {
+  if (!documentRelativePath || isSpecialHref(src)) return null
+  const cleanSource = stripHashAndQuery(src).replace(/\\/g, '/')
+  if (!cleanSource) return null
   const documentParts = documentRelativePath.replace(/\\/g, '/').split('/').filter(Boolean)
   documentParts.pop()
   const resolvedParts: string[] = [...documentParts]
@@ -86,8 +90,23 @@ function buildPreviewResourceUrl(
     }
     resolvedParts.push(part)
   }
+  return resolvedParts.join('/')
+}
 
-  const path = resolvedParts.map((part) => encodeURIComponent(part)).join('/')
+function isMarkdownPath(value: string): boolean {
+  return /\.(?:md|markdown)$/i.test(stripHashAndQuery(value))
+}
+
+function buildPreviewResourceUrl(
+  src: string,
+  workspaceId?: string | null,
+  documentRelativePath?: string
+): string {
+  if (!workspaceId) return src
+  const relativePath = resolveWorkspaceRelativePath(src, documentRelativePath)
+  if (!relativePath) return src
+
+  const path = relativePath.split('/').filter(Boolean).map((part) => encodeURIComponent(part)).join('/')
   return `teachos-preview://${encodeURIComponent(workspaceId)}/${path}`
 }
 
@@ -166,7 +185,8 @@ export function MarkdownPreview({
   documentRelativePath,
   emptyTitle,
   emptyHint,
-  onOpenExternal
+  onOpenExternal,
+  onOpenWorkspaceMarkdown
 }: {
   source: string
   workspaceId?: string | null
@@ -174,6 +194,7 @@ export function MarkdownPreview({
   emptyTitle: string
   emptyHint: string
   onOpenExternal: (href: string) => void
+  onOpenWorkspaceMarkdown?: (relativePath: string) => void
 }) {
   const articleRef = useRef<HTMLElement | null>(null)
   const html = useMemo(() => markdownRenderer.render(source), [source])
@@ -207,12 +228,19 @@ export function MarkdownPreview({
       if (/^https?:\/\//i.test(href)) {
         event.preventDefault()
         onOpenExternal(href)
+        return
+      }
+
+      const relativePath = resolveWorkspaceRelativePath(href, documentRelativePath)
+      if (relativePath && isMarkdownPath(relativePath) && onOpenWorkspaceMarkdown) {
+        event.preventDefault()
+        onOpenWorkspaceMarkdown(relativePath)
       }
     }
 
     article.addEventListener('click', handleClick)
     return () => article.removeEventListener('click', handleClick)
-  }, [onOpenExternal])
+  }, [documentRelativePath, onOpenExternal, onOpenWorkspaceMarkdown])
 
   if (source.trim().length === 0) {
     return (

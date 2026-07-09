@@ -47,8 +47,12 @@ import type {
   PickDirectoryResult,
   ReadLessonPayload,
   ReadLessonResult,
+  ReadWorkspaceMarkdownPayload,
+  SaveWorkspaceMarkdownPayload,
+  SaveWorkspaceMarkdownResult,
   TeachingAppState,
   UpdateMissionPayload,
+  WorkspaceMarkdownDocument,
   WindowControlAction,
   WorkspaceItemMetaPayload,
   WorkspaceItemRemovePayload,
@@ -71,6 +75,8 @@ export type TeachingSystemApi = {
   applyLessonStyle: (payload: ApplyLessonStylePayload) => Promise<TeachingAppState>
   generateLesson: (payload: GenerateLessonPayload) => Promise<GenerateLessonResult>
   readLesson: (payload: ReadLessonPayload) => Promise<ReadLessonResult>
+  readWorkspaceMarkdown: (payload: ReadWorkspaceMarkdownPayload) => Promise<WorkspaceMarkdownDocument>
+  saveWorkspaceMarkdown: (payload: SaveWorkspaceMarkdownPayload) => Promise<SaveWorkspaceMarkdownResult>
   openPath: (path: string) => Promise<OpenPathResult>
   openExternal: (url: string) => Promise<OpenPathResult>
   showNotification: (payload: NotificationPayload) => Promise<void>

@@ -152,6 +152,7 @@ export type WorkspaceMarkdownDocument = {
   relativePath: string
   absolutePath: string
   content: string
+  updatedAt: string | null
 }
 
 export type SaveWorkspaceMarkdownPayload = ReadWorkspaceMarkdownPayload & {

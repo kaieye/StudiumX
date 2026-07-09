@@ -25,6 +25,7 @@ import {
 import {
   activateWorkspaceContext,
   clearAgentConversationContext,
+  clearMarkdownDocumentContext,
   clearRemovedWorkspaceContext,
   courseRelativePathForFile,
   lessonToCoursePreviewFile,
@@ -71,6 +72,7 @@ import {
   type TeachingSettingsV1,
   type TeachingWorkspaceSummary,
   type UpdateTeachingMemoryPayload,
+  type WorkspaceMarkdownDocument,
   type WorkspaceItemKind,
   type WorkspaceItemRemoveMode,
   type WorkspaceView
@@ -119,6 +121,9 @@ export type StoreState = {
   lessonReaderOpen: boolean
   selectedCoursePreviewFile: CoursePreviewFile | null
   selectedResourcePreviewFile: ResourcePreviewFile | null
+  selectedMarkdownDocument: WorkspaceMarkdownDocument | null
+  markdownDraft: string
+  markdownSaving: boolean
   selectedCourseRelativePath: string | null
   selectedCourseWorkspaceId: string | null
   appState: TeachingAppState
@@ -148,6 +153,9 @@ export type StoreState = {
   generateLessonStream: (options?: LessonGenerationOptions) => Promise<void>
   loadLesson: (lesson: LessonSummary) => Promise<void>
   loadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
+  loadWorkspaceMarkdownFile: (file: CoursePreviewFile, workspaceId?: string | null) => Promise<void>
+  setMarkdownDraft: (content: string) => void
+  saveMarkdownDocument: () => Promise<void>
   openResourceHtmlPreview: (file: ResourcePreviewFile) => void
   closeResourceHtmlPreview: () => void
   openPath: (path: string) => Promise<void>
@@ -446,6 +454,9 @@ export const useAppStore = create<StoreState>((set, get) => ({
   lessonReaderOpen: false,
   selectedCoursePreviewFile: null,
   selectedResourcePreviewFile: null,
+  selectedMarkdownDocument: null,
+  markdownDraft: '',
+  markdownSaving: false,
   selectedCourseRelativePath: null,
   selectedCourseWorkspaceId: null,
   appState: emptyAppState,
@@ -1099,7 +1110,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
     if (!workspace) return
     const removalSnapshot = {
       activeConversationId: get().activeConversationId,
-      selectedCoursePreviewFile: get().selectedCoursePreviewFile,
+      selectedCoursePreviewFile: get().selectedCoursePreviewFile ?? get().selectedMarkdownDocument,
       selectedCourseRelativePath: get().selectedCourseRelativePath
     }
     try {
@@ -1117,7 +1128,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
           ? clearAgentConversationContext()
           : {}),
         ...(uiPatch.clearSelectedCoursePreview
-          ? { lessonReaderOpen: false, selectedCoursePreviewFile: null }
+          ? { lessonReaderOpen: false, selectedCoursePreviewFile: null, ...clearMarkdownDocumentContext() }
           : {}),
         ...(uiPatch.clearSelectedCourseFolder
           ? { selectedCourseRelativePath: null, selectedCourseWorkspaceId: null }
@@ -1203,6 +1214,73 @@ export const useAppStore = create<StoreState>((set, get) => ({
       })
     } catch (error) {
       set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
+    }
+  },
+  loadWorkspaceMarkdownFile: async (file, workspaceId) => {
+    const api = window.teachingSystem
+    if (!api) return
+    const workspace = workspaceId
+      ? get().appState.workspaces.find((item) => item.id === workspaceId) ?? get().appState.activeWorkspace
+      : get().appState.activeWorkspace
+    if (!workspace) return
+    set({
+      view: 'lessons',
+      overviewDialogMode: 'teaching',
+      lessonReaderOpen: false,
+      selectedCoursePreviewFile: null,
+      selectedResourcePreviewFile: null,
+      selectedMarkdownDocument: {
+        title: file.title,
+        relativePath: file.relativePath,
+        absolutePath: file.absolutePath,
+        content: '',
+        updatedAt: null
+      },
+      markdownDraft: '',
+      markdownSaving: false,
+      selectedCourseRelativePath: courseRelativePathForFile(file.relativePath),
+      selectedCourseWorkspaceId: workspace.id,
+      error: null,
+      appState: { ...get().appState, selectedLessonPath: file.absolutePath }
+    })
+    try {
+      const document = await api.readWorkspaceMarkdown({
+        workspaceId: workspace.id,
+        documentPath: file.absolutePath
+      })
+      set({
+        selectedMarkdownDocument: document,
+        markdownDraft: document.content,
+        appState: { ...get().appState, selectedLessonPath: document.absolutePath }
+      })
+    } catch (error) {
+      set({ error: toUserError(error), ...clearMarkdownDocumentContext() })
+    }
+  },
+  setMarkdownDraft: (markdownDraft) => set({ markdownDraft }),
+  saveMarkdownDocument: async () => {
+    const api = window.teachingSystem
+    if (!api) return
+    const document = get().selectedMarkdownDocument
+    const workspace = get().selectedCourseWorkspaceId
+      ? get().appState.workspaces.find((item) => item.id === get().selectedCourseWorkspaceId) ?? get().appState.activeWorkspace
+      : get().appState.activeWorkspace
+    if (!document || !workspace) return
+    set({ markdownSaving: true, error: null })
+    try {
+      const result = await api.saveWorkspaceMarkdown({
+        workspaceId: workspace.id,
+        documentPath: document.absolutePath,
+        content: get().markdownDraft
+      })
+      set({
+        appState: result.state,
+        selectedMarkdownDocument: result.document,
+        markdownDraft: result.document.content,
+        markdownSaving: false
+      })
+    } catch (error) {
+      set({ error: toUserError(error), markdownSaving: false })
     }
   },
   openResourceHtmlPreview: (selectedResourcePreviewFile) => {

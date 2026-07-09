@@ -184,7 +184,7 @@ try {
   const temporaryMessages = temporaryBody.messages ?? []
   assert.equal(temporaryMessages[0]?.role, 'system')
   assert.match(temporaryMessages[0]?.content ?? '', /当前是临时会话/)
-  assert.match(temporaryMessages[0]?.content ?? '', /学习者画像和课程概览/)
+  assert.match(temporaryMessages[0]?.content ?? '', /学习者画像、课程概览和当前打开页面的可见文本/)
   assert.doesNotMatch(temporaryMessages[0]?.content ?? '', /automatically loaded/)
   assert.doesNotMatch(temporaryMessages[0]?.content ?? '', /Teaching Workspace/)
   assert.doesNotMatch(JSON.stringify(temporaryBody), /list_workspace|read_workspace_file|search_workspace|glob_workspace/)

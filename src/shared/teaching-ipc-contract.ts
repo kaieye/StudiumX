@@ -27,6 +27,8 @@ export const teachingInvokeChannels = {
   applyLessonStyle: 'teach:apply-lesson-style',
   generateLesson: 'teach:generate-lesson',
   readLesson: 'teach:read-lesson',
+  readWorkspaceMarkdown: 'teach:read-workspace-markdown',
+  saveWorkspaceMarkdown: 'teach:save-workspace-markdown',
   openPath: 'teach:open-path',
   openExternal: 'teach:open-external',
   showNotification: 'teach:show-notification',

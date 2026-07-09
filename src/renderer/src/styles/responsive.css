@@ -75,6 +75,12 @@ body {
     padding: 0 14px 18px;
   }.main-area[data-view='lessons'] .preview-frame {
     min-height: 70vh;
+  }.markdown-document-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(260px, 1fr) minmax(260px, 1fr);
+  }.markdown-document-editor {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }.lesson-course-stage {
     padding: 20px 16px 16px;
   }.lesson-card-grid {

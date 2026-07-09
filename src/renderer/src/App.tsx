@@ -41,6 +41,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Save,
   Search,
   Settings,
   SlidersHorizontal,
@@ -70,6 +71,8 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import i18n from './i18n'
 import { StudySpace } from './study-space'
+import { MarkdownEditor } from './markdown-editor'
+import { MarkdownPreview } from './markdown-preview'
 import { OfficeWorkbench } from './views/workbench/OfficeWorkbench'
 import { buildAgentProcessTimeline } from './agent-process-timeline'
 import {
@@ -112,6 +115,12 @@ import {
 } from './agent-conversation-state'
 import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
 import {
+  parsePreviewExternalHref,
+  parsePreviewMarkdownHref,
+  PREVIEW_EXTERNAL_LINK_MESSAGE,
+  PREVIEW_MARKDOWN_LINK_MESSAGE
+} from '../../shared/preview-markdown-bridge'
+import {
   type AgentChatProcessEvent,
   type AgentChatTurn,
   type AgentConversationSummary,
@@ -122,6 +131,7 @@ import {
   type ModelReasoningEffort,
   type TeachingRuntimeState,
   type TeachingWorkspaceSummary,
+  type WorkspaceMarkdownDocument,
   type WindowControlAction,
   type WorkspaceFileNode,
   type WorkspaceItemKind,
@@ -414,6 +424,7 @@ function Sidebar() {
   const active = appState.activeWorkspace
   const selectedLessonPath = appState.selectedLessonPath
   const lessonReaderOpen = useAppStore((s) => s.lessonReaderOpen)
+  const selectedMarkdownDocument = useAppStore((s) => s.selectedMarkdownDocument)
   const [coursesExpanded, setCoursesExpanded] = useState(true)
   const [conversationsExpanded, setConversationsExpanded] = useState(true)
 
@@ -450,7 +461,7 @@ function Sidebar() {
           workspaces={appState.workspaces}
           activeWorkspaceId={active?.id ?? null}
           expanded={coursesExpanded}
-          selectedLessonPath={view === 'lessons' && lessonReaderOpen ? selectedLessonPath : null}
+          selectedLessonPath={view === 'lessons' && (lessonReaderOpen || selectedMarkdownDocument) ? selectedLessonPath : null}
           onToggle={() => setCoursesExpanded((expanded) => !expanded)}
         />
         <SidebarConversationSection
@@ -502,6 +513,7 @@ function WorkspaceCourseSection({
   const selectWorkspace = useAppStore((s) => s.selectWorkspace)
   const loadLesson = useAppStore((s) => s.loadLesson)
   const loadCourseHtmlFile = useAppStore((s) => s.loadCourseHtmlFile)
+  const loadWorkspaceMarkdownFile = useAppStore((s) => s.loadWorkspaceMarkdownFile)
   const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
   const view = useAppStore((s) => s.view)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
@@ -597,6 +609,7 @@ function WorkspaceCourseSection({
                     onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
                     onOpenPath={(path) => void openPath(path)}
                     onOpenHtmlFile={(file) => void loadCourseHtmlFile(file)}
+                    onOpenMarkdownFile={(file) => void loadWorkspaceMarkdownFile(file, workspace.id)}
                     onOpenCourse={(relativePath) => selectCourseFolder(relativePath, workspace.id)}
                     onOpenLesson={(lesson) => {
                       void loadLesson(lesson)
@@ -1096,6 +1109,7 @@ function WorkspaceFileNodeRow({
   onEnsureWorkspaceSelected,
   onOpenPath,
   onOpenHtmlFile,
+  onOpenMarkdownFile,
   onOpenCourse,
   onOpenLesson,
   onOpenConversation
@@ -1111,6 +1125,7 @@ function WorkspaceFileNodeRow({
   onEnsureWorkspaceSelected: () => Promise<void>
   onOpenPath: (path: string) => void
   onOpenHtmlFile?: (file: CoursePreviewFile) => void
+  onOpenMarkdownFile?: (file: CoursePreviewFile) => void
   onOpenCourse?: (relativePath: string, workspaceId: string) => void
   onOpenLesson: (lesson: LessonSummary) => void
   onOpenConversation: (conversationId: string) => void
@@ -1131,8 +1146,9 @@ function WorkspaceFileNodeRow({
   const isWorkspaceFolder = treeRoot === 'courses' && level === 0 && isDirectory && normalizeRelativePath(node.relativePath) === ''
   const isCourseFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && isSidebarCourseFolderPath(node.relativePath)
   const isHtmlFile = !isDirectory && node.name.toLowerCase().endsWith('.html')
+  const isMarkdownFile = !isDirectory && node.name.toLowerCase().endsWith('.md')
   const isSelected = Boolean(
-    (((lesson || (treeRoot === 'courses' && isHtmlFile)) && node.absolutePath === selectedLessonPath) ||
+    (((lesson || (treeRoot === 'courses' && (isHtmlFile || isMarkdownFile))) && node.absolutePath === selectedLessonPath) ||
       (conversation && conversation.id === activeConversationId))
   )
   const itemKind: WorkspaceItemKind = conversation ? 'conversation' : isDirectory ? 'directory' : 'file'
@@ -1183,6 +1199,14 @@ function WorkspaceFileNodeRow({
       })
       return
     }
+    if (treeRoot === 'courses' && onOpenMarkdownFile && isMarkdownFile) {
+      onOpenMarkdownFile({
+        title: titleFromFileName(node.name),
+        relativePath: node.relativePath,
+        absolutePath: node.absolutePath
+      })
+      return
+    }
     onOpenPath(node.absolutePath)
   }
 
@@ -1224,7 +1248,7 @@ function WorkspaceFileNodeRow({
   return (
     <div className="workspace-node">
       <div
-        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
+        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${isMarkdownFile ? 'is-markdown-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
         style={{ paddingLeft: 4 + level * 12 }}
         role="treeitem"
         aria-expanded={isDirectory ? isExpanded : undefined}
@@ -1284,6 +1308,7 @@ function WorkspaceFileNodeRow({
                 onEnsureWorkspaceSelected={onEnsureWorkspaceSelected}
                 onOpenPath={onOpenPath}
                 onOpenHtmlFile={onOpenHtmlFile}
+                onOpenMarkdownFile={onOpenMarkdownFile}
                 onOpenCourse={onOpenCourse}
                 onOpenLesson={onOpenLesson}
                 onOpenConversation={onOpenConversation}
@@ -1876,6 +1901,60 @@ function OverviewReasoningPicker() {
   )
 }
 
+function MarkdownDocumentPanel({
+  document,
+  draft,
+  saving,
+  workspaceId,
+  onDraftChange,
+  onSave,
+  onOpenExternal,
+  onOpenWorkspaceMarkdown
+}: {
+  document: WorkspaceMarkdownDocument
+  draft: string
+  saving: boolean
+  workspaceId: string | null
+  onDraftChange: (content: string) => void
+  onSave: () => void
+  onOpenExternal: (href: string) => void
+  onOpenWorkspaceMarkdown: (relativePath: string) => void
+}) {
+  const { t } = useTranslation()
+  const dirty = draft !== document.content
+
+  return (
+    <section className="markdown-document-panel" aria-label={document.title}>
+      <div className="markdown-document-body">
+        <div className="markdown-document-editor">
+          <button
+            className="icon-button markdown-document-save"
+            type="button"
+            aria-label={dirty ? t('markdown.save') : t('markdown.saved')}
+            title={dirty ? t('markdown.save') : t('markdown.saved')}
+            disabled={saving || !dirty}
+            onClick={onSave}
+          >
+            {saving ? <Loader2 size={16} className="spin" /> : dirty ? <Save size={16} /> : <Check size={16} />}
+          </button>
+          <MarkdownEditor value={draft} onChange={onDraftChange} onSave={onSave} />
+        </div>
+        <div className="markdown-document-preview">
+          <MarkdownPreview
+            source={draft}
+            workspaceId={workspaceId}
+            documentRelativePath={document.relativePath}
+            emptyTitle={t('markdown.emptyTitle')}
+            emptyHint={t('markdown.emptyHint')}
+            onOpenExternal={onOpenExternal}
+            onOpenWorkspaceMarkdown={onOpenWorkspaceMarkdown}
+          />
+        </div>
+      </div>
+    </section>
+  )
+}
+
 // ================================================================
 // Main Content Area
 // ================================================================
@@ -1894,6 +1973,9 @@ function MainArea() {
     lessonReaderOpen,
     selectedCoursePreviewFile,
     selectedResourcePreviewFile,
+    selectedMarkdownDocument,
+    markdownDraft,
+    markdownSaving,
     setView,
     setSidebarCollapsed,
     openSettings,
@@ -1907,9 +1989,13 @@ function MainArea() {
     applyLessonStyle,
     generateLesson,
     loadLesson,
+    loadWorkspaceMarkdownFile,
+    setMarkdownDraft,
+    saveMarkdownDocument,
     openLessonLibrary,
     openResourceHtmlPreview,
     openPath,
+    openExternal,
     clearError,
     showNotification
   } = useAppStore()
@@ -1941,6 +2027,7 @@ function MainArea() {
   const selectedLesson = active?.lessons.find((lesson) => lesson.absolutePath === appState.selectedLessonPath) ?? null
   const selectedPreviewFile = selectedCoursePreviewFile ?? (selectedLesson ? lessonToCoursePreviewFile(selectedLesson) : null)
   const readingCourseHtml = Boolean(lessonReaderOpen && selectedPreviewFile)
+  const readingMarkdown = view === 'lessons' && Boolean(selectedMarkdownDocument)
   const readingResourceHtml = view === 'resources' && Boolean(selectedResourcePreviewFile)
   const readingHtml = readingCourseHtml || readingResourceHtml
   const lessonFrameKey = selectedPreviewFile
@@ -1960,6 +2047,35 @@ function MainArea() {
       <PanelLeft size={17} />
     </button>
   )
+
+  useEffect(() => {
+    const handlePreviewMessage = (event: MessageEvent): void => {
+      const data = event.data as { type?: unknown; href?: unknown }
+      if (!data || typeof data.type !== 'string' || typeof data.href !== 'string') return
+      if (data.type === PREVIEW_EXTERNAL_LINK_MESSAGE) {
+        const href = parsePreviewExternalHref(data.href)
+        if (href) void openExternal(href)
+        return
+      }
+      if (data.type === PREVIEW_MARKDOWN_LINK_MESSAGE) {
+        const target = parsePreviewMarkdownHref(data.href)
+        if (!target) return
+        const workspace = appState.workspaces.find((item) => item.id === target.workspaceId)
+        if (!workspace) return
+        void loadWorkspaceMarkdownFile(
+          {
+            title: titleFromFileName(target.relativePath),
+            relativePath: target.relativePath,
+            absolutePath: target.relativePath
+          },
+          workspace.id
+        )
+      }
+    }
+
+    window.addEventListener('message', handlePreviewMessage)
+    return () => window.removeEventListener('message', handlePreviewMessage)
+  }, [appState.workspaces, loadWorkspaceMarkdownFile, openExternal])
 
   // Show skeleton during initial load
   if (loading && !active) {
@@ -1992,7 +2108,7 @@ function MainArea() {
             <ArrowLeft size={17} />
           </button>
         </>
-      ) : readingCourseHtml ? (
+      ) : readingCourseHtml || readingMarkdown ? (
         renderSidebarToggle('icon-button reader-sidebar-toggle')
       ) : (
         <header className="topbar">
@@ -2060,8 +2176,17 @@ function MainArea() {
       )}
 
       {view === 'lessons' && (
-        <section className="lesson-course-view" aria-label={t('nav.lessons')} data-reading-html={readingCourseHtml ? 'true' : undefined}>
-          <div className="lesson-course-stage" data-reading-html={readingCourseHtml ? 'true' : undefined}>
+        <section
+          className="lesson-course-view"
+          aria-label={t('nav.lessons')}
+          data-reading-html={readingCourseHtml ? 'true' : undefined}
+          data-reading-markdown={readingMarkdown ? 'true' : undefined}
+        >
+          <div
+            className="lesson-course-stage"
+            data-reading-html={readingCourseHtml ? 'true' : undefined}
+            data-reading-markdown={readingMarkdown ? 'true' : undefined}
+          >
             {readingCourseHtml && selectedPreviewFile ? (
               <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
                 <div className="lesson-reader-frame-wrap">
@@ -2075,6 +2200,27 @@ function MainArea() {
                   />
                 </div>
               </section>
+            ) : readingMarkdown && selectedMarkdownDocument ? (
+              <MarkdownDocumentPanel
+                document={selectedMarkdownDocument}
+                draft={markdownDraft}
+                saving={markdownSaving}
+                workspaceId={selectedCourseWorkspaceId}
+                onDraftChange={setMarkdownDraft}
+                onSave={() => void saveMarkdownDocument()}
+                onOpenExternal={(href) => void openExternal(href)}
+                onOpenWorkspaceMarkdown={(relativePath) => {
+                  if (!selectedCourseWorkspaceId) return
+                  void loadWorkspaceMarkdownFile(
+                    {
+                      title: titleFromFileName(relativePath),
+                      relativePath,
+                      absolutePath: relativePath
+                    },
+                    selectedCourseWorkspaceId
+                  )
+                }}
+              />
             ) : (
               <section className="lesson-course-library" aria-label={t('lessons.libraryTitle')}>
                 <div className="lesson-library-header">
