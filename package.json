@@ -10,6 +10,7 @@
     "check:path-access": "node scripts/check-path-access.mjs",
     "check:agent-conversation-catalog": "node scripts/check-agent-conversation-catalog.mjs",
     "check:agent-conversation-state": "node scripts/check-agent-conversation-state.mjs",
+    "check:agent-conversation-audit-metadata": "node scripts/check-agent-conversation-audit-metadata.mjs",
     "check:agent-chat": "node scripts/check-agent-chat-model-routing.mjs",
     "check:agent-chat-cancel": "node scripts/check-agent-chat-cancel.mjs",
     "check:app-data-migration": "node scripts/check-app-data-migration.mjs",

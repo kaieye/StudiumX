@@ -38,6 +38,87 @@ export type AgentChatToolCallView = {
   isError?: boolean
 }
 
+export type AgentSourceMetadata = {
+  sourceId: string
+  url: string
+  title?: string
+  snippet?: string
+  provider?: string
+  retrievedAt?: string
+  publishedAt?: string
+  toolCallId?: string
+  toolName?: string
+}
+
+export type AgentChildRunMetadata = {
+  childRunId: string
+  label: string
+  profile: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'canceled'
+  summary?: string
+  error?: string
+  filesRead?: string[]
+  citations?: Array<{ sourceId: string; url: string; title?: string }>
+  usage?: {
+    toolCalls: number
+    promptTokens?: number
+    completionTokens?: number
+    totalTokens?: number
+  }
+  startedAt?: string
+  completedAt?: string
+}
+
+export type AgentCompactionMetadata = {
+  sourceDigest: string
+  reason: string
+  mode: string
+  beforeTokens?: number
+  afterTokens?: number
+  replacedTokens?: number
+  summaryTokens?: number
+  replacedMessages?: number
+  tailMessages?: number
+  cached?: boolean
+  failed?: boolean
+  error?: string
+}
+
+export type AgentContextHygieneMetadata = {
+  changed: boolean
+  savedTokens: number
+  compactedToolResults: number
+  digestedToolResults: number
+  compactedToolCallArgs: number
+}
+
+export type AgentContextEstimateMetadata = {
+  messageTokens: number
+  overheadTokens: number
+  totalTokens: number
+  source: string
+}
+
+export type AgentToolResultDiagnostic = {
+  toolCallId: string
+  toolName: string
+  bytes: number
+  lines: number
+  approxTokens?: number
+  isError?: boolean
+  archived?: false
+}
+
+export type AgentTurnMetadata = {
+  version: 1
+  sources?: AgentSourceMetadata[]
+  childRuns?: AgentChildRunMetadata[]
+  compactions?: AgentCompactionMetadata[]
+  contextHygiene?: AgentContextHygieneMetadata[]
+  contextEstimate?: AgentContextEstimateMetadata
+  toolResults?: AgentToolResultDiagnostic[]
+}
+
 export type AgentChatProcessEvent = {
   id: string
   kind: 'status' | 'tool_call' | 'tool_result'
@@ -56,6 +137,7 @@ export type AgentChatTurn = {
   content: string
   toolCalls?: AgentChatToolCallView[]
   processEvents?: AgentChatProcessEvent[]
+  metadata?: AgentTurnMetadata
   createdAt: string
 }
 

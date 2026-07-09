@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { runAgentLoop } from './ai/agent-loop'
+import { runAgentLoop, type AgentLoopEvent } from './ai/agent-loop'
+import { attachAgentRunAuditMetadata } from './ai/agent-run-audit'
 import { resolveActiveProvider, type ChatMessage, type ToolDefinition } from './ai/provider-adapter'
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
 import { createAskToolEntry } from './ai/tools/ask'
@@ -223,6 +224,7 @@ export async function runTeachingConversationTurn(
     { role: 'user', content: userInput }
   ]
 
+  const runEvents: AgentLoopEvent[] = []
   const result = await runAgentLoop({
     settings,
     provider,
@@ -238,6 +240,7 @@ export async function runTeachingConversationTurn(
     signal: stream.signal,
     callbacks: {
       onEvent: (event) => {
+        runEvents.push(event)
         const streamId = stream.streamId
         if (event.type === 'status') {
           stream.onStatus({ streamId, status: event.status, message: event.message })
@@ -329,6 +332,7 @@ export async function runTeachingConversationTurn(
     lessonToolEnabled,
     generatedLessons,
     generateLessonFromBrief,
+    runEvents,
     stream
   })
   if (recovered) return recovered
@@ -367,7 +371,7 @@ export async function runTeachingConversationTurn(
   }
 
   return {
-    turns: toAgentTurns(messagesWithMemory),
+    turns: attachAgentRunAuditMetadata(toAgentTurns(messagesWithMemory), runEvents),
     finalText,
     iterations: result.iterations,
     toolsSupported: result.toolsSupported,
@@ -670,6 +674,7 @@ async function recoverLessonGenerationAfterToolBudget(options: {
   lessonToolEnabled: boolean
   generatedLessons: LessonSummary[]
   generateLessonFromBrief?: (brief: LessonBrief) => Promise<LessonSummary>
+  runEvents: AgentLoopEvent[]
   stream: TeachingConversationRuntimeStream
 }): Promise<AgentChatStreamResult | null> {
   const {
@@ -680,6 +685,7 @@ async function recoverLessonGenerationAfterToolBudget(options: {
     lessonToolEnabled,
     generatedLessons,
     generateLessonFromBrief,
+    runEvents,
     stream
   } = options
   if (
@@ -703,7 +709,7 @@ async function recoverLessonGenerationAfterToolBudget(options: {
     stream.onChunk({ streamId: stream.streamId, delta: finalText })
     stream.onStatus({ streamId: stream.streamId, status: 'done' })
     return {
-      turns: toAgentTurns([...result.messages, { role: 'assistant', content: finalText }]),
+      turns: attachAgentRunAuditMetadata(toAgentTurns([...result.messages, { role: 'assistant', content: finalText }]), runEvents),
       finalText,
       iterations: result.iterations,
       toolsSupported: result.toolsSupported,

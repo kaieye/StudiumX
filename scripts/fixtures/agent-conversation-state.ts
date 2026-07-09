@@ -243,6 +243,45 @@ const reconciled = reconcileAgentTurnsWithLocalProcess(
 )
 assert.equal(reconciled[0].processEvents?.length, pending.turns.at(-1)?.processEvents?.length)
 
+const metadataReconciled = reconcileAgentTurnsWithLocalProcess(
+  [
+    {
+      id: 'server-meta',
+      role: 'assistant',
+      content: 'server',
+      metadata: {
+        version: 1,
+        sources: [{ sourceId: 'src-1', url: 'https://example.com/source', title: 'Source' }]
+      },
+      createdAt: '2026-01-02T00:00:06.000Z'
+    }
+  ],
+  [
+    {
+      id: 'local-meta',
+      role: 'assistant',
+      content: 'local',
+      processEvents: pending.turns.at(-1)?.processEvents,
+      metadata: {
+        version: 1,
+        childRuns: [
+          {
+            childRunId: 'child-1',
+            label: 'Audit',
+            profile: 'workspace_audit',
+            status: 'completed',
+            summary: 'done'
+          }
+        ]
+      },
+      createdAt: '2026-01-02T00:00:06.000Z'
+    }
+  ]
+)
+assert.equal(metadataReconciled[0].metadata?.sources?.[0]?.sourceId, 'src-1')
+assert.equal(metadataReconciled[0].metadata?.childRuns?.[0]?.childRunId, 'child-1')
+assert.equal(metadataReconciled[0].processEvents?.length, pending.turns.at(-1)?.processEvents?.length)
+
 assert.equal(
   activeTeachingConversationSummary({
     state,

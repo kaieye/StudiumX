@@ -19,10 +19,17 @@ import {
   isAgentConversationMarkdownRelativePath
 } from '../shared/agent-conversation-catalog'
 import type {
+  AgentChildRunMetadata,
   AgentChatProcessEvent,
   AgentChatTurn,
+  AgentCompactionMetadata,
   AgentConversationRecord,
-  AgentConversationSummary
+  AgentConversationSummary,
+  AgentContextEstimateMetadata,
+  AgentContextHygieneMetadata,
+  AgentSourceMetadata,
+  AgentToolResultDiagnostic,
+  AgentTurnMetadata
 } from '../shared/teaching-types'
 
 export type AgentConversationWorkspace = {
@@ -30,6 +37,12 @@ export type AgentConversationWorkspace = {
   name: string
   rootPath: string
 }
+
+const MAX_METADATA_ITEMS = 20
+const MAX_METADATA_FILES = 40
+const MAX_TEXT = 2000
+const MAX_SHORT_TEXT = 240
+const MAX_SNIPPET_TEXT = 500
 
 export async function listAgentConversations(
   rootPath: string,
@@ -146,12 +159,14 @@ export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[]
             }
           })
       : undefined
+    const metadata = normalizeAgentTurnMetadata(record.metadata)
     normalized.push({
       id: typeof record.id === 'string' && record.id ? record.id : `${role}-${index}`,
       role,
       content: typeof record.content === 'string' ? record.content : '',
       toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
       processEvents: processEvents && processEvents.length > 0 ? processEvents : undefined,
+      metadata,
       createdAt: typeof record.createdAt === 'string' ? record.createdAt : now
     })
   }
@@ -267,8 +282,266 @@ function renderAgentConversationMarkdown(
       }
       lines.push('')
     }
+    renderAgentTurnMetadataMarkdown(lines, turn.metadata)
   }
   return `${lines.join('\n').replace(/\n{4,}/g, '\n\n\n').trim()}\n`
+}
+
+function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const sources = normalizeSources(record.sources)
+  const childRuns = normalizeChildRuns(record.childRuns)
+  const compactions = normalizeCompactions(record.compactions)
+  const contextHygiene = normalizeContextHygiene(record.contextHygiene)
+  const contextEstimate = normalizeContextEstimate(record.contextEstimate)
+  const toolResults = normalizeToolResults(record.toolResults)
+  const metadata: AgentTurnMetadata = {
+    version: 1,
+    sources: sources.length > 0 ? sources : undefined,
+    childRuns: childRuns.length > 0 ? childRuns : undefined,
+    compactions: compactions.length > 0 ? compactions : undefined,
+    contextHygiene: contextHygiene.length > 0 ? contextHygiene : undefined,
+    contextEstimate,
+    toolResults: toolResults.length > 0 ? toolResults : undefined
+  }
+  return metadata.sources ||
+    metadata.childRuns ||
+    metadata.compactions ||
+    metadata.contextHygiene ||
+    metadata.contextEstimate ||
+    metadata.toolResults
+    ? metadata
+    : undefined
+}
+
+function normalizeSources(value: unknown): AgentSourceMetadata[] {
+  if (!Array.isArray(value)) return []
+  const out = new Map<string, AgentSourceMetadata>()
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const url = textValue(record.url, 2000)
+    if (!url) continue
+    const sourceId = textValue(record.sourceId, MAX_SHORT_TEXT) ?? sourceIdForUrl(url)
+    if (out.has(sourceId)) continue
+    out.set(sourceId, pruneUndefined({
+      sourceId,
+      url,
+      title: textValue(record.title, MAX_SHORT_TEXT),
+      snippet: textValue(record.snippet, MAX_SNIPPET_TEXT),
+      provider: textValue(record.provider, MAX_SHORT_TEXT),
+      retrievedAt: textValue(record.retrievedAt, MAX_SHORT_TEXT),
+      publishedAt: textValue(record.publishedAt, MAX_SHORT_TEXT),
+      toolCallId: textValue(record.toolCallId, MAX_SHORT_TEXT),
+      toolName: textValue(record.toolName, MAX_SHORT_TEXT)
+    }))
+    if (out.size >= MAX_METADATA_ITEMS) break
+  }
+  return [...out.values()]
+}
+
+function normalizeChildRuns(value: unknown): AgentChildRunMetadata[] {
+  if (!Array.isArray(value)) return []
+  const out: AgentChildRunMetadata[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const childRunId = textValue(record.childRunId, MAX_SHORT_TEXT)
+    if (!childRunId) continue
+    out.push(pruneUndefined({
+      childRunId,
+      label: textValue(record.label, MAX_SHORT_TEXT) ?? childRunId,
+      profile: textValue(record.profile, MAX_SHORT_TEXT) ?? 'read_only',
+      status: normalizeChildRunStatus(record.status),
+      summary: textValue(record.summary, MAX_TEXT),
+      error: textValue(record.error, 1000),
+      filesRead: normalizeStringArray(record.filesRead, MAX_METADATA_FILES, MAX_SHORT_TEXT),
+      citations: normalizeCitations(record.citations),
+      usage: normalizeChildUsage(record.usage),
+      startedAt: textValue(record.startedAt, MAX_SHORT_TEXT),
+      completedAt: textValue(record.completedAt, MAX_SHORT_TEXT)
+    }))
+    if (out.length >= MAX_METADATA_ITEMS) break
+  }
+  return out
+}
+
+function normalizeCompactions(value: unknown): AgentCompactionMetadata[] {
+  if (!Array.isArray(value)) return []
+  const out: AgentCompactionMetadata[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const sourceDigest = textValue(record.sourceDigest, MAX_SHORT_TEXT)
+    if (!sourceDigest) continue
+    out.push(pruneUndefined({
+      sourceDigest,
+      reason: textValue(record.reason, MAX_SHORT_TEXT) ?? 'unknown',
+      mode: textValue(record.mode, MAX_SHORT_TEXT) ?? 'normal',
+      beforeTokens: numberValue(record.beforeTokens),
+      afterTokens: numberValue(record.afterTokens),
+      replacedTokens: numberValue(record.replacedTokens),
+      summaryTokens: numberValue(record.summaryTokens),
+      replacedMessages: numberValue(record.replacedMessages),
+      tailMessages: numberValue(record.tailMessages),
+      cached: typeof record.cached === 'boolean' ? record.cached : undefined,
+      failed: record.failed === true ? true : undefined,
+      error: textValue(record.error, 1000)
+    }))
+    if (out.length >= MAX_METADATA_ITEMS) break
+  }
+  return out
+}
+
+function normalizeContextHygiene(value: unknown): AgentContextHygieneMetadata[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const record = item as Record<string, unknown>
+      return {
+        changed: record.changed === true,
+        savedTokens: numberValue(record.savedTokens) ?? 0,
+        compactedToolResults: numberValue(record.compactedToolResults) ?? 0,
+        digestedToolResults: numberValue(record.digestedToolResults) ?? 0,
+        compactedToolCallArgs: numberValue(record.compactedToolCallArgs) ?? 0
+      }
+    })
+    .filter((item): item is AgentContextHygieneMetadata => Boolean(item))
+    .slice(0, MAX_METADATA_ITEMS)
+}
+
+function normalizeContextEstimate(value: unknown): AgentContextEstimateMetadata | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const totalTokens = numberValue(record.totalTokens)
+  if (totalTokens === undefined) return undefined
+  return {
+    messageTokens: numberValue(record.messageTokens) ?? 0,
+    overheadTokens: numberValue(record.overheadTokens) ?? 0,
+    totalTokens,
+    source: textValue(record.source, MAX_SHORT_TEXT) ?? 'local'
+  }
+}
+
+function normalizeToolResults(value: unknown): AgentToolResultDiagnostic[] {
+  if (!Array.isArray(value)) return []
+  const out: AgentToolResultDiagnostic[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const toolCallId = textValue(record.toolCallId, MAX_SHORT_TEXT)
+    const toolName = textValue(record.toolName, MAX_SHORT_TEXT)
+    const bytes = numberValue(record.bytes)
+    const lines = numberValue(record.lines)
+    if (!toolCallId || !toolName || bytes === undefined || lines === undefined) continue
+    out.push(pruneUndefined({
+      toolCallId,
+      toolName,
+      bytes,
+      lines,
+      approxTokens: numberValue(record.approxTokens),
+      isError: record.isError === true ? true : undefined,
+      archived: false as const
+    }))
+    if (out.length >= MAX_METADATA_ITEMS) break
+  }
+  return out
+}
+
+function normalizeChildRunStatus(value: unknown): AgentChildRunMetadata['status'] {
+  return value === 'queued' ||
+    value === 'running' ||
+    value === 'failed' ||
+    value === 'canceled' ||
+    value === 'completed'
+    ? value
+    : 'completed'
+}
+
+function normalizeChildUsage(value: unknown): AgentChildRunMetadata['usage'] | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const toolCalls = numberValue(record.toolCalls)
+  const usage = pruneUndefined({
+    toolCalls: toolCalls ?? 0,
+    promptTokens: numberValue(record.promptTokens),
+    completionTokens: numberValue(record.completionTokens),
+    totalTokens: numberValue(record.totalTokens)
+  })
+  return usage.toolCalls > 0 ||
+    usage.promptTokens !== undefined ||
+    usage.completionTokens !== undefined ||
+    usage.totalTokens !== undefined
+    ? usage
+    : undefined
+}
+
+function normalizeCitations(value: unknown): AgentChildRunMetadata['citations'] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const citations = value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const record = item as Record<string, unknown>
+      const url = textValue(record.url, 2000)
+      if (!url) return null
+      return pruneUndefined({
+        sourceId: textValue(record.sourceId, MAX_SHORT_TEXT) ?? sourceIdForUrl(url),
+        url,
+        title: textValue(record.title, MAX_SHORT_TEXT)
+      })
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .slice(0, MAX_METADATA_ITEMS)
+  return citations.length > 0 ? citations : undefined
+}
+
+function normalizeStringArray(value: unknown, maxItems: number, maxLength: number): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const result = value
+    .map((item) => textValue(item, maxLength))
+    .filter((item): item is string => Boolean(item))
+    .slice(0, maxItems)
+  return result.length > 0 ? result : undefined
+}
+
+function renderAgentTurnMetadataMarkdown(lines: string[], metadata: AgentTurnMetadata | undefined): void {
+  if (!metadata) return
+  if (metadata.sources?.length) {
+    lines.push('Sources:', '')
+    for (const source of metadata.sources) {
+      const label = source.title || source.url
+      const suffix = source.provider ? ` (${source.provider})` : ''
+      lines.push(`- ${label}: ${source.url}${suffix}`)
+    }
+    lines.push('')
+  }
+  if (metadata.childRuns?.length) {
+    lines.push('Child runs:', '')
+    for (const child of metadata.childRuns) {
+      const summary = child.summary ? `: ${compactTextForMarkdown(child.summary, 240)}` : ''
+      lines.push(`- ${child.label} [${child.status}, ${child.profile}]${summary}`)
+    }
+    lines.push('')
+  }
+  if (metadata.compactions?.length) {
+    lines.push('Context compaction:', '')
+    for (const compaction of metadata.compactions) {
+      const saved = compaction.beforeTokens !== undefined && compaction.afterTokens !== undefined
+        ? ` saved ${Math.max(0, compaction.beforeTokens - compaction.afterTokens)} tokens`
+        : ''
+      lines.push(`- ${compaction.sourceDigest} (${compaction.mode}/${compaction.reason})${compaction.failed ? ' failed' : saved}`)
+    }
+    lines.push('')
+  }
+  if (metadata.toolResults?.length) {
+    lines.push('Tool result diagnostics:', '')
+    for (const tool of metadata.toolResults) {
+      lines.push(`- ${tool.toolName} ${tool.toolCallId}: ${tool.bytes} bytes, ${tool.lines} lines${tool.isError ? ', error' : ''}`)
+    }
+    lines.push('')
+  }
 }
 
 async function collectAgentConversationJsonRelativePaths(
@@ -333,6 +606,39 @@ function compactTextForMarkdown(value: string, maxLength: number): string {
   const compact = value.replace(/\s+/g, ' ').trim()
   if (!compact) return '(empty)'
   return compact.length > maxLength ? `${compact.slice(0, maxLength - 1)}...` : compact
+}
+
+function textValue(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (!compact) return undefined
+  return compact.length > maxLength ? `${compact.slice(0, Math.max(0, maxLength - 3))}...` : compact
+}
+
+function numberValue(value: unknown): number | undefined {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : undefined
+}
+
+function sourceIdForUrl(url: string): string {
+  return `source-${stableHash(url)}`
+}
+
+function stableHash(value: string): string {
+  let hash = 2166136261
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+function pruneUndefined<T extends Record<string, unknown>>(value: T): T {
+  const out: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (item !== undefined) out[key] = item
+  }
+  return out as T
 }
 
 function safeJsonParse(text: string): unknown {

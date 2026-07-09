@@ -12,6 +12,7 @@ import type {
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
   AgentChatTurn,
+  AgentTurnMetadata,
   AgentConversationSummary,
   AskAnswer,
   AskOption,
@@ -477,8 +478,14 @@ export function reconcileAgentTurnsWithLocalProcess(
     if (turn.role !== 'assistant') return turn
     const localTurn = localAssistantTurns[assistantIndex]
     assistantIndex += 1
-    if (!localTurn?.processEvents?.length) return turn
-    return { ...turn, processEvents: localTurn.processEvents }
+    const processEvents = localTurn?.processEvents?.length ? localTurn.processEvents : turn.processEvents
+    const metadata = mergeAgentTurnMetadata(turn.metadata, localTurn?.metadata)
+    if (processEvents === turn.processEvents && metadata === turn.metadata) return turn
+    return {
+      ...turn,
+      processEvents,
+      metadata
+    }
   })
 }
 
@@ -654,6 +661,38 @@ function updateAgentAssistantTurn(
   updater: (turn: AgentChatTurn) => AgentChatTurn
 ): AgentChatTurn[] {
   return turns.map((turn) => (turn.id === assistantId ? updater(turn) : turn))
+}
+
+function mergeAgentTurnMetadata(
+  server: AgentTurnMetadata | undefined,
+  local: AgentTurnMetadata | undefined
+): AgentTurnMetadata | undefined {
+  if (!local) return server
+  if (!server) return local
+  return {
+    version: 1,
+    sources: mergeMetadataItems(server.sources, local.sources, (source) => source.sourceId || source.url),
+    childRuns: mergeMetadataItems(server.childRuns, local.childRuns, (child) => child.childRunId),
+    compactions: mergeMetadataItems(server.compactions, local.compactions, (compaction) => compaction.sourceDigest),
+    contextHygiene: nonEmptyMetadataItems([...(server.contextHygiene ?? []), ...(local.contextHygiene ?? [])]),
+    contextEstimate: server.contextEstimate ?? local.contextEstimate,
+    toolResults: mergeMetadataItems(server.toolResults, local.toolResults, (tool) => `${tool.toolCallId}:${tool.toolName}`)
+  }
+}
+
+function mergeMetadataItems<T>(
+  server: T[] | undefined,
+  local: T[] | undefined,
+  keyOf: (item: T) => string
+): T[] | undefined {
+  const out = new Map<string, T>()
+  for (const item of local ?? []) out.set(keyOf(item), item)
+  for (const item of server ?? []) out.set(keyOf(item), item)
+  return out.size > 0 ? [...out.values()] : undefined
+}
+
+function nonEmptyMetadataItems<T>(items: T[]): T[] | undefined {
+  return items.length > 0 ? items : undefined
 }
 
 function prettyJson(value: string): string {
