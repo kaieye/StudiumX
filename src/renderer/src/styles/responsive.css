@@ -65,6 +65,8 @@ body {
     grid-column: 1;
     overflow: visible;
     padding: 0 0 24px;
+    border: 0;
+    border-radius: 0;
   }.main-area[data-view='lessons'] {
     overflow: visible;
   }.main-area[data-view='lessons'] .composer-tool {

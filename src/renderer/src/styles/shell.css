@@ -70,12 +70,15 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--app-shell-sidebar-bg);
   transition: grid-template-columns 180ms ease;
 }body.is-sidebar-resizing .app-shell {
   transition: none;
 }.app-shell.is-sidebar-collapsed {
   grid-template-columns: 0 0 minmax(0, 1fr);
+}.app-shell.is-sidebar-collapsed .main-area {
+  border: 0;
+  border-radius: 0;
 }
 
 /* macOS: traffic lights overlay in sidebar */.app-shell.platform-darwin {

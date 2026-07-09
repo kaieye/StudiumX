@@ -11,16 +11,14 @@
     linear-gradient(180deg, rgba(18, 18, 20, 0.96), rgba(15, 15, 16, 0.92)),
     #0f0f10;
   color: var(--text);
-}:root[data-resolved-theme="dark"] .app-shell,
-:root[data-resolved-theme="dark"] .main-area,
+}:root[data-resolved-theme="dark"] .app-shell {
+  background: var(--app-shell-sidebar-bg);
+}:root[data-resolved-theme="dark"] .main-area,
 :root[data-resolved-theme="dark"] .overview-dialog-shell {
-  background: #101010;
+  background: var(--app-shell-main-bg);
 }:root[data-resolved-theme="dark"] .sidebar,
 :root[data-resolved-theme="dark"] .sidebar-resizer {
-  background:
-    linear-gradient(180deg, rgba(21, 21, 23, 0.98), rgba(15, 15, 16, 0.98));
-}:root[data-resolved-theme="dark"] .sidebar-resizer::before {
-  background: rgba(148, 163, 184, 0.14);
+  background: var(--app-shell-sidebar-bg);
 }:root[data-resolved-theme="dark"] .topbar {
   background: rgba(17, 17, 18, 0.86);
 }:root[data-resolved-theme="dark"] .search-box,

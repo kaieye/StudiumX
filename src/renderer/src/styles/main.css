@@ -7,7 +7,10 @@
   overflow-x: hidden;
   overflow-y: auto;
   padding: 0 0 40px;
-  background: #ffffff;
+  border: 1px solid var(--app-shell-divider);
+  border-right: 0;
+  border-radius: var(--app-shell-main-radius) 0 0 var(--app-shell-main-radius);
+  background: var(--app-shell-main-bg);
   scroll-behavior: smooth;
 }.main-area[data-view='lessons'] {
   display: flex;
