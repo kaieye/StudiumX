@@ -82,6 +82,14 @@
   -webkit-app-region: no-drag;
 }.app-shell.platform-win32.is-sidebar-collapsed .topbar {
   padding-left: calc(20px + var(--window-chrome-left-width));
+}.app-shell.platform-win32.is-sidebar-collapsed .topbar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--window-chrome-left-width);
+  height: var(--window-chrome-height);
+  -webkit-app-region: no-drag;
 }.app-shell.platform-win32 .main-area[data-reading-html='true'],
 .app-shell.platform-win32 .main-area[data-reading-markdown='true'] {
   padding-top: var(--window-chrome-height);

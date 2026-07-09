@@ -68,6 +68,12 @@ assert.match(
 
 assert.match(
   css,
+  /\.app-shell\.platform-win32\.is-sidebar-collapsed \.topbar::before \{[\s\S]*width: var\(--window-chrome-left-width\);[\s\S]*-webkit-app-region: no-drag;/,
+  'Collapsed Windows topbars should reserve a no-drag hit region below the sidebar toggle'
+)
+
+assert.match(
+  css,
   /\.app-shell\.platform-win32 \.sidebar \{[\s\S]*-webkit-app-region: no-drag;/,
   'Windows sidebar content should not drag the whole window'
 )
