@@ -31,7 +31,8 @@ import {
   MessageSquare,
   Minus,
   MoreHorizontal,
-  PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   Palette,
   Pause,
   PenLine,
@@ -257,6 +258,19 @@ function clampSidebarWidth(width: number): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)))
 }
 
+function SidebarToggleIcon({
+  className,
+  collapsed,
+  size = 17
+}: {
+  className?: string
+  collapsed: boolean
+  size?: number
+}) {
+  const Icon = collapsed ? PanelLeftOpen : PanelLeftClose
+  return <Icon className={className} size={size} strokeWidth={1.9} aria-hidden="true" />
+}
+
 function SidebarResizer({
   disabled,
   onResize,
@@ -404,7 +418,7 @@ function WindowsSidebarToggleChrome() {
         onClick={handleClick}
         onPointerDown={handlePointerDown}
       >
-        <PanelLeft className="windows-sidebar-action-icon" size={17} aria-hidden="true" />
+        <SidebarToggleIcon className="windows-sidebar-action-icon" collapsed={sidebarCollapsed} />
       </button>
     </div>
   )
@@ -2092,7 +2106,7 @@ function MainArea() {
       aria-label={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
       onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
     >
-      <PanelLeft size={17} />
+      <SidebarToggleIcon collapsed={sidebarCollapsed} />
     </button>
   )
 
