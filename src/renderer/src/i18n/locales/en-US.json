@@ -163,6 +163,28 @@
     "open": "Open RESOURCES.md",
     "emptyTitle": "No resources yet",
     "emptyDetail": "Add trusted learning sources to RESOURCES.md and they'll appear here.",
+    "home": {
+      "tabsAria": "Resource categories",
+      "tabs": {
+        "resources": "Resources",
+        "workspace": "Workspace"
+      },
+      "subtitle": "Manage course-generation resources, templates, and page styles.",
+      "searchPlaceholder": "Search resources",
+      "installed": "Enabled",
+      "sourcesAria": "Resource sources",
+      "sources": {
+        "builtIn": "Provided by TeachOS",
+        "workspace": "Provided by your workspace",
+        "personal": "Personal"
+      },
+      "featured": "Featured",
+      "stylesMeta": "Visual styles",
+      "stylesDetail": "{{count}} lesson page styles, currently using {{style}}.",
+      "open": "Open",
+      "back": "Back to resources",
+      "noResults": "No matching resources"
+    },
     "styles": {
       "label": "Lesson styles",
       "title": "Style gallery",

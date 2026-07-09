@@ -163,6 +163,28 @@
     "open": "打开 RESOURCES.md",
     "emptyTitle": "暂无资源",
     "emptyDetail": "在 RESOURCES.md 中添加可信学习来源后，会显示在这里。",
+    "home": {
+      "tabsAria": "资源分类",
+      "tabs": {
+        "resources": "资源",
+        "workspace": "工作区"
+      },
+      "subtitle": "管理课程生成相关的资源、模板与页面风格。",
+      "searchPlaceholder": "搜索资源",
+      "installed": "已启用",
+      "sourcesAria": "资源来源",
+      "sources": {
+        "builtIn": "由 TeachOS 提供",
+        "workspace": "由你的工作空间提供",
+        "personal": "个人"
+      },
+      "featured": "Featured",
+      "stylesMeta": "视觉样式",
+      "stylesDetail": "{{count}} 套课程页面风格，当前使用 {{style}}。",
+      "open": "打开",
+      "back": "返回资源",
+      "noResults": "没有匹配的资源"
+    },
     "styles": {
       "label": "课程风格",
       "title": "风格样式库",

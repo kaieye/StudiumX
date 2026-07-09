@@ -158,8 +158,20 @@ assert.match(
 
 assert.match(
   app,
-  /className="resource-page"[\s\S]{0,900}<LessonStyleGallery \/>/,
-  'the resources page should mount the style gallery when not reading a preview'
+  /function ResourceHome\(\{ onOpenStyles \}/,
+  'resources page should render the resource home component'
+)
+
+assert.match(
+  app,
+  /resourcePageSection: 'home'/,
+  'resources should open to the resource home page by default'
+)
+
+assert.match(
+  app,
+  /resourcePageSection === 'styles'[\s\S]{0,240}<ResourceStyleLibrary onBack=\{\(\) => setResourcePageSection\('home'\)\} \/>[\s\S]{0,180}<ResourceHome onOpenStyles=\{\(\) => setResourcePageSection\('styles'\)\} \/>/,
+  'the resources page should move style cards behind a style library entry'
 )
 
 for (const removedResourceContent of ['PRESET_TUTORIALS', 'tutorial-grid', 'resource-page-secondary']) {
@@ -230,6 +242,8 @@ assert.match(
 )
 
 assert.match(css, /\.style-gallery \{/, 'styles.css should lay out the gallery')
+assert.match(css, /\.resource-home \{/, 'styles.css should lay out the resource home page')
+assert.match(css, /\.resource-entry-card \{/, 'styles.css should style the resource entry card')
 assert.match(css, /\.style-card\.is-selected/, 'styles.css should highlight the selected style card')
 assert.match(css, /\.style-card-chip-aa \{/, 'styles.css should style the type specimen chip')
 assert.match(css, /\.style-card-scale \{/, 'styles.css should style the tonal scale strip')
@@ -242,7 +256,18 @@ assert.match(css, /\.style-card-apply\.is-current/, 'styles.css should style the
 for (const [locale, source] of [['zh-CN', zh], ['en-US', en]]) {
   const parsed = JSON.parse(source)
   const stylesNode = parsed.resources?.styles
+  const homeNode = parsed.resources?.home
   assert.ok(stylesNode, `${locale} should translate resources.styles`)
+  assert.ok(homeNode, `${locale} should translate resources.home`)
+  for (const key of ['tabsAria', 'subtitle', 'searchPlaceholder', 'installed', 'sourcesAria', 'featured', 'stylesMeta', 'stylesDetail', 'open', 'back', 'noResults']) {
+    assert.ok(typeof homeNode[key] === 'string' && homeNode[key].length > 0, `${locale} resources.home.${key} should be translated`)
+  }
+  for (const key of ['resources', 'workspace']) {
+    assert.ok(typeof homeNode.tabs?.[key] === 'string' && homeNode.tabs[key].length > 0, `${locale} resources.home.tabs.${key} should be translated`)
+  }
+  for (const key of ['builtIn', 'workspace', 'personal']) {
+    assert.ok(typeof homeNode.sources?.[key] === 'string' && homeNode.sources[key].length > 0, `${locale} resources.home.sources.${key} should be translated`)
+  }
   for (const key of ['label', 'title', 'detail', 'previewLabel', 'apply', 'applied', 'closePreview', 'backToStyles', 'applyHint', 'applyHintNoWorkspace']) {
     assert.ok(typeof stylesNode[key] === 'string' && stylesNode[key].length > 0, `${locale} resources.styles.${key} should be translated`)
   }

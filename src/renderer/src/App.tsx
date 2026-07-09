@@ -176,6 +176,8 @@ type UserError = {
 
 type DialogMode = 'chat' | 'teaching'
 
+type ResourcePageSection = 'home' | 'styles'
+
 type CoursePreviewFile = {
   title: string
   relativePath: string
@@ -233,6 +235,7 @@ type StoreState = {
   searchQuery: string
   taskPrompt: string
   overviewDialogMode: DialogMode
+  resourcePageSection: ResourcePageSection
   lessonReaderOpen: boolean
   selectedCoursePreviewFile: CoursePreviewFile | null
   selectedResourcePreviewFile: ResourcePreviewFile | null
@@ -254,6 +257,7 @@ type StoreState = {
   openSettings: (section?: SettingsSection) => void
   setSearchQuery: (query: string) => void
   setTaskPrompt: (prompt: string) => void
+  setResourcePageSection: (section: ResourcePageSection) => void
   clearError: () => void
   initialize: () => Promise<void>
   updateSettings: (patch: TeachingSettingsPatch) => Promise<void>
@@ -1252,6 +1256,7 @@ const useAppStore = create<StoreState>((set, get) => ({
   searchQuery: '',
   taskPrompt: defaultPrompt,
   overviewDialogMode: 'chat',
+  resourcePageSection: 'home',
   lessonReaderOpen: false,
   selectedCoursePreviewFile: null,
   selectedResourcePreviewFile: null,
@@ -1352,11 +1357,12 @@ const useAppStore = create<StoreState>((set, get) => ({
     set(view === 'lessons'
       ? { view }
       : view === 'resources'
-        ? { view, selectedResourcePreviewFile: null, ...clearMarkdownDocumentPatch() }
+        ? { view, resourcePageSection: 'home', selectedResourcePreviewFile: null, ...clearMarkdownDocumentPatch() }
         : { view, ...clearMarkdownDocumentPatch() })
     if (view === 'review') void get().loadReviewCards()
   },
   setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
+  setResourcePageSection: (resourcePageSection) => set({ resourcePageSection }),
   openLessonLibrary: () => set({ view: 'lessons', lessonReaderOpen: false, selectedCoursePreviewFile: null, selectedResourcePreviewFile: null, ...clearMarkdownDocumentPatch() }),
   openTeachingConversationView: () => set({
     view: 'overview',
@@ -2273,6 +2279,7 @@ const useAppStore = create<StoreState>((set, get) => ({
   openResourceHtmlPreview: (selectedResourcePreviewFile) => {
     set({
       view: 'resources',
+      resourcePageSection: 'styles',
       lessonReaderOpen: false,
       selectedCoursePreviewFile: null,
       ...clearMarkdownDocumentPatch(),
@@ -4290,6 +4297,7 @@ function MainArea() {
     error,
     appState,
     settings,
+    resourcePageSection,
     lessonReaderOpen,
     selectedCoursePreviewFile,
     selectedResourcePreviewFile,
@@ -4297,6 +4305,7 @@ function MainArea() {
     markdownDraft,
     setView,
     setSidebarCollapsed,
+    setResourcePageSection,
     openSettings,
     closeResourceHtmlPreview,
     pickDefaultRoot,
@@ -4607,7 +4616,11 @@ function MainArea() {
               </div>
             </section>
           ) : (
-            <LessonStyleGallery />
+            resourcePageSection === 'styles' ? (
+              <ResourceStyleLibrary onBack={() => setResourcePageSection('home')} />
+            ) : (
+              <ResourceHome onOpenStyles={() => setResourcePageSection('styles')} />
+            )
           )}
         </section>
       )}
@@ -5168,6 +5181,148 @@ function HtmlTemporaryChat({
           <span>AI</span>
         </button>
       ) : null}
+    </div>
+  )
+}
+
+// ================================================================
+// Resource pages
+// ================================================================
+
+function ResourceHome({ onOpenStyles }: { onOpenStyles: () => void }) {
+  const { t } = useTranslation()
+  const savedStyleId = useAppStore((s) => s.settings.workspace.lessonStyleId)
+  const currentStyleId = normalizeLessonStyleId(savedStyleId)
+  const currentStyleName = t(`resources.styles.items.${currentStyleId}.name`)
+  const [query, setQuery] = useState('')
+
+  const entries = useMemo(
+    () => [
+      {
+        id: 'styles',
+        title: t('resources.styles.title'),
+        detail: t('resources.home.stylesDetail', {
+          count: LESSON_STYLES.length,
+          style: currentStyleName
+        }),
+        meta: t('resources.home.stylesMeta'),
+        action: t('resources.home.open')
+      }
+    ],
+    [currentStyleName, t]
+  )
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visibleEntries = normalizedQuery
+    ? entries.filter((entry) =>
+        `${entry.title} ${entry.detail} ${entry.meta}`.toLocaleLowerCase().includes(normalizedQuery)
+      )
+    : entries
+
+  return (
+    <div className="resource-home">
+      <div className="resource-home-tabs" role="tablist" aria-label={t('resources.home.tabsAria')}>
+        <button type="button" role="tab" aria-selected="true" className="is-active">
+          {t('resources.home.tabs.resources')}
+        </button>
+        <button type="button" role="tab" aria-selected="false" disabled>
+          {t('resources.home.tabs.workspace')}
+        </button>
+      </div>
+
+      <div className="resource-home-head">
+        <h1>{t('resources.title')}</h1>
+        <p>{t('resources.home.subtitle')}</p>
+      </div>
+
+      <label className="resource-home-search">
+        <Search size={15} />
+        <input
+          type="search"
+          value={query}
+          placeholder={t('resources.home.searchPlaceholder')}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+        />
+      </label>
+
+      <section className="resource-installed-strip" aria-label={t('resources.home.installed')}>
+        <div className="resource-installed-head">
+          <strong>{t('resources.home.installed')}</strong>
+          <span className="resource-icon-button" aria-hidden="true">
+            <Settings size={15} />
+          </span>
+        </div>
+        <div className="resource-installed-icons">
+          <button
+            className="resource-installed-icon resource-installed-icon--styles"
+            type="button"
+            aria-label={t('resources.styles.title')}
+            title={t('resources.styles.title')}
+            onClick={onOpenStyles}
+          >
+            <Palette size={22} />
+          </button>
+        </div>
+      </section>
+
+      <div className="resource-source-row" aria-label={t('resources.home.sourcesAria')}>
+        <span className="is-active">{t('resources.home.sources.builtIn')}</span>
+        <span>{t('resources.home.sources.workspace')}</span>
+        <span>{t('resources.home.sources.personal')}</span>
+      </div>
+
+      <section className="resource-directory-section">
+        <div className="resource-section-label">
+          <h2>{t('resources.home.featured')}</h2>
+          <span className="resource-section-line" aria-hidden="true" />
+          <span className="resource-icon-button" aria-hidden="true">
+            <SlidersHorizontal size={15} />
+          </span>
+        </div>
+
+        {visibleEntries.length > 0 ? (
+          <div className="resource-entry-grid">
+            {visibleEntries.map((entry) => (
+              <button
+                key={entry.id}
+                className="resource-entry-card"
+                type="button"
+                onClick={onOpenStyles}
+              >
+                <span className="resource-entry-icon resource-entry-icon--styles">
+                  <Palette size={22} />
+                </span>
+                <span className="resource-entry-body">
+                  <strong>{entry.title}</strong>
+                  <span>{entry.detail}</span>
+                </span>
+                <span className="resource-entry-action">
+                  {entry.action}
+                  <ArrowUpRight size={13} />
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="resource-home-empty">{t('resources.home.noResults')}</div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function ResourceStyleLibrary({ onBack }: { onBack: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="resource-style-page">
+      <button className="resource-back-button" type="button" onClick={onBack}>
+        <ArrowLeft size={15} />
+        {t('resources.home.back')}
+      </button>
+      <div className="resource-style-head">
+        <h1>{t('resources.styles.title')}</h1>
+        <p>{t('resources.styles.detail')}</p>
+      </div>
+      <LessonStyleGallery />
     </div>
   )
 }
