@@ -43,6 +43,7 @@
     "check:provider-actions": "node scripts/check-provider-actions.mjs",
     "check:dialog-ime": "node scripts/check-dialog-ime-composition.mjs",
     "check:sidebar-ui": "node scripts/check-sidebar-ui.mjs",
+    "check:window-chrome-clickability": "node scripts/check-window-chrome-clickability.mjs",
     "check:study-session-transitions": "node scripts/check-study-session-transitions.mjs",
     "check:study-seat-map-presenter": "node scripts/check-study-seat-map-presenter.mjs",
     "check:study-presence-live": "node scripts/check-study-presence-live.mjs",
