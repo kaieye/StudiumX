@@ -69,6 +69,17 @@
   background: rgba(255, 255, 255, 0.86);
   backdrop-filter: blur(18px);
   -webkit-app-region: drag;
+}.app-shell.platform-win32 .topbar {
+  min-height: max(48px, var(--window-chrome-height));
+  padding-right: calc(20px + var(--window-control-overlay-width));
+}.app-shell.platform-win32.is-sidebar-collapsed .topbar {
+  padding-left: calc(20px + var(--window-chrome-left-width));
+}.app-shell.platform-win32 .main-area[data-reading-html='true'],
+.app-shell.platform-win32 .main-area[data-reading-markdown='true'] {
+  padding-top: var(--window-chrome-height);
+}.app-shell.platform-win32 .reader-preview-back--alone {
+  top: calc(var(--window-chrome-height) + 12px);
+  left: 14px;
 }.crumb {
   display: flex;
   align-items: center;

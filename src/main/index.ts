@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, protocol, shell } from 'electron'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -465,6 +465,7 @@ function resolveProxyUrl(settings: TeachingSettingsV1): string {
 /** Apply app-behavior settings (login item, tray, logging) to the live process. */
 async function applyAppBehavior(settings: TeachingSettingsV1): Promise<void> {
   try {
+    nativeTheme.themeSource = settings.theme
     app.setLoginItemSettings({
       openAtLogin: settings.appBehavior.openAtLogin,
       args: settings.appBehavior.startMinimized ? ['--hidden'] : []
@@ -476,16 +477,34 @@ async function applyAppBehavior(settings: TeachingSettingsV1): Promise<void> {
   logger.configure(settings.log.enabled, settings.log.retentionDays)
 }
 
-function createWindow(settingsService: TeachingSettingsService, hidden = false): BrowserWindow {
+function buildDesktopWindowVisualOptions(): Electron.BrowserWindowConstructorOptions {
+  if (process.platform === 'win32') {
+    return {
+      backgroundColor: '#00000000',
+      frame: false,
+      backgroundMaterial: 'acrylic'
+    }
+  }
+
+  return {
+    backgroundColor: '#f7f9fe',
+    frame: false
+  }
+}
+
+function createWindow(
+  settingsService: TeachingSettingsService,
+  hidden = false
+): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 1100,
     minHeight: 720,
     title: 'TeachOS',
-    backgroundColor: '#f7f9fe',
-    frame: false,
+    autoHideMenuBar: true,
     show: false,
+    ...buildDesktopWindowVisualOptions(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: true,
@@ -567,7 +586,9 @@ if (!hasSingleInstanceLock) {
     void applyAppBehavior(initialSettings)
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow(settingsService)
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow(settingsService)
+      }
     })
   })
 

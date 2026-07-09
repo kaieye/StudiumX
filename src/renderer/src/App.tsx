@@ -28,7 +28,6 @@ import {
   LibraryBig,
   LinkIcon,
   Loader2,
-  Maximize2,
   MessageSquare,
   Minus,
   MoreHorizontal,
@@ -210,10 +209,12 @@ const MAX_SIDEBAR_WIDTH = 340
 function App() {
   const platform = window.teachingSystem?.platform ?? 'win32'
   const isMac = platform === 'darwin'
-  const showTitlebar = !isMac
+  const isWindows = platform === 'win32'
+  const showTitlebar = !isMac && !isWindows
   const { settings, sidebarCollapsed } = useAppStore()
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
   const appShellStyle = { '--sidebar-width': `${sidebarWidth}px` } as CSSProperties
+  const platformClass = isMac ? ' platform-darwin' : isWindows ? ' platform-win32' : ''
 
   useEffect(() => {
     applySettingsSideEffects(settings)
@@ -228,9 +229,10 @@ function App() {
   return (
     <AppErrorBoundary>
       <div className="app-frame">
+        {isWindows && <WindowsWindowChrome />}
         {showTitlebar && <WindowTitlebar />}
         <div
-          className={`app-shell${isMac ? ' platform-darwin' : ''}${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
+          className={`app-shell${platformClass}${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
           data-density={settings.density}
           style={appShellStyle}
         >
@@ -320,49 +322,71 @@ function SidebarResizer({
 // Window Titlebar (Windows / Linux)
 // ================================================================
 
-function WindowTitlebar() {
+function WindowControlButtons() {
   const { t } = useTranslation()
   const controlWindow = (action: WindowControlAction): void => {
     void window.teachingSystem?.controlWindow(action)
   }
 
   return (
-    <div className="window-titlebar" role="group" aria-label={t('titlebar.group')}>
-      <div className="window-controls">
+    <div className="window-controls" role="group" aria-label={t('titlebar.group')}>
+      <button
+        className="window-control-btn"
+        type="button"
+        aria-label={t('titlebar.minimize')}
+        title={t('titlebar.minimize')}
+        onClick={() => controlWindow('minimize')}
+      >
+        <Minus size={14} strokeWidth={1.8} />
+      </button>
+      <button
+        className="window-control-btn"
+        type="button"
+        aria-label={t('titlebar.maximize')}
+        title={t('titlebar.maximize')}
+        onClick={() => controlWindow('toggle-maximize')}
+      >
+        <Square size={12} strokeWidth={1.7} />
+      </button>
+      <button
+        className="window-control-btn window-control-btn--close"
+        type="button"
+        aria-label={t('titlebar.close')}
+        title={t('titlebar.close')}
+        onClick={() => controlWindow('close')}
+      >
+        <X size={15} strokeWidth={1.8} />
+      </button>
+    </div>
+  )
+}
+
+function WindowTitlebar() {
+  return (
+    <div className="window-titlebar">
+      <WindowControlButtons />
+    </div>
+  )
+}
+
+function WindowsWindowChrome() {
+  const { t } = useTranslation()
+  const { sidebarCollapsed, setSidebarCollapsed } = useAppStore()
+
+  return (
+    <div className="windows-window-chrome">
+      <div className="windows-window-chrome__left">
         <button
-          className="window-control-btn"
+          className="icon-button windows-sidebar-toggle"
           type="button"
-          aria-label={t('titlebar.minimize')}
-          title={t('titlebar.minimize')}
-          onClick={() => controlWindow('minimize')}
+          aria-label={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
+          title={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-            <path d="M1 5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
-        </button>
-        <button
-          className="window-control-btn"
-          type="button"
-          aria-label={t('titlebar.maximize')}
-          title={t('titlebar.maximize')}
-          onClick={() => controlWindow('toggle-maximize')}
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-            <rect x="1.5" y="1.5" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" />
-          </svg>
-        </button>
-        <button
-          className="window-control-btn window-control-btn--close"
-          type="button"
-          aria-label={t('titlebar.close')}
-          title={t('titlebar.close')}
-          onClick={() => controlWindow('close')}
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-            <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
+          <PanelLeft size={17} />
         </button>
       </div>
+      <WindowControlButtons />
     </div>
   )
 }
@@ -1961,6 +1985,7 @@ function MarkdownDocumentPanel({
 
 function MainArea() {
   const { t } = useTranslation()
+  const isWindows = (window.teachingSystem?.platform ?? 'win32') === 'win32'
   const {
     view,
     settingsSection,
@@ -2095,12 +2120,17 @@ function MainArea() {
   }
 
   return (
-    <main className="main-area" data-view={view} data-reading-html={readingHtml ? 'true' : undefined}>
+    <main
+      className="main-area"
+      data-view={view}
+      data-reading-html={readingHtml ? 'true' : undefined}
+      data-reading-markdown={readingMarkdown ? 'true' : undefined}
+    >
       {readingResourceHtml ? (
         <>
-          {renderSidebarToggle('icon-button reader-sidebar-toggle')}
+          {!isWindows && renderSidebarToggle('icon-button reader-sidebar-toggle')}
           <button
-            className="icon-button reader-preview-back"
+            className={`icon-button reader-preview-back${isWindows ? ' reader-preview-back--alone' : ''}`}
             type="button"
             aria-label={t('resources.styles.backToStyles')}
             onClick={closeResourceHtmlPreview}
@@ -2109,10 +2139,10 @@ function MainArea() {
           </button>
         </>
       ) : readingCourseHtml || readingMarkdown ? (
-        renderSidebarToggle('icon-button reader-sidebar-toggle')
+        !isWindows ? renderSidebarToggle('icon-button reader-sidebar-toggle') : null
       ) : (
         <header className="topbar">
-          <div className="crumb">{renderSidebarToggle()}</div>
+          <div className="crumb">{!isWindows && renderSidebarToggle()}</div>
         </header>
       )}
 

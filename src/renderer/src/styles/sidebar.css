@@ -48,6 +48,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   display: none;
 }.app-shell.platform-darwin .sidebar {
   padding-top: 52px;
+}.app-shell.platform-win32 .sidebar {
+  padding-top: calc(var(--window-chrome-height) + 4px);
 }.sidebar.is-collapsed {
   width: 0;
   min-width: 0;

@@ -1,6 +1,10 @@
 /* ================================================================
-   App Frame (flex column on Windows/Linux for native titlebar)
+   App Frame
    ================================================================ */.app-frame {
+  --window-chrome-height: 36px;
+  --window-chrome-left-width: 44px;
+  --window-control-overlay-width: 138px;
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100vw;
@@ -62,8 +66,48 @@
   pointer-events: none;
 }
 
+/* ----- Windows frameless overlay chrome ----- */.windows-window-chrome {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 220;
+  display: flex;
+  height: var(--window-chrome-height);
+  align-items: stretch;
+  justify-content: space-between;
+  color: var(--text);
+  user-select: none;
+  -webkit-app-region: drag;
+}.windows-window-chrome__left {
+  display: inline-flex;
+  width: var(--window-chrome-left-width);
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}.windows-sidebar-toggle {
+  width: 34px;
+  height: 32px;
+  border-radius: 9px;
+  color: var(--text-muted);
+  background: transparent;
+  -webkit-app-region: no-drag;
+}.windows-sidebar-toggle:hover {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--surface-hover);
+  box-shadow: none;
+}.windows-window-chrome .window-controls {
+  height: var(--window-chrome-height);
+  -webkit-app-region: no-drag;
+}.windows-window-chrome .window-control-btn {
+  height: var(--window-chrome-height);
+  border-radius: 0;
+}
+
 /* ================================================================
-   App Shell (sidebar + main grid, below titlebar)
+   App Shell (sidebar + main grid)
    ================================================================ */.app-shell {
   display: grid;
   grid-template-columns: var(--sidebar-width) 6px minmax(0, 1fr);
@@ -81,8 +125,11 @@
   border-radius: 0;
 }
 
-/* macOS: traffic lights overlay in sidebar */.app-shell.platform-darwin {
+/* Native/overlay chrome platforms need positioned children for window controls. */.app-shell.platform-darwin,
+.app-shell.platform-win32 {
   position: relative;
+}.app-shell.platform-win32 {
+  --window-control-overlay-height: var(--window-chrome-height);
 }
 
 /* ================================================================
