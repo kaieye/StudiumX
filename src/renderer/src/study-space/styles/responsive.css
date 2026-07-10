@@ -112,7 +112,7 @@
       grid-template-areas:
         'stage stage'
         'companion companion'
-        'tasks growth';
+        'growth growth';
     }
 
   .study-companion-panel {
@@ -223,7 +223,6 @@
       grid-template-areas:
         'stage'
         'companion'
-        'tasks'
         'growth';
     }
 

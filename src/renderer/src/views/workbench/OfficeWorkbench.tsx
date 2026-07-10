@@ -6,6 +6,7 @@ import {
 import { useStudySession } from '../../study-space/session/useStudySession'
 import type { StudyTimerMode, StudyTimerState } from '../../study-space/types'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
+import { WorkbenchTasks } from './WorkbenchTasks'
 
 type AtlasFrame = {
   frame: { x: number; y: number; w: number; h: number }
@@ -631,7 +632,10 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     resetTimer,
     switchTimerMode,
     updateTimerPreset,
-    toggleAmbientEnabled
+    toggleAmbientEnabled,
+    addTask,
+    toggleTask,
+    removeDoneTasks
   } = useStudySession({
     showNotification,
     openFocusTheater: () => {}
@@ -834,16 +838,27 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           tabIndex={0}
         />
       </div>
-      <WorkbenchPomodoro
-        snapshot={snapshot}
-        timerProgress={viewModel.timerProgress}
-        ambientLabel={viewModel.activeRoom.ambient}
-        onToggleTimer={toggleTimer}
-        onResetTimer={resetTimer}
-        onSwitchTimerMode={switchTimerMode}
-        onUpdateTimerPreset={updateTimerPreset}
-        onToggleAmbientEnabled={toggleAmbientEnabled}
-      />
+      <aside className="workbench-tools" aria-label="工作工具">
+        <WorkbenchPomodoro
+          snapshot={snapshot}
+          timerProgress={viewModel.timerProgress}
+          ambientLabel={viewModel.activeRoom.ambient}
+          onToggleTimer={toggleTimer}
+          onResetTimer={resetTimer}
+          onSwitchTimerMode={switchTimerMode}
+          onUpdateTimerPreset={updateTimerPreset}
+          onToggleAmbientEnabled={toggleAmbientEnabled}
+        />
+        <WorkbenchTasks
+          tasks={snapshot.tasks}
+          currentTask={viewModel.currentTask}
+          openTasks={viewModel.openTasks}
+          completedTasks={viewModel.completedTasks}
+          onAddTask={addTask}
+          onToggleTask={toggleTask}
+          onRemoveDoneTasks={removeDoneTasks}
+        />
+      </aside>
     </section>
   )
 }

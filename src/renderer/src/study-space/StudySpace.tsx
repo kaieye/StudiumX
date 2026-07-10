@@ -15,7 +15,6 @@ type StudySpaceProps = {
 }
 
 export function StudySpace({ showNotification }: StudySpaceProps) {
-  const [taskInput, setTaskInput] = useState('')
   const [editingName, setEditingName] = useState(false)
   const [nicknameDraft, setNicknameDraft] = useState('')
   const [spaceDraft, setSpaceDraft] = useState('')
@@ -40,10 +39,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     resetRelayUrl: resetSessionRelayUrl,
     toggleTimer,
     followRoomCycle,
-    runHostAction,
-    addTask: addSessionTask,
-    toggleTask,
-    removeDoneTasks
+    runHostAction
   } = session
   const [relayDraft, setRelayDraft] = useState(snapshot.presenceRelayUrl)
   const {
@@ -59,8 +55,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     timerProgress,
     followingRoomCycle,
     completedTasks,
-    openTasks,
-    currentTask,
     userSeat,
     roomMembers,
     roomMaxFocusSeconds,
@@ -176,10 +170,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     }
   }
 
-  const addTask = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault()
-    if (addSessionTask(taskInput)) setTaskInput('')
-  }
   const roomBackdropStyle = {
     '--study-room-image': `url(${studyRoomAmbience})`
   } as CSSProperties
@@ -312,17 +302,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           }}
         />
 
-        <StudyWorkPanels
-          snapshot={snapshot}
-          currentTask={currentTask}
-          openTasks={openTasks}
-          completedTasks={completedTasks}
-          taskInput={taskInput}
-          onTaskInputChange={setTaskInput}
-          onAddTask={addTask}
-          onToggleTask={toggleTask}
-          onRemoveDoneTasks={removeDoneTasks}
-        >
+        <StudyWorkPanels>
 
         <section className="study-panel study-companion-panel" aria-label="在线同学">
           <div className="study-panel-head">

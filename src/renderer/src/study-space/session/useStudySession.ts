@@ -244,13 +244,10 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
   }
 
   const addTask = (titleInput: string): boolean => {
-    let added = false
-    setSnapshot((current) => {
-      const result = addStudyTask(current, titleInput, `${Date.now()}`)
-      added = result.added
-      return result.snapshot
-    })
-    return added
+    if (!titleInput.trim()) return false
+    const taskId = `${Date.now()}`
+    setSnapshot((current) => addStudyTask(current, titleInput, taskId).snapshot)
+    return true
   }
 
   const toggleTask = (taskId: string): void => {
