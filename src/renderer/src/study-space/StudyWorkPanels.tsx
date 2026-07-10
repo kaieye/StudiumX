@@ -1,13 +1,11 @@
-import { Check, CheckCircle2, Maximize2, Pause, Play, Plus, RotateCcw, Sparkles, Star, Timer, Trophy, Volume2, VolumeX } from 'lucide-react'
+import { Check, CheckCircle2, Maximize2, Pause, Play, Plus, RotateCcw, Star, Timer, Trophy, Volume2, VolumeX } from 'lucide-react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
-import { studyModes, studySignals } from './constants'
-import { formatStudyDuration, formatStudyHours, studyPlantStage, studySignalLabel } from './domain'
-import type { StudySignalId, StudySnapshot, StudyTimerMode } from './types'
+import { formatStudyDuration, formatStudyHours, studyPlantStage } from './domain'
+import type { StudySnapshot, StudyTimerMode } from './types'
 import type { StudySpaceViewModel } from './viewModel'
 
 type StudyWorkPanelsProps = {
   activeRoom: StudySpaceViewModel['activeRoom']
-  activeMode: StudySpaceViewModel['activeMode']
   snapshot: StudySnapshot
   level: StudySpaceViewModel['level']
   timerProgress: number
@@ -19,8 +17,6 @@ type StudyWorkPanelsProps = {
   taskInput: string
   children?: ReactNode
   onTaskInputChange: (value: string) => void
-  onSelectStudyMode: (mode: typeof studyModes[number]) => void
-  onSelectSignal: (signalId: StudySignalId) => void
   onToggleTimer: () => void
   onResetTimer: () => void
   onOpenFocusTheater: () => void
@@ -35,7 +31,6 @@ type StudyWorkPanelsProps = {
 
 export function StudyWorkPanels({
   activeRoom,
-  activeMode,
   snapshot,
   level,
   timerProgress,
@@ -47,8 +42,6 @@ export function StudyWorkPanels({
   taskInput,
   children,
   onTaskInputChange,
-  onSelectStudyMode,
-  onSelectSignal,
   onToggleTimer,
   onResetTimer,
   onOpenFocusTheater,
@@ -62,49 +55,6 @@ export function StudyWorkPanels({
 }: StudyWorkPanelsProps) {
   return (
     <>
-      <section className="study-panel study-work-panel study-mode-panel" aria-label="学习模式和学习状态">
-        <div className="study-panel-head">
-          <div>
-            <span className="study-kicker"><Sparkles size={14} /> 学习模式</span>
-            <h2>学习模式</h2>
-          </div>
-          <span className="study-session-label">{activeMode.name}</span>
-        </div>
-        <div className="study-mode-grid">
-          {studyModes.map((mode) => (
-            <button
-              key={mode.id}
-              type="button"
-              className={`study-mode-card${snapshot.modeId === mode.id ? ' is-active' : ''}`}
-              onClick={() => onSelectStudyMode(mode)}
-              disabled={snapshot.timerState === 'running'}
-            >
-              <strong>{mode.name}</strong>
-              <span>{mode.focusMinutes}/{mode.breakMinutes} · {mode.detail}</span>
-            </button>
-          ))}
-        </div>
-        <div className="study-signal-picker" aria-label="学习状态">
-          <div>
-            <span className="study-kicker"><Sparkles size={14} /> 学习状态</span>
-            <strong>{studySignalLabel(snapshot.signalId)}</strong>
-          </div>
-          <div>
-            {studySignals.map((signal) => (
-              <button
-                key={signal.id}
-                type="button"
-                className={snapshot.signalId === signal.id ? 'is-active' : ''}
-                onClick={() => onSelectSignal(signal.id)}
-                title={signal.detail}
-              >
-                {signal.shortLabel}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
       <section className="study-panel study-work-panel study-timer-panel" aria-label="番茄时钟">
         <div className="study-panel-head">
           <div>

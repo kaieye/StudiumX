@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { STUDY_PRESENCE_BROKER_URL, studyModes, studyRooms } from '../constants'
+import { STUDY_PRESENCE_BROKER_URL, studyRooms } from '../constants'
 import {
   formatStudySeatLabel,
   persistStudySnapshot,
@@ -7,7 +7,7 @@ import {
   readStudySnapshot,
   syncStudyLocation
 } from '../domain'
-import type { StudyRoomEventKind, StudyRoomId, StudySignalId, StudySnapshot, StudyTimerMode } from '../types'
+import type { StudyRoomEventKind, StudyRoomId, StudySnapshot, StudyTimerMode } from '../types'
 import { useStudyAmbient } from '../useStudyAmbient'
 import { useStudyPresence } from '../useStudyPresence'
 import { createStudySpaceViewModel } from '../viewModel'
@@ -23,9 +23,7 @@ import {
   resetStudyTimer,
   saveStudyNickname,
   saveStudyRelayUrl,
-  selectStudyModeSnapshot,
   selectStudyRoomSnapshot,
-  selectStudySignal,
   setStudyAmbientVolume,
   setStudySpaceCode,
   switchStudyTimerMode,
@@ -44,7 +42,6 @@ type StudyPresenceTarget = {
 }
 
 type StudyRoom = typeof studyRooms[number]
-type StudyMode = typeof studyModes[number]
 
 type UseStudySessionOptions = {
   showNotification: (title: string, body: string) => Promise<void>
@@ -158,15 +155,6 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     setSnapshot((current) => selectStudyRoomSnapshot(current, room))
   }
 
-  const selectStudyMode = (mode: StudyMode): void => {
-    const targetRoom = snapshot.timerState === 'running' ? snapshot.roomId : mode.roomId
-    if (targetRoom !== snapshot.roomId) {
-      const roomName = studyRooms.find((room) => room.id === targetRoom)?.name ?? viewModel.activeRoom.name
-      presence.sendEvent('checkin', `${snapshot.nickname} 切换到 ${roomName}。`, { roomId: targetRoom })
-    }
-    setSnapshot((current) => selectStudyModeSnapshot(current, mode))
-  }
-
   const toggleContract = (): void => {
     setSnapshot((current) => toggleStudyContract(current, defaultStudyContractText(current, viewModel.activeMode.name)))
   }
@@ -277,10 +265,6 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     setSnapshot((current) => removeDoneStudyTasks(current))
   }
 
-  const selectSignal = (signalId: StudySignalId): void => {
-    setSnapshot((current) => selectStudySignal(current, signalId))
-  }
-
   const toggleAmbientEnabled = (): void => {
     setSnapshot((current) => toggleStudyAmbient(current))
   }
@@ -297,7 +281,6 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     emitRoomEvent,
     updateTimerPreset,
     selectRoom,
-    selectStudyMode,
     toggleContract,
     updateContractText,
     saveNickname,
@@ -314,7 +297,6 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     addTask,
     toggleTask,
     removeDoneTasks,
-    selectSignal,
     toggleAmbientEnabled,
     setAmbientVolume
   }

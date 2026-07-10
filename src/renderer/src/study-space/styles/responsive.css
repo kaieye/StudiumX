@@ -129,7 +129,7 @@
       grid-template-columns: minmax(0, 1fr) minmax(300px, 0.64fr);
       grid-template-areas:
         'stage stage'
-        'timer mode'
+        'timer timer'
         'companion companion'
         'tasks growth';
     }
@@ -242,7 +242,6 @@
       grid-template-areas:
         'stage'
         'timer'
-        'mode'
         'companion'
         'tasks'
         'growth';
@@ -708,8 +707,7 @@
       font-size: 8px;
     }
 
-  .study-mode-grid,
-    .study-growth-grid {
+  .study-growth-grid {
       grid-template-columns: 1fr;
     }
 
@@ -775,14 +773,6 @@
   .study-theater-actions {
       display: grid;
       grid-template-columns: 1fr;
-    }
-
-  .study-signal-picker {
-      grid-template-columns: 1fr;
-    }
-
-  .study-signal-picker > div:last-child {
-      justify-content: flex-start;
     }
 
   .study-name-modal div {

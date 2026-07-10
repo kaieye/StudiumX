@@ -4,8 +4,7 @@
   grid-template-columns: minmax(0, 1.35fr) minmax(315px, 0.72fr);
   grid-template-areas:
     'stage companion'
-    'mode companion'
-    'timer tasks'
+    'timer companion'
     'growth tasks';
   gap: 14px;
 }

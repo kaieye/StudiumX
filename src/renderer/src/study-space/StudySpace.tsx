@@ -34,7 +34,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     viewModel,
     emitRoomEvent,
     updateTimerPreset,
-    selectStudyMode,
     saveNickname: saveSessionNickname,
     joinSpace: joinSessionSpace,
     createSpace: createSessionSpace,
@@ -48,7 +47,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     addTask: addSessionTask,
     toggleTask,
     removeDoneTasks,
-    selectSignal,
     toggleAmbientEnabled,
     setAmbientVolume
   } = session
@@ -323,7 +321,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
 
         <StudyWorkPanels
           activeRoom={activeRoom}
-          activeMode={activeMode}
           snapshot={snapshot}
           level={level}
           timerProgress={timerProgress}
@@ -334,8 +331,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           badges={badges}
           taskInput={taskInput}
           onTaskInputChange={setTaskInput}
-          onSelectStudyMode={selectStudyMode}
-          onSelectSignal={selectSignal}
           onToggleTimer={toggleTimer}
           onResetTimer={resetTimer}
           onOpenFocusTheater={() => setFocusTheaterOpen(true)}
