@@ -1,13 +1,21 @@
 import { Trophy } from 'lucide-react'
 import { useState } from 'react'
 import { formatStudyHours, studySignalShortLabel } from '../../study-space/domain'
+import type { StudyPresenceStatus } from '../../study-space/types'
 import type { StudyRoomMember } from '../../study-space/viewModel'
 
 type WorkbenchLeaderboardProps = {
   members: StudyRoomMember[]
+  presenceStatus: StudyPresenceStatus
 }
 
-export function WorkbenchLeaderboard({ members }: WorkbenchLeaderboardProps) {
+function presenceStatusLabel(status: StudyPresenceStatus): string {
+  if (status === 'online') return '心跳在线'
+  if (status === 'connecting') return '心跳连接中'
+  return '心跳离线'
+}
+
+export function WorkbenchLeaderboard({ members, presenceStatus }: WorkbenchLeaderboardProps) {
   const [open, setOpen] = useState(false)
   const selfRank = Math.max(1, members.findIndex((member) => member.isSelf) + 1)
   const totalMembers = Math.max(1, members.length)
@@ -22,7 +30,10 @@ export function WorkbenchLeaderboard({ members }: WorkbenchLeaderboardProps) {
         onClick={() => setOpen((current) => !current)}
       >
         <Trophy size={15} />
-        <span>自习室榜单</span>
+        <span className="workbench-leaderboard-label">
+          自习室榜单
+          <i className={`workbench-heartbeat-dot is-${presenceStatus}`} title={presenceStatusLabel(presenceStatus)} aria-label={presenceStatusLabel(presenceStatus)} />
+        </span>
         <strong>#{selfRank}/{totalMembers}</strong>
       </button>
       {open ? (

@@ -11,7 +11,7 @@ const [workbench, leaderboard, studySpace, viewModel, css] = await Promise.all([
 
 assert.match(
   workbench,
-  /<WorkbenchLeaderboard members=\{viewModel\.roomMembers\} \/>/,
+  /<WorkbenchLeaderboard members=\{viewModel\.roomMembers\} presenceStatus=\{presence\.status\} \/>/,
   'workbench should render the leaderboard from the existing live room member ranking'
 )
 

@@ -6,7 +6,6 @@ import {
   formatStudyHours,
   formatStudySeatLabel,
   normalizeStudySeatIndex,
-  studyMemberFreshnessLabel,
   studyMemberStatusLabel,
   studySignalLabel,
   studySignalShortLabel
@@ -21,13 +20,11 @@ type StudyRoomStageProps = {
   activeRoom: StudySpaceViewModel['activeRoom']
   snapshot: StudySnapshot
   presence: StudyPresence
-  roomCycleNow: number
   roomCycle: StudySpaceViewModel['roomCycle']
   online: number
   remoteOnline: number
   roomMaxFocusSeconds: number
   focusingCount: number
-  remoteHeartbeatLabel: string
   liveDeskMembers: StudySpaceViewModel['liveDeskMembers']
   recentLiveEvents: StudySpaceViewModel['recentLiveEvents']
   roomMembers: StudySpaceViewModel['roomMembers']
@@ -55,13 +52,11 @@ export function StudyRoomStage({
   activeRoom,
   snapshot,
   presence,
-  roomCycleNow,
   roomCycle,
   online,
   remoteOnline,
   roomMaxFocusSeconds,
   focusingCount,
-  remoteHeartbeatLabel,
   liveDeskMembers,
   recentLiveEvents,
   roomMembers,
@@ -129,7 +124,7 @@ export function StudyRoomStage({
 
         <div className="study-cinema-peer-strip" aria-label="在线同桌">
           {roomMembers.slice(0, 7).map((member) => (
-            <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${formatStudySeatLabel(member.seatIndex)} · ${member.nickname} · ${studySignalLabel(member.signalId)} · ${studyMemberFreshnessLabel(member, roomCycleNow)}`}>
+            <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${formatStudySeatLabel(member.seatIndex)} · ${member.nickname} · ${studySignalLabel(member.signalId)} · ${studyMemberStatusLabel(member.status, member.timerMode)}`}>
               {member.isSelf ? '我' : studySignalShortLabel(member.signalId)}
             </span>
           ))}
@@ -147,7 +142,7 @@ export function StudyRoomStage({
               <span className="study-kicker"><Users size={14} /> 实时同桌</span>
               <strong>{online} 个席位在线 · {focusingCount} 人专注</strong>
             </div>
-            <em>{remoteHeartbeatLabel}</em>
+            <em>{connectionLabel}</em>
           </div>
           <div className="study-live-desk-grid">
             <div className="study-live-roster" aria-label="实时同桌状态">

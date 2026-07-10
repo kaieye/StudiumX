@@ -247,6 +247,37 @@
   font-variant-numeric: tabular-nums;
 }
 
+.workbench-leaderboard-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.workbench-heartbeat-dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #24a16c;
+  box-shadow:
+    0 0 0 3px rgba(36, 161, 108, 0.12),
+    0 0 10px rgba(36, 161, 108, 0.28);
+}
+
+.workbench-heartbeat-dot.is-connecting {
+  background: #ff9f0a;
+  box-shadow:
+    0 0 0 3px rgba(255, 159, 10, 0.12),
+    0 0 10px rgba(255, 159, 10, 0.22);
+}
+
+.workbench-heartbeat-dot.is-offline {
+  background: rgba(111, 125, 144, 0.62);
+  box-shadow: 0 0 0 3px rgba(111, 125, 144, 0.1);
+}
+
 .workbench-leaderboard.is-open .workbench-leaderboard-toggle {
   border-color: rgba(194, 138, 22, 0.24);
   background: rgba(255, 255, 255, 0.72);

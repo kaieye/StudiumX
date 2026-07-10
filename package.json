@@ -51,6 +51,7 @@
     "check:study-seat-map-presenter": "node scripts/check-study-seat-map-presenter.mjs",
     "check:study-presence-live": "node scripts/check-study-presence-live.mjs",
     "check:workbench-leaderboard": "node scripts/check-workbench-leaderboard.mjs",
+    "check:workbench-presence": "node scripts/check-workbench-presence.mjs",
     "check:workspace-import-course": "node scripts/check-workspace-import-course.mjs",
     "check:workspace-markdown": "node scripts/check-workspace-markdown-documents.mjs",
     "check:workspace-removal": "node scripts/check-workspace-removal-state.mjs",

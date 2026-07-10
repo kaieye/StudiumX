@@ -218,6 +218,18 @@ function emptyWorkbenchSeatState(): WorkbenchSeatState {
   }
 }
 
+function ensureWorkbenchRouteParam(): void {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('workbench')) return
+    params.set('workbench', '1')
+    const search = params.toString()
+    window.history.replaceState(null, '', `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`)
+  } catch {
+    // URL sync is only for refresh/share behavior; the workbench still runs without it.
+  }
+}
+
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
@@ -629,6 +641,7 @@ type OfficeWorkbenchProps = {
 export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const {
     snapshot,
+    presence,
     viewModel,
     joinSpace,
     chooseSeat,
@@ -681,6 +694,10 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     occupantsByDeskId
   }
   chooseSeatRef.current = chooseSeat
+
+  useEffect(() => {
+    ensureWorkbenchRouteParam()
+  }, [])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -861,7 +878,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           />
           <button type="submit">加入</button>
         </form>
-        <WorkbenchLeaderboard members={viewModel.roomMembers} />
+        <WorkbenchLeaderboard members={viewModel.roomMembers} presenceStatus={presence.status} />
         <WorkbenchPomodoro
           snapshot={snapshot}
           timerProgress={viewModel.timerProgress}
