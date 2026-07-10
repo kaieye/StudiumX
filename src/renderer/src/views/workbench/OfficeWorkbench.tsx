@@ -151,6 +151,8 @@ const stageShift = { x: 40, y: -20 }
 const canvasOutputScale = 2
 const officeScaleBoost = 0.78
 const compactScaleBoost = 0.5
+const minToolScale = 0.72
+const maxToolScale = 1.08
 const workstationWidth = 64 * 3
 const workstationHeight = 64
 const chairYOffset = 65
@@ -211,7 +213,7 @@ function deskIdForSeatIndex(seatIndex: number): DeskId {
 function emptyWorkbenchSeatState(): WorkbenchSeatState {
   return {
     userSeatIndex: 0,
-    activeRoomName: '工作区',
+    activeRoomName: '自习室',
     connectionLabel: '本机席位',
     cycleLabel: '',
     occupantsByDeskId: new Map()
@@ -623,9 +625,12 @@ function fitCanvasToStage(stage: HTMLElement, canvas: HTMLCanvasElement): void {
   const baseScale = Math.min(visibleWidth / officeWidth, visibleHeight / officeHeight)
   const scaleBoost = visibleWidth <= 720 ? compactScaleBoost : officeScaleBoost
   const visualScale = baseScale * scaleBoost
+  const toolScale = Math.min(maxToolScale, Math.max(minToolScale, baseScale))
   const canvasWidth = Math.round(officeWidth * visualScale)
   const canvasHeight = Math.round(officeHeight * visualScale)
 
+  stage.parentElement?.style.setProperty('--workbench-tools-scale', toolScale.toFixed(4))
+  stage.parentElement?.style.setProperty('--workbench-tools-layout-height', `${(100 / toolScale).toFixed(4)}%`)
   canvas.style.width = `${canvasWidth}px`
   canvas.style.height = `${canvasHeight}px`
   canvas.style.aspectRatio = `${officeWidth} / ${officeHeight}`
@@ -728,7 +733,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       const seatState = seatStateRef.current
       canvas.setAttribute(
         'aria-label',
-        `StudiumX 工作区：${seatState.activeRoomName}，当前在${selectedDeskLabel()}，${seatState.connectionLabel}，${seatState.cycleLabel}，使用方向键切换座位`
+        `StudiumX 自习室：${seatState.activeRoomName}，当前在${selectedDeskLabel()}，${seatState.connectionLabel}，${seatState.cycleLabel}，使用方向键切换座位`
       )
     }
 
@@ -856,17 +861,17 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   }
 
   return (
-    <section className="office-workbench-page" aria-label="工作区">
+    <section className="office-workbench-page" aria-label="自习室">
       <div ref={stageRef} className="office-workbench-stage">
         <canvas
           ref={canvasRef}
           className="office-workbench-canvas"
-          aria-label="StudiumX 工作区：当前在座位 1，使用方向键切换座位"
+          aria-label="StudiumX 自习室：当前在座位 1，使用方向键切换座位"
           aria-live="polite"
           tabIndex={0}
         />
       </div>
-      <aside className="workbench-tools" aria-label="工作工具">
+      <aside className="workbench-tools" aria-label="自习工具">
         <form className="workbench-space-join" onSubmit={handleJoinSpace}>
           <KeyRound size={14} />
           <input
