@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import studyRoomAmbience from '../assets/study-room-ambience.webp'
 import { STUDY_PRESENCE_BROKER_URL } from './constants'
 import { formatStudyDuration, formatStudyEventTime, formatStudyHours, formatStudyPresenceAge, formatStudySeatLabel, normalizeStudySeatIndex, studyMemberFreshnessLabel, studyMemberStatusLabel, studySignalLabel, studySignalShortLabel, studyVerificationUrl } from './domain'
-import { buildStudySeatMapItems } from './seatMapPresenter'
 import { useStudySession } from './session/useStudySession'
 import { StudyArrivalPanel } from './StudyArrivalPanel'
 import { StudyRoomStage } from './StudyRoomStage'
@@ -46,7 +45,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     resetRelayUrl: resetSessionRelayUrl,
     toggleTimer,
     followRoomCycle,
-    chooseSeat,
     runHostAction,
     resetTimer,
     switchTimerMode,
@@ -68,15 +66,12 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     spaceOnline,
     remoteOnline,
     roomCapacityPercent,
-    localSeatLabel,
     timerProgress,
     followingRoomCycle,
     completedTasks,
     openTasks,
     currentTask,
-    seatCount,
     userSeat,
-    peersBySeat,
     weeklyFocus,
     badges,
     roomMembers,
@@ -84,7 +79,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     focusingCount,
     liveDeskMembers,
     inviteUrl,
-    signalMixSummary,
     topicTail,
     relayHealthLabel,
     remoteHeartbeatLabel,
@@ -203,14 +197,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
   const roomBackdropStyle = {
     '--study-room-image': `url(${studyRoomAmbience})`
   } as CSSProperties
-  const seatMapItems = buildStudySeatMapItems({
-    snapshot,
-    peersBySeat,
-    roomCycleNow,
-    seatCount,
-    userSeat
-  })
-
   return (
     <section
       className={`study-space ${activeRoom.backdrop}${snapshot.timerState === 'running' ? ' is-running' : ''}${snapshot.timerMode === 'break' ? ' is-break' : ''}`}
@@ -315,8 +301,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           remoteOnline={remoteOnline}
           roomMaxFocusSeconds={roomMaxFocusSeconds}
           focusingCount={focusingCount}
-          localSeatLabel={localSeatLabel}
-          signalMixSummary={signalMixSummary}
           remoteHeartbeatLabel={remoteHeartbeatLabel}
           liveDeskMembers={liveDeskMembers}
           recentLiveEvents={recentLiveEvents}
@@ -336,7 +320,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           liveLineClass={liveLineClass}
           connectionLabel={connectionLabel}
           copyState={copyState}
-          seatMapItems={seatMapItems}
           onRunHostAction={runHostAction}
           onFollowRoomCycle={followRoomCycle}
           onCopyInvite={() => void copyInvite()}
@@ -345,7 +328,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
             setNicknameDraft(snapshot.nickname)
             setEditingName(true)
           }}
-          onChooseSeat={chooseSeat}
           onSelectRoom={selectRoom}
         />
 

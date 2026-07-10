@@ -12,7 +12,6 @@ import {
   studySignalShortLabel
 } from './domain'
 import type { useStudySession } from './session/useStudySession'
-import type { StudySeatMapItem } from './seatMapPresenter'
 import type { StudySnapshot } from './types'
 import type { StudySpaceViewModel } from './viewModel'
 
@@ -28,8 +27,6 @@ type StudyRoomStageProps = {
   remoteOnline: number
   roomMaxFocusSeconds: number
   focusingCount: number
-  localSeatLabel: string
-  signalMixSummary: string
   remoteHeartbeatLabel: string
   liveDeskMembers: StudySpaceViewModel['liveDeskMembers']
   recentLiveEvents: StudySpaceViewModel['recentLiveEvents']
@@ -49,13 +46,11 @@ type StudyRoomStageProps = {
   liveLineClass: string
   connectionLabel: string
   copyState: 'idle' | 'copied' | 'failed'
-  seatMapItems: StudySeatMapItem[]
   onRunHostAction: () => void
   onFollowRoomCycle: () => void
   onCopyInvite: () => void
   onOpenFocusTheater: () => void
   onEditName: () => void
-  onChooseSeat: (seatIndex: number) => void
   onSelectRoom: (room: StudySpaceViewModel['activeRoom']) => void
 }
 
@@ -69,8 +64,6 @@ export function StudyRoomStage({
   remoteOnline,
   roomMaxFocusSeconds,
   focusingCount,
-  localSeatLabel,
-  signalMixSummary,
   remoteHeartbeatLabel,
   liveDeskMembers,
   recentLiveEvents,
@@ -90,13 +83,11 @@ export function StudyRoomStage({
   liveLineClass,
   connectionLabel,
   copyState,
-  seatMapItems,
   onRunHostAction,
   onFollowRoomCycle,
   onCopyInvite,
   onOpenFocusTheater,
   onEditName,
-  onChooseSeat,
   onSelectRoom
 }: StudyRoomStageProps) {
   return (
@@ -207,44 +198,6 @@ export function StudyRoomStage({
                   <em>{connectionLabel}</em>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-
-        <div className="study-cinema-seat-deck">
-          <div className="study-cinema-seat-head">
-            <div>
-              <span>{localSeatLabel}</span>
-              <strong>{focusingCount} 人专注中 · {signalMixSummary}</strong>
-            </div>
-            <em>{presence.status === 'online' ? `${remoteOnline} 远端` : presence.status === 'connecting' ? '连接中' : '离线'}</em>
-          </div>
-          <div className="study-seat-room" aria-label="真实在线座位图">
-            <div className="study-seat-front" aria-hidden="true">
-              <span>FOCUS BOARD</span>
-              <strong>{activeRoom.sessionMinutes}/{activeRoom.breakMinutes}</strong>
-            </div>
-            <div className="study-seat-map">
-              {seatMapItems.map((item) => item.kind === 'aisle' ? (
-                <div className="study-seat-aisle" aria-hidden="true" key={item.key}><span>{item.label}</span></div>
-              ) : (
-                <button
-                  type="button"
-                  className={item.className}
-                  title={item.title}
-                  aria-label={item.ariaLabel}
-                  disabled={item.disabled}
-                  onClick={() => onChooseSeat(item.seatIndex)}
-                  key={item.key}
-                >
-                  <span className="study-seat-avatar" aria-hidden="true">
-                    {item.avatarLabel}
-                  </span>
-                  <span className="study-seat-label">{item.label}</span>
-                  <span className="study-seat-meta">{item.meta}</span>
-                  <small>{item.seatNumber}</small>
-                </button>
-              ))}
             </div>
           </div>
         </div>

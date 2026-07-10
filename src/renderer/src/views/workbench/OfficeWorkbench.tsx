@@ -1,4 +1,10 @@
 import { useEffect, useRef } from 'react'
+import {
+  formatStudyDuration,
+  studyMemberStatusLabel
+} from '../../study-space/domain'
+import { useStudySession } from '../../study-space/session/useStudySession'
+import type { StudyTimerMode, StudyTimerState } from '../../study-space/types'
 
 type AtlasFrame = {
   frame: { x: number; y: number; w: number; h: number }
@@ -119,10 +125,19 @@ type DeskSlot = {
   z: number
 }
 
-type CharacterState = {
-  id: 'main'
+type WorkbenchSeatOccupant = {
+  kind: 'self' | 'peer'
   name: string
-  assignedDeskId: DeskId | null
+  status: StudyTimerState
+  timerMode: StudyTimerMode
+}
+
+type WorkbenchSeatState = {
+  userSeatIndex: number
+  activeRoomName: string
+  connectionLabel: string
+  cycleLabel: string
+  occupantsByDeskId: Map<DeskId, WorkbenchSeatOccupant>
 }
 
 const officeWidth = 64 * 17
@@ -136,17 +151,24 @@ const workstationHeight = 64
 const chairYOffset = 65
 const agentVisualScale = 0.5
 const animationFps = 24
+const workbenchSeatCount = 12
 
 const officeTmjUrl = new URL('./assets/marvis/office.tmj', import.meta.url).href
 const assetsTsjUrl = new URL('./assets/marvis/assets.tsj', import.meta.url).href
 
 const workstationPositions = [
-  { col: 8, row: 2 },
-  { col: 12, row: 2 },
-  { col: 8, row: 6 },
-  { col: 12, row: 6 },
-  { col: 8, row: 10 },
-  { col: 12, row: 10 }
+  { col: 1, row: 2 },
+  { col: 5, row: 2 },
+  { col: 9, row: 2 },
+  { col: 13, row: 2 },
+  { col: 1, row: 6 },
+  { col: 5, row: 6 },
+  { col: 9, row: 6 },
+  { col: 13, row: 6 },
+  { col: 1, row: 10 },
+  { col: 5, row: 10 },
+  { col: 9, row: 10 },
+  { col: 13, row: 10 }
 ].map((seat, slotIndex) => ({
   slotIndex,
   x: (seat.col + workstationWidth / 64 / 2) * 64,
@@ -157,7 +179,7 @@ const workstationPositions = [
 
 const deskSlots: DeskSlot[] = workstationPositions.map((layout) => ({
   id: `desk-${layout.slotIndex + 1}`,
-  label: `桌子 ${layout.slotIndex + 1}`,
+  label: `座位 ${layout.slotIndex + 1}`,
   slotIndex: layout.slotIndex,
   x: layout.x,
   y: layout.y,
@@ -176,6 +198,20 @@ const deskSlots: DeskSlot[] = workstationPositions.map((layout) => ({
   characterScale: agentVisualScale,
   z: layout.y + 64
 }))
+
+function deskIdForSeatIndex(seatIndex: number): DeskId {
+  return `desk-${seatIndex + 1}` as DeskId
+}
+
+function emptyWorkbenchSeatState(): WorkbenchSeatState {
+  return {
+    userSeatIndex: 0,
+    activeRoomName: '工作区',
+    connectionLabel: '本机席位',
+    cycleLabel: '',
+    occupantsByDeskId: new Map()
+  }
+}
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -452,30 +488,52 @@ function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width:
   ctx.closePath()
 }
 
-function drawDeskHitArea(ctx: CanvasRenderingContext2D, slot: DeskSlot, isHovered: boolean, isSelected: boolean): void {
-  if (!isHovered && !isSelected) return
+function drawDeskHitArea(
+  ctx: CanvasRenderingContext2D,
+  slot: DeskSlot,
+  isHovered: boolean,
+  isSelected: boolean,
+  occupant: WorkbenchSeatOccupant | null
+): void {
+  if (!isHovered && !isSelected && !occupant) return
 
   const { x, y, width, height } = slot.hitArea
+  const isPeer = occupant?.kind === 'peer'
   ctx.save()
   roundedRect(ctx, x, y, width, height, 18)
-  ctx.fillStyle = isSelected ? 'rgba(86, 140, 255, 0.12)' : 'rgba(86, 140, 255, 0.08)'
+  ctx.fillStyle = isSelected
+    ? 'rgba(242, 199, 92, 0.16)'
+    : isPeer
+      ? 'rgba(36, 161, 108, 0.12)'
+      : 'rgba(86, 140, 255, 0.08)'
   ctx.fill()
-  ctx.lineWidth = isSelected ? 2 : 1.5
-  ctx.strokeStyle = isSelected ? 'rgba(68, 121, 255, 0.82)' : 'rgba(68, 121, 255, 0.46)'
+  ctx.lineWidth = isSelected || occupant ? 2 : 1.5
+  ctx.strokeStyle = isSelected
+    ? 'rgba(210, 155, 35, 0.88)'
+    : isPeer
+      ? 'rgba(36, 161, 108, 0.68)'
+      : 'rgba(68, 121, 255, 0.46)'
   ctx.stroke()
 
   ctx.font = '600 13px system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  const badgeWidth = Math.max(56, ctx.measureText(slot.label).width + 20)
+  const statusLabel = occupant
+    ? `${occupant.kind === 'self' ? '我' : occupant.name.slice(0, 6)} · ${studyMemberStatusLabel(occupant.status, occupant.timerMode)}`
+    : slot.label
+  const badgeWidth = Math.max(64, ctx.measureText(statusLabel).width + 20)
   const badgeHeight = 26
   const badgeX = x + width / 2 - badgeWidth / 2
   const badgeY = y - 12
   roundedRect(ctx, badgeX, badgeY, badgeWidth, badgeHeight, 13)
-  ctx.fillStyle = isSelected ? 'rgba(68, 121, 255, 0.92)' : 'rgba(255, 255, 255, 0.95)'
+  ctx.fillStyle = isSelected
+    ? 'rgba(210, 155, 35, 0.95)'
+    : isPeer
+      ? 'rgba(36, 121, 82, 0.92)'
+      : 'rgba(255, 255, 255, 0.95)'
   ctx.fill()
-  ctx.fillStyle = isSelected ? '#ffffff' : '#3454a8'
-  ctx.fillText(isSelected ? '正在工作' : slot.label, x + width / 2, badgeY + badgeHeight / 2)
+  ctx.fillStyle = occupant ? '#ffffff' : '#3454a8'
+  ctx.fillText(statusLabel, x + width / 2, badgeY + badgeHeight / 2)
   ctx.restore()
 }
 
@@ -499,7 +557,7 @@ function drawScene(
   ctx: CanvasRenderingContext2D,
   assets: WorkbenchAssets,
   elapsed: number,
-  character: CharacterState,
+  seatState: WorkbenchSeatState,
   hoveredDeskId: DeskId | null
 ): void {
   ctx.clearRect(0, 0, officeWidth, officeHeight)
@@ -512,13 +570,14 @@ function drawScene(
   const depthLayers: Array<{ z: number; draw: () => void }> = []
   for (const slot of deskSlots) {
     const template = slot.slotIndex === 0 ? assets.workstationBossTemplate : assets.workstationTemplate
-    const isSelected = character.assignedDeskId === slot.id
+    const occupant = seatState.occupantsByDeskId.get(slot.id) ?? null
+    const isSelected = seatState.userSeatIndex === slot.slotIndex
     const isHovered = hoveredDeskId === slot.id
 
-    drawDeskHitArea(ctx, slot, isHovered, isSelected)
+    drawDeskHitArea(ctx, slot, isHovered, isSelected, occupant)
     drawTemplateSprites(ctx, assets, template, template.deskSprites, slot, { x: 36, y: -80 })
 
-    if (isSelected) {
+    if (occupant) {
       depthLayers.push({
         z: slot.z,
         draw: () => drawWorkingCharacter(ctx, assets, slot, elapsed)
@@ -558,12 +617,51 @@ function fitCanvasToStage(stage: HTMLElement, canvas: HTMLCanvasElement): void {
   canvas.style.transform = 'translate(-50%, -50%)'
 }
 
-export function OfficeWorkbench() {
+type OfficeWorkbenchProps = {
+  showNotification: (title: string, body: string) => Promise<void>
+}
+
+export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
+  const { snapshot, viewModel, chooseSeat } = useStudySession({
+    showNotification,
+    openFocusTheater: () => {}
+  })
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const assetsRef = useRef<WorkbenchAssets | null>(null)
-  const characterRef = useRef<CharacterState>({ id: 'main', name: 'StudiumX', assignedDeskId: 'desk-1' })
+  const seatStateRef = useRef<WorkbenchSeatState>(emptyWorkbenchSeatState())
+  const chooseSeatRef = useRef(chooseSeat)
   const hoveredDeskIdRef = useRef<DeskId | null>(null)
+  const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
+  const occupantsByDeskId = new Map<DeskId, WorkbenchSeatOccupant>()
+
+  if (workbenchUserSeatIndex >= 0) {
+    occupantsByDeskId.set(deskIdForSeatIndex(workbenchUserSeatIndex), {
+      kind: 'self',
+      name: snapshot.nickname,
+      status: snapshot.timerState,
+      timerMode: snapshot.timerMode
+    })
+  }
+  viewModel.peersBySeat.forEach((peer, seatIndex) => {
+    if (seatIndex >= workbenchSeatCount) return
+    const deskId = deskIdForSeatIndex(seatIndex)
+    if (occupantsByDeskId.has(deskId)) return
+    occupantsByDeskId.set(deskId, {
+      kind: 'peer',
+      name: peer.nickname,
+      status: peer.status,
+      timerMode: peer.timerMode
+    })
+  })
+  seatStateRef.current = {
+    userSeatIndex: workbenchUserSeatIndex,
+    activeRoomName: viewModel.activeRoom.name,
+    connectionLabel: viewModel.connectionLabel,
+    cycleLabel: `${viewModel.roomCycle.phase === 'focus' ? '专注中' : '休息中'} · ${formatStudyDuration(viewModel.roomCycle.remainingSeconds)}`,
+    occupantsByDeskId
+  }
+  chooseSeatRef.current = chooseSeat
 
   useEffect(() => {
     const stage = stageRef.current
@@ -588,14 +686,20 @@ export function OfficeWorkbench() {
     if (!canvas) return
 
     const selectedDeskLabel = () =>
-      deskSlots.find((slot) => slot.id === characterRef.current.assignedDeskId)?.label ?? '未选择桌子'
+      deskSlots.find((slot) => slot.slotIndex === seatStateRef.current.userSeatIndex)?.label ?? '未选择座位'
 
     const syncCanvasAccessibility = () => {
-      canvas.setAttribute('aria-label', `StudiumX 工作区：当前在${selectedDeskLabel()}，使用方向键切换桌子`)
+      const seatState = seatStateRef.current
+      canvas.setAttribute(
+        'aria-label',
+        `StudiumX 工作区：${seatState.activeRoomName}，当前在${selectedDeskLabel()}，${seatState.connectionLabel}，${seatState.cycleLabel}，使用方向键切换座位`
+      )
     }
 
     const selectDesk = (slot: DeskSlot) => {
-      characterRef.current = { ...characterRef.current, assignedDeskId: slot.id }
+      const occupant = seatStateRef.current.occupantsByDeskId.get(slot.id)
+      if (occupant?.kind === 'peer') return
+      chooseSeatRef.current(slot.slotIndex)
       hoveredDeskIdRef.current = slot.id
       canvas.style.cursor = 'pointer'
       syncCanvasAccessibility()
@@ -604,7 +708,8 @@ export function OfficeWorkbench() {
     const updateHover = (event: MouseEvent) => {
       const slot = findDeskAt(canvasPointToScene(event, canvas))
       hoveredDeskIdRef.current = slot?.id ?? null
-      canvas.style.cursor = slot ? 'pointer' : 'default'
+      const occupant = slot ? seatStateRef.current.occupantsByDeskId.get(slot.id) : null
+      canvas.style.cursor = slot && occupant?.kind !== 'peer' ? 'pointer' : 'default'
     }
 
     const handleClick = (event: MouseEvent) => {
@@ -614,17 +719,25 @@ export function OfficeWorkbench() {
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      const currentIndex = deskSlots.findIndex((slot) => slot.id === characterRef.current.assignedDeskId)
+      const currentIndex = deskSlots.findIndex((slot) => slot.slotIndex === seatStateRef.current.userSeatIndex)
       let nextIndex: number | null = null
+      const selectableIndex = (startIndex: number, direction: 1 | -1): number | null => {
+        for (let offset = 0; offset < deskSlots.length; offset += 1) {
+          const index = (startIndex + offset * direction + deskSlots.length) % deskSlots.length
+          const occupant = seatStateRef.current.occupantsByDeskId.get(deskSlots[index].id)
+          if (occupant?.kind !== 'peer') return index
+        }
+        return null
+      }
 
       if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-        nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % deskSlots.length
+        nextIndex = selectableIndex(currentIndex === -1 ? 0 : currentIndex + 1, 1)
       } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-        nextIndex = currentIndex === -1 ? deskSlots.length - 1 : (currentIndex - 1 + deskSlots.length) % deskSlots.length
+        nextIndex = selectableIndex(currentIndex === -1 ? deskSlots.length - 1 : currentIndex - 1, -1)
       } else if (event.key === 'Home') {
-        nextIndex = 0
+        nextIndex = selectableIndex(0, 1)
       } else if (event.key === 'End') {
-        nextIndex = deskSlots.length - 1
+        nextIndex = selectableIndex(deskSlots.length - 1, -1)
       }
 
       if (nextIndex === null) return
@@ -681,7 +794,7 @@ export function OfficeWorkbench() {
           ctx.imageSmoothingEnabled = true
           ctx.imageSmoothingQuality = 'high'
           ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0)
-          drawScene(ctx, assets, time, characterRef.current, hoveredDeskIdRef.current)
+          drawScene(ctx, assets, time, seatStateRef.current, hoveredDeskIdRef.current)
           ctx.restore()
           animationFrame = requestAnimationFrame(render)
         }
@@ -706,7 +819,7 @@ export function OfficeWorkbench() {
         <canvas
           ref={canvasRef}
           className="office-workbench-canvas"
-          aria-label="StudiumX 工作区：当前在桌子 1，使用方向键切换桌子"
+          aria-label="StudiumX 工作区：当前在座位 1，使用方向键切换座位"
           aria-live="polite"
           tabIndex={0}
         />

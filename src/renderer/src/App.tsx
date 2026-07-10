@@ -2401,7 +2401,7 @@ function MainArea() {
       )}
 
       {view === 'workbench' && (
-        <OfficeWorkbench />
+        <OfficeWorkbench showNotification={showNotification} />
       )}
     </main>
   )
