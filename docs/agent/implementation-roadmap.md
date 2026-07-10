@@ -157,7 +157,7 @@
 
 ## Phase 6：持久化与恢复
 
-状态：进行中（Phase 6A 已完成）。
+状态：进行中（Phase 6A/6B 已完成）。
 
 目标：让 child runs、压缩摘要和搜索 sources 可审计。
 
@@ -166,8 +166,9 @@
 - 已完成：child run 摘要、状态、filesRead、citations 和 usage 持久化到 final assistant turn metadata。
 - 已完成：conversation record 中记录 compaction/hygiene/context estimate metadata。
 - 已完成：sources 存入 turn metadata，并在 Markdown 导出中可回看。
+- 已完成：append-only `.agent-sessions/<conversationId>.jsonl` sidecar 写入 header、turn、tool_call、source、child_run、compaction、hygiene、context estimate 和 tool result diagnostic entry。
+- 已完成：大型 tool result 归档到 `.agent-sessions/<conversationId>/tool-results/...txt` artifact，conversation JSON 保留 digest、preview、归档路径和 token/size 估算，并在显式读取完整 conversation 时 hydrate。
 - 启动时标记 orphan child run 为 canceled 或 recoverable。
-- 大型 tool result 归档到单独 blob，JSON turn 保留 digest、preview 和归档路径。
 - 明确 learner memory、conversation compaction、archived retrieval 三类数据边界。
 
 验收：
@@ -183,10 +184,13 @@
 - 已在 `runTeachingConversationTurn` 收集结构化 loop events，并把 audit metadata 附到本轮最终 assistant turn。
 - 已在 conversation JSON reader 显式 normalize/cap metadata，Markdown 导出显示 Sources、Child runs、Context compaction 和 Tool result diagnostics。
 - 已新增 `check:agent-conversation-audit-metadata` 覆盖 extractor、roundtrip、Markdown 和 malformed metadata 兼容。
+- 已新增 `.agent-sessions` sidecar JSONL 和 tool result artifact 目录；catalog path helper 可定位 sidecar 与 artifact 根目录，workspace tree 会隐藏该内部目录。
+- 已扩展测试覆盖大型 tool result 归档、显式读取 hydrate、sidecar typed entries、repeat write 幂等和 continuation append。
 
 建议 commit：
 
 - 已用 `66895da feat(agent): persist conversation audit metadata`
+- 已用 `8d144e8 feat(agent): archive conversation session artifacts`
 
 ## 风险清单
 

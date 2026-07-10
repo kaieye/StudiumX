@@ -14,7 +14,7 @@
 | Phase 3：自动与手动压缩 | 已完成 | `37c7bf3` | 已新增 ContextCompactor、自动/手动触发、reference-only 摘要、失败 cooldown 和压缩事件。 |
 | Phase 4：只读子 agent | 已完成 | `6bf0fee` | 已新增 DelegationRuntime、delegate_task/read_only_task 和只读 profile 工具边界。 |
 | Phase 5：并行任务与状态 UI | 已完成 | `633c4a1` | 已新增 `parallel_tasks`、并发槽、子任务状态流和过程面板展示。 |
-| Phase 6：持久化与恢复 | 进行中 | `66895da` | Phase 6A 已落地 turn audit metadata；append-only session、child transcript、blob 归档和恢复仍待做。 |
+| Phase 6：持久化与恢复 | 进行中 | `8d144e8` | Phase 6A/6B 已落地 turn audit metadata、append-only sidecar JSONL 和大型 tool result artifact 归档；child transcript、replaced turn ids、恢复与 provider hooks 仍待做。 |
 
 ## 已完成
 
@@ -230,7 +230,7 @@
 剩余风险：
 
 - Phase 6A 已把 child run summary、sources、compaction/hygiene/context estimate 和大型 tool result 诊断持久化到 final assistant turn metadata。
-- 完整 child transcript、压缩 replaced turn ids、大型 tool result blob 归档仍未落地，属于 Phase 6 后续切片。
+- 大型 tool result blob 归档已在 Phase 6B 补齐；完整 child transcript、压缩 replaced turn ids、恢复与 provider hooks 仍属于 Phase 6 后续切片。
 - 尚未引入 pi-main 风格 SDK/extension/provider hooks；需要先完成持久化和 tool contract 深化。
 
 ## 进行中
@@ -272,11 +272,52 @@
 
 剩余风险：
 
-- 还没有 pi-main 风格 append-only JSONL session tree 或独立 `AgentSessionStore`。
+- Phase 6B 已补 append-only sidecar JSONL 和大型 tool result artifact 归档；还不是 pi-main 风格完整 `AgentSessionStore`、session tree 或 branch/fork/open 生命周期。
 - child run 只保存摘要、状态、filesRead/citations 和 usage；完整 child transcript 仍未单独持久化。
 - compaction metadata 还没有 replaced turn ids；当前只保存 token/message 计数和 sourceDigest。
-- 大型 tool result 只记录 bytes/lines/approxTokens 诊断，尚未归档到 blob 文件。
 - 这些 metadata 目前是审计数据；renderer 的 provider history projection 仍只发送 role/content，不把 metadata 作为续聊上下文。
+
+### Phase 6：持久化与恢复（切片 6B）
+
+完成内容：
+
+- 新增 `agent-conversation-session-audit` sidecar writer，为每个 conversation 写入 `.agent-sessions/<conversationId>.jsonl`，包含 header、turn、tool_call、source、child_run、compaction、context_hygiene、context_estimate 和 tool_result_diagnostic entry。
+- sidecar turn entry 使用稳定 id 与 `parentId` 串起线性链，为后续 session tree/fork/replay 留出数据基础。
+- 大型 tool result 从 conversation JSON 中移出到 `.agent-sessions/<conversationId>/tool-results/...txt` artifact；JSON metadata 保留 digest、preview、bytes/lines/approxTokens 和 artifact 引用。
+- 显式读取完整 conversation 时会 hydrate archived tool result；列表和 catalog 路径读取仍避免 eager blob 读取。
+- workspace tree 隐藏 `.agent-sessions`，避免用户在课程文件树中看到内部审计和 artifact 目录。
+- 扩展 `check:agent-conversation-audit-metadata` 和 `check:agent-conversation-catalog`，覆盖 artifact 归档、hydrate、sidecar entries、repeat write 幂等和 continuation append 行为。
+
+提交：
+
+- `8d144e8 feat(agent): archive conversation session artifacts`
+
+验证：
+
+- `npx tsc --noEmit`
+- `npm run check:agent-conversation-audit-metadata`
+- `npm run check:agent-conversation-catalog`
+- `npm run check:course-conversations`
+- `npm run check:agent-conversation-state`
+- `npm run check:agent-tool-registry`
+- `npm run check:agent-loop-baseline`
+- `npm run check:agent-loop-context-hygiene`
+- `npm run check:agent-loop-context-compaction`
+- `npm run check:agent-delegation-runtime`
+- `npm run check:teaching-ipc-contract`
+- `npm run check:teaching-ipc-commands`
+- `npm run check:workspace-import-course`
+- `npm run check:agent-chat`
+- `npm run check:agent-process-timeline`
+- `git diff --check`
+- `npm run build`
+
+剩余风险：
+
+- 当前 sidecar 是对 teaching conversation 的 append-only 审计投影和 artifact 层，不是完整 pi-main session manager。
+- child run 仍只持久化摘要、状态、filesRead/citations 和 usage；完整 child transcript JSONL 还未单独落盘。
+- compaction metadata 仍缺 replaced turn ids，无法精确说明哪些历史 turn 已被摘要覆盖。
+- 还没有 pending stream staging、启动恢复、orphan child cancellation、branch/tree UI 或 SDK/provider hooks。
 
 ## 未开始
 

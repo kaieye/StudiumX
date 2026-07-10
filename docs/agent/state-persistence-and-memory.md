@@ -4,9 +4,11 @@
 
 ## 当前状态
 
-`src/main/teaching-agent-conversations.ts` 持久化完整 JSON turns。Markdown 展示会截断 tool result，但 JSON 中仍保留完整内容。
+`src/main/teaching-agent-conversations.ts` 持久化 conversation JSON turns。Phase 6B 后，大型 tool result 会从 JSON 中移到 `.agent-sessions/<conversationId>/tool-results/...txt` artifact；显式读取完整 conversation 时再 hydrate 回内存。Markdown 展示仍会截断 tool result。
 
 Phase 6A 已在 `AgentChatTurn.metadata` 中保存审计 metadata：sources、child run 摘要、compaction/hygiene/context estimate 和大型 tool result 诊断。读取旧 JSON 时会 normalize/cap 这些字段，避免 malformed metadata 污染记录。
+
+Phase 6B 已新增 `.agent-sessions/<conversationId>.jsonl` append-only sidecar，记录 header、turn、tool_call、source、child_run、compaction、hygiene、context estimate 和 tool result diagnostic entry。它是 teaching conversation 的审计投影和 artifact 索引，还不是完整 session tree 或独立 `AgentSessionStore`。
 
 `src/shared/teaching-memory-capture.ts` 已有 learner profile memory 捕获、去重和同意流程。这是长期用户画像，不是 conversation compaction。
 
@@ -15,7 +17,7 @@ Phase 6A 已在 `AgentChatTurn.metadata` 中保存审计 metadata：sources、ch
 - replaced turn ids。
 - checkpoint 或 archived-history 索引。
 - child transcript 独立持久化。
-- 大型 tool result blob 归档。
+- pending stream staging、启动恢复和 branch/fork/open 生命周期。
 
 ## 数据分层
 
@@ -119,16 +121,18 @@ type AgentTurnMetadata = {
 
 v1：
 
-- 原始 turns 全量保存。
+- 原始 turns 的结构、普通消息和普通 tool result 保留在 JSON；大型 tool result 的完整内容进入 artifact。
 - compaction summary 仍只作为发送投影注入；metadata 保存 compaction 诊断、sourceDigest 和 token/message 计数。
 - child run 只保存最终摘要、状态、filesRead、citations 和 usage。
 - sources 保存到相关 assistant turn metadata。
+- 大型 tool result 归档到 `.agent-sessions/<conversationId>/tool-results/...txt`，JSON turn 保留 digest、preview、归档路径和 token/size 估算。
+- `.agent-sessions/<conversationId>.jsonl` 保存 append-only 审计投影，用稳定 id 和 `parentId` 串起当前线性 turn 链。
 
 v2：
 
-- 大型 tool result 可归档到单独 blob 文件。
-- JSON turn 中保留 digest、preview、归档路径和 token estimate。
 - child transcript 单独保存，可按 childRunId 打开。
+- pending stream staging 和启动恢复，避免崩溃后留下不可解释的 running/orphan child run。
+- 完整 session tree/fork/replay 索引，可按 branch 或 replaced turn ids 解释历史变化。
 - archived history 建索引，支持后续检索。
 
 ## Checkpoint 与恢复
@@ -159,7 +163,7 @@ v2：
 
 ## 风险
 
-- JSON 无限增长：即使发送前做 hygiene，持久化仍会增长，v2 需要归档大型 tool result。
+- JSON 无限增长：Phase 6B 已缓解父 conversation 大型 tool result 膨胀；child transcript、archived history 索引和重复 artifact 清理仍需要后续边界。
 - 摘要漂移：多次压缩会累积误差，需要 source digest 和 replaced turn ids。
 - 隐私泄漏：摘要生成前要复用 secret redaction，避免把 token/key 写入摘要。
 - 旧任务复活：摘要必须是 reference-only，并由最新用户消息覆盖。
