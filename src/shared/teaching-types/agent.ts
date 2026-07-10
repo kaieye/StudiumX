@@ -166,6 +166,7 @@ export type AgentChatStreamPayload = {
   mode?: AgentChatMode
   context?: string
   contextCompaction?: AgentChatContextCompactionRequest
+  skillIds?: string[]
   messages: AgentChatMessage[]
   userInput: string
 }

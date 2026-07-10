@@ -196,7 +196,7 @@ export type StoreState = {
   loadGitBranches: (workspaceRoot: string, options?: { force?: boolean }) => Promise<void>
   setGitBranchesResult: (workspaceRoot: string, result: TeachingGitBranchesResult) => void
   loadAgentConversation: (conversationId: string, workspaceId?: string | null) => Promise<void>
-  agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode }) => Promise<void>
+  agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode; skillIds?: string[] }) => Promise<void>
   setWorkspaceItemMeta: (payload: { workspaceId?: string | null; relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
   removeWorkspaceItem: (payload: { workspaceId?: string | null; relativePath: string; kind: WorkspaceItemKind; mode?: WorkspaceItemRemoveMode }) => Promise<void>
   removeWorkspace: (payload: { workspaceId: string; mode?: WorkspaceItemRemoveMode }) => Promise<void>
@@ -940,7 +940,14 @@ export const useAppStore = create<StoreState>((set, get) => ({
     })
     try {
       const done = await api.agentChatStream(
-        { streamId: pendingConversationId, workspaceId: workspace.id, mode, messages: priorMessages, userInput: input },
+        {
+          streamId: pendingConversationId,
+          workspaceId: workspace.id,
+          mode,
+          messages: priorMessages,
+          userInput: input,
+          ...(options?.skillIds?.length ? { skillIds: options.skillIds } : {})
+        },
         (chunk: AgentChatStreamChunk) => {
           const patch = applyAgentChatChunkToPending({
             pending: get().pendingAgentConversation,

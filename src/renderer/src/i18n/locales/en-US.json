@@ -161,7 +161,7 @@
   },
   "resources": {
     "trusted": "Built-in tutorials",
-    "title": "Tutorial center",
+    "title": "Resource hub",
     "open": "Open RESOURCES.md",
     "emptyTitle": "No resources yet",
     "emptyDetail": "Add trusted learning sources to RESOURCES.md and they'll appear here.",
@@ -171,7 +171,7 @@
         "resources": "Resources",
         "workspace": "Workspace"
       },
-      "subtitle": "Manage course-generation resources, templates, and page styles.",
+      "subtitle": "Manage page styles and skills that can be invoked with slash commands.",
       "searchPlaceholder": "Search resources",
       "installed": "Enabled",
       "sourcesAria": "Resource sources",
@@ -183,6 +183,8 @@
       "featured": "Featured",
       "stylesMeta": "Visual styles",
       "stylesDetail": "{{count}} lesson page styles, currently using {{style}}.",
+      "skillsMeta": "Agent skills",
+      "skillsDetail": "{{count}} available skills, with {{installed}} installed in your personal skill directory.",
       "open": "Open",
       "back": "Back to resources",
       "noResults": "No matching resources"
@@ -243,6 +245,37 @@
         "detail": "Find answers to common questions and troubleshooting.",
         "tag": "Reference"
       }
+    }
+  },
+  "skills": {
+    "eyebrow": "Skills",
+    "title": "Skill library",
+    "detail": "Selected skills are installed to {{root}} and become available by typing / in the composer.",
+    "openFolder": "Open skill folder",
+    "search": "Search skills",
+    "mine": "My skills {{count}}",
+    "loading": "Loading skills…",
+    "install": "Install",
+    "installing": "Installing",
+    "installed": "Installed",
+    "noResults": "No matching skills",
+    "categories": {
+      "aria": "Skill categories",
+      "all": "All",
+      "learning": "🎓 Learning",
+      "productivity": "⚡ Productivity",
+      "development": "💻 Development",
+      "lifestyle": "🌱 Lifestyle",
+      "other": "✨ Other"
+    },
+    "sort": {
+      "featured": "Featured",
+      "name": "Name"
+    },
+    "slash": {
+      "aria": "Skill command list",
+      "title": "Choose an installed skill",
+      "empty": "No matching installed skills. Install one from Resources → Skill library first."
     }
   },
   "records": {

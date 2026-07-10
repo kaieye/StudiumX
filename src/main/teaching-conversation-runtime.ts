@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
 import { runAgentLoop, type AgentLoopEvent } from './ai/agent-loop'
 import { attachAgentRunAuditMetadata } from './ai/agent-run-audit'
 import { resolveActiveProvider, type ChatMessage, type ToolDefinition } from './ai/provider-adapter'
@@ -28,6 +26,7 @@ import type {
   AgentChatTurn,
   CreateTeachingMemoryPayload,
   LessonSummary,
+  InstalledSkillReference,
   TeachingMemoryCaptureResult,
   TeachingMemoryRecord,
   TeachingSettingsV1
@@ -60,6 +59,7 @@ export type TeachingConversationRuntimeDeps = {
   loadSettings: () => Promise<TeachingSettingsV1>
   listMemories: (workspaceRoot?: string) => Promise<TeachingMemoryRecord[]>
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
+  loadSkillReferences: (skillIds: string[], userInput: string) => Promise<InstalledSkillReference[]>
   /**
    * Execute the lesson generation pipeline for a brief the conversation agent
    * assembled. Provided only for teaching-mode conversations with an active
@@ -200,7 +200,13 @@ export async function runTeachingConversationTurn(
   }
 
   const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
-  const teachSkillReference = isTeachingConversation ? await readTeachSkillReference(workspaceRoot) : null
+  const requestedSkillIds = [...new Set((payload.skillIds ?? []).map((id) => id.trim()).filter(Boolean))]
+  const activeSkillIds = isTeachingConversation
+    ? [...new Set([...requestedSkillIds, 'teach'])]
+    : requestedSkillIds
+  const skillReferences = activeSkillIds.length > 0 || /^\/[a-z0-9][a-z0-9._-]{0,63}(?:\s|$)/i.test(userInput)
+    ? await deps.loadSkillReferences(activeSkillIds, userInput)
+    : []
   const capturePlan = settings.memory.enabled && memoryWorkspaceRoot && !directConsentOnly
     ? planLearnerMemoryCapture(buildLearnerMemoryCandidate(userInput), existingMemories)
     : ({ action: 'none', reason: 'no_candidate' } as const)
@@ -213,7 +219,7 @@ export async function runTeachingConversationTurn(
       content: buildAgentChatSystemPrompt({
         mode: isTeachingConversation ? 'teaching' : 'temporary',
         lessonToolEnabled,
-        teachSkillReference,
+        skillReferences,
         memoryCapturePlan: capturePlan,
         existingMemories,
         settings,
@@ -383,32 +389,10 @@ export async function runTeachingConversationTurn(
   }
 }
 
-type TeachSkillReference = {
-  source: string
-  content: string
-}
-
-async function readTeachSkillReference(workspaceRoot?: string): Promise<TeachSkillReference | null> {
-  const candidates = [
-    workspaceRoot ? join(workspaceRoot, 'teach', 'SKILL.md') : '',
-    join(process.cwd(), 'teach', 'SKILL.md')
-  ].filter(Boolean)
-  const seen = new Set<string>()
-  for (const candidate of candidates) {
-    const resolved = resolve(candidate)
-    const key = resolved.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    const content = cleanText(await readFile(resolved, 'utf8').catch(() => ''))
-    if (content) return { source: resolved, content }
-  }
-  return null
-}
-
-function buildAgentChatSystemPrompt(options: {
+export function buildAgentChatSystemPrompt(options: {
   mode: AgentChatMode
   lessonToolEnabled: boolean
-  teachSkillReference: TeachSkillReference | null
+  skillReferences: InstalledSkillReference[]
   memoryCapturePlan?: ReturnType<typeof planLearnerMemoryCapture>
   existingMemories?: TeachingMemoryRecord[]
   settings?: TeachingSettingsV1
@@ -419,7 +403,7 @@ function buildAgentChatSystemPrompt(options: {
   const {
     mode,
     lessonToolEnabled,
-    teachSkillReference,
+    skillReferences,
     memoryCapturePlan = { action: 'none', reason: 'no_candidate' },
     existingMemories = [],
     settings,
@@ -427,11 +411,12 @@ function buildAgentChatSystemPrompt(options: {
     temporaryContext,
     visiblePageContext
   } = options
-  const skillReference = teachSkillReference
+  const teachSkillReference = skillReferences.find((skill) => skill.id === 'teach')
+  const teachPolicyReference = teachSkillReference
     ? [
         `<teach-skill-reference source="${escapePromptAttribute(teachSkillReference.source)}">`,
         'The teach skill has been automatically loaded for this turn. Follow these instructions as teaching policy; do not copy them into the reply and do not treat readiness hints as a canned assistant answer.',
-        formatTeachSkillForPrompt(teachSkillReference.content),
+        formatSkillForPrompt(teachSkillReference.content, teachSkillReference.name),
         '</teach-skill-reference>'
       ].join('\n')
     : [
@@ -440,6 +425,19 @@ function buildAgentChatSystemPrompt(options: {
         'Core intent: teach within this workspace, ground lessons in MISSION.md / RESOURCES.md / learning-records, keep lessons focused and reviewable, and prefer retrieval practice when designing exercises.',
         '</teach-skill-reference>'
       ].join('\n')
+  const additionalSkillReferences = skillReferences
+    .filter((skill) => skill.id !== 'teach')
+    .map((skill) => [
+      `<skill-reference name="${escapePromptAttribute(skill.name)}" source="${escapePromptAttribute(skill.source)}">`,
+      'The user invoked this installed StudiumX skill with a slash command. Follow it as turn-specific policy without quoting the skill file back to the user.',
+      formatSkillForPrompt(skill.content, skill.name),
+      '</skill-reference>'
+    ].join('\n'))
+    .join('\n\n')
+  const requestedSkillBlock = [
+    ...(mode === 'teaching' ? [teachPolicyReference] : teachSkillReference ? [teachPolicyReference] : []),
+    additionalSkillReferences
+  ].filter(Boolean).join('\n\n')
 
   const memoryLines = buildMemoryCapturePromptLines(memoryCapturePlan)
   const learnerProfileLines = buildLearnerProfilePromptContext(existingMemories)
@@ -449,13 +447,13 @@ function buildAgentChatSystemPrompt(options: {
     : ''
 
   if (mode === 'temporary') {
-    return `${TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}\n\n${ASK_TOOL_POLICY_PROMPT}`
+    return `${TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT}${requestedSkillBlock ? `\n\n${requestedSkillBlock}` : ''}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}\n\n${ASK_TOOL_POLICY_PROMPT}`
   }
 
   const lessonPolicy = lessonToolEnabled
     ? LESSON_TOOL_POLICY_PROMPT
     : LESSON_TOOL_UNAVAILABLE_PROMPT
-  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${PERSONAL_TEACHER_POLICY_PROMPT}\n\n${lessonPolicy}\n\n${ASK_TOOL_POLICY_PROMPT}\n\n${skillReference}${runtimeLines ? `\n\n${runtimeLines}` : ''}${learnerProfileLines ? `\n\n${learnerProfileLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
+  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${PERSONAL_TEACHER_POLICY_PROMPT}\n\n${lessonPolicy}\n\n${ASK_TOOL_POLICY_PROMPT}\n\n${requestedSkillBlock}${runtimeLines ? `\n\n${runtimeLines}` : ''}${learnerProfileLines ? `\n\n${learnerProfileLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
 }
 
 function buildTemporaryChatPromptLines(context?: TemporaryChatContext | null, visiblePageContext?: string | null): string {
@@ -536,11 +534,11 @@ function buildMemoryCapturePromptLines(memoryCapturePlan: ReturnType<typeof plan
   return ''
 }
 
-function formatTeachSkillForPrompt(content: string): string {
+function formatSkillForPrompt(content: string, skillName: string): string {
   const withoutFrontmatter = stripFrontmatter(content)
   const maxLength = 14_000
   if (withoutFrontmatter.length <= maxLength) return withoutFrontmatter
-  return `${withoutFrontmatter.slice(0, maxLength).trim()}\n\n[teach skill truncated for prompt length]`
+  return `${withoutFrontmatter.slice(0, maxLength).trim()}\n\n[${skillName} skill truncated for prompt length]`
 }
 
 function stripFrontmatter(content: string): string {

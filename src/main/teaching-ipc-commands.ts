@@ -97,12 +97,16 @@ export function parseAgentChatMessages(value: unknown): AgentChatMessage[] {
 
 export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPayload {
   const record = requireRecord(payload)
+  const skillIds = Array.isArray(record.skillIds)
+    ? [...new Set(record.skillIds.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))].slice(0, 8)
+    : undefined
   return {
     streamId: optionalStreamId(record.streamId),
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
     mode: record.mode === 'teaching' ? 'teaching' : record.mode === 'temporary' ? 'temporary' : undefined,
     context: optionalString(record.context),
     contextCompaction: parseAgentChatContextCompaction(record.contextCompaction),
+    ...(skillIds?.length ? { skillIds } : {}),
     messages: parseAgentChatMessages(record.messages),
     userInput: requireString(record.userInput, 'userInput')
   }

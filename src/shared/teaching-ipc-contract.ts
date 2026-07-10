@@ -25,6 +25,8 @@ export const teachingInvokeChannels = {
   openImportLocation: 'teach:open-import-location',
   updateMission: 'teach:update-mission',
   applyLessonStyle: 'teach:apply-lesson-style',
+  listSkills: 'teach:list-skills',
+  installSkill: 'teach:install-skill',
   generateLesson: 'teach:generate-lesson',
   readLesson: 'teach:read-lesson',
   readWorkspaceMarkdown: 'teach:read-workspace-markdown',

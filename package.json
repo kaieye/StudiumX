@@ -36,6 +36,7 @@
     "check:concept-overview": "node scripts/check-concept-overview-lesson.mjs",
     "check:lesson-generation-flow": "node scripts/check-lesson-generation-flow.mjs",
     "check:lesson-styles": "node scripts/check-lesson-styles.mjs",
+    "check:skill-library": "node scripts/check-skill-library.mjs",
     "check:resource-dark-theme": "node scripts/check-resource-dark-theme.mjs",
     "check:lesson-markdown": "node scripts/check-lesson-markdown-rendering.mjs",
     "check:dark-theme-neutrality": "node scripts/check-dark-theme-neutrality.mjs",
@@ -109,6 +110,12 @@
     },
     "files": [
       "out/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/builtin-skills",
+        "to": "builtin-skills"
+      }
     ]
   }
 }

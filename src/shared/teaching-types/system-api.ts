@@ -59,6 +59,7 @@ import type {
   WorkspaceRemovePayload
 } from './workspace'
 import type { TeachingSettingsPatch, TeachingSettingsV1 } from './settings'
+import type { SkillCatalogResult, SkillSummary } from './skill'
 
 export type TeachingSystemApi = {
   platform: NodeJS.Platform
@@ -73,6 +74,8 @@ export type TeachingSystemApi = {
   openImportLocation: (path?: string) => Promise<OpenPathResult>
   updateMission: (payload: UpdateMissionPayload) => Promise<TeachingAppState>
   applyLessonStyle: (payload: ApplyLessonStylePayload) => Promise<TeachingAppState>
+  listSkills: () => Promise<SkillCatalogResult>
+  installSkill: (skillId: string) => Promise<SkillSummary>
   generateLesson: (payload: GenerateLessonPayload) => Promise<GenerateLessonResult>
   readLesson: (payload: ReadLessonPayload) => Promise<ReadLessonResult>
   readWorkspaceMarkdown: (payload: ReadWorkspaceMarkdownPayload) => Promise<WorkspaceMarkdownDocument>

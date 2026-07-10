@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TeachingSettingsService } from './teaching-settings'
 import { TeachingWorkspaceService } from './teaching-workspace'
+import { SkillLibraryService } from './skill-library'
 import {
   createAndSwitchGitBranchForWorkspace,
   getGitBranchesForWorkspace,
@@ -83,7 +84,8 @@ protocol.registerSchemesAsPrivileged(
 
 function registerTeachingIpc(
   service: TeachingWorkspaceService,
-  settingsService: TeachingSettingsService
+  settingsService: TeachingSettingsService,
+  skillLibraryService: SkillLibraryService
 ): void {
   const activeAgentChatStreams = new Map<string, AbortController>()
 
@@ -170,6 +172,11 @@ function registerTeachingIpc(
 
   ipcMain.handle(teachingInvokeChannels.applyLessonStyle, async (_, payload: unknown) =>
     service.applyLessonStyle(parseApplyLessonStylePayload(payload))
+  )
+
+  ipcMain.handle(teachingInvokeChannels.listSkills, async () => skillLibraryService.listSkills())
+  ipcMain.handle(teachingInvokeChannels.installSkill, async (_, skillIdRaw: unknown) =>
+    skillLibraryService.installSkill(requireString(skillIdRaw, 'skillId'))
   )
 
   ipcMain.handle(teachingInvokeChannels.generateLesson, async (_, payload: unknown) =>
@@ -614,14 +621,24 @@ if (!hasSingleInstanceLock) {
 
     tray = new TrayManager(logger)
 
+    const skillLibraryService = new SkillLibraryService({
+      builtInRoots: [
+        join(process.resourcesPath, 'builtin-skills'),
+        join(app.getAppPath(), 'resources', 'builtin-skills'),
+        join(process.cwd(), 'resources', 'builtin-skills')
+      ]
+    })
+    await skillLibraryService.listSkills()
+
     const workspaceService = new TeachingWorkspaceService({
       registryPath,
       defaultRoot,
-      settingsProvider: () => settingsService.load()
+      settingsProvider: () => settingsService.load(),
+      skillLibraryService
     })
 
     registerPreviewProtocol(workspaceService)
-    registerTeachingIpc(workspaceService, settingsService)
+    registerTeachingIpc(workspaceService, settingsService, skillLibraryService)
 
     const startHidden = initialSettings.appBehavior.startMinimized || process.argv.includes('--hidden')
     createWindow(settingsService, startHidden)

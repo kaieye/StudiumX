@@ -34,6 +34,7 @@ import {
 } from './teaching-agent-conversations'
 import { resolveActiveProvider } from './ai/provider-adapter'
 import { runTeachingConversationTurn, type TemporaryChatContext } from './teaching-conversation-runtime'
+import type { SkillLibraryService } from './skill-library'
 import type { LessonPlanSource } from '../shared/lesson-schema'
 import {
   lessonStyleCss,
@@ -180,6 +181,7 @@ export class TeachingWorkspaceService {
   private readonly appDataRoot: string
   private readonly defaultRoot: string
   private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
+  private readonly skillLibraryService?: SkillLibraryService
   private readonly memoryStore: TeachingMemoryStore
   private readonly reviewModule = new TeachingWorkspaceReviewModule()
 
@@ -187,11 +189,13 @@ export class TeachingWorkspaceService {
     registryPath: string
     defaultRoot: string
     settingsProvider?: () => Promise<TeachingSettingsV1>
+    skillLibraryService?: SkillLibraryService
   }) {
     this.registryPath = options.registryPath
     this.appDataRoot = dirname(this.registryPath)
     this.defaultRoot = options.defaultRoot
     this.settingsProvider = options.settingsProvider
+    this.skillLibraryService = options.skillLibraryService
     this.memoryStore = new TeachingMemoryStore({
       rootDir: join(this.appDataRoot, 'memory'),
       settingsProvider: () => this.loadSettings()
@@ -426,6 +430,8 @@ export class TeachingWorkspaceService {
       loadSettings: () => this.loadSettings(),
       listMemories: (workspaceRoot) => this.memoryStore.list(workspaceRoot),
       createMemory: (memoryPayload) => this.memoryStore.create(memoryPayload),
+      loadSkillReferences: (skillIds, userInput) =>
+        this.skillLibraryService?.readInvokedSkillReferences(userInput, skillIds) ?? Promise.resolve([]),
       generateLessonFromBrief: workspace && isTeachingConversation
         ? async (brief) => {
             const generation = await this.generateAndPersistLesson({

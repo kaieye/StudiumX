@@ -23,6 +23,7 @@ import {
   FolderPlus,
   GitBranch,
   GitFork,
+  GraduationCap,
   History,
   Info,
   LibraryBig,
@@ -88,6 +89,9 @@ import {
   type DialogMode
 } from './app-shell/appStore'
 import { LessonStyleGallery } from './views/resources/LessonStyleGallery'
+import { SkillLibrary } from './views/resources/SkillLibrary'
+import { useSkillCatalog } from './skills/skillCatalog'
+import { useSkillSlashInput } from './skills/SkillSlashMenu'
 import { SettingsView } from './views/settings/SettingsView'
 import {
   activeModelProvider,
@@ -2100,7 +2104,7 @@ function MainArea() {
   const resourceFrameKey = selectedResourcePreviewFile
     ? `${selectedResourcePreviewFile.id}:${selectedResourcePreviewFile.html.length}`
     : 'empty-resource-preview'
-  const [resourcePageSection, setResourcePageSection] = useState<'home' | 'styles'>('home')
+  const [resourcePageSection, setResourcePageSection] = useState<'home' | 'styles' | 'skills'>('home')
   const renderSidebarToggle = (className = 'icon-button') => (
     <button
       className={className}
@@ -2380,8 +2384,13 @@ function MainArea() {
                 onOpenPreview={openResourceHtmlPreview}
                 onBack={() => setResourcePageSection('home')}
               />
+            ) : resourcePageSection === 'skills' ? (
+              <SkillLibrary onBack={() => setResourcePageSection('home')} />
             ) : (
-              <ResourceHome onOpenStyles={() => setResourcePageSection('styles')} />
+              <ResourceHome
+                onOpenStyles={() => setResourcePageSection('styles')}
+                onOpenSkills={() => setResourcePageSection('skills')}
+              />
             )
           )}
         </section>
@@ -2398,11 +2407,19 @@ function MainArea() {
   )
 }
 
-function ResourceHome({ onOpenStyles }: { onOpenStyles: () => void }) {
+function ResourceHome({
+  onOpenStyles,
+  onOpenSkills
+}: {
+  onOpenStyles: () => void
+  onOpenSkills: () => void
+}) {
   const { t } = useTranslation()
   const savedStyleId = useAppStore((s) => s.settings.workspace.lessonStyleId)
   const currentStyleId = normalizeLessonStyleId(savedStyleId)
   const currentStyleName = t(`resources.styles.items.${currentStyleId}.name`)
+  const { catalog: skillCatalog } = useSkillCatalog()
+  const installedSkillCount = skillCatalog.skills.filter((skill) => skill.installed).length
   const [query, setQuery] = useState('')
 
   const entries = useMemo(
@@ -2415,10 +2432,24 @@ function ResourceHome({ onOpenStyles }: { onOpenStyles: () => void }) {
           style: currentStyleName
         }),
         meta: t('resources.home.stylesMeta'),
-        action: t('resources.home.open')
+        action: t('resources.home.open'),
+        icon: 'styles' as const,
+        onOpen: onOpenStyles
+      },
+      {
+        id: 'skills',
+        title: t('skills.title'),
+        detail: t('resources.home.skillsDetail', {
+          count: skillCatalog.skills.length,
+          installed: installedSkillCount
+        }),
+        meta: t('resources.home.skillsMeta'),
+        action: t('resources.home.open'),
+        icon: 'skills' as const,
+        onOpen: onOpenSkills
       }
     ],
-    [currentStyleName, t]
+    [currentStyleName, installedSkillCount, onOpenSkills, onOpenStyles, skillCatalog.skills.length, t]
   )
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const visibleEntries = normalizedQuery
@@ -2467,6 +2498,16 @@ function ResourceHome({ onOpenStyles }: { onOpenStyles: () => void }) {
           >
             <Palette size={22} />
           </button>
+          <button
+            className="resource-installed-icon resource-installed-icon--skills"
+            type="button"
+            aria-label={t('skills.title')}
+            title={t('skills.title')}
+            onClick={onOpenSkills}
+          >
+            <GraduationCap size={21} />
+            {installedSkillCount > 0 ? <span>{installedSkillCount}</span> : null}
+          </button>
         </div>
       </section>
       <div className="resource-source-row" aria-label={t('resources.home.sourcesAria')}>
@@ -2489,10 +2530,10 @@ function ResourceHome({ onOpenStyles }: { onOpenStyles: () => void }) {
                 key={entry.id}
                 className="resource-entry-card"
                 type="button"
-                onClick={onOpenStyles}
+                onClick={entry.onOpen}
               >
-                <span className="resource-entry-icon resource-entry-icon--styles">
-                  <Palette size={22} />
+                <span className={`resource-entry-icon resource-entry-icon--${entry.icon}`}>
+                  {entry.icon === 'styles' ? <Palette size={22} /> : <GraduationCap size={22} />}
                 </span>
                 <span className="resource-entry-body">
                   <strong>{entry.title}</strong>
@@ -2610,6 +2651,8 @@ function OverviewLessonComposer({
     agentChat,
     openTeachingConversationView
   } = useAppStore()
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const skillSlash = useSkillSlashInput({ value: taskPrompt, onChange: setTaskPrompt, inputRef })
   const busy = generating || agentChatBusy
   const canSend = Boolean(active && taskPrompt.trim().length > 0 && !busy)
   // Every free-form teaching input goes through the conversation agent; it
@@ -2617,9 +2660,10 @@ function OverviewLessonComposer({
   const submitToTeachingAgent = () => {
     if (!canSend) return
     const prompt = taskPrompt.trim()
+    const skillIds = skillSlash.skillIdsFor(prompt)
     setTaskPrompt('')
     openTeachingConversationView()
-    void agentChat(prompt, { mode: 'teaching' })
+    void agentChat(prompt, { mode: 'teaching', skillIds })
   }
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -2630,12 +2674,15 @@ function OverviewLessonComposer({
       {showModeSwitch ? <DialogModeSwitch /> : null}
       <form className="overview-dialog-stack" onSubmit={onSubmit}>
         <div className="overview-dialog-card">
+          {skillSlash.menu}
           <textarea
+            ref={inputRef}
             value={taskPrompt}
             aria-label={t('overview.taskAria')}
             placeholder={active ? t('lessons.composerPlaceholder') : t('overview.placeholderEmpty')}
             onChange={(event) => setTaskPrompt(event.target.value)}
             onKeyDown={(event) => {
+              if (!isInputComposing(event) && skillSlash.handleKeyDown(event)) return
               if (event.key === 'Enter' && !event.shiftKey) {
                 if (isInputComposing(event)) return
                 event.preventDefault()
@@ -2690,6 +2737,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const hasConversation = agentTurns.length > 0
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const skillSlash = useSkillSlashInput({ value: inputValue, onChange: setAgentInput, inputRef })
   const [inputHistoryIndex, setInputHistoryIndex] = useState<number | null>(null)
   const [inputHistoryDraft, setInputHistoryDraft] = useState('')
   const activeConversationId = useAppStore((s) => s.activeConversationId)
@@ -2714,7 +2762,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     setAgentInput('')
     // One brain: the teaching conversation owns clarification AND generation
     // (via its generate_lesson tool). No parallel pipeline hand-off here.
-    void agentChat(prompt, { mode: 'teaching' })
+    void agentChat(prompt, { mode: 'teaching', skillIds: skillSlash.skillIdsFor(prompt) })
   }
   const submitChatPrompt = (value: string): void => {
     const prompt = value.trim()
@@ -2722,7 +2770,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     rememberAgentInput(prompt)
     setInputHistoryIndex(null)
     setInputHistoryDraft('')
-    void agentChat(prompt, { mode: 'temporary' })
+    void agentChat(prompt, { mode: 'temporary', skillIds: skillSlash.skillIdsFor(prompt) })
   }
   const submitCurrentMode = (): void => {
     if (!canSend) return
@@ -2837,6 +2885,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         }}
       >
         <div className="overview-dialog-card">
+          {skillSlash.menu}
           <textarea
             ref={inputRef}
             value={inputValue}
@@ -2855,6 +2904,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
               setInputHistoryDraft('')
             }}
             onKeyDown={(event) => {
+              if (!isInputComposing(event) && skillSlash.handleKeyDown(event)) return
               if (navigateSentInputHistory(event)) return
               if (event.key === 'Enter' && !event.shiftKey) {
                 if (isInputComposing(event)) return

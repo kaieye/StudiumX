@@ -35,6 +35,8 @@
 :root[data-resolved-theme="dark"] .resource-row,
 :root[data-resolved-theme="dark"] .style-gallery-preview,
 :root[data-resolved-theme="dark"] .style-card,
+:root[data-resolved-theme="dark"] .skill-library-card,
+:root[data-resolved-theme="dark"] .skill-slash-menu,
 :root[data-resolved-theme="dark"] .empty-state,
 :root[data-resolved-theme="dark"] .row-context-menu-dropdown,
 :root[data-resolved-theme="dark"] .import-dialog,
@@ -51,6 +53,9 @@
 :root[data-resolved-theme="dark"] .resource-row h3,
 :root[data-resolved-theme="dark"] .style-gallery-preview-title strong,
 :root[data-resolved-theme="dark"] .style-card-body strong,
+:root[data-resolved-theme="dark"] .skill-library-head h1,
+:root[data-resolved-theme="dark"] .skill-library-card__title strong,
+:root[data-resolved-theme="dark"] .skill-slash-menu__copy strong,
 :root[data-resolved-theme="dark"] .course-group-title,
 :root[data-resolved-theme="dark"] .import-dialog-header h2,
 :root[data-resolved-theme="dark"] .import-dialog-field input,
@@ -115,6 +120,34 @@
   border-color: var(--line);
   background: var(--surface-muted);
   color: var(--text);
+}:root[data-resolved-theme="dark"] .skill-category-pills button,
+:root[data-resolved-theme="dark"] .skill-library-folder,
+:root[data-resolved-theme="dark"] .skill-library-mine,
+:root[data-resolved-theme="dark"] .skill-library-sort,
+:root[data-resolved-theme="dark"] .skill-library-search,
+:root[data-resolved-theme="dark"] .skill-slash-menu__head kbd,
+:root[data-resolved-theme="dark"] .skill-library-loading,
+:root[data-resolved-theme="dark"] .skill-library-empty {
+  color: var(--text-muted);
+  border-color: var(--line);
+  background: var(--surface-muted);
+}:root[data-resolved-theme="dark"] .skill-category-pills button.is-active,
+:root[data-resolved-theme="dark"] .skill-library-mine.is-active,
+:root[data-resolved-theme="dark"] .skill-slash-menu__item.is-active {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+}:root[data-resolved-theme="dark"] .skill-library-search input,
+:root[data-resolved-theme="dark"] .skill-library-sort select {
+  color: var(--text);
+}:root[data-resolved-theme="dark"] .skill-library-head p,
+:root[data-resolved-theme="dark"] .skill-library-eyebrow,
+:root[data-resolved-theme="dark"] .skill-library-card__body p,
+:root[data-resolved-theme="dark"] .skill-library-card__meta,
+:root[data-resolved-theme="dark"] .skill-slash-menu__copy span,
+:root[data-resolved-theme="dark"] .skill-slash-menu__item small,
+:root[data-resolved-theme="dark"] .skill-slash-menu__empty {
+  color: var(--text-muted);
 }:root[data-resolved-theme="dark"] .markdown-message--assistant,
 :root[data-resolved-theme="dark"] .overview-dialog-message.is-assistant > .markdown-message {
   background: transparent;

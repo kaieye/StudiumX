@@ -31,6 +31,16 @@
   }.style-gallery.has-preview .style-gallery-cards,
   .style-gallery.is-card-only .style-gallery-cards {
     grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  }.skill-library-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }.skill-library-controls {
+    width: 100%;
+  }.skill-library-search {
+    flex: 1 1 auto;
+    width: auto;
+  }.skill-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }.workspace-hero,
   .overview-banner {
     grid-template-columns: 1fr;
@@ -140,6 +150,22 @@ body {
   }.resource-entry-action {
     grid-column: 2;
     justify-self: start;
+  }.skill-library-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }.skill-library-controls {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }.skill-library-search {
+    flex-basis: 100%;
+  }.skill-card-grid {
+    grid-template-columns: 1fr;
+  }.skill-library-card {
+    padding-inline: 18px;
+  }.skill-slash-menu__item {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }.skill-slash-menu__item small {
+    display: none;
   }.overview-dialog-shell {
     padding: 20px 12px 12px;
   }.overview-dialog-card {

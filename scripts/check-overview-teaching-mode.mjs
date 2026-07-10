@@ -88,13 +88,13 @@ assert.doesNotMatch(
 
 assert.match(
   app,
-  /const submitTeachingPrompt = \(value: string\): void => \{[\s\S]*?void agentChat\(prompt, \{ mode: 'teaching' \}\)\s*\}/,
+  /const submitTeachingPrompt = \(value: string\): void => \{[\s\S]*?void agentChat\(prompt, \{ mode: 'teaching', skillIds:/,
   'teaching-mode submit should always continue the teaching conversation'
 )
 
 assert.match(
   app,
-  /const submitToTeachingAgent = \(\) => \{[\s\S]*?openTeachingConversationView\(\)[\s\S]*?void agentChat\(prompt, \{ mode: 'teaching' \}\)/,
+  /const submitToTeachingAgent = \(\) => \{[\s\S]*?openTeachingConversationView\(\)[\s\S]*?void agentChat\(prompt, \{ mode: 'teaching', skillIds \}\)/,
   'the lesson composer should route free-form prompts into the teaching conversation'
 )
 

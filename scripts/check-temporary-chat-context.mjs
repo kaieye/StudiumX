@@ -36,13 +36,13 @@ assert.match(
 
 assert.match(
   app,
-  /void agentChat\(prompt, \{ mode: 'temporary' \}\)/,
+  /void agentChat\(prompt, \{ mode: 'temporary', skillIds:/,
   'ordinary chat submit should send temporary mode to the backend'
 )
 
 assert.match(
   app,
-  /void agentChat\(prompt, \{ mode: 'teaching' \}\)/,
+  /void agentChat\(prompt, \{ mode: 'teaching', skillIds:/,
   'teaching submissions should continue through the teaching conversation'
 )
 

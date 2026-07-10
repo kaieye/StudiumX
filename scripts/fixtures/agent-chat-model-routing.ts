@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { defaultSettings } from '../../src/main/teaching-settings'
+import { SkillLibraryService } from '../../src/main/skill-library'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 
 const MODEL_REPLY = 'MODEL_REPLY_FROM_PROVIDER'
@@ -83,10 +84,17 @@ try {
       : provider
   )
 
+  const skillLibraryService = new SkillLibraryService({
+    builtInRoots: [join(process.cwd(), 'resources', 'builtin-skills')],
+    personalRoot: join(tempRoot, '.studiumx', 'skills')
+  })
+  await skillLibraryService.installSkill('teach')
+
   const service = new TeachingWorkspaceService({
     registryPath: join(tempRoot, 'user-data', 'studiumx-workspaces.json'),
     defaultRoot,
-    settingsProvider: async () => settings
+    settingsProvider: async () => settings,
+    skillLibraryService
   })
   const state = await service.createWorkspace({ name: 'learn-rag', prompt: '学习 RAG' })
   const workspace = state.activeWorkspace
@@ -191,6 +199,26 @@ try {
   assert.equal(temporaryMessages.at(-1)?.role, 'user')
   assert.equal(temporaryMessages.at(-1)?.content, '我有哪些课程？')
 
+  const invokedSkillResult = await service.agentChatStream(
+    {
+      workspaceId: workspace.id,
+      mode: 'temporary',
+      messages: [],
+      userInput: '/teach 请解释向量检索'
+    },
+    {
+      streamId: 'temporary-skill-stream',
+      onChunk: () => {},
+      onStatus: () => {},
+      onTool: () => {}
+    }
+  )
+  assert.equal(requests.length, 4, 'a typed slash command should resolve the installed skill in the main process')
+  assert.ok(!('error' in invokedSkillResult), 'an installed slash skill should reach the configured provider')
+  const invokedSkillMessages = requests[3]?.body.messages ?? []
+  assert.match(invokedSkillMessages[0]?.content ?? '', /automatically loaded/)
+  assert.match(invokedSkillMessages[0]?.content ?? '', /Teaching Workspace/)
+
   const canceledController = new AbortController()
   canceledController.abort()
   const canceledStatuses: string[] = []
@@ -209,7 +237,7 @@ try {
     }
   )
   assert.equal('canceled' in canceledResult, true, 'aborted agent chat should return a canceled result')
-  assert.equal(requests.length, 3, 'aborted agent chat should not call the provider')
+  assert.equal(requests.length, 4, 'aborted agent chat should not call the provider')
   assert.deepEqual(canceledStatuses, [])
 
   console.log('agent chat model routing ok')
