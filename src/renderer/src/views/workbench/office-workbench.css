@@ -60,6 +60,78 @@
   background: transparent;
 }
 
+.workbench-space-join {
+  --pomodoro-accent-rgb: 0, 122, 255;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 278px;
+  min-height: 42px;
+  padding: 4px 5px 4px 12px;
+  color: rgba(33, 44, 58, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.4)),
+    rgba(255, 255, 255, 0.24);
+  box-shadow:
+    0 12px 28px rgba(64, 83, 111, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+}
+
+.workbench-space-join svg {
+  color: #007aff;
+}
+
+.workbench-space-join input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  color: #17202b;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+
+.workbench-space-join input::placeholder {
+  color: rgba(47, 57, 69, 0.38);
+  text-transform: none;
+}
+
+.workbench-space-join input:focus {
+  color: #111923;
+}
+
+.workbench-space-join button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 11px;
+  color: #ffffff;
+  border: 1px solid rgba(0, 122, 255, 0.28);
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(0, 122, 255, 0.82), #007aff);
+  box-shadow:
+    0 7px 16px rgba(0, 122, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
 .workbench-pomodoro-card,
 .workbench-task-card {
   --pomodoro-accent: #007aff;
@@ -652,6 +724,7 @@
   .workbench-pomodoro-ambient:hover,
   .workbench-task-head > button:not(:disabled):hover,
   .workbench-task-form button:not(:disabled):hover,
+  .workbench-space-join button:hover,
   .workbench-task-row:hover {
     transform: translateY(-1px);
     border-color: rgba(255, 255, 255, 0.9);
@@ -681,6 +754,10 @@
     padding: 24px 12px 18px;
   }
 
+  .workbench-space-join {
+    min-height: 38px;
+  }
+
   .workbench-pomodoro-card,
   .workbench-task-card {
     padding: 16px;
@@ -698,6 +775,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .workbench-tools button,
+  .workbench-space-join input,
   .workbench-task-form input,
   .workbench-pomodoro-progress span {
     transition: none;

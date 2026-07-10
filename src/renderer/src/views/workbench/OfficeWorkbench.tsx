@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { KeyRound } from 'lucide-react'
+import type { FormEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   formatStudyDuration,
   studyMemberStatusLabel
@@ -628,6 +630,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const {
     snapshot,
     viewModel,
+    joinSpace,
     chooseSeat,
     toggleTimer,
     resetTimer,
@@ -647,6 +650,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const seatStateRef = useRef<WorkbenchSeatState>(emptyWorkbenchSeatState())
   const chooseSeatRef = useRef(chooseSeat)
   const hoveredDeskIdRef = useRef<DeskId | null>(null)
+  const [spaceDraft, setSpaceDraft] = useState('')
   const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
   const occupantsByDeskId = new Map<DeskId, WorkbenchSeatOccupant>()
 
@@ -828,6 +832,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     }
   }, [])
 
+  const handleJoinSpace = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    joinSpace(spaceDraft)
+    setSpaceDraft('')
+  }
+
   return (
     <section className="office-workbench-page" aria-label="工作区">
       <div ref={stageRef} className="office-workbench-stage">
@@ -840,6 +850,17 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         />
       </div>
       <aside className="workbench-tools" aria-label="工作工具">
+        <form className="workbench-space-join" onSubmit={handleJoinSpace}>
+          <KeyRound size={14} />
+          <input
+            value={spaceDraft}
+            onChange={(event) => setSpaceDraft(event.target.value)}
+            placeholder="输入空间码"
+            aria-label="加入在线自习空间码"
+            maxLength={18}
+          />
+          <button type="submit">加入</button>
+        </form>
         <WorkbenchLeaderboard members={viewModel.roomMembers} />
         <WorkbenchPomodoro
           snapshot={snapshot}

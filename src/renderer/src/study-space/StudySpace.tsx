@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, Coffee, Copy, DoorOpen, ExternalLink, GitBranch, Info, KeyRound, Maximize2, Pause, Play, RefreshCw, Target, Trophy, Users, X, Zap } from 'lucide-react'
+import { CheckCircle2, ChevronDown, Coffee, Copy, DoorOpen, ExternalLink, GitBranch, Info, Maximize2, Pause, Play, RefreshCw, Target, Trophy, Users, X, Zap } from 'lucide-react'
 import type { CSSProperties, FormEvent } from 'react'
 import { useEffect, useState } from 'react'
 import studyRoomAmbience from '../assets/study-room-ambience.webp'
@@ -17,7 +17,6 @@ type StudySpaceProps = {
 export function StudySpace({ showNotification }: StudySpaceProps) {
   const [editingName, setEditingName] = useState(false)
   const [nicknameDraft, setNicknameDraft] = useState('')
-  const [spaceDraft, setSpaceDraft] = useState('')
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [proofCopyState, setProofCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [verifyOpenState, setVerifyOpenState] = useState<'idle' | 'opened' | 'blocked'>('idle')
@@ -33,7 +32,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     viewModel,
     emitRoomEvent,
     saveNickname: saveSessionNickname,
-    joinSpace: joinSessionSpace,
     createSpace: createSessionSpace,
     saveRelayUrl: saveSessionRelayUrl,
     resetRelayUrl: resetSessionRelayUrl,
@@ -44,7 +42,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
   const [relayDraft, setRelayDraft] = useState(snapshot.presenceRelayUrl)
   const {
     activeRoom,
-    activeMode,
     roomCycle,
     level,
     activePeers,
@@ -81,7 +78,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     liveSessionDetail,
     inviteHint,
     spaceKindLabel,
-    spaceOverviewKindLabel,
     stageStatusLabel,
     contractDisplay,
     hostActionLabel,
@@ -113,16 +109,8 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     setEditingName(false)
   }
 
-  const joinSpace = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault()
-    joinSessionSpace(spaceDraft)
-    setSpaceDraft('')
-    setCopyState('idle')
-  }
-
   const createSpace = (): void => {
     createSessionSpace()
-    setSpaceDraft('')
     setCopyState('idle')
   }
 
@@ -208,17 +196,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           <span><Zap size={15} /> 连续 {snapshot.streakDays}</span>
           <span><Trophy size={15} /> 等级 {level.level}</span>
           <span><Target size={15} /> {completedTasks}/{snapshot.tasks.length}</span>
-          <form className="study-hero-join" onSubmit={joinSpace}>
-            <KeyRound size={14} />
-            <input
-              value={spaceDraft}
-              onChange={(event) => setSpaceDraft(event.target.value)}
-              placeholder="输入空间码"
-              aria-label="加入在线自习空间码"
-              maxLength={18}
-            />
-            <button type="submit">加入</button>
-          </form>
         </div>
       </div>
 
@@ -474,28 +451,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
         </StudyWorkPanels>
       </div>
 
-      <div className="study-space-overview" aria-label="空间概览">
-        <div>
-          <span>空间类型</span>
-          <strong>{spaceOverviewKindLabel}</strong>
-        </div>
-        <div>
-          <span>当前模式</span>
-          <strong>{activeMode.name}</strong>
-        </div>
-        <div>
-          <span>当前目标</span>
-          <strong>{contractDisplay}</strong>
-        </div>
-        <div>
-          <span>学习节奏</span>
-          <strong>{roomCycle.phase === 'focus' ? '专注中' : '休息中'} · {formatStudyDuration(roomCycle.remainingSeconds)}</strong>
-        </div>
-        <div>
-          <span>实时人数</span>
-          <strong>{presence.status === 'online' ? `${online} / ${activeRoom.capacity}` : '离线'}</strong>
-        </div>
-      </div>
       {focusTheaterOpen ? (
         <div className={`study-theater is-${snapshot.timerMode}`} role="dialog" aria-modal="true" aria-label="沉浸专注视图">
           <div className="study-theater-surface">
