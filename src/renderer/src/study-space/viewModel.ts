@@ -86,7 +86,6 @@ export type StudySpaceViewModel = {
   liveLineText: string
   liveLineMeta: string
   liveLineClass: string
-  connectionDetail: string
   liveSessionTitle: string
   liveSessionDetail: string
   inviteHint: string
@@ -280,11 +279,6 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
       ? studyMemberFreshnessLabel(latestRemotePeer, nowMs)
       : currentConnectionLabel
   const liveLineClass = latestRoomEvent ? ` is-${latestRoomEvent.kind}` : latestRemotePeer ? ' has-peer' : ' is-empty'
-  const connectionDetail = presence.status === 'online'
-    ? `人数来自同空间的实时同步：当前在线 ${online} 人，空间在线 ${spaceOnline} 人。`
-    : presence.status === 'connecting'
-      ? '正在进入学习空间，连接前只保留当前席位。'
-      : '同步服务暂不可用，页面会保留你的本机席位，在线人数不会虚增。'
   const liveSessionTitle = remoteOnline > 0
     ? `已收到 ${remoteOnline} 个远端同桌`
     : presence.status === 'online'
@@ -388,7 +382,6 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
     liveLineText,
     liveLineMeta,
     liveLineClass,
-    connectionDetail,
     liveSessionTitle,
     liveSessionDetail,
     inviteHint,

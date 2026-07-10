@@ -131,23 +131,19 @@
     .study-companion-panel > .study-online-summary,
     .study-companion-panel > .study-room-board,
     .study-companion-panel > .study-room-actions,
-    .study-companion-panel > .study-room-digest,
-    .study-companion-panel > .study-invite-note {
+    .study-companion-panel > .study-room-digest {
       grid-column: 1;
     }
 
   .study-companion-panel > .study-classmate-list,
-    .study-companion-panel > .study-event-stream,
-    .study-companion-panel > .study-leaderboard {
+    .study-companion-panel > .study-event-stream {
       grid-column: 2;
     }
 
   .study-companion-panel > .study-classmate-list,
     .study-companion-panel > .study-room-actions,
     .study-companion-panel > .study-event-stream,
-    .study-companion-panel > .study-room-digest,
-    .study-companion-panel > .study-invite-note,
-    .study-companion-panel > .study-leaderboard {
+    .study-companion-panel > .study-room-digest {
       margin-bottom: 0;
     }
 
@@ -237,19 +233,15 @@
     .study-companion-panel > .study-room-board,
     .study-companion-panel > .study-room-actions,
     .study-companion-panel > .study-room-digest,
-    .study-companion-panel > .study-invite-note,
     .study-companion-panel > .study-classmate-list,
-    .study-companion-panel > .study-event-stream,
-    .study-companion-panel > .study-leaderboard {
+    .study-companion-panel > .study-event-stream {
       grid-column: auto;
     }
 
   .study-companion-panel > .study-classmate-list,
     .study-companion-panel > .study-room-actions,
     .study-companion-panel > .study-event-stream,
-    .study-companion-panel > .study-room-digest,
-    .study-companion-panel > .study-invite-note,
-    .study-companion-panel > .study-leaderboard {
+    .study-companion-panel > .study-room-digest {
       margin-bottom: 14px;
     }
 

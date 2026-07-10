@@ -5,6 +5,7 @@ import {
 } from '../../study-space/domain'
 import { useStudySession } from '../../study-space/session/useStudySession'
 import type { StudyTimerMode, StudyTimerState } from '../../study-space/types'
+import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { WorkbenchTasks } from './WorkbenchTasks'
 
@@ -839,6 +840,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         />
       </div>
       <aside className="workbench-tools" aria-label="工作工具">
+        <WorkbenchLeaderboard members={viewModel.roomMembers} />
         <WorkbenchPomodoro
           snapshot={snapshot}
           timerProgress={viewModel.timerProgress}

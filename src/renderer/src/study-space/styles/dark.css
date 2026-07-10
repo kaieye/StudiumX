@@ -168,9 +168,6 @@
 :root[data-resolved-theme="dark"] .study-room-digest summary,
 :root[data-resolved-theme="dark"] .study-live-proof summary,
 :root[data-resolved-theme="dark"] .study-online-summary span,
-:root[data-resolved-theme="dark"] .study-invite-note,
-:root[data-resolved-theme="dark"] .study-leaderboard-head,
-:root[data-resolved-theme="dark"] .study-leader-row em,
 :root[data-resolved-theme="dark"] .study-task-summary span,
 :root[data-resolved-theme="dark"] .study-empty-online,
 :root[data-resolved-theme="dark"] .study-name-modal p {
@@ -188,7 +185,6 @@
 :root[data-resolved-theme="dark"] .study-companion-hero,
 :root[data-resolved-theme="dark"] .study-companion-hero button,
 :root[data-resolved-theme="dark"] .study-online-summary div,
-:root[data-resolved-theme="dark"] .study-invite-note,
 :root[data-resolved-theme="dark"] .study-cycle-card,
 :root[data-resolved-theme="dark"] .study-lobby-card,
 :root[data-resolved-theme="dark"] .study-lobby-actions button,
@@ -220,7 +216,6 @@
 :root[data-resolved-theme="dark"] .study-room-digest,
 :root[data-resolved-theme="dark"] .study-event-empty,
 :root[data-resolved-theme="dark"] .study-event-row,
-:root[data-resolved-theme="dark"] .study-leaderboard,
 :root[data-resolved-theme="dark"] .study-badges span {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.06);
@@ -228,8 +223,7 @@
 }
 
 :root[data-resolved-theme="dark"] .study-name-button:hover,
-:root[data-resolved-theme="dark"] .study-classmate-row.is-me,
-:root[data-resolved-theme="dark"] .study-leader-row.is-me {
+:root[data-resolved-theme="dark"] .study-classmate-row.is-me {
   background: rgba(255, 255, 255, 0.1);
 }
 

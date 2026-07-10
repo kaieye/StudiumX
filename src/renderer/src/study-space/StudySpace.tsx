@@ -3,7 +3,7 @@ import type { CSSProperties, FormEvent } from 'react'
 import { useEffect, useState } from 'react'
 import studyRoomAmbience from '../assets/study-room-ambience.webp'
 import { STUDY_PRESENCE_BROKER_URL } from './constants'
-import { formatStudyDuration, formatStudyEventTime, formatStudyHours, formatStudyPresenceAge, formatStudySeatLabel, normalizeStudySeatIndex, studyMemberFreshnessLabel, studyMemberStatusLabel, studySignalLabel, studySignalShortLabel, studyVerificationUrl } from './domain'
+import { formatStudyDuration, formatStudyEventTime, formatStudyPresenceAge, formatStudySeatLabel, normalizeStudySeatIndex, studyMemberFreshnessLabel, studyMemberStatusLabel, studySignalLabel, studySignalShortLabel, studyVerificationUrl } from './domain'
 import { useStudySession } from './session/useStudySession'
 import { StudyArrivalPanel } from './StudyArrivalPanel'
 import { StudyRoomStage } from './StudyRoomStage'
@@ -77,7 +77,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     liveLineText,
     liveLineMeta,
     liveLineClass,
-    connectionDetail,
     liveSessionTitle,
     liveSessionDetail,
     inviteHint,
@@ -440,23 +439,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
               ))}
             </div>
           </details>
-          <div className="study-invite-note">
-            <Info size={14} />
-            <span>{connectionDetail}</span>
-          </div>
-          <div className="study-leaderboard" aria-label="本空间专注榜">
-            <div className="study-leaderboard-head">
-              <strong>本空间专注榜</strong>
-              <span>{roomMembers.length} 人</span>
-            </div>
-            {roomMembers.slice(0, 5).map((member, index) => (
-              <div className={`study-leader-row${member.isSelf ? ' is-me' : ''}`} key={member.clientId}>
-                <span>{index + 1}</span>
-                <strong>{member.nickname}</strong>
-                <em>{studySignalShortLabel(member.signalId)} · {formatStudyHours(member.todayFocusSeconds)}h · {studyMemberFreshnessLabel(member, roomCycleNow)}</em>
-              </div>
-            ))}
-          </div>
           <details className="study-live-proof" aria-label="在线同步证明">
             <summary>
               <span><GitBranch size={13} /> 在线来源</span>
