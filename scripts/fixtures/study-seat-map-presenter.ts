@@ -89,7 +89,7 @@ const aisle = items.find((item) => item.kind === 'aisle')
 assert.deepEqual(aisle, {
   kind: 'aisle',
   key: 'aisle-12',
-  label: '中排静音区'
+  label: '中排学习区'
 })
 
 console.log('study seat map presenter ok')

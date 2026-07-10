@@ -32,17 +32,6 @@ export type StudyRoomMember = StudyPresencePeer & {
   isSelf: boolean
 }
 
-export type StudyRoomSummary = {
-  room: StudyRoom
-  cycle: StudyRoomCycle
-  online: number
-  focusing: number
-  latestText: string
-  latestMeta: string
-  hasRemote: boolean
-  isActive: boolean
-}
-
 export type StudyPresenceProofRow = {
   label: string
   value: string
@@ -90,7 +79,6 @@ export type StudySpaceViewModel = {
   arrivalRosterMembers: StudyRoomMember[]
   roomEvents: StudyRoomEvent[]
   recentLiveEvents: StudyRoomEvent[]
-  roomSummaries: StudyRoomSummary[]
   latestRoomEvent: StudyRoomEvent | undefined
   latestRemotePeer: StudyPresencePeer | undefined
   connectionLabel: string
@@ -111,7 +99,6 @@ export type StudySpaceViewModel = {
   hostBrief: string
   hostChecklist: Array<{ label: string; value: string }>
   roomFeed: string[]
-  roomRules: string[]
 }
 
 function roomEventCode(kind: StudyRoomEventKind): 'IN' | 'GO' | 'OK' | 'UP' {
@@ -249,7 +236,7 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
   const presenceProofText = [
     'StudiumX live proof',
     `space=${snapshot.spaceCode}`,
-    `room=${activeRoom.name}`,
+    `spaceName=${activeRoom.name}`,
     `relay=${presence.relay}`,
     `topic=${presence.topic}`,
     `status=${presence.status}`,
@@ -266,60 +253,6 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
     .filter((event) => event.spaceCode === snapshot.spaceCode && event.roomId === snapshot.roomId)
     .slice(0, 8)
   const recentLiveEvents = roomEvents.slice(0, 3)
-  const roomSummaries = studyRooms.map((room) => {
-    const cycle = getStudyRoomCycle(room, nowMs)
-    const roomPeers = presenceOnline
-      ? presence.peers.filter((peer) => peer.spaceCode === snapshot.spaceCode && peer.roomId === room.id)
-      : []
-    const isLocalRoom = snapshot.roomId === room.id
-    const roomOnline = presenceOnline ? roomPeers.length + (isLocalRoom ? 1 : 0) : 0
-    const roomFocusing = presenceOnline
-      ? roomPeers.filter((peer) => peer.status === 'running' && peer.timerMode === 'focus').length
-        + (isLocalRoom && snapshot.timerState === 'running' && snapshot.timerMode === 'focus' ? 1 : 0)
-      : 0
-    const latestPeer = roomPeers.slice().sort((left, right) => right.updatedAt - left.updatedAt)[0]
-    const roomPeerClientIds = new Set(roomPeers.map((peer) => peer.clientId))
-    const latestEvent = presence.events.find((event) => (
-      event.spaceCode === snapshot.spaceCode
-      && event.roomId === room.id
-      && (
-        roomPeerClientIds.has(event.clientId)
-        || (isLocalRoom && event.clientId === snapshot.clientId)
-      )
-    ))
-    const latestText = latestEvent
-      ? latestEvent.text
-      : latestPeer
-        ? `${latestPeer.nickname} · ${formatStudySeatLabel(normalizeStudySeatIndex(latestPeer.seatIndex, latestPeer.roomId, latestPeer.clientId))} · ${studyMemberStatusLabel(latestPeer.status, latestPeer.timerMode)}`
-        : isLocalRoom
-          ? `${snapshot.nickname} · ${formatStudySeatLabel(userSeat)} · ${studyMemberStatusLabel(snapshot.timerState, snapshot.timerMode)}`
-          : presence.status === 'online'
-            ? '等待同学入座'
-            : presence.status === 'connecting'
-              ? '连接中'
-              : '待同步'
-    const latestMeta = latestEvent
-      ? formatStudyEventTime(latestEvent.createdAt)
-      : latestPeer
-        ? studyMemberFreshnessLabel(latestPeer, nowMs)
-        : isLocalRoom
-          ? '我的当前房间'
-          : presence.status === 'online'
-            ? '实时在线'
-            : presence.status === 'connecting'
-              ? '正在连接'
-              : '本机席位'
-    return {
-      room,
-      cycle,
-      online: roomOnline,
-      focusing: roomFocusing,
-      latestText,
-      latestMeta,
-      hasRemote: roomPeers.length > 0,
-      isActive: isLocalRoom
-    }
-  })
   const latestRoomEvent = roomEvents[0]
   const latestRemotePeer = activePeers
     .slice()
@@ -337,9 +270,9 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
     : latestRemotePeer
       ? `${latestRemotePeer.nickname} 在 ${formatStudySeatLabel(normalizeStudySeatIndex(latestRemotePeer.seatIndex, latestRemotePeer.roomId, latestRemotePeer.clientId))} · ${studySignalLabel(latestRemotePeer.signalId)} · ${studyMemberStatusLabel(latestRemotePeer.status, latestRemotePeer.timerMode)}`
       : presence.status === 'online'
-        ? '实时教室已连接，签到或开始专注后会同步到同空间同房间。'
+        ? '学习空间已连接，签到或开始专注后会同步给同空间的同学。'
         : presence.status === 'connecting'
-          ? '正在进入在线教室，连接成功后会显示真实同桌。'
+          ? '正在进入学习空间，连接成功后会显示真实同桌。'
           : '已保留你的真实席位，邀请同学或同步恢复后会显示同桌。'
   const liveLineMeta = latestRoomEvent
     ? formatStudyEventTime(latestRoomEvent.createdAt)
@@ -348,25 +281,25 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
       : currentConnectionLabel
   const liveLineClass = latestRoomEvent ? ` is-${latestRoomEvent.kind}` : latestRemotePeer ? ' has-peer' : ' is-empty'
   const connectionDetail = presence.status === 'online'
-    ? `人数来自同空间的实时同步：本房间 ${online} 人，整个空间 ${spaceOnline} 人。`
+    ? `人数来自同空间的实时同步：当前在线 ${online} 人，空间在线 ${spaceOnline} 人。`
     : presence.status === 'connecting'
-      ? '正在进入在线教室，连接前只保留当前席位。'
+      ? '正在进入学习空间，连接前只保留当前席位。'
       : '同步服务暂不可用，页面会保留你的本机席位，在线人数不会虚增。'
   const liveSessionTitle = remoteOnline > 0
     ? `已收到 ${remoteOnline} 个远端同桌`
     : presence.status === 'online'
       ? '一键验证真实在线人数'
-      : '等待在线教室连接'
+      : '等待学习空间连接'
   const liveSessionDetail = remoteOnline > 0
     ? `最近远端消息 ${formatStudyPresenceAge(presence.lastRemoteMessageAt, nowMs)}，超过 ${presenceTtlSeconds} 秒未心跳会自动下线。`
     : presence.status === 'online'
-      ? '打开一个独立同桌窗口会使用新的 session 身份，连接成功后本房间在线人数才会增加。'
+      ? '打开一个独立同桌窗口会使用新的 session 身份，连接成功后当前在线人数才会增加。'
       : '连接成功前会保留当前席位；你可以复制邀请或等待同步服务恢复。'
   const inviteHint = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE
     ? '公共大厅不用邀请码；新建空间后可只邀请自己的同学进入。'
-    : `把空间码 ${snapshot.spaceCode} 发给同学，对方输入后会进入同一个在线 presence 房间。`
+    : `把空间码 ${snapshot.spaceCode} 发给同学，对方输入后会进入同一个在线学习空间。`
   const spaceKindLabel = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公共大厅' : '私密空间'
-  const spaceOverviewKindLabel = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公开大厅' : '私密房间'
+  const spaceOverviewKindLabel = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公开大厅' : '私密空间'
   const stageStatusLabel = timerStateStageLabel(snapshot.timerState, snapshot.timerMode)
   const contractDisplay = snapshot.contractText.trim() || snapshot.tasks.find((task) => !task.done)?.title || activeMode.name
   const hostActionKind: StudyHostActionKind = snapshot.timerState === 'running'
@@ -381,13 +314,13 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
     : hostActionKind === 'lock'
       ? '锁定目标'
       : hostActionKind === 'sync'
-        ? '跟随房间'
+        ? '跟随节奏'
         : '开始专注'
   const hostBrief = snapshot.timerState === 'running'
     ? `${snapshot.nickname} 正在 ${formatStudySeatLabel(userSeat)} 专注，保持本轮目标不切换。`
     : snapshot.timerMode === 'break'
       ? `现在是同步休息，${formatStudyDuration(snapshot.remainingSeconds)} 后回到专注。`
-      : `${formatStudySeatLabel(userSeat)} 已入座，锁定一个目标后跟随房间节奏开始。`
+      : `${formatStudySeatLabel(userSeat)} 已入座，锁定一个目标后跟随学习节奏开始。`
   const hostChecklist = [
     { label: '座位', value: `${formatStudySeatLabel(userSeat)} · ${snapshot.spaceCode}` },
     { label: '状态', value: `${studySignalLabel(snapshot.signalId)} · ${activeMode.name}` },
@@ -401,17 +334,11 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
       : `${snapshot.nickname} 已入座，等待开始下一轮。`,
     `学习状态分布：${signalMixSummary}。`,
     `你的座位是 ${formatStudySeatLabel(userSeat)}；点击空座可换到更合适的位置。`,
-    `房间第 ${roomCycle.round} 轮正在${roomCycle.phase === 'focus' ? '专注' : '休息'}，${formatStudyDuration(roomCycle.remainingSeconds)} 后切换到${roomCycle.nextLabel}。`,
+    `第 ${roomCycle.round} 轮正在${roomCycle.phase === 'focus' ? '专注' : '休息'}，${formatStudyDuration(roomCycle.remainingSeconds)} 后切换到${roomCycle.nextLabel}。`,
     completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
     presence.status === 'online'
-      ? `空间 ${snapshot.spaceCode} 已连接实时自习室，远端同学 ${remoteOnline} 人。`
+      ? `空间 ${snapshot.spaceCode} 已连接实时学习空间，远端同学 ${remoteOnline} 人。`
       : '在线同步不可用时，先保留你的本机席位。'
-  ]
-  const roomRules = [
-    snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公共大厅：任何 StudiumX 用户都可进入' : `私密空间：凭 ${snapshot.spaceCode} 加入`,
-    `${activeMode.name}：${activeMode.rule}`,
-    activeRoom.id === 'exam' ? '考试模拟间默认静音，不播放环境音' : `${activeRoom.ambient} 可在右侧开关`,
-    '在线状态只广播匿名座位和学习信号，不上传学习任务内容'
   ]
 
   return {
@@ -454,7 +381,6 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
     arrivalRosterMembers,
     roomEvents,
     recentLiveEvents,
-    roomSummaries,
     latestRoomEvent,
     latestRemotePeer,
     connectionLabel: currentConnectionLabel,
@@ -474,7 +400,6 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
     hostActionKind,
     hostBrief,
     hostChecklist,
-    roomFeed,
-    roomRules
+    roomFeed
   }
 }

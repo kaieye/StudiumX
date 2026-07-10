@@ -72,7 +72,7 @@ export const studyModes: Array<{
     detail: '适合和同学一起限时推进',
     focusMinutes: 45,
     breakMinutes: 10,
-    roomId: 'sprint',
+    roomId: 'silent',
     rule: '进入后先写本轮目标，尽量整轮不切任务。'
   },
   {
@@ -81,7 +81,7 @@ export const studyModes: Array<{
     detail: '适合论文、项目和长时间材料阅读',
     focusMinutes: 90,
     breakMinutes: 15,
-    roomId: 'deep',
+    roomId: 'silent',
     rule: '隐藏干扰，只保留一个主目标。'
   },
   {
@@ -90,7 +90,7 @@ export const studyModes: Array<{
     detail: '适合真题、闭卷训练和限时复盘',
     focusMinutes: 50,
     breakMinutes: 10,
-    roomId: 'exam',
+    roomId: 'silent',
     rule: '默认静音，按考试节奏完成后复盘。'
   }
 ]
@@ -123,54 +123,15 @@ export const studyRooms: Array<{
 }> = [
   {
     id: 'silent',
-    name: '静音自习室',
-    tone: '低噪、长坐、适合跟读和预习',
+    name: '学习空间',
+    tone: '把在线同桌、学习任务和番茄节奏集中在一个空间里',
     capacity: 36,
     sessionMinutes: 25,
     breakMinutes: 5,
-    tags: ['课程预习', '笔记整理', '轻专注'],
+    tags: ['在线同桌', '学习任务', '番茄节奏'],
     seats: 36,
-    light: '晨光',
-    ambient: '翻书声',
-    backdrop: 'study-backdrop-silent'
-  },
-  {
-    id: 'sprint',
-    name: '冲刺教室',
-    tone: '公开冲刺、按轮次一起开始',
-    capacity: 32,
-    sessionMinutes: 45,
-    breakMinutes: 10,
-    tags: ['作业收尾', '限时刷题', '高效率'],
-    seats: 32,
-    light: '白炽灯',
-    ambient: '键盘声',
-    backdrop: 'study-backdrop-sprint'
-  },
-  {
-    id: 'deep',
-    name: '深度学习舱',
-    tone: '90 分钟沉浸、隐藏干扰',
-    capacity: 24,
-    sessionMinutes: 90,
-    breakMinutes: 15,
-    tags: ['论文阅读', '项目推进', '长周期'],
-    seats: 24,
-    light: '夜灯',
-    ambient: '雨声',
-    backdrop: 'study-backdrop-deep'
-  },
-  {
-    id: 'exam',
-    name: '考试模拟间',
-    tone: '整点模拟、休息后复盘',
-    capacity: 40,
-    sessionMinutes: 50,
-    breakMinutes: 10,
-    tags: ['真题训练', '倒计时', '复盘'],
-    seats: 40,
-    light: '考场灯',
-    ambient: '无背景音',
-    backdrop: 'study-backdrop-exam'
+    light: '自然光',
+    ambient: '环境音',
+    backdrop: 'study-backdrop-default'
   }
 ]

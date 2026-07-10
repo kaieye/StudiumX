@@ -55,7 +55,7 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
   const [snapshot, setSnapshot] = useState<StudySnapshot>(() => readStudySnapshot())
   const [roomCycleNow, setRoomCycleNow] = useState(() => Date.now())
   const presence = useStudyPresence(snapshot)
-  useStudyAmbient(snapshot.roomId, snapshot.ambientEnabled, snapshot.ambientVolume)
+  useStudyAmbient(snapshot.ambientEnabled, snapshot.ambientVolume)
 
   const viewModel = createStudySpaceViewModel(snapshot, presence, roomCycleNow)
   const roomEventSenderRef = useRef(presence.sendEvent)
@@ -212,7 +212,7 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
   const followRoomCycle = (): void => {
     const nextContract = (snapshot.contractText.trim() || defaultContractText()).slice(0, 120)
     if (viewModel.roomCycle.phase === 'focus') {
-      emitRoomEvent('focus_start', `${snapshot.nickname} 跟随房间第 ${viewModel.roomCycle.round} 轮开始专注：${nextContract}`)
+      emitRoomEvent('focus_start', `${snapshot.nickname} 跟随第 ${viewModel.roomCycle.round} 轮开始专注：${nextContract}`)
     }
     setSnapshot((current) => followStudyRoomCycle({
       snapshot: current,

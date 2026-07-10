@@ -82,21 +82,21 @@ assert.equal(presetIdle.focusMinutes, 45)
 assert.equal(presetIdle.breakMinutes, 10)
 assert.equal(presetIdle.remainingSeconds, 45 * 60)
 
-const sprintRoom = studyRooms.find((room) => room.id === 'sprint')!
-const selectedRoom = selectStudyRoomSnapshot(snapshot, sprintRoom)
-assert.equal(selectedRoom.roomId, 'sprint')
-assert.equal(selectedRoom.focusMinutes, sprintRoom.sessionMinutes)
-assert.equal(selectedRoom.breakMinutes, sprintRoom.breakMinutes)
+const studyRoom = studyRooms[0]!
+const selectedRoom = selectStudyRoomSnapshot(snapshot, studyRoom)
+assert.equal(selectedRoom.roomId, 'silent')
+assert.equal(selectedRoom.focusMinutes, studyRoom.sessionMinutes)
+assert.equal(selectedRoom.breakMinutes, studyRoom.breakMinutes)
 
-const runningRoom = selectStudyRoomSnapshot({ ...snapshot, timerState: 'running', remainingSeconds: 88 }, sprintRoom)
-assert.equal(runningRoom.roomId, 'sprint')
+const runningRoom = selectStudyRoomSnapshot({ ...snapshot, timerState: 'running', remainingSeconds: 88 }, studyRoom)
+assert.equal(runningRoom.roomId, 'silent')
 assert.equal(runningRoom.remainingSeconds, 88)
 assert.equal(runningRoom.focusMinutes, snapshot.focusMinutes)
 
 const examMode = studyModes.find((mode) => mode.id === 'exam')!
 const selectedMode = selectStudyModeSnapshot(snapshot, examMode)
 assert.equal(selectedMode.modeId, 'exam')
-assert.equal(selectedMode.roomId, 'exam')
+assert.equal(selectedMode.roomId, 'silent')
 assert.equal(selectedMode.ambientEnabled, false)
 
 const contract = toggleStudyContract(snapshot, 'Fallback contract')
@@ -110,13 +110,13 @@ assert.equal(started.contractLocked, true)
 
 const followed = followStudyRoomCycle({
   snapshot,
-  room: sprintRoom,
+  room: studyRoom,
   phase: 'focus',
   remainingSeconds: 44,
   fallbackContract: 'Follow contract'
 })
 assert.equal(followed.timerState, 'running')
-assert.equal(followed.focusMinutes, sprintRoom.sessionMinutes)
+assert.equal(followed.focusMinutes, studyRoom.sessionMinutes)
 assert.equal(followed.remainingSeconds, 44)
 assert.equal(followed.contractLocked, true)
 

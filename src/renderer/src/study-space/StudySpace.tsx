@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, Coffee, Copy, DoorOpen, ExternalLink, GitBranch, Info, KeyRound, Maximize2, Pause, Play, RefreshCw, ShieldCheck, Target, Trophy, Users, X, Zap } from 'lucide-react'
+import { CheckCircle2, ChevronDown, Coffee, Copy, DoorOpen, ExternalLink, GitBranch, Info, KeyRound, Maximize2, Pause, Play, RefreshCw, Target, Trophy, Users, X, Zap } from 'lucide-react'
 import type { CSSProperties, FormEvent } from 'react'
 import { useEffect, useState } from 'react'
 import studyRoomAmbience from '../assets/study-room-ambience.webp'
@@ -34,10 +34,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     viewModel,
     emitRoomEvent,
     updateTimerPreset,
-    selectRoom,
     selectStudyMode,
-    toggleContract,
-    updateContractText,
     saveNickname: saveSessionNickname,
     joinSpace: joinSessionSpace,
     createSpace: createSessionSpace,
@@ -89,7 +86,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     arrivalRosterMembers,
     roomEvents,
     recentLiveEvents,
-    roomSummaries,
     latestRemotePeer,
     connectionLabel,
     liveLineCode,
@@ -108,13 +104,12 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     hostActionKind,
     hostBrief,
     hostChecklist,
-    roomFeed,
-    roomRules
+    roomFeed
   } = viewModel
   const hostActionIcon = hostActionKind === 'theater'
     ? <Maximize2 size={14} />
     : hostActionKind === 'lock'
-      ? <ShieldCheck size={14} />
+      ? <Target size={14} />
       : hostActionKind === 'sync'
         ? <RefreshCw size={14} />
         : <Play size={14} />
@@ -159,7 +154,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
   }
 
   const copyInvite = async (): Promise<void> => {
-    const text = `StudiumX 学习空间：${activeRoom.name}\n链接：${inviteUrl}\n空间码：${snapshot.spaceCode}\n进入后会加入同一在线自习室；另开窗口或标签页会使用独立同桌身份。`
+    const text = `StudiumX 学习空间：${activeRoom.name}\n链接：${inviteUrl}\n空间码：${snapshot.spaceCode}\n进入后会加入同一学习空间；另开窗口或标签页会使用独立同桌身份。`
     try {
       await navigator.clipboard.writeText(text)
       setCopyState('copied')
@@ -205,20 +200,20 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     >
       <div className="study-hero">
         <div className="study-hero-copy">
-          <span className="study-eyebrow"><DoorOpen size={14} /> 在线自习室</span>
+          <span className="study-eyebrow"><DoorOpen size={14} /> 学习空间</span>
           <h1>{activeRoom.name}</h1>
           <p>{activeRoom.tone}</p>
           <div className="study-hero-meta">
             <span className={`study-presence-pill is-${presence.status}`}>
               <span />
-              {presence.status === 'online' ? `${online} 人在线` : presence.status === 'connecting' ? '连接教室中' : '离线，仅本机'}
+              {presence.status === 'online' ? `${online} 人在线` : presence.status === 'connecting' ? '连接学习空间' : '离线，仅本机'}
             </span>
             <span>空间 {snapshot.spaceCode}</span>
             <span>{activeRoom.light}</span>
             <span>{activeRoom.ambient}</span>
             <span>{presence.status === 'online' ? '实时同步' : presence.status === 'connecting' ? '连接同步' : '本机模式'}</span>
           </div>
-          <div className={`study-hero-livebar is-${presence.status}${latestRemotePeer ? ' has-peer' : ''}`} aria-label="首屏实时房间状态">
+          <div className={`study-hero-livebar is-${presence.status}${latestRemotePeer ? ' has-peer' : ''}`} aria-label="首屏实时状态">
             <span>{liveLineCode}</span>
             <strong>{liveLineText}</strong>
             <em>{liveLineMeta}</em>
@@ -273,7 +268,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
         inviteUrl={inviteUrl}
         inviteHint={inviteHint}
         spaceKindLabel={spaceKindLabel}
-        roomSummaries={roomSummaries}
         relayDraft={relayDraft}
         copyState={copyState}
         proofCopyState={proofCopyState}
@@ -285,7 +279,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
         onOpenVerificationWindow={openVerificationWindow}
         onFollowRoomCycle={followRoomCycle}
         onOpenFocusTheater={() => setFocusTheaterOpen(true)}
-        onSelectRoom={selectRoom}
         onSaveRelayUrl={saveRelayUrl}
         onResetRelayUrl={resetRelayUrl}
       />
@@ -305,8 +298,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           liveDeskMembers={liveDeskMembers}
           recentLiveEvents={recentLiveEvents}
           roomMembers={roomMembers}
-          roomSummaries={roomSummaries}
-          roomRules={roomRules}
           stageStatusLabel={stageStatusLabel}
           contractDisplay={contractDisplay}
           hostActionIcon={hostActionIcon}
@@ -328,7 +319,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
             setNicknameDraft(snapshot.nickname)
             setEditingName(true)
           }}
-          onSelectRoom={selectRoom}
         />
 
         <StudyWorkPanels
@@ -345,8 +335,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           taskInput={taskInput}
           onTaskInputChange={setTaskInput}
           onSelectStudyMode={selectStudyMode}
-          onToggleContract={toggleContract}
-          onUpdateContractText={updateContractText}
           onSelectSignal={selectSignal}
           onToggleTimer={toggleTimer}
           onResetTimer={resetTimer}
@@ -370,7 +358,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           </div>
           <div className={`study-companion-hero is-${presence.status}`}>
             <div>
-              <span>{presence.status === 'online' ? '在线房间' : presence.status === 'connecting' ? '正在入场' : '本机席位'}</span>
+              <span>{presence.status === 'online' ? '在线空间' : presence.status === 'connecting' ? '正在入场' : '本机席位'}</span>
               <strong>{presence.status === 'online' ? `${online} 人在 ${activeRoom.name}` : presence.status === 'connecting' ? '连接同步服务' : '等待同桌加入'}</strong>
               <p>{remoteOnline > 0 ? `${remoteOnline} 位远端同学刚刚心跳，座位图和同桌列表会实时更新。` : presence.status === 'online' ? '复制邀请或打开验证窗口后，真实远端 session 才会进入这里。' : `先保留 ${formatStudySeatLabel(userSeat)}，连接恢复或同学进入后才会增加在线人数。`}</p>
             </div>
@@ -385,7 +373,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
               </button>
             </div>
           </div>
-          <div className={`study-room-board is-${presence.status}${latestRemotePeer ? ' has-peer' : ''}`} aria-label="房间状态板">
+          <div className={`study-room-board is-${presence.status}${latestRemotePeer ? ' has-peer' : ''}`} aria-label="空间状态板">
             <div className="study-room-board-head">
               <span>{liveLineCode}</span>
               <div>
@@ -405,17 +393,17 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
                 <small>{formatStudyPresenceAge(presence.lastRemoteMessageAt, roomCycleNow)}</small>
               </div>
               <div>
-                <span>房间容量</span>
+                <span>空间容量</span>
                 <strong>{online}/{activeRoom.capacity}</strong>
                 <small>空间 {spaceOnline} 人</small>
               </div>
               <div>
-                <span>同步房间</span>
+                <span>同步空间</span>
                 <strong>{snapshot.spaceCode}</strong>
                 <small>{activeRoom.name} · {relayHealthLabel}</small>
               </div>
             </div>
-            <div className="study-room-board-roster" aria-label="房间席位头像">
+            <div className="study-room-board-roster" aria-label="席位头像">
               {roomMembers.slice(0, 8).map((member) => (
                 <span className={member.isSelf ? 'is-me' : ''} key={member.clientId} title={`${member.nickname} · ${formatStudySeatLabel(member.seatIndex)} · ${studyMemberFreshnessLabel(member, roomCycleNow)}`}>
                   {member.isSelf ? '我' : member.nickname.slice(0, 1).toUpperCase()}
@@ -442,7 +430,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
             </div>
             {activePeers.length === 0 ? (
               <div className="study-empty-online">
-                {presence.status === 'online' ? '当前房间还没有其他同学。打开另一个客户端或邀请朋友进入同一房间后，人数和座位才会增加。' : '正在连接在线教室，连接失败时不会显示模拟人数。'}
+                {presence.status === 'online' ? '当前空间还没有其他同学。打开另一个客户端或邀请朋友进入同一空间后，人数和座位才会增加。' : '正在连接学习空间，连接失败时不会显示模拟人数。'}
               </div>
             ) : activePeers.map((peer) => (
               <div className="study-classmate-row" key={peer.clientId}>
@@ -455,7 +443,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
               </div>
             ))}
           </div>
-          <div className="study-room-actions" aria-label="房间互动">
+          <div className="study-room-actions" aria-label="空间互动">
             <button type="button" onClick={() => emitRoomEvent('checkin', `${snapshot.nickname} 在 ${activeRoom.name} 签到。`)}>
               <CheckCircle2 size={13} />
               签到
@@ -471,7 +459,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           </div>
           <div className="study-event-stream" aria-label="实时互动流">
             {roomEvents.length === 0 ? (
-              <div className="study-event-empty">还没有实时互动。签到或开始专注后，同空间同房间的同学会看到动态。</div>
+              <div className="study-event-empty">还没有实时互动。签到或开始专注后，同空间的同学会看到动态。</div>
             ) : roomEvents.map((event) => (
               <div className={`study-event-row is-${event.kind}`} key={event.id}>
                 <span>{event.kind === 'checkin' ? 'IN' : event.kind === 'focus_start' ? 'GO' : event.kind === 'task_done' ? 'OK' : 'UP'}</span>
@@ -484,10 +472,10 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           </div>
           <details className="study-room-digest">
             <summary>
-              <span><Info size={13} /> 房间摘要</span>
+              <span><Info size={13} /> 学习摘要</span>
               <ChevronDown size={14} />
             </summary>
-            <div className="study-room-feed" aria-label="房间动态">
+            <div className="study-room-feed" aria-label="学习动态">
               {roomFeed.map((item, index) => (
                 <div key={index} className="study-feed-row">
                   <span>{index + 1}</span>
@@ -500,9 +488,9 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
             <Info size={14} />
             <span>{connectionDetail}</span>
           </div>
-          <div className="study-leaderboard" aria-label="本房间专注榜">
+          <div className="study-leaderboard" aria-label="本空间专注榜">
             <div className="study-leaderboard-head">
-              <strong>本房间专注榜</strong>
+              <strong>本空间专注榜</strong>
               <span>{roomMembers.length} 人</span>
             </div>
             {roomMembers.slice(0, 5).map((member, index) => (
@@ -558,11 +546,11 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           <strong>{activeMode.name}</strong>
         </div>
         <div>
-          <span>本轮契约</span>
-          <strong>{snapshot.contractLocked ? '已锁定' : contractDisplay}</strong>
+          <span>当前目标</span>
+          <strong>{contractDisplay}</strong>
         </div>
         <div>
-          <span>房间节奏</span>
+          <span>学习节奏</span>
           <strong>{roomCycle.phase === 'focus' ? '专注中' : '休息中'} · {formatStudyDuration(roomCycle.remainingSeconds)}</strong>
         </div>
         <div>
@@ -600,7 +588,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
             </div>
             <div className="study-theater-bottom">
               <div className="study-theater-cycle">
-                <span>房间第 {roomCycle.round} 轮</span>
+                <span>第 {roomCycle.round} 轮</span>
                 <strong>{roomCycle.phase === 'focus' ? '同频专注' : '同步休息'} · {formatStudyDuration(roomCycle.remainingSeconds)}</strong>
               </div>
               <div className="study-theater-peers" aria-label="在线同桌">
@@ -615,7 +603,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
                   {snapshot.timerState === 'running' ? <Pause size={15} /> : <Play size={15} />}
                   {snapshot.timerState === 'running' ? '暂停' : '开始'}
                 </button>
-                <button type="button" onClick={followRoomCycle}>同步房间</button>
+                <button type="button" onClick={followRoomCycle}>同步节奏</button>
               </div>
             </div>
           </div>
@@ -625,7 +613,7 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
         <div className="study-name-modal-backdrop" role="presentation" onClick={() => setEditingName(false)}>
           <form className="study-name-modal" onSubmit={saveNickname} onClick={(event) => event.stopPropagation()}>
             <h2>在线身份</h2>
-            <p>这个昵称只用于自习室 presence 心跳，不会上传任务内容。</p>
+            <p>这个昵称只用于学习空间在线心跳，不会上传任务内容。</p>
             <input value={nicknameDraft} onChange={(event) => setNicknameDraft(event.target.value)} maxLength={18} autoFocus />
             <div>
               <button className="ghost-button" type="button" onClick={() => setEditingName(false)}>取消</button>

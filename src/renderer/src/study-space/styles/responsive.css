@@ -125,10 +125,6 @@
       grid-template-columns: minmax(0, 1fr) minmax(300px, 0.82fr);
     }
 
-  .study-arrival-rooms {
-      grid-column: 1 / -1;
-    }
-
   .study-layout {
       grid-template-columns: minmax(0, 1fr) minmax(300px, 0.64fr);
       grid-template-areas:
@@ -214,10 +210,6 @@
       grid-template-columns: 1fr;
     }
 
-  .study-arrival-rooms {
-      grid-column: auto;
-    }
-
   .study-hero,
     .study-stage-topline {
       align-items: stretch;
@@ -295,9 +287,6 @@
       grid-template-columns: 1fr;
     }
 
-  .study-room-strip {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
 }
 
 @media (max-width: 640px) {
@@ -454,7 +443,6 @@
     }
 
   .study-arrival-roster,
-    .study-arrival-room-grid,
     .study-online-proof-grid,
     .study-invite-strip {
       grid-template-columns: 1fr;
@@ -656,14 +644,6 @@
       grid-template-rows: auto auto 62px;
     }
 
-  .study-room-strip {
-      grid-template-columns: 1fr;
-    }
-
-  .study-room-tab {
-      min-height: 0;
-    }
-
   .study-stage-clock {
       width: 92px;
       justify-self: start;
@@ -733,39 +713,6 @@
       grid-template-columns: 1fr;
     }
 
-  .study-room-strip {
-      grid-template-columns: 1fr;
-    }
-
-  .study-room-tab {
-      min-height: 0;
-      padding: 9px 10px;
-    }
-
-  .study-room-tab-meta {
-      flex-wrap: wrap;
-    }
-
-  .study-room-rules {
-      display: flex;
-      gap: 7px;
-      margin-top: 10px;
-      padding-bottom: 2px;
-      overflow-x: auto;
-      scrollbar-width: none;
-    }
-
-  .study-room-rules::-webkit-scrollbar {
-      display: none;
-    }
-
-  .study-room-rules span {
-      flex: 0 0 min(260px, 84vw);
-      padding: 8px 9px;
-      font-size: 11px;
-      line-height: 1.38;
-    }
-
   .study-task-summary {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -830,21 +777,12 @@
       grid-template-columns: 1fr;
     }
 
-  .study-contract > div {
-      align-items: stretch;
-      flex-direction: column;
-    }
-
   .study-signal-picker {
       grid-template-columns: 1fr;
     }
 
   .study-signal-picker > div:last-child {
       justify-content: flex-start;
-    }
-
-  .study-contract button {
-      width: 100%;
     }
 
   .study-name-modal div {

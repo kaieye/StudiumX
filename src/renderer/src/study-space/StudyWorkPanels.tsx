@@ -1,4 +1,4 @@
-import { Check, CheckCircle2, Maximize2, Pause, Play, Plus, RotateCcw, ShieldCheck, Sparkles, Star, Timer, Trophy, Volume2, VolumeX } from 'lucide-react'
+import { Check, CheckCircle2, Maximize2, Pause, Play, Plus, RotateCcw, Sparkles, Star, Timer, Trophy, Volume2, VolumeX } from 'lucide-react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import { studyModes, studySignals } from './constants'
 import { formatStudyDuration, formatStudyHours, studyPlantStage, studySignalLabel } from './domain'
@@ -20,8 +20,6 @@ type StudyWorkPanelsProps = {
   children?: ReactNode
   onTaskInputChange: (value: string) => void
   onSelectStudyMode: (mode: typeof studyModes[number]) => void
-  onToggleContract: () => void
-  onUpdateContractText: (value: string) => void
   onSelectSignal: (signalId: StudySignalId) => void
   onToggleTimer: () => void
   onResetTimer: () => void
@@ -50,8 +48,6 @@ export function StudyWorkPanels({
   children,
   onTaskInputChange,
   onSelectStudyMode,
-  onToggleContract,
-  onUpdateContractText,
   onSelectSignal,
   onToggleTimer,
   onResetTimer,
@@ -66,10 +62,10 @@ export function StudyWorkPanels({
 }: StudyWorkPanelsProps) {
   return (
     <>
-      <section className="study-panel study-work-panel study-mode-panel" aria-label="学习模式和专注契约">
+      <section className="study-panel study-work-panel study-mode-panel" aria-label="学习模式和学习状态">
         <div className="study-panel-head">
           <div>
-            <span className="study-kicker"><ShieldCheck size={14} /> 专注契约</span>
+            <span className="study-kicker"><Sparkles size={14} /> 学习模式</span>
             <h2>学习模式</h2>
           </div>
           <span className="study-session-label">{activeMode.name}</span>
@@ -87,23 +83,6 @@ export function StudyWorkPanels({
               <span>{mode.focusMinutes}/{mode.breakMinutes} · {mode.detail}</span>
             </button>
           ))}
-        </div>
-        <div className={`study-contract${snapshot.contractLocked ? ' is-locked' : ''}`}>
-          <label htmlFor="study-contract-input">本轮承诺</label>
-          <textarea
-            id="study-contract-input"
-            value={snapshot.contractText}
-            disabled={snapshot.contractLocked}
-            maxLength={120}
-            onChange={(event) => onUpdateContractText(event.target.value)}
-            placeholder="例如：完成第 3 章笔记，做完 20 道题，或读完论文方法部分"
-          />
-          <div>
-            <span>{snapshot.contractLocked ? '已锁定，完成本轮后自动释放' : activeMode.rule}</span>
-            <button type="button" onClick={onToggleContract}>
-              {snapshot.contractLocked ? '解锁' : '锁定契约'}
-            </button>
-          </div>
         </div>
         <div className="study-signal-picker" aria-label="学习状态">
           <div>
@@ -178,10 +157,9 @@ export function StudyWorkPanels({
             type="button"
             className={snapshot.ambientEnabled ? 'is-active' : ''}
             onClick={onToggleAmbientEnabled}
-            disabled={snapshot.roomId === 'exam'}
           >
             {snapshot.ambientEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-            {snapshot.roomId === 'exam' ? '考场静音' : activeRoom.ambient}
+            {activeRoom.ambient}
           </button>
           <input
             type="range"
@@ -189,7 +167,7 @@ export function StudyWorkPanels({
             max="1"
             step="0.05"
             value={snapshot.ambientVolume}
-            disabled={!snapshot.ambientEnabled || snapshot.roomId === 'exam'}
+            disabled={!snapshot.ambientEnabled}
             onChange={(event) => onSetAmbientVolume(Number(event.target.value))}
             aria-label="环境音音量"
           />

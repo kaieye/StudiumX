@@ -38,7 +38,7 @@ type BuildStudySeatMapItemsInput = {
 }
 
 function aisleLabelForSeatIndex(index: number): string {
-  return index === 12 ? '中排静音区' : '后排自由区'
+  return index === 12 ? '中排学习区' : '后排学习区'
 }
 
 function buildOccupiedSeatDescription(

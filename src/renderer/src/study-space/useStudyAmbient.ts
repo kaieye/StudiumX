@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
-import type { StudyRoomId } from './types'
 
-export function useStudyAmbient(roomId: StudyRoomId, enabled: boolean, volume: number): void {
+export function useStudyAmbient(enabled: boolean, volume: number): void {
   useEffect(() => {
-    if (!enabled || roomId === 'exam') return undefined
+    if (!enabled) return undefined
     const AudioContextCtor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
     if (!AudioContextCtor) return undefined
 
@@ -18,20 +17,11 @@ export function useStudyAmbient(roomId: StudyRoomId, enabled: boolean, volume: n
     const buffer = context.createBuffer(1, bufferSize, context.sampleRate)
     const data = buffer.getChannelData(0)
     for (let index = 0; index < bufferSize; index += 1) {
-      data[index] = (Math.random() * 2 - 1) * (roomId === 'deep' ? 0.8 : 0.32)
+      data[index] = (Math.random() * 2 - 1) * 0.32
     }
 
-    if (roomId === 'deep') {
-      filter.type = 'lowpass'
-      filter.frequency.value = 850
-    } else if (roomId === 'sprint') {
-      filter.type = 'bandpass'
-      filter.frequency.value = 1250
-      filter.Q.value = 0.7
-    } else {
-      filter.type = 'highpass'
-      filter.frequency.value = 420
-    }
+    filter.type = 'highpass'
+    filter.frequency.value = 420
 
     const source = context.createBufferSource()
     source.buffer = buffer
@@ -47,5 +37,5 @@ export function useStudyAmbient(roomId: StudyRoomId, enabled: boolean, volume: n
       gain.disconnect()
       void context.close().catch(() => undefined)
     }
-  }, [enabled, roomId, volume])
+  }, [enabled, volume])
 }

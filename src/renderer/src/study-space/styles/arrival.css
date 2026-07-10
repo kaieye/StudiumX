@@ -65,7 +65,7 @@
 
 .study-arrival-live,
 .study-arrival-focus,
-.study-arrival-rooms {
+.study-arrival-connection {
   min-width: 0;
   padding: 16px;
   border: 1px solid rgba(33, 44, 50, 0.1);
@@ -777,54 +777,6 @@
   font-size: 11px;
   font-style: normal;
   font-weight: 740;
-}
-
-.study-arrival-room-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.study-arrival-room {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  min-height: 58px;
-  padding: 10px 11px;
-  color: rgba(23, 32, 29, 0.64);
-  border: 1px solid rgba(38, 47, 65, 0.1);
-  border-radius: 15px;
-  background: rgba(249, 250, 246, 0.84);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.study-arrival-room strong,
-.study-arrival-room span {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.study-arrival-room strong {
-  color: #17201d;
-  font-size: 12px;
-  font-weight: 840;
-}
-
-.study-arrival-room span {
-  color: rgba(23, 32, 29, 0.56);
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.study-arrival-room.is-active {
-  border-color: rgba(229, 185, 85, 0.4);
-  background: linear-gradient(135deg, #fff8df, #edf5ed);
-  box-shadow: 0 10px 24px rgba(35, 53, 61, 0.1);
 }
 
 .study-arrival-relay {

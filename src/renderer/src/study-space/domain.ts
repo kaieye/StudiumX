@@ -263,7 +263,7 @@ export function initialWorkspaceViewFromUrl(): WorkspaceView {
     const params = new URLSearchParams(window.location.search)
     if (params.has('workbench') || params.has('office')) return 'workbench'
     return params.has('studySpace') || params.has('space') || params.has('studyRoom') || params.has('room')
-      ? 'workbench'
+      ? 'studio'
       : 'agent'
   } catch {
     return 'agent'
@@ -291,14 +291,14 @@ export function persistStudySnapshot(snapshot: StudySnapshot): void {
   }
 }
 
-export function syncStudyLocation(spaceCode: string, roomId: StudyRoomId): void {
+export function syncStudyLocation(spaceCode: string, _roomId: StudyRoomId): void {
   try {
     const params = new URLSearchParams(window.location.search)
     params.delete('space')
     params.delete('room')
+    params.delete('studyRoom')
     params.delete('studyFreshSession')
     params.set('studySpace', normalizeStudySpaceCode(spaceCode))
-    params.set('studyRoom', roomId)
     const search = params.toString()
     const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
@@ -361,11 +361,12 @@ export function studyPlantStage(xp: number): string {
   return '种子'
 }
 
-export function studyInviteUrl(spaceCode: string, roomId: StudyRoomId): string {
+export function studyInviteUrl(spaceCode: string, _roomId: StudyRoomId): string {
   try {
     const url = new URL(window.location.href)
     url.searchParams.set('studySpace', normalizeStudySpaceCode(spaceCode))
-    url.searchParams.set('studyRoom', roomId)
+    url.searchParams.delete('studyRoom')
+    url.searchParams.delete('room')
     return url.toString()
   } catch {
     return ''

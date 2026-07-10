@@ -47,7 +47,6 @@
 }
 
 .study-header-stats span,
-.study-room-tags span,
 .study-badges span {
   display: inline-flex;
   align-items: center;
@@ -284,13 +283,6 @@
   border-color: #1a7f5f;
   background: #34c38f;
   box-shadow: 0 0 0 3px rgba(52, 195, 143, 0.18);
-}
-
-.study-room-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 12px;
 }
 
 .study-task-form {

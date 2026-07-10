@@ -31,8 +31,6 @@ type StudyRoomStageProps = {
   liveDeskMembers: StudySpaceViewModel['liveDeskMembers']
   recentLiveEvents: StudySpaceViewModel['recentLiveEvents']
   roomMembers: StudySpaceViewModel['roomMembers']
-  roomSummaries: StudySpaceViewModel['roomSummaries']
-  roomRules: string[]
   stageStatusLabel: string
   contractDisplay: string
   hostActionIcon: ReactNode
@@ -51,7 +49,6 @@ type StudyRoomStageProps = {
   onCopyInvite: () => void
   onOpenFocusTheater: () => void
   onEditName: () => void
-  onSelectRoom: (room: StudySpaceViewModel['activeRoom']) => void
 }
 
 export function StudyRoomStage({
@@ -68,8 +65,6 @@ export function StudyRoomStage({
   liveDeskMembers,
   recentLiveEvents,
   roomMembers,
-  roomSummaries,
-  roomRules,
   stageStatusLabel,
   contractDisplay,
   hostActionIcon,
@@ -87,12 +82,11 @@ export function StudyRoomStage({
   onFollowRoomCycle,
   onCopyInvite,
   onOpenFocusTheater,
-  onEditName,
-  onSelectRoom
+  onEditName
 }: StudyRoomStageProps) {
   return (
-    <section className="study-room-stage" aria-label="在线自习室">
-      <div className="study-cinema" aria-label="沉浸式在线自习室">
+    <section className="study-room-stage" aria-label="学习空间">
+      <div className="study-cinema" aria-label="沉浸式学习空间">
         <div className="study-cinema-topbar">
           <div>
             <span className="study-kicker"><Users size={14} /> 真实在线</span>
@@ -120,7 +114,7 @@ export function StudyRoomStage({
             </button>
             <button type="button" onClick={onFollowRoomCycle}>
               <RefreshCw size={14} />
-              同步房间
+              同步节奏
             </button>
             <button type="button" onClick={onCopyInvite}>
               <Copy size={14} />
@@ -141,7 +135,7 @@ export function StudyRoomStage({
           ))}
         </div>
 
-        <div className={`study-cinema-liveline${liveLineClass}`} aria-label="房间实时动态">
+        <div className={`study-cinema-liveline${liveLineClass}`} aria-label="实时动态">
           <span>{liveLineCode}</span>
           <p>{liveLineText}</p>
           <em>{liveLineMeta}</em>
@@ -184,7 +178,7 @@ export function StudyRoomStage({
                 </div>
               ) : null}
             </div>
-            <div className="study-live-events" aria-label="最近房间动态">
+            <div className="study-live-events" aria-label="最近动态">
               {recentLiveEvents.length > 0 ? recentLiveEvents.map((event) => (
                 <div className={`study-live-event is-${event.kind}`} key={event.id}>
                   <span>{event.kind === 'checkin' ? 'IN' : event.kind === 'focus_start' ? 'GO' : event.kind === 'task_done' ? 'OK' : 'UP'}</span>
@@ -194,7 +188,7 @@ export function StudyRoomStage({
               )) : (
                 <div className="study-live-event is-empty">
                   <span>--</span>
-                  <p>签到、开始或完成专注后会同步到同房间。</p>
+                  <p>签到、开始或完成专注后会同步到同空间。</p>
                   <em>{connectionLabel}</em>
                 </div>
               )}
@@ -203,9 +197,9 @@ export function StudyRoomStage({
         </div>
       </div>
 
-      <div className="study-host-card" aria-label="房间主持">
+      <div className="study-host-card" aria-label="学习引导">
         <div className="study-host-copy">
-          <span className="study-kicker"><Sparkles size={14} /> 房间引导</span>
+          <span className="study-kicker"><Sparkles size={14} /> 学习引导</span>
           <strong>{hostBrief}</strong>
         </div>
         <div className="study-host-checklist">
@@ -227,7 +221,7 @@ export function StudyRoomStage({
           </button>
         </div>
       </div>
-      <div className={`study-cycle-card is-${roomCycle.phase}`} aria-label="房间同步轮次">
+      <div className={`study-cycle-card is-${roomCycle.phase}`} aria-label="同步轮次">
         <div>
           <span>第 {roomCycle.round} 轮</span>
           <strong>{roomCycle.phase === 'focus' ? `${activeRoom.sessionMinutes} 分钟同频专注` : `${activeRoom.breakMinutes} 分钟同步休息`}</strong>
@@ -235,7 +229,7 @@ export function StudyRoomStage({
         </div>
         <div className="study-cycle-countdown">
           <strong>{formatStudyDuration(roomCycle.remainingSeconds)}</strong>
-          <span>{followingRoomCycle ? '正在跟随房间节奏' : '与房间轮次同频'}</span>
+          <span>{followingRoomCycle ? '正在跟随学习节奏' : '与当前轮次同频'}</span>
         </div>
         <button type="button" onClick={onFollowRoomCycle}>
           {followingRoomCycle ? '重新同步' : '跟随节奏'}
@@ -243,46 +237,6 @@ export function StudyRoomStage({
         <div className="study-cycle-track" aria-hidden="true">
           <span style={{ width: `${roomCycle.progress}%` }} />
         </div>
-      </div>
-      <div className="study-room-strip" aria-label="在线房间目录">
-        {roomSummaries.map(({ room, cycle, online: roomOnline, focusing: roomFocusing, latestText, latestMeta, hasRemote, isActive }) => {
-          const roomFill = Math.min(100, Math.round((roomOnline / room.capacity) * 100))
-          return (
-            <button
-              key={room.id}
-              type="button"
-              className={`study-room-tab${isActive ? ' is-active' : ''}${hasRemote ? ' has-remote' : ''}`}
-              onClick={() => onSelectRoom(room)}
-            >
-              <span className="study-room-tab-head">
-                <strong>{room.name}</strong>
-                <em>{cycle.phase === 'focus' ? '专注' : '休息'}</em>
-              </span>
-              <span className="study-room-tab-meta">
-                <em>{roomOnline}/{room.capacity}</em>
-                <em>{roomFocusing} 专注</em>
-              </span>
-              <span className="study-room-tab-cycle">
-                {formatStudyDuration(cycle.remainingSeconds)} 后{cycle.nextLabel}
-              </span>
-              <span className="study-room-tab-activity">
-                <b>{latestText}</b>
-                <small>{latestMeta}</small>
-              </span>
-              <span className="study-room-tab-meter" aria-hidden="true">
-                <i style={{ width: `${roomFill}%` }} />
-              </span>
-            </button>
-          )
-        })}
-      </div>
-      <div className="study-room-tags">
-        {activeRoom.tags.map((tag) => <span key={tag}>{tag}</span>)}
-      </div>
-      <div className="study-room-rules" aria-label="房间规则">
-        {roomRules.map((rule, index) => (
-          <span key={index}>{rule}</span>
-        ))}
       </div>
     </section>
   )

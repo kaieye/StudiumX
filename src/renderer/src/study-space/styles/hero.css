@@ -44,28 +44,10 @@
   display: none;
 }
 
-.study-backdrop-silent .study-hero {
+.study-backdrop-default .study-hero {
   background:
     linear-gradient(115deg, rgba(251, 247, 233, 0.96), rgba(216, 232, 230, 0.9) 48%, rgba(189, 205, 214, 0.82)),
     #edf1e9;
-}
-
-.study-backdrop-sprint .study-hero {
-  background:
-    linear-gradient(115deg, rgba(243, 247, 250, 0.96), rgba(219, 228, 236, 0.9) 46%, rgba(226, 217, 203, 0.82)),
-    #edf2f5;
-}
-
-.study-backdrop-deep .study-hero {
-  background:
-    linear-gradient(115deg, rgba(221, 225, 232, 0.96), rgba(200, 210, 219, 0.88) 48%, rgba(183, 194, 184, 0.82)),
-    #e2e8e6;
-}
-
-.study-backdrop-exam .study-hero {
-  background:
-    linear-gradient(115deg, rgba(248, 246, 238, 0.96), rgba(232, 232, 224, 0.9) 48%, rgba(204, 214, 221, 0.82)),
-    #f0f0e8;
 }
 
 .study-hero-copy,

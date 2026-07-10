@@ -1,12 +1,11 @@
-import { ChevronDown, Copy, DoorOpen, ExternalLink, GitBranch, LinkIcon, Lock, Maximize2, Monitor, Plus, RefreshCw, Settings, Timer, Users } from 'lucide-react'
+import { ChevronDown, Copy, ExternalLink, GitBranch, LinkIcon, Lock, Maximize2, Monitor, Plus, RefreshCw, Settings, Timer, Users } from 'lucide-react'
 import type { FormEvent } from 'react'
-import { STUDY_PRESENCE_BROKER_URL, studyRooms } from './constants'
+import { STUDY_PRESENCE_BROKER_URL } from './constants'
 import { formatStudyDuration, formatStudySeatLabel, normalizeStudySeatIndex, studyMemberFreshnessLabel, studyMemberStatusLabel } from './domain'
 import type { useStudySession } from './session/useStudySession'
 import type { StudySnapshot } from './types'
 import type { StudySpaceViewModel } from './viewModel'
 
-type StudyRoom = typeof studyRooms[number]
 type StudyPresence = ReturnType<typeof useStudySession>['presence']
 
 type StudyArrivalPanelProps = {
@@ -35,7 +34,6 @@ type StudyArrivalPanelProps = {
   inviteUrl: string
   inviteHint: string
   spaceKindLabel: string
-  roomSummaries: StudySpaceViewModel['roomSummaries']
   relayDraft: string
   copyState: 'idle' | 'copied' | 'failed'
   proofCopyState: 'idle' | 'copied' | 'failed'
@@ -47,7 +45,6 @@ type StudyArrivalPanelProps = {
   onOpenVerificationWindow: () => void
   onFollowRoomCycle: () => void
   onOpenFocusTheater: () => void
-  onSelectRoom: (room: StudyRoom) => void
   onSaveRelayUrl: (event: FormEvent<HTMLFormElement>) => void
   onResetRelayUrl: () => void
 }
@@ -78,7 +75,6 @@ export function StudyArrivalPanel({
   inviteUrl,
   inviteHint,
   spaceKindLabel,
-  roomSummaries,
   relayDraft,
   copyState,
   proofCopyState,
@@ -90,14 +86,13 @@ export function StudyArrivalPanel({
   onOpenVerificationWindow,
   onFollowRoomCycle,
   onOpenFocusTheater,
-  onSelectRoom,
   onSaveRelayUrl,
   onResetRelayUrl
 }: StudyArrivalPanelProps) {
   return (
-    <details className="study-arrival" aria-label="在线自习室设置">
+    <details className="study-arrival" aria-label="联机与邀请设置">
       <summary className="study-arrival-summary">
-        <span><Settings size={14} /> 房间设置与联机验证</span>
+        <span><Settings size={14} /> 联机与邀请</span>
         <strong>{online}/{activeRoom.capacity} 在线 · {remoteOnline} 远端 · {relayHealthLabel}</strong>
         <ChevronDown size={14} />
       </summary>
@@ -113,7 +108,7 @@ export function StudyArrivalPanel({
           <div className="study-arrival-counts">
             <div>
               <strong>{online}</strong>
-              <span>本房间在线</span>
+              <span>当前在线</span>
             </div>
             <div>
               <strong>{spaceOnline}</strong>
@@ -124,7 +119,7 @@ export function StudyArrivalPanel({
               <span>远端会话</span>
             </div>
           </div>
-          <div className={`study-room-pulse is-${presence.status}${latestRemotePeer ? ' has-peer' : ''}`} aria-label="房间实时脉搏">
+          <div className={`study-room-pulse is-${presence.status}${latestRemotePeer ? ' has-peer' : ''}`} aria-label="实时状态">
             <div className="study-room-pulse-main">
               <span>{liveLineCode}</span>
               <div>
@@ -219,7 +214,7 @@ export function StudyArrivalPanel({
             <LinkIcon size={13} />
             <span>{inviteUrl}</span>
           </div>
-          <div className="study-invite-strip" aria-label="房间邀请状态">
+          <div className="study-invite-strip" aria-label="邀请状态">
             <div title={inviteHint}>
               <span>空间码</span>
               <strong>{snapshot.spaceCode}</strong>
@@ -242,7 +237,7 @@ export function StudyArrivalPanel({
         <div className="study-arrival-focus">
           <div className="study-arrival-head">
             <div>
-              <span className="study-kicker"><Timer size={14} /> 房间节奏</span>
+              <span className="study-kicker"><Timer size={14} /> 学习节奏</span>
               <h2>{roomCycle.phase === 'focus' ? '同频专注中' : '同步休息中'}</h2>
             </div>
             <strong className="study-arrival-clock">{formatStudyDuration(roomCycle.remainingSeconds)}</strong>
@@ -254,7 +249,7 @@ export function StudyArrivalPanel({
           <div className="study-arrival-actions">
             <button type="button" onClick={onFollowRoomCycle}>
               <RefreshCw size={14} />
-              跟随房间
+              跟随节奏
             </button>
             <button type="button" onClick={onOpenFocusTheater}>
               <Maximize2 size={14} />
@@ -263,26 +258,13 @@ export function StudyArrivalPanel({
           </div>
         </div>
 
-        <div className="study-arrival-rooms">
+        <div className="study-arrival-connection">
           <div className="study-arrival-head">
             <div>
-              <span className="study-kicker"><DoorOpen size={14} /> 自习房间</span>
-              <h2>选择房间</h2>
+              <span className="study-kicker"><Settings size={14} /> 连接设置</span>
+              <h2>连接设置</h2>
             </div>
             <span>{snapshot.spaceCode}</span>
-          </div>
-          <div className="study-arrival-room-grid">
-            {roomSummaries.map(({ room, cycle, online: roomOnline, focusing: roomFocusing, isActive }) => (
-              <button
-                className={`study-arrival-room${isActive ? ' is-active' : ''}`}
-                key={room.id}
-                type="button"
-                onClick={() => onSelectRoom(room)}
-              >
-                <strong>{room.name}</strong>
-                <span>{roomOnline}/{room.capacity} · {roomFocusing} 专注 · {cycle.phase === 'focus' ? '专注' : '休息'} {formatStudyDuration(cycle.remainingSeconds)}</span>
-              </button>
-            ))}
           </div>
           <details className="study-relay-settings">
             <summary>
