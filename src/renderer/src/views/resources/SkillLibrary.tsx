@@ -133,7 +133,6 @@ export function SkillLibrary({ onBack }: { onBack: () => void }) {
                 <div className="skill-library-card__body">
                   <div className="skill-library-card__title">
                     <strong>{skill.name}</strong>
-                    <code>{skill.command}</code>
                   </div>
                   <p>{skill.description}</p>
                   <div className="skill-library-card__meta">

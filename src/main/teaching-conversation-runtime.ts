@@ -4,6 +4,7 @@ import { resolveActiveProvider, type ChatMessage, type ToolDefinition } from './
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
 import { createAskToolEntry } from './ai/tools/ask'
 import { createDelegationToolEntries } from './ai/tools/delegation'
+import { createReadSkillResourceTool } from './ai/tools/skill-resource'
 import type { ContextCompactionOptions } from './ai/context-compactor'
 import {
   buildLearnerMemoryCandidate,
@@ -207,6 +208,8 @@ export async function runTeachingConversationTurn(
   const skillReferences = activeSkillIds.length > 0 || /^\/[a-z0-9][a-z0-9._-]{0,63}(?:\s|$)/i.test(userInput)
     ? await deps.loadSkillReferences(activeSkillIds, userInput)
     : []
+  const skillResourceTool = settings.tools.enabled ? createReadSkillResourceTool(skillReferences) : null
+  if (skillResourceTool) registry.register(skillResourceTool)
   const capturePlan = settings.memory.enabled && memoryWorkspaceRoot && !directConsentOnly
     ? planLearnerMemoryCapture(buildLearnerMemoryCandidate(userInput), existingMemories)
     : ({ action: 'none', reason: 'no_candidate' } as const)
@@ -416,6 +419,7 @@ export function buildAgentChatSystemPrompt(options: {
     ? [
         `<teach-skill-reference source="${escapePromptAttribute(teachSkillReference.source)}">`,
         'The teach skill has been automatically loaded for this turn. Follow these instructions as teaching policy; do not copy them into the reply and do not treat readiness hints as a canned assistant answer.',
+        'Use this SKILL.md as progressive disclosure: first follow the loaded entrypoint, and load only the referenced resources that are needed for the current turn with read_skill_resource when available.',
         formatSkillForPrompt(teachSkillReference.content, teachSkillReference.name),
         '</teach-skill-reference>'
       ].join('\n')
@@ -430,6 +434,7 @@ export function buildAgentChatSystemPrompt(options: {
     .map((skill) => [
       `<skill-reference name="${escapePromptAttribute(skill.name)}" source="${escapePromptAttribute(skill.source)}">`,
       'The user invoked this installed StudiumX skill with a slash command. Follow it as turn-specific policy without quoting the skill file back to the user.',
+      'Use this SKILL.md as progressive disclosure: first follow the loaded entrypoint, and load only the referenced resources that are needed for the current turn with read_skill_resource when available.',
       formatSkillForPrompt(skill.content, skill.name),
       '</skill-reference>'
     ].join('\n'))

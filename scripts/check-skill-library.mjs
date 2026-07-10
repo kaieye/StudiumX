@@ -24,6 +24,8 @@ try {
   assert.match(app, /<ResourceHome[\s\S]*onOpenSkills=/)
   assert.match(skillView, /window\.teachingSystem\.installSkill\(skill\.id\)/)
   assert.match(skillView, /announceSkillCatalogChanged\(\)/)
+  assert.match(skillView, /<strong>\{skill\.name\}<\/strong>/)
+  assert.doesNotMatch(skillView, /<code>\{skill\.command\}<\/code>/)
   assert.match(slashMenu, /event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'/)
   assert.match(slashMenu, /event\.key === 'Enter' \|\| event\.key === 'Tab'/)
   assert.match(slashMenu, /event\.key === 'Escape'/)

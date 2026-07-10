@@ -1,0 +1,440 @@
+/* ============================================================
+ * tokens.css — Teaching Site Design System
+ *
+ * Paste this into <style> at the top of index.html (vanilla SPA pattern)
+ * OR link as <link rel="stylesheet" href="style.css"> if extracted.
+ *
+ * Schema authority:  ../../_shared/domain-primitives.md
+ * Reference impl:    d:/GitHub/ai-workshop/index.html (lines 11–1700)
+ * Design rationale:  ../../teaching-site-design-system/SKILL.md
+ *
+ * Modern minimal direction (Linear / Vercel-ish):
+ *   - OKLCH everywhere (perceptually uniform, mechanical dark mode)
+ *   - Near-grayscale base + single saturated blue accent + warm amber accent-2
+ *   - Hairline borders, double-layer shadows, no gradients
+ *   - Single font stack handles bilingual (Latin + 中文)
+ * ============================================================ */
+
+/* ===================== light tokens ===================== */
+:root {
+  /* surfaces */
+  --bg:           oklch(99% 0.002 240);
+  --surface:      oklch(100% 0 0);
+  --surface-2:    oklch(97.5% 0.004 250);
+  --fg:           oklch(18% 0.012 250);
+  --muted:        oklch(54% 0.012 250);
+  --muted-2:      oklch(72% 0.01 250);
+  --border:       oklch(92% 0.005 250);
+  --border-strong: oklch(82% 0.008 250);
+
+  /* primary accent — clickable / navigation */
+  --accent:       oklch(58% 0.18 255);
+  --accent-soft:  oklch(95% 0.04 255);
+  --accent-deep:  oklch(45% 0.18 255);
+
+  /* secondary accent — content emphasis (Day numerals, PROMPT badges, callouts)
+   * Complementary to --accent so the page has rhythm without clashing */
+  --accent-2:      oklch(66% 0.14 65);
+  --accent-2-soft: oklch(94% 0.045 65);
+  --accent-2-deep: oklch(48% 0.14 60);
+
+  /* status — always pair base + soft */
+  --success:       oklch(58% 0.16 145);
+  --success-soft:  oklch(95% 0.04 145);
+  --danger:        oklch(60% 0.18 25);
+  --danger-soft:   oklch(95% 0.05 25);
+  --warning:       oklch(70% 0.13 75);
+  --warning-soft:  oklch(95% 0.05 75);
+
+  /* dot-grid texture (sidebar brand + day-hero only — never on body) */
+  --dot-color: oklch(80% 0.005 250 / 0.6);
+  --dot-bg: radial-gradient(circle at 1px 1px, var(--dot-color) 1px, transparent 0);
+
+  /* typography — single stack handles Latin + CJK */
+  --font-display: "Nunito", "jf-openhuninn-1.1", "jf-openhuninn",
+                  "Gen Jyuu Gothic", "Taipei Sans TC Beta",
+                  "PingFang TC", "Noto Sans TC",
+                  system-ui, sans-serif;
+  --font-body:    var(--font-display);
+  --font-serif:   var(--font-display);
+  --font-mono:    var(--font-display);
+
+  /* geometry */
+  --r-sm: 6px;          /* buttons, chips */
+  --r-md: 10px;         /* cards, panels */
+  --r-lg: 14px;         /* heroes, large containers */
+  --sidebar-w:   268px;
+  --header-h:    56px;
+  --content-max: 880px; /* reading line length cap (~60–75 CJK chars) */
+
+  /* double-layer shadow for hover lift; negate y-offset so shadow stays under */
+  --shadow-lift: 0 6px 18px -10px oklch(20% 0.02 250 / 0.18),
+                 0 2px 4px  -2px oklch(20% 0.02 250 / 0.06);
+}
+
+/* ===================== dark theme ===================== */
+[data-theme="dark"] {
+  --bg:           oklch(16% 0.014 250);
+  --surface:      oklch(19.5% 0.014 250);
+  --surface-2:    oklch(22.5% 0.014 250);
+  --fg:           oklch(96% 0.005 250);
+  --muted:        oklch(68% 0.012 250);
+  --muted-2:      oklch(50% 0.012 250);
+  --border:       oklch(28% 0.014 250);
+  --border-strong: oklch(38% 0.014 250);
+
+  --accent:       oklch(70% 0.17 255);
+  --accent-soft:  oklch(30% 0.08 255);
+  --accent-deep:  oklch(82% 0.13 255);
+
+  --accent-2:      oklch(78% 0.13 65);
+  --accent-2-soft: oklch(30% 0.075 65);
+  --accent-2-deep: oklch(86% 0.12 65);
+
+  --success:       oklch(70% 0.16 145);
+  --success-soft:  oklch(28% 0.07 145);
+  --danger:        oklch(70% 0.18 25);
+  --danger-soft:   oklch(28% 0.08 25);
+  --warning:       oklch(78% 0.13 75);
+  --warning-soft:  oklch(28% 0.08 75);
+
+  --shadow-lift: 0 8px 22px -10px oklch(0% 0 0 / 0.55),
+                 0 2px 6px -2px oklch(0% 0 0 / 0.3);
+  color-scheme: dark;
+}
+
+/* ===================== reset & base ===================== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.005em;
+  transition: background-color 220ms ease, color 220ms ease;
+}
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 0;
+  color: var(--fg);
+}
+h1 { font-size: 32px; font-weight: 660; }
+h2 { font-size: 24px; font-weight: 600; }
+h3 { font-size: 18px; font-weight: 600; }
+h4 { font-size: 15px; font-weight: 600; }
+p  { margin: 0 0 12px; text-wrap: pretty; }
+a  { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+::selection { background: var(--accent-soft); color: var(--accent-deep); }
+button { font: inherit; color: inherit; cursor: pointer; }
+
+/* ===================== layout shell ===================== */
+/* IMPORTANT: do NOT add overflow-x:hidden on .app — browser implicitly sets
+ * overflow-y:auto, breaking window scroll and topbar sticky. See ai-workshop
+ * CLAUDE.md for the full diagnosis. */
+.app { min-height: 100vh; }
+.app.sidebar-closed .sidebar { transform: translateX(-100%); }
+.sidebar {
+  position: fixed; left: 0; top: 0;
+  width: var(--sidebar-w); height: 100vh;
+  z-index: 10;
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.main {
+  margin-left: var(--sidebar-w);
+  transition: margin-left 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.app.sidebar-closed .main { margin-left: 0; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 5;
+  height: var(--header-h);
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 24px;
+}
+.content {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+  /* zoom only here — never on html (would cascade with sidebar) */
+}
+
+/* ===================== mobile breakpoint ===================== */
+@media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); }
+  .app.sidebar-open .sidebar { transform: translateX(0); }
+  .main { margin-left: 0; }
+}
+
+/* ===================== signature: day-hero numeral ===================== */
+.day-hero {
+  position: relative;
+  padding: 48px 32px;
+  border-radius: var(--r-lg);
+  background:
+    var(--dot-bg) 0 0 / 24px 24px,
+    var(--surface);
+  border: 1px solid var(--border);
+  margin-bottom: 32px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 32px;
+  align-items: center;
+}
+.day-hero-numeral {
+  font-family: var(--font-serif);
+  font-size: clamp(120px, 16vw, 200px);
+  font-weight: 500;
+  line-height: 0.85;
+  letter-spacing: -0.05em;
+  color: var(--accent-2);
+  text-shadow: 0 1px 0 color-mix(in oklab, var(--accent-2) 18%, transparent);
+}
+.day-hero:hover .day-hero-numeral {
+  color: var(--accent-2-deep);
+  text-shadow:
+    0 2px 0 color-mix(in oklab, var(--accent-2) 22%, transparent),
+    0 18px 40px color-mix(in oklab, var(--accent) 22%, transparent);
+}
+
+/* ===================== signature: glass card ===================== */
+.glass-card {
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  border-radius: var(--r-md);
+  padding: 16px 20px;
+  box-shadow: var(--shadow-lift);
+}
+
+/* ===================== signature: prompt-card (RTFC) ===================== */
+.prompt-card {
+  background: oklch(15% 0.02 250);
+  color: oklch(92% 0.005 250);
+  border-left: 4px solid var(--accent-2);
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  margin: 16px 0;
+}
+.prompt-card-head {
+  display: flex; justify-content: space-between; align-items: start;
+  margin-bottom: 8px;
+}
+.prompt-card-title { font-weight: 700; }
+.prompt-card-note { font-size: 12px; opacity: 0.75; margin-top: 2px; }
+.prompt-text {
+  background: oklch(10% 0.015 250);
+  padding: 12px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  white-space: pre-wrap;
+  margin: 0;
+}
+.prompt-copy-btn {
+  background: var(--accent-2);
+  color: white;
+  border: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.prompt-copy-btn.ok { background: var(--success); }
+
+/* ===================== signature: task-list (3-state checkbox) ===================== */
+.task-list { list-style: none; padding: 0; margin: 0; }
+.task-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.task-item:hover { background: var(--surface-2); }
+.task-checkbox {
+  width: 18px; height: 18px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  display: grid; place-items: center;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+.task-item:hover .task-checkbox { border-color: var(--accent); }
+.task-item.done .task-checkbox {
+  background: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+.task-item.done .task-label { text-decoration: line-through; color: var(--muted); }
+
+/* ===================== signature: learning-goal badge ===================== */
+.learning-goal,
+.list li {
+  list-style: none;
+  position: relative;
+  padding-left: 28px;
+  margin-bottom: 6px;
+}
+.learning-goal::before,
+.list li::before {
+  content: '✓';
+  position: absolute; left: 0; top: 1px;
+  width: 20px; height: 20px;
+  background: var(--success-soft);
+  color: var(--success);
+  border-radius: 999px;
+  text-align: center;
+  line-height: 20px;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+/* ===================== concept (teaching block) ===================== */
+.concept {
+  margin: 20px 0;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  position: relative;
+}
+.concept-heading {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--fg);
+}
+.concept-body { margin-bottom: 12px; }
+.kv {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 8px 16px;
+  margin: 12px 0;
+}
+.kv-key { font-weight: 600; color: var(--muted); }
+.note {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--accent-2-soft);
+  border-left: 3px solid var(--accent-2);
+  border-radius: var(--r-sm);
+  font-size: 14px;
+}
+
+/* ===================== unit accordion ===================== */
+.unit {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  margin: 16px 0;
+}
+.unit > summary {
+  padding: 16px 20px;
+  cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center;
+  list-style: none;
+}
+.unit > summary::-webkit-details-marker { display: none; }
+.unit-title { font-weight: 700; font-size: 16px; }
+.unit-meta { font-size: 12px; color: var(--muted); }
+.unit-body { padding: 0 20px 20px; }
+.unit-progress-pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  border-radius: 999px;
+}
+
+/* ===================== material list ===================== */
+.materials { display: flex; flex-direction: column; gap: 8px; }
+.material-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  align-items: center;
+}
+.material-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  border-radius: 999px;
+}
+.material-name { font-weight: 600; }
+.material-desc { font-size: 13px; color: var(--muted); }
+.material-meta { font-family: var(--font-mono); font-size: 11px; color: var(--muted-2); }
+
+/* ===================== table ===================== */
+.t {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 14px;
+}
+.t th, .t td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.t th {
+  background: var(--surface-2);
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ===================== chapter / section / common typography ===================== */
+.chapter { margin-bottom: 56px; }
+.eyebrow {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.lead {
+  font-size: 16px;
+  color: var(--muted);
+  margin: 12px 0 24px;
+  text-wrap: pretty;
+}
+
+/* ===================== illustration (PNG-first / SVG-fallback) ===================== */
+.illustration {
+  margin: 16px 0;
+  text-align: center;
+}
+.illustration img,
+.illustration svg {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--r-md);
+  filter: drop-shadow(0 4px 12px oklch(20% 0.02 250 / 0.08));
+}

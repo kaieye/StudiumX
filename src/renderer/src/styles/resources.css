@@ -854,11 +854,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.skill-library-card__title code {
-  color: #8d949d;
-  font-size: 10.5px;
-  white-space: nowrap;
-}
 .skill-library-card__body p {
   display: -webkit-box;
   min-height: 36px;

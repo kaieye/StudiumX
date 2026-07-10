@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { SkillLibraryService } from '../../src/main/skill-library'
+import { createReadSkillResourceTool } from '../../src/main/ai/tools/skill-resource'
 import { buildAgentChatSystemPrompt } from '../../src/main/teaching-conversation-runtime'
 import { parseAgentChatStreamPayload } from '../../src/main/teaching-ipc-commands'
 import {
@@ -56,6 +57,14 @@ try {
   assert.equal(references.length, 1)
   assert.equal(references[0]?.id, 'teach')
   assert.match(references[0]?.content ?? '', /Use retrieval practice/)
+  const skillResourceTool = createReadSkillResourceTool(references)
+  assert.ok(skillResourceTool)
+  const resourceResult = JSON.parse(await skillResourceTool.handler({ skillId: 'teach', path: 'REFERENCE.md' }, {} as never))
+  assert.equal(resourceResult.skillId, 'teach')
+  assert.equal(resourceResult.path, 'REFERENCE.md')
+  assert.match(resourceResult.content, /# Reference/)
+  const escapedResourceResult = JSON.parse(await skillResourceTool.handler({ skillId: 'teach', path: '../outside.md' }, {} as never))
+  assert.match(escapedResourceResult.error, /escapes/)
   const inferredReferences = await service.readInvokedSkillReferences('/teach explain closures')
   assert.deepEqual(inferredReferences.map((reference) => reference.id), ['teach'])
   const systemPrompt = buildAgentChatSystemPrompt({
@@ -65,6 +74,9 @@ try {
   })
   assert.match(systemPrompt, /<teach-skill-reference/)
   assert.match(systemPrompt, /Use retrieval practice/)
+  assert.match(systemPrompt, /progressive disclosure/i)
+  assert.match(systemPrompt, /SKILL\.md/)
+  assert.match(systemPrompt, /load only the referenced resources/i)
 
   const parsedPayload = parseAgentChatStreamPayload({
     mode: 'temporary',

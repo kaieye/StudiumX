@@ -1,0 +1,417 @@
+<!doctype html>
+<!--
+  index.html - Teaching Site Scaffold
+  Schema authority:  ../../_shared/domain-primitives.md
+  Token reference:   ../../teaching-site-design-system/templates/tokens.css
+  Reference impl:    d:/GitHub/ai-workshop/index.html (4125-line full version)
+
+  This scaffold gives you the structural shell + working render pipeline.
+  Fill TODO markers and extend. For advanced features (scrollspy, theme toggle,
+  zoom, sidebar mobile overlay, scroll-fade), copy patterns from ai-workshop.
+-->
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TODO: Course Title</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <!-- Paste tokens.css contents here, OR keep as external link -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app" id="app">
+
+    <!-- ===== sidebar (fixed left, navigation + progress) ===== -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-eyebrow">TODO: Program / Sponsor</div>
+        <div class="brand-title">TODO: Course Title</div>
+      </div>
+      <nav class="nav" id="nav"><!-- populated by renderSidebar() --></nav>
+      <div class="nav-progress" id="navProgress"><!-- populated by updateProgressUI() --></div>
+    </aside>
+
+    <!-- ===== main content area ===== -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-trail" id="topbarTrail"><!-- populated by scrollspy --></div>
+        <div class="topbar-spacer"></div>
+        <div class="topbar-quick">
+          <button class="theme-toggle" id="themeToggle" type="button" aria-label="切換主題">switch theme</button>
+        </div>
+      </header>
+
+      <div class="content" id="content">
+        <!-- All sections rendered here by init() -->
+      </div>
+    </main>
+
+  </div>
+
+  <!-- ===== data load order matters: course-data.js MUST load before render ===== -->
+  <script src="course-data.js"></script>
+  <!-- Optional secondary data (uncomment if you have these scraped sources): -->
+  <!-- <script src="instructor-data.js"></script> -->
+  <!-- <script src="tools-data.js"></script>      -->
+
+  <script>
+  /* ============================================================
+   * Storage / state
+   * ============================================================ */
+  const STORE_KEY = 'TODO-project-prefix-progress-v1';   // never reuse old keys
+  const store = {
+    load() {
+      try { return JSON.parse(localStorage.getItem(STORE_KEY)) || { tasks: {}, quiz: {}, lastSection: '' }; }
+      catch { return { tasks: {}, quiz: {}, lastSection: '' }; }
+    },
+    save(s) { localStorage.setItem(STORE_KEY, JSON.stringify(s)); },
+    reset() { localStorage.removeItem(STORE_KEY); }
+  };
+  let state = store.load();
+
+  /* ============================================================
+   * Tiny DOM helper (no framework, no innerHTML for user content)
+   * ============================================================ */
+  const el = (tag, attrs = {}, ...children) => {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') node.className = v;
+      else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
+      else if (v !== false && v != null) node.setAttribute(k, v);
+    }
+    for (const c of children.flat()) {
+      if (c == null || c === false) continue;
+      node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    }
+    return node;
+  };
+  const clear = (node) => { while (node.firstChild) node.removeChild(node.firstChild); };
+
+  /* ============================================================
+   * Inline markdown (safe — no innerHTML for user content)
+   * Supports: **bold**, [text](url) — nothing else
+   * Reference: ai-workshop/index.html:2553 (full XSS-safe implementation)
+   * ============================================================ */
+  function inlineMarkdown(str) {
+    const frag = document.createDocumentFragment();
+    // Stub: just plain text. Replace with bold + link parser per reference impl.
+    frag.append(document.createTextNode(String(str)));
+    return frag;
+  }
+
+  /* ============================================================
+   * Render: concept block (the unit's substance)
+   * ============================================================ */
+  function renderConcept(c) {
+    const w = el('div', { class: 'concept' });
+    if (c.heading) w.append(el('div', { class: 'concept-heading' }, c.heading));
+    if (c.body) w.append(el('div', { class: 'concept-body' }, inlineMarkdown(c.body)));
+    if (c.illustration) w.append(renderIllustration(c.illustration));
+    if (c.list && c.list.length) {
+      const kv = el('div', { class: 'kv' });
+      c.list.forEach(([k, v]) => {
+        kv.append(el('div', { class: 'kv-key' }, inlineMarkdown(k)));
+        kv.append(el('div', { class: 'kv-val' }, inlineMarkdown(v)));
+      });
+      w.append(kv);
+    }
+    if (c.table) {
+      const t = el('table', { class: 't' });
+      const thead = el('thead');
+      thead.append(el('tr', {}, ...c.table.head.map(h => el('th', {}, inlineMarkdown(h)))));
+      t.append(thead);
+      const tb = el('tbody');
+      c.table.rows.forEach(r => tb.append(el('tr', {}, ...r.map(cell => el('td', {}, inlineMarkdown(cell))))));
+      t.append(tb);
+      w.append(t);
+    }
+    if (c.note) w.append(el('div', { class: 'note' }, inlineMarkdown(c.note)));
+    return w;
+  }
+
+  /* ============================================================
+   * Render: prompt card with copy-to-clipboard
+   * ============================================================ */
+  function renderPromptCard(p) {
+    const w = el('div', { class: 'prompt-card', id: p.id });
+    const head = el('div', { class: 'prompt-card-head' });
+    const left = el('div', {});
+    left.append(el('div', { class: 'prompt-card-title' }, p.title));
+    if (p.note) left.append(el('div', { class: 'prompt-card-note' }, p.note));
+    head.append(left);
+
+    const btn = el('button', { class: 'prompt-copy-btn', type: 'button' }, 'Copy');
+    btn.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(p.text); }
+      catch { /* fallback: textarea + execCommand */ }
+      btn.classList.add('ok');
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.classList.remove('ok'); btn.textContent = 'Copy'; }, 1800);
+    });
+    head.append(btn);
+    w.append(head);
+    w.append(el('pre', { class: 'prompt-text' }, p.text));
+    return w;
+  }
+
+  /* ============================================================
+   * Render: task list (id is localStorage key — never rename)
+   * ============================================================ */
+  function renderTaskList(tasks) {
+    const list = el('ul', { class: 'task-list' });
+    tasks.forEach(t => {
+      const li = el('li', {
+        class: 'task-item' + (state.tasks[t.id] ? ' done' : ''),
+        'data-task-id': t.id
+      });
+      li.append(el('div', { class: 'task-checkbox' }, '✓'));
+      li.append(el('div', { class: 'task-label' }, t.label));
+      li.addEventListener('click', () => toggleTask(t.id, li));
+      list.append(li);
+    });
+    return list;
+  }
+  function toggleTask(id, li) {
+    if (state.tasks[id]) delete state.tasks[id];
+    else state.tasks[id] = true;
+    li.classList.toggle('done');
+    store.save(state);
+    updateProgressUI();
+  }
+
+  /* ============================================================
+   * Render: material list (3-place sync — see getMaterialUrl below)
+   * ============================================================ */
+  function renderMaterialList(items) {
+    const w = el('div', { class: 'materials' });
+    items.forEach(m => {
+      const row = el('div', { class: 'material-row' });
+      row.append(el('div', { class: 'material-tag' }, m.type));
+      const center = el('div', {});
+      const url = getMaterialUrl(m.name, m.type);
+      if (url) {
+        const link = el('a', { class: 'material-name', href: url, target: '_blank', rel: 'noopener' }, m.name);
+        if (m.type === 'PDF 文件') link.setAttribute('download', '');
+        center.append(link);
+      } else {
+        center.append(el('div', { class: 'material-name' }, m.name));
+      }
+      if (m.desc) center.append(el('div', { class: 'material-desc' }, m.desc));
+      row.append(center);
+      row.append(el('div', { class: 'material-meta' }, 'course-package/materials/'));
+      w.append(row);
+    });
+    return w;
+  }
+
+  /* ============================================================
+   * Material URL router — TODO: add one rule per material
+   * 3-place sync: this router + course-data.js:materials[] + actual file on disk
+   * ============================================================ */
+  function getMaterialUrl(name, type) {
+    const base = 'course-package/materials';
+    if (type === 'PDF 文件') {
+      // TODO: if (name.includes('keyword')) return `${base}/pdf/file.pdf`;
+      return null;
+    }
+    // Other types open in viewer.html (or new tab as fallback)
+    // TODO: if (name.includes('keyword')) return `${base}/file.md`;
+    return null;
+  }
+
+  /* ============================================================
+   * Render: illustration (PNG-first, SVG fallback)
+   * ============================================================ */
+  function renderIllustration(name) {
+    const wrap = el('div', { class: 'illustration' });
+    const img = el('img', { src: `assets/illustrations/${name}.png`, alt: '' });
+    img.onerror = () => { img.src = `assets/illustrations/${name}.svg`; img.onerror = null; };
+    wrap.append(img);
+    return wrap;
+  }
+
+  /* ============================================================
+   * Render: unit accordion (fixed render order — see _shared/domain-primitives.md §5)
+   * ============================================================ */
+  function renderUnit(day, u) {
+    const det = el('details', { class: 'unit', id: `${day.id}-${u.id}` });
+    if (day.id === 'day1' && u.id === 'u1') det.open = true;        // open first by default
+
+    const sum = el('summary', {});
+    const titleWrap = el('div', {});
+    titleWrap.append(el('div', { class: 'unit-title' }, u.title));
+    if (u.subtitle) titleWrap.append(el('div', { class: 'unit-meta' }, u.subtitle));
+    titleWrap.append(el('div', { class: 'unit-meta' }, u.time));
+    sum.append(titleWrap);
+    sum.append(el('span', { class: 'unit-progress-pill' }, '0 / 0'));
+    det.append(sum);
+
+    const body = el('div', { class: 'unit-body' });
+
+    if (u.goals?.length) {
+      body.append(el('h4', {}, '學習目標'));
+      const ul = el('ul', { class: 'list' });
+      u.goals.forEach(g => ul.append(el('li', {}, g)));
+      body.append(ul);
+    }
+    if (u.illustrations?.length) {
+      // Render hero illustration first (above the fold within the unit)
+      const hero = u.illustrations.find(i => i.kind === 'hero');
+      if (hero) body.append(renderIllustration(hero.name));
+    }
+    if (u.concepts?.length) {
+      body.append(el('h4', {}, '核心觀念'));
+      u.concepts.forEach(c => body.append(renderConcept(c)));
+    }
+    if (u.prompts?.length) {
+      body.append(el('h4', {}, 'RTFC 提示詞範例（一鍵複製）'));
+      u.prompts.forEach(p => body.append(renderPromptCard(p)));
+    }
+    if (u.tasks?.length) {
+      body.append(el('h4', {}, '任務清單'));
+      body.append(renderTaskList(u.tasks));
+    }
+    if (u.materials?.length) {
+      body.append(el('h4', {}, '本單元教學素材'));
+      body.append(renderMaterialList(u.materials));
+    }
+    if (u.faq?.length) {
+      body.append(el('h4', {}, '常見學員疑問'));
+      const t = el('table', { class: 't' });
+      const thead = el('thead');
+      const trh = el('tr');
+      trh.append(el('th', {}, '疑問'), el('th', {}, '解答要點'));
+      thead.append(trh);
+      t.append(thead);
+      const tb = el('tbody');
+      u.faq.forEach(([q, a]) => {
+        const tr = el('tr');
+        tr.append(el('td', {}, q), el('td', {}, a));
+        tb.append(tr);
+      });
+      t.append(tb);
+      body.append(t);
+    }
+    det.append(body);
+    return det;
+  }
+
+  /* ============================================================
+   * Render: day section (hero + units)
+   * ============================================================ */
+  function renderDay(dayId) {
+    const d = window.COURSE[dayId];
+    if (!d) return null;
+    const root = el('section', { class: 'chapter', id: dayId });
+    // Day hero with giant numeral (signature component)
+    const hero = el('div', { class: 'day-hero' });
+    const meta = window.COURSE.meta.days.find(x => x.id === dayId);
+    hero.append(el('div', { class: 'day-hero-numeral' }, `D${meta?.n || ''}`));
+    const heroMeta = el('div', { class: 'day-hero-meta' });
+    heroMeta.append(el('div', { class: 'eyebrow' }, d.date || ''));
+    heroMeta.append(el('h2', {}, d.title));
+    if (d.learningGoal) heroMeta.append(el('div', { class: 'lead' }, d.learningGoal));
+    hero.append(heroMeta);
+    root.append(hero);
+    // Units
+    d.units?.forEach(u => root.append(renderUnit(d, u)));
+    return root;
+  }
+
+  /* ============================================================
+   * Render: overview (course meta) — TODO: expand per project
+   * ============================================================ */
+  function renderOverview() {
+    const root = el('section', { class: 'chapter', id: 'overview' });
+    root.append(el('span', { class: 'eyebrow' }, window.COURSE.meta.program || ''));
+    root.append(el('h1', {}, window.COURSE.meta.title));
+    if (window.COURSE.meta.subtitle) root.append(el('div', { class: 'lead' }, window.COURSE.meta.subtitle));
+    return root;
+  }
+
+  /* ============================================================
+   * Render: shared case (optional)
+   * ============================================================ */
+  function renderSharedCase() {
+    const sc = window.COURSE.sharedCase;
+    if (!sc) return null;
+    const root = el('section', { class: 'chapter', id: 'shared-case' });
+    root.append(el('span', { class: 'eyebrow' }, '共用案例'));
+    root.append(el('h2', {}, '貫穿全程的虛構情境'));
+    root.append(el('div', { class: 'lead' }, sc.intro));
+    // TODO: render brands / roles / variables tables
+    return root;
+  }
+
+  /* ============================================================
+   * Render: cross-day material overview
+   * ============================================================ */
+  function renderMaterials() {
+    const items = window.COURSE.materials || [];
+    if (!items.length) return null;
+    const root = el('section', { class: 'chapter', id: 'materials-overview' });
+    root.append(el('span', { class: 'eyebrow' }, '下載檔案總覽'));
+    root.append(el('h2', {}, '教學素材'));
+    root.append(renderMaterialList(items));
+    return root;
+  }
+
+  /* ============================================================
+   * Render: quiz (optional)
+   * ============================================================ */
+  function renderQuiz() {
+    const items = window.COURSE.quiz || [];
+    if (!items.length) return null;
+    const root = el('section', { class: 'chapter', id: 'quiz' });
+    root.append(el('span', { class: 'eyebrow' }, '結訓測驗'));
+    root.append(el('h2', {}, `結訓測驗（${items.length} 題）`));
+    // TODO: render questions + submit + score logic. See ai-workshop/index.html:3767
+    return root;
+  }
+
+  /* ============================================================
+   * Sidebar render + scroll spy + theme + progress
+   * ============================================================ */
+  function renderSidebar() {
+    const nav = document.getElementById('nav');
+    clear(nav);
+    // TODO: build chapter list from window.COURSE.meta.days[]. See ai-workshop:3959
+  }
+  function updateProgressUI() {
+    // TODO: count completed tasks / total tasks. See ai-workshop pattern.
+  }
+  function initTheme() {
+    const t = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', t);
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+    });
+  }
+
+  /* ============================================================
+   * init() — entry point
+   * ============================================================ */
+  function init() {
+    const content = document.getElementById('content');
+    const sections = [
+      renderOverview(),
+      renderSharedCase(),
+      ...window.COURSE.meta.days.map(d => renderDay(d.id)),
+      renderMaterials(),
+      renderQuiz()
+    ].filter(Boolean);
+    sections.forEach(s => content.append(s));
+
+    renderSidebar();
+    updateProgressUI();
+    initTheme();
+    // TODO: setupScrollSpy() — see ai-workshop:setupScrollSpy
+  }
+  document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
