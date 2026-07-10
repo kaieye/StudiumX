@@ -62,8 +62,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     openTasks,
     currentTask,
     userSeat,
-    weeklyFocus,
-    badges,
     roomMembers,
     roomMaxFocusSeconds,
     focusingCount,
@@ -316,12 +314,9 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
 
         <StudyWorkPanels
           snapshot={snapshot}
-          level={level}
           currentTask={currentTask}
           openTasks={openTasks}
           completedTasks={completedTasks}
-          weeklyFocus={weeklyFocus}
-          badges={badges}
           taskInput={taskInput}
           onTaskInputChange={setTaskInput}
           onAddTask={addTask}

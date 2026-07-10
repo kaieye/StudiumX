@@ -1,17 +1,13 @@
-import { Check, CheckCircle2, Plus, Star, Trophy } from 'lucide-react'
+import { Check, CheckCircle2, Plus } from 'lucide-react'
 import type { FormEvent, ReactNode } from 'react'
-import { formatStudyHours, studyPlantStage } from './domain'
 import type { StudySnapshot } from './types'
 import type { StudySpaceViewModel } from './viewModel'
 
 type StudyWorkPanelsProps = {
   snapshot: StudySnapshot
-  level: StudySpaceViewModel['level']
   currentTask: StudySpaceViewModel['currentTask']
   openTasks: number
   completedTasks: number
-  weeklyFocus: number[]
-  badges: StudySpaceViewModel['badges']
   taskInput: string
   children?: ReactNode
   onTaskInputChange: (value: string) => void
@@ -22,12 +18,9 @@ type StudyWorkPanelsProps = {
 
 export function StudyWorkPanels({
   snapshot,
-  level,
   currentTask,
   openTasks,
   completedTasks,
-  weeklyFocus,
-  badges,
   taskInput,
   children,
   onTaskInputChange,
@@ -85,34 +78,7 @@ export function StudyWorkPanels({
         </div>
       </section>
 
-      <section className="study-panel study-work-panel study-growth-panel" aria-label="成长系统">
-        <div className="study-panel-head">
-          <div>
-            <span className="study-kicker"><Star size={14} /> 养成</span>
-            <h2>{studyPlantStage(snapshot.xp)}</h2>
-          </div>
-          <span className="study-xp">{level.current}/{level.next} XP</span>
-        </div>
-        <div className="study-level-track"><span style={{ width: `${level.progress}%` }} /></div>
-        <div className="study-growth-grid">
-          <div><strong>{formatStudyHours(snapshot.totalFocusSeconds)}h</strong><span>累计专注</span></div>
-          <div><strong>{snapshot.totalSessions}</strong><span>完成番茄</span></div>
-          <div><strong>{snapshot.todaySessions}</strong><span>今日轮次</span></div>
-        </div>
-        <div className="study-week-bars" aria-label="一周专注">
-          {weeklyFocus.map((value, index) => (
-            <span key={index}><i style={{ height: `${Math.max(12, Math.round(value * 100))}%` }} /></span>
-          ))}
-        </div>
-        <div className="study-badges">
-          {badges.map((badge) => (
-            <span key={badge.label} className={badge.unlocked ? 'is-unlocked' : ''}>
-              <Trophy size={12} />
-              {badge.label}
-            </span>
-          ))}
-        </div>
-      </section>
+      <section className="study-panel study-work-panel study-growth-panel" aria-label="养成" />
     </>
   )
 }
