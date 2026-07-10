@@ -1,4 +1,4 @@
-import { Pause, Play, RotateCcw, Timer, Volume2, VolumeX } from 'lucide-react'
+import { Pause, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react'
 import { formatStudyDuration } from '../../study-space/domain'
 import type { StudySnapshot, StudyTimerMode } from '../../study-space/types'
 
@@ -19,12 +19,6 @@ type WorkbenchPomodoroProps = {
   onToggleAmbientEnabled: () => void
 }
 
-function timerStateLabel(snapshot: StudySnapshot): string {
-  if (snapshot.timerState === 'running') return snapshot.timerMode === 'focus' ? '专注中' : '休息中'
-  if (snapshot.timerState === 'paused') return '已暂停'
-  return '准备'
-}
-
 export function WorkbenchPomodoro({
   snapshot,
   timerProgress,
@@ -37,18 +31,7 @@ export function WorkbenchPomodoro({
 }: WorkbenchPomodoroProps) {
   return (
     <aside className="workbench-pomodoro" aria-label="番茄钟">
-      <section className={`workbench-pomodoro-card is-${snapshot.timerMode} is-${snapshot.timerState}`}>
-        <div className="workbench-pomodoro-head">
-          <div className="workbench-pomodoro-title">
-            <span><Timer size={17} /></span>
-            <div>
-              <strong>番茄钟</strong>
-              <small>Pomodoro</small>
-            </div>
-          </div>
-          <span className="workbench-pomodoro-state">{timerStateLabel(snapshot)}</span>
-        </div>
-
+      <section className={`workbench-pomodoro-card is-${snapshot.timerMode}`}>
         <div className="workbench-pomodoro-mode" role="tablist" aria-label="计时模式">
           {(['focus', 'break'] as const).map((mode) => (
             <button
