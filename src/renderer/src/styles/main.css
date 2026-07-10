@@ -12,6 +12,12 @@
   border-radius: var(--app-shell-main-radius) 0 0 var(--app-shell-main-radius);
   background: var(--app-shell-main-bg);
   scroll-behavior: smooth;
+}.main-area[data-view='workbench'] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+  background: #ffffff;
 }.main-area[data-view='lessons'] {
   display: flex;
   flex-direction: column;

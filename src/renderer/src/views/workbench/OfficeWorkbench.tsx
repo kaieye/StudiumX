@@ -561,7 +561,7 @@ function drawScene(
   hoveredDeskId: DeskId | null
 ): void {
   ctx.clearRect(0, 0, officeWidth, officeHeight)
-  ctx.fillStyle = '#f7f7f7'
+  ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, officeWidth, officeHeight)
 
   ctx.save()
