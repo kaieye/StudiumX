@@ -336,8 +336,7 @@ function toolResultDiagnostic(
     bytes,
     lines,
     approxTokens: Math.ceil(event.result.length / 4),
-    isError: event.isError || undefined,
-    archived: false as const
+    isError: event.isError || undefined
   })
 }
 

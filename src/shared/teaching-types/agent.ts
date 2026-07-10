@@ -99,6 +99,16 @@ export type AgentContextEstimateMetadata = {
   source: string
 }
 
+export type AgentArtifactRef = {
+  kind: 'tool_result' | 'child_transcript'
+  relativePath: string
+  sha256: string
+  bytes: number
+  lines?: number
+  preview?: string
+  archivedAt?: string
+}
+
 export type AgentToolResultDiagnostic = {
   toolCallId: string
   toolName: string
@@ -106,7 +116,7 @@ export type AgentToolResultDiagnostic = {
   lines: number
   approxTokens?: number
   isError?: boolean
-  archived?: false
+  archive?: AgentArtifactRef
 }
 
 export type AgentTurnMetadata = {

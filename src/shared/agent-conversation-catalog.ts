@@ -198,6 +198,22 @@ export function agentConversationJsonRelativePathForMarkdown(markdownRelativePat
   return joinAgentConversationRelativePath(info.directoryRelativePath, `${info.id}.json`)
 }
 
+export function agentConversationSessionAuditRelativePathForMarkdown(markdownRelativePath: string): string {
+  const info = describeAgentConversationPath(markdownRelativePath)
+  if (info?.format !== 'markdown') {
+    throw new Error('Conversation path is outside a conversations directory.')
+  }
+  return joinAgentConversationRelativePath(info.directoryRelativePath, '.agent-sessions', `${info.id}.jsonl`)
+}
+
+export function agentConversationSessionArtifactDirectoryRelativePathForMarkdown(markdownRelativePath: string): string {
+  const info = describeAgentConversationPath(markdownRelativePath)
+  if (info?.format !== 'markdown') {
+    throw new Error('Conversation path is outside a conversations directory.')
+  }
+  return joinAgentConversationRelativePath(info.directoryRelativePath, '.agent-sessions', info.id)
+}
+
 export function normalizeAgentConversationDirectory(conversationDir: string): string {
   const normalized = normalizeAgentConversationRelativePath(conversationDir)
   if (normalized === 'conversation') return 'conversation'

@@ -7,12 +7,21 @@ import {
   attachAgentRunAuditMetadata,
   buildAgentTurnAuditMetadata
 } from '../../src/main/ai/agent-run-audit'
+import {
+  parseAgentConversationSessionAuditLines
+} from '../../src/main/agent-conversation-session-audit'
 import type { AgentLoopEvent } from '../../src/main/ai/agent-loop'
+import {
+  agentConversationJsonRelativePathForMarkdown,
+  agentConversationSessionAuditRelativePathForMarkdown
+} from '../../src/shared/agent-conversation-catalog'
 import {
   readAgentConversationRecord,
   writeAgentConversationRecord
 } from '../../src/main/teaching-agent-conversations'
 import type { AgentChatTurn, AgentConversationRecord } from '../../src/shared/teaching-types'
+
+const largeToolResult = `${'line\n'.repeat(45)}${'x'.repeat(2100)}`
 
 const events: AgentLoopEvent[] = [
   {
@@ -134,7 +143,7 @@ const events: AgentLoopEvent[] = [
     type: 'tool_result',
     toolCallId: 'tool-large',
     name: 'read_workspace_file',
-    result: `${'line\n'.repeat(45)}${'x'.repeat(2100)}`,
+    result: largeToolResult,
     isError: false
   }
 ]
@@ -155,7 +164,21 @@ assert.equal(metadata.toolResults?.some((tool) => tool.toolCallId === 'tool-larg
 const turns: AgentChatTurn[] = [
   { id: 'u1', role: 'user', content: 'Audit this run', createdAt: '2026-07-09T00:00:00.000Z' },
   { id: 'a1', role: 'assistant', content: 'Intermediate tool call.', createdAt: '2026-07-09T00:00:01.000Z' },
-  { id: 'a2', role: 'assistant', content: 'Final answer.', createdAt: '2026-07-09T00:00:02.000Z' }
+  {
+    id: 'a2',
+    role: 'assistant',
+    content: 'Final answer.',
+    toolCalls: [
+      {
+        id: 'tool-large',
+        name: 'read_workspace_file',
+        arguments: '{"path":"big.md"}',
+        result: largeToolResult,
+        isError: false
+      }
+    ],
+    createdAt: '2026-07-09T00:00:02.000Z'
+  }
 ]
 const auditedTurns = attachAgentRunAuditMetadata(turns, events)
 assert.equal(auditedTurns[1]?.metadata, undefined)
@@ -179,18 +202,72 @@ try {
   }
 
   await writeAgentConversationRecord(workspace, record)
+  const persistedJson = await readFile(join(tempRoot, agentConversationJsonRelativePathForMarkdown(record.relativePath)), 'utf8')
+  assert.equal(
+    persistedJson.includes(largeToolResult),
+    false,
+    'large tool result should move out of the conversation JSON materialized view'
+  )
+  assert.match(persistedJson, /\[tool result archived\]/)
   const loaded = await readAgentConversationRecord(tempRoot, record.id)
   const loadedMetadata = loaded.turns.at(-1)?.metadata
   assert.equal(loadedMetadata?.sources?.some((source) => source.sourceId === 'src-search-1'), true)
   assert.equal(loadedMetadata?.childRuns?.some((child) => child.childRunId === 'child-2'), true)
   assert.equal(loadedMetadata?.compactions?.some((compaction) => compaction.sourceDigest === 'ctx_done'), true)
   assert.equal(loadedMetadata?.toolResults?.some((tool) => tool.toolCallId === 'tool-large'), true)
+  const archivedDiagnostic = loadedMetadata?.toolResults?.find((tool) => tool.toolCallId === 'tool-large')
+  assert.equal(archivedDiagnostic?.archive?.kind, 'tool_result')
+  assert.equal(loaded.turns.at(-1)?.toolCalls?.[0]?.result, largeToolResult)
 
   const markdown = await readFile(join(tempRoot, record.relativePath), 'utf8')
   assert.match(markdown, /Sources:/)
   assert.match(markdown, /Child runs:/)
   assert.match(markdown, /Context compaction:/)
   assert.match(markdown, /Tool result diagnostics:/)
+
+  const auditRelativePath = agentConversationSessionAuditRelativePathForMarkdown(record.relativePath)
+  const auditPath = join(tempRoot, auditRelativePath)
+  const auditLines = parseAgentConversationSessionAuditLines(await readFile(auditPath, 'utf8'))
+  assert.equal(auditLines[0]?.type, 'session')
+  assert.equal(auditLines.filter((line) => line.type === 'turn').length, auditedTurns.length)
+  assert.equal(auditLines.some((line) => line.type === 'source'), true)
+  assert.equal(auditLines.some((line) => line.type === 'child_run'), true)
+  assert.equal(auditLines.some((line) => line.type === 'compaction'), true)
+  assert.equal(auditLines.some((line) => line.type === 'context_hygiene'), true)
+  assert.equal(auditLines.some((line) => line.type === 'context_estimate'), true)
+  assert.equal(auditLines.some((line) => line.type === 'tool_result_diagnostic'), true)
+  assert.equal(auditLines.some((line) => line.type === 'tool_call'), true)
+
+  await writeAgentConversationRecord(workspace, record)
+  const auditLinesAfterRepeatWrite = parseAgentConversationSessionAuditLines(await readFile(auditPath, 'utf8'))
+  assert.equal(
+    auditLinesAfterRepeatWrite.length,
+    auditLines.length,
+    'session audit log should be idempotent when the same conversation snapshot is saved again'
+  )
+
+  const continuedRecord: AgentConversationRecord = {
+    ...record,
+    updatedAt: '2026-07-09T00:00:04.000Z',
+    messageCount: record.messageCount + 2,
+    turns: [
+      ...record.turns,
+      { id: 'u2', role: 'user', content: 'Continue', createdAt: '2026-07-09T00:00:04.000Z' },
+      { id: 'a3', role: 'assistant', content: 'Continued.', createdAt: '2026-07-09T00:00:05.000Z' }
+    ]
+  }
+  await writeAgentConversationRecord(workspace, continuedRecord)
+  const auditLinesAfterContinuation = parseAgentConversationSessionAuditLines(await readFile(auditPath, 'utf8'))
+  assert.equal(
+    auditLinesAfterContinuation.filter((line) => line.type === 'turn').length,
+    auditedTurns.length + 2,
+    'session audit log should append new turn entries for a continuation'
+  )
+  assert.equal(
+    auditLinesAfterContinuation.filter((line) => line.type === 'session').length,
+    1,
+    'session audit log should keep a single header'
+  )
 
   await writeFile(
     join(tempRoot, 'conversation', 'chat-20260709-malformed.json'),

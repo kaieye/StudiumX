@@ -18,7 +18,13 @@ import {
   agentConversationMarkdownRelativePath,
   isAgentConversationMarkdownRelativePath
 } from '../shared/agent-conversation-catalog'
+import {
+  archiveAgentConversationArtifacts,
+  appendAgentConversationSessionAuditLog,
+  hydrateAgentConversationArtifacts
+} from './agent-conversation-session-audit'
 import type {
+  AgentArtifactRef,
   AgentChildRunMetadata,
   AgentChatProcessEvent,
   AgentChatTurn,
@@ -88,7 +94,7 @@ export async function readAgentConversationRecord(
 ): Promise<AgentConversationRecord> {
   const id = requireSafeAgentConversationId(conversationId)
   const jsonRelativePath = await findAgentConversationJsonRelativePath(rootPath, id)
-  return readAgentConversationRecordAt(rootPath, jsonRelativePath)
+  return readAgentConversationRecordAt(rootPath, jsonRelativePath, { hydrateArtifacts: true })
 }
 
 export async function writeAgentConversationRecord(
@@ -100,23 +106,28 @@ export async function writeAgentConversationRecord(
   if (!isAgentConversationMarkdownRelativePath(markdownRelativePath)) {
     throw new Error('Conversation markdown path is outside a conversations directory.')
   }
+  const persistedRecord = await archiveAgentConversationArtifacts({
+    rootPath: workspace.rootPath,
+    record
+  })
   await atomicWriteFile(
     join(workspace.rootPath, jsonRelativePath),
     `${JSON.stringify({
       version: 1,
-      workspaceId: record.workspaceId ?? workspace.id,
-      id: record.id,
-      title: record.title,
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-      relativePath: record.relativePath,
-      turns: record.turns
+      workspaceId: persistedRecord.workspaceId ?? workspace.id,
+      id: persistedRecord.id,
+      title: persistedRecord.title,
+      createdAt: persistedRecord.createdAt,
+      updatedAt: persistedRecord.updatedAt,
+      relativePath: persistedRecord.relativePath,
+      turns: persistedRecord.turns
     }, null, 2)}\n`
   )
   await atomicWriteFile(
     join(workspace.rootPath, markdownRelativePath),
-    renderAgentConversationMarkdown(workspace, record)
+    renderAgentConversationMarkdown(workspace, persistedRecord)
   )
+  await appendAgentConversationSessionAuditLog({ rootPath: workspace.rootPath, record: persistedRecord })
 }
 
 export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[] {
@@ -227,7 +238,8 @@ export function sortAgentConversationSummaries(
 
 async function readAgentConversationRecordAt(
   rootPath: string,
-  jsonRelativePath: string
+  jsonRelativePath: string,
+  options: { hydrateArtifacts?: boolean } = {}
 ): Promise<AgentConversationRecord> {
   const normalizedJsonRelativePath = normalizeWorkspaceRelativePath(jsonRelativePath)
   const id = requireSafeAgentConversationId(basename(normalizedJsonRelativePath).replace(/\.json$/i, ''))
@@ -247,7 +259,7 @@ async function readAgentConversationRecordAt(
   const relativePath = isAgentConversationMarkdownRelativePath(storedMarkdownRelativePath)
     ? storedMarkdownRelativePath
     : agentConversationMarkdownRelativePath(id, conversationDir)
-  return {
+  const conversationRecord: AgentConversationRecord = {
     id,
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
     title,
@@ -258,6 +270,9 @@ async function readAgentConversationRecordAt(
     messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
     turns
   }
+  return options.hydrateArtifacts
+    ? hydrateAgentConversationArtifacts({ rootPath, record: conversationRecord })
+    : conversationRecord
 }
 
 function renderAgentConversationMarkdown(
@@ -443,11 +458,31 @@ function normalizeToolResults(value: unknown): AgentToolResultDiagnostic[] {
       lines,
       approxTokens: numberValue(record.approxTokens),
       isError: record.isError === true ? true : undefined,
-      archived: false as const
+      archive: normalizeArtifactRef(record.archive)
     }))
     if (out.length >= MAX_METADATA_ITEMS) break
   }
   return out
+}
+
+function normalizeArtifactRef(value: unknown): AgentArtifactRef | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const kind = record.kind === 'tool_result' || record.kind === 'child_transcript' ? record.kind : null
+  const relativePath = textValue(record.relativePath, 2000)
+  const sha256 = textValue(record.sha256, MAX_SHORT_TEXT)
+  const bytes = numberValue(record.bytes)
+  if (!kind || !relativePath || !sha256 || bytes === undefined) return undefined
+  const artifact: AgentArtifactRef = {
+    kind,
+    relativePath,
+    sha256,
+    bytes,
+    lines: numberValue(record.lines),
+    preview: textValue(record.preview, MAX_SNIPPET_TEXT),
+    archivedAt: textValue(record.archivedAt, MAX_SHORT_TEXT)
+  }
+  return pruneUndefined(artifact)
 }
 
 function normalizeChildRunStatus(value: unknown): AgentChildRunMetadata['status'] {

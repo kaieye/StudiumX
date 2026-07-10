@@ -4,6 +4,8 @@ import {
   agentConversationDirectoryRelativePath,
   agentConversationDirectoryRelativePathsForCourse,
   agentConversationJsonRelativePathForMarkdown,
+  agentConversationSessionArtifactDirectoryRelativePathForMarkdown,
+  agentConversationSessionAuditRelativePathForMarkdown,
   courseRelativePathForAgentConversation,
   describeAgentConversationPath,
   isCourseAgentConversationPath,
@@ -57,6 +59,18 @@ assert.equal(
   'conversations/chat-8.md'
 )
 assert.equal(agentConversationJsonRelativePathForMarkdown('conversation/chat-9.md'), 'conversation/chat-9.json')
+assert.equal(
+  agentConversationSessionAuditRelativePathForMarkdown('conversation/chat-9.md'),
+  'conversation/.agent-sessions/chat-9.jsonl'
+)
+assert.equal(
+  agentConversationSessionAuditRelativePathForMarkdown('courses/rag/conversation/chat-10.md'),
+  'courses/rag/conversation/.agent-sessions/chat-10.jsonl'
+)
+assert.equal(
+  agentConversationSessionArtifactDirectoryRelativePathForMarkdown('courses/rag/conversation/chat-10.md'),
+  'courses/rag/conversation/.agent-sessions/chat-10'
+)
 
 assert.equal(primaryAgentConversationDirectoryRelativePathForCourse('lessons'), 'conversation')
 assert.deepEqual(agentConversationDirectoryRelativePathsForCourse('lessons'), [
