@@ -78,10 +78,6 @@
   box-shadow: var(--shadow-card);
 }
 
-.study-timer-panel {
-  grid-row: span 2;
-}
-
 .study-room-panel {
   grid-column: span 2;
 }
@@ -100,101 +96,6 @@
   font-size: 18px;
   line-height: 1.25;
   font-weight: 780;
-}
-
-.study-mode-switch {
-  display: inline-flex;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid #dfe7f4;
-  border-radius: 999px;
-  background: #f6f8fc;
-}
-
-.study-mode-switch button,
-.study-presets button {
-  min-height: 28px;
-  padding: 0 10px;
-  color: var(--text-muted);
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 750;
-  cursor: pointer;
-}
-
-.study-mode-switch button.is-active,
-.study-presets button.is-active {
-  color: #1f2d47;
-  background: #fff;
-  box-shadow: 0 4px 12px rgba(43, 61, 94, 0.1);
-}
-
-.study-timer-face {
-  --study-progress: 0%;
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: min(260px, 100%);
-  aspect-ratio: 1;
-  margin: 8px auto 18px;
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at center, #fff 0 60%, transparent 61%),
-    conic-gradient(#4b63d9 var(--study-progress), #ecf1f8 0);
-}
-
-.study-timer-face::after {
-  content: '';
-  position: absolute;
-  inset: 16px;
-  border: 1px solid #e6edf7;
-  border-radius: inherit;
-}
-
-.study-timer-face span,
-.study-timer-face small {
-  position: relative;
-  z-index: 1;
-}
-
-.study-timer-face span {
-  color: #18243a;
-  font-family: 'Cascadia Code', Consolas, 'SFMono-Regular', monospace;
-  font-size: 42px;
-  font-weight: 760;
-  line-height: 1;
-}
-
-.study-timer-face small {
-  margin-top: 58px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 740;
-}
-
-.study-timer-actions,
-.study-presets {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-}
-
-.study-timer-actions {
-  margin-bottom: 12px;
-}
-
-.study-presets {
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-
-.study-presets button {
-  border: 1px solid #e2e9f4;
-  background: #f8fafc;
 }
 
 .study-room-grid {

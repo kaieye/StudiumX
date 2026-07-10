@@ -1,14 +1,12 @@
-import { Check, CheckCircle2, Maximize2, Pause, Play, Plus, RotateCcw, Star, Timer, Trophy, Volume2, VolumeX } from 'lucide-react'
-import type { CSSProperties, FormEvent, ReactNode } from 'react'
-import { formatStudyDuration, formatStudyHours, studyPlantStage } from './domain'
-import type { StudySnapshot, StudyTimerMode } from './types'
+import { Check, CheckCircle2, Plus, Star, Trophy } from 'lucide-react'
+import type { FormEvent, ReactNode } from 'react'
+import { formatStudyHours, studyPlantStage } from './domain'
+import type { StudySnapshot } from './types'
 import type { StudySpaceViewModel } from './viewModel'
 
 type StudyWorkPanelsProps = {
-  activeRoom: StudySpaceViewModel['activeRoom']
   snapshot: StudySnapshot
   level: StudySpaceViewModel['level']
-  timerProgress: number
   currentTask: StudySpaceViewModel['currentTask']
   openTasks: number
   completedTasks: number
@@ -17,23 +15,14 @@ type StudyWorkPanelsProps = {
   taskInput: string
   children?: ReactNode
   onTaskInputChange: (value: string) => void
-  onToggleTimer: () => void
-  onResetTimer: () => void
-  onOpenFocusTheater: () => void
-  onUpdateTimerPreset: (focusMinutes: number, breakMinutes: number) => void
-  onSwitchTimerMode: (timerMode: StudyTimerMode) => void
-  onToggleAmbientEnabled: () => void
-  onSetAmbientVolume: (volume: number) => void
   onAddTask: (event: FormEvent<HTMLFormElement>) => void
   onToggleTask: (taskId: string) => void
   onRemoveDoneTasks: () => void
 }
 
 export function StudyWorkPanels({
-  activeRoom,
   snapshot,
   level,
-  timerProgress,
   currentTask,
   openTasks,
   completedTasks,
@@ -42,88 +31,12 @@ export function StudyWorkPanels({
   taskInput,
   children,
   onTaskInputChange,
-  onToggleTimer,
-  onResetTimer,
-  onOpenFocusTheater,
-  onUpdateTimerPreset,
-  onSwitchTimerMode,
-  onToggleAmbientEnabled,
-  onSetAmbientVolume,
   onAddTask,
   onToggleTask,
   onRemoveDoneTasks
 }: StudyWorkPanelsProps) {
   return (
     <>
-      <section className="study-panel study-work-panel study-timer-panel" aria-label="番茄时钟">
-        <div className="study-panel-head">
-          <div>
-            <span className="study-kicker"><Timer size={14} /> 番茄钟</span>
-            <h2>{snapshot.timerMode === 'focus' ? '专注轮次' : '恢复时间'}</h2>
-          </div>
-          <span className="study-session-label">{snapshot.focusMinutes}/{snapshot.breakMinutes}</span>
-        </div>
-        <div className="study-timer-face" style={{ '--study-progress': `${timerProgress}%` } as CSSProperties}>
-          <span>{formatStudyDuration(snapshot.remainingSeconds)}</span>
-          <small>{snapshot.timerState === 'running' ? '进行中' : snapshot.timerState === 'paused' ? '已暂停' : '准备好'}</small>
-        </div>
-        <div className="study-timer-actions">
-          <button className="primary-button" type="button" onClick={onToggleTimer}>
-            {snapshot.timerState === 'running' ? <Pause size={15} /> : <Play size={15} />}
-            {snapshot.timerState === 'running' ? '暂停' : '开始'}
-          </button>
-          <button className="ghost-button" type="button" onClick={onResetTimer}>
-            <RotateCcw size={15} />
-            重置
-          </button>
-          <button className="ghost-button" type="button" onClick={onOpenFocusTheater}>
-            <Maximize2 size={15} />
-            沉浸
-          </button>
-        </div>
-        <div className="study-presets" aria-label="专注时长">
-          {[
-            [25, 5],
-            [45, 10],
-            [50, 10],
-            [90, 15]
-          ].map(([focus, rest]) => (
-            <button
-              key={focus}
-              type="button"
-              className={snapshot.focusMinutes === focus && snapshot.breakMinutes === rest ? 'is-active' : ''}
-              onClick={() => onUpdateTimerPreset(focus, rest)}
-            >
-              {focus}/{rest}
-            </button>
-          ))}
-        </div>
-        <div className="study-mode-switch" role="tablist" aria-label="计时模式">
-          <button type="button" className={snapshot.timerMode === 'focus' ? 'is-active' : ''} onClick={() => onSwitchTimerMode('focus')}>专注</button>
-          <button type="button" className={snapshot.timerMode === 'break' ? 'is-active' : ''} onClick={() => onSwitchTimerMode('break')}>休息</button>
-        </div>
-        <div className="study-ambient-control">
-          <button
-            type="button"
-            className={snapshot.ambientEnabled ? 'is-active' : ''}
-            onClick={onToggleAmbientEnabled}
-          >
-            {snapshot.ambientEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-            {activeRoom.ambient}
-          </button>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={snapshot.ambientVolume}
-            disabled={!snapshot.ambientEnabled}
-            onChange={(event) => onSetAmbientVolume(Number(event.target.value))}
-            aria-label="环境音音量"
-          />
-        </div>
-      </section>
-
       {children}
 
       <section className="study-panel study-work-panel study-task-panel" aria-label="学习任务">

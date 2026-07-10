@@ -48,9 +48,6 @@
       grid-column: auto;
     }
 
-  .study-timer-panel {
-      grid-row: auto;
-    }
 }
 
 @media (max-width: 640px) {
@@ -68,24 +65,9 @@
     }
 
   .study-panel-head,
-    .study-timer-actions,
     .study-header-stats {
       align-items: stretch;
       flex-direction: column;
-    }
-
-  .study-mode-switch,
-    .study-presets {
-      width: 100%;
-    }
-
-  .study-mode-switch button,
-    .study-presets button {
-      flex: 1;
-    }
-
-  .study-timer-face span {
-      font-size: 35px;
     }
 
   .study-room-grid,
@@ -129,7 +111,6 @@
       grid-template-columns: minmax(0, 1fr) minmax(300px, 0.64fr);
       grid-template-areas:
         'stage stage'
-        'timer timer'
         'companion companion'
         'tasks growth';
     }
@@ -241,7 +222,6 @@
       grid-template-columns: 1fr;
       grid-template-areas:
         'stage'
-        'timer'
         'companion'
         'tasks'
         'growth';
@@ -406,16 +386,7 @@
       grid-template-columns: 1fr;
     }
 
-  .study-ambient-control {
-      width: 100%;
-    }
-
-  .study-ambient-control {
-      grid-template-columns: 1fr;
-    }
-
-  .study-room-actions button,
-    .study-ambient-control button {
+  .study-room-actions button {
       width: 100%;
     }
 

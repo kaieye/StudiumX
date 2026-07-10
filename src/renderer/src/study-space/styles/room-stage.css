@@ -4,8 +4,8 @@
   grid-template-columns: minmax(0, 1.35fr) minmax(315px, 0.72fr);
   grid-template-areas:
     'stage companion'
-    'timer companion'
-    'growth tasks';
+    'tasks companion'
+    'growth companion';
   gap: 14px;
 }
 
@@ -1438,10 +1438,6 @@
 .study-badges span {
   border-color: rgba(38, 47, 65, 0.1);
   background: rgba(255, 255, 255, 0.62);
-}
-
-.study-timer-panel {
-  grid-area: timer;
 }
 
 .study-task-panel {

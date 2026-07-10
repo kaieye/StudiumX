@@ -5,6 +5,7 @@ import {
 } from '../../study-space/domain'
 import { useStudySession } from '../../study-space/session/useStudySession'
 import type { StudyTimerMode, StudyTimerState } from '../../study-space/types'
+import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 
 type AtlasFrame = {
   frame: { x: number; y: number; w: number; h: number }
@@ -622,7 +623,16 @@ type OfficeWorkbenchProps = {
 }
 
 export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
-  const { snapshot, viewModel, chooseSeat } = useStudySession({
+  const {
+    snapshot,
+    viewModel,
+    chooseSeat,
+    toggleTimer,
+    resetTimer,
+    switchTimerMode,
+    updateTimerPreset,
+    toggleAmbientEnabled
+  } = useStudySession({
     showNotification,
     openFocusTheater: () => {}
   })
@@ -824,6 +834,16 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           tabIndex={0}
         />
       </div>
+      <WorkbenchPomodoro
+        snapshot={snapshot}
+        timerProgress={viewModel.timerProgress}
+        ambientLabel={viewModel.activeRoom.ambient}
+        onToggleTimer={toggleTimer}
+        onResetTimer={resetTimer}
+        onSwitchTimerMode={switchTimerMode}
+        onUpdateTimerPreset={updateTimerPreset}
+        onToggleAmbientEnabled={toggleAmbientEnabled}
+      />
     </section>
   )
 }

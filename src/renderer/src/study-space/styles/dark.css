@@ -26,8 +26,6 @@
   color: var(--accent);
 }
 
-:root[data-resolved-theme="dark"] .study-mode-switch,
-:root[data-resolved-theme="dark"] .study-presets button,
 :root[data-resolved-theme="dark"] .study-room-card,
 :root[data-resolved-theme="dark"] .study-seat-map,
 :root[data-resolved-theme="dark"] .study-task-summary div,
@@ -40,26 +38,16 @@
   background: var(--surface-muted);
 }
 
-:root[data-resolved-theme="dark"] .study-mode-switch button.is-active,
-:root[data-resolved-theme="dark"] .study-presets button.is-active,
 :root[data-resolved-theme="dark"] .study-task-row > span,
 :root[data-resolved-theme="dark"] .study-seat {
   background: #252528;
   color: var(--text);
 }
 
-:root[data-resolved-theme="dark"] .study-timer-face {
-  background:
-    radial-gradient(circle at center, var(--surface) 0 60%, transparent 61%),
-    conic-gradient(var(--accent) var(--study-progress), #252528 0);
-}
-
-:root[data-resolved-theme="dark"] .study-timer-face::after,
 :root[data-resolved-theme="dark"] .study-classmate-row {
   border-color: var(--line);
 }
 
-:root[data-resolved-theme="dark"] .study-timer-face span,
 :root[data-resolved-theme="dark"] .study-room-card strong,
 :root[data-resolved-theme="dark"] .study-task-summary strong,
 :root[data-resolved-theme="dark"] .study-task-row strong,
@@ -212,7 +200,6 @@
 :root[data-resolved-theme="dark"] .study-directory-head > span,
 :root[data-resolved-theme="dark"] .study-directory-card,
 :root[data-resolved-theme="dark"] .study-directory-meta span,
-:root[data-resolved-theme="dark"] .study-ambient-control button,
 :root[data-resolved-theme="dark"] .study-space-overview div,
 :root[data-resolved-theme="dark"] .study-room-metrics div,
 :root[data-resolved-theme="dark"] .study-host-card,
@@ -241,7 +228,6 @@
 }
 
 :root[data-resolved-theme="dark"] .study-name-button:hover,
-:root[data-resolved-theme="dark"] .study-ambient-control button.is-active,
 :root[data-resolved-theme="dark"] .study-classmate-row.is-me,
 :root[data-resolved-theme="dark"] .study-leader-row.is-me {
   background: rgba(255, 255, 255, 0.1);
@@ -353,10 +339,6 @@
   color: #fca5a5;
   border-color: rgba(248, 113, 113, 0.24);
   background: rgba(248, 113, 113, 0.1);
-}
-
-:root[data-resolved-theme="dark"] .study-ambient-control {
-  border-color: rgba(255, 255, 255, 0.08);
 }
 
 :root[data-resolved-theme="dark"] .study-room-stage {

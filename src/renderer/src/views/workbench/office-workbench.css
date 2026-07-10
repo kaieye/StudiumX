@@ -5,8 +5,7 @@
   height: auto;
   min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
   overflow: hidden;
   padding: 0;
   background: #ffffff;
@@ -14,7 +13,8 @@
 
 .office-workbench-stage {
   position: relative;
-  width: 100%;
+  flex: 1 1 auto;
+  width: auto;
   height: 100%;
   min-width: 0;
   min-height: 0;
@@ -45,30 +45,231 @@
   outline-offset: 4px;
 }
 
+.workbench-pomodoro {
+  box-sizing: border-box;
+  flex: 0 0 clamp(236px, 19vw, 276px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 48px 18px 22px;
+  color: #1f2925;
+  border-left: 1px solid #e5e9e5;
+  background: #f7f9f6;
+}
+
+.workbench-pomodoro button {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.workbench-pomodoro-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workbench-pomodoro-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.workbench-pomodoro-head > small {
+  padding: 4px 8px;
+  color: #66716b;
+  border-radius: 999px;
+  background: #ecefeb;
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.workbench-pomodoro-head > small.is-running {
+  color: #2f5d4b;
+  background: #dfeee5;
+}
+
+.workbench-pomodoro-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin-top: 22px;
+  padding: 3px;
+  border-radius: 11px;
+  background: #e9ece8;
+}
+
+.workbench-pomodoro-mode button {
+  min-height: 30px;
+  color: #737c77;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.workbench-pomodoro-mode button.is-active {
+  color: #26332d;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(32, 47, 40, 0.08);
+}
+
+.workbench-pomodoro-time {
+  margin: 30px 0 18px;
+  text-align: center;
+}
+
+.workbench-pomodoro-time strong {
+  display: block;
+  color: #1c2722;
+  font-family: 'Cascadia Code', Consolas, 'SFMono-Regular', monospace;
+  font-size: clamp(38px, 4vw, 52px);
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -3px;
+}
+
+.workbench-pomodoro-time span {
+  display: block;
+  margin-top: 10px;
+  color: #78817c;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.workbench-pomodoro-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e1e6e2;
+}
+
+.workbench-pomodoro-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #527466;
+  transition: width 240ms ease;
+}
+
+.workbench-pomodoro-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.workbench-pomodoro-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  color: #58635d;
+  border: 1px solid #dfe4e0;
+  border-radius: 11px;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.workbench-pomodoro-actions button.is-primary {
+  color: #ffffff;
+  border-color: #354f44;
+  background: #354f44;
+}
+
+.workbench-pomodoro-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.workbench-pomodoro-presets button {
+  min-height: 30px;
+  color: #7a837e;
+  border-radius: 9px;
+  background: #ecefeb;
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.workbench-pomodoro-presets button.is-active {
+  color: #304c3f;
+  background: #dfe9e2;
+}
+
+.workbench-pomodoro-presets button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.workbench-pomodoro-ambient {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  align-self: center;
+  margin-top: 18px;
+  padding: 7px 10px;
+  color: #7a837e;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.workbench-pomodoro-ambient.is-active {
+  color: #355647;
+  background: #e4ede7;
+}
+
 @media (max-width: 720px) {
   .office-workbench-page {
     width: 100vw;
     max-width: 100vw;
     height: auto;
     min-height: 0;
-    overflow: auto;
-    overflow-x: hidden;
+    overflow: hidden;
     padding: 0;
   }
 
   .office-workbench-stage {
-    min-height: 100dvh;
+    min-height: 0;
     border-radius: 0;
   }
 
+  .workbench-pomodoro {
+    flex-basis: 210px;
+    padding: 44px 12px 18px;
+  }
+
+  .workbench-pomodoro-time {
+    margin: 22px 0 14px;
+  }
+
+  .workbench-pomodoro-time strong {
+    font-size: 36px;
+  }
 }
 
-:root[data-resolved-theme='dark'] .office-workbench-page {
+:root[data-resolved-theme='dark'] .office-workbench-page,
+:root[data-resolved-theme='dark'] .office-workbench-stage {
   background: #ffffff;
 }
 
 :root[data-resolved-theme='dark'] .office-workbench-stage {
   border-color: transparent;
-  background: #ffffff;
   box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .workbench-pomodoro {
+  color: #1f2925;
+  border-color: #e5e9e5;
+  background: #f7f9f6;
 }

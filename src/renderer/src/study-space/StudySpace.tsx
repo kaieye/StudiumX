@@ -33,7 +33,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     roomCycleNow,
     viewModel,
     emitRoomEvent,
-    updateTimerPreset,
     saveNickname: saveSessionNickname,
     joinSpace: joinSessionSpace,
     createSpace: createSessionSpace,
@@ -42,13 +41,9 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
     toggleTimer,
     followRoomCycle,
     runHostAction,
-    resetTimer,
-    switchTimerMode,
     addTask: addSessionTask,
     toggleTask,
-    removeDoneTasks,
-    toggleAmbientEnabled,
-    setAmbientVolume
+    removeDoneTasks
   } = session
   const [relayDraft, setRelayDraft] = useState(snapshot.presenceRelayUrl)
   const {
@@ -320,10 +315,8 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
         />
 
         <StudyWorkPanels
-          activeRoom={activeRoom}
           snapshot={snapshot}
           level={level}
-          timerProgress={timerProgress}
           currentTask={currentTask}
           openTasks={openTasks}
           completedTasks={completedTasks}
@@ -331,13 +324,6 @@ export function StudySpace({ showNotification }: StudySpaceProps) {
           badges={badges}
           taskInput={taskInput}
           onTaskInputChange={setTaskInput}
-          onToggleTimer={toggleTimer}
-          onResetTimer={resetTimer}
-          onOpenFocusTheater={() => setFocusTheaterOpen(true)}
-          onUpdateTimerPreset={updateTimerPreset}
-          onSwitchTimerMode={switchTimerMode}
-          onToggleAmbientEnabled={toggleAmbientEnabled}
-          onSetAmbientVolume={setAmbientVolume}
           onAddTask={addTask}
           onToggleTask={toggleTask}
           onRemoveDoneTasks={removeDoneTasks}
