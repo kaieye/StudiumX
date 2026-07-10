@@ -40,9 +40,7 @@ import {
   normalizeLessonStyleId
 } from '../shared/lesson-styles'
 import type { LessonBrief } from '../shared/teaching-workflow'
-import {
-  isLearnerProfileMemory
-} from '../shared/teaching-memory-capture'
+import { activeLearnerProfileLines } from '../shared/teaching-personalization'
 import {
   agentConversationDirectoryRelativePath,
   agentConversationJsonRelativePath,
@@ -936,11 +934,7 @@ export class TeachingWorkspaceService {
       lessonCount: course.lessonCount,
       sessionCount: course.sessionCount
     }))
-    const learnerProfiles = memories
-      .filter((memory) => memory.scope === 'user' && !memory.disabledAt && !memory.deletedAt && isLearnerProfileMemory(memory))
-      .map((memory) => cleanText(memory.content))
-      .filter(Boolean)
-      .slice(0, 8)
+    const learnerProfiles = activeLearnerProfileLines(memories, 8)
     return { learnerProfiles, courses }
   }
 

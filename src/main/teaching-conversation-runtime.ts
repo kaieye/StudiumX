@@ -16,6 +16,7 @@ import {
   planLearnerMemoryCapture
 } from '../shared/teaching-memory-capture'
 import { normalizeLessonBrief, type LessonBrief } from '../shared/teaching-workflow'
+import { buildLearnerProfilePromptContext } from '../shared/teaching-personalization'
 import type {
   AgentChatMessage,
   AgentChatMode,
@@ -214,6 +215,7 @@ export async function runTeachingConversationTurn(
         lessonToolEnabled,
         teachSkillReference,
         memoryCapturePlan: capturePlan,
+        existingMemories,
         settings,
         provider,
         temporaryContext,
@@ -408,6 +410,7 @@ function buildAgentChatSystemPrompt(options: {
   lessonToolEnabled: boolean
   teachSkillReference: TeachSkillReference | null
   memoryCapturePlan?: ReturnType<typeof planLearnerMemoryCapture>
+  existingMemories?: TeachingMemoryRecord[]
   settings?: TeachingSettingsV1
   provider?: ReturnType<typeof resolveActiveProvider>
   temporaryContext?: TemporaryChatContext | null
@@ -418,6 +421,7 @@ function buildAgentChatSystemPrompt(options: {
     lessonToolEnabled,
     teachSkillReference,
     memoryCapturePlan = { action: 'none', reason: 'no_candidate' },
+    existingMemories = [],
     settings,
     provider,
     temporaryContext,
@@ -438,6 +442,7 @@ function buildAgentChatSystemPrompt(options: {
       ].join('\n')
 
   const memoryLines = buildMemoryCapturePromptLines(memoryCapturePlan)
+  const learnerProfileLines = buildLearnerProfilePromptContext(existingMemories)
   const runtimeLines = buildModelRuntimePromptLines(settings, provider)
   const modeLines = mode === 'temporary'
     ? buildTemporaryChatPromptLines(temporaryContext, visiblePageContext)
@@ -450,7 +455,7 @@ function buildAgentChatSystemPrompt(options: {
   const lessonPolicy = lessonToolEnabled
     ? LESSON_TOOL_POLICY_PROMPT
     : LESSON_TOOL_UNAVAILABLE_PROMPT
-  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${lessonPolicy}\n\n${ASK_TOOL_POLICY_PROMPT}\n\n${skillReference}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
+  return `${AGENT_CHAT_SYSTEM_PROMPT}\n\n${PERSONAL_TEACHER_POLICY_PROMPT}\n\n${lessonPolicy}\n\n${ASK_TOOL_POLICY_PROMPT}\n\n${skillReference}${runtimeLines ? `\n\n${runtimeLines}` : ''}${learnerProfileLines ? `\n\n${learnerProfileLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}`
 }
 
 function buildTemporaryChatPromptLines(context?: TemporaryChatContext | null, visiblePageContext?: string | null): string {
@@ -837,6 +842,20 @@ const AGENT_CHAT_SYSTEM_PROMPT =
   '当问题涉及时效性、最新动态或课程库之外的事实性信息时，调用 web_search 工具检索后再作答，必要时用 web_fetch 深入阅读，回答中适度引用信息来源链接。' +
   '若未配置工具或当前模型不支持工具调用，直接依据自身知识作答即可。'
 
+const PERSONAL_TEACHER_POLICY_PROMPT = [
+  '<personal-teacher-policy>',
+  '你的目标不是一次性输出最多内容，而是持续做出“此刻最适合这个学习者”的下一步教学决策。',
+  '每轮先在内部判断四件事：用户真正要达成的结果、已有知识的证据、当前卡点、这一轮结束时应能完成的最小可观察动作。不要把这四项机械复述给用户。',
+  '优先使用已注入的学习者画像、MISSION.md、NOTES.md、近期 learning-records 和已有课程；已知的信息不要重复追问。只有缺失信息会实质改变下一步教学时，才提出最少量的诊断问题。',
+  '普通答疑默认采用微型教学循环：先连接用户已有认知，再只讲一个关键点，给一个贴近其目标的例子，然后让用户做一次很小的回忆、判断、解释或应用。不要每次都堆完整教程。',
+  '根据表现实时调节：回答正确且理由充分时提高一点难度或迁移场景；犹豫时缩小步骤并给提示；出现误解时先对比错误模型与正确模型，再让用户立即重试。',
+  '不要把“看过、听懂、课程已生成”当作掌握。只有用户给出可观察证据后，才能把能力视为已建立，并据此维护 learning-records。',
+  '用户只是提问或需要即时解释时，直接在对话中教学，不要为了形式感生成课程；用户希望系统学习、继续下一节或需要可保存材料时，再调用 generate_lesson。',
+  '除非用户要求多个选项，每轮结束只给一个清晰的下一步：回答一个检查题、尝试一个动作、查看生成课程，或告诉你具体卡点。',
+  '保持专属教师的连续性：沿用用户熟悉的例子、术语、语气和节奏，但不要声称自己知道画像中没有的信息。',
+  '</personal-teacher-policy>'
+].join('\n')
+
 const LESSON_TOOL_POLICY_PROMPT = [
   '<lesson-generation-policy>',
   '正式课程只能通过 generate_lesson 工具产出；不要用 write_workspace_file 直接写 lessons/ 目录下的课程页面（该工具会拒绝这类写入）。',
@@ -858,7 +877,9 @@ const LESSON_TOOL_UNAVAILABLE_PROMPT = [
 const ASK_TOOL_POLICY_PROMPT = [
   '<ask-tool-policy>',
   '当存在真正属于用户的决策岔路（学习方向、身份基础、目标优先级、约束选择等，每个选项对应实质不同的后续路径）时，调用 ask 工具给出 1-4 个问题、每题 2-4 个具体选项，推荐项放第一个，然后等待 tool result。',
-  '不要用 ask 询问有明显默认值或你能合理推断的决策；不要在散文里重复 ask 已经问过的内容。',
+  '调用 ask 前先检查学习者画像、MISSION.md、NOTES.md、learning-records 与最近对话；已经确认的信息绝不能再次询问。',
+  '不要为了收集完整画像而一次问遍背景、目标、时间和偏好。只问会改变当前下一步的最小问题；其余信息在真实教学中逐步发现。',
+  '不要用 ask 询问有明显默认值、能从上下文合理推断、或不影响当前答疑的决策；不要在散文里重复 ask 已经问过的内容。',
   '调用 ask 后会阻塞直到用户回答；在收到真实 ask tool result 之前，不要假设用户做了任何选择，也不要替用户挑选项。用户跳过未答的题，请视为"不要替我决定"。',
   '</ask-tool-policy>'
 ].join('\n')
