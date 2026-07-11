@@ -490,6 +490,8 @@ function buildWindowsTitleBarOverlay(): Electron.TitleBarOverlay {
   }
 }
 
+const MAC_WINDOW_BUTTON_POSITION = { x: 22, y: 23 }
+
 /** Apply app-behavior settings (login item, tray, logging) to the live process. */
 async function applyAppBehavior(settings: TeachingSettingsV1): Promise<void> {
   try {
@@ -522,6 +524,16 @@ function buildDesktopWindowVisualOptions(): Electron.BrowserWindowConstructorOpt
     }
   }
 
+  if (process.platform === 'darwin') {
+    return {
+      backgroundColor: '#00000000',
+      titleBarStyle: 'hidden',
+      trafficLightPosition: MAC_WINDOW_BUTTON_POSITION,
+      vibrancy: 'under-window',
+      visualEffectState: 'active'
+    }
+  }
+
   return {
     backgroundColor: '#f7f9fe',
     frame: false
@@ -548,6 +560,10 @@ function createWindow(
       nodeIntegration: false
     }
   })
+
+  if (process.platform === 'darwin') {
+    mainWindow.setWindowButtonPosition(MAC_WINDOW_BUTTON_POSITION)
+  }
 
   tray.attach(mainWindow)
 

@@ -160,6 +160,13 @@ function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
   return Boolean(nativeEvent.isComposing || nativeEvent.keyCode === 229)
 }
 
+function controlAppWindow(action: WindowControlAction): void {
+  const request = window.teachingSystem?.controlWindow(action)
+  void request?.catch((error: unknown) => {
+    console.error(`[StudiumX] window control failed (${action}):`, error)
+  })
+}
+
 // ================================================================
 // App Error Boundary
 // ================================================================
@@ -242,15 +249,21 @@ function App() {
             aria-hidden="true"
           />
         )}
+        {isMac && (
+          <div
+            className={`mac-sidebar-drag-region${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
+            aria-hidden="true"
+          />
+        )}
         {isWindows && <WindowsSidebarToggleChrome />}
         {isWindows && <WindowsWindowChrome />}
+        {isMac && <MacSidebarToggleChrome />}
         {showTitlebar && <WindowTitlebar />}
         <div
           className={`app-shell${platformClass}${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
           data-density={settings.density}
           style={appShellStyle}
         >
-          {isMac && <MacTrafficLights />}
           <Sidebar />
           <SidebarResizer disabled={sidebarCollapsed} onResize={setSidebarWidth} width={sidebarWidth} />
           <MainArea />
@@ -351,9 +364,6 @@ function SidebarResizer({
 
 function WindowControlButtons() {
   const { t } = useTranslation()
-  const controlWindow = (action: WindowControlAction): void => {
-    void window.teachingSystem?.controlWindow(action)
-  }
 
   return (
     <div className="window-controls" role="group" aria-label={t('titlebar.group')}>
@@ -362,7 +372,7 @@ function WindowControlButtons() {
         type="button"
         aria-label={t('titlebar.minimize')}
         title={t('titlebar.minimize')}
-        onClick={() => controlWindow('minimize')}
+        onClick={() => controlAppWindow('minimize')}
       >
         <Minus size={14} strokeWidth={1.8} />
       </button>
@@ -371,7 +381,7 @@ function WindowControlButtons() {
         type="button"
         aria-label={t('titlebar.maximize')}
         title={t('titlebar.maximize')}
-        onClick={() => controlWindow('toggle-maximize')}
+        onClick={() => controlAppWindow('toggle-maximize')}
       >
         <Square size={12} strokeWidth={1.7} />
       </button>
@@ -380,7 +390,7 @@ function WindowControlButtons() {
         type="button"
         aria-label={t('titlebar.close')}
         title={t('titlebar.close')}
-        onClick={() => controlWindow('close')}
+        onClick={() => controlAppWindow('close')}
       >
         <X size={15} strokeWidth={1.8} />
       </button>
@@ -430,45 +440,42 @@ function WindowsSidebarToggleChrome() {
   )
 }
 
-function WindowsWindowChrome() {
-  return <div className="windows-window-chrome" aria-hidden="true" />
-}
-
-// ================================================================
-// Mac Traffic Lights Overlay
-// ================================================================
-
-function MacTrafficLights() {
+function MacSidebarToggleChrome() {
   const { t } = useTranslation()
-  const controlWindow = (action: WindowControlAction): void => {
-    void window.teachingSystem?.controlWindow(action)
+  const { sidebarCollapsed, setSidebarCollapsed } = useAppStore()
+  const toggleSidebar = (): void => setSidebarCollapsed(!useAppStore.getState().sidebarCollapsed)
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    toggleSidebar()
+  }
+  const handleClick = (event: ReactMouseEvent<HTMLButtonElement>): void => {
+    if (event.detail !== 0) {
+      event.preventDefault()
+      return
+    }
+    toggleSidebar()
   }
 
   return (
-    <div className="mac-traffic-lights" role="group" aria-label={t('titlebar.group')}>
+    <div className="mac-sidebar-toggle-chrome">
       <button
-        className="mac-traffic-light mac-traffic-light--close"
+        className="icon-button mac-sidebar-toggle"
         type="button"
-        aria-label={t('titlebar.close')}
-        title={t('titlebar.close')}
-        onClick={() => controlWindow('close')}
-      />
-      <button
-        className="mac-traffic-light mac-traffic-light--minimize"
-        type="button"
-        aria-label={t('titlebar.minimize')}
-        title={t('titlebar.minimize')}
-        onClick={() => controlWindow('minimize')}
-      />
-      <button
-        className="mac-traffic-light mac-traffic-light--maximize"
-        type="button"
-        aria-label={t('titlebar.maximize')}
-        title={t('titlebar.maximize')}
-        onClick={() => controlWindow('toggle-maximize')}
-      />
+        aria-label={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
+        title={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
+        onClick={handleClick}
+        onPointerDown={handlePointerDown}
+      >
+        <SidebarToggleIcon className="mac-sidebar-action-icon" collapsed={sidebarCollapsed} />
+      </button>
     </div>
   )
+}
+
+function WindowsWindowChrome() {
+  return <div className="windows-window-chrome" aria-hidden="true" />
 }
 
 // ================================================================
@@ -2028,7 +2035,10 @@ function MarkdownDocumentPanel({
 
 function MainArea() {
   const { t } = useTranslation()
-  const isWindows = (window.teachingSystem?.platform ?? 'win32') === 'win32'
+  const platform = window.teachingSystem?.platform ?? 'win32'
+  const isMac = platform === 'darwin'
+  const isWindows = platform === 'win32'
+  const showInlineSidebarToggle = !isWindows && !isMac
   const {
     view,
     settingsSection,
@@ -2171,7 +2181,7 @@ function MainArea() {
     >
       {readingResourceHtml ? (
         <>
-          {!isWindows && renderSidebarToggle('icon-button reader-sidebar-toggle')}
+          {showInlineSidebarToggle && renderSidebarToggle('icon-button reader-sidebar-toggle')}
           <button
             className={`icon-button reader-preview-back${isWindows ? ' reader-preview-back--alone' : ''}`}
             type="button"
@@ -2182,10 +2192,10 @@ function MainArea() {
           </button>
         </>
       ) : readingCourseHtml || readingMarkdown ? (
-        !isWindows ? renderSidebarToggle('icon-button reader-sidebar-toggle') : null
+        showInlineSidebarToggle ? renderSidebarToggle('icon-button reader-sidebar-toggle') : null
       ) : (
         <header className="topbar">
-          <div className="crumb">{!isWindows && renderSidebarToggle()}</div>
+          <div className="crumb">{showInlineSidebarToggle && renderSidebarToggle()}</div>
         </header>
       )}
 

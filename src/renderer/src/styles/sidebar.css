@@ -52,6 +52,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   display: none;
 }.app-shell.platform-darwin .sidebar {
   padding-top: 52px;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }.app-shell.platform-win32 .sidebar {
   margin-top: var(--window-chrome-height);
   height: calc(100% - var(--window-chrome-height));

@@ -106,6 +106,15 @@
   height: var(--window-chrome-height);
   app-region: no-drag;
   -webkit-app-region: no-drag;
+}.app-shell.platform-darwin.is-sidebar-collapsed .topbar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 136px;
+  height: 52px;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }.app-shell.platform-win32 .main-area[data-reading-html='true'],
 .app-shell.platform-win32 .main-area[data-reading-markdown='true'] {
   padding-top: var(--window-chrome-height);

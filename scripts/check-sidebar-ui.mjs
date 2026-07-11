@@ -186,14 +186,14 @@ assert.doesNotMatch(
 
 assert.match(
   app,
-  /\{readingResourceHtml \? \(\s*<>\s*\{!isWindows && renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\}[\s\S]*className=\{`icon-button reader-preview-back\$\{isWindows \? ' reader-preview-back--alone' : ''\}`\}[\s\S]*onClick=\{closeResourceHtmlPreview\}/,
-  'resource HTML reader views should render a non-Windows floating sidebar button and a Windows-safe floating back button instead of a topbar'
+  /\{readingResourceHtml \? \(\s*<>\s*\{showInlineSidebarToggle && renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\}[\s\S]*className=\{`icon-button reader-preview-back\$\{isWindows \? ' reader-preview-back--alone' : ''\}`\}[\s\S]*onClick=\{closeResourceHtmlPreview\}/,
+  'resource HTML reader views should render the inline floating sidebar button only on platforms without chrome-level placement'
 )
 
 assert.match(
   app,
-  /\) : readingCourseHtml \|\| readingMarkdown \? \(\s*!isWindows \? renderSidebarToggle\('icon-button reader-sidebar-toggle'\) : null\s*\) : \(\s*<header className="topbar">/,
-  'lesson HTML and Markdown reader views should keep the non-Windows floating sidebar toggle without a topbar'
+  /\) : readingCourseHtml \|\| readingMarkdown \? \(\s*showInlineSidebarToggle \? renderSidebarToggle\('icon-button reader-sidebar-toggle'\) : null\s*\) : \(\s*<header className="topbar">/,
+  'lesson HTML and Markdown reader views should keep the inline floating sidebar toggle only on platforms without chrome-level placement'
 )
 
 assert.match(

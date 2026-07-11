@@ -98,6 +98,19 @@
   display: none;
   width: 0;
   height: var(--window-chrome-height);
+}.mac-sidebar-drag-region {
+  position: absolute;
+  top: 0;
+  left: 136px;
+  z-index: 210;
+  width: calc(var(--sidebar-width) - 136px);
+  height: 52px;
+  app-region: drag;
+  -webkit-app-region: drag;
+}.mac-sidebar-drag-region.is-sidebar-collapsed {
+  display: none;
+  width: 0;
+  height: 52px;
 }.windows-sidebar-toggle-chrome {
   position: absolute;
   top: 8px;
@@ -158,6 +171,64 @@
   box-shadow: none;
 }:root[data-resolved-theme="dark"] .windows-sidebar-toggle-chrome .windows-sidebar-toggle:active {
   background: rgba(255, 255, 255, 0.12);
+}.mac-sidebar-toggle-chrome {
+  position: absolute;
+  top: 14px;
+  left: 96px;
+  z-index: 230;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  pointer-events: auto;
+  user-select: none;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}.mac-sidebar-toggle-chrome .mac-sidebar-toggle {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}.mac-sidebar-toggle-chrome .mac-sidebar-toggle * {
+  pointer-events: none;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}.mac-sidebar-toggle-chrome .mac-sidebar-toggle:hover,
+.mac-sidebar-toggle-chrome .mac-sidebar-toggle:focus-visible {
+  color: var(--text);
+  border-color: transparent;
+  background: rgba(17, 24, 39, 0.08);
+}.mac-sidebar-toggle-chrome .mac-sidebar-toggle:active {
+  background: rgba(17, 24, 39, 0.12);
+}.mac-sidebar-action-icon {
+  grid-area: 1 / 1;
+  position: relative;
+  z-index: 1;
+  opacity: 1;
+  stroke-width: 1.9;
+  transition:
+    transform 150ms ease;
+}.mac-sidebar-toggle-chrome .mac-sidebar-toggle:active .mac-sidebar-action-icon {
+  transform: scale(0.94);
+}:root[data-resolved-theme="dark"] .mac-sidebar-toggle-chrome .mac-sidebar-toggle:hover,
+:root[data-resolved-theme="dark"] .mac-sidebar-toggle-chrome .mac-sidebar-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+}:root[data-resolved-theme="dark"] .mac-sidebar-toggle-chrome .mac-sidebar-toggle:active {
+  background: rgba(255, 255, 255, 0.12);
 }.windows-window-chrome .window-controls {
   height: var(--window-chrome-height);
   app-region: no-drag;
@@ -191,66 +262,4 @@
   position: relative;
 }.app-shell.platform-win32 {
   --window-control-overlay-height: var(--window-chrome-height);
-}
-
-/* ================================================================
-   macOS Traffic Lights (native-style overlay)
-   ================================================================ */.mac-traffic-lights {
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  z-index: 50;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  pointer-events: auto;
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
-}.mac-traffic-light {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  width: 12px;
-  height: 12px;
-  padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.09);
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.32);
-  transition:
-    filter 120ms ease,
-    transform 120ms ease;
-}.mac-traffic-light::before {
-  opacity: 0;
-  font-size: 7px;
-  font-weight: 800;
-  line-height: 1;
-  color: rgba(40, 40, 40, 0.58);
-  transition: opacity 100ms ease;
-}.mac-traffic-lights:hover .mac-traffic-light::before {
-  opacity: 1;
-}.mac-traffic-light:hover {
-  filter: brightness(0.94) saturate(1.06);
-}.mac-traffic-light:active {
-  transform: scale(0.93);
-}.mac-traffic-light--close {
-  background: #ff5f57;
-}.mac-traffic-light--close::before {
-  content: "✕";
-  transform: translateY(-0.5px);
-}.mac-traffic-light--minimize {
-  background: #ffbd2e;
-}.mac-traffic-light--minimize::before {
-  content: "";
-  width: 6px;
-  height: 1.5px;
-  border-radius: 999px;
-  background: rgba(40, 40, 40, 0.58);
-}.mac-traffic-light--maximize {
-  background: #28c840;
-}.mac-traffic-light--maximize::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border: 1.3px solid rgba(40, 40, 40, 0.52);
-  border-radius: 1.5px;
 }

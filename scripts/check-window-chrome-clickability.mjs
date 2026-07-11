@@ -36,6 +36,8 @@ function assertAppRegion(selector, value, message) {
 
 const windowsVisualOptions = main.match(/if \(process\.platform === 'win32'\) \{\s*return \{([\s\S]*?)\n\s*\}/)?.[1] ?? ''
 assert.ok(windowsVisualOptions, 'Windows BrowserWindow visual options should be detectable')
+const macVisualOptions = main.match(/if \(process\.platform === 'darwin'\) \{\s*return \{([\s\S]*?)\n\s*\}/)?.[1] ?? ''
+assert.ok(macVisualOptions, 'macOS BrowserWindow visual options should be detectable')
 
 assert.match(
   windowsVisualOptions,
@@ -53,6 +55,30 @@ assert.doesNotMatch(
   windowsVisualOptions,
   /frame: false/,
   'Windows BrowserWindow should not use raw frame:false because it can break app-region dragging'
+)
+
+assert.match(
+  macVisualOptions,
+  /backgroundColor: '#00000000'[\s\S]*titleBarStyle: 'hidden'[\s\S]*trafficLightPosition: MAC_WINDOW_BUTTON_POSITION[\s\S]*vibrancy: 'under-window'[\s\S]*visualEffectState: 'active'/,
+  'macOS BrowserWindow should use native hidden titlebar traffic lights like ZCode'
+)
+
+assert.doesNotMatch(
+  macVisualOptions,
+  /frame: false/,
+  'macOS BrowserWindow should not replace native traffic lights with custom frameless chrome'
+)
+
+assert.match(
+  main,
+  /const MAC_WINDOW_BUTTON_POSITION = \{ x: 22, y: 23 \}/,
+  'macOS traffic light position should match the ZCode-style native titlebar placement'
+)
+
+assert.match(
+  main,
+  /if \(process\.platform === 'darwin'\) \{\s*mainWindow\.setWindowButtonPosition\(MAC_WINDOW_BUTTON_POSITION\)/,
+  'macOS windows should explicitly sync native traffic light position after creation'
 )
 
 assert.match(
@@ -137,14 +163,40 @@ assert.match(
 
 assert.match(
   app,
+  /className=\{`mac-sidebar-drag-region\$\{sidebarCollapsed \? ' is-sidebar-collapsed' : ''\}`\}/,
+  'macOS should render an explicit sidebar-top drag strip that starts after the custom chrome buttons'
+)
+
+assert.match(
+  app,
   /\{isWindows && <WindowsSidebarToggleChrome \/>\}[\s\S]*\{isWindows && <WindowsWindowChrome \/>\}/,
   'Windows sidebar toggle should render as a separate no-drag layer before the draggable chrome'
 )
 
 assert.match(
   app,
+  /\{isWindows && <WindowsWindowChrome \/>\}\s*\n\s*\{isMac && <MacSidebarToggleChrome \/>\}/,
+  'macOS should render a top-level sidebar toggle beside native traffic lights'
+)
+
+assert.doesNotMatch(app, /function MacWindowChrome\(|function MacTrafficLights\(|MacTrafficLightButton/, 'macOS should not self-draw traffic light buttons')
+
+assert.match(
+  app,
   /function WindowsSidebarToggleChrome\(\) \{[\s\S]*const handlePointerDown = \(event: ReactPointerEvent<HTMLButtonElement>\): void => \{[\s\S]*event\.preventDefault\(\)[\s\S]*event\.stopPropagation\(\)[\s\S]*toggleSidebar\(\)[\s\S]*onPointerDown=\{handlePointerDown\}/,
   'Windows sidebar toggle should switch on pointerdown before draggable chrome can swallow click'
+)
+
+assert.match(
+  app,
+  /function MacSidebarToggleChrome\(\) \{[\s\S]*const handlePointerDown = \(event: ReactPointerEvent<HTMLButtonElement>\): void => \{[\s\S]*event\.preventDefault\(\)[\s\S]*event\.stopPropagation\(\)[\s\S]*toggleSidebar\(\)[\s\S]*onPointerDown=\{handlePointerDown\}/,
+  'macOS sidebar toggle should switch on pointerdown beside the native traffic lights'
+)
+
+assert.match(
+  app,
+  /const showInlineSidebarToggle = !isWindows && !isMac/,
+  'macOS should not duplicate the sidebar toggle inside page topbars because it has chrome-level placement'
 )
 
 assert.match(
@@ -161,11 +213,41 @@ assert.match(
 
 assert.match(
   css,
+  /\.mac-sidebar-drag-region \{[\s\S]*left: 136px;[\s\S]*width: calc\(var\(--sidebar-width\) - 136px\);[\s\S]*height: 52px;[\s\S]*app-region: drag;[\s\S]*-webkit-app-region: drag;/,
+  'macOS sidebar drag strip should start to the right of native traffic lights and the sidebar toggle'
+)
+
+assert.match(
+  css,
+  /\.mac-sidebar-drag-region\.is-sidebar-collapsed \{[\s\S]*display: none;[\s\S]*width: 0;[\s\S]*height: 52px;/,
+  'Collapsed macOS sidebar drag strip should not cover the custom chrome buttons'
+)
+
+assert.match(
+  css,
+  /\.mac-sidebar-toggle-chrome \{[\s\S]*top: 14px;[\s\S]*left: 96px;[\s\S]*app-region: no-drag;[\s\S]*-webkit-app-region: no-drag;/,
+  'macOS sidebar toggle should sit to the right of native traffic lights using ZCode-style left padding'
+)
+
+assert.match(
+  css,
+  /\.app-shell\.platform-darwin\.is-sidebar-collapsed \.topbar::before \{[\s\S]*width: 136px;[\s\S]*height: 52px;[\s\S]*app-region: no-drag;[\s\S]*-webkit-app-region: no-drag;/,
+  'Collapsed macOS topbars should reserve a no-drag hit region below native traffic lights and sidebar toggle'
+)
+
+assert.match(
+  css,
   /\.app-shell\.platform-win32 \.sidebar \{[\s\S]*margin-top: var\(--window-chrome-height\);[\s\S]*height: calc\(100% - var\(--window-chrome-height\)\);[\s\S]*padding-top: 0;/,
   'Windows sidebar should start below the explicit sidebar-top drag strip instead of covering it'
 )
 
 assertAppRegion('.app-shell.platform-win32 .sidebar', 'no-drag', 'Windows sidebar content should not cover the collapse button as a drag region')
+
+assertAppRegion('.app-shell.platform-darwin .sidebar', 'no-drag', 'macOS sidebar content must not swallow custom chrome button clicks as a drag region')
+
+assertAppRegion('.mac-sidebar-toggle-chrome', 'no-drag', 'macOS sidebar toggle chrome must stay outside every draggable parent')
+
+assertAppRegion('.mac-sidebar-toggle-chrome .mac-sidebar-toggle', 'no-drag', 'macOS sidebar toggle button must stay clickable beside the traffic lights')
 
 assertAppRegion('.nav-list', 'no-drag', 'Windows sidebar navigation buttons must stay clickable')
 
