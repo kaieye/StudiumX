@@ -788,6 +788,67 @@
   min-width: max-content;
   padding-right: 58px;
 }
+.markdown-math {
+  max-width: 100%;
+}
+.markdown-math--inline {
+  display: inline;
+}
+.markdown-math--block {
+  overflow-x: auto;
+  margin: 1em 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-solid);
+}
+.markdown-math--block .katex-display {
+  margin: 0;
+}
+.markdown-math-fallback {
+  color: var(--text-muted);
+}
+.markdown-mermaid {
+  overflow: hidden;
+  margin: 1em 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-solid);
+}
+.markdown-mermaid-output {
+  overflow-x: auto;
+  padding: 16px;
+}
+.markdown-mermaid-output svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+.markdown-mermaid.is-loading .markdown-mermaid-output::before {
+  content: "Rendering diagram...";
+  display: block;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+.markdown-mermaid.is-rendered .markdown-mermaid-source {
+  display: none;
+}
+.markdown-mermaid.is-error .markdown-mermaid-output {
+  border-bottom: 1px solid var(--line);
+  background: rgba(224, 88, 68, 0.08);
+}
+.markdown-mermaid-error {
+  margin: 0;
+  color: var(--rose);
+  font-size: 13px;
+  font-weight: 650;
+}
+.markdown-prose .markdown-mermaid-source {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
 .markdown-codeblock-language {
   position: absolute;
   top: 8px;

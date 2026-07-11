@@ -1,4 +1,8 @@
 import type { TeachingMemoryRecord, TeachingSettingsV1 } from '../../shared/teaching-types'
+import {
+  DEFAULT_LESSON_PREVIEW_CAPABILITIES,
+  type LessonPreviewCapabilities
+} from '../../shared/lesson-preview-capabilities'
 
 /**
  * A workspace file (NOTES.md / GLOSSARY.md / RESOURCES.md) excerpt injected
@@ -41,10 +45,14 @@ export function buildLessonSystemPrompt(opts: {
   priorLessons?: LessonPriorLesson[]
   conversationExcerpt?: string
   workspaceContext?: LessonWorkspaceContext
+  previewCapabilities?: LessonPreviewCapabilities
 }): string {
   const includeQuiz = opts.includeRetrievalPractice
   const includeReference = opts.generateReference
   const includeRecord = opts.generateLearningRecord
+  const previewCapabilities = opts.previewCapabilities ?? DEFAULT_LESSON_PREVIEW_CAPABILITIES
+  const previewSyntaxContract = renderPreviewSyntaxContract(previewCapabilities)
+  const previewCapabilityRules = renderPreviewCapabilityRules(previewCapabilities)
   const priorLessonsBlock = opts.priorLessons && opts.priorLessons.length > 0
     ? `\n# 已完成课程\n${opts.priorLessons
         .map((lesson) => `- Lesson ${lesson.id}：${lesson.title} — ${lesson.objective}（文件：${lesson.relativePath}）`)
@@ -73,7 +81,7 @@ export function buildLessonSystemPrompt(opts: {
   "durationMinutes": number,            // 建议学习时长（分钟），与请求一致
   "sections": [                          // 1~6 节正文
     { "heading": string,                // 小节标题 ≤20字
-      "body": string }                  // 小节正文，使用 markdown：支持 #/##/###、段落、- 列表、1. 有序列表、\`行内代码\`、\`\`\`代码块\`\`\`、> 引用、**粗体**、GFM 表格。禁止任何 HTML 标签。
+      "body": string }                  // 小节正文，使用 markdown：支持 #/##/###、段落、- 列表、1. 有序列表、\`行内代码\`、\`\`\`代码块\`\`\`、> 引用、**粗体**、GFM 表格${previewSyntaxContract}。禁止任何 HTML 标签。
     }],
   "keyPoints": string[],                // 3~6 个要点，每个 ≤30字
   "quiz": [                              // ${includeQuiz ? '2~4 道检索练习题' : '留空数组'},
@@ -122,6 +130,8 @@ ${opts.memories.map((memory, index) => `- [${index + 1}] (${memory.scope}) ${mem
 - followupPrompt 应邀请学习者提交答案、解释思路或报告具体卡点，使下一轮对话能据此调节难度；避免“有问题随时问我”之类泛化收尾。
 - sections 的 body 用 markdown，不要输出 HTML。
 - 当内容涉及比较、分类、步骤矩阵、参数对照或取舍判断时，优先用 markdown 表格表达；表格必须包含表头和分隔行，例如两行：\`| 项 | 说明 |\` 和 \`| --- | --- |\`。
+- 只有当系统明确说明预览支持时，才使用数学公式或 Mermaid 图表；否则用普通段落、表格或 flowDiagram。
+${previewCapabilityRules}
 - 题目答案必须与 choices 对应，索引从 0 开始。
 - 推荐阅读 \`primarySource\` 优先填一个权威原始来源（论文/官方文档/权威博客）；无 URL 时只填 title + note。
 - 若存在多步流程（如 RAG 的检索→增强→生成），用 \`flowDiagram\` 画 ASCII 框图，比文字列表更直观。
@@ -131,6 +141,24 @@ ${opts.memories.map((memory, index) => `- [${index + 1}] (${memory.scope}) ${mem
 function truncate(text: string, limit: number): string {
   const trimmed = text.replace(/\s+/g, ' ').trim()
   return trimmed.length > limit ? `${trimmed.slice(0, limit)}…` : trimmed
+}
+
+function renderPreviewSyntaxContract(capabilities: LessonPreviewCapabilities): string {
+  const syntax: string[] = []
+  if (capabilities.math) syntax.push('KaTeX 数学公式（$...$ 和 $$...$$）')
+  if (capabilities.mermaid) syntax.push('Mermaid 代码围栏（```mermaid）')
+  return syntax.length ? `、${syntax.join('、')}` : ''
+}
+
+function renderPreviewCapabilityRules(capabilities: LessonPreviewCapabilities): string {
+  const rules: string[] = []
+  if (capabilities.math) {
+    rules.push('- 当前预览支持 KaTeX：短公式用 `$...$`，独立推导用 `$$...$$`；公式必须是 LaTeX，不要用 HTML。')
+  }
+  if (capabilities.mermaid) {
+    rules.push('- 当前预览支持 Mermaid：仅在流程、时序、时间线、概念关系或检索练习路径明显更清楚时，在 sections.body 中使用 ```mermaid 代码围栏；语法错误会退回源码显示。')
+  }
+  return rules.join('\n')
 }
 
 export function buildLessonUserPrompt(opts: {

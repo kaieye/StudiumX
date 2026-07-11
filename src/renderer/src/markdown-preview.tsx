@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it'
+import katex from 'katex'
 import markdownItMark from 'markdown-it-mark'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { useEffect, useMemo, useRef } from 'react'
@@ -6,6 +7,37 @@ import { PREVIEW_PROTOCOL } from '../../shared/preview-markdown-bridge'
 
 const COPY_DEFAULT_HTML = '<span class="markdown-copy-icon markdown-copy-icon--default">copy</span>'
 const COPY_DONE_HTML = '<span class="markdown-copy-icon markdown-copy-icon--done">copied</span>'
+const MAX_MERMAID_SOURCE_LENGTH = 12_000
+
+type MermaidRenderer = typeof import('mermaid')['default']
+
+type MarkdownItStateBlock = {
+  src: string
+  bMarks: number[]
+  eMarks: number[]
+  tShift: number[]
+  line: number
+  lineMax: number
+  push: (type: string, tag: string, nesting: -1 | 0 | 1) => {
+    block: boolean
+    content: string
+    map: [number, number] | null
+    markup: string
+  }
+}
+
+type MarkdownItStateInline = {
+  src: string
+  pos: number
+  posMax: number
+  push: (type: string, tag: string, nesting: -1 | 0 | 1) => {
+    content: string
+    markup: string
+  }
+}
+
+let mermaidRendererPromise: Promise<MermaidRenderer> | null = null
+let mermaidRenderCounter = 0
 
 function escapeHtml(value: string): string {
   return value
@@ -26,6 +58,169 @@ function slugifyHeading(value: string): string {
     .replace(/\s+/g, '-')
 }
 
+function getLine(state: MarkdownItStateBlock, line: number): string {
+  const start = state.bMarks[line]! + state.tShift[line]!
+  const end = state.eMarks[line]!
+  return state.src.slice(start, end)
+}
+
+function isEscaped(src: string, pos: number): boolean {
+  let slashCount = 0
+  for (let index = pos - 1; index >= 0 && src[index] === '\\'; index -= 1) {
+    slashCount += 1
+  }
+  return slashCount % 2 === 1
+}
+
+function findClosingDollar(src: string, start: number, end: number): number {
+  for (let index = start; index < end; index += 1) {
+    if (src[index] === '$' && !isEscaped(src, index)) return index
+  }
+  return -1
+}
+
+function findClosingInlineDelimiter(src: string, start: number, end: number, delimiter: string): number {
+  for (let index = start; index < end - 1; index += 1) {
+    if (src.startsWith(delimiter, index) && !isEscaped(src, index)) return index
+  }
+  return -1
+}
+
+function mathInlineRule(state: MarkdownItStateInline, silent: boolean): boolean {
+  const start = state.pos
+  const src = state.src
+
+  if (src[start] === '$' && src[start + 1] !== '$' && !isEscaped(src, start)) {
+    const end = findClosingDollar(src, start + 1, state.posMax)
+    if (end < 0) return false
+    const content = src.slice(start + 1, end)
+    if (!content.trim() || /^\s|\s$/.test(content)) return false
+    if (!silent) {
+      const token = state.push('math_inline', 'math', 0)
+      token.content = content
+      token.markup = '$'
+    }
+    state.pos = end + 1
+    return true
+  }
+
+  if (src.startsWith('\\(', start) && !isEscaped(src, start)) {
+    const end = findClosingInlineDelimiter(src, start + 2, state.posMax, '\\)')
+    if (end < 0) return false
+    const content = src.slice(start + 2, end)
+    if (!content.trim()) return false
+    if (!silent) {
+      const token = state.push('math_inline', 'math', 0)
+      token.content = content
+      token.markup = '\\('
+    }
+    state.pos = end + 2
+    return true
+  }
+
+  return false
+}
+
+function mathBlockRule(
+  state: MarkdownItStateBlock,
+  startLine: number,
+  endLine: number,
+  silent: boolean
+): boolean {
+  const firstLine = getLine(state, startLine).trim()
+  const opener = firstLine.startsWith('$$') ? '$$' : firstLine.startsWith('\\[') ? '\\[' : null
+  if (!opener) return false
+
+  const closer = opener === '$$' ? '$$' : '\\]'
+  const firstContent = firstLine.slice(opener.length)
+  const sameLineEnd = firstContent.indexOf(closer)
+  const contentLines: string[] = []
+  let lastLine = startLine
+
+  if (sameLineEnd >= 0) {
+    contentLines.push(firstContent.slice(0, sameLineEnd))
+  } else {
+    contentLines.push(firstContent)
+    let found = false
+    for (let line = startLine + 1; line < endLine; line += 1) {
+      const current = getLine(state, line)
+      const closeIndex = current.indexOf(closer)
+      if (closeIndex >= 0) {
+        contentLines.push(current.slice(0, closeIndex))
+        lastLine = line
+        found = true
+        break
+      }
+      contentLines.push(current)
+    }
+    if (!found) return false
+  }
+
+  if (silent) return true
+
+  const token = state.push('math_block', 'math', 0)
+  token.block = true
+  token.content = contentLines.join('\n').trim()
+  token.markup = opener
+  token.map = [startLine, lastLine + 1]
+  state.line = lastLine + 1
+  return true
+}
+
+function renderKatex(content: string, displayMode: boolean): string {
+  try {
+    return katex.renderToString(content, {
+      displayMode,
+      output: 'html',
+      strict: 'ignore',
+      throwOnError: false,
+      trust: false
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid math expression'
+    return `<code class="markdown-math-fallback" title="${escapeAttribute(message)}">${escapeHtml(content)}</code>`
+  }
+}
+
+function renderMermaidPlaceholder(source: string): string {
+  const safeSource = escapeHtml(source)
+  return `<div class="markdown-mermaid" data-mermaid-state="pending">
+  <div class="markdown-mermaid-output" aria-live="polite"></div>
+  <pre class="markdown-mermaid-source" data-language="mermaid"><code class="language-mermaid">${safeSource}</code></pre>
+</div>`
+}
+
+function configureMermaid(mermaid: MermaidRenderer): void {
+  const isDark = document.documentElement.getAttribute('data-resolved-theme') === 'dark'
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: isDark ? 'dark' : 'default',
+    flowchart: {
+      htmlLabels: false,
+      useMaxWidth: true
+    },
+    sequence: {
+      useMaxWidth: true
+    },
+    mindmap: {
+      useMaxWidth: true
+    }
+  })
+}
+
+function getMermaidRenderer(): Promise<MermaidRenderer> {
+  if (!mermaidRendererPromise) {
+    mermaidRendererPromise = import('mermaid')
+      .then((module) => module.default)
+      .catch((error) => {
+        mermaidRendererPromise = null
+        throw error
+      })
+  }
+  return mermaidRendererPromise
+}
+
 function createMarkdownRenderer(): MarkdownIt {
   const md = new MarkdownIt({
     html: false,
@@ -42,6 +237,26 @@ function createMarkdownRenderer(): MarkdownIt {
 
   md.use(markdownItTaskLists, { enabled: false, label: true })
   md.use(markdownItMark)
+  md.block.ruler.before('fence', 'math_block', mathBlockRule)
+  md.inline.ruler.before('escape', 'math_inline', mathInlineRule)
+
+  const defaultFence = md.renderer.rules.fence
+  md.renderer.rules.fence = (tokens, index, options, env, self) => {
+    const token = tokens[index]!
+    const language = (token.info.trim().split(/\s+/)[0] || '').toLowerCase()
+    if (language === 'mermaid') return renderMermaidPlaceholder(token.content)
+    return defaultFence
+      ? defaultFence(tokens, index, options, env, self)
+      : self.renderToken(tokens, index, options)
+  }
+
+  md.renderer.rules.math_inline = (tokens, index) => {
+    return `<span class="markdown-math markdown-math--inline">${renderKatex(tokens[index]!.content, false)}</span>`
+  }
+
+  md.renderer.rules.math_block = (tokens, index) => {
+    return `<div class="markdown-math markdown-math--block">${renderKatex(tokens[index]!.content, true)}</div>`
+  }
 
   md.core.ruler.push('source_lines', (state) => {
     for (const token of state.tokens) {
@@ -66,6 +281,10 @@ function createMarkdownRenderer(): MarkdownIt {
 }
 
 const markdownRenderer = createMarkdownRenderer()
+
+export function renderMarkdownPreviewHtml(source: string): string {
+  return markdownRenderer.render(source)
+}
 
 function isSpecialHref(value: string): boolean {
   return /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(value)
@@ -129,6 +348,7 @@ function decorateCodeBlocks(root: HTMLElement): () => void {
 
   for (const pre of blocks) {
     if (pre.parentElement?.classList.contains('markdown-codeblock')) continue
+    if (pre.closest('.markdown-mermaid')) continue
 
     const wrapper = document.createElement('div')
     wrapper.className = 'markdown-codeblock'
@@ -180,6 +400,78 @@ function decorateCodeBlocks(root: HTMLElement): () => void {
   return () => cleanups.forEach((cleanup) => cleanup())
 }
 
+function setMermaidState(block: HTMLElement, state: 'loading' | 'rendered' | 'error'): void {
+  block.dataset.mermaidState = state
+  block.classList.toggle('is-loading', state === 'loading')
+  block.classList.toggle('is-rendered', state === 'rendered')
+  block.classList.toggle('is-error', state === 'error')
+}
+
+function setMermaidError(block: HTMLElement, message: string): void {
+  const output = block.querySelector<HTMLElement>('.markdown-mermaid-output')
+  if (!output) return
+  output.replaceChildren()
+  const error = document.createElement('p')
+  error.className = 'markdown-mermaid-error'
+  error.textContent = `Mermaid diagram could not render: ${message}`
+  output.appendChild(error)
+  setMermaidState(block, 'error')
+}
+
+function renderMermaidBlocks(root: HTMLElement): () => void {
+  const blocks = Array.from(root.querySelectorAll<HTMLElement>('.markdown-mermaid'))
+  if (blocks.length === 0) return () => {}
+
+  let disposed = false
+  void (async () => {
+    let mermaid: MermaidRenderer
+    try {
+      mermaid = await getMermaidRenderer()
+      if (disposed) return
+      configureMermaid(mermaid)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'renderer unavailable'
+      for (const block of blocks) {
+        if (!disposed) setMermaidError(block, message)
+      }
+      return
+    }
+
+    for (const block of blocks) {
+      if (disposed) return
+      const source = block.querySelector('code')?.textContent ?? ''
+      if (source.trim().length === 0) {
+        setMermaidError(block, 'empty source')
+        continue
+      }
+      if (source.length > MAX_MERMAID_SOURCE_LENGTH) {
+        setMermaidError(block, 'source is too large for preview')
+        continue
+      }
+
+      const output = block.querySelector<HTMLElement>('.markdown-mermaid-output')
+      if (!output) continue
+
+      setMermaidState(block, 'loading')
+      try {
+        const id = `studiumx-mermaid-${Date.now()}-${mermaidRenderCounter++}`
+        const result = await mermaid.render(id, source)
+        if (disposed) return
+        output.innerHTML = result.svg
+        setMermaidState(block, 'rendered')
+      } catch (error) {
+        if (disposed) return
+        const message = error instanceof Error ? error.message : 'invalid Mermaid syntax'
+        setMermaidError(block, message)
+      }
+    }
+  })()
+
+  return () => {
+    disposed = true
+  }
+}
+
 export function MarkdownPreview({
   source,
   workspaceId,
@@ -198,14 +490,19 @@ export function MarkdownPreview({
   onOpenWorkspaceMarkdown?: (relativePath: string) => void
 }) {
   const articleRef = useRef<HTMLElement | null>(null)
-  const html = useMemo(() => markdownRenderer.render(source), [source])
+  const html = useMemo(() => renderMarkdownPreviewHtml(source), [source])
 
   useEffect(() => {
     const article = articleRef.current
     if (!article) return
     article.innerHTML = html
     rewriteLocalImages(article, workspaceId, documentRelativePath)
-    return decorateCodeBlocks(article)
+    const cleanupCodeBlocks = decorateCodeBlocks(article)
+    const cleanupMermaid = renderMermaidBlocks(article)
+    return () => {
+      cleanupCodeBlocks()
+      cleanupMermaid()
+    }
   }, [documentRelativePath, html, workspaceId])
 
   useEffect(() => {
