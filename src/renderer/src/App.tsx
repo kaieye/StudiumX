@@ -16,7 +16,6 @@ import {
   Clock3,
   Coffee,
   Copy,
-  DoorOpen,
   FileText,
   Folder,
   FolderOpen,
@@ -71,7 +70,6 @@ import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import i18n from './i18n'
-import { StudySpace } from './study-space'
 import { MarkdownEditor } from './markdown-editor'
 import { MarkdownPreview } from './markdown-preview'
 import { OfficeWorkbench } from './views/workbench/OfficeWorkbench'
@@ -151,7 +149,6 @@ import {
 const navItems = [
   { id: 'overview', icon: Bot },
   { id: 'resources', icon: LibraryBig },
-  { id: 'studio', icon: DoorOpen },
   { id: 'workbench', icon: Wrench }
 ] satisfies Array<{ id: WorkspaceView; icon: LucideIcon }>
 
@@ -2404,10 +2401,6 @@ function MainArea() {
             )
           )}
         </section>
-      )}
-
-      {view === 'studio' && (
-        <StudySpace showNotification={showNotification} />
       )}
 
       {view === 'workbench' && (

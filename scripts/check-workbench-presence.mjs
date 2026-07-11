@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const [workbench, leaderboard, studySpace, studyRoomStage, css] = await Promise.all([
+const [app, workbench, leaderboard, css] = await Promise.all([
+  readFile('src/renderer/src/App.tsx', 'utf8'),
   readFile('src/renderer/src/views/workbench/OfficeWorkbench.tsx', 'utf8'),
   readFile('src/renderer/src/views/workbench/WorkbenchLeaderboard.tsx', 'utf8'),
-  readFile('src/renderer/src/study-space/StudySpace.tsx', 'utf8'),
-  readFile('src/renderer/src/study-space/StudyRoomStage.tsx', 'utf8'),
   readFile('src/renderer/src/views/workbench/office-workbench.css', 'utf8')
 ])
+
+assert.doesNotMatch(app, /StudySpace|view === 'studio'|id: 'studio'/, 'app should no longer expose the old study space page')
 
 assert.doesNotMatch(
   workbench,
@@ -34,9 +35,9 @@ assert.match(
 )
 
 assert.doesNotMatch(
-  `${studySpace}\n${studyRoomStage}`,
+  app,
   /心跳|remoteHeartbeatLabel|studyMemberFreshnessLabel|StudyArrivalPanel|study-live-proof/,
-  'study space should no longer render heartbeat-specific UI'
+  'removed study space page should no longer render heartbeat-specific UI'
 )
 
 assert.match(css, /\.workbench-heartbeat-dot \{/, 'workbench heartbeat dot should have dedicated styling')

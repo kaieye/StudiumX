@@ -269,9 +269,9 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
     : latestRemotePeer
       ? `${latestRemotePeer.nickname} 在 ${formatStudySeatLabel(normalizeStudySeatIndex(latestRemotePeer.seatIndex, latestRemotePeer.roomId, latestRemotePeer.clientId))} · ${studySignalLabel(latestRemotePeer.signalId)} · ${studyMemberStatusLabel(latestRemotePeer.status, latestRemotePeer.timerMode)}`
       : presence.status === 'online'
-        ? '学习空间已连接，签到或开始专注后会同步给同空间的同学。'
+        ? '自习室已连接，签到或开始专注后会同步给同空间的同学。'
         : presence.status === 'connecting'
-          ? '正在进入学习空间，连接成功后会显示真实同桌。'
+          ? '正在进入自习室，连接成功后会显示真实同桌。'
           : '已保留你的真实席位，邀请同学或同步恢复后会显示同桌。'
   const liveLineMeta = latestRoomEvent
     ? formatStudyEventTime(latestRoomEvent.createdAt)
@@ -283,7 +283,7 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
     ? `已收到 ${remoteOnline} 个远端同桌`
     : presence.status === 'online'
       ? '一键验证真实在线人数'
-      : '等待学习空间连接'
+      : '等待自习室连接'
   const liveSessionDetail = remoteOnline > 0
     ? `最近远端消息 ${formatStudyPresenceAge(presence.lastRemoteMessageAt, nowMs)}，超过 ${presenceTtlSeconds} 秒未心跳会自动下线。`
     : presence.status === 'online'
@@ -291,7 +291,7 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
       : '连接成功前会保留当前席位；你可以复制邀请或等待同步服务恢复。'
   const inviteHint = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE
     ? '公共大厅不用邀请码；新建空间后可只邀请自己的同学进入。'
-    : `把空间码 ${snapshot.spaceCode} 发给同学，对方输入后会进入同一个在线学习空间。`
+    : `把空间码 ${snapshot.spaceCode} 发给同学，对方输入后会进入同一个在线自习室。`
   const spaceKindLabel = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公共大厅' : '私密空间'
   const spaceOverviewKindLabel = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公开大厅' : '私密空间'
   const stageStatusLabel = timerStateStageLabel(snapshot.timerState, snapshot.timerMode)
@@ -331,7 +331,7 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
     `第 ${roomCycle.round} 轮正在${roomCycle.phase === 'focus' ? '专注' : '休息'}，${formatStudyDuration(roomCycle.remainingSeconds)} 后切换到${roomCycle.nextLabel}。`,
     completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
     presence.status === 'online'
-      ? `空间 ${snapshot.spaceCode} 已连接实时学习空间，远端同学 ${remoteOnline} 人。`
+      ? `空间 ${snapshot.spaceCode} 已连接实时自习室，远端同学 ${remoteOnline} 人。`
       : '在线同步不可用时，先保留你的本机席位。'
   ]
 

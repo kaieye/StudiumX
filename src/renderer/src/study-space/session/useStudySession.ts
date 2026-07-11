@@ -98,7 +98,7 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
           { roomId: snapshot.roomId, spaceCode: snapshot.spaceCode }
         )
       }
-      void showNotification('学习空间', `完成 ${snapshot.focusMinutes} 分钟专注，进入休息。`)
+      void showNotification('自习室', `完成 ${snapshot.focusMinutes} 分钟专注，进入休息。`)
       return
     }
 
@@ -107,7 +107,7 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
       && snapshot.timerMode === 'focus'
       && snapshot.timerState === 'idle'
     if (completedBreak) {
-      void showNotification('学习空间', '休息结束，可以开始下一轮专注。')
+      void showNotification('自习室', '休息结束，可以开始下一轮专注。')
     }
   }, [
     showNotification,

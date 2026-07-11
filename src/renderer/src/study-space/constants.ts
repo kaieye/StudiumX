@@ -123,7 +123,7 @@ export const studyRooms: Array<{
 }> = [
   {
     id: 'silent',
-    name: '学习空间',
+    name: '自习室',
     tone: '把在线同桌、学习任务和番茄节奏集中在一个空间里',
     capacity: 36,
     sessionMinutes: 25,
