@@ -1,4 +1,5 @@
 import type { ModelEndpointFormat } from './settings'
+import type { TeachingWorkspaceChangeSummary } from './changes'
 import type { GenerateLessonPayload, LessonSummary, TeachingAppState } from './workspace'
 
 export type QuizType = 'single' | 'multi' | 'truefalse' | 'fill'
@@ -31,7 +32,7 @@ export type LessonStreamStatus = {
 }
 
 export type LessonStreamDone =
-  | { streamId: string; kind: 'lesson'; state: TeachingAppState; lesson: LessonSummary; source: 'ai' | 'fallback'; reason?: string }
+  | { streamId: string; kind: 'lesson'; state: TeachingAppState; lesson: LessonSummary; source: 'ai' | 'fallback'; reason?: string; changeSummary?: TeachingWorkspaceChangeSummary | null }
   | { streamId: string; error: true; message: string }
 
 export type GenerateLessonStreamPayload = GenerateLessonPayload

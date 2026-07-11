@@ -216,7 +216,8 @@ const emptyAppState: TeachingAppState = {
   previewHtml: '',
   previewUrl: '',
   selectedLessonPath: null,
-  runtime: defaultRuntime
+  runtime: defaultRuntime,
+  recentChangeSummary: null
 }
 
 const defaultPrompt = ''

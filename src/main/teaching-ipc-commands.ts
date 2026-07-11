@@ -12,6 +12,7 @@ import type {
   ModelEndpointFormat,
   NotificationPayload,
   ProbeProviderPayload,
+  ReadWorkspaceChangeDiffPayload,
   ReadAgentConversationPayload,
   ReadLessonPayload,
   ReadWorkspaceMarkdownPayload,
@@ -243,6 +244,14 @@ export function parseSaveWorkspaceMarkdownPayload(payload: unknown): SaveWorkspa
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     documentPath: requireString(record.documentPath, 'documentPath'),
     content: requireString(record.content, 'content')
+  }
+}
+
+export function parseReadWorkspaceChangeDiffPayload(payload: unknown): ReadWorkspaceChangeDiffPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    relativePath: requireString(record.relativePath, 'relativePath')
   }
 }
 

@@ -54,6 +54,7 @@ export const teachingInvokeChannels = {
   listGitBranches: 'teach:list-git-branches',
   switchGitBranch: 'teach:switch-git-branch',
   createGitBranch: 'teach:create-git-branch',
+  readWorkspaceChangeDiff: 'teach:read-workspace-change-diff',
   listMemory: 'teach:list-memory',
   getMemoryDiagnostics: 'teach:get-memory-diagnostics',
   createMemory: 'teach:create-memory',

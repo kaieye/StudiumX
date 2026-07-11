@@ -89,6 +89,7 @@ const api: TeachingSystemApi = {
   listGitBranches: (workspaceRoot) => ipcRenderer.invoke(teachingInvokeChannels.listGitBranches, workspaceRoot),
   switchGitBranch: (payload) => ipcRenderer.invoke(teachingInvokeChannels.switchGitBranch, payload),
   createGitBranch: (payload) => ipcRenderer.invoke(teachingInvokeChannels.createGitBranch, payload),
+  readWorkspaceChangeDiff: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readWorkspaceChangeDiff, payload),
   listMemory: (workspaceRoot) => ipcRenderer.invoke(teachingInvokeChannels.listMemory, workspaceRoot),
   getMemoryDiagnostics: () => ipcRenderer.invoke(teachingInvokeChannels.getMemoryDiagnostics),
   createMemory: (payload) => ipcRenderer.invoke(teachingInvokeChannels.createMemory, payload),

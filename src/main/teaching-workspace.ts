@@ -92,6 +92,11 @@ import {
   shouldArchiveWorkspaceItem
 } from './teaching-workspace/item-lifecycle'
 import { TeachingWorkspaceReviewModule } from './teaching-workspace/review'
+import {
+  captureWorkspaceChangeSnapshot,
+  readWorkspaceChangeDiff,
+  summarizeWorkspaceChanges
+} from './teaching-workspace-changes'
 import type {
   ApplyLessonStylePayload,
   CreateWorkspacePayload,
@@ -126,6 +131,7 @@ import type {
   TeachingAppState,
   TeachingRuntimeState,
   TeachingSettingsV1,
+  TeachingWorkspaceChangeSummary,
   TeachingWorkspaceSummary,
   WorkspaceItemKind,
   WorkspaceMarkdownDocument,
@@ -184,6 +190,7 @@ export class TeachingWorkspaceService {
   private readonly skillLibraryService?: SkillLibraryService
   private readonly memoryStore: TeachingMemoryStore
   private readonly reviewModule = new TeachingWorkspaceReviewModule()
+  private readonly recentChangeByWorkspaceId = new Map<string, TeachingWorkspaceChangeSummary>()
 
   constructor(options: {
     registryPath: string
@@ -439,6 +446,7 @@ export class TeachingWorkspaceService {
               prompt: brief.topic,
               brief,
               messages: [],
+              triggerKind: 'agent_lesson_generation',
               callbacks: {
                 onStatus: (step) => {
                   const message = lessonToolStepMessage(step)
@@ -672,7 +680,8 @@ export class TeachingWorkspaceService {
       prompt,
       messages: payload.messages ?? [],
       requestedCourseName: payload.courseName,
-      callbacks
+      callbacks,
+      triggerKind: 'lesson_generation'
     })
 
     if (stream) stream.onStatus({ streamId: stream.streamId, step: 'done' })
@@ -681,7 +690,8 @@ export class TeachingWorkspaceService {
       state: await this.buildState(generation.registry, workspace.id, generation.lesson.absolutePath),
       lesson: generation.lesson,
       source: generation.source,
-      reason: generation.reason
+      reason: generation.reason,
+      changeSummary: generation.changeSummary
     }
   }
 
@@ -699,14 +709,17 @@ export class TeachingWorkspaceService {
     brief?: LessonBrief
     messages: AgentChatMessage[]
     requestedCourseName?: string
+    triggerKind?: 'lesson_generation' | 'agent_lesson_generation'
     callbacks?: LessonGenerationCallbacks
   }): Promise<{
     lesson: LessonSummary
     source: LessonPlanSource
     reason?: string
     registry: WorkspaceRegistry
+    changeSummary: TeachingWorkspaceChangeSummary | null
   }> {
     const { workspace } = options
+    const beforeChanges = await captureWorkspaceChangeSnapshot(workspace.rootPath)
     await this.ensureWorkspaceStructure(workspace)
 
     const settings = await this.loadSettings()
@@ -740,6 +753,24 @@ export class TeachingWorkspaceService {
       paths: generation.eventPaths,
       meta: generation.eventMeta
     })
+    const changeSummary = await summarizeWorkspaceChanges({
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.rootPath,
+      timestamp: now,
+      trigger: {
+        kind: options.triggerKind ?? 'lesson_generation',
+        label: options.triggerKind === 'agent_lesson_generation' ? 'Agent-generated lesson' : 'Generated lesson',
+        detail: generation.lesson.title
+      },
+      before: beforeChanges,
+      affectedPaths: [
+        ...generation.eventPaths,
+        '.teachos/index.json',
+        '.teachos/sessions.jsonl'
+      ]
+    })
+    if (changeSummary) this.recentChangeByWorkspaceId.set(workspace.id, changeSummary)
+    else this.recentChangeByWorkspaceId.delete(workspace.id)
 
     const registry = await this.ensureRegistry()
     const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
@@ -748,7 +779,8 @@ export class TeachingWorkspaceService {
       lesson: generation.lesson,
       source: generation.source,
       reason: generation.reason,
-      registry: nextRegistry
+      registry: nextRegistry,
+      changeSummary
     }
   }
 
@@ -790,6 +822,15 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     const target = resolveWorkspaceMarkdownPath(workspace.rootPath, payload.documentPath)
     return readWorkspaceMarkdownDocument(workspace.rootPath, target)
+  }
+
+  async readWorkspaceChangeDiff(payload: { workspaceId: string; relativePath: string }) {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    return readWorkspaceChangeDiff({
+      workspaceRoot: workspace.rootPath,
+      relativePath: payload.relativePath
+    })
   }
 
   async saveWorkspaceMarkdown(payload: SaveWorkspaceMarkdownPayload): Promise<SaveWorkspaceMarkdownResult> {
@@ -905,7 +946,8 @@ export class TeachingWorkspaceService {
       previewHtml,
       previewUrl: activeWorkspace && lessonPath ? toPreviewUrl(activeWorkspace.id, toWorkspaceRelativePath(activeWorkspace.rootPath, lessonPath)) : '',
       selectedLessonPath: lessonPath,
-      runtime
+      runtime,
+      recentChangeSummary: activeWorkspace ? this.recentChangeByWorkspaceId.get(activeWorkspace.id) ?? null : null
     }
   }
 

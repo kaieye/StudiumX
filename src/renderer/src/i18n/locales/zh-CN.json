@@ -144,7 +144,52 @@
     "chipGenerated": "已生成",
     "previewAria": "Lesson 预览",
     "previewTitle": "静态课程预览",
-    "openPreview": "打开预览"
+    "openPreview": "打开预览",
+    "changes": {
+      "title": "最近学习变更",
+      "eyebrow": "{{time}} 更新",
+      "statsAria": "变更统计",
+      "fileCount": "{{count}} 个文件",
+      "gitTracked": "Git diff",
+      "gitUnavailable": "路径清单",
+      "moreFiles": "另有 {{count}} 个文件",
+      "diff": "Diff",
+      "loadingDiff": "读取中",
+      "diffTitle": "文件 Diff",
+      "closeDiff": "关闭 Diff",
+      "diffTruncated": "Diff 较长，已截断显示。",
+      "noStats": "无行数",
+      "trigger": {
+        "lesson_generation": "课程生成",
+        "agent_lesson_generation": "对话生成",
+        "mission_update": "使命更新",
+        "resource_edit": "资源编辑",
+        "workspace_markdown_save": "文档保存",
+        "lesson_style_apply": "样式应用",
+        "agent_conversation_export": "对话保存"
+      },
+      "status": {
+        "added": "新增",
+        "modified": "修改",
+        "deleted": "删除",
+        "renamed": "重命名",
+        "untracked": "未跟踪",
+        "changed": "变更"
+      },
+      "kind": {
+        "lesson": "lesson",
+        "reference": "reference",
+        "learning_record": "record",
+        "review": "review",
+        "mission": "mission",
+        "resource": "resource",
+        "asset": "asset",
+        "workspace_index": "index",
+        "session_event": "event",
+        "conversation": "conversation",
+        "other": "file"
+      }
+    }
   },
   "markdown": {
     "split": "分屏",

@@ -1,5 +1,6 @@
 export * from './teaching-types/settings'
 export * from './teaching-types/git'
+export * from './teaching-types/changes'
 export * from './teaching-types/memory'
 export * from './teaching-types/workspace'
 export * from './teaching-types/lesson'

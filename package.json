@@ -56,6 +56,7 @@
     "check:search-runtime": "node scripts/check-search-runtime.mjs",
     "check:web-tools-baseline": "node scripts/check-web-tools-baseline.mjs",
     "check:teaching-git-guards": "node scripts/check-teaching-git-guards.mjs",
+    "check:workspace-changes": "node scripts/check-workspace-changes.mjs",
     "check:web-search-providers": "node scripts/check-web-search-providers.mjs",
     "check:web-fetch-safe-url": "node scripts/check-web-fetch-safe-url.mjs",
     "check:external-link-controls": "node scripts/check-external-link-controls.mjs",

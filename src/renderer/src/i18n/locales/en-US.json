@@ -144,7 +144,52 @@
     "chipGenerated": "Generated",
     "previewAria": "Lesson preview",
     "previewTitle": "Static lesson preview",
-    "openPreview": "Open preview"
+    "openPreview": "Open preview",
+    "changes": {
+      "title": "Recent learning changes",
+      "eyebrow": "Updated {{time}}",
+      "statsAria": "Change stats",
+      "fileCount": "{{count}} files",
+      "gitTracked": "Git diff",
+      "gitUnavailable": "Path list",
+      "moreFiles": "{{count}} more files",
+      "diff": "Diff",
+      "loadingDiff": "Loading",
+      "diffTitle": "File diff",
+      "closeDiff": "Close diff",
+      "diffTruncated": "This diff is long, so it has been truncated.",
+      "noStats": "No stats",
+      "trigger": {
+        "lesson_generation": "Lesson generation",
+        "agent_lesson_generation": "Agent generation",
+        "mission_update": "Mission update",
+        "resource_edit": "Resource edit",
+        "workspace_markdown_save": "Document save",
+        "lesson_style_apply": "Style apply",
+        "agent_conversation_export": "Conversation save"
+      },
+      "status": {
+        "added": "Added",
+        "modified": "Modified",
+        "deleted": "Deleted",
+        "renamed": "Renamed",
+        "untracked": "Untracked",
+        "changed": "Changed"
+      },
+      "kind": {
+        "lesson": "lesson",
+        "reference": "reference",
+        "learning_record": "record",
+        "review": "review",
+        "mission": "mission",
+        "resource": "resource",
+        "asset": "asset",
+        "workspace_index": "index",
+        "session_event": "event",
+        "conversation": "conversation",
+        "other": "file"
+      }
+    }
   },
   "markdown": {
     "split": "Split",

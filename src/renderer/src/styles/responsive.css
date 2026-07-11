@@ -95,6 +95,14 @@ body {
     border-bottom: 1px solid var(--line);
   }.lesson-course-stage {
     padding: 20px 16px 16px;
+  }.learning-change-file-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }.learning-change-file-kind,
+  .learning-change-file-status,
+  .learning-change-file-stat {
+    justify-self: start;
+  }.learning-change-diff-button {
+    justify-self: end;
   }.lesson-card-grid {
     grid-template-columns: 1fr;
   }.lesson-bottom-composer {
@@ -168,6 +176,15 @@ body {
     display: none;
   }.overview-dialog-shell {
     padding: 20px 12px 12px;
+  }.learning-change-panel-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }.learning-change-trigger {
+    margin-left: 42px;
+  }.change-diff-dialog-backdrop {
+    padding: 12px;
+  }.change-diff-dialog {
+    max-height: calc(100vh - 24px);
   }.overview-dialog-card {
     border-radius: 18px 18px 0 0;
     min-height: 96px;

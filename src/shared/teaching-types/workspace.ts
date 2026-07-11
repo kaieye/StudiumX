@@ -1,4 +1,5 @@
 import type { AgentChatMessage, AgentConversationSummary } from './agent'
+import type { TeachingWorkspaceChangeSummary } from './changes'
 import type { TeachingGitWorkspaceInfo } from './git'
 
 export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'workbench' | 'review' | 'settings'
@@ -108,6 +109,7 @@ export type TeachingAppState = {
   previewUrl: string
   selectedLessonPath: string | null
   runtime: TeachingRuntimeState
+  recentChangeSummary: TeachingWorkspaceChangeSummary | null
 }
 
 export type CreateWorkspacePayload = {
@@ -175,6 +177,7 @@ export type GenerateLessonResult = {
   lesson: LessonSummary
   source: 'ai' | 'fallback'
   reason?: string
+  changeSummary?: TeachingWorkspaceChangeSummary | null
 }
 
 export type PickDirectoryResult = {

@@ -40,6 +40,7 @@ import {
   parseProbeProviderPayload,
   parseReadAgentConversationPayload,
   parseReadLessonPayload,
+  parseReadWorkspaceChangeDiffPayload,
   parseReadWorkspaceMarkdownPayload,
   parseRecordProgressPayload,
   parseRemoveGitWorktreePayload,
@@ -279,6 +280,10 @@ function registerTeachingIpc(
 
   ipcMain.handle(teachingInvokeChannels.readWorkspaceMarkdown, async (_, payload: unknown) =>
     service.readWorkspaceMarkdown(parseReadWorkspaceMarkdownPayload(payload))
+  )
+
+  ipcMain.handle(teachingInvokeChannels.readWorkspaceChangeDiff, async (_, payload: unknown) =>
+    service.readWorkspaceChangeDiff(parseReadWorkspaceChangeDiffPayload(payload))
   )
 
   ipcMain.handle(teachingInvokeChannels.saveWorkspaceMarkdown, async (_, payload: unknown) =>

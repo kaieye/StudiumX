@@ -134,6 +134,8 @@ import {
   type TeachingGitBranchRow,
   type ModelReasoningEffort,
   type TeachingRuntimeState,
+  type TeachingWorkspaceChangedFile,
+  type TeachingWorkspaceChangeSummary,
   type TeachingWorkspaceSummary,
   type WorkspaceMarkdownDocument,
   type WindowControlAction,
@@ -2112,6 +2114,31 @@ function MainArea() {
     ? `${selectedResourcePreviewFile.id}:${selectedResourcePreviewFile.html.length}`
     : 'empty-resource-preview'
   const [resourcePageSection, setResourcePageSection] = useState<'home' | 'styles' | 'skills'>('home')
+  const [changeDiff, setChangeDiff] = useState<{ relativePath: string; diff: string; truncated: boolean } | null>(null)
+  const [changeDiffLoadingPath, setChangeDiffLoadingPath] = useState<string | null>(null)
+  const [changeDiffError, setChangeDiffError] = useState<string | null>(null)
+  const recentChangeSummary = appState.recentChangeSummary?.workspaceId === active?.id
+    ? appState.recentChangeSummary
+    : null
+  const openRecentChangeDiff = async (relativePath: string): Promise<void> => {
+    if (!active) return
+    const api = window.teachingSystem
+    if (!api) return
+    setChangeDiffLoadingPath(relativePath)
+    setChangeDiffError(null)
+    try {
+      const result = await api.readWorkspaceChangeDiff({ workspaceId: active.id, relativePath })
+      if (result.ok) {
+        setChangeDiff({ relativePath: result.relativePath, diff: result.diff, truncated: result.truncated })
+      } else {
+        setChangeDiffError(result.message)
+      }
+    } catch (error) {
+      setChangeDiffError(toUserError(error).message)
+    } finally {
+      setChangeDiffLoadingPath(null)
+    }
+  }
   const renderSidebarToggle = (className = 'icon-button') => (
     <button
       className={className}
@@ -2313,6 +2340,22 @@ function MainArea() {
                     {t('lessons.openDir')}
                   </button>
                 </div>
+                {recentChangeSummary && (
+                  <RecentLearningChangesPanel
+                    summary={recentChangeSummary}
+                    loadingPath={changeDiffLoadingPath}
+                    onOpenDiff={(relativePath) => void openRecentChangeDiff(relativePath)}
+                  />
+                )}
+                {changeDiffError && (
+                  <div className="learning-change-error" role="status">
+                    <AlertTriangle size={14} />
+                    <span>{changeDiffError}</span>
+                    <button type="button" onClick={() => setChangeDiffError(null)} aria-label={t('main.dismissAlert')}>
+                      <X size={13} />
+                    </button>
+                  </div>
+                )}
 
                 {visibleLessonCount === 0 ? (
                   <EmptyState
@@ -2406,8 +2449,169 @@ function MainArea() {
       {view === 'workbench' && (
         <OfficeWorkbench showNotification={showNotification} />
       )}
+
+      {changeDiff && (
+        <LearningChangeDiffDialog
+          diff={changeDiff}
+          onClose={() => setChangeDiff(null)}
+        />
+      )}
     </main>
   )
+}
+
+function RecentLearningChangesPanel({
+  summary,
+  loadingPath,
+  onOpenDiff
+}: {
+  summary: TeachingWorkspaceChangeSummary
+  loadingPath: string | null
+  onOpenDiff: (relativePath: string) => void
+}) {
+  const { t, i18n } = useTranslation()
+  const visibleFiles = summary.changedFiles.slice(0, 6)
+  const hiddenCount = Math.max(0, summary.changedFiles.length - visibleFiles.length)
+  const timestamp = formatChangeTimestamp(summary.timestamp, i18n.language)
+  return (
+    <section className="learning-change-panel" aria-label={t('lessons.changes.title')}>
+      <div className="learning-change-panel-head">
+        <span className="learning-change-panel-icon" aria-hidden="true">
+          <History size={17} />
+        </span>
+        <div>
+          <span>{t('lessons.changes.eyebrow', { time: timestamp })}</span>
+          <h3>{t('lessons.changes.title')}</h3>
+        </div>
+        <span className="learning-change-trigger">
+          {t(`lessons.changes.trigger.${summary.trigger.kind}`)}
+        </span>
+      </div>
+      <p className="learning-change-summary">{summary.summary}</p>
+      <div className="learning-change-stats" aria-label={t('lessons.changes.statsAria')}>
+        <span>{t('lessons.changes.fileCount', { count: summary.changedFiles.length })}</span>
+        <span>+{summary.additions}</span>
+        <span>-{summary.deletions}</span>
+        <span>{summary.git.available ? t('lessons.changes.gitTracked') : t('lessons.changes.gitUnavailable')}</span>
+      </div>
+      <div className="learning-change-file-list">
+        {visibleFiles.map((file) => (
+          <LearningChangeFileRow
+            key={file.relativePath}
+            file={file}
+            loading={loadingPath === file.relativePath}
+            onOpenDiff={onOpenDiff}
+          />
+        ))}
+        {hiddenCount > 0 && (
+          <div className="learning-change-more">
+            {t('lessons.changes.moreFiles', { count: hiddenCount })}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function LearningChangeFileRow({
+  file,
+  loading,
+  onOpenDiff
+}: {
+  file: TeachingWorkspaceChangedFile
+  loading: boolean
+  onOpenDiff: (relativePath: string) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="learning-change-file-row">
+      <span className="learning-change-file-main">
+        <FileText size={14} />
+        <span className="learning-change-file-path">{file.relativePath}</span>
+      </span>
+      <span className="learning-change-file-kind">{t(`lessons.changes.kind.${file.fileKind}`)}</span>
+      <span className="learning-change-file-status" data-status={file.status}>
+        {t(`lessons.changes.status.${file.status}`)}
+      </span>
+      <span className="learning-change-file-stat">{formatFileDiffStat(file, t)}</span>
+      <button
+        className="ghost-button learning-change-diff-button"
+        type="button"
+        disabled={!file.diffAvailable || loading}
+        onClick={() => onOpenDiff(file.relativePath)}
+      >
+        {loading ? <Loader2 size={13} className="spin" /> : <FileText size={13} />}
+        {loading ? t('lessons.changes.loadingDiff') : t('lessons.changes.diff')}
+      </button>
+    </div>
+  )
+}
+
+function LearningChangeDiffDialog({
+  diff,
+  onClose
+}: {
+  diff: { relativePath: string; diff: string; truncated: boolean }
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const titleId = useId()
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [onClose])
+
+  return createPortal(
+    <div
+      className="change-diff-dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <section className="change-diff-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div className="change-diff-dialog-header">
+          <div>
+            <span>{t('lessons.changes.diffTitle')}</span>
+            <h2 id={titleId}>{diff.relativePath}</h2>
+          </div>
+          <button type="button" className="settings-close-button" onClick={onClose} aria-label={t('lessons.changes.closeDiff')}>
+            <X size={16} />
+          </button>
+        </div>
+        {diff.truncated && (
+          <div className="change-diff-truncated">
+            <Info size={14} />
+            {t('lessons.changes.diffTruncated')}
+          </div>
+        )}
+        <pre className="change-diff-source">{diff.diff}</pre>
+      </section>
+    </div>,
+    document.body
+  )
+}
+
+function formatFileDiffStat(file: TeachingWorkspaceChangedFile, t: (key: string, options?: Record<string, unknown>) => string): string {
+  if (typeof file.additions !== 'number' && typeof file.deletions !== 'number') {
+    return t('lessons.changes.noStats')
+  }
+  return `+${file.additions ?? 0} -${file.deletions ?? 0}`
+}
+
+function formatChangeTimestamp(value: string, locale: string): string {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return value
+  return new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
 }
 
 function ResourceHome({

@@ -36,6 +36,10 @@ import type {
   TeachingGitBranchesResult,
   TeachingGitWorktreesResult
 } from './git'
+import type {
+  ReadWorkspaceChangeDiffPayload,
+  WorkspaceChangeDiffResult
+} from './changes'
 import type { NotificationPayload } from './system'
 import type {
   ApplyLessonStylePayload,
@@ -121,6 +125,7 @@ export type TeachingSystemApi = {
   listGitBranches: (workspaceRoot: string) => Promise<TeachingGitBranchesResult>
   switchGitBranch: (payload: GitBranchPayload) => Promise<TeachingGitBranchesResult>
   createGitBranch: (payload: GitBranchPayload) => Promise<TeachingGitBranchesResult>
+  readWorkspaceChangeDiff: (payload: ReadWorkspaceChangeDiffPayload) => Promise<WorkspaceChangeDiffResult>
   listMemory: (workspaceRoot?: string) => Promise<TeachingMemoryRecord[]>
   getMemoryDiagnostics: () => Promise<TeachingMemoryDiagnostics>
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
