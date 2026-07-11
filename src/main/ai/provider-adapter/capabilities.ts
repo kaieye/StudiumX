@@ -4,6 +4,9 @@ import type {
   TeachingModelProviderProfile,
   TeachingSettingsV1
 } from '../../../shared/teaching-types'
+import {
+  modelReasoningProtocolForProviderModel
+} from '../../../shared/model-provider-catalog'
 
 function lowerHost(baseUrl: string): string {
   try {
@@ -14,6 +17,7 @@ function lowerHost(baseUrl: string): string {
 }
 
 function isDeepSeekReasoningProvider(provider: TeachingModelProviderProfile, model: string): boolean {
+  if (catalogReasoningProtocol(provider, model) === 'deepseek') return true
   const host = lowerHost(provider.baseUrl)
   return provider.id === 'deepseek' || host.includes('deepseek.com') || /^deepseek[-_.]/i.test(model)
 }
@@ -24,6 +28,7 @@ function isMiniMaxOpenAiProvider(provider: TeachingModelProviderProfile): boolea
 }
 
 function supportsOpenAiReasoningEffort(provider: TeachingModelProviderProfile, model: string): boolean {
+  if (catalogReasoningProtocol(provider, model) === 'openai') return true
   const host = lowerHost(provider.baseUrl)
   return (
     provider.id === 'custom' ||
@@ -37,7 +42,16 @@ function supportsOpenAiReasoningEffort(provider: TeachingModelProviderProfile, m
 }
 
 function isAnthropicClaudeProvider(provider: TeachingModelProviderProfile, model: string): boolean {
+  if (catalogReasoningProtocol(provider, model) === 'anthropic') return true
   return provider.id === 'anthropic' || /^claude-(opus|sonnet|haiku|fable|mythos)/i.test(model)
+}
+
+function catalogReasoningProtocol(provider: TeachingModelProviderProfile, model: string) {
+  return modelReasoningProtocolForProviderModel({
+    providerId: provider.id,
+    providerBaseUrl: provider.baseUrl,
+    modelId: model
+  })
 }
 
 function normalizeDeepSeekReasoningEffort(effort: ModelReasoningEffort): 'high' | 'max' {

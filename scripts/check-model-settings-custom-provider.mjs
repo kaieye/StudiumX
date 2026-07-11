@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
+const modelProviderCatalog = await readFile('src/shared/model-provider-catalog.ts', 'utf8')
+assert.match(modelProviderCatalog, /id: 'custom'/)
+assert.match(modelProviderCatalog, /baseUrl: ''/)
+assert.match(modelProviderCatalog, /models: \[\]/)
+assert.match(modelProviderCatalog, /docsUrl: ''/)
+assert.match(modelProviderCatalog, /apiKeyUrl: ''/)
+
 const teachingSettingsTypes = await readFile('src/shared/teaching-types/settings.ts', 'utf8')
-assert.match(teachingSettingsTypes, /id: 'custom'/)
-assert.match(teachingSettingsTypes, /baseUrl: ''/)
-assert.match(teachingSettingsTypes, /models: \[\]/)
-assert.match(teachingSettingsTypes, /docsUrl: ''/)
-assert.match(teachingSettingsTypes, /apiKeyUrl: ''/)
+assert.match(teachingSettingsTypes, /TEACHING_MODEL_PROVIDER_PRESETS = TEACHING_MODEL_PROVIDER_PRESETS_FROM_CATALOG/)
 
 const teachingSettings = await readFile('src/main/teaching-settings.ts', 'utf8')
 assert.match(teachingSettings, /const isCustomProvider = id === 'custom'/)

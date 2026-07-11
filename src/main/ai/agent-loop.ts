@@ -101,7 +101,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     estimator,
     enabled: opts.contextCompaction?.enabled ?? true,
     contextWindowTokens:
-      opts.contextCompaction?.contextWindowTokens ?? inferContextWindowTokens(opts.settings.generator.model),
+      opts.contextCompaction?.contextWindowTokens ?? inferContextWindowTokens(opts.settings.generator.model, opts.provider),
     softThresholdTokens: opts.contextCompaction?.softThresholdTokens,
     hardThresholdTokens: opts.contextCompaction?.hardThresholdTokens,
     softThresholdRatio: opts.contextCompaction?.softThresholdRatio,

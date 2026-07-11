@@ -18,6 +18,9 @@ import {
   DEFAULT_LESSON_STYLE_ID
 } from '../../../shared/lesson-styles'
 import {
+  modelReasoningEffortsForProviderModel
+} from '../../../shared/model-provider-catalog'
+import {
   PARALLEL_SEARCH_MODES,
   TEACHING_MODEL_PROVIDER_PRESETS,
   WEB_SEARCH_BACKENDS,
@@ -294,6 +297,12 @@ function supportsOpenAiReasoningEffort(provider: TeachingModelProviderProfile, m
 export function reasoningEffortOptionsForSettings(settings: TeachingSettingsV1): ModelReasoningEffort[] {
   const provider = activeModelProvider(settings)
   const model = settings.generator.model
+  const catalogOptions = modelReasoningEffortsForProviderModel({
+    providerId: provider.id,
+    providerBaseUrl: provider.baseUrl,
+    modelId: model
+  })
+  if (catalogOptions) return catalogOptions
   if (isDeepSeekReasoningProvider(provider, model)) return ['auto', 'high', 'max']
   if (isClaudeReasoningProvider(provider, model)) return ['auto', 'off', 'low', 'medium', 'high', 'xhigh', 'max']
   if (isMiniMaxOpenAiProvider(provider)) return ['auto', 'off', 'high']

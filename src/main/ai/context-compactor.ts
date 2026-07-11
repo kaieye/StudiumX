@@ -1,5 +1,8 @@
 import type { ChatMessage, ToolDefinition } from './provider-adapter'
 import { ContextEstimator, type TokenEstimate } from './context-estimator'
+import {
+  modelContextWindowTokens
+} from '../../shared/model-provider-catalog'
 
 export type ContextCompactionMode = 'normal' | 'aggressive' | 'manual'
 export type ContextCompactionReason = 'soft_threshold' | 'hard_threshold' | 'manual'
@@ -279,7 +282,16 @@ export class ContextCompactor {
   }
 }
 
-export function inferContextWindowTokens(modelId: string): number {
+export function inferContextWindowTokens(
+  modelId: string,
+  provider?: { id?: string; baseUrl?: string }
+): number {
+  const catalogContextWindow = modelContextWindowTokens({
+    providerId: provider?.id,
+    providerBaseUrl: provider?.baseUrl,
+    modelId
+  })
+  if (catalogContextWindow) return catalogContextWindow
   const model = modelId.toLowerCase()
   const explicit = /(?:^|[^0-9])(\d{2,3})k(?:[^0-9]|$)/i.exec(model)?.[1]
   if (explicit) return Number(explicit) * 1000

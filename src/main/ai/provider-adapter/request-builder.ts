@@ -9,6 +9,9 @@ import {
   upstreamOpenAiCustomEndpointUrl,
   upstreamOpenAiResponsesUrl
 } from '../../../shared/openai-compat-url'
+import {
+  effectiveMaxOutputTokens
+} from '../../../shared/model-provider-catalog'
 import type { AdapterRequest, ChatAdapterRequest } from '../provider-adapter'
 import { anthropicGenerationOptions, reasoningRequestOptions } from './capabilities'
 import { adapterAuthHeaders } from './formats'
@@ -25,6 +28,7 @@ export function buildRequest(
   }
 ): { url: string; init: RequestInit } {
   const { provider, generator, request, stream } = opts
+  const maxOutputTokens = effectiveMaxOutputTokens(provider, generator.model, generator.maxOutputTokens)
   switch (format) {
     case 'chat_completions':
       return {
@@ -39,7 +43,7 @@ export function buildRequest(
               { role: 'user', content: request.userPrompt }
             ],
             temperature: generator.temperature,
-            max_tokens: generator.maxOutputTokens,
+            max_tokens: maxOutputTokens,
             stream,
             ...reasoningRequestOptions(format, provider, generator),
             ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
@@ -57,7 +61,7 @@ export function buildRequest(
             instructions: request.systemPrompt,
             input: request.userPrompt,
             temperature: generator.temperature,
-            max_output_tokens: generator.maxOutputTokens,
+            max_output_tokens: maxOutputTokens,
             stream,
             ...reasoningRequestOptions(format, provider, generator)
           })
@@ -71,7 +75,7 @@ export function buildRequest(
           headers: adapterAuthHeaders(format, provider.apiKey),
           body: JSON.stringify({
             model: generator.model,
-            max_tokens: generator.maxOutputTokens,
+            max_tokens: maxOutputTokens,
             system: request.systemPrompt,
             messages: [{ role: 'user', content: request.userPrompt }],
             ...anthropicGenerationOptions(provider, generator),
@@ -92,7 +96,7 @@ export function buildRequest(
               { role: 'user', content: request.userPrompt }
             ],
             temperature: generator.temperature,
-            max_tokens: generator.maxOutputTokens,
+            max_tokens: maxOutputTokens,
             stream,
             ...reasoningRequestOptions(format, provider, generator),
             ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
@@ -113,6 +117,7 @@ export function buildChatRequest(
   }
 ): { url: string; init: RequestInit } {
   const { provider, generator, request, stream, includeTools } = opts
+  const maxOutputTokens = effectiveMaxOutputTokens(provider, generator.model, generator.maxOutputTokens)
   const url =
     format === 'custom_endpoint'
       ? upstreamOpenAiCustomEndpointUrl(provider.baseUrl)
@@ -128,7 +133,7 @@ export function buildChatRequest(
     model: generator.model,
     messages,
     temperature: generator.temperature,
-    max_tokens: generator.maxOutputTokens,
+    max_tokens: maxOutputTokens,
     stream,
     ...reasoningRequestOptions(format, provider, generator),
     ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})

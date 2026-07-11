@@ -1,3 +1,7 @@
+import {
+  TEACHING_MODEL_PROVIDER_PRESETS_FROM_CATALOG
+} from '../model-provider-catalog'
+
 export type SettingsSection =
   | 'general'
   | 'appearance'
@@ -78,62 +82,7 @@ export type TeachingModelProviderPreset = {
   apiKeyUrl: string
 }
 
-export const TEACHING_MODEL_PROVIDER_PRESETS = [
-  {
-    id: 'deepseek',
-    name: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com',
-    endpointFormat: 'chat_completions',
-    models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
-    docsUrl: 'https://api-docs.deepseek.com',
-    apiKeyUrl: 'https://platform.deepseek.com/api_keys'
-  },
-  {
-    id: 'glm',
-    name: 'GLM',
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    endpointFormat: 'chat_completions',
-    models: ['glm-4.5', 'glm-4.5-air', 'glm-4-flash'],
-    docsUrl: 'https://docs.bigmodel.cn',
-    apiKeyUrl: 'https://www.bigmodel.cn/usercenter/proj-mgmt/apikeys'
-  },
-  {
-    id: 'xiaomi',
-    name: 'Xiaomi MiMo',
-    baseUrl: 'https://api.xiaomimimo.com/v1',
-    endpointFormat: 'chat_completions',
-    models: ['mimo-v2.5-pro-ultraspeed', 'mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2-omni'],
-    docsUrl: 'https://platform.xiaomimimo.com/#/docs',
-    apiKeyUrl: 'https://platform.xiaomimimo.com/#/console/api-keys'
-  },
-  {
-    id: 'minimax',
-    name: 'MiniMax',
-    baseUrl: 'https://api.minimaxi.com/anthropic',
-    endpointFormat: 'messages',
-    models: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.5'],
-    docsUrl: 'https://platform.minimax.io/docs/api-reference/text-anthropic-api',
-    apiKeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key'
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic Claude',
-    baseUrl: 'https://api.anthropic.com/v1',
-    endpointFormat: 'messages',
-    models: ['claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
-    docsUrl: 'https://platform.claude.com/docs',
-    apiKeyUrl: 'https://console.anthropic.com/settings/keys'
-  },
-  {
-    id: 'custom',
-    name: 'OpenAI Compatible',
-    baseUrl: '',
-    endpointFormat: 'chat_completions',
-    models: [],
-    docsUrl: '',
-    apiKeyUrl: ''
-  }
-] satisfies TeachingModelProviderPreset[]
+export const TEACHING_MODEL_PROVIDER_PRESETS = TEACHING_MODEL_PROVIDER_PRESETS_FROM_CATALOG
 
 export type TeachingModelProviderProfile = TeachingModelProviderPreset & {
   apiKey: string
