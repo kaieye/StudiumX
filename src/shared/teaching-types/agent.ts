@@ -190,11 +190,22 @@ export type AgentChatStreamStatus = {
   message?: string
 }
 
+export type AgentToolPermissionRequest = {
+  id: string
+  kind: 'workspace_write' | 'workspace_read' | 'external_network'
+  toolName: string
+  operation: string
+  targetPath?: string
+  reason?: string
+  creates?: boolean
+}
+
 export type AgentChatStreamToolEvent = {
   streamId: string
   toolCall: { id: string; name: string; arguments: string }
   result?: string
   isError?: boolean
+  permissionRequest?: AgentToolPermissionRequest
 }
 
 export type AskOption = {

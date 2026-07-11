@@ -12,6 +12,7 @@ import type {
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
   AgentChatTurn,
+  AgentToolPermissionRequest,
   AgentTurnMetadata,
   AgentConversationSummary,
   AskAnswer,
@@ -20,6 +21,8 @@ import type {
   TeachingAppState,
   TeachingWorkspaceSummary
 } from '../../shared/teaching-types'
+
+const TOOL_PERMISSION_NAME = 'tool_permission'
 
 export type PendingAgentConversation = {
   workspaceId: string
@@ -547,6 +550,20 @@ function createAgentStatusProcessEvent(
 
 function createAgentToolCallProcessEvent(event: AgentChatStreamToolEvent): AgentChatProcessEvent {
   const name = event.toolCall.name || 'tool'
+  if (name === TOOL_PERMISSION_NAME) {
+    const request = event.permissionRequest ?? parsePermissionArguments(event.toolCall.arguments)
+    return {
+      id: createAgentProcessEventId('permission-request'),
+      kind: 'tool_call',
+      title: '等待写入审批',
+      detail: request
+        ? `${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}`
+        : compactText(prettyJson(event.toolCall.arguments), 180),
+      toolCallId: event.toolCall.id,
+      toolName: name,
+      createdAt: new Date().toISOString()
+    }
+  }
   return {
     id: createAgentProcessEventId('tool-call'),
     kind: 'tool_call',
@@ -560,6 +577,18 @@ function createAgentToolCallProcessEvent(event: AgentChatStreamToolEvent): Agent
 
 function createAgentToolResultProcessEvent(event: AgentChatStreamToolEvent): AgentChatProcessEvent {
   const name = event.toolCall.name || 'tool'
+  if (name === TOOL_PERMISSION_NAME) {
+    return {
+      id: createAgentProcessEventId('permission-result'),
+      kind: 'tool_result',
+      title: event.isError ? '写入审批已拒绝' : '写入审批已允许',
+      detail: compactText(prettyJson(event.result ?? ''), 180),
+      toolCallId: event.toolCall.id,
+      toolName: name,
+      isError: event.isError,
+      createdAt: new Date().toISOString()
+    }
+  }
   return {
     id: createAgentProcessEventId('tool-result'),
     kind: 'tool_result',
@@ -720,6 +749,12 @@ export type PendingAsk = {
   questions: AskQuestion[]
 }
 
+export type PendingToolPermission = {
+  streamId: string
+  toolCallId: string
+  request: AgentToolPermissionRequest
+}
+
 /** A single ask tool call's questions (pending or answered). Returns null
  *  if the turn has no `ask` tool call. Used both for the active AskCard
  *  (result===undefined) and the inline Q&A block (result defined). */
@@ -752,6 +787,40 @@ export function selectPendingAsk(
     const parsed = parseAskToolCall(turn)
     if (parsed && parsed.result === undefined) {
       return { streamId, toolCallId: parsed.toolCallId, questions: parsed.questions }
+    }
+    break
+  }
+  return null
+}
+
+export function parsePermissionToolCall(
+  turn: AgentChatTurn | undefined | null
+): { toolCallId: string; request: AgentToolPermissionRequest; result?: string; isError?: boolean } | null {
+  if (!turn?.toolCalls) return null
+  for (const toolCall of turn.toolCalls) {
+    if (toolCall.name !== TOOL_PERMISSION_NAME) continue
+    const request = parsePermissionArguments(toolCall.arguments)
+    if (!request) continue
+    return {
+      toolCallId: toolCall.id,
+      request,
+      result: toolCall.result,
+      isError: toolCall.isError
+    }
+  }
+  return null
+}
+
+export function selectPendingToolPermission(
+  turns: AgentChatTurn[],
+  streamId: string
+): PendingToolPermission | null {
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const turn = turns[i]
+    if (turn.role !== 'assistant') continue
+    const parsed = parsePermissionToolCall(turn)
+    if (parsed && parsed.result === undefined) {
+      return { streamId, toolCallId: parsed.toolCallId, request: parsed.request }
     }
     break
   }
@@ -795,4 +864,38 @@ function parseAskArguments(argumentsJson: string): AskQuestion[] | null {
     })
   })
   return out.length > 0 ? out : null
+}
+
+function parsePermissionArguments(argumentsJson: string): AgentToolPermissionRequest | null {
+  if (!argumentsJson) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(argumentsJson)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const record = parsed as Record<string, unknown>
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  const toolName = typeof record.toolName === 'string' ? record.toolName.trim() : ''
+  const operation = typeof record.operation === 'string' ? record.operation.trim() : ''
+  const kind = record.kind === 'workspace_write' || record.kind === 'workspace_read' || record.kind === 'external_network'
+    ? record.kind
+    : null
+  if (!id || !kind || !toolName || !operation) return null
+  const targetPath = typeof record.targetPath === 'string' && record.targetPath.trim()
+    ? record.targetPath.trim()
+    : undefined
+  const reason = typeof record.reason === 'string' && record.reason.trim()
+    ? record.reason.trim()
+    : undefined
+  return {
+    id,
+    kind,
+    toolName,
+    operation,
+    targetPath,
+    reason,
+    creates: record.creates === true ? true : record.creates === false ? false : undefined
+  }
 }

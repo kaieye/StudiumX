@@ -5,6 +5,7 @@ import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools
 import { createAskToolEntry } from './ai/tools/ask'
 import { createDelegationToolEntries } from './ai/tools/delegation'
 import { createReadSkillResourceTool } from './ai/tools/skill-resource'
+import { registerToolPermissionPending } from './ai/tool-permission-pending'
 import type { ContextCompactionOptions } from './ai/context-compactor'
 import {
   buildLearnerMemoryCandidate,
@@ -140,7 +141,34 @@ export async function runTeachingConversationTurn(
     return { error: true, message: '未配置 API Key。' }
   }
 
-  const ctx = buildToolContext(settings, { workspaceRoot })
+  const ctx = buildToolContext(settings, {
+    workspaceRoot,
+    requestToolPermission: async (request) => {
+      const argumentsJson = JSON.stringify(request)
+      stream.onTool({
+        streamId: stream.streamId,
+        toolCall: {
+          id: request.id,
+          name: 'tool_permission',
+          arguments: argumentsJson
+        },
+        permissionRequest: request
+      })
+      const decision = await registerToolPermissionPending(stream.streamId, request.id, stream.signal)
+      stream.onTool({
+        streamId: stream.streamId,
+        toolCall: {
+          id: request.id,
+          name: 'tool_permission',
+          arguments: argumentsJson
+        },
+        result: JSON.stringify(decision),
+        isError: decision.decision === 'deny',
+        permissionRequest: request
+      })
+      return decision
+    }
+  })
   const registry = settings.tools.enabled && isTeachingConversation
     ? buildDefaultRegistry(settings, { workspaceRoot, workspaceWrite: true })
     : new ToolRegistry()
@@ -167,6 +195,15 @@ export async function runTeachingConversationTurn(
   if (lessonToolEnabled && generateLessonFromBrief) {
     registry.register({
       definition: GENERATE_LESSON_TOOL_DEFINITION,
+      permission: {
+        kind: 'workspace_write',
+        describe: () => ({
+          operation: '生成课程资产',
+          targetPath: 'lessons/',
+          reason: '模型请求生成并登记正式课程、参考材料或学习记录。',
+          creates: true
+        })
+      },
       handler: async (args) => {
         const brief = normalizeLessonBrief(args)
         if (!brief) {

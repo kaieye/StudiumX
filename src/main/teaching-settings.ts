@@ -7,13 +7,15 @@ import {
   PARALLEL_SEARCH_MODES,
   TEACHING_MODEL_PROVIDER_PRESETS,
   WEB_SEARCH_BACKENDS,
+  WORKSPACE_WRITE_PERMISSION_POLICIES,
   type ModelEndpointFormat,
   type ModelReasoningEffort,
   type ParallelSearchMode,
   type TeachingModelProviderProfile,
   type TeachingSettingsPatch,
   type TeachingSettingsV1,
-  type WebSearchBackend
+  type WebSearchBackend,
+  type WorkspaceWritePermissionPolicy
 } from '../shared/teaching-types'
 
 const SETTINGS_FILE_NAME = 'studiumx-settings.json'
@@ -163,6 +165,7 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
     tools: {
       enabled: false,
       workspaceRead: true,
+      workspaceWritePermission: 'allow_for_conversation',
       webSearch: true,
       webFetch: false,
       maxIterations: 0
@@ -342,6 +345,10 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
     tools: {
       enabled: toolsInput.enabled === true,
       workspaceRead: toolsInput.workspaceRead !== false,
+      workspaceWritePermission: normalizeWorkspaceWritePermissionPolicy(
+        toolsInput.workspaceWritePermission,
+        defaults.tools.workspaceWritePermission
+      ),
       webSearch: toolsInput.webSearch !== false,
       webFetch: toolsInput.webFetch === true,
       maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 0, 60, defaults.tools.maxIterations))
@@ -457,6 +464,15 @@ function normalizeWebSearchBackend(input: unknown, fallback: WebSearchBackend): 
 function normalizeParallelSearchMode(input: unknown, fallback: ParallelSearchMode): ParallelSearchMode {
   return typeof input === 'string' && PARALLEL_SEARCH_MODES.includes(input as ParallelSearchMode)
     ? input as ParallelSearchMode
+    : fallback
+}
+
+function normalizeWorkspaceWritePermissionPolicy(
+  input: unknown,
+  fallback: WorkspaceWritePermissionPolicy
+): WorkspaceWritePermissionPolicy {
+  return typeof input === 'string' && WORKSPACE_WRITE_PERMISSION_POLICIES.includes(input as WorkspaceWritePermissionPolicy)
+    ? input as WorkspaceWritePermissionPolicy
     : fallback
 }
 

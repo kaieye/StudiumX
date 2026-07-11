@@ -113,6 +113,7 @@ import {
   isPendingConversationSummary,
   parseAskToolCall,
   selectPendingAsk,
+  selectPendingToolPermission,
   type SidebarConversationSummary
 } from './agent-conversation-state'
 import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
@@ -128,6 +129,7 @@ import {
   type AgentChatProcessEvent,
   type AgentChatTurn,
   type AgentConversationSummary,
+  type AgentToolPermissionRequest,
   type AskAnswer,
   type AskQuestion,
   type LessonSummary,
@@ -2955,7 +2957,11 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const pendingAsk = pendingAskStreamId
     ? selectPendingAsk(agentTurns, pendingAskStreamId)
     : null
-  const canSend = Boolean(active && inputValue.trim() && !busy && !pendingAsk)
+  const pendingPermission = pendingAskStreamId
+    ? selectPendingToolPermission(agentTurns, pendingAskStreamId)
+    : null
+  const hasPendingInterruption = Boolean(pendingAsk || pendingPermission)
+  const canSend = Boolean(active && inputValue.trim() && !busy && !hasPendingInterruption)
   const sentInputHistory = useMemo(
     () => mergeAgentInputHistory(agentInputHistory, userTurnInputHistory(agentTurns)),
     [agentInputHistory, agentTurns]
@@ -2990,6 +2996,14 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       pendingAsk.streamId,
       pendingAsk.toolCallId,
       answers
+    )
+  }
+  const answerPermission = (decision: 'allow' | 'deny'): void => {
+    if (!pendingPermission) return
+    void window.teachingSystem?.answerAgentChatTool(
+      pendingPermission.streamId,
+      pendingPermission.toolCallId,
+      [{ questionId: 'permission', selected: [decision] }]
     )
   }
   const setInputFromHistory = (value: string): void => {
@@ -3038,7 +3052,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     const node = scrollRef.current
     if (!node) return
     node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
-  }, [agentTurns, agentStatus, pendingAsk])
+  }, [agentTurns, agentStatus, pendingAsk, pendingPermission])
   const activeAssistantTurnId = viewingBusyPendingConversation
     ? [...agentTurns].reverse().find((turn) => turn.role === 'assistant')?.id
     : null
@@ -3083,6 +3097,16 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           />
         </div>
       )}
+      {pendingPermission && (
+        <div className="overview-dialog-stack ask-stack">
+          <ToolPermissionCard
+            request={pendingPermission.request}
+            onAllow={() => answerPermission('allow')}
+            onDeny={() => answerPermission('deny')}
+            onCancel={() => void cancelAgentChat()}
+          />
+        </div>
+      )}
       <form
         className="overview-dialog-stack"
         aria-label={t('overview.formAria')}
@@ -3097,14 +3121,16 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             ref={inputRef}
             value={inputValue}
             aria-label={t('overview.taskAria')}
-            placeholder={pendingAsk
-              ? '请先回答上方追问...'
+            placeholder={hasPendingInterruption
+              ? pendingPermission
+                ? '请先处理上方写入审批...'
+                : '请先回答上方追问...'
               : active
               ? isTeachingMode
                 ? '说说你想学什么、当前基础，以及希望先解决什么问题…'
                 : '输入对话内容...'
               : t('overview.placeholderEmpty')}
-            disabled={Boolean(pendingAsk)}
+            disabled={hasPendingInterruption}
             onChange={(event) => {
               setAgentInput(event.target.value)
               setInputHistoryIndex(null)
@@ -3319,6 +3345,59 @@ function AgentProcessIcon({
   if (event.status === 'answering') return <Sparkles size={13} />
   if (event.status === 'tool_running' || event.status === 'tool_done') return <Wrench size={13} />
   return <Clock3 size={13} />
+}
+
+function ToolPermissionCard({
+  request,
+  onAllow,
+  onDeny,
+  onCancel
+}: {
+  request: AgentToolPermissionRequest
+  onAllow: () => void
+  onDeny: () => void
+  onCancel: () => void
+}) {
+  const target = request.targetPath || request.toolName
+  return (
+    <div className="ask-card" role="dialog" aria-label="写入审批">
+      <div className="ask-card__head">
+        <AlertTriangle size={15} />
+        <strong>写入审批</strong>
+      </div>
+
+      <div className="ask-card__question">
+        <div className="ask-card__question-header">{request.operation}</div>
+        <p>{target}</p>
+      </div>
+
+      {request.reason ? (
+        <div className="ask-qa-block">
+          <div className="ask-qa-block__body">
+            <div className="ask-qa-block__item">
+              <strong>原因</strong>
+              <p>{request.reason}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="ask-card__footer">
+        <button type="button" className="ask-card__ghost" onClick={onDeny}>
+          <X size={12} />
+          拒绝
+        </button>
+        <button type="button" className="ask-card__ghost ask-card__ghost--mute" onClick={onCancel}>
+          <Square size={12} />
+          中断
+        </button>
+        <button type="button" className="ask-card__primary" onClick={onAllow}>
+          <Check size={12} />
+          允许本次写入
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function AskCard({

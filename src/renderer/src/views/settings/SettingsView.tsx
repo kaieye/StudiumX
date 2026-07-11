@@ -33,7 +33,8 @@ import {
   type TeachingSettingsV1,
   type TeachingWorkspaceSummary,
   type UpdateTeachingMemoryPayload,
-  type WebSearchBackend
+  type WebSearchBackend,
+  type WorkspaceWritePermissionPolicy
 } from '../../../../shared/teaching-types'
 import {
   activeModelProvider,
@@ -46,7 +47,8 @@ import {
   settingsNavItems,
   toolsSupportedForSettings,
   webSearchBackendLabel,
-  webSearchBackendOptions
+  webSearchBackendOptions,
+  workspaceWritePermissionOptions
 } from '../../workflows/settings'
 import {
   NumberInput,
@@ -502,6 +504,14 @@ export function SettingsView({
                 <ToggleSwitch
                   checked={settings.tools.workspaceRead}
                   onChange={(workspaceRead) => void onUpdateSettings({ tools: { workspaceRead } } as TeachingSettingsPatch)}
+                />
+              </SettingsRow>
+              <SettingsRow label="工作区写入权限" detail="控制 Agent 写入课程、参考资料、学习记录和工作区文本文件前的主进程策略">
+                <SettingsSelect
+                  value={settings.tools.workspaceWritePermission}
+                  options={workspaceWritePermissionOptions}
+                  onChange={(workspaceWritePermission: WorkspaceWritePermissionPolicy) =>
+                    void onUpdateSettings({ tools: { workspaceWritePermission } } as TeachingSettingsPatch)}
                 />
               </SettingsRow>
               <SettingsRow label="web_search（多后端）" detail="自动使用 SearXNG、Brave Search 或 DuckDuckGo Lite 检索最新和课程外信息">

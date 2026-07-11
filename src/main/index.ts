@@ -27,6 +27,10 @@ import {
 } from '../shared/preview-markdown-bridge'
 import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import {
+  cancelStreamToolPermissionPending,
+  resolveToolPermissionPending
+} from './ai/tool-permission-pending'
+import {
   decodeToolAnswerPayload,
   optionalString,
   parseAgentChatStreamPayload,
@@ -245,12 +249,16 @@ function registerTeachingIpc(
       activeAgentChatStreams.delete(streamId)
     }
     cancelStreamAskPending(streamId)
+    cancelStreamToolPermissionPending(streamId)
     return { canceled: Boolean(controller) }
   })
 
   ipcMain.handle(teachingInvokeChannels.answerAgentChatTool, async (_, payload: unknown) => {
     const decoded = decodeToolAnswerPayload(payload)
-    resolveAskPending(decoded.streamId, decoded.toolCallId, decoded.answers)
+    const resolvedAsk = resolveAskPending(decoded.streamId, decoded.toolCallId, decoded.answers)
+    if (!resolvedAsk) {
+      resolveToolPermissionPending(decoded.streamId, decoded.toolCallId, decoded.answers)
+    }
     return { ok: true }
   })
 

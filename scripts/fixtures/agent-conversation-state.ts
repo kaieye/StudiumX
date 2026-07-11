@@ -10,6 +10,7 @@ import {
   failPendingAgentConversation,
   finishPendingAgentConversationSave,
   reconcileAgentTurnsWithLocalProcess,
+  selectPendingToolPermission,
   syncPendingAgentConversation
 } from '../../src/renderer/src/agent-conversation-state'
 
@@ -86,6 +87,53 @@ assert.equal(patch.agentTurns?.at(-1)?.content, 'First chunk.')
 assert.equal(patch.agentStatus, '思考中…')
 pending = patch.pendingAgentConversation!
 
+const permissionRequest = {
+  id: 'permission-1',
+  kind: 'workspace_write' as const,
+  toolName: 'write_workspace_file',
+  operation: '创建工作区文件',
+  targetPath: 'learning-records/0001-note.md',
+  reason: '模型请求写入新的教学资产。',
+  creates: true
+}
+
+patch = applyAgentChatToolEventToPending({
+  pending,
+  activeConversationId: draft.pendingConversationId,
+  assistantId: draft.assistantId,
+  event: {
+    streamId: draft.pendingConversationId,
+    toolCall: { id: 'permission-1', name: 'tool_permission', arguments: JSON.stringify(permissionRequest) },
+    permissionRequest
+  },
+  updatedAt: '2026-01-02T00:00:04.100Z'
+})
+assert.ok(patch)
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '等待写入审批')
+assert.equal(
+  selectPendingToolPermission(patch.agentTurns!, draft.pendingConversationId)?.request.targetPath,
+  'learning-records/0001-note.md'
+)
+pending = patch.pendingAgentConversation!
+
+patch = applyAgentChatToolEventToPending({
+  pending,
+  activeConversationId: draft.pendingConversationId,
+  assistantId: draft.assistantId,
+  event: {
+    streamId: draft.pendingConversationId,
+    toolCall: { id: 'permission-1', name: 'tool_permission', arguments: JSON.stringify(permissionRequest) },
+    result: '{"decision":"allow"}',
+    isError: false,
+    permissionRequest
+  },
+  updatedAt: '2026-01-02T00:00:04.150Z'
+})
+assert.ok(patch)
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '写入审批已允许')
+assert.equal(selectPendingToolPermission(patch.agentTurns!, draft.pendingConversationId), null)
+pending = patch.pendingAgentConversation!
+
 patch = applyAgentChatStatusToPending({
   pending,
   activeConversationId: draft.pendingConversationId,
@@ -139,7 +187,10 @@ patch = applyAgentChatToolEventToPending({
   updatedAt: '2026-01-02T00:00:03.000Z'
 })
 assert.ok(patch)
-assert.equal(patch.agentTurns?.at(-1)?.toolCalls?.[0]?.name, 'read_workspace_file')
+assert.equal(
+  patch.agentTurns?.at(-1)?.toolCalls?.find((toolCall) => toolCall.id === 'tool-1')?.name,
+  'read_workspace_file'
+)
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'tool_call')
 pending = patch.pendingAgentConversation!
 
@@ -156,7 +207,10 @@ patch = applyAgentChatToolEventToPending({
   updatedAt: '2026-01-02T00:00:04.000Z'
 })
 assert.ok(patch)
-assert.equal(patch.agentTurns?.at(-1)?.toolCalls?.[0]?.result, '{"ok":true}')
+assert.equal(
+  patch.agentTurns?.at(-1)?.toolCalls?.find((toolCall) => toolCall.id === 'tool-1')?.result,
+  '{"ok":true}'
+)
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'tool_result')
 pending = patch.pendingAgentConversation!
 

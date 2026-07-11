@@ -24,12 +24,14 @@ import {
   PARALLEL_SEARCH_MODES,
   TEACHING_MODEL_PROVIDER_PRESETS,
   WEB_SEARCH_BACKENDS,
+  WORKSPACE_WRITE_PERMISSION_POLICIES,
   type ModelReasoningEffort,
   type SettingsSection,
   type TeachingModelProviderProfile,
   type TeachingSettingsPatch,
   type TeachingSettingsV1,
-  type WebSearchBackend
+  type WebSearchBackend,
+  type WorkspaceWritePermissionPolicy
 } from '../../../shared/teaching-types'
 import {
   modelListProbeSupportedForFormat,
@@ -82,6 +84,7 @@ export const emptySettings: TeachingSettingsV1 = {
   tools: {
     enabled: false,
     workspaceRead: true,
+    workspaceWritePermission: 'allow_for_conversation',
     webSearch: true,
     webFetch: false,
     maxIterations: 8
@@ -208,6 +211,11 @@ export const parallelSearchModeOptions = PARALLEL_SEARCH_MODES.map((mode) => ({
   label: mode
 }))
 
+export const workspaceWritePermissionOptions = WORKSPACE_WRITE_PERMISSION_POLICIES.map((policy) => ({
+  value: policy,
+  label: workspaceWritePermissionLabel(policy)
+}))
+
 export const modelSettingsProviderIds = ['deepseek', 'glm', 'custom'] as const
 
 export function webSearchBackendLabel(backend: WebSearchBackend): string {
@@ -231,6 +239,17 @@ export function webSearchBackendLabel(backend: WebSearchBackend): string {
       return 'DDGS / DuckDuckGo'
     case 'xai':
       return 'xAI Grok'
+  }
+}
+
+export function workspaceWritePermissionLabel(policy: WorkspaceWritePermissionPolicy): string {
+  switch (policy) {
+    case 'allow_for_conversation':
+      return '允许本轮教学写入'
+    case 'ask_each_time':
+      return '每次写入前询问'
+    case 'read_only':
+      return '只读模式'
   }
 }
 

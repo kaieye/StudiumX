@@ -35,6 +35,10 @@ export type WebSearchBackend =
   | 'duckduckgo'
   | 'xai'
 export type ParallelSearchMode = 'agentic' | 'fast' | 'one-shot'
+export type WorkspaceWritePermissionPolicy =
+  | 'allow_for_conversation'
+  | 'ask_each_time'
+  | 'read_only'
 
 export const MODEL_ENDPOINT_FORMATS = [
   'chat_completions',
@@ -70,6 +74,12 @@ export const PARALLEL_SEARCH_MODES = [
   'agentic',
   'fast',
   'one-shot'
+] as const
+
+export const WORKSPACE_WRITE_PERMISSION_POLICIES = [
+  'allow_for_conversation',
+  'ask_each_time',
+  'read_only'
 ] as const
 
 export type TeachingModelProviderPreset = {
@@ -134,6 +144,7 @@ export type TeachingSettingsV1 = {
   tools: {
     enabled: boolean
     workspaceRead: boolean
+    workspaceWritePermission: WorkspaceWritePermissionPolicy
     webSearch: boolean
     webFetch: boolean
     maxIterations: number

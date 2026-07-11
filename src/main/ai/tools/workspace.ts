@@ -433,6 +433,23 @@ export const writeWorkspaceFileTool: ToolEntry = {
       }
     }
   },
+  permission: {
+    kind: 'workspace_write',
+    describe: async (args: unknown, ctx: ToolContext) => {
+      const input = (args ?? {}) as { path?: string; overwrite?: boolean }
+      if (!input.path?.trim()) throw new Error('缺少参数 path。')
+      const target = resolveWorkspacePath(ctx, input.path)
+      const existing = await lstatIfExists(target.absolutePath)
+      return {
+        operation: existing ? '覆盖工作区文件' : '创建工作区文件',
+        targetPath: target.relativePath,
+        reason: input.overwrite === true
+          ? '模型请求覆盖已有教学资产。'
+          : '模型请求写入新的教学资产。',
+        creates: existing === null
+      }
+    }
+  },
   handler: async (args: unknown, ctx: ToolContext): Promise<string> => {
     try {
       const input = (args ?? {}) as { path?: string; content?: unknown; overwrite?: boolean }
