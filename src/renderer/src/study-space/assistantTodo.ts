@@ -3,7 +3,7 @@ import { persistStudySnapshot, readStudySnapshot } from './domain'
 
 export const STUDY_TASKS_CHANGED_EVENT = 'studiumx:study-tasks-changed'
 
-const todoIntentPattern = /(?:todo\s*list|todo|待办|清单|任务列表|行动计划|学习计划)/i
+const todoIntentPattern = /(?:todo\s*list|todo|待办|清单|任务列表|行动计划|学习计划|(?:制定|生成|制作|整理|安排|拆分|拆解)[^。？！\n]{0,12}(?:任务|计划))/i
 const todoBlockPattern = /```todo\s*([\s\S]*?)```/gi
 const maxTasks = 8
 
@@ -57,7 +57,9 @@ export function parseAssistantTodoPayload(content: string): string[] {
 
 export function stripAssistantTodoPayload(content: string): string {
   todoBlockPattern.lastIndex = 0
-  return content.replace(todoBlockPattern, '').trim()
+  const withoutCompleteBlocks = content.replace(todoBlockPattern, '')
+  const partialBlockIndex = withoutCompleteBlocks.search(/```todo/i)
+  return (partialBlockIndex >= 0 ? withoutCompleteBlocks.slice(0, partialBlockIndex) : withoutCompleteBlocks).trim()
 }
 
 export function mergeAssistantTodoTasks(

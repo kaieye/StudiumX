@@ -6,8 +6,10 @@ import {
   defaultStudyContractText,
   deriveStudyHostAction,
   followStudyRoomCycle,
+  joinStudySpace,
   resetStudyTimer,
   saveStudyRelayUrl,
+  setStudySpaceCode,
   selectStudyModeSnapshot,
   selectStudyRoomSnapshot,
   switchStudyTimerMode,
@@ -99,6 +101,10 @@ const selectedDeepRoom = selectStudyRoomSnapshot(snapshot, deepRoom)
 assert.equal(selectedDeepRoom.roomId, 'deep')
 assert.equal(selectedDeepRoom.focusMinutes, 90)
 assert.equal(selectedDeepRoom.breakMinutes, 15)
+
+assert.equal(joinStudySpace(snapshot, ' room-ab12 ').spaceCode, 'ROOM-AB12')
+assert.equal(joinStudySpace(snapshot, 'x').spaceCode, 'PUBLIC')
+assert.equal(setStudySpaceCode(snapshot, 'ROOM-NEW').spaceCode, 'ROOM-NEW')
 
 const examMode = studyModes.find((mode) => mode.id === 'exam')!
 const selectedMode = selectStudyModeSnapshot(snapshot, examMode)

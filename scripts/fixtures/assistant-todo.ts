@@ -18,11 +18,13 @@ assert.deepEqual(parseAssistantTodoPayload(answer), [
   '预习下一章'
 ])
 assert.equal(stripAssistantTodoPayload(answer), '先按优先级推进：')
+assert.equal(stripAssistantTodoPayload('正在整理\n\n```todo\n{"tasks":["未完成'), '正在整理')
 assert.deepEqual(parseAssistantTodoPayload('- 普通项目符号\n- 不应导入'), [])
 
 const contracted = appendTodoOutputContract('帮我制作今天的 TodoList')
 assert.match(contracted, /```todo/)
 assert.equal(appendTodoOutputContract('解释一下傅里叶变换'), '解释一下傅里叶变换')
+assert.match(appendTodoOutputContract('帮我安排一轮专注计划'), /```todo/)
 
 const merged = mergeAssistantTodoTasks(
   [{ id: 'old', title: '整理课堂错题', done: false }],
