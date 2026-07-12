@@ -24,6 +24,8 @@ export type ModelEndpointFormat = 'chat_completions' | 'responses' | 'messages' 
 export type ModelReasoningEffort = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export type AppCloseAction = 'quit' | 'tray'
+export const PET_APPEARANCE_IDS = ['classic', 'mint', 'sunset', 'midnight', 'berry', 'mono'] as const
+export type PetAppearanceId = (typeof PET_APPEARANCE_IDS)[number]
 export type WebSearchBackend =
   | 'auto'
   | 'firecrawl'
@@ -182,6 +184,7 @@ export type TeachingSettingsV1 = {
     enabled: boolean
     displayName: string
     showStatusBubble: boolean
+    appearance: PetAppearanceId
   }
   privacy: {
     maskApiKeys: boolean

@@ -121,7 +121,8 @@ export const emptySettings: TeachingSettingsV1 = {
   pet: {
     enabled: true,
     displayName: '小搭档',
-    showStatusBubble: true
+    showStatusBubble: true,
+    appearance: 'classic'
   },
   privacy: {
     maskApiKeys: true,

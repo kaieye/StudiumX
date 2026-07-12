@@ -1,6 +1,7 @@
-import { ArrowLeft, Bell, Check, MousePointer2, Sparkles } from 'lucide-react'
+import { ArrowLeft, Check, MousePointer2, Palette } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PET_APPEARANCE_IDS } from '../../../../shared/teaching-types'
 import { useAppStore } from '../../app-shell/appStore'
 import { PetSprite, type PetVisualState } from '../pet/PetSprite'
 
@@ -26,17 +27,11 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="pet-library-page">
-      <button className="resource-back-button" type="button" onClick={onBack}>
-        <ArrowLeft size={15} />
-        {t('resources.home.back')}
-      </button>
-
-      <div className="resource-style-head pet-library-head">
-        <div>
-          <span className="pet-library-eyebrow">{t('resources.pets.eyebrow')}</span>
-          <h1>{t('resources.pets.title')}</h1>
-          <p>{t('resources.pets.detail')}</p>
-        </div>
+      <div className="pet-library-toolbar">
+        <button className="resource-back-button" type="button" onClick={onBack}>
+          <ArrowLeft size={15} />
+          {t('resources.home.back')}
+        </button>
         <span className={`pet-enabled-pill${settings.enabled ? ' is-enabled' : ''}`}>
           {settings.enabled ? <Check size={13} /> : null}
           {settings.enabled ? t('resources.pets.enabled') : t('resources.pets.disabled')}
@@ -44,7 +39,7 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
       </div>
 
       <section className="pet-preview-card">
-        <div className="pet-preview-stage">
+        <div className="pet-preview-stage" data-appearance={settings.appearance}>
           <div className="pet-preview-bubble" data-state={visibleState}>
             <strong>{displayName || t('resources.pets.defaultName')}</strong>
             <span>{t(`resources.pets.states.${visibleState}`)}</span>
@@ -57,7 +52,12 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
             onPointerLeave={() => setHovered(false)}
             onClick={() => setPreviewState('waving')}
           >
-            <PetSprite label={displayName} size={224} state={visibleState} />
+            <PetSprite
+              appearance={settings.appearance}
+              label={displayName}
+              size={224}
+              state={visibleState}
+            />
           </button>
           <span className="pet-preview-shadow" aria-hidden="true" />
         </div>
@@ -70,6 +70,8 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
                 key={state}
                 className={previewState === state && !hovered ? 'is-active' : undefined}
                 type="button"
+                onPointerEnter={() => setPreviewState(state)}
+                onFocus={() => setPreviewState(state)}
                 onClick={() => setPreviewState(state)}
               >
                 {t(`resources.pets.stateLabels.${state}`)}
@@ -85,14 +87,6 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
 
       <div className="pet-settings-grid">
         <section className="pet-settings-card">
-          <div className="pet-settings-card__head">
-            <div>
-              <h2>{t('resources.pets.settingsTitle')}</h2>
-              <p>{t('resources.pets.settingsDetail')}</p>
-            </div>
-            <Sparkles size={18} />
-          </div>
-
           <label className="pet-setting-row">
             <span>
               <strong>{t('resources.pets.enableLabel')}</strong>
@@ -132,25 +126,31 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
           </label>
         </section>
 
-        <section className="pet-settings-card pet-behavior-card">
+        <section className="pet-settings-card pet-appearance-card">
           <div className="pet-settings-card__head">
             <div>
-              <h2>{t('resources.pets.behaviorTitle')}</h2>
-              <p>{t('resources.pets.behaviorDetail')}</p>
+              <h2>{t('resources.pets.appearanceTitle')}</h2>
+              <p>{t('resources.pets.appearanceDetail')}</p>
             </div>
-            <Bell size={18} />
+            <Palette size={18} />
           </div>
-          <ol>
-            {(['waiting', 'failed', 'review', 'running', 'idle'] as const).map((state, index) => (
-              <li key={state} data-state={state}>
-                <span>{index + 1}</span>
-                <div>
-                  <strong>{t(`resources.pets.stateLabels.${state}`)}</strong>
-                  <small>{t(`resources.pets.priority.${state}`)}</small>
-                </div>
-              </li>
+          <div className="pet-appearance-grid" role="group" aria-label={t('resources.pets.appearanceTitle')}>
+            {PET_APPEARANCE_IDS.map((appearance) => (
+              <button
+                key={appearance}
+                className={settings.appearance === appearance ? 'is-selected' : undefined}
+                type="button"
+                aria-pressed={settings.appearance === appearance}
+                onClick={() => void updateSettings({ pet: { appearance } })}
+              >
+                <span className="pet-appearance-preview" aria-hidden="true">
+                  <PetSprite appearance={appearance} label="" size={62} state="idle" />
+                </span>
+                <strong>{t(`resources.pets.appearances.${appearance}`)}</strong>
+                {settings.appearance === appearance ? <Check size={13} aria-hidden="true" /> : null}
+              </button>
             ))}
-          </ol>
+          </div>
         </section>
       </div>
 

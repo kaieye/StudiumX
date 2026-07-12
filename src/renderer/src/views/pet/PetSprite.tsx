@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { PetAppearanceId } from '../../../../shared/teaching-types'
 
 export type PetVisualState =
   | 'idle'
@@ -43,22 +44,57 @@ const stateFps: Record<PetVisualState, number> = {
   review: 10
 }
 
-const palette = {
-  outline: '#15171d',
-  outlineSoft: '#292c34',
-  shell: '#eeeae1',
-  shellLight: '#fffaf0',
-  shellShadow: '#a9a49b',
-  screen: '#111318',
-  screenGlow: '#2a3039',
-  accent: '#ff8a3d',
-  cyan: '#78d8ff',
-  green: '#7ee28c',
-  red: '#ff626b',
-  dust: '#747983'
-} as const
+type PetPalette = {
+  outline: string
+  outlineSoft: string
+  shell: string
+  shellLight: string
+  shellShadow: string
+  screen: string
+  screenGlow: string
+  accent: string
+  cyan: string
+  green: string
+  red: string
+  dust: string
+}
 
-let spriteSheetUrl: string | null = null
+const palettes: Record<PetAppearanceId, PetPalette> = {
+  classic: {
+    outline: '#15171d', outlineSoft: '#292c34', shell: '#eeeae1', shellLight: '#fffaf0',
+    shellShadow: '#a9a49b', screen: '#111318', screenGlow: '#2a3039', accent: '#ff8a3d',
+    cyan: '#78d8ff', green: '#7ee28c', red: '#ff626b', dust: '#747983'
+  },
+  mint: {
+    outline: '#122321', outlineSoft: '#27423d', shell: '#9be5d1', shellLight: '#d9fff4',
+    shellShadow: '#4f9f8b', screen: '#10201e', screenGlow: '#1d4b43', accent: '#ffe075',
+    cyan: '#8cfff1', green: '#a9f08e', red: '#ff6f7d', dust: '#5b827a'
+  },
+  sunset: {
+    outline: '#2b1820', outlineSoft: '#51303a', shell: '#ffad76', shellLight: '#ffe0b5',
+    shellShadow: '#c65c50', screen: '#27171d', screenGlow: '#633344', accent: '#fff06a',
+    cyan: '#7de8ff', green: '#97e58e', red: '#ff526c', dust: '#98605d'
+  },
+  midnight: {
+    outline: '#101421', outlineSoft: '#26304d', shell: '#586b9d', shellLight: '#9cafe2',
+    shellShadow: '#303d6e', screen: '#0a0d18', screenGlow: '#1c2850', accent: '#ffd45f',
+    cyan: '#6ee7ff', green: '#79e5a2', red: '#ff687e', dust: '#4c5575'
+  },
+  berry: {
+    outline: '#271522', outlineSoft: '#4e2944', shell: '#d783bd', shellLight: '#ffd2ed',
+    shellShadow: '#985279', screen: '#21131e', screenGlow: '#552848', accent: '#8ef0cf',
+    cyan: '#8be9ff', green: '#99e68c', red: '#ff607b', dust: '#80506f'
+  },
+  mono: {
+    outline: '#101113', outlineSoft: '#303236', shell: '#aeb2b8', shellLight: '#f4f5f6',
+    shellShadow: '#666b73', screen: '#090a0b', screenGlow: '#25282d', accent: '#ffffff',
+    cyan: '#d9dde2', green: '#bce6c4', red: '#ff6972', dust: '#74777c'
+  }
+}
+
+let palette = palettes.classic
+let activeAppearance: PetAppearanceId = 'classic'
+const spriteSheetUrls = new Map<PetAppearanceId, string>()
 
 function block(
   context: CanvasRenderingContext2D,
@@ -159,6 +195,42 @@ function drawAntenna(
     block(context, palette.outline, 25, 6 + y, 7, 2)
     block(context, palette.outline, 30, 8 + y, 3, 3)
     block(context, palette.red, 31, 9 + y)
+    return
+  }
+
+  if (activeAppearance === 'mint') {
+    block(context, palette.outline, 8, 6 + y, 7, 6)
+    block(context, palette.shell, 10, 7 + y, 4, 4)
+    block(context, palette.outline, 33, 6 + y, 7, 6)
+    block(context, palette.shell, 34, 7 + y, 4, 4)
+    return
+  }
+
+  if (activeAppearance === 'sunset') {
+    block(context, palette.outline, 15, 3 + y, 3, 7)
+    block(context, palette.accent, 14, 1 + y, 5, 3)
+    block(context, palette.outline, 30, 3 + y, 3, 7)
+    block(context, palette.accent, 29, 1 + y, 5, 3)
+    return
+  }
+
+  if (activeAppearance === 'midnight') {
+    block(context, palette.outline, 23, 4 + y, 3, 6)
+    drawSpark(context, 24, 2 + y, palette.accent, 1)
+    return
+  }
+
+  if (activeAppearance === 'berry') {
+    block(context, palette.outline, 8, 6 + y, 7, 7)
+    block(context, palette.shellLight, 10, 8 + y, 3, 3)
+    block(context, palette.outline, 33, 6 + y, 7, 7)
+    block(context, palette.shellLight, 35, 8 + y, 3, 3)
+    return
+  }
+
+  if (activeAppearance === 'mono') {
+    block(context, palette.outline, 13, 6 + y, 22, 4)
+    block(context, palette.shellLight, 17, 4 + y, 14, 3)
     return
   }
 
@@ -357,7 +429,9 @@ function drawPetFrame(
   drawBody(context, state, frame, bob)
 }
 
-function buildSpriteSheet(): string {
+function buildSpriteSheet(appearance: PetAppearanceId): string {
+  activeAppearance = appearance
+  palette = palettes[appearance]
   const canvas = document.createElement('canvas')
   canvas.width = CELL_WIDTH * FRAME_COUNT
   canvas.height = CELL_HEIGHT * Object.keys(stateRows).length
@@ -377,9 +451,12 @@ function buildSpriteSheet(): string {
   return canvas.toDataURL('image/png')
 }
 
-export function getPetSpriteSheetUrl(): string {
-  spriteSheetUrl ??= buildSpriteSheet()
-  return spriteSheetUrl
+export function getPetSpriteSheetUrl(appearance: PetAppearanceId = 'classic'): string {
+  const cached = spriteSheetUrls.get(appearance)
+  if (cached) return cached
+  const sheetUrl = buildSpriteSheet(appearance)
+  spriteSheetUrls.set(appearance, sheetUrl)
+  return sheetUrl
 }
 
 export function getPetSpriteRow(state: PetVisualState): number {
@@ -396,18 +473,20 @@ export function getPetSpriteFrameIndex(
 }
 
 export function PetSprite({
+  appearance = 'classic',
   className,
   label,
   size,
   state
 }: {
+  appearance?: PetAppearanceId
   className?: string
   label: string
   size: number
   state: PetVisualState
 }) {
   const [frame, setFrame] = useState(0)
-  const [sheetUrl] = useState(getPetSpriteSheetUrl)
+  const sheetUrl = getPetSpriteSheetUrl(appearance)
   const height = Math.round((size * CELL_HEIGHT) / CELL_WIDTH)
 
   useEffect(() => {
@@ -436,6 +515,7 @@ export function PetSprite({
   return (
     <span
       className={`pet-sprite${className ? ` ${className}` : ''}`}
+      data-appearance={appearance}
       data-frame={frame}
       data-state={state}
       role="img"

@@ -416,32 +416,15 @@
   margin: 0 auto;
   color: var(--text);
 }
-.pet-library-head {
+.pet-library-toolbar {
   display: flex;
-  max-width: none;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 22px;
+  gap: 16px;
+  margin-bottom: 18px;
 }
-.pet-library-head > div {
-  min-width: 0;
-}
-.pet-library-head h1,
-.pet-library-head p {
-  color: var(--text);
-}
-.pet-library-head p {
-  color: var(--text-muted);
-}
-.pet-library-eyebrow {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 780;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.pet-library-toolbar .resource-back-button {
+  margin-bottom: 0;
 }
 .pet-enabled-pill {
   display: inline-flex;
@@ -473,6 +456,7 @@
   box-shadow: var(--shadow-panel);
 }
 .pet-preview-stage {
+  --pet-stage-glow: rgba(255, 138, 61, 0.2);
   position: relative;
   display: flex;
   align-items: flex-end;
@@ -481,8 +465,23 @@
   padding: 50px 24px 30px;
   overflow: hidden;
   background:
-    radial-gradient(circle at 50% 42%, rgba(255, 138, 61, 0.2), transparent 34%),
+    radial-gradient(circle at 50% 42%, var(--pet-stage-glow), transparent 34%),
     linear-gradient(180deg, #272a31, #15171b);
+}
+.pet-preview-stage[data-appearance='mint'] {
+  --pet-stage-glow: rgba(72, 215, 178, 0.22);
+}
+.pet-preview-stage[data-appearance='sunset'] {
+  --pet-stage-glow: rgba(255, 120, 82, 0.24);
+}
+.pet-preview-stage[data-appearance='midnight'] {
+  --pet-stage-glow: rgba(105, 133, 255, 0.23);
+}
+.pet-preview-stage[data-appearance='berry'] {
+  --pet-stage-glow: rgba(225, 102, 184, 0.22);
+}
+.pet-preview-stage[data-appearance='mono'] {
+  --pet-stage-glow: rgba(210, 215, 224, 0.16);
 }
 .pet-preview-stage::before {
   position: absolute;
@@ -690,44 +689,57 @@
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.pet-behavior-card ol {
+.pet-appearance-grid {
   display: grid;
-  gap: 2px;
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
 }
-.pet-behavior-card li {
+.pet-appearance-grid button {
+  position: relative;
   display: grid;
-  grid-template-columns: 25px minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
-  padding: 8px 0;
-}
-.pet-behavior-card li > span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
+  min-width: 0;
+  min-height: 112px;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  padding: 7px 5px 9px;
   color: var(--text-muted);
-  border-radius: 7px;
-  background: var(--surface-muted);
-  font-size: 10px;
-  font-weight: 780;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  font: inherit;
+  cursor: pointer;
 }
-.pet-behavior-card li > div {
-  display: grid;
-  gap: 2px;
-}
-.pet-behavior-card li strong {
+.pet-appearance-grid button:hover,
+.pet-appearance-grid button.is-selected {
   color: var(--text);
-  font-size: 12px;
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  background: var(--accent-soft);
 }
-.pet-behavior-card li small {
-  color: var(--text-muted);
+.pet-appearance-grid button:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.pet-appearance-grid button > svg {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  color: var(--accent);
+}
+.pet-appearance-preview {
+  display: grid;
+  width: 66px;
+  height: 70px;
+  place-items: center;
+  overflow: hidden;
+}
+.pet-appearance-grid strong {
+  max-width: 100%;
+  overflow: hidden;
   font-size: 11px;
-  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pet-implementation-note {
   margin-top: 16px;
@@ -854,9 +866,6 @@
 }
 
 @media (max-width: 760px) {
-  .pet-library-head {
-    display: grid;
-  }
   .pet-preview-card,
   .pet-settings-grid {
     grid-template-columns: 1fr;
@@ -866,6 +875,9 @@
     border-left: 0;
   }
   .pet-preview-controls > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pet-appearance-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .app-pet {

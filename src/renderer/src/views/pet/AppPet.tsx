@@ -195,7 +195,12 @@ export function AppPet() {
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
       >
-        <PetSprite label={settings.displayName} size={112} state={visualState} />
+        <PetSprite
+          appearance={settings.appearance}
+          label={settings.displayName}
+          size={112}
+          state={visualState}
+        />
       </button>
     </div>
   )

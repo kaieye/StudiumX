@@ -5,12 +5,14 @@ import {
   MODEL_ENDPOINT_FORMATS,
   MODEL_REASONING_EFFORTS,
   PARALLEL_SEARCH_MODES,
+  PET_APPEARANCE_IDS,
   TEACHING_MODEL_PROVIDER_PRESETS,
   WEB_SEARCH_BACKENDS,
   WORKSPACE_WRITE_PERMISSION_POLICIES,
   type ModelEndpointFormat,
   type ModelReasoningEffort,
   type ParallelSearchMode,
+  type PetAppearanceId,
   type TeachingModelProviderProfile,
   type TeachingSettingsPatch,
   type TeachingSettingsV1,
@@ -331,7 +333,8 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
     pet: {
       enabled: true,
       displayName: '小搭档',
-      showStatusBubble: true
+      showStatusBubble: true,
+      appearance: 'classic'
     },
     privacy: {
       maskApiKeys: true,
@@ -530,7 +533,8 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
     pet: {
       enabled: petInput.enabled !== false,
       displayName: normalizeString(petInput.displayName).slice(0, 24) || defaults.pet.displayName,
-      showStatusBubble: petInput.showStatusBubble !== false
+      showStatusBubble: petInput.showStatusBubble !== false,
+      appearance: normalizePetAppearance(petInput.appearance, defaults.pet.appearance)
     },
     privacy: {
       maskApiKeys: privacyInput.maskApiKeys !== false,
@@ -547,6 +551,12 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       retentionDays: Math.round(clampNumber(logInput.retentionDays, 1, 90, defaults.log.retentionDays))
     }
   }
+}
+
+function normalizePetAppearance(input: unknown, fallback: PetAppearanceId): PetAppearanceId {
+  return typeof input === 'string' && PET_APPEARANCE_IDS.includes(input as PetAppearanceId)
+    ? input as PetAppearanceId
+    : fallback
 }
 
 function normalizeProviders(input: unknown, fallback: TeachingModelProviderProfile[]): TeachingModelProviderProfile[] {
