@@ -1056,3 +1056,197 @@
 :root[data-resolved-theme='dark'] .workbench-task-card::before {
   opacity: 0.16;
 }
+
+.workbench-room-switcher {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 278px;
+  padding: 12px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--workbench-glass-surface-strong);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+.workbench-room-current {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.workbench-room-current div,
+.workbench-room-code span {
+  min-width: 0;
+}
+
+.workbench-room-current small,
+.workbench-room-current strong,
+.workbench-room-code small,
+.workbench-room-code strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-room-current small,
+.workbench-room-code small {
+  color: var(--text-soft);
+  font-size: 0.5625rem;
+  font-weight: 640;
+}
+
+.workbench-room-current strong {
+  margin-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 720;
+}
+
+.workbench-room-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-soft);
+}
+
+.workbench-room-status.is-online { background: var(--green); }
+.workbench-room-status.is-connecting { background: var(--amber); }
+
+.workbench-room-members {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-weight: 680;
+}
+
+.workbench-room-code {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px auto;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 7px 7px 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
+}
+
+.workbench-room-code strong {
+  color: var(--accent);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.workbench-room-code button,
+.workbench-room-join button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  color: var(--text-muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.workbench-room-code button.is-create {
+  gap: 4px;
+  padding: 0 9px;
+  color: var(--workbench-accent-contrast);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+  background: var(--accent);
+}
+
+.workbench-room-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.workbench-tools .workbench-room-list button {
+  display: block;
+  min-width: 0;
+  padding: 7px 8px;
+  color: var(--text-muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 56%, transparent);
+  text-align: left;
+}
+
+.workbench-room-list button span,
+.workbench-room-list button small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-room-list button span {
+  font-size: 0.625rem;
+  font-weight: 680;
+}
+
+.workbench-room-list button small {
+  margin-top: 2px;
+  color: var(--text-soft);
+  font-size: 0.5rem;
+}
+
+.workbench-room-list button.is-active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.workbench-room-join {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--text-muted);
+}
+
+.workbench-room-join input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: 0;
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+  font: inherit;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+}
+
+.workbench-room-join input:focus {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.workbench-room-join button {
+  padding: 0 9px;
+  color: var(--workbench-accent-contrast);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+  background: var(--accent);
+}
+
+.workbench-room-join button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}

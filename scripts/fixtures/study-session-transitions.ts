@@ -82,6 +82,7 @@ assert.equal(presetIdle.focusMinutes, 45)
 assert.equal(presetIdle.breakMinutes, 10)
 assert.equal(presetIdle.remainingSeconds, 45 * 60)
 
+assert.equal(studyRooms.length, 4)
 const studyRoom = studyRooms[0]!
 const selectedRoom = selectStudyRoomSnapshot(snapshot, studyRoom)
 assert.equal(selectedRoom.roomId, 'silent')
@@ -93,10 +94,16 @@ assert.equal(runningRoom.roomId, 'silent')
 assert.equal(runningRoom.remainingSeconds, 88)
 assert.equal(runningRoom.focusMinutes, snapshot.focusMinutes)
 
+const deepRoom = studyRooms.find((room) => room.id === 'deep')!
+const selectedDeepRoom = selectStudyRoomSnapshot(snapshot, deepRoom)
+assert.equal(selectedDeepRoom.roomId, 'deep')
+assert.equal(selectedDeepRoom.focusMinutes, 90)
+assert.equal(selectedDeepRoom.breakMinutes, 15)
+
 const examMode = studyModes.find((mode) => mode.id === 'exam')!
 const selectedMode = selectStudyModeSnapshot(snapshot, examMode)
 assert.equal(selectedMode.modeId, 'exam')
-assert.equal(selectedMode.roomId, 'silent')
+assert.equal(selectedMode.roomId, 'exam')
 assert.equal(selectedMode.ambientEnabled, false)
 
 const contract = toggleStudyContract(snapshot, 'Fallback contract')

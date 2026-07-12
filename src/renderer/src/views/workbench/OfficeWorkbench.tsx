@@ -1,5 +1,3 @@
-import { KeyRound } from 'lucide-react'
-import type { FormEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import {
   formatStudyDuration,
@@ -17,6 +15,7 @@ import {
 } from '../pet/PetSprite'
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
+import { WorkbenchRoomSwitcher } from './WorkbenchRoomSwitcher'
 import { WorkbenchTasks } from './WorkbenchTasks'
 
 type WorkbenchAssets = {
@@ -345,6 +344,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     presence,
     viewModel,
     joinSpace,
+    createSpace,
+    selectRoom,
     chooseSeat,
     toggleTimer,
     resetTimer,
@@ -364,7 +365,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const seatStateRef = useRef<WorkbenchSeatState>(emptyWorkbenchSeatState())
   const chooseSeatRef = useRef(chooseSeat)
   const hoveredDeskIdRef = useRef<DeskId | null>(null)
-  const [spaceDraft, setSpaceDraft] = useState('')
   const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
   const occupantsByDeskId = new Map<DeskId, WorkbenchSeatOccupant>()
 
@@ -557,11 +557,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     }
   }, [])
 
-  const handleJoinSpace = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault()
-    joinSpace(spaceDraft)
-    setSpaceDraft('')
-  }
 
   return (
     <section className="office-workbench-page" aria-label="自习室">
@@ -575,17 +570,15 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         />
       </div>
       <aside className="workbench-tools" aria-label="自习工具">
-        <form className="workbench-space-join" onSubmit={handleJoinSpace}>
-          <KeyRound size={14} />
-          <input
-            value={spaceDraft}
-            onChange={(event) => setSpaceDraft(event.target.value)}
-            placeholder="输入空间码"
-            aria-label="加入在线自习空间码"
-            maxLength={18}
-          />
-          <button type="submit">加入</button>
-        </form>
+        <WorkbenchRoomSwitcher
+          activeRoom={viewModel.activeRoom}
+          spaceCode={snapshot.spaceCode}
+          presenceStatus={presence.status}
+          memberCount={viewModel.roomMembers.length}
+          onCreateSpace={createSpace}
+          onJoinSpace={joinSpace}
+          onSelectRoom={selectRoom}
+        />
         <WorkbenchLeaderboard members={viewModel.roomMembers} presenceStatus={presence.status} />
         <WorkbenchPomodoro
           snapshot={snapshot}
