@@ -18,6 +18,7 @@ export type AgentEventBusOptions = {
   onStatus: (status: AgentChatStreamStatus) => void
   onTool: (event: AgentChatStreamToolEvent) => void
   onRealtimeEvent?: (event: AgentRealtimeEvent) => void
+  onRecorded?: (event: AgentRealtimeEvent) => void
 }
 
 const DEFAULT_MAX_REPLAY_BYTES = 64 * 1024
@@ -30,6 +31,7 @@ export class AgentEventBus {
   private readonly onStatus: (status: AgentChatStreamStatus) => void
   private readonly onTool: (event: AgentChatStreamToolEvent) => void
   private readonly onRealtimeEvent?: (event: AgentRealtimeEvent) => void
+  private readonly onRecorded?: (event: AgentRealtimeEvent) => void
   private events: AgentRealtimeEvent[] = []
   private replayBytes = 0
   private sequence = 0
@@ -45,6 +47,7 @@ export class AgentEventBus {
     this.onStatus = options.onStatus
     this.onTool = options.onTool
     this.onRealtimeEvent = options.onRealtimeEvent
+    this.onRecorded = options.onRecorded
   }
 
   publishLoopEvent(event: AgentLoopEvent): void {
@@ -164,6 +167,7 @@ export class AgentEventBus {
     this.events.push(stored)
     this.replayBytes += bytes
     this.trimReplayWindow()
+    this.onRecorded?.({ ...stored })
     this.onRealtimeEvent?.({ ...stored })
     return stored
   }

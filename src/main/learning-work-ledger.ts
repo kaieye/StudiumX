@@ -11,7 +11,8 @@ import type {
   AgentChatToolCallView,
   AgentChatTurn,
   AgentConversationRecord,
-  AgentSourceMetadata
+  AgentSourceMetadata,
+  AgentRunUsageAggregate
 } from '../shared/teaching-types'
 
 export const LEARNING_WORK_LEDGER_RELATIVE_PATH = '.studiumx/learning-work.jsonl'
@@ -59,6 +60,7 @@ type LearningWorkLedgerEntry = {
     compactions?: Array<{ sourceDigest: string; reason: string; mode: string; failed?: boolean }>
     artifacts?: Array<{ kind: string; relativePath: string; title?: string; source?: string }>
     permissionDecisions?: Array<{ toolCallId: string; toolName?: string; operation?: string; targetPath?: string; decision?: string; isError?: boolean }>
+    runUsage?: AgentRunUsageAggregate
   }
 }
 
@@ -132,8 +134,10 @@ function buildEvidence(turns: AgentChatTurn[]): LearningWorkLedgerEntry['evidenc
   const compactions = new Map<string, NonNullable<LearningWorkLedgerEntry['evidence']['compactions']>[number]>()
   const artifacts = new Map<string, NonNullable<LearningWorkLedgerEntry['evidence']['artifacts']>[number]>()
   const permissionDecisions = new Map<string, NonNullable<LearningWorkLedgerEntry['evidence']['permissionDecisions']>[number]>()
+  let runUsage: AgentRunUsageAggregate | undefined
 
   for (const turn of turns) {
+    if (turn.metadata?.runUsage) runUsage = turn.metadata.runUsage
     for (const source of turn.metadata?.sources ?? []) {
       const key = source.sourceId || source.url
       if (!key || sources.has(key)) continue
@@ -184,7 +188,8 @@ function buildEvidence(turns: AgentChatTurn[]): LearningWorkLedgerEntry['evidenc
     childRuns: limitedValues(childRuns),
     compactions: limitedValues(compactions),
     artifacts: limitedValues(artifacts),
-    permissionDecisions: limitedValues(permissionDecisions)
+    permissionDecisions: limitedValues(permissionDecisions),
+    runUsage
   })
 }
 

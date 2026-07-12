@@ -17,7 +17,8 @@ import type {
   AgentSourceMetadata,
   AgentCompactionMetadata,
   AgentContextHygieneMetadata,
-  AgentToolResultDiagnostic
+  AgentToolResultDiagnostic,
+  AgentRunUsageAggregate
 } from '../shared/teaching-types'
 
 export const AGENT_CONVERSATION_SESSION_AUDIT_VERSION = 1
@@ -102,6 +103,12 @@ export type AgentConversationSessionToolResultDiagnosticEntry = AgentConversatio
   diagnostic: AgentToolResultDiagnostic
 }
 
+export type AgentConversationSessionRunUsageEntry = AgentConversationSessionAuditEntryBase & {
+  type: 'run_usage'
+  turnId: string
+  usage: AgentRunUsageAggregate
+}
+
 export type AgentConversationSessionAuditEntry =
   | AgentConversationSessionTurnEntry
   | AgentConversationSessionToolCallEntry
@@ -111,6 +118,7 @@ export type AgentConversationSessionAuditEntry =
   | AgentConversationSessionContextHygieneEntry
   | AgentConversationSessionContextEstimateEntry
   | AgentConversationSessionToolResultDiagnosticEntry
+  | AgentConversationSessionRunUsageEntry
 
 export type AgentConversationSessionAuditLine =
   | AgentConversationSessionAuditHeader
@@ -332,6 +340,16 @@ function appendMetadataEntries(
       timestamp,
       turnId: turn.id,
       contextEstimate: metadata.contextEstimate
+    })
+  }
+  if (metadata.runUsage) {
+    entries.push({
+      type: 'run_usage',
+      id: auditEntryId('run-usage', turn.id, hashText(JSON.stringify(metadata.runUsage))),
+      parentId: turnEntryId,
+      timestamp,
+      turnId: turn.id,
+      usage: metadata.runUsage
     })
   }
   for (const diagnostic of metadata.toolResults ?? []) {

@@ -6,6 +6,8 @@ import type {
   AgentChatStreamPayload,
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
+  AgentProjectionInvalidation,
+  InterruptedAgentRun,
   AgentConversationRecord,
   AskAnswer,
   ReadAgentConversationPayload,
@@ -104,8 +106,10 @@ export type TeachingSystemApi = {
     payload: AgentChatStreamPayload,
     onChunk: (chunk: AgentChatStreamChunk) => void,
     onStatus: (status: AgentChatStreamStatus) => void,
-    onTool: (event: AgentChatStreamToolEvent) => void
+    onTool: (event: AgentChatStreamToolEvent) => void,
+    onInvalidation?: (event: AgentProjectionInvalidation) => void
   ) => Promise<AgentChatStreamDone>
+  listInterruptedAgentRuns: () => Promise<InterruptedAgentRun[]>
   replayAgentChatEvents: (payload: ReplayAgentChatEventsPayload) => Promise<AgentEventBusReplay>
   cancelAgentChatStream: (streamId: string) => Promise<{ canceled: boolean }>
   answerAgentChatTool: (

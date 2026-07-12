@@ -3,7 +3,8 @@ import type {
   AgentRealtimeEvent,
   AgentChatStreamChunk,
   AgentChatStreamStatus,
-  AgentChatStreamToolEvent
+  AgentChatStreamToolEvent,
+  AgentProjectionInvalidation
 } from '../shared/teaching-types'
 
 export function createAgentRealtimeDelivery(options: {
@@ -12,10 +13,24 @@ export function createAgentRealtimeDelivery(options: {
   onChunk: (chunk: AgentChatStreamChunk) => void
   onStatus: (status: AgentChatStreamStatus) => void
   onTool: (event: AgentChatStreamToolEvent) => void
+  onInvalidation?: (event: AgentProjectionInvalidation) => void
 }) {
   let activeStreamId = options.streamId
   let lastSequence = 0
   let queue = Promise.resolve()
+  const invalidations = new Set<AgentProjectionInvalidation['reason']>()
+
+  const invalidate = (reason: AgentProjectionInvalidation['reason'], replay: AgentEventBusReplay): void => {
+    if (invalidations.has(reason)) return
+    invalidations.add(reason)
+    options.onInvalidation?.({
+      streamId: replay.streamId,
+      reason,
+      requestedAfterSequence: replay.requestedAfterSequence,
+      fromSequence: replay.fromSequence,
+      nextSequence: replay.nextSequence
+    })
+  }
 
   const dispatch = (event: AgentRealtimeEvent): void => {
     if (event.sequence <= lastSequence) return
@@ -31,8 +46,13 @@ export function createAgentRealtimeDelivery(options: {
     if (event.sequence > lastSequence + 1) {
       const replay = await options.replay(activeStreamId, lastSequence)
       if (replay.available) {
-        if (replay.hasGap) lastSequence = Math.max(lastSequence, replay.fromSequence - 1)
+        if (replay.hasGap) {
+          invalidate('replay_gap', replay)
+          lastSequence = Math.max(lastSequence, replay.fromSequence - 1)
+        }
         for (const replayedEvent of replay.events) dispatch(replayedEvent)
+      } else {
+        invalidate('replay_unavailable', replay)
       }
     }
     dispatch(event)

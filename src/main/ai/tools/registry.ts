@@ -1,5 +1,8 @@
+import { lstat, realpath } from 'node:fs/promises'
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import type { ToolDefinition } from '../provider-adapter'
 import type { TeachingSettingsV1 } from '../../../shared/teaching-types'
+import type { AgentRunStore, AgentOperationRecord } from '../agent-run-store'
 import { webSearchTool } from './web_search'
 import { webFetchTool } from './web_fetch'
 import { workspaceReadTools, writeWorkspaceFileTool } from './workspace'
@@ -17,11 +20,14 @@ export type ToolPermissionRequest = {
   targetPath?: string
   reason?: string
   creates?: boolean
+  availableScopes?: Array<'once' | 'run' | 'directory'>
+  directoryScopePath?: string
 }
 
 export type ToolPermissionDecision = {
-  decision: 'allow' | 'deny'
+  decision: 'allow' | 'allow_once' | 'allow_for_run' | 'allow_for_directory' | 'deny'
   reason?: string
+  scopePath?: string
 }
 
 export type ToolPermissionDescriptor = {
@@ -41,6 +47,9 @@ export type ToolContext = {
   proxyUrl: string
   workspaceRoot?: string
   requestToolPermission?: ToolPermissionResolver
+  runId?: string
+  operationJournal?: AgentRunStore
+  permissionGrants: ToolRunPermissionGrants
   /** Abort signal for the current agent run. Tools should compose this with their own timeouts. */
   signal?: AbortSignal
 }
@@ -57,6 +66,7 @@ export type ToolRuntimeChildRunRecord = {
   startedAt?: string
   completedAt?: string
   usage?: {
+    providerCalls?: number
     promptTokens?: number
     completionTokens?: number
     totalTokens?: number
@@ -82,6 +92,7 @@ export type ToolCallContext = {
   emit?: (event: ToolRuntimeEvent) => void
   /** Abort signal for this tool call / parent agent run. */
   signal?: AbortSignal
+  runId?: string
 }
 
 /** A tool handler with its ToolContext already bound (ctx curried in). */
@@ -127,8 +138,21 @@ export class ToolRegistry {
     for (const [name, entry] of this.entries) {
       out[name] = async (args, callCtx) => {
         const permission = entry.permission
+        let request: ToolPermissionRequest | undefined
         if (permission) {
-          const decision = await resolveToolPermission(name, permission, args, ctx, callCtx)
+          try {
+            request = await describeToolPermission(name, permission, args, ctx, callCtx)
+          } catch (error) {
+            return JSON.stringify({
+              tool: name,
+              error: error instanceof Error ? error.message : String(error),
+              permission: {
+                kind: permission.kind,
+                decision: 'deny'
+              }
+            }, null, 2)
+          }
+          const decision = await resolveToolPermission(request, ctx, callCtx)
           if (decision.decision === 'deny') {
             return JSON.stringify({
               tool: name,
@@ -140,7 +164,41 @@ export class ToolRegistry {
             }, null, 2)
           }
         }
-        return entry.handler(args, ctx, callCtx)
+        if (permission?.kind !== 'workspace_write' || !ctx.operationJournal || !ctx.runId || !callCtx?.toolCallId) {
+          return entry.handler(args, ctx, callCtx)
+        }
+        const normalizedTarget = request?.kind === 'workspace_write'
+          ? await workspaceRelativePointer(ctx, request.targetPath)
+          : undefined
+        const started = await ctx.operationJournal.startOperation({
+          runId: ctx.runId,
+          toolCallId: callCtx.toolCallId,
+          toolName: name,
+          normalizedTarget,
+          artifactPointer: normalizedTarget
+        })
+        if (started.action === 'review') {
+          return JSON.stringify({
+            tool: name,
+            error: '该写入在上次进程退出前已开始，但没有可靠的完成回执。为避免重复副作用，本次不会自动执行；请人工检查目标后再发起新运行。',
+            operation: operationSummary(started.record, 'manual_review')
+          }, null, 2)
+        }
+        if (started.action === 'reuse') {
+          return decorateOperationResult(started.record.result ?? '', started.record, 'idempotent_reuse')
+        }
+        try {
+          const result = await entry.handler(args, ctx, callCtx)
+          const artifactPointer = await resultArtifactPointer(result, ctx) ?? started.record.artifactPointer
+          const completed = await ctx.operationJournal.completeOperation(
+            artifactPointer ? { ...started.record, artifactPointer } : started.record,
+            result
+          )
+          return decorateOperationResult(result, completed, 'first_execution')
+        } catch (error) {
+          await ctx.operationJournal.failOperation(started.record, error, Boolean(callCtx.signal?.aborted || ctx.signal?.aborted))
+          throw error
+        }
       }
     }
     return out
@@ -149,7 +207,14 @@ export class ToolRegistry {
 
 export function buildToolContext(
   settings: TeachingSettingsV1,
-  options: { workspaceRoot?: string | null; requestToolPermission?: ToolPermissionResolver; signal?: AbortSignal } = {}
+  options: {
+    workspaceRoot?: string | null
+    requestToolPermission?: ToolPermissionResolver
+    signal?: AbortSignal
+    runId?: string
+    operationJournal?: AgentRunStore
+    permissionGrants?: ToolRunPermissionGrants
+  } = {}
 ): ToolContext {
   const proxyUrl = settings.provider.proxy.enabled ? settings.provider.proxy.url.trim() : ''
   const workspaceRoot = options.workspaceRoot?.trim() || undefined
@@ -158,7 +223,10 @@ export function buildToolContext(
     proxyUrl,
     workspaceRoot,
     requestToolPermission: options.requestToolPermission,
-    signal: options.signal
+    signal: options.signal,
+    runId: options.runId,
+    operationJournal: options.operationJournal,
+    permissionGrants: options.permissionGrants ?? new ToolRunPermissionGrants()
   }
 }
 
@@ -177,53 +245,32 @@ export function buildDefaultRegistry(
 }
 
 async function resolveToolPermission(
-  toolName: string,
-  descriptor: ToolPermissionDescriptor,
-  args: unknown,
+  request: ToolPermissionRequest,
   ctx: ToolContext,
   callCtx?: ToolCallContext
 ): Promise<ToolPermissionDecision> {
-  if (descriptor.kind === 'workspace_write') {
+  if (request.kind === 'workspace_write') {
     switch (ctx.settings.tools.workspaceWritePermission) {
       case 'allow_for_conversation':
-        return { decision: 'allow' }
+        return { decision: 'allow_for_run' }
       case 'read_only':
-        return denyWorkspaceWrite(toolName, descriptor, args, ctx, callCtx, '当前工具权限为只读模式')
+        return { decision: 'deny', reason: `当前工具权限为只读模式，已拒绝 ${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}。` }
       case 'ask_each_time': {
-        const request = await describeToolPermission(toolName, descriptor, args, ctx, callCtx)
+        if (await ctx.permissionGrants.allows(request, ctx)) return { decision: 'allow_for_run' }
         if (!ctx.requestToolPermission) {
           return {
             decision: 'deny',
             reason: `需要用户批准 ${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}，但当前会话没有审批通道。`
           }
         }
-        return ctx.requestToolPermission(request, callCtx)
+        const rawDecision = await ctx.requestToolPermission(request, callCtx)
+        const decision = rawDecision.decision === 'allow' ? { ...rawDecision, decision: 'allow_once' as const } : rawDecision
+        if (decision.decision !== 'deny') await ctx.permissionGrants.remember(request, decision, ctx)
+        return decision
       }
     }
   }
-  return { decision: 'allow' }
-}
-
-async function denyWorkspaceWrite(
-  toolName: string,
-  descriptor: ToolPermissionDescriptor,
-  args: unknown,
-  ctx: ToolContext,
-  callCtx: ToolCallContext | undefined,
-  prefix: string
-): Promise<ToolPermissionDecision> {
-  try {
-    const request = await describeToolPermission(toolName, descriptor, args, ctx, callCtx)
-    return {
-      decision: 'deny',
-      reason: `${prefix}，已拒绝 ${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}。`
-    }
-  } catch (error) {
-    return {
-      decision: 'deny',
-      reason: error instanceof Error ? error.message : String(error)
-    }
-  }
+  return { decision: 'allow_once' }
 }
 
 async function describeToolPermission(
@@ -239,9 +286,150 @@ async function describeToolPermission(
       id: callCtx?.toolCallId ?? `${toolName}:${Date.now()}`,
       kind: descriptor.kind,
       toolName,
-      ...detail
+      ...detail,
+      ...(descriptor.kind === 'workspace_write'
+        ? {
+            availableScopes: ['once', 'run', 'directory'] as Array<'once' | 'run' | 'directory'>,
+            directoryScopePath: await canonicalDirectoryScope(ctx, detail.targetPath, detail.creates === true)
+          }
+        : {})
     }
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : String(error))
+  }
+}
+
+export class ToolRunPermissionGrants {
+  private readonly run = new Set<string>()
+  private readonly directories = new Map<string, Set<string>>()
+
+  async allows(request: ToolPermissionRequest, ctx: ToolContext): Promise<boolean> {
+    const key = permissionClassKey(request)
+    if (this.run.has(key)) return true
+    const target = await canonicalPermissionTarget(ctx, request.targetPath)
+    if (!target) return false
+    for (const scope of this.directories.get(key) ?? []) {
+      if (isInside(scope, target)) return true
+    }
+    return false
+  }
+
+  async remember(request: ToolPermissionRequest, decision: ToolPermissionDecision, ctx: ToolContext): Promise<void> {
+    const key = permissionClassKey(request)
+    if (decision.decision === 'allow_for_run') {
+      this.run.add(key)
+      return
+    }
+    if (decision.decision !== 'allow_for_directory') return
+    const scope = await canonicalDirectoryScopeAbsolute(ctx, decision.scopePath ?? request.directoryScopePath ?? request.targetPath, request.creates === true)
+    if (!scope) throw new Error('目录授权缺少可验证的工作区范围。')
+    const scopes = this.directories.get(key) ?? new Set<string>()
+    scopes.add(scope)
+    this.directories.set(key, scopes)
+  }
+
+  clear(): void {
+    this.run.clear()
+    this.directories.clear()
+  }
+}
+
+async function canonicalDirectoryScope(ctx: ToolContext, targetPath?: string, creates = false): Promise<string | undefined> {
+  const absolute = await canonicalDirectoryScopeAbsolute(ctx, targetPath, creates)
+  if (!absolute || !ctx.workspaceRoot) return undefined
+  return toPosix(relative(await realpath(resolve(ctx.workspaceRoot)), absolute)) || '.'
+}
+
+async function canonicalDirectoryScopeAbsolute(ctx: ToolContext, targetPath?: string, creates = false): Promise<string | undefined> {
+  const target = await canonicalPermissionTarget(ctx, targetPath)
+  if (!target) return undefined
+  const raw = targetPath?.trim() ?? ''
+  const directory = creates && !raw.endsWith('/') && raw.split('/').at(-1)?.includes('.') ? dirname(target) : target
+  const info = await lstat(directory).catch(() => null)
+  return info?.isDirectory() ? directory : dirname(directory)
+}
+
+async function canonicalPermissionTarget(ctx: ToolContext, targetPath?: string): Promise<string | undefined> {
+  if (!ctx.workspaceRoot || !targetPath?.trim()) return undefined
+  if (isAbsolute(targetPath)) throw new Error('目录授权不接受绝对路径。')
+  const lexicalRoot = resolve(ctx.workspaceRoot)
+  const lexicalTarget = resolve(lexicalRoot, targetPath)
+  if (!isInside(lexicalRoot, lexicalTarget)) throw new Error('授权目标超出当前工作区。')
+  const realRoot = await realpath(lexicalRoot)
+  let ancestor = lexicalTarget
+  const remainder: string[] = []
+  while (true) {
+    try {
+      const realAncestor = await realpath(ancestor)
+      if (!isInside(realRoot, realAncestor)) throw new Error('授权目标经过符号链接后超出当前工作区。')
+      const candidate = resolve(realAncestor, ...remainder.reverse())
+      if (!isInside(realRoot, candidate)) throw new Error('授权目标超出当前工作区。')
+      return candidate
+    } catch (error) {
+      if (!isMissingPathError(error)) throw error
+      if (ancestor === lexicalRoot) throw error
+      remainder.push(ancestor.split(sep).at(-1) ?? '')
+      ancestor = dirname(ancestor)
+    }
+  }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  if (!(error instanceof Error) || !('code' in error)) return false
+  const code = (error as NodeJS.ErrnoException).code
+  return code === 'ENOENT' || code === 'ENOTDIR'
+}
+
+function permissionClassKey(request: ToolPermissionRequest): string {
+  return `${request.kind}\0${request.toolName}\0${request.operation}`
+}
+
+function isInside(root: string, target: string): boolean {
+  const rel = relative(root, target)
+  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
+}
+
+function toPosix(value: string): string {
+  return value.replace(/\\/g, '/')
+}
+
+async function workspaceRelativePointer(ctx: ToolContext, targetPath?: string): Promise<string | undefined> {
+  const target = await canonicalPermissionTarget(ctx, targetPath)
+  if (!target || !ctx.workspaceRoot) return undefined
+  const root = await realpath(resolve(ctx.workspaceRoot))
+  const pointer = toPosix(relative(root, target))
+  return pointer && pointer !== '.' ? pointer : undefined
+}
+
+async function resultArtifactPointer(result: string, ctx: ToolContext): Promise<string | undefined> {
+  try {
+    const parsed = JSON.parse(result) as Record<string, unknown>
+    const path = typeof parsed.path === 'string' ? parsed.path : typeof parsed.relativePath === 'string' ? parsed.relativePath : undefined
+    return await workspaceRelativePointer(ctx, path?.trim() || undefined)
+  } catch {
+    return undefined
+  }
+}
+
+function decorateOperationResult(result: string, record: AgentOperationRecord, disposition: AgentOperationRecord['disposition']): string {
+  const operation = operationSummary(record, disposition)
+  try {
+    const parsed = JSON.parse(result) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return JSON.stringify({ ...(parsed as Record<string, unknown>), operation }, null, 2)
+    }
+  } catch {
+    // Plain-text tool results are wrapped so the disposition remains auditable.
+  }
+  return JSON.stringify({ ok: true, result, operation }, null, 2)
+}
+
+function operationSummary(record: AgentOperationRecord, disposition: AgentOperationRecord['disposition']): Record<string, unknown> {
+  return {
+    operationId: record.operationId,
+    disposition,
+    state: record.state,
+    ...(record.normalizedTarget ? { targetPath: record.normalizedTarget } : {}),
+    ...(record.artifactPointer ? { artifactPointer: record.artifactPointer } : {})
   }
 }

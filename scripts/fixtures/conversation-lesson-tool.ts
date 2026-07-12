@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import { resolveAskPending } from '../../src/main/ai/ask-pending'
+import { resolveToolPermissionPending } from '../../src/main/ai/tool-permission-pending'
 
 type MockMessage = {
   role: string
@@ -278,7 +279,7 @@ const server = createServer(async (req, res) => {
       {
         message: {
           role: 'assistant',
-          content: toolPayload.includes('"ok":true')
+          content: /"ok"\s*:\s*true/.test(toolPayload)
             ? '第 1 课已生成：RAG 是什么。'
             : '课程生成失败了，我们可以稍后重试。'
         }
@@ -314,6 +315,7 @@ try {
   settings.generator.streaming = false
   settings.tools.enabled = true
   settings.tools.workspaceRead = true
+  settings.tools.workspaceWritePermission = 'ask_each_time'
   settings.tools.webSearch = false
   settings.tools.webFetch = false
   settings.provider.providers = settings.provider.providers.map((provider) =>
@@ -338,6 +340,7 @@ try {
 
   // --- Scenario 1: the conversation agent generates a lesson via its tool.
   const statuses: string[] = []
+  let permissionResolved = false
   const result = await service.agentChatStream(
     {
       workspaceId: workspace.id,
@@ -349,11 +352,19 @@ try {
       streamId: 'lesson-tool-stream',
       onChunk: () => {},
       onStatus: (status) => statuses.push(status.status),
-      onTool: () => {}
+      onTool: (event) => {
+        if (event.toolCall.name !== 'tool_permission' || event.result !== undefined) return
+        setTimeout(() => {
+          permissionResolved = resolveToolPermissionPending('lesson-tool-stream', event.toolCall.id, [
+            { questionId: 'permission', selected: ['allow_for_run'] }
+          ])
+        }, 0)
+      }
     }
   )
 
   assert.ok(!('error' in result) && !('canceled' in result), 'conversation should complete')
+  assert.equal(permissionResolved, true, 'permission resolver must exist before the realtime request can be answered')
   assert.equal(result.finalText, '第 1 课已生成：RAG 是什么。')
   assert.equal(result.generatedLessons?.length, 1, 'generate_lesson output should be surfaced to the renderer')
   const lesson = result.generatedLessons?.[0]
@@ -374,6 +385,7 @@ try {
   assert.ok(statuses.includes('tool_running'), 'lesson generation should stream tool progress')
   assert.equal(pipelineBodies[0]?.response_format?.type, 'json_object', 'tool-augmented lesson generation should request JSON mode')
   assert.ok((pipelineBodies[0]?.max_tokens ?? 0) >= 8192, 'lesson generation should raise the output budget for structured lesson plans')
+  settings.tools.workspaceWritePermission = 'allow_for_conversation'
 
   // --- Scenario 2: pipeline failure must not persist any placeholder lesson.
   pipelineMode = 'broken'
@@ -407,10 +419,8 @@ try {
     'no 0002 placeholder lesson may be written when generation fails'
   )
 
-  // --- Scenario 3: exhausting the tool budget before generate_lesson should
-  // recover by running the lesson pipeline directly for an explicit
-  // continuation request. The user asked to continue; a clear generated lesson
-  // is better than a truthful but dead-end "budget exhausted" error.
+  // --- Scenario 3: reaching the loop limit before generate_lesson must not
+  // bypass the agent loop and invoke the side-effecting lesson pipeline.
   conversationMode = 'budget-exhaustion'
   pipelineMode = 'success'
   pipelineRequests = 0
@@ -430,19 +440,16 @@ try {
     }
   )
 
-  assert.ok(!('error' in exhausted) && !('canceled' in exhausted), 'explicit lesson continuation should recover after tool budget exhaustion')
-  assert.equal(exhausted.generatedLessons?.length, 1, 'budget exhaustion recovery should surface the generated lesson')
-  assert.equal(exhausted.generatedLessons?.[0]?.id, '0002', 'the recovered lesson should be the next lesson')
-  assert.match(exhausted.finalText, /课程已生成/)
-  assert.ok(pipelineRequests >= 1, 'recovery should run the lesson generation pipeline')
+  assert.equal('error' in exhausted, true, 'loop exhaustion should surface a truthful manual-retry boundary')
+  assert.equal(pipelineRequests, 0, 'loop exhaustion must not auto-run the lesson generation pipeline')
   const filesAfterExhaustion = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterExhaustion.length, 4, 'lesson 0002 plus its reference page should be written')
-  assert.equal(filesAfterExhaustion.some((name) => name.startsWith('0002-')), true, 'lesson 0002 should exist on disk')
+  assert.equal(filesAfterExhaustion.length, 2, 'no new lesson or reference page should be written')
+  assert.equal(filesAfterExhaustion.some((name) => name.startsWith('0002-')), false)
 
   // --- Scenario 4: a new learner can enter with a broad topic, answer one
   // clarification question, and have the agent decide to generate the first
-  // lesson. If the tool budget runs out immediately after the mission write,
-  // StudiumX must still recover and write the promised lesson.
+  // lesson. If the loop ends immediately after the mission write, StudiumX
+  // keeps that completed operation but does not infer and run a second side effect.
   conversationMode = 'onboarding-budget-exhaustion'
   onboardingConversationRequests = 0
   pipelineMode = 'success'
@@ -471,20 +478,15 @@ try {
     }
   )
 
-  assert.ok(
-    !('error' in onboarding) && !('canceled' in onboarding),
-    `onboarding should recover after implicit lesson-generation budget exhaustion: ${JSON.stringify(onboarding)}`
-  )
-  assert.equal(onboarding.generatedLessons?.length, 1, 'implicit onboarding recovery should surface the generated lesson')
-  assert.equal(onboarding.generatedLessons?.[0]?.id, '0003', 'the recovered onboarding lesson should be persisted as the next lesson')
-  assert.match(onboarding.finalText, /课程已生成/)
-  assert.ok(pipelineRequests >= 1, 'implicit onboarding recovery should run the lesson generation pipeline')
+  assert.equal('canceled' in onboarding, false)
+  assert.equal('generatedLessons' in onboarding ? onboarding.generatedLessons : undefined, undefined)
+  assert.equal(pipelineRequests, 0, 'onboarding exhaustion must not auto-run generate_lesson')
   const filesAfterOnboarding = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterOnboarding.some((name) => name.startsWith('0003-')), true, 'lesson 0003 should exist on disk')
+  assert.equal(filesAfterOnboarding.some((name) => name.startsWith('0002-')), false)
 
   // --- Scenario 5: some OpenAI-compatible providers still return tool_calls
-  // during the forced no-tools final-answer round. That used to surface as
-  // "达到工具调用上限后，模型仍请求继续调用工具" and skip lesson generation.
+  // during a no-tools final-answer round. A returned tool_call is not an
+  // authorization to execute the side effect out of band.
   conversationMode = 'onboarding-final-tool-call-error'
   onboardingConversationRequests = 0
   pipelineMode = 'success'
@@ -513,15 +515,11 @@ try {
     }
   )
 
-  assert.ok(
-    !('error' in finalToolCall) && !('canceled' in finalToolCall),
-    `forced-final tool_call should recover into lesson generation: ${JSON.stringify(finalToolCall)}`
-  )
-  assert.equal(finalToolCall.generatedLessons?.length, 1, 'forced-final tool_call recovery should surface the generated lesson')
-  assert.equal(finalToolCall.generatedLessons?.[0]?.id, '0004', 'the recovered lesson should be persisted as the next lesson')
-  assert.ok(pipelineRequests >= 1, 'forced-final tool_call recovery should run the lesson generation pipeline')
+  assert.equal('canceled' in finalToolCall, false)
+  assert.equal('generatedLessons' in finalToolCall ? finalToolCall.generatedLessons : undefined, undefined)
+  assert.equal(pipelineRequests, 0, 'a forced-final tool_call must not trigger out-of-band generation')
   const filesAfterFinalToolCall = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterFinalToolCall.some((name) => name.startsWith('0004-')), true, 'lesson 0004 should exist on disk')
+  assert.equal(filesAfterFinalToolCall.some((name) => name.startsWith('0002-')), false)
 
   // --- Scenario 6: malformed JSON should get one repair round and then a
   // compact full regeneration. The compact round is intentionally shorter
@@ -548,7 +546,7 @@ try {
 
   assert.ok(!('error' in compactRecovery) && !('canceled' in compactRecovery), 'compact regeneration should recover from invalid JSON')
   assert.equal(compactRecovery.generatedLessons?.length, 1, 'compact regeneration should still surface the generated lesson')
-  assert.equal(compactRecovery.generatedLessons?.[0]?.id, '0005', 'compact recovery should persist the next lesson')
+  assert.equal(compactRecovery.generatedLessons?.[0]?.id, '0002', 'compact recovery should persist the next lesson')
   assert.equal(pipelineRequests, 3, 'compact recovery should run first attempt, repair, and one compact regeneration')
   assert.equal(
     pipelineBodies.every((request) => request.response_format?.type === 'json_object'),
@@ -556,7 +554,7 @@ try {
     'all lesson-plan attempts should request JSON mode'
   )
   const filesAfterCompactRecovery = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterCompactRecovery.some((name) => name.startsWith('0005-')), true, 'lesson 0005 should exist on disk')
+  assert.equal(filesAfterCompactRecovery.some((name) => name.startsWith('0002-')), true, 'lesson 0002 should exist on disk')
 
   console.log('conversation lesson tool ok')
 } finally {

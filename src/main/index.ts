@@ -118,6 +118,7 @@ function registerTeachingIpc(
 
   ipcMain.handle(teachingInvokeChannels.getState, async () => service.getState())
   ipcMain.handle(teachingInvokeChannels.getSettings, async () => settingsService.load())
+  ipcMain.handle(teachingInvokeChannels.listInterruptedAgentRuns, async () => service.listInterruptedAgentRuns())
   ipcMain.handle(teachingInvokeChannels.updateSettings, async (_, payload: unknown) => {
     const settings = await settingsService.patch(parseSettingsPatch(payload))
     void applyAppBehavior(settings)
@@ -236,10 +237,10 @@ function registerTeachingIpc(
         onEventBusReady: (eventBus) => retainAgentEventBus(streamId, eventBus)
       })
       if ('canceled' in result) {
-        return { streamId, canceled: true as const }
+        return { streamId, ...result }
       }
       if ('error' in result) {
-        return { streamId, error: true as const, message: result.message }
+        return { streamId, ...result }
       }
       return { streamId, ...result }
     } catch (error) {
@@ -716,6 +717,7 @@ if (!hasSingleInstanceLock) {
       settingsProvider: () => settingsService.load(),
       skillLibraryService
     })
+    await workspaceService.reconcileInterruptedAgentRuns()
 
     registerPreviewProtocol(workspaceService)
     registerTeachingIpc(workspaceService, settingsService, skillLibraryService)

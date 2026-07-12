@@ -43,6 +43,16 @@ export function resolveAskPending(
   return true
 }
 
+/** Reject one pending ask when its handler fails before it can await the
+ *  user's answer (for example while persisting the waiting checkpoint). */
+export function rejectAskPending(streamId: string, toolCallId: string, error: Error): boolean {
+  const entry = pending.get(key(streamId, toolCallId))
+  if (!entry) return false
+  pending.delete(key(streamId, toolCallId))
+  entry.reject(error)
+  return true
+}
+
 /** Reject every pending ask for a stream (e.g. when the user cancels the
  *  agent chat). Used by the cancel-IPC handler so no resolver dangles. */
 export function cancelStreamAskPending(streamId: string): void {

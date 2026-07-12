@@ -52,9 +52,19 @@ export function resolveToolPermissionPending(
   const entry = pending.get(key(streamId, requestId))
   if (!entry) return false
   const selected = answers.flatMap((answer) => answer.selected).map((item) => item.toLowerCase())
+  const decision = selected.includes('allow_for_directory')
+    ? 'allow_for_directory'
+    : selected.includes('allow_for_run')
+      ? 'allow_for_run'
+      : selected.includes('allow_once') || selected.includes('allow')
+        ? 'allow_once'
+        : 'deny'
   entry.resolve({
-    decision: selected.includes('allow') ? 'allow' : 'deny',
-    reason: selected.includes('allow') ? undefined : '用户拒绝了本次写入。'
+    decision,
+    reason: decision === 'deny' ? '用户拒绝了本次写入。' : undefined,
+    scopePath: decision === 'allow_for_directory'
+      ? answers.find((answer) => answer.questionId === 'scope')?.selected[0]
+      : undefined
   })
   return true
 }

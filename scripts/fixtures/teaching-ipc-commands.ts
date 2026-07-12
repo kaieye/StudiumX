@@ -35,6 +35,7 @@ assert.deepEqual(
   }),
   {
     streamId: 'pending-123',
+    conversationId: undefined,
     workspaceId: 'workspace-1',
     mode: 'temporary',
     context: undefined,

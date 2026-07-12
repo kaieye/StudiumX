@@ -7,6 +7,7 @@ import { createAskToolEntry } from './ai/tools/ask'
 import { createDelegationToolEntries } from './ai/tools/delegation'
 import { createReadSkillResourceTool } from './ai/tools/skill-resource'
 import { registerToolPermissionPending } from './ai/tool-permission-pending'
+import { AgentRunStore, emptyAgentRunUsage, normalizeAgentRunBudget } from './ai/agent-run-store'
 import type { ContextCompactionOptions } from './ai/context-compactor'
 import {
   buildLearnerMemoryCandidate,
@@ -76,6 +77,7 @@ export type TeachingConversationRuntimeDeps = {
     workspace: TeachingConversationRuntimeWorkspace,
     memories: TeachingMemoryRecord[]
   ) => Promise<TemporaryChatContext>
+  runStore: AgentRunStore
 }
 
 export async function runTeachingConversationTurn(
@@ -91,6 +93,49 @@ export async function runTeachingConversationTurn(
   if (stream.signal?.aborted) {
     return { canceled: true }
   }
+
+  const settings = await deps.loadSettings()
+  const budget = normalizeAgentRunBudget(settings.tools.runBudget)
+  await deps.runStore.create({
+    runId: stream.streamId,
+    streamId: stream.streamId,
+    workspaceId: payload.workspaceId,
+    conversationId: payload.conversationId,
+    budget
+  })
+  try {
+    const result = await runTeachingConversationTurnActive(payload, stream, workspace, {
+      ...deps,
+      loadSettings: async () => settings
+    })
+    const usage = result.usage ?? emptyAgentRunUsage()
+    const status = 'canceled' in result ? 'canceled' : 'error' in result ? 'failed' : 'completed'
+    await deps.runStore.update(stream.streamId, {
+      status,
+      completedAt: new Date().toISOString(),
+      usage,
+      stopReason: 'stopReason' in result ? result.stopReason : status
+    })
+    await deps.runStore.flush()
+    return result
+  } catch (error) {
+    await deps.runStore.update(stream.streamId, {
+      status: stream.signal?.aborted ? 'canceled' : 'failed',
+      completedAt: new Date().toISOString(),
+      stopReason: stream.signal?.aborted ? 'canceled' : 'error'
+    }).catch(() => undefined)
+    await deps.runStore.flush().catch(() => undefined)
+    throw error
+  }
+}
+
+async function runTeachingConversationTurnActive(
+  payload: AgentChatStreamPayload,
+  stream: TeachingConversationRuntimeStream,
+  workspace: TeachingConversationRuntimeWorkspace | null,
+  deps: TeachingConversationRuntimeDeps
+): Promise<AgentChatStreamResult> {
+  const userInput = payload.userInput.trim()
 
   const settings = await deps.loadSettings()
   const provider = resolveActiveProvider(settings)
@@ -120,6 +165,7 @@ export async function runTeachingConversationTurn(
         finalText,
         iterations: 0,
         toolsSupported: false,
+        usage: emptyAgentRunUsage(),
         memoryCapture: {
           action: 'approved',
           candidateContent: pendingMemoryCandidate.content,
@@ -134,6 +180,7 @@ export async function runTeachingConversationTurn(
       finalText,
       iterations: 0,
       toolsSupported: false,
+      usage: emptyAgentRunUsage(),
       memoryCapture: {
         action: 'rejected',
         candidateContent: pendingMemoryCandidate.content
@@ -150,15 +197,26 @@ export async function runTeachingConversationTurn(
     onChunk: stream.onChunk,
     onStatus: stream.onStatus,
     onTool: stream.onTool,
-    onRealtimeEvent: stream.onRealtimeEvent
+    onRealtimeEvent: stream.onRealtimeEvent,
+    onRecorded: (event) => {
+      void deps.runStore.update(stream.streamId, { lastDurableSequence: event.sequence })
+    }
   })
   stream.onEventBusReady?.(eventBus)
 
   const ctx = buildToolContext(settings, {
     workspaceRoot,
     signal: stream.signal,
+    runId: stream.streamId,
+    operationJournal: deps.runStore,
     requestToolPermission: async (request) => {
       const argumentsJson = JSON.stringify(request)
+      await deps.runStore.update(stream.streamId, {
+        status: 'waiting_for_permission',
+        pendingPermissionId: request.id
+      })
+      const pendingDecision = registerToolPermissionPending(stream.streamId, request.id, stream.signal)
+      void pendingDecision.catch(() => undefined)
       eventBus.publishTool({
         toolCall: {
           id: request.id,
@@ -167,7 +225,15 @@ export async function runTeachingConversationTurn(
         },
         permissionRequest: request
       })
-      const decision = await registerToolPermissionPending(stream.streamId, request.id, stream.signal)
+      let decision
+      try {
+        decision = await pendingDecision
+      } finally {
+        await deps.runStore.update(stream.streamId, {
+          status: 'running',
+          pendingPermissionId: undefined
+        }).catch(() => undefined)
+      }
       eventBus.publishTool({
         toolCall: {
           id: request.id,
@@ -189,7 +255,22 @@ export async function runTeachingConversationTurn(
   // model can present clickable options at a real user-owned fork. It
   // respects the master `tools.enabled` switch like every other tool.
   if (settings.tools.enabled) {
-    registry.register(createAskToolEntry({ streamId: stream.streamId, signal: stream.signal }))
+    registry.register(createAskToolEntry({
+      streamId: stream.streamId,
+      signal: stream.signal,
+      onWaiting: async (toolCallId) => {
+        await deps.runStore.update(stream.streamId, {
+          status: 'waiting_for_elicitation',
+          pendingElicitationId: toolCallId
+        })
+      },
+      onResolved: async () => {
+        await deps.runStore.update(stream.streamId, {
+          status: 'running',
+          pendingElicitationId: undefined
+        }).catch(() => undefined)
+      }
+    }))
   }
   if (settings.tools.enabled && isTeachingConversation) {
     for (const tool of createDelegationToolEntries({ provider, streamId: stream.streamId, signal: stream.signal })) {
@@ -297,6 +378,7 @@ export async function runTeachingConversationTurn(
     maxIterationsErrorMessage:
       '工具调用上限已用完，generate_lesson 尚未执行，所以课程尚未生成。请重试，或在设置里提高工具调用上限。',
     contextCompaction: buildContextCompactionOptions(payload.contextCompaction),
+    budget: settings.tools.runBudget,
     signal: stream.signal,
     callbacks: {
       onEvent: (event) => {
@@ -307,23 +389,10 @@ export async function runTeachingConversationTurn(
   })
 
   if (result.stopReason === 'canceled') {
-    return { canceled: true }
+    return { canceled: true, usage: result.usage }
   }
-  const recovered = await recoverLessonGenerationAfterToolBudget({
-    result,
-    userInput,
-    payloadMessages: payload.messages ?? [],
-    workspace,
-    lessonToolEnabled,
-    generatedLessons,
-    generateLessonFromBrief,
-    runEvents,
-    stream,
-    eventBus
-  })
-  if (recovered) return recovered
   if (result.error) {
-    return { error: true, message: result.error }
+    return { error: true, message: result.error, usage: result.usage }
   }
   if (stream.signal?.aborted) {
     return { canceled: true }
@@ -357,13 +426,15 @@ export async function runTeachingConversationTurn(
   }
 
   return {
-    turns: attachAgentRunAuditMetadata(toAgentTurns(messagesWithMemory), runEvents),
+    turns: attachAgentRunAuditMetadata(toAgentTurns(messagesWithMemory), runEvents, result.usage),
     finalText,
     iterations: result.iterations,
     toolsSupported: result.toolsSupported,
     degradedReason: result.degradedReason,
     generatedLessons: generatedLessons.length > 0 ? generatedLessons : undefined,
-    memoryCapture
+    memoryCapture,
+    usage: result.usage,
+    stopReason: result.stopReason
   }
 }
 
@@ -632,162 +703,6 @@ function buildContextCompactionOptions(
     softThresholdTokens: request.softThresholdTokens,
     hardThresholdTokens: request.hardThresholdTokens
   }
-}
-
-function safeParseJson(value: string): unknown {
-  try {
-    return JSON.parse(value || '{}')
-  } catch {
-    return {}
-  }
-}
-
-async function recoverLessonGenerationAfterToolBudget(options: {
-  result: Awaited<ReturnType<typeof runAgentLoop>>
-  userInput: string
-  payloadMessages: AgentChatMessage[]
-  workspace: TeachingConversationRuntimeWorkspace | null
-  lessonToolEnabled: boolean
-  generatedLessons: LessonSummary[]
-  generateLessonFromBrief?: (brief: LessonBrief) => Promise<LessonSummary>
-  runEvents: AgentLoopEvent[]
-  stream: TeachingConversationRuntimeStream
-  eventBus: AgentEventBus
-}): Promise<AgentChatStreamResult | null> {
-  const {
-    result,
-    userInput,
-    payloadMessages,
-    workspace,
-    lessonToolEnabled,
-    generatedLessons,
-    generateLessonFromBrief,
-    runEvents,
-    stream,
-    eventBus
-  } = options
-  if (
-    !lessonToolEnabled ||
-    generatedLessons.length > 0 ||
-    !generateLessonFromBrief ||
-    !workspace ||
-    !shouldRecoverLessonGenerationAfterToolBudget({ userInput, result })
-  ) {
-    return null
-  }
-  if (stream.signal?.aborted) return { canceled: true }
-
-  const brief = findLatestGenerateLessonBrief(result.messages) ??
-    buildRecoveryLessonBrief({ userInput, payloadMessages, workspace })
-  eventBus.publishStatus('tool_running', 'generate_lesson')
-  try {
-    const lesson = await generateLessonFromBrief(brief)
-    generatedLessons.push(lesson)
-    const finalText = `课程已生成：${lesson.title}\n\n保存路径：${lesson.relativePath}\n\n下一步建议：打开这节课通读一遍，学完后继续告诉我哪里偏简单或哪里需要加深。`
-    eventBus.publishChunk(finalText)
-    eventBus.publishStatus('done')
-    return {
-      turns: attachAgentRunAuditMetadata(toAgentTurns([...result.messages, { role: 'assistant', content: finalText }]), runEvents),
-      finalText,
-      iterations: result.iterations,
-      toolsSupported: result.toolsSupported,
-      degradedReason: result.degradedReason,
-      generatedLessons
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    eventBus.publishStatus('error', message)
-    return { error: true, message: `工具调用上限已用完，自动补生成课程也失败：${message}` }
-  }
-}
-
-function buildRecoveryLessonBrief(options: {
-  userInput: string
-  payloadMessages: AgentChatMessage[]
-  workspace: TeachingConversationRuntimeWorkspace
-}): LessonBrief {
-  const userLines = options.payloadMessages
-    .filter((message) => message.role === 'user')
-    .map((message) => cleanText(message.content))
-    .filter(Boolean)
-    .slice(-4)
-  const recentContext = [...userLines, cleanText(options.userInput)].filter(Boolean).join(' / ')
-  const topic = deriveRecoveryLessonTopic(options.userInput, options.workspace)
-  return {
-    topic,
-    firstLessonFocus: cleanText(
-      `根据当前教学工作区的 MISSION.md、NOTES.md、已完成课程和学习记录，继续生成下一节正式课程；用户本轮要求是：${options.userInput}`
-    ).slice(0, 600),
-    goal: '继续当前教学工作区的课程进度，产出一节可保存、可复习的正式课程。',
-    constraints: '优先沿用工作区已有课程规划；如果上一课偏简单，本节适当加深内容密度。',
-    extraNotes: recentContext ? `最近用户原话：${recentContext}`.slice(0, 600) : undefined
-  }
-}
-
-function shouldRecoverLessonGenerationAfterToolBudget(options: {
-  userInput: string
-  result: Awaited<ReturnType<typeof runAgentLoop>>
-}): boolean {
-  if (!isToolBudgetExhaustionResult(options.result)) return false
-  if (isLessonGenerationRequest(options.userInput)) return true
-  if (findLatestGenerateLessonBrief(options.result.messages)) return true
-  const assistantTexts = [
-    options.result.finalText,
-    ...[...options.result.messages]
-      .reverse()
-      .filter((message) => message.role === 'assistant')
-      .slice(0, 3)
-      .map((message) => message.content ?? '')
-  ].join('\n')
-  return hasLessonGenerationIntent(assistantTexts)
-}
-
-function isToolBudgetExhaustionResult(result: Awaited<ReturnType<typeof runAgentLoop>>): boolean {
-  if (result.stopReason === 'max_iterations') return true
-  if (result.stopReason !== 'error') return false
-  return /达到工具调用上限后/.test(result.error ?? '')
-}
-
-function findLatestGenerateLessonBrief(messages: ChatMessage[]): LessonBrief | null {
-  for (const message of [...messages].reverse()) {
-    if (message.role !== 'assistant') continue
-    const calls = [...(message.tool_calls ?? [])].reverse()
-    for (const call of calls) {
-      if (call.function.name !== 'generate_lesson') continue
-      const brief = normalizeLessonBrief(safeParseJson(call.function.arguments))
-      if (brief) return brief
-    }
-  }
-  return null
-}
-
-function hasLessonGenerationIntent(value: string): boolean {
-  const text = cleanText(value)
-  if (!text) return false
-  if (/(?:尚未|还没|未能|无法|不能|不会|失败|报错|错误|重试|提高工具调用上限|没有生成|未生成)/.test(text)) {
-    return false
-  }
-  return [
-    /(?:现在|马上|接下来|开始|继续|我来|帮你|为你|将|会).{0,32}(?:生成|创建|产出|保存).{0,32}(?:课程|课|lesson|session)/i,
-    /(?:生成|创建|产出|保存).{0,32}(?:第一节|第一课|下一节|下一课|下节课|正式课程|lesson|session)/i,
-    /(?:课程|课|lesson|session).{0,32}(?:已生成|已创建|已保存)/i
-  ].some((pattern) => pattern.test(text))
-}
-
-function deriveRecoveryLessonTopic(
-  userInput: string,
-  workspace: TeachingConversationRuntimeWorkspace
-): string {
-  const text = cleanText(userInput)
-  const extracted = [
-    /(?:我想|想要|准备|打算)?(?:学习|学|了解|掌握|研究)\s*([^，。,.!?？\n]{2,40})/i,
-    /(?:teach me|learn|study)\s+([^，。,.!?？\n]{2,40})/i
-  ]
-    .map((pattern) => pattern.exec(text)?.[1])
-    .map((match) => cleanText(match))
-    .find(Boolean)
-  if (extracted) return extracted
-  return `${workspace.name} 下一节课程`
 }
 
 function isLessonGenerationRequest(input: string): boolean {

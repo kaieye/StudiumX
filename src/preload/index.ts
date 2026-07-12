@@ -60,14 +60,15 @@ const api: TeachingSystemApi = {
   },
   onLessonStreamChunk: (handler) => registerIpcListener<LessonStreamChunk>(teachingEventChannels.lessonStreamChunk, handler),
   onLessonStreamStatus: (handler) => registerIpcListener<LessonStreamStatus>(teachingEventChannels.lessonStreamStatus, handler),
-  agentChatStream: (payload, onChunk, onStatus, onTool) => {
+  agentChatStream: (payload, onChunk, onStatus, onTool, onInvalidation) => {
     const delivery = createAgentRealtimeDelivery({
       streamId: payload.streamId,
       replay: (streamId, afterSequence) =>
         ipcRenderer.invoke(teachingInvokeChannels.replayAgentChatEvents, { streamId, afterSequence }),
       onChunk,
       onStatus,
-      onTool
+      onTool,
+      onInvalidation
     })
     const offEvent = registerIpcListener<AgentRealtimeEvent>(teachingEventChannels.agentChatEvent, (event) => {
       void delivery.accept(event)
@@ -82,6 +83,7 @@ const api: TeachingSystemApi = {
         offEvent()
       }) as Promise<AgentChatStreamDone>
   },
+  listInterruptedAgentRuns: () => ipcRenderer.invoke(teachingInvokeChannels.listInterruptedAgentRuns),
   replayAgentChatEvents: (payload) =>
     ipcRenderer.invoke(teachingInvokeChannels.replayAgentChatEvents, payload),
   cancelAgentChatStream: (streamId) => ipcRenderer.invoke(teachingInvokeChannels.cancelAgentChatStream, streamId),

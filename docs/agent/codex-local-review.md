@@ -137,6 +137,63 @@ Codex 的 activity timeline 值得迁移，但 StudiumX 不展示 chain-of-thoug
 
 不继续迁移 Codex 的 token batch flush 和 nested child timeline：StudiumX 当前是单窗口、本地教学会话，sequence/replay/final-result reconciliation 已解决正确性；只有 profiling 证明 IPC token 压力，或 child-run UX 明确需要树形展开时才引入额外复杂度。
 
+### 8.1 Durable run checkpoint 与手动恢复边界
+
+实时事件只能恢复 renderer 的进程内投影，不能单独证明一次写入是否已经发生。StudiumX 因此增加两层 workspace-local durable state：
+
+```text
+.agent-sessions/runs/<runId>.json
+.agent-sessions/operations/<runId>/<operationId>.json
+```
+
+- run checkpoint 记录 `running`、等待审批、等待追问及 terminal 状态、最后 durable sequence、预算和脱敏 usage；JSON 采用原子替换并固定为 `0600`。
+- 启动时只把遗留的 active checkpoint 标为 `interrupted`。已保存 conversation 仍是真相来源，但旧 permission resolver 和 ask resolver 会被清除并明确失效。
+- renderer 会显示中断说明，并允许用户手动输入“继续”或重新发送；恢复流程不会自动调用 provider，也不会把旧工具调用重新放回队列。
+- replay `gap` 和 `unavailable` 都是 **projection invalidation**：仍可投递保留下来的事件，但当前进程投影不再被当作完整事实；terminal 后重新读取保存的 conversation truth。invalidation 本身绝不触发自动重跑。
+- checkpoint 和 journal 使用固定 schema/version/allowed-key 校验；损坏或未知版本会 quarantine，不会带病加载。ID、相对 pointer、realpath 和 symlink containment 都有独立检查。
+
+这条边界刻意接受一次交互成本：应用退出后不能“无感续跑”。对教学产品而言，明确告诉用户哪里中断，比猜测 provider/tool 的执行位置更可信。
+
+### 8.2 Workspace write operation journal 与幂等
+
+所有 `workspace_write` 工具在获得权限后、执行 handler 前写入 operation journal。operation ID 是 `runId + toolCallId` 的 SHA-256：
+
+- 同一 run、同一 tool call 已有小型 completed result 时，重试只复用结果并标记 `idempotent_reuse`，不会再次写文件或重新生成课程。
+- 新 run 即使请求相似操作，也会得到新的 operation ID，可以在新的明确用户意图下执行。
+- `started`、`interrupted`、`failed`、缺少可复用 result，或“大结果只保存 hash”的记录都进入 `manual_review`。这覆盖“审批后退出”“副作用完成但结果尚未投递”等无法可靠判定的窗口。
+- artifact pointer 只能是经过 workspace canonical containment 验证的相对路径。工具结果中的恶意或错误 path 不会覆盖执行前已验证的 target。
+
+StudiumX 不会根据“目标文件存在”推断操作成功并自动继续。存在性只作为人工检查提示，因为生成课程、登记索引、写 learning record 等副作用可能不是单文件事务。
+
+### 8.3 Run-scoped 写权限
+
+新安装默认 `workspaceWritePermission = ask_each_time`。旧 settings 中显式保存的 `allow_for_conversation` 或 `read_only` 保持兼容，不会在迁移时静默改写。
+
+一次审批可选择：
+
+- 仅允许本次；
+- 允许本轮同类工具/操作；
+- 允许本轮在指定目录内的同类写入；
+- 拒绝或中断。
+
+run grant 和 directory grant 只存在内存中，run terminal/cancel 后随 context 一起销毁，应用重启后不会恢复，也没有永久 workspace grant。目录授权同时检查 lexical containment 和 nearest-existing-parent 的 realpath；已有 symlink 或新路径的祖先 symlink 只要越过 workspace root 就会拒绝。`read_only` 不查询 transient grant、不打开审批通道、不启动 operation，也不执行 handler。
+
+默认逐次询问会增加写入时的点击次数，但显著降低“旧会话设置长期拥有写权限”和“重启后继承授权”的风险。频繁且同质的安全写入可以由用户主动选择本轮或目录 scope，而不是产品默认扩大权限。
+
+### 8.4 父 run 预算与 provider-reported usage
+
+每个 run 都有独立硬边界：duration、provider calls、tool calls、provider 报告的 total tokens，以及接近阈值的一次性脱敏提示。父 run 会聚合 child terminal event 报告的 provider/tool/token usage；每个 child 同时受自己的 run budget 约束。
+
+- token 只采用 provider 明确返回的 usage，不从消息长度或价格反推。
+- 任一 provider/child call 缺少完整 prompt/completion/total token 字段时，聚合 token usage 标为 unknown（省略字段），不会填入估算值。
+- context compaction 的 provider call 也计入预算。
+- tool-call 预算耗尽时允许一次禁用 tools 的最终答复调用；provider、duration 或 token 预算耗尽后不再启动额外调用。
+- audit、conversation metadata 与 Learning Work Ledger 只保存计数和 usage，不保存 prompt、credential 或价格估算。
+
+### 8.5 继续明确拒绝的能力
+
+durable recovery 不等于扩展控制面。本次仍不实现 remote/host/lease、MCP marketplace、shell、Computer Use、远程控制、repo/snapshot upload、永久 workspace grant、自动重跑中断副作用或 CoT 存储。checkpoint 只保存恢复所需的结构化状态和脱敏诊断，不保存模型思维链。
+
 ### 9. Learning Work Ledger
 
 Codex 的 thread/job index 已迁移为 StudiumX 语言下的 **Learning Work Ledger**，不叫 generic task index：
@@ -188,8 +245,13 @@ Codex 的 plugin/skill progressive disclosure 已迁移成 StudiumX 的受控 sk
 ```bash
 pnpm check:security
 pnpm check:agent-loop-baseline
+pnpm check:agent-run-budget
 pnpm check:agent-loop-empty-final
 pnpm check:tool-execution
+pnpm check:tool-permissions
+pnpm check:scoped-tool-permissions
+pnpm check:agent-operation-idempotency
+pnpm check:agent-run-recovery
 pnpm check:agent-chat-cancel
 pnpm check:settings-secret-storage
 pnpm check:learning-work-reconcile

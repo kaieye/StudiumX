@@ -149,6 +149,13 @@ export type TeachingSettingsV1 = {
     webSearch: boolean
     webFetch: boolean
     maxIterations: number
+    runBudget: {
+      maxDurationMs: number
+      maxProviderCalls: number
+      maxToolCalls: number
+      maxTotalTokens: number
+      warningThreshold: number
+    }
   }
   webSearch: {
     backend: WebSearchBackend
@@ -197,7 +204,9 @@ export type TeachingSettingsPatch = Partial<
   workspace?: Partial<TeachingSettingsV1['workspace']>
   worktree?: Partial<TeachingSettingsV1['worktree']>
   memory?: Partial<TeachingSettingsV1['memory']>
-  tools?: Partial<TeachingSettingsV1['tools']>
+  tools?: Partial<Omit<TeachingSettingsV1['tools'], 'runBudget'>> & {
+    runBudget?: Partial<TeachingSettingsV1['tools']['runBudget']>
+  }
   webSearch?: Partial<TeachingSettingsV1['webSearch']>
   notifications?: Partial<TeachingSettingsV1['notifications']>
   privacy?: Partial<TeachingSettingsV1['privacy']>

@@ -38,6 +38,7 @@ import {
   type TeachingConversationRuntimeStream,
   type TemporaryChatContext
 } from './teaching-conversation-runtime'
+import { AgentRunStore } from './ai/agent-run-store'
 import type { SkillLibraryService } from './skill-library'
 import type { LessonPlanSource } from '../shared/lesson-schema'
 import {
@@ -140,6 +141,7 @@ import type {
   TeachingSettingsV1,
   TeachingWorkspaceChangeSummary,
   TeachingWorkspaceSummary,
+  InterruptedAgentRun,
   WorkspaceItemKind,
   WorkspaceMarkdownDocument,
   WorkspaceItemMetaPayload,
@@ -303,6 +305,27 @@ export class TeachingWorkspaceService {
     return this.buildState(registry, options.activeWorkspaceId, options.selectedLessonPath)
   }
 
+  async reconcileInterruptedAgentRuns(): Promise<InterruptedAgentRun[]> {
+    const stores = await this.agentRunStores()
+    return (await Promise.all(stores.map((store) => store.reconcileInterrupted().catch(() => [])))).flat()
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  async listInterruptedAgentRuns(): Promise<InterruptedAgentRun[]> {
+    const stores = await this.agentRunStores()
+    return (await Promise.all(stores.map((store) => store.listInterrupted().catch(() => [])))).flat()
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  private async agentRunStores(): Promise<AgentRunStore[]> {
+    const registry = await this.ensureRegistry()
+    const roots = new Map<string, string>()
+    for (const root of [this.appDataRoot, ...registry.workspaces.map((workspace) => workspace.rootPath)]) {
+      roots.set(resolve(root), root)
+    }
+    return [...roots.values()].map((root) => new AgentRunStore(root))
+  }
+
   async createWorkspace(payload: CreateWorkspacePayload): Promise<TeachingAppState> {
     const now = new Date().toISOString()
     const name = cleanText(payload.name) || 'learn'
@@ -437,7 +460,9 @@ export class TeachingWorkspaceService {
       ? findWorkspace(registryState, payload.workspaceId)
       : null
     const isTeachingConversation = (payload.mode ?? 'teaching') === 'teaching'
+    const runStorageRoot = isTeachingConversation && workspace ? workspace.rootPath : this.appDataRoot
     return runTeachingConversationTurn(payload, stream, workspace, {
+      runStore: new AgentRunStore(runStorageRoot),
       loadSettings: () => this.loadSettings(),
       listMemories: (workspaceRoot) => this.memoryStore.list(workspaceRoot),
       createMemory: (memoryPayload) => this.memoryStore.create(memoryPayload),

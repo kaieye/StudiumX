@@ -112,7 +112,11 @@ try {
     ]),
     true
   )
-  assert.deepEqual(await pendingDecision, { decision: 'allow', reason: undefined })
+  assert.deepEqual(await pendingDecision, {
+    decision: 'allow_once',
+    reason: undefined,
+    scopePath: undefined
+  })
 } finally {
   await rm(root, { recursive: true, force: true })
 }

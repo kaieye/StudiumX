@@ -237,7 +237,13 @@ export class DelegationRuntime {
         }
       })
 
-      const usage = childUsage(result.messages)
+      const usage: ChildRunUsage = {
+        providerCalls: result.usage.providerCalls,
+        toolCalls: result.usage.toolCalls,
+        promptTokens: result.usage.promptTokens,
+        completionTokens: result.usage.completionTokens,
+        totalTokens: result.usage.totalTokens
+      }
       const filesRead = extractFilesRead(result.messages)
       const citations = extractCitations(result.messages)
       if (result.stopReason === 'canceled') {
@@ -464,6 +470,7 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
 function aggregateChildUsage(results: ChildRunResult[]): ChildRunUsage {
   const usage: ChildRunUsage = { toolCalls: 0 }
   for (const result of results) {
+    usage.providerCalls = sumOptional(usage.providerCalls, result.usage?.providerCalls)
     usage.toolCalls += result.usage?.toolCalls ?? 0
     usage.promptTokens = sumOptional(usage.promptTokens, result.usage?.promptTokens)
     usage.completionTokens = sumOptional(usage.completionTokens, result.usage?.completionTokens)

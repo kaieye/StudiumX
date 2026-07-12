@@ -17,6 +17,7 @@ import {
   type WebSearchBackend,
   type WorkspaceWritePermissionPolicy
 } from '../shared/teaching-types'
+import { DEFAULT_AGENT_RUN_BUDGET, normalizeAgentRunBudget } from './ai/agent-run-store'
 
 const SETTINGS_FILE_NAME = 'studiumx-settings.json'
 const LEGACY_SETTINGS_FILE_NAME = 'teachos-settings.json'
@@ -300,10 +301,11 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
     tools: {
       enabled: false,
       workspaceRead: true,
-      workspaceWritePermission: 'allow_for_conversation',
+      workspaceWritePermission: 'ask_each_time',
       webSearch: true,
       webFetch: false,
-      maxIterations: 8
+      maxIterations: 8,
+      runBudget: { ...DEFAULT_AGENT_RUN_BUDGET }
     },
     webSearch: {
       backend: 'auto',
@@ -374,7 +376,11 @@ export function mergeSettings(current: TeachingSettingsV1, patch: TeachingSettin
     },
     tools: {
       ...current.tools,
-      ...(patch.tools ?? {})
+      ...(patch.tools ?? {}),
+      runBudget: {
+        ...current.tools.runBudget,
+        ...(patch.tools?.runBudget ?? {})
+      }
     },
     webSearch: {
       ...current.webSearch,
@@ -422,6 +428,7 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
   const worktreeInput = isRecord(record.worktree) ? record.worktree : {}
   const memoryInput = isRecord(record.memory) ? record.memory : {}
   const toolsInput = isRecord(record.tools) ? record.tools : {}
+  const runBudgetInput = isRecord(toolsInput.runBudget) ? toolsInput.runBudget : {}
   const webSearchInput = isRecord(record.webSearch) ? record.webSearch : {}
   const notificationsInput = isRecord(record.notifications) ? record.notifications : {}
   const privacyInput = isRecord(record.privacy) ? record.privacy : {}
@@ -486,7 +493,8 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       ),
       webSearch: toolsInput.webSearch !== false,
       webFetch: toolsInput.webFetch === true,
-      maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 1, 60, defaults.tools.maxIterations))
+      maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 1, 60, defaults.tools.maxIterations)),
+      runBudget: normalizeAgentRunBudget(runBudgetInput)
     },
     webSearch: {
       backend: normalizeWebSearchBackend(webSearchInput.backend, defaults.webSearch.backend),

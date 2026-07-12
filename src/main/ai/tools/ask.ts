@@ -1,6 +1,6 @@
 import type { ToolDefinition } from '../provider-adapter'
 import type { ToolCallContext, ToolContext, ToolEntry } from './registry'
-import { registerAskPending } from '../ask-pending'
+import { registerAskPending, rejectAskPending } from '../ask-pending'
 import type { AskAnswer, AskOption, AskQuestion } from '../../../shared/teaching-types'
 
 /**
@@ -82,6 +82,8 @@ type RawAskArgs = {
 type AskHandlerDeps = {
   streamId: string
   signal?: AbortSignal
+  onWaiting?: (toolCallId: string) => Promise<void> | void
+  onResolved?: (toolCallId: string) => Promise<void> | void
 }
 
 /** Build a ToolEntry whose handler blocks on the pending-ask registry.
@@ -95,18 +97,29 @@ export function createAskToolEntry(deps: AskHandlerDeps): ToolEntry {
         throw new Error('ask 工具缺少 callCtx（toolCallId），无法关联用户回答。')
       }
       const questions = parseAndValidateAskArgs(args)
-      const answers = await waitForAnswers(deps, callCtx.toolCallId, questions)
-      return formatAskAnswers(questions, answers)
+      const pendingPromise = registerAskPending(deps.streamId, callCtx.toolCallId)
+      void pendingPromise.catch(() => undefined)
+      try {
+        await deps.onWaiting?.(callCtx.toolCallId)
+        const answers = await waitForAnswers(deps, pendingPromise)
+        return formatAskAnswers(questions, answers)
+      } catch (error) {
+        const normalized = error instanceof Error ? error : new Error(String(error))
+        if (rejectAskPending(deps.streamId, callCtx.toolCallId, normalized)) {
+          await pendingPromise.catch(() => undefined)
+        }
+        throw error
+      } finally {
+        await deps.onResolved?.(callCtx.toolCallId)
+      }
     }
   }
 }
 
 async function waitForAnswers(
   deps: AskHandlerDeps,
-  toolCallId: string,
-  questions: AskQuestion[]
+  pendingPromise: Promise<AskAnswer[]>
 ): Promise<AskAnswer[]> {
-  const pendingPromise = registerAskPending(deps.streamId, toolCallId)
   if (!deps.signal) return pendingPromise
   // Race the pending answer against stream cancellation; on abort, the
   // cancel-IPC handler will reject the pending entry, but we also guard

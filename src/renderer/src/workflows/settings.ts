@@ -85,10 +85,17 @@ export const emptySettings: TeachingSettingsV1 = {
   tools: {
     enabled: false,
     workspaceRead: true,
-    workspaceWritePermission: 'allow_for_conversation',
+    workspaceWritePermission: 'ask_each_time',
     webSearch: true,
     webFetch: false,
-    maxIterations: 8
+    maxIterations: 8,
+    runBudget: {
+      maxDurationMs: 120_000,
+      maxProviderCalls: 16,
+      maxToolCalls: 32,
+      maxTotalTokens: 200_000,
+      warningThreshold: 0.8
+    }
   },
   webSearch: {
     backend: 'auto',
@@ -163,7 +170,11 @@ export function normalizeRendererSettings(input: TeachingSettingsPatch | Teachin
     },
     tools: {
       ...emptySettings.tools,
-      ...(settings.tools ?? {})
+      ...(settings.tools ?? {}),
+      runBudget: {
+        ...emptySettings.tools.runBudget,
+        ...(settings.tools?.runBudget ?? {})
+      }
     },
     webSearch: {
       ...emptySettings.webSearch,

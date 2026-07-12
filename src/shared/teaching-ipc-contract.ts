@@ -40,6 +40,7 @@ export const teachingInvokeChannels = {
   listUpstreamModels: 'teach:list-upstream-models',
   generateLessonStream: 'teach:generate-lesson-stream',
   agentChatStream: 'teach:agent-chat-stream',
+  listInterruptedAgentRuns: 'teach:list-interrupted-agent-runs',
   replayAgentChatEvents: 'teach:agent-chat-replay',
   cancelAgentChatStream: 'teach:cancel-agent-chat-stream',
   answerAgentChatTool: 'teach:agent-chat-tool-answer',

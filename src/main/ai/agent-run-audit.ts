@@ -8,7 +8,8 @@ import type {
   AgentContextHygieneMetadata,
   AgentSourceMetadata,
   AgentToolResultDiagnostic,
-  AgentTurnMetadata
+  AgentTurnMetadata,
+  AgentRunUsageAggregate
 } from '../../shared/teaching-types'
 import type { AgentLoopEvent } from './agent-loop'
 
@@ -29,11 +30,12 @@ const LARGE_TOOL_RESULT_LINES = 40
 
 export function attachAgentRunAuditMetadata(
   turns: AgentChatTurn[],
-  events: AgentLoopEvent[]
+  events: AgentLoopEvent[],
+  usage?: AgentRunUsageAggregate
 ): AgentChatTurn[] {
   const assistantIndex = findLastAssistantTurnIndex(turns)
   if (assistantIndex < 0) return turns
-  const metadata = buildAgentTurnAuditMetadata(events, turns[assistantIndex]?.toolCalls)
+  const metadata = buildAgentTurnAuditMetadata(events, turns[assistantIndex]?.toolCalls, usage)
   if (!metadata) return turns
   return turns.map((turn, index) =>
     index === assistantIndex
@@ -44,7 +46,8 @@ export function attachAgentRunAuditMetadata(
 
 export function buildAgentTurnAuditMetadata(
   events: AgentLoopEvent[],
-  toolCalls: AgentChatToolCallView[] | undefined = undefined
+  toolCalls: AgentChatToolCallView[] | undefined = undefined,
+  usage?: AgentRunUsageAggregate
 ): AgentTurnMetadata | undefined {
   const sources = new Map<string, AgentSourceMetadata>()
   const childRuns = new Map<string, AgentChildRunMetadata>()
@@ -143,6 +146,7 @@ export function buildAgentTurnAuditMetadata(
   if (hygieneList.length) metadata.contextHygiene = hygieneList
   if (contextEstimate) metadata.contextEstimate = contextEstimate
   if (diagnosticList.length) metadata.toolResults = diagnosticList
+  if (usage) metadata.runUsage = normalizeRunUsage(usage)
   return hasAgentTurnMetadataContent(metadata) ? metadata : undefined
 }
 
@@ -352,7 +356,8 @@ function mergeAgentTurnMetadata(
     compactions: nonEmpty([...(existing.compactions ?? []), ...(incoming.compactions ?? [])].slice(-MAX_COMPACTIONS)),
     contextHygiene: nonEmpty([...(existing.contextHygiene ?? []), ...(incoming.contextHygiene ?? [])].slice(-MAX_CONTEXT_HYGIENE)),
     contextEstimate: incoming.contextEstimate ?? existing.contextEstimate,
-    toolResults: nonEmpty(mergeBy(existing.toolResults, incoming.toolResults, (tool) => `${tool.toolCallId}:${tool.toolName}`).slice(-MAX_TOOL_DIAGNOSTICS))
+    toolResults: nonEmpty(mergeBy(existing.toolResults, incoming.toolResults, (tool) => `${tool.toolCallId}:${tool.toolName}`).slice(-MAX_TOOL_DIAGNOSTICS)),
+    runUsage: incoming.runUsage ?? existing.runUsage
   })
 }
 
@@ -374,8 +379,24 @@ function hasAgentTurnMetadataContent(metadata: AgentTurnMetadata): boolean {
     metadata.compactions?.length ||
     metadata.contextHygiene?.length ||
     metadata.contextEstimate ||
-    metadata.toolResults?.length
+    metadata.toolResults?.length ||
+    metadata.runUsage
   )
+}
+
+function normalizeRunUsage(value: AgentRunUsageAggregate): AgentRunUsageAggregate {
+  return pruneUndefined({
+    providerCalls: numberValue(value.providerCalls) ?? 0,
+    toolCalls: numberValue(value.toolCalls) ?? 0,
+    toolErrors: numberValue(value.toolErrors) ?? 0,
+    iterations: numberValue(value.iterations) ?? 0,
+    childRuns: numberValue(value.childRuns) ?? 0,
+    durationMs: numberValue(value.durationMs) ?? 0,
+    promptTokens: numberValue(value.promptTokens),
+    completionTokens: numberValue(value.completionTokens),
+    totalTokens: numberValue(value.totalTokens),
+    budgetStopReason: value.budgetStopReason
+  })
 }
 
 function normalizeChildRunStatus(value: unknown): AgentChildRunMetadata['status'] {
@@ -393,12 +414,14 @@ function normalizeUsage(value: unknown): AgentChildRunMetadata['usage'] | undefi
   const record = value as Record<string, unknown>
   const toolCalls = numberValue(record.toolCalls)
   const usage = pruneUndefined({
+    providerCalls: numberValue(record.providerCalls),
     toolCalls: toolCalls ?? 0,
     promptTokens: numberValue(record.promptTokens),
     completionTokens: numberValue(record.completionTokens),
     totalTokens: numberValue(record.totalTokens)
   })
   return usage.toolCalls > 0 ||
+    usage.providerCalls !== undefined ||
     usage.promptTokens !== undefined ||
     usage.completionTokens !== undefined ||
     usage.totalTokens !== undefined

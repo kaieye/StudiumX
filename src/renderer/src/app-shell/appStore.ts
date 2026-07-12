@@ -50,11 +50,13 @@ import {
   type AgentChatStreamChunk,
   type AgentChatStreamStatus,
   type AgentChatStreamToolEvent,
+  type AgentProjectionInvalidation,
   type AgentChatMode,
   type AgentChatTurn,
   type CreateTeachingMemoryPayload,
   type LessonStreamChunk,
   type LessonSummary,
+  type InterruptedAgentRun,
   type ListUpstreamModelsResult,
   type ProgressSummary,
   type ProbeProviderPayload,
@@ -573,17 +575,36 @@ export const useAppStore = create<StoreState>((set, get) => ({
       return
     }
     try {
-      const [state, rawSettings] = await Promise.all([
+      const [state, rawSettings, interruptedRuns] = await Promise.all([
         api.getState(),
-        api.getSettings()
+        api.getSettings(),
+        api.listInterruptedAgentRuns()
       ])
       const settings = normalizeRendererSettings(rawSettings)
       applySettingsSideEffects(settings)
+      const interrupted = state.activeWorkspace
+        ? interruptedRuns.find((run) => run.workspaceId === state.activeWorkspace?.id)
+        : interruptedRuns.find((run) => !run.workspaceId)
+      let recoveryTurns: AgentChatTurn[] = []
+      if (interrupted) {
+        if (interrupted.workspaceId && interrupted.conversationId) {
+          recoveryTurns = await api.readAgentConversation({
+            workspaceId: interrupted.workspaceId,
+            conversationId: interrupted.conversationId
+          }).then((record) => record.turns).catch(() => [])
+        }
+        recoveryTurns = [...recoveryTurns, interruptedAgentRunNotice(interrupted)]
+      }
       set({
         appState: state,
         settings,
         taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        loading: false
+        loading: false,
+        agentTurns: recoveryTurns,
+        activeConversationId: interrupted?.conversationId ?? null,
+        agentStatus: interrupted ? '上次运行已中断，等待你明确继续或重新发送。' : '',
+        agentChatBusy: false,
+        pendingAgentConversation: null
       })
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
@@ -944,6 +965,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
       const done = await api.agentChatStream(
         {
           streamId: pendingConversationId,
+          conversationId: pendingConversation.sourceConversationId ?? undefined,
           workspaceId: workspace.id,
           mode,
           messages: priorMessages,
@@ -974,6 +996,18 @@ export const useAppStore = create<StoreState>((set, get) => ({
             activeConversationId: get().activeConversationId,
             assistantId,
             event
+          })
+          if (patch) set(patch)
+        },
+        (invalidation: AgentProjectionInvalidation) => {
+          const message = invalidation.reason === 'replay_gap'
+            ? '实时事件回放不完整；当前过程视图已标记失效，完成后将以保存的对话结果为准。'
+            : '实时事件回放已不可用；当前过程视图已标记失效，应用不会据此自动重跑。'
+          const patch = applyAgentChatStatusToPending({
+            pending: get().pendingAgentConversation,
+            activeConversationId: get().activeConversationId,
+            assistantId,
+            status: { streamId: invalidation.streamId, status: 'error', message }
           })
           if (patch) set(patch)
         }
@@ -1461,6 +1495,34 @@ export const useAppStore = create<StoreState>((set, get) => ({
     }
   }
 }))
+
+function interruptedAgentRunNotice(run: InterruptedAgentRun): AgentChatTurn {
+  const waiting = run.previousStatus === 'waiting_for_permission'
+    ? '退出时正在等待写入审批；旧审批已失效。'
+    : run.previousStatus === 'waiting_for_elicitation'
+      ? '退出时正在等待你的选择；旧问题不会自动恢复。'
+      : '退出时该运行仍在进行。'
+  const review = run.operationReviewCount > 0
+    ? ` 有 ${run.operationReviewCount} 个已开始但完成状态不明的写入需要人工检查，应用不会自动重做。`
+    : ''
+  const content = `上次 Agent 运行被中断。${waiting}${review}\n\n请检查已有结果后，明确输入“继续”或重新发送请求。`
+  return {
+    id: `interrupted-${run.runId}`,
+    role: 'assistant',
+    content,
+    createdAt: run.interruptedAt,
+    processEvents: [{
+      id: `interrupted-event-${run.runId}`,
+      kind: 'status',
+      title: '运行中断',
+      detail: run.reason,
+      status: 'error',
+      isError: true,
+      createdAt: run.interruptedAt
+    }],
+    metadata: { version: 1, runUsage: run.usage }
+  }
+}
 
 
 // ================================================================

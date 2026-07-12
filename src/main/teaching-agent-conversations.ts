@@ -36,7 +36,8 @@ import type {
   AgentContextHygieneMetadata,
   AgentSourceMetadata,
   AgentToolResultDiagnostic,
-  AgentTurnMetadata
+  AgentTurnMetadata,
+  AgentRunUsageAggregate
 } from '../shared/teaching-types'
 
 export type AgentConversationWorkspace = {
@@ -338,6 +339,7 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
   const contextHygiene = normalizeContextHygiene(record.contextHygiene)
   const contextEstimate = normalizeContextEstimate(record.contextEstimate)
   const toolResults = normalizeToolResults(record.toolResults)
+  const runUsage = normalizeRunUsage(record.runUsage)
   const metadata: AgentTurnMetadata = {
     version: 1,
     sources: sources.length > 0 ? sources : undefined,
@@ -345,14 +347,16 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     compactions: compactions.length > 0 ? compactions : undefined,
     contextHygiene: contextHygiene.length > 0 ? contextHygiene : undefined,
     contextEstimate,
-    toolResults: toolResults.length > 0 ? toolResults : undefined
+    toolResults: toolResults.length > 0 ? toolResults : undefined,
+    runUsage
   }
   return metadata.sources ||
     metadata.childRuns ||
     metadata.compactions ||
     metadata.contextHygiene ||
     metadata.contextEstimate ||
-    metadata.toolResults
+    metadata.toolResults ||
+    metadata.runUsage
     ? metadata
     : undefined
 }
@@ -527,17 +531,45 @@ function normalizeChildUsage(value: unknown): AgentChildRunMetadata['usage'] | u
   const record = value as Record<string, unknown>
   const toolCalls = numberValue(record.toolCalls)
   const usage = pruneUndefined({
+    providerCalls: numberValue(record.providerCalls),
     toolCalls: toolCalls ?? 0,
     promptTokens: numberValue(record.promptTokens),
     completionTokens: numberValue(record.completionTokens),
     totalTokens: numberValue(record.totalTokens)
   })
   return usage.toolCalls > 0 ||
+    usage.providerCalls !== undefined ||
     usage.promptTokens !== undefined ||
     usage.completionTokens !== undefined ||
     usage.totalTokens !== undefined
     ? usage
     : undefined
+}
+
+function normalizeRunUsage(value: unknown): AgentRunUsageAggregate | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const providerCalls = numberValue(record.providerCalls)
+  const toolCalls = numberValue(record.toolCalls)
+  if (providerCalls === undefined || toolCalls === undefined) return undefined
+  const budgetStopReason: AgentRunUsageAggregate['budgetStopReason'] = record.budgetStopReason === 'duration' ||
+    record.budgetStopReason === 'provider_calls' ||
+    record.budgetStopReason === 'tool_calls' ||
+    record.budgetStopReason === 'total_tokens'
+    ? record.budgetStopReason
+    : undefined
+  return pruneUndefined({
+    providerCalls,
+    toolCalls,
+    toolErrors: numberValue(record.toolErrors) ?? 0,
+    iterations: numberValue(record.iterations) ?? 0,
+    childRuns: numberValue(record.childRuns) ?? 0,
+    durationMs: numberValue(record.durationMs) ?? 0,
+    promptTokens: numberValue(record.promptTokens),
+    completionTokens: numberValue(record.completionTokens),
+    totalTokens: numberValue(record.totalTokens),
+    budgetStopReason
+  })
 }
 
 function normalizeCitations(value: unknown): AgentChildRunMetadata['citations'] | undefined {

@@ -3,6 +3,42 @@ import type { ToolCall } from '../provider-adapter'
 import { parseDsmlToolCalls, stripDsmlToolCallBlocks } from './dsml-tool-calls'
 import { toolsSupportedForFormat } from './formats'
 
+export type ProviderUsage = {
+  promptTokens?: number
+  completionTokens?: number
+  totalTokens?: number
+}
+
+export function extractUsage(format: ModelEndpointFormat, body: unknown): ProviderUsage | undefined {
+  const raw = (body as { usage?: unknown })?.usage
+  if (!raw || typeof raw !== 'object') return undefined
+  const usage = raw as Record<string, unknown>
+  const promptTokens = finiteTokenCount(
+    format === 'chat_completions' || format === 'custom_endpoint'
+      ? usage.prompt_tokens
+      : usage.input_tokens
+  )
+  const completionTokens = finiteTokenCount(
+    format === 'chat_completions' || format === 'custom_endpoint'
+      ? usage.completion_tokens
+      : usage.output_tokens
+  )
+  const totalTokens = finiteTokenCount(usage.total_tokens)
+    ?? (promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined)
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) return undefined
+  return {
+    ...(promptTokens !== undefined ? { promptTokens } : {}),
+    ...(completionTokens !== undefined ? { completionTokens } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {})
+  }
+}
+
+function finiteTokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : undefined
+}
+
 export function extractText(format: ModelEndpointFormat, body: unknown): string {
   if (format === 'messages') {
     const content = (body as { content?: unknown })?.content

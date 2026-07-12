@@ -7,7 +7,8 @@ import type {
   AgentRealtimeEvent,
   AgentChatStreamChunk,
   AgentChatStreamStatus,
-  AgentChatStreamToolEvent
+  AgentChatStreamToolEvent,
+  AgentProjectionInvalidation
 } from '../../src/shared/teaching-types'
 
 const chunks: AgentChatStreamChunk[] = []
@@ -129,5 +130,75 @@ assert.equal(compactReplay.hasGap, true)
 assert.equal(compactReplay.droppedEvents > 0, true)
 assert.equal(compactReplay.events.at(-1)?.kind, 'chunk')
 assert.equal(compactReplay.nextSequence, 4)
+
+const gapInvalidations: AgentProjectionInvalidation[] = []
+const gapStatuses: AgentChatStreamStatus[] = []
+const retainedGapEvent: AgentRealtimeEvent = {
+  streamId: 'stream-gap',
+  sequence: 3,
+  createdAt: '2026-07-12T00:00:03.000Z',
+  kind: 'status',
+  payload: { streamId: 'stream-gap', status: 'thinking', message: 'retained truth projection' }
+}
+const liveGapEvent: AgentRealtimeEvent = {
+  streamId: 'stream-gap',
+  sequence: 4,
+  createdAt: '2026-07-12T00:00:04.000Z',
+  kind: 'status',
+  payload: { streamId: 'stream-gap', status: 'done' }
+}
+const gapDelivery = createAgentRealtimeDelivery({
+  streamId: 'stream-gap',
+  replay: async () => ({
+    streamId: 'stream-gap',
+    available: true,
+    requestedAfterSequence: 0,
+    fromSequence: 3,
+    nextSequence: 5,
+    hasGap: true,
+    droppedEvents: 2,
+    droppedBytes: 512,
+    events: [retainedGapEvent]
+  }),
+  onChunk: () => undefined,
+  onStatus: (status) => gapStatuses.push(status),
+  onTool: () => undefined,
+  onInvalidation: (event) => gapInvalidations.push(event)
+})
+await gapDelivery.accept(liveGapEvent)
+assert.deepEqual(gapInvalidations.map((event) => event.reason), ['replay_gap'])
+assert.deepEqual(gapStatuses.map((status) => status.status), ['thinking', 'done'])
+assert.equal(gapDelivery.lastSequence(), 4)
+
+const unavailableInvalidations: AgentProjectionInvalidation[] = []
+const unavailableDelivery = createAgentRealtimeDelivery({
+  streamId: 'stream-unavailable',
+  replay: async () => ({
+    streamId: 'stream-unavailable',
+    available: false,
+    requestedAfterSequence: 0,
+    fromSequence: 1,
+    nextSequence: 6,
+    hasGap: false,
+    droppedEvents: 0,
+    droppedBytes: 0,
+    events: []
+  }),
+  onChunk: () => undefined,
+  onStatus: () => undefined,
+  onTool: () => undefined,
+  onInvalidation: (event) => unavailableInvalidations.push(event)
+})
+const unavailableLive: AgentRealtimeEvent = {
+  streamId: 'stream-unavailable',
+  sequence: 5,
+  createdAt: '2026-07-12T00:00:05.000Z',
+  kind: 'status',
+  payload: { streamId: 'stream-unavailable', status: 'error', message: 'saved truth required' }
+}
+await unavailableDelivery.accept(unavailableLive)
+await unavailableDelivery.accept({ ...unavailableLive, sequence: 7 })
+assert.deepEqual(unavailableInvalidations.map((event) => event.reason), ['replay_unavailable'])
+assert.equal(unavailableDelivery.lastSequence(), 7)
 
 console.log('check:agent-event-bus passed')

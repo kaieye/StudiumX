@@ -103,6 +103,7 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
     : undefined
   return {
     streamId: optionalStreamId(record.streamId),
+    conversationId: optionalStreamId(record.conversationId),
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
     mode: record.mode === 'teaching' ? 'teaching' : record.mode === 'temporary' ? 'temporary' : undefined,
     context: optionalString(record.context),

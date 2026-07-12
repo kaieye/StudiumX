@@ -5,7 +5,7 @@ import type {
 import { fetchWithOptionalProxy } from '../proxy-fetch'
 import { toolsSupportedForFormat } from './provider-adapter/formats'
 import { buildChatRequest, buildRequest } from './provider-adapter/request-builder'
-import { extractText, extractToolCalls } from './provider-adapter/response-parser'
+import { extractText, extractToolCalls, extractUsage, type ProviderUsage } from './provider-adapter/response-parser'
 import { readChatSseStream, readSseStream } from './provider-adapter/sse-parser'
 import { redactProviderErrorText } from '../../shared/provider-error'
 import { assertProviderRequestUrl } from '../../shared/provider-url-policy'
@@ -20,7 +20,7 @@ export type AdapterRequest = {
   jsonMode: boolean
 }
 
-export type AdapterResult = { text: string }
+export type AdapterResult = { text: string; usage?: ProviderUsage }
 
 // ---- Tool-calling (chat) types ----
 
@@ -61,6 +61,7 @@ export type ChatAdapterResult = {
   toolCalls: ToolCall[]
   toolsSupported: boolean
   degradedReason?: string
+  usage?: ProviderUsage
 }
 
 export type ChatAdapterCallbacks = {
@@ -146,7 +147,7 @@ export async function callProvider(opts: {
   if (!text) {
     throw new ProviderAdapterError('parse', 'Provider 响应未包含可用的文本内容。')
   }
-  return { text }
+  return { text, usage: extractUsage(format, parsed) }
 }
 
 /** Streaming provider call (SSE). Accumulates text, invoking onToken per delta. */
@@ -304,7 +305,7 @@ export async function callChatProvider(opts: {
     throw new ProviderAdapterError('parse', 'Provider 响应未包含可用的文本内容或工具调用。')
   }
   if (toolCalls.length > 0) callbacks?.onToolCalls?.(toolCalls)
-  return { text, toolCalls, toolsSupported: supported, degradedReason }
+  return { text, toolCalls, toolsSupported: supported, degradedReason, usage: extractUsage(format, parsed) }
 }
 
 /** Streaming chat call. Accumulates text deltas AND tool_call fragments. Falls

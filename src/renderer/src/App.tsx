@@ -3021,12 +3021,17 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       answers
     )
   }
-  const answerPermission = (decision: 'allow' | 'deny'): void => {
+  const answerPermission = (decision: 'allow_once' | 'allow_for_run' | 'allow_for_directory' | 'deny'): void => {
     if (!pendingPermission) return
     void window.teachingSystem?.answerAgentChatTool(
       pendingPermission.streamId,
       pendingPermission.toolCallId,
-      [{ questionId: 'permission', selected: [decision] }]
+      [
+        { questionId: 'permission', selected: [decision] },
+        ...(decision === 'allow_for_directory' && pendingPermission.request.directoryScopePath
+          ? [{ questionId: 'scope', selected: [pendingPermission.request.directoryScopePath] }]
+          : [])
+      ]
     )
   }
   const setInputFromHistory = (value: string): void => {
@@ -3124,7 +3129,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         <div className="overview-dialog-stack ask-stack">
           <ToolPermissionCard
             request={pendingPermission.request}
-            onAllow={() => answerPermission('allow')}
+            onAllowOnce={() => answerPermission('allow_once')}
+            onAllowRun={() => answerPermission('allow_for_run')}
+            onAllowDirectory={() => answerPermission('allow_for_directory')}
             onDeny={() => answerPermission('deny')}
             onCancel={() => void cancelAgentChat()}
           />
@@ -3401,12 +3408,16 @@ function AgentProcessIcon({
 
 function ToolPermissionCard({
   request,
-  onAllow,
+  onAllowOnce,
+  onAllowRun,
+  onAllowDirectory,
   onDeny,
   onCancel
 }: {
   request: AgentToolPermissionRequest
-  onAllow: () => void
+  onAllowOnce: () => void
+  onAllowRun: () => void
+  onAllowDirectory: () => void
   onDeny: () => void
   onCancel: () => void
 }) {
@@ -3443,7 +3454,17 @@ function ToolPermissionCard({
           <Square size={12} />
           中断
         </button>
-        <button type="button" className="ask-card__primary" onClick={onAllow}>
+        {request.directoryScopePath ? (
+          <button type="button" className="ask-card__ghost" onClick={onAllowDirectory}>
+            <Check size={12} />
+            允许目录 {request.directoryScopePath}
+          </button>
+        ) : null}
+        <button type="button" className="ask-card__ghost" onClick={onAllowRun}>
+          <Check size={12} />
+          本轮同类写入
+        </button>
+        <button type="button" className="ask-card__primary" onClick={onAllowOnce}>
           <Check size={12} />
           允许本次写入
         </button>

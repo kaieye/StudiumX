@@ -60,6 +60,7 @@ export type AgentChildRunMetadata = {
   filesRead?: string[]
   citations?: Array<{ sourceId: string; url: string; title?: string }>
   usage?: {
+    providerCalls?: number
     toolCalls: number
     promptTokens?: number
     completionTokens?: number
@@ -127,6 +128,7 @@ export type AgentTurnMetadata = {
   contextHygiene?: AgentContextHygieneMetadata[]
   contextEstimate?: AgentContextEstimateMetadata
   toolResults?: AgentToolResultDiagnostic[]
+  runUsage?: AgentRunUsageAggregate
 }
 
 export type AgentChatProcessEvent = {
@@ -176,6 +178,7 @@ export type AgentLoopStatus =
 
 export type AgentChatStreamPayload = {
   streamId?: string
+  conversationId?: string
   workspaceId?: string
   mode?: AgentChatMode
   context?: string
@@ -183,6 +186,56 @@ export type AgentChatStreamPayload = {
   skillIds?: string[]
   messages: AgentChatMessage[]
   userInput: string
+}
+
+export type AgentRunBudgetStopReason =
+  | 'duration'
+  | 'provider_calls'
+  | 'tool_calls'
+  | 'total_tokens'
+
+export type AgentRunBudget = {
+  maxDurationMs: number
+  maxProviderCalls: number
+  maxToolCalls: number
+  maxTotalTokens: number
+  warningThreshold: number
+}
+
+export type AgentRunUsageAggregate = {
+  providerCalls: number
+  toolCalls: number
+  toolErrors: number
+  iterations: number
+  childRuns: number
+  durationMs: number
+  promptTokens?: number
+  completionTokens?: number
+  totalTokens?: number
+  budgetStopReason?: AgentRunBudgetStopReason
+}
+
+export type AgentProjectionInvalidation = {
+  streamId: string
+  reason: 'replay_gap' | 'replay_unavailable'
+  requestedAfterSequence: number
+  fromSequence: number
+  nextSequence: number
+}
+
+export type InterruptedAgentRun = {
+  runId: string
+  streamId: string
+  workspaceId?: string
+  conversationId?: string
+  status: 'interrupted'
+  previousStatus: 'running' | 'waiting_for_permission' | 'waiting_for_elicitation'
+  lastDurableSequence: number
+  updatedAt: string
+  interruptedAt: string
+  reason: string
+  operationReviewCount: number
+  usage: AgentRunUsageAggregate
 }
 
 export type AgentChatContextCompactionRequest = {
@@ -212,6 +265,8 @@ export type AgentToolPermissionRequest = {
   targetPath?: string
   reason?: string
   creates?: boolean
+  availableScopes?: Array<'once' | 'run' | 'directory'>
+  directoryScopePath?: string
 }
 
 export type AgentChatStreamToolEvent = {
@@ -298,9 +353,11 @@ export type AgentChatStreamDone =
       degradedReason?: string
       generatedLessons?: LessonSummary[]
       memoryCapture?: TeachingMemoryCaptureResult
+      usage: AgentRunUsageAggregate
+      stopReason?: string
     }
-  | { streamId: string; canceled: true }
-  | { streamId: string; error: true; message: string }
+  | { streamId: string; canceled: true; usage?: AgentRunUsageAggregate }
+  | { streamId: string; error: true; message: string; usage?: AgentRunUsageAggregate }
 
 /** The non-streamId portion of {@link AgentChatStreamDone}, as a clean
  *  discriminated union (avoids Omit-over-union narrowing quirks). */
@@ -313,9 +370,11 @@ export type AgentChatStreamResult =
       degradedReason?: string
       generatedLessons?: LessonSummary[]
       memoryCapture?: TeachingMemoryCaptureResult
+      usage: AgentRunUsageAggregate
+      stopReason?: string
     }
-  | { canceled: true }
-  | { error: true; message: string }
+  | { canceled: true; usage?: AgentRunUsageAggregate }
+  | { error: true; message: string; usage?: AgentRunUsageAggregate }
 
 export type AgentConversationRecord = AgentConversationSummary & {
   turns: AgentChatTurn[]
