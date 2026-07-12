@@ -118,6 +118,11 @@ export const emptySettings: TeachingSettingsV1 = {
     workspaceImported: true,
     errors: true
   },
+  pet: {
+    enabled: true,
+    displayName: '小搭档',
+    showStatusBubble: true
+  },
   privacy: {
     maskApiKeys: true,
     allowExternalLinks: true
@@ -183,6 +188,10 @@ export function normalizeRendererSettings(input: TeachingSettingsPatch | Teachin
     notifications: {
       ...emptySettings.notifications,
       ...(settings.notifications ?? {})
+    },
+    pet: {
+      ...emptySettings.pet,
+      ...(settings.pet ?? {})
     },
     privacy: {
       ...emptySettings.privacy,

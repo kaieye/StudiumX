@@ -215,7 +215,7 @@
         "resources": "资源",
         "workspace": "工作区"
       },
-      "subtitle": "管理页面风格与可通过斜杠命令调用的技能。",
+      "subtitle": "管理页面风格、Agent 技能与陪伴学习的桌面宠物。",
       "searchPlaceholder": "搜索资源",
       "installed": "已启用",
       "sourcesAria": "资源来源",
@@ -229,6 +229,8 @@
       "stylesDetail": "{{count}} 套课程页面风格，当前使用 {{style}}。",
       "skillsMeta": "Agent 技能",
       "skillsDetail": "{{count}} 个可用技能，已有 {{installed}} 个安装到个人技能目录。",
+      "petsMeta": "状态宠物",
+      "petsDetail": "让宠物响应生成、等待确认、失败与完成状态，并停留在应用界面上。",
       "open": "打开",
       "back": "返回资源",
       "noResults": "没有匹配的资源"
@@ -256,6 +258,53 @@
         "vivid": { "name": "活力渐变", "detail": "明快渐变与大圆角，学习氛围更轻松。" },
         "mono": { "name": "极简黑白", "detail": "黑白排版与衬线标题，报刊式极简风格。" },
         "terminal": { "name": "终端极客", "detail": "等宽字体与终端绿，属于程序员的味道。" }
+      }
+    },
+    "pets": {
+      "eyebrow": "学习搭档",
+      "title": "宠物",
+      "detail": "一只会读取任务状态、陪你学习并提醒你处理待办的悬浮宠物。",
+      "defaultName": "小搭档",
+      "enabled": "已启用",
+      "disabled": "未启用",
+      "previewAria": "预览宠物 {{name}}",
+      "previewStates": "预览状态",
+      "hoverHint": "将指针移到宠物上，会触发临时互动动作。",
+      "settingsTitle": "宠物设置",
+      "settingsDetail": "配置应用内悬浮宠物的显示与提醒方式。",
+      "enableLabel": "显示悬浮宠物",
+      "enableDetail": "宠物会停留在应用右下角，也可以拖到其他位置。",
+      "nameLabel": "宠物名称",
+      "bubbleLabel": "显示状态气泡",
+      "bubbleDetail": "在任务运行、等待处理或完成时展示简短说明。",
+      "behaviorTitle": "状态优先级",
+      "behaviorDetail": "借鉴 Codex Pet：优先表达最需要你关注的任务状态。",
+      "implementationTitle": "实现方式",
+      "implementationDetail": "使用原创的 Codex 风格像素宠物与 8 帧状态图集；生成与 Agent 会话驱动状态，悬停和拖动可临时覆盖状态。开启“减少动态效果”时固定显示首帧。",
+      "hide": "隐藏宠物",
+      "overlayAria": "宠物 {{name}}，拖动可移动，点击可查看状态",
+      "stateLabels": {
+        "idle": "休息",
+        "running": "进行中",
+        "waiting": "等待处理",
+        "failed": "遇到问题",
+        "review": "完成待查看"
+      },
+      "states": {
+        "idle": "一切就绪，我在这里陪你。",
+        "running": "正在处理任务，我会继续盯着进度。",
+        "waiting": "需要你的确认或回答。",
+        "failed": "任务遇到问题，回来看看错误信息吧。",
+        "review": "任务完成了，有新结果等你查看。",
+        "waving": "你好，我会帮你关注学习任务。",
+        "jumping": "我在！接下来学点什么？"
+      },
+      "priority": {
+        "waiting": "确认、权限请求和提问最优先。",
+        "failed": "失败状态紧随其后，提醒你及时排查。",
+        "review": "完成结果会保留一段时间供你查看。",
+        "running": "任务运行时持续显示工作动作。",
+        "idle": "没有待办时回到安静的待机状态。"
       }
     },
     "tutorials": {

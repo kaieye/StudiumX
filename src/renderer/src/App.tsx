@@ -9,6 +9,7 @@ import {
   BookOpen,
   Bot,
   BrainCircuit,
+  Cat,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -87,7 +88,9 @@ import {
   type DialogMode
 } from './app-shell/appStore'
 import { LessonStyleGallery } from './views/resources/LessonStyleGallery'
+import { PetLibrary } from './views/resources/PetLibrary'
 import { SkillLibrary } from './views/resources/SkillLibrary'
+import { AppPet } from './views/pet/AppPet'
 import { useSkillCatalog } from './skills/skillCatalog'
 import { useSkillSlashInput } from './skills/SkillSlashMenu'
 import { SettingsView } from './views/settings/SettingsView'
@@ -269,6 +272,7 @@ function App() {
           <SidebarResizer disabled={sidebarCollapsed} onResize={setSidebarWidth} width={sidebarWidth} />
           <MainArea />
         </div>
+        <AppPet />
       </div>
     </AppErrorBoundary>
   )
@@ -2115,7 +2119,7 @@ function MainArea() {
   const resourceFrameKey = selectedResourcePreviewFile
     ? `${selectedResourcePreviewFile.id}:${selectedResourcePreviewFile.html.length}`
     : 'empty-resource-preview'
-  const [resourcePageSection, setResourcePageSection] = useState<'home' | 'styles' | 'skills'>('home')
+  const [resourcePageSection, setResourcePageSection] = useState<'home' | 'styles' | 'skills' | 'pets'>('home')
   const [changeDiff, setChangeDiff] = useState<{ relativePath: string; diff: string; truncated: boolean } | null>(null)
   const [changeDiffLoadingPath, setChangeDiffLoadingPath] = useState<string | null>(null)
   const [changeDiffError, setChangeDiffError] = useState<string | null>(null)
@@ -2441,10 +2445,13 @@ function MainArea() {
               />
             ) : resourcePageSection === 'skills' ? (
               <SkillLibrary onBack={() => setResourcePageSection('home')} />
+            ) : resourcePageSection === 'pets' ? (
+              <PetLibrary onBack={() => setResourcePageSection('home')} />
             ) : (
               <ResourceHome
                 onOpenStyles={() => setResourcePageSection('styles')}
                 onOpenSkills={() => setResourcePageSection('skills')}
+                onOpenPets={() => setResourcePageSection('pets')}
               />
             )
           )}
@@ -2641,10 +2648,12 @@ function formatChangeTimestamp(value: string, locale: string): string {
 
 function ResourceHome({
   onOpenStyles,
-  onOpenSkills
+  onOpenSkills,
+  onOpenPets
 }: {
   onOpenStyles: () => void
   onOpenSkills: () => void
+  onOpenPets: () => void
 }) {
   const { t } = useTranslation()
   const savedStyleId = useAppStore((s) => s.settings.workspace.lessonStyleId)
@@ -2679,9 +2688,18 @@ function ResourceHome({
         action: t('resources.home.open'),
         icon: 'skills' as const,
         onOpen: onOpenSkills
+      },
+      {
+        id: 'pets',
+        title: t('resources.pets.title'),
+        detail: t('resources.home.petsDetail'),
+        meta: t('resources.home.petsMeta'),
+        action: t('resources.home.open'),
+        icon: 'pets' as const,
+        onOpen: onOpenPets
       }
     ],
-    [currentStyleName, installedSkillCount, onOpenSkills, onOpenStyles, skillCatalog.skills.length, t]
+    [currentStyleName, installedSkillCount, onOpenPets, onOpenSkills, onOpenStyles, skillCatalog.skills.length, t]
   )
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const visibleEntries = normalizedQuery
@@ -2740,6 +2758,15 @@ function ResourceHome({
             <GraduationCap size={21} />
             {installedSkillCount > 0 ? <span>{installedSkillCount}</span> : null}
           </button>
+          <button
+            className="resource-installed-icon resource-installed-icon--pets"
+            type="button"
+            aria-label={t('resources.pets.title')}
+            title={t('resources.pets.title')}
+            onClick={onOpenPets}
+          >
+            <Cat size={21} />
+          </button>
         </div>
       </section>
       <div className="resource-source-row" aria-label={t('resources.home.sourcesAria')}>
@@ -2765,7 +2792,13 @@ function ResourceHome({
                 onClick={entry.onOpen}
               >
                 <span className={`resource-entry-icon resource-entry-icon--${entry.icon}`}>
-                  {entry.icon === 'styles' ? <Palette size={22} /> : <GraduationCap size={22} />}
+                  {entry.icon === 'styles' ? (
+                    <Palette size={22} />
+                  ) : entry.icon === 'skills' ? (
+                    <GraduationCap size={22} />
+                  ) : (
+                    <Cat size={22} />
+                  )}
                 </span>
                 <span className="resource-entry-body">
                   <strong>{entry.title}</strong>

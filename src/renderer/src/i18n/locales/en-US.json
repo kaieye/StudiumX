@@ -215,7 +215,7 @@
         "resources": "Resources",
         "workspace": "Workspace"
       },
-      "subtitle": "Manage page styles and skills that can be invoked with slash commands.",
+      "subtitle": "Manage page styles, agent skills, and a desktop pet that keeps you company while learning.",
       "searchPlaceholder": "Search resources",
       "installed": "Enabled",
       "sourcesAria": "Resource sources",
@@ -229,6 +229,8 @@
       "stylesDetail": "{{count}} lesson page styles, currently using {{style}}.",
       "skillsMeta": "Agent skills",
       "skillsDetail": "{{count}} available skills, with {{installed}} installed in your personal skill directory.",
+      "petsMeta": "Status pet",
+      "petsDetail": "Let a pet react to running, waiting, failed, and completed work while staying inside the app.",
       "open": "Open",
       "back": "Back to resources",
       "noResults": "No matching resources"
@@ -256,6 +258,53 @@
         "vivid": { "name": "Vivid gradient", "detail": "Bright gradients and large radii for a playful mood." },
         "mono": { "name": "Minimal mono", "detail": "Black-and-white editorial layout with serif headings." },
         "terminal": { "name": "Terminal hacker", "detail": "Monospace type and terminal green, built for programmers." }
+      }
+    },
+    "pets": {
+      "eyebrow": "Study companion",
+      "title": "Pet",
+      "detail": "A floating companion that follows task status, studies with you, and calls attention to pending work.",
+      "defaultName": "Study buddy",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "previewAria": "Preview pet {{name}}",
+      "previewStates": "Preview states",
+      "hoverHint": "Hover over the pet to trigger a temporary interaction animation.",
+      "settingsTitle": "Pet settings",
+      "settingsDetail": "Configure how the in-app floating pet appears and reports status.",
+      "enableLabel": "Show floating pet",
+      "enableDetail": "The pet starts in the lower-right corner and can be dragged elsewhere.",
+      "nameLabel": "Pet name",
+      "bubbleLabel": "Show status bubble",
+      "bubbleDetail": "Show a short message while work is running, blocked, failed, or ready to review.",
+      "behaviorTitle": "Status priority",
+      "behaviorDetail": "Inspired by Codex Pet, the most urgent state is shown first.",
+      "implementationTitle": "How it works",
+      "implementationDetail": "An original Codex-inspired pixel pet uses an eight-frame state atlas; generation and agent sessions drive state, while hover and drag temporarily override it. Reduced-motion mode freezes animations on their first frame.",
+      "hide": "Hide pet",
+      "overlayAria": "Pet {{name}}; drag to move and click to inspect status",
+      "stateLabels": {
+        "idle": "Idle",
+        "running": "Running",
+        "waiting": "Needs input",
+        "failed": "Failed",
+        "review": "Ready to review"
+      },
+      "states": {
+        "idle": "Everything is ready. I'll keep you company.",
+        "running": "Work is in progress. I'm keeping an eye on it.",
+        "waiting": "Your confirmation or answer is needed.",
+        "failed": "Something went wrong. Check the error when you're ready.",
+        "review": "The task is complete and a new result is ready.",
+        "waving": "Hi! I'll help you keep track of study tasks.",
+        "jumping": "I'm here. What should we learn next?"
+      },
+      "priority": {
+        "waiting": "Approvals, permissions, and questions take top priority.",
+        "failed": "Failures come next so problems are not missed.",
+        "review": "Completed results remain visible briefly for review.",
+        "running": "Active tasks keep the pet in its working animation.",
+        "idle": "With nothing pending, the pet returns to a quiet idle state."
       }
     },
     "tutorials": {

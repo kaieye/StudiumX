@@ -328,6 +328,11 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
       workspaceImported: true,
       errors: true
     },
+    pet: {
+      enabled: true,
+      displayName: '小搭档',
+      showStatusBubble: true
+    },
     privacy: {
       maskApiKeys: true,
       allowExternalLinks: true
@@ -390,6 +395,10 @@ export function mergeSettings(current: TeachingSettingsV1, patch: TeachingSettin
       ...current.notifications,
       ...(patch.notifications ?? {})
     },
+    pet: {
+      ...current.pet,
+      ...(patch.pet ?? {})
+    },
     privacy: {
       ...current.privacy,
       ...(patch.privacy ?? {})
@@ -431,6 +440,7 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
   const runBudgetInput = isRecord(toolsInput.runBudget) ? toolsInput.runBudget : {}
   const webSearchInput = isRecord(record.webSearch) ? record.webSearch : {}
   const notificationsInput = isRecord(record.notifications) ? record.notifications : {}
+  const petInput = isRecord(record.pet) ? record.pet : {}
   const privacyInput = isRecord(record.privacy) ? record.privacy : {}
   const appBehaviorInput = isRecord(record.appBehavior) ? record.appBehavior : {}
   const logInput = isRecord(record.log) ? record.log : {}
@@ -516,6 +526,11 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       lessonGenerated: notificationsInput.lessonGenerated !== false,
       workspaceImported: notificationsInput.workspaceImported !== false,
       errors: notificationsInput.errors !== false
+    },
+    pet: {
+      enabled: petInput.enabled !== false,
+      displayName: normalizeString(petInput.displayName).slice(0, 24) || defaults.pet.displayName,
+      showStatusBubble: petInput.showStatusBubble !== false
     },
     privacy: {
       maskApiKeys: privacyInput.maskApiKeys !== false,

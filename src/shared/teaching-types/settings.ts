@@ -178,6 +178,11 @@ export type TeachingSettingsV1 = {
     workspaceImported: boolean
     errors: boolean
   }
+  pet: {
+    enabled: boolean
+    displayName: string
+    showStatusBubble: boolean
+  }
   privacy: {
     maskApiKeys: boolean
     allowExternalLinks: boolean
@@ -195,7 +200,7 @@ export type TeachingSettingsV1 = {
 }
 
 export type TeachingSettingsPatch = Partial<
-  Omit<TeachingSettingsV1, 'provider' | 'generator' | 'workspace' | 'worktree' | 'memory' | 'tools' | 'notifications' | 'privacy' | 'appBehavior' | 'log'>
+  Omit<TeachingSettingsV1, 'provider' | 'generator' | 'workspace' | 'worktree' | 'memory' | 'tools' | 'notifications' | 'pet' | 'privacy' | 'appBehavior' | 'log'>
 > & {
   provider?: Partial<Omit<TeachingSettingsV1['provider'], 'proxy'>> & {
     proxy?: Partial<TeachingSettingsV1['provider']['proxy']>
@@ -209,6 +214,7 @@ export type TeachingSettingsPatch = Partial<
   }
   webSearch?: Partial<TeachingSettingsV1['webSearch']>
   notifications?: Partial<TeachingSettingsV1['notifications']>
+  pet?: Partial<TeachingSettingsV1['pet']>
   privacy?: Partial<TeachingSettingsV1['privacy']>
   appBehavior?: Partial<TeachingSettingsV1['appBehavior']>
   log?: Partial<TeachingSettingsV1['log']>

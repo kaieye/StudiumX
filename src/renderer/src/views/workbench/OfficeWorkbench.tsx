@@ -7,6 +7,14 @@ import {
 } from '../../study-space/domain'
 import { useStudySession } from '../../study-space/session/useStudySession'
 import type { StudyTimerMode, StudyTimerState } from '../../study-space/types'
+import {
+  getPetSpriteFrameIndex,
+  getPetSpriteRow,
+  getPetSpriteSheetUrl,
+  PET_SPRITE_CELL_HEIGHT,
+  PET_SPRITE_CELL_WIDTH,
+  type PetVisualState
+} from '../pet/PetSprite'
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { WorkbenchTasks } from './WorkbenchTasks'
@@ -35,16 +43,11 @@ type SheetSpec = {
   atlasUrl: string
 }
 
-// 现阶段仍借用 Marvis 的桌子和 working 动画占位；后续替换成 StudiumX 自己的 UI 资源时，
-// 优先替换这里的 URL 和 deskSlots 坐标，不再恢复旧演示场景的多角色装饰逻辑。
+// 自习室暂时保留 Marvis 的桌椅场景资源；座位角色使用 StudiumX 自己的 Codex 风格宠物图集。
 const sheetSpecs = {
   workstation: {
     imageUrl: new URL('./assets/marvis/img/workstation@2x.webp', import.meta.url).href,
     atlasUrl: new URL('./assets/marvis/img/workstation@2x.webp.json', import.meta.url).href
-  },
-  working: {
-    imageUrl: new URL('./assets/marvis/spritesheet/agent/working@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/spritesheet/agent/working@2x.webp.json', import.meta.url).href
   }
 } satisfies Record<string, SheetSpec>
 
@@ -109,6 +112,7 @@ type WorkstationTemplate = {
 
 type WorkbenchAssets = {
   sheets: SheetMap
+  petImage: HTMLImageElement
   gidToFrame: Map<number, string>
   workstationTemplate: WorkstationTemplate
   workstationBossTemplate: WorkstationTemplate
@@ -126,7 +130,6 @@ type DeskSlot = {
   height: number
   hitArea: { x: number; y: number; width: number; height: number }
   seat: { x: number; y: number }
-  characterScale: number
   z: number
 }
 
@@ -156,8 +159,8 @@ const maxToolScale = 1.08
 const workstationWidth = 64 * 3
 const workstationHeight = 64
 const chairYOffset = 65
-const agentVisualScale = 0.5
-const animationFps = 24
+const seatedPetWidth = 96
+const seatedPetBottomOffset = 36
 const workbenchSeatCount = 12
 
 const officeTmjUrl = new URL('./assets/marvis/office.tmj', import.meta.url).href
@@ -202,7 +205,6 @@ const deskSlots: DeskSlot[] = workstationPositions.map((layout) => ({
     x: layout.x,
     y: layout.y + 64
   },
-  characterScale: agentVisualScale,
   z: layout.y + 64
 }))
 
@@ -253,9 +255,10 @@ async function loadSheet(spec: SheetSpec): Promise<AtlasImage> {
 }
 
 async function loadWorkbenchAssets(): Promise<WorkbenchAssets> {
-  const [officeTmj, tileset, sheetEntries] = await Promise.all([
+  const [officeTmj, tileset, petImage, sheetEntries] = await Promise.all([
     loadJson<TiledMap>(officeTmjUrl),
     loadJson<Tileset>(assetsTsjUrl),
+    loadImage(getPetSpriteSheetUrl()),
     Promise.all(
       (Object.entries(sheetSpecs) as Array<[SheetKey, SheetSpec]>).map(async ([key, spec]) => {
         const sheet = await loadSheet(spec)
@@ -279,7 +282,7 @@ async function loadWorkbenchAssets(): Promise<WorkbenchAssets> {
     throw new Error('Missing Marvis workstation templates')
   }
 
-  return { sheets, gidToFrame, workstationTemplate, workstationBossTemplate }
+  return { sheets, petImage, gidToFrame, workstationTemplate, workstationBossTemplate }
 }
 
 function findLayer(layers: TiledLayer[], name: string, type?: string): TiledLayer | null {
@@ -364,19 +367,6 @@ function computeTemplateCenter(
   return { x: minX + (maxX - minX) / 2, y: minY + (maxY - minY) / 2 }
 }
 
-function animationFrames(sheet: AtlasImage, animationName: string): string[] {
-  const frames = sheet.atlas.animations?.[animationName]
-  if (frames?.length) return frames
-  return Object.keys(sheet.atlas.frames).sort()
-}
-
-function pickFrame(sheet: AtlasImage, animationName: string, elapsed: number, fps = animationFps): string | null {
-  const frames = animationFrames(sheet, animationName)
-  if (!frames.length) return null
-  const index = Math.floor((elapsed / 1000) * fps) % frames.length
-  return frames[index] ?? null
-}
-
 function atlasScale(atlas: TextureAtlas): number {
   return atlas.meta?.scale && atlas.meta.scale > 0 ? atlas.meta.scale : 1
 }
@@ -389,16 +379,6 @@ function currentDevicePixelScale(ctx: CanvasRenderingContext2D): number {
 
 function roundToDevicePixel(value: number, pixelScale: number): number {
   return Math.round(value * pixelScale) / pixelScale
-}
-
-function logicalFrameSize(sheet: AtlasImage, frameName: string): { width: number; height: number } | null {
-  const frame = sheet.atlas.frames[frameName]
-  if (!frame) return null
-  const scale = atlasScale(sheet.atlas)
-  return {
-    width: frame.sourceSize.w / scale,
-    height: frame.sourceSize.h / scale
-  }
 }
 
 function drawAtlasFrame(
@@ -465,36 +445,49 @@ function drawTemplateSprites(
   for (const sprite of sprites) {
     const frameName = assets.gidToFrame.get(sprite.gid)
     if (!frameName) continue
+    if (frameName === 'shadow.png' || frameName === 'shadow_boss.png') continue
     const position = worldSpritePosition(template, sprite, slot, pivot)
     drawAtlasFrame(ctx, assets.sheets.workstation, frameName, position.x, position.y, sprite.width, sprite.height)
   }
 }
 
-function drawAnimatedCharacter(
-  ctx: CanvasRenderingContext2D,
-  sheet: AtlasImage,
-  animationName: string,
-  x: number,
-  y: number,
-  elapsed: number,
-  scale = agentVisualScale,
-  pivotY = 30,
-  fps = animationFps
-): void {
-  const frameName = pickFrame(sheet, animationName, elapsed, fps)
-  if (!frameName) return
-  const size = logicalFrameSize(sheet, frameName)
-  if (!size) return
-
-  const width = size.width * scale
-  const height = size.height * scale
-  const dx = x - width / 2
-  const dy = y - height / 2 - pivotY * scale
-  drawAtlasFrame(ctx, sheet, frameName, dx, dy, width, height)
+function petStateForOccupant(occupant: WorkbenchSeatOccupant): PetVisualState {
+  if (occupant.status === 'paused') return 'waiting'
+  if (occupant.status === 'running') {
+    return occupant.timerMode === 'focus' ? 'running' : 'review'
+  }
+  return 'idle'
 }
 
-function drawWorkingCharacter(ctx: CanvasRenderingContext2D, assets: WorkbenchAssets, slot: DeskSlot, elapsed: number): void {
-  drawAnimatedCharacter(ctx, assets.sheets.working, 'working', slot.seat.x, slot.seat.y, elapsed, slot.characterScale)
+function drawSeatedPet(
+  ctx: CanvasRenderingContext2D,
+  petImage: HTMLImageElement,
+  slot: DeskSlot,
+  occupant: WorkbenchSeatOccupant,
+  elapsed: number,
+  reducedMotion: boolean
+): void {
+  const state = petStateForOccupant(occupant)
+  const frame = getPetSpriteFrameIndex(state, elapsed, reducedMotion)
+  const width = seatedPetWidth
+  const height = Math.round((width * PET_SPRITE_CELL_HEIGHT) / PET_SPRITE_CELL_WIDTH)
+  const dx = slot.seat.x - width / 2
+  const dy = slot.seat.y - height + seatedPetBottomOffset
+
+  ctx.save()
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(
+    petImage,
+    frame * PET_SPRITE_CELL_WIDTH,
+    getPetSpriteRow(state) * PET_SPRITE_CELL_HEIGHT,
+    PET_SPRITE_CELL_WIDTH,
+    PET_SPRITE_CELL_HEIGHT,
+    dx,
+    dy,
+    width,
+    height
+  )
+  ctx.restore()
 }
 
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number): void {
@@ -577,7 +570,8 @@ function drawScene(
   assets: WorkbenchAssets,
   elapsed: number,
   seatState: WorkbenchSeatState,
-  hoveredDeskId: DeskId | null
+  hoveredDeskId: DeskId | null,
+  reducedMotion: boolean
 ): void {
   ctx.clearRect(0, 0, officeWidth, officeHeight)
   ctx.fillStyle = '#ffffff'
@@ -599,13 +593,9 @@ function drawScene(
     if (occupant) {
       depthLayers.push({
         z: slot.z,
-        draw: () => drawWorkingCharacter(ctx, assets, slot, elapsed)
+        draw: () => drawSeatedPet(ctx, assets.petImage, slot, occupant, elapsed, reducedMotion)
       })
     }
-    depthLayers.push({
-      z: slot.y + chairYOffset,
-      draw: () => drawTemplateSprites(ctx, assets, template, template.chairSprites, slot, { x: 34, y: -80 })
-    })
   }
 
   depthLayers.sort((a, b) => a.z - b.z)
@@ -809,6 +799,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   useEffect(() => {
     let canceled = false
     let animationFrame = 0
+    const reducedMotionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    let reducedMotion = reducedMotionQuery?.matches ?? false
+    const updateReducedMotion = (event: MediaQueryListEvent): void => {
+      reducedMotion = event.matches
+    }
+    reducedMotionQuery?.addEventListener('change', updateReducedMotion)
 
     async function run() {
       try {
@@ -835,7 +831,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           ctx.imageSmoothingEnabled = true
           ctx.imageSmoothingQuality = 'high'
           ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0)
-          drawScene(ctx, assets, time, seatStateRef.current, hoveredDeskIdRef.current)
+          drawScene(ctx, assets, time, seatStateRef.current, hoveredDeskIdRef.current, reducedMotion)
           ctx.restore()
           animationFrame = requestAnimationFrame(render)
         }
@@ -850,6 +846,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     return () => {
       canceled = true
       cancelAnimationFrame(animationFrame)
+      reducedMotionQuery?.removeEventListener('change', updateReducedMotion)
       assetsRef.current = null
     }
   }, [])
