@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react'
 import type { PetAppearanceId } from '../../../../shared/teaching-types'
 
-export type PetVisualState =
-  | 'idle'
-  | 'running-right'
-  | 'running-left'
-  | 'waving'
-  | 'jumping'
-  | 'failed'
-  | 'waiting'
-  | 'running'
-  | 'review'
+export const PET_VISUAL_STATES = [
+  'idle',
+  'running-right',
+  'running-left',
+  'waving',
+  'jumping',
+  'failed',
+  'waiting',
+  'running',
+  'review'
+] as const
+
+export type PetVisualState = (typeof PET_VISUAL_STATES)[number]
 
 const CELL_WIDTH = 48
 const CELL_HEIGHT = 52
@@ -389,6 +392,59 @@ function drawCharacterFeet(
   block(context, color, rightX, footY, 8, 4)
 }
 
+function drawTear(context: CanvasRenderingContext2D, x: number, y: number, frame: number): void {
+  const drop = frame % 4 < 2 ? 0 : 2
+  block(context, palette.cyan, x, y + drop, 2, 4)
+  block(context, palette.shellLight, x, y + drop, 1, 1)
+}
+
+function drawCheck(context: CanvasRenderingContext2D, x: number, y: number): void {
+  block(context, palette.green, x, y + 3, 2, 2)
+  block(context, palette.green, x + 2, y + 5, 2, 2)
+  block(context, palette.green, x + 4, y + 2, 2, 4)
+  block(context, palette.green, x + 6, y, 2, 3)
+}
+
+function drawRobotStateDetails(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  if (state === 'idle') {
+    block(context, palette.accent, 21 + (frame % 3), 36 + y, 2, 1)
+    return
+  }
+  if (state === 'running-right' || state === 'running-left') {
+    block(context, palette.cyan, 18, 35 + y, 4 + (frame % 3), 2)
+    return
+  }
+  if (state === 'waving') {
+    drawSpark(context, 44, 7 + (frame % 2), palette.accent)
+    return
+  }
+  if (state === 'jumping') {
+    block(context, palette.cyan, 16, 47 + y, 4, 3)
+    block(context, palette.cyan, 30, 47 + y, 4, 3)
+    return
+  }
+  if (state === 'failed') {
+    block(context, palette.red, 19, 35 + y, 11, 3)
+    return
+  }
+  if (state === 'waiting') {
+    block(context, palette.accent, 22, 35 + y, 5, 3)
+    return
+  }
+  if (state === 'running') {
+    const progress = 3 + (frame % 5) * 2
+    block(context, palette.screen, 18, 34 + y, 12, 5)
+    block(context, palette.cyan, 19, 35 + y, Math.min(progress, 10), 2)
+    return
+  }
+  drawCheck(context, 21, 34 + y)
+}
+
 function drawRobot(
   context: CanvasRenderingContext2D,
   state: PetVisualState,
@@ -396,6 +452,59 @@ function drawRobot(
   y: number
 ): void {
   drawBody(context, state, frame, y)
+  drawRobotStateDetails(context, state, frame, y)
+}
+
+function drawCatStateDetails(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  if (state === 'idle') {
+    if (frame % 4 < 2) block(context, palette.accent, 8, 17 + y, 2, 4)
+    return
+  }
+  if (state === 'running-right' || state === 'running-left') {
+    block(context, palette.accent, 4, 22 + y, 5 + (frame % 3), 2)
+    block(context, palette.dust, 3, 39 + y, 4, 2)
+    return
+  }
+  if (state === 'waving') {
+    block(context, palette.accent, 43, 11 + y, 2, 2)
+    block(context, palette.accent, 45, 13 + y, 2, 2)
+    return
+  }
+  if (state === 'jumping') {
+    block(context, palette.outline, 6, 19 + y, 10, 6)
+    block(context, palette.shellLight, 8, 20 + y, 6, 3)
+    block(context, palette.outline, 33, 19 + y, 10, 6)
+    block(context, palette.shellLight, 35, 20 + y, 6, 3)
+    return
+  }
+  if (state === 'failed') {
+    drawTear(context, 17, 22 + y, frame)
+    drawTear(context, 31, 22 + y, frame + 2)
+    block(context, palette.accent, 8, 17 + y, 3, 8)
+    return
+  }
+  if (state === 'waiting') {
+    block(context, palette.outline, 18, 33 + y, 7, 6)
+    block(context, palette.outline, 25, 33 + y, 7, 6)
+    block(context, palette.shellLight, 22, 35 + y, 6, 3)
+    return
+  }
+  if (state === 'running') {
+    block(context, palette.outline, 16, 34 + y, 18, 8)
+    block(context, palette.screenGlow, 18, 35 + y, 14, 5)
+    block(context, palette.cyan, 19 + (frame % 5), 37 + y, 3, 1)
+    block(context, palette.shellLight, 14, 39 + y, 5, 3)
+    block(context, palette.shellLight, 31, 39 + y, 5, 3)
+    return
+  }
+  block(context, palette.outline, 6, 18 + y, 9, 6)
+  block(context, palette.outline, 34, 18 + y, 9, 6)
+  drawCheck(context, 21, 34 + y)
 }
 
 function drawCat(
@@ -443,6 +552,61 @@ function drawCat(
   block(context, palette.accent, 37, 14 + y + failedDrop, 4, 9)
   drawCharacterEyes(context, state, frame, 15, 29, 17 + y + failedDrop)
   block(context, palette.outline, 23, 24 + y + failedDrop, 3, 2)
+  drawCatStateDetails(context, state, frame, y)
+}
+
+function drawOwlStateDetails(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  if (state === 'idle') {
+    block(context, palette.shellLight, 20 + (frame % 2), 36 + y, 3, 1)
+    return
+  }
+  if (state === 'running-right' || state === 'running-left') {
+    block(context, palette.outline, 4, 22 + y, 10, 6)
+    block(context, palette.outline, 35, 19 + y, 10, 6)
+    block(context, palette.shellShadow, 6, 23 + y, 6, 3)
+    block(context, palette.shellShadow, 37, 20 + y, 6, 3)
+    return
+  }
+  if (state === 'waving') {
+    drawSpark(context, 44, 8 + y + (frame % 2), palette.accent)
+    return
+  }
+  if (state === 'jumping') {
+    block(context, palette.outline, 4, 15 + y, 11, 7)
+    block(context, palette.outline, 34, 15 + y, 11, 7)
+    block(context, palette.shellShadow, 6, 16 + y, 7, 3)
+    block(context, palette.shellShadow, 36, 16 + y, 7, 3)
+    return
+  }
+  if (state === 'failed') {
+    drawTear(context, 18, 23 + y, frame)
+    drawTear(context, 31, 23 + y, frame + 2)
+    block(context, palette.outlineSoft, 17, 39 + y, 16, 4)
+    return
+  }
+  if (state === 'waiting') {
+    block(context, palette.shellLight, 18, 34 + y, 7, 6)
+    block(context, palette.shellLight, 25, 34 + y, 7, 6)
+    block(context, palette.accent, 24, 34 + y, 1, 7)
+    return
+  }
+  if (state === 'running') {
+    const page = frame % 4
+    block(context, palette.shellLight, 18, 34 + y, 7 + page, 7)
+    block(context, palette.shellLight, 25 - page, 34 + y, 7 + page, 7)
+    block(context, palette.outline, 24, 34 + y, 1, 8)
+    block(context, palette.outlineSoft, 20, 36 + y, 3, 1)
+    block(context, palette.outlineSoft, 27, 38 + y, 3, 1)
+    return
+  }
+  block(context, palette.outline, 4, 17 + y, 10, 6)
+  block(context, palette.outline, 35, 17 + y, 10, 6)
+  drawCheck(context, 21, 34 + y)
 }
 
 function drawOwl(
@@ -474,6 +638,59 @@ function drawOwl(
   block(context, palette.outline, 17, 33 + y, 16, 10)
   block(context, palette.accent, 19, 34 + y, 12, 7)
   block(context, palette.shellLight, 24, 34 + y, 1, 7)
+  drawOwlStateDetails(context, state, frame, y)
+}
+
+function drawSproutStateDetails(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  if (state === 'idle') {
+    block(context, palette.green, 13 + (frame % 3), 37 + y, 4, 2)
+    return
+  }
+  if (state === 'running-right' || state === 'running-left') {
+    block(context, palette.green, 5, 18 + y, 7 + (frame % 3), 3)
+    block(context, palette.dust, 3, 42 + y, 5, 2)
+    return
+  }
+  if (state === 'waving') {
+    drawSpark(context, 44, 16 + y + (frame % 2), palette.green)
+    return
+  }
+  if (state === 'jumping') {
+    block(context, palette.outline, 5, 20 + y, 10, 6)
+    block(context, palette.shell, 7, 21 + y, 6, 3)
+    block(context, palette.outline, 34, 20 + y, 10, 6)
+    block(context, palette.shell, 36, 21 + y, 6, 3)
+    return
+  }
+  if (state === 'failed') {
+    drawTear(context, 18, 30 + y, frame)
+    drawTear(context, 31, 30 + y, frame + 2)
+    block(context, palette.shellShadow, 15, 4 + y, 9, 4)
+    block(context, palette.shellShadow, 26, 4 + y, 9, 4)
+    return
+  }
+  if (state === 'waiting') {
+    block(context, palette.outline, 17, 34 + y, 8, 6)
+    block(context, palette.outline, 25, 34 + y, 8, 6)
+    block(context, palette.accent, 23, 35 + y, 4, 3)
+    return
+  }
+  if (state === 'running') {
+    const orbit = frame % 4
+    block(context, palette.cyan, 12 + orbit * 7, 19 + (orbit % 2) * 3 + y, 3, 3)
+    block(context, palette.green, 34 - orbit * 6, 36 - (orbit % 2) * 3 + y, 3, 3)
+    block(context, palette.accent, 21, 35 + y, 8, 3)
+    return
+  }
+  block(context, palette.outline, 5, 19 + y, 10, 6)
+  block(context, palette.outline, 34, 19 + y, 10, 6)
+  drawSpark(context, 24, 9 + y, palette.green)
+  drawCheck(context, 21, 34 + y)
 }
 
 function drawSprout(
@@ -505,7 +722,57 @@ function drawSprout(
 
   drawCharacterEyes(context, state, frame, 16, 29, 25 + y)
   block(context, palette.outline, 23, 32 + y, 4, 2)
-  if (state === 'review') block(context, palette.green, 21, 35 + y, 8, 2)
+  drawSproutStateDetails(context, state, frame, y)
+}
+
+function drawFoxStateDetails(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  if (state === 'idle') {
+    block(context, palette.accent, 31 + (frame % 2), 35 + y, 4, 2)
+    return
+  }
+  if (state === 'running-right' || state === 'running-left') {
+    block(context, palette.accent, 4, 24 + y, 9 + (frame % 3), 3)
+    block(context, palette.accent, 6, 28 + y, 7, 2)
+    return
+  }
+  if (state === 'waving') {
+    drawSpark(context, 43, 11 + y + (frame % 2), palette.accent)
+    return
+  }
+  if (state === 'jumping') {
+    block(context, palette.outline, 5, 18 + y, 10, 6)
+    block(context, palette.shellShadow, 7, 19 + y, 6, 3)
+    block(context, palette.outline, 34, 18 + y, 10, 6)
+    block(context, palette.shellShadow, 36, 19 + y, 6, 3)
+    return
+  }
+  if (state === 'failed') {
+    drawTear(context, 17, 22 + y, frame)
+    drawTear(context, 32, 22 + y, frame + 2)
+    block(context, palette.accent, 30, 37 + y, 5, 6)
+    return
+  }
+  if (state === 'waiting') {
+    block(context, palette.outline, 19, 34 + y, 12, 8)
+    block(context, palette.accent, 21, 35 + y, 8, 5)
+    block(context, palette.cyan, 24, 36 + y, 2, 2)
+    return
+  }
+  if (state === 'running') {
+    block(context, palette.outline, 17, 34 + y, 16, 8)
+    block(context, palette.shellLight, 19, 35 + y, 12, 5)
+    block(context, palette.accent, 20 + (frame % 6), 36 + y, 3, 2)
+    block(context, palette.cyan, 23, 38 + y, 5, 1)
+    return
+  }
+  block(context, palette.outline, 5, 18 + y, 10, 6)
+  block(context, palette.outline, 34, 18 + y, 10, 6)
+  drawCheck(context, 21, 34 + y)
 }
 
 function drawFox(
@@ -542,6 +809,60 @@ function drawFox(
 
   block(context, palette.accent, 12, 28 + y, 25, 4)
   block(context, palette.accent, 30, 31 + y, 5, 8)
+  drawFoxStateDetails(context, state, frame, y)
+}
+
+function drawPenguinStateDetails(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  if (state === 'idle') {
+    block(context, palette.cyan, 28 + (frame % 2), 37 + y, 3, 1)
+    return
+  }
+  if (state === 'running-right' || state === 'running-left') {
+    block(context, palette.outline, 4, 23 + y, 10, 6)
+    block(context, palette.outline, 35, 20 + y, 10, 6)
+    block(context, palette.cyan, 5, 40 + y, 6 + (frame % 3), 2)
+    return
+  }
+  if (state === 'waving') {
+    block(context, palette.accent, 43, 12 + y, 3, 4)
+    return
+  }
+  if (state === 'jumping') {
+    block(context, palette.outline, 4, 17 + y, 11, 7)
+    block(context, palette.outline, 34, 17 + y, 11, 7)
+    block(context, palette.shell, 6, 18 + y, 7, 3)
+    block(context, palette.shell, 36, 18 + y, 7, 3)
+    return
+  }
+  if (state === 'failed') {
+    drawTear(context, 18, 23 + y, frame)
+    drawTear(context, 31, 23 + y, frame + 2)
+    block(context, palette.outline, 27, 40 + y, 10, 4)
+    return
+  }
+  if (state === 'waiting') {
+    block(context, palette.outline, 17, 33 + y, 16, 9)
+    block(context, palette.shellLight, 19, 34 + y, 12, 6)
+    block(context, palette.accent, 23, 35 + y, 4, 2)
+    return
+  }
+  if (state === 'running') {
+    const letterX = 18 + (frame % 4) * 3
+    block(context, palette.shellLight, letterX, 34 + y, 10, 7)
+    block(context, palette.accent, letterX + 4, 36 + y, 3, 2)
+    block(context, palette.outline, 14, 39 + y, 6, 3)
+    block(context, palette.outline, 31, 39 + y, 6, 3)
+    return
+  }
+  block(context, palette.outline, 4, 18 + y, 11, 7)
+  block(context, palette.outline, 34, 18 + y, 11, 7)
+  block(context, palette.shellLight, 18, 34 + y, 14, 7)
+  drawCheck(context, 21, 34 + y)
 }
 
 function drawPenguin(
@@ -570,6 +891,7 @@ function drawPenguin(
   block(context, palette.accent, 31, 34 + y, 4, 9)
   block(context, palette.outline, 25, 34 + y, 10, 8)
   block(context, palette.shellLight, 27, 36 + y, 6, 4)
+  drawPenguinStateDetails(context, state, frame, y)
 }
 
 type CharacterDrawer = typeof drawRobot
