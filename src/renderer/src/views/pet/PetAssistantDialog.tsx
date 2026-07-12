@@ -4,6 +4,12 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conversation-state'
 import { useAppStore } from '../../app-shell/appStore'
+import {
+  appendAssistantTodoTasks,
+  appendTodoOutputContract,
+  parseAssistantTodoPayload,
+  stripAssistantTodoPayload
+} from '../../study-space/assistantTodo'
 
 type PetAssistantDialogProps = {
   open: boolean
@@ -12,7 +18,7 @@ type PetAssistantDialogProps = {
 }
 
 const suggestions = [
-  '帮我梳理今天最重要的三件事',
+  '帮我制作今天的 TodoList，按优先级拆成可执行任务',
   '根据我现在的目标安排一轮专注计划',
   '把一个复杂任务拆成可以立即开始的小步骤'
 ]
@@ -32,6 +38,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   const setOverviewDialogMode = useAppStore((state) => state.setOverviewDialogMode)
   const setView = useAppStore((state) => state.setView)
   const [input, setInput] = useState('')
+  const [importedTodoTurns, setImportedTodoTurns] = useState<Set<string>>(() => new Set())
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const pendingStreamId = pendingConversation?.summary.id ?? null
@@ -66,7 +73,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     if (!activeWorkspace || !prompt || agentChatBusy || hasInterruption) return
     rememberAgentInput(prompt)
     setInput('')
-    void agentChat(prompt, { mode: 'temporary' })
+    void agentChat(appendTodoOutputContract(prompt), { mode: 'temporary' })
   }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -84,6 +91,11 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     setOverviewDialogMode('chat')
     setView('agent')
     onClose()
+  }
+
+  const importTodo = (turnId: string, titles: string[]): void => {
+    appendAssistantTodoTasks(titles)
+    setImportedTodoTurns((current) => new Set(current).add(turnId))
   }
 
   return (
@@ -122,29 +134,46 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
             </div>
           </div>
         ) : (
-          agentTurns.map((turn) => (
-            <article key={turn.id} className={`pet-assistant-message is-${turn.role}`}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  a: ({ href, children }) => (
-                    <a
-                      href={href}
-                      rel="noreferrer"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        if (href) void openExternal(href)
-                      }}
-                    >
-                      {children}
-                    </a>
-                  )
-                }}
-              >
-                {turn.content || (agentChatBusy ? '正在回复...' : '')}
-              </ReactMarkdown>
-            </article>
-          ))
+          agentTurns.map((turn) => {
+            const todoTitles = turn.role === 'assistant' ? parseAssistantTodoPayload(turn.content) : []
+            const visibleContent = turn.role === 'assistant'
+              ? stripAssistantTodoPayload(turn.content)
+              : turn.content
+            const imported = importedTodoTurns.has(turn.id)
+            return (
+              <article key={turn.id} className={`pet-assistant-message is-${turn.role}`}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a: ({ href, children }) => (
+                      <a
+                        href={href}
+                        rel="noreferrer"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          if (href) void openExternal(href)
+                        }}
+                      >
+                        {children}
+                      </a>
+                    )
+                  }}
+                >
+                  {visibleContent || (agentChatBusy ? '正在回复...' : '')}
+                </ReactMarkdown>
+                {todoTitles.length > 0 ? (
+                  <button
+                    className="pet-assistant-todo-import"
+                    type="button"
+                    onClick={() => importTodo(turn.id, todoTitles)}
+                    disabled={imported}
+                  >
+                    {imported ? '已加入今日清单' : `加入今日清单 · ${todoTitles.length} 项`}
+                  </button>
+                ) : null}
+              </article>
+            )
+          })
         )}
         {error ? <div className="pet-assistant-error">{error.message}</div> : null}
       </div>

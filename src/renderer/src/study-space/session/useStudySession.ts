@@ -11,6 +11,7 @@ import type { StudyRoomEventKind, StudyRoomId, StudySnapshot, StudyTimerMode } f
 import { useStudyAmbient } from '../useStudyAmbient'
 import { useStudyPresence } from '../useStudyPresence'
 import { createStudySpaceViewModel } from '../viewModel'
+import { STUDY_TASKS_CHANGED_EVENT } from '../assistantTodo'
 import {
   addStudyTask,
   chooseStudySeatSnapshot,
@@ -126,6 +127,16 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
   useEffect(() => {
     persistStudySnapshot(snapshot)
   }, [snapshot])
+
+  useEffect(() => {
+    const syncImportedTasks = (event: Event): void => {
+      const tasks = (event as CustomEvent<StudySnapshot['tasks']>).detail
+      if (!Array.isArray(tasks)) return
+      setSnapshot((current) => ({ ...current, tasks }))
+    }
+    window.addEventListener(STUDY_TASKS_CHANGED_EVENT, syncImportedTasks)
+    return () => window.removeEventListener(STUDY_TASKS_CHANGED_EVENT, syncImportedTasks)
+  }, [])
 
   useEffect(() => {
     syncStudyLocation(snapshot.spaceCode, snapshot.roomId)

@@ -141,6 +141,28 @@
 .pet-assistant-message ul,
 .pet-assistant-message ol { margin: 0.4em 0; padding-left: 1.25rem; }
 
+.pet-assistant-todo-import {
+  width: 100%;
+  min-height: 32px;
+  margin-top: 9px;
+  padding: 0 9px;
+  color: var(--accent-strong);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 8px;
+  background: var(--accent-soft);
+  font: inherit;
+  font-size: 0.625rem;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.pet-assistant-todo-import:disabled {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 24%, var(--line));
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+  cursor: default;
+}
+
 .pet-assistant-error {
   padding: 8px 10px;
   color: var(--red);
