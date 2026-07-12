@@ -102,17 +102,65 @@ for (const html of [lessonHtml, referenceHtml]) {
   assert.match(html, /<p>表格后的段落应该继续正常渲染。<\/p>/, 'content after a table should keep rendering')
 }
 
-const [baseStyles, assetStyles, promptSource] = await Promise.all([
+const mathPlan = {
+  title: '数学公式渲染',
+  objective: '静态课程页应渲染 MathML 公式。',
+  durationMinutes: 8,
+  sections: [
+    {
+      heading: '公式',
+      body: '行内公式 $E = mc^2$ 应渲染。\n\n$$\n\\int_0^1 x^2 dx = \\frac{1}{3}\n$$'
+    }
+  ],
+  keyPoints: [],
+  quiz: [],
+  flashcards: [],
+  referenceNotes: '',
+  learningRecordNote: ''
+}
+const mathLesson = {
+  id: '005',
+  title: mathPlan.title,
+  sessionName: mathPlan.title,
+  prompt: '数学公式',
+  objective: mathPlan.objective,
+  durationMinutes: mathPlan.durationMinutes,
+  relativePath: 'courses/demo/lesson/005-math.html',
+  absolutePath: 'D:\\tmp\\005-math.html',
+  courseId: 'demo',
+  courseName: 'demo',
+  courseRelativePath: 'courses/demo',
+  courseAbsolutePath: 'D:\\tmp\\courses\\demo'
+}
+const mathHtml = renderLessonHtmlFromPlan({
+  plan: mathPlan,
+  lesson: mathLesson,
+  mission: { title: '教学链路优化', excerpt: '公式应渲染。' },
+  workspaceName: 'StudiumX',
+  recordRelativePath: null,
+  referenceRelativePath: null,
+  generator
+})
+assert.match(mathHtml, /class="lesson-math lesson-math--inline"/, 'inline math should get a static lesson math wrapper')
+assert.match(mathHtml, /class="lesson-math lesson-math--block"/, 'block math should get a static lesson math wrapper')
+assert.match(mathHtml, /<math/, 'static lesson math should render MathML')
+assert.doesNotMatch(mathHtml, /\$\$\s*\\int_0\^1/, 'block math source should not remain as raw markdown')
+
+const [baseStyles, assetStyles, promptSource, generationSource] = await Promise.all([
   readFile('src/shared/lesson-style-themes/base.ts', 'utf8'),
   readFile('assets/lesson.css', 'utf8'),
-  readFile('src/main/ai/lesson-prompts.ts', 'utf8')
+  readFile('src/main/ai/lesson-prompts.ts', 'utf8'),
+  readFile('src/main/teaching-lesson-generation.ts', 'utf8')
 ])
 
 assert.match(baseStyles, /\.markdown-table-wrap \{/, 'lesson CSS should style the table scroll wrapper')
 assert.match(baseStyles, /td\.align-right/, 'lesson CSS should style right-aligned table cells')
+assert.match(baseStyles, /\.lesson-math--block \{/, 'lesson CSS should style static math blocks')
 assert.match(assetStyles, /\.markdown-table-wrap \{/, 'workspace lesson.css asset should style the table scroll wrapper')
 assert.match(assetStyles, /td\.align-right/, 'workspace lesson.css asset should style right-aligned table cells')
+assert.match(assetStyles, /\.lesson-math--block \{/, 'workspace lesson.css asset should style static math blocks')
 assert.match(promptSource, /GFM 表格/, 'lesson prompt contract should advertise GFM table support')
+assert.match(generationSource, /STATIC_LESSON_RENDERER_CAPABILITIES/, 'production lesson generation should pass static renderer capabilities')
 
 // Relaxed table separator: `:--:` (2 dashes) must also render as a table,
 // not collapse into a paragraph (the 0003-rag.html regression).

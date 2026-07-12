@@ -1,3 +1,4 @@
+import katex from 'katex'
 import type { LessonCalloutKind, LessonPlan, LessonQuizItem } from '../../shared/lesson-schema'
 import { LESSON_MARKUP_CLASSES, LESSON_MARKUP_DATA_ATTRIBUTES } from '../../shared/lesson-style-themes/contract'
 import type { LessonSummary, TeachingSettingsV1 } from '../../shared/teaching-types'
@@ -403,6 +404,11 @@ type MarkdownTable = {
   endIndex: number
 }
 
+type MarkdownMathBlock = {
+  content: string
+  endIndex: number
+}
+
 function renderMarkdown(source: string): string {
   const escaped = escapeHtml(source)
   const lines = escaped.split(/\r?\n/)
@@ -443,6 +449,14 @@ function renderMarkdown(source: string): string {
     }
     if (code) {
       codeBuffer.push(line)
+      continue
+    }
+    const mathBlock = parseMathBlock(lines, index)
+    if (mathBlock) {
+      flushParagraph()
+      flushList()
+      blocks.push(renderMath(mathBlock.content, true))
+      index = mathBlock.endIndex
       continue
     }
     const table = parseMarkdownTable(lines, index)
@@ -498,6 +512,32 @@ function renderMarkdown(source: string): string {
   flushList()
   if (code) blocks.push(`<pre><code>${codeBuffer.join('\n')}</code></pre>`)
   return blocks.join('\n')
+}
+
+function parseMathBlock(lines: string[], startIndex: number): MarkdownMathBlock | null {
+  const firstLine = lines[startIndex]?.trim() ?? ''
+  const opener = firstLine.startsWith('$$') ? '$$' : firstLine.startsWith('\\[') ? '\\[' : null
+  if (!opener) return null
+  const closer = opener === '$$' ? '$$' : '\\]'
+  const firstContent = firstLine.slice(opener.length)
+  const sameLineEnd = firstContent.indexOf(closer)
+  if (sameLineEnd >= 0) {
+    const content = firstContent.slice(0, sameLineEnd).trim()
+    return content ? { content, endIndex: startIndex } : null
+  }
+
+  const contentLines = [firstContent]
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? ''
+    const closeIndex = line.indexOf(closer)
+    if (closeIndex >= 0) {
+      contentLines.push(line.slice(0, closeIndex))
+      const content = contentLines.join('\n').trim()
+      return content ? { content, endIndex: index } : null
+    }
+    contentLines.push(line)
+  }
+  return null
 }
 
 function parseMarkdownTable(lines: string[], startIndex: number): MarkdownTable | null {
@@ -623,13 +663,54 @@ function alignmentClass(alignment: TableAlignment | undefined): string {
 }
 
 function inline(text: string): string {
-  return text
+  return renderInlineMath(text)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label: string, href: string) => {
       const safe = sanitizeHref(href)
       return safe ? `<a href="${escapeAttr(safe)}">${label}</a>` : label
     })
+}
+
+function renderInlineMath(text: string): string {
+  return text
+    .replace(/(^|[^\\])\$([^$\n]+?)\$/g, (match, prefix: string, content: string) => {
+      if (!content.trim() || /^\s|\s$/.test(content)) return match
+      return `${prefix}${renderMath(content, false)}`
+    })
+    .replace(/\\\((.+?)\\\)/g, (_match, content: string) => {
+      if (!content.trim()) return _match
+      return renderMath(content, false)
+    })
+}
+
+function renderMath(content: string, displayMode: boolean): string {
+  const source = decodeHtmlEntities(content)
+  try {
+    const math = katex.renderToString(source, {
+      displayMode,
+      output: 'mathml',
+      strict: 'ignore',
+      throwOnError: false,
+      trust: false
+    })
+    const className = displayMode ? 'lesson-math lesson-math--block' : 'lesson-math lesson-math--inline'
+    return displayMode
+      ? `<div class="${className}">${math}</div>`
+      : `<span class="${className}">${math}</span>`
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid math expression'
+    return `<code class="lesson-math-fallback" title="${escapeAttr(message)}">${escapeHtml(source)}</code>`
+  }
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
 }
 
 function sanitizeHref(href: string): string {

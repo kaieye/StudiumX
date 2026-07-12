@@ -9,6 +9,7 @@ export type SettingsSection =
   | 'generation'
   | 'tools'
   | 'search'
+  | 'connectors'
   | 'workspace'
   | 'worktree'
   | 'memory'

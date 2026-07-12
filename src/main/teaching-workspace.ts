@@ -98,8 +98,10 @@ import {
   summarizeWorkspaceChanges
 } from './teaching-workspace-changes'
 import { TeachingWorkspaceChangeHistoryStore } from './teaching-workspace-change-history'
+import { buildConnectorStatuses } from './connector-status'
 import type {
   ApplyLessonStylePayload,
+  ConnectorStatusesResult,
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
   GenerateLessonPayload,
@@ -877,6 +879,15 @@ export class TeachingWorkspaceService {
 
   async getMemoryDiagnostics(): Promise<TeachingMemoryDiagnostics> {
     return this.memoryStore.diagnostics()
+  }
+
+  async getConnectorStatuses(): Promise<ConnectorStatusesResult> {
+    const settings = await this.loadSettings()
+    const registry = await this.ensureRegistry().catch(() => EMPTY_REGISTRY)
+    const activeWorkspace = registry.activeWorkspaceId
+      ? registry.workspaces.find((workspace) => workspace.id === registry.activeWorkspaceId) ?? null
+      : null
+    return buildConnectorStatuses(settings, activeWorkspace)
   }
 
   async createMemory(payload: CreateTeachingMemoryPayload): Promise<TeachingMemoryRecord> {

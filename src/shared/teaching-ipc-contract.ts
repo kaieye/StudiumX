@@ -57,6 +57,7 @@ export const teachingInvokeChannels = {
   readWorkspaceChangeDiff: 'teach:read-workspace-change-diff',
   listMemory: 'teach:list-memory',
   getMemoryDiagnostics: 'teach:get-memory-diagnostics',
+  getConnectorStatuses: 'teach:get-connector-statuses',
   createMemory: 'teach:create-memory',
   updateMemory: 'teach:update-memory',
   deleteMemory: 'teach:delete-memory',

@@ -420,6 +420,10 @@ function registerTeachingIpc(
     service.getMemoryDiagnostics()
   )
 
+  ipcMain.handle(teachingInvokeChannels.getConnectorStatuses, async () =>
+    service.getConnectorStatuses()
+  )
+
   ipcMain.handle(teachingInvokeChannels.createMemory, async (_, payload: unknown) => {
     const request = parseCreateMemoryPayload(payload)
     const access = await resolveOptionalWorkspaceRoot(request.workspaceRoot)

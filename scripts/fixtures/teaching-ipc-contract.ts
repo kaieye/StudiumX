@@ -23,6 +23,7 @@ const requiredInvokeCapabilities: TeachingInvokeCapability[] = [
   'generateLessonStream',
   'agentChatStream',
   'listUpstreamModels',
+  'getConnectorStatuses',
   'openAppDataDir'
 ]
 for (const capability of requiredInvokeCapabilities) {

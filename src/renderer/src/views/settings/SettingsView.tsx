@@ -20,6 +20,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   type CreateTeachingMemoryPayload,
+  type ConnectorStatus,
+  type ConnectorStatusesResult,
   type ListUpstreamModelsResult,
   type ProbeProviderPayload,
   type ProbeProviderResult,
@@ -129,6 +131,8 @@ export function SettingsView({
     tags: '',
     confidence: 1
   })
+  const [connectorStatuses, setConnectorStatuses] = useState<ConnectorStatusesResult | null>(null)
+  const [connectorStatusesLoading, setConnectorStatusesLoading] = useState(false)
 
   useEffect(() => {
     if (section !== 'memory') return
@@ -144,6 +148,27 @@ export function SettingsView({
     }
     void refreshWorktrees()
   }, [section, activeWorkspace?.rootPath, worktreeRootPath])
+
+  useEffect(() => {
+    if (section !== 'connectors') return
+    void refreshConnectorStatuses()
+  }, [
+    section,
+    activeWorkspace?.id,
+    settings.tools.enabled,
+    settings.tools.workspaceRead,
+    settings.tools.webSearch,
+    settings.tools.webFetch,
+    settings.webSearch.backend,
+    settings.webSearch.firecrawlApiKey,
+    settings.webSearch.firecrawlApiUrl,
+    settings.webSearch.parallelApiKey,
+    settings.webSearch.tavilyApiKey,
+    settings.webSearch.exaApiKey,
+    settings.webSearch.searxngUrl,
+    settings.webSearch.braveApiKey,
+    settings.webSearch.xaiApiKey
+  ])
 
   const selectProvider = (providerId: string): void => {
     const provider = settings.provider.providers.find((item) => item.id === providerId) ?? activeProvider
@@ -176,6 +201,17 @@ export function SettingsView({
       await refreshWorktrees()
     } finally {
       setWorktreeBusyPath(null)
+    }
+  }
+
+  const refreshConnectorStatuses = async (): Promise<void> => {
+    const api = window.teachingSystem
+    if (!api) return
+    setConnectorStatusesLoading(true)
+    try {
+      setConnectorStatuses(await api.getConnectorStatuses())
+    } finally {
+      setConnectorStatusesLoading(false)
     }
   }
 
@@ -659,6 +695,41 @@ export function SettingsView({
           </SettingsPanel>
         )}
 
+        {section === 'connectors' && (
+          <SettingsPanel
+            title={t('connectors.title')}
+            subtitle={t('connectors.subtitle')}
+          >
+            <SettingsCard>
+              <div className="settings-toolbar">
+                <span className="settings-connector-refresh-copy">
+                  {connectorStatuses
+                    ? t('connectors.generatedAt', { time: new Date(connectorStatuses.generatedAt).toLocaleString() })
+                    : t('connectors.notLoaded')}
+                </span>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => void refreshConnectorStatuses()}
+                  disabled={connectorStatusesLoading}
+                >
+                  <RefreshCw size={15} className={connectorStatusesLoading ? 'spin' : undefined} />
+                  {t('connectors.refresh')}
+                </button>
+              </div>
+              {connectorStatuses?.connectors.length ? (
+                connectorStatuses.connectors.map((connector) => (
+                  <ConnectorStatusRow key={connector.id} connector={connector} />
+                ))
+              ) : (
+                <div className="settings-empty-note">
+                  {connectorStatusesLoading ? t('connectors.loading') : t('connectors.empty')}
+                </div>
+              )}
+            </SettingsCard>
+          </SettingsPanel>
+        )}
+
         {section === 'workspace' && (
           <SettingsPanel
             title={t('workspace.title')}
@@ -981,6 +1052,25 @@ export function SettingsView({
         )}
       </div>
       </section>
+    </div>
+  )
+}
+
+function ConnectorStatusRow({ connector }: { connector: ConnectorStatus }) {
+  const { t } = useTranslation()
+  return (
+    <div className="settings-connector-row" data-state={connector.state}>
+      <div className="settings-connector-main">
+        <span className="settings-connector-dot" aria-hidden="true" />
+        <div className="settings-list-copy">
+          <strong>{t(`connectors.items.${connector.id}`, { defaultValue: connector.name })}</strong>
+          <span>{connector.detail}</span>
+          {connector.repairAction ? <span>{connector.repairAction}</span> : null}
+        </div>
+      </div>
+      <span className="settings-status-badge" data-state={connector.state}>
+        {t(`connectors.status.${connector.state}`)}
+      </span>
     </div>
   )
 }

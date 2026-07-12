@@ -192,6 +192,28 @@ pre code {
   padding: 0;
 }
 
+.lesson-math {
+  color: var(--ink);
+}
+
+.lesson-math--inline math {
+  vertical-align: -0.12em;
+}
+
+.lesson-math--block {
+  display: block;
+  overflow-x: auto;
+  margin: 16px 0 0;
+  padding: 10px 0;
+  text-align: center;
+}
+
+.lesson-math-fallback {
+  color: var(--amber);
+  border-color: #d7e0ee;
+  background: var(--amber-soft);
+}
+
 blockquote {
   margin: 16px 0 0;
   padding: 16px 18px;

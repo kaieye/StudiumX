@@ -1,6 +1,6 @@
 # ZCode Reference Opportunities
 
-Date: 2026-07-11
+Date: 2026-07-12
 
 Source: local packaged reference under `ref_project/Zcode`. The reference is a built Electron application, so this document treats it as product and architecture evidence, not source code to copy.
 
@@ -13,241 +13,122 @@ StudiumX is a local Teaching workspace where durable files are the source of tru
 - Prefer narrow Teaching-workspace workflows over broad coding workflows.
 - Reuse concepts only when they fit Mission, Resources, Course, Session, Lesson, Learning record, Reference, and Agent conversation.
 
-## Reference Evidence
+## Current Reference Evidence
 
-- `ref_project/Zcode/README.md` identifies key runtime bundles: `out/main`, `out/host`, `out/renderer`, `glm/zcode.cjs`, and bundled `glm/packages`.
-- The same README summarizes MCP flow: config is read from several scopes, server status is listed, model-visible names are created, and each tool is wrapped with permission, timeout, cancellation, tracing, result budget, and a `callTool` handler.
+- `ref_project/Zcode/README.md` summarizes MCP flow: config is read from several scopes, server status is listed, model-visible names are created, and each tool is wrapped with permission, timeout, cancellation, tracing, result budget, and a `callTool` handler.
 - `ref_project/Zcode/Contents/Resources/app/out/host/index.js` contains runtime paths for checkpoint handling, permission requests, session compact, background task cancellation, Git diff, and AI commit message generation.
 - `ref_project/Zcode/Contents/Resources/app/out/main/index.js` contains process monitor, embedded browser, remote workspace bridge, MCP config migration, and desktop command wiring.
 - `ref_project/Zcode/Contents/Resources/app/out/renderer/assets/index-DUxOBods.js` contains UI concepts such as permission modes, quick pick commands, task snapshot cache, code preview settings, multi-file diff sources, and rich renderer imports.
-- `ref_project/Zcode/Contents/Resources/model-providers/models_catalog_china_llm_zcode_2026-06-03.json` is a provider catalog with model capabilities such as endpoint kind, context window, output limit, modalities, and reasoning configuration.
 
-## 1. Teaching Asset Checkpoints and Diff Review
+Completed directions removed from this active opportunity list:
 
-Recommendation: Strong.
+- Teaching asset checkpoints and diff review: implemented through Git tree checkpoints, app-data change history, and lesson diff UI.
+- Tool permission and write approval: implemented through `ToolEntry.permission`, host-enforced workspace-write policy, renderer approval cards, and `scripts/check-tool-permissions.mjs`.
+- Provider capability catalog: implemented through `src/shared/model-provider-catalog.ts`, settings presets, context-window inference, reasoning mapping, max-output clamping, and `scripts/check-model-provider-catalog.mjs`.
 
-Current StudiumX gap:
+## 1. Static Lesson Rich Syntax Boundary
 
-- `src/main/teaching-git.ts` currently focuses on Git repository inspection, worktrees, branches, switching, and branch creation.
-- Lesson generation and workspace writes can change durable learning files, but the learner does not get a first-class "what changed" checkpoint.
+Recommendation: Strong, but keep the surface boundary explicit.
 
-ZCode behavior worth borrowing:
+Current StudiumX state:
 
-- It has a checkpoint implementation with Git author metadata such as `ZCode Checkpoint`.
-- It builds affected path lists, merges checkpoint diffs, previews file diffs, and generates conventional commit messages from current branch, changed files, diff excerpts, and conversation context.
+- Live Markdown preview supports KaTeX, Mermaid placeholders with strict rendering, local image rewriting, workspace Markdown links, code copy controls, and a capability check script.
+- Implemented follow-up (2026-07-12): durable generated Lesson HTML now renders KaTeX-compatible inline and block math as MathML through `src/main/ai/lesson-renderer.ts`.
+- Production lesson generation uses `STATIC_LESSON_RENDERER_CAPABILITIES`, so prompts advertise math but not Mermaid.
+- Mermaid remains live-preview-only until a safe static rendering path exists.
+
+ZCode behavior still worth borrowing:
+
+- ZCode's renderer bundle shows the value of making math, diagrams, code, and diff previews first-class renderer capabilities.
+- The useful lesson for StudiumX is capability gating per surface: the model should only emit syntax that the durable artifact can actually render.
 
 StudiumX adaptation:
 
-- Add a Teaching checkpoint concept around generated Lessons, References, Learning records, Mission edits, Resource edits, and Agent-conversation exports.
-- Before a mutating pipeline writes files, capture the previous state when possible.
-- After the pipeline finishes, compute changed workspace-relative paths, file kinds, additions/deletions, and a short learner-facing change summary.
-- Expose checkpoint history in the workspace UI as "Learning changes", not as raw Git plumbing.
-- Allow restoring selected generated artifacts when the workspace is a Git repository. For non-Git workspaces, keep the first version limited to diff display and path list.
+- Do not advertise Mermaid to generated Lessons until the static HTML renderer supports it.
+- Keep live Markdown document preview and static Lesson HTML as separate capability surfaces, or intentionally share a safe renderer between them.
+- Remove stale ambitions such as Shiki and broad code-viewer tabs unless a concrete Teaching workflow needs them.
 
-Minimal vertical slice:
+Minimal next slice:
 
-1. Add a `TeachingWorkspaceChangeSummary` type containing timestamp, trigger, changed files, additions/deletions, and summary.
-2. Wrap lesson generation with `git status --porcelain` before and after, then compute changed tracked/untracked paths.
-3. Render a "Recent changes" panel after generation, with file list and a diff button for text files.
-4. Add an optional AI-generated summary using the existing active provider, with a deterministic fallback summary.
+1. Decide whether Mermaid should remain live-preview-only, render as source fallback, or be converted into static SVG through a safe pipeline.
+2. Add a fixture that proves unsupported Mermaid fences in generated Lesson HTML degrade to visible source rather than blank output if Mermaid is ever advertised.
+3. Keep static math tests tied to `scripts/check-lesson-markdown-rendering.mjs`.
 
 Risks:
 
-- Auto-initializing Git would be too surprising. Only use Git checkpoint features when the workspace is already in a repository, or ask explicitly.
-- Binary and generated HTML diffs can be noisy. The UI should summarize HTML and CSS assets instead of always showing full text diff.
+- Advertising unsupported syntax creates durable lessons with misleading raw formulas or inert diagrams.
+- Mermaid static rendering requires a DOM-like runtime or a separate render step; do not add that complexity until lesson authorship needs it.
 
-Implemented follow-up (2026-07-11):
+## 2. Durable Learning Task Index
 
-- Lesson generation now captures before/after Git tree checkpoints through a temporary alternate index, without changing the learner's index, branch, or `HEAD`.
-- Checkpoint diffs are scoped to the Teaching workspace even when it is nested inside a larger repository, and pre-existing dirty edits are excluded from the generated-change delta.
-- Before/after commit OIDs are retained under `refs/studiumx/checkpoints/*` and stored in an app-data history index (up to 20 entries per workspace), so exact diffs remain available after restart.
-- The Lessons view can switch among recent Learning changes and open the diff belonging to the selected checkpoint.
+Recommendation: Strong, after checkpoint/diff and permission gates.
 
-## 2. Tool Permission and Write Approval
+Current StudiumX state:
 
-Recommendation: Strong.
-
-Current StudiumX gap:
-
-- `src/main/ai/tools/ask.ts` lets the model ask the learner questions, but it is not a permission system.
-- `src/main/ai/tools/registry.ts` registers read/write workspace tools according to settings and runtime options, but individual write intent is not surfaced to the learner before execution.
+- Agent streams are still foreground and tracked by in-memory `AbortController`s in the Electron main process.
+- Pending agent conversations make in-flight work visible in the sidebar while the renderer session is alive.
+- Child/delegated runs have status metadata and are persisted inside completed conversation records and session audit artifacts.
+- There is no durable task index for queued/running/needs-approval/completed/failed/canceled work that can survive restart independently of the current chat stream.
 
 ZCode behavior worth borrowing:
 
-- ZCode has permission modes such as asking before changes, automatic edits, plan mode, and broader access.
-- Host code receives permission requests and sends permission events back to the renderer.
+- ZCode exposes long-running work as task/session state with snapshots, cancellation, and reopenable history.
+- The useful concept is not background token-stream resume; it is durable task accounting and a visible terminal state.
 
 StudiumX adaptation:
 
-- Keep permission language tied to learning artifacts: "read workspace", "write lesson/reference", "edit mission/resource", "open external link", "fetch web content".
-- Before a workspace write, show a compact approval card with the target relative path, operation, reason, and whether the file is new or existing.
-- Store the selected permission policy in settings. Suggested policies:
-  - Ask before every workspace write.
-  - Allow generated Lesson pipeline writes.
-  - Allow all Teaching asset writes for this conversation.
-  - Read-only mode.
-- Treat temporary conversations as read-only unless the user explicitly moves them into a Teaching workspace.
+- Treat long lesson generation, resource digestion, web research, and review generation as learning tasks.
+- Keep an append-only task index in app data or workspace metadata.
+- Link completed tasks to generated assets, sources, transcript, and checkpoint diff.
+- On restart, resume from persisted state only; do not attempt to resume mid-stream provider output.
 
 Minimal vertical slice:
 
-1. Add permission metadata to `ToolEntry`, starting with `workspace_write`.
-2. Extend tool execution so a write handler can request approval before calling the underlying write.
-3. Reuse the existing ask-pending style for renderer-to-main approval resolution, but keep approval payloads separate from pedagogical `ask`.
-4. Add tests around cancel, deny, allow-once, and allow-for-conversation.
+1. Add a `learning-tasks` index with id, workspace id, prompt, mode, status, timestamps, generated asset paths, conversation id, and checkpoint id.
+2. Persist status transitions from lesson generation and agent `generate_lesson`.
+3. Add a compact task drawer for recent in-flight, failed, and completed tasks.
+4. Add "cancel active task" and "open result" actions.
 
 Risks:
 
-- Too many prompts will make lesson generation feel broken. The first UI should group writes from the same pipeline where possible.
-- Permissions must not be hidden behind model text. They should be host-enforced.
+- Background work can hide errors. Every task needs a visible terminal state and a next action.
+- Duplication with conversation history is likely; the task record should point to the conversation/audit artifacts rather than copying transcript content.
 
-## 3. Rich Lesson Rendering and Visual Preview
+## 3. Bounded Connector Status
 
-Recommendation: Strong.
+Recommendation: Keep scope narrow.
 
-Current StudiumX gap:
+Current StudiumX state:
 
-- `src/renderer/src/markdown-preview.tsx` supports Markdown, task lists, mark, basic code blocks, local image rewriting, and workspace Markdown links.
-- Lessons and resources would benefit from math, diagrams, charts, better code highlighting, and generated-change previews.
-
-ZCode behavior worth borrowing:
-
-- The renderer bundle imports Mermaid diagram modules, KaTeX, syntax grammars, themes, a diff worker, file icons, and code preview settings.
-- It supports multi-file diff sources and code viewer tabs in the renderer.
-
-StudiumX adaptation:
-
-- Add math and diagram support to Markdown preview and generated Lesson HTML.
-- Prefer a bounded feature set:
-  - KaTeX for inline/block math.
-  - Mermaid for flowchart, sequence, mindmap, timeline, and concept-map style diagrams.
-  - Shiki or a small highlight layer for code examples.
-  - Text diff preview for generated Markdown and HTML-adjacent source files.
-- Teach the lesson generator when to emit diagrams: process, comparison, timeline, concept relationship, and retrieval-practice workflow.
-
-Minimal vertical slice:
-
-1. Add KaTeX rendering behind a renderer-safe Markdown plugin.
-2. Add Mermaid code fence rendering for ` ```mermaid ` blocks with sanitization and error fallback.
-3. Add a `LessonPreviewCapabilities` flag so generation prompts can opt into math/diagram output only when the renderer supports it.
-4. Add one check script that renders a sample Markdown document with math, Mermaid, code, and a table.
-
-Risks:
-
-- Mermaid rendering can fail on malformed syntax. The preview must display the source block and error, not blank content.
-- Generated Lessons are durable HTML artifacts. Any runtime dependency must either be embedded safely or degraded into static output.
-
-## 4. Background Learning Tasks and Resumable Session State
-
-Recommendation: Strong, after checkpoint/diff exists.
-
-Current StudiumX gap:
-
-- `src/main/ai/agent-loop.ts` already has cancellation, context hygiene, context estimates, and compaction events.
-- The product shape is still mostly foreground: the user submits a task and watches the current stream.
+- Built-in tools already cover workspace read/write, web search, and web fetch.
+- Generic MCP execution is intentionally not part of the product surface.
+- Implemented follow-up (2026-07-12): added a shared connector status model, `getConnectorStatuses` IPC/preload bridge, Settings > Connectors status panel, and `scripts/check-connector-statuses.mjs`.
+- The status panel reports workspace-file access, web_search backend availability or missing config, web_fetch enablement, and local `rg` availability.
 
 ZCode behavior worth borrowing:
 
-- It has background agent launch feedback, task snapshot cache, session events, background task cancellation, and session goal handling.
-- It makes long-running work visible as a task that can outlive the immediate chat moment.
+- ZCode lists external tool/server status and gives concrete repair paths when config or dependencies are missing.
+- The useful concept for StudiumX is diagnostic visibility, not arbitrary connector execution.
 
-StudiumX adaptation:
+Remaining adaptation:
 
-- Treat long lesson generation, resource digestion, web research, and review generation as resumable learning tasks.
-- Keep an append-only task record in app data or workspace metadata.
-- Show task status in the sidebar or workbench: queued, running, needs approval, completed, failed, canceled.
-- Let the learner reopen a completed task to see generated assets, transcript, sources, and checkpoint diff.
-
-Minimal vertical slice:
-
-1. Add a durable `learning-tasks` index with id, workspace id, prompt, mode, status, created/updated timestamps, and generated asset paths.
-2. Persist task status transitions from the existing generation pipeline.
-3. Add a small task drawer for in-flight and recent completed tasks.
-4. Add cancellation and "open result" actions.
-
-Risks:
-
-- Background work can hide errors. Every task needs a visible terminal state and a clear next action.
-- Resuming provider streams is hard. First version should resume from persisted state, not from mid-stream tokens.
-
-## 5. Provider Capability Catalog
-
-Recommendation: Worth exploring.
-
-Current StudiumX gap:
-
-- `src/shared/teaching-types/settings.ts` stores model provider presets as flat model-id lists.
-- Capability rules exist elsewhere, but model context windows, modalities, output limits, and reasoning controls are not represented as one catalog.
-
-ZCode behavior worth borrowing:
-
-- Its provider catalog records provider ids, endpoint paths, model ids, supported request kinds, input/output modalities, context windows, max output tokens, and reasoning option mapping.
-- Host code syncs provider registry changes into the agent runtime.
-
-StudiumX adaptation:
-
-- Introduce a shared provider capability catalog that drives both settings UI and request construction.
-- Use the catalog for:
-  - context window defaults in `ContextCompactor`;
-  - hiding unsupported reasoning options;
-  - warning when a model is text-only but the user selected image/resource workflows later;
-  - showing model fit for Lesson generation versus short chat.
-
-Minimal vertical slice:
-
-1. Add `src/shared/model-provider-catalog.ts` with normalized provider/model capability types.
-2. Convert current presets into catalog entries without changing settings storage yet.
-3. Make the settings UI read available models from the catalog.
-4. Make context-window inference use catalog data before falling back to model-name heuristics.
-
-Risks:
-
-- Model catalogs age quickly. Keep custom provider support and manual model ids.
-- Do not couple StudiumX to ZCode's provider names or commercial plan logic.
-
-## 6. Bounded MCP and External Connector Status
-
-Recommendation: Worth exploring, but keep scope narrow.
-
-Current StudiumX gap:
-
-- Default tools are built in: workspace read/write, web search, and web fetch.
-- There is no generic external tool status page.
-
-ZCode behavior worth borrowing:
-
-- MCP configuration is merged from several scopes, statuses are listed, servers are connected, and tool names are normalized.
-- ZCode includes diagnostic skills for MCP, plugins, commands, hooks, and skills.
-
-StudiumX adaptation:
-
-- Do not start with open-ended MCP execution.
-- Start with a "Connectors" settings section for learning-relevant integrations:
-  - local filesystem/resource importer;
-  - browser/web fetch;
-  - PDF/text extraction;
-  - bibliography or reference manager later.
-- Show connector status: configured, available, missing dependency, auth needed, failed.
-- Reuse the diagnostic style: symptom, likely cause, concrete repair action.
-
-Minimal vertical slice:
-
-1. Add a connector status type and settings panel.
-2. Move current web search/fetch diagnostics into that status model.
-3. Add one external dependency check, such as `rg` availability or a configured web-search backend probe.
-4. Defer arbitrary MCP server execution until there is a clear Teaching use case.
+- Keep arbitrary MCP server execution deferred until there is a clear Teaching use case.
+- Reuse connector statuses in the future diagnostics snapshot.
+- Add connector rows only when a real learning workflow exists, such as PDF extraction or bibliography import.
 
 Risks:
 
 - Generic MCP can expand the product surface too fast.
-- Workspace-scoped external tool config should not auto-run without clear trust boundaries.
+- Workspace-scoped external config should not auto-run without clear trust boundaries.
 
-## 7. Command Palette for Learning Workflows
+## 4. Command Palette for Learning Workflows
 
 Recommendation: Medium.
 
 Current StudiumX gap:
 
 - Main workflows are discoverable through panels, but repeat actions require navigation.
+- There is no global command registry or `Cmd/Ctrl+K` palette.
 
 ZCode behavior worth borrowing:
 
@@ -255,7 +136,7 @@ ZCode behavior worth borrowing:
 
 StudiumX adaptation:
 
-- Add a command palette for learning actions:
+- Add a command palette for local learning actions:
   - create workspace;
   - import workspace;
   - add Resource;
@@ -276,37 +157,43 @@ Risks:
 
 - Avoid making the command palette another source of state transitions. It should call existing app-store interfaces.
 
-## 8. Diagnostics and Process Visibility
+## 5. Diagnostics Snapshot
 
 Recommendation: Medium-low.
 
-Current StudiumX gap:
+Current StudiumX state:
 
-- There are many check scripts and log settings, but not much in-app runtime diagnosis.
+- About settings already shows runtime, current workspace, log file, and app-data directory.
+- Memory diagnostics exist separately.
+- Connector statuses now exist as a focused status model.
+- There is no single copyable diagnostics snapshot.
 
 ZCode behavior worth borrowing:
 
-- It has a process monitor window, app metrics, crash capture, performance traces, and dedicated logs for remote/control subsystems.
+- ZCode has process monitor, app metrics, crash capture, performance traces, and subsystem logs.
+- StudiumX should borrow the repair-oriented diagnostics shape, not a developer process monitor.
 
 StudiumX adaptation:
 
-- Add a modest diagnostics page rather than a full process monitor:
+- Evolve About into "About / Diagnostics":
   - app version and data paths;
-  - active provider and last provider error class;
-  - web search backend status;
-  - recent task failures;
+  - active provider/model and endpoint format;
+  - connector statuses;
+  - memory diagnostics;
+  - recent task failures once the durable task index exists;
   - log file location;
-  - copy diagnostics bundle.
+  - copy diagnostics.
 
 Minimal vertical slice:
 
-1. Add an About/Diagnostics settings subsection.
-2. Surface existing app log settings and recent error summaries.
-3. Add "Copy diagnostics" for support/debugging.
+1. Add `getDiagnosticsSnapshot` IPC.
+2. Include app version, user data path, log path, runtime provider/model, connector statuses, and memory diagnostics.
+3. Add "Copy diagnostics" as JSON/text from the About panel.
 
 Risks:
 
 - Full process monitoring is developer-oriented. Keep the first version user-facing and small.
+- Do not include API keys or raw lesson/conversation contents in the copyable bundle.
 
 ## Not Recommended Now
 
@@ -319,16 +206,13 @@ These ZCode areas do not fit the current StudiumX product shape:
 - Payment, subscription, and commercial plan UI.
 - Full external marketplace management.
 - Web remote control.
+- Arbitrary MCP execution without a Teaching-specific workflow.
 
 ## Suggested Order
 
-1. Teaching asset checkpoints and diff review.
-2. Tool permission and write approval.
-3. Rich lesson rendering with math and diagrams.
-4. Background learning task index.
-5. Provider capability catalog.
-6. Bounded connector status.
-7. Command palette.
-8. Diagnostics page.
+1. Static Lesson rich syntax boundary.
+2. Durable learning task index.
+3. Command palette.
+4. Diagnostics snapshot.
 
-The first three are the highest leverage because they directly improve trust in generated learning artifacts. They also build on existing StudiumX seams: Teaching workspace files, tool execution, settings, preview rendering, and the current Git support.
+Connector status already has the first vertical slice. The remaining highest-leverage work is to make durable generated artifacts honest about renderer capabilities, then make long-running Teaching work reopenable after the immediate chat moment.

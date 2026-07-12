@@ -353,6 +353,7 @@
     "privacy": { "label": "Privacy", "detail": "Links & key display" },
     "tools": { "label": "Tools", "detail": "Workspace and web tools" },
     "search": { "label": "Search", "detail": "Web search backends" },
+    "connectors": { "label": "Connectors", "detail": "Status and repair actions" },
     "about": { "label": "About", "detail": "Version, logs, data folder" }
   },
   "general": {
@@ -499,6 +500,28 @@
     "maskKey": { "label": "Mask API key", "detail": "Show keys in a password field on the settings page." },
     "externalLinks": { "label": "Allow external links", "detail": "Controls the provider docs and key-page buttons." },
     "proxy": { "label": "Provider Proxy", "on": "Enabled", "off": "Disabled", "placeholder": "http://127.0.0.1:7890" }
+  },
+  "connectors": {
+    "title": "Connector Status",
+    "subtitle": "Checks the teaching-focused connectors already built into StudiumX; generic MCP execution stays deferred.",
+    "refresh": "Refresh",
+    "loading": "Loading connector status...",
+    "empty": "No connector status available.",
+    "notLoaded": "Not loaded",
+    "generatedAt": "Updated: {{time}}",
+    "status": {
+      "available": "Available",
+      "disabled": "Disabled",
+      "missing_config": "Needs config",
+      "missing_dependency": "Missing dependency",
+      "failed": "Failed"
+    },
+    "items": {
+      "workspace_files": "Workspace files",
+      "web_search": "Web search",
+      "web_fetch": "Web fetch",
+      "local_search": "Local text search"
+    }
   },
   "about": {
     "title": "About StudiumX",

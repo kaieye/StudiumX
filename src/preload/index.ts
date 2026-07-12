@@ -92,6 +92,7 @@ const api: TeachingSystemApi = {
   readWorkspaceChangeDiff: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readWorkspaceChangeDiff, payload),
   listMemory: (workspaceRoot) => ipcRenderer.invoke(teachingInvokeChannels.listMemory, workspaceRoot),
   getMemoryDiagnostics: () => ipcRenderer.invoke(teachingInvokeChannels.getMemoryDiagnostics),
+  getConnectorStatuses: () => ipcRenderer.invoke(teachingInvokeChannels.getConnectorStatuses),
   createMemory: (payload) => ipcRenderer.invoke(teachingInvokeChannels.createMemory, payload),
   updateMemory: (memoryId, patch) => ipcRenderer.invoke(teachingInvokeChannels.updateMemory, memoryId, patch),
   deleteMemory: (memoryId, workspaceRoot) => ipcRenderer.invoke(teachingInvokeChannels.deleteMemory, memoryId, workspaceRoot),

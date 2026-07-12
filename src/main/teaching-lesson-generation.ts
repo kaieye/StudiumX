@@ -12,6 +12,7 @@ import {
 import { readMissionSummary } from './teaching-workspace-catalog'
 import { clampTitle, cleanText, collectTeachingFiles } from './teaching-workspace-paths'
 import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
+import { STATIC_LESSON_RENDERER_CAPABILITIES } from '../shared/lesson-preview-capabilities'
 import { classifyProviderError, providerErrorReason } from '../shared/provider-error'
 import {
   buildLessonPromptFromBrief,
@@ -221,7 +222,8 @@ async function produceLessonPlan(opts: {
     generateReference: settings.generator.generateReference,
     generateLearningRecord: settings.generator.generateLearningRecord,
     memories: recalledMemories,
-    generator: settings.generator
+    generator: settings.generator,
+    previewCapabilities: STATIC_LESSON_RENDERER_CAPABILITIES
   })
   const userPrompt = buildLessonUserPrompt({
     prompt,

@@ -58,6 +58,7 @@
     "check:workspace-removal": "node scripts/check-workspace-removal-state.mjs",
     "check:search-runtime": "node scripts/check-search-runtime.mjs",
     "check:web-tools-baseline": "node scripts/check-web-tools-baseline.mjs",
+    "check:connector-statuses": "node scripts/check-connector-statuses.mjs",
     "check:teaching-git-guards": "node scripts/check-teaching-git-guards.mjs",
     "check:workspace-changes": "node scripts/check-workspace-changes.mjs",
     "check:workspace-change-history": "node scripts/check-workspace-change-history.mjs",

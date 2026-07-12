@@ -353,6 +353,7 @@
     "privacy": { "label": "隐私", "detail": "链接和密钥显示" },
     "tools": { "label": "工具", "detail": "工作区与网络工具" },
     "search": { "label": "搜索", "detail": "Web search 后端" },
+    "connectors": { "label": "连接器", "detail": "状态和修复动作" },
     "about": { "label": "关于", "detail": "版本、日志、数据目录" }
   },
   "general": {
@@ -499,6 +500,28 @@
     "maskKey": { "label": "隐藏 API Key", "detail": "设置页用密码输入框显示密钥。" },
     "externalLinks": { "label": "允许打开外部链接", "detail": "控制 provider 文档和 Key 页面按钮。" },
     "proxy": { "label": "Provider Proxy", "on": "已启用", "off": "未启用", "placeholder": "http://127.0.0.1:7890" }
+  },
+  "connectors": {
+    "title": "连接器状态",
+    "subtitle": "只检查 StudiumX 已有的教学相关连接器，不启用通用 MCP 执行。",
+    "refresh": "刷新",
+    "loading": "正在读取连接器状态...",
+    "empty": "暂无连接器状态。",
+    "notLoaded": "尚未读取",
+    "generatedAt": "更新时间：{{time}}",
+    "status": {
+      "available": "可用",
+      "disabled": "已关闭",
+      "missing_config": "缺配置",
+      "missing_dependency": "缺依赖",
+      "failed": "异常"
+    },
+    "items": {
+      "workspace_files": "工作区文件",
+      "web_search": "Web 搜索",
+      "web_fetch": "Web 抓取",
+      "local_search": "本地文本搜索"
+    }
   },
   "about": {
     "title": "关于 StudiumX",

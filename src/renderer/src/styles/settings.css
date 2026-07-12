@@ -438,6 +438,79 @@
   font-weight: 750;
 }
 
+.settings-status-badge[data-state="available"] {
+  color: #157347;
+  border-color: #cdebd8;
+  background: #f1fbf4;
+}
+
+.settings-status-badge[data-state="disabled"] {
+  color: #6a7280;
+  border-color: #e0e5ec;
+  background: #f7f9fc;
+}
+
+.settings-status-badge[data-state="missing_config"],
+.settings-status-badge[data-state="missing_dependency"] {
+  color: #9a5a00;
+  border-color: #f3dfb8;
+  background: #fff8e8;
+}
+
+.settings-status-badge[data-state="failed"] {
+  color: #b42318;
+  border-color: #f3c8c3;
+  background: #fff4f2;
+}
+
+.settings-connector-refresh-copy {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-connector-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line-muted);
+}
+
+.settings-connector-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-connector-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-connector-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #90a0b8;
+}
+
+.settings-connector-row[data-state="available"] .settings-connector-dot {
+  background: #26a269;
+}
+
+.settings-connector-row[data-state="missing_config"] .settings-connector-dot,
+.settings-connector-row[data-state="missing_dependency"] .settings-connector-dot {
+  background: #d18a00;
+}
+
+.settings-connector-row[data-state="failed"] .settings-connector-dot {
+  background: #d92d20;
+}
+
 .settings-toolbar,
 .settings-filter-group {
   display: flex;

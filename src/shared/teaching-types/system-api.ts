@@ -40,7 +40,7 @@ import type {
   ReadWorkspaceChangeDiffPayload,
   WorkspaceChangeDiffResult
 } from './changes'
-import type { NotificationPayload } from './system'
+import type { ConnectorStatusesResult, NotificationPayload } from './system'
 import type {
   ApplyLessonStylePayload,
   CreateWorkspacePayload,
@@ -128,6 +128,7 @@ export type TeachingSystemApi = {
   readWorkspaceChangeDiff: (payload: ReadWorkspaceChangeDiffPayload) => Promise<WorkspaceChangeDiffResult>
   listMemory: (workspaceRoot?: string) => Promise<TeachingMemoryRecord[]>
   getMemoryDiagnostics: () => Promise<TeachingMemoryDiagnostics>
+  getConnectorStatuses: () => Promise<ConnectorStatusesResult>
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
   updateMemory: (memoryId: string, patch: UpdateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
   deleteMemory: (memoryId: string, workspaceRoot?: string) => Promise<void>
