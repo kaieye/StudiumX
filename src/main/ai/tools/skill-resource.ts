@@ -14,6 +14,7 @@ type SkillResourceRoot = {
   id: string
   name: string
   root: string
+  sharedRoot?: string
 }
 
 export function createReadSkillResourceTool(skillReferences: InstalledSkillReference[]): ToolEntry | null {
@@ -23,7 +24,8 @@ export function createReadSkillResourceTool(skillReferences: InstalledSkillRefer
       return {
         id: reference.id,
         name: reference.name,
-        root: dirname(reference.source)
+        root: dirname(reference.source),
+        sharedRoot: reference.sharedRoot
       }
     })
     .filter((root): root is SkillResourceRoot => Boolean(root))
@@ -78,11 +80,19 @@ export function createReadSkillResourceTool(skillReferences: InstalledSkillRefer
         if (isAbsolute(resourcePath)) throw new Error('Use a relative skill resource path.')
         const realRoot = await realpath(root.root)
         const absolutePath = resolve(realRoot, resourcePath)
-        if (!isPathInsideRoot(realRoot, absolutePath)) {
+        const sharedRoot = shouldReadSharedSkillResource(resourcePath, root.sharedRoot)
+          ? await resolveSharedSkillRoot(realRoot, root.sharedRoot as string)
+          : null
+        const containmentRoot = isPathInsideRoot(realRoot, absolutePath)
+          ? realRoot
+          : sharedRoot && isPathInsideRoot(sharedRoot, absolutePath)
+            ? sharedRoot
+            : null
+        if (!containmentRoot) {
           throw new Error('Skill resource path escapes the invoked skill directory.')
         }
         const realTarget = await realpath(absolutePath)
-        if (!isPathInsideRoot(realRoot, realTarget)) {
+        if (!isPathInsideRoot(containmentRoot, realTarget)) {
           throw new Error('Skill resource path escapes the invoked skill directory.')
         }
         const info = await stat(realTarget)
@@ -94,7 +104,9 @@ export function createReadSkillResourceTool(skillReferences: InstalledSkillRefer
         const offset = clampInteger(input.offset, 0, Number.MAX_SAFE_INTEGER, 0)
         const limit = clampInteger(input.limit, 1, MAX_LINE_LIMIT, DEFAULT_LINE_LIMIT)
         const window = lineWindow(text, offset, limit)
-        const relativePath = toPosixPath(relative(realRoot, realTarget))
+        const relativePath = containmentRoot === realRoot
+          ? toPosixPath(relative(realRoot, realTarget))
+          : `../_shared/${toPosixPath(relative(containmentRoot, realTarget))}`
         const content = window.lines.join('\n')
         return JSON.stringify({
           skillId: root.id,
@@ -142,4 +154,17 @@ function lineWindow(text: string, offset: number, limit: number): {
 
 function toPosixPath(value: string): string {
   return value.replace(/\\/g, '/')
+}
+
+function shouldReadSharedSkillResource(resourcePath: string, sharedRoot: string | undefined): boolean {
+  if (!sharedRoot) return false
+  const normalized = toPosixPath(resourcePath)
+  return normalized === '../_shared' || normalized.startsWith('../_shared/')
+}
+
+async function resolveSharedSkillRoot(realSkillRoot: string, configuredSharedRoot: string): Promise<string | null> {
+  const realSharedRoot = await realpath(configuredSharedRoot).catch(() => null)
+  if (!realSharedRoot) return null
+  const relativeToPack = toPosixPath(relative(dirname(realSkillRoot), realSharedRoot))
+  return relativeToPack === '_shared' ? realSharedRoot : null
 }

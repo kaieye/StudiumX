@@ -17,15 +17,19 @@ const root = await mkdtemp(join(tmpdir(), 'studiumx-skill-library-'))
 const builtInRoot = join(root, 'builtin-skills')
 const personalRoot = join(root, '.studiumx', 'skills')
 const teachRoot = join(builtInRoot, 'teach')
+const builtInSharedRoot = join(builtInRoot, '_shared')
+const personalSharedRoot = join(personalRoot, '_shared')
 
 try {
   await mkdir(teachRoot, { recursive: true })
+  await mkdir(builtInSharedRoot, { recursive: true })
   await writeFile(
     join(teachRoot, 'SKILL.md'),
     `---\nname: teach\ndescription: Teach a focused concept.\nargument-hint: "What should we learn?"\ncategory: learning\nicon: graduation-cap\n---\n\n# Teach\n\nUse retrieval practice.\n`,
     'utf8'
   )
   await writeFile(join(teachRoot, 'REFERENCE.md'), '# Reference\n', 'utf8')
+  await writeFile(join(builtInSharedRoot, 'domain-primitives.md'), '# Built-in domain primitives\n', 'utf8')
 
   const service = new SkillLibraryService({ builtInRoots: [builtInRoot], personalRoot })
   const initial = await service.listSkills()
@@ -48,8 +52,25 @@ try {
   assert.equal(installed.installed, true)
   assert.equal(installed.installedPath, join(personalRoot, 'teach'))
   assert.equal(await readFile(join(personalRoot, 'teach', 'REFERENCE.md'), 'utf8'), '# Reference\n')
+  assert.equal(
+    await readFile(join(personalSharedRoot, 'domain-primitives.md'), 'utf8'),
+    '# Built-in domain primitives\n'
+  )
+
+  await writeFile(join(personalSharedRoot, 'domain-primitives.md'), '# Personal domain primitives\n', 'utf8')
+  await writeFile(join(builtInSharedRoot, 'new-shared-resource.md'), '# Newly bundled resource\n', 'utf8')
+  await service.installSkill('teach')
+  assert.equal(
+    await readFile(join(personalSharedRoot, 'domain-primitives.md'), 'utf8'),
+    '# Personal domain primitives\n'
+  )
+  assert.equal(
+    await readFile(join(personalSharedRoot, 'new-shared-resource.md'), 'utf8'),
+    '# Newly bundled resource\n'
+  )
 
   const afterInstall = await service.listSkills()
+  assert.equal(afterInstall.skills.length, 1)
   assert.equal(afterInstall.skills[0]?.installed, true)
   assert.equal(afterInstall.skills[0]?.installedPath, join(personalRoot, 'teach'))
 
@@ -63,8 +84,33 @@ try {
   assert.equal(resourceResult.skillId, 'teach')
   assert.equal(resourceResult.path, 'REFERENCE.md')
   assert.match(resourceResult.content, /# Reference/)
+  const sharedResourceResult = JSON.parse(await skillResourceTool.handler({
+    skillId: 'teach',
+    path: '../_shared/domain-primitives.md'
+  }, {} as never))
+  assert.equal(sharedResourceResult.skillId, 'teach')
+  assert.equal(sharedResourceResult.path, '../_shared/domain-primitives.md')
+  assert.match(sharedResourceResult.content, /# Personal domain primitives/)
   const escapedResourceResult = JSON.parse(await skillResourceTool.handler({ skillId: 'teach', path: '../outside.md' }, {} as never))
   assert.match(escapedResourceResult.error, /escapes/)
+  const sharedEscapeResult = JSON.parse(await skillResourceTool.handler({
+    skillId: 'teach',
+    path: '../_shared/../../outside.md'
+  }, {} as never))
+  assert.match(sharedEscapeResult.error, /escapes/)
+  const outsideSharedRoot = join(root, 'outside-shared')
+  await mkdir(outsideSharedRoot, { recursive: true })
+  await writeFile(join(outsideSharedRoot, 'private.md'), '# Outside shared root\n', 'utf8')
+  const outsideSharedTool = createReadSkillResourceTool([{
+    ...references[0]!,
+    sharedRoot: outsideSharedRoot
+  }])
+  assert.ok(outsideSharedTool)
+  const outsideSharedResult = JSON.parse(await outsideSharedTool.handler({
+    skillId: 'teach',
+    path: '../_shared/private.md'
+  }, {} as never))
+  assert.match(outsideSharedResult.error, /escapes/)
   const inferredReferences = await service.readInvokedSkillReferences('/teach explain closures')
   assert.deepEqual(inferredReferences.map((reference) => reference.id), ['teach'])
   const systemPrompt = buildAgentChatSystemPrompt({

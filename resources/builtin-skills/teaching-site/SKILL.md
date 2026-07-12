@@ -1,17 +1,17 @@
 ---
 name: teaching-site
-description: Use this skill as the main entry point whenever the user wants to build, plan, or evolve an interactive teaching website / course microsite / workshop landing page — from a blank slate, from existing course materials, or any state in between. Triggers on broad phrases like "做課程網站", "做教學網頁", "做工作坊網站", "把講義變網頁", "course microsite", "workshop site", "interactive lesson page", "multi-day curriculum website", "做一套課程". This skill is the router for the whole teaching-site pipeline (outline → content → SPA → interactions → visuals → corporate / ebook) and dispatches to the 10 specialised sub-skills as needed. Prefer this when the user's request is broad or unclear about which stage they're at — sub-skills (e.g. `course-ebook-publishing`) are still triggerable directly for stage-specific requests.
+description: Use this skill as the main entry point whenever the user wants to build, plan, or evolve an interactive teaching website / course microsite / workshop landing page — from a blank slate, from existing course materials, or any state in between. Triggers on broad phrases like "做課程網站", "做教學網頁", "做工作坊網站", "把講義變網頁", "course microsite", "workshop site", "interactive lesson page", "multi-day curriculum website", "做一套課程". This skill routes the whole teaching-site pipeline (outline → content → SPA → interactions → visuals → corporate / ebook) and identifies the specialised installed slash skill for each stage. Prefer this when the user's request is broad or unclear about which stage they're at; invoke a stage skill explicitly (for example `/course-ebook-publishing`) for a focused request.
 ---
 
 # Teaching Site — Main Entry Point
 
-> **Schema authority**: all primitive field names (unit / concept / prompt / task / material / quiz / faq / illustration) and the canonical project layout come from [`_shared/domain-primitives.md`](../_shared/domain-primitives.md). When dispatching to any sub-skill, expect the agent to consult that file first.
+> **Schema authority**: all primitive field names (unit / concept / prompt / task / material / quiz / faq / illustration) and the canonical project layout come from [`_shared/domain-primitives.md`](../_shared/domain-primitives.md). Read that file before applying a pipeline stage.
 >
 > **Filename convention (English-first)**: all generated files use English names (`course-package/`, `day{n}/outline.md`, `materials/`, etc.). Trigger phrases users say in chat may stay Chinese, but anything written to disk is English. See `_shared/domain-primitives.md` §0 for the full mapping.
 >
 > **Reference implementation**: `d:/GitHub/ai-workshop/` is the production reference (4-day workshop, 4125-line index.html, 1728-line course-data.js). Use it as visual + render-pattern reference; do not copy course-specific content from it.
 
-This is the **top-level skill** for producing an interactive teaching website. It coordinates 10 specialised sub-skills covering every stage from blank-slate outline to delivered PDF ebook.
+This is the **top-level skill** for producing an interactive teaching website. It provides the gates and routing map shared by 10 specialised skills covering every stage from blank-slate outline to delivered PDF ebook.
 
 ## When This Skill vs. a Sub-Skill
 
@@ -24,9 +24,9 @@ This is the **top-level skill** for producing an interactive teaching website. I
 - **Use a sub-skill directly** when:
   - The user names the artifact ("做電子書" → `course-ebook-publishing`).
   - You're already deep into one stage and don't need pipeline overview.
-  - Another skill is dispatching here for a focused subtask.
+  - The matching installed slash command is already known.
 
-Both paths converge — sub-skills can be reached either by direct trigger or via this skill's dispatch.
+Both paths use the same schema and gates. In StudiumX, the user invokes an installed stage skill with its leading slash command; loading this router does not silently load another skill.
 
 ## The Production Pipeline
 
@@ -58,7 +58,7 @@ Stages 1–5 are usually traversed in order, but users often jump back (add a un
 
 ## Sub-Skill Dispatch Table
 
-Invoke the matching sub-skill via your agent's skill activation mechanism (Claude Code: `Skill` tool, Codex: `skill` tool, Antigravity / Gemini CLI: `activate_skill`) when the matching stage is active:
+StudiumX loads an installed skill only through an explicit leading slash command. Use this table to identify the next stage, then tell the user the exact command (for example `/course-outline-design`) when its detailed instructions are needed. Do not claim that a sub-skill was dynamically activated from this router.
 
 | Stage | Sub-skill | Trigger phrases |
 |---|---|---|

@@ -1,4 +1,5 @@
 import { runAgentLoop, type AgentLoopEvent } from './ai/agent-loop'
+import { createAgentEventBus } from './ai/agent-event-bus'
 import { attachAgentRunAuditMetadata } from './ai/agent-run-audit'
 import { resolveActiveProvider, type ChatMessage, type ToolDefinition } from './ai/provider-adapter'
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
@@ -274,6 +275,12 @@ export async function runTeachingConversationTurn(
   ]
 
   const runEvents: AgentLoopEvent[] = []
+  const eventBus = createAgentEventBus({
+    streamId: stream.streamId,
+    onChunk: stream.onChunk,
+    onStatus: stream.onStatus,
+    onTool: stream.onTool
+  })
   const result = await runAgentLoop({
     settings,
     provider,
@@ -290,82 +297,7 @@ export async function runTeachingConversationTurn(
     callbacks: {
       onEvent: (event) => {
         runEvents.push(event)
-        const streamId = stream.streamId
-        if (event.type === 'status') {
-          stream.onStatus({ streamId, status: event.status, message: event.message })
-        } else if (event.type === 'token') {
-          stream.onChunk({ streamId, delta: event.delta })
-        } else if (event.type === 'tool_call') {
-          stream.onTool({
-            streamId,
-            toolCall: {
-              id: event.toolCall.id,
-              name: event.toolCall.function.name,
-              arguments: event.toolCall.function.arguments
-            }
-          })
-        } else if (event.type === 'tool_result') {
-          stream.onTool({
-            streamId,
-            toolCall: { id: event.toolCallId, name: event.name, arguments: '' },
-            result: event.result,
-            isError: event.isError
-          })
-        } else if (event.type === 'child_run_queued') {
-          stream.onStatus({
-            streamId,
-            status: 'tool_running',
-            message: `子任务排队：${event.child.label}`
-          })
-        } else if (event.type === 'child_run_started') {
-          stream.onStatus({
-            streamId,
-            status: 'tool_running',
-            message: `子任务开始：${event.child.label}`
-          })
-        } else if (event.type === 'child_run_delta') {
-          stream.onStatus({
-            streamId,
-            status: 'tool_running',
-            message: `子任务进度：${event.childRunId}：${event.message}`
-          })
-        } else if (event.type === 'child_run_completed') {
-          stream.onStatus({
-            streamId,
-            status: 'tool_done',
-            message: `子任务完成：${event.child.label}`
-          })
-        } else if (event.type === 'child_run_failed') {
-          stream.onStatus({
-            streamId,
-            status: 'tool_done',
-            message: `子任务失败：${event.child.label}`
-          })
-        } else if (event.type === 'child_run_canceled') {
-          stream.onStatus({
-            streamId,
-            status: 'tool_done',
-            message: `子任务取消：${event.child.label}`
-          })
-        } else if (event.type === 'context_compaction_started') {
-          stream.onStatus({
-            streamId,
-            status: 'thinking',
-            message: `上下文压缩开始：${contextCompactionReasonLabel(event.reason)}`
-          })
-        } else if (event.type === 'context_compaction_completed') {
-          stream.onStatus({
-            streamId,
-            status: 'thinking',
-            message: `上下文压缩完成：约节省 ${Math.max(0, event.replacedTokens - event.summaryTokens)} token`
-          })
-        } else if (event.type === 'context_compaction_failed') {
-          stream.onStatus({
-            streamId,
-            status: 'thinking',
-            message: `上下文压缩失败，已保留原始历史：${event.error}`
-          })
-        }
+        eventBus.publishLoopEvent(event)
       }
     }
   })
@@ -695,13 +627,6 @@ function buildContextCompactionOptions(
     softThresholdTokens: request.softThresholdTokens,
     hardThresholdTokens: request.hardThresholdTokens
   }
-}
-
-function contextCompactionReasonLabel(reason: string): string {
-  if (reason === 'hard_threshold') return '接近硬阈值'
-  if (reason === 'soft_threshold') return '接近上下文阈值'
-  if (reason === 'manual') return '手动触发'
-  return reason
 }
 
 function safeParseJson(value: string): unknown {

@@ -27,5 +27,6 @@ export type InstalledSkillReference = {
   id: string
   name: string
   source: string
+  sharedRoot?: string
   content: string
 }

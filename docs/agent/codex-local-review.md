@@ -120,9 +120,11 @@ Codex 的 activity timeline 值得迁移，但 StudiumX 不展示 chain-of-thoug
 - `AgentChatProcessEvent.kind` 已扩展为一等 lifecycle：`permission_request` / `permission_resolved`、`elicitation_request` / `elicitation_resolved`、`child_run_*`、`compaction`。
 - renderer process panel 不再只能用 `tool_permission` / `ask` 名称表达审批和用户选择；这些事件有稳定 kind、图标和可展开详情。
 - `teaching-agent-conversations` 保存/读取时保留完整 process event kind，不再把非 tool event 压回 `status`。
+- 新增 `src/main/ai/agent-event-bus.ts`，先把 `AgentLoopEvent -> chunk/status/tool` 的 main-side 投影集中起来，并为每个 stream 记录 sequence、recent replay、terminal event 和 replay byte budget。
 - `check:agent-conversation-state`、`check:agent-process-timeline`、`check:agent-conversation-audit-metadata` 覆盖当前会话投影、timeline 去重和保存后读取。
+- `check:agent-event-bus` 覆盖三通道兼容投影、recent replay、gap 计数和 terminal marker。
 
-仍未完成：main-side `agent-event-bus.ts`、recent replay、terminal event、batch byte budget、gap/snapshot invalidation。当前仍是 `agentChatChunk` / `agentChatStatus` / `agentChatTool` 三条 stream channel，加 renderer fallback projection。
+仍未完成：replay/subscribe IPC、permission / ask immediate delivery 从 main-side typed event 发出、batch flush、gap/snapshot invalidation、child run nested timeline 合并。当前 renderer 仍消费 `agentChatChunk` / `agentChatStatus` / `agentChatTool` 三条兼容 stream channel，加 renderer fallback projection。
 
 ### 9. Learning Work Ledger
 
@@ -134,51 +136,49 @@ Codex 的 thread/job index 已迁移为 StudiumX 语言下的 **Learning Work Le
 
 当前实现：
 
-- `src/main/learning-work-ledger.ts` 在保存 agent conversation 时写入 workspace-local append-only JSONL。
+- `src/main/learning-work-ledger.ts` 在保存 agent conversation 时写入 append-only JSONL；workspace 对话写入 workspace-local `.studiumx/learning-work.jsonl`，temporary conversation 写入 appData root 的同名 ledger。
 - ledger entry 只引用现有 truth：conversation markdown、materialized conversation JSON、`.agent-sessions` audit log。
 - entry 汇总 learning work status、conversation/course pointer、sources、child runs、compactions、tool-result artifact archive、generated lesson artifact、permission decisions。
 - 同一 conversation snapshot 去重；对话继续后追加新 snapshot。
 - 原始事实仍在 workspace markdown / lesson HTML / JSONL / audit log 中，ledger 只是恢复和查询索引。
 
-仍未完成：跨 workspace/appData derived cache、ledger reconcile、UI 查询入口。
+仍未完成：ledger reconcile、UI 查询入口；跨 workspace/appData derived cache 仅在确有查询性能需求时再做。
 
-## 保留但尚未迁移的 Codex 借鉴方向
+## 保留但尚未迁移完成的 Codex 借鉴方向
 
 ### P1：Agent event bus replay
 
-当前 `runAgentLoop -> teaching-conversation-runtime -> UI stream` 还能工作，但后续需要：
+当前已有轻量 `AgentEventBus`，但它还只是 main-side 兼容 adapter。后续需要把 Codex 的 realtime bus 思路继续收敛到 StudiumX：
 
-- recent event replay；
-- terminal event；
+- `subscribe/replay(streamId, afterSeq)` IPC；
 - permission / ask immediate delivery 从 main-side typed event 发出；
-- batch byte budget；
-- gap/snapshot invalidation；
+- token delta batch flush，tool/permission/status terminal 立即 flush；
+- gap/snapshot invalidation，renderer 能发现缺事件并用最终 `done.turns` 或 saved conversation 纠偏；
 - child run nested timeline 合并。
 
-建议新增 `src/main/ai/agent-event-bus.ts`。现有 process panel 和 process event kind 已经是迁移基础，不需要重建 timeline UI。
+不迁移 Codex 的完整 host/remote/lease 系统；StudiumX 只需要单机教学会话的可恢复 stream。现有 process panel 和 process event kind 已经是基础，不需要重建 timeline UI。
 
-### P2：双轨持久化 / appData derived cache
+### P2：Ledger reconcile / 双轨持久化
 
-Learning Work Ledger 已落在 workspace；后续如果需要快查或跨 workspace 汇总，再增加 appData derived cache：
+Learning Work Ledger 已落地。下一步优先做 reconcile，而不是先做 SQLite：
 
 - 原始事实：workspace markdown / lesson HTML / JSONL；
-- 查询索引：`.studiumx/learning-work.jsonl` + SQLite 或 appData index；
-- 一致性：doctor reconcile。
+- 查询索引：`.studiumx/learning-work.jsonl`；
+- 一致性：doctor reconcile 扫描 ledger pointer，输出 missing/stale 计数；
+- appData derived cache 或 SQLite 只在跨 workspace 汇总变慢后再加。
 
-### P2/P3：Learning Pack / Skill manifest
+### P2/P3：受控 Skill Pack / manifest
 
-Codex 的 plugin/skill progressive disclosure 值得迁移为教学包，但只做受控 learning pack，不做任意 MCP marketplace：
+Codex 的 plugin/skill progressive disclosure 已迁移成 StudiumX 的受控 skill library，不做任意 MCP marketplace：
 
-```text
-learning-pack/
-  pack.json
-  skills/
-  resources/
-  references/
-  assets/
-```
+- `resources/builtin-skills/*/SKILL.md` 是内建 skill 包入口；
+- `SkillLibraryService` 只从内建 roots 安装到 `~/.studiumx/skills`，slash command 只加载已安装 skill；
+- 安装内建 skill 时会把 pack-level `_shared` 资源合并到个人 skill root：只补缺失文件，不覆盖用户已有版本；`_shared` 不进入 skill catalog；
+- `read_skill_resource` 只读本轮 invoked skill 目录或其明确的 `../_shared/...` 文本资源，并对两种路径都做 realpath 越界保护；
+- `teaching-site` router 文案已改为 StudiumX 的真实能力：明确提示用户用已安装的 leading slash command，不虚构动态 `Skill` / `activate_skill` 工具；
+- `check:skill-library` 覆盖安装、slash 推断、progressive disclosure、shared-resource 合并/读取、用户文件保留和资源逃逸。
 
-manifest 声明 capabilities、default prompts、resource index、policy。脚本默认不执行，仅 builtin 白名单可用。
+仍未完成：typed manifest/schema。当前保留显式 slash 路由，不迁移隐藏的动态 sub-skill activation；脚本默认不执行，仅 builtin 白名单可用。
 
 ## 已删除/不再作为 StudiumX 路线的方向
 
@@ -211,6 +211,8 @@ pnpm check:provider-privacy
 pnpm check:provider-errors
 pnpm check:path-access
 pnpm check:agent-conversation-state
+pnpm check:agent-event-bus
 pnpm check:agent-process-timeline
 pnpm check:agent-conversation-audit-metadata
+pnpm check:skill-library
 ```

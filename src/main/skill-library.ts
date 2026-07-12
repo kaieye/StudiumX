@@ -1,6 +1,6 @@
-import { cp, mkdir, readdir, readFile, stat } from 'node:fs/promises'
+import { cp, lstat, mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import { isSafeSkillId, leadingSkillIds } from '../shared/skill-command'
 import type {
@@ -57,6 +57,7 @@ export class SkillLibraryService {
     const target = join(this.personalRoot, skillId)
     const existing = await readSkillFile(target)
     if (!existing) await cp(source, target, { recursive: true, errorOnExist: true, force: false })
+    await copyBuiltInSharedResources(source, this.personalRoot)
     const catalog = await this.listSkills()
     const installed = catalog.skills.find((skill) => skill.id.toLocaleLowerCase() === skillId.toLocaleLowerCase())
     if (!installed?.installed) throw new Error(`Skill "${skillId}" could not be installed.`)
@@ -91,6 +92,7 @@ export class SkillLibraryService {
         id,
         name: metadata.name || id,
         source: join(directory, 'SKILL.md'),
+        sharedRoot: join(this.personalRoot, '_shared'),
         content
       })
     }
@@ -185,6 +187,36 @@ async function readSkillFile(directory: string): Promise<string> {
   const info = await stat(filePath).catch(() => null)
   if (!info?.isFile()) return ''
   return readFile(filePath, 'utf8').catch(() => '')
+}
+
+async function copyBuiltInSharedResources(skillSourceDirectory: string, personalRoot: string): Promise<void> {
+  const source = join(dirname(skillSourceDirectory), '_shared')
+  const sourceInfo = await lstat(source).catch(() => null)
+  if (!sourceInfo?.isDirectory() || sourceInfo.isSymbolicLink()) return
+  const target = join(personalRoot, '_shared')
+  await copyMissingSharedResourceTree(source, target)
+}
+
+async function copyMissingSharedResourceTree(source: string, target: string): Promise<void> {
+  const targetInfo = await lstat(target).catch(() => null)
+  if (targetInfo?.isSymbolicLink() || (targetInfo && !targetInfo.isDirectory())) {
+    throw new Error('Shared skill resource path must be a regular directory.')
+  }
+  if (!targetInfo) await mkdir(target, { recursive: true })
+
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    const sourcePath = join(source, entry.name)
+    const targetPath = join(target, entry.name)
+    if (entry.isSymbolicLink()) continue
+    if (entry.isDirectory()) {
+      await copyMissingSharedResourceTree(sourcePath, targetPath)
+      continue
+    }
+    if (!entry.isFile()) continue
+    const existing = await lstat(targetPath).catch(() => null)
+    if (existing) continue
+    await cp(sourcePath, targetPath, { errorOnExist: false, force: false })
+  }
 }
 
 async function safeDirectoryEntries(root: string) {

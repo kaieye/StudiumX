@@ -10,7 +10,7 @@ const tempRoot = await mkdtemp(join(tempParent, 'skill-library-check-'))
 const outfile = join(tempRoot, 'skill-library.mjs')
 
 try {
-  const [app, skillView, slashMenu, mainIndex, preload, contract, packageJson, builtinSkill] = await Promise.all([
+  const [app, skillView, slashMenu, mainIndex, preload, contract, packageJson, builtinSkill, sharedSchema, teachingSiteSkill] = await Promise.all([
     readFile(join(process.cwd(), 'src', 'renderer', 'src', 'App.tsx'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'renderer', 'src', 'views', 'resources', 'SkillLibrary.tsx'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'renderer', 'src', 'skills', 'SkillSlashMenu.tsx'), 'utf8'),
@@ -18,7 +18,9 @@ try {
     readFile(join(process.cwd(), 'src', 'preload', 'index.ts'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'shared', 'teaching-ipc-contract.ts'), 'utf8'),
     readFile(join(process.cwd(), 'package.json'), 'utf8'),
-    readFile(join(process.cwd(), 'resources', 'builtin-skills', 'teach', 'SKILL.md'), 'utf8')
+    readFile(join(process.cwd(), 'resources', 'builtin-skills', 'teach', 'SKILL.md'), 'utf8'),
+    readFile(join(process.cwd(), 'resources', 'builtin-skills', '_shared', 'domain-primitives.md'), 'utf8'),
+    readFile(join(process.cwd(), 'resources', 'builtin-skills', 'teaching-site', 'SKILL.md'), 'utf8')
   ])
   assert.match(app, /resourcePageSection === 'skills'[\s\S]*<SkillLibrary/)
   assert.match(app, /<ResourceHome[\s\S]*onOpenSkills=/)
@@ -39,6 +41,10 @@ try {
   ])
   assert.match(builtinSkill, /name: teach/)
   assert.match(builtinSkill, /category: learning/)
+  assert.match(sharedSchema, /## 0\. Canonical Project Paths/)
+  assert.match(sharedSchema, /## 13\. Cross-File Consistency/)
+  assert.match(teachingSiteSkill, /StudiumX loads an installed skill only through an explicit leading slash command/)
+  assert.doesNotMatch(teachingSiteSkill, /activate_skill|Claude Code:|Codex: `skill` tool/)
 
   await build({
     absWorkingDir: process.cwd(),
