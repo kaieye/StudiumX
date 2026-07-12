@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conversation-state'
 import { useAppStore } from '../../app-shell/appStore'
+import { PetAssistantDialog } from './PetAssistantDialog'
 import { PetSprite, type PetVisualState } from './PetSprite'
 
 const PET_POSITION_KEY = 'studiumx-pet-position-v1'
@@ -57,7 +58,7 @@ export function AppPet() {
   const [position, setPosition] = useState<PetPosition | null>(() => storedPosition())
   const [dragState, setDragState] = useState<PetVisualState | null>(null)
   const [hovered, setHovered] = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  const [assistantOpen, setAssistantOpen] = useState(false)
   const [introVisible, setIntroVisible] = useState(true)
   const [reviewVisible, setReviewVisible] = useState(false)
 
@@ -110,7 +111,7 @@ export function AppPet() {
             ? 'waving'
             : 'idle'
   const visualState = dragState ?? (hovered && baseState === 'idle' ? 'jumping' : baseState)
-  const showBubble = settings.showStatusBubble && (expanded || baseState !== 'idle')
+  const showBubble = settings.showStatusBubble && baseState !== 'idle'
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
     if (event.button !== 0) return
@@ -154,54 +155,61 @@ export function AppPet() {
         return current
       })
     } else {
-      setExpanded((current) => !current)
+      setAssistantOpen(true)
     }
   }
 
   if (!settings.enabled) return null
 
   return (
-    <div
-      ref={petRef}
-      className={`app-pet${position ? ' is-positioned' : ''}${position && position.x < 260 ? ' is-left-edge' : ''}`}
-      data-state={baseState}
-      style={position ? { left: position.x, top: position.y } : undefined}
-    >
-      {showBubble ? (
-        <div className="app-pet-bubble" role="status">
-          <span>
-            <strong>{settings.displayName}</strong>
-            <small>{t(`resources.pets.states.${baseState}`)}</small>
-          </span>
-          <button
-            type="button"
-            aria-label={t('resources.pets.hide')}
-            title={t('resources.pets.hide')}
-            onClick={() => void updateSettings({ pet: { enabled: false } })}
-          >
-            <X size={12} />
-          </button>
-        </div>
-      ) : null}
-      <button
-        className="app-pet-mascot"
-        type="button"
-        aria-label={t('resources.pets.overlayAria', { name: settings.displayName })}
-        title={t(`resources.pets.states.${baseState}`)}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={finishPointer}
-        onPointerCancel={finishPointer}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
+    <>
+      <PetAssistantDialog
+        open={assistantOpen}
+        petName={settings.displayName}
+        onClose={() => setAssistantOpen(false)}
+      />
+      <div
+        ref={petRef}
+        className={`app-pet${position ? ' is-positioned' : ''}${position && position.x < 260 ? ' is-left-edge' : ''}`}
+        data-state={baseState}
+        style={position ? { left: position.x, top: position.y } : undefined}
       >
-        <PetSprite
-          appearance={settings.appearance}
-          label={settings.displayName}
-          size={112}
-          state={visualState}
-        />
-      </button>
-    </div>
+        {showBubble ? (
+          <div className="app-pet-bubble" role="status">
+            <span>
+              <strong>{settings.displayName}</strong>
+              <small>{t(`resources.pets.states.${baseState}`)}</small>
+            </span>
+            <button
+              type="button"
+              aria-label={t('resources.pets.hide')}
+              title={t('resources.pets.hide')}
+              onClick={() => void updateSettings({ pet: { enabled: false } })}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : null}
+        <button
+          className="app-pet-mascot"
+          type="button"
+          aria-label={t('resources.pets.overlayAria', { name: settings.displayName })}
+          title={t(`resources.pets.states.${baseState}`)}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={finishPointer}
+          onPointerCancel={finishPointer}
+          onPointerEnter={() => setHovered(true)}
+          onPointerLeave={() => setHovered(false)}
+        >
+          <PetSprite
+            appearance={settings.appearance}
+            label={settings.displayName}
+            size={112}
+            state={visualState}
+          />
+        </button>
+      </div>
+    </>
   )
 }
