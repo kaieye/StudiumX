@@ -10,6 +10,7 @@ import {
   readWorkspaceChangeDiff,
   summarizeWorkspaceChanges
 } from '../../src/main/teaching-workspace-changes'
+import { TeachingWorkspaceChangeHistoryStore } from '../../src/main/teaching-workspace-change-history'
 
 const execFile = promisify(execFileCallback)
 
@@ -32,14 +33,17 @@ try {
   await git(workspaceRoot, ['config', 'user.name', 'StudiumX Test'])
   await writeFile(join(workspaceRoot, 'README.md'), '# Workspace\n', 'utf8')
   await writeFile(join(workspaceRoot, 'preexisting.md'), 'clean\n', 'utf8')
-  await git(workspaceRoot, ['add', 'README.md', 'preexisting.md'])
+  await writeFile(join(workspaceRoot, 'dirty-target.md'), 'clean\n', 'utf8')
+  await git(workspaceRoot, ['add', 'README.md', 'preexisting.md', 'dirty-target.md'])
   await git(workspaceRoot, ['commit', '-m', 'Initial commit'])
 
   await writeFile(join(workspaceRoot, 'preexisting.md'), 'dirty before snapshot\n', 'utf8')
+  await writeFile(join(workspaceRoot, 'dirty-target.md'), 'dirty before snapshot\n', 'utf8')
   const before = await captureWorkspaceChangeSnapshot(workspaceRoot)
-  assert.equal(before.git.available, true)
+  assert.equal(before.git.available, true, before.git.message)
 
   await writeFile(join(workspaceRoot, 'README.md'), '# Workspace\n\nChanged by generation.\n', 'utf8')
+  await writeFile(join(workspaceRoot, 'dirty-target.md'), 'dirty before snapshot\nchanged by generation\n', 'utf8')
   await mkdir(join(workspaceRoot, 'courses', 'ai', 'sessions', '0001-intro', 'lessons'), { recursive: true })
   await writeFile(
     join(workspaceRoot, 'courses', 'ai', 'sessions', '0001-intro', 'lessons', '0001-intro.html'),
@@ -58,11 +62,13 @@ try {
     before,
     affectedPaths: [
       'courses/ai/sessions/0001-intro/lessons/0001-intro.html',
+      'dirty-target.md',
       '.teachos/index.json',
       '.teachos/sessions.jsonl'
     ]
   })
   assert.ok(summary)
+  assert.ok(summary.checkpoint)
   assert.equal(summary.git.available, true)
   assert.equal(summary.changedFiles.some((file) => file.relativePath === 'preexisting.md'), false)
   assert.equal(summary.changedFiles.some((file) => file.relativePath === 'README.md'), true)
@@ -79,6 +85,64 @@ try {
   const readmeDiff = await readWorkspaceChangeDiff({ workspaceRoot, relativePath: 'README.md' })
   assert.equal(readmeDiff.ok, true)
   assert.ok(readmeDiff.ok && readmeDiff.diff.includes('+Changed by generation.'))
+
+  const dirtyTargetDiff = await readWorkspaceChangeDiff({
+    workspaceRoot,
+    relativePath: 'dirty-target.md',
+    checkpoint: summary.checkpoint
+  })
+  assert.equal(dirtyTargetDiff.ok, true)
+  assert.ok(dirtyTargetDiff.ok && dirtyTargetDiff.diff.includes('+changed by generation'))
+  assert.ok(dirtyTargetDiff.ok && !dirtyTargetDiff.diff.includes('-clean'))
+  const retainedRefs = await git(workspaceRoot, ['for-each-ref', '--format=%(refname)', 'refs/studiumx/checkpoints'])
+  assert.equal(retainedRefs.split('\n').filter(Boolean).length, 2)
+
+  const historyPath = join(tempRoot, 'change-history.json')
+  await new TeachingWorkspaceChangeHistoryStore({ filePath: historyPath }).append('workspace-1', summary)
+  const restoredSummary = await new TeachingWorkspaceChangeHistoryStore({ filePath: historyPath }).latest('workspace-1')
+  assert.ok(restoredSummary?.checkpoint)
+  const restoredDiff = await readWorkspaceChangeDiff({
+    workspaceRoot,
+    relativePath: 'dirty-target.md',
+    checkpoint: restoredSummary.checkpoint
+  })
+  assert.equal(restoredDiff.ok, true)
+  assert.ok(restoredDiff.ok && restoredDiff.diff.includes('+changed by generation'))
+  assert.ok(restoredDiff.ok && !restoredDiff.diff.includes('-clean'))
+
+  const nestedRepositoryRoot = join(tempRoot, 'nested-repository')
+  const nestedWorkspaceRoot = join(nestedRepositoryRoot, 'courses', 'workspace')
+  await execFile('git', ['init', nestedRepositoryRoot], { env: { ...process.env, LC_ALL: 'C', LANG: 'C' } })
+  await git(nestedRepositoryRoot, ['config', 'user.email', 'studiumx@example.test'])
+  await git(nestedRepositoryRoot, ['config', 'user.name', 'StudiumX Test'])
+  await mkdir(nestedWorkspaceRoot, { recursive: true })
+  await writeFile(join(nestedRepositoryRoot, 'outside.md'), 'outside clean\n', 'utf8')
+  await writeFile(join(nestedWorkspaceRoot, 'MISSION.md'), '# Original mission\n', 'utf8')
+  await git(nestedRepositoryRoot, ['add', '.'])
+  await git(nestedRepositoryRoot, ['commit', '-m', 'Nested workspace baseline'])
+
+  const nestedBefore = await captureWorkspaceChangeSnapshot(nestedWorkspaceRoot)
+  await writeFile(join(nestedRepositoryRoot, 'outside.md'), 'outside changed during generation\n', 'utf8')
+  await writeFile(join(nestedWorkspaceRoot, 'MISSION.md'), '# Generated mission\n', 'utf8')
+  await writeFile(join(nestedWorkspaceRoot, 'lesson.md'), '# Nested lesson\n', 'utf8')
+  const nestedSummary = await summarizeWorkspaceChanges({
+    workspaceId: 'workspace-nested',
+    workspaceRoot: nestedWorkspaceRoot,
+    timestamp: '2026-07-11T00:00:00.000Z',
+    trigger: { kind: 'lesson_generation', label: 'Generated lesson' },
+    before: nestedBefore,
+    affectedPaths: ['MISSION.md', 'lesson.md']
+  })
+  assert.ok(nestedSummary, nestedBefore.git.message)
+  assert.deepEqual(
+    nestedSummary.changedFiles.map((file) => file.relativePath).sort(),
+    ['MISSION.md', 'lesson.md']
+  )
+  assert.equal(nestedSummary.changedFiles.some((file) => file.relativePath.includes('outside.md')), false)
+  const nestedDiff = await readWorkspaceChangeDiff({ workspaceRoot: nestedWorkspaceRoot, relativePath: 'MISSION.md' })
+  assert.equal(nestedDiff.ok, true)
+  assert.ok(nestedDiff.ok && nestedDiff.diff.includes('+# Generated mission'))
+  assert.ok(nestedDiff.ok && !nestedDiff.diff.includes('outside changed during generation'))
 
   const nonGitRoot = join(tempRoot, 'non-git')
   await mkdir(nonGitRoot, { recursive: true })

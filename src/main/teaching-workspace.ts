@@ -97,6 +97,7 @@ import {
   readWorkspaceChangeDiff,
   summarizeWorkspaceChanges
 } from './teaching-workspace-changes'
+import { TeachingWorkspaceChangeHistoryStore } from './teaching-workspace-change-history'
 import type {
   ApplyLessonStylePayload,
   CreateWorkspacePayload,
@@ -190,7 +191,7 @@ export class TeachingWorkspaceService {
   private readonly skillLibraryService?: SkillLibraryService
   private readonly memoryStore: TeachingMemoryStore
   private readonly reviewModule = new TeachingWorkspaceReviewModule()
-  private readonly recentChangeByWorkspaceId = new Map<string, TeachingWorkspaceChangeSummary>()
+  private readonly changeHistory: TeachingWorkspaceChangeHistoryStore
 
   constructor(options: {
     registryPath: string
@@ -206,6 +207,9 @@ export class TeachingWorkspaceService {
     this.memoryStore = new TeachingMemoryStore({
       rootDir: join(this.appDataRoot, 'memory'),
       settingsProvider: () => this.loadSettings()
+    })
+    this.changeHistory = new TeachingWorkspaceChangeHistoryStore({
+      filePath: join(this.appDataRoot, 'learning-changes', 'history.json')
     })
   }
 
@@ -769,8 +773,7 @@ export class TeachingWorkspaceService {
         '.teachos/sessions.jsonl'
       ]
     })
-    if (changeSummary) this.recentChangeByWorkspaceId.set(workspace.id, changeSummary)
-    else this.recentChangeByWorkspaceId.delete(workspace.id)
+    if (changeSummary) await this.changeHistory.append(workspace.id, changeSummary)
 
     const registry = await this.ensureRegistry()
     const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
@@ -824,12 +827,16 @@ export class TeachingWorkspaceService {
     return readWorkspaceMarkdownDocument(workspace.rootPath, target)
   }
 
-  async readWorkspaceChangeDiff(payload: { workspaceId: string; relativePath: string }) {
+  async readWorkspaceChangeDiff(payload: { workspaceId: string; relativePath: string; changeId?: string }) {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
+    const change = payload.changeId
+      ? await this.changeHistory.get(workspace.id, payload.changeId)
+      : await this.changeHistory.latest(workspace.id)
     return readWorkspaceChangeDiff({
       workspaceRoot: workspace.rootPath,
-      relativePath: payload.relativePath
+      relativePath: payload.relativePath,
+      checkpoint: change?.checkpoint
     })
   }
 
@@ -938,6 +945,7 @@ export class TeachingWorkspaceService {
           ? renderEmptyPreview(activeWorkspace)
           : ''
     const runtime = await this.runtimeState()
+    const changeHistory = activeWorkspace ? await this.changeHistory.list(activeWorkspace.id) : []
 
     return {
       workspaces: summaries,
@@ -947,7 +955,8 @@ export class TeachingWorkspaceService {
       previewUrl: activeWorkspace && lessonPath ? toPreviewUrl(activeWorkspace.id, toWorkspaceRelativePath(activeWorkspace.rootPath, lessonPath)) : '',
       selectedLessonPath: lessonPath,
       runtime,
-      recentChangeSummary: activeWorkspace ? this.recentChangeByWorkspaceId.get(activeWorkspace.id) ?? null : null
+      recentChangeSummary: changeHistory[0] ?? null,
+      changeHistory
     }
   }
 

@@ -110,6 +110,7 @@ export type TeachingAppState = {
   selectedLessonPath: string | null
   runtime: TeachingRuntimeState
   recentChangeSummary: TeachingWorkspaceChangeSummary | null
+  changeHistory?: TeachingWorkspaceChangeSummary[]
 }
 
 export type CreateWorkspacePayload = {

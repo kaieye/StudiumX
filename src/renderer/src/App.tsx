@@ -2119,17 +2119,18 @@ function MainArea() {
   const [changeDiff, setChangeDiff] = useState<{ relativePath: string; diff: string; truncated: boolean } | null>(null)
   const [changeDiffLoadingPath, setChangeDiffLoadingPath] = useState<string | null>(null)
   const [changeDiffError, setChangeDiffError] = useState<string | null>(null)
-  const recentChangeSummary = appState.recentChangeSummary?.workspaceId === active?.id
-    ? appState.recentChangeSummary
-    : null
-  const openRecentChangeDiff = async (relativePath: string): Promise<void> => {
+  const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null)
+  const changeHistory = (appState.changeHistory ?? (appState.recentChangeSummary ? [appState.recentChangeSummary] : []))
+    .filter((summary) => summary.workspaceId === active?.id)
+  const recentChangeSummary = changeHistory.find((summary) => summary.id === selectedChangeId) ?? changeHistory[0] ?? null
+  const openRecentChangeDiff = async (relativePath: string, changeId: string): Promise<void> => {
     if (!active) return
     const api = window.teachingSystem
     if (!api) return
-    setChangeDiffLoadingPath(relativePath)
+    setChangeDiffLoadingPath(`${changeId}:${relativePath}`)
     setChangeDiffError(null)
     try {
-      const result = await api.readWorkspaceChangeDiff({ workspaceId: active.id, relativePath })
+      const result = await api.readWorkspaceChangeDiff({ workspaceId: active.id, relativePath, changeId })
       if (result.ok) {
         setChangeDiff({ relativePath: result.relativePath, diff: result.diff, truncated: result.truncated })
       } else {
@@ -2345,8 +2346,10 @@ function MainArea() {
                 {recentChangeSummary && (
                   <RecentLearningChangesPanel
                     summary={recentChangeSummary}
+                    history={changeHistory}
                     loadingPath={changeDiffLoadingPath}
-                    onOpenDiff={(relativePath) => void openRecentChangeDiff(relativePath)}
+                    onSelect={setSelectedChangeId}
+                    onOpenDiff={(relativePath) => void openRecentChangeDiff(relativePath, recentChangeSummary.id)}
                   />
                 )}
                 {changeDiffError && (
@@ -2464,11 +2467,15 @@ function MainArea() {
 
 function RecentLearningChangesPanel({
   summary,
+  history,
   loadingPath,
+  onSelect,
   onOpenDiff
 }: {
   summary: TeachingWorkspaceChangeSummary
+  history: TeachingWorkspaceChangeSummary[]
   loadingPath: string | null
+  onSelect: (changeId: string) => void
   onOpenDiff: (relativePath: string) => void
 }) {
   const { t, i18n } = useTranslation()
@@ -2490,6 +2497,22 @@ function RecentLearningChangesPanel({
         </span>
       </div>
       <p className="learning-change-summary">{summary.summary}</p>
+      {history.length > 1 && (
+        <div className="learning-change-history" aria-label={t('lessons.changes.title')}>
+          {history.slice(0, 5).map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              className={entry.id === summary.id ? 'is-active' : undefined}
+              title={entry.summary}
+              onClick={() => onSelect(entry.id)}
+            >
+              <History size={12} />
+              {formatChangeTimestamp(entry.timestamp, i18n.language)}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="learning-change-stats" aria-label={t('lessons.changes.statsAria')}>
         <span>{t('lessons.changes.fileCount', { count: summary.changedFiles.length })}</span>
         <span>+{summary.additions}</span>
@@ -2501,7 +2524,7 @@ function RecentLearningChangesPanel({
           <LearningChangeFileRow
             key={file.relativePath}
             file={file}
-            loading={loadingPath === file.relativePath}
+            loading={loadingPath === `${summary.id}:${file.relativePath}`}
             onOpenDiff={onOpenDiff}
           />
         ))}

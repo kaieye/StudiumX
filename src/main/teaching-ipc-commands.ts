@@ -251,7 +251,8 @@ export function parseReadWorkspaceChangeDiffPayload(payload: unknown): ReadWorks
   const record = requireRecord(payload)
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
-    relativePath: requireString(record.relativePath, 'relativePath')
+    relativePath: requireString(record.relativePath, 'relativePath'),
+    changeId: optionalString(record.changeId)
   }
 }
 

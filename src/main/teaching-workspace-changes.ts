@@ -1,6 +1,8 @@
 import { execFile as execFileCallback } from 'node:child_process'
-import { readFile, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import { copyFile, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { isPathInsideRoot } from './path-access'
 import {
@@ -12,6 +14,7 @@ import type {
   TeachingWorkspaceChangedFileStatus,
   TeachingWorkspaceChangeSummary,
   TeachingWorkspaceChangeTrigger,
+  TeachingWorkspaceGitCheckpoint,
   WorkspaceChangeDiffResult
 } from '../shared/teaching-types'
 
@@ -24,20 +27,39 @@ type GitStatusEntry = {
   relativePath: string
 }
 
+type GitTreeCheckpoint = {
+  commitOid: string
+  repositoryRoot: string
+  workspaceInRepository: string
+}
+
+type GitCheckpointDiffEntry = {
+  relativePath: string
+  status: TeachingWorkspaceChangedFileStatus
+}
+
+type GitCheckpointPair = {
+  before: GitTreeCheckpoint
+  after: GitTreeCheckpoint
+}
+
+const latestCheckpointPairByWorkspace = new Map<string, GitCheckpointPair>()
+
 export type TeachingWorkspaceChangeSnapshot = {
   git: TeachingWorkspaceChangeSummary['git']
   statusByPath: Map<string, GitStatusEntry>
+  checkpoint?: GitTreeCheckpoint
 }
 
 export async function captureWorkspaceChangeSnapshot(
   workspaceRoot: string
 ): Promise<TeachingWorkspaceChangeSnapshot> {
   try {
-    const repositoryRoot = (await runGit(workspaceRoot, ['rev-parse', '--show-toplevel'])).trim()
-    const status = await runGit(workspaceRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+    const checkpoint = await createGitTreeCheckpoint(workspaceRoot)
     return {
-      git: { available: true, repositoryRoot },
-      statusByPath: new Map(parseGitStatus(status).map((entry) => [entry.relativePath, entry]))
+      git: { available: true, repositoryRoot: checkpoint.repositoryRoot },
+      statusByPath: new Map(),
+      checkpoint
     }
   } catch (error) {
     return {
@@ -56,17 +78,27 @@ export async function summarizeWorkspaceChanges(options: {
   affectedPaths: string[]
 }): Promise<TeachingWorkspaceChangeSummary | null> {
   const after = await captureWorkspaceChangeSnapshot(options.workspaceRoot)
-  const changedPaths = collectChangedPaths(options.before, after, options.affectedPaths)
+  const checkpointPair = comparableCheckpointPair(options.before, after)
+  if (checkpointPair) latestCheckpointPairByWorkspace.set(resolve(options.workspaceRoot), checkpointPair)
+  const checkpointEntries = checkpointPair
+    ? await readCheckpointDiffEntries(checkpointPair)
+    : null
+  const changedPaths = checkpointEntries
+    ? checkpointEntries.map((entry) => entry.relativePath)
+    : collectChangedPaths(options.before, after, options.affectedPaths)
   if (changedPaths.length === 0) return null
 
-  const diffStats = after.git.available
-    ? await readGitDiffStats(options.workspaceRoot, changedPaths)
+  const diffStats = checkpointPair
+    ? await readCheckpointDiffStats(checkpointPair, changedPaths)
+    : after.git.available
+      ? await readGitDiffStats(options.workspaceRoot, changedPaths)
     : new Map<string, { additions: number | null; deletions: number | null }>()
+  const checkpointStatusByPath = new Map(checkpointEntries?.map((entry) => [entry.relativePath, entry.status]) ?? [])
 
   const changedFiles = await Promise.all(changedPaths.map(async (relativePath): Promise<TeachingWorkspaceChangedFile> => {
     const beforeEntry = options.before.statusByPath.get(relativePath)
     const afterEntry = after.statusByPath.get(relativePath)
-    const status = statusForChange(beforeEntry, afterEntry)
+    const status = checkpointStatusByPath.get(relativePath) ?? statusForChange(beforeEntry, afterEntry)
     const stats = diffStats.get(relativePath) ?? await fallbackStatsForPath(options.workspaceRoot, relativePath, status, after.git.available)
     return {
       relativePath,
@@ -80,8 +112,9 @@ export async function summarizeWorkspaceChanges(options: {
 
   const additions = sumKnown(changedFiles.map((file) => file.additions))
   const deletions = sumKnown(changedFiles.map((file) => file.deletions))
-  return {
-    id: `${options.workspaceId}:${Date.parse(options.timestamp) || Date.now()}:${changedFiles.map((file) => file.relativePath).join('|')}`,
+  const id = `${options.workspaceId}:${Date.parse(options.timestamp) || Date.now()}:${changedFiles.map((file) => file.relativePath).join('|')}`
+  const summary: TeachingWorkspaceChangeSummary = {
+    id,
     workspaceId: options.workspaceId,
     timestamp: options.timestamp,
     trigger: options.trigger,
@@ -89,13 +122,17 @@ export async function summarizeWorkspaceChanges(options: {
     additions,
     deletions,
     summary: buildChangeSummary(changedFiles, additions, deletions),
+    ...(checkpointPair ? { checkpoint: serializeCheckpointPair(checkpointPair) } : {}),
     git: after.git.available ? after.git : options.before.git.available ? options.before.git : after.git
   }
+  if (checkpointPair) await retainCheckpointPair(checkpointPair, id).catch(() => {})
+  return summary
 }
 
 export async function readWorkspaceChangeDiff(options: {
   workspaceRoot: string
   relativePath: string
+  checkpoint?: TeachingWorkspaceGitCheckpoint
   maxBytes?: number
 }): Promise<WorkspaceChangeDiffResult> {
   const relativePath = normalizeWorkspaceRelativePath(options.relativePath)
@@ -107,6 +144,23 @@ export async function readWorkspaceChangeDiff(options: {
     return { ok: false, message: 'Path is outside the workspace.' }
   }
   const limit = Math.max(1_000, Math.min(options.maxBytes ?? DEFAULT_DIFF_LIMIT, 1_000_000))
+  const checkpointPair = options.checkpoint
+    ? await deserializeCheckpointPair(options.workspaceRoot, options.checkpoint)
+    : latestCheckpointPairByWorkspace.get(resolve(options.workspaceRoot))
+  if (checkpointPair) {
+    const repoRelativePath = toRepositoryRelativePath(checkpointPair.after, relativePath)
+    const diff = await runGit(checkpointPair.after.repositoryRoot, [
+      'diff',
+      '--no-ext-diff',
+      '--no-color',
+      checkpointPair.before.commitOid,
+      checkpointPair.after.commitOid,
+      '--',
+      repoRelativePath
+    ]).catch(() => '')
+    if (diff.trim()) return truncateDiff(relativePath, diff, limit)
+    return { ok: false, message: 'No diff is available for this file yet.' }
+  }
   const git = await captureWorkspaceChangeSnapshot(options.workspaceRoot)
   if (git.git.available) {
     const diff = await runGit(options.workspaceRoot, ['diff', '--no-ext-diff', '--no-color', 'HEAD', '--', relativePath]).catch(() => '')
@@ -119,6 +173,189 @@ export async function readWorkspaceChangeDiff(options: {
   const added = await renderAddedFileDiff(absolutePath, relativePath, limit).catch(() => null)
   if (added) return added
   return { ok: false, message: 'No diff is available for this file yet.' }
+}
+
+function serializeCheckpointPair(pair: GitCheckpointPair): TeachingWorkspaceGitCheckpoint {
+  return {
+    repositoryRoot: pair.after.repositoryRoot,
+    workspaceInRepository: pair.after.workspaceInRepository,
+    beforeCommitOid: pair.before.commitOid,
+    afterCommitOid: pair.after.commitOid
+  }
+}
+
+async function deserializeCheckpointPair(
+  workspaceRoot: string,
+  checkpoint: TeachingWorkspaceGitCheckpoint
+): Promise<GitCheckpointPair | null> {
+  if (!/^[0-9a-f]{40,64}$/i.test(checkpoint.beforeCommitOid) || !/^[0-9a-f]{40,64}$/i.test(checkpoint.afterCommitOid)) {
+    return null
+  }
+  const resolvedWorkspaceRoot = await realpath(resolve(workspaceRoot)).catch(() => '')
+  const repositoryRoot = await realpath(resolve(checkpoint.repositoryRoot)).catch(() => '')
+  if (!resolvedWorkspaceRoot || !repositoryRoot) return null
+  const workspaceFromRepository = relative(repositoryRoot, resolvedWorkspaceRoot)
+  if (workspaceFromRepository === '..' || workspaceFromRepository.startsWith(`..${sep}`) || isAbsolute(workspaceFromRepository)) {
+    return null
+  }
+  const workspaceInRepository = normalizeGitPath(workspaceFromRepository) || '.'
+  if (workspaceInRepository !== checkpoint.workspaceInRepository) return null
+  return {
+    before: {
+      commitOid: checkpoint.beforeCommitOid,
+      repositoryRoot,
+      workspaceInRepository
+    },
+    after: {
+      commitOid: checkpoint.afterCommitOid,
+      repositoryRoot,
+      workspaceInRepository
+    }
+  }
+}
+
+async function retainCheckpointPair(pair: GitCheckpointPair, id: string): Promise<void> {
+  const key = createHash('sha256').update(id).digest('hex').slice(0, 24)
+  const prefix = `refs/studiumx/checkpoints/${key}`
+  await Promise.all([
+    runGit(pair.after.repositoryRoot, ['update-ref', `${prefix}/before`, pair.before.commitOid]),
+    runGit(pair.after.repositoryRoot, ['update-ref', `${prefix}/after`, pair.after.commitOid])
+  ])
+}
+
+async function createGitTreeCheckpoint(workspaceRoot: string): Promise<GitTreeCheckpoint> {
+  const resolvedWorkspaceRoot = await realpath(resolve(workspaceRoot))
+  const repositoryRoot = await realpath(resolve((await runGit(resolvedWorkspaceRoot, ['rev-parse', '--show-toplevel'])).trim()))
+  const workspaceFromRepository = relative(repositoryRoot, resolvedWorkspaceRoot)
+  if (workspaceFromRepository === '..' || workspaceFromRepository.startsWith(`..${sep}`) || isAbsolute(workspaceFromRepository)) {
+    throw new Error('Workspace is outside the resolved Git repository.')
+  }
+  const workspaceInRepository = normalizeGitPath(workspaceFromRepository) || '.'
+  const tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-git-checkpoint-'))
+  const temporaryIndex = join(tempRoot, 'index')
+  const checkpointEnv = {
+    GIT_INDEX_FILE: temporaryIndex,
+    GIT_AUTHOR_NAME: 'StudiumX Checkpoint',
+    GIT_AUTHOR_EMAIL: 'checkpoint@studiumx.local',
+    GIT_COMMITTER_NAME: 'StudiumX Checkpoint',
+    GIT_COMMITTER_EMAIL: 'checkpoint@studiumx.local'
+  }
+
+  try {
+    const indexPathOutput = (await runGit(repositoryRoot, ['rev-parse', '--git-path', 'index'])).trim()
+    const indexPath = isAbsolute(indexPathOutput) ? indexPathOutput : resolve(repositoryRoot, indexPathOutput)
+    const copiedIndex = await copyFile(indexPath, temporaryIndex).then(() => true).catch(() => false)
+    if (!copiedIndex) {
+      const hasHead = await runGit(repositoryRoot, ['rev-parse', '--verify', 'HEAD']).then(() => true).catch(() => false)
+      await runGit(repositoryRoot, hasHead ? ['read-tree', 'HEAD'] : ['read-tree', '--empty'], checkpointEnv)
+    }
+    await runGit(repositoryRoot, ['add', '-A', '--', workspaceInRepository], checkpointEnv)
+    const treeOid = (await runGit(repositoryRoot, ['write-tree'], checkpointEnv)).trim()
+    const commitOid = (await runGit(
+      repositoryRoot,
+      ['commit-tree', treeOid, '-m', `studiumx checkpoint ${Date.now()}`],
+      checkpointEnv
+    )).trim()
+    return { commitOid, repositoryRoot, workspaceInRepository }
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true })
+  }
+}
+
+function comparableCheckpointPair(
+  before: TeachingWorkspaceChangeSnapshot,
+  after: TeachingWorkspaceChangeSnapshot
+): GitCheckpointPair | null {
+  if (!before.checkpoint || !after.checkpoint) return null
+  if (before.checkpoint.repositoryRoot !== after.checkpoint.repositoryRoot) return null
+  if (before.checkpoint.workspaceInRepository !== after.checkpoint.workspaceInRepository) return null
+  return { before: before.checkpoint, after: after.checkpoint }
+}
+
+async function readCheckpointDiffEntries(pair: GitCheckpointPair): Promise<GitCheckpointDiffEntry[]> {
+  const output = await runGit(pair.after.repositoryRoot, [
+    'diff',
+    '--name-status',
+    '--find-renames',
+    '-z',
+    pair.before.commitOid,
+    pair.after.commitOid,
+    '--',
+    pair.after.workspaceInRepository
+  ])
+  const chunks = output.split('\0').filter(Boolean)
+  const entries: GitCheckpointDiffEntry[] = []
+  for (let index = 0; index < chunks.length;) {
+    const code = chunks[index++] ?? ''
+    const status = checkpointStatusForCode(code)
+    if (status === 'renamed') {
+      index += 1
+      const newPath = chunks[index++] ?? ''
+      const relativePath = fromRepositoryRelativePath(pair.after, newPath)
+      if (relativePath) entries.push({ relativePath, status })
+      continue
+    }
+    const repositoryRelativePath = chunks[index++] ?? ''
+    const relativePath = fromRepositoryRelativePath(pair.after, repositoryRelativePath)
+    if (relativePath) entries.push({ relativePath, status })
+  }
+  return entries.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+}
+
+async function readCheckpointDiffStats(
+  pair: GitCheckpointPair,
+  relativePaths: string[]
+): Promise<Map<string, { additions: number | null; deletions: number | null }>> {
+  const stats = new Map<string, { additions: number | null; deletions: number | null }>()
+  await Promise.all(relativePaths.map(async (relativePath) => {
+    const output = await runGit(pair.after.repositoryRoot, [
+      'diff',
+      '--numstat',
+      '--no-ext-diff',
+      pair.before.commitOid,
+      pair.after.commitOid,
+      '--',
+      toRepositoryRelativePath(pair.after, relativePath)
+    ]).catch(() => '')
+    const line = output.split(/\r?\n/).find((candidate) => candidate.trim())
+    if (!line) return
+    const [additionsRaw, deletionsRaw] = line.split('\t')
+    const additions = additionsRaw === '-' ? null : Number.parseInt(additionsRaw ?? '', 10)
+    const deletions = deletionsRaw === '-' ? null : Number.parseInt(deletionsRaw ?? '', 10)
+    stats.set(relativePath, {
+      additions: Number.isFinite(additions) ? additions : null,
+      deletions: Number.isFinite(deletions) ? deletions : null
+    })
+  }))
+  return stats
+}
+
+function checkpointStatusForCode(code: string): TeachingWorkspaceChangedFileStatus {
+  if (code.startsWith('A')) return 'added'
+  if (code.startsWith('D')) return 'deleted'
+  if (code.startsWith('R') || code.startsWith('C')) return 'renamed'
+  return 'modified'
+}
+
+function fromRepositoryRelativePath(checkpoint: GitTreeCheckpoint, rawPath: string): string | null {
+  const repositoryRelativePath = normalizeGitPath(rawPath)
+  const workspacePrefix = checkpoint.workspaceInRepository === '.' ? '' : `${checkpoint.workspaceInRepository}/`
+  if (workspacePrefix && !repositoryRelativePath.startsWith(workspacePrefix)) return null
+  const relativePath = normalizeWorkspaceRelativePath(workspacePrefix
+    ? repositoryRelativePath.slice(workspacePrefix.length)
+    : repositoryRelativePath)
+  if (!relativePath || relativePath === '..' || relativePath.startsWith('../')) return null
+  return relativePath
+}
+
+function toRepositoryRelativePath(checkpoint: GitTreeCheckpoint, relativePath: string): string {
+  return checkpoint.workspaceInRepository === '.'
+    ? normalizeGitPath(relativePath)
+    : `${checkpoint.workspaceInRepository}/${normalizeGitPath(relativePath)}`
+}
+
+function normalizeGitPath(value: string): string {
+  return value.split(sep).join('/').replace(/^\.\//, '').replace(/\/$/, '')
 }
 
 function collectChangedPaths(
@@ -291,11 +528,15 @@ function countLines(text: string): number {
   return text.endsWith('\n') ? text.split(/\r?\n/).length - 1 : text.split(/\r?\n/).length
 }
 
-async function runGit(workspaceRoot: string, args: string[]): Promise<string> {
+async function runGit(
+  workspaceRoot: string,
+  args: string[],
+  envOverrides: Record<string, string> = {}
+): Promise<string> {
   const { stdout } = await execFile('git', ['-C', resolve(workspaceRoot), ...args], {
     windowsHide: true,
     maxBuffer: MAX_GIT_OUTPUT,
-    env: { ...process.env, LC_ALL: 'C', LANG: 'C' }
+    env: { ...process.env, LC_ALL: 'C', LANG: 'C', ...envOverrides }
   })
   return stdout
 }

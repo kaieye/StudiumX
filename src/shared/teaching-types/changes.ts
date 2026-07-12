@@ -43,6 +43,13 @@ export type TeachingWorkspaceChangedFile = {
   diffAvailable: boolean
 }
 
+export type TeachingWorkspaceGitCheckpoint = {
+  repositoryRoot: string
+  workspaceInRepository: string
+  beforeCommitOid: string
+  afterCommitOid: string
+}
+
 export type TeachingWorkspaceChangeSummary = {
   id: string
   workspaceId: string
@@ -52,6 +59,7 @@ export type TeachingWorkspaceChangeSummary = {
   additions: number
   deletions: number
   summary: string
+  checkpoint?: TeachingWorkspaceGitCheckpoint
   git: {
     available: boolean
     repositoryRoot?: string
@@ -63,6 +71,7 @@ export type TeachingWorkspaceChangeSummary = {
 export type ReadWorkspaceChangeDiffPayload = {
   workspaceId: string
   relativePath: string
+  changeId?: string
 }
 
 export type WorkspaceChangeDiffResult =

@@ -56,6 +56,13 @@ Risks:
 - Auto-initializing Git would be too surprising. Only use Git checkpoint features when the workspace is already in a repository, or ask explicitly.
 - Binary and generated HTML diffs can be noisy. The UI should summarize HTML and CSS assets instead of always showing full text diff.
 
+Implemented follow-up (2026-07-11):
+
+- Lesson generation now captures before/after Git tree checkpoints through a temporary alternate index, without changing the learner's index, branch, or `HEAD`.
+- Checkpoint diffs are scoped to the Teaching workspace even when it is nested inside a larger repository, and pre-existing dirty edits are excluded from the generated-change delta.
+- Before/after commit OIDs are retained under `refs/studiumx/checkpoints/*` and stored in an app-data history index (up to 20 entries per workspace), so exact diffs remain available after restart.
+- The Lessons view can switch among recent Learning changes and open the diff belonging to the selected checkpoint.
+
 ## 2. Tool Permission and Write Approval
 
 Recommendation: Strong.
