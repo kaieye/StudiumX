@@ -288,14 +288,20 @@
       "hide": "隐藏宠物",
       "overlayAria": "宠物 {{name}}，拖动可移动，点击可查看状态",
       "stateLabels": {
-        "idle": "休息",
-        "running": "进行中",
-        "waiting": "等待处理",
-        "failed": "遇到问题",
-        "review": "完成待查看"
+        "idle": "待机",
+        "running-right": "向右跑",
+        "running-left": "向左跑",
+        "waving": "挥手",
+        "jumping": "跳跃",
+        "failed": "失败",
+        "waiting": "等待",
+        "running": "工作中",
+        "review": "完成"
       },
       "states": {
         "idle": "一切就绪，我在这里陪你。",
+        "running-right": "正在向右移动。",
+        "running-left": "正在向左移动。",
         "running": "正在处理任务，我会继续盯着进度。",
         "waiting": "需要你的确认或回答。",
         "failed": "任务遇到问题，回来看看错误信息吧。",

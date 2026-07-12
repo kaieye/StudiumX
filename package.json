@@ -48,6 +48,7 @@
     "check:skill-library": "node scripts/check-skill-library.mjs",
     "check:resource-dark-theme": "node scripts/check-resource-dark-theme.mjs",
     "check:pet-library": "node scripts/check-pet-library.mjs",
+    "check:pet-animation": "pnpm run build && node scripts/check-pet-animation.mjs",
     "check:lesson-markdown": "node scripts/check-lesson-markdown-rendering.mjs",
     "check:markdown-preview": "node scripts/check-markdown-preview-capabilities.mjs",
     "check:dark-theme-neutrality": "node scripts/check-dark-theme-neutrality.mjs",

@@ -289,13 +289,19 @@
       "overlayAria": "Pet {{name}}; drag to move and click to inspect status",
       "stateLabels": {
         "idle": "Idle",
-        "running": "Running",
-        "waiting": "Needs input",
+        "running-right": "Run right",
+        "running-left": "Run left",
+        "waving": "Wave",
+        "jumping": "Jump",
         "failed": "Failed",
-        "review": "Ready to review"
+        "waiting": "Waiting",
+        "running": "Working",
+        "review": "Complete"
       },
       "states": {
         "idle": "Everything is ready. I'll keep you company.",
+        "running-right": "Moving to the right.",
+        "running-left": "Moving to the left.",
         "running": "Work is in progress. I'm keeping an eye on it.",
         "waiting": "Your confirmation or answer is needed.",
         "failed": "Something went wrong. Check the error when you're ready.",

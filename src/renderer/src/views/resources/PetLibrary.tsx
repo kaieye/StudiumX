@@ -3,17 +3,14 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PET_APPEARANCE_IDS } from '../../../../shared/teaching-types'
 import { useAppStore } from '../../app-shell/appStore'
-import { PetSprite, type PetVisualState } from '../pet/PetSprite'
-
-const previewStates: PetVisualState[] = ['idle', 'running', 'waiting', 'failed', 'review']
+import { PET_VISUAL_STATES, PetSprite, type PetVisualState } from '../pet/PetSprite'
 
 export function PetLibrary({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation()
   const settings = useAppStore((state) => state.settings.pet)
   const updateSettings = useAppStore((state) => state.updateSettings)
   const [displayName, setDisplayName] = useState(settings.displayName)
-  const [previewState, setPreviewState] = useState<PetVisualState>('waving')
-  const [hovered, setHovered] = useState(false)
+  const [previewState, setPreviewState] = useState<PetVisualState>('idle')
 
   useEffect(() => setDisplayName(settings.displayName), [settings.displayName])
 
@@ -22,8 +19,6 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
     setDisplayName(normalized)
     if (normalized !== settings.displayName) void updateSettings({ pet: { displayName: normalized } })
   }
-
-  const visibleState = hovered ? 'jumping' : previewState
 
   return (
     <div className="pet-library-page">
@@ -40,23 +35,21 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
 
       <section className="pet-preview-card">
         <div className="pet-preview-stage" data-appearance={settings.appearance}>
-          <div className="pet-preview-bubble" data-state={visibleState}>
+          <div className="pet-preview-bubble" data-state={previewState}>
             <strong>{displayName || t('resources.pets.defaultName')}</strong>
-            <span>{t(`resources.pets.states.${visibleState}`)}</span>
+            <span>{t(`resources.pets.states.${previewState}`)}</span>
           </div>
           <button
             className="pet-preview-mascot"
             type="button"
             aria-label={t('resources.pets.previewAria', { name: displayName })}
-            onPointerEnter={() => setHovered(true)}
-            onPointerLeave={() => setHovered(false)}
             onClick={() => setPreviewState('waving')}
           >
             <PetSprite
               appearance={settings.appearance}
               label={displayName}
               size={224}
-              state={visibleState}
+              state={previewState}
             />
           </button>
           <span className="pet-preview-shadow" aria-hidden="true" />
@@ -65,10 +58,11 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
         <div className="pet-preview-controls">
           <span>{t('resources.pets.previewStates')}</span>
           <div role="group" aria-label={t('resources.pets.previewStates')}>
-            {previewStates.map((state) => (
+            {PET_VISUAL_STATES.map((state) => (
               <button
                 key={state}
-                className={previewState === state && !hovered ? 'is-active' : undefined}
+                className={previewState === state ? 'is-active' : undefined}
+                data-state={state}
                 type="button"
                 onPointerEnter={() => setPreviewState(state)}
                 onFocus={() => setPreviewState(state)}

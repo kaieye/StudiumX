@@ -47,6 +47,20 @@ const stateFps: Record<PetVisualState, number> = {
   review: 10
 }
 
+type MotionFrame = readonly [x: number, y: number]
+
+const stateMotion: Record<PetVisualState, readonly MotionFrame[]> = {
+  idle: [[0, 0], [1, 0], [1, -1], [1, -2], [0, -2], [-1, -2], [-1, -1], [0, -1]],
+  'running-right': [[-1, 0], [0, -1], [1, -2], [2, -3], [1, 0], [0, -2], [-1, -3], [-2, -1]],
+  'running-left': [[-1, 0], [0, -1], [1, -2], [2, -3], [1, 0], [0, -2], [-1, -3], [-2, -1]],
+  waving: [[0, 0], [1, 0], [1, -1], [1, -2], [0, -2], [-1, -2], [-1, -1], [-1, 0]],
+  jumping: [[0, -1], [1, -4], [1, -7], [0, -9], [-1, -10], [-1, -7], [0, -4], [1, -2]],
+  failed: [[0, 2], [1, 2], [1, 3], [1, 4], [0, 4], [-1, 4], [-1, 3], [-1, 2]],
+  waiting: [[0, 0], [1, 0], [1, -1], [0, -2], [-1, -2], [-1, -1], [0, -1], [1, -2]],
+  running: [[0, 0], [1, -1], [1, -2], [0, -1], [-1, -2], [-1, -1], [-1, 0], [0, -2]],
+  review: [[0, -1], [1, -3], [1, -5], [0, -4], [-1, -2], [-1, -5], [0, -3], [1, -1]]
+}
+
 type PetPalette = {
   outline: string
   outlineSoft: string
@@ -956,30 +970,21 @@ function drawPetFrame(
   state: PetVisualState,
   frame: number
 ): void {
-  const bob = state === 'idle'
-    ? [0, 0, 0, -1, -1, 0, 0, 0][frame]!
-    : state === 'review'
-      ? [-1, -3, -5, -3, -1, -2, -4, -2][frame]!
-      : state === 'jumping'
-        ? [-1, -4, -7, -9, -9, -7, -4, -1][frame]!
-        : state === 'failed'
-          ? [2, 3, 3, 4, 4, 3, 3, 2][frame]!
-          : state === 'running-right' || state === 'running-left'
-            ? [0, -2, -1, -3, 0, -2, -1, -3][frame]!
-            : [0, -1, 0, -1, 0, -1, 0, -1][frame]!
+  const [motionX, motionY] = stateMotion[state][frame]!
 
   if (state === 'running-left') {
     context.save()
-    context.translate(CELL_WIDTH, 0)
+    context.translate(CELL_WIDTH + motionX, 0)
     context.scale(-1, 1)
-    drawStateEffects(context, state, frame, bob)
-    drawCharacter(context, state, frame, bob)
+    drawStateEffects(context, state, frame, motionY)
+    drawCharacter(context, state, frame, motionY)
     context.restore()
     return
   }
 
-  drawStateEffects(context, state, frame, bob)
-  drawCharacter(context, state, frame, bob)
+  context.translate(motionX, 0)
+  drawStateEffects(context, state, frame, motionY)
+  drawCharacter(context, state, frame, motionY)
 }
 
 function buildSpriteSheet(appearance: PetAppearanceId): string {
