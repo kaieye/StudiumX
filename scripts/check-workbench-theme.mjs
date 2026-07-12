@@ -25,6 +25,7 @@ try {
   </head>
   <body>
     <main class="office-workbench-page">
+      <section class="office-workbench-stage"><canvas class="office-workbench-canvas"></canvas></section>
       <aside class="workbench-tools">
         <form class="workbench-space-join">
           <svg></svg>
@@ -84,6 +85,8 @@ app.whenReady().then(async () => {
 
       const snapshot = () => ({
         root: styles(':root'),
+        page: styles('.office-workbench-page'),
+        stage: styles('.office-workbench-stage'),
         card: styles('.workbench-pomodoro-card'),
         modeButton: styles('.workbench-pomodoro-mode button:not(.is-active)'),
         timer: styles('.workbench-pomodoro-time strong'),
@@ -117,6 +120,8 @@ app.whenReady().then(async () => {
   const result = await runElectron(electronMainPath, htmlPath)
 
   assert.equal(result.dark.card.color, 'rgb(242, 242, 243)', 'workbench cards should use dark theme text')
+  assert.equal(result.dark.page.backgroundColor, 'rgb(16, 16, 16)', 'dark workbench page should not expose a white bottom edge')
+  assert.equal(result.dark.stage.backgroundColor, 'rgb(16, 16, 16)', 'dark workbench stage should not expose white around the scene')
   assertSurfaceLightness(result.dark.card.backgroundColor, 'dark', 'workbench cards should use a dark theme surface')
   assert.equal(result.dark.timer.color, 'rgb(242, 242, 243)', 'timer should use the dark primary text color')
   assert.equal(result.dark.timerDetail.color, 'rgb(182, 182, 187)', 'timer detail should use dark muted text')
@@ -126,6 +131,8 @@ app.whenReady().then(async () => {
   assert.equal(result.dark.primaryButton.color, 'rgb(16, 19, 26)', 'dark theme accent buttons should use dark contrast text')
 
   assert.equal(result.light.card.color, 'rgb(36, 50, 74)', 'workbench cards should update to light theme text')
+  assert.equal(result.light.page.backgroundColor, 'rgb(255, 255, 255)', 'light workbench page should keep its light background')
+  assert.equal(result.light.stage.backgroundColor, 'rgb(255, 255, 255)', 'light workbench stage should keep its light background')
   assertSurfaceLightness(result.light.card.backgroundColor, 'light', 'workbench cards should update to a light theme surface')
   assert.equal(result.light.timerDetail.color, 'rgb(104, 119, 143)', 'timer detail should update to light muted text')
   assert.equal(result.light.taskInput.color, 'rgb(36, 50, 74)', 'workbench inputs should update to light theme text')

@@ -26,7 +26,7 @@
   align-items: stretch;
   overflow: hidden;
   padding: 0;
-  background: #ffffff;
+  background: var(--app-shell-main-bg);
 }
 
 .office-workbench-stage {
@@ -42,7 +42,7 @@
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: #ffffff;
+  background: var(--app-shell-main-bg);
   box-shadow: none;
 }
 
@@ -837,16 +837,6 @@
   .workbench-pomodoro-progress span {
     transition: none;
   }
-}
-
-:root[data-resolved-theme='dark'] .office-workbench-page,
-:root[data-resolved-theme='dark'] .office-workbench-stage {
-  background: #ffffff;
-}
-
-:root[data-resolved-theme='dark'] .office-workbench-stage {
-  border-color: transparent;
-  box-shadow: none;
 }
 
 /* Keep the pixel-art scene intact while the overlaid study controls follow app settings. */
