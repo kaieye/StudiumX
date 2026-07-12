@@ -18,6 +18,18 @@ assert.doesNotMatch(
 
 assert.match(
   workbench,
+  /new URL\('\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/ref\.png', import\.meta\.url\)/,
+  'workbench should load ref.png as its desk artwork'
+)
+
+assert.match(
+  workbench,
+  /drawDeskImage\(ctx, assets\.deskImage, slot\)/,
+  'every workbench seat should draw the ref.png desk image'
+)
+
+assert.match(
+  workbench,
   /<WorkbenchLeaderboard members=\{viewModel\.roomMembers\} presenceStatus=\{presence\.status\} \/>/,
   'workbench should pass the live heartbeat status into the leaderboard'
 )

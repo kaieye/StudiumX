@@ -19,103 +19,9 @@ import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { WorkbenchTasks } from './WorkbenchTasks'
 
-type AtlasFrame = {
-  frame: { x: number; y: number; w: number; h: number }
-  rotated: boolean
-  trimmed: boolean
-  spriteSourceSize: { x: number; y: number; w: number; h: number }
-  sourceSize: { w: number; h: number }
-}
-
-type TextureAtlas = {
-  frames: Record<string, AtlasFrame>
-  animations?: Record<string, string[]>
-  meta?: { scale?: number }
-}
-
-type AtlasImage = {
-  image: HTMLImageElement
-  atlas: TextureAtlas
-}
-
-type SheetSpec = {
-  imageUrl: string
-  atlasUrl: string
-}
-
-// 自习室暂时保留 Marvis 的桌椅场景资源；座位角色使用 StudiumX 自己的 Codex 风格宠物图集。
-const sheetSpecs = {
-  workstation: {
-    imageUrl: new URL('./assets/marvis/img/workstation@2x.webp', import.meta.url).href,
-    atlasUrl: new URL('./assets/marvis/img/workstation@2x.webp.json', import.meta.url).href
-  }
-} satisfies Record<string, SheetSpec>
-
-type SheetKey = keyof typeof sheetSpecs
-type SheetMap = Record<SheetKey, AtlasImage>
-
-type TiledObject = {
-  id?: number
-  name?: string
-  type?: string
-  x?: number
-  y?: number
-  width?: number
-  height?: number
-  gid?: number
-}
-
-type TiledLayer = {
-  name: string
-  type: string
-  objects?: TiledObject[]
-  layers?: TiledLayer[]
-  data?: number[]
-  width?: number
-  height?: number
-}
-
-type TiledMap = {
-  width: number
-  height: number
-  tilewidth: number
-  tileheight: number
-  layers: TiledLayer[]
-  tilesets: Array<{ firstgid?: number; source?: string }>
-}
-
-type Tileset = {
-  tiles?: Array<{
-    id?: number
-    image?: string
-    imagewidth?: number
-    imageheight?: number
-  }>
-}
-
-type TemplateSprite = {
-  id: number
-  gid: number
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-type WorkstationTemplate = {
-  chairSprites: TemplateSprite[]
-  deskSprites: TemplateSprite[]
-  computerSprites: TemplateSprite[]
-  computerContainerRect: { x: number; y: number; width: number; height: number } | null
-  center: { x: number; y: number }
-}
-
 type WorkbenchAssets = {
-  sheets: SheetMap
+  deskImage: HTMLImageElement
   petImage: HTMLImageElement
-  gidToFrame: Map<number, string>
-  workstationTemplate: WorkstationTemplate
-  workstationBossTemplate: WorkstationTemplate
 }
 
 type DeskId = `desk-${number}`
@@ -163,8 +69,7 @@ const seatedPetWidth = 96
 const seatedPetBottomOffset = 36
 const workbenchSeatCount = 12
 
-const officeTmjUrl = new URL('./assets/marvis/office.tmj', import.meta.url).href
-const assetsTsjUrl = new URL('./assets/marvis/assets.tsj', import.meta.url).href
+const deskImageUrl = new URL('../../../../../ref.png', import.meta.url).href
 
 const workstationPositions = [
   { col: 1, row: 2 },
@@ -243,212 +148,14 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-async function loadJson<T>(url: string): Promise<T> {
-  const response = await fetch(url)
-  if (!response.ok) throw new Error(`Failed to load ${url}`)
-  return (await response.json()) as T
-}
-
-async function loadSheet(spec: SheetSpec): Promise<AtlasImage> {
-  const [image, atlas] = await Promise.all([loadImage(spec.imageUrl), loadJson<TextureAtlas>(spec.atlasUrl)])
-  return { image, atlas }
-}
-
 async function loadWorkbenchAssets(): Promise<WorkbenchAssets> {
-  const [officeTmj, tileset, petImage, sheetEntries] = await Promise.all([
-    loadJson<TiledMap>(officeTmjUrl),
-    loadJson<Tileset>(assetsTsjUrl),
-    loadImage(getPetSpriteSheetUrl()),
-    Promise.all(
-      (Object.entries(sheetSpecs) as Array<[SheetKey, SheetSpec]>).map(async ([key, spec]) => {
-        const sheet = await loadSheet(spec)
-        return [key, sheet] as const
-      })
-    )
-  ])
-
-  const sheets = Object.fromEntries(sheetEntries) as SheetMap
-  const firstGid = officeTmj.tilesets[0]?.firstgid ?? 1
-  const gidToFrame = new Map<number, string>()
-  for (const tile of tileset.tiles ?? []) {
-    const image = tile.image ?? ''
-    const frameName = image.split('/').pop()
-    if (frameName) gidToFrame.set(firstGid + (tile.id ?? 0), frameName)
-  }
-
-  const workstationTemplate = parseWorkstationTemplate(officeTmj.layers, 'workstation')
-  const workstationBossTemplate = parseWorkstationTemplate(officeTmj.layers, 'workstation_boss')
-  if (!workstationTemplate || !workstationBossTemplate) {
-    throw new Error('Missing Marvis workstation templates')
-  }
-
-  return { sheets, petImage, gidToFrame, workstationTemplate, workstationBossTemplate }
+  const [deskImage, petImage] = await Promise.all([loadImage(deskImageUrl), loadImage(getPetSpriteSheetUrl())])
+  return { deskImage, petImage }
 }
 
-function findLayer(layers: TiledLayer[], name: string, type?: string): TiledLayer | null {
-  for (const layer of layers) {
-    if (layer.name === name && (!type || layer.type === type)) return layer
-    if (layer.type === 'group' && layer.layers) {
-      const child = findLayer(layer.layers, name, type)
-      if (child) return child
-    }
-  }
-  return null
-}
-
-function parseSpriteObjects(layer: TiledLayer | null): TemplateSprite[] {
-  return (layer?.objects ?? [])
-    .filter((object) => object.gid !== undefined)
-    .map((object) => {
-      const width = object.width ?? 0
-      const height = object.height ?? 0
-      return {
-        id: object.id ?? 0,
-        gid: object.gid ?? 0,
-        x: object.x ?? 0,
-        y: (object.y ?? 0) - height,
-        width,
-        height
-      }
-    })
-}
-
-function parseWorkstationTemplate(layers: TiledLayer[], groupName: string): WorkstationTemplate | null {
-  const group = findLayer(layers, groupName, 'group')
-  if (!group?.layers) return null
-
-  const chairLayer = findLayer(group.layers, 'chair', 'objectgroup')
-  const deskLayer = findLayer(group.layers, 'desk', 'objectgroup')
-  const computerLayer = findLayer(group.layers, 'computer', 'objectgroup')
-  const chairSprites = parseSpriteObjects(chairLayer)
-  const deskSprites = parseSpriteObjects(deskLayer)
-  const computerSprites = parseSpriteObjects(computerLayer)
-  const computerContainer = (computerLayer?.objects ?? []).find((object) => object.gid === undefined && object.name === 'container')
-  const computerContainerRect = computerContainer
-    ? {
-        x: computerContainer.x ?? 0,
-        y: computerContainer.y ?? 0,
-        width: computerContainer.width ?? 0,
-        height: computerContainer.height ?? 0
-      }
-    : null
-  const center = computeTemplateCenter([...chairSprites, ...deskSprites, ...computerSprites], computerContainerRect)
-  return { chairSprites, deskSprites, computerSprites, computerContainerRect, center }
-}
-
-function computeTemplateCenter(
-  sprites: TemplateSprite[],
-  rect: { x: number; y: number; width: number; height: number } | null
-): { x: number; y: number } {
-  const bounds = [
-    ...sprites.map((sprite) => ({
-      x1: sprite.x,
-      y1: sprite.y,
-      x2: sprite.x + sprite.width,
-      y2: sprite.y + sprite.height
-    })),
-    ...(rect
-      ? [
-          {
-            x1: rect.x,
-            y1: rect.y,
-            x2: rect.x + rect.width,
-            y2: rect.y + rect.height
-          }
-        ]
-      : [])
-  ]
-
-  if (!bounds.length) return { x: 0, y: 0 }
-  const minX = Math.min(...bounds.map((bound) => bound.x1))
-  const minY = Math.min(...bounds.map((bound) => bound.y1))
-  const maxX = Math.max(...bounds.map((bound) => bound.x2))
-  const maxY = Math.max(...bounds.map((bound) => bound.y2))
-  return { x: minX + (maxX - minX) / 2, y: minY + (maxY - minY) / 2 }
-}
-
-function atlasScale(atlas: TextureAtlas): number {
-  return atlas.meta?.scale && atlas.meta.scale > 0 ? atlas.meta.scale : 1
-}
-
-function currentDevicePixelScale(ctx: CanvasRenderingContext2D): number {
-  const transform = ctx.getTransform()
-  const scale = Math.max(Math.hypot(transform.a, transform.b), Math.hypot(transform.c, transform.d))
-  return Number.isFinite(scale) && scale > 0 ? scale : 1
-}
-
-function roundToDevicePixel(value: number, pixelScale: number): number {
-  return Math.round(value * pixelScale) / pixelScale
-}
-
-function drawAtlasFrame(
-  ctx: CanvasRenderingContext2D,
-  atlasImage: AtlasImage,
-  frameName: string,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  opacity = 1
-): void {
-  const entry = atlasImage.atlas.frames[frameName]
-  if (!entry) return
-
-  const { frame, spriteSourceSize, sourceSize } = entry
-  const scale = atlasScale(atlasImage.atlas)
-  const logicalSourceWidth = sourceSize.w / scale
-  const logicalSourceHeight = sourceSize.h / scale
-  const logicalSpriteX = spriteSourceSize.x / scale
-  const logicalSpriteY = spriteSourceSize.y / scale
-  const logicalSpriteWidth = spriteSourceSize.w / scale
-  const logicalSpriteHeight = spriteSourceSize.h / scale
-  const scaleX = width / logicalSourceWidth
-  const scaleY = height / logicalSourceHeight
-  const pixelScale = currentDevicePixelScale(ctx)
-  const dx = roundToDevicePixel(x + logicalSpriteX * scaleX, pixelScale)
-  const dy = roundToDevicePixel(y + logicalSpriteY * scaleY, pixelScale)
-  const dw = roundToDevicePixel(logicalSpriteWidth * scaleX, pixelScale)
-  const dh = roundToDevicePixel(logicalSpriteHeight * scaleY, pixelScale)
-
-  ctx.save()
-  ctx.globalAlpha *= opacity
-  if (entry.rotated) {
-    ctx.translate(dx, dy + dh)
-    ctx.rotate(-Math.PI / 2)
-    ctx.drawImage(atlasImage.image, frame.x, frame.y, frame.h, frame.w, 0, 0, dh, dw)
-  } else {
-    ctx.drawImage(atlasImage.image, frame.x, frame.y, frame.w, frame.h, dx, dy, dw, dh)
-  }
-  ctx.restore()
-}
-
-function worldSpritePosition(
-  template: WorkstationTemplate,
-  sprite: TemplateSprite,
-  slot: { x: number; y: number },
-  pivot: { x: number; y: number }
-): { x: number; y: number } {
-  return {
-    x: slot.x - pivot.x + sprite.x - template.center.x,
-    y: slot.y - pivot.y + sprite.y - template.center.y
-  }
-}
-
-function drawTemplateSprites(
-  ctx: CanvasRenderingContext2D,
-  assets: WorkbenchAssets,
-  template: WorkstationTemplate,
-  sprites: TemplateSprite[],
-  slot: { x: number; y: number },
-  pivot: { x: number; y: number }
-): void {
-  for (const sprite of sprites) {
-    const frameName = assets.gidToFrame.get(sprite.gid)
-    if (!frameName) continue
-    if (frameName === 'shadow.png' || frameName === 'shadow_boss.png') continue
-    const position = worldSpritePosition(template, sprite, slot, pivot)
-    drawAtlasFrame(ctx, assets.sheets.workstation, frameName, position.x, position.y, sprite.width, sprite.height)
-  }
+function drawDeskImage(ctx: CanvasRenderingContext2D, image: HTMLImageElement, slot: DeskSlot): void {
+  const size = slot.width
+  ctx.drawImage(image, slot.x - size / 2, slot.y - size * 0.45, size, size)
 }
 
 function petStateForOccupant(occupant: WorkbenchSeatOccupant): PetVisualState {
@@ -582,13 +289,12 @@ function drawScene(
 
   const depthLayers: Array<{ z: number; draw: () => void }> = []
   for (const slot of deskSlots) {
-    const template = slot.slotIndex === 0 ? assets.workstationBossTemplate : assets.workstationTemplate
     const occupant = seatState.occupantsByDeskId.get(slot.id) ?? null
     const isSelected = seatState.userSeatIndex === slot.slotIndex
     const isHovered = hoveredDeskId === slot.id
 
     drawDeskHitArea(ctx, slot, isHovered, isSelected, occupant)
-    drawTemplateSprites(ctx, assets, template, template.deskSprites, slot, { x: 36, y: -80 })
+    drawDeskImage(ctx, assets.deskImage, slot)
 
     if (occupant) {
       depthLayers.push({
