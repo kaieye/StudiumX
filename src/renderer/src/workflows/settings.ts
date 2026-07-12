@@ -122,7 +122,7 @@ export const emptySettings: TeachingSettingsV1 = {
     enabled: true,
     displayName: '小搭档',
     showStatusBubble: true,
-    appearance: 'classic'
+    appearance: 'robot'
   },
   privacy: {
     maskApiKeys: true,

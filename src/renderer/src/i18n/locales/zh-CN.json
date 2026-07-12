@@ -274,17 +274,17 @@
       "bubbleLabel": "显示状态气泡",
       "bubbleDetail": "在任务运行、等待处理或完成时展示简短说明。",
       "appearanceTitle": "更换宠物",
-      "appearanceDetail": "选择一款形象，页面预览和悬浮宠物会同步更新。",
+      "appearanceDetail": "选择不同角色，页面预览和悬浮宠物会同步更新。",
       "appearances": {
-        "classic": "经典机",
-        "mint": "薄荷芽",
-        "sunset": "落日橘",
-        "midnight": "星夜蓝",
-        "berry": "莓果团",
-        "mono": "黑白机"
+        "robot": "机灵机器人",
+        "cat": "墨团学生",
+        "owl": "书博士",
+        "sprout": "芽芽",
+        "fox": "小橘探险家",
+        "penguin": "团子信使"
       },
       "implementationTitle": "实现方式",
-      "implementationDetail": "使用六款原创像素宠物与 8 帧状态图集；生成与 Agent 会话驱动状态，悬停和拖动可临时覆盖状态。开启“减少动态效果”时固定显示首帧。",
+      "implementationDetail": "使用六个不同轮廓、道具与动作细节的原创像素角色；每个角色都有 8 帧状态图集，生成与 Agent 会话驱动状态。开启“减少动态效果”时固定显示首帧。",
       "hide": "隐藏宠物",
       "overlayAria": "宠物 {{name}}，拖动可移动，点击可查看状态",
       "stateLabels": {

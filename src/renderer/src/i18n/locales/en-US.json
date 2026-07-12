@@ -274,17 +274,17 @@
       "bubbleLabel": "Show status bubble",
       "bubbleDetail": "Show a short message while work is running, blocked, failed, or ready to review.",
       "appearanceTitle": "Change pet",
-      "appearanceDetail": "Choose a look for both the page preview and floating pet.",
+      "appearanceDetail": "Choose a distinct character for both the preview and floating pet.",
       "appearances": {
-        "classic": "Classic",
-        "mint": "Mint",
-        "sunset": "Sunset",
-        "midnight": "Midnight",
-        "berry": "Berry",
-        "mono": "Mono"
+        "robot": "Rover Bot",
+        "cat": "Momo Student",
+        "owl": "Professor Owl",
+        "sprout": "Sprout",
+        "fox": "Scout Fox",
+        "penguin": "Pip Courier"
       },
       "implementationTitle": "How it works",
-      "implementationDetail": "Six original pixel pets use eight-frame state atlases; generation and agent sessions drive state, while hover and drag temporarily override it. Reduced-motion mode freezes animations on their first frame.",
+      "implementationDetail": "Six original pixel characters use distinct silhouettes, props, and movement details with eight-frame state atlases. Generation and agent sessions drive state; reduced-motion mode freezes animations on their first frame.",
       "hide": "Hide pet",
       "overlayAria": "Pet {{name}}; drag to move and click to inspect status",
       "stateLabels": {

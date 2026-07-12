@@ -468,20 +468,20 @@
     radial-gradient(circle at 50% 42%, var(--pet-stage-glow), transparent 34%),
     linear-gradient(180deg, #272a31, #15171b);
 }
-.pet-preview-stage[data-appearance='mint'] {
-  --pet-stage-glow: rgba(72, 215, 178, 0.22);
+.pet-preview-stage[data-appearance='cat'] {
+  --pet-stage-glow: rgba(224, 119, 177, 0.2);
 }
-.pet-preview-stage[data-appearance='sunset'] {
-  --pet-stage-glow: rgba(255, 120, 82, 0.24);
+.pet-preview-stage[data-appearance='owl'] {
+  --pet-stage-glow: rgba(99, 122, 175, 0.24);
 }
-.pet-preview-stage[data-appearance='midnight'] {
-  --pet-stage-glow: rgba(105, 133, 255, 0.23);
+.pet-preview-stage[data-appearance='sprout'] {
+  --pet-stage-glow: rgba(93, 197, 133, 0.22);
 }
-.pet-preview-stage[data-appearance='berry'] {
-  --pet-stage-glow: rgba(225, 102, 184, 0.22);
+.pet-preview-stage[data-appearance='fox'] {
+  --pet-stage-glow: rgba(235, 112, 66, 0.24);
 }
-.pet-preview-stage[data-appearance='mono'] {
-  --pet-stage-glow: rgba(210, 215, 224, 0.16);
+.pet-preview-stage[data-appearance='penguin'] {
+  --pet-stage-glow: rgba(87, 163, 205, 0.2);
 }
 .pet-preview-stage::before {
   position: absolute;

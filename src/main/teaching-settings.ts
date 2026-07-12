@@ -27,6 +27,14 @@ const DEFAULT_UI_FONT_SCALE = 1
 const MIN_UI_FONT_SCALE = 0.8
 const MAX_UI_FONT_SCALE = 1.2
 const SAFE_STORAGE_PREFIX = 'safeStorage:v1:'
+const legacyPetAppearances: Record<string, PetAppearanceId> = {
+  classic: 'robot',
+  mint: 'sprout',
+  sunset: 'fox',
+  midnight: 'owl',
+  berry: 'cat',
+  mono: 'penguin'
+}
 
 export type SettingsSecretStorage = {
   isEncryptionAvailable: () => boolean
@@ -334,7 +342,7 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
       enabled: true,
       displayName: '小搭档',
       showStatusBubble: true,
-      appearance: 'classic'
+      appearance: 'robot'
     },
     privacy: {
       maskApiKeys: true,
@@ -554,9 +562,9 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
 }
 
 function normalizePetAppearance(input: unknown, fallback: PetAppearanceId): PetAppearanceId {
-  return typeof input === 'string' && PET_APPEARANCE_IDS.includes(input as PetAppearanceId)
-    ? input as PetAppearanceId
-    : fallback
+  if (typeof input !== 'string') return fallback
+  if (PET_APPEARANCE_IDS.includes(input as PetAppearanceId)) return input as PetAppearanceId
+  return legacyPetAppearances[input] ?? fallback
 }
 
 function normalizeProviders(input: unknown, fallback: TeachingModelProviderProfile[]): TeachingModelProviderProfile[] {

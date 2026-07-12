@@ -60,40 +60,40 @@ type PetPalette = {
 }
 
 const palettes: Record<PetAppearanceId, PetPalette> = {
-  classic: {
+  robot: {
     outline: '#15171d', outlineSoft: '#292c34', shell: '#eeeae1', shellLight: '#fffaf0',
     shellShadow: '#a9a49b', screen: '#111318', screenGlow: '#2a3039', accent: '#ff8a3d',
     cyan: '#78d8ff', green: '#7ee28c', red: '#ff626b', dust: '#747983'
   },
-  mint: {
-    outline: '#122321', outlineSoft: '#27423d', shell: '#9be5d1', shellLight: '#d9fff4',
-    shellShadow: '#4f9f8b', screen: '#10201e', screenGlow: '#1d4b43', accent: '#ffe075',
-    cyan: '#8cfff1', green: '#a9f08e', red: '#ff6f7d', dust: '#5b827a'
+  cat: {
+    outline: '#17151d', outlineSoft: '#34303f', shell: '#34313c', shellLight: '#f3eef8',
+    shellShadow: '#25232c', screen: '#17151d', screenGlow: '#4d4658', accent: '#e98dbd',
+    cyan: '#8fe5ff', green: '#8ee6a1', red: '#ff6978', dust: '#77717f'
   },
-  sunset: {
-    outline: '#2b1820', outlineSoft: '#51303a', shell: '#ffad76', shellLight: '#ffe0b5',
-    shellShadow: '#c65c50', screen: '#27171d', screenGlow: '#633344', accent: '#fff06a',
-    cyan: '#7de8ff', green: '#97e58e', red: '#ff526c', dust: '#98605d'
+  owl: {
+    outline: '#172033', outlineSoft: '#33415d', shell: '#64769b', shellLight: '#f1e3bd',
+    shellShadow: '#3d4d70', screen: '#111827', screenGlow: '#33415d', accent: '#e9b949',
+    cyan: '#7ddff6', green: '#7ed99a', red: '#ff6b76', dust: '#727b91'
   },
-  midnight: {
-    outline: '#101421', outlineSoft: '#26304d', shell: '#586b9d', shellLight: '#9cafe2',
-    shellShadow: '#303d6e', screen: '#0a0d18', screenGlow: '#1c2850', accent: '#ffd45f',
-    cyan: '#6ee7ff', green: '#79e5a2', red: '#ff687e', dust: '#4c5575'
+  sprout: {
+    outline: '#163128', outlineSoft: '#31594b', shell: '#7ecf9d', shellLight: '#c7f2d5',
+    shellShadow: '#4d9f76', screen: '#142b24', screenGlow: '#31594b', accent: '#f0c95c',
+    cyan: '#8de7e3', green: '#9bea81', red: '#ff7079', dust: '#648a79'
   },
-  berry: {
-    outline: '#271522', outlineSoft: '#4e2944', shell: '#d783bd', shellLight: '#ffd2ed',
-    shellShadow: '#985279', screen: '#21131e', screenGlow: '#552848', accent: '#8ef0cf',
-    cyan: '#8be9ff', green: '#99e68c', red: '#ff607b', dust: '#80506f'
+  fox: {
+    outline: '#301a18', outlineSoft: '#5e3931', shell: '#db7548', shellLight: '#ffe1b8',
+    shellShadow: '#984630', screen: '#241513', screenGlow: '#5e3931', accent: '#68c7c1',
+    cyan: '#82e3ee', green: '#8cdd8c', red: '#ff5f69', dust: '#95665a'
   },
-  mono: {
-    outline: '#101113', outlineSoft: '#303236', shell: '#aeb2b8', shellLight: '#f4f5f6',
-    shellShadow: '#666b73', screen: '#090a0b', screenGlow: '#25282d', accent: '#ffffff',
-    cyan: '#d9dde2', green: '#bce6c4', red: '#ff6972', dust: '#74777c'
+  penguin: {
+    outline: '#111827', outlineSoft: '#344054', shell: '#26364a', shellLight: '#f5f7fa',
+    shellShadow: '#172333', screen: '#0d1420', screenGlow: '#344054', accent: '#f0a54a',
+    cyan: '#6ddcf4', green: '#82d99a', red: '#ff6876', dust: '#6c7888'
   }
 }
 
-let palette = palettes.classic
-let activeAppearance: PetAppearanceId = 'classic'
+let palette = palettes.robot
+let activeAppearance: PetAppearanceId = 'robot'
 const spriteSheetUrls = new Map<PetAppearanceId, string>()
 
 function block(
@@ -195,42 +195,6 @@ function drawAntenna(
     block(context, palette.outline, 25, 6 + y, 7, 2)
     block(context, palette.outline, 30, 8 + y, 3, 3)
     block(context, palette.red, 31, 9 + y)
-    return
-  }
-
-  if (activeAppearance === 'mint') {
-    block(context, palette.outline, 8, 6 + y, 7, 6)
-    block(context, palette.shell, 10, 7 + y, 4, 4)
-    block(context, palette.outline, 33, 6 + y, 7, 6)
-    block(context, palette.shell, 34, 7 + y, 4, 4)
-    return
-  }
-
-  if (activeAppearance === 'sunset') {
-    block(context, palette.outline, 15, 3 + y, 3, 7)
-    block(context, palette.accent, 14, 1 + y, 5, 3)
-    block(context, palette.outline, 30, 3 + y, 3, 7)
-    block(context, palette.accent, 29, 1 + y, 5, 3)
-    return
-  }
-
-  if (activeAppearance === 'midnight') {
-    block(context, palette.outline, 23, 4 + y, 3, 6)
-    drawSpark(context, 24, 2 + y, palette.accent, 1)
-    return
-  }
-
-  if (activeAppearance === 'berry') {
-    block(context, palette.outline, 8, 6 + y, 7, 7)
-    block(context, palette.shellLight, 10, 8 + y, 3, 3)
-    block(context, palette.outline, 33, 6 + y, 7, 7)
-    block(context, palette.shellLight, 35, 8 + y, 3, 3)
-    return
-  }
-
-  if (activeAppearance === 'mono') {
-    block(context, palette.outline, 13, 6 + y, 22, 4)
-    block(context, palette.shellLight, 17, 4 + y, 14, 3)
     return
   }
 
@@ -361,6 +325,273 @@ function drawBody(
   drawAntenna(context, state, frame, y)
 }
 
+function drawCharacterEyes(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  leftX: number,
+  rightX: number,
+  y: number
+): void {
+  if (state === 'failed') {
+    for (const x of [leftX, rightX]) {
+      block(context, palette.red, x, y, 2, 2)
+      block(context, palette.red, x + 2, y + 2, 2, 2)
+      block(context, palette.red, x + 2, y, 2, 2)
+      block(context, palette.red, x, y + 2, 2, 2)
+    }
+    return
+  }
+
+  if (state === 'review') {
+    block(context, palette.outline, leftX, y + 2, 4, 1)
+    block(context, palette.outline, rightX, y + 2, 4, 1)
+    block(context, palette.outline, leftX + 1, y + 3, 2, 1)
+    block(context, palette.outline, rightX + 1, y + 3, 2, 1)
+    return
+  }
+
+  if (state === 'waiting') {
+    block(context, palette.outline, leftX, y, 4, 4)
+    block(context, palette.outline, rightX, y, 4, 4)
+    block(context, palette.shellLight, leftX + 1, y, 1, 1)
+    block(context, palette.shellLight, rightX + 1, y, 1, 1)
+    return
+  }
+
+  const blinking = state === 'idle' && (frame === 5 || frame === 6)
+  if (blinking) {
+    block(context, palette.outline, leftX, y + 2, 4, 1)
+    block(context, palette.outline, rightX, y + 2, 4, 1)
+    return
+  }
+
+  const eyeColor = state === 'running' ? palette.cyan : palette.outline
+  block(context, eyeColor, leftX + (state === 'running' ? frame % 2 : 0), y, 3, 4)
+  block(context, eyeColor, rightX - (state === 'running' ? frame % 2 : 0), y, 3, 4)
+  block(context, palette.shellLight, leftX + 1, y, 1, 1)
+  block(context, palette.shellLight, rightX + 1, y, 1, 1)
+}
+
+function drawCharacterFeet(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number,
+  color = palette.outline
+): void {
+  const running = state === 'running-right' || state === 'running-left'
+  const phase = frame % 4 < 2
+  const leftX = state === 'jumping' ? 15 : running && phase ? 12 : 15
+  const rightX = state === 'jumping' ? 28 : running && !phase ? 31 : 28
+  const footY = state === 'jumping' ? 42 + y : 44 + y
+  block(context, color, leftX, footY, 8, 4)
+  block(context, color, rightX, footY, 8, 4)
+}
+
+function drawRobot(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  drawBody(context, state, frame, y)
+}
+
+function drawCat(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  const waving = state === 'waving'
+  const failedDrop = state === 'failed' ? 2 : 0
+  const tailLift = frame % 4 < 2 ? 0 : 2
+
+  block(context, palette.outline, 36, 29 + y, 7, 6)
+  block(context, palette.shell, 40, 24 + y - tailLift, 5, 10)
+  block(context, palette.outline, 42, 20 + y - tailLift, 4, 8)
+  drawCharacterFeet(context, state, frame, y)
+
+  block(context, palette.outline, 13, 27 + y, 23, 18)
+  block(context, palette.shell, 15, 28 + y, 19, 15)
+  block(context, palette.shellLight, 20, 32 + y, 9, 9)
+
+  if (waving) {
+    const pawY = frame % 4 < 2 ? 13 : 16
+    block(context, palette.outline, 35, pawY + y, 7, 15)
+    block(context, palette.shell, 37, pawY + 2 + y, 3, 10)
+    block(context, palette.shellLight, 37, pawY + y, 4, 4)
+  } else {
+    const armDrop = state === 'failed' ? 4 : 0
+    block(context, palette.outline, 8, 29 + y + armDrop, 7, 12)
+    block(context, palette.outline, 34, 29 + y + armDrop, 7, 12)
+    block(context, palette.shell, 10, 31 + y + armDrop, 3, 7)
+    block(context, palette.shell, 36, 31 + y + armDrop, 3, 7)
+  }
+
+  block(context, palette.outline, 10, 7 + y + failedDrop, 9, 9)
+  block(context, palette.outline, 29, 7 + y + failedDrop, 9, 9)
+  block(context, palette.shell, 12, 9 + y + failedDrop, 5, 5)
+  block(context, palette.shell, 31, 9 + y + failedDrop, 5, 5)
+  block(context, palette.outline, 9, 12 + y + failedDrop, 30, 19)
+  block(context, palette.shell, 11, 13 + y + failedDrop, 26, 17)
+  block(context, palette.shellLight, 18, 23 + y + failedDrop, 12, 6)
+
+  block(context, palette.accent, 13, 9 + y + failedDrop, 22, 2)
+  block(context, palette.accent, 7, 14 + y + failedDrop, 4, 9)
+  block(context, palette.accent, 37, 14 + y + failedDrop, 4, 9)
+  drawCharacterEyes(context, state, frame, 15, 29, 17 + y + failedDrop)
+  block(context, palette.outline, 23, 24 + y + failedDrop, 3, 2)
+}
+
+function drawOwl(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  const wingLift = state === 'waving' ? (frame % 4 < 2 ? 10 : 13) : 26
+  drawCharacterFeet(context, state, frame, y, palette.accent)
+
+  block(context, palette.outline, 10, 18 + y, 29, 27)
+  block(context, palette.shell, 12, 20 + y, 25, 23)
+  block(context, palette.shellLight, 18, 27 + y, 13, 14)
+  block(context, palette.outline, 5, 27 + y, 8, 14)
+  block(context, palette.shellShadow, 7, 29 + y, 5, 9)
+  block(context, palette.outline, 36, wingLift + y, 8, state === 'waving' ? 18 : 14)
+  block(context, palette.shellShadow, 37, wingLift + 2 + y, 5, state === 'waving' ? 12 : 9)
+
+  block(context, palette.outline, 12, 7 + y, 7, 7)
+  block(context, palette.outline, 30, 7 + y, 7, 7)
+  block(context, palette.outline, 10, 10 + y, 29, 21)
+  block(context, palette.shell, 12, 11 + y, 25, 18)
+  block(context, palette.shellLight, 13, 14 + y, 11, 11)
+  block(context, palette.shellLight, 25, 14 + y, 11, 11)
+  drawCharacterEyes(context, state, frame, 17, 29, 17 + y)
+  block(context, palette.accent, 23, 23 + y, 5, 4)
+
+  block(context, palette.outline, 17, 33 + y, 16, 10)
+  block(context, palette.accent, 19, 34 + y, 12, 7)
+  block(context, palette.shellLight, 24, 34 + y, 1, 7)
+}
+
+function drawSprout(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  const sway = frame % 4 < 2 ? 0 : 1
+  block(context, palette.outline, 22, 3 + y, 4, 8)
+  block(context, palette.outline, 14 - sway, 2 + y, 10, 7)
+  block(context, palette.shell, 16 - sway, 3 + y, 7, 4)
+  block(context, palette.outline, 25 + sway, 1 + y, 10, 8)
+  block(context, palette.shellLight, 26 + sway, 3 + y, 7, 4)
+
+  drawCharacterFeet(context, state, frame, y, palette.outline)
+  block(context, palette.outline, 9, 14 + y, 31, 30)
+  block(context, palette.shell, 11, 15 + y, 27, 27)
+  block(context, palette.shellLight, 15, 18 + y, 11, 5)
+
+  if (state === 'waving') {
+    const handY = frame % 4 < 2 ? 19 : 22
+    block(context, palette.outline, 37, handY + y, 8, 7)
+    block(context, palette.shell, 38, handY + 1 + y, 5, 4)
+  } else {
+    block(context, palette.outline, 6, 29 + y, 6, 8)
+    block(context, palette.outline, 37, 29 + y, 6, 8)
+  }
+
+  drawCharacterEyes(context, state, frame, 16, 29, 25 + y)
+  block(context, palette.outline, 23, 32 + y, 4, 2)
+  if (state === 'review') block(context, palette.green, 21, 35 + y, 8, 2)
+}
+
+function drawFox(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  const tailY = frame % 4 < 2 ? 28 : 26
+  block(context, palette.outline, 34, tailY + y, 12, 13)
+  block(context, palette.shell, 36, tailY + 1 + y, 9, 10)
+  block(context, palette.shellLight, 41, tailY + 1 + y, 4, 6)
+  drawCharacterFeet(context, state, frame, y)
+
+  block(context, palette.outline, 13, 27 + y, 23, 18)
+  block(context, palette.shell, 15, 29 + y, 19, 14)
+  block(context, palette.shellLight, 20, 33 + y, 10, 9)
+
+  const waveY = frame % 4 < 2 ? 13 : 16
+  block(context, palette.outline, 7, 29 + y, 8, 12)
+  block(context, palette.shellShadow, 9, 31 + y, 4, 7)
+  block(context, palette.outline, 34, (state === 'waving' ? waveY : 29) + y, 8, state === 'waving' ? 16 : 12)
+  block(context, palette.shellShadow, 36, (state === 'waving' ? waveY + 2 : 31) + y, 4, state === 'waving' ? 10 : 7)
+
+  block(context, palette.outline, 8, 5 + y, 11, 13)
+  block(context, palette.outline, 29, 5 + y, 11, 13)
+  block(context, palette.shell, 11, 8 + y, 6, 7)
+  block(context, palette.shell, 31, 8 + y, 6, 7)
+  block(context, palette.outline, 9, 12 + y, 30, 20)
+  block(context, palette.shell, 11, 13 + y, 26, 17)
+  block(context, palette.shellLight, 17, 22 + y, 15, 8)
+  drawCharacterEyes(context, state, frame, 15, 30, 17 + y)
+  block(context, palette.outline, 23, 23 + y, 4, 3)
+
+  block(context, palette.accent, 12, 28 + y, 25, 4)
+  block(context, palette.accent, 30, 31 + y, 5, 8)
+}
+
+function drawPenguin(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  drawCharacterFeet(context, state, frame, y, palette.accent)
+  block(context, palette.outline, 10, 10 + y, 29, 35)
+  block(context, palette.shell, 12, 12 + y, 25, 31)
+  block(context, palette.shellLight, 17, 21 + y, 15, 20)
+
+  const waveY = frame % 4 < 2 ? 14 : 17
+  block(context, palette.outline, 5, 25 + y, 8, 15)
+  block(context, palette.shell, 7, 27 + y, 4, 9)
+  block(context, palette.outline, 36, (state === 'waving' ? waveY : 25) + y, 8, state === 'waving' ? 20 : 15)
+  block(context, palette.shell, 37, (state === 'waving' ? waveY + 2 : 27) + y, 4, state === 'waving' ? 13 : 9)
+
+  block(context, palette.shellLight, 14, 13 + y, 21, 14)
+  drawCharacterEyes(context, state, frame, 17, 29, 17 + y)
+  block(context, palette.accent, 22, 23 + y, 6, 4)
+
+  block(context, palette.accent, 13, 29 + y, 4, 4)
+  block(context, palette.accent, 17, 32 + y, 17, 3)
+  block(context, palette.accent, 31, 34 + y, 4, 9)
+  block(context, palette.outline, 25, 34 + y, 10, 8)
+  block(context, palette.shellLight, 27, 36 + y, 6, 4)
+}
+
+type CharacterDrawer = typeof drawRobot
+
+const characterDrawers: Record<PetAppearanceId, CharacterDrawer> = {
+  robot: drawRobot,
+  cat: drawCat,
+  owl: drawOwl,
+  sprout: drawSprout,
+  fox: drawFox,
+  penguin: drawPenguin
+}
+
+function drawCharacter(
+  context: CanvasRenderingContext2D,
+  state: PetVisualState,
+  frame: number,
+  y: number
+): void {
+  characterDrawers[activeAppearance](context, state, frame, y)
+}
+
 function drawStateEffects(
   context: CanvasRenderingContext2D,
   state: PetVisualState,
@@ -420,13 +651,13 @@ function drawPetFrame(
     context.translate(CELL_WIDTH, 0)
     context.scale(-1, 1)
     drawStateEffects(context, state, frame, bob)
-    drawBody(context, state, frame, bob)
+    drawCharacter(context, state, frame, bob)
     context.restore()
     return
   }
 
   drawStateEffects(context, state, frame, bob)
-  drawBody(context, state, frame, bob)
+  drawCharacter(context, state, frame, bob)
 }
 
 function buildSpriteSheet(appearance: PetAppearanceId): string {
@@ -451,7 +682,7 @@ function buildSpriteSheet(appearance: PetAppearanceId): string {
   return canvas.toDataURL('image/png')
 }
 
-export function getPetSpriteSheetUrl(appearance: PetAppearanceId = 'classic'): string {
+export function getPetSpriteSheetUrl(appearance: PetAppearanceId = 'robot'): string {
   const cached = spriteSheetUrls.get(appearance)
   if (cached) return cached
   const sheetUrl = buildSpriteSheet(appearance)
@@ -473,7 +704,7 @@ export function getPetSpriteFrameIndex(
 }
 
 export function PetSprite({
-  appearance = 'classic',
+  appearance = 'robot',
   className,
   label,
   size,
