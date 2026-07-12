@@ -41,6 +41,8 @@ export type ToolContext = {
   proxyUrl: string
   workspaceRoot?: string
   requestToolPermission?: ToolPermissionResolver
+  /** Abort signal for the current agent run. Tools should compose this with their own timeouts. */
+  signal?: AbortSignal
 }
 
 export type ToolRuntimeChildRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'canceled'
@@ -78,6 +80,8 @@ export type ToolCallContext = {
   toolCallId: string
   toolName: string
   emit?: (event: ToolRuntimeEvent) => void
+  /** Abort signal for this tool call / parent agent run. */
+  signal?: AbortSignal
 }
 
 /** A tool handler with its ToolContext already bound (ctx curried in). */
@@ -145,11 +149,17 @@ export class ToolRegistry {
 
 export function buildToolContext(
   settings: TeachingSettingsV1,
-  options: { workspaceRoot?: string | null; requestToolPermission?: ToolPermissionResolver } = {}
+  options: { workspaceRoot?: string | null; requestToolPermission?: ToolPermissionResolver; signal?: AbortSignal } = {}
 ): ToolContext {
   const proxyUrl = settings.provider.proxy.enabled ? settings.provider.proxy.url.trim() : ''
   const workspaceRoot = options.workspaceRoot?.trim() || undefined
-  return { settings, proxyUrl, workspaceRoot, requestToolPermission: options.requestToolPermission }
+  return {
+    settings,
+    proxyUrl,
+    workspaceRoot,
+    requestToolPermission: options.requestToolPermission,
+    signal: options.signal
+  }
 }
 
 export function buildDefaultRegistry(

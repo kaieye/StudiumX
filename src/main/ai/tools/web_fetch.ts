@@ -1,5 +1,5 @@
 import { assertSafeFetchUrl, createDefaultSearchRuntime } from '../search-runtime'
-import type { ToolEntry } from './registry'
+import type { ToolCallContext, ToolContext, ToolEntry } from './registry'
 
 const searchRuntime = createDefaultSearchRuntime()
 
@@ -29,11 +29,11 @@ export const webFetchTool: ToolEntry = {
       }
     }
   },
-  handler: async (args: unknown, ctx): Promise<string> => {
+  handler: async (args: unknown, ctx: ToolContext, callCtx?: ToolCallContext): Promise<string> => {
     const { url } = (args ?? {}) as { url?: string }
     if (!url || !url.trim()) return JSON.stringify({ error: '缺少参数 url。' })
     try {
-      const envelope = await searchRuntime.fetch({ url: url.trim() }, ctx)
+      const envelope = await searchRuntime.fetch({ url: url.trim() }, toolContextWithSignal(ctx, callCtx))
       return JSON.stringify({
         ...envelope,
         url
@@ -42,4 +42,8 @@ export const webFetchTool: ToolEntry = {
       return JSON.stringify({ url, error: e instanceof Error ? e.message : String(e) })
     }
   }
+}
+
+function toolContextWithSignal(ctx: ToolContext, callCtx?: ToolCallContext): ToolContext {
+  return callCtx?.signal && callCtx.signal !== ctx.signal ? { ...ctx, signal: callCtx.signal } : ctx
 }

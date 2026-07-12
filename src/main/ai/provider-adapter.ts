@@ -7,6 +7,8 @@ import { toolsSupportedForFormat } from './provider-adapter/formats'
 import { buildChatRequest, buildRequest } from './provider-adapter/request-builder'
 import { extractText, extractToolCalls } from './provider-adapter/response-parser'
 import { readChatSseStream, readSseStream } from './provider-adapter/sse-parser'
+import { redactProviderErrorText } from '../../shared/provider-error'
+import { assertProviderRequestUrl } from '../../shared/provider-url-policy'
 
 export { toolsSupportedForFormat } from './provider-adapter/formats'
 export { adapterAuthHeaders } from './provider-adapter/request-builder'
@@ -118,6 +120,7 @@ export async function callProvider(opts: {
     request,
     stream: false
   })
+  assertProviderRequestUrl(url)
   callbacks?.onStatus?.('calling')
   let res: Response
   try {
@@ -131,7 +134,7 @@ export async function callProvider(opts: {
   }
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new ProviderAdapterError('http', `Provider 返回 ${res.status} ${res.statusText}${body ? `：${body.slice(0, 240)}` : ''}`)
+    throw new ProviderAdapterError('http', providerHttpErrorMessage(res, body))
   }
   let parsed: unknown
   try {
@@ -165,6 +168,7 @@ export async function streamProvider(opts: {
     request,
     stream: true
   })
+  assertProviderRequestUrl(url)
 
   callbacks.onStatus?.('calling')
   let res: Response
@@ -190,7 +194,7 @@ export async function streamProvider(opts: {
   }
   if (!res.ok || !res.body) {
     const body = await res.text().catch(() => '')
-    throw new ProviderAdapterError('http', `Provider 返回 ${res.status} ${res.statusText}${body ? `：${body.slice(0, 240)}` : ''}`)
+    throw new ProviderAdapterError('http', providerHttpErrorMessage(res, body))
   }
 
   callbacks.onStatus?.('streaming')
@@ -213,9 +217,14 @@ function composeAbortSignal(timeoutMs: number, signal?: AbortSignal): AbortSigna
 }
 
 function networkMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error)
+  const raw = redactProviderErrorText(error instanceof Error ? error.message : String(error))
   if (/aborted|timeout/i.test(raw)) return '请求超时。'
   return `网络错误：${raw}`
+}
+
+function providerHttpErrorMessage(res: Response, body: string): string {
+  const redactedBody = redactProviderErrorText(body).trim().slice(0, 240)
+  return redactProviderErrorText(`Provider 返回 ${res.status} ${res.statusText}${redactedBody ? `：${redactedBody}` : ''}`)
 }
 
 // ================================================================
@@ -254,6 +263,7 @@ export async function callChatProvider(opts: {
       stream: false,
       includeTools: withTools
     })
+    assertProviderRequestUrl(url)
     let res: Response
     try {
       res = await fetchWithOptionalProxy(
@@ -266,7 +276,7 @@ export async function callChatProvider(opts: {
     }
     if (!res.ok) {
       const body = await res.text().catch(() => '')
-      throw new ProviderAdapterError('http', `Provider 返回 ${res.status} ${res.statusText}${body ? `：${body.slice(0, 240)}` : ''}`)
+      throw new ProviderAdapterError('http', providerHttpErrorMessage(res, body))
     }
     try {
       return await res.json()
@@ -321,6 +331,7 @@ export async function streamChatProvider(opts: {
     stream: true,
     includeTools
   })
+  assertProviderRequestUrl(url)
   let res: Response
   try {
     res = await fetchWithOptionalProxy(
@@ -340,7 +351,7 @@ export async function streamChatProvider(opts: {
   }
   if (!res.ok || !res.body) {
     const body = await res.text().catch(() => '')
-    throw new ProviderAdapterError('http', `Provider 返回 ${res.status} ${res.statusText}${body ? `：${body.slice(0, 240)}` : ''}`)
+    throw new ProviderAdapterError('http', providerHttpErrorMessage(res, body))
   }
   callbacks.onStatus?.('streaming')
   const { text, toolCalls } = await readChatSseStream(res.body, format, (d) => callbacks.onToken?.(d))

@@ -17,7 +17,7 @@ import { TrayManager, setAppIsQuitting } from './tray'
 import { copyFirstExistingLegacyFileIfMissing, legacyUserDataCandidatePaths } from './app-data-migration'
 import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
-import { isPathInsideConfiguredRoot, isPathInsideRoot } from './path-access'
+import { isPathInsideConfiguredRoot, isRealPathInsideRoot } from './path-access'
 import { openExternalHttpUrl } from './external-links'
 import {
   ensurePreviewBaseTag,
@@ -302,10 +302,15 @@ function registerTeachingIpc(
     const target = resolve(String(rawPath ?? ''))
     const state = await service.getState()
     const settings = await settingsService.load()
-    const allowed =
-      state.workspaces.some((workspace) => isPathInsideRoot(workspace.rootPath, target)) ||
-      isPathInsideConfiguredRoot(settings.worktree.rootPath, target) ||
-      isPathInsideConfiguredRoot(settings.workspace.defaultRoot, target)
+    const lexicalAllowedRoots = [
+      ...state.workspaces.map((workspace) => workspace.rootPath),
+      settings.worktree.rootPath,
+      settings.workspace.defaultRoot
+    ].filter((rootPath) => isPathInsideConfiguredRoot(rootPath, target))
+    const allowed = (
+      lexicalAllowedRoots.length > 0 &&
+      (await Promise.all(lexicalAllowedRoots.map((rootPath) => isRealPathInsideRoot(rootPath, target)))).some(Boolean)
+    )
     if (!allowed) {
       return { ok: false, message: 'Path is outside registered teaching workspaces.' }
     }

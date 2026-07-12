@@ -6,6 +6,8 @@ import type {
 } from '../shared/teaching-types'
 import { fetchWithOptionalProxy } from './proxy-fetch'
 import { providerFormatAdapter, providerProbeHeaders } from '../shared/provider-format'
+import { validateProviderRequestUrl } from '../shared/provider-url-policy'
+import { redactProviderErrorText } from '../shared/provider-error'
 
 export { providerProbeHeaders } from '../shared/provider-format'
 
@@ -24,9 +26,8 @@ export async function probeModelProvider(
   fetcher: ProviderProbeFetch = fetchWithOptionalProxy
 ): Promise<ProbeProviderResult> {
   const baseUrl = request.baseUrl.trim()
-  if (!/^https?:\/\//i.test(baseUrl)) {
-    return { ok: false, message: 'Base URL 必须以 http:// 或 https:// 开头。' }
-  }
+  const policy = validateProviderRequestUrl(baseUrl)
+  if (!policy.ok) return { ok: false, message: policy.message }
   const format = providerFormatAdapter(request.endpointFormat)
   if (!format.probeSupported) {
     return {
@@ -54,7 +55,7 @@ export async function probeModelProvider(
     const message = providerProbeFailureMessage(e, url)
     if (
       proxyUrl &&
-      (await directProviderReachable(url, request.endpointFormat, request.apiKey, fetcher))
+      (await directProviderReachable(url, request.endpointFormat, fetcher))
     ) {
       return {
         ok: false,
@@ -99,7 +100,7 @@ export async function fetchUpstreamModels(
 }
 
 function providerProbeFailureMessage(error: unknown, url: string): string {
-  const raw = error instanceof Error ? error.message : String(error)
+  const raw = redactProviderErrorText(error instanceof Error ? error.message : String(error))
   if (/aborted|timeout/i.test(raw)) {
     return `连接超时（${PROBE_TIMEOUT_MS / 1000}s）。请检查 Base URL、网络或代理设置。`
   }
@@ -109,7 +110,6 @@ function providerProbeFailureMessage(error: unknown, url: string): string {
 async function directProviderReachable(
   url: string,
   endpointFormat: ModelEndpointFormat,
-  apiKey: string,
   fetcher: ProviderProbeFetch
 ): Promise<boolean> {
   try {
@@ -117,7 +117,7 @@ async function directProviderReachable(
       url,
       {
         method: 'GET',
-        headers: providerProbeHeaders(endpointFormat, apiKey),
+        headers: providerProbeHeaders(endpointFormat, ''),
         signal: AbortSignal.timeout(DIRECT_PROBE_TIMEOUT_MS)
       },
       ''
@@ -129,6 +129,6 @@ async function directProviderReachable(
 }
 
 function truncateBody(body: string): string {
-  const trimmed = body.trim().slice(0, 200)
+  const trimmed = redactProviderErrorText(body).trim().slice(0, 200)
   return trimmed ? `：${trimmed}` : ''
 }

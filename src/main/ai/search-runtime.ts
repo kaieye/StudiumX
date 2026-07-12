@@ -139,6 +139,7 @@ const SEARCH_TIMEOUT_MS = 15_000
 const FETCH_TIMEOUT_MS = 20_000
 const DEFAULT_MAX_FETCH_CHARS = 6000
 const DEFAULT_MAX_FETCH_BYTES = 192_000
+const TOOL_CANCELED_MESSAGE = '工具调用已取消。'
 const MAX_REDIRECTS = 3
 const FIRECRAWL_DEFAULT_API_URL = 'https://api.firecrawl.dev'
 const TAVILY_API_URL = 'https://api.tavily.com/search'
@@ -241,6 +242,7 @@ export class SearchRuntime {
   }
 
   async search(input: SearchInput, ctx: ToolContext): Promise<SearchResultEnvelope> {
+    throwIfToolCanceled(ctx.signal)
     const query = input.query.trim()
     const maxResults = Math.round(clampNumber(input.maxResults, 1, 20, defaultMaxResults(ctx)))
     const wechatUrl = normalizeWeChatArticleUrl(query)
@@ -257,6 +259,7 @@ export class SearchRuntime {
   }
 
   async fetch(input: FetchInput, ctx: ToolContext): Promise<FetchResultEnvelope> {
+    throwIfToolCanceled(ctx.signal)
     const url = input.url.trim()
     const wechatUrl = normalizeWeChatArticleUrl(url)
     if (wechatUrl) return this.fetchWeChatUrlText(wechatUrl, ctx)
@@ -264,9 +267,11 @@ export class SearchRuntime {
   }
 
   async searchMany(queries: string[], maxResults: number, ctx: ToolContext): Promise<SearchSource[]> {
+    throwIfToolCanceled(ctx.signal)
     const seen = new Set<string>()
     const results: SearchSource[] = []
     for (const query of queries) {
+      throwIfToolCanceled(ctx.signal)
       const batch = await this.search({ query, maxResults }, ctx)
       for (const result of batch.results) {
         const key = normalizeResultUrlKey(result.url)
@@ -308,6 +313,7 @@ export class SearchRuntime {
     let lastProvider: SearchProvider | undefined
 
     for (const provider of candidates) {
+      throwIfToolCanceled(ctx.signal)
       lastProvider = provider
       if (!provider.isAvailable(ctx)) {
         attempts.push({
@@ -339,6 +345,7 @@ export class SearchRuntime {
           }
         }
       } catch (e) {
+        if (ctx.signal?.aborted) throw e
         attempts.push({
           backend: provider.name,
           provider: provider.name,
@@ -403,6 +410,7 @@ export class SearchRuntime {
       metadata = extractWeChatMetadata(fetched.html)
       if (isWeChatAccessRestricted(fetched.html)) access = 'restricted'
     } catch (e) {
+      if (ctx.signal?.aborted) throw e
       fetchError = e instanceof Error ? e.message : String(e)
     }
 
@@ -441,6 +449,7 @@ export class SearchRuntime {
     const attempts: FetchAttempt[] = []
 
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      throwIfToolCanceled(ctx.signal)
       const startedAt = Date.now()
       const attempt: FetchAttempt = {
         url: current,
@@ -458,7 +467,7 @@ export class SearchRuntime {
               Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
             },
             redirect: 'manual',
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+            signal: withToolTimeoutSignal(ctx.signal, FETCH_TIMEOUT_MS)
           },
           ctx.proxyUrl
         )
@@ -546,6 +555,7 @@ export class SearchRuntime {
         ctx
       })
     } catch (e) {
+      if (ctx.signal?.aborted) throw e
       return this.buildRestrictedWeChatFetchPayload({
         targetUrl,
         resolvedUrl: targetUrl,
@@ -804,7 +814,7 @@ async function postJson(
         ...headers
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+      signal: withToolTimeoutSignal(ctx.signal, SEARCH_TIMEOUT_MS)
     },
     ctx.proxyUrl
   )
@@ -915,7 +925,7 @@ async function searchSearXng(query: string, maxResults: number, ctx: ToolContext
       headers: {
         Accept: 'application/json'
       },
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+      signal: withToolTimeoutSignal(ctx.signal, SEARCH_TIMEOUT_MS)
     },
     ctx.proxyUrl
   )
@@ -944,7 +954,7 @@ async function searchBrave(query: string, maxResults: number, ctx: ToolContext):
         Accept: 'application/json',
         'X-Subscription-Token': apiKey
       },
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+      signal: withToolTimeoutSignal(ctx.signal, SEARCH_TIMEOUT_MS)
     },
     ctx.proxyUrl
   )
@@ -1098,7 +1108,7 @@ async function searchDuckDuckGoLite(query: string, maxResults: number, ctx: Tool
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
         },
-        signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+        signal: withToolTimeoutSignal(ctx.signal, SEARCH_TIMEOUT_MS)
       },
       ctx.proxyUrl
     )
@@ -1110,21 +1120,23 @@ async function searchDuckDuckGoLite(query: string, maxResults: number, ctx: Tool
   try {
     html = await fetchOnce()
   } catch {
-    await sleep(800)
+    await sleep(800, ctx.signal)
     try {
       html = await fetchOnce()
-    } catch {
+    } catch (e) {
+      if (ctx.signal?.aborted) throw e
       return []
     }
   }
 
   const results = parseLiteResults(html)
   if (results.length === 0) {
-    await sleep(800)
+    await sleep(800, ctx.signal)
     try {
       html = await fetchOnce()
       return parseLiteResults(html).slice(0, maxResults)
-    } catch {
+    } catch (e) {
+      if (ctx.signal?.aborted) throw e
       return []
     }
   }
@@ -1316,6 +1328,22 @@ function clampNumber(input: unknown, min: number, max: number, fallback: number)
   return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+function withToolTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs)
+  return parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal
+}
+
+function throwIfToolCanceled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error(TOOL_CANCELED_MESSAGE)
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfToolCanceled(signal)
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(resolve, ms)
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timeout)
+      reject(new Error(TOOL_CANCELED_MESSAGE))
+    }, { once: true })
+  })
 }

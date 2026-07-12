@@ -168,7 +168,7 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
       workspaceWritePermission: 'allow_for_conversation',
       webSearch: true,
       webFetch: false,
-      maxIterations: 0
+      maxIterations: 8
     },
     webSearch: {
       backend: 'auto',
@@ -351,7 +351,7 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       ),
       webSearch: toolsInput.webSearch !== false,
       webFetch: toolsInput.webFetch === true,
-      maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 0, 60, defaults.tools.maxIterations))
+      maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 1, 60, defaults.tools.maxIterations))
     },
     webSearch: {
       backend: normalizeWebSearchBackend(webSearchInput.backend, defaults.webSearch.backend),
@@ -505,6 +505,6 @@ function isErrno(error: unknown): error is NodeJS.ErrnoException {
 async function atomicWriteFile(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
-  await writeFile(tempPath, content, 'utf8')
+  await writeFile(tempPath, content, { encoding: 'utf8', mode: 0o600 })
   await rename(tempPath, path)
 }

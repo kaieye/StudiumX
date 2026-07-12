@@ -220,7 +220,10 @@ export class DelegationRuntime {
         provider: this.provider,
         messages: buildChildMessages(normalized),
         tools: registry.definitions(),
-        toolHandlers: registry.handlerMap(buildToolContext(this.settings, { workspaceRoot: this.workspaceRoot })),
+        toolHandlers: registry.handlerMap(buildToolContext(this.settings, {
+          workspaceRoot: this.workspaceRoot,
+          signal: controllerSignal
+        })),
         maxIterations: normalized.maxIterations,
         maxIterationsBehavior: 'error',
         signal: controllerSignal,

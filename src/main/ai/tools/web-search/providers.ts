@@ -113,7 +113,7 @@ async function postJson(
         ...headers
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+      signal: withToolTimeoutSignal(ctx.signal, SEARCH_TIMEOUT_MS)
     },
     ctx.proxyUrl
   )
@@ -224,7 +224,7 @@ async function searchSearXng(query: string, maxResults: number, ctx: ToolContext
       headers: {
         Accept: 'application/json'
       },
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+      signal: withToolTimeoutSignal(ctx.signal, SEARCH_TIMEOUT_MS)
     },
     ctx.proxyUrl
   )
@@ -243,7 +243,7 @@ async function searchBrave(query: string, maxResults: number, ctx: ToolContext):
         Accept: 'application/json',
         'X-Subscription-Token': apiKey
       },
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+      signal: withToolTimeoutSignal(ctx.signal, SEARCH_TIMEOUT_MS)
     },
     ctx.proxyUrl
   )
@@ -258,6 +258,7 @@ async function searchBrave(query: string, maxResults: number, ctx: ToolContext):
  * empty result set so the agent loop never crashes.
  */
 async function searchDuckDuckGoLite(query: string, maxResults: number, ctx: ToolContext): Promise<SearchResult[]> {
+  throwIfToolCanceled(ctx.signal)
   const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}&kl=wt-wt`
   const fetchOnce = async (): Promise<string> => {
     const res = await fetchWithOptionalProxy(
@@ -269,7 +270,7 @@ async function searchDuckDuckGoLite(query: string, maxResults: number, ctx: Tool
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
         },
-        signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+        signal: withToolTimeoutSignal(ctx.signal, SEARCH_TIMEOUT_MS)
       },
       ctx.proxyUrl
     )
@@ -281,27 +282,45 @@ async function searchDuckDuckGoLite(query: string, maxResults: number, ctx: Tool
   try {
     html = await fetchOnce()
   } catch {
-    await sleep(800)
+    await sleep(800, ctx.signal)
     try {
       html = await fetchOnce()
-    } catch {
+    } catch (e) {
+      if (ctx.signal?.aborted) throw e
       return []
     }
   }
 
   const results = parseLiteResults(html)
   if (results.length === 0) {
-    await sleep(800)
+    await sleep(800, ctx.signal)
     try {
       html = await fetchOnce()
       return parseLiteResults(html).slice(0, maxResults)
-    } catch {
+    } catch (e) {
+      if (ctx.signal?.aborted) throw e
       return []
     }
   }
   return results.slice(0, maxResults)
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+function withToolTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs)
+  return parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal
+}
+
+function throwIfToolCanceled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error('工具调用已取消。')
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfToolCanceled(signal)
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(resolve, ms)
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timeout)
+      reject(new Error('工具调用已取消。'))
+    }, { once: true })
+  })
 }

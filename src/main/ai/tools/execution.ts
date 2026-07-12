@@ -8,6 +8,8 @@ export type ToolExecutionResult = {
   isError: boolean
 }
 
+const TOOL_CANCELED_MESSAGE = '工具调用已取消。'
+
 export async function executeToolCall(
   toolHandlers: ToolHandlerMap,
   call: ToolCall,
@@ -15,9 +17,11 @@ export async function executeToolCall(
 ): Promise<ToolExecutionResult> {
   const name = call.function.name
   try {
+    assertToolNotCanceled(callCtx)
     const handler = toolHandlers[name]
     if (!handler) throw new Error(`未知工具：${name}`)
     const content = await handler(parseToolArguments(call.function.arguments), callCtx)
+    assertToolNotCanceled(callCtx)
     return {
       toolCallId: call.id,
       name,
@@ -28,7 +32,7 @@ export async function executeToolCall(
     return {
       toolCallId: call.id,
       name,
-      content: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      content: JSON.stringify({ error: toolExecutionErrorMessage(error, callCtx) }),
       isError: true
     }
   }
@@ -41,6 +45,20 @@ export function parseToolArguments(raw: string): unknown {
   } catch {
     return {}
   }
+}
+
+function assertToolNotCanceled(callCtx?: ToolCallContext): void {
+  if (callCtx?.signal?.aborted) throw new Error(TOOL_CANCELED_MESSAGE)
+}
+
+function toolExecutionErrorMessage(error: unknown, callCtx?: ToolCallContext): string {
+  if (callCtx?.signal?.aborted || isAbortError(error)) return TOOL_CANCELED_MESSAGE
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return error.name === 'AbortError' || /aborted|abort|canceled|cancelled/i.test(error.message)
 }
 
 function toolContentLooksLikeError(content: string): boolean {

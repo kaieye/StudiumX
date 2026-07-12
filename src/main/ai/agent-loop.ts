@@ -77,7 +77,7 @@ export type RunAgentLoopResult = {
   error?: string
 }
 
-const DEFAULT_MAX_ITERATIONS = 0
+const DEFAULT_MAX_ITERATIONS = 8
 
 /**
  * Non-streaming tool-calling loop (v1). Each turn calls callChatProvider; if
@@ -300,7 +300,8 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       const toolResult = await executeToolCall(opts.toolHandlers, call, {
         toolCallId: call.id,
         toolName: call.function.name,
-        emit: (event) => emit(event)
+        emit: (event) => emit(event),
+        signal: opts.signal
       })
       if (isCanceled()) return canceledResult(true)
       transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })

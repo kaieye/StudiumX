@@ -58,4 +58,31 @@ const missing = await executeToolCall({}, toolCall('unknown_tool', '{}'))
 assert.equal(missing.isError, true)
 assert.match(missing.content, /未知工具：unknown_tool/)
 
+let handlerRan = false
+const aborted = new AbortController()
+aborted.abort()
+const canceledBeforeRun = await executeToolCall(
+  {
+    web_search: async () => {
+      handlerRan = true
+      return JSON.stringify({ ok: true })
+    }
+  },
+  toolCall('web_search', '{}'),
+  { toolCallId: 'call-web_search', toolName: 'web_search', signal: aborted.signal }
+)
+assert.equal(handlerRan, false, 'aborted tool calls should not invoke the handler')
+assert.equal(canceledBeforeRun.isError, true)
+assert.match(canceledBeforeRun.content, /工具调用已取消/)
+
+const observed = await executeToolCall(
+  {
+    web_fetch: async (_args, callCtx) => JSON.stringify({ signalForwarded: callCtx?.signal instanceof AbortSignal })
+  },
+  toolCall('web_fetch', '{}'),
+  { toolCallId: 'call-web_fetch', toolName: 'web_fetch', signal: new AbortController().signal }
+)
+assert.equal(observed.isError, false)
+assert.match(observed.content, /"signalForwarded":true/)
+
 console.log('tool execution rules ok')

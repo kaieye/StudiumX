@@ -15,6 +15,7 @@ type SearchResultLike = {
 }
 
 const MAX_WECHAT_REDIRECTS = 3
+const WECHAT_FETCH_TIMEOUT_MS = 20_000
 
 export const WECHAT_RESTRICTED_REASON =
   '微信公众平台限制了当前网络环境的直接访问，工具无法绕过微信登录/客户端环境抓取原文全文。'
@@ -50,6 +51,7 @@ export async function fetchWeChatArticleHtml(
 
   let current = normalized
   for (let hop = 0; hop <= MAX_WECHAT_REDIRECTS; hop += 1) {
+    throwIfToolCanceled(ctx.signal)
     const res = await fetchWithOptionalProxy(
       current,
       {
@@ -60,7 +62,7 @@ export async function fetchWeChatArticleHtml(
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
         },
         redirect: 'manual',
-        signal: AbortSignal.timeout(20_000)
+        signal: withToolTimeoutSignal(ctx.signal, WECHAT_FETCH_TIMEOUT_MS)
       },
       ctx.proxyUrl
     )
@@ -282,4 +284,13 @@ function pruneEmpty<T extends Record<string, string | undefined>>(input: T): T {
 
 function isGenericWeChatTitle(title: string): boolean {
   return /^(微信公众平台|微信公众平台安全保护|安全验证|Weixin Official Accounts Platform)$/i.test(title)
+}
+
+function withToolTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs)
+  return parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal
+}
+
+function throwIfToolCanceled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error('工具调用已取消。')
 }

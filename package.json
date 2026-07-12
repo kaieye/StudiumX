@@ -70,7 +70,10 @@
     "check:conversation-lesson-tool": "node scripts/check-conversation-lesson-tool.mjs",
     "check:workflow": "node scripts/check-teaching-workflow.mjs",
     "preview": "electron-vite preview",
-    "dist": "npm run build && electron-builder"
+    "dist": "pnpm run build && electron-builder",
+    "check:repository-hygiene": "node scripts/check-repository-hygiene.mjs",
+    "check:security": "node scripts/check-security.mjs",
+    "check:provider-privacy": "node scripts/check-provider-privacy.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -125,5 +128,6 @@
         "to": "builtin-skills"
       }
     ]
-  }
+  },
+  "packageManager": "pnpm@11.9.0"
 }

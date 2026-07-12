@@ -1,5 +1,5 @@
 import { createDefaultSearchRuntime, type SearchResult, type SearchSource } from '../search-runtime'
-import type { ToolEntry, ToolContext } from './registry'
+import type { ToolCallContext, ToolEntry, ToolContext } from './registry'
 
 const searchRuntime = createDefaultSearchRuntime()
 
@@ -39,12 +39,12 @@ export const webSearchTool: ToolEntry = {
       }
     }
   },
-  handler: async (args: unknown, ctx: ToolContext): Promise<string> => {
+  handler: async (args: unknown, ctx: ToolContext, callCtx?: ToolCallContext): Promise<string> => {
     const defaultMaxResults = Math.round(clampNumber(webSearchSettings(ctx).maxResults, 1, 20, 5))
     const { query, maxResults = defaultMaxResults } = (args ?? {}) as { query?: string; maxResults?: number }
     if (!query || !query.trim()) return JSON.stringify({ error: '缺少搜索关键词 query。' })
     const cappedMax = Math.round(clampNumber(maxResults, 1, 20, defaultMaxResults))
-    const envelope = await searchRuntime.search({ query: query.trim(), maxResults: cappedMax }, ctx)
+    const envelope = await searchRuntime.search({ query: query.trim(), maxResults: cappedMax }, toolContextWithSignal(ctx, callCtx))
     return JSON.stringify({
       ...envelope,
       query,
@@ -55,4 +55,8 @@ export const webSearchTool: ToolEntry = {
         : {})
     })
   }
+}
+
+function toolContextWithSignal(ctx: ToolContext, callCtx?: ToolCallContext): ToolContext {
+  return callCtx?.signal && callCtx.signal !== ctx.signal ? { ...ctx, signal: callCtx.signal } : ctx
 }

@@ -10,6 +10,16 @@ export type ProviderErrorInfo = {
   providerMessage?: string
 }
 
+export function redactProviderErrorText(value: string): string {
+  return value
+    .replace(/\b(Authorization\s*:\s*(?:Bearer|Basic)\s+)[^\s,;{}"']+/gi, '$1[redacted]')
+    .replace(/\b((?:x-api-key|api-key|apikey|api_key)\s*[:=]\s*)["']?[^"'\s,;&}]+["']?/gi, '$1[redacted]')
+    .replace(/(["'](?:api[_-]?key|authorization|x-api-key|access_token|secret|token)["']\s*:\s*["'])[^"']+(["'])/gi, '$1[redacted]$2')
+    .replace(/\b((?:api[_-]?key|access_token|token|key)=)[^&\s]+/gi, '$1[redacted]')
+    .replace(/(https?:\/\/)([^\/\s:@]+):([^\/\s@]+)@/gi, '$1[redacted]@')
+    .replace(/\bsk-[A-Za-z0-9][A-Za-z0-9._-]{12,}\b/g, '[redacted]')
+}
+
 export function classifyProviderError(value: unknown): ProviderErrorInfo | null {
   const raw = String(value ?? '').trim()
   if (!raw) return null

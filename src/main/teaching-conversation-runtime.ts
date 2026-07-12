@@ -143,6 +143,7 @@ export async function runTeachingConversationTurn(
 
   const ctx = buildToolContext(settings, {
     workspaceRoot,
+    signal: stream.signal,
     requestToolPermission: async (request) => {
       const argumentsJson = JSON.stringify(request)
       stream.onTool({
