@@ -30,6 +30,7 @@ assert.equal(await exists('package-lock.json'), false, 'package-lock.json should
 const workspace = await readFile('pnpm-workspace.yaml', 'utf8')
 assert.doesNotMatch(workspace, /set this to true or false/, 'pnpm allowBuilds placeholders must be resolved')
 assert.match(workspace, /'@swc\/core': true/)
+assert.match(workspace, /^\s{2}electron: true$/m)
 assert.match(workspace, /electron-winstaller: true/)
 assert.match(workspace, /esbuild: true/)
 
