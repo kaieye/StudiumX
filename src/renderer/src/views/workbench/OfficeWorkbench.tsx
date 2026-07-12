@@ -280,8 +280,6 @@ function drawScene(
   reducedMotion: boolean
 ): void {
   ctx.clearRect(0, 0, officeWidth, officeHeight)
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, officeWidth, officeHeight)
 
   ctx.save()
   ctx.translate(stageShift.x, stageShift.y)
