@@ -95,78 +95,74 @@ pnpm check:security
 
 这相当于 StudiumX 的轻量 `doctor --security` 前身。
 
-## 保留但尚未迁移的 Codex 借鉴方向
+### 7. Lightweight doctor / redacted diagnostics
 
-### P1：轻量 diagnostics / doctor
-
-建议新增：
+Codex 的日志导出和 redaction 机制对 StudiumX 有价值，但不迁移 repo snapshot 上传或高权限环境采集。已新增本地只读诊断快照：
 
 ```bash
 pnpm doctor -- --json --redacted
 ```
 
-或 UI 中“复制诊断快照”。第一版只需要聚合：
+当前实现：
 
-- app/package version；
-- package manager / lockfile policy；
-- root pollution；
-- security checks coverage；
-- provider URL policy / redaction policy；
-- settings storage mode；
-- log path / retention；
-- connector statuses；
-- workspace path policy。
+- `scripts/doctor.mjs` 输出 app/package version、runtime、package manager / lockfile policy、root pollution、settings storage mode、log path / retention、workspace path policy、security checks coverage。
+- 默认 redacted：home path、secret-shaped keys、Bearer token、URL userinfo、敏感 query 参数都会脱敏。
+- 不包含 workspace 内容，不打包日志正文，不上传任何诊断。
+- `scripts/security-checks.mjs` 作为 `check:security` 与 `doctor` 的共享检查清单。
+- `check:doctor` 覆盖 JSON snapshot 不泄漏 provider/search/proxy secret。
 
-### P1：Agent event bus + activity timeline
+仍未完成：UI 中“复制诊断快照”、connector statuses 的 doctor 汇总、doctor reconcile。
+
+### 8. Agent process event semantics
+
+Codex 的 activity timeline 值得迁移，但 StudiumX 不展示 chain-of-thought，只展示可审计过程事件。已完成第一步：
+
+- `AgentChatProcessEvent.kind` 已扩展为一等 lifecycle：`permission_request` / `permission_resolved`、`elicitation_request` / `elicitation_resolved`、`child_run_*`、`compaction`。
+- renderer process panel 不再只能用 `tool_permission` / `ask` 名称表达审批和用户选择；这些事件有稳定 kind、图标和可展开详情。
+- `teaching-agent-conversations` 保存/读取时保留完整 process event kind，不再把非 tool event 压回 `status`。
+- `check:agent-conversation-state`、`check:agent-process-timeline`、`check:agent-conversation-audit-metadata` 覆盖当前会话投影、timeline 去重和保存后读取。
+
+仍未完成：main-side `agent-event-bus.ts`、recent replay、terminal event、batch byte budget、gap/snapshot invalidation。当前仍是 `agentChatChunk` / `agentChatStatus` / `agentChatTool` 三条 stream channel，加 renderer fallback projection。
+
+### 9. Learning Work Ledger
+
+Codex 的 thread/job index 已迁移为 StudiumX 语言下的 **Learning Work Ledger**，不叫 generic task index：
+
+```text
+.studiumx/learning-work.jsonl
+```
+
+当前实现：
+
+- `src/main/learning-work-ledger.ts` 在保存 agent conversation 时写入 workspace-local append-only JSONL。
+- ledger entry 只引用现有 truth：conversation markdown、materialized conversation JSON、`.agent-sessions` audit log。
+- entry 汇总 learning work status、conversation/course pointer、sources、child runs、compactions、tool-result artifact archive、generated lesson artifact、permission decisions。
+- 同一 conversation snapshot 去重；对话继续后追加新 snapshot。
+- 原始事实仍在 workspace markdown / lesson HTML / JSONL / audit log 中，ledger 只是恢复和查询索引。
+
+仍未完成：跨 workspace/appData derived cache、ledger reconcile、UI 查询入口。
+
+## 保留但尚未迁移的 Codex 借鉴方向
+
+### P1：Agent event bus replay
 
 当前 `runAgentLoop -> teaching-conversation-runtime -> UI stream` 还能工作，但后续需要：
 
 - recent event replay；
 - terminal event；
-- permission / ask immediate delivery；
+- permission / ask immediate delivery 从 main-side typed event 发出；
 - batch byte budget；
 - gap/snapshot invalidation；
-- child run timeline 合并。
+- child run nested timeline 合并。
 
-建议新增 `src/main/ai/agent-event-bus.ts`，UI 展示“活动记录/执行过程”，不要展示 chain-of-thought。
+建议新增 `src/main/ai/agent-event-bus.ts`。现有 process panel 和 process event kind 已经是迁移基础，不需要重建 timeline UI。
 
-### P1：Permission / elicitation 一等事件
+### P2：双轨持久化 / appData derived cache
 
-当前 permission/ask 仍偏工具事件。建议演进成明确 lifecycle：
-
-```ts
-type AgentChatProcessEvent =
-  | { kind: 'status' }
-  | { kind: 'tool_call' }
-  | { kind: 'tool_result' }
-  | { kind: 'permission_request' }
-  | { kind: 'permission_resolved' }
-  | { kind: 'elicitation_request' }
-  | { kind: 'elicitation_resolved' }
-  | { kind: 'child_run_started' }
-  | { kind: 'child_run_completed' }
-  | { kind: 'compaction' }
-```
-
-UI 不应靠 tool name 判断“这是不是审批”。
-
-### P1/P2：Durable learning task index
-
-借鉴 Codex 的 thread/job index，但 StudiumX 要用学习语言：
-
-```text
-.studiumx/tasks.jsonl
-或 appData SQLite task index
-```
-
-记录 learning task、conversation、course/session、child runs、sources、artifacts、permission decisions、error/retry path。目标是回答“这节课如何生成、读过哪些资料、为什么写入学习记录”。
-
-### P2：双轨持久化
-
-保留这个方向，但不要过早把 workspace truth 搬进 DB：
+Learning Work Ledger 已落在 workspace；后续如果需要快查或跨 workspace 汇总，再增加 appData derived cache：
 
 - 原始事实：workspace markdown / lesson HTML / JSONL；
-- 查询索引：SQLite 或 appData index；
+- 查询索引：`.studiumx/learning-work.jsonl` + SQLite 或 appData index；
 - 一致性：doctor reconcile。
 
 ### P2/P3：Learning Pack / Skill manifest
@@ -210,7 +206,11 @@ pnpm build
 
 ```bash
 pnpm check:repository-hygiene
+pnpm check:doctor
 pnpm check:provider-privacy
 pnpm check:provider-errors
 pnpm check:path-access
+pnpm check:agent-conversation-state
+pnpm check:agent-process-timeline
+pnpm check:agent-conversation-audit-metadata
 ```

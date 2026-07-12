@@ -540,7 +540,7 @@ function createAgentStatusProcessEvent(
   const copy = agentProcessStatusCopy(status, message)
   return {
     id: createAgentProcessEventId('status'),
-    kind: 'status',
+    kind: copy.kind ?? 'status',
     status,
     title: copy.title,
     detail: copy.detail,
@@ -554,10 +554,25 @@ function createAgentToolCallProcessEvent(event: AgentChatStreamToolEvent): Agent
     const request = event.permissionRequest ?? parsePermissionArguments(event.toolCall.arguments)
     return {
       id: createAgentProcessEventId('permission-request'),
-      kind: 'tool_call',
+      kind: 'permission_request',
       title: '等待写入审批',
       detail: request
         ? `${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}`
+        : compactText(prettyJson(event.toolCall.arguments), 180),
+      toolCallId: event.toolCall.id,
+      toolName: name,
+      createdAt: new Date().toISOString()
+    }
+  }
+  if (name === 'ask') {
+    const questions = parseAskArguments(event.toolCall.arguments)
+    const firstQuestion = questions?.[0]?.prompt
+    return {
+      id: createAgentProcessEventId('elicitation-request'),
+      kind: 'elicitation_request',
+      title: '等待用户选择',
+      detail: firstQuestion
+        ? compactText(firstQuestion, 180)
         : compactText(prettyJson(event.toolCall.arguments), 180),
       toolCallId: event.toolCall.id,
       toolName: name,
@@ -580,8 +595,20 @@ function createAgentToolResultProcessEvent(event: AgentChatStreamToolEvent): Age
   if (name === TOOL_PERMISSION_NAME) {
     return {
       id: createAgentProcessEventId('permission-result'),
-      kind: 'tool_result',
+      kind: 'permission_resolved',
       title: event.isError ? '写入审批已拒绝' : '写入审批已允许',
+      detail: compactText(prettyJson(event.result ?? ''), 180),
+      toolCallId: event.toolCall.id,
+      toolName: name,
+      isError: event.isError,
+      createdAt: new Date().toISOString()
+    }
+  }
+  if (name === 'ask') {
+    return {
+      id: createAgentProcessEventId('elicitation-result'),
+      kind: 'elicitation_resolved',
+      title: event.isError ? '用户选择处理失败' : '用户选择已提交',
       detail: compactText(prettyJson(event.result ?? ''), 180),
       toolCallId: event.toolCall.id,
       toolName: name,
@@ -617,7 +644,7 @@ function agentProcessStatusTitle(status: AgentChatStreamStatus['status']): strin
 function agentProcessStatusCopy(
   status: AgentChatStreamStatus['status'],
   message?: string
-): { title: string; detail?: string } {
+): { kind?: AgentChatProcessEvent['kind']; title: string; detail?: string } {
   const trimmed = message?.trim()
   if (trimmed) {
     const lessonPrefix = '正在生成课程：'
@@ -628,17 +655,32 @@ function agentProcessStatusCopy(
         .trim()
       return { title: `generate_lesson：${phase || '生成课程'}`, detail: '课程生成工具' }
     }
-    const childPrefixes: Array<[string, string]> = [
-      ['子任务排队：', '子任务排队'],
-      ['子任务开始：', '子任务运行'],
-      ['子任务进度：', '子任务进度'],
-      ['子任务完成：', '子任务完成'],
-      ['子任务失败：', '子任务失败'],
-      ['子任务取消：', '子任务取消']
+    const childPrefixes: Array<[string, AgentChatProcessEvent['kind'], string]> = [
+      ['子任务排队：', 'child_run_queued', '子任务排队'],
+      ['子任务开始：', 'child_run_started', '子任务运行'],
+      ['子任务进度：', 'child_run_delta', '子任务进度'],
+      ['子任务完成：', 'child_run_completed', '子任务完成'],
+      ['子任务失败：', 'child_run_failed', '子任务失败'],
+      ['子任务取消：', 'child_run_canceled', '子任务取消']
     ]
-    for (const [prefix, title] of childPrefixes) {
+    for (const [prefix, kind, title] of childPrefixes) {
       if (trimmed.startsWith(prefix)) {
         return {
+          kind,
+          title,
+          detail: compactText(trimmed.slice(prefix.length), 180)
+        }
+      }
+    }
+    const compactionPrefixes: Array<[string, string]> = [
+      ['上下文压缩开始：', '上下文压缩开始'],
+      ['上下文压缩完成：', '上下文压缩完成'],
+      ['上下文压缩失败，已保留原始历史：', '上下文压缩失败']
+    ]
+    for (const [prefix, title] of compactionPrefixes) {
+      if (trimmed.startsWith(prefix)) {
+        return {
+          kind: 'compaction',
           title,
           detail: compactText(trimmed.slice(prefix.length), 180)
         }

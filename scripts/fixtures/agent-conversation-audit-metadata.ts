@@ -19,6 +19,7 @@ import {
   readAgentConversationRecord,
   writeAgentConversationRecord
 } from '../../src/main/teaching-agent-conversations'
+import { LEARNING_WORK_LEDGER_RELATIVE_PATH } from '../../src/main/learning-work-ledger'
 import type { AgentChatTurn, AgentConversationRecord } from '../../src/shared/teaching-types'
 
 const largeToolResult = `${'line\n'.repeat(45)}${'x'.repeat(2100)}`
@@ -170,11 +171,92 @@ const turns: AgentChatTurn[] = [
     content: 'Final answer.',
     toolCalls: [
       {
+        id: 'permission-1',
+        name: 'tool_permission',
+        arguments: JSON.stringify({
+          id: 'permission-1',
+          kind: 'workspace_write',
+          toolName: 'generate_lesson',
+          operation: '生成课程资产',
+          targetPath: 'lessons/retrieval-practice.html',
+          creates: true
+        }),
+        result: '{"decision":"allow"}',
+        isError: false
+      },
+      {
+        id: 'tool-generate-lesson',
+        name: 'generate_lesson',
+        arguments: '{"topic":"Retrieval practice"}',
+        result: JSON.stringify({
+          ok: true,
+          lessonId: 'lesson-1',
+          title: 'Retrieval practice',
+          path: 'lessons/retrieval-practice.html'
+        }),
+        isError: false
+      },
+      {
         id: 'tool-large',
         name: 'read_workspace_file',
         arguments: '{"path":"big.md"}',
         result: largeToolResult,
         isError: false
+      }
+    ],
+    processEvents: [
+      {
+        id: 'permission-request',
+        kind: 'permission_request',
+        title: '等待写入审批',
+        toolCallId: 'permission-1',
+        toolName: 'tool_permission',
+        createdAt: '2026-07-09T00:00:02.100Z'
+      },
+      {
+        id: 'permission-resolved',
+        kind: 'permission_resolved',
+        title: '写入审批已允许',
+        toolCallId: 'permission-1',
+        toolName: 'tool_permission',
+        createdAt: '2026-07-09T00:00:02.150Z'
+      },
+      {
+        id: 'ask-request',
+        kind: 'elicitation_request',
+        title: '等待用户选择',
+        toolCallId: 'ask-1',
+        toolName: 'ask',
+        createdAt: '2026-07-09T00:00:02.200Z'
+      },
+      {
+        id: 'ask-resolved',
+        kind: 'elicitation_resolved',
+        title: '用户选择已提交',
+        toolCallId: 'ask-1',
+        toolName: 'ask',
+        createdAt: '2026-07-09T00:00:02.250Z'
+      },
+      {
+        id: 'status-tool-running',
+        kind: 'status',
+        status: 'tool_running',
+        title: '准备调用外部工具',
+        createdAt: '2026-07-09T00:00:02.275Z'
+      },
+      {
+        id: 'child-delta',
+        kind: 'child_run_delta',
+        title: '子任务进度',
+        detail: 'child-1：reading',
+        createdAt: '2026-07-09T00:00:02.300Z'
+      },
+      {
+        id: 'compaction',
+        kind: 'compaction',
+        title: '上下文压缩完成',
+        detail: '约节省 120 token',
+        createdAt: '2026-07-09T00:00:02.400Z'
       }
     ],
     createdAt: '2026-07-09T00:00:02.000Z'
@@ -215,9 +297,35 @@ try {
   assert.equal(loadedMetadata?.childRuns?.some((child) => child.childRunId === 'child-2'), true)
   assert.equal(loadedMetadata?.compactions?.some((compaction) => compaction.sourceDigest === 'ctx_done'), true)
   assert.equal(loadedMetadata?.toolResults?.some((tool) => tool.toolCallId === 'tool-large'), true)
+  assert.deepEqual(
+    loaded.turns.at(-1)?.processEvents?.map((event) => event.kind),
+    ['permission_request', 'permission_resolved', 'elicitation_request', 'elicitation_resolved', 'status', 'child_run_delta', 'compaction'],
+    'saved conversations must preserve first-class process event kinds'
+  )
   const archivedDiagnostic = loadedMetadata?.toolResults?.find((tool) => tool.toolCallId === 'tool-large')
   assert.equal(archivedDiagnostic?.archive?.kind, 'tool_result')
-  assert.equal(loaded.turns.at(-1)?.toolCalls?.[0]?.result, largeToolResult)
+  assert.equal(loaded.turns.at(-1)?.toolCalls?.find((tool) => tool.id === 'tool-large')?.result, largeToolResult)
+
+  const ledgerPath = join(tempRoot, LEARNING_WORK_LEDGER_RELATIVE_PATH)
+  let ledgerLines = parseJsonl(await readFile(ledgerPath, 'utf8'))
+  assert.equal(ledgerLines.length, 1)
+  assert.equal(ledgerLines[0]?.type, 'conversation_snapshot')
+  assert.equal(ledgerLines[0]?.status, 'completed')
+  assert.equal(ledgerLines[0]?.conversation?.sessionAuditRelativePath, agentConversationSessionAuditRelativePathForMarkdown(record.relativePath))
+  assert.equal(ledgerLines[0]?.evidence?.sources?.some((source: { sourceId?: string }) => source.sourceId === 'src-search-1'), true)
+  assert.equal(ledgerLines[0]?.evidence?.childRuns?.some((child: { childRunId?: string }) => child.childRunId === 'child-2'), true)
+  assert.equal(
+    ledgerLines[0]?.evidence?.permissionDecisions?.some((decision: { decision?: string; targetPath?: string }) =>
+      decision.decision === 'allow' && decision.targetPath === 'lessons/retrieval-practice.html'
+    ),
+    true
+  )
+  assert.equal(
+    ledgerLines[0]?.evidence?.artifacts?.some((artifact: { relativePath?: string }) =>
+      artifact.relativePath === 'lessons/retrieval-practice.html'
+    ),
+    true
+  )
 
   const markdown = await readFile(join(tempRoot, record.relativePath), 'utf8')
   assert.match(markdown, /Sources:/)
@@ -239,6 +347,8 @@ try {
   assert.equal(auditLines.some((line) => line.type === 'tool_call'), true)
 
   await writeAgentConversationRecord(workspace, record)
+  ledgerLines = parseJsonl(await readFile(ledgerPath, 'utf8'))
+  assert.equal(ledgerLines.length, 1, 'learning work ledger should skip duplicate conversation snapshots')
   const auditLinesAfterRepeatWrite = parseAgentConversationSessionAuditLines(await readFile(auditPath, 'utf8'))
   assert.equal(
     auditLinesAfterRepeatWrite.length,
@@ -257,6 +367,8 @@ try {
     ]
   }
   await writeAgentConversationRecord(workspace, continuedRecord)
+  ledgerLines = parseJsonl(await readFile(ledgerPath, 'utf8'))
+  assert.equal(ledgerLines.length, 2, 'learning work ledger should append a new snapshot after continuation')
   const auditLinesAfterContinuation = parseAgentConversationSessionAuditLines(await readFile(auditPath, 'utf8'))
   assert.equal(
     auditLinesAfterContinuation.filter((line) => line.type === 'turn').length,
@@ -303,4 +415,11 @@ try {
   console.log('agent conversation audit metadata ok')
 } finally {
   if (tempRoot) await rm(tempRoot, { recursive: true, force: true })
+}
+
+function parseJsonl(content: string): Array<Record<string, any>> {
+  return content
+    .split(/\r?\n/)
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line))
 }

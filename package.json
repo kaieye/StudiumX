@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
+    "doctor": "node scripts/doctor.mjs",
+    "check:doctor": "node scripts/check-doctor.mjs",
     "check:path-access": "node scripts/check-path-access.mjs",
     "check:agent-conversation-catalog": "node scripts/check-agent-conversation-catalog.mjs",
     "check:agent-conversation-state": "node scripts/check-agent-conversation-state.mjs",

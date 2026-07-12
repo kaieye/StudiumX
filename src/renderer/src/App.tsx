@@ -3314,11 +3314,11 @@ function AgentProcessToolDetail({
   toolCall?: NonNullable<AgentChatTurn['toolCalls']>[number]
 }) {
   const [open, setOpen] = useState(false)
-  if (event.kind !== 'tool_call' && event.kind !== 'tool_result') return null
+  if (!isToolBackedProcessEvent(event)) return null
 
   const argsPretty = toolCall?.arguments ? prettyJson(toolCall.arguments) : ''
-  const hasResult = event.kind === 'tool_result' && (toolCall?.result !== undefined || Boolean(event.detail))
-  const resultPretty = toolCall?.result !== undefined ? prettyJson(toolCall.result ?? '') : (event.kind === 'tool_result' ? event.detail ?? '' : '')
+  const hasResult = isToolBackedResultEvent(event) && (toolCall?.result !== undefined || Boolean(event.detail))
+  const resultPretty = toolCall?.result !== undefined ? prettyJson(toolCall.result ?? '') : (isToolBackedResultEvent(event) ? event.detail ?? '' : '')
   const hasExpandableDetail = Boolean(argsPretty || resultPretty)
   if (!hasExpandableDetail) return null
 
@@ -3330,7 +3330,7 @@ function AgentProcessToolDetail({
         type="button"
         onClick={() => setOpen((current) => !current)}
       >
-        <span>{hasResult ? '查看工具结果' : '查看工具参数'}</span>
+        <span>{toolBackedDetailLabel(event, hasResult)}</span>
         <ChevronDown className={open ? 'is-open' : ''} size={12} />
       </button>
       {open && (
@@ -3353,6 +3353,29 @@ function AgentProcessToolDetail({
   )
 }
 
+function isToolBackedProcessEvent(event: AgentChatProcessEvent): boolean {
+  return event.kind === 'tool_call' ||
+    event.kind === 'tool_result' ||
+    event.kind === 'permission_request' ||
+    event.kind === 'permission_resolved' ||
+    event.kind === 'elicitation_request' ||
+    event.kind === 'elicitation_resolved'
+}
+
+function isToolBackedResultEvent(event: AgentChatProcessEvent): boolean {
+  return event.kind === 'tool_result' ||
+    event.kind === 'permission_resolved' ||
+    event.kind === 'elicitation_resolved'
+}
+
+function toolBackedDetailLabel(event: AgentChatProcessEvent, hasResult: boolean): string {
+  if (event.kind === 'permission_request') return '查看审批请求'
+  if (event.kind === 'permission_resolved') return '查看审批结果'
+  if (event.kind === 'elicitation_request') return '查看问题参数'
+  if (event.kind === 'elicitation_resolved') return '查看用户回答'
+  return hasResult ? '查看工具结果' : '查看工具参数'
+}
+
 function AgentProcessIcon({
   event,
   active
@@ -3362,6 +3385,12 @@ function AgentProcessIcon({
 }) {
   if (event.isError || event.status === 'error') return <AlertCircle size={13} />
   if (active) return <Loader2 className="spin" size={13} />
+  if (event.kind === 'permission_request') return <Bell size={13} />
+  if (event.kind === 'permission_resolved') return <CheckCircle2 size={13} />
+  if (event.kind === 'elicitation_request') return <MessageSquare size={13} />
+  if (event.kind === 'elicitation_resolved') return <CheckCircle2 size={13} />
+  if (event.kind.startsWith('child_run_')) return <GitFork size={13} />
+  if (event.kind === 'compaction') return <Archive size={13} />
   if (event.kind === 'tool_call') return <Search size={13} />
   if (event.kind === 'tool_result') return <CheckCircle2 size={13} />
   if (event.status === 'done') return <CheckCircle2 size={13} />

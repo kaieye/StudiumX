@@ -23,6 +23,7 @@ import {
   appendAgentConversationSessionAuditLog,
   hydrateAgentConversationArtifacts
 } from './agent-conversation-session-audit'
+import { appendLearningWorkLedgerSnapshot } from './learning-work-ledger'
 import type {
   AgentArtifactRef,
   AgentChildRunMetadata,
@@ -128,6 +129,11 @@ export async function writeAgentConversationRecord(
     renderAgentConversationMarkdown(workspace, persistedRecord)
   )
   await appendAgentConversationSessionAuditLog({ rootPath: workspace.rootPath, record: persistedRecord })
+  await appendLearningWorkLedgerSnapshot({
+    rootPath: workspace.rootPath,
+    workspace,
+    record: persistedRecord
+  })
 }
 
 export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[] {
@@ -155,8 +161,7 @@ export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[]
       ? record.processEvents
           .filter((event): event is Record<string, unknown> => Boolean(event) && typeof event === 'object')
           .map((event, eventIndex): AgentChatProcessEvent => {
-            const kind: AgentChatProcessEvent['kind'] =
-              event.kind === 'tool_call' || event.kind === 'tool_result' ? event.kind : 'status'
+            const kind = normalizeAgentProcessEventKind(event.kind)
             return {
               id: typeof event.id === 'string' && event.id ? event.id : `event-${index}-${eventIndex}`,
               kind,
@@ -182,6 +187,28 @@ export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[]
     })
   }
   return normalized
+}
+
+function normalizeAgentProcessEventKind(value: unknown): AgentChatProcessEvent['kind'] {
+  switch (value) {
+    case 'status':
+    case 'tool_call':
+    case 'tool_result':
+    case 'permission_request':
+    case 'permission_resolved':
+    case 'elicitation_request':
+    case 'elicitation_resolved':
+    case 'child_run_queued':
+    case 'child_run_started':
+    case 'child_run_delta':
+    case 'child_run_completed':
+    case 'child_run_failed':
+    case 'child_run_canceled':
+    case 'compaction':
+      return value
+    default:
+      return 'status'
+  }
 }
 
 export function deriveConversationTitle(turns: AgentChatTurn[], timestamp: string): string {

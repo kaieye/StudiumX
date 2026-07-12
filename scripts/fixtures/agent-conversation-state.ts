@@ -110,6 +110,7 @@ patch = applyAgentChatToolEventToPending({
 })
 assert.ok(patch)
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '等待写入审批')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'permission_request')
 assert.equal(
   selectPendingToolPermission(patch.agentTurns!, draft.pendingConversationId)?.request.targetPath,
   'learning-records/0001-note.md'
@@ -131,6 +132,7 @@ patch = applyAgentChatToolEventToPending({
 })
 assert.ok(patch)
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '写入审批已允许')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'permission_resolved')
 assert.equal(selectPendingToolPermission(patch.agentTurns!, draft.pendingConversationId), null)
 pending = patch.pendingAgentConversation!
 
@@ -214,6 +216,49 @@ assert.equal(
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'tool_result')
 pending = patch.pendingAgentConversation!
 
+patch = applyAgentChatToolEventToPending({
+  pending,
+  activeConversationId: draft.pendingConversationId,
+  assistantId: draft.assistantId,
+  event: {
+    streamId: draft.pendingConversationId,
+    toolCall: {
+      id: 'ask-1',
+      name: 'ask',
+      arguments: JSON.stringify({
+        questions: [
+          {
+            question: '这节课优先练哪一种题？',
+            options: [{ label: '概念题' }, { label: '应用题' }]
+          }
+        ]
+      })
+    }
+  },
+  updatedAt: '2026-01-02T00:00:04.050Z'
+})
+assert.ok(patch)
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'elicitation_request')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '等待用户选择')
+pending = patch.pendingAgentConversation!
+
+patch = applyAgentChatToolEventToPending({
+  pending,
+  activeConversationId: draft.pendingConversationId,
+  assistantId: draft.assistantId,
+  event: {
+    streamId: draft.pendingConversationId,
+    toolCall: { id: 'ask-1', name: 'ask', arguments: '' },
+    result: '用户选择：「概念题」',
+    isError: false
+  },
+  updatedAt: '2026-01-02T00:00:04.075Z'
+})
+assert.ok(patch)
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'elicitation_resolved')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '用户选择已提交')
+pending = patch.pendingAgentConversation!
+
 patch = applyAgentChatStatusToPending({
   pending,
   activeConversationId: draft.pendingConversationId,
@@ -223,6 +268,7 @@ patch = applyAgentChatStatusToPending({
 })
 assert.ok(patch)
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '子任务排队')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'child_run_queued')
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.detail, '检查 resources')
 pending = patch.pendingAgentConversation!
 
@@ -235,7 +281,20 @@ patch = applyAgentChatStatusToPending({
 })
 assert.ok(patch)
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '子任务进度')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'child_run_delta')
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.detail, 'child-1：thinking')
+pending = patch.pendingAgentConversation!
+
+patch = applyAgentChatStatusToPending({
+  pending,
+  activeConversationId: draft.pendingConversationId,
+  assistantId: draft.assistantId,
+  status: { streamId: draft.pendingConversationId, status: 'thinking', message: '上下文压缩完成：约节省 120 token' },
+  updatedAt: '2026-01-02T00:00:04.750Z'
+})
+assert.ok(patch)
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'compaction')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '上下文压缩完成')
 pending = patch.pendingAgentConversation!
 
 assert.equal(

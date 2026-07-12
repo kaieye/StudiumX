@@ -131,7 +131,21 @@ export type AgentTurnMetadata = {
 
 export type AgentChatProcessEvent = {
   id: string
-  kind: 'status' | 'tool_call' | 'tool_result'
+  kind:
+    | 'status'
+    | 'tool_call'
+    | 'tool_result'
+    | 'permission_request'
+    | 'permission_resolved'
+    | 'elicitation_request'
+    | 'elicitation_resolved'
+    | 'child_run_queued'
+    | 'child_run_started'
+    | 'child_run_delta'
+    | 'child_run_completed'
+    | 'child_run_failed'
+    | 'child_run_canceled'
+    | 'compaction'
   title: string
   detail?: string
   status?: AgentLoopStatus
