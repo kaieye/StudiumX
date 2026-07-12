@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "learning-assessor",
+  "version": "1.0.0",
+  "capabilities": [],
+  "resources": [
+    { "path": "SKILL.md", "kind": "instructions" }
+  ]
+}

@@ -1,7 +1,8 @@
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 
-import type { InstalledSkillReference } from '../../../shared/teaching-types'
+import { skillPackManifestSchema } from '../../../shared/teaching-types'
+import type { InstalledSkillReference, SkillPackManifest } from '../../../shared/teaching-types'
 import { isPathInsideRoot } from '../../path-access'
 import type { ToolEntry } from './registry'
 
@@ -15,17 +16,24 @@ type SkillResourceRoot = {
   name: string
   root: string
   sharedRoot?: string
+  manifest?: SkillPackManifest
+  manifestInvalid?: boolean
 }
 
 export function createReadSkillResourceTool(skillReferences: InstalledSkillReference[]): ToolEntry | null {
   const roots = skillReferences
     .map((reference): SkillResourceRoot | null => {
       if (!reference.source || basename(reference.source) !== 'SKILL.md') return null
+      const parsedManifest = reference.manifest
+        ? skillPackManifestSchema.safeParse(reference.manifest)
+        : null
       return {
         id: reference.id,
         name: reference.name,
         root: dirname(reference.source),
-        sharedRoot: reference.sharedRoot
+        sharedRoot: reference.sharedRoot,
+        ...(parsedManifest?.success ? { manifest: parsedManifest.data } : {}),
+        ...(parsedManifest && !parsedManifest.success ? { manifestInvalid: true } : {})
       }
     })
     .filter((root): root is SkillResourceRoot => Boolean(root))
@@ -75,6 +83,10 @@ export function createReadSkillResourceTool(skillReferences: InstalledSkillRefer
         if (!root) {
           throw new Error(`Skill "${skillId}" was not invoked for this turn.`)
         }
+        if (root.manifestInvalid) throw new Error(`Skill "${skillId}" has an invalid skill pack manifest.`)
+        if (root.manifest && !root.manifest.capabilities.includes('read-resources')) {
+          throw new Error(`Skill "${skillId}" does not declare the read-resources capability.`)
+        }
         const resourcePath = input.path?.trim()
         if (!resourcePath) throw new Error('Missing path.')
         if (isAbsolute(resourcePath)) throw new Error('Use a relative skill resource path.')
@@ -83,6 +95,9 @@ export function createReadSkillResourceTool(skillReferences: InstalledSkillRefer
         const sharedRoot = shouldReadSharedSkillResource(resourcePath, root.sharedRoot)
           ? await resolveSharedSkillRoot(realRoot, root.sharedRoot as string)
           : null
+        if (sharedRoot && root.manifest && !root.manifest.capabilities.includes('read-shared-resources')) {
+          throw new Error(`Skill "${skillId}" does not declare the read-shared-resources capability.`)
+        }
         const containmentRoot = isPathInsideRoot(realRoot, absolutePath)
           ? realRoot
           : sharedRoot && isPathInsideRoot(sharedRoot, absolutePath)
@@ -107,11 +122,16 @@ export function createReadSkillResourceTool(skillReferences: InstalledSkillRefer
         const relativePath = containmentRoot === realRoot
           ? toPosixPath(relative(realRoot, realTarget))
           : `../_shared/${toPosixPath(relative(containmentRoot, realTarget))}`
+        const declaration = root.manifest?.resources.find((resource) => resource.path === relativePath)
+        if (root.manifest && !declaration) {
+          throw new Error(`Skill resource "${relativePath}" is not declared by the skill pack manifest.`)
+        }
         const content = window.lines.join('\n')
         return JSON.stringify({
           skillId: root.id,
           skillName: root.name,
           path: relativePath,
+          ...(declaration ? { resourceKind: declaration.kind } : {}),
           totalLines: window.totalLines,
           offset,
           limit,

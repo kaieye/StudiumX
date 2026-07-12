@@ -33,7 +33,11 @@ import {
   writeAgentConversationRecord
 } from './teaching-agent-conversations'
 import { resolveActiveProvider } from './ai/provider-adapter'
-import { runTeachingConversationTurn, type TemporaryChatContext } from './teaching-conversation-runtime'
+import {
+  runTeachingConversationTurn,
+  type TeachingConversationRuntimeStream,
+  type TemporaryChatContext
+} from './teaching-conversation-runtime'
 import type { SkillLibraryService } from './skill-library'
 import type { LessonPlanSource } from '../shared/lesson-schema'
 import {
@@ -426,13 +430,7 @@ export class TeachingWorkspaceService {
    */
   async agentChatStream(
     payload: AgentChatStreamPayload,
-    stream: {
-      streamId: string
-      signal?: AbortSignal
-      onChunk: (chunk: AgentChatStreamChunk) => void
-      onStatus: (status: AgentChatStreamStatus) => void
-      onTool: (event: AgentChatStreamToolEvent) => void
-    }
+    stream: TeachingConversationRuntimeStream
   ): Promise<AgentChatStreamResult> {
     const registryState = payload.workspaceId ? await this.ensureRegistry() : null
     const workspace = payload.workspaceId && registryState

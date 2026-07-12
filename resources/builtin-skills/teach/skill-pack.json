@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "teach",
+  "version": "1.0.0",
+  "capabilities": ["read-resources"],
+  "resources": [
+    { "path": "SKILL.md", "kind": "instructions" },
+    { "path": "GLOSSARY-FORMAT.md", "kind": "template" },
+    { "path": "LEARNING-RECORD-FORMAT.md", "kind": "template" },
+    { "path": "MISSION-FORMAT.md", "kind": "template" },
+    { "path": "RESOURCES-FORMAT.md", "kind": "template" }
+  ]
+}

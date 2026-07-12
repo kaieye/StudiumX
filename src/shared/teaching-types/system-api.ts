@@ -1,4 +1,6 @@
 import type {
+  AgentEventBusReplay,
+  AgentRealtimeEvent,
   AgentChatStreamChunk,
   AgentChatStreamDone,
   AgentChatStreamPayload,
@@ -7,6 +9,7 @@ import type {
   AgentConversationRecord,
   AskAnswer,
   ReadAgentConversationPayload,
+  ReplayAgentChatEventsPayload,
   SaveAgentConversationPayload,
   SaveAgentConversationResult
 } from './agent'
@@ -103,6 +106,7 @@ export type TeachingSystemApi = {
     onStatus: (status: AgentChatStreamStatus) => void,
     onTool: (event: AgentChatStreamToolEvent) => void
   ) => Promise<AgentChatStreamDone>
+  replayAgentChatEvents: (payload: ReplayAgentChatEventsPayload) => Promise<AgentEventBusReplay>
   cancelAgentChatStream: (streamId: string) => Promise<{ canceled: boolean }>
   answerAgentChatTool: (
     streamId: string,
@@ -112,6 +116,7 @@ export type TeachingSystemApi = {
   onAgentChatChunk: (handler: (chunk: AgentChatStreamChunk) => void) => () => void
   onAgentChatStatus: (handler: (status: AgentChatStreamStatus) => void) => () => void
   onAgentChatTool: (handler: (event: AgentChatStreamToolEvent) => void) => () => void
+  onAgentChatEvent: (handler: (event: AgentRealtimeEvent) => void) => () => void
   saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>
   readAgentConversation: (payload: ReadAgentConversationPayload) => Promise<AgentConversationRecord>
   setWorkspaceItemMeta: (payload: WorkspaceItemMetaPayload) => Promise<TeachingAppState>

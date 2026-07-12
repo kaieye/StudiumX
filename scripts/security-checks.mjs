@@ -8,5 +8,6 @@ export const SECURITY_CHECKS = [
   'scripts/check-external-link-controls.mjs',
   'scripts/check-app-data-migration.mjs',
   'scripts/check-provider-errors.mjs',
-  'scripts/check-provider-privacy.mjs'
+  'scripts/check-provider-privacy.mjs',
+  'scripts/check-settings-secret-storage.mjs'
 ]

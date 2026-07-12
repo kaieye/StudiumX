@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 
 import { createAgentEventBus } from '../../src/main/ai/agent-event-bus'
+import { createAgentRealtimeDelivery } from '../../src/preload/agent-realtime-delivery'
 import type { AgentLoopEvent } from '../../src/main/ai/agent-loop'
 import type {
+  AgentRealtimeEvent,
   AgentChatStreamChunk,
   AgentChatStreamStatus,
   AgentChatStreamToolEvent
@@ -11,6 +13,7 @@ import type {
 const chunks: AgentChatStreamChunk[] = []
 const statuses: AgentChatStreamStatus[] = []
 const tools: AgentChatStreamToolEvent[] = []
+const realtimeEvents: AgentRealtimeEvent[] = []
 let tick = 0
 
 const bus = createAgentEventBus({
@@ -19,7 +22,8 @@ const bus = createAgentEventBus({
   now: () => `2026-07-12T00:00:0${tick++}.000Z`,
   onChunk: (chunk) => chunks.push(chunk),
   onStatus: (status) => statuses.push(status),
-  onTool: (event) => tools.push(event)
+  onTool: (event) => tools.push(event),
+  onRealtimeEvent: (event) => realtimeEvents.push(event)
 })
 
 const events: AgentLoopEvent[] = [
@@ -63,6 +67,7 @@ assert.equal(statuses[2]?.message, '上下文压缩完成：约节省 380 token'
 assert.equal(tools.length, 2)
 assert.deepEqual(tools[0]?.toolCall, { id: 'call-1', name: 'list_workspace', arguments: '{"path":"."}' })
 assert.equal(tools[1]?.result, '{"ok":true}')
+assert.deepEqual(realtimeEvents.map((event) => event.sequence), [1, 2, 3, 4, 5, 6, 7, 8])
 
 const terminal = bus.terminal()
 assert.equal(terminal?.kind, 'terminal')
@@ -71,6 +76,7 @@ if (terminal?.kind === 'terminal') assert.equal(terminal.outcome, 'done')
 
 const replay = bus.recentReplay()
 assert.equal(replay.streamId, 'stream-1')
+assert.equal(replay.available, true)
 assert.equal(replay.hasGap, false)
 assert.equal(replay.fromSequence, 1)
 assert.equal(replay.nextSequence, 9)
@@ -85,6 +91,26 @@ assert.deepEqual(replay.events.map((event) => event.kind), [
   'status',
   'terminal'
 ])
+
+const replayAfterToolCall = bus.replayAfter(3)
+assert.equal(replayAfterToolCall.requestedAfterSequence, 3)
+assert.equal(replayAfterToolCall.fromSequence, 4)
+assert.equal(replayAfterToolCall.hasGap, false)
+assert.deepEqual(replayAfterToolCall.events.map((event) => event.sequence), [4, 5, 6, 7, 8])
+
+const deliveredKinds: string[] = []
+const delivery = createAgentRealtimeDelivery({
+  streamId: 'stream-1',
+  replay: async (_streamId, afterSequence) => bus.replayAfter(afterSequence),
+  onChunk: () => deliveredKinds.push('chunk'),
+  onStatus: () => deliveredKinds.push('status'),
+  onTool: () => deliveredKinds.push('tool')
+})
+await delivery.accept(realtimeEvents[0]!)
+await delivery.accept(realtimeEvents[2]!)
+await delivery.flush()
+assert.equal(delivery.lastSequence(), 8)
+assert.deepEqual(deliveredKinds, ['status', 'chunk', 'tool', 'tool', 'status', 'status', 'status'])
 
 const compactBus = createAgentEventBus({
   streamId: 'stream-2',

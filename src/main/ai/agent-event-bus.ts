@@ -1,53 +1,14 @@
 import { Buffer } from 'node:buffer'
 
 import type {
+  AgentEventBusReplay,
+  AgentRealtimeEvent,
   AgentChatStreamChunk,
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
   AgentLoopStatus
 } from '../../shared/teaching-types'
 import type { AgentLoopEvent } from './agent-loop'
-
-export type AgentRealtimeEvent =
-  | {
-      sequence: number
-      streamId: string
-      kind: 'chunk'
-      createdAt: string
-      payload: AgentChatStreamChunk
-    }
-  | {
-      sequence: number
-      streamId: string
-      kind: 'status'
-      createdAt: string
-      payload: AgentChatStreamStatus
-    }
-  | {
-      sequence: number
-      streamId: string
-      kind: 'tool'
-      createdAt: string
-      payload: AgentChatStreamToolEvent
-    }
-  | {
-      sequence: number
-      streamId: string
-      kind: 'terminal'
-      createdAt: string
-      outcome: Extract<AgentLoopStatus, 'done' | 'canceled' | 'error'>
-      message?: string
-    }
-
-export type AgentEventBusReplay = {
-  streamId: string
-  fromSequence: number
-  nextSequence: number
-  hasGap: boolean
-  droppedEvents: number
-  droppedBytes: number
-  events: AgentRealtimeEvent[]
-}
 
 export type AgentEventBusOptions = {
   streamId: string
@@ -56,6 +17,7 @@ export type AgentEventBusOptions = {
   onChunk: (chunk: AgentChatStreamChunk) => void
   onStatus: (status: AgentChatStreamStatus) => void
   onTool: (event: AgentChatStreamToolEvent) => void
+  onRealtimeEvent?: (event: AgentRealtimeEvent) => void
 }
 
 const DEFAULT_MAX_REPLAY_BYTES = 64 * 1024
@@ -67,6 +29,7 @@ export class AgentEventBus {
   private readonly onChunk: (chunk: AgentChatStreamChunk) => void
   private readonly onStatus: (status: AgentChatStreamStatus) => void
   private readonly onTool: (event: AgentChatStreamToolEvent) => void
+  private readonly onRealtimeEvent?: (event: AgentRealtimeEvent) => void
   private events: AgentRealtimeEvent[] = []
   private replayBytes = 0
   private sequence = 0
@@ -81,6 +44,7 @@ export class AgentEventBus {
     this.onChunk = options.onChunk
     this.onStatus = options.onStatus
     this.onTool = options.onTool
+    this.onRealtimeEvent = options.onRealtimeEvent
   }
 
   publishLoopEvent(event: AgentLoopEvent): void {
@@ -153,16 +117,26 @@ export class AgentEventBus {
     this.terminalEvent = event
   }
 
-  recentReplay(): AgentEventBusReplay {
+  replayAfter(afterSequence = 0): AgentEventBusReplay {
+    const requestedAfterSequence = Math.max(0, Math.floor(afterSequence))
+    const retainedFromSequence = this.events[0]?.sequence ?? this.sequence + 1
     return {
       streamId: this.streamId,
-      fromSequence: this.events[0]?.sequence ?? this.sequence + 1,
+      available: true,
+      requestedAfterSequence,
+      fromSequence: Math.max(requestedAfterSequence + 1, retainedFromSequence),
       nextSequence: this.sequence + 1,
-      hasGap: this.droppedEvents > 0,
+      hasGap: requestedAfterSequence + 1 < retainedFromSequence,
       droppedEvents: this.droppedEvents,
       droppedBytes: this.droppedBytes,
-      events: this.events.map((event) => ({ ...event }))
+      events: this.events
+        .filter((event) => event.sequence > requestedAfterSequence)
+        .map((event) => ({ ...event }))
     }
+  }
+
+  recentReplay(): AgentEventBusReplay {
+    return this.replayAfter(0)
   }
 
   terminal(): AgentRealtimeEvent | null {
@@ -190,6 +164,7 @@ export class AgentEventBus {
     this.events.push(stored)
     this.replayBytes += bytes
     this.trimReplayWindow()
+    this.onRealtimeEvent?.({ ...stored })
     return stored
   }
 

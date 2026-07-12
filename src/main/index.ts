@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, protocol, safeStorage, shell } from 'electron'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -62,6 +62,7 @@ import {
 } from './teaching-ipc-commands'
 import type { TeachingSettingsV1 } from '../shared/teaching-types'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
+import type { AgentEventBus } from './ai/agent-event-bus'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
@@ -93,6 +94,17 @@ function registerTeachingIpc(
   skillLibraryService: SkillLibraryService
 ): void {
   const activeAgentChatStreams = new Map<string, AbortController>()
+  const retainedAgentEventBuses = new Map<string, AgentEventBus>()
+
+  const retainAgentEventBus = (streamId: string, eventBus: AgentEventBus): void => {
+    retainedAgentEventBuses.delete(streamId)
+    retainedAgentEventBuses.set(streamId, eventBus)
+    while (retainedAgentEventBuses.size > 32) {
+      const oldestStreamId = retainedAgentEventBuses.keys().next().value
+      if (typeof oldestStreamId !== 'string') break
+      retainedAgentEventBuses.delete(oldestStreamId)
+    }
+  }
 
   const resolveGitWorkspaceRoot = async (rawWorkspaceRoot: string) => {
     const state = await service.getState()
@@ -218,7 +230,10 @@ function registerTeachingIpc(
         signal: controller.signal,
         onChunk: (chunk) => safeSend(sender, teachingEventChannels.agentChatChunk, chunk),
         onStatus: (status) => safeSend(sender, teachingEventChannels.agentChatStatus, status),
-        onTool: (toolEvent) => safeSend(sender, teachingEventChannels.agentChatTool, toolEvent)
+        onTool: (toolEvent) => safeSend(sender, teachingEventChannels.agentChatTool, toolEvent),
+        onRealtimeEvent: (realtimeEvent) =>
+          safeSend(sender, teachingEventChannels.agentChatEvent, realtimeEvent),
+        onEventBusReady: (eventBus) => retainAgentEventBus(streamId, eventBus)
       })
       if ('canceled' in result) {
         return { streamId, canceled: true as const }
@@ -238,6 +253,29 @@ function registerTeachingIpc(
       if (activeAgentChatStreams.get(streamId) === controller) {
         activeAgentChatStreams.delete(streamId)
       }
+    }
+  })
+
+  ipcMain.handle(teachingInvokeChannels.replayAgentChatEvents, async (_, rawPayload: unknown) => {
+    const payload = rawPayload && typeof rawPayload === 'object'
+      ? rawPayload as { streamId?: unknown; afterSequence?: unknown }
+      : {}
+    const streamId = requireStreamId(payload.streamId)
+    const afterSequence = typeof payload.afterSequence === 'number' && Number.isFinite(payload.afterSequence)
+      ? Math.max(0, Math.floor(payload.afterSequence))
+      : 0
+    const eventBus = retainedAgentEventBuses.get(streamId)
+    if (eventBus) return eventBus.replayAfter(afterSequence)
+    return {
+      streamId,
+      available: false,
+      requestedAfterSequence: afterSequence,
+      fromSequence: afterSequence + 1,
+      nextSequence: afterSequence + 1,
+      hasGap: true,
+      droppedEvents: 0,
+      droppedBytes: 0,
+      events: []
     }
   })
 
@@ -647,7 +685,11 @@ if (!hasSingleInstanceLock) {
       ...legacyUserDataPaths.map((path) => join(path, LEGACY_SETTINGS_FILE_NAME))
     ])
 
-    const settingsService = new TeachingSettingsService({ userDataPath, defaultRoot })
+    const settingsService = new TeachingSettingsService({
+      userDataPath,
+      defaultRoot,
+      secretStorage: safeStorage
+    })
     const initialSettings = await settingsService.load()
 
     logger = new Logger({

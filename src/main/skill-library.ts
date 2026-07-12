@@ -1,14 +1,17 @@
-import { cp, lstat, mkdir, readdir, readFile, stat } from 'node:fs/promises'
+import { cp, lstat, mkdir, readdir, readFile, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 
 import { isSafeSkillId, leadingSkillIds } from '../shared/skill-command'
+import { skillPackManifestSchema } from '../shared/teaching-types'
 import type {
   InstalledSkillReference,
   SkillCatalogResult,
   SkillCategory,
+  SkillPackManifest,
   SkillSummary
 } from '../shared/teaching-types'
+import { isPathInsideRoot } from './path-access'
 
 type SkillLibraryOptions = {
   builtInRoots: string[]
@@ -17,8 +20,37 @@ type SkillLibraryOptions = {
 
 type SkillFrontmatter = Record<string, string>
 
+type ValidatedSkillPack = {
+  directory: string
+  realDirectory: string
+  manifest: SkillPackManifest
+  resources: Map<string, string>
+}
+
 const DEFAULT_PERSONAL_SKILL_ROOT = join(homedir(), '.studiumx', 'skills')
+const SKILL_PACK_MANIFEST = 'skill-pack.json'
+const SHARED_RESOURCE_PREFIX = '../_shared/'
 const VALID_CATEGORIES = new Set<SkillCategory>(['learning', 'productivity', 'development', 'lifestyle', 'other'])
+
+export const BUILTIN_SKILL_IDS = [
+  'course-content-authoring',
+  'course-corporate-edition',
+  'course-designer',
+  'course-ebook-publishing',
+  'course-outline-design',
+  'learning-assessor',
+  'static-spa-conversion',
+  'static-spa-interactions',
+  'teach',
+  'teaching-resource-generator',
+  'teaching-site',
+  'teaching-site-design-system',
+  'web-content-audit',
+  'web-visual-assets',
+  'web-visual-verification'
+] as const
+
+const BUILTIN_SKILL_ID_SET = new Set<string>(BUILTIN_SKILL_IDS)
 
 export class SkillLibraryService {
   readonly personalRoot: string
@@ -51,15 +83,27 @@ export class SkillLibraryService {
 
   async installSkill(rawSkillId: string): Promise<SkillSummary> {
     const skillId = requireSkillId(rawSkillId)
+    if (!BUILTIN_SKILL_ID_SET.has(skillId)) throw new Error(`Built-in skill "${skillId}" is not allowlisted.`)
     await mkdir(this.personalRoot, { recursive: true })
-    const source = await this.findBuiltInSkillDirectory(skillId)
+    const source = await this.findBuiltInSkillPack(skillId)
     if (!source) throw new Error(`Built-in skill "${skillId}" was not found.`)
     const target = join(this.personalRoot, skillId)
-    const existing = await readSkillFile(target)
-    if (!existing) await cp(source, target, { recursive: true, errorOnExist: true, force: false })
-    await copyBuiltInSharedResources(source, this.personalRoot)
+    const existing = await readLegacySkillFile(target, this.personalRoot)
+    if (!existing) await cp(source.realDirectory, target, { recursive: true, errorOnExist: true, force: false })
+    await copyDeclaredSharedResources(source, this.personalRoot)
+
+    const targetManifest = await lstat(join(target, SKILL_PACK_MANIFEST)).catch(() => null)
+    if (targetManifest) {
+      await loadSkillPack(target, {
+        containingRoot: this.personalRoot,
+        expectedId: skillId,
+        manifestRequired: true,
+        requireCompleteResourceList: true
+      })
+    }
+
     const catalog = await this.listSkills()
-    const installed = catalog.skills.find((skill) => skill.id.toLocaleLowerCase() === skillId.toLocaleLowerCase())
+    const installed = catalog.skills.find((skill) => skill.id.toLocaleLowerCase() === skillId)
     if (!installed?.installed) throw new Error(`Skill "${skillId}" could not be installed.`)
     return installed
   }
@@ -85,27 +129,59 @@ export class SkillLibraryService {
       const installed = catalog.skills.find((skill) => skill.installed && skill.id.toLocaleLowerCase() === id)
       const directory = installed?.installedPath
       if (!directory) continue
-      const content = await readSkillFile(directory)
-      if (!content) continue
-      const metadata = parseSkillFrontmatter(content)
+
+      const manifestInfo = await lstat(join(directory, SKILL_PACK_MANIFEST)).catch(() => null)
+      if (manifestInfo) {
+        const pack = await loadSkillPack(directory, {
+          containingRoot: this.personalRoot,
+          expectedId: id,
+          manifestRequired: true,
+          requireCompleteResourceList: true
+        }).catch(() => null)
+        const source = pack?.resources.get('SKILL.md')
+        if (!pack || !source) continue
+        const content = await readFile(source, 'utf8').catch(() => '')
+        if (!content) continue
+        const metadata = parseSkillFrontmatter(content)
+        references.push({
+          id,
+          name: metadata.name || id,
+          source,
+          ...(pack.manifest.capabilities.includes('read-shared-resources')
+            ? { sharedRoot: join(this.personalRoot, '_shared') }
+            : {}),
+          content,
+          manifest: pack.manifest
+        })
+        continue
+      }
+
+      const legacy = await readLegacySkillFile(directory, this.personalRoot)
+      if (!legacy) continue
+      const metadata = parseSkillFrontmatter(legacy.content)
       references.push({
         id,
         name: metadata.name || id,
-        source: join(directory, 'SKILL.md'),
+        source: legacy.source,
         sharedRoot: join(this.personalRoot, '_shared'),
-        content
+        content: legacy.content
       })
     }
     return references
   }
 
-  private async findBuiltInSkillDirectory(skillId: string): Promise<string | null> {
+  private async findBuiltInSkillPack(skillId: string): Promise<ValidatedSkillPack | null> {
+    if (!BUILTIN_SKILL_ID_SET.has(skillId)) return null
     for (const root of this.builtInRoots) {
       const entries = await safeDirectoryEntries(root)
-      const match = entries.find((entry) => entry.isDirectory() && entry.name.toLocaleLowerCase() === skillId.toLocaleLowerCase())
+      const match = entries.find((entry) => entry.isDirectory() && entry.name.toLocaleLowerCase() === skillId)
       if (!match) continue
-      const directory = join(root, match.name)
-      if (await readSkillFile(directory)) return directory
+      return loadSkillPack(join(root, match.name), {
+        containingRoot: root,
+        expectedId: skillId,
+        manifestRequired: true,
+        requireCompleteResourceList: true
+      })
     }
     return null
   }
@@ -116,13 +192,27 @@ export class SkillLibraryService {
       const entries = await safeDirectoryEntries(root)
       for (const entry of entries) {
         if (!entry.isDirectory() || !isSafeSkillId(entry.name)) continue
-        const directory = join(root, entry.name)
-        const content = await readSkillFile(directory)
-        if (!content) continue
-        const metadata = parseSkillFrontmatter(content)
         const id = entry.name.toLocaleLowerCase()
-        if (byId.has(id)) continue
-        byId.set(id, toSkillSummary(id, metadata, source, directory))
+        if (source === 'builtin' && !BUILTIN_SKILL_ID_SET.has(id)) continue
+        const directory = join(root, entry.name)
+        const manifestInfo = await lstat(join(directory, SKILL_PACK_MANIFEST)).catch(() => null)
+        const pack = manifestInfo
+          ? await loadSkillPack(directory, {
+              containingRoot: root,
+              expectedId: id,
+              manifestRequired: true,
+              requireCompleteResourceList: true
+            }).catch(() => null)
+          : null
+        if (source === 'builtin' && !pack) continue
+        if (manifestInfo && !pack) continue
+
+        const skillFile = pack
+          ? await readFile(pack.resources.get('SKILL.md') as string, 'utf8').catch(() => '')
+          : (await readLegacySkillFile(directory, root))?.content ?? ''
+        if (!skillFile || byId.has(id)) continue
+        const metadata = parseSkillFrontmatter(skillFile)
+        byId.set(id, toSkillSummary(id, metadata, source, directory, pack?.manifest))
       }
     }
     return [...byId.values()]
@@ -133,7 +223,8 @@ function toSkillSummary(
   id: string,
   metadata: SkillFrontmatter,
   source: SkillSummary['source'],
-  directory: string
+  directory: string,
+  manifest?: SkillPackManifest
 ): SkillSummary {
   const category = VALID_CATEGORIES.has(metadata.category as SkillCategory)
     ? metadata.category as SkillCategory
@@ -149,7 +240,8 @@ function toSkillSummary(
     command: `/${id}`,
     source,
     installed: source === 'personal',
-    ...(source === 'personal' ? { installedPath: directory } : {})
+    ...(source === 'personal' ? { installedPath: directory } : {}),
+    ...(manifest ? { version: manifest.version, capabilities: [...manifest.capabilities] } : {})
   }
 }
 
@@ -182,40 +274,155 @@ function requireSkillId(value: string): string {
   return skillId
 }
 
-async function readSkillFile(directory: string): Promise<string> {
-  const filePath = join(directory, 'SKILL.md')
-  const info = await stat(filePath).catch(() => null)
-  if (!info?.isFile()) return ''
-  return readFile(filePath, 'utf8').catch(() => '')
-}
-
-async function copyBuiltInSharedResources(skillSourceDirectory: string, personalRoot: string): Promise<void> {
-  const source = join(dirname(skillSourceDirectory), '_shared')
-  const sourceInfo = await lstat(source).catch(() => null)
-  if (!sourceInfo?.isDirectory() || sourceInfo.isSymbolicLink()) return
-  const target = join(personalRoot, '_shared')
-  await copyMissingSharedResourceTree(source, target)
-}
-
-async function copyMissingSharedResourceTree(source: string, target: string): Promise<void> {
-  const targetInfo = await lstat(target).catch(() => null)
-  if (targetInfo?.isSymbolicLink() || (targetInfo && !targetInfo.isDirectory())) {
-    throw new Error('Shared skill resource path must be a regular directory.')
+async function loadSkillPack(
+  directory: string,
+  options: {
+    containingRoot: string
+    expectedId: string
+    manifestRequired: boolean
+    requireCompleteResourceList: boolean
   }
-  if (!targetInfo) await mkdir(target, { recursive: true })
+): Promise<ValidatedSkillPack | null> {
+  const manifestPath = join(directory, SKILL_PACK_MANIFEST)
+  const manifestInfo = await lstat(manifestPath).catch(() => null)
+  if (!manifestInfo) {
+    if (options.manifestRequired) throw new Error(`Skill pack is missing ${SKILL_PACK_MANIFEST}.`)
+    return null
+  }
+  if (!manifestInfo.isFile() || manifestInfo.isSymbolicLink()) {
+    throw new Error('Skill pack manifest must be a regular file.')
+  }
 
-  for (const entry of await readdir(source, { withFileTypes: true })) {
-    const sourcePath = join(source, entry.name)
-    const targetPath = join(target, entry.name)
-    if (entry.isSymbolicLink()) continue
+  const [realContainingRoot, realDirectory, realManifestPath] = await Promise.all([
+    realpath(options.containingRoot),
+    realpath(directory),
+    realpath(manifestPath)
+  ])
+  if (!isPathInsideRoot(realContainingRoot, realDirectory) || !isPathInsideRoot(realDirectory, realManifestPath)) {
+    throw new Error('Skill pack path escapes its configured root after resolving symlinks.')
+  }
+
+  let rawManifest: unknown
+  try {
+    rawManifest = JSON.parse(await readFile(realManifestPath, 'utf8'))
+  } catch {
+    throw new Error('Skill pack manifest is not valid JSON.')
+  }
+  const parsed = skillPackManifestSchema.safeParse(rawManifest)
+  if (!parsed.success) throw new Error(`Invalid skill pack manifest: ${parsed.error.issues[0]?.message ?? 'schema mismatch'}`)
+  const manifest = parsed.data
+  if (manifest.id !== options.expectedId) {
+    throw new Error(`Skill pack id "${manifest.id}" does not match directory "${options.expectedId}".`)
+  }
+
+  const resources = new Map<string, string>()
+  for (const declaration of manifest.resources) {
+    const shared = declaration.path.startsWith(SHARED_RESOURCE_PREFIX)
+    const containmentRoot = shared
+      ? await resolveSiblingSharedRoot(realDirectory)
+      : realDirectory
+    if (!containmentRoot) throw new Error(`Shared skill resource root is unavailable for "${declaration.path}".`)
+    const relativePath = shared ? declaration.path.slice(SHARED_RESOURCE_PREFIX.length) : declaration.path
+    const candidate = resolve(containmentRoot, relativePath)
+    if (!isPathInsideRoot(containmentRoot, candidate)) {
+      throw new Error(`Declared skill resource "${declaration.path}" escapes its resource root.`)
+    }
+    const [resourceInfo, realResource] = await Promise.all([
+      lstat(candidate).catch(() => null),
+      realpath(candidate).catch(() => null)
+    ])
+    if (!resourceInfo?.isFile() || resourceInfo.isSymbolicLink() || !realResource) {
+      throw new Error(`Declared skill resource "${declaration.path}" must be a regular file.`)
+    }
+    if (!isPathInsideRoot(containmentRoot, realResource)) {
+      throw new Error(`Declared skill resource "${declaration.path}" escapes its resource root after resolving symlinks.`)
+    }
+    resources.set(declaration.path, realResource)
+  }
+
+  if (options.requireCompleteResourceList) {
+    const declaredLocalFiles = new Set(
+      manifest.resources.filter((resource) => !resource.path.startsWith(SHARED_RESOURCE_PREFIX)).map((resource) => resource.path)
+    )
+    const actualLocalFiles = await listPackFiles(realDirectory)
+    actualLocalFiles.delete(SKILL_PACK_MANIFEST)
+    if (actualLocalFiles.size !== declaredLocalFiles.size || [...actualLocalFiles].some((path) => !declaredLocalFiles.has(path))) {
+      throw new Error('Skill pack contains files that are missing from its manifest resource declarations.')
+    }
+  }
+
+  return { directory, realDirectory, manifest, resources }
+}
+
+async function listPackFiles(root: string, current = root): Promise<Set<string>> {
+  const files = new Set<string>()
+  for (const entry of await readdir(current, { withFileTypes: true })) {
+    const entryPath = join(current, entry.name)
+    if (entry.isSymbolicLink()) throw new Error('Skill pack must not contain symbolic links.')
     if (entry.isDirectory()) {
-      await copyMissingSharedResourceTree(sourcePath, targetPath)
+      const nested = await listPackFiles(root, entryPath)
+      for (const file of nested) files.add(file)
       continue
     }
-    if (!entry.isFile()) continue
-    const existing = await lstat(targetPath).catch(() => null)
-    if (existing) continue
-    await cp(sourcePath, targetPath, { errorOnExist: false, force: false })
+    if (!entry.isFile()) throw new Error('Skill pack must contain only regular files and directories.')
+    files.add(toPosixPath(relative(root, entryPath)))
+  }
+  return files
+}
+
+async function readLegacySkillFile(
+  directory: string,
+  containingRoot: string
+): Promise<{ content: string; source: string } | null> {
+  const source = join(directory, 'SKILL.md')
+  const info = await lstat(source).catch(() => null)
+  if (!info?.isFile() || info.isSymbolicLink()) return null
+  const [realContainingRoot, realDirectory, realSource] = await Promise.all([
+    realpath(containingRoot).catch(() => null),
+    realpath(directory).catch(() => null),
+    realpath(source).catch(() => null)
+  ])
+  if (!realContainingRoot || !realDirectory || !realSource) return null
+  if (!isPathInsideRoot(realContainingRoot, realDirectory) || !isPathInsideRoot(realDirectory, realSource)) return null
+  const content = await readFile(realSource, 'utf8').catch(() => '')
+  return content ? { content, source: realSource } : null
+}
+
+async function resolveSiblingSharedRoot(realSkillDirectory: string): Promise<string | null> {
+  const candidate = join(dirname(realSkillDirectory), '_shared')
+  const info = await lstat(candidate).catch(() => null)
+  if (!info?.isDirectory() || info.isSymbolicLink()) return null
+  const realSharedRoot = await realpath(candidate).catch(() => null)
+  if (!realSharedRoot) return null
+  return toPosixPath(relative(dirname(realSkillDirectory), realSharedRoot)) === '_shared' ? realSharedRoot : null
+}
+
+async function copyDeclaredSharedResources(pack: ValidatedSkillPack, personalRoot: string): Promise<void> {
+  const declarations = pack.manifest.resources.filter((resource) => resource.path.startsWith(SHARED_RESOURCE_PREFIX))
+  if (declarations.length === 0) return
+
+  const targetRoot = join(personalRoot, '_shared')
+  const targetRootInfo = await lstat(targetRoot).catch(() => null)
+  if (targetRootInfo?.isSymbolicLink() || (targetRootInfo && !targetRootInfo.isDirectory())) {
+    throw new Error('Shared skill resource path must be a regular directory.')
+  }
+  if (!targetRootInfo) await mkdir(targetRoot, { recursive: true })
+  const realTargetRoot = await realpath(targetRoot)
+
+  for (const declaration of declarations) {
+    const source = pack.resources.get(declaration.path)
+    if (!source) throw new Error(`Declared shared resource "${declaration.path}" was not validated.`)
+    const relativePath = declaration.path.slice(SHARED_RESOURCE_PREFIX.length)
+    const target = resolve(realTargetRoot, relativePath)
+    if (!isPathInsideRoot(realTargetRoot, target)) throw new Error('Shared skill resource path escapes its target root.')
+    await mkdir(dirname(target), { recursive: true })
+    const realParent = await realpath(dirname(target))
+    if (!isPathInsideRoot(realTargetRoot, realParent)) throw new Error('Shared skill resource path escapes its target root.')
+    const existing = await lstat(target).catch(() => null)
+    if (existing?.isSymbolicLink() || (existing && !existing.isFile())) {
+      throw new Error('Shared skill resource target must be a regular file.')
+    }
+    if (!existing) await cp(source, target, { errorOnExist: true, force: false })
   }
 }
 
@@ -235,4 +442,8 @@ function uniqueResolvedPaths(paths: string[]): string[] {
     result.push(resolved)
   }
   return result
+}
+
+function toPosixPath(value: string): string {
+  return value.replace(/\\/g, '/')
 }

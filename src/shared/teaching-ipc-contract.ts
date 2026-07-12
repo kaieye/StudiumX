@@ -12,6 +12,7 @@ export type TeachingEventChannel =
   | 'agentChatChunk'
   | 'agentChatStatus'
   | 'agentChatTool'
+  | 'agentChatEvent'
 
 export const teachingInvokeChannels = {
   getState: 'teach:get-state',
@@ -39,6 +40,7 @@ export const teachingInvokeChannels = {
   listUpstreamModels: 'teach:list-upstream-models',
   generateLessonStream: 'teach:generate-lesson-stream',
   agentChatStream: 'teach:agent-chat-stream',
+  replayAgentChatEvents: 'teach:agent-chat-replay',
   cancelAgentChatStream: 'teach:cancel-agent-chat-stream',
   answerAgentChatTool: 'teach:agent-chat-tool-answer',
   saveAgentConversation: 'teach:save-agent-conversation',
@@ -70,5 +72,6 @@ export const teachingEventChannels = {
   lessonStreamStatus: 'teach:generate-lesson-status',
   agentChatChunk: 'teach:agent-chat-chunk',
   agentChatStatus: 'teach:agent-chat-status',
-  agentChatTool: 'teach:agent-chat-tool'
+  agentChatTool: 'teach:agent-chat-tool',
+  agentChatEvent: 'teach:agent-chat-event'
 } satisfies Record<TeachingEventChannel, string>

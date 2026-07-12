@@ -5,6 +5,7 @@ import { homedir, platform } from 'node:os'
 import { basename, join } from 'node:path'
 
 import { SECURITY_CHECKS } from './security-checks.mjs'
+import { reconcileLearningWorkLedger } from './lib/learning-work-reconcile.mjs'
 
 const args = process.argv.slice(2)
 const argSet = new Set(args)
@@ -18,9 +19,10 @@ const jsonOutput = argSet.has('--json')
 const redacted = !argSet.has('--no-redacted')
 const runChecks = !argSet.has('--no-checks')
 const userDataPath = valueForArg('--user-data') ?? process.env.STUDIUMX_USER_DATA ?? defaultUserDataPath()
+const workspacePath = valueForArg('--workspace')
 const startedAt = Date.now()
 
-const snapshot = redactIfNeeded(await buildDoctorSnapshot({ userDataPath, runChecks }), redacted)
+const snapshot = redactIfNeeded(await buildDoctorSnapshot({ userDataPath, workspacePath, runChecks }), redacted)
 
 if (jsonOutput) {
   process.stdout.write(`${JSON.stringify(snapshot, null, 2)}\n`)
@@ -44,6 +46,15 @@ async function buildDoctorSnapshot(options) {
   const rootCodexBundleFiles = []
   for (const file of ['index.js', 'desktop-CdASu-HC.js']) {
     if (await exists(file)) rootCodexBundleFiles.push(file)
+  }
+  const learningWork = [
+    { scope: 'app_data', ...(await reconcileLearningWorkLedger(options.userDataPath)) }
+  ]
+  if (options.workspacePath) {
+    learningWork.push({
+      scope: 'workspace',
+      ...(await reconcileLearningWorkLedger(options.workspacePath))
+    })
   }
 
   return {
@@ -85,6 +96,7 @@ async function buildDoctorSnapshot(options) {
       logExport: 'not_included',
       workspaceContent: 'not_included'
     },
+    learningWork,
     securityChecks: options.runChecks ? runSecurityChecks() : []
   }
 }
@@ -116,19 +128,20 @@ function summarizeSettings(settings, info) {
     return {
       storage: 'json_file',
       exists: false,
-      keyStorage: 'settings_json',
+      keyStorage: 'no_stored_secrets',
+      keychainMigration: 'not_required',
       note: 'Settings file not found; app will use defaults on launch.'
     }
   }
   const providers = Array.isArray(settings.provider?.providers) ? settings.provider.providers : []
   const endpointFormats = [...new Set(providers.map((provider) => provider?.endpointFormat).filter(Boolean))]
+  const secretStorage = summarizeSecretStorage(settings)
   return {
     storage: 'json_file',
     exists: true,
     fileMode: info?.mode ?? null,
     privateFileMode: info?.privateFileMode ?? null,
-    keyStorage: 'settings_json',
-    keychainMigration: 'not_implemented',
+    ...secretStorage,
     provider: {
       activeProviderId: stringValue(settings.provider?.activeProviderId),
       providerCount: providers.length,
@@ -156,6 +169,29 @@ function summarizeSettings(settings, info) {
       retentionDays: numberValue(settings.log?.retentionDays)
     }
   }
+}
+
+function summarizeSecretStorage(settings) {
+  const values = []
+  const providers = Array.isArray(settings.provider?.providers) ? settings.provider.providers : []
+  for (const provider of providers) values.push(stringValue(provider?.apiKey) ?? '')
+  values.push(stringValue(settings.provider?.proxy?.url) ?? '')
+  for (const key of [
+    'braveApiKey',
+    'firecrawlApiKey',
+    'tavilyApiKey',
+    'exaApiKey',
+    'parallelApiKey',
+    'xaiApiKey'
+  ]) {
+    values.push(stringValue(settings.webSearch?.[key]) ?? '')
+  }
+  const stored = values.filter(Boolean)
+  if (stored.length === 0) return { keyStorage: 'no_stored_secrets', keychainMigration: 'not_required' }
+  const encrypted = stored.filter((value) => value.startsWith('safeStorage:v1:')).length
+  if (encrypted === stored.length) return { keyStorage: 'electron_safe_storage', keychainMigration: 'complete' }
+  if (encrypted > 0) return { keyStorage: 'mixed_plaintext_and_safe_storage', keychainMigration: 'partial' }
+  return { keyStorage: 'settings_json', keychainMigration: 'pending_app_launch' }
 }
 
 async function fileInfo(path) {
@@ -277,12 +313,16 @@ function printTextSnapshot(snapshot) {
   for (const check of failed) {
     console.log(`- ${check.script}: ${check.status}`)
   }
+  for (const ledger of snapshot.learningWork ?? []) {
+    console.log(`learning work (${ledger.scope}): ${ledger.status}, ${ledger.conversations} conversation(s)`)
+  }
 }
 
 function printHelp() {
-  console.log(`Usage: pnpm doctor -- [--json] [--redacted] [--no-checks] [--user-data <path>]
+  console.log(`Usage: pnpm doctor -- [--json] [--redacted] [--no-checks] [--user-data <path>] [--workspace <path>]
 
 Creates a local, redacted StudiumX diagnostic snapshot. The snapshot includes
 repository hygiene, settings storage shape, diagnostic paths, and security
-check results. It does not include workspace content or log contents.`)
+check results. When --workspace is provided, it also reconciles Learning Work
+Ledger pointers and metadata. It does not include workspace content or log contents.`)
 }

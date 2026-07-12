@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && electron-vite build",
     "doctor": "node scripts/doctor.mjs",
     "check:doctor": "node scripts/check-doctor.mjs",
+    "check:learning-work-reconcile": "node scripts/check-learning-work-reconcile.mjs",
     "check:path-access": "node scripts/check-path-access.mjs",
     "check:agent-conversation-catalog": "node scripts/check-agent-conversation-catalog.mjs",
     "check:agent-conversation-state": "node scripts/check-agent-conversation-state.mjs",
@@ -76,7 +77,8 @@
     "dist": "pnpm run build && electron-builder",
     "check:repository-hygiene": "node scripts/check-repository-hygiene.mjs",
     "check:security": "node scripts/check-security.mjs",
-    "check:provider-privacy": "node scripts/check-provider-privacy.mjs"
+    "check:provider-privacy": "node scripts/check-provider-privacy.mjs",
+    "check:settings-secret-storage": "node scripts/check-settings-secret-storage.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",

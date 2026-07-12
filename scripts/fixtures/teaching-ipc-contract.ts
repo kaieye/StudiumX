@@ -17,11 +17,13 @@ assert.equal(teachingInvokeChannels.listUpstreamModels, 'teach:list-upstream-mod
 assert.equal(teachingInvokeChannels.applyLessonStyle, 'teach:apply-lesson-style')
 assert.equal(teachingEventChannels.lessonStreamChunk, 'teach:generate-lesson-chunk')
 assert.equal(teachingEventChannels.agentChatTool, 'teach:agent-chat-tool')
+assert.equal(teachingEventChannels.agentChatEvent, 'teach:agent-chat-event')
 
 const requiredInvokeCapabilities: TeachingInvokeCapability[] = [
   'getState',
   'generateLessonStream',
   'agentChatStream',
+  'replayAgentChatEvents',
   'listUpstreamModels',
   'getConnectorStatuses',
   'openAppDataDir'

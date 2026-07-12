@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { TeachingSystemApi } from '../shared/teaching-types'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
+import { createAgentRealtimeDelivery } from './agent-realtime-delivery'
 import type {
+  AgentRealtimeEvent,
   AgentChatStreamChunk,
   AgentChatStreamDone,
   AgentChatStreamStatus,
@@ -59,23 +61,36 @@ const api: TeachingSystemApi = {
   onLessonStreamChunk: (handler) => registerIpcListener<LessonStreamChunk>(teachingEventChannels.lessonStreamChunk, handler),
   onLessonStreamStatus: (handler) => registerIpcListener<LessonStreamStatus>(teachingEventChannels.lessonStreamStatus, handler),
   agentChatStream: (payload, onChunk, onStatus, onTool) => {
-    const offChunk = registerIpcListener<AgentChatStreamChunk>(teachingEventChannels.agentChatChunk, onChunk)
-    const offStatus = registerIpcListener<AgentChatStreamStatus>(teachingEventChannels.agentChatStatus, onStatus)
-    const offTool = registerIpcListener<AgentChatStreamToolEvent>(teachingEventChannels.agentChatTool, onTool)
+    const delivery = createAgentRealtimeDelivery({
+      streamId: payload.streamId,
+      replay: (streamId, afterSequence) =>
+        ipcRenderer.invoke(teachingInvokeChannels.replayAgentChatEvents, { streamId, afterSequence }),
+      onChunk,
+      onStatus,
+      onTool
+    })
+    const offEvent = registerIpcListener<AgentRealtimeEvent>(teachingEventChannels.agentChatEvent, (event) => {
+      void delivery.accept(event)
+    })
     return ipcRenderer
       .invoke(teachingInvokeChannels.agentChatStream, payload)
+      .then(async (result) => {
+        await delivery.flush()
+        return result
+      })
       .finally(() => {
-        offChunk()
-        offStatus()
-        offTool()
+        offEvent()
       }) as Promise<AgentChatStreamDone>
   },
+  replayAgentChatEvents: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.replayAgentChatEvents, payload),
   cancelAgentChatStream: (streamId) => ipcRenderer.invoke(teachingInvokeChannels.cancelAgentChatStream, streamId),
   answerAgentChatTool: (streamId, toolCallId, answers) =>
     ipcRenderer.invoke(teachingInvokeChannels.answerAgentChatTool, { streamId, toolCallId, answers }),
   onAgentChatChunk: (handler) => registerIpcListener<AgentChatStreamChunk>(teachingEventChannels.agentChatChunk, handler),
   onAgentChatStatus: (handler) => registerIpcListener<AgentChatStreamStatus>(teachingEventChannels.agentChatStatus, handler),
   onAgentChatTool: (handler) => registerIpcListener<AgentChatStreamToolEvent>(teachingEventChannels.agentChatTool, handler),
+  onAgentChatEvent: (handler) => registerIpcListener<AgentRealtimeEvent>(teachingEventChannels.agentChatEvent, handler),
   saveAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.saveAgentConversation, payload),
   readAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readAgentConversation, payload),
   setWorkspaceItemMeta: (payload) => ipcRenderer.invoke(teachingInvokeChannels.setWorkspaceItemMeta, payload),

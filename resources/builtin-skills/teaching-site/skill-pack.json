@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "teaching-site",
+  "version": "1.0.0",
+  "capabilities": ["read-resources", "read-shared-resources"],
+  "resources": [
+    { "path": "SKILL.md", "kind": "instructions" },
+    { "path": "references/consistency-checklists.md", "kind": "reference" },
+    { "path": "references/design-rationale.md", "kind": "reference" },
+    { "path": "references/scenarios.md", "kind": "reference" },
+    { "path": "references/troubleshooting.md", "kind": "reference" },
+    { "path": "../_shared/domain-primitives.md", "kind": "reference" }
+  ]
+}

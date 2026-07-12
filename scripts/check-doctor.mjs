@@ -8,6 +8,8 @@ const tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-doctor-'))
 
 try {
   await mkdir(tempRoot, { recursive: true })
+  await mkdir(join(tempRoot, '.studiumx'), { recursive: true })
+  await writeFile(join(tempRoot, '.studiumx', 'learning-work.jsonl'), '')
   await writeFile(
     join(tempRoot, 'studiumx-settings.json'),
     `${JSON.stringify({
@@ -66,7 +68,7 @@ try {
 
   const result = spawnSync(
     process.execPath,
-    ['scripts/doctor.mjs', '--json', '--no-checks', '--user-data', tempRoot],
+    ['scripts/doctor.mjs', '--json', '--no-checks', '--user-data', tempRoot, '--workspace', tempRoot],
     { cwd: process.cwd(), encoding: 'utf8' }
   )
   assert.equal(result.status, 0, result.stderr)
@@ -79,10 +81,14 @@ try {
   const snapshot = JSON.parse(output)
   assert.equal(snapshot.settings.storage, 'json_file')
   assert.equal(snapshot.settings.keyStorage, 'settings_json')
-  assert.equal(snapshot.settings.keychainMigration, 'not_implemented')
+  assert.equal(snapshot.settings.keychainMigration, 'pending_app_launch')
   assert.equal(snapshot.settings.provider.providerCount, 1)
   assert.deepEqual(snapshot.securityChecks, [])
   assert.equal(snapshot.diagnostics.workspaceContent, 'not_included')
+  assert.deepEqual(snapshot.learningWork.map((item) => [item.scope, item.status]), [
+    ['app_data', 'ok'],
+    ['workspace', 'ok']
+  ])
 
   console.log('doctor redacted snapshot ok')
 } finally {

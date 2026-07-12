@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "static-spa-conversion",
+  "version": "1.0.0",
+  "capabilities": ["read-resources", "read-shared-resources"],
+  "resources": [
+    { "path": "SKILL.md", "kind": "instructions" },
+    { "path": "templates/course-data.template.js", "kind": "template" },
+    { "path": "templates/index.html", "kind": "template" },
+    { "path": "../_shared/domain-primitives.md", "kind": "reference" }
+  ]
+}

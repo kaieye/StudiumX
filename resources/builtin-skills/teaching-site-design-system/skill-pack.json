@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "teaching-site-design-system",
+  "version": "1.0.0",
+  "capabilities": ["read-resources", "read-shared-resources"],
+  "resources": [
+    { "path": "SKILL.md", "kind": "instructions" },
+    { "path": "templates/tokens.css", "kind": "template" },
+    { "path": "../_shared/domain-primitives.md", "kind": "reference" }
+  ]
+}

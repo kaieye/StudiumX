@@ -222,6 +222,54 @@ export type AgentChatStreamToolEvent = {
   permissionRequest?: AgentToolPermissionRequest
 }
 
+export type AgentRealtimeEvent =
+  | {
+      sequence: number
+      streamId: string
+      kind: 'chunk'
+      createdAt: string
+      payload: AgentChatStreamChunk
+    }
+  | {
+      sequence: number
+      streamId: string
+      kind: 'status'
+      createdAt: string
+      payload: AgentChatStreamStatus
+    }
+  | {
+      sequence: number
+      streamId: string
+      kind: 'tool'
+      createdAt: string
+      payload: AgentChatStreamToolEvent
+    }
+  | {
+      sequence: number
+      streamId: string
+      kind: 'terminal'
+      createdAt: string
+      outcome: Extract<AgentLoopStatus, 'done' | 'canceled' | 'error'>
+      message?: string
+    }
+
+export type AgentEventBusReplay = {
+  streamId: string
+  available: boolean
+  requestedAfterSequence: number
+  fromSequence: number
+  nextSequence: number
+  hasGap: boolean
+  droppedEvents: number
+  droppedBytes: number
+  events: AgentRealtimeEvent[]
+}
+
+export type ReplayAgentChatEventsPayload = {
+  streamId: string
+  afterSequence?: number
+}
+
 export type AskOption = {
   label: string
   description?: string

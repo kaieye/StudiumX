@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "web-visual-verification",
+  "version": "1.0.0",
+  "capabilities": ["read-resources", "read-shared-resources"],
+  "resources": [
+    { "path": "SKILL.md", "kind": "instructions" },
+    { "path": "../_shared/domain-primitives.md", "kind": "reference" }
+  ]
+}

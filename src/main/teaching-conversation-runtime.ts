@@ -1,5 +1,5 @@
 import { runAgentLoop, type AgentLoopEvent } from './ai/agent-loop'
-import { createAgentEventBus } from './ai/agent-event-bus'
+import { createAgentEventBus, type AgentEventBus } from './ai/agent-event-bus'
 import { attachAgentRunAuditMetadata } from './ai/agent-run-audit'
 import { resolveActiveProvider, type ChatMessage, type ToolDefinition } from './ai/provider-adapter'
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
@@ -27,6 +27,7 @@ import type {
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
   AgentChatTurn,
+  AgentRealtimeEvent,
   CreateTeachingMemoryPayload,
   LessonSummary,
   InstalledSkillReference,
@@ -56,6 +57,8 @@ export type TeachingConversationRuntimeStream = {
   onChunk: (chunk: AgentChatStreamChunk) => void
   onStatus: (status: AgentChatStreamStatus) => void
   onTool: (event: AgentChatStreamToolEvent) => void
+  onRealtimeEvent?: (event: AgentRealtimeEvent) => void
+  onEventBusReady?: (eventBus: AgentEventBus) => void
 }
 
 export type TeachingConversationRuntimeDeps = {
@@ -142,13 +145,21 @@ export async function runTeachingConversationTurn(
     return { error: true, message: '未配置 API Key。' }
   }
 
+  const eventBus = createAgentEventBus({
+    streamId: stream.streamId,
+    onChunk: stream.onChunk,
+    onStatus: stream.onStatus,
+    onTool: stream.onTool,
+    onRealtimeEvent: stream.onRealtimeEvent
+  })
+  stream.onEventBusReady?.(eventBus)
+
   const ctx = buildToolContext(settings, {
     workspaceRoot,
     signal: stream.signal,
     requestToolPermission: async (request) => {
       const argumentsJson = JSON.stringify(request)
-      stream.onTool({
-        streamId: stream.streamId,
+      eventBus.publishTool({
         toolCall: {
           id: request.id,
           name: 'tool_permission',
@@ -157,8 +168,7 @@ export async function runTeachingConversationTurn(
         permissionRequest: request
       })
       const decision = await registerToolPermissionPending(stream.streamId, request.id, stream.signal)
-      stream.onTool({
-        streamId: stream.streamId,
+      eventBus.publishTool({
         toolCall: {
           id: request.id,
           name: 'tool_permission',
@@ -275,12 +285,6 @@ export async function runTeachingConversationTurn(
   ]
 
   const runEvents: AgentLoopEvent[] = []
-  const eventBus = createAgentEventBus({
-    streamId: stream.streamId,
-    onChunk: stream.onChunk,
-    onStatus: stream.onStatus,
-    onTool: stream.onTool
-  })
   const result = await runAgentLoop({
     settings,
     provider,
@@ -314,7 +318,8 @@ export async function runTeachingConversationTurn(
     generatedLessons,
     generateLessonFromBrief,
     runEvents,
-    stream
+    stream,
+    eventBus
   })
   if (recovered) return recovered
   if (result.error) {
@@ -344,7 +349,7 @@ export async function runTeachingConversationTurn(
     const consentPrompt = buildMemoryConsentPrompt(capturePlan.candidate)
     finalText = `${finalText}${consentPrompt}`
     messagesWithMemory = appendToLastAssistantMessage(result.messages, consentPrompt)
-    stream.onChunk({ streamId: stream.streamId, delta: consentPrompt })
+    eventBus.publishChunk(consentPrompt)
     memoryCapture = {
       action: 'requested_consent',
       candidateContent: capturePlan.candidate.content
@@ -647,6 +652,7 @@ async function recoverLessonGenerationAfterToolBudget(options: {
   generateLessonFromBrief?: (brief: LessonBrief) => Promise<LessonSummary>
   runEvents: AgentLoopEvent[]
   stream: TeachingConversationRuntimeStream
+  eventBus: AgentEventBus
 }): Promise<AgentChatStreamResult | null> {
   const {
     result,
@@ -657,7 +663,8 @@ async function recoverLessonGenerationAfterToolBudget(options: {
     generatedLessons,
     generateLessonFromBrief,
     runEvents,
-    stream
+    stream,
+    eventBus
   } = options
   if (
     !lessonToolEnabled ||
@@ -672,13 +679,13 @@ async function recoverLessonGenerationAfterToolBudget(options: {
 
   const brief = findLatestGenerateLessonBrief(result.messages) ??
     buildRecoveryLessonBrief({ userInput, payloadMessages, workspace })
-  stream.onStatus({ streamId: stream.streamId, status: 'tool_running', message: 'generate_lesson' })
+  eventBus.publishStatus('tool_running', 'generate_lesson')
   try {
     const lesson = await generateLessonFromBrief(brief)
     generatedLessons.push(lesson)
     const finalText = `课程已生成：${lesson.title}\n\n保存路径：${lesson.relativePath}\n\n下一步建议：打开这节课通读一遍，学完后继续告诉我哪里偏简单或哪里需要加深。`
-    stream.onChunk({ streamId: stream.streamId, delta: finalText })
-    stream.onStatus({ streamId: stream.streamId, status: 'done' })
+    eventBus.publishChunk(finalText)
+    eventBus.publishStatus('done')
     return {
       turns: attachAgentRunAuditMetadata(toAgentTurns([...result.messages, { role: 'assistant', content: finalText }]), runEvents),
       finalText,
@@ -689,7 +696,7 @@ async function recoverLessonGenerationAfterToolBudget(options: {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    stream.onStatus({ streamId: stream.streamId, status: 'error', message })
+    eventBus.publishStatus('error', message)
     return { error: true, message: `工具调用上限已用完，自动补生成课程也失败：${message}` }
   }
 }
