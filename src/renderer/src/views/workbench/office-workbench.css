@@ -1,6 +1,21 @@
 .office-workbench-page {
   --workbench-tools-scale: 1;
   --workbench-tools-layout-height: 100%;
+  --workbench-accent-contrast: #ffffff;
+  --workbench-glass-surface:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--surface-solid) 82%, transparent),
+      color-mix(in srgb, var(--surface-solid) 56%, transparent)
+    ),
+    color-mix(in srgb, var(--surface) 44%, transparent);
+  --workbench-glass-surface-strong:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--surface-solid) 90%, transparent),
+      color-mix(in srgb, var(--surface-solid) 68%, transparent)
+    ),
+    color-mix(in srgb, var(--surface) 54%, transparent);
   position: relative;
   width: 100%;
   max-width: 100%;
@@ -110,7 +125,7 @@
   outline: 0;
   background: transparent;
   font: inherit;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 720;
   text-transform: uppercase;
 }
@@ -138,7 +153,7 @@
     0 7px 16px rgba(0, 122, 255, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.36);
   font: inherit;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 720;
   white-space: nowrap;
 }
@@ -244,7 +259,7 @@
 
 .workbench-leaderboard-toggle span {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 680;
   text-align: left;
   text-overflow: ellipsis;
@@ -253,7 +268,7 @@
 
 .workbench-leaderboard-toggle strong {
   color: #17202b;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
 }
@@ -323,13 +338,13 @@
   gap: 10px;
   padding: 2px 3px 8px;
   color: rgba(47, 57, 69, 0.48);
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 680;
 }
 
 .workbench-leaderboard-panel > header strong {
   color: rgba(47, 57, 69, 0.62);
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .workbench-leaderboard-list {
@@ -353,7 +368,7 @@
 
 .workbench-leaderboard-row > span {
   color: rgba(47, 57, 69, 0.42);
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 720;
   font-variant-numeric: tabular-nums;
 }
@@ -371,20 +386,20 @@
 }
 
 .workbench-leaderboard-row strong {
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 680;
 }
 
 .workbench-leaderboard-row small {
   margin-top: 2px;
   color: rgba(47, 57, 69, 0.46);
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 620;
 }
 
 .workbench-leaderboard-row em {
   color: rgba(47, 57, 69, 0.62);
-  font-size: 10px;
+  font-size: 0.625rem;
   font-style: normal;
   font-weight: 720;
   font-variant-numeric: tabular-nums;
@@ -417,7 +432,7 @@
   color: rgba(44, 54, 67, 0.56);
   border-radius: 9px;
   background: transparent;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 650;
 }
 
@@ -437,12 +452,12 @@
 .workbench-pomodoro-time strong {
   display: block;
   color: #111923;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
-  font-size: clamp(44px, 4.2vw, 56px);
+  font-family: inherit;
+  font-size: 3.5rem;
   font-weight: 620;
   font-variant-numeric: tabular-nums;
   line-height: 0.96;
-  letter-spacing: -3.2px;
+  letter-spacing: 0;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
@@ -450,7 +465,7 @@
   display: block;
   margin-top: 10px;
   color: rgba(48, 57, 70, 0.52);
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 620;
 }
 
@@ -493,7 +508,7 @@
   box-shadow:
     0 7px 18px rgba(55, 72, 98, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.86);
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 680;
 }
 
@@ -525,7 +540,7 @@
   border: 1px solid rgba(255, 255, 255, 0.54);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.3);
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 680;
 }
 
@@ -553,7 +568,7 @@
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 620;
 }
 
@@ -579,9 +594,9 @@
   align-items: center;
   gap: 6px;
   color: rgba(47, 57, 69, 0.5);
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 720;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
 }
 
 .workbench-task-head strong {
@@ -589,7 +604,7 @@
   margin-top: 7px;
   overflow: hidden;
   color: #17202b;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 680;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -630,7 +645,7 @@
   border-radius: 10px;
   background: rgba(85, 97, 115, 0.07);
   box-shadow: inset 0 1px 2px rgba(46, 57, 73, 0.04);
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 620;
   text-align: center;
 }
@@ -638,7 +653,7 @@
 .workbench-task-summary strong {
   margin-right: 3px;
   color: var(--pomodoro-accent);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 720;
 }
 
@@ -664,7 +679,7 @@
     inset 0 1px 2px rgba(46, 57, 73, 0.07),
     inset 0 1px 0 rgba(255, 255, 255, 0.72);
   font: inherit;
-  font-size: 10px;
+  font-size: 0.625rem;
   transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
 }
 
@@ -727,7 +742,7 @@
 
 .workbench-task-row strong {
   overflow: hidden;
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 640;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -756,7 +771,7 @@
   color: rgba(47, 57, 69, 0.42);
   border: 1px dashed rgba(47, 57, 69, 0.14);
   border-radius: 12px;
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 620;
 }
 
@@ -811,7 +826,7 @@
   }
 
   .workbench-pomodoro-time strong {
-    font-size: 40px;
+    font-size: 2.5rem;
   }
 }
 
@@ -832,4 +847,222 @@
 :root[data-resolved-theme='dark'] .office-workbench-stage {
   border-color: transparent;
   box-shadow: none;
+}
+
+/* Keep the pixel-art scene intact while the overlaid study controls follow app settings. */
+.workbench-tools {
+  color: var(--text);
+  font-family: inherit;
+}
+
+.workbench-space-join,
+.workbench-tools .workbench-leaderboard-toggle,
+.workbench-pomodoro-card,
+.workbench-task-card,
+.workbench-leaderboard-panel {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--workbench-glass-surface);
+  box-shadow: var(--shadow-card), inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.workbench-leaderboard-panel,
+.workbench-leaderboard.is-open .workbench-leaderboard-toggle {
+  background: var(--workbench-glass-surface-strong);
+}
+
+.workbench-space-join,
+.workbench-tools .workbench-leaderboard-toggle {
+  color: var(--text-muted);
+}
+
+.workbench-space-join svg,
+.workbench-leaderboard-row.is-me > span,
+.workbench-leaderboard-row.is-me em {
+  color: var(--accent);
+}
+
+.workbench-space-join input,
+.workbench-space-join input:focus,
+.workbench-leaderboard-toggle strong,
+.workbench-pomodoro-card,
+.workbench-task-card,
+.workbench-task-head strong,
+.workbench-task-form input,
+.workbench-task-row {
+  color: var(--text);
+}
+
+.workbench-space-join input::placeholder,
+.workbench-task-form input::placeholder {
+  color: var(--text-soft);
+}
+
+.workbench-space-join button,
+.workbench-pomodoro-actions button.is-primary,
+.workbench-task-form button,
+.workbench-task-row.is-done > span {
+  color: var(--workbench-accent-contrast);
+  border-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 36%, var(--line));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 82%, white),
+    var(--pomodoro-accent, var(--accent))
+  );
+  box-shadow:
+    0 7px 18px color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 24%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.workbench-pomodoro-card,
+.workbench-task-card {
+  --pomodoro-accent: var(--accent);
+}
+
+.workbench-pomodoro-card.is-break {
+  --pomodoro-accent: var(--amber);
+}
+
+.workbench-tools button:focus-visible {
+  outline-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 38%, transparent);
+}
+
+.workbench-leaderboard-toggle svg {
+  color: var(--amber);
+}
+
+.workbench-leaderboard.is-open .workbench-leaderboard-toggle {
+  border-color: color-mix(in srgb, var(--amber) 32%, var(--line));
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 3px color-mix(in srgb, var(--amber) 10%, transparent);
+}
+
+.workbench-leaderboard-panel > header,
+.workbench-leaderboard-row > span,
+.workbench-leaderboard-row small,
+.workbench-leaderboard-row em,
+.workbench-pomodoro-mode button,
+.workbench-pomodoro-time span,
+.workbench-pomodoro-actions button,
+.workbench-pomodoro-presets button,
+.workbench-pomodoro-ambient,
+.workbench-task-head span,
+.workbench-task-head > button,
+.workbench-task-summary span,
+.workbench-task-empty {
+  color: var(--text-muted);
+}
+
+.workbench-leaderboard-panel > header strong {
+  color: var(--text-muted);
+}
+
+.workbench-leaderboard-row.is-me {
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--line));
+  background: var(--accent-soft);
+}
+
+.workbench-pomodoro-mode,
+.workbench-pomodoro-progress,
+.workbench-task-summary span,
+.workbench-task-empty {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.workbench-pomodoro-mode button.is-active,
+.workbench-pomodoro-actions button:not(.is-primary),
+.workbench-pomodoro-presets button,
+.workbench-task-head > button,
+.workbench-task-form input,
+.workbench-task-row {
+  color: var(--text);
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface-solid) 66%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.workbench-pomodoro-time strong {
+  color: var(--text);
+  text-shadow: none;
+}
+
+.workbench-pomodoro-progress span {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pomodoro-accent) 72%, transparent),
+    var(--pomodoro-accent)
+  );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--pomodoro-accent) 34%, transparent);
+}
+
+.workbench-pomodoro-presets button.is-active,
+.workbench-pomodoro-ambient.is-active {
+  color: var(--pomodoro-accent);
+  border-color: color-mix(in srgb, var(--pomodoro-accent) 22%, var(--line));
+  background: color-mix(in srgb, var(--pomodoro-accent) 12%, transparent);
+}
+
+.workbench-task-summary strong {
+  color: var(--pomodoro-accent);
+}
+
+.workbench-task-form input:focus {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--pomodoro-accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pomodoro-accent) 12%, transparent);
+}
+
+.workbench-task-row > span {
+  color: transparent;
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+}
+
+.workbench-task-row.is-done {
+  color: var(--text-soft);
+}
+
+.workbench-heartbeat-dot {
+  background: var(--green);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--green) 12%, transparent),
+    0 0 10px color-mix(in srgb, var(--green) 28%, transparent);
+}
+
+.workbench-heartbeat-dot.is-connecting {
+  background: var(--amber);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--amber) 12%, transparent),
+    0 0 10px color-mix(in srgb, var(--amber) 24%, transparent);
+}
+
+.workbench-heartbeat-dot.is-offline {
+  background: var(--text-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-soft) 10%, transparent);
+}
+
+@media (hover: hover) {
+  .workbench-pomodoro-actions button:hover,
+  .workbench-pomodoro-presets button:not(:disabled):hover,
+  .workbench-pomodoro-ambient:hover,
+  .workbench-task-head > button:not(:disabled):hover,
+  .workbench-task-form button:not(:disabled):hover,
+  .workbench-space-join button:hover,
+  .workbench-task-row:hover {
+    border-color: var(--line-strong);
+    box-shadow: var(--shadow-card);
+  }
+}
+
+:root[data-resolved-theme='dark'] .office-workbench-page {
+  --workbench-accent-contrast: #10131a;
+}
+
+:root[data-resolved-theme='dark'] .workbench-pomodoro-card::before,
+:root[data-resolved-theme='dark'] .workbench-task-card::before {
+  opacity: 0.16;
 }
