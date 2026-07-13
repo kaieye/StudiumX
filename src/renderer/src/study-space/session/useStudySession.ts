@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import type { StudyTaskAttribution } from '../../../../shared/teaching-types/analytics'
-import { STUDY_PRESENCE_BROKER_URL } from '../constants'
 import {
   formatStudySeatLabel,
   persistStudySnapshot,

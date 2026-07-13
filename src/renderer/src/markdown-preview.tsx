@@ -268,7 +268,7 @@ function createMarkdownRenderer(): MarkdownIt {
     return true
   })
 
-  md.renderer.rules.heading_open = (tokens, index, options, env, self) => {
+  md.renderer.rules.heading_open = (tokens, index, options, _env, self) => {
     const inline = tokens[index + 1]
     if (inline?.type === 'inline') {
       const id = slugifyHeading(inline.content)

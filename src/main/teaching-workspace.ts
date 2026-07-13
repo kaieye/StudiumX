@@ -7,8 +7,7 @@ import { inspectGitWorkspace } from './teaching-git'
 import { isPathInsideRoot } from './path-access'
 import {
   buildCourseSummaries,
-  buildWorkspaceCatalog,
-  readMissionSummary
+  buildWorkspaceCatalog
 } from './teaching-workspace-catalog'
 import { runLessonGenerationPipeline, type LessonGenerationCallbacks } from './teaching-lesson-generation'
 import {
@@ -32,7 +31,6 @@ import {
   toAgentConversationSummary,
   writeAgentConversationRecord
 } from './teaching-agent-conversations'
-import { resolveActiveProvider } from './ai/provider-adapter'
 import {
   runTeachingConversationTurn,
   type TeachingConversationRuntimeStream,
@@ -49,7 +47,6 @@ import type { LessonBrief } from '../shared/teaching-workflow'
 import { activeLearnerProfileLines } from '../shared/teaching-personalization'
 import {
   agentConversationDirectoryRelativePath,
-  agentConversationJsonRelativePath,
   agentConversationJsonRelativePathForMarkdown,
   agentConversationMarkdownRelativePath,
   isRootAgentConversationMarkdownRelativePath,
@@ -124,11 +121,8 @@ import type {
   AgentConversationRecord,
   AgentConversationSummary,
   AgentChatMessage,
-  AgentChatStreamChunk,
   AgentChatStreamPayload,
   AgentChatStreamResult,
-  AgentChatStreamStatus,
-  AgentChatStreamToolEvent,
   ReadAgentConversationPayload,
   SaveAgentConversationPayload,
   SaveAgentConversationResult,

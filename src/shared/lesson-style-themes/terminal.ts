@@ -1,4 +1,4 @@
-import { buildLessonCss, MONO_FONT, SANS_FONT } from './base'
+import { buildLessonCss } from './base'
 import type { LessonStyleDefinition, LessonStyleTokens } from './types'
 
 export const TERMINAL_TOKENS: LessonStyleTokens = {

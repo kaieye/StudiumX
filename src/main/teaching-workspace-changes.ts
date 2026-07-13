@@ -378,21 +378,6 @@ function collectChangedPaths(
   return [...paths].filter((path) => !path.endsWith('/')).sort()
 }
 
-function parseGitStatus(output: string): GitStatusEntry[] {
-  const chunks = output.split('\0')
-  const entries: GitStatusEntry[] = []
-  for (let index = 0; index < chunks.length; index += 1) {
-    const chunk = chunks[index]
-    if (!chunk || chunk.length < 4) continue
-    const code = chunk.slice(0, 2)
-    const relativePath = normalizeWorkspaceRelativePath(chunk.slice(3))
-    if (!relativePath) continue
-    entries.push({ code, relativePath })
-    if (code.includes('R') || code.includes('C')) index += 1
-  }
-  return entries
-}
-
 async function readGitDiffStats(
   workspaceRoot: string,
   relativePaths: string[]

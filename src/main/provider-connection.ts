@@ -52,7 +52,7 @@ export async function probeModelProvider(
     )
     text = await res.text()
   } catch (e) {
-    const message = providerProbeFailureMessage(e, url)
+    const message = providerProbeFailureMessage(e)
     if (
       proxyUrl &&
       (await directProviderReachable(url, request.endpointFormat, fetcher))
@@ -99,7 +99,7 @@ export async function fetchUpstreamModels(
   return { ok: true, modelIds: result.modelIds }
 }
 
-function providerProbeFailureMessage(error: unknown, url: string): string {
+function providerProbeFailureMessage(error: unknown): string {
   const raw = redactProviderErrorText(error instanceof Error ? error.message : String(error))
   if (/aborted|timeout/i.test(raw)) {
     return `连接超时（${PROBE_TIMEOUT_MS / 1000}s）。请检查 Base URL、网络或代理设置。`

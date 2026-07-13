@@ -14,8 +14,6 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
-  Coffee,
-  Copy,
   FileText,
   Folder,
   FolderOpen,
@@ -26,7 +24,6 @@ import {
   History,
   Info,
   LibraryBig,
-  LinkIcon,
   Loader2,
   MessageSquare,
   Minus,
@@ -34,37 +31,27 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Palette,
-  Pause,
   PenLine,
   Pin,
   PinOff,
   Plus,
   RefreshCw,
-  RotateCcw,
   Save,
   Search,
   Settings,
   SlidersHorizontal,
   Sparkles,
-  Star,
   Square,
-  Target,
-  Timer,
-  Trophy,
-  Users,
-  Volume2,
-  VolumeX,
   Play,
   SendHorizontal,
   Upload,
   Trash2,
   X,
-  Wrench,
-  Zap
+  Wrench
 } from 'lucide-react'
 import type { CSSProperties, ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Component, Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Component, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { type Components } from 'react-markdown'
@@ -138,7 +125,6 @@ import {
   type LessonSummary,
   type TeachingGitBranchRow,
   type ModelReasoningEffort,
-  type TeachingRuntimeState,
   type TeachingWorkspaceChangedFile,
   type TeachingWorkspaceChangeSummary,
   type TeachingWorkspaceSummary,
@@ -2049,7 +2035,6 @@ function MainArea() {
     settingsSection,
     sidebarCollapsed,
     loading,
-    generating,
     error,
     appState,
     settings,
@@ -2068,14 +2053,12 @@ function MainArea() {
     updateSettings,
     createWorkspace,
     importWorkspace,
-    updateMission,
     applyLessonStyle,
     generateLesson,
     loadLesson,
     loadWorkspaceMarkdownFile,
     setMarkdownDraft,
     saveMarkdownDocument,
-    openLessonLibrary,
     openResourceHtmlPreview,
     openPath,
     openExternal,
@@ -2996,7 +2979,6 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   } = useAppStore()
   const view = useAppStore((s) => s.view)
   const overviewDialogMode = useAppStore((s) => s.overviewDialogMode)
-  const appState = useAppStore((s) => s.appState)
   const isTeachingMode = view !== 'agent' && overviewDialogMode === 'teaching'
   const inputValue = agentInput
   const busy = isTeachingMode ? generating || agentChatBusy : agentChatBusy
@@ -3822,18 +3804,6 @@ function stripLessonIndexPrefix(name: string, id: string): string {
   return rest || name
 }
 
-function runtimeMeterWidth(
-  runtime: TeachingRuntimeState,
-  active: TeachingWorkspaceSummary | null,
-  generating: boolean
-): string {
-  if (runtime.status === 'error') return '12%'
-  if (generating) return '48%'
-  if (active?.lessons.length && active.records.length) return '82%'
-  if (active?.lessons.length) return '64%'
-  if (active) return '28%'
-  return '16%'
-}
 
 function prettyJson(value: string): string {
   if (!value) return ''

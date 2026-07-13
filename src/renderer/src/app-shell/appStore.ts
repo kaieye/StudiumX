@@ -7,7 +7,6 @@ import {
   normalizeRendererSettings,
   runtimeProviderLabel
 } from '../workflows/settings'
-import { isCourseAgentConversationPath } from '../../../shared/agent-conversation-catalog'
 import {
   activeTeachingConversationSummary,
   agentTurnsToMessages,
@@ -944,7 +943,6 @@ export const useAppStore = create<StoreState>((set, get) => ({
     })
     const {
       pendingConversationId,
-      sourceConversationId,
       selectedCourseRelativePath,
       selectedLessonPath,
       assistantId,

@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react'
-import { type ComponentType, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../../app-shell/appStore'
 import { readStudySnapshot } from '../../../study-space/domain'
@@ -12,13 +12,6 @@ import {
   useStudyAnalytics,
   type LearningAnalyticsClient
 } from './useStudyAnalytics'
-import type {
-  AnalyticsSectionDataMap,
-  AnalyticsSectionId,
-  AnalyticsSectionResult,
-  AnalyticsSectionResultMap,
-  LearningAnalyticsQuery
-} from './types'
 import './analytics-page.css'
 
 export type StudyAnalyticsIdentity = {
@@ -26,30 +19,10 @@ export type StudyAnalyticsIdentity = {
   presenceSpaceCode?: string | null
 }
 
-type DataBearingSectionResult<K extends AnalyticsSectionId> = Extract<
-  AnalyticsSectionResult<AnalyticsSectionDataMap[K]>,
-  { state: 'available' | 'empty' | 'partial' }
->
-
-export type AnalyticsSectionSlotProps<K extends AnalyticsSectionId> = {
-  sectionId: K
-  result: DataBearingSectionResult<K>
-  query: LearningAnalyticsQuery
-  isRefreshing: boolean
-  isStale: boolean
-  onRetry: () => void
-  sectionResults?: AnalyticsSectionResultMap
-}
-
-export type StudyAnalyticsPageSlots = {
-  [K in AnalyticsSectionId]?: ComponentType<AnalyticsSectionSlotProps<K>>
-}
-
 export type StudyAnalyticsPageProps = {
   onBack: () => void
   client?: LearningAnalyticsClient
   identity?: StudyAnalyticsIdentity
-  slots?: StudyAnalyticsPageSlots
 }
 
 function useLocalToday(): string {

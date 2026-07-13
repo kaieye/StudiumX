@@ -12,7 +12,6 @@ import {
 } from './teaching-workspace-paths'
 import {
   agentConversationCourseJsonScanDirectories,
-  agentConversationJsonRelativePath,
   agentConversationJsonRelativePathForMarkdown,
   agentConversationJsonScanDirectories,
   agentConversationMarkdownRelativePath,

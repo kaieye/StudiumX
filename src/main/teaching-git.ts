@@ -8,7 +8,6 @@ import type {
   TeachingGitBranchesResult,
   TeachingGitBranchRow,
   TeachingGitWorkspaceInfo,
-  TeachingGitWorktreeRow,
   TeachingGitWorktreesResult
 } from '../shared/teaching-types'
 

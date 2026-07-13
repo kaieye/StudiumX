@@ -408,10 +408,6 @@ function withTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: num
   return parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal
 }
 
-function childUsage(messages: ChatMessage[]): ChildRunUsage {
-  return { toolCalls: messages.filter((message) => message.role === 'tool').length }
-}
-
 function buildParallelChildRunResult(results: ChildRunResult[], concurrency: number): ParallelChildRunResult {
   const completed = results.filter((result) => result.status === 'completed').length
   const failed = results.filter((result) => result.status === 'failed').length

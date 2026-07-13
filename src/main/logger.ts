@@ -8,7 +8,6 @@ import { dirname, join } from 'node:path'
  */
 export class Logger {
   private readonly logPath: string
-  private readonly retentionDays: number
   private enabled: boolean
   private queue: string[] = []
   private flushing = false
@@ -16,7 +15,6 @@ export class Logger {
   constructor(options: { userDataPath: string; enabled: boolean; retentionDays: number }) {
     this.logPath = join(options.userDataPath, 'studiumx.log')
     this.enabled = options.enabled
-    this.retentionDays = options.retentionDays
   }
 
   configure(enabled: boolean, retentionDays: number): void {

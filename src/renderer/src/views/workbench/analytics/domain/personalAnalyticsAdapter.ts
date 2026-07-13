@@ -17,7 +17,6 @@ import type {
 import { readStudySnapshot, studyLevel, studyPlantStage } from '../../../../study-space/domain'
 import {
   addLocalDays,
-  compareLocalDates,
   countInclusiveLocalDays,
   isLocalDateInRange
 } from './dateRange'
@@ -29,12 +28,6 @@ import {
 const EMPTY_HOURS = () => Array.from({ length: 24 }, () => 0)
 
 type RangeProjection = StudyDailyProjection & { covered: boolean }
-
-type LocalFocusResult = {
-  focus: AnalyticsSectionResult<FocusAnalytics>
-  hero: AnalyticsSectionResult<LearningAnalyticsHero>
-  tasks: AnalyticsSectionResult<TaskAnalytics>
-}
 
 function retentionCutoff(localToday: string, days: number): string {
   return addLocalDays(localToday, -(days - 1))

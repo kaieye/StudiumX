@@ -1,6 +1,5 @@
 import {
   agentConversationAbsolutePath,
-  courseRelativePathForAgentConversation,
   isTemporaryAgentConversationPath,
   pendingAgentConversationRelativePath
 } from '../../shared/agent-conversation-catalog'
@@ -15,7 +14,6 @@ import type {
   AgentToolPermissionRequest,
   AgentTurnMetadata,
   AgentConversationSummary,
-  AskAnswer,
   AskOption,
   AskQuestion,
   TeachingAppState,

@@ -27,7 +27,6 @@ export class TeachingMemoryStore {
 
   async create(input: CreateTeachingMemoryPayload): Promise<TeachingMemoryRecord> {
     await mkdir(this.options.rootDir, { recursive: true })
-    const settings = await this.options.settingsProvider()
     const now = this.now()
     const scope = normalizeScope(input.scope)
     const workspaceRoot = normalizeScopePath(input.workspaceRoot)
@@ -41,13 +40,12 @@ export class TeachingMemoryStore {
       confidence: input.confidence ?? 1,
       createdAt: now,
       updatedAt: now
-    }, settings)
+    })
     await writeJson(join(this.options.rootDir, `${record.id}.json`), record)
     return record
   }
 
   async update(id: string, patch: UpdateTeachingMemoryPayload, access?: MemoryAccess): Promise<TeachingMemoryRecord> {
-    const settings = await this.options.settingsProvider()
     const current = await this.mustGet(id, access)
     const now = this.now()
     const next = normalizeMemoryRecord({
@@ -58,20 +56,19 @@ export class TeachingMemoryStore {
       ...(patch.disabled === true ? { disabledAt: current.disabledAt ?? now } : {}),
       ...(patch.disabled === false ? { disabledAt: undefined } : {}),
       updatedAt: now
-    }, settings)
+    })
     await writeJson(join(this.options.rootDir, `${next.id}.json`), next)
     return next
   }
 
   async delete(id: string, access?: MemoryAccess): Promise<void> {
-    const settings = await this.options.settingsProvider()
     const current = await this.mustGet(id, access)
     const now = this.now()
     const next = normalizeMemoryRecord({
       ...current,
       deletedAt: current.deletedAt ?? now,
       updatedAt: now
-    }, settings)
+    })
     await writeJson(join(this.options.rootDir, `${next.id}.json`), next)
   }
 
@@ -140,7 +137,7 @@ export class TeachingMemoryStore {
         .map(async (file) => {
           try {
             const parsed = JSON.parse(await readFile(join(this.options.rootDir, file), 'utf8')) as TeachingMemoryRecord
-            return normalizeMemoryRecord(parsed, await this.options.settingsProvider())
+            return normalizeMemoryRecord(parsed)
           } catch {
             return null
           }
@@ -155,9 +152,7 @@ export class TeachingMemoryStore {
 }
 
 function normalizeMemoryRecord(
-  input: Partial<TeachingMemoryRecord> & Pick<TeachingMemoryRecord, 'id' | 'content' | 'scope' | 'createdAt' | 'updatedAt'>,
-  settings: TeachingSettingsV1
-): TeachingMemoryRecord {
+  input: Partial<TeachingMemoryRecord> & Pick<TeachingMemoryRecord, 'id' | 'content' | 'scope' | 'createdAt' | 'updatedAt'>) : TeachingMemoryRecord {
   const scope = normalizeScope(input.scope)
   const workspace = scope === 'user' ? undefined : normalizeScopePath(input.workspace)
   const project = scope === 'project' ? normalizeScopePath(input.project ?? input.workspace) : undefined
