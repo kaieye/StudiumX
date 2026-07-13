@@ -10,7 +10,7 @@ import type { AgentLoopEvent } from '../../src/main/ai/agent-loop'
 import type { ToolCall, ToolDefinition } from '../../src/main/ai/provider-adapter'
 import type { ToolHandlerMap } from '../../src/main/ai/tools/registry'
 
-type Scenario = 'no-tools' | 'single-tool' | 'multi-tool' | 'tool-error' | 'max-iterations'
+type Scenario = 'no-tools' | 'single-tool' | 'multi-tool' | 'tool-error' | 'max-iterations' | 'max-iterations-tool-with-text'
 
 type RecordedRequest = {
   scenario: Scenario
@@ -71,7 +71,16 @@ const server = createServer(async (req, res) => {
         tool_calls: [makeToolCall('call-broken', 'broken_tool', { value: true })]
       }
     }
-    if (toolResults.length > 0) return { role: 'assistant', content: 'Forced final after max iterations.' }
+    if (toolResults.length > 0) {
+      if (scenario === 'max-iterations-tool-with-text') {
+        return {
+          role: 'assistant',
+          content: 'I will keep reading before I answer.',
+          tool_calls: [makeToolCall('call-dangling', 'web_search', { query: 'more context' })]
+        }
+      }
+      return { role: 'assistant', content: 'Forced final after max iterations.' }
+    }
     return {
       role: 'assistant',
       content: '',
@@ -234,6 +243,18 @@ try {
   assert.match(maxIterationsError.result.error ?? '', /达到工具调用上限/)
   assert.equal(requests.length, 1, 'maxIterationsBehavior=error should not make a forced final provider call')
   assert.ok(maxIterationsError.events.some((event) => event.type === 'status' && event.status === 'error'))
+
+  const danglingFinalTool = await runScenario('max-iterations-tool-with-text', { maxIterations: 1 })
+  assert.equal(danglingFinalTool.result.stopReason, 'error')
+  assert.equal(danglingFinalTool.result.finalText, '')
+  assert.match(danglingFinalTool.result.error ?? '', /仍请求继续调用工具/)
+  assert.equal(
+    danglingFinalTool.result.messages.some(
+      (message) => message.role === 'assistant' && message.tool_calls?.some((call) => call.id === 'call-dangling')
+    ),
+    false,
+    'an unexecuted forced-final tool call must not be persisted into the conversation'
+  )
 
   const controller = new AbortController()
   controller.abort()

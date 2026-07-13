@@ -421,13 +421,16 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     if (isCanceled()) return canceledResult(true)
     if (durationSignal.aborted) return exhaustedResult(true, 'duration')
     degradedReason ??= final.degradedReason
-    const assistantMsg: ChatMessage = { role: 'assistant', content: final.text || null, tool_calls: final.toolCalls.length > 0 ? final.toolCalls : undefined }
+    if (final.toolCalls.length > 0) {
+      const message = '达到限制后，模型仍请求继续调用工具，未返回最终答复。'
+      emit({ type: 'status', status: 'error', message })
+      return withUsage({ messages: transcript, finalText: '', iterations, toolsSupported: true, degradedReason, stopReason: 'error', error: message })
+    }
+    const assistantMsg: ChatMessage = { role: 'assistant', content: final.text || null }
     transcript.push(assistantMsg)
     emit({ type: 'assistant_message', message: assistantMsg })
     if (!final.text.trim()) {
-      const message = final.toolCalls.length > 0
-        ? '达到限制后，模型仍请求继续调用工具，未返回最终答复。'
-        : '达到限制后，模型返回了空答复。'
+      const message = '达到限制后，模型返回了空答复。'
       emit({ type: 'status', status: 'error', message })
       return withUsage({ messages: transcript, finalText: '', iterations, toolsSupported: true, degradedReason, stopReason: 'error', error: message })
     }

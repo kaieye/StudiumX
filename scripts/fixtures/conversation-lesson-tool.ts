@@ -47,6 +47,7 @@ let pipelineBodies: MockRequest[] = []
 let conversationMode:
   | 'normal'
   | 'budget-exhaustion'
+  | 'captured-rag-onboarding'
   | 'onboarding-budget-exhaustion'
   | 'onboarding-final-tool-call-error' = 'normal'
 let onboardingConversationRequests = 0
@@ -118,6 +119,72 @@ const server = createServer(async (req, res) => {
                 }
               }
             ]
+          }
+        }
+      ]
+    })
+    return
+  }
+
+  if (conversationMode === 'captured-rag-onboarding') {
+    onboardingConversationRequests += 1
+    const generateResult = messages.findLast(
+      (message) => message.role === 'tool' && String(message.content ?? '').includes('"lessonId"')
+    )
+    if (generateResult) {
+      reply({
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '第 1 课已生成：RAG 是什么。'
+            }
+          }
+        ]
+      })
+      return
+    }
+
+    const scriptedCalls = onboardingConversationRequests === 1
+      ? [
+          {
+            id: 'call-captured-list',
+            name: 'list_workspace',
+            arguments: JSON.stringify({ path: '.', recursive: true })
+          }
+        ]
+      : onboardingConversationRequests === 2
+        ? ['MISSION.md', 'NOTES.md', 'RESOURCES.md', 'GLOSSARY.md'].map((path, index) => ({
+            id: `call-captured-read-${index + 1}`,
+            name: 'read_workspace_file',
+            arguments: JSON.stringify({ path })
+          }))
+        : [
+            {
+              id: 'call-captured-generate',
+              name: 'generate_lesson',
+              arguments: JSON.stringify({
+                topic: 'RAG 检索增强生成',
+                firstLessonFocus: '用一张流程图讲清 RAG 的核心流程，并完成一次检索练习'
+              })
+            }
+          ]
+    reply({
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: onboardingConversationRequests === 2
+              ? '工作区已有基础结构，让我先读取关键文件，了解当前状态。'
+              : null,
+            tool_calls: scriptedCalls.map((call) => ({
+              id: call.id,
+              type: 'function',
+              function: {
+                name: call.name,
+                arguments: call.arguments
+              }
+            }))
           }
         }
       ]
@@ -521,7 +588,41 @@ try {
   const filesAfterFinalToolCall = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
   assert.equal(filesAfterFinalToolCall.some((name) => name.startsWith('0002-')), false)
 
-  // --- Scenario 6: malformed JSON should get one repair round and then a
+  // --- Scenario 6: replay the captured "我想学习RAG" trace. The persisted
+  // generic limit is one iteration, but a durable teaching request still needs
+  // enough room to inspect the workspace and execute generate_lesson.
+  conversationMode = 'captured-rag-onboarding'
+  onboardingConversationRequests = 0
+  pipelineMode = 'success'
+  pipelineRequests = 0
+  settings.tools.maxIterations = 1
+  const capturedOnboarding = await service.agentChatStream(
+    {
+      workspaceId: workspace.id,
+      mode: 'teaching',
+      messages: [],
+      userInput: '我想学习RAG'
+    },
+    {
+      streamId: 'lesson-tool-captured-rag-onboarding-stream',
+      onChunk: () => {},
+      onStatus: () => {},
+      onTool: () => {}
+    }
+  )
+
+  assert.ok(!('error' in capturedOnboarding) && !('canceled' in capturedOnboarding))
+  assert.equal(capturedOnboarding.generatedLessons?.length, 1, 'broad learning intent should produce a durable first lesson')
+  assert.equal(pipelineRequests, 1, 'the captured teaching chain should execute generate_lesson exactly once')
+  assert.ok(
+    onboardingConversationRequests >= 4,
+    'the teaching chain should continue through workspace inspection, lesson generation, and final confirmation'
+  )
+  const filesAfterCapturedOnboarding = (await readdir(join(workspace.rootPath, 'lessons')))
+    .filter((name) => name.endsWith('.html'))
+  assert.equal(filesAfterCapturedOnboarding.some((name) => name.startsWith('0002-')), true, 'lesson 0002 should exist on disk')
+
+  // --- Scenario 7: malformed JSON should get one repair round and then a
   // compact full regeneration. The compact round is intentionally shorter
   // and should rescue providers that clipped or broke the first JSON object.
   conversationMode = 'normal'
@@ -546,7 +647,7 @@ try {
 
   assert.ok(!('error' in compactRecovery) && !('canceled' in compactRecovery), 'compact regeneration should recover from invalid JSON')
   assert.equal(compactRecovery.generatedLessons?.length, 1, 'compact regeneration should still surface the generated lesson')
-  assert.equal(compactRecovery.generatedLessons?.[0]?.id, '0002', 'compact recovery should persist the next lesson')
+  assert.equal(compactRecovery.generatedLessons?.[0]?.id, '0003', 'compact recovery should persist the next lesson')
   assert.equal(pipelineRequests, 3, 'compact recovery should run first attempt, repair, and one compact regeneration')
   assert.equal(
     pipelineBodies.every((request) => request.response_format?.type === 'json_object'),
@@ -554,7 +655,7 @@ try {
     'all lesson-plan attempts should request JSON mode'
   )
   const filesAfterCompactRecovery = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterCompactRecovery.some((name) => name.startsWith('0002-')), true, 'lesson 0002 should exist on disk')
+  assert.equal(filesAfterCompactRecovery.some((name) => name.startsWith('0003-')), true, 'lesson 0003 should exist on disk')
 
   console.log('conversation lesson tool ok')
 } finally {

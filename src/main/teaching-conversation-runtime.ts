@@ -37,6 +37,8 @@ import type {
   TeachingSettingsV1
 } from '../shared/teaching-types'
 
+const MIN_DURABLE_LESSON_ITERATIONS = 4
+
 export type TeachingConversationRuntimeWorkspace = {
   id: string
   name: string
@@ -283,6 +285,7 @@ async function runTeachingConversationTurnActive(
   const generatedLessons: LessonSummary[] = []
   const generateLessonFromBrief = deps.generateLessonFromBrief
   let lessonGenerationFailure: string | null = null
+  let lessonGenerationAttempted = false
   const lessonToolEnabled =
     isTeachingConversation && Boolean(workspace) && settings.tools.enabled && typeof generateLessonFromBrief === 'function'
   if (lessonToolEnabled && generateLessonFromBrief) {
@@ -310,6 +313,7 @@ async function runTeachingConversationTurnActive(
           )
         }
         let lesson: LessonSummary
+        lessonGenerationAttempted = true
         try {
           lesson = await generateLessonFromBrief(brief)
         } catch (error) {
@@ -364,6 +368,10 @@ async function runTeachingConversationTurnActive(
     ...priorMessages.filter((m) => m.role !== 'system'),
     { role: 'user', content: userInput }
   ]
+  const lessonGenerationRequested = lessonToolEnabled && isLessonGenerationRequest(userInput)
+  const maxIterations = lessonGenerationRequested
+    ? Math.max(settings.tools.maxIterations, MIN_DURABLE_LESSON_ITERATIONS)
+    : settings.tools.maxIterations
 
   const runEvents: AgentLoopEvent[] = []
   const result = await runAgentLoop({
@@ -372,9 +380,9 @@ async function runTeachingConversationTurnActive(
     messages,
     tools: registry.definitions(),
     toolHandlers: registry.handlerMap(ctx),
-    maxIterations: settings.tools.maxIterations,
+    maxIterations,
     shouldErrorOnMaxIterations: () =>
-      lessonToolEnabled && generatedLessons.length === 0 && isLessonGenerationRequest(userInput),
+      lessonGenerationRequested && !lessonGenerationAttempted,
     maxIterationsErrorMessage:
       '工具调用上限已用完，generate_lesson 尚未执行，所以课程尚未生成。请重试，或在设置里提高工具调用上限。',
     contextCompaction: buildContextCompactionOptions(payload.contextCompaction),
@@ -393,6 +401,13 @@ async function runTeachingConversationTurnActive(
   }
   if (result.error) {
     return { error: true, message: result.error, usage: result.usage }
+  }
+  if (lessonGenerationRequested && !lessonGenerationAttempted) {
+    return {
+      error: true,
+      message: '课程尚未生成：本轮没有成功执行 generate_lesson。请重试；StudiumX 不会把“准备生成”当作已完成。',
+      usage: result.usage
+    }
   }
   if (stream.signal?.aborted) {
     return { canceled: true }
@@ -708,12 +723,18 @@ function buildContextCompactionOptions(
 function isLessonGenerationRequest(input: string): boolean {
   const text = cleanText(input).toLowerCase()
   if (!text) return false
+  if ([
+    /(?:不要|不用|别|无需).*(?:生成|创建|产出|保存).*(?:课程|课件|lesson|session)/,
+    /(?:不要|不用|别|无需).*(?:课程|课件|lesson|session)/
+  ].some((pattern) => pattern.test(text))) return false
   return [
     /(?:生成|创建|产出|保存).*(?:课程|课|lesson|session)/,
     /(?:课程|课|lesson|session).*(?:生成|创建|产出|保存)/,
     /(?:继续|开始|进入|上|讲|学|直接).*(?:下一节|下一课|下节课|第二节|第二课|第[一二三四五六七八九十0-9]+节|第[一二三四五六七八九十0-9]+课)/,
     /(?:下一节|下一课|下节课|第二节|第二课)/,
-    /(?:next|continue|start).*(?:lesson|session|course)/
+    /(?:next|continue|start).*(?:lesson|session|course)/,
+    /^(?:我)?(?:想|希望|准备|要)?(?:系统(?:地|性地)?|深入|认真|从零)?(?:学习|学会|掌握)\s*\S+/,
+    /^(?:i\s+)?(?:want|hope|plan|need)\s+to\s+(?:systematically\s+)?(?:learn|master)\s+\S+/
   ].some((pattern) => pattern.test(text))
 }
 
@@ -748,6 +769,7 @@ const LESSON_TOOL_POLICY_PROMPT = [
   '<lesson-generation-policy>',
   '正式课程只能通过 generate_lesson 工具产出；不要用 write_workspace_file 直接写 lessons/ 目录下的课程页面（该工具会拒绝这类写入）。',
   '当你已经基本清楚「教什么主题、为谁教、为什么学、本节课要完成什么动作」时，立即调用 generate_lesson：把这些信息整理成完整的中文句子填入参数，只填写对话中真实确认过的内容，不确定的字段留空，绝不能用碎片词或占位词充数。',
+  '用户说“我想学习/系统学习/从零学习某主题”时，视为需要一份可持续学习的正式 Lesson；若 MISSION.md 已提供主题与成功标准，不要为了补齐画像而反复列目录、读取无关文件或追问，直接为第一节课选择一个合理的最小动作并调用 generate_lesson。',
   '当用户要求“继续下一节/下一课/直接开始/直接生成”且已有足够上下文时，优先调用 generate_lesson；不要先做开放式 web_search、assets 检查或长篇资料收集，generate_lesson 后续流水线会负责课程计划生成。',
   '在当前轮次没有收到 generate_lesson 的 ok:true 工具结果之前，不要说课程已经生成、正在生成、开始生成或已保存。',
   '用户明确表示“直接生成、别问了”时，跳过澄清，基于已知信息与 MISSION.md 直接调用 generate_lesson。',
