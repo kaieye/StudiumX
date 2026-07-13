@@ -43,6 +43,37 @@ describe('teaching analytics token aggregation', () => {
     expect(result.duplicateRuns).toBe(1)
   })
 
+  it('calculates total tokens from prompt and completion when the provider omits total', () => {
+    const result = collectConversationTokenFacts(conversation([
+      {
+        id: 'run-components',
+        role: 'assistant',
+        content: 'answer',
+        createdAt: '2026-07-11T23:30:00.000Z',
+        metadata: {
+          version: 1,
+          runUsage: {
+            promptTokens: 120,
+            completionTokens: 30,
+            providerCalls: 1,
+            toolCalls: 0,
+            toolErrors: 0,
+            iterations: 1,
+            childRuns: 0,
+            durationMs: 10
+          }
+        }
+      }
+    ]), 'ws-1', 'Workspace', 'UTC')
+
+    expect(result.facts).toHaveLength(1)
+    expect(result.facts[0].usage).toMatchObject({
+      promptTokens: 120,
+      completionTokens: 30,
+      totalTokens: 150
+    })
+  })
+
   it('keeps total-only usage without fabricating prompt or completion', () => {
     const result = collectConversationTokenFacts(conversation([
       { id: 'run-total', role: 'assistant', content: 'answer', createdAt: '2026-07-11T23:30:00.000Z', metadata: { version: 1, runUsage: usage(77) } }
