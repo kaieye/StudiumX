@@ -125,6 +125,8 @@ type TaskColorDefinition = {
 type TimeSelectProps = {
   value: number
   options: number[]
+  minMinutes: number
+  maxMinutes: number
   onChange: (minutes: number) => void
   disabledOption?: (minutes: number) => boolean
   ariaLabel: string
@@ -260,6 +262,17 @@ function formatMinutes(minutes: number): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
+function parseTimeText(value: string, minMinutes: number, maxMinutes: number): number | null {
+  const match = /^(\d{1,2})[:：](\d{2})$/.exec(value.trim())
+  if (!match) return null
+  const hour = Number.parseInt(match[1] ?? '', 10)
+  const minute = Number.parseInt(match[2] ?? '', 10)
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || minute > 59 || hour > 24) return null
+  if (hour === 24 && minute !== 0) return null
+  const totalMinutes = hour * 60 + minute
+  return totalMinutes >= minMinutes && totalMinutes <= maxMinutes ? totalMinutes : null
+}
+
 function formatHour(hour: number): string {
   return `${hour}:00`
 }
@@ -272,12 +285,54 @@ const timePeriodGroups = [
   { label: '晚上', start: 18 * 60, end: minutesPerDay + 1 }
 ]
 
-function TimeSelect({ value, options, onChange, disabledOption, ariaLabel }: TimeSelectProps) {
+function TimeSelect({
+  value,
+  options,
+  minMinutes,
+  maxMinutes,
+  onChange,
+  disabledOption,
+  ariaLabel
+}: TimeSelectProps) {
   const [open, setOpen] = useState(false)
+  const [draftValue, setDraftValue] = useState(() => formatMinutes(value))
+  const [invalid, setInvalid] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
   const selectedRef = useRef<HTMLButtonElement | null>(null)
   const listboxId = useId()
+  const scrollTargetMinutes = options.reduce(
+    (closest, minutes) => (Math.abs(minutes - value) < Math.abs(closest - value) ? minutes : closest),
+    options[0] ?? value
+  )
+
+  const clearValidation = (): void => {
+    setInvalid(false)
+    inputRef.current?.setCustomValidity('')
+  }
+
+  const commitDraft = (): boolean => {
+    const minutes = parseTimeText(draftValue, minMinutes, maxMinutes)
+    if (minutes === null || disabledOption?.(minutes)) {
+      const range = `${formatMinutes(minMinutes)}–${formatMinutes(maxMinutes)}`
+      const message = minutes === null
+        ? `请输入 ${range} 范围内的时间，格式为 HH:mm`
+        : '结束时间必须晚于开始时间'
+      setInvalid(true)
+      inputRef.current?.setCustomValidity(message)
+      return false
+    }
+    clearValidation()
+    setDraftValue(formatMinutes(minutes))
+    if (minutes !== value) onChange(minutes)
+    return true
+  }
+
+  useEffect(() => {
+    setDraftValue(formatMinutes(value))
+    setInvalid(false)
+    inputRef.current?.setCustomValidity('')
+  }, [value])
 
   useEffect(() => {
     if (!open) return undefined
@@ -287,7 +342,10 @@ function TimeSelect({ value, options, onChange, disabledOption, ariaLabel }: Tim
     const closeFromKeyboard = (event: globalThis.KeyboardEvent): void => {
       if (event.key !== 'Escape') return
       setOpen(false)
-      triggerRef.current?.focus()
+      setDraftValue(formatMinutes(value))
+      setInvalid(false)
+      inputRef.current?.setCustomValidity('')
+      inputRef.current?.focus()
     }
     window.addEventListener('pointerdown', closeFromOutside)
     window.addEventListener('keydown', closeFromKeyboard)
@@ -296,33 +354,95 @@ function TimeSelect({ value, options, onChange, disabledOption, ariaLabel }: Tim
       window.removeEventListener('pointerdown', closeFromOutside)
       window.removeEventListener('keydown', closeFromKeyboard)
     }
-  }, [open])
+  }, [open, value])
 
   const selectTime = (minutes: number): void => {
     if (disabledOption?.(minutes)) return
+    clearValidation()
+    setDraftValue(formatMinutes(minutes))
     onChange(minutes)
     setOpen(false)
-    triggerRef.current?.focus()
+    inputRef.current?.focus()
+  }
+
+  const handleDraftChange = (nextValue: string): void => {
+    setDraftValue(nextValue)
+    clearValidation()
+    const minutes = parseTimeText(nextValue, minMinutes, maxMinutes)
+    if (minutes !== null && !disabledOption?.(minutes) && minutes !== value) onChange(minutes)
+    setOpen(true)
+  }
+
+  const handleInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setOpen(true)
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      if (commitDraft()) setOpen(false)
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setDraftValue(formatMinutes(value))
+      clearValidation()
+      setOpen(false)
+    }
   }
 
   return (
-    <div ref={rootRef} className={`study-schedule-time-select${open ? ' is-open' : ''}`}>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="study-schedule-time-trigger"
-        aria-label={`${ariaLabel} ${formatMinutes(value)}`}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={listboxId}
-        onClick={() => setOpen((current) => !current)}
-      >
+    <div ref={rootRef} className={`study-schedule-time-select${open ? ' is-open' : ''}${invalid ? ' is-invalid' : ''}`}>
+      <div className="study-schedule-time-control">
         <Clock3 size={14} aria-hidden="true" />
-        <strong>{formatMinutes(value)}</strong>
-        <ChevronDown size={14} aria-hidden="true" />
-      </button>
+        <input
+          ref={inputRef}
+          type="text"
+          className="study-schedule-time-input"
+          value={draftValue}
+          inputMode="numeric"
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={5}
+          required
+          role="combobox"
+          aria-label={ariaLabel}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-invalid={invalid}
+          placeholder="HH:mm"
+          title="可直接输入 HH:mm，支持精确到分钟"
+          onClick={() => setOpen(true)}
+          onChange={(event) => handleDraftChange(event.currentTarget.value)}
+          onInvalid={() => setInvalid(true)}
+          onKeyDown={handleInputKeyDown}
+          onBlur={(event) => {
+            if (rootRef.current?.contains(event.relatedTarget as Node | null)) return
+            commitDraft()
+            setOpen(false)
+          }}
+        />
+        <button
+          type="button"
+          className="study-schedule-time-toggle"
+          aria-label={`${open ? '收起' : '展开'}${ariaLabel}候选菜单`}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={listboxId}
+          onClick={() => {
+            const nextOpen = !open
+            setOpen(nextOpen)
+            if (nextOpen) window.requestAnimationFrame(() => inputRef.current?.focus())
+          }}
+        >
+          <ChevronDown size={14} aria-hidden="true" />
+        </button>
+      </div>
       {open ? (
-        <div id={listboxId} className="study-schedule-time-menu" role="listbox" aria-label={ariaLabel}>
+        <div id={listboxId} className="study-schedule-time-menu" role="listbox" aria-label={`${ariaLabel}候选时间`}>
           {timePeriodGroups.map((group) => {
             const groupOptions = options.filter((minutes) => minutes >= group.start && minutes < group.end)
             if (groupOptions.length === 0) return null
@@ -336,7 +456,7 @@ function TimeSelect({ value, options, onChange, disabledOption, ariaLabel }: Tim
                     return (
                       <button
                         key={minutes}
-                        ref={selected ? selectedRef : undefined}
+                        ref={minutes === scrollTargetMinutes ? selectedRef : undefined}
                         type="button"
                         role="option"
                         aria-selected={selected}
@@ -1277,6 +1397,8 @@ export function StudyTaskSchedulePage({
                 <TimeSelect
                   value={editor.schedule.startMinutes}
                   options={startTimeOptions}
+                  minMinutes={0}
+                  maxMinutes={minutesPerDay - 1}
                   ariaLabel="开始时间"
                   onChange={(nextStart) => {
                     updateEditorSchedule({
@@ -1293,6 +1415,8 @@ export function StudyTaskSchedulePage({
                 <TimeSelect
                   value={editor.schedule.endMinutes}
                   options={endTimeOptions}
+                  minMinutes={1}
+                  maxMinutes={minutesPerDay}
                   ariaLabel="结束时间"
                   disabledOption={(minutes) => minutes <= editor.schedule.startMinutes}
                   onChange={(endMinutes) => updateEditorSchedule({ endMinutes })}

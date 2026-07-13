@@ -3633,7 +3633,7 @@
   min-width: 0;
 }
 
-.study-schedule-time-trigger {
+.study-schedule-time-control {
   box-sizing: border-box;
   width: 100%;
   height: 40px;
@@ -3641,7 +3641,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 0 10px;
+  padding: 0 5px 0 10px;
   color: var(--text);
   border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
   border-radius: 12px;
@@ -3649,34 +3649,80 @@
     linear-gradient(180deg, color-mix(in srgb, #ffffff 30%, transparent), transparent 58%),
     color-mix(in srgb, var(--surface-solid) 45%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 52%, transparent);
-  font: inherit;
-  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
 }
 
-.study-schedule-time-trigger > svg:first-child {
+.study-schedule-time-control > svg {
   color: var(--accent);
 }
 
-.study-schedule-time-trigger strong {
-  min-width: 0;
+.study-schedule-editor-panel input.study-schedule-time-input:not([type="checkbox"]):not([type="color"]) {
+  height: 38px;
+  padding: 0;
+  color: var(--text);
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
   font-size: 0.8125rem;
   font-weight: 760;
-  text-align: left;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }
 
-.study-schedule-time-trigger > svg:last-child {
+.study-schedule-editor-panel input.study-schedule-time-input:not([type="checkbox"]):not([type="color"]):focus {
+  border: 0;
+  box-shadow: none;
+}
+
+.study-schedule-time-input::placeholder {
+  color: color-mix(in srgb, var(--text-muted) 72%, transparent);
+  font-weight: 650;
+}
+
+.study-schedule-time-toggle {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
   color: var(--text-muted);
+  border: 0;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-solid) 50%, transparent);
+  cursor: pointer;
+}
+
+.study-schedule-time-toggle:hover,
+.study-schedule-time-toggle:focus-visible {
+  outline: 0;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-solid));
+}
+
+.study-schedule-time-toggle svg {
   transition: transform 160ms ease;
 }
 
-.study-schedule-time-select.is-open .study-schedule-time-trigger {
+.study-schedule-time-select.is-open .study-schedule-time-control,
+.study-schedule-time-control:focus-within {
   border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent);
 }
 
-.study-schedule-time-select.is-open .study-schedule-time-trigger > svg:last-child {
+.study-schedule-time-select.is-invalid .study-schedule-time-control {
+  border-color: color-mix(in srgb, var(--danger, #ff3b30) 68%, var(--line));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--danger, #ff3b30) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent);
+}
+
+.study-schedule-time-select.is-open .study-schedule-time-toggle svg {
   transform: rotate(180deg);
 }
 
