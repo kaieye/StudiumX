@@ -1,13 +1,13 @@
 .pet-assistant-dialog {
   position: fixed;
-  z-index: 119;
-  right: 26px;
-  bottom: 142px;
+  z-index: 130;
   display: grid;
+  box-sizing: border-box;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
-  width: min(380px, calc(100vw - 32px));
-  height: min(560px, calc(100vh - 190px));
-  min-height: 360px;
+  min-width: min(300px, calc(100vw - 32px));
+  min-height: min(320px, calc(100vh - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
   overflow: hidden;
   color: var(--text);
   border: 1px solid var(--line-strong);
@@ -27,6 +27,13 @@
   min-height: 54px;
   padding: 0 12px;
   border-bottom: 1px solid var(--line);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.pet-assistant-header:active {
+  cursor: grabbing;
 }
 
 .pet-assistant-title-icon,
@@ -239,12 +246,84 @@
   opacity: 0.42;
 }
 
+.pet-assistant-resize-handle {
+  position: absolute;
+  z-index: 4;
+  display: block;
+  touch-action: none;
+  user-select: none;
+}
+
+.pet-assistant-resize-handle.is-n,
+.pet-assistant-resize-handle.is-s {
+  right: 12px;
+  left: 12px;
+  height: 7px;
+  cursor: ns-resize;
+}
+
+.pet-assistant-resize-handle.is-n { top: 0; }
+.pet-assistant-resize-handle.is-s { bottom: 0; }
+
+.pet-assistant-resize-handle.is-e,
+.pet-assistant-resize-handle.is-w {
+  top: 12px;
+  bottom: 12px;
+  width: 7px;
+  cursor: ew-resize;
+}
+
+.pet-assistant-resize-handle.is-e { right: 0; }
+.pet-assistant-resize-handle.is-w { left: 0; }
+
+.pet-assistant-resize-handle.is-ne,
+.pet-assistant-resize-handle.is-se,
+.pet-assistant-resize-handle.is-sw,
+.pet-assistant-resize-handle.is-nw {
+  width: 13px;
+  height: 13px;
+}
+
+.pet-assistant-resize-handle.is-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.pet-assistant-resize-handle.is-se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+}
+
+.pet-assistant-resize-handle.is-se::after {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 1px solid var(--text-soft);
+  border-bottom: 1px solid var(--text-soft);
+  content: '';
+  opacity: 0.55;
+}
+
+.pet-assistant-resize-handle.is-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.pet-assistant-resize-handle.is-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
 @media (max-width: 640px) {
   .pet-assistant-dialog {
-    right: 12px;
-    bottom: 124px;
-    width: calc(100vw - 24px);
-    height: min(520px, calc(100vh - 144px));
+    min-width: min(280px, calc(100vw - 32px));
+    min-height: min(300px, calc(100vh - 32px));
   }
 }
 

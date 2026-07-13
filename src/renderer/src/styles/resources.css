@@ -224,6 +224,10 @@
   color: #6b3f22;
   background: linear-gradient(145deg, #ffe6a7, #ffb7a7 58%, #cabdff);
 }
+.resource-installed-icon--pets .resource-home-pet-sprite,
+.resource-entry-icon--pets .resource-home-pet-sprite {
+  filter: none;
+}
 .resource-installed-icon--skills > span {
   position: absolute;
   right: -3px;
@@ -696,42 +700,38 @@
   gap: 8px;
   margin-top: 14px;
 }
-.pet-appearance-grid button {
+.pet-appearance-grid--single {
+  grid-template-columns: 1fr;
+}
+.pet-appearance-option {
   position: relative;
   display: grid;
   min-width: 0;
-  min-height: 112px;
+  min-height: 154px;
   place-items: center;
   align-content: center;
-  gap: 4px;
-  padding: 7px 5px 9px;
+  gap: 7px;
+  padding: 12px;
   color: var(--text-muted);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 14px;
   background: var(--surface-subtle);
-  font: inherit;
-  cursor: pointer;
 }
-.pet-appearance-grid button:hover,
-.pet-appearance-grid button.is-selected {
+.pet-appearance-option.is-selected {
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
   background: var(--accent-soft);
 }
-.pet-appearance-grid button:focus-visible {
-  outline: 0;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
-}
-.pet-appearance-grid button > svg {
+.pet-appearance-option > svg {
   position: absolute;
-  top: 7px;
-  right: 7px;
+  top: 10px;
+  right: 10px;
   color: var(--accent);
 }
 .pet-appearance-preview {
   display: grid;
-  width: 66px;
-  height: 70px;
+  width: 104px;
+  height: 108px;
   place-items: center;
   overflow: hidden;
 }
@@ -765,7 +765,7 @@
   flex: 0 0 auto;
   background-repeat: no-repeat;
   image-rendering: pixelated;
-  filter: drop-shadow(0 5px 0 rgba(0, 0, 0, 0.15));
+  filter: drop-shadow(0 6px 7px rgba(0, 0, 0, 0.16));
 }
 
 /* ----- In-app floating pet ----- */
@@ -880,6 +880,9 @@
   }
   .pet-appearance-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pet-appearance-grid.pet-appearance-grid--single {
+    grid-template-columns: 1fr;
   }
   .app-pet {
     transform: scale(0.88);

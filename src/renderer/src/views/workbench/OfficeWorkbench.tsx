@@ -64,7 +64,7 @@ const stageShift = { x: 0, y: -20 }
 const canvasOutputScale = 2
 const officeScaleBoost = 0.78
 const compactScaleBoost = 0.5
-const minToolScale = 0.28
+const minToolScale = 1
 const maxToolScale = 1.22
 const toolRailWidth = 316
 const toolRailMinWidth = 270
@@ -363,16 +363,24 @@ function fitCanvasToStage(stage: HTMLElement, canvas: HTMLCanvasElement): void {
   const scaleSafetyWidth = officeWidth + toolRailBaseWidth * toolToSceneScale * 2
   const gapSafetyWidth = toolSceneGap * 2
   const safeVisualScale = Math.max(0.1, (visibleWidth - gapSafetyWidth) / scaleSafetyWidth)
-  const visualScale = Math.min(unblockedVisualScale, safeVisualScale)
+  let visualScale = Math.min(unblockedVisualScale, safeVisualScale)
   let toolScale = Math.min(maxToolScale, Math.max(minToolScale, visualScale * toolToSceneScale))
   let toolLayoutHeight = visibleHeight / toolScale
+  let canvasCenterX = visibleWidth / 2
   const tools = stage.querySelector<HTMLElement>('.workbench-tools')
   if (tools) {
-    const toolTop = Number.parseFloat(window.getComputedStyle(tools).top) || 0
+    const toolStyle = window.getComputedStyle(tools)
+    const toolTop = Number.parseFloat(toolStyle.top) || 0
     const availableToolHeight = Math.max(1, visibleHeight - toolTop * 2)
     const toolContentHeight = Math.max(1, tools.scrollHeight + Math.max(24, tools.children.length * 10))
     toolScale = Math.min(toolScale, Math.max(minToolScale, availableToolHeight / toolContentHeight))
     toolLayoutHeight = availableToolHeight / toolScale
+
+    const toolRight = Number.parseFloat(toolStyle.right) || 0
+    const toolVisualWidth = tools.offsetWidth * toolScale
+    const sceneAvailableWidth = Math.max(1, visibleWidth - toolRight - toolVisualWidth - toolSceneGap)
+    visualScale = Math.min(visualScale, sceneAvailableWidth / officeWidth)
+    canvasCenterX = sceneAvailableWidth / 2
   }
   const canvasWidth = Math.round(officeWidth * visualScale)
   const canvasHeight = Math.round(officeHeight * visualScale)
@@ -383,7 +391,7 @@ function fitCanvasToStage(stage: HTMLElement, canvas: HTMLCanvasElement): void {
   canvas.style.width = `${canvasWidth}px`
   canvas.style.height = `${canvasHeight}px`
   canvas.style.aspectRatio = `${officeWidth} / ${officeHeight}`
-  canvas.style.left = stageWidth > visibleWidth ? `${visibleWidth / 2}px` : '50%'
+  canvas.style.left = `${canvasCenterX}px`
   canvas.style.top = stageHeight > visibleHeight ? `${visibleHeight / 2}px` : '50%'
   canvas.style.transform = 'translate(-50%, -50%)'
 }
@@ -404,7 +412,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     toggleTimer,
     resetTimer,
     switchTimerMode,
-    updateTimerPreset,
     toggleAmbientEnabled,
     addTask,
     addScheduledTask,
@@ -665,7 +672,11 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           aria-live="polite"
           tabIndex={0}
         />
-        <WorkbenchLeaderboard members={viewModel.roomMembers} presenceStatus={presence.status} />
+        <WorkbenchLeaderboard
+          members={viewModel.roomMembers}
+          presenceStatus={presence.status}
+          spaceCode={snapshot.spaceCode}
+        />
         <div className="workbench-tools" role="group" aria-label="自习工具">
           <WorkbenchRoomSwitcher
             spaceCode={snapshot.spaceCode}
@@ -686,7 +697,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             onToggleTimer={toggleTimer}
             onResetTimer={resetTimer}
             onSwitchTimerMode={switchTimerMode}
-            onUpdateTimerPreset={updateTimerPreset}
             onToggleAmbientEnabled={toggleAmbientEnabled}
           />
           <WorkbenchTasks

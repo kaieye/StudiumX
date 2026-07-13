@@ -229,8 +229,8 @@
       "stylesDetail": "{{count}} lesson page styles, currently using {{style}}.",
       "skillsMeta": "Agent skills",
       "skillsDetail": "{{count}} available skills, with {{installed}} installed in your personal skill directory.",
-      "petsMeta": "Status pet",
-      "petsDetail": "Let a pet react to running, waiting, failed, and completed work while staying inside the app.",
+      "petsMeta": "Boba status pet",
+      "petsDetail": "Let Boba react to running, waiting, failed, and completed work while staying inside the app.",
       "open": "Open",
       "back": "Back to resources",
       "noResults": "No matching resources"
@@ -262,7 +262,7 @@
     },
     "pets": {
       "title": "Pet",
-      "defaultName": "Study buddy",
+      "defaultName": "Boba",
       "enabled": "Enabled",
       "disabled": "Disabled",
       "previewAria": "Preview pet {{name}}",
@@ -273,18 +273,13 @@
       "nameLabel": "Pet name",
       "bubbleLabel": "Show status bubble",
       "bubbleDetail": "Show a short message while work is running, blocked, failed, or ready to review.",
-      "appearanceTitle": "Change pet",
-      "appearanceDetail": "Choose a distinct character for both the preview and floating pet.",
+      "appearanceTitle": "Current pet",
+      "appearanceDetail": "Boba is the only pet for now; the preview, floating pet, and study room share the same animation atlas.",
       "appearances": {
-        "robot": "Rover Bot",
-        "cat": "Momo Student",
-        "owl": "Professor Owl",
-        "sprout": "Sprout",
-        "fox": "Scout Fox",
-        "penguin": "Pip Courier"
+        "boba": "Boba"
       },
       "implementationTitle": "How it works",
-      "implementationDetail": "Six original pixel characters use distinct silhouettes, props, and movement details with eight-frame state atlases. Generation and agent sessions drive state; reduced-motion mode freezes animations on their first frame.",
+      "implementationDetail": "Boba is loaded the same way as a local Codex custom pet: metadata comes from pet.json and spritesheet.webp is rendered as an 8-column by 9-row v1 animation atlas. Generation and agent sessions drive state; reduced-motion mode freezes animations on their first frame.",
       "hide": "Hide pet",
       "close": "Close pet",
       "overlayAria": "Pet {{name}}; drag to move, click to inspect status, or right-click to close",

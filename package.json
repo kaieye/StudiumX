@@ -63,6 +63,8 @@
     "check:study-session-transitions": "node scripts/check-study-session-transitions.mjs",
     "check:workbench-leaderboard": "node scripts/check-workbench-leaderboard.mjs",
     "check:workbench-presence": "node scripts/check-workbench-presence.mjs",
+    "check:workbench-card-separation": "node scripts/check-workbench-card-separation.mjs",
+    "check:workbench-card-legibility": "node scripts/check-workbench-card-legibility.mjs",
     "check:workspace-import-course": "node scripts/check-workspace-import-course.mjs",
     "check:workspace-markdown": "node scripts/check-workspace-markdown-documents.mjs",
     "check:workspace-removal": "node scripts/check-workspace-removal-state.mjs",

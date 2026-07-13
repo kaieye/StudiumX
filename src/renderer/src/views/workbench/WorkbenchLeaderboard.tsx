@@ -7,6 +7,7 @@ import type { StudyRoomMember } from '../../study-space/viewModel'
 type WorkbenchLeaderboardProps = {
   members: StudyRoomMember[]
   presenceStatus: StudyPresenceStatus
+  spaceCode: string
 }
 
 function presenceStatusLabel(status: StudyPresenceStatus): string {
@@ -15,7 +16,7 @@ function presenceStatusLabel(status: StudyPresenceStatus): string {
   return '心跳离线'
 }
 
-export function WorkbenchLeaderboard({ members, presenceStatus }: WorkbenchLeaderboardProps) {
+export function WorkbenchLeaderboard({ members, presenceStatus, spaceCode }: WorkbenchLeaderboardProps) {
   const [open, setOpen] = useState(false)
   const selfRank = Math.max(1, members.findIndex((member) => member.isSelf) + 1)
   const totalMembers = Math.max(1, members.length)
@@ -33,6 +34,7 @@ export function WorkbenchLeaderboard({ members, presenceStatus }: WorkbenchLeade
           <Trophy size={15} />
           自习室榜单
           <i className={`workbench-heartbeat-dot is-${presenceStatus}`} title={presenceStatusLabel(presenceStatus)} aria-label={presenceStatusLabel(presenceStatus)} />
+          <code className="workbench-leaderboard-space-code">{spaceCode}</code>
         </span>
         <strong>#{selfRank}/{totalMembers}</strong>
       </button>

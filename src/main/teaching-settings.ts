@@ -340,7 +340,7 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
     },
     pet: {
       enabled: true,
-      displayName: '小搭档',
+      displayName: 'Boba',
       showStatusBubble: true,
       appearance: 'robot'
     },

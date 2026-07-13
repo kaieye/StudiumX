@@ -9,7 +9,6 @@ import {
   BookOpen,
   Bot,
   BrainCircuit,
-  Cat,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -91,6 +90,7 @@ import { LessonStyleGallery } from './views/resources/LessonStyleGallery'
 import { PetLibrary } from './views/resources/PetLibrary'
 import { SkillLibrary } from './views/resources/SkillLibrary'
 import { AppPet } from './views/pet/AppPet'
+import { PetSprite } from './views/pet/PetSprite'
 import { useSkillCatalog } from './skills/skillCatalog'
 import { useSkillSlashInput } from './skills/SkillSlashMenu'
 import { SettingsView } from './views/settings/SettingsView'
@@ -2765,7 +2765,7 @@ function ResourceHome({
             title={t('resources.pets.title')}
             onClick={onOpenPets}
           >
-            <Cat size={21} />
+            <PetSprite className="resource-home-pet-sprite" label="" size={27} state="idle" />
           </button>
         </div>
       </section>
@@ -2797,7 +2797,7 @@ function ResourceHome({
                   ) : entry.icon === 'skills' ? (
                     <GraduationCap size={22} />
                   ) : (
-                    <Cat size={22} />
+                    <PetSprite className="resource-home-pet-sprite" label="" size={34} state="idle" />
                   )}
                 </span>
                 <span className="resource-entry-body">

@@ -1,18 +1,20 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const [app, workbench, leaderboard, viewModel, css] = await Promise.all([
+const [app, workbench, leaderboard, roomSwitcher, pomodoro, viewModel, css] = await Promise.all([
   readFile('src/renderer/src/App.tsx', 'utf8'),
   readFile('src/renderer/src/views/workbench/OfficeWorkbench.tsx', 'utf8'),
   readFile('src/renderer/src/views/workbench/WorkbenchLeaderboard.tsx', 'utf8'),
+  readFile('src/renderer/src/views/workbench/WorkbenchRoomSwitcher.tsx', 'utf8'),
+  readFile('src/renderer/src/views/workbench/WorkbenchPomodoro.tsx', 'utf8'),
   readFile('src/renderer/src/study-space/viewModel.ts', 'utf8'),
   readFile('src/renderer/src/views/workbench/office-workbench.css', 'utf8')
 ])
 
 assert.match(
   workbench,
-  /<WorkbenchLeaderboard members=\{viewModel\.roomMembers\} presenceStatus=\{presence\.status\} \/>/,
-  'workbench should render the leaderboard from the existing live room member ranking'
+  /<WorkbenchLeaderboard[\s\S]*members=\{viewModel\.roomMembers\}[\s\S]*presenceStatus=\{presence\.status\}[\s\S]*spaceCode=\{snapshot\.spaceCode\}[\s\S]*\/>/,
+  'workbench should render the leaderboard from the existing live room member ranking and room code'
 )
 
 assert.equal(
@@ -31,6 +33,24 @@ assert.match(
   leaderboard,
   /<strong>#\{selfRank\}\/\{totalMembers\}<\/strong>/,
   'leaderboard button should show rank and current member count as #rank/total'
+)
+
+assert.match(
+  leaderboard,
+  /workbench-heartbeat-dot[\s\S]*workbench-leaderboard-space-code[^>]*>\{spaceCode\}<\/code>/,
+  'leaderboard header should show the room code immediately after the heartbeat dot'
+)
+
+assert.doesNotMatch(
+  roomSwitcher,
+  /<strong>\{spaceCode\}<\/strong>/,
+  'room switcher card should no longer display the room code value'
+)
+
+assert.doesNotMatch(
+  pomodoro,
+  /25\/5|50\/10|90\/15|workbench-pomodoro-presets/,
+  'pomodoro card should not render preset duration buttons'
 )
 
 assert.match(

@@ -73,6 +73,7 @@ try {
         return value >>> 0
       }
       const atlases = []
+      const activeFrameCounts = [6, 8, 8, 4, 5, 8, 6, 6, 6]
       for (const sprite of document.querySelectorAll('.pet-appearance-grid .pet-sprite')) {
         const background = getComputedStyle(sprite).backgroundImage
         const image = new Image()
@@ -84,12 +85,18 @@ try {
         const context = canvas.getContext('2d', { willReadFrequently: true })
         context.drawImage(image, 0, 0)
         const rows = ${JSON.stringify(states)}.map((state, row) => {
-          const frameHashes = Array.from({ length: 8 }, (_, frame) => hash(
-            context.getImageData(frame * 48, row * 52, 48, 52).data
+          const frameHashes = Array.from({ length: activeFrameCounts[row] }, (_, frame) => hash(
+            context.getImageData(frame * 192, row * 208, 192, 208).data
           ))
-          return { state, uniqueFrames: new Set(frameHashes).size }
+          return { state, activeFrames: activeFrameCounts[row], uniqueFrames: new Set(frameHashes).size }
         })
-        atlases.push({ appearance: sprite.dataset.appearance, rows })
+        atlases.push({
+          appearance: sprite.dataset.appearance,
+          backgroundSize: getComputedStyle(sprite).backgroundSize,
+          naturalWidth: image.naturalWidth,
+          naturalHeight: image.naturalHeight,
+          rows
+        })
       }
       return {
         controls: controls.map((button) => button.dataset.state ?? null),
@@ -117,13 +124,18 @@ try {
     assert.deepEqual(result.layout.clippedControls, [], 'preview action names should not be clipped')
     assert.equal(result.layout.controlsOverflow, false, 'preview controls should fit inside their panel')
     assert.equal(result.layout.pageOverflow, false, 'the pet page should not introduce horizontal overflow')
+    assert.equal(result.atlases.length, 1, 'the pet page should expose one Boba atlas')
     for (const atlas of result.atlases) {
-      assert.equal(atlas.rows.length, 9, `${atlas.appearance} should contain nine action rows`)
+      assert.equal(atlas.appearance, 'boba', 'the single pet atlas should be Boba')
+      assert.equal(atlas.naturalWidth, 1536, 'the Boba atlas should contain eight 192px columns')
+      assert.equal(atlas.naturalHeight, 1872, 'the Boba v1 atlas should contain nine 208px rows')
+      assert.equal(atlas.backgroundSize, '800% 900%', 'the sprite should use the Codex v1 background grid')
+      assert.equal(atlas.rows.length, 9, 'Boba should contain nine action rows')
       for (const row of atlas.rows) {
         assert.equal(
           row.uniqueFrames,
-          8,
-          `${atlas.appearance}/${row.state} should use all eight animation frames`
+          row.activeFrames,
+          `boba/${row.state} should preserve every Codex-active animation frame`
         )
       }
     }
