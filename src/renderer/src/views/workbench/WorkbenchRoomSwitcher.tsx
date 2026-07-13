@@ -21,13 +21,8 @@ export function WorkbenchRoomSwitcher({
 
   return (
     <div className="workbench-leaderboard-actions" role="group" aria-label="自习室操作">
-      <button className="workbench-room-random" type="button" onClick={onEnterRandomSpace}>
-        <Shuffle size={15} />
-        <span>随机进入自习室</span>
-      </button>
-
       <form className="workbench-room-join" onSubmit={handleJoin}>
-        <DoorOpen size={15} />
+        <DoorOpen size={15} aria-hidden="true" />
         <input
           value={joinDraft}
           onChange={(event) => setJoinDraft(event.target.value.toUpperCase())}
@@ -35,8 +30,26 @@ export function WorkbenchRoomSwitcher({
           aria-label="输入要加入的房间码"
           maxLength={18}
         />
-        <button type="submit" disabled={!joinDraft.trim()}>加入房间</button>
+        <button
+          className="workbench-room-enter-key"
+          type="submit"
+          disabled={!joinDraft.trim()}
+          aria-label="加入房间"
+          title="加入房间"
+        >
+          <span aria-hidden="true">↩︎</span>
+        </button>
       </form>
+
+      <button
+        className="workbench-room-random"
+        type="button"
+        onClick={onEnterRandomSpace}
+        aria-label="随机进入自习室"
+        title="随机进入自习室"
+      >
+        <Shuffle size={18} aria-hidden="true" />
+      </button>
     </div>
   )
 }

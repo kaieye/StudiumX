@@ -4481,7 +4481,7 @@
 
 .workbench-leaderboard-actions {
   display: grid;
-  grid-template-columns: minmax(142px, 0.85fr) minmax(224px, 1.35fr);
+  grid-template-columns: minmax(0, 1fr) 42px;
   align-items: stretch;
   gap: 8px;
   margin-top: 12px;
@@ -4506,8 +4506,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 0 12px;
+  width: 42px;
+  min-width: 42px;
+  padding: 0;
   color: var(--workbench-accent-contrast);
   background:
     linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 46%),
@@ -4561,8 +4562,10 @@
 }
 
 .workbench-leaderboard-actions .workbench-room-join button {
+  width: 32px;
+  min-width: 32px;
   min-height: 32px;
-  padding: 0 10px;
+  padding: 0;
   color: var(--workbench-accent-contrast);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
   border-radius: calc(var(--workbench-control-radius) - 3px);
@@ -4572,14 +4575,20 @@
   box-shadow:
     0 7px 16px color-mix(in srgb, var(--accent) 21%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 42%, transparent);
-  font-size: 0.75rem;
+  font-size: 1.05rem;
   font-weight: 760;
+  line-height: 1;
   white-space: nowrap;
   cursor: pointer;
   transition:
     transform 140ms ease,
     filter 180ms ease,
     opacity 180ms ease;
+}
+
+.workbench-room-enter-key > span {
+  display: inline-block;
+  transform: translateY(-1px);
 }
 
 .workbench-room-random:hover,
@@ -4611,11 +4620,12 @@
   }
 
   .workbench-leaderboard-actions {
-    grid-template-columns: minmax(116px, 0.8fr) minmax(0, 1.2fr);
+    grid-template-columns: minmax(0, 1fr) 40px;
   }
 
   .workbench-room-random {
-    padding-inline: 8px;
+    width: 40px;
+    min-width: 40px;
   }
 
   .workbench-leaderboard-actions .workbench-room-join {
@@ -4628,6 +4638,7 @@
   }
 
   .workbench-leaderboard-actions .workbench-room-join button {
-    padding-inline: 8px;
+    width: 32px;
+    min-width: 32px;
   }
 }
