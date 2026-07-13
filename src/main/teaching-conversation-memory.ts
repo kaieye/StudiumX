@@ -1,11 +1,8 @@
 import {
-  buildMemoryConsentPrompt,
-  classifyMemoryConsentResponse,
-  extractPendingLearnerMemoryCandidate,
-  isBareMemoryConsentResponse,
-  type LearnerMemoryCandidate,
-  type LearnerMemoryCapturePlan
-} from '../shared/teaching-memory-capture'
+  learnerProfileRecordPolicy,
+  type LearnerProfileCandidate,
+  type LearnerProfileCapturePlan
+} from '../shared/learner-profile-record-policy'
 import type { ChatMessage } from './ai/provider-adapter'
 import type {
   CreateTeachingMemoryPayload,
@@ -35,9 +32,9 @@ export async function resolveDirectMemoryConsent(options: {
   workspaceRoot: string | undefined
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
 }): Promise<DirectMemoryConsentResolution> {
-  const pendingCandidate = extractPendingLearnerMemoryCandidate(options.previousAssistantContent)
-  const isBareConsentResponse = Boolean(pendingCandidate && isBareMemoryConsentResponse(options.userInput))
-  const decision = isBareConsentResponse ? classifyMemoryConsentResponse(options.userInput) : null
+  const pendingCandidate = learnerProfileRecordPolicy.readPendingConsent(options.previousAssistantContent)
+  const isBareConsentResponse = Boolean(pendingCandidate && learnerProfileRecordPolicy.isBareConsentResponse(options.userInput))
+  const decision = isBareConsentResponse ? learnerProfileRecordPolicy.classifyConsentResponse(options.userInput) : null
 
   if (!options.workspaceRoot || !pendingCandidate || !decision) {
     return { handled: false, isBareConsentResponse }
@@ -69,7 +66,7 @@ export async function resolveDirectMemoryConsent(options: {
 /** Keeps post-loop memory side effects and streamed consent wording together. */
 export async function finalizeLearnerMemoryCapture(options: {
   workspaceRoot: string | undefined
-  capturePlan: LearnerMemoryCapturePlan
+  capturePlan: LearnerProfileCapturePlan
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
   finalText: string
   messages: ChatMessage[]
@@ -95,7 +92,7 @@ export async function finalizeLearnerMemoryCapture(options: {
   }
 
   if (capturePlan.action === 'request_consent') {
-    const consentPrompt = buildMemoryConsentPrompt(capturePlan.candidate)
+    const consentPrompt = learnerProfileRecordPolicy.buildConsentPrompt(capturePlan.candidate)
     options.publishConsentPrompt(consentPrompt)
     return {
       finalText: `${options.finalText}${consentPrompt}`,
@@ -110,7 +107,7 @@ export async function finalizeLearnerMemoryCapture(options: {
   return { finalText: options.finalText, messages: options.messages, memoryCapture: undefined }
 }
 
-function toMemoryPayload(candidate: LearnerMemoryCandidate, workspaceRoot: string): CreateTeachingMemoryPayload {
+function toMemoryPayload(candidate: LearnerProfileCandidate, workspaceRoot: string): CreateTeachingMemoryPayload {
   return {
     content: candidate.content,
     scope: 'user',

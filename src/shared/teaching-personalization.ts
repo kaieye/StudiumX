@@ -1,36 +1,11 @@
 import type { TeachingMemoryRecord } from './teaching-types'
+import { learnerProfileRecordPolicy } from './learner-profile-record-policy'
 
 export function activeLearnerProfileLines(
   memories: TeachingMemoryRecord[],
   limit = 6
 ): string[] {
-  return memories
-    .filter((memory) => (
-      memory.scope === 'user' &&
-      !memory.disabledAt &&
-      !memory.deletedAt &&
-      isLearnerProfileMemoryForPrompt(memory)
-    ))
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .map((memory) => cleanLearnerProfilePromptText(memory.content))
-    .filter(Boolean)
-    .slice(0, Math.max(0, limit))
-}
-
-function isLearnerProfileMemoryForPrompt(memory: TeachingMemoryRecord): boolean {
-  return (
-    memory.tags.includes('learner-profile') ||
-    memory.tags.includes('background') ||
-    memory.content.startsWith('学习者画像')
-  )
-}
-
-function cleanLearnerProfilePromptText(value: unknown): string {
-  return String(value ?? '')
-    .replace(/\s+/g, ' ')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .trim()
+  return learnerProfileRecordPolicy.promptLines(memories, limit)
 }
 
 export function buildLearnerProfilePromptContext(memories: TeachingMemoryRecord[]): string {
