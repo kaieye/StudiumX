@@ -1,0 +1,302 @@
+import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import {
+  agentConversationJsonRelativePathForMarkdown,
+  agentConversationSessionArtifactDirectoryRelativePathForMarkdown,
+  agentConversationSessionAuditRelativePathForMarkdown,
+  isAgentConversationMarkdownRelativePath
+} from '../shared/agent-conversation-catalog'
+import type {
+  AgentArtifactRef,
+  AgentConversationRecord,
+  AgentTurnMetadata
+} from '../shared/teaching-types'
+import {
+  appendAgentConversationSessionAuditLog,
+  archiveAgentConversationArtifacts,
+  buildAgentConversationSessionAuditEntries,
+  parseAgentConversationSessionAuditLines
+} from './agent-conversation-session-audit'
+import { isPathInsideRoot } from './path-access'
+import {
+  appendLearningWorkLedgerSnapshot,
+  buildLearningWorkLedgerEntry,
+  LEARNING_WORK_LEDGER_RELATIVE_PATH
+} from './learning-work-ledger'
+import { normalizeWorkspaceRelativePath } from './teaching-workspace-paths'
+
+export type AgentConversationArchiveWorkspace = {
+  id?: string
+  name: string
+  rootPath: string
+}
+
+const TOOL_ARTIFACT_DIRECTORY = 'tool-results'
+
+/**
+ * Durable archive module for one Agent conversation snapshot.
+ *
+ * Its interface is intentionally a single save operation. Placement validation,
+ * artifact materialization, canonical projections, append-only records, retry
+ * idempotency, and post-save integrity repair all stay behind this seam.
+ */
+export async function saveAgentConversationArchive(input: {
+  workspace: AgentConversationArchiveWorkspace
+  record: AgentConversationRecord
+}): Promise<void> {
+  const paths = resolveArchivePaths(input.workspace.rootPath, input.record.relativePath)
+  const persistedRecord = await archiveAgentConversationArtifacts({
+    rootPath: input.workspace.rootPath,
+    record: input.record
+  })
+  const canonicalJson = renderCanonicalConversationJson(input.workspace, persistedRecord)
+  const canonicalMarkdown = renderAgentConversationMarkdown(input.workspace, persistedRecord)
+
+  await atomicWriteFile(paths.json, canonicalJson)
+  await atomicWriteFile(paths.markdown, canonicalMarkdown)
+  await appendAgentConversationSessionAuditLog({ rootPath: input.workspace.rootPath, record: persistedRecord })
+  await appendLearningWorkLedgerSnapshot({
+    rootPath: input.workspace.rootPath,
+    workspace: input.workspace,
+    record: persistedRecord
+  })
+
+  await verifyAgentConversationArchive({
+    workspace: input.workspace,
+    record: persistedRecord,
+    paths,
+    canonicalJson,
+    canonicalMarkdown
+  })
+}
+
+type ArchivePaths = {
+  markdownRelativePath: string
+  jsonRelativePath: string
+  auditRelativePath: string
+  artifactDirectoryRelativePath: string
+  markdown: string
+  json: string
+  audit: string
+  ledger: string
+}
+
+function resolveArchivePaths(rootPath: string, relativePath: string): ArchivePaths {
+  const markdownRelativePath = normalizeWorkspaceRelativePath(relativePath)
+  if (!isAgentConversationMarkdownRelativePath(markdownRelativePath)) {
+    throw new Error('Conversation markdown path is outside a conversations directory.')
+  }
+  const jsonRelativePath = agentConversationJsonRelativePathForMarkdown(markdownRelativePath)
+  const auditRelativePath = agentConversationSessionAuditRelativePathForMarkdown(markdownRelativePath)
+  const artifactDirectoryRelativePath = agentConversationSessionArtifactDirectoryRelativePathForMarkdown(markdownRelativePath)
+  const paths: ArchivePaths = {
+    markdownRelativePath,
+    jsonRelativePath,
+    auditRelativePath,
+    artifactDirectoryRelativePath,
+    markdown: join(rootPath, markdownRelativePath),
+    json: join(rootPath, jsonRelativePath),
+    audit: join(rootPath, auditRelativePath),
+    ledger: join(rootPath, LEARNING_WORK_LEDGER_RELATIVE_PATH)
+  }
+  for (const [name, path] of Object.entries(paths)) {
+    if (name.endsWith('RelativePath')) continue
+    if (!isPathInsideRoot(rootPath, path)) {
+      throw new Error(`Conversation archive ${name} path is outside the workspace.`)
+    }
+  }
+  return paths
+}
+
+function renderCanonicalConversationJson(
+  workspace: AgentConversationArchiveWorkspace,
+  record: AgentConversationRecord
+): string {
+  return `${JSON.stringify({
+    version: 1,
+    workspaceId: record.workspaceId ?? workspace.id,
+    id: record.id,
+    title: record.title,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    relativePath: record.relativePath,
+    turns: record.turns
+  }, null, 2)}\n`
+}
+
+async function verifyAgentConversationArchive(input: {
+  workspace: AgentConversationArchiveWorkspace
+  record: AgentConversationRecord
+  paths: ArchivePaths
+  canonicalJson: string
+  canonicalMarkdown: string
+}): Promise<void> {
+  const [json, markdown, audit, ledger] = await Promise.all([
+    readFile(input.paths.json, 'utf8'),
+    readFile(input.paths.markdown, 'utf8'),
+    readFile(input.paths.audit, 'utf8'),
+    readFile(input.paths.ledger, 'utf8')
+  ])
+  if (json !== input.canonicalJson) throw new Error('Conversation archive JSON verification failed.')
+  if (markdown !== input.canonicalMarkdown) throw new Error('Conversation archive Markdown verification failed.')
+
+  const parsed = safeParseJson(json)
+  if (!parsed || typeof parsed !== 'object') throw new Error('Conversation archive JSON is invalid.')
+  const stored = parsed as Record<string, unknown>
+  if (
+    stored.id !== input.record.id ||
+    typeof stored.relativePath !== 'string' ||
+    normalizeWorkspaceRelativePath(stored.relativePath) !== input.paths.markdownRelativePath ||
+    stored.workspaceId !== (input.record.workspaceId ?? input.workspace.id)
+  ) {
+    throw new Error('Conversation archive placement does not match its record.')
+  }
+
+  await verifyArchivedToolArtifacts(input.workspace.rootPath, input.record, input.paths.artifactDirectoryRelativePath)
+
+  const auditLines = parseAgentConversationSessionAuditLines(audit)
+  const auditIds = new Set(auditLines.map((line) => line.id))
+  if (!auditLines.some((line) => line.type === 'session' && line.id === input.record.id)) {
+    throw new Error('Conversation archive session audit header is missing.')
+  }
+  for (const entry of buildAgentConversationSessionAuditEntries(input.record)) {
+    if (!auditIds.has(entry.id)) throw new Error('Conversation archive session audit is incomplete.')
+  }
+
+  const expectedLedgerEntry = buildLearningWorkLedgerEntry(input.workspace, input.record)
+  const hasLedgerEntry = ledger.split(/\r?\n/).some((line) => {
+    const entry = safeParseJson(line)
+    if (!entry || typeof entry !== 'object') return false
+    const candidate = entry as { entryId?: unknown; conversation?: { relativePath?: unknown; jsonRelativePath?: unknown; sessionAuditRelativePath?: unknown } }
+    return candidate.entryId === expectedLedgerEntry.entryId &&
+      candidate.conversation?.relativePath === input.paths.markdownRelativePath &&
+      candidate.conversation?.jsonRelativePath === input.paths.jsonRelativePath &&
+      candidate.conversation?.sessionAuditRelativePath === input.paths.auditRelativePath
+  })
+  if (!hasLedgerEntry) throw new Error('Conversation archive learning-work ledger is incomplete.')
+}
+
+async function verifyArchivedToolArtifacts(
+  rootPath: string,
+  record: AgentConversationRecord,
+  artifactDirectoryRelativePath: string
+): Promise<void> {
+  const expectedPrefix = `${artifactDirectoryRelativePath}/${TOOL_ARTIFACT_DIRECTORY}/`
+  for (const artifact of collectToolResultArtifacts(record)) {
+    const relativePath = normalizeWorkspaceRelativePath(artifact.relativePath)
+    if (!relativePath.startsWith(expectedPrefix)) {
+      throw new Error('Conversation tool artifact is outside its conversation archive.')
+    }
+    const absolutePath = join(rootPath, relativePath)
+    if (!isPathInsideRoot(rootPath, absolutePath)) {
+      throw new Error('Conversation tool artifact path is outside the workspace.')
+    }
+    const content = await readFile(absolutePath, 'utf8').catch(() => null)
+    if (content === null) throw new Error('Conversation tool artifact is missing.')
+    if (Buffer.byteLength(content, 'utf8') !== artifact.bytes) {
+      throw new Error('Conversation tool artifact byte count does not match.')
+    }
+    if (createHash('sha256').update(content).digest('hex') !== artifact.sha256) {
+      throw new Error('Conversation tool artifact digest does not match.')
+    }
+  }
+}
+
+function collectToolResultArtifacts(record: AgentConversationRecord): AgentArtifactRef[] {
+  const artifacts = new Map<string, AgentArtifactRef>()
+  for (const turn of record.turns) {
+    for (const diagnostic of turn.metadata?.toolResults ?? []) {
+      if (diagnostic.archive?.kind !== 'tool_result') continue
+      artifacts.set(diagnostic.archive.relativePath, diagnostic.archive)
+    }
+  }
+  return [...artifacts.values()]
+}
+
+function renderAgentConversationMarkdown(
+  workspace: AgentConversationArchiveWorkspace,
+  record: AgentConversationRecord
+): string {
+  const lines = [
+    `# ${record.title}`,
+    '',
+    `Workspace: ${workspace.name}`,
+    `Created: ${record.createdAt}`,
+    `Updated: ${record.updatedAt}`,
+    ''
+  ]
+  for (const turn of record.turns) {
+    lines.push(`## ${turn.role === 'user' ? 'User' : 'Assistant'}`, '')
+    lines.push(turn.content.trim() || '(empty)', '')
+    if (turn.toolCalls?.length) {
+      lines.push('Tool calls:', '')
+      for (const tool of turn.toolCalls) {
+        lines.push(`- ${tool.name || 'tool'}: ${compactTextForMarkdown(tool.result || tool.arguments || '', 240)}`)
+      }
+      lines.push('')
+    }
+    renderAgentTurnMetadataMarkdown(lines, turn.metadata)
+  }
+  return `${lines.join('\n').replace(/\n{4,}/g, '\n\n\n').trim()}\n`
+}
+
+function renderAgentTurnMetadataMarkdown(lines: string[], metadata: AgentTurnMetadata | undefined): void {
+  if (!metadata) return
+  if (metadata.sources?.length) {
+    lines.push('Sources:', '')
+    for (const source of metadata.sources) {
+      const label = source.title || source.url
+      const suffix = source.provider ? ` (${source.provider})` : ''
+      lines.push(`- ${label}: ${source.url}${suffix}`)
+    }
+    lines.push('')
+  }
+  if (metadata.childRuns?.length) {
+    lines.push('Child runs:', '')
+    for (const child of metadata.childRuns) {
+      const summary = child.summary ? `: ${compactTextForMarkdown(child.summary, 240)}` : ''
+      lines.push(`- ${child.label} [${child.status}, ${child.profile}]${summary}`)
+    }
+    lines.push('')
+  }
+  if (metadata.compactions?.length) {
+    lines.push('Context compaction:', '')
+    for (const compaction of metadata.compactions) {
+      const saved = compaction.beforeTokens !== undefined && compaction.afterTokens !== undefined
+        ? ` saved ${Math.max(0, compaction.beforeTokens - compaction.afterTokens)} tokens`
+        : ''
+      lines.push(`- ${compaction.sourceDigest} (${compaction.mode}/${compaction.reason})${compaction.failed ? ' failed' : saved}`)
+    }
+    lines.push('')
+  }
+  if (metadata.toolResults?.length) {
+    lines.push('Tool result diagnostics:', '')
+    for (const tool of metadata.toolResults) {
+      lines.push(`- ${tool.toolName} ${tool.toolCallId}: ${tool.bytes} bytes, ${tool.lines} lines${tool.isError ? ', error' : ''}`)
+    }
+    lines.push('')
+  }
+}
+
+function compactTextForMarkdown(value: string, maxLength: number): string {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (!compact) return '(empty)'
+  return compact.length > maxLength ? `${compact.slice(0, maxLength - 1)}...` : compact
+}
+
+function safeParseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+async function atomicWriteFile(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
+  await writeFile(tempPath, content, 'utf8')
+  await rename(tempPath, path)
+}

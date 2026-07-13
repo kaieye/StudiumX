@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { isPathInsideRoot } from './path-access'
 import {
@@ -12,17 +12,12 @@ import {
 } from './teaching-workspace-paths'
 import {
   agentConversationCourseJsonScanDirectories,
-  agentConversationJsonRelativePathForMarkdown,
   agentConversationJsonScanDirectories,
   agentConversationMarkdownRelativePath,
   isAgentConversationMarkdownRelativePath
 } from '../shared/agent-conversation-catalog'
-import {
-  archiveAgentConversationArtifacts,
-  appendAgentConversationSessionAuditLog,
-  hydrateAgentConversationArtifacts
-} from './agent-conversation-session-audit'
-import { appendLearningWorkLedgerSnapshot } from './learning-work-ledger'
+import { hydrateAgentConversationArtifacts } from './agent-conversation-session-audit'
+import { saveAgentConversationArchive } from './agent-conversation-archive'
 import type {
   AgentArtifactRef,
   AgentChildRunMetadata,
@@ -102,38 +97,7 @@ export async function writeAgentConversationRecord(
   workspace: AgentConversationWorkspace,
   record: AgentConversationRecord
 ): Promise<void> {
-  const jsonRelativePath = agentConversationJsonRelativePathForMarkdown(record.relativePath)
-  const markdownRelativePath = normalizeWorkspaceRelativePath(record.relativePath)
-  if (!isAgentConversationMarkdownRelativePath(markdownRelativePath)) {
-    throw new Error('Conversation markdown path is outside a conversations directory.')
-  }
-  const persistedRecord = await archiveAgentConversationArtifacts({
-    rootPath: workspace.rootPath,
-    record
-  })
-  await atomicWriteFile(
-    join(workspace.rootPath, jsonRelativePath),
-    `${JSON.stringify({
-      version: 1,
-      workspaceId: persistedRecord.workspaceId ?? workspace.id,
-      id: persistedRecord.id,
-      title: persistedRecord.title,
-      createdAt: persistedRecord.createdAt,
-      updatedAt: persistedRecord.updatedAt,
-      relativePath: persistedRecord.relativePath,
-      turns: persistedRecord.turns
-    }, null, 2)}\n`
-  )
-  await atomicWriteFile(
-    join(workspace.rootPath, markdownRelativePath),
-    renderAgentConversationMarkdown(workspace, persistedRecord)
-  )
-  await appendAgentConversationSessionAuditLog({ rootPath: workspace.rootPath, record: persistedRecord })
-  await appendLearningWorkLedgerSnapshot({
-    rootPath: workspace.rootPath,
-    workspace,
-    record: persistedRecord
-  })
+  await saveAgentConversationArchive({ workspace, record })
 }
 
 export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[] {
@@ -302,32 +266,6 @@ async function readAgentConversationRecordAt(
     : conversationRecord
 }
 
-function renderAgentConversationMarkdown(
-  workspace: AgentConversationWorkspace,
-  record: AgentConversationRecord
-): string {
-  const lines = [
-    `# ${record.title}`,
-    '',
-    `Workspace: ${workspace.name}`,
-    `Created: ${record.createdAt}`,
-    `Updated: ${record.updatedAt}`,
-    ''
-  ]
-  for (const turn of record.turns) {
-    lines.push(`## ${turn.role === 'user' ? 'User' : 'Assistant'}`, '')
-    lines.push(turn.content.trim() || '(empty)', '')
-    if (turn.toolCalls?.length) {
-      lines.push('Tool calls:', '')
-      for (const tool of turn.toolCalls) {
-        lines.push(`- ${tool.name || 'tool'}: ${compactTextForMarkdown(tool.result || tool.arguments || '', 240)}`)
-      }
-      lines.push('')
-    }
-    renderAgentTurnMetadataMarkdown(lines, turn.metadata)
-  }
-  return `${lines.join('\n').replace(/\n{4,}/g, '\n\n\n').trim()}\n`
-}
 
 function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefined {
   if (!value || typeof value !== 'object') return undefined
@@ -599,43 +537,6 @@ function normalizeStringArray(value: unknown, maxItems: number, maxLength: numbe
   return result.length > 0 ? result : undefined
 }
 
-function renderAgentTurnMetadataMarkdown(lines: string[], metadata: AgentTurnMetadata | undefined): void {
-  if (!metadata) return
-  if (metadata.sources?.length) {
-    lines.push('Sources:', '')
-    for (const source of metadata.sources) {
-      const label = source.title || source.url
-      const suffix = source.provider ? ` (${source.provider})` : ''
-      lines.push(`- ${label}: ${source.url}${suffix}`)
-    }
-    lines.push('')
-  }
-  if (metadata.childRuns?.length) {
-    lines.push('Child runs:', '')
-    for (const child of metadata.childRuns) {
-      const summary = child.summary ? `: ${compactTextForMarkdown(child.summary, 240)}` : ''
-      lines.push(`- ${child.label} [${child.status}, ${child.profile}]${summary}`)
-    }
-    lines.push('')
-  }
-  if (metadata.compactions?.length) {
-    lines.push('Context compaction:', '')
-    for (const compaction of metadata.compactions) {
-      const saved = compaction.beforeTokens !== undefined && compaction.afterTokens !== undefined
-        ? ` saved ${Math.max(0, compaction.beforeTokens - compaction.afterTokens)} tokens`
-        : ''
-      lines.push(`- ${compaction.sourceDigest} (${compaction.mode}/${compaction.reason})${compaction.failed ? ' failed' : saved}`)
-    }
-    lines.push('')
-  }
-  if (metadata.toolResults?.length) {
-    lines.push('Tool result diagnostics:', '')
-    for (const tool of metadata.toolResults) {
-      lines.push(`- ${tool.toolName} ${tool.toolCallId}: ${tool.bytes} bytes, ${tool.lines} lines${tool.isError ? ', error' : ''}`)
-    }
-    lines.push('')
-  }
-}
 
 async function collectAgentConversationJsonRelativePaths(
   rootPath: string,
@@ -695,11 +596,6 @@ function formatConversationTimestamp(date: Date): string {
   return `${safeDate.getFullYear()}${pad(safeDate.getMonth() + 1)}${pad(safeDate.getDate())}-${pad(safeDate.getHours())}${pad(safeDate.getMinutes())}${pad(safeDate.getSeconds())}`
 }
 
-function compactTextForMarkdown(value: string, maxLength: number): string {
-  const compact = value.replace(/\s+/g, ' ').trim()
-  if (!compact) return '(empty)'
-  return compact.length > maxLength ? `${compact.slice(0, maxLength - 1)}...` : compact
-}
 
 function textValue(value: unknown, maxLength: number): string | undefined {
   if (typeof value !== 'string') return undefined
@@ -740,11 +636,4 @@ function safeJsonParse(text: string): unknown {
   } catch {
     return null
   }
-}
-
-async function atomicWriteFile(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
-  await writeFile(tempPath, content, 'utf8')
-  await rename(tempPath, path)
 }
