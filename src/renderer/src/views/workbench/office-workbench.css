@@ -331,22 +331,6 @@
   -webkit-backdrop-filter: blur(28px) saturate(170%);
 }
 
-.workbench-leaderboard-panel > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 2px 3px 8px;
-  color: rgba(47, 57, 69, 0.48);
-  font-size: 0.5625rem;
-  font-weight: 680;
-}
-
-.workbench-leaderboard-panel > header strong {
-  color: rgba(47, 57, 69, 0.62);
-  font-size: 0.625rem;
-}
-
 .workbench-leaderboard-list {
   display: grid;
   gap: 5px;
@@ -928,7 +912,6 @@
     0 0 0 3px color-mix(in srgb, var(--amber) 10%, transparent);
 }
 
-.workbench-leaderboard-panel > header,
 .workbench-leaderboard-row > span,
 .workbench-leaderboard-row small,
 .workbench-leaderboard-row em,
@@ -941,10 +924,6 @@
 .workbench-task-head > button,
 .workbench-task-summary span,
 .workbench-task-empty {
-  color: var(--text-muted);
-}
-
-.workbench-leaderboard-panel > header strong {
   color: var(--text-muted);
 }
 
@@ -1071,20 +1050,10 @@
   -webkit-backdrop-filter: blur(24px) saturate(160%);
 }
 
-.workbench-room-current {
-  display: grid;
-  grid-template-columns: 9px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.workbench-room-current div,
 .workbench-room-code span {
   min-width: 0;
 }
 
-.workbench-room-current small,
-.workbench-room-current strong,
 .workbench-room-code small,
 .workbench-room-code strong {
   display: block;
@@ -1094,36 +1063,10 @@
   white-space: nowrap;
 }
 
-.workbench-room-current small,
 .workbench-room-code small {
   color: var(--text-soft);
   font-size: 0.5625rem;
   font-weight: 640;
-}
-
-.workbench-room-current strong {
-  margin-top: 2px;
-  font-size: 0.75rem;
-  font-weight: 720;
-}
-
-.workbench-room-status {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-soft);
-}
-
-.workbench-room-status.is-online { background: var(--green); }
-.workbench-room-status.is-connecting { background: var(--amber); }
-
-.workbench-room-members {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-muted);
-  font-size: 0.625rem;
-  font-weight: 680;
 }
 
 .workbench-room-code {
@@ -1166,7 +1109,7 @@
   white-space: nowrap;
 }
 
-.workbench-room-code button.is-create {
+.workbench-room-code button.is-random {
   gap: 4px;
   padding: 0 9px;
   color: var(--workbench-accent-contrast);
@@ -1177,50 +1120,6 @@
 .workbench-room-code button.is-copy {
   gap: 4px;
   padding: 0 8px;
-}
-
-.workbench-room-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.workbench-tools .workbench-room-list button {
-  display: block;
-  min-width: 0;
-  padding: 7px 8px;
-  color: var(--text-muted);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-solid) 56%, transparent);
-  text-align: left;
-}
-
-.workbench-room-list button span,
-.workbench-room-list button small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workbench-room-list button span {
-  font-size: 0.625rem;
-  font-weight: 680;
-}
-
-.workbench-room-list button small {
-  margin-top: 2px;
-  color: var(--text-soft);
-  font-size: 0.5rem;
-}
-
-.workbench-room-list button.is-active {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .workbench-room-join {
@@ -1387,7 +1286,6 @@
 
 .workbench-leaderboard-toggle span,
 .workbench-space-join input,
-.workbench-room-current small,
 .workbench-room-code small,
 .workbench-task-head span,
 .workbench-pomodoro-time span,
@@ -1401,7 +1299,6 @@
 }
 
 .workbench-leaderboard-toggle strong,
-.workbench-room-current strong,
 .workbench-room-code strong,
 .workbench-task-head strong {
   color: var(--text);
@@ -1434,10 +1331,6 @@
   }
 }
 
-.workbench-leaderboard-panel > header {
-  padding: 0 1px 8px;
-}
-
 .workbench-leaderboard-list {
   gap: 5px;
 }
@@ -1459,33 +1352,6 @@
 .workbench-heartbeat-dot {
   width: 6px;
   height: 6px;
-}
-
-.workbench-room-current {
-  grid-template-columns: 8px minmax(0, 1fr) auto;
-  gap: 9px;
-}
-
-.workbench-room-status {
-  width: 8px;
-  height: 8px;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-soft) 12%, transparent);
-}
-
-.workbench-room-status.is-online {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 13%, transparent);
-}
-
-.workbench-room-status.is-connecting {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 13%, transparent);
-}
-
-.workbench-room-members {
-  min-height: 26px;
-  padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
-  border-radius: var(--workbench-control-radius);
-  background: color-mix(in srgb, var(--surface-solid) 58%, transparent);
 }
 
 .workbench-room-code {
@@ -1519,7 +1385,7 @@
   background: color-mix(in srgb, var(--surface-solid) 64%, transparent);
 }
 
-.workbench-room-code button.is-create,
+.workbench-room-code button.is-random,
 .workbench-room-join button,
 .workbench-space-join button,
 .workbench-pomodoro-actions button.is-primary,
@@ -1531,33 +1397,6 @@
   box-shadow:
     0 7px 18px color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 21%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 28%, transparent);
-}
-
-.workbench-room-list {
-  gap: 7px;
-  margin-top: 9px;
-}
-
-.workbench-tools .workbench-room-list button {
-  min-height: 44px;
-  padding: 8px 9px;
-  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  border-radius: var(--workbench-control-radius);
-  background: color-mix(in srgb, var(--surface-solid) 56%, transparent);
-}
-
-.workbench-tools .workbench-room-list button.is-active {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent 72%),
-    color-mix(in srgb, var(--surface-solid) 70%, transparent);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 82%, transparent);
-}
-
-.workbench-room-list button span,
-.workbench-room-list button small {
-  line-height: 1.25;
 }
 
 .workbench-room-join {
@@ -1746,7 +1585,6 @@
 @media (hover: hover) {
   .workbench-tools .workbench-leaderboard-toggle:hover,
   .workbench-room-code button:not(:disabled):hover,
-  .workbench-tools .workbench-room-list button:hover,
   .workbench-room-join button:not(:disabled):hover,
   .workbench-pomodoro-actions button:hover,
   .workbench-pomodoro-presets button:not(:disabled):hover,
@@ -1888,8 +1726,7 @@
 }
 
 .workbench-card-header,
-.workbench-task-head,
-.workbench-leaderboard-panel > header {
+.workbench-task-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1902,9 +1739,7 @@
 
 .workbench-card-header span,
 .workbench-task-head span,
-.workbench-room-current small,
-.workbench-room-code small,
-.workbench-leaderboard-panel > header span {
+.workbench-room-code small {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1920,7 +1755,6 @@
 .workbench-room-join button,
 .workbench-pomodoro-actions button,
 .workbench-pomodoro-presets button,
-.workbench-tools .workbench-room-list button,
 .workbench-tools .workbench-leaderboard-toggle {
   border-radius: var(--workbench-control-radius);
 }
@@ -1939,59 +1773,6 @@
   border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   background: var(--workbench-module-inset);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 34%, transparent);
-}
-
-.workbench-room-current {
-  display: grid;
-  grid-template-columns: 9px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-}
-
-.workbench-room-current div {
-  min-width: 0;
-}
-
-.workbench-room-current small {
-  margin-bottom: 7px;
-}
-
-.workbench-room-current strong {
-  display: block;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 1.35rem;
-  font-weight: 760;
-  line-height: 1.05;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workbench-room-current em {
-  display: block;
-  margin-top: 5px;
-  overflow: hidden;
-  color: var(--text-soft);
-  font-size: 0.6875rem;
-  font-style: normal;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workbench-room-status {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-}
-
-.workbench-room-members {
-  height: 34px;
-  padding: 0 10px;
-  color: var(--text);
-  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  border-radius: var(--workbench-control-radius);
-  background: var(--workbench-module-inset);
 }
 
 .workbench-seat-alert {
@@ -2028,43 +1809,6 @@
   letter-spacing: 0;
 }
 
-.workbench-room-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-  margin-top: 10px;
-}
-
-.workbench-tools .workbench-room-list button {
-  min-height: 52px;
-  padding: 9px 10px;
-  color: var(--text-muted);
-  border: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
-  background: color-mix(in srgb, var(--surface-solid) 56%, transparent);
-}
-
-.workbench-tools .workbench-room-list button.is-active {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--accent) 25%, transparent), transparent 68%),
-    color-mix(in srgb, var(--surface-solid) 78%, transparent);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent),
-    0 7px 20px color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-.workbench-room-list button span {
-  font-size: 0.75rem;
-  font-weight: 760;
-}
-
-.workbench-room-list button small {
-  margin-top: 4px;
-  font-size: 0.625rem;
-  font-weight: 650;
-}
-
 .workbench-room-join {
   grid-template-columns: 18px minmax(0, 1fr) 72px;
   gap: 8px;
@@ -2082,7 +1826,7 @@
   font-weight: 650;
 }
 
-.workbench-room-code button.is-create,
+.workbench-room-code button.is-random,
 .workbench-room-join button,
 .workbench-space-join button,
 .workbench-pomodoro-actions button.is-primary,
@@ -2347,7 +2091,6 @@
     transform: translateY(-1px);
   }
 
-  .workbench-tools .workbench-room-list button:hover,
   .workbench-task-row:hover,
   .workbench-tools .workbench-leaderboard-toggle:hover {
     background: color-mix(in srgb, var(--surface-solid) 78%, transparent);
@@ -2362,10 +2105,6 @@
   .workbench-tools {
     width: var(--workbench-card-width);
     padding: 14px 10px;
-  }
-
-  .workbench-room-current strong {
-    font-size: 1.05rem;
   }
 
   .workbench-timer-ring {
@@ -2494,8 +2233,6 @@
 .workbench-task-head > button,
 .workbench-room-code,
 .workbench-room-code button,
-.workbench-room-members,
-.workbench-tools .workbench-room-list button,
 .workbench-room-join input,
 .workbench-room-join button,
 .workbench-pomodoro-mode,
@@ -2519,7 +2256,7 @@
   -webkit-backdrop-filter: blur(22px) saturate(190%);
 }
 
-.workbench-room-code button.is-create,
+.workbench-room-code button.is-random,
 .workbench-room-join button,
 .workbench-space-join button,
 .workbench-pomodoro-actions button.is-primary,
@@ -2533,7 +2270,6 @@
     inset 0 -1px 0 color-mix(in srgb, var(--text) 18%, transparent);
 }
 
-.workbench-room-current strong,
 .workbench-pomodoro-time strong,
 .workbench-task-head strong,
 .workbench-leaderboard-toggle strong {
@@ -2575,7 +2311,6 @@
   z-index: 1;
 }
 
-.workbench-tools .workbench-room-list button.is-active,
 .workbench-pomodoro-presets button.is-active,
 .workbench-pomodoro-ambient.is-active,
 .workbench-leaderboard-row.is-me {
@@ -2617,7 +2352,6 @@
   --liquid-glass-depth: color-mix(in srgb, #000000 38%, transparent);
 }
 
-:root[data-resolved-theme='dark'] .workbench-room-current strong,
 :root[data-resolved-theme='dark'] .workbench-pomodoro-time strong,
 :root[data-resolved-theme='dark'] .workbench-task-head strong,
 :root[data-resolved-theme='dark'] .workbench-leaderboard-toggle strong {
@@ -2768,10 +2502,6 @@
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel::before,
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel::after {
   display: none;
-}
-
-.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel > header {
-  padding: 0 1px 8px;
 }
 
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-list {
@@ -3236,6 +2966,7 @@
 .study-schedule-event.is-done strong {
   text-decoration: line-through;
 }
+
 .study-schedule-event.is-drag-source {
   opacity: 0.24;
   pointer-events: none;
@@ -3410,6 +3141,7 @@
   font-variant-numeric: tabular-nums;
   font-weight: 760;
 }
+
 .study-schedule-drag-preview {
   z-index: 13;
   display: grid;
@@ -3569,6 +3301,7 @@
   font-size: 0.75rem;
   font-weight: 780;
 }
+
 .study-schedule-context-menu {
   position: fixed;
   z-index: 80;

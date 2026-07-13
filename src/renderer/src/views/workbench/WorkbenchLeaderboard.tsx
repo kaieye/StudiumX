@@ -37,11 +37,7 @@ export function WorkbenchLeaderboard({ members, presenceStatus }: WorkbenchLeade
         <strong>#{selfRank}/{totalMembers}</strong>
       </button>
       {open ? (
-        <section id="workbench-leaderboard-panel" className="workbench-leaderboard-panel" aria-label="今日专注榜单">
-          <header>
-            <strong>今日专注</strong>
-            <span>{totalMembers} 人</span>
-          </header>
+        <section id="workbench-leaderboard-panel" className="workbench-leaderboard-panel" aria-label="自习室榜单明细">
           <div className="workbench-leaderboard-list">
             {members.map((member, index) => (
               <div className={`workbench-leaderboard-row${member.isSelf ? ' is-me' : ''}`} key={member.clientId}>

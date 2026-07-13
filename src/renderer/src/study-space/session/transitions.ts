@@ -76,20 +76,6 @@ export function updateStudyTimerPreset(
   }
 }
 
-export function selectStudyRoomSnapshot(snapshot: StudySnapshot, room: StudyRoom): StudySnapshot {
-  const roomChanged = room.id !== snapshot.roomId
-  return {
-    ...snapshot,
-    roomId: room.id,
-    seatIndex: normalizeStudySeatIndex(snapshot.seatIndex, room.id, snapshot.clientId),
-    seatClaimedAt: roomChanged ? Date.now() : snapshot.seatClaimedAt,
-    focusMinutes: snapshot.timerState === 'running' ? snapshot.focusMinutes : room.sessionMinutes,
-    breakMinutes: snapshot.timerState === 'running' ? snapshot.breakMinutes : room.breakMinutes,
-    remainingSeconds: snapshot.timerState === 'running' ? snapshot.remainingSeconds : room.sessionMinutes * 60,
-    timerMode: snapshot.timerState === 'running' ? snapshot.timerMode : 'focus'
-  }
-}
-
 export function selectStudyModeSnapshot(snapshot: StudySnapshot, mode: StudyMode): StudySnapshot {
   const roomChanged = snapshot.timerState !== 'running' && mode.roomId !== snapshot.roomId
   return {

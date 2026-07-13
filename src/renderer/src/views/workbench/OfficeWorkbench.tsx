@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PetAppearanceId } from '../../../../shared/teaching-types'
 import { useAppStore } from '../../app-shell/appStore'
-import { studyRooms } from '../../study-space/constants'
 import {
   formatStudyDuration,
   formatStudySeatLabel,
@@ -390,8 +389,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     presence,
     viewModel,
     joinSpace,
-    createSpace,
-    selectRoom,
+    enterRandomSpace,
     chooseSeat,
     toggleTimer,
     resetTimer,
@@ -662,12 +660,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         <div className="workbench-tools" role="group" aria-label="自习工具">
           <WorkbenchRoomSwitcher
             spaceCode={snapshot.spaceCode}
-            rooms={studyRooms}
-            activeRoomId={snapshot.roomId}
-            connectionStatus={presence.status}
-            onlineCount={viewModel.online}
-            onSelectRoom={selectRoom}
-            onCreateSpace={createSpace}
+            onEnterRandomSpace={enterRandomSpace}
             onJoinSpace={joinSpace}
           />
           {viewModel.userSeatConflict ? (

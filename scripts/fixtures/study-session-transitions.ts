@@ -15,7 +15,6 @@ import {
   saveStudyRelayUrl,
   setStudySpaceCode,
   selectStudyModeSnapshot,
-  selectStudyRoomSnapshot,
   switchStudyTimerMode,
   tickStudyTimer,
   toggleStudyContract,
@@ -92,22 +91,6 @@ assert.equal(presetIdle.remainingSeconds, 45 * 60)
 
 assert.equal(studyRooms.length, 4)
 const studyRoom = studyRooms[0]!
-const selectedRoom = selectStudyRoomSnapshot(snapshot, studyRoom)
-assert.equal(selectedRoom.roomId, 'silent')
-assert.equal(selectedRoom.focusMinutes, studyRoom.sessionMinutes)
-assert.equal(selectedRoom.breakMinutes, studyRoom.breakMinutes)
-
-const runningRoom = selectStudyRoomSnapshot({ ...snapshot, timerState: 'running', remainingSeconds: 88 }, studyRoom)
-assert.equal(runningRoom.roomId, 'silent')
-assert.equal(runningRoom.remainingSeconds, 88)
-assert.equal(runningRoom.focusMinutes, snapshot.focusMinutes)
-
-const deepRoom = studyRooms.find((room) => room.id === 'deep')!
-const selectedDeepRoom = selectStudyRoomSnapshot(snapshot, deepRoom)
-assert.equal(selectedDeepRoom.roomId, 'deep')
-assert.equal(selectedDeepRoom.focusMinutes, 90)
-assert.equal(selectedDeepRoom.breakMinutes, 15)
-assert.ok(selectedDeepRoom.seatClaimedAt > snapshot.seatClaimedAt)
 
 assert.equal(joinStudySpace(snapshot, ' room-ab12 ', 3000).spaceCode, 'ROOM-AB12')
 assert.equal(joinStudySpace(snapshot, ' room-ab12 ', 3000).seatClaimedAt, 3000)

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { STUDY_PRESENCE_BROKER_URL, studyRooms } from '../constants'
+import { STUDY_PRESENCE_BROKER_URL } from '../constants'
 import {
   formatStudySeatLabel,
   persistStudySnapshot,
@@ -26,7 +26,6 @@ import {
   resetStudyTimer,
   saveStudyNickname,
   saveStudyRelayUrl,
-  selectStudyRoomSnapshot,
   setStudyAmbientVolume,
   setStudySpaceCode,
   switchStudyTimerMode,
@@ -44,8 +43,6 @@ type StudyPresenceTarget = {
   roomId?: StudyRoomId
   spaceCode?: string
 }
-
-type StudyRoom = typeof studyRooms[number]
 
 type UseStudySessionOptions = {
   showNotification: (title: string, body: string) => Promise<void>
@@ -222,13 +219,6 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     setSnapshot((current) => updateStudyTimerPreset(current, focusMinutes, breakMinutes))
   }
 
-  const selectRoom = (room: StudyRoom): void => {
-    if (room.id !== snapshot.roomId) {
-      presence.sendEvent('checkin', `${snapshot.nickname} 进入 ${room.name}。`, { roomId: room.id })
-    }
-    setSnapshot((current) => selectStudyRoomSnapshot(current, room))
-  }
-
   const toggleContract = (): void => {
     setSnapshot((current) => toggleStudyContract(current, defaultStudyContractText(current, viewModel.activeMode.name)))
   }
@@ -245,7 +235,7 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     setSnapshot((current) => joinStudySpace(current, spaceInput))
   }
 
-  const createSpace = (): void => {
+  const enterRandomSpace = (): void => {
     const spaceCode = randomStudySpaceCode()
     setSnapshot((current) => setStudySpaceCode(current, spaceCode))
   }
@@ -368,12 +358,11 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     viewModel,
     emitRoomEvent,
     updateTimerPreset,
-    selectRoom,
     toggleContract,
     updateContractText,
     saveNickname,
     joinSpace,
-    createSpace,
+    enterRandomSpace,
     saveRelayUrl,
     resetRelayUrl,
     toggleTimer,
