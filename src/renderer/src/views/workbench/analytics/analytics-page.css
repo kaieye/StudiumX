@@ -1026,139 +1026,108 @@
 }
 
 .analytics-main--token-only {
+  justify-items: start;
   padding-top: clamp(4px, 1cqi, 12px);
 }
 
 .token-consumption-card {
-  width: 100%;
+  width: min(100%, 620px);
   min-width: 0;
-  padding: clamp(20px, 3cqi, 34px);
+  min-height: 148px;
+  padding: 14px 16px;
   border: 1px solid var(--analytics-line);
-  border-radius: clamp(22px, 3cqi, 34px);
+  border-radius: 18px;
   background:
-    linear-gradient(145deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 48%),
-    var(--analytics-card);
+    linear-gradient(145deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 62%),
+    var(--analytics-card-strong);
   box-shadow: var(--analytics-shadow);
-  backdrop-filter: blur(24px) saturate(145%);
-  -webkit-backdrop-filter: blur(24px) saturate(145%);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
 }
 
-.token-consumption-card__header,
-.token-consumption-card__chart-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.token-consumption-card__title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.token-consumption-card__content {
+  min-height: 118px;
+  display: grid;
+  grid-template-columns: minmax(160px, 0.82fr) minmax(250px, 1.45fr);
+  align-items: stretch;
   gap: 16px;
 }
 
-.token-consumption-card__header p,
-.token-consumption-card__header h2,
-.token-consumption-card__chart-header h3,
-.token-consumption-card__chart-header p,
-.token-consumption-card__state p,
-.token-consumption-card__empty {
-  margin: 0;
-}
-
-.token-consumption-card__header p {
-  color: var(--accent);
-  font-size: 0.72rem;
-  font-weight: 820;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.token-consumption-card__header h2 {
-  margin-top: 4px;
-  font-size: clamp(1.25rem, 2.2cqi, 1.8rem);
-  line-height: 1.15;
-  letter-spacing: -0.025em;
-}
-
-.token-consumption-card__refresh {
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text);
-  border: 1px solid var(--analytics-line);
-  border-radius: 14px;
-  background: var(--analytics-card-strong);
-  cursor: pointer;
-}
-
-.token-consumption-card__refresh:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 .token-consumption-card__metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: clamp(22px, 3cqi, 34px);
-}
-
-.token-consumption-card__metrics > div {
   min-width: 0;
   display: grid;
-  gap: 6px;
-  padding: clamp(18px, 2.5cqi, 28px);
-  border: 1px solid var(--analytics-line);
-  border-radius: 22px;
-  background: color-mix(in srgb, var(--surface-solid) 68%, transparent);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
 }
 
-.token-consumption-card__metrics span,
-.token-consumption-card__metrics small {
+.token-consumption-card__metric-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.token-consumption-card__metric-row:first-child {
+  border-bottom: 1px solid color-mix(in srgb, var(--analytics-line) 82%, transparent);
+}
+
+.token-consumption-card__metric-row span {
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 720;
+  line-height: 1.3;
 }
 
-.token-consumption-card__metrics strong {
+.token-consumption-card__metric-row strong {
   min-width: 0;
-  font-size: clamp(2rem, 5cqi, 4.2rem);
+  font-size: clamp(1.25rem, 2.25cqi, 1.65rem);
   line-height: 1;
-  letter-spacing: -0.055em;
+  letter-spacing: -0.04em;
   overflow-wrap: anywhere;
 }
 
-.token-consumption-card__chart-header {
-  margin-top: clamp(26px, 4cqi, 44px);
-}
-
-.token-consumption-card__chart-header h3 {
-  font-size: 1rem;
-}
-
-.token-consumption-card__chart-header p {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 0.76rem;
+.token-consumption-card__chart-panel {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  align-content: end;
+  padding-top: 27px;
 }
 
 .token-consumption-card__range {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
   display: inline-flex;
-  gap: 4px;
-  padding: 4px;
+  gap: 2px;
+  padding: 2px;
   border: 1px solid var(--analytics-line);
-  border-radius: 13px;
+  border-radius: 9px;
   background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
 }
 
 .token-consumption-card__range button,
 .token-consumption-card__state button {
-  min-height: 38px;
-  padding: 0 13px;
+  min-height: 24px;
+  padding: 0 8px;
   color: var(--text-muted);
   border: 0;
-  border-radius: 10px;
+  border-radius: 7px;
   background: transparent;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.66rem;
   font-weight: 760;
   cursor: pointer;
 }
@@ -1171,31 +1140,27 @@
 
 .token-consumption-card__chart {
   position: relative;
-  min-height: 220px;
-  margin-top: 14px;
-  padding: 10px 0 0;
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--surface-solid) 46%, transparent);
+  min-width: 0;
+  height: 88px;
   overflow: hidden;
 }
 
 .token-consumption-card__chart svg {
   display: block;
   width: 100%;
-  height: auto;
-  min-height: 200px;
+  height: 100%;
   overflow: visible;
 }
 
 .token-consumption-card__grid-line {
-  stroke: color-mix(in srgb, var(--line) 66%, transparent);
+  stroke: color-mix(in srgb, var(--line) 58%, transparent);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 
 .token-consumption-card__line {
   stroke: var(--accent);
-  stroke-width: 3.5;
+  stroke-width: 2.5;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
@@ -1204,25 +1169,19 @@
 .token-consumption-card__point {
   fill: var(--surface-solid);
   stroke: var(--accent);
-  stroke-width: 2.5;
+  stroke-width: 1.8;
   vector-effect: non-scaling-stroke;
-}
-
-.token-consumption-card__axis {
-  position: absolute;
-  inset-inline: 24px;
-  inset-block-end: 10px;
-  display: flex;
-  justify-content: space-between;
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  font-weight: 690;
 }
 
 .token-consumption-card__empty,
 .token-consumption-card__state {
   color: var(--text-muted);
-  font-size: 0.84rem;
+  font-size: 0.76rem;
+}
+
+.token-consumption-card__empty,
+.token-consumption-card__state p {
+  margin: 0;
 }
 
 .token-consumption-card__empty {
@@ -1230,16 +1189,15 @@
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 24px;
   text-align: center;
 }
 
 .token-consumption-card__state {
-  min-height: 260px;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 14px;
+  min-height: 118px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   text-align: center;
 }
 
@@ -1254,20 +1212,26 @@
     grid-template-columns: 44px minmax(0, 1fr);
   }
 
-  .token-consumption-card__metrics {
+  .token-consumption-card {
+    padding: 12px 14px;
+  }
+
+  .token-consumption-card__content {
+    grid-template-columns: minmax(126px, 0.78fr) minmax(170px, 1.22fr);
+    gap: 12px;
+  }
+
+  .token-consumption-card__metric-row {
     grid-template-columns: minmax(0, 1fr);
+    align-content: center;
+    gap: 4px;
   }
 
-  .token-consumption-card__chart-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .token-consumption-card__range {
-    width: 100%;
+  .token-consumption-card__metric-row strong {
+    font-size: 1.25rem;
   }
 
   .token-consumption-card__range button {
-    flex: 1 1 0;
+    padding-inline: 6px;
   }
 }

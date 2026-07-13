@@ -1,4 +1,3 @@
-import { RefreshCw } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getAnalyticsCopy } from '../analyticsCopy'
@@ -22,11 +21,11 @@ type ChartPoint = {
   y: number | null
 }
 
-const CHART_WIDTH = 760
-const CHART_HEIGHT = 220
-const CHART_PADDING_X = 24
-const CHART_PADDING_TOP = 18
-const CHART_PADDING_BOTTOM = 34
+const CHART_WIDTH = 320
+const CHART_HEIGHT = 104
+const CHART_PADDING_X = 8
+const CHART_PADDING_TOP = 8
+const CHART_PADDING_BOTTOM = 10
 
 function parseLocalDate(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
@@ -117,43 +116,29 @@ export function TokenConsumptionCard({
         : fallbackMessage ?? copy.page.unavailableDetail
 
   return (
-    <article className="token-consumption-card" data-state={status} aria-busy={isRefreshing}>
-      <div className="token-consumption-card__header">
-        <div>
-          <p>{copy.page.tokenCalculatorEyebrow}</p>
-          <h2>{copy.page.tokenCalculatorTitle}</h2>
-        </div>
-        <button
-          type="button"
-          className="token-consumption-card__refresh"
-          onClick={onRetry}
-          disabled={isRefreshing}
-          aria-label={copy.page.refresh}
-        >
-          <RefreshCw size={17} aria-hidden="true" />
-        </button>
-      </div>
+    <article
+      className="token-consumption-card"
+      data-state={status}
+      data-stale={isStale || dataResult?.state === 'partial'}
+      aria-busy={isRefreshing}
+      aria-label={copy.page.tokenCalculatorTitle}
+    >
+      <h2 className="token-consumption-card__title">{copy.page.tokenCalculatorTitle}</h2>
 
       {data ? (
-        <>
+        <div className="token-consumption-card__content">
           <div className="token-consumption-card__metrics">
-            <div>
+            <div className="token-consumption-card__metric-row">
               <span>{copy.page.totalTokenUsage}</span>
               <strong>{number.format(data.totals.totalTokens)}</strong>
-              <small>Tokens</small>
             </div>
-            <div>
+            <div className="token-consumption-card__metric-row">
               <span>{copy.page.todayTokenUsage}</span>
               <strong>{todayValue === null ? '—' : number.format(todayValue)}</strong>
-              <small>{formatDate(localToday, locale)}</small>
             </div>
           </div>
 
-          <div className="token-consumption-card__chart-header">
-            <div>
-              <h3>{copy.page.tokenTrend}</h3>
-              {isStale || dataResult?.state === 'partial' ? <p>{copy.page.tokenDataPartial}</p> : null}
-            </div>
+          <div className="token-consumption-card__chart-panel">
             <div className="token-consumption-card__range" aria-label={copy.page.tokenTrendRange}>
               {([7, 30] as const).map((days) => (
                 <button
@@ -166,28 +151,27 @@ export function TokenConsumptionCard({
                 </button>
               ))}
             </div>
-          </div>
-
-          <div className="token-consumption-card__chart" role="img" aria-label={`${copy.page.tokenTrend}，${chartRange === 7 ? copy.page.last7Days : copy.page.last30Days}`}>
-            <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} aria-hidden="true">
-              {[0, 0.5, 1].map((ratio) => {
-                const y = CHART_PADDING_TOP + plotHeight * ratio
-                return <line key={ratio} x1={CHART_PADDING_X} x2={CHART_WIDTH - CHART_PADDING_X} y1={y} y2={y} className="token-consumption-card__grid-line" />
-              })}
-              {path ? <path d={path} className="token-consumption-card__line" fill="none" /> : null}
-              {points.map((point) => point.y === null ? null : (
-                <circle key={point.date} cx={point.x} cy={point.y} r={chartRange === 7 ? 4.5 : 3} className="token-consumption-card__point">
-                  <title>{`${formatDate(point.date, locale)}：${number.format(point.value ?? 0)} tokens`}</title>
-                </circle>
-              ))}
-            </svg>
-            <div className="token-consumption-card__axis" aria-hidden="true">
-              <span>{formatDate(dateKeys[0], locale)}</span>
-              <span>{formatDate(localToday, locale)}</span>
+            <div
+              className="token-consumption-card__chart"
+              role="img"
+              aria-label={`${copy.page.tokenTrend}，${chartRange === 7 ? copy.page.last7Days : copy.page.last30Days}`}
+            >
+              <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} aria-hidden="true" preserveAspectRatio="none">
+                {[0.2, 0.6, 1].map((ratio) => {
+                  const y = CHART_PADDING_TOP + plotHeight * ratio
+                  return <line key={ratio} x1={CHART_PADDING_X} x2={CHART_WIDTH - CHART_PADDING_X} y1={y} y2={y} className="token-consumption-card__grid-line" />
+                })}
+                {path ? <path d={path} className="token-consumption-card__line" fill="none" /> : null}
+                {points.map((point) => point.y === null ? null : (
+                  <circle key={point.date} cx={point.x} cy={point.y} r={chartRange === 7 ? 3 : 1.8} className="token-consumption-card__point">
+                    <title>{`${formatDate(point.date, locale)}：${number.format(point.value ?? 0)} tokens`}</title>
+                  </circle>
+                ))}
+              </svg>
+              {!path ? <p className="token-consumption-card__empty">{copy.page.noTokenTrendData}</p> : null}
             </div>
-            {!path ? <p className="token-consumption-card__empty">{copy.page.noTokenTrendData}</p> : null}
           </div>
-        </>
+        </div>
       ) : (
         <div className="token-consumption-card__state" role={status === 'error' ? 'alert' : 'status'}>
           <p>{stateMessage}</p>

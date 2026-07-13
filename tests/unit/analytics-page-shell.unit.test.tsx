@@ -132,6 +132,10 @@ describe('StudyAnalyticsPage', () => {
     expect(screen.getByText('1,250')).toBeInTheDocument()
     expect(screen.getByText('250')).toBeInTheDocument()
     expect(document.querySelectorAll('.token-consumption-card')).toHaveLength(1)
+    const compactContent = document.querySelector('.token-consumption-card__content')
+    expect(compactContent?.children[0]).toHaveClass('token-consumption-card__metrics')
+    expect(compactContent?.children[1]).toHaveClass('token-consumption-card__chart-panel')
+    expect(document.querySelectorAll('.token-consumption-card__metric-row')).toHaveLength(2)
     expect(screen.getByRole('button', { name: '近 7 天' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('img', { name: 'Token 使用趋势，近 7 天' })).toBeInTheDocument()
 
