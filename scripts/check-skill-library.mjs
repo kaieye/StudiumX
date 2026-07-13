@@ -10,11 +10,12 @@ const tempRoot = await mkdtemp(join(tempParent, 'skill-library-check-'))
 const outfile = join(tempRoot, 'skill-library.mjs')
 
 try {
-  const [app, skillView, slashMenu, mainIndex, preload, contract, packageJson, builtinSkill, sharedSchema, teachingSiteSkill] = await Promise.all([
+  const [app, skillView, slashMenu, mainIndex, ipcGateway, preload, contract, packageJson, builtinSkill, sharedSchema, teachingSiteSkill] = await Promise.all([
     readFile(join(process.cwd(), 'src', 'renderer', 'src', 'App.tsx'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'renderer', 'src', 'views', 'resources', 'SkillLibrary.tsx'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'renderer', 'src', 'skills', 'SkillSlashMenu.tsx'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'main', 'index.ts'), 'utf8'),
+    readFile(join(process.cwd(), 'src', 'main', 'teaching-ipc-gateway.ts'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'preload', 'index.ts'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'shared', 'teaching-ipc-contract.ts'), 'utf8'),
     readFile(join(process.cwd(), 'package.json'), 'utf8'),
@@ -32,7 +33,7 @@ try {
   assert.match(slashMenu, /event\.key === 'Enter' \|\| event\.key === 'Tab'/)
   assert.match(slashMenu, /event\.key === 'Escape'/)
   assert.match(mainIndex, /join\(process\.resourcesPath, 'builtin-skills'\)/)
-  assert.match(mainIndex, /ipcMain\.handle\(teachingInvokeChannels\.installSkill/)
+  assert.match(ipcGateway, /teachingInvokeChannels\.installSkill/)
   assert.match(preload, /installSkill: \(skillId\) => ipcRenderer\.invoke\(teachingInvokeChannels\.installSkill, skillId\)/)
   assert.match(contract, /listSkills: 'teach:list-skills'/)
   assert.match(contract, /installSkill: 'teach:install-skill'/)
