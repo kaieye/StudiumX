@@ -15,12 +15,14 @@ async function readReachableCss(entryPath, seen = new Set()) {
   return [content, ...importedCss].join('\n')
 }
 
-const [app, css, zh, en] = await Promise.all([
+const [appRoot, navigator, css, zh, en] = await Promise.all([
   readFile('src/renderer/src/App.tsx', 'utf8'),
+  readFile('src/renderer/src/app-shell/teaching-workspace-navigator.tsx', 'utf8'),
   readReachableCss('src/renderer/src/styles.css'),
   readFile('src/renderer/src/i18n/locales/zh-CN.json', 'utf8'),
   readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8')
 ])
+const app = `${appRoot}\n${navigator}`
 
 assert.match(
   app,
@@ -41,15 +43,21 @@ assert.match(
 )
 
 assert.match(
-  app,
-  /const \[importDialogOpen, setImportDialogOpen\] = useState\(false\)/,
-  'course section should keep local state for the import dialog'
+  navigator,
+  /useReducer\(teachingWorkspaceNavigatorReducer, initialTeachingWorkspaceNavigatorState\)/,
+  'teaching workspace navigator should own its transient import-dialog state behind its reducer seam'
 )
 
 assert.match(
-  app,
-  /setImportDialogOpen\(true\)/,
-  'course section plus button should open the import dialog'
+  navigator,
+  /state\.importDialogOpen/,
+  'course section should render the import dialog from navigator-owned state'
+)
+
+assert.match(
+  navigator,
+  /dispatch\(\{ type: 'open-import-dialog' \}\)/,
+  'course section plus button should open the navigator import dialog'
 )
 
 assert.match(
@@ -90,7 +98,7 @@ assert.doesNotMatch(
 
 assert.match(
   app,
-  /<button[\s\S]*className="workspace-node-button"[\s\S]*aria-expanded=\{isDirectory \? isExpanded : undefined\}[\s\S]*onClick=\{\(\) => void handleOpen\(\)\}[\s\S]*<span className="collapsible-label">[\s\S]*\{isDirectory \? \([\s\S]*<span className="workspace-node-chevron"/,
+  /<button className="workspace-node-button"[\s\S]*aria-expanded=\{isDirectory \? isExpanded : undefined\}[\s\S]*onClick=\{\(\) => void handleOpen\(\)\}[\s\S]*<span className="collapsible-label">[\s\S]*\{isDirectory \? <span className="workspace-node-chevron"/,
   'workspace tree folder rows should use one full row button for the label and chevron'
 )
 
@@ -228,7 +236,7 @@ assert.match(
 
 assert.match(
   app,
-  /onOpenMarkdownFile=\{\(file\) => void loadWorkspaceMarkdownFile\(file, workspace\.id\)\}/,
+  /onOpenMarkdownFile=\{\(file\) => onLoadWorkspaceMarkdownFile\(file, workspace\.id\)\}/,
   'course sidebar should route Markdown files into the in-app markdown document reader'
 )
 

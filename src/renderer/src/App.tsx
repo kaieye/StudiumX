@@ -12,7 +12,6 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   Clock3,
   FileText,
   Folder,
@@ -27,13 +26,10 @@ import {
   Loader2,
   MessageSquare,
   Minus,
-  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Palette,
   PenLine,
-  Pin,
-  PinOff,
   Plus,
   RefreshCw,
   Save,
@@ -44,14 +40,12 @@ import {
   Square,
   Play,
   SendHorizontal,
-  Upload,
-  Trash2,
   X,
   Wrench
 } from 'lucide-react'
 import type { CSSProperties, ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Component, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Component, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { type Components } from 'react-markdown'
@@ -64,15 +58,14 @@ import { buildAgentProcessTimeline } from './agent-process-timeline'
 import {
   lessonToCoursePreviewFile,
   mergeAgentInputHistory,
-  normalizeRelativePath,
   sameRelativePath,
   titleFromFileName,
   toUserError,
   useAppStore,
   userTurnInputHistory,
-  type CoursePreviewFile,
   type DialogMode
 } from './app-shell/appStore'
+import { TeachingWorkspaceNavigator } from './app-shell/teaching-workspace-navigator'
 import { LessonStyleGallery } from './views/resources/LessonStyleGallery'
 import { PetLibrary } from './views/resources/PetLibrary'
 import { SkillLibrary } from './views/resources/SkillLibrary'
@@ -96,17 +89,13 @@ import {
   type LessonStyleId
 } from '../../shared/lesson-styles'
 import {
-  projectVisibleAgentConversationWorkspaces,
-  projectVisibleSidebarConversations
+  projectVisibleAgentConversationWorkspaces
 } from './agent-conversation-projection'
 import {
-  isPendingConversationSummary,
   parseAskToolCall,
   selectPendingAsk,
   selectPendingToolPermission,
-  type SidebarConversationSummary
 } from './agent-conversation-state'
-import { listSidebarWorkspaceFolders } from '../../shared/course-sidebar'
 import {
   LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE,
   LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE,
@@ -118,11 +107,9 @@ import {
 import {
   type AgentChatProcessEvent,
   type AgentChatTurn,
-  type AgentConversationSummary,
   type AgentToolPermissionRequest,
   type AskAnswer,
   type AskQuestion,
-  type LessonSummary,
   type TeachingGitBranchRow,
   type ModelReasoningEffort,
   type TeachingWorkspaceChangedFile,
@@ -130,8 +117,6 @@ import {
   type TeachingWorkspaceSummary,
   type WorkspaceMarkdownDocument,
   type WindowControlAction,
-  type WorkspaceFileNode,
-  type WorkspaceItemKind,
   type WorkspaceView
 } from '../../shared/teaching-types'
 
@@ -490,8 +475,24 @@ function Sidebar() {
   const selectedLessonPath = appState.selectedLessonPath
   const lessonReaderOpen = useAppStore((s) => s.lessonReaderOpen)
   const selectedMarkdownDocument = useAppStore((s) => s.selectedMarkdownDocument)
-  const [coursesExpanded, setCoursesExpanded] = useState(true)
-  const [conversationsExpanded, setConversationsExpanded] = useState(true)
+  const loading = useAppStore((s) => s.loading)
+  const activeConversationId = useAppStore((s) => s.activeConversationId)
+  const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
+  const selectWorkspace = useAppStore((s) => s.selectWorkspace)
+  const setOverviewDialogMode = useAppStore((s) => s.setOverviewDialogMode)
+  const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
+  const loadLesson = useAppStore((s) => s.loadLesson)
+  const loadCourseHtmlFile = useAppStore((s) => s.loadCourseHtmlFile)
+  const loadWorkspaceMarkdownFile = useAppStore((s) => s.loadWorkspaceMarkdownFile)
+  const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
+  const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
+  const openPath = useAppStore((s) => s.openPath)
+  const importWorkspace = useAppStore((s) => s.importWorkspace)
+  const importWorkspacePath = useAppStore((s) => s.importWorkspacePath)
+  const openImportLocation = useAppStore((s) => s.openImportLocation)
+  const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
+  const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
+  const removeWorkspace = useAppStore((s) => s.removeWorkspace)
 
   return (
     <aside className={`sidebar${sidebarCollapsed ? ' is-collapsed' : ''}`} aria-label={t('sidebar.aria')}>
@@ -522,18 +523,33 @@ function Sidebar() {
       </nav>
 
       <div className="sidebar-content">
-        <WorkspaceCourseSection
+        <TeachingWorkspaceNavigator
           workspaces={appState.workspaces}
-          activeWorkspaceId={active?.id ?? null}
-          expanded={coursesExpanded}
+          activeWorkspace={active}
+          temporaryConversations={appState.temporaryConversations}
           selectedLessonPath={view === 'lessons' && (lessonReaderOpen || selectedMarkdownDocument) ? selectedLessonPath : null}
-          onToggle={() => setCoursesExpanded((expanded) => !expanded)}
-        />
-        <SidebarConversationSection
-          workspace={active}
-          conversations={appState.temporaryConversations}
-          expanded={conversationsExpanded}
-          onToggle={() => setConversationsExpanded((expanded) => !expanded)}
+          view={view}
+          activeConversationId={activeConversationId}
+          pendingAgentConversation={pendingAgentConversation}
+          showAllCourseFiles={settings.workspace.showAllCourseFiles}
+          defaultRoot={settings.workspace.defaultRoot}
+          loading={loading}
+          onSelectWorkspace={selectWorkspace}
+          onSetOverviewDialogMode={setOverviewDialogMode}
+          onOpenWorkspaceTeachingMode={openWorkspaceTeachingMode}
+          onSelectCourseFolder={selectCourseFolder}
+          onLoadLesson={loadLesson}
+          onLoadCourseHtmlFile={loadCourseHtmlFile}
+          onLoadWorkspaceMarkdownFile={loadWorkspaceMarkdownFile}
+          onLoadAgentConversation={loadAgentConversation}
+          onRestorePendingAgentConversation={restorePendingAgentConversation}
+          onOpenPath={openPath}
+          onImportWorkspace={importWorkspace}
+          onImportWorkspacePath={importWorkspacePath}
+          onOpenImportLocation={openImportLocation}
+          onSetWorkspaceItemMeta={setWorkspaceItemMeta}
+          onRemoveWorkspaceItem={removeWorkspaceItem}
+          onRemoveWorkspace={removeWorkspace}
         />
       </div>
 
@@ -561,831 +577,6 @@ function Sidebar() {
   )
 }
 
-function WorkspaceCourseSection({
-  workspaces,
-  activeWorkspaceId,
-  expanded,
-  selectedLessonPath,
-  onToggle
-}: {
-  workspaces: TeachingWorkspaceSummary[]
-  activeWorkspaceId: string | null
-  expanded: boolean
-  selectedLessonPath: string | null
-  onToggle: () => void
-}) {
-  const { t } = useTranslation()
-  const selectWorkspace = useAppStore((s) => s.selectWorkspace)
-  const loadLesson = useAppStore((s) => s.loadLesson)
-  const loadCourseHtmlFile = useAppStore((s) => s.loadCourseHtmlFile)
-  const loadWorkspaceMarkdownFile = useAppStore((s) => s.loadWorkspaceMarkdownFile)
-  const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
-  const view = useAppStore((s) => s.view)
-  const activeConversationId = useAppStore((s) => s.activeConversationId)
-  const openPath = useAppStore((s) => s.openPath)
-  const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
-  const showAllCourseFiles = useAppStore((s) => s.settings.workspace.showAllCourseFiles)
-  const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
-  const visibleConversationWorkspaces = useMemo(
-    () => projectVisibleAgentConversationWorkspaces({
-      workspaces,
-      activeWorkspace: null,
-      selectedCourseWorkspaceId: null,
-      pendingAgentConversation
-    }),
-    [pendingAgentConversation, workspaces]
-  )
-  const workspaceFolders = useMemo(
-    () => listSidebarWorkspaceFolders(visibleConversationWorkspaces.workspaces, showAllCourseFiles),
-    [showAllCourseFiles, visibleConversationWorkspaces.workspaces]
-  )
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
-  const [importDialogOpen, setImportDialogOpen] = useState(false)
-
-  useEffect(() => {
-    if (!expanded) setExpandedPaths(new Set())
-  }, [expanded])
-
-  const togglePath = (workspaceId: string, relativePath: string): void => {
-    const key = workspaceNodeKey(workspaceId, relativePath)
-    setExpandedPaths((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  const ensureWorkspaceSelected = async (workspaceId: string): Promise<void> => {
-    if (workspaceId !== activeWorkspaceId) {
-      await selectWorkspace(workspaceId)
-    }
-  }
-
-  return (
-    <>
-      <div className="sidebar-section sidebar-section--courses">
-        <div className="section-heading section-heading--folder">
-          <button
-            className="section-folder-button"
-            type="button"
-            aria-expanded={expanded}
-            aria-label={expanded ? t('sidebar.collapseCourses') : t('sidebar.expandCourses')}
-            title={expanded ? t('sidebar.collapseCourses') : t('sidebar.expandCourses')}
-            onClick={onToggle}
-          >
-            <span className="collapsible-label">{t('sidebar.courses')}</span>
-            <span className="section-folder-chevron" aria-hidden="true">
-              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </span>
-          </button>
-          <button
-            className="section-add-button"
-            type="button"
-            aria-label={t('sidebar.addCourseProject')}
-            title={t('sidebar.addCourseProject')}
-            onClick={(event) => {
-              event.stopPropagation()
-              setImportDialogOpen(true)
-            }}
-          >
-            <Plus size={14} />
-          </button>
-        </div>
-        <div
-          className={`sidebar-disclosure${expanded ? ' is-open' : ''}`}
-          aria-hidden={!expanded}
-          inert={!expanded ? true : undefined}
-        >
-          <div className="sidebar-disclosure-inner">
-            {workspaceFolders.length > 0 ? (
-              <div className="workspace-file-tree workspace-file-tree--courses" role="tree">
-                {workspaceFolders.map(({ workspace, node }) => (
-                  <WorkspaceFileNodeRow
-                    key={workspaceNodeKey(workspace.id, node.relativePath)}
-                    node={node}
-                    workspace={workspace}
-                    level={0}
-                    treeRoot="courses"
-                    expandedPaths={expandedPaths}
-                    selectedLessonPath={selectedLessonPath}
-                    activeConversationId={view === 'agent' ? activeConversationId : null}
-                    onToggle={togglePath}
-                    onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
-                    onOpenPath={(path) => void openPath(path)}
-                    onOpenHtmlFile={(file) => void loadCourseHtmlFile(file)}
-                    onOpenMarkdownFile={(file) => void loadWorkspaceMarkdownFile(file, workspace.id)}
-                    onOpenCourse={(relativePath) => selectCourseFolder(relativePath, workspace.id)}
-                    onOpenLesson={(lesson) => {
-                      void loadLesson(lesson)
-                    }}
-                    onOpenConversation={(conversationId) => void loadAgentConversation(conversationId, workspace.id)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="workspace-conversation-empty">{t('sidebar.emptyCourses')}</div>
-            )}
-          </div>
-        </div>
-      </div>
-      {importDialogOpen ? <ImportWorkspaceDialog onClose={() => setImportDialogOpen(false)} /> : null}
-    </>
-  )
-}
-
-function ImportWorkspaceDialog({ onClose }: { onClose: () => void }) {
-  const { t } = useTranslation()
-  const titleId = useId()
-  const settings = useAppStore((s) => s.settings)
-  const activeWorkspace = useAppStore((s) => s.appState.activeWorkspace)
-  const loading = useAppStore((s) => s.loading)
-  const importWorkspace = useAppStore((s) => s.importWorkspace)
-  const importWorkspacePath = useAppStore((s) => s.importWorkspacePath)
-  const openImportLocation = useAppStore((s) => s.openImportLocation)
-  const [path, setPath] = useState(settings.workspace.defaultRoot || activeWorkspace?.rootPath || '')
-
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [onClose])
-
-  const handleChoose = async (): Promise<void> => {
-    if (await importWorkspace()) onClose()
-  }
-
-  const handleImportPath = async (): Promise<void> => {
-    if (await importWorkspacePath(path)) onClose()
-  }
-
-  const handleOpenManager = (): void => {
-    void openImportLocation(path.trim() || undefined)
-  }
-
-  return createPortal(
-    <div
-      className="import-dialog-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <section className="import-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <div className="import-dialog-header">
-          <div>
-            <span>{t('workspaceImport.eyebrow')}</span>
-            <h2 id={titleId}>{t('workspaceImport.title')}</h2>
-          </div>
-          <button type="button" className="settings-close-button" onClick={onClose} aria-label={t('workspaceImport.close')}>
-            <X size={16} />
-          </button>
-        </div>
-        <label className="import-dialog-field">
-          <span>{t('workspaceImport.pathLabel')}</span>
-          <input
-            autoFocus
-            type="text"
-            value={path}
-            placeholder={t('workspaceImport.pathPlaceholder')}
-            onChange={(event) => setPath(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                void handleImportPath()
-              }
-            }}
-          />
-        </label>
-        <div className="import-dialog-tools">
-          <button type="button" className="ghost-button" onClick={() => void handleChoose()} disabled={loading}>
-            <FolderOpen size={15} />
-            {t('workspaceImport.choose')}
-          </button>
-          <button type="button" className="ghost-button" onClick={handleOpenManager} disabled={loading}>
-            <ArrowUpRight size={15} />
-            {t('workspaceImport.manage')}
-          </button>
-        </div>
-        <div className="import-dialog-footer">
-          <button type="button" className="ghost-button" onClick={onClose}>
-            {t('common.cancel')}
-          </button>
-          <button type="button" className="primary-button" onClick={() => void handleImportPath()} disabled={loading || !path.trim()}>
-            <Upload size={15} />
-            {t('workspaceImport.import')}
-          </button>
-        </div>
-      </section>
-    </div>,
-    document.body
-  )
-}
-
-function SidebarConversationSection({
-  workspace,
-  conversations,
-  expanded,
-  onToggle
-}: {
-  workspace: TeachingWorkspaceSummary | null
-  conversations: AgentConversationSummary[]
-  expanded: boolean
-  onToggle: () => void
-}) {
-  const { t } = useTranslation()
-  const loadAgentConversation = useAppStore((s) => s.loadAgentConversation)
-  const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
-  const view = useAppStore((s) => s.view)
-  const activeConversationId = useAppStore((s) => s.activeConversationId)
-  const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
-  const conversationsWithPending: SidebarConversationSummary[] = useMemo(
-    () => projectVisibleSidebarConversations({ workspace, conversations, pendingAgentConversation }),
-    [conversations, pendingAgentConversation, workspace]
-  )
-  const ensureActiveWorkspace = async (): Promise<void> => {}
-
-  return (
-    <div className="sidebar-section sidebar-section--conversations" aria-label={t('sidebar.conversations')}>
-      <div className="section-heading section-heading--folder sidebar-conversation-heading">
-        <button
-          className="section-folder-button"
-          type="button"
-          aria-expanded={expanded}
-          aria-label={expanded ? t('sidebar.collapseConversations') : t('sidebar.expandConversations')}
-          title={expanded ? t('sidebar.collapseConversations') : t('sidebar.expandConversations')}
-          onClick={onToggle}
-        >
-          <span className="collapsible-label">{t('sidebar.conversations')}</span>
-          <span className="section-folder-chevron" aria-hidden="true">
-            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </span>
-        </button>
-      </div>
-      <div
-        className={`sidebar-disclosure${expanded ? ' is-open' : ''}`}
-        aria-hidden={!expanded}
-        inert={!expanded ? true : undefined}
-      >
-        <div className="sidebar-disclosure-inner">
-          <div className="workspace-conversation-list is-flat">
-            {conversationsWithPending.length === 0 ? (
-              <div className="workspace-conversation-empty">{t('sidebar.emptyConversations')}</div>
-            ) : (
-              conversationsWithPending.map((conversation) => (
-                <ConversationListRow
-                  key={conversation.id}
-                  conversation={conversation}
-                  isActiveConversation={view === 'agent' && conversation.id === activeConversationId}
-                  onEnsureSelected={ensureActiveWorkspace}
-                  onOpen={() => conversation.pending ? restorePendingAgentConversation() : void loadAgentConversation(conversation.id, conversation.workspaceId)}
-                />
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-type RowContextMenuPoint = { left: number; top: number }
-
-const ROW_CONTEXT_MENU_EDGE_GAP = 8
-const ROW_CONTEXT_MENU_MIN_WIDTH = 164
-const ROW_CONTEXT_MENU_ESTIMATED_HEIGHT = 118
-
-function clampRowContextMenuPoint(left: number, top: number, width: number, height: number): RowContextMenuPoint {
-  return {
-    left: Math.min(Math.max(ROW_CONTEXT_MENU_EDGE_GAP, left), Math.max(ROW_CONTEXT_MENU_EDGE_GAP, window.innerWidth - width - ROW_CONTEXT_MENU_EDGE_GAP)),
-    top: Math.min(Math.max(ROW_CONTEXT_MENU_EDGE_GAP, top), Math.max(ROW_CONTEXT_MENU_EDGE_GAP, window.innerHeight - height - ROW_CONTEXT_MENU_EDGE_GAP))
-  }
-}
-
-function sameRowContextMenuPoint(left: RowContextMenuPoint, right: RowContextMenuPoint): boolean {
-  return Math.abs(left.left - right.left) < 0.5 && Math.abs(left.top - right.top) < 0.5
-}
-
-function RowContextMenu({
-  pinned,
-  onTogglePin,
-  onArchive,
-  onRemove,
-  showPin = true,
-  showArchive = true
-}: {
-  pinned: boolean
-  onTogglePin: () => void
-  onArchive: () => void
-  onRemove: () => void
-  showPin?: boolean
-  showArchive?: boolean
-}) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const [menuPoint, setMenuPoint] = useState<RowContextMenuPoint | null>(null)
-  const wrapRef = useRef<HTMLDivElement | null>(null)
-  const menuRef = useRef<HTMLDivElement | null>(null)
-
-  const close = (): void => setOpen(false)
-  const openMenu = (trigger: HTMLButtonElement): void => {
-    const rect = trigger.getBoundingClientRect()
-    setMenuPoint(
-      clampRowContextMenuPoint(
-        rect.right - ROW_CONTEXT_MENU_MIN_WIDTH,
-        rect.bottom + 6,
-        ROW_CONTEXT_MENU_MIN_WIDTH,
-        ROW_CONTEXT_MENU_ESTIMATED_HEIGHT
-      )
-    )
-    setOpen(true)
-  }
-  const run = (action: () => void): void => {
-    close()
-    action()
-  }
-
-  useLayoutEffect(() => {
-    if (!open || !menuPoint) return
-    const rect = menuRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const nextPoint = clampRowContextMenuPoint(menuPoint.left, menuPoint.top, rect.width, rect.height)
-    setMenuPoint((current) => {
-      if (!current) return nextPoint
-      if (sameRowContextMenuPoint(current, nextPoint)) return current
-      return nextPoint
-    })
-  }, [menuPoint, open])
-
-  useEffect(() => {
-    if (!open) return
-
-    const closeMenu = (): void => setOpen(false)
-    const handlePointerDown = (event: PointerEvent): void => {
-      const target = event.target
-      if (!(target instanceof Node)) return
-      if (wrapRef.current?.contains(target) || menuRef.current?.contains(target)) return
-      closeMenu()
-    }
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') closeMenu()
-    }
-
-    window.addEventListener('pointerdown', handlePointerDown, true)
-    window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('resize', closeMenu)
-    window.addEventListener('scroll', closeMenu, true)
-    return () => {
-      window.removeEventListener('pointerdown', handlePointerDown, true)
-      window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('resize', closeMenu)
-      window.removeEventListener('scroll', closeMenu, true)
-    }
-  }, [open])
-
-  return (
-    <div ref={wrapRef} className={`row-context-menu${open ? ' is-open' : ''}`}>
-      <button
-        type="button"
-        className="row-context-menu-trigger"
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label={t('sidebar.rowActions')}
-        title={t('sidebar.rowActions')}
-        onClick={(event) => {
-          event.stopPropagation()
-          if (open) close()
-          else openMenu(event.currentTarget)
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            close()
-          }
-        }}
-      >
-        <MoreHorizontal size={14} />
-      </button>
-      {open && menuPoint ? createPortal(
-        <div
-          ref={menuRef}
-          className="row-context-menu-dropdown"
-          role="menu"
-          style={{ left: menuPoint.left, top: menuPoint.top, minWidth: ROW_CONTEXT_MENU_MIN_WIDTH }}
-          onMouseDown={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-          }}
-          onClick={(event) => event.stopPropagation()}
-          onContextMenu={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-          }}
-        >
-          {showPin ? (
-            <button type="button" role="menuitem" className="row-context-menu-item" onClick={() => run(onTogglePin)}>
-              {pinned ? <PinOff size={13} /> : <Pin size={13} />}
-              <span>{pinned ? t('sidebar.unpin') : t('sidebar.pin')}</span>
-            </button>
-          ) : null}
-          {showArchive ? (
-            <button type="button" role="menuitem" className="row-context-menu-item" onClick={() => run(onArchive)}>
-              <Archive size={13} />
-              <span>{t('sidebar.archive')}</span>
-            </button>
-          ) : null}
-          {showPin || showArchive ? <div className="row-context-menu-separator" role="separator" /> : null}
-          <button type="button" role="menuitem" className="row-context-menu-item is-danger" onClick={() => run(onRemove)}>
-            <Trash2 size={13} />
-            <span>{t('sidebar.remove')}</span>
-          </button>
-        </div>,
-        document.body
-      ) : null}
-    </div>
-  )
-}
-
-function RemoveWorkspaceItemDialog({
-  itemName,
-  itemKind,
-  onClose,
-  onRemoveFromList,
-  onRemoveFromDisk
-}: {
-  itemName: string
-  itemKind: WorkspaceItemKind
-  onClose: () => void
-  onRemoveFromList: () => void
-  onRemoveFromDisk: () => void
-}) {
-  const { t } = useTranslation()
-  const titleId = useId()
-  const descriptionId = useId()
-
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [onClose])
-
-  const kindLabel = itemKind === 'conversation'
-    ? t('sidebar.removeDialog.kindConversation')
-    : itemKind === 'directory'
-      ? t('sidebar.removeDialog.kindFolder')
-    : t('sidebar.removeDialog.kindFile')
-
-  return createPortal(
-    <div
-      className="remove-dialog-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <section className="remove-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
-        <div className="remove-dialog-header">
-          <span className="remove-dialog-icon" aria-hidden="true">
-            <AlertTriangle size={18} />
-          </span>
-          <div>
-            <span>{kindLabel}</span>
-            <h2 id={titleId}>{t('sidebar.removeDialog.title', { name: itemName })}</h2>
-          </div>
-          <button type="button" className="settings-close-button" onClick={onClose} aria-label={t('sidebar.removeDialog.close')}>
-            <X size={16} />
-          </button>
-        </div>
-        <p id={descriptionId} className="remove-dialog-detail">
-          {t('sidebar.removeDialog.detail')}
-        </p>
-        <div className="remove-dialog-options">
-          <button type="button" className="remove-dialog-option" onClick={onRemoveFromList}>
-            <span className="remove-dialog-option-icon">
-              <Archive size={17} />
-            </span>
-            <span>
-              <strong>{t('sidebar.removeDialog.listTitle')}</strong>
-              <small>{t('sidebar.removeDialog.listDetail')}</small>
-            </span>
-          </button>
-          <button type="button" className="remove-dialog-option is-danger" onClick={onRemoveFromDisk}>
-            <span className="remove-dialog-option-icon">
-              <Trash2 size={17} />
-            </span>
-            <span>
-              <strong>{t('sidebar.removeDialog.diskTitle')}</strong>
-              <small>{t('sidebar.removeDialog.diskDetail')}</small>
-            </span>
-          </button>
-        </div>
-        <div className="remove-dialog-footer">
-          <button className="ghost-button" type="button" onClick={onClose}>
-            {t('common.cancel')}
-          </button>
-        </div>
-      </section>
-    </div>,
-    document.body
-  )
-}
-
-function ConversationListRow({
-  conversation,
-  isActiveConversation,
-  onOpen,
-  onEnsureSelected
-}: {
-  conversation: SidebarConversationSummary
-  isActiveConversation: boolean
-  onOpen: () => void
-  onEnsureSelected: () => Promise<void>
-}) {
-  const { t } = useTranslation()
-  const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
-  const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
-  const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
-
-  const handlePin = async (): Promise<void> => {
-    await onEnsureSelected()
-    void setWorkspaceItemMeta({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, pinned: !conversation.pinned })
-  }
-  const handleArchive = async (): Promise<void> => {
-    await onEnsureSelected()
-    void setWorkspaceItemMeta({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, archived: true })
-  }
-  const handleRemoveFromList = async (): Promise<void> => {
-    setRemoveDialogOpen(false)
-    await onEnsureSelected()
-    void removeWorkspaceItem({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, kind: 'conversation', mode: 'list' })
-  }
-  const handleRemoveFromDisk = async (): Promise<void> => {
-    setRemoveDialogOpen(false)
-    await onEnsureSelected()
-    void removeWorkspaceItem({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, kind: 'conversation', mode: 'disk' })
-  }
-
-  return (
-    <div
-      className={`workspace-conversation-row ${isActiveConversation ? 'is-selected' : ''}${conversation.pending ? ' is-pending' : ''}`}
-      title={conversation.absolutePath}
-    >
-      <button type="button" className="workspace-conversation-main" onClick={onOpen}>
-        {conversation.pending ? <Loader2 className="spin" size={13} /> : conversation.pinned ? <Pin size={11} className="row-pin-indicator" /> : <MessageSquare size={13} />}
-        <span className="workspace-conversation-body">
-          <span className="workspace-conversation-title">{conversation.title}</span>
-          {conversation.pending ? <span className="workspace-conversation-meta">{t('sidebar.pendingConversation')}</span> : null}
-        </span>
-      </button>
-      {!conversation.pending && (
-        <RowContextMenu
-          pinned={!!conversation.pinned}
-          onTogglePin={() => void handlePin()}
-          onArchive={() => void handleArchive()}
-          onRemove={() => setRemoveDialogOpen(true)}
-        />
-      )}
-      {removeDialogOpen ? (
-        <RemoveWorkspaceItemDialog
-          itemName={conversation.title}
-          itemKind="conversation"
-          onClose={() => setRemoveDialogOpen(false)}
-          onRemoveFromList={() => void handleRemoveFromList()}
-          onRemoveFromDisk={() => void handleRemoveFromDisk()}
-        />
-      ) : null}
-    </div>
-  )
-}
-
-function WorkspaceFileNodeRow({
-  node,
-  workspace,
-  level,
-  treeRoot,
-  expandedPaths,
-  selectedLessonPath,
-  activeConversationId,
-  onToggle,
-  onEnsureWorkspaceSelected,
-  onOpenPath,
-  onOpenHtmlFile,
-  onOpenMarkdownFile,
-  onOpenCourse,
-  onOpenLesson,
-  onOpenConversation
-}: {
-  node: WorkspaceFileNode
-  workspace: TeachingWorkspaceSummary
-  level: number
-  treeRoot?: 'courses'
-  expandedPaths: Set<string>
-  selectedLessonPath: string | null
-  activeConversationId: string | null
-  onToggle: (workspaceId: string, relativePath: string) => void
-  onEnsureWorkspaceSelected: () => Promise<void>
-  onOpenPath: (path: string) => void
-  onOpenHtmlFile?: (file: CoursePreviewFile) => void
-  onOpenMarkdownFile?: (file: CoursePreviewFile) => void
-  onOpenCourse?: (relativePath: string, workspaceId: string) => void
-  onOpenLesson: (lesson: LessonSummary) => void
-  onOpenConversation: (conversationId: string) => void
-}) {
-  const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
-  const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
-  const removeWorkspace = useAppStore((s) => s.removeWorkspace)
-  const restorePendingAgentConversation = useAppStore((s) => s.restorePendingAgentConversation)
-  const setOverviewDialogMode = useAppStore((s) => s.setOverviewDialogMode)
-  const openWorkspaceTeachingMode = useAppStore((s) => s.openWorkspaceTeachingMode)
-  const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
-  const isDirectory = node.kind === 'directory'
-  const nodeKey = workspaceNodeKey(workspace.id, node.relativePath)
-  const isExpanded = expandedPaths.has(nodeKey)
-  const lesson = (workspace.lessons ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
-  const conversation = (workspace.conversations ?? []).find((item) => sameRelativePath(item.relativePath, node.relativePath))
-  const isPendingConversation = isPendingConversationSummary(conversation)
-  const isWorkspaceFolder = treeRoot === 'courses' && level === 0 && isDirectory && normalizeRelativePath(node.relativePath) === ''
-  const isCourseFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && isSidebarCourseFolderPath(node.relativePath)
-  const isHtmlFile = !isDirectory && node.name.toLowerCase().endsWith('.html')
-  const isMarkdownFile = !isDirectory && node.name.toLowerCase().endsWith('.md')
-  const isSelected = Boolean(
-    (((lesson || (treeRoot === 'courses' && (isHtmlFile || isMarkdownFile))) && node.absolutePath === selectedLessonPath) ||
-      (conversation && conversation.id === activeConversationId))
-  )
-  const itemKind: WorkspaceItemKind = conversation ? 'conversation' : isDirectory ? 'directory' : 'file'
-  const itemLabel = conversation?.title ?? lesson?.title ?? node.name
-  const Icon = isDirectory
-    ? isExpanded
-      ? FolderOpen
-      : Folder
-    : conversation
-      ? MessageSquare
-      : FileText
-
-  const handleOpen = async (): Promise<void> => {
-    if (treeRoot === 'courses') {
-      setOverviewDialogMode('teaching')
-    }
-    if (isDirectory) {
-      if (isWorkspaceFolder) {
-        await onEnsureWorkspaceSelected()
-        openWorkspaceTeachingMode()
-        onToggle(workspace.id, node.relativePath)
-        return
-      }
-      if (isCourseFolder) {
-        await onEnsureWorkspaceSelected()
-        onOpenCourse?.(node.relativePath, workspace.id)
-        onToggle(workspace.id, node.relativePath)
-        return
-      }
-      onToggle(workspace.id, node.relativePath)
-      return
-    }
-    await onEnsureWorkspaceSelected()
-    if (lesson) {
-      onOpenLesson(lesson)
-      return
-    }
-    if (conversation) {
-      if (isPendingConversation) restorePendingAgentConversation()
-      else onOpenConversation(conversation.id)
-      return
-    }
-    if (treeRoot === 'courses' && onOpenHtmlFile && node.name.toLowerCase().endsWith('.html')) {
-      onOpenHtmlFile({
-        title: titleFromFileName(node.name),
-        relativePath: node.relativePath,
-        absolutePath: node.absolutePath
-      })
-      return
-    }
-    if (treeRoot === 'courses' && onOpenMarkdownFile && isMarkdownFile) {
-      onOpenMarkdownFile({
-        title: titleFromFileName(node.name),
-        relativePath: node.relativePath,
-        absolutePath: node.absolutePath
-      })
-      return
-    }
-    onOpenPath(node.absolutePath)
-  }
-
-  const handlePin = async (): Promise<void> => {
-    if (isWorkspaceFolder) {
-      void setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: '', pinned: !node.pinned })
-      return
-    }
-    await onEnsureWorkspaceSelected()
-    void setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: node.relativePath, pinned: !node.pinned })
-  }
-  const handleArchive = async (): Promise<void> => {
-    if (isWorkspaceFolder) {
-      void setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: '', archived: true })
-      return
-    }
-    await onEnsureWorkspaceSelected()
-    void setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: node.relativePath, archived: true })
-  }
-  const handleRemoveFromList = async (): Promise<void> => {
-    setRemoveDialogOpen(false)
-    if (isWorkspaceFolder) {
-      void removeWorkspace({ workspaceId: workspace.id, mode: 'list' })
-      return
-    }
-    await onEnsureWorkspaceSelected()
-    void removeWorkspaceItem({ workspaceId: workspace.id, relativePath: node.relativePath, kind: itemKind, mode: 'list' })
-  }
-  const handleRemoveFromDisk = async (): Promise<void> => {
-    setRemoveDialogOpen(false)
-    if (isWorkspaceFolder) {
-      void removeWorkspace({ workspaceId: workspace.id, mode: 'disk' })
-      return
-    }
-    await onEnsureWorkspaceSelected()
-    void removeWorkspaceItem({ workspaceId: workspace.id, relativePath: node.relativePath, kind: itemKind, mode: 'disk' })
-  }
-
-  return (
-    <div className="workspace-node">
-      <div
-        className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${isMarkdownFile ? 'is-markdown-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
-        style={{ paddingLeft: 4 + level * 12 }}
-        role="treeitem"
-        aria-expanded={isDirectory ? isExpanded : undefined}
-      >
-        <button
-          className="workspace-node-button"
-          type="button"
-          title={node.absolutePath}
-          aria-expanded={isDirectory ? isExpanded : undefined}
-          onClick={() => void handleOpen()}
-        >
-          {isPendingConversation ? <Loader2 className="spin" size={13} /> : <Icon size={13} />}
-          {node.pinned ? <Pin size={10} className="row-pin-indicator" /> : null}
-          <span className="collapsible-label">{conversation?.title ?? lesson?.sessionName ?? node.name}</span>
-          {isDirectory ? (
-            <span className="workspace-node-chevron" aria-hidden="true">
-              {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-            </span>
-          ) : null}
-        </button>
-        {!isPendingConversation ? (
-          <RowContextMenu
-            pinned={!!node.pinned}
-            onTogglePin={() => void handlePin()}
-            onArchive={() => void handleArchive()}
-            onRemove={() => setRemoveDialogOpen(true)}
-          />
-        ) : null}
-        {removeDialogOpen ? (
-          <RemoveWorkspaceItemDialog
-            itemName={itemLabel}
-            itemKind={itemKind}
-            onClose={() => setRemoveDialogOpen(false)}
-            onRemoveFromList={() => void handleRemoveFromList()}
-            onRemoveFromDisk={() => void handleRemoveFromDisk()}
-          />
-        ) : null}
-      </div>
-      {isDirectory && node.children?.length ? (
-        <div
-          className={`workspace-node-children${isExpanded ? ' is-open' : ''}${isWorkspaceFolder || isCourseFolder ? ' is-course-children' : ''}`}
-          aria-hidden={!isExpanded}
-          inert={!isExpanded ? true : undefined}
-        >
-          <div className="workspace-node-children-inner">
-            {node.children.map((child) => (
-              <WorkspaceFileNodeRow
-                key={workspaceNodeKey(workspace.id, child.relativePath)}
-                node={child}
-                workspace={workspace}
-                level={level + 1}
-                treeRoot={treeRoot}
-                expandedPaths={expandedPaths}
-                selectedLessonPath={selectedLessonPath}
-                activeConversationId={activeConversationId}
-                onToggle={onToggle}
-                onEnsureWorkspaceSelected={onEnsureWorkspaceSelected}
-                onOpenPath={onOpenPath}
-                onOpenHtmlFile={onOpenHtmlFile}
-                onOpenMarkdownFile={onOpenMarkdownFile}
-                onOpenCourse={onOpenCourse}
-                onOpenLesson={onOpenLesson}
-                onOpenConversation={onOpenConversation}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 // ================================================================
 // Overview pickers: project folder + git branch
 // ================================================================
@@ -1398,14 +589,6 @@ function workspaceContextLabel(rootPath: string, name: string): string {
   return !parent || parent.toLowerCase() === name.toLowerCase() ? '' : parent
 }
 
-function workspaceNodeKey(workspaceId: string, relativePath: string): string {
-  return `${workspaceId}:${normalizeRelativePath(relativePath)}`
-}
-
-function isSidebarCourseFolderPath(relativePath: string): boolean {
-  const normalized = normalizeRelativePath(relativePath)
-  return normalized === 'lessons' || /^courses\/[^/]+$/i.test(normalized)
-}
 
 /** Truncate the middle of a string so long branch names fit the trigger button. */
 function middleEllipsize(value: string, max: number): string {
