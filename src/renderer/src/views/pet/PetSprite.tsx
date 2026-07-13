@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { PetAppearanceId } from '../../../../shared/teaching-types'
+import {
+  PET_APPEARANCE_IDS,
+  type PetAppearanceId
+} from '../../../../shared/teaching-types'
 import bobaManifestJson from '../../assets/pets/boba/pet.json'
+import luluManifestJson from '../../assets/pets/lulu/pet.json'
+import shinchanManifestJson from '../../assets/pets/Shinchan/pet.json'
+import usagiManifestJson from '../../assets/pets/usagi/pet.json'
 
 export const PET_VISUAL_STATES = [
   'idle',
@@ -24,32 +30,66 @@ type PetManifest = {
   spriteVersionNumber?: 1 | 2
 }
 
+export type PetDefinition = Omit<PetManifest, 'id' | 'spriteVersionNumber'> & {
+  id: PetAppearanceId
+  spriteVersionNumber: 1 | 2
+  spritesheetUrl: string
+}
+
 type SpriteFrame = {
   columnIndex: number
   frameDurationMs: number
 }
 
-const bobaManifest = bobaManifestJson as PetManifest
-const bobaSpritesheetUrl = new URL('../../assets/pets/boba/spritesheet.webp', import.meta.url).href
+function createPetDefinition(
+  id: PetAppearanceId,
+  manifestJson: unknown,
+  spritesheetUrl: string
+): PetDefinition {
+  const manifest = manifestJson as PetManifest
+  return {
+    ...manifest,
+    id,
+    spriteVersionNumber: manifest.spriteVersionNumber ?? 1,
+    spritesheetUrl
+  }
+}
 
-// Codex treats a custom pet without spriteVersionNumber as a v1 8x9 atlas.
-// Version 2 keeps the same nine animation rows and adds two look-direction rows.
-export const BOBA_PET = {
-  ...bobaManifest,
-  spriteVersionNumber: bobaManifest.spriteVersionNumber ?? 1,
-  spritesheetUrl: bobaSpritesheetUrl
-} as const
+const petByAppearance: Record<PetAppearanceId, PetDefinition> = {
+  boba: createPetDefinition(
+    'boba',
+    bobaManifestJson,
+    new URL('../../assets/pets/boba/spritesheet.webp', import.meta.url).href
+  ),
+  'lulu-capybara': createPetDefinition(
+    'lulu-capybara',
+    luluManifestJson,
+    new URL('../../assets/pets/lulu/spritesheet.webp', import.meta.url).href
+  ),
+  shinchan: createPetDefinition(
+    'shinchan',
+    shinchanManifestJson,
+    new URL('../../assets/pets/Shinchan/spritesheet.webp', import.meta.url).href
+  ),
+  usagi: createPetDefinition(
+    'usagi',
+    usagiManifestJson,
+    new URL('../../assets/pets/usagi/spritesheet.webp', import.meta.url).href
+  )
+}
+
+export const PET_CATALOG = PET_APPEARANCE_IDS.map((appearance) => petByAppearance[appearance])
+export const BOBA_PET = petByAppearance.boba
 
 const CELL_WIDTH = 192
 const CELL_HEIGHT = 208
 const FRAME_COUNT = 8
 const STANDARD_ROW_COUNT = 9
-const SPRITE_ROW_COUNT = BOBA_PET.spriteVersionNumber === 2 ? 11 : STANDARD_ROW_COUNT
 
 export const PET_SPRITE_CELL_WIDTH = CELL_WIDTH
 export const PET_SPRITE_CELL_HEIGHT = CELL_HEIGHT
 export const PET_SPRITE_FRAME_COUNT = FRAME_COUNT
-export const PET_SPRITE_ROW_COUNT = SPRITE_ROW_COUNT
+export const PET_SPRITE_ROW_COUNT = STANDARD_ROW_COUNT
 
 const stateRows: Record<PetVisualState, number> = {
   idle: 0,
@@ -96,8 +136,12 @@ const stateFrames: Record<PetVisualState, readonly SpriteFrame[]> = {
   review: rowFrames(6, 150, 280)
 }
 
-export function getPetSpriteSheetUrl(_appearance?: PetAppearanceId): string {
-  return BOBA_PET.spritesheetUrl
+export function getPetDefinition(appearance: PetAppearanceId = 'boba'): PetDefinition {
+  return petByAppearance[appearance] ?? BOBA_PET
+}
+
+export function getPetSpriteSheetUrl(appearance: PetAppearanceId = 'boba'): string {
+  return getPetDefinition(appearance).spritesheetUrl
 }
 
 export function getPetSpriteRow(state: PetVisualState): number {
@@ -121,14 +165,14 @@ export function getPetSpriteFrameIndex(
   return frames.at(-1)?.columnIndex ?? 0
 }
 
-function spritePosition(frame: number, row: number): string {
+function spritePosition(frame: number, row: number, rowCount: number): string {
   const x = (frame / (FRAME_COUNT - 1)) * 100
-  const y = (row / (SPRITE_ROW_COUNT - 1)) * 100
+  const y = (row / (rowCount - 1)) * 100
   return `${x}% ${y}%`
 }
 
 export function PetSprite({
-  appearance: _appearance,
+  appearance = 'boba',
   className,
   label,
   size,
@@ -141,6 +185,8 @@ export function PetSprite({
   state: PetVisualState
 }) {
   const [frame, setFrame] = useState(0)
+  const pet = getPetDefinition(appearance)
+  const rowCount = pet.spriteVersionNumber === 2 ? 11 : STANDARD_ROW_COUNT
   const height = Math.round((size * CELL_HEIGHT) / CELL_WIDTH)
 
   useEffect(() => {
@@ -169,14 +215,14 @@ export function PetSprite({
       canceled = true
       window.clearTimeout(timer)
     }
-  }, [state])
+  }, [appearance, state])
 
   return (
     <span
       className={`pet-sprite${className ? ` ${className}` : ''}`}
-      data-appearance="boba"
+      data-appearance={pet.id}
       data-frame={frame}
-      data-sprite-version={BOBA_PET.spriteVersionNumber}
+      data-sprite-version={pet.spriteVersionNumber}
       data-state={state}
       role={label ? 'img' : undefined}
       aria-label={label || undefined}
@@ -184,9 +230,9 @@ export function PetSprite({
       style={{
         width: size,
         height,
-        backgroundImage: `url(${BOBA_PET.spritesheetUrl})`,
-        backgroundPosition: spritePosition(frame, stateRows[state]),
-        backgroundSize: `${FRAME_COUNT * 100}% ${SPRITE_ROW_COUNT * 100}%`
+        backgroundImage: `url(${pet.spritesheetUrl})`,
+        backgroundPosition: spritePosition(frame, stateRows[state], rowCount),
+        backgroundSize: `${FRAME_COUNT * 100}% ${rowCount * 100}%`
       }}
     />
   )

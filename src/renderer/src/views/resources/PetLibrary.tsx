@@ -2,7 +2,12 @@ import { ArrowLeft, Check, MousePointer2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../app-shell/appStore'
-import { PET_VISUAL_STATES, PetSprite, type PetVisualState } from '../pet/PetSprite'
+import {
+  PET_CATALOG,
+  PET_VISUAL_STATES,
+  PetSprite,
+  type PetVisualState
+} from '../pet/PetSprite'
 
 export function PetLibrary({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation()
@@ -33,7 +38,7 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
       </div>
 
       <section className="pet-preview-card">
-        <div className="pet-preview-stage" data-appearance="boba">
+        <div className="pet-preview-stage" data-appearance={settings.appearance}>
           <div className="pet-preview-bubble" data-state={previewState}>
             <strong>{displayName || t('resources.pets.defaultName')}</strong>
             <span>{t(`resources.pets.states.${previewState}`)}</span>
@@ -44,7 +49,12 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
             aria-label={t('resources.pets.previewAria', { name: displayName })}
             onClick={() => setPreviewState('waving')}
           >
-            <PetSprite label={displayName} size={224} state={previewState} />
+            <PetSprite
+              appearance={settings.appearance}
+              label={displayName}
+              size={224}
+              state={previewState}
+            />
           </button>
           <span className="pet-preview-shadow" aria-hidden="true" />
         </div>
@@ -122,22 +132,29 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
             </div>
             <Check size={18} />
           </div>
-          <div className="pet-appearance-grid pet-appearance-grid--single" aria-label={t('resources.pets.appearanceTitle')}>
-            <div className="pet-appearance-option is-selected">
-              <span className="pet-appearance-preview" aria-hidden="true">
-                <PetSprite label="" size={96} state="idle" />
-              </span>
-              <strong>{t('resources.pets.appearances.boba')}</strong>
-              <Check size={13} aria-hidden="true" />
-            </div>
+          <div className="pet-appearance-grid" aria-label={t('resources.pets.appearanceTitle')}>
+            {PET_CATALOG.map((pet) => {
+              const selected = settings.appearance === pet.id
+              return (
+                <button
+                  key={pet.id}
+                  className={`pet-appearance-option${selected ? ' is-selected' : ''}`}
+                  type="button"
+                  aria-pressed={selected}
+                  title={pet.description}
+                  onClick={() => void updateSettings({ pet: { appearance: pet.id } })}
+                >
+                  <span className="pet-appearance-preview" aria-hidden="true">
+                    <PetSprite appearance={pet.id} label="" size={96} state="idle" />
+                  </span>
+                  <strong>{pet.displayName}</strong>
+                  {selected ? <Check size={13} aria-hidden="true" /> : null}
+                </button>
+              )
+            })}
           </div>
         </section>
       </div>
-
-      <section className="pet-implementation-note">
-        <strong>{t('resources.pets.implementationTitle')}</strong>
-        <p>{t('resources.pets.implementationDetail')}</p>
-      </section>
     </div>
   )
 }

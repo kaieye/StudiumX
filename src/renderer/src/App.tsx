@@ -2657,6 +2657,7 @@ function ResourceHome({
 }) {
   const { t } = useTranslation()
   const savedStyleId = useAppStore((s) => s.settings.workspace.lessonStyleId)
+  const petAppearance = useAppStore((s) => s.settings.pet.appearance)
   const currentStyleId = normalizeLessonStyleId(savedStyleId)
   const currentStyleName = t(`resources.styles.items.${currentStyleId}.name`)
   const { catalog: skillCatalog } = useSkillCatalog()
@@ -2765,7 +2766,7 @@ function ResourceHome({
             title={t('resources.pets.title')}
             onClick={onOpenPets}
           >
-            <PetSprite className="resource-home-pet-sprite" label="" size={27} state="idle" />
+            <PetSprite appearance={petAppearance} className="resource-home-pet-sprite" label="" size={27} state="idle" />
           </button>
         </div>
       </section>
@@ -2797,7 +2798,7 @@ function ResourceHome({
                   ) : entry.icon === 'skills' ? (
                     <GraduationCap size={22} />
                   ) : (
-                    <PetSprite className="resource-home-pet-sprite" label="" size={34} state="idle" />
+                    <PetSprite appearance={petAppearance} className="resource-home-pet-sprite" label="" size={34} state="idle" />
                   )}
                 </span>
                 <span className="resource-entry-body">

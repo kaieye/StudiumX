@@ -696,12 +696,9 @@
 }
 .pet-appearance-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 14px;
-}
-.pet-appearance-grid--single {
-  grid-template-columns: 1fr;
 }
 .pet-appearance-option {
   position: relative;
@@ -716,6 +713,14 @@
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface-subtle);
+  font: inherit;
+  cursor: pointer;
+}
+.pet-appearance-option:hover,
+.pet-appearance-option:focus-visible {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  outline: 0;
 }
 .pet-appearance-option.is-selected {
   color: var(--text);
@@ -741,23 +746,6 @@
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.pet-implementation-note {
-  margin-top: 16px;
-  padding: 16px 18px;
-  color: var(--text);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
-  border-radius: 16px;
-  background: var(--accent-soft);
-}
-.pet-implementation-note strong {
-  font-size: 12px;
-}
-.pet-implementation-note p {
-  margin: 5px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.55;
 }
 .pet-sprite {
   position: relative;
@@ -880,9 +868,6 @@
   }
   .pet-appearance-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .pet-appearance-grid.pet-appearance-grid--single {
-    grid-template-columns: 1fr;
   }
   .app-pet {
     transform: scale(0.88);
@@ -1366,7 +1351,7 @@
   font-size: 10.5px;
 }
 .skill-library-card__meta span + span::before {
-  content: '·';
+  content: '路';
   margin-right: 8px;
 }
 .skill-library-card__action {
