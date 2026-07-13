@@ -1,0 +1,155 @@
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { TeachingWorkspaceDocuments } from '../../src/main/teaching-workspace-documents'
+import { defaultSettings } from '../../src/main/teaching-settings'
+import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
+import {
+  LEGACY_PREVIEW_PROTOCOL,
+  PREVIEW_EXTERNAL_LINK_MESSAGE,
+  PREVIEW_MARKDOWN_LINK_MESSAGE
+} from '../../src/shared/preview-markdown-bridge'
+
+const temporaryRoots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+})
+
+async function createDocumentWorkspace() {
+  const rootPath = await mkdtemp(join(tmpdir(), 'studiumx-documents-'))
+  temporaryRoots.push(rootPath)
+  await mkdir(join(rootPath, 'courses', 'course-a', 'lesson-a'), { recursive: true })
+  await mkdir(join(rootPath, 'lessons', 'legacy'), { recursive: true })
+  await mkdir(join(rootPath, 'learning-records'), { recursive: true })
+  await mkdir(join(rootPath, 'reviews'), { recursive: true })
+  await mkdir(join(rootPath, 'reference'), { recursive: true })
+  await mkdir(join(rootPath, 'conversation'), { recursive: true })
+  await mkdir(join(rootPath, 'assets'), { recursive: true })
+  return { id: 'workspace-documents', rootPath }
+}
+
+describe('TeachingWorkspaceDocuments', () => {
+  it('uses document intent tables for exactly the supported Markdown, lesson, asset, and MIME paths', async () => {
+    const workspace = await createDocumentWorkspace()
+    const documents = new TeachingWorkspaceDocuments()
+    const markdownDocuments = [
+      'MISSION.md',
+      'RESOURCES.md',
+      'GLOSSARY.md',
+      'NOTES.md',
+      'courses/course-a/lesson-a/outline.md',
+      'lessons/legacy/guide.md',
+      'learning-records/progress.md',
+      'reviews/card.md',
+      'reference/source.md',
+      'conversation/thread.md'
+    ]
+    await Promise.all(markdownDocuments.map((relativePath) => writeFile(join(workspace.rootPath, relativePath), `# ${relativePath}\n`)))
+
+    for (const relativePath of markdownDocuments) {
+      const document = await documents.readMarkdown(workspace, relativePath)
+      expect(document.relativePath).toBe(relativePath)
+      expect(document.absolutePath).toBe(join(workspace.rootPath, relativePath))
+      expect(document.title).toBe(relativePath)
+    }
+
+    const saved = await documents.saveMarkdown(workspace, 'courses/new-course/notes.md', '# Safely saved\n')
+    expect(saved.relativePath).toBe('courses/new-course/notes.md')
+    expect(saved.title).toBe('Safely saved')
+    await expect(readFile(join(workspace.rootPath, 'courses', 'new-course', 'notes.md'), 'utf8')).resolves.toBe('# Safely saved\n')
+
+    await writeFile(join(workspace.rootPath, 'courses', 'course-a', 'lesson-a', 'index.html'), '<html><head></head><body><a href="../../../MISSION.md">Mission</a><a href="https://example.test">External</a></body></html>')
+    await writeFile(join(workspace.rootPath, 'lessons', 'legacy', 'legacy.htm'), '<html><head></head><body>Legacy</body></html>')
+    await writeFile(join(workspace.rootPath, 'assets', 'lesson.css'), 'body { color: red; }')
+    await writeFile(join(workspace.rootPath, 'assets', 'diagram.svg'), '<svg></svg>')
+    const binary = Buffer.from([0, 255, 17, 128, 0])
+    await writeFile(join(workspace.rootPath, 'assets', 'sample.bin'), binary)
+
+    const lesson = await documents.readLesson(workspace, 'courses\\course-a\\lesson-a\\index.html')
+    expect(lesson.url).toBe('studiumx-preview://workspace-documents/courses/course-a/lesson-a/index.html')
+    expect(lesson.html).toContain('<base href="studiumx-preview://workspace-documents/courses/course-a/lesson-a/index.html"')
+    expect(lesson.html).toContain(PREVIEW_MARKDOWN_LINK_MESSAGE)
+    expect(lesson.html).toContain(PREVIEW_EXTERNAL_LINK_MESSAGE)
+
+    await expect(documents.resolvePreviewFile(workspace, 'assets/lesson.css')).resolves.toMatchObject({
+      relativePath: 'assets/lesson.css',
+      mimeType: 'text/css; charset=utf-8'
+    })
+    await expect(documents.resolvePreviewFile(workspace, 'assets/diagram.svg')).resolves.toMatchObject({
+      mimeType: 'image/svg+xml'
+    })
+    await expect(documents.resolvePreviewFile(workspace, 'lessons/legacy/legacy.htm')).resolves.toMatchObject({
+      mimeType: 'text/html; charset=utf-8'
+    })
+
+    const htmlPreview = await documents.readPreview(
+      workspace,
+      'courses/course-a/lesson-a/index.html',
+      `${LEGACY_PREVIEW_PROTOCOL}://workspace-documents/courses/course-a/lesson-a/index.html`
+    )
+    expect(htmlPreview?.body.toString('utf8')).toContain(`<base href="${LEGACY_PREVIEW_PROTOCOL}://workspace-documents/courses/course-a/lesson-a/index.html"`)
+    expect(htmlPreview?.body.toString('utf8')).toContain(PREVIEW_MARKDOWN_LINK_MESSAGE)
+
+    const binaryPreview = await documents.readPreview(workspace, 'assets/sample.bin', 'studiumx-preview://workspace-documents/assets/sample.bin')
+    expect(binaryPreview?.mimeType).toBe('application/octet-stream')
+    expect(binaryPreview?.body).toEqual(binary)
+  })
+
+  it('rejects absolute and encoded traversal intents, while a failed save leaves registry metadata untouched', async () => {
+    const workspace = await createDocumentWorkspace()
+    const documents = new TeachingWorkspaceDocuments()
+    await writeFile(join(workspace.rootPath, 'courses', 'course-a', 'lesson-a', 'index.html'), '<html></html>')
+
+    const rejectedIntents = [
+      '../outside.md',
+      '..%2Foutside.md',
+      '%2e%2e%2foutside.md',
+      'courses/%2e%2e/lesson-a/index.html',
+      '%2Fetc%2Fpasswd',
+      '/etc/passwd',
+      'C:\\outside.md',
+      'C:%5Coutside.md',
+      'courses/%5C..%5Csecret.md',
+      'courses/%2Fabsolute.md'
+    ]
+
+    for (const intent of rejectedIntents) {
+      await expect(documents.resolvePreviewFile(workspace, intent)).resolves.toBeNull()
+      await expect(documents.readMarkdown(workspace, intent)).rejects.toThrow('Markdown path is outside the allowed workspace documents.')
+      await expect(documents.readLesson(workspace, intent)).rejects.toThrow('Lesson path is outside the workspace lessons directory.')
+    }
+    await expect(documents.saveMarkdown(workspace, 'assets/lesson.css', 'nope')).rejects.toThrow('Markdown path is outside the allowed workspace documents.')
+    await expect(documents.readMarkdown(workspace, 'MISSION.markdown')).rejects.toThrow('Markdown path is outside the allowed workspace documents.')
+
+    const registryPath = join(workspace.rootPath, '..', 'registry.json')
+    const service = new TeachingWorkspaceService({
+      registryPath,
+      defaultRoot: join(workspace.rootPath, 'managed-workspaces'),
+      settingsProvider: async () => defaultSettings(join(workspace.rootPath, 'managed-workspaces'))
+    })
+    const created = await service.createWorkspace({ name: 'registry-safety', prompt: 'document safety' })
+    const registered = created.activeWorkspace
+    expect(registered).not.toBeNull()
+    const registryBeforeFailure = await readFile(registryPath, 'utf8')
+
+    await expect(service.saveWorkspaceMarkdown({
+      workspaceId: registered!.id,
+      documentPath: '%2e%2e%2foutside.md',
+      content: '# unsafe\n'
+    })).rejects.toThrow('Markdown path is outside the allowed workspace documents.')
+    expect(await readFile(registryPath, 'utf8')).toBe(registryBeforeFailure)
+
+    const saved = await service.saveWorkspaceMarkdown({
+      workspaceId: registered!.id,
+      documentPath: 'NOTES.md',
+      content: '# Updated safely\n'
+    })
+    expect(saved.document.content).toBe('# Updated safely\n')
+    expect(await readFile(join(registered!.rootPath, 'NOTES.md'), 'utf8')).toBe('# Updated safely\n')
+    expect(await readFile(registryPath, 'utf8')).not.toBe(registryBeforeFailure)
+  })
+})

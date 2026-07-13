@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm, stat, unlink } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
 import { inspectGitWorkspace } from './teaching-git'
@@ -14,7 +14,6 @@ import { runLessonGenerationPipeline, type LessonGenerationCallbacks } from './t
 import {
   cleanText,
   directoryExists,
-  fileExists,
   normalizeWorkspaceRelativePath,
   slugify,
   toWorkspaceRelativePath,
@@ -53,11 +52,6 @@ import {
   isRootAgentConversationMarkdownRelativePath,
   normalizeAgentConversationDirectory
 } from '../shared/agent-conversation-catalog'
-import {
-  ensurePreviewBaseTag,
-  injectPreviewMarkdownLinkBridge,
-  PREVIEW_PROTOCOL
-} from '../shared/preview-markdown-bridge'
 import {
   EMPTY_REGISTRY,
   applyRegistryWorkspaceMeta,
@@ -101,6 +95,12 @@ import {
   summarizeWorkspaceChanges
 } from './teaching-workspace-changes'
 import { TeachingWorkspaceChangeHistoryStore } from './teaching-workspace-change-history'
+import {
+  previewUrlForDocument,
+  TeachingWorkspaceDocuments,
+  type WorkspacePreviewFile
+} from './teaching-workspace-documents'
+export type { WorkspacePreviewFile } from './teaching-workspace-documents'
 import type { AnalyticsWorkspaceScanResult } from './teaching/services/learning-analytics'
 import { buildConnectorStatuses } from './connector-status'
 import type {
@@ -157,29 +157,6 @@ type AgentConversationLocation = {
   global: boolean
 }
 
-export type WorkspacePreviewFile = {
-  absolutePath: string
-  mimeType: string
-  relativePath: string
-  workspaceId: string
-}
-
-const ROOT_MARKDOWN_DOCUMENTS = new Set([
-  'MISSION.md',
-  'RESOURCES.md',
-  'GLOSSARY.md',
-  'NOTES.md'
-])
-
-const MARKDOWN_DOCUMENT_DIRECTORIES = [
-  'courses',
-  'lessons',
-  'learning-records',
-  'reviews',
-  'reference',
-  'conversation'
-]
-
 const DEFAULT_RUNTIME: TeachingRuntimeState = {
   status: 'idle',
   currentStep: 'ready',
@@ -196,6 +173,7 @@ export class TeachingWorkspaceService {
   private readonly memoryStore: TeachingMemoryStore
   private readonly reviewModule = new TeachingWorkspaceReviewModule()
   private readonly changeHistory: TeachingWorkspaceChangeHistoryStore
+  private readonly documents = new TeachingWorkspaceDocuments()
 
   constructor(options: {
     registryPath: string
@@ -861,20 +839,13 @@ export class TeachingWorkspaceService {
   async readLesson(payload: ReadLessonPayload): Promise<ReadLessonResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    const target = resolveLessonPath(workspace.rootPath, payload.lessonPath)
-    const relativePath = toWorkspaceRelativePath(workspace.rootPath, target)
-    const previewUrl = toPreviewUrl(workspace.id, relativePath)
-    return {
-      html: withPreviewBase(await readFile(target, 'utf8'), previewUrl),
-      url: previewUrl
-    }
+    return this.documents.readLesson(workspace, payload.lessonPath)
   }
 
   async readWorkspaceMarkdown(payload: ReadWorkspaceMarkdownPayload): Promise<WorkspaceMarkdownDocument> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    const target = resolveWorkspaceMarkdownPath(workspace.rootPath, payload.documentPath)
-    return readWorkspaceMarkdownDocument(workspace.rootPath, target)
+    return this.documents.readMarkdown(workspace, payload.documentPath)
   }
 
   async readWorkspaceChangeDiff(payload: { workspaceId: string; relativePath: string; changeId?: string }) {
@@ -893,32 +864,27 @@ export class TeachingWorkspaceService {
   async saveWorkspaceMarkdown(payload: SaveWorkspaceMarkdownPayload): Promise<SaveWorkspaceMarkdownResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    const target = resolveWorkspaceMarkdownPath(workspace.rootPath, payload.documentPath)
-    await atomicWriteFile(target, payload.content)
+    const document = await this.documents.saveMarkdown(workspace, payload.documentPath, payload.content)
+    // A failed document write must not make the workspace appear newer in the registry.
     const now = new Date().toISOString()
     const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
     await this.saveRegistry(nextRegistry)
     return {
-      state: await this.buildState(nextRegistry, workspace.id, target),
-      document: await readWorkspaceMarkdownDocument(workspace.rootPath, target)
+      state: await this.buildState(nextRegistry, workspace.id, document.absolutePath),
+      document
     }
   }
 
   async resolvePreviewFile(workspaceId: string, relativePath: string): Promise<WorkspacePreviewFile | null> {
     const registry = await this.ensureRegistry()
-    const workspace = findWorkspace(registry, workspaceId)
-    const normalizedRelativePath = normalizeWorkspaceRelativePath(relativePath)
-    if (!normalizedRelativePath) return null
-    const target = resolve(join(workspace.rootPath, normalizedRelativePath))
-    const allowedRoots = [resolve(workspace.rootPath, 'courses'), resolve(workspace.rootPath, 'lessons'), resolve(workspace.rootPath, 'assets')]
-    if (!allowedRoots.some((base) => isPathInsideRoot(base, target)) && !isWorkspaceMarkdownPathAllowed(workspace.rootPath, target)) return null
-    if (!(await fileExists(target))) return null
-    return {
-      absolutePath: target,
-      mimeType: mimeTypeForPath(target),
-      relativePath: normalizedRelativePath,
-      workspaceId: workspace.id
-    }
+    const workspace = registry.workspaces.find((candidate) => candidate.id === workspaceId)
+    return workspace ? this.documents.resolvePreviewFile(workspace, relativePath) : null
+  }
+
+  async readPreviewDocument(workspaceId: string, relativePath: string, requestUrl: string) {
+    const registry = await this.ensureRegistry()
+    const workspace = registry.workspaces.find((candidate) => candidate.id === workspaceId)
+    return workspace ? this.documents.readPreview(workspace, relativePath, requestUrl) : null
   }
 
   async listMemory(workspaceRoot?: string): Promise<TeachingMemoryRecord[]> {
@@ -1011,7 +977,7 @@ export class TeachingWorkspaceService {
       activeWorkspace,
       temporaryConversations,
       previewHtml,
-      previewUrl: activeWorkspace && lessonPath ? toPreviewUrl(activeWorkspace.id, toWorkspaceRelativePath(activeWorkspace.rootPath, lessonPath)) : '',
+      previewUrl: activeWorkspace && lessonPath ? previewUrlForDocument(activeWorkspace.id, toWorkspaceRelativePath(activeWorkspace.rootPath, lessonPath)) : '',
       selectedLessonPath: lessonPath,
       runtime,
       recentChangeSummary: changeHistory[0] ?? null,
@@ -1230,34 +1196,6 @@ function upsertLesson(lessons: LessonSummary[], lesson: LessonSummary): LessonSu
   return [lesson, ...lessons.filter((item) => item.absolutePath !== lesson.absolutePath)]
 }
 
-function resolveLessonPath(rootPath: string, lessonPath: string): string {
-  const target = isAbsolute(lessonPath) ? resolve(lessonPath) : resolve(rootPath, lessonPath)
-  const allowedRoots = [resolve(rootPath, 'courses'), resolve(rootPath, 'lessons')]
-  if (!allowedRoots.some((base) => isPathInsideRoot(base, target))) {
-    throw new Error('Lesson path is outside the workspace lessons directory.')
-  }
-  return target
-}
-
-function resolveWorkspaceMarkdownPath(rootPath: string, documentPath: string): string {
-  const target = isAbsolute(documentPath) ? resolve(documentPath) : resolve(rootPath, documentPath)
-  if (!isWorkspaceMarkdownPathAllowed(rootPath, target)) {
-    throw new Error('Markdown path is outside the allowed workspace documents.')
-  }
-  return target
-}
-
-function isWorkspaceMarkdownPathAllowed(rootPath: string, targetPath: string): boolean {
-  const relativePath = normalizeWorkspaceRelativePath(toWorkspaceRelativePath(rootPath, targetPath))
-  if (!relativePath || relativePath.includes('../')) return false
-  if (!targetPath.toLowerCase().endsWith('.md')) return false
-  if (ROOT_MARKDOWN_DOCUMENTS.has(relativePath)) return true
-  return MARKDOWN_DOCUMENT_DIRECTORIES.some((dir) => {
-    const base = resolve(rootPath, dir)
-    return isPathInsideRoot(base, targetPath)
-  })
-}
-
 function deriveTopic(prompt: string, fallback: string): string {
   const cleaned = cleanText(prompt)
     .replace(/^我想(先)?学习/, '')
@@ -1285,30 +1223,6 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
-async function readWorkspaceMarkdownDocument(
-  rootPath: string,
-  absolutePath: string
-): Promise<WorkspaceMarkdownDocument> {
-  const [content, info] = await Promise.all([
-    readFile(absolutePath, 'utf8'),
-    stat(absolutePath).catch(() => null)
-  ])
-  const relativePath = normalizeWorkspaceRelativePath(toWorkspaceRelativePath(rootPath, absolutePath))
-  return {
-    title: cleanText(/^#\s+(.+)$/m.exec(content)?.[1] ?? titleFromMarkdownPath(relativePath)),
-    relativePath,
-    absolutePath,
-    content,
-    updatedAt: info?.mtime ? info.mtime.toISOString() : null
-  }
-}
-
-function titleFromMarkdownPath(relativePath: string): string {
-  const name = basename(relativePath)
-  if (ROOT_MARKDOWN_DOCUMENTS.has(name)) return name.replace(/\.md$/i, '')
-  return name.replace(/\.md$/i, '').replace(/[-_]+/g, ' ')
-}
-
 function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
   return `<!doctype html>
 <html lang="zh-CN">
@@ -1331,29 +1245,4 @@ function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
   </main>
 </body>
 </html>`
-}
-
-function withPreviewBase(html: string, baseHref: string): string {
-  return injectPreviewMarkdownLinkBridge(ensurePreviewBaseTag(html, baseHref))
-}
-
-function toPreviewUrl(workspaceId: string, relativePath: string): string {
-  return `${PREVIEW_PROTOCOL}://${encodeURIComponent(workspaceId)}/${relativePath.split('/').map(encodeURIComponent).join('/')}`
-}
-
-function mimeTypeForPath(path: string): string {
-  const lower = path.toLowerCase()
-  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html; charset=utf-8'
-  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'text/markdown; charset=utf-8'
-  if (lower.endsWith('.css')) return 'text/css; charset=utf-8'
-  if (lower.endsWith('.js')) return 'text/javascript; charset=utf-8'
-  if (lower.endsWith('.json')) return 'application/json; charset=utf-8'
-  if (lower.endsWith('.svg')) return 'image/svg+xml'
-  if (lower.endsWith('.png')) return 'image/png'
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
-  if (lower.endsWith('.gif')) return 'image/gif'
-  if (lower.endsWith('.webp')) return 'image/webp'
-  if (lower.endsWith('.woff2')) return 'font/woff2'
-  if (lower.endsWith('.woff')) return 'font/woff'
-  return 'application/octet-stream'
 }

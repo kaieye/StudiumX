@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, protocol, safeStorage, shell } from 'electron'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TeachingSettingsService } from './teaching-settings'
@@ -20,12 +20,7 @@ import { probeModelProvider, fetchUpstreamModels } from './provider-connection'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
 import { isPathInsideConfiguredRoot, isRealPathInsideRoot } from './path-access'
 import { openExternalHttpUrl } from './external-links'
-import {
-  ensurePreviewBaseTag,
-  injectPreviewMarkdownLinkBridge,
-  LEGACY_PREVIEW_PROTOCOL,
-  PREVIEW_PROTOCOL
-} from '../shared/preview-markdown-bridge'
+import { LEGACY_PREVIEW_PROTOCOL, PREVIEW_PROTOCOL } from '../shared/preview-markdown-bridge'
 import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import {
   cancelStreamToolPermissionPending,
@@ -543,21 +538,14 @@ function registerPreviewProtocol(service: TeachingWorkspaceService): void {
   const handlePreviewRequest = async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url)
-      const workspaceId = decodeURIComponent(url.hostname)
-      const relativePath = url.pathname
-        .split('/')
-        .filter(Boolean)
-        .map((part) => decodeURIComponent(part))
-        .join('/')
-      const file = await service.resolvePreviewFile(workspaceId, relativePath)
-      if (!file) return new Response('Not found', { status: 404 })
-      const body = await readFile(file.absolutePath)
-      const responseBody = file.mimeType.startsWith('text/html')
-        ? injectPreviewMarkdownLinkBridge(ensurePreviewBaseTag(body.toString('utf8'), request.url))
-        : body
-      return new Response(responseBody, {
+      const workspaceId = url.hostname
+      const relativePath = rawPreviewPath(request.url)
+      if (relativePath === null) return new Response('Not found', { status: 404 })
+      const preview = await service.readPreviewDocument(workspaceId, relativePath, request.url)
+      if (!preview) return new Response('Not found', { status: 404 })
+      return new Response(new Uint8Array(preview.body), {
         headers: {
-          'Content-Type': file.mimeType,
+          'Content-Type': preview.mimeType,
           'Cache-Control': 'no-store'
         }
       })
@@ -569,6 +557,15 @@ function registerPreviewProtocol(service: TeachingWorkspaceService): void {
 
   protocol.handle(PREVIEW_PROTOCOL, handlePreviewRequest)
   protocol.handle(LEGACY_PREVIEW_PROTOCOL, handlePreviewRequest)
+}
+
+/** Preserve URL escaping so document resolution can reject encoded traversal before URL normalization. */
+function rawPreviewPath(requestUrl: string): string | null {
+  const schemeEnd = requestUrl.indexOf('://')
+  if (schemeEnd < 0) return null
+  const authorityEnd = requestUrl.indexOf('/', schemeEnd + 3)
+  if (authorityEnd < 0) return ''
+  return requestUrl.slice(authorityEnd + 1).split(/[?#]/, 1)[0] ?? ''
 }
 
 function safeSend(sender: Electron.WebContents, channel: string, payload: unknown): void {
