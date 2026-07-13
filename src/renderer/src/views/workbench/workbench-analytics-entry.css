@@ -48,6 +48,8 @@
   cursor: pointer;
   user-select: none;
   touch-action: manipulation;
+  isolation: isolate;
+  overflow: hidden;
   transform: translateZ(0) scale(1);
   transform-origin: left bottom;
   transition:
@@ -55,6 +57,39 @@
     filter 160ms ease-out,
     border-color 160ms ease-out,
     box-shadow 180ms ease-out;
+}
+
+/* Match the luminous perimeter used by the four study-room cards. The mask
+   leaves the center transparent, producing a clean white ring rather than a
+   bright overlay over the label and icon. */
+.workbench-analytics-fab::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  padding: 1px;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.82) 0%,
+      rgba(255, 255, 255, 0.42) 24%,
+      rgba(255, 255, 255, 0.1) 48%,
+      rgba(255, 255, 255, 0.14) 68%,
+      rgba(255, 255, 255, 0.5) 100%
+    );
+  pointer-events: none;
+  -webkit-mask-image:
+    linear-gradient(#fff 0 0),
+    linear-gradient(#fff 0 0);
+  -webkit-mask-position: 0 0, 0 0;
+  -webkit-mask-size: auto, auto;
+  -webkit-mask-repeat: repeat, repeat;
+  -webkit-mask-clip: content-box, border-box;
+  -webkit-mask-origin: content-box, border-box;
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
 }
 
 .workbench-analytics-fab svg {
@@ -237,5 +272,9 @@
     background: var(--surface-solid);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
+  }
+
+  .workbench-analytics-fab::after {
+    display: none;
   }
 }

@@ -4974,3 +4974,47 @@
 .workbench-task-card.is-open .workbench-task-panel {
   transform: translateY(0);
 }
+
+/* Reference-inspired luminous rim: the reference card keeps its glow as a
+   masked gradient so the light stays on the perimeter instead of washing over
+   the content. This is intentionally separate from the existing sheen layer
+   on ::before. */
+.office-workbench-stage .workbench-pomodoro-card::after,
+.office-workbench-stage .workbench-task-card::after,
+.office-workbench-stage > .workbench-leaderboard::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  padding: 1px;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.82) 0%,
+      rgba(255, 255, 255, 0.42) 24%,
+      rgba(255, 255, 255, 0.1) 48%,
+      rgba(255, 255, 255, 0.14) 68%,
+      rgba(255, 255, 255, 0.5) 100%
+    );
+  pointer-events: none;
+  -webkit-mask-image:
+    linear-gradient(#fff 0 0),
+    linear-gradient(#fff 0 0);
+  -webkit-mask-position: 0 0, 0 0;
+  -webkit-mask-size: auto, auto;
+  -webkit-mask-repeat: repeat, repeat;
+  -webkit-mask-clip: content-box, border-box;
+  -webkit-mask-origin: content-box, border-box;
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .office-workbench-stage .workbench-pomodoro-card::after,
+  .office-workbench-stage .workbench-task-card::after,
+  .office-workbench-stage > .workbench-leaderboard::after {
+    display: none;
+  }
+}
