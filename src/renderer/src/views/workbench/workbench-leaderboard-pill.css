@@ -1,0 +1,117 @@
+.office-workbench-stage > .workbench-leaderboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: min(
+    292px,
+    calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset))
+  );
+  max-width: min(
+    292px,
+    calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset))
+  );
+  border-radius: 999px;
+  /* Switch the container from pill to panel geometry immediately. Animating
+     999px corners while content is revealing clips the top edge into a large,
+     diagonal arc. The panel body below remains animated instead. */
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease;
+}
+
+.office-workbench-stage > .workbench-leaderboard.is-closing {
+  /* Keep the expanded geometry while the detail area collapses. Once the
+     reveal has finished, React restores the compact pill in a clean frame. */
+  border-radius: 24px;
+}
+
+.office-workbench-stage > .workbench-leaderboard.is-open {
+  display: grid;
+  width: min(
+    292px,
+    calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset))
+  );
+  max-width: min(
+    292px,
+    calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset))
+  );
+  border-radius: 24px;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle,
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle:active {
+  min-height: 18px;
+  cursor: pointer;
+  /* This header expands the card itself, so it deliberately has no pressed
+     transform, filter, or text transition. This also overrides generic
+     workbench button feedback if that styling is loaded later. */
+  transform: none;
+  filter: none;
+  transition: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 44%, transparent);
+  outline-offset: 5px;
+  border-radius: 999px;
+}
+
+@media (hover: hover) {
+  .office-workbench-stage > .workbench-leaderboard:hover {
+    border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+    box-shadow:
+      0 18px 42px color-mix(in srgb, var(--accent) 17%, transparent),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 78%, transparent);
+    filter: brightness(1.025);
+  }
+}
+
+.workbench-leaderboard-reveal {
+  min-width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  will-change: height, opacity;
+  transition:
+    height 300ms cubic-bezier(0.65, 0, 0.35, 1),
+    opacity 300ms cubic-bezier(0.65, 0, 0.35, 1),
+    visibility 0s linear 300ms;
+}
+
+.workbench-leaderboard-reveal-inner {
+  min-height: 0;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel {
+  transform: translateY(-9px);
+  transform-origin: top center;
+  transition: transform 300ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-reveal {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    height 300ms cubic-bezier(0.65, 0, 0.35, 1),
+    opacity 300ms cubic-bezier(0.65, 0, 0.35, 1),
+    visibility 0s linear 0s;
+}
+
+.office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-panel {
+  transform: translateY(0);
+}
+
+@media (max-width: 720px) {
+  .office-workbench-stage > .workbench-leaderboard,
+  .office-workbench-stage > .workbench-leaderboard.is-open {
+    width: min(220px, calc(100% - 20px));
+    max-width: min(220px, calc(100% - 20px));
+  }
+}
+
+/* The leaderboard is an explicit disclosure control. Keep its 300ms height
+   transition available even when the host application's motion preference is
+   reduced: otherwise Electron can override the close to 1ms while this
+   interaction is still expected to visibly collapse. */
