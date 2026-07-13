@@ -1,27 +1,22 @@
-import { readFile, readdir, stat } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { listAgentConversations, sortAgentConversationSummaries } from './teaching-agent-conversations'
+import { readLearningAssetCatalog } from './teaching-workspace/learning-assets-catalog'
 import {
   cleanText,
-  collectTeachingFiles,
-  compactMarkdown,
   fileExists,
-  formatDate,
   isPathArchived,
-  titleFromFilename,
   toWorkspaceRelativePath,
   workspaceRelativePath,
   type WorkspacePathMeta
 } from './teaching-workspace-paths'
 import {
   courseRelativePathForAgentConversation as courseRelativePathFromConversationPath,
-  isAgentConversationJsonRelativePath,
-  isAgentConversationMarkdownRelativePath
+  isAgentConversationJsonRelativePath
 } from '../shared/agent-conversation-catalog'
 import type {
   AgentConversationSummary,
   LessonSummary,
-  ResourceSummary,
   TeachingCourseSummary,
   TeachingSessionSummary,
   TeachingWorkspaceSummary,
@@ -34,6 +29,8 @@ import {
   isDefaultCourseRelativePath,
   normalizeTeachingRelativePath
 } from '../shared/teaching-placement'
+
+export { readMissionSummary } from './teaching-workspace/learning-assets-catalog'
 
 export type WorkspaceCatalogWorkspace = {
   id: string
@@ -71,7 +68,7 @@ export async function buildWorkspaceCatalog(
   source: WorkspaceCatalogSource
 ): Promise<WorkspaceCatalogSummary> {
   const pathMeta = source.pathMeta ?? {}
-  const mission = await readMissionSummary(workspace.rootPath, workspace.name)
+  const learningAssets = await readLearningAssetCatalog(workspace.rootPath, workspace.name)
   const lessons = presentLessonSummaries(source.lessons, pathMeta)
   const conversations = await listAgentConversations(
     workspace.rootPath,
@@ -81,35 +78,22 @@ export async function buildWorkspaceCatalog(
   const fileTree = await buildWorkspaceFileTree(workspace.rootPath, pathMeta)
   const courses = buildCourseSummaries(workspace, lessons, conversations, pathMeta)
   return {
-    missionPath: join(workspace.rootPath, 'MISSION.md'),
-    resourcesPath: join(workspace.rootPath, 'RESOURCES.md'),
+    missionPath: learningAssets.missionPath,
+    resourcesPath: learningAssets.resourcesPath,
     lessonsDir: join(workspace.rootPath, 'lessons'),
-    recordsDir: join(workspace.rootPath, 'learning-records'),
-    referenceDir: join(workspace.rootPath, 'reference'),
+    recordsDir: learningAssets.recordsDir,
+    referenceDir: learningAssets.referenceDir,
     reviewsDir: join(workspace.rootPath, 'reviews'),
-    missionTitle: mission.title,
-    missionExcerpt: mission.excerpt,
+    missionTitle: learningAssets.mission.title,
+    missionExcerpt: learningAssets.mission.excerpt,
     courses,
     fileTree,
     conversations,
-    resources: await readResourceSummary(workspace.rootPath),
-    records: await readLearningRecords(workspace.rootPath),
+    resources: learningAssets.resources,
+    records: learningAssets.records,
     lessons,
-    referenceCount: (await collectTeachingFiles(workspace.rootPath, (file) => file.toLowerCase().endsWith('-reference.html'))).length,
+    referenceCount: learningAssets.referenceCount,
     assetsReady: await fileExists(join(workspace.rootPath, 'assets', 'lesson.css'))
-  }
-}
-
-export async function readMissionSummary(
-  rootPath: string,
-  fallbackName: string
-): Promise<{ title: string; excerpt: string }> {
-  const content = await readFile(join(rootPath, 'MISSION.md'), 'utf8').catch(() => '')
-  const title = /^#\s+Mission:\s*(.+)$/m.exec(content)?.[1] ?? /^#\s+(.+)$/m.exec(content)?.[1] ?? fallbackName
-  const excerpt = /##\s+Why\s+([\s\S]*?)(?:\n##\s+|$)/m.exec(content)?.[1] ?? content
-  return {
-    title: cleanText(title),
-    excerpt: compactMarkdown(excerpt) || '等待补充学习使命。'
   }
 }
 
@@ -241,61 +225,6 @@ function presentLessonSummaries(
       if (aPinned !== bPinned) return bPinned - aPinned
       return b.id.localeCompare(a.id)
     })
-}
-
-async function readResourceSummary(rootPath: string): Promise<ResourceSummary[]> {
-  const content = await readFile(join(rootPath, 'RESOURCES.md'), 'utf8').catch(() => '')
-  const rows: ResourceSummary[] = []
-  let currentSection = '资源'
-  for (const line of content.split(/\r?\n/)) {
-    const heading = /^##\s+(.+)$/.exec(line)
-    if (heading) {
-      currentSection = heading[1]!.trim()
-      continue
-    }
-    if (!line.startsWith('- ')) continue
-    const item = line.slice(2).trim()
-    const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)\s*(.*)$/.exec(item)
-    const localMatch = /^([^:]+):\s*(.+)$/.exec(item)
-    const title = linkMatch?.[1] ?? localMatch?.[1] ?? item.split(' — ')[0] ?? item
-    const detail = compactMarkdown(linkMatch?.[3] ?? localMatch?.[2] ?? item.split(' — ').slice(1).join(' — ')) || '已记录在资源索引中。'
-    rows.push({ title: cleanText(title), detail, tag: currentSection })
-  }
-  return rows.length > 0 ? rows.slice(0, 8) : [{ title: 'RESOURCES.md', detail: '等待添加首批可信资源。', tag: 'Gaps' }]
-}
-
-async function readLearningRecords(rootPath: string): Promise<TeachingWorkspaceSummary['records']> {
-  const files = await collectTeachingFiles(
-    rootPath,
-    (file) => {
-      if (!file.toLowerCase().endsWith('.md')) return false
-      const name = basename(file)
-      if (
-        name.startsWith('MISSION') ||
-        name.startsWith('RESOURCES') ||
-        name.startsWith('GLOSSARY') ||
-        name.startsWith('NOTES')
-      ) return false
-      return !isAgentConversationMarkdownRelativePath(toWorkspaceRelativePath(rootPath, file))
-    }
-  )
-  return Promise.all(
-    files
-      .sort()
-      .reverse()
-      .slice(0, 8)
-      .map(async (absolutePath) => {
-        const file = basename(absolutePath)
-        const content = await readFile(absolutePath, 'utf8').catch(() => '')
-        const info = await stat(absolutePath).catch(() => null)
-        return {
-          title: cleanText(/^#\s+(.+)$/m.exec(content)?.[1] ?? titleFromFilename(file)),
-          date: formatDate(info?.mtime ?? new Date()),
-          relativePath: toWorkspaceRelativePath(rootPath, absolutePath),
-          absolutePath
-        }
-      })
-  )
 }
 
 const WORKSPACE_TREE_MAX_DEPTH = 5
