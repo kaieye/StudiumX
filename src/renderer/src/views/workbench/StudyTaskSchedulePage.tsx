@@ -70,6 +70,13 @@ type TaskContextMenuState = {
   y: number
 }
 
+type ColorContextMenuState = {
+  colorId: StudyTaskScheduleColorId
+  colorName: string
+  x: number
+  y: number
+}
+
 type PendingTaskDragState = {
   task: ScheduledStudyTask
   element: HTMLDivElement
@@ -137,6 +144,7 @@ const legacyTaskColors: TaskColorDefinition[] = [
   { id: 'clay', name: '历史配色', color: '#ab8b80', ink: '#ffffff' }
 ]
 const customColorStorageKey = 'studiumx:study-schedule-custom-colors:v1'
+const hiddenDefaultColorStorageKey = 'studiumx:study-schedule-hidden-default-colors:v1'
 const maxCustomColors = 12
 const minutesPerDay = 24 * 60
 const selectionStepMinutes = 15
@@ -195,6 +203,29 @@ function saveCustomColors(colors: `#${string}`[]): void {
     window.localStorage.setItem(customColorStorageKey, JSON.stringify(colors))
   } catch {
     // Custom colors are a convenience; task data still keeps the selected color.
+  }
+}
+
+function isDefaultTaskColorId(value: unknown): value is StudyTaskScheduleColorId {
+  return typeof value === 'string' && morandiTaskColors.some((color) => color.id === value)
+}
+
+function loadHiddenDefaultColors(): StudyTaskScheduleColorId[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(hiddenDefaultColorStorageKey) ?? '[]')
+    return Array.isArray(stored) ? Array.from(new Set(stored.filter(isDefaultTaskColorId))) : []
+  } catch {
+    return []
+  }
+}
+
+function saveHiddenDefaultColors(colors: StudyTaskScheduleColorId[]): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(hiddenDefaultColorStorageKey, JSON.stringify(colors))
+  } catch {
+    // Keep the current session usable even when local storage is unavailable.
   }
 }
 
@@ -453,6 +484,8 @@ export function StudyTaskSchedulePage({
   const [taskDrag, setTaskDrag] = useState<TaskDragState | null>(null)
   const [customColors, setCustomColors] = useState<`#${string}`[]>(loadCustomColors)
   const [customColorDraft, setCustomColorDraft] = useState<`#${string}`>('#6f8faf')
+  const [hiddenDefaultColors, setHiddenDefaultColors] = useState<StudyTaskScheduleColorId[]>(loadHiddenDefaultColors)
+  const [colorContextMenu, setColorContextMenu] = useState<ColorContextMenuState | null>(null)
   const pendingTaskDragRef = useRef<PendingTaskDragState | null>(null)
   const taskDragRef = useRef<TaskDragState | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
@@ -467,8 +500,11 @@ export function StudyTaskSchedulePage({
   const availableTaskColors = useMemo(() => {
     const colors = [...customColors]
     if (editorColorId && isCustomScheduleColorId(editorColorId) && !colors.includes(editorColorId)) colors.unshift(editorColorId)
-    return [...morandiTaskColors, ...colors.map(createCustomColorDefinition)]
-  }, [customColors, editorColorId])
+    return [
+      ...morandiTaskColors.filter((color) => !hiddenDefaultColors.includes(color.id)),
+      ...colors.map(createCustomColorDefinition)
+    ]
+  }, [customColors, editorColorId, hiddenDefaultColors])
   const contextMenuTask = contextMenu ? scheduledTasks.find((task) => task.id === contextMenu.taskId) ?? null : null
   const draggedTaskColor = taskDrag ? getScheduleColor(taskDrag.previewSchedule) : null
 
@@ -558,19 +594,41 @@ export function StudyTaskSchedulePage({
   }, [contextMenu])
 
   useEffect(() => {
+    if (!colorContextMenu) return undefined
+    const closeMenu = (): void => setColorContextMenu(null)
+    const closeMenuWithKeyboard = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    window.addEventListener('pointerdown', closeMenu)
+    window.addEventListener('keydown', closeMenuWithKeyboard)
+    window.addEventListener('resize', closeMenu)
+    return () => {
+      window.removeEventListener('pointerdown', closeMenu)
+      window.removeEventListener('keydown', closeMenuWithKeyboard)
+      window.removeEventListener('resize', closeMenu)
+    }
+  }, [colorContextMenu])
+
+  useEffect(() => {
     return () => clearLongPressTimer()
   }, [])
 
   const openAddEditor = (schedule = createDefaultSchedule()): void => {
+    const nextSchedule = withDefaultScheduleColor(schedule)
+    if (nextSchedule.colorId && hiddenDefaultColors.includes(nextSchedule.colorId)) {
+      nextSchedule.colorId = availableTaskColors[0]?.id ?? nextSchedule.colorId
+    }
     setDraftTask(null)
     setInlineTitle(null)
+    setColorContextMenu(null)
     setEditorError('')
-    setEditor({ mode: 'add', title: '', schedule: withDefaultScheduleColor(schedule) })
+    setEditor({ mode: 'add', title: '', schedule: nextSchedule })
   }
 
   const openEditEditor = (task: ScheduledStudyTask): void => {
     setDraftTask(null)
     setInlineTitle(null)
+    setColorContextMenu(null)
     setEditorError('')
     setEditor({
       mode: 'edit',
@@ -583,6 +641,7 @@ export function StudyTaskSchedulePage({
 
   const closeEditor = (): void => {
     setEditor(null)
+    setColorContextMenu(null)
     setEditorError('')
   }
 
@@ -605,6 +664,47 @@ export function StudyTaskSchedulePage({
       return next
     })
     updateEditorSchedule({ colorId })
+  }
+
+  const openColorContextMenu = (event: ReactMouseEvent<HTMLButtonElement>, color: TaskColorDefinition): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    const menuWidth = 152
+    const menuHeight = 48
+    setColorContextMenu({
+      colorId: color.id,
+      colorName: color.name,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))
+    })
+  }
+
+  const deletePaletteColor = (colorId: StudyTaskScheduleColorId): void => {
+    const nextCustomColors = isCustomScheduleColorId(colorId)
+      ? customColors.filter((color) => color !== colorId)
+      : customColors
+    const nextHiddenDefaultColors = isCustomScheduleColorId(colorId)
+      ? hiddenDefaultColors
+      : Array.from(new Set([...hiddenDefaultColors, colorId]))
+
+    if (isCustomScheduleColorId(colorId)) {
+      setCustomColors(nextCustomColors)
+      saveCustomColors(nextCustomColors)
+    } else {
+      setHiddenDefaultColors(nextHiddenDefaultColors)
+      saveHiddenDefaultColors(nextHiddenDefaultColors)
+    }
+
+    if (editorColorId === colorId) {
+      const fallbackColor = [
+        ...morandiTaskColors.filter((color) => !nextHiddenDefaultColors.includes(color.id)),
+        ...nextCustomColors.map(createCustomColorDefinition)
+      ][0]
+      updateEditorSchedule({
+        colorId: fallbackColor?.id ?? defaultColorIdForWeekday(editor?.schedule.weekday ?? currentWeekdayIndex())
+      })
+    }
+    setColorContextMenu(null)
   }
 
   const handleEditorSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -1101,6 +1201,27 @@ export function StudyTaskSchedulePage({
         </div>
       ) : null}
 
+      {colorContextMenu ? (
+        <div
+          className="study-schedule-context-menu study-schedule-color-context-menu"
+          role="menu"
+          aria-label={`${colorContextMenu.colorName} 配色操作`}
+          style={{ left: colorContextMenu.x, top: colorContextMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="is-danger"
+            onClick={() => deletePaletteColor(colorContextMenu.colorId)}
+          >
+            <Trash2 size={14} />
+            删除配色
+          </button>
+        </div>
+      ) : null}
+
       {editor ? (
         <div
           className="study-schedule-editor-backdrop"
@@ -1191,8 +1312,9 @@ export function StudyTaskSchedulePage({
                       '--schedule-swatch-ink': color.ink
                     } as ColorSwatchVarStyle}
                     aria-pressed={editorColorId === color.id}
-                    title={color.name}
+                    title={`${color.name} · 右键删除`}
                     onClick={() => updateEditorSchedule({ colorId: color.id })}
+                    onContextMenu={(event) => openColorContextMenu(event, color)}
                   >
                     <span aria-hidden="true" />
                     <em>{color.name}</em>
