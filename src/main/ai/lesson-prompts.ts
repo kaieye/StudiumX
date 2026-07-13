@@ -201,3 +201,20 @@ ${clipped}
 
 请修复以上问题，重新输出完整的课程计划。只输出一个符合系统约定结构的 JSON 对象，不要解释、不要 markdown 围栏、不要输出 JSON 以外的任何字符。`
 }
+
+/** Compact third attempt after the full repair request still cannot validate. */
+export function buildCompactLessonRegenerationPrompt(opts: {
+  userPrompt: string
+  validationError: string
+}): string {
+  return `${opts.userPrompt}
+
+---
+
+前两次课程计划输出仍未通过 JSON 校验。
+
+最近一次校验错误：
+${opts.validationError}
+
+请紧凑重试：不要复述分析，不要引用上一次原文，不要使用 markdown 围栏，只输出一个完整且符合系统结构的 JSON 对象。内容可以更短，但必须包含所有必填字段。`
+}
