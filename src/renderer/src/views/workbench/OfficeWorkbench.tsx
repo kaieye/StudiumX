@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import type { PetAppearanceId } from '../../../../shared/teaching-types'
+import { useAppStore } from '../../app-shell/appStore'
 import {
   formatStudyDuration,
   studyMemberStatusLabel
@@ -147,8 +149,11 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-async function loadWorkbenchAssets(): Promise<WorkbenchAssets> {
-  const [deskImage, petImage] = await Promise.all([loadImage(deskImageUrl), loadImage(getPetSpriteSheetUrl())])
+async function loadWorkbenchAssets(appearance: PetAppearanceId): Promise<WorkbenchAssets> {
+  const [deskImage, petImage] = await Promise.all([
+    loadImage(deskImageUrl),
+    loadImage(getPetSpriteSheetUrl(appearance))
+  ])
   return { deskImage, petImage }
 }
 
@@ -337,6 +342,7 @@ type OfficeWorkbenchProps = {
 }
 
 export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
+  const petAppearance = useAppStore((state) => state.settings.pet.appearance)
   const {
     snapshot,
     presence,
@@ -512,7 +518,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
     async function run() {
       try {
-        const assets = await loadWorkbenchAssets()
+        const assets = await loadWorkbenchAssets(petAppearance)
         if (canceled) return
         assetsRef.current = assets
 
@@ -553,8 +559,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       reducedMotionQuery?.removeEventListener('change', updateReducedMotion)
       assetsRef.current = null
     }
-  }, [])
-
+  }, [petAppearance])
 
   return (
     <section className="office-workbench-page" aria-label="自习室">
