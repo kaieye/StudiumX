@@ -17,6 +17,19 @@ import {
   parseAssistantTodoPayload,
   stripAssistantTodoPayload
 } from '../../study-space/assistantTodo'
+import {
+  PET_ASSISTANT_GEOMETRY_STORAGE_KEY,
+  canFinishAssistantDialogInteraction,
+  clampAssistantDialogGeometry,
+  defaultAssistantDialogGeometry,
+  parseStoredAssistantDialogGeometry,
+  projectAssistantDialogInteraction,
+  serializeAssistantDialogGeometry,
+  startAssistantDialogInteraction,
+  type AssistantDialogGeometry,
+  type AssistantDialogInteraction,
+  type AssistantDialogResizeDirection
+} from './pet-interaction'
 
 type PetAssistantDialogProps = {
   open: boolean
@@ -30,88 +43,35 @@ const suggestions = [
   '把一个复杂任务拆成可以立即开始的小步骤'
 ]
 
-const DIALOG_GEOMETRY_KEY = 'studiumx-pet-assistant-geometry-v1'
-const DIALOG_EDGE_GAP = 16
-const DIALOG_MIN_WIDTH = 300
-const DIALOG_MIN_HEIGHT = 320
-const DIALOG_DEFAULT_WIDTH = 380
-const DIALOG_DEFAULT_HEIGHT = 560
+const resizeDirections = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'] as const satisfies readonly AssistantDialogResizeDirection[]
 
-const resizeDirections = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'] as const
-
-type ResizeDirection = (typeof resizeDirections)[number]
-
-type DialogGeometry = {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-type DialogInteraction = {
-  pointerId: number
+type ResizeDirection = AssistantDialogResizeDirection
+type DialogGeometry = AssistantDialogGeometry
+type DialogPointerInteraction = {
+  interaction: AssistantDialogInteraction
   captureElement: HTMLElement
-  mode: 'drag' | 'resize'
-  direction?: ResizeDirection
-  startX: number
-  startY: number
-  startGeometry: DialogGeometry
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(Math.max(value, minimum), maximum)
-}
-
-function clampDialogGeometry(geometry: DialogGeometry): DialogGeometry {
-  const availableWidth = Math.max(1, window.innerWidth - DIALOG_EDGE_GAP * 2)
-  const availableHeight = Math.max(1, window.innerHeight - DIALOG_EDGE_GAP * 2)
-  const minimumWidth = Math.min(DIALOG_MIN_WIDTH, availableWidth)
-  const minimumHeight = Math.min(DIALOG_MIN_HEIGHT, availableHeight)
-  const width = clamp(geometry.width, minimumWidth, availableWidth)
-  const height = clamp(geometry.height, minimumHeight, availableHeight)
-
-  return {
-    x: clamp(geometry.x, DIALOG_EDGE_GAP, Math.max(DIALOG_EDGE_GAP, window.innerWidth - width - DIALOG_EDGE_GAP)),
-    y: clamp(geometry.y, DIALOG_EDGE_GAP, Math.max(DIALOG_EDGE_GAP, window.innerHeight - height - DIALOG_EDGE_GAP)),
-    width,
-    height
-  }
-}
-
-function defaultDialogGeometry(): DialogGeometry {
-  const width = Math.min(DIALOG_DEFAULT_WIDTH, Math.max(1, window.innerWidth - DIALOG_EDGE_GAP * 2))
-  const height = Math.min(DIALOG_DEFAULT_HEIGHT, Math.max(1, window.innerHeight - DIALOG_EDGE_GAP * 2))
-  return clampDialogGeometry({
-    x: window.innerWidth - width - DIALOG_EDGE_GAP,
-    y: window.innerHeight - height - DIALOG_EDGE_GAP,
-    width,
-    height
-  })
+function viewport() {
+  return { width: window.innerWidth, height: window.innerHeight }
 }
 
 function storedDialogGeometry(): DialogGeometry | null {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(DIALOG_GEOMETRY_KEY) ?? 'null') as unknown
-    if (!parsed || typeof parsed !== 'object') return null
-    const candidate = parsed as Record<string, unknown>
-    if (
-      typeof candidate.x !== 'number' ||
-      typeof candidate.y !== 'number' ||
-      typeof candidate.width !== 'number' ||
-      typeof candidate.height !== 'number' ||
-      !Number.isFinite(candidate.x) ||
-      !Number.isFinite(candidate.y) ||
-      !Number.isFinite(candidate.width) ||
-      !Number.isFinite(candidate.height)
-    ) return null
-    return clampDialogGeometry({
-      x: candidate.x,
-      y: candidate.y,
-      width: candidate.width,
-      height: candidate.height
-    })
+    const geometry = parseStoredAssistantDialogGeometry(
+      window.localStorage.getItem(PET_ASSISTANT_GEOMETRY_STORAGE_KEY)
+    )
+    return geometry ? clampAssistantDialogGeometry(geometry, viewport()) : null
   } catch {
     return null
+  }
+}
+
+function persistDialogGeometry(geometry: DialogGeometry): void {
+  try {
+    window.localStorage.setItem(PET_ASSISTANT_GEOMETRY_STORAGE_KEY, serializeAssistantDialogGeometry(geometry))
+  } catch {
+    // The dialog remains usable when storage is unavailable.
   }
 }
 
@@ -135,11 +95,11 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   const [geometry, setGeometry] = useState<DialogGeometry>(() => {
     const stored = storedDialogGeometry()
     customizedGeometryRef.current = Boolean(stored)
-    return stored ?? defaultDialogGeometry()
+    return stored ?? defaultAssistantDialogGeometry(viewport())
   })
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
-  const interactionRef = useRef<DialogInteraction | null>(null)
+  const interactionRef = useRef<DialogPointerInteraction | null>(null)
   const pendingStreamId = pendingConversation?.summary.id ?? null
   const pendingAsk = pendingStreamId ? selectPendingAsk(agentTurns, pendingStreamId) : null
   const pendingPermission = pendingStreamId ? selectPendingToolPermission(agentTurns, pendingStreamId) : null
@@ -168,7 +128,9 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   useEffect(() => {
     const handleWindowResize = (): void => {
       setGeometry((current) => (
-        customizedGeometryRef.current ? clampDialogGeometry(current) : defaultDialogGeometry()
+        customizedGeometryRef.current
+          ? clampAssistantDialogGeometry(current, viewport())
+          : defaultAssistantDialogGeometry(viewport())
       ))
     }
     handleWindowResize()
@@ -210,85 +172,47 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
 
   const startInteraction = (
     event: ReactPointerEvent<HTMLElement>,
-    mode: DialogInteraction['mode'],
+    mode: AssistantDialogInteraction['mode'],
     direction?: ResizeDirection
   ): void => {
     if (event.button !== 0) return
     if (mode === 'drag' && (event.target as HTMLElement).closest('button')) return
     customizedGeometryRef.current = true
     interactionRef.current = {
-      pointerId: event.pointerId,
       captureElement: event.currentTarget,
-      mode,
-      direction,
-      startX: event.clientX,
-      startY: event.clientY,
-      startGeometry: geometry
+      interaction: startAssistantDialogInteraction({
+        pointerId: event.pointerId,
+        mode,
+        direction,
+        startPoint: { x: event.clientX, y: event.clientY },
+        startGeometry: geometry
+      })
     }
     event.currentTarget.setPointerCapture(event.pointerId)
     event.preventDefault()
   }
 
   const moveInteraction = (event: ReactPointerEvent<HTMLElement>): void => {
-    const interaction = interactionRef.current
-    if (!interaction || interaction.pointerId !== event.pointerId) return
-    const dx = event.clientX - interaction.startX
-    const dy = event.clientY - interaction.startY
-    const start = interaction.startGeometry
-
-    if (interaction.mode === 'drag') {
-      setGeometry(clampDialogGeometry({ ...start, x: start.x + dx, y: start.y + dy }))
-      return
-    }
-
-    const direction = interaction.direction
-    if (!direction) return
-    const next = { ...start }
-    const availableWidth = Math.max(1, window.innerWidth - DIALOG_EDGE_GAP * 2)
-    const availableHeight = Math.max(1, window.innerHeight - DIALOG_EDGE_GAP * 2)
-    const minimumWidth = Math.min(DIALOG_MIN_WIDTH, availableWidth)
-    const minimumHeight = Math.min(DIALOG_MIN_HEIGHT, availableHeight)
-
-    if (direction.includes('w')) {
-      const right = start.x + start.width
-      next.width = clamp(start.width - dx, minimumWidth, right - DIALOG_EDGE_GAP)
-      next.x = right - next.width
-    } else if (direction.includes('e')) {
-      next.width = clamp(
-        start.width + dx,
-        minimumWidth,
-        window.innerWidth - start.x - DIALOG_EDGE_GAP
-      )
-    }
-
-    if (direction.includes('n')) {
-      const bottom = start.y + start.height
-      next.height = clamp(start.height - dy, minimumHeight, bottom - DIALOG_EDGE_GAP)
-      next.y = bottom - next.height
-    } else if (direction.includes('s')) {
-      next.height = clamp(
-        start.height + dy,
-        minimumHeight,
-        window.innerHeight - start.y - DIALOG_EDGE_GAP
-      )
-    }
-
-    setGeometry(clampDialogGeometry(next))
+    const activeInteraction = interactionRef.current
+    if (!activeInteraction) return
+    const nextGeometry = projectAssistantDialogInteraction(
+      activeInteraction.interaction,
+      event.pointerId,
+      { x: event.clientX, y: event.clientY },
+      viewport()
+    )
+    if (nextGeometry) setGeometry(nextGeometry)
   }
 
   const finishInteraction = (event: ReactPointerEvent<HTMLElement>): void => {
-    const interaction = interactionRef.current
-    if (!interaction || interaction.pointerId !== event.pointerId) return
+    const activeInteraction = interactionRef.current
+    if (!activeInteraction || !canFinishAssistantDialogInteraction(activeInteraction.interaction, event.pointerId)) return
     interactionRef.current = null
-    if (interaction.captureElement.hasPointerCapture(event.pointerId)) {
-      interaction.captureElement.releasePointerCapture(event.pointerId)
+    if (activeInteraction.captureElement.hasPointerCapture(event.pointerId)) {
+      activeInteraction.captureElement.releasePointerCapture(event.pointerId)
     }
     setGeometry((current) => {
-      try {
-        window.localStorage.setItem(DIALOG_GEOMETRY_KEY, JSON.stringify(current))
-      } catch {
-        // The dialog remains usable when storage is unavailable.
-      }
+      persistDialogGeometry(current)
       return current
     })
   }

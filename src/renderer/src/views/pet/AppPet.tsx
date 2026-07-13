@@ -6,58 +6,47 @@ import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conve
 import { useAppStore } from '../../app-shell/appStore'
 import '../../styles/pet-context-menu.css'
 import { PetAssistantDialog } from './PetAssistantDialog'
-import { PetSprite, type PetVisualState } from './PetSprite'
+import {
+  PET_POSITION_STORAGE_KEY,
+  clampPetContextMenuPlacement,
+  clampPetPlacement,
+  derivePetAttention,
+  finishPetDrag,
+  movePetDrag,
+  parseStoredPetPlacement,
+  serializePetPlacement,
+  shouldDismissPetContextMenu,
+  shouldRestorePetFocusAfterContextMenuDismissal,
+  startPetDrag,
+  type PetDragSession,
+  type PetPlacement
+} from './pet-interaction'
+import { PetSprite } from './PetSprite'
 
-const PET_POSITION_KEY = 'studiumx-pet-position-v1'
-const EDGE_GAP = 14
-const CONTEXT_MENU_GAP = 8
-const CONTEXT_MENU_WIDTH = 172
-const CONTEXT_MENU_HEIGHT = 48
+type PetContextMenuPosition = PetPlacement
+type ContextMenuDismissalReason = 'escape' | 'outside-pointer' | 'scroll' | 'viewport-change' | 'window-blur'
 
-type PetPosition = { x: number; y: number }
-type PetContextMenuPosition = { x: number; y: number }
-
-type DragSession = {
-  pointerId: number
-  startX: number
-  startY: number
-  startLeft: number
-  startTop: number
-  moved: boolean
+function viewport() {
+  return { width: window.innerWidth, height: window.innerHeight }
 }
 
-function storedPosition(): PetPosition | null {
+function petSize(element: HTMLElement | null) {
+  return { width: element?.offsetWidth ?? 150, height: element?.offsetHeight ?? 130 }
+}
+
+function storedPosition(): PetPlacement | null {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(PET_POSITION_KEY) ?? 'null') as unknown
-    if (!parsed || typeof parsed !== 'object') return null
-    const candidate = parsed as Record<string, unknown>
-    return typeof candidate.x === 'number' && typeof candidate.y === 'number'
-      ? { x: candidate.x, y: candidate.y }
-      : null
+    return parseStoredPetPlacement(window.localStorage.getItem(PET_POSITION_STORAGE_KEY))
   } catch {
     return null
   }
 }
 
-function clampPosition(position: PetPosition, element: HTMLElement | null): PetPosition {
-  const width = element?.offsetWidth ?? 150
-  const height = element?.offsetHeight ?? 130
-  return {
-    x: Math.min(Math.max(EDGE_GAP, position.x), Math.max(EDGE_GAP, window.innerWidth - width - EDGE_GAP)),
-    y: Math.min(Math.max(EDGE_GAP, position.y), Math.max(EDGE_GAP, window.innerHeight - height - EDGE_GAP))
-  }
-}
-
-function clampContextMenuPosition(x: number, y: number): PetContextMenuPosition {
-  return {
-    x: Math.min(
-      Math.max(CONTEXT_MENU_GAP, x),
-      Math.max(CONTEXT_MENU_GAP, window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_GAP)
-    ),
-    y: Math.min(
-      Math.max(CONTEXT_MENU_GAP, y),
-      Math.max(CONTEXT_MENU_GAP, window.innerHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_GAP)
-    )
+function persistPosition(position: PetPlacement): void {
+  try {
+    window.localStorage.setItem(PET_POSITION_STORAGE_KEY, serializePetPlacement(position))
+  } catch {
+    // The pet remains movable when browser storage is unavailable.
   }
 }
 
@@ -73,10 +62,10 @@ export function AppPet() {
   const petRef = useRef<HTMLDivElement>(null)
   const mascotRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<DragSession | null>(null)
+  const dragRef = useRef<PetDragSession | null>(null)
   const wasBusyRef = useRef(false)
-  const [position, setPosition] = useState<PetPosition | null>(() => storedPosition())
-  const [dragState, setDragState] = useState<PetVisualState | null>(null)
+  const [position, setPosition] = useState<PetPlacement | null>(() => storedPosition())
+  const [dragDirection, setDragDirection] = useState<'left' | 'right' | null>(null)
   const [hovered, setHovered] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [contextMenu, setContextMenu] = useState<PetContextMenuPosition | null>(null)
@@ -113,7 +102,7 @@ export function AppPet() {
 
   useEffect(() => {
     const handleResize = (): void => {
-      setPosition((current) => current ? clampPosition(current, petRef.current) : null)
+      setPosition((current) => current ? clampPetPlacement(current, viewport(), petSize(petRef.current)) : null)
     }
     handleResize()
     window.addEventListener('resize', handleResize)
@@ -125,84 +114,89 @@ export function AppPet() {
 
     menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
 
-    const handleDocumentPointerDown = (event: PointerEvent): void => {
-      if (menuRef.current?.contains(event.target as Node)) return
+    const dismissContextMenu = (reason: ContextMenuDismissalReason, pointerIsInsideMenu?: boolean): void => {
+      if (!shouldDismissPetContextMenu({ reason, pointerIsInsideMenu })) return
       setContextMenu(null)
+      if (shouldRestorePetFocusAfterContextMenuDismissal(reason)) mascotRef.current?.focus()
+    }
+    const handleDocumentPointerDown = (event: PointerEvent): void => {
+      dismissContextMenu('outside-pointer', Boolean(menuRef.current?.contains(event.target as Node)))
     }
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      setContextMenu(null)
-      mascotRef.current?.focus()
+      if (event.key === 'Escape') dismissContextMenu('escape')
     }
-    const dismissContextMenu = (): void => setContextMenu(null)
+    const handleScroll = (): void => dismissContextMenu('scroll')
+    const handleResize = (): void => dismissContextMenu('viewport-change')
+    const handleWindowBlur = (): void => dismissContextMenu('window-blur')
 
     document.addEventListener('pointerdown', handleDocumentPointerDown)
     document.addEventListener('keydown', handleKeyDown)
-    document.addEventListener('scroll', dismissContextMenu, true)
-    window.addEventListener('resize', dismissContextMenu)
-    window.addEventListener('blur', dismissContextMenu)
+    document.addEventListener('scroll', handleScroll, true)
+    window.addEventListener('resize', handleResize)
+    window.addEventListener('blur', handleWindowBlur)
     return () => {
       document.removeEventListener('pointerdown', handleDocumentPointerDown)
       document.removeEventListener('keydown', handleKeyDown)
-      document.removeEventListener('scroll', dismissContextMenu, true)
-      window.removeEventListener('resize', dismissContextMenu)
-      window.removeEventListener('blur', dismissContextMenu)
+      document.removeEventListener('scroll', handleScroll, true)
+      window.removeEventListener('resize', handleResize)
+      window.removeEventListener('blur', handleWindowBlur)
     }
   }, [contextMenu])
 
-  const baseState: PetVisualState = waiting
-    ? 'waiting'
-    : error
-      ? 'failed'
-      : reviewVisible
-        ? 'review'
-        : busy
-          ? 'running'
-          : introVisible
-            ? 'waving'
-            : 'idle'
-  const visualState = dragState ?? (hovered && baseState === 'idle' ? 'jumping' : baseState)
-  const showBubble = settings.showStatusBubble && baseState !== 'idle'
+  const attention = derivePetAttention({
+    waiting,
+    failed: Boolean(error),
+    reviewVisible,
+    busy,
+    introVisible,
+    hovered,
+    dragDirection,
+    showStatusBubble: settings.showStatusBubble
+  })
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
     if (event.button !== 0) return
     const root = petRef.current
     if (!root) return
     const rect = root.getBoundingClientRect()
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startLeft: rect.left,
-      startTop: rect.top,
-      moved: false
-    }
+    dragRef.current = startPetDrag(
+      event.pointerId,
+      { x: event.clientX, y: event.clientY },
+      { x: rect.left, y: rect.top }
+    )
     event.currentTarget.setPointerCapture(event.pointerId)
     event.preventDefault()
   }
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>): void => {
     const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    const dx = event.clientX - drag.startX
-    const dy = event.clientY - drag.startY
-    if (Math.hypot(dx, dy) >= 4) drag.moved = true
-    if (!drag.moved) return
-    setDragState(dx < 0 ? 'running-left' : 'running-right')
-    setPosition(clampPosition({ x: drag.startLeft + dx, y: drag.startTop + dy }, petRef.current))
+    if (!drag) return
+    const update = movePetDrag(
+      drag,
+      event.pointerId,
+      { x: event.clientX, y: event.clientY },
+      viewport(),
+      petSize(petRef.current)
+    )
+    dragRef.current = update.session
+    if (!update.placement || !update.direction) return
+    setDragDirection(update.direction)
+    setPosition(update.placement)
   }
 
   const finishPointer = (event: ReactPointerEvent<HTMLButtonElement>): void => {
     const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
+    if (!drag) return
+    const outcome = finishPetDrag(drag, event.pointerId)
+    if (outcome === 'ignore') return
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
     dragRef.current = null
-    setDragState(null)
-    if (drag.moved) {
+    setDragDirection(null)
+    if (outcome === 'persist-placement') {
       setPosition((current) => {
-        if (current) window.localStorage.setItem(PET_POSITION_KEY, JSON.stringify(current))
+        if (current) persistPosition(current)
         return current
       })
     } else {
@@ -214,11 +208,11 @@ export function AppPet() {
     event.preventDefault()
     event.stopPropagation()
     dragRef.current = null
-    setDragState(null)
+    setDragDirection(null)
     const rect = event.currentTarget.getBoundingClientRect()
-    const anchorX = event.clientX || rect.right - CONTEXT_MENU_GAP
-    const anchorY = event.clientY || rect.bottom - CONTEXT_MENU_GAP
-    setContextMenu(clampContextMenuPosition(anchorX, anchorY))
+    const anchorX = event.clientX || rect.right - 8
+    const anchorY = event.clientY || rect.bottom - 8
+    setContextMenu(clampPetContextMenuPlacement({ x: anchorX, y: anchorY }, viewport()))
   }
 
   const closePet = (): void => {
@@ -239,14 +233,14 @@ export function AppPet() {
       <div
         ref={petRef}
         className={`app-pet${position ? ' is-positioned' : ''}${position && position.x < 260 ? ' is-left-edge' : ''}`}
-        data-state={baseState}
+        data-state={attention.baseState}
         style={position ? { left: position.x, top: position.y } : undefined}
       >
-        {showBubble ? (
+        {attention.showBubble ? (
           <div className="app-pet-bubble" role="status">
             <span>
               <strong>{settings.displayName}</strong>
-              <small>{t(`resources.pets.states.${baseState}`)}</small>
+              <small>{t(`resources.pets.states.${attention.baseState}`)}</small>
             </span>
             <button
               type="button"
@@ -265,7 +259,7 @@ export function AppPet() {
           aria-label={t('resources.pets.overlayAria', { name: settings.displayName })}
           aria-haspopup="menu"
           aria-expanded={Boolean(contextMenu)}
-          title={t(`resources.pets.states.${baseState}`)}
+          title={t(`resources.pets.states.${attention.baseState}`)}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={finishPointer}
@@ -278,7 +272,7 @@ export function AppPet() {
             appearance={settings.appearance}
             label={settings.displayName}
             size={112}
-            state={visualState}
+            state={attention.visualState}
           />
         </button>
       </div>
