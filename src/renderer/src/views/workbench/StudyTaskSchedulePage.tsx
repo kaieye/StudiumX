@@ -28,6 +28,27 @@ import {
   resolveStudyTaskCategory,
   updateStudyTaskCategory
 } from '../../study-space/taskCategories'
+import {
+  MINUTES_PER_DAY,
+  canUseScheduleTime,
+  chooseAllowedMinute,
+  clamp,
+  clampScheduleDuration,
+  createDefaultSchedule,
+  createScheduleTaskProposal,
+  createSelectionSchedule,
+  currentWeekdayIndex,
+  formatScheduleMinutes,
+  getPointerGrabOffsetMinutes,
+  getTimeParts,
+  parseTimePart,
+  patchSchedule,
+  projectDayPointer,
+  projectTaskDragSchedule,
+  validateTimeFields,
+  type SchedulePointerProjection
+} from './study-task-schedule-interaction'
+import { layoutDayTasks, type ScheduledStudyTask } from './study-task-schedule-layout'
 
 type StudyTaskSchedulePageProps = {
   tasks: StudyTask[]
@@ -40,20 +61,13 @@ type StudyTaskSchedulePageProps = {
   onBack: () => void
 }
 
-type ScheduledStudyTask = StudyTask & { schedule: StudyTaskSchedule }
-
-type ScheduledTaskLayout = {
-  task: ScheduledStudyTask
-  lane: number
-  lanes: number
-}
-
 type TaskEditorState =
   | { mode: 'add'; title: string; categoryId: StudyTaskCategoryId; schedule: StudyTaskScheduleInput }
   | { mode: 'edit'; taskId: string; title: string; done: boolean; categoryId: StudyTaskCategoryId; schedule: StudyTaskScheduleInput }
 
 type DraftTaskState = {
   title: string
+  categoryId: StudyTaskCategoryId
   schedule: StudyTaskScheduleInput
 }
 
@@ -140,18 +154,7 @@ type TimeSelectProps = {
 
 const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const hourMarks = [0, 4, 8, 12, 16, 20, 24]
-const minutesPerDay = 24 * 60
-const selectionStepMinutes = 15
 const minutePartOptions = Array.from({ length: 60 }, (_, minute) => minute)
-
-function currentWeekdayIndex(): number {
-  return (new Date().getDay() + 6) % 7
-}
-
-function createDefaultSchedule(): StudyTaskScheduleInput {
-  const weekday = currentWeekdayIndex()
-  return { weekday, startMinutes: 9 * 60, endMinutes: 10 * 60 }
-}
 
 const defaultCategoryDraftColor: `#${string}` = '#6f8fa8'
 const maxCategoryNameLength = 16
@@ -175,42 +178,15 @@ function hasSchedule(task: StudyTask): task is ScheduledStudyTask {
   return Boolean(task.schedule)
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
-}
-
-function formatMinutes(minutes: number): string {
-  if (minutes >= minutesPerDay) return '24:00'
-  const hour = Math.floor(minutes / 60)
-  const minute = minutes % 60
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-}
-
-function getTimeParts(minutes: number): { hour: number; minute: number } {
-  return { hour: Math.floor(minutes / 60), minute: minutes % 60 }
-}
-
-function parseTimePart(value: string, max: number): number | null {
-  if (!/^\d{1,2}$/.test(value.trim())) return null
-  const parsed = Number.parseInt(value, 10)
-  return Number.isInteger(parsed) && parsed >= 0 && parsed <= max ? parsed : null
-}
-
-function parseTimeParts(
-  hourValue: string,
-  minuteValue: string,
-  minMinutes: number,
-  maxMinutes: number
-): number | null {
-  const hour = parseTimePart(hourValue, 24)
-  const minute = parseTimePart(minuteValue, 59)
-  if (hour === null || minute === null || (hour === 24 && minute !== 0)) return null
-  const totalMinutes = hour * 60 + minute
-  return totalMinutes >= minMinutes && totalMinutes <= maxMinutes ? totalMinutes : null
-}
-
 function formatHour(hour: number): string {
   return `${hour}:00`
+}
+
+function createRangeStyle(startMinutes: number, endMinutes: number): RangeVarStyle {
+  return {
+    '--range-start-ratio': startMinutes / MINUTES_PER_DAY,
+    '--range-duration-ratio': (endMinutes - startMinutes) / MINUTES_PER_DAY
+  }
 }
 
 function TimeSelect({ value, minMinutes, maxMinutes, onChange, disabledOption, ariaLabel }: TimeSelectProps) {
@@ -235,36 +211,29 @@ function TimeSelect({ value, minMinutes, maxMinutes, onChange, disabledOption, a
     minuteInputRef.current?.setCustomValidity(message)
   }
 
-  const isAllowedTime = (hour: number, minute: number): boolean => {
-    const totalMinutes = hour * 60 + minute
-    if (hour === 24 && minute !== 0) return false
-    if (totalMinutes < minMinutes || totalMinutes > maxMinutes) return false
-    return !(disabledOption?.(totalMinutes) ?? false)
-  }
+  const timePolicy = { minMinutes, maxMinutes, isDisabled: disabledOption }
+
+  const isAllowedTime = (hour: number, minute: number): boolean => canUseScheduleTime(hour, minute, timePolicy)
 
   const applyTimeIfValid = (nextHourDraft: string, nextMinuteDraft: string): boolean => {
-    const totalMinutes = parseTimeParts(nextHourDraft, nextMinuteDraft, minMinutes, maxMinutes)
-    if (totalMinutes === null || disabledOption?.(totalMinutes)) return false
+    const validation = validateTimeFields(nextHourDraft, nextMinuteDraft, timePolicy)
+    if (!validation.valid) return false
     setValidation('')
-    if (totalMinutes !== value) onChange(totalMinutes)
+    if (validation.minutes !== value) onChange(validation.minutes)
     return true
   }
 
   const commitDraft = (): boolean => {
-    const totalMinutes = parseTimeParts(hourDraft, minuteDraft, minMinutes, maxMinutes)
-    if (totalMinutes === null) {
-      setValidation('请输入有效的小时和分钟')
+    const validation = validateTimeFields(hourDraft, minuteDraft, timePolicy)
+    if (!validation.valid) {
+      setValidation(validation.message)
       return false
     }
-    if (disabledOption?.(totalMinutes)) {
-      setValidation('结束时间必须晚于开始时间')
-      return false
-    }
-    const nextParts = getTimeParts(totalMinutes)
+    const nextParts = getTimeParts(validation.minutes)
     setHourDraft(String(nextParts.hour).padStart(2, '0'))
     setMinuteDraft(String(nextParts.minute).padStart(2, '0'))
     setValidation('')
-    if (totalMinutes !== value) onChange(totalMinutes)
+    if (validation.minutes !== value) onChange(validation.minutes)
     return true
   }
 
@@ -341,14 +310,8 @@ function TimeSelect({ value, minMinutes, maxMinutes, onChange, disabledOption, a
 
   const selectHour = (hour: number): void => {
     const preferredMinute = parsedDraftMinute ?? valueParts.minute
-    const allowedMinutes = minutePartOptions.filter((minute) => isAllowedTime(hour, minute))
-    if (allowedMinutes.length === 0) return
-    const minute = allowedMinutes.reduce(
-      (closest, candidate) => (
-        Math.abs(candidate - preferredMinute) < Math.abs(closest - preferredMinute) ? candidate : closest
-      ),
-      allowedMinutes[0] ?? 0
-    )
+    const minute = chooseAllowedMinute(hour, preferredMinute, timePolicy)
+    if (minute === null) return
     const nextHourDraft = String(hour).padStart(2, '0')
     const nextMinuteDraft = String(minute).padStart(2, '0')
     setHourDraft(nextHourDraft)
@@ -478,16 +441,6 @@ function TimeSelect({ value, minMinutes, maxMinutes, onChange, disabledOption, a
   )
 }
 
-function getMinutesFromPointer(element: HTMLElement, clientY: number): number {
-  const rect = element.getBoundingClientRect()
-  const ratio = rect.height > 0 ? (clientY - rect.top) / rect.height : 0
-  return clamp(Math.round(ratio * minutesPerDay), 0, minutesPerDay)
-}
-
-function snapMinutesToStep(minutes: number): number {
-  return Math.round(minutes / selectionStepMinutes) * selectionStepMinutes
-}
-
 function getScheduleColumnFromPoint(clientX: number, clientY: number): HTMLElement | null {
   const pointElement = document.elementFromPoint(clientX, clientY)
   return pointElement instanceof Element ? pointElement.closest<HTMLElement>('.study-schedule-day-column') : null
@@ -498,86 +451,25 @@ function getColumnDayIndex(column: HTMLElement): number | null {
   return Number.isInteger(dayIndex) && dayIndex >= 0 && dayIndex < weekDays.length ? dayIndex : null
 }
 
-function createTaskDragSchedule(
-  originSchedule: StudyTaskSchedule,
-  clientX: number,
-  clientY: number,
-  grabOffsetMinutes: number,
-  durationMinutes: number
-): StudyTaskScheduleInput | null {
-  const column = getScheduleColumnFromPoint(clientX, clientY)
-  if (!column) return null
+function projectColumnPointer(column: HTMLElement, clientY: number): SchedulePointerProjection | null {
   const dayIndex = getColumnDayIndex(column)
   if (dayIndex === null) return null
-  const safeDuration = clamp(durationMinutes, selectionStepMinutes, minutesPerDay)
-  const pointerMinutes = getMinutesFromPointer(column, clientY)
-  const startMinutes = clamp(snapMinutesToStep(pointerMinutes - grabOffsetMinutes), 0, minutesPerDay - safeDuration)
-  return {
-    ...originSchedule,
-    weekday: dayIndex,
-    startMinutes,
-    endMinutes: startMinutes + safeDuration
-  }
+  const rect = column.getBoundingClientRect()
+  return projectDayPointer(dayIndex, { top: rect.top, height: rect.height }, clientY)
 }
 
-function createSelectionSchedule(
+function projectViewportPointer(clientX: number, clientY: number): SchedulePointerProjection | null {
+  const column = getScheduleColumnFromPoint(clientX, clientY)
+  return column ? projectColumnPointer(column, clientY) : null
+}
+
+function projectDayColumnPointer(
   dayIndex: number,
-  anchorMinutes: number,
-  currentMinutes: number,
-  requireDrag = false
-): StudyTaskScheduleInput | null {
-  if (requireDrag && Math.abs(currentMinutes - anchorMinutes) < 8) return null
-  const lowerMinutes = Math.min(anchorMinutes, currentMinutes)
-  const upperMinutes = Math.max(anchorMinutes, currentMinutes)
-  const snappedStart = Math.floor(lowerMinutes / selectionStepMinutes) * selectionStepMinutes
-  const snappedEnd = Math.ceil(upperMinutes / selectionStepMinutes) * selectionStepMinutes
-  const startMinutes = clamp(snappedStart, 0, minutesPerDay - selectionStepMinutes)
-  const endMinutes = clamp(Math.max(snappedEnd, startMinutes + selectionStepMinutes), startMinutes + selectionStepMinutes, minutesPerDay)
-  return { weekday: dayIndex, startMinutes, endMinutes }
-}
-
-function createRangeStyle(startMinutes: number, endMinutes: number): RangeVarStyle {
-  return {
-    '--range-start-ratio': startMinutes / minutesPerDay,
-    '--range-duration-ratio': (endMinutes - startMinutes) / minutesPerDay
-  }
-}
-
-function layoutDayTasks(tasks: ScheduledStudyTask[]): ScheduledTaskLayout[] {
-  const sorted = [...tasks].sort((left, right) => {
-    const startDelta = left.schedule.startMinutes - right.schedule.startMinutes
-    return startDelta || left.schedule.endMinutes - right.schedule.endMinutes || left.title.localeCompare(right.title)
-  })
-  const layouts: ScheduledTaskLayout[] = []
-  let cluster: ScheduledStudyTask[] = []
-  let clusterEnd = -1
-
-  const flushCluster = (): void => {
-    if (cluster.length === 0) return
-    layouts.push(...layoutOverlapCluster(cluster))
-    cluster = []
-    clusterEnd = -1
-  }
-
-  for (const task of sorted) {
-    if (cluster.length > 0 && task.schedule.startMinutes >= clusterEnd) flushCluster()
-    cluster.push(task)
-    clusterEnd = Math.max(clusterEnd, task.schedule.endMinutes)
-  }
-  flushCluster()
-  return layouts
-}
-
-function layoutOverlapCluster(tasks: ScheduledStudyTask[]): ScheduledTaskLayout[] {
-  const laneEnds: number[] = []
-  const layouts = tasks.map((task) => {
-    const lane = laneEnds.findIndex((endMinutes) => endMinutes <= task.schedule.startMinutes)
-    const nextLane = lane === -1 ? laneEnds.length : lane
-    laneEnds[nextLane] = task.schedule.endMinutes
-    return { task, lane: nextLane, lanes: 1 }
-  })
-  const lanes = Math.max(1, laneEnds.length)
-  return layouts.map((layout) => ({ ...layout, lanes }))
+  element: HTMLDivElement,
+  clientY: number
+): SchedulePointerProjection | null {
+  const rect = element.getBoundingClientRect()
+  return projectDayPointer(dayIndex, { top: rect.top, height: rect.height }, clientY)
 }
 
 export function StudyTaskSchedulePage({
@@ -632,10 +524,9 @@ export function StudyTaskSchedulePage({
   const updateActiveTaskDrag = (clientX: number, clientY: number): TaskDragState | null => {
     const current = taskDragRef.current
     if (!current) return null
-    const previewSchedule = createTaskDragSchedule(
+    const previewSchedule = projectTaskDragSchedule(
       current.originSchedule,
-      clientX,
-      clientY,
+      projectViewportPointer(clientX, clientY),
       current.grabOffsetMinutes,
       current.durationMinutes
     ) ?? current.previewSchedule
@@ -649,15 +540,12 @@ export function StudyTaskSchedulePage({
     if (!pending) return
     longPressTimerRef.current = null
     const rect = pending.element.getBoundingClientRect()
-    const durationMinutes = clamp(
-      pending.task.schedule.endMinutes - pending.task.schedule.startMinutes,
-      selectionStepMinutes,
-      minutesPerDay
+    const durationMinutes = clampScheduleDuration(
+      pending.task.schedule.endMinutes - pending.task.schedule.startMinutes
     )
-    const previewSchedule = createTaskDragSchedule(
+    const previewSchedule = projectTaskDragSchedule(
       pending.task.schedule,
-      pending.clientX,
-      pending.clientY,
+      projectViewportPointer(pending.clientX, pending.clientY),
       pending.grabOffsetMinutes,
       durationMinutes
     ) ?? pending.task.schedule
@@ -732,7 +620,7 @@ export function StudyTaskSchedulePage({
     setCategoryContextMenu(null)
     setEditorError('')
     setCustomCategoryError('')
-    setEditor({ mode: 'add', title: '', categoryId: 'study', schedule })
+    setEditor({ mode: 'add', ...createScheduleTaskProposal(schedule) })
   }
 
   const openEditEditor = (task: ScheduledStudyTask): void => {
@@ -761,11 +649,7 @@ export function StudyTaskSchedulePage({
   const updateEditorSchedule = (patch: Partial<StudyTaskScheduleInput>): void => {
     setEditor((current) => {
       if (!current) return current
-      const nextSchedule = { ...current.schedule, ...patch }
-      if (nextSchedule.endMinutes <= nextSchedule.startMinutes) {
-        nextSchedule.endMinutes = Math.min(minutesPerDay, nextSchedule.startMinutes + 60)
-      }
-      return { ...current, schedule: nextSchedule }
+      return { ...current, schedule: patchSchedule(current.schedule, patch) }
     })
   }
 
@@ -859,7 +743,7 @@ export function StudyTaskSchedulePage({
       setDraftError('先写下任务名称')
       return
     }
-    if (onAddScheduledTask(title, draftTask.schedule, 'study')) {
+    if (onAddScheduledTask(title, draftTask.schedule, draftTask.categoryId)) {
       setDraftTask(null)
       setDraftError('')
     }
@@ -951,8 +835,11 @@ export function StudyTaskSchedulePage({
       clientY: event.clientY,
       grabOffsetX: event.clientX - rect.left,
       grabOffsetY: event.clientY - rect.top,
-      grabOffsetMinutes: clamp(event.clientY - rect.top, 0, rect.height) / Math.max(1, rect.height)
-        * (task.schedule.endMinutes - task.schedule.startMinutes)
+      grabOffsetMinutes: getPointerGrabOffsetMinutes(
+        { top: rect.top, height: rect.height },
+        event.clientY,
+        task.schedule.endMinutes - task.schedule.startMinutes
+      )
     }
     event.currentTarget.setPointerCapture(event.pointerId)
     longPressTimerRef.current = window.setTimeout(beginTaskDragFromPending, 360)
@@ -1006,7 +893,9 @@ export function StudyTaskSchedulePage({
       clearDayHover(dayIndex)
       return
     }
-    const minutes = getMinutesFromPointer(event.currentTarget, event.clientY)
+    const pointer = projectDayColumnPointer(dayIndex, event.currentTarget, event.clientY)
+    if (!pointer) return
+    const { minutes } = pointer
     setHover({ dayIndex, minutes })
     setSelection((current) => {
       if (!current || current.dayIndex !== dayIndex || current.pointerId !== event.pointerId) return current
@@ -1018,7 +907,9 @@ export function StudyTaskSchedulePage({
     if (event.button !== 0) return
     const target = event.target instanceof Element ? event.target : null
     if (target?.closest('.study-schedule-event, .study-schedule-draft-card')) return
-    const minutes = getMinutesFromPointer(event.currentTarget, event.clientY)
+    const pointer = projectDayColumnPointer(dayIndex, event.currentTarget, event.clientY)
+    if (!pointer) return
+    const { minutes } = pointer
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     setEditor(null)
@@ -1031,14 +922,15 @@ export function StudyTaskSchedulePage({
 
   const handleColumnPointerUp = (dayIndex: number, event: ReactPointerEvent<HTMLDivElement>): void => {
     if (!selection || selection.dayIndex !== dayIndex || selection.pointerId !== event.pointerId) return
-    const minutes = getMinutesFromPointer(event.currentTarget, event.clientY)
-    const schedule = createSelectionSchedule(dayIndex, selection.anchorMinutes, minutes, true)
+    const pointer = projectDayColumnPointer(dayIndex, event.currentTarget, event.clientY)
+    if (!pointer) return
+    const schedule = createSelectionSchedule(dayIndex, selection.anchorMinutes, pointer.minutes, true)
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
     setSelection(null)
     if (schedule) {
       setEditor(null)
       setInlineTitle(null)
-      setDraftTask({ title: '', schedule })
+      setDraftTask(createScheduleTaskProposal(schedule))
       setDraftError('')
     }
   }
@@ -1121,10 +1013,10 @@ export function StudyTaskSchedulePage({
               {hover?.dayIndex === dayIndex ? (
                 <div
                   className={`study-schedule-hover-line${hover.minutes >= 23 * 60 + 30 ? ' is-late' : ''}`}
-                  style={{ '--hover-ratio': hover.minutes / minutesPerDay } as HoverVarStyle}
+                  style={{ '--hover-ratio': hover.minutes / MINUTES_PER_DAY } as HoverVarStyle}
                   aria-hidden="true"
                 >
-                  <span>{formatMinutes(hover.minutes)}</span>
+                  <span>{formatScheduleMinutes(hover.minutes)}</span>
                 </div>
               ) : null}
               {selectionSchedule ? (
@@ -1133,7 +1025,7 @@ export function StudyTaskSchedulePage({
                   style={createRangeStyle(selectionSchedule.startMinutes, selectionSchedule.endMinutes)}
                   aria-hidden="true"
                 >
-                  <span>{formatMinutes(selectionSchedule.startMinutes)}-{formatMinutes(selectionSchedule.endMinutes)}</span>
+                  <span>{formatScheduleMinutes(selectionSchedule.startMinutes)}-{formatScheduleMinutes(selectionSchedule.endMinutes)}</span>
                 </div>
               ) : null}
               {draftTask?.schedule.weekday === dayIndex ? (
@@ -1148,7 +1040,7 @@ export function StudyTaskSchedulePage({
                     clearDayHover(dayIndex)
                   }}
                 >
-                  <span>{formatMinutes(draftTask.schedule.startMinutes)}-{formatMinutes(draftTask.schedule.endMinutes)}</span>
+                  <span>{formatScheduleMinutes(draftTask.schedule.startMinutes)}-{formatScheduleMinutes(draftTask.schedule.endMinutes)}</span>
                   <input
                     value={draftTask.title}
                     onChange={(event) => {
@@ -1179,7 +1071,7 @@ export function StudyTaskSchedulePage({
                   style={createRangeStyle(taskDrag.previewSchedule.startMinutes, taskDrag.previewSchedule.endMinutes)}
                   aria-hidden="true"
                 >
-                  <span>{formatMinutes(taskDrag.previewSchedule.startMinutes)}-{formatMinutes(taskDrag.previewSchedule.endMinutes)}</span>
+                  <span>{formatScheduleMinutes(taskDrag.previewSchedule.startMinutes)}-{formatScheduleMinutes(taskDrag.previewSchedule.endMinutes)}</span>
                 </div>
               ) : null}
               {layoutsByDay[dayIndex]?.map(({ task, lane, lanes }) => {
@@ -1202,10 +1094,10 @@ export function StudyTaskSchedulePage({
                     onPointerMove={(event) => handleTaskPointerMove(event, task, dayIndex)}
                     onPointerUp={(event) => finishTaskPointerDrag(event, task.id)}
                     onPointerCancel={(event) => cancelTaskPointerDrag(event, task.id)}
-                    aria-label={`${day} ${formatMinutes(task.schedule.startMinutes)} 到 ${formatMinutes(task.schedule.endMinutes)}，${task.title}`}
+                    aria-label={`${day} ${formatScheduleMinutes(task.schedule.startMinutes)} 到 ${formatScheduleMinutes(task.schedule.endMinutes)}，${task.title}`}
                     style={{
-                      '--event-start-ratio': task.schedule.startMinutes / minutesPerDay,
-                      '--event-duration-ratio': (task.schedule.endMinutes - task.schedule.startMinutes) / minutesPerDay,
+                      '--event-start-ratio': task.schedule.startMinutes / MINUTES_PER_DAY,
+                      '--event-duration-ratio': (task.schedule.endMinutes - task.schedule.startMinutes) / MINUTES_PER_DAY,
                       '--event-left': `calc(${leftPercent}% + 4px)`,
                       '--event-width': `calc(${widthPercent}% - 8px)`,
                       '--event-color': category.color,
@@ -1213,7 +1105,7 @@ export function StudyTaskSchedulePage({
                     } as EventVarStyle}
                   >
                     <span className="study-schedule-event-time">
-                      {formatMinutes(task.schedule.startMinutes)}-{formatMinutes(task.schedule.endMinutes)}
+                      {formatScheduleMinutes(task.schedule.startMinutes)}-{formatScheduleMinutes(task.schedule.endMinutes)}
                     </span>
                     {editingTitle ? (
                       <form
@@ -1295,7 +1187,7 @@ export function StudyTaskSchedulePage({
           aria-hidden="true"
         >
           <span className="study-schedule-event-time">
-            {formatMinutes(taskDrag.previewSchedule.startMinutes)}-{formatMinutes(taskDrag.previewSchedule.endMinutes)}
+            {formatScheduleMinutes(taskDrag.previewSchedule.startMinutes)}-{formatScheduleMinutes(taskDrag.previewSchedule.endMinutes)}
           </span>
           <strong>{taskDrag.title}</strong>
           <span>{taskDrag.done ? '已完成' : '待完成'}</span>
@@ -1367,7 +1259,7 @@ export function StudyTaskSchedulePage({
             <div className="study-schedule-editor-head">
               <div>
                 <span>{editor.mode === 'add' ? <Plus size={15} /> : <PencilLine size={15} />}{editor.mode === 'add' ? '添加任务' : '编辑任务'}</span>
-                <h2 id={editorTitleId}>{weekDays[editor.schedule.weekday]} {formatMinutes(editor.schedule.startMinutes)}-{formatMinutes(editor.schedule.endMinutes)}</h2>
+                <h2 id={editorTitleId}>{weekDays[editor.schedule.weekday]} {formatScheduleMinutes(editor.schedule.startMinutes)}-{formatScheduleMinutes(editor.schedule.endMinutes)}</h2>
               </div>
               <button type="button" className="study-schedule-editor-close" onClick={closeEditor} aria-label="关闭">
                 <X size={16} />
@@ -1404,13 +1296,13 @@ export function StudyTaskSchedulePage({
                 <TimeSelect
                   value={editor.schedule.startMinutes}
                   minMinutes={0}
-                  maxMinutes={minutesPerDay - 1}
+                  maxMinutes={MINUTES_PER_DAY - 1}
                   ariaLabel="开始时间"
                   onChange={(nextStart) => {
                     updateEditorSchedule({
                       startMinutes: nextStart,
                       endMinutes: editor.schedule.endMinutes <= nextStart
-                        ? Math.min(minutesPerDay, nextStart + 60)
+                        ? Math.min(MINUTES_PER_DAY, nextStart + 60)
                         : editor.schedule.endMinutes
                     })
                   }}
@@ -1421,7 +1313,7 @@ export function StudyTaskSchedulePage({
                 <TimeSelect
                   value={editor.schedule.endMinutes}
                   minMinutes={1}
-                  maxMinutes={minutesPerDay}
+                  maxMinutes={MINUTES_PER_DAY}
                   ariaLabel="结束时间"
                   disabledOption={(minutes) => minutes <= editor.schedule.startMinutes}
                   onChange={(endMinutes) => updateEditorSchedule({ endMinutes })}
