@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  formatStudySeatLabel,
-  persistStudySnapshot,
-  randomStudySpaceCode,
-  readStudySnapshot,
-  syncStudyLocation
-} from '../domain'
+import { formatStudySeatLabel, randomStudySpaceCode } from '../domain'
+import { persistStudySnapshot, readStudySnapshot, syncStudyLocation } from './session-snapshot'
 import type {
   StudyRoomEventKind,
   StudyRoomId,
