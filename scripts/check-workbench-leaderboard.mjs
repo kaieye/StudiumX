@@ -67,8 +67,8 @@ assert.match(
 
 assert.match(
   roomSwitcher,
-  /workbench-leaderboard-actions[\s\S]*workbench-room-random[\s\S]*随机进入自习室[\s\S]*<form className="workbench-room-join"[\s\S]*加入房间/,
-  'expanded leaderboard footer should render random-entry and join-room actions together'
+  /workbench-leaderboard-actions[\s\S]*<form className="workbench-room-join"[\s\S]*aria-label="加入房间"[\s\S]*↩︎[\s\S]*workbench-room-random[\s\S]*aria-label="随机进入自习室"/,
+  'expanded leaderboard footer should render the enter-key join action before the icon-only random action'
 )
 
 assert.match(css, /\.workbench-tools \.workbench-leaderboard-toggle \{/, 'workbench leaderboard button should have dedicated styling')
