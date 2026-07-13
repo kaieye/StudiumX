@@ -1,4 +1,4 @@
-import { ArrowLeft, ChartColumn } from 'lucide-react'
+import { ChartColumn } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { PetAppearanceId } from '../../../../shared/teaching-types'
 import { useAppStore } from '../../app-shell/appStore'
@@ -21,6 +21,7 @@ import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { WorkbenchTasks } from './WorkbenchTasks'
 import { StudyTaskSchedulePage } from './StudyTaskSchedulePage'
+import { StudyAnalyticsPage, type StudyAnalyticsPageProps } from './analytics/StudyAnalyticsPage'
 import {
   navigateWorkbenchRoute,
   parseWorkbenchRoute,
@@ -370,34 +371,9 @@ type OfficeWorkbenchProps = {
   showNotification: (title: string, body: string) => Promise<void>
 }
 
-export type WorkbenchAnalyticsPageProps = {
-  onBack: () => void
-}
+export type WorkbenchAnalyticsPageProps = StudyAnalyticsPageProps
 
-function WorkbenchAnalyticsPagePlaceholder({ onBack }: WorkbenchAnalyticsPageProps) {
-  return (
-    <div className="workbench-analytics-entry-page">
-      <header className="workbench-analytics-entry-header">
-        <button type="button" className="workbench-analytics-back" onClick={onBack} aria-label="返回自习室">
-          <ArrowLeft size={18} strokeWidth={2} aria-hidden="true" />
-          <span>返回自习室</span>
-        </button>
-        <div>
-          <p>Learning Insights</p>
-          <h1>学习分析</h1>
-        </div>
-      </header>
-      <div className="workbench-analytics-entry-placeholder" role="status">
-        <ChartColumn size={30} strokeWidth={1.8} aria-hidden="true" />
-        <strong>学习分析页面接入点已就绪</strong>
-        <span>这里暂时保留轻量占位壳，后续分析页面可直接替换，不影响自习计时。</span>
-      </div>
-    </div>
-  )
-}
-
-// Integration seam for the StudyAnalyticsPage owner: replace this alias with the real page import.
-const WorkbenchAnalyticsPage = WorkbenchAnalyticsPagePlaceholder
+const WorkbenchAnalyticsPage = StudyAnalyticsPage
 
 export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const petAppearance = useAppStore((state) => state.settings.pet.appearance)
