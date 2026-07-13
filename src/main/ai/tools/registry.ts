@@ -2,7 +2,7 @@ import { lstat, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import type { ToolDefinition } from '../provider-adapter'
 import type { TeachingSettingsV1 } from '../../../shared/teaching-types'
-import type { AgentRunStore, AgentOperationRecord } from '../agent-run-store'
+import type { AgentOperationJournal, AgentOperationRecord } from '../agent-operation-journal'
 import { webSearchTool } from './web_search'
 import { webFetchTool } from './web_fetch'
 import { workspaceReadTools, writeWorkspaceFileTool } from './workspace'
@@ -48,7 +48,7 @@ export type ToolContext = {
   workspaceRoot?: string
   requestToolPermission?: ToolPermissionResolver
   runId?: string
-  operationJournal?: AgentRunStore
+  operationJournal?: ToolOperationJournal | { readonly operations: ToolOperationJournal }
   permissionGrants: ToolRunPermissionGrants
   /** Abort signal for the current agent run. Tools should compose this with their own timeouts. */
   signal?: AbortSignal
@@ -99,6 +99,9 @@ export type ToolCallContext = {
 export type BoundToolHandler = (args: unknown, callCtx?: ToolCallContext) => Promise<string>
 
 export type ToolHandlerMap = Record<string, BoundToolHandler>
+
+/** The narrow tool-execution seam. Registry code cannot reach checkpoint lifecycle methods. */
+export type ToolOperationJournal = Pick<AgentOperationJournal, 'startOperation' | 'completeOperation' | 'failOperation'>
 
 export type ToolEntry = {
   definition: ToolDefinition
@@ -164,13 +167,14 @@ export class ToolRegistry {
             }, null, 2)
           }
         }
-        if (permission?.kind !== 'workspace_write' || !ctx.operationJournal || !ctx.runId || !callCtx?.toolCallId) {
+        const operationJournal = resolveOperationJournal(ctx.operationJournal)
+        if (permission?.kind !== 'workspace_write' || !operationJournal || !ctx.runId || !callCtx?.toolCallId) {
           return entry.handler(args, ctx, callCtx)
         }
         const normalizedTarget = request?.kind === 'workspace_write'
           ? await workspaceRelativePointer(ctx, request.targetPath)
           : undefined
-        const started = await ctx.operationJournal.startOperation({
+        const started = await operationJournal.startOperation({
           runId: ctx.runId,
           toolCallId: callCtx.toolCallId,
           toolName: name,
@@ -190,19 +194,26 @@ export class ToolRegistry {
         try {
           const result = await entry.handler(args, ctx, callCtx)
           const artifactPointer = await resultArtifactPointer(result, ctx) ?? started.record.artifactPointer
-          const completed = await ctx.operationJournal.completeOperation(
+          const completed = await operationJournal.completeOperation(
             artifactPointer ? { ...started.record, artifactPointer } : started.record,
             result
           )
           return decorateOperationResult(result, completed, 'first_execution')
         } catch (error) {
-          await ctx.operationJournal.failOperation(started.record, error, Boolean(callCtx.signal?.aborted || ctx.signal?.aborted))
+          await operationJournal.failOperation(started.record, error, Boolean(callCtx.signal?.aborted || ctx.signal?.aborted))
           throw error
         }
       }
     }
     return out
   }
+}
+
+function resolveOperationJournal(
+  source: ToolContext['operationJournal']
+): ToolOperationJournal | undefined {
+  if (!source) return undefined
+  return 'operations' in source ? source.operations : source
 }
 
 export function buildToolContext(
@@ -212,7 +223,7 @@ export function buildToolContext(
     requestToolPermission?: ToolPermissionResolver
     signal?: AbortSignal
     runId?: string
-    operationJournal?: AgentRunStore
+    operationJournal?: ToolOperationJournal | { readonly operations: ToolOperationJournal }
     permissionGrants?: ToolRunPermissionGrants
   } = {}
 ): ToolContext {

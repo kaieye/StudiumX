@@ -42,7 +42,7 @@ try {
   const handlersA = registry.handlerMap(buildToolContext(settings, {
     workspaceRoot: root,
     runId: 'run-a',
-    operationJournal: store
+    operationJournal: store.operations
   }))
   const call = { toolCallId: 'same-call', toolName: 'journal_write', runId: 'run-a' }
   const first = JSON.parse(await handlersA.journal_write({}, call))
@@ -53,10 +53,21 @@ try {
   assert.equal(executions, 1)
   assert.equal(await readFile(join(root, 'notes', 'idempotent.md'), 'utf8'), 'execution=1\n')
 
+  // A fresh process must make the same decision from the v1 journal record, not from memory.
+  const restartedStore = new AgentRunStore(root)
+  const restartedHandlers = registry.handlerMap(buildToolContext(settings, {
+    workspaceRoot: root,
+    runId: 'run-a',
+    operationJournal: restartedStore.operations
+  }))
+  const afterRestart = JSON.parse(await restartedHandlers.journal_write({}, call))
+  assert.equal(afterRestart.operation.disposition, 'idempotent_reuse')
+  assert.equal(executions, 1, 'a recovered completed write must never execute twice')
+
   const handlersB = registry.handlerMap(buildToolContext(settings, {
     workspaceRoot: root,
     runId: 'run-b',
-    operationJournal: store
+    operationJournal: store.operations
   }))
   const third = JSON.parse(await handlersB.journal_write({}, {
     toolCallId: 'same-call',
@@ -66,7 +77,7 @@ try {
   assert.equal(third.operation.disposition, 'first_execution')
   assert.equal(executions, 2, 'a new run must receive a distinct operation id')
 
-  const unknown = await store.startOperation({
+  const unknown = await store.operations.startOperation({
     runId: 'run-a',
     toolCallId: 'started-before-exit',
     toolName: 'journal_write',
@@ -81,30 +92,30 @@ try {
   assert.equal(JSON.parse(reviewed).operation.disposition, 'manual_review')
   assert.equal(executions, 2)
 
-  const large = await store.startOperation({
+  const large = await store.operations.startOperation({
     runId: 'run-a',
     toolCallId: 'large-result',
     toolName: 'journal_write',
     normalizedTarget: 'notes/large.md'
   })
   assert.equal(large.action, 'execute')
-  if (large.action === 'execute') await store.completeOperation(large.record, 'x'.repeat(17 * 1024))
-  assert.equal((await store.startOperation({
+  if (large.action === 'execute') await store.operations.completeOperation(large.record, 'x'.repeat(17 * 1024))
+  assert.equal((await store.operations.startOperation({
     runId: 'run-a',
     toolCallId: 'large-result',
     toolName: 'journal_write',
     normalizedTarget: 'notes/large.md'
   })).action, 'review')
 
-  const failed = await store.startOperation({
+  const failed = await store.operations.startOperation({
     runId: 'run-a',
     toolCallId: 'failed-after-side-effect',
     toolName: 'journal_write',
     normalizedTarget: 'notes/failed.md'
   })
   assert.equal(failed.action, 'execute')
-  if (failed.action === 'execute') await store.failOperation(failed.record, new Error('result delivery failed'))
-  assert.equal((await store.startOperation({
+  if (failed.action === 'execute') await store.operations.failOperation(failed.record, new Error('result delivery failed'))
+  assert.equal((await store.operations.startOperation({
     runId: 'run-a',
     toolCallId: 'failed-after-side-effect',
     toolName: 'journal_write',

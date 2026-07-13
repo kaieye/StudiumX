@@ -13,7 +13,7 @@ const outside = await mkdtemp(join(tmpdir(), 'studiumx-scoped-permissions-outsid
 try {
   await mkdir(join(root, 'notes'), { recursive: true })
   await mkdir(join(root, 'docs'), { recursive: true })
-  await symlink(outside, join(root, 'linked'))
+  const symlinkAvailable = await tryCreateSymlink(outside, join(root, 'linked'))
   const settings = defaultSettings(root)
   settings.tools.workspaceWritePermission = 'ask_each_time'
 
@@ -60,11 +60,13 @@ try {
   assert.match(JSON.parse(await directoryHandlers.scoped_write({ path: 'docs/outside.md' })).error, /outside approved directory/)
   assert.equal(directoryRequests, 2)
 
-  const beforeSymlink = executions
-  const symlinkResult = JSON.parse(await directoryHandlers.scoped_write({ path: 'linked/escape.md' }))
-  assert.match(symlinkResult.error, /符号链接后超出当前工作区/)
-  assert.equal(executions, beforeSymlink)
-  assert.equal(directoryRequests, 2, 'symlink escapes must be rejected before an approval request')
+  if (symlinkAvailable) {
+    const beforeSymlink = executions
+    const symlinkResult = JSON.parse(await directoryHandlers.scoped_write({ path: 'linked/escape.md' }))
+    assert.match(symlinkResult.error, /符号链接后超出当前工作区/)
+    assert.equal(executions, beforeSymlink)
+    assert.equal(directoryRequests, 2, 'symlink escapes must be rejected before an approval request')
+  }
 
   directoryGrants.clear()
   await directoryHandlers.scoped_write({ path: 'notes/after-clear.md' })
@@ -113,7 +115,7 @@ try {
   const readOnlyHandlers = registry.handlerMap(buildToolContext(readOnlySettings, {
     workspaceRoot: root,
     runId: 'read-only-run',
-    operationJournal: store,
+    operationJournal: store.operations,
     requestToolPermission: async () => {
       readOnlyRequests += 1
       return { decision: 'allow_once' }
@@ -128,4 +130,17 @@ try {
 } finally {
   await rm(root, { recursive: true, force: true })
   await rm(outside, { recursive: true, force: true })
+}
+
+async function tryCreateSymlink(target: string, path: string): Promise<boolean> {
+  try {
+    await symlink(target, path)
+    return true
+  } catch (error) {
+    if (process.platform === 'win32' && (error as { code?: unknown }).code === 'EPERM') {
+      console.log('skipping symlink permission assertion: Windows symlink privilege is unavailable')
+      return false
+    }
+    throw error
+  }
 }

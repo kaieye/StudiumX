@@ -28,7 +28,7 @@ try {
     pendingPermissionId: 'permission-1',
     lastDurableSequence: 7
   })
-  const operation = await store.startOperation({
+  const operation = await store.operations.startOperation({
     runId: 'run-permission',
     toolCallId: 'call-write-1',
     toolName: 'write_workspace_file',
@@ -70,8 +70,10 @@ try {
   assert.equal(persistedOperation.state, 'needs_review')
   assert.equal(persistedOperation.disposition, 'manual_review')
   assert.equal(persistedOperation.artifactExists, true)
-  assert.equal((await stat(operationPath)).mode & 0o777, 0o600)
-  assert.equal((await stat(join(root, '.agent-sessions', 'runs', 'run-permission.json'))).mode & 0o777, 0o600)
+  if (process.platform !== 'win32') {
+    assert.equal((await stat(operationPath)).mode & 0o777, 0o600)
+    assert.equal((await stat(join(root, '.agent-sessions', 'runs', 'run-permission.json'))).mode & 0o777, 0o600)
+  }
 
   await restarted.create({
     runId: 'run-ask',
@@ -87,7 +89,7 @@ try {
   assert.equal(askRecovery.some((item) => item.runId === 'run-ask' && item.previousStatus === 'waiting_for_elicitation'), true)
   assert.equal((await secondRestart.readCheckpoint('run-ask')).pendingElicitationId, undefined)
 
-  const failed = await secondRestart.startOperation({
+  const failed = await secondRestart.operations.startOperation({
     runId: 'run-ask',
     toolCallId: 'call-secret',
     toolName: 'write_workspace_file',
@@ -95,7 +97,7 @@ try {
   })
   assert.equal(failed.action, 'execute')
   if (failed.action === 'execute') {
-    await secondRestart.failOperation(failed.record, new Error('Authorization: Bearer super-secret-token'))
+    await secondRestart.operations.failOperation(failed.record, new Error('Authorization: Bearer super-secret-token'))
   }
   const sessionText = (await Promise.all((await readdir(join(root, '.agent-sessions', 'operations', 'run-ask')))
     .filter((name) => name.endsWith('.json'))
@@ -103,6 +105,43 @@ try {
   assert.doesNotMatch(sessionText, /super-secret-token|Bearer super-secret/i)
 
   const runsDirectory = join(root, '.agent-sessions', 'runs')
+  const legacyRunId = 'legacy-v1-run'
+  const legacyOperationId = agentOperationId(legacyRunId, 'legacy-write-call')
+  await mkdir(join(root, '.agent-sessions', 'operations', legacyRunId), { recursive: true })
+  // Hand-authored v1 files simulate state written before this module split. The lifecycle and
+  // journal must preserve the disk schema while still recovering an ambiguous write safely.
+  await writeFile(join(runsDirectory, `${legacyRunId}.json`), JSON.stringify({
+    version: 1,
+    runId: legacyRunId,
+    streamId: legacyRunId,
+    status: 'running',
+    lastDurableSequence: 3,
+    createdAt: '2026-07-01T00:00:00.000Z',
+    updatedAt: '2026-07-01T00:00:01.000Z',
+    operationJournalPointer: `.agent-sessions/operations/${legacyRunId}`,
+    budget: DEFAULT_AGENT_RUN_BUDGET,
+    usage: { providerCalls: 1, toolCalls: 1, toolErrors: 0, iterations: 1, childRuns: 0, durationMs: 12 }
+  }))
+  await writeFile(join(root, '.agent-sessions', 'operations', legacyRunId, `${legacyOperationId}.json`), JSON.stringify({
+    version: 1,
+    operationId: legacyOperationId,
+    runId: legacyRunId,
+    toolCallId: 'legacy-write-call',
+    toolName: 'write_workspace_file',
+    normalizedTarget: 'notes/legacy.md',
+    artifactPointer: 'notes/legacy.md',
+    state: 'started',
+    disposition: 'first_execution',
+    createdAt: '2026-07-01T00:00:00.000Z',
+    updatedAt: '2026-07-01T00:00:01.000Z'
+  }))
+  const legacyRecovery = await new AgentRunStore(root, now).reconcileInterrupted()
+  assert.equal(legacyRecovery.some((item) => item.runId === legacyRunId && item.operationReviewCount === 1), true)
+  assert.equal((await new AgentRunStore(root, now).readCheckpoint(legacyRunId)).status, 'interrupted')
+  const legacyOperation = JSON.parse(await readFile(join(root, '.agent-sessions', 'operations', legacyRunId, `${legacyOperationId}.json`), 'utf8'))
+  assert.equal(legacyOperation.state, 'needs_review')
+  assert.equal(legacyOperation.disposition, 'manual_review')
+
   await writeFile(join(runsDirectory, 'corrupt.json'), '{not-json')
   await writeFile(join(runsDirectory, 'unknown.json'), JSON.stringify({ version: 99, extra: 'prompt text must not load' }))
   const invalidBudget = JSON.parse(await readFile(join(runsDirectory, 'run-ask.json'), 'utf8'))
@@ -122,7 +161,7 @@ try {
   assert.equal(normalizeSettings({ tools: { workspaceWritePermission: 'allow_for_conversation' } }, root).tools.workspaceWritePermission, 'allow_for_conversation')
 
   await assert.rejects(
-    secondRestart.startOperation({
+    secondRestart.operations.startOperation({
       runId: 'run-ask',
       toolCallId: 'unsafe-pointer',
       toolName: 'write_workspace_file',
@@ -138,7 +177,7 @@ try {
       streamId: 'run-artifact-symlink',
       budget: DEFAULT_AGENT_RUN_BUDGET
     })
-    const symlinkArtifact = await secondRestart.startOperation({
+    const symlinkArtifact = await secondRestart.operations.startOperation({
       runId: 'run-artifact-symlink',
       toolCallId: 'call-artifact-symlink',
       toolName: 'write_workspace_file',
@@ -147,19 +186,21 @@ try {
     })
     assert.equal(symlinkArtifact.action, 'execute')
     await writeFile(join(artifactOutside, 'outside.md'), 'outside workspace\n')
-    await symlink(artifactOutside, join(root, 'linked'))
-    const artifactRecovery = await new AgentRunStore(root, now).reconcileInterrupted()
-    assert.equal(artifactRecovery.some((item) => item.runId === 'run-artifact-symlink'), true)
-    if (symlinkArtifact.action === 'execute') {
-      const recoveredOperation = JSON.parse(await readFile(join(
-        root,
-        '.agent-sessions',
-        'operations',
-        'run-artifact-symlink',
-        `${symlinkArtifact.record.operationId}.json`
-      ), 'utf8'))
-      assert.equal(recoveredOperation.state, 'needs_review')
-      assert.equal(recoveredOperation.artifactExists, undefined, 'symlink escapes must not be probed outside the workspace')
+    const linked = await tryCreateSymlink(artifactOutside, join(root, 'linked'))
+    if (linked) {
+      const artifactRecovery = await new AgentRunStore(root, now).reconcileInterrupted()
+      assert.equal(artifactRecovery.some((item) => item.runId === 'run-artifact-symlink'), true)
+      if (symlinkArtifact.action === 'execute') {
+        const recoveredOperation = JSON.parse(await readFile(join(
+          root,
+          '.agent-sessions',
+          'operations',
+          'run-artifact-symlink',
+          `${symlinkArtifact.record.operationId}.json`
+        ), 'utf8'))
+        assert.equal(recoveredOperation.state, 'needs_review')
+        assert.equal(recoveredOperation.artifactExists, undefined, 'symlink escapes must not be probed outside the workspace')
+      }
     }
   } finally {
     await rm(artifactOutside, { recursive: true, force: true })
@@ -168,15 +209,16 @@ try {
   const symlinkRoot = await mkdtemp(join(tmpdir(), 'studiumx-agent-run-store-symlink-'))
   const symlinkOutside = await mkdtemp(join(tmpdir(), 'studiumx-agent-run-store-outside-'))
   try {
-    await symlink(symlinkOutside, join(symlinkRoot, '.agent-sessions'))
-    await assert.rejects(
-      new AgentRunStore(symlinkRoot).create({
-        runId: 'escaped-run',
-        streamId: 'escaped-run',
-        budget: DEFAULT_AGENT_RUN_BUDGET
-      }),
-      /escapes storage root through a symlink/
-    )
+    if (await tryCreateSymlink(symlinkOutside, join(symlinkRoot, '.agent-sessions'))) {
+      await assert.rejects(
+        new AgentRunStore(symlinkRoot).create({
+          runId: 'escaped-run',
+          streamId: 'escaped-run',
+          budget: DEFAULT_AGENT_RUN_BUDGET
+        }),
+        /escapes storage root through a symlink/
+      )
+    }
   } finally {
     await rm(symlinkRoot, { recursive: true, force: true })
     await rm(symlinkOutside, { recursive: true, force: true })
@@ -185,4 +227,17 @@ try {
   console.log('agent run recovery and migration boundaries ok')
 } finally {
   await rm(root, { recursive: true, force: true })
+}
+
+async function tryCreateSymlink(target: string, path: string): Promise<boolean> {
+  try {
+    await symlink(target, path)
+    return true
+  } catch (error) {
+    if (process.platform === 'win32' && (error as { code?: unknown }).code === 'EPERM') {
+      console.log('skipping symlink containment assertion: Windows symlink privilege is unavailable')
+      return false
+    }
+    throw error
+  }
 }
