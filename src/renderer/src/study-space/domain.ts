@@ -2,7 +2,6 @@ import type { WorkspaceView } from '../../../shared/teaching-types'
 import {
   LEGACY_STUDY_SPACE_SESSION_CLIENT_KEY,
   LEGACY_STUDY_SPACE_STORAGE_KEY,
-  STUDY_DAY_MS,
   STUDY_PRESENCE_BROKER_URL,
   STUDY_PRESENCE_CLIENT_PREFIX,
   STUDY_PRESENCE_RELAY_URLS,
@@ -73,7 +72,21 @@ export function getStudyRoomCycle(room: typeof studyRooms[number], nowMs = Date.
 }
 
 export function todayKey(date = new Date()): string {
-  return date.toISOString().slice(0, 10)
+  return [
+    String(date.getFullYear()).padStart(4, '0'),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-')
+}
+
+function previousLocalDateKey(localDate: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(localDate)
+  if (!match) return null
+  const value = new Date(0)
+  value.setHours(12, 0, 0, 0)
+  value.setFullYear(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  value.setDate(value.getDate() - 1)
+  return todayKey(value)
 }
 
 export function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
@@ -528,9 +541,15 @@ export function studyVerificationUrl(inviteUrl: string): string {
   }
 }
 
+export function nextStudyStreakForDate(
+  lastStudyDate: string,
+  currentStreak: number,
+  localStudyDate: string
+): number {
+  if (lastStudyDate === localStudyDate) return currentStreak || 1
+  return lastStudyDate === previousLocalDateKey(localStudyDate) ? currentStreak + 1 : 1
+}
+
 export function nextStudyStreak(lastStudyDate: string, currentStreak: number, now = new Date()): number {
-  const today = todayKey(now)
-  if (lastStudyDate === today) return currentStreak || 1
-  const yesterday = new Date(now.getTime() - STUDY_DAY_MS).toISOString().slice(0, 10)
-  return lastStudyDate === yesterday ? currentStreak + 1 : 1
+  return nextStudyStreakForDate(lastStudyDate, currentStreak, todayKey(now))
 }
