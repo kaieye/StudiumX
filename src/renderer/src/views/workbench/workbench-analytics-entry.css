@@ -1,3 +1,5 @@
+@import "./workbench-leaderboard-pill.css";
+
 .office-workbench-stage {
   --workbench-analytics-fab-inline-inset: clamp(12px, 3vw, 32px);
   --workbench-analytics-fab-block-inset: clamp(12px, 3vh, 28px);
