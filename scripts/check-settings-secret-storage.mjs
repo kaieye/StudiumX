@@ -1,5 +1,6 @@
+import assert from 'node:assert/strict'
 import { build } from 'esbuild'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -20,6 +21,12 @@ try {
     logLevel: 'silent'
   })
   await import(pathToFileURL(outfile).href)
+
+  const schema = await readFile('src/shared/teaching-settings-schema.ts', 'utf8')
+  assert.doesNotMatch(schema, /safeStorage:v1:|encryptString|decryptString/)
+  const mainSettings = await readFile('src/main/teaching-settings.ts', 'utf8')
+  assert.match(mainSettings, /function encodeSettingsSecrets/)
+  assert.match(mainSettings, /function decodeSettingsSecrets/)
 } finally {
   await rm(tempRoot, { recursive: true, force: true })
 }

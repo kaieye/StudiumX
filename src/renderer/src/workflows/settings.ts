@@ -16,17 +16,15 @@ import {
 } from 'lucide-react'
 import i18n from '../i18n'
 import {
-  DEFAULT_LESSON_STYLE_ID
-} from '../../../shared/lesson-styles'
+  createTeachingSettingsDefaults,
+  normalizeTeachingSettings
+} from '../../../shared/teaching-settings-schema'
 import {
   modelReasoningEffortsForProviderModel
 } from '../../../shared/model-provider-catalog'
 import {
-  DEFAULT_PET_APPEARANCE_ID,
   PARALLEL_SEARCH_MODES,
-  TEACHING_MODEL_PROVIDER_PRESETS,
   WEB_SEARCH_BACKENDS,
-  normalizePetAppearanceId,
   WORKSPACE_WRITE_PERMISSION_POLICIES,
   type ModelReasoningEffort,
   type SettingsSection,
@@ -41,175 +39,11 @@ import {
   toolsSupportedForFormat
 } from '../../../shared/provider-format'
 
-export const emptySettings: TeachingSettingsV1 = {
-  version: 1,
-  locale: 'zh-CN',
-  theme: 'system',
-  uiFontScale: 1,
-  density: 'comfortable',
-  provider: {
-    activeProviderId: 'deepseek',
-    providers: TEACHING_MODEL_PROVIDER_PRESETS.map((preset) => ({ ...preset, apiKey: '' })),
-    proxy: {
-      enabled: false,
-      url: ''
-    }
-  },
-  generator: {
-    providerId: 'deepseek',
-    model: 'deepseek-v4-flash',
-    endpointFormat: 'chat_completions',
-    temperature: 0.4,
-    maxOutputTokens: 4096,
-    lessonDurationMinutes: 15,
-    includeRetrievalPractice: true,
-    generateReference: true,
-    generateLearningRecord: true,
-    structuredOutput: true,
-    streaming: false,
-    reasoningEffort: 'auto',
-    requestTimeoutMs: 60_000
-  },
-  workspace: {
-    defaultRoot: '',
-    confirmBeforeGenerating: false,
-    autoOpenGeneratedLesson: false,
-    showAllCourseFiles: false,
-    lessonStyleId: DEFAULT_LESSON_STYLE_ID
-  },
-  worktree: {
-    rootPath: ''
-  },
-  memory: {
-    enabled: true,
-    maxInjected: 4
-  },
-  tools: {
-    enabled: false,
-    workspaceRead: true,
-    workspaceWritePermission: 'ask_each_time',
-    webSearch: true,
-    webFetch: false,
-    maxIterations: 8,
-    runBudget: {
-      maxDurationMs: 120_000,
-      maxProviderCalls: 16,
-      maxToolCalls: 32,
-      maxTotalTokens: 200_000,
-      warningThreshold: 0.8
-    }
-  },
-  webSearch: {
-    backend: 'auto',
-    fallbackEnabled: true,
-    maxResults: 5,
-    searxngUrl: '',
-    braveApiKey: '',
-    firecrawlApiKey: '',
-    firecrawlApiUrl: '',
-    tavilyApiKey: '',
-    exaApiKey: '',
-    parallelApiKey: '',
-    parallelSearchMode: 'agentic',
-    xaiApiKey: '',
-    xaiModel: 'grok-4.3'
-  },
-  notifications: {
-    enabled: true,
-    lessonGenerated: true,
-    workspaceImported: true,
-    errors: true
-  },
-  pet: {
-    enabled: true,
-    displayName: 'Boba',
-    showStatusBubble: true,
-    appearance: DEFAULT_PET_APPEARANCE_ID
-  },
-  privacy: {
-    maskApiKeys: true,
-    allowExternalLinks: true
-  },
-  appBehavior: {
-    openAtLogin: false,
-    startMinimized: false,
-    closeAction: 'quit',
-    closeToTray: false
-  },
-  log: {
-    enabled: true,
-    retentionDays: 14
-  }
-}
+export const emptySettings = createTeachingSettingsDefaults('')
 
+/** Renderer compatibility wrapper over the shared schema. */
 export function normalizeRendererSettings(input: TeachingSettingsPatch | TeachingSettingsV1 | null | undefined): TeachingSettingsV1 {
-  const settings = input ?? {}
-
-  return {
-    ...emptySettings,
-    ...settings,
-    provider: {
-      ...emptySettings.provider,
-      ...(settings.provider ?? {}),
-      proxy: {
-        ...emptySettings.provider.proxy,
-        ...(settings.provider?.proxy ?? {})
-      },
-      providers:
-        Array.isArray(settings.provider?.providers) && settings.provider.providers.length > 0
-          ? settings.provider.providers
-          : emptySettings.provider.providers
-    },
-    generator: {
-      ...emptySettings.generator,
-      ...(settings.generator ?? {})
-    },
-    workspace: {
-      ...emptySettings.workspace,
-      ...(settings.workspace ?? {})
-    },
-    worktree: {
-      ...emptySettings.worktree,
-      ...(settings.worktree ?? {})
-    },
-    memory: {
-      ...emptySettings.memory,
-      ...(settings.memory ?? {})
-    },
-    tools: {
-      ...emptySettings.tools,
-      ...(settings.tools ?? {}),
-      runBudget: {
-        ...emptySettings.tools.runBudget,
-        ...(settings.tools?.runBudget ?? {})
-      }
-    },
-    webSearch: {
-      ...emptySettings.webSearch,
-      ...(settings.webSearch ?? {})
-    },
-    notifications: {
-      ...emptySettings.notifications,
-      ...(settings.notifications ?? {})
-    },
-    pet: {
-      ...emptySettings.pet,
-      ...(settings.pet ?? {}),
-      appearance: normalizePetAppearanceId(settings.pet?.appearance, emptySettings.pet.appearance)
-    },
-    privacy: {
-      ...emptySettings.privacy,
-      ...(settings.privacy ?? {})
-    },
-    appBehavior: {
-      ...emptySettings.appBehavior,
-      ...(settings.appBehavior ?? {})
-    },
-    log: {
-      ...emptySettings.log,
-      ...(settings.log ?? {})
-    }
-  }
+  return normalizeTeachingSettings(input, '')
 }
 
 export const settingsNavItems = [
