@@ -103,6 +103,7 @@ import {
   summarizeWorkspaceChanges
 } from './teaching-workspace-changes'
 import { TeachingWorkspaceChangeHistoryStore } from './teaching-workspace-change-history'
+import type { AnalyticsWorkspaceScanResult } from './teaching/services/learning-analytics'
 import { buildConnectorStatuses } from './connector-status'
 import type {
   ApplyLessonStylePayload,
@@ -303,6 +304,35 @@ export class TeachingWorkspaceService {
   } = {}): Promise<TeachingAppState> {
     const registry = await this.ensureRegistry()
     return this.buildState(registry, options.activeWorkspaceId, options.selectedLessonPath)
+  }
+
+
+  async listWorkspaceSummariesForAnalytics(): Promise<AnalyticsWorkspaceScanResult[]> {
+    const registry = await this.ensureRegistry()
+    const visible = visibleRegistryWorkspaces(orderRegistryWorkspaces(registry.workspaces))
+    return Promise.all(visible.map(async (workspace) => {
+      try {
+        return {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          rootPath: workspace.rootPath,
+          summary: await this.summarizeWorkspace(workspace)
+        }
+      } catch {
+        return {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          rootPath: workspace.rootPath,
+          error: 'workspace_scan_failed'
+        }
+      }
+    }))
+  }
+
+  async listWorkspaceChangesForAnalytics(
+    workspaceId: string
+  ): Promise<TeachingWorkspaceChangeSummary[]> {
+    return this.changeHistory.list(workspaceId)
   }
 
   async reconcileInterruptedAgentRuns(): Promise<InterruptedAgentRun[]> {

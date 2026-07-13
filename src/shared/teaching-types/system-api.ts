@@ -69,10 +69,21 @@ import type {
 } from './workspace'
 import type { TeachingSettingsPatch, TeachingSettingsV1 } from './settings'
 import type { SkillCatalogResult, SkillSummary } from './skill'
+import type {
+  AnalyticsExportRequest,
+  AnalyticsExportResult,
+  ClearAnalyticsRequest,
+  ClearAnalyticsResult,
+  LearningAnalyticsBundle,
+  LearningAnalyticsQuery
+} from './analytics'
 
 export type TeachingSystemApi = {
   platform: NodeJS.Platform
   getState: () => Promise<TeachingAppState>
+  getLearningAnalytics: (query: LearningAnalyticsQuery) => Promise<LearningAnalyticsBundle>
+  exportLearningAnalytics: (request: AnalyticsExportRequest) => Promise<AnalyticsExportResult>
+  clearLearningAnalytics: (request: ClearAnalyticsRequest) => Promise<ClearAnalyticsResult>
   getSettings: () => Promise<TeachingSettingsV1>
   updateSettings: (patch: TeachingSettingsPatch) => Promise<TeachingSettingsV1>
   selectWorkspace: (workspaceId: string) => Promise<TeachingAppState>

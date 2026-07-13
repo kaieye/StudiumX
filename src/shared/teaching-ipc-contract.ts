@@ -16,6 +16,9 @@ export type TeachingEventChannel =
 
 export const teachingInvokeChannels = {
   getState: 'teach:get-state',
+  getLearningAnalytics: 'teach:get-learning-analytics',
+  exportLearningAnalytics: 'teach:export-learning-analytics',
+  clearLearningAnalytics: 'teach:clear-learning-analytics',
   getSettings: 'teach:get-settings',
   updateSettings: 'teach:update-settings',
   selectWorkspace: 'teach:select-workspace',
