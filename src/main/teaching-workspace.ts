@@ -9,6 +9,7 @@ import {
   buildCourseSummaries,
   buildWorkspaceCatalog
 } from './teaching-workspace-catalog'
+import { planLessonIndexReconciliation } from './teaching-workspace/catalog-reconciliation'
 import { runLessonGenerationPipeline, type LessonGenerationCallbacks } from './teaching-lesson-generation'
 import {
   cleanText,
@@ -1022,10 +1023,22 @@ export class TeachingWorkspaceService {
     const index = await this.loadWorkspaceIndex(workspace)
     const pathMeta = index.pathMeta ?? {}
     await this.ensureWorkspaceStructure(workspace, pathMeta)
-    const { lessonIndexChanged, ...catalog } = await buildWorkspaceCatalog(workspace, index)
-    if (lessonIndexChanged) {
-      await this.saveWorkspaceIndex(workspace.rootPath, { ...index, lessons: catalog.lessons, updatedAt: new Date().toISOString() })
+    const lessonIndexPlan = await planLessonIndexReconciliation({
+      rootPath: workspace.rootPath,
+      workspaceName: workspace.name,
+      lessons: index.lessons
+    })
+    if (lessonIndexPlan.requiresPersist) {
+      await this.saveWorkspaceIndex(workspace.rootPath, {
+        ...index,
+        lessons: lessonIndexPlan.lessons,
+        updatedAt: new Date().toISOString()
+      })
     }
+    const catalog = await buildWorkspaceCatalog(workspace, {
+      lessons: lessonIndexPlan.lessons,
+      pathMeta
+    })
     return {
       id: workspace.id,
       name: workspace.name,

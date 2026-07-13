@@ -1,5 +1,5 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { basename, join } from 'node:path'
 import { listAgentConversations, sortAgentConversationSummaries } from './teaching-agent-conversations'
 import {
   cleanText,
@@ -41,7 +41,7 @@ export type WorkspaceCatalogWorkspace = {
   rootPath: string
 }
 
-export type WorkspaceCatalogIndex = {
+export type WorkspaceCatalogSource = {
   lessons: LessonSummary[]
   pathMeta?: Record<string, WorkspacePathMeta>
 }
@@ -66,17 +66,13 @@ export type WorkspaceCatalogSummary = Pick<
   | 'assetsReady'
 >
 
-export type WorkspaceCatalogResult = WorkspaceCatalogSummary & {
-  lessonIndexChanged: boolean
-}
-
 export async function buildWorkspaceCatalog(
   workspace: WorkspaceCatalogWorkspace,
-  index: WorkspaceCatalogIndex
-): Promise<WorkspaceCatalogResult> {
-  const pathMeta = index.pathMeta ?? {}
+  source: WorkspaceCatalogSource
+): Promise<WorkspaceCatalogSummary> {
+  const pathMeta = source.pathMeta ?? {}
   const mission = await readMissionSummary(workspace.rootPath, workspace.name)
-  const lessons = await mergeLessonIndexWithDisk(workspace.rootPath, workspace.name, index.lessons, pathMeta)
+  const lessons = presentLessonSummaries(source.lessons, pathMeta)
   const conversations = await listAgentConversations(
     workspace.rootPath,
     pathMeta,
@@ -88,9 +84,9 @@ export async function buildWorkspaceCatalog(
     missionPath: join(workspace.rootPath, 'MISSION.md'),
     resourcesPath: join(workspace.rootPath, 'RESOURCES.md'),
     lessonsDir: join(workspace.rootPath, 'lessons'),
-    recordsDir: join(workspace.rootPath, 'lessons'),
-    referenceDir: join(workspace.rootPath, 'lessons'),
-    reviewsDir: join(workspace.rootPath, 'lessons'),
+    recordsDir: join(workspace.rootPath, 'learning-records'),
+    referenceDir: join(workspace.rootPath, 'reference'),
+    reviewsDir: join(workspace.rootPath, 'reviews'),
     missionTitle: mission.title,
     missionExcerpt: mission.excerpt,
     courses,
@@ -100,8 +96,7 @@ export async function buildWorkspaceCatalog(
     records: await readLearningRecords(workspace.rootPath),
     lessons,
     referenceCount: (await collectTeachingFiles(workspace.rootPath, (file) => file.toLowerCase().endsWith('-reference.html'))).length,
-    assetsReady: await fileExists(join(workspace.rootPath, 'assets', 'lesson.css')),
-    lessonIndexChanged: lessons.length !== index.lessons.length
+    assetsReady: await fileExists(join(workspace.rootPath, 'assets', 'lesson.css'))
   }
 }
 
@@ -153,7 +148,7 @@ export function buildCourseSummaries(
     ensureCourse(DEFAULT_COURSE_RELATIVE_PATH)
   }
   for (const lesson of lessons) {
-    if (isPathArchived(pathMeta, lesson.courseRelativePath)) continue
+    if (isPathArchived(pathMeta, lesson.relativePath) || isPathArchived(pathMeta, lesson.courseRelativePath)) continue
     ensureCourse(lesson.courseRelativePath).sessions.push({
       id: lesson.sessionId,
       name: lesson.sessionName,
@@ -233,46 +228,11 @@ function isFilenameDerivedSessionName(value: string, filenameSessionName: string
   )
 }
 
-async function mergeLessonIndexWithDisk(
-  rootPath: string,
-  workspaceName: string,
-  indexedLessons: LessonSummary[],
-  pathMeta: Record<string, WorkspacePathMeta> = {}
-): Promise<LessonSummary[]> {
-  const indexedByPath = new Map(indexedLessons.map((lesson) => [resolve(lesson.absolutePath).toLowerCase(), lesson]))
-  const files = await collectTeachingFiles(rootPath, (filePath) => {
-    const lower = filePath.toLowerCase()
-    if (!lower.endsWith('.html')) return false
-    if (lower.endsWith('-reference.html')) return false
-    return true
-  })
-  return files
-    .map((absolutePath) => {
-      const existing = indexedByPath.get(resolve(absolutePath).toLowerCase())
-      if (existing) return existing
-      const file = basename(absolutePath)
-      const relativePath = toWorkspaceRelativePath(rootPath, absolutePath)
-      const placement = deriveLessonPlacementFromPath(rootPath, workspaceName, absolutePath)
-      const idMatch = /^(\d{4})-/.exec(file)
-      return {
-        id: idMatch?.[1] ?? '0000',
-        title: titleFromFilename(file),
-        objective: '从本地 lesson 文件恢复的课程。',
-        prompt: '',
-        createdAt: new Date(0).toISOString(),
-        durationMinutes: 12,
-        courseId: placement.courseId,
-        courseName: placement.courseName,
-        courseRelativePath: placement.courseRelativePath,
-        courseAbsolutePath: placement.courseAbsolutePath,
-        sessionId: placement.sessionId,
-        sessionName: placement.sessionName,
-        sessionRelativePath: placement.sessionRelativePath,
-        sessionAbsolutePath: placement.sessionAbsolutePath,
-        relativePath,
-        absolutePath
-      } satisfies LessonSummary
-    })
+function presentLessonSummaries(
+  lessons: LessonSummary[],
+  pathMeta: Record<string, WorkspacePathMeta>
+): LessonSummary[] {
+  return lessons
     .map((lesson) => ({ ...lesson, pinned: Boolean(pathMeta[lesson.relativePath]?.pinned) }))
     .filter((lesson) => !isPathArchived(pathMeta, lesson.relativePath))
     .sort((a, b) => {
