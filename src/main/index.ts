@@ -8,7 +8,7 @@ import { LearningAnalyticsService } from './teaching/services/learning-analytics
 import { registerTeachingIpcGateway } from './teaching-ipc-gateway'
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
-import { copyFirstExistingLegacyFileIfMissing, legacyUserDataCandidatePaths } from './app-data-migration'
+import { createAppDataMigrationPlan } from './app-data-migration-plan'
 import { openExternalHttpUrl } from './external-links'
 import { LEGACY_PREVIEW_PROTOCOL, PREVIEW_PROTOCOL } from '../shared/preview-markdown-bridge'
 import type { TeachingSettingsV1 } from '../shared/teaching-types'
@@ -17,10 +17,6 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL)
 const APP_NAME = 'StudiumX'
-const REGISTRY_FILE_NAME = 'studiumx-workspaces.json'
-const LEGACY_REGISTRY_FILE_NAME = 'teachos-workspaces.json'
-const SETTINGS_FILE_NAME = 'studiumx-settings.json'
-const LEGACY_SETTINGS_FILE_NAME = 'teachos-settings.json'
 
 let logger: Logger
 let tray: TrayManager
@@ -203,16 +199,9 @@ if (!hasSingleInstanceLock) {
     const appDataPath = app.getPath('appData')
     const userDataPath = app.getPath('userData')
     const defaultRoot = join(app.getPath('documents'), `${APP_NAME} Workspaces`)
-    const registryPath = join(userDataPath, REGISTRY_FILE_NAME)
-    const legacyUserDataPaths = legacyUserDataCandidatePaths(appDataPath, userDataPath)
-    await copyFirstExistingLegacyFileIfMissing(registryPath, [
-      join(userDataPath, LEGACY_REGISTRY_FILE_NAME),
-      ...legacyUserDataPaths.map((path) => join(path, LEGACY_REGISTRY_FILE_NAME))
-    ])
-    await copyFirstExistingLegacyFileIfMissing(join(userDataPath, SETTINGS_FILE_NAME), [
-      join(userDataPath, LEGACY_SETTINGS_FILE_NAME),
-      ...legacyUserDataPaths.map((path) => join(path, LEGACY_SETTINGS_FILE_NAME))
-    ])
+    const appDataMigration = createAppDataMigrationPlan({ appDataPath, userDataPath })
+    await appDataMigration.apply()
+    const { registryPath } = appDataMigration
 
     const settingsService = new TeachingSettingsService({
       userDataPath,
