@@ -14,6 +14,7 @@ import enUS from './locales/en-US.json'
  * the `useTranslation()` hook so they re-render on language change.
  */
 void i18n.use(initReactI18next).init({
+  lng: 'zh-CN',
   fallbackLng: 'en-US',
   supportedLngs: ['zh-CN', 'en-US'],
   resources: {

@@ -1277,7 +1277,7 @@
     box-shadow 160ms ease;
 }
 
-.workbench-tools button:active {
+.workbench-tools button:not(.workbench-disclosure-toggle):active {
   transform: scale(0.97);
 }
 
@@ -2107,7 +2107,7 @@
 }
 
 @media (hover: hover) {
-  .workbench-tools button:hover {
+  .workbench-tools button:not(.workbench-disclosure-toggle):hover {
     transform: translateY(-1px);
   }
 
@@ -2320,7 +2320,7 @@
     inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
-.workbench-tools button:active,
+.workbench-tools button:not(.workbench-disclosure-toggle):active,
 .workbench-task-row:active {
   transform: scale(0.965);
   filter: brightness(1.04);
@@ -2328,8 +2328,6 @@
 
 @media (hover: hover) {
   .workbench-room-switcher:hover,
-  .workbench-pomodoro-card:hover,
-  .workbench-task-card:hover,
   .workbench-tools .workbench-leaderboard-toggle:hover {
     border-color: var(--liquid-glass-rim, rgba(255, 255, 255, 0.7));
     box-shadow:
@@ -4722,6 +4720,12 @@
   display: inline-flex;
   align-items: center;
   min-width: 0;
+  transition: none;
+}
+
+.workbench-disclosure-toggle strong,
+.workbench-disclosure-toggle svg {
+  transition: none;
 }
 
 .workbench-disclosure-meta {
@@ -4752,23 +4756,6 @@
   outline: 3px solid rgba(var(--pomodoro-accent-rgb, 0, 122, 255), 0.28);
   outline-offset: 4px;
   border-radius: 999px;
-}
-
-@media (hover: hover) {
-  /* Match the leaderboard's restrained hover feedback without adding motion. */
-  .office-workbench-stage > .workbench-disclosure-card:hover,
-  .office-workbench-stage .workbench-tools > .workbench-disclosure-card:hover {
-    border-color: var(--liquid-glass-rim, rgba(255, 255, 255, 0.72));
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.64),
-      0 0 0 5px rgba(255, 255, 255, 0.18),
-      0 30px 80px rgba(20, 47, 95, 0.22),
-      0 9px 28px rgba(20, 47, 95, 0.12),
-      inset 0 1px 0 rgba(255, 255, 255, 0.88),
-      inset 0 -1px 0 rgba(20, 47, 95, 0.07);
-    filter: brightness(1.045);
-    transform: none;
-  }
 }
 
 /* Use the leaderboard's explicit-height reveal for both right-side cards. */

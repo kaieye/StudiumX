@@ -544,6 +544,24 @@ export function appendStudyAnalyticsFacts(
 }
 
 /** Ledger notifications occur only for fact/store changes, never for the timer's one-second UI tick. */
+/** Clears only the renderer-owned personal activity ledger for one learner. */
+export function clearStudyAnalyticsStore(
+  clientId: string,
+  options: Pick<ReadStudyAnalyticsStoreOptions, 'storage' | 'localToday'> = {}
+): boolean {
+  const storage = options.storage === undefined ? browserStorage() : options.storage
+  if (!storage) return true
+  const key = analyticsStorageKey(clientId)
+  try {
+    storage.removeItem(key)
+    cacheFor(storage).delete(key)
+    emitStudyAnalyticsChanged(clientId)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function subscribeStudyAnalyticsStore(clientId: string, listener: () => void): () => void {
   if (typeof window === 'undefined') return () => undefined
   const key = analyticsStorageKey(clientId)

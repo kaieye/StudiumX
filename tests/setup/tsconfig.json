@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "types": ["node", "vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": [
+    "../../vitest.config.ts",
+    "../../playwright.config.ts",
+    "../setup/**/*.ts",
+    "../helpers/**/*.ts",
+    "../helpers/**/*.tsx",
+    "../smoke/**/*.ts",
+    "../smoke/**/*.tsx",
+    "../e2e/**/*.ts",
+    "../visual/**/*.ts"
+  ]
+}

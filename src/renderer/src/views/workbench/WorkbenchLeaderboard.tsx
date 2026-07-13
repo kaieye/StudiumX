@@ -1,6 +1,6 @@
 import { Trophy } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { formatStudyHours, studySignalShortLabel } from '../../study-space/domain'
+import { formatStudyHours } from '../../study-space/domain'
 import type { StudyPresenceStatus } from '../../study-space/types'
 import type { StudyRoomMember } from '../../study-space/viewModel'
 import { WorkbenchRoomSwitcher } from './WorkbenchRoomSwitcher'
@@ -94,13 +94,9 @@ export function WorkbenchLeaderboard({
         <div className="workbench-leaderboard-reveal-inner">
           <section id="workbench-leaderboard-panel" className="workbench-leaderboard-panel" aria-label="自习室榜单明细">
             <div className="workbench-leaderboard-list">
-              {members.map((member, index) => (
+              {members.map((member) => (
                 <div className={`workbench-leaderboard-row${member.isSelf ? ' is-me' : ''}`} key={member.clientId}>
-                  <span>#{index + 1}</span>
-                  <div>
-                    <strong>{member.nickname}</strong>
-                    <small>{studySignalShortLabel(member.signalId)}{member.isSelf ? ' · 我' : ''}</small>
-                  </div>
+                  <strong>{member.nickname}</strong>
                   <em>{formatStudyHours(member.todayFocusSeconds)}h</em>
                 </div>
               ))}

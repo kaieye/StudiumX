@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { mergePersonalActivityIntoAnalyticsBundle } from './domain/personalAnalyticsAdapter'
+import { subscribeStudyAnalyticsStore } from './domain/activityLedger'
 import type {
   AnalyticsDateRange,
   AnalyticsLocalDate,
@@ -252,6 +254,11 @@ export function useStudyAnalytics({
   queryRef.current = query
 
   useEffect(() => {
+    if (!enabled || client !== teachingSystemAnalyticsClient) return
+    return subscribeStudyAnalyticsStore(query.scope.personalFocus.clientId, requestRefresh)
+  }, [client, enabled, query.scope.personalFocus.clientId])
+
+  useEffect(() => {
     if (!enabled) return
     const controller = new AbortController()
     const sequence = ++requestSequence.current
@@ -278,9 +285,12 @@ export function useStudyAnalytics({
     void client.getLearningAnalytics(queryRef.current, controller.signal).then(
       (bundle) => {
         if (controller.signal.aborted || sequence !== requestSequence.current) return
+        const resolvedBundle = client === teachingSystemAnalyticsClient
+          ? mergePersonalActivityIntoAnalyticsBundle(bundle, queryRef.current)
+          : bundle
         setState({
           phase: 'ready',
-          bundle,
+          bundle: resolvedBundle,
           isRefreshing: false,
           isStale: false,
           issue: null

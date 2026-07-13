@@ -1,11 +1,12 @@
 import { AlertCircle, CircleHelp, RefreshCw } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import type {
   AnalyticsDataState,
   AnalyticsSectionId,
   AnalyticsSectionResult
 } from './types'
-import { analyticsCopy } from './analyticsCopy'
+import { getAnalyticsCopy } from './analyticsCopy'
 
 export type AnalyticsFallbackState = 'loading' | 'unavailable' | 'error'
 
@@ -23,44 +24,42 @@ export type AnalyticsSectionShellProps<T> = {
   children?: (result: Extract<AnalyticsSectionResult<T>, { state: 'available' | 'empty' | 'partial' }>) => ReactNode
 }
 
-function stateLabel(state: AnalyticsDataState | 'loading'): string {
-  return analyticsCopy.states[state]
-}
-
 function AnalyticsCoverageDetails<T>({ result }: { result: AnalyticsSectionResult<T> }) {
+  const { i18n } = useTranslation()
+  const copy = getAnalyticsCopy(i18n.language)
   const { coverage, warnings } = result
   return (
     <details className="analytics-coverage-details">
-      <summary>{analyticsCopy.coverage.summary}</summary>
+      <summary>{copy.coverage.summary}</summary>
       <dl>
         <div>
-          <dt>{analyticsCopy.coverage.requested}</dt>
+          <dt>{copy.coverage.requested}</dt>
           <dd>{coverage.requestedRange.from} — {coverage.requestedRange.to}</dd>
         </div>
         <div>
-          <dt>{analyticsCopy.coverage.effective}</dt>
-          <dd>{coverage.effectiveRange ? `${coverage.effectiveRange.from} — ${coverage.effectiveRange.to}` : analyticsCopy.coverage.noDate}</dd>
+          <dt>{copy.coverage.effective}</dt>
+          <dd>{coverage.effectiveRange ? `${coverage.effectiveRange.from} — ${coverage.effectiveRange.to}` : copy.coverage.noDate}</dd>
         </div>
         <div>
-          <dt>{analyticsCopy.coverage.tracking}</dt>
-          <dd>{coverage.trackingStartedOn ?? analyticsCopy.coverage.noDate}</dd>
+          <dt>{copy.coverage.tracking}</dt>
+          <dd>{coverage.trackingStartedOn ?? copy.coverage.noDate}</dd>
         </div>
         <div>
-          <dt>{analyticsCopy.coverage.dataStart}</dt>
-          <dd>{coverage.dataStartDate ?? analyticsCopy.coverage.noDate}</dd>
+          <dt>{copy.coverage.dataStart}</dt>
+          <dd>{coverage.dataStartDate ?? copy.coverage.noDate}</dd>
         </div>
         <div>
-          <dt>{analyticsCopy.coverage.dataEnd}</dt>
-          <dd>{coverage.dataEndDate ?? analyticsCopy.coverage.noDate}</dd>
+          <dt>{copy.coverage.dataEnd}</dt>
+          <dd>{coverage.dataEndDate ?? copy.coverage.noDate}</dd>
         </div>
         <div>
-          <dt>{analyticsCopy.coverage.complete}</dt>
-          <dd>{coverage.complete ? analyticsCopy.coverage.complete : analyticsCopy.coverage.incomplete}</dd>
+          <dt>{copy.coverage.complete}</dt>
+          <dd>{coverage.complete ? copy.coverage.complete : copy.coverage.incomplete}</dd>
         </div>
       </dl>
       {warnings.length ? (
         <div className="analytics-warning-list">
-          <strong>{analyticsCopy.coverage.warningTitle}</strong>
+          <strong>{copy.coverage.warningTitle}</strong>
           <ul>
             {warnings.map((warning, index) => (
               <li key={`${warning.code}-${index}`} data-severity={warning.severity}>
@@ -100,6 +99,8 @@ export function AnalyticsSectionShell<T>({
   onRetry,
   children
 }: AnalyticsSectionShellProps<T>) {
+  const { i18n } = useTranslation()
+  const copy = getAnalyticsCopy(i18n.language)
   const state = result?.state ?? fallbackState
   const headingId = `analytics-${sectionId.replace('_', '-')}-title`
   const retryVisible = state === 'error' || state === 'partial' || state === 'unavailable'
@@ -119,15 +120,15 @@ export function AnalyticsSectionShell<T>({
         </div>
         <div className="analytics-section-card-actions">
           <span className="analytics-state-chip" data-state={state}>
-            {stateLabel(state)}
+            {copy.states[state]}
           </span>
           {retryVisible ? (
             <button
               type="button"
               className="analytics-icon-button"
               onClick={onRetry}
-              aria-label={`${analyticsCopy.states.sectionRetry}：${title}`}
-              title={analyticsCopy.states.sectionRetry}
+              aria-label={`${copy.states.sectionRetry}：${title}`}
+              title={copy.states.sectionRetry}
             >
               <RefreshCw size={17} aria-hidden="true" />
             </button>
@@ -135,21 +136,21 @@ export function AnalyticsSectionShell<T>({
         </div>
       </div>
 
-      {isStale ? <p className="analytics-inline-notice">{analyticsCopy.page.stale}</p> : null}
+      {isStale ? <p className="analytics-inline-notice">{copy.page.stale}</p> : null}
 
       {!result && fallbackState === 'loading' ? <AnalyticsSectionLoading sectionId={sectionId} /> : null}
       {!result && fallbackState === 'unavailable' ? (
         <div className="analytics-section-message">
           <CircleHelp size={22} aria-hidden="true" />
-          <p>{fallbackMessage ?? analyticsCopy.page.unavailableDetail}</p>
+          <p>{fallbackMessage ?? copy.page.unavailableDetail}</p>
         </div>
       ) : null}
       {!result && fallbackState === 'error' ? (
         <div className="analytics-section-message" role="alert">
           <AlertCircle size={22} aria-hidden="true" />
-          <p>{fallbackMessage ?? analyticsCopy.page.failed}</p>
+          <p>{fallbackMessage ?? copy.page.failed}</p>
           <button type="button" className="analytics-secondary-button" onClick={onRetry}>
-            {analyticsCopy.page.retry}
+            {copy.page.retry}
           </button>
         </div>
       ) : null}
@@ -157,13 +158,13 @@ export function AnalyticsSectionShell<T>({
       {result?.state === 'empty' ? (
         <div className="analytics-section-message">
           <CircleHelp size={22} aria-hidden="true" />
-          <p>{analyticsCopy.states.emptyReasons[result.reason]}</p>
+          <p>{copy.states.emptyReasons[result.reason]}</p>
         </div>
       ) : null}
       {result?.state === 'unavailable' ? (
         <div className="analytics-section-message">
           <CircleHelp size={22} aria-hidden="true" />
-          <p>{analyticsCopy.states.unavailableReasons[result.reason]}</p>
+          <p>{copy.states.unavailableReasons[result.reason]}</p>
         </div>
       ) : null}
       {result?.state === 'error' ? (
@@ -172,7 +173,7 @@ export function AnalyticsSectionShell<T>({
           <p>{result.error.message}</p>
           {result.error.retryable ? (
             <button type="button" className="analytics-secondary-button" onClick={onRetry}>
-              {analyticsCopy.page.retry}
+              {copy.page.retry}
             </button>
           ) : null}
         </div>

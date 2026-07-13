@@ -1,4 +1,4 @@
-import { DoorOpen, Shuffle } from 'lucide-react'
+import { CornerDownLeft, DoorOpen, Shuffle } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 
 type WorkbenchRoomSwitcherProps = {
@@ -37,7 +37,7 @@ export function WorkbenchRoomSwitcher({
           aria-label="加入房间"
           title="加入房间"
         >
-          <span aria-hidden="true">↩︎</span>
+          <CornerDownLeft size={16} aria-hidden="true" />
         </button>
       </form>
 

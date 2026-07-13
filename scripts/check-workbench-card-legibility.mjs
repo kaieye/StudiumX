@@ -123,6 +123,51 @@ try {
     `study-room cards should not cover the desk canvas; overlap area ${result.canvasOverlapArea}px²`
   )
 
+  const collapsedTask = result.cards.at(-1)
+  const taskToggleClicked = await evaluate(cdp, `(() => {
+    const toggle = document.querySelector('.workbench-task-toggle-card')
+    toggle?.click()
+    return Boolean(toggle)
+  })()`)
+  assert.equal(taskToggleClicked, true, 'collapsed task-list toggle should be available')
+  await waitFor(() => evaluate(cdp, `Boolean(document.querySelector('.workbench-task-panel'))`))
+  await new Promise((resolveWait) => setTimeout(resolveWait, 320))
+
+  const expandedTask = await evaluate(cdp, `(() => {
+    const card = document.querySelector('.workbench-task-card')
+    const panel = card.querySelector('.workbench-task-panel')
+    const toggle = card.querySelector('.workbench-task-toggle-card')
+    const cardRect = card.getBoundingClientRect()
+    const panelRect = panel.getBoundingClientRect()
+    const toggleRect = toggle.getBoundingClientRect()
+    return {
+      card: { top: cardRect.top, right: cardRect.right, bottom: cardRect.bottom, left: cardRect.left },
+      panel: { top: panelRect.top, bottom: panelRect.bottom },
+      toggle: { top: toggleRect.top, bottom: toggleRect.bottom },
+      borderRadius: Number.parseFloat(getComputedStyle(card).borderTopLeftRadius),
+      expanded: toggle.getAttribute('aria-expanded')
+    }
+  })()`)
+
+  assert.ok(
+    Math.abs(expandedTask.card.bottom - collapsedTask.bottom) <= 1,
+    `expanded task list should keep its bottom-right anchor; got ${JSON.stringify({ collapsedTask, expandedTask })}`
+  )
+  assert.ok(
+    expandedTask.card.top < collapsedTask.top - 100,
+    `expanded task list should grow upward; got ${JSON.stringify({ collapsedTask, expandedTask })}`
+  )
+  assert.ok(
+    Math.abs((expandedTask.card.right - expandedTask.card.left) - (collapsedTask.right - collapsedTask.left)) <= 1,
+    'expanded task list should keep the collapsed card width'
+  )
+  assert.ok(
+    expandedTask.panel.bottom <= expandedTask.toggle.top - 8,
+    'expanded task panel should stay above the bottom toggle'
+  )
+  assert.equal(expandedTask.borderRadius, 24, 'expanded task list should keep 24px rounded corners')
+  assert.equal(expandedTask.expanded, 'true', 'task-list toggle should expose its expanded state')
+
   console.log('check:workbench-card-legibility passed')
   cdp.close()
 } finally {

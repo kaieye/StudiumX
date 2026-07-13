@@ -1,5 +1,6 @@
 import { CalendarDays } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type {
   AnalyticsDateRange,
   AnalyticsRangePreset,
@@ -10,11 +11,7 @@ import {
   validateCustomAnalyticsRange,
   type AnalyticsCustomRangeDraft
 } from './useStudyAnalytics'
-import {
-  analyticsCopy,
-  customRangeValidationMessage,
-  rangePresetLabel
-} from './analyticsCopy'
+import { getAnalyticsCopy } from './analyticsCopy'
 
 const DISPLAYED_PRESETS: readonly AnalyticsRangePreset[] = [
   'today',
@@ -35,6 +32,8 @@ export function AnalyticsRangeFilter({
   localToday,
   onChange
 }: AnalyticsRangeFilterProps) {
+  const { i18n } = useTranslation()
+  const copy = getAnalyticsCopy(i18n.language)
   const [customOpen, setCustomOpen] = useState(false)
   const [attempted, setAttempted] = useState(false)
   const [draft, setDraft] = useState<AnalyticsCustomRangeDraft>(() => ({
@@ -82,8 +81,8 @@ export function AnalyticsRangeFilter({
 
   return (
     <fieldset className="analytics-filter-group analytics-range-filter">
-      <legend>{analyticsCopy.ranges.legend}</legend>
-      <div className="analytics-segmented-control" aria-label={analyticsCopy.ranges.legend}>
+      <legend>{copy.ranges.legend}</legend>
+      <div className="analytics-segmented-control" aria-label={copy.ranges.legend}>
         {DISPLAYED_PRESETS.map((preset) => (
           <button
             key={preset}
@@ -96,7 +95,7 @@ export function AnalyticsRangeFilter({
             onClick={() => selectPreset(preset)}
           >
             {preset === 'custom' ? <CalendarDays size={17} aria-hidden="true" /> : null}
-            <span>{rangePresetLabel(preset)}</span>
+            <span>{copy.ranges[preset]}</span>
           </button>
         ))}
       </div>
@@ -106,7 +105,7 @@ export function AnalyticsRangeFilter({
           id="analytics-custom-range"
           className="analytics-custom-range"
           role="group"
-          aria-label={analyticsCopy.ranges.customTitle}
+          aria-label={copy.ranges.customTitle}
           onKeyDown={(event) => {
             if (event.key !== 'Escape') return
             event.preventDefault()
@@ -114,7 +113,7 @@ export function AnalyticsRangeFilter({
           }}
         >
           <label>
-            <span>{analyticsCopy.ranges.from}</span>
+            <span>{copy.ranges.from}</span>
             <input
               ref={fromInputRef}
               type="date"
@@ -126,7 +125,7 @@ export function AnalyticsRangeFilter({
             />
           </label>
           <label>
-            <span>{analyticsCopy.ranges.to}</span>
+            <span>{copy.ranges.to}</span>
             <input
               type="date"
               value={draft.to}
@@ -138,15 +137,15 @@ export function AnalyticsRangeFilter({
           </label>
           <div className="analytics-custom-range-actions">
             <button type="button" className="analytics-secondary-button" onClick={closeCustom}>
-              {analyticsCopy.ranges.cancel}
+              {copy.ranges.cancel}
             </button>
             <button type="button" className="analytics-primary-button" onClick={applyCustom}>
-              {analyticsCopy.ranges.apply}
+              {copy.ranges.apply}
             </button>
           </div>
           {attempted && !validation.valid ? (
             <p id={validationMessageId} className="analytics-field-error" role="alert">
-              {customRangeValidationMessage(validation)}
+              {validation.valid ? '' : copy.ranges.errors[validation.code]}
             </p>
           ) : null}
         </div>
@@ -170,31 +169,33 @@ export function AnalyticsTeachingScopeFilter({
   presenceSpaceCode,
   onChange
 }: AnalyticsTeachingScopeFilterProps) {
+  const { i18n } = useTranslation()
+  const copy = getAnalyticsCopy(i18n.language)
   const hasWorkspaces = workspaces.length > 0
   const allWorkspaceIds = workspaces.map((workspace) => workspace.id)
 
   return (
     <div className="analytics-scope-panel" aria-labelledby="analytics-scope-title">
       <div className="analytics-scope-heading">
-        <h2 id="analytics-scope-title">{analyticsCopy.scopes.title}</h2>
-        <p>{analyticsCopy.scopes.description}</p>
+        <h2 id="analytics-scope-title">{copy.scopes.title}</h2>
+        <p>{copy.scopes.description}</p>
       </div>
       <dl className="analytics-domain-list">
         <div>
-          <dt>{analyticsCopy.scopes.personalLabel}</dt>
-          <dd>{analyticsCopy.scopes.personalValue}</dd>
+          <dt>{copy.scopes.personalLabel}</dt>
+          <dd>{copy.scopes.personalValue}</dd>
         </div>
         <div className="analytics-domain-teaching">
-          <dt>{analyticsCopy.scopes.teachingLabel}</dt>
+          <dt>{copy.scopes.teachingLabel}</dt>
           <dd>
             {hasWorkspaces ? (
-              <div className="analytics-segmented-control analytics-scope-control" aria-label={analyticsCopy.scopes.teachingLabel}>
+              <div className="analytics-segmented-control analytics-scope-control" aria-label={copy.scopes.teachingLabel}>
                 <button
                   type="button"
                   className="analytics-filter-button"
                   aria-pressed={value.kind === 'workspace'}
                   disabled={!activeWorkspace}
-                  title={!activeWorkspace ? analyticsCopy.scopes.teachingCurrentUnavailable : undefined}
+                  title={!activeWorkspace ? copy.scopes.teachingCurrentUnavailable : undefined}
                   onClick={() => {
                     if (!activeWorkspace) return
                     onChange({
@@ -204,7 +205,7 @@ export function AnalyticsTeachingScopeFilter({
                     })
                   }}
                 >
-                  {analyticsCopy.scopes.teachingCurrent}
+                  {copy.scopes.teachingCurrent}
                 </button>
                 <button
                   type="button"
@@ -212,17 +213,17 @@ export function AnalyticsTeachingScopeFilter({
                   aria-pressed={value.kind === 'all_workspaces'}
                   onClick={() => onChange({ kind: 'all_workspaces', workspaceIds: allWorkspaceIds })}
                 >
-                  {analyticsCopy.scopes.teachingAll}
+                  {copy.scopes.teachingAll}
                 </button>
               </div>
             ) : (
-              <span>{analyticsCopy.scopes.teachingNone}</span>
+              <span>{copy.scopes.teachingNone}</span>
             )}
           </dd>
         </div>
         <div>
-          <dt>{analyticsCopy.scopes.presenceLabel}</dt>
-          <dd data-presence-scope="current">{presenceSpaceCode ? `${analyticsCopy.scopes.presenceCurrent} · ${presenceSpaceCode}` : analyticsCopy.scopes.presenceNone}</dd>
+          <dt>{copy.scopes.presenceLabel}</dt>
+          <dd data-presence-scope="current">{presenceSpaceCode ? `${copy.scopes.presenceCurrent} · ${presenceSpaceCode}` : copy.scopes.presenceNone}</dd>
         </div>
       </dl>
     </div>

@@ -1,5 +1,6 @@
 import { ArrowLeft, Check, MousePointer2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../app-shell/appStore'
 import {
@@ -9,12 +10,26 @@ import {
   type PetVisualState
 } from '../pet/PetSprite'
 
+type PreviewDragSession = {
+  pointerId: number
+  startX: number
+  lastX: number
+  startOffset: number
+  moved: boolean
+  maxOffset: number
+}
+
 export function PetLibrary({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation()
   const settings = useAppStore((state) => state.settings.pet)
   const updateSettings = useAppStore((state) => state.updateSettings)
   const [displayName, setDisplayName] = useState(settings.displayName)
   const [previewState, setPreviewState] = useState<PetVisualState>('idle')
+  const [dragOffset, setDragOffset] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<PreviewDragSession | null>(null)
+  const suppressClickRef = useRef(false)
 
   useEffect(() => setDisplayName(settings.displayName), [settings.displayName])
 
@@ -22,6 +37,72 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
     const normalized = displayName.trim().slice(0, 24) || t('resources.pets.defaultName')
     setDisplayName(normalized)
     if (normalized !== settings.displayName) void updateSettings({ pet: { displayName: normalized } })
+  }
+
+  // Drag the mascot left/right: the pet follows the cursor while the running
+  // direction tracks the *instantaneous* movement, so reversing feels snappy.
+  const handleMascotPointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    if (event.button !== 0) return
+    const stage = stageRef.current
+    const maxOffset = stage
+      ? Math.max(0, (stage.clientWidth - event.currentTarget.offsetWidth) / 2 - 24)
+      : 140
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      lastX: event.clientX,
+      startOffset: dragOffset,
+      moved: false,
+      maxOffset
+    }
+    setDragging(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+    event.preventDefault()
+  }
+
+  const handleMascotPointerMove = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const totalDx = event.clientX - drag.startX
+    if (Math.abs(totalDx) >= 4) drag.moved = true
+    if (!drag.moved) return
+    const clamped = Math.max(
+      -drag.maxOffset,
+      Math.min(drag.maxOffset, drag.startOffset + totalDx)
+    )
+    setDragOffset(clamped)
+    const delta = event.clientX - drag.lastX
+    if (delta >= 1) setPreviewState('running-right')
+    else if (delta <= -1) setPreviewState('running-left')
+    drag.lastX = event.clientX
+  }
+
+  const handleMascotPointerUp = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    dragRef.current = null
+    setDragging(false)
+    // A pointer interaction always follows pointerup with a click; suppress it
+    // so mouse users don't double-trigger. Keyboard activation skips pointerup
+    // entirely and still reaches onClick below.
+    suppressClickRef.current = true
+    if (drag.moved) {
+      setDragOffset(0)
+      setPreviewState('idle')
+    } else {
+      setPreviewState('waving')
+    }
+  }
+
+  const handleMascotClick = (): void => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
+    setPreviewState('waving')
   }
 
   return (
@@ -38,7 +119,12 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
       </div>
 
       <section className="pet-preview-card">
-        <div className="pet-preview-stage" data-appearance={settings.appearance}>
+        <div
+          className={`pet-preview-stage${dragging ? ' is-dragging' : ''}`}
+          data-appearance={settings.appearance}
+          ref={stageRef}
+          style={{ '--drag-x': `${dragOffset}px` } as CSSProperties}
+        >
           <div className="pet-preview-bubble" data-state={previewState}>
             <strong>{displayName || t('resources.pets.defaultName')}</strong>
             <span>{t(`resources.pets.states.${previewState}`)}</span>
@@ -47,7 +133,11 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
             className="pet-preview-mascot"
             type="button"
             aria-label={t('resources.pets.previewAria', { name: displayName })}
-            onClick={() => setPreviewState('waving')}
+            onClick={handleMascotClick}
+            onPointerDown={handleMascotPointerDown}
+            onPointerMove={handleMascotPointerMove}
+            onPointerUp={handleMascotPointerUp}
+            onPointerCancel={handleMascotPointerUp}
           >
             <PetSprite
               appearance={settings.appearance}
@@ -61,7 +151,11 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
 
         <div className="pet-preview-controls">
           <span>{t('resources.pets.previewStates')}</span>
-          <div role="group" aria-label={t('resources.pets.previewStates')}>
+          <div
+            role="group"
+            aria-label={t('resources.pets.previewStates')}
+            onPointerLeave={() => setPreviewState('idle')}
+          >
             {PET_VISUAL_STATES.map((state) => (
               <button
                 key={state}

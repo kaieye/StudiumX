@@ -67,7 +67,7 @@ type WorkbenchSeatState = {
 
 const officeWidth = 64 * 17
 const officeHeight = 64 * 14
-const stageShift = { x: 0, y: -20 }
+const stageShift = { x: 40, y: -20 }
 const canvasOutputScale = 2
 const officeScaleBoost = 0.78
 const compactScaleBoost = 0.5
@@ -351,7 +351,11 @@ function fitCanvasToStage(stage: HTMLElement, canvas: HTMLCanvasElement): void {
     const toolVisualWidth = tools.offsetWidth * toolScale
     const sceneAvailableWidth = Math.max(1, visibleWidth - toolRight - toolVisualWidth - toolSceneGap)
     visualScale = Math.min(visualScale, sceneAvailableWidth / officeWidth)
-    canvasCenterX = sceneAvailableWidth / 2
+
+    // The tool cards are a floating overlay, not a column reserved beside the
+    // room. Center the room against the full visible stage so the furniture
+    // does not remain visually left-biased when the cards are present.
+    canvasCenterX = visibleWidth / 2
   }
   const canvasWidth = Math.round(officeWidth * visualScale)
   const canvasHeight = Math.round(officeHeight * visualScale)

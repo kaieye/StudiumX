@@ -191,8 +191,6 @@ export function PetSprite({
 
   useEffect(() => {
     setFrame(0)
-    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
-    if (reducedMotion) return
 
     const frames = stateFrames[state]
     let canceled = false
