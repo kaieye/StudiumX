@@ -1,3 +1,4 @@
+import { ArrowLeft, ChartColumn } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { PetAppearanceId } from '../../../../shared/teaching-types'
 import { useAppStore } from '../../app-shell/appStore'
@@ -20,6 +21,12 @@ import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { WorkbenchTasks } from './WorkbenchTasks'
 import { StudyTaskSchedulePage } from './StudyTaskSchedulePage'
+import {
+  navigateWorkbenchRoute,
+  parseWorkbenchRoute,
+  type WorkbenchRoute
+} from './workbenchRoute'
+import './workbench-analytics-entry.css'
 
 type WorkbenchAssets = {
   deskImage: HTMLImageElement
@@ -132,42 +139,6 @@ function emptyWorkbenchSeatState(): WorkbenchSeatState {
     cycleLabel: '',
     blockedSeatIndexes: new Set(),
     occupantsByDeskId: new Map()
-  }
-}
-
-function ensureWorkbenchRouteParam(): void {
-  try {
-    const params = new URLSearchParams(window.location.search)
-    if (params.has('workbench')) return
-    params.set('workbench', '1')
-    const search = params.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`)
-  } catch {
-    // URL sync is only for refresh/share behavior; the workbench still runs without it.
-  }
-}
-
-function isStudyScheduleRoute(): boolean {
-  try {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('workbench') === 'schedule' || params.has('studySchedule')
-  } catch {
-    return false
-  }
-}
-
-function navigateWorkbenchRoute(page: 'room' | 'schedule', replace = false): void {
-  try {
-    const params = new URLSearchParams(window.location.search)
-    params.delete('studySchedule')
-    params.set('workbench', page === 'schedule' ? 'schedule' : '1')
-    const search = params.toString()
-    const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`
-    if (nextUrl === `${window.location.pathname}${window.location.search}${window.location.hash}`) return
-    const method = replace ? 'replaceState' : 'pushState'
-    window.history[method](null, '', nextUrl)
-  } catch {
-    // The React state remains the source of truth when URL updates are unavailable.
   }
 }
 
@@ -399,6 +370,35 @@ type OfficeWorkbenchProps = {
   showNotification: (title: string, body: string) => Promise<void>
 }
 
+export type WorkbenchAnalyticsPageProps = {
+  onBack: () => void
+}
+
+function WorkbenchAnalyticsPagePlaceholder({ onBack }: WorkbenchAnalyticsPageProps) {
+  return (
+    <div className="workbench-analytics-entry-page">
+      <header className="workbench-analytics-entry-header">
+        <button type="button" className="workbench-analytics-back" onClick={onBack} aria-label="返回自习室">
+          <ArrowLeft size={18} strokeWidth={2} aria-hidden="true" />
+          <span>返回自习室</span>
+        </button>
+        <div>
+          <p>Learning Insights</p>
+          <h1>学习分析</h1>
+        </div>
+      </header>
+      <div className="workbench-analytics-entry-placeholder" role="status">
+        <ChartColumn size={30} strokeWidth={1.8} aria-hidden="true" />
+        <strong>学习分析页面接入点已就绪</strong>
+        <span>这里暂时保留轻量占位壳，后续分析页面可直接替换，不影响自习计时。</span>
+      </div>
+    </div>
+  )
+}
+
+// Integration seam for the StudyAnalyticsPage owner: replace this alias with the real page import.
+const WorkbenchAnalyticsPage = WorkbenchAnalyticsPagePlaceholder
+
 export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const petAppearance = useAppStore((state) => state.settings.pet.appearance)
   const {
@@ -427,7 +427,9 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const seatStateRef = useRef<WorkbenchSeatState>(emptyWorkbenchSeatState())
   const chooseSeatRef = useRef(chooseSeat)
   const hoveredDeskIdRef = useRef<DeskId | null>(null)
-  const [scheduleOpen, setScheduleOpen] = useState(() => isStudyScheduleRoute())
+  const analyticsFabRef = useRef<HTMLButtonElement | null>(null)
+  const restoreAnalyticsFabFocusRef = useRef(false)
+  const [route, setRoute] = useState<WorkbenchRoute>(() => parseWorkbenchRoute(window.location.search))
   const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
   const occupantsByDeskId = new Map<DeskId, WorkbenchSeatOccupant>()
 
@@ -461,27 +463,52 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   chooseSeatRef.current = chooseSeat
 
   useEffect(() => {
-    ensureWorkbenchRouteParam()
+    navigateWorkbenchRoute(route, 'replace')
   }, [])
 
   useEffect(() => {
-    const handlePopState = () => setScheduleOpen(isStudyScheduleRoute())
+    const handlePopState = () => {
+      const nextRoute = parseWorkbenchRoute(window.location.search)
+      setRoute((currentRoute) => {
+        if (currentRoute === 'analytics' && nextRoute === 'room') {
+          restoreAnalyticsFabFocusRef.current = true
+        }
+        return nextRoute
+      })
+    }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
+  useEffect(() => {
+    if (route !== 'room' || !restoreAnalyticsFabFocusRef.current) return
+    restoreAnalyticsFabFocusRef.current = false
+    analyticsFabRef.current?.focus({ preventScroll: true })
+  }, [route])
+
   const openTaskSchedule = (): void => {
     navigateWorkbenchRoute('schedule')
-    setScheduleOpen(true)
+    setRoute('schedule')
   }
 
   const closeTaskSchedule = (): void => {
-    navigateWorkbenchRoute('room', true)
-    setScheduleOpen(false)
+    navigateWorkbenchRoute('room', 'replace')
+    setRoute('room')
+  }
+
+  const openStudyAnalytics = (): void => {
+    navigateWorkbenchRoute('analytics')
+    setRoute('analytics')
+  }
+
+  const closeStudyAnalytics = (): void => {
+    restoreAnalyticsFabFocusRef.current = true
+    navigateWorkbenchRoute('room', 'replace')
+    setRoute('room')
   }
 
   useEffect(() => {
-    if (scheduleOpen) return
+    if (route !== 'room') return
     const stage = stageRef.current
     const canvas = canvasRef.current
     if (!stage || !canvas) return
@@ -497,10 +524,18 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       resizeObserver.disconnect()
       window.removeEventListener('resize', updateCanvasSize)
     }
-  }, [scheduleOpen, snapshot.tasks.length, viewModel.completedTasks, viewModel.openTasks, viewModel.userSeatConflict])
+  }, [route])
 
   useEffect(() => {
-    if (scheduleOpen) return
+    if (route !== 'room') return
+    const stage = stageRef.current
+    const canvas = canvasRef.current
+    if (!stage || !canvas) return
+    fitCanvasToStage(stage, canvas)
+  }, [route, snapshot.tasks.length, viewModel.completedTasks, viewModel.openTasks, viewModel.userSeatConflict])
+
+  useEffect(() => {
+    if (route !== 'room') return
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -584,12 +619,13 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       canvas.removeEventListener('click', handleClick)
       canvas.removeEventListener('keydown', handleKeyDown)
       canvas.removeEventListener('pointerleave', handlePointerLeave)
+      hoveredDeskIdRef.current = null
       canvas.style.cursor = 'default'
     }
-  }, [scheduleOpen])
+  }, [route])
 
   useEffect(() => {
-    if (scheduleOpen) return
+    if (route !== 'room') return
     let canceled = false
     let animationFrame = 0
     const reducedMotionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)')
@@ -642,9 +678,17 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       reducedMotionQuery?.removeEventListener('change', updateReducedMotion)
       assetsRef.current = null
     }
-  }, [petAppearance, scheduleOpen])
+  }, [petAppearance, route])
 
-  if (scheduleOpen) {
+  if (route === 'analytics') {
+    return (
+      <section className="office-workbench-page workbench-analytics-route" aria-label="学习分析">
+        <WorkbenchAnalyticsPage onBack={closeStudyAnalytics} />
+      </section>
+    )
+  }
+
+  if (route === 'schedule') {
     return (
       <section className="office-workbench-page" aria-label="任务详情">
         <StudyTaskSchedulePage
@@ -671,6 +715,16 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           aria-live="polite"
           tabIndex={0}
         />
+        <button
+          ref={analyticsFabRef}
+          type="button"
+          className="workbench-analytics-fab"
+          onClick={openStudyAnalytics}
+          aria-label="打开学习分析"
+        >
+          <ChartColumn size={19} strokeWidth={2.1} aria-hidden="true" />
+          <span>学习分析</span>
+        </button>
         <WorkbenchLeaderboard
           members={viewModel.roomMembers}
           presenceStatus={presence.status}

@@ -1,0 +1,239 @@
+.office-workbench-stage {
+  --workbench-analytics-fab-inline-inset: clamp(12px, 3vw, 32px);
+  --workbench-analytics-fab-block-inset: clamp(12px, 3vh, 28px);
+  --workbench-analytics-fab-clearance: calc(var(--workbench-analytics-fab-block-inset) + 70px);
+}
+
+.office-workbench-stage > .workbench-leaderboard {
+  max-height: max(
+    0px,
+    calc(100% - var(--workbench-leaderboard-block-inset) - var(--workbench-analytics-fab-clearance))
+  );
+}
+
+.workbench-analytics-fab {
+  position: absolute;
+  left: var(--workbench-analytics-fab-inline-inset);
+  bottom: var(--workbench-analytics-fab-block-inset);
+  z-index: 7;
+  box-sizing: border-box;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 15px;
+  color: var(--text);
+  border: 1px solid var(--liquid-glass-line, color-mix(in srgb, var(--line) 78%, transparent));
+  border-radius: 999px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 58%, transparent), transparent 62%),
+    var(--liquid-glass-fill, color-mix(in srgb, var(--surface-solid) 72%, transparent));
+  box-shadow:
+    0 16px 38px color-mix(in srgb, var(--text) 13%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 74%, transparent);
+  backdrop-filter: var(--liquid-glass-blur, blur(24px) saturate(170%));
+  -webkit-backdrop-filter: var(--liquid-glass-blur, blur(24px) saturate(170%));
+  -webkit-app-region: no-drag;
+  -webkit-tap-highlight-color: transparent;
+  color-scheme: light dark;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+  transform: translateZ(0) scale(1);
+  transform-origin: left bottom;
+  transition:
+    transform 130ms ease-out,
+    filter 160ms ease-out,
+    border-color 160ms ease-out,
+    box-shadow 180ms ease-out;
+}
+
+.workbench-analytics-fab svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.workbench-analytics-fab:active {
+  transform: translateZ(0) scale(0.97);
+  filter: brightness(0.98);
+}
+
+.workbench-analytics-fab:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 44%, transparent);
+  outline-offset: 3px;
+  border-color: color-mix(in srgb, var(--accent) 56%, transparent);
+}
+
+@media (hover: hover) {
+  .workbench-analytics-fab:hover {
+    border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+    box-shadow:
+      0 18px 42px color-mix(in srgb, var(--accent) 17%, transparent),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 78%, transparent);
+    filter: brightness(1.025);
+  }
+}
+
+:root[data-resolved-theme='dark'] .workbench-analytics-fab {
+  color: color-mix(in srgb, var(--text) 94%, #ffffff);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), transparent 58%),
+    color-mix(in srgb, var(--surface-solid) 84%, transparent);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.workbench-analytics-route {
+  overflow: auto;
+  -webkit-app-region: no-drag;
+}
+
+.workbench-analytics-entry-page {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(28px, 7vh, 72px);
+  padding: clamp(18px, 4vw, 48px);
+  color: var(--text);
+  background:
+    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 36%),
+    var(--app-shell-main-bg);
+  -webkit-app-region: no-drag;
+}
+
+.workbench-analytics-entry-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.workbench-analytics-entry-header > div {
+  min-width: 0;
+}
+
+.workbench-analytics-entry-header p,
+.workbench-analytics-entry-header h1 {
+  margin: 0;
+}
+
+.workbench-analytics-entry-header p {
+  margin-bottom: 3px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workbench-analytics-entry-header h1 {
+  font-size: clamp(1.35rem, 2.5vw, 2rem);
+  line-height: 1.12;
+}
+
+.workbench-analytics-back {
+  box-sizing: border-box;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-solid) 78%, transparent);
+  -webkit-app-region: no-drag;
+  -webkit-tap-highlight-color: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 720;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 130ms ease-out, background-color 160ms ease-out;
+}
+
+.workbench-analytics-back:active {
+  transform: scale(0.97);
+}
+
+.workbench-analytics-back:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 3px;
+}
+
+.workbench-analytics-entry-placeholder {
+  box-sizing: border-box;
+  width: min(620px, 100%);
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  margin: auto;
+  padding: clamp(24px, 6vw, 54px);
+  color: var(--text-muted);
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  box-shadow: 0 24px 70px color-mix(in srgb, var(--text) 9%, transparent);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+}
+
+.workbench-analytics-entry-placeholder svg {
+  margin-bottom: 4px;
+  color: var(--accent);
+}
+
+.workbench-analytics-entry-placeholder strong {
+  color: var(--text);
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+}
+
+.workbench-analytics-entry-placeholder span {
+  max-width: 48ch;
+  line-height: 1.65;
+}
+
+@media (max-width: 520px) {
+  .office-workbench-stage {
+    --workbench-analytics-fab-inline-inset: 10px;
+    --workbench-analytics-fab-block-inset: 10px;
+  }
+
+  .workbench-analytics-fab {
+    padding-inline: 12px;
+  }
+
+  .workbench-analytics-entry-header {
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-analytics-fab,
+  .workbench-analytics-back {
+    transition-duration: 1ms;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .workbench-analytics-fab,
+  .workbench-analytics-entry-placeholder {
+    background: var(--surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
