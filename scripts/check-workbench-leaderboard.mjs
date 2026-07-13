@@ -13,14 +13,20 @@ const [app, workbench, leaderboard, roomSwitcher, pomodoro, viewModel, css] = aw
 
 assert.match(
   workbench,
-  /<WorkbenchLeaderboard[\s\S]*members=\{viewModel\.roomMembers\}[\s\S]*presenceStatus=\{presence\.status\}[\s\S]*spaceCode=\{snapshot\.spaceCode\}[\s\S]*\/>/,
-  'workbench should render the leaderboard from the existing live room member ranking and room code'
+  /<WorkbenchLeaderboard[\s\S]*members=\{viewModel\.roomMembers\}[\s\S]*presenceStatus=\{presence\.status\}[\s\S]*spaceCode=\{snapshot\.spaceCode\}[\s\S]*onEnterRandomSpace=\{enterRandomSpace\}[\s\S]*onJoinSpace=\{joinSpace\}[\s\S]*\/>/,
+  'workbench should render the leaderboard with live room data and room switching callbacks'
+)
+
+assert.doesNotMatch(
+  workbench,
+  /<div className="workbench-tools"[\s\S]*<WorkbenchRoomSwitcher/,
+  'room switching controls should no longer render in the right-side tools rail'
 )
 
 assert.equal(
   [...leaderboard.matchAll(/<button\b/g)].length,
   1,
-  'collapsed leaderboard entry should use exactly one button'
+  'collapsed leaderboard entry should use exactly one button before its conditional panel'
 )
 
 assert.match(
@@ -43,8 +49,8 @@ assert.match(
 
 assert.doesNotMatch(
   roomSwitcher,
-  /<strong>\{spaceCode\}<\/strong>/,
-  'room switcher card should no longer display the room code value'
+  /spaceCode=\{|<Copy|复制/,
+  'leaderboard room actions should not duplicate the room code or the old copy control'
 )
 
 assert.doesNotMatch(
@@ -55,12 +61,23 @@ assert.doesNotMatch(
 
 assert.match(
   leaderboard,
-  /aria-expanded=\{open\}[\s\S]*\{open \? \(/,
-  'leaderboard rows should only render after the button is expanded'
+  /aria-expanded=\{open\}[\s\S]*\{open \? \([\s\S]*<WorkbenchRoomSwitcher[\s\S]*onEnterRandomSpace=\{onEnterRandomSpace\}[\s\S]*onJoinSpace=\{onJoinSpace\}/,
+  'leaderboard rows and room actions should only render after the card is expanded'
+)
+
+assert.match(
+  roomSwitcher,
+  /workbench-leaderboard-actions[\s\S]*workbench-room-random[\s\S]*随机进入自习室[\s\S]*<form className="workbench-room-join"[\s\S]*加入房间/,
+  'expanded leaderboard footer should render random-entry and join-room actions together'
 )
 
 assert.match(css, /\.workbench-tools \.workbench-leaderboard-toggle \{/, 'workbench leaderboard button should have dedicated styling')
 assert.match(css, /\.workbench-leaderboard-panel \{/, 'expanded workbench leaderboard should have dedicated styling')
+assert.match(
+  css,
+  /\.workbench-leaderboard-actions \{[\s\S]*grid-template-columns:/,
+  'leaderboard room actions should use a side-by-side grid layout'
+)
 
 const removedStudyCopy = `${app}\n${viewModel}`
 assert.doesNotMatch(removedStudyCopy, /本空间专注榜/, 'removed study space page should no longer show its old focus leaderboard')
