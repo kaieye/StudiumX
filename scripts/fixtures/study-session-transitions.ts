@@ -11,6 +11,7 @@ import {
   followStudyRoomCycle,
   joinStudySpace,
   resetStudyTimer,
+  removeStudyTask,
   saveStudyRelayUrl,
   setStudySpaceCode,
   selectStudyModeSnapshot,
@@ -214,6 +215,10 @@ assert.deepEqual(scheduled.snapshot.tasks[0]?.schedule, { weekday: 1, startMinut
 
 const toggled = toggleStudyTask(snapshot, 'task-1')
 assert.equal(toggled.tasks.find((task) => task.id === 'task-1')?.done, true)
+
+const removed = removeStudyTask(snapshot, 'task-1')
+assert.equal(removed.tasks.some((task) => task.id === 'task-1'), false)
+assert.equal(removed.tasks.length, 1)
 
 const updatedTask = updateStudyTask(snapshot, 'task-1', {
   title: '  Read chapter 2  ',

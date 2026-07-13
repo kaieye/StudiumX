@@ -3236,6 +3236,57 @@
 .study-schedule-event.is-done strong {
   text-decoration: line-through;
 }
+.study-schedule-event.is-drag-source {
+  opacity: 0.24;
+  pointer-events: none;
+}
+
+.study-schedule-drag-float {
+  position: fixed;
+  z-index: 70;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px;
+  overflow: hidden;
+  color: var(--event-ink);
+  border: 1px solid color-mix(in srgb, #ffffff 40%, var(--event-color) 60%);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #ffffff 32%, transparent), transparent 44%),
+    linear-gradient(180deg, color-mix(in srgb, var(--event-color) 90%, #ffffff), color-mix(in srgb, var(--event-color) 92%, #111111 8%));
+  box-shadow:
+    0 24px 46px color-mix(in srgb, var(--event-color) 34%, transparent),
+    0 10px 24px color-mix(in srgb, var(--text) 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 50%, transparent);
+  text-align: center;
+  transform: translateY(-4px) scale(1.025);
+  pointer-events: none;
+}
+
+.study-schedule-drag-float strong {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 790;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-schedule-drag-float span {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.625rem;
+  font-weight: 740;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .study-schedule-stat-card {
   min-width: 0;
@@ -3330,7 +3381,8 @@
 }
 
 .study-schedule-selection,
-.study-schedule-draft-card {
+.study-schedule-draft-card,
+.study-schedule-drag-preview {
   position: absolute;
   top: calc(var(--range-start-ratio) * 100% + 3px);
   left: 6px;
@@ -3357,6 +3409,30 @@
   font-size: 0.625rem;
   font-variant-numeric: tabular-nums;
   font-weight: 760;
+}
+.study-schedule-drag-preview {
+  z-index: 13;
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 62%, #ffffff 20%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #ffffff 42%, transparent), transparent 48%),
+    color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow:
+    0 16px 28px color-mix(in srgb, var(--accent) 16%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 52%, transparent);
+  pointer-events: none;
+}
+
+.study-schedule-drag-preview span {
+  padding: 3px 7px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 86%, transparent);
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 780;
 }
 
 .study-schedule-draft-card {
@@ -3492,6 +3568,46 @@
   font: inherit;
   font-size: 0.75rem;
   font-weight: 780;
+}
+.study-schedule-context-menu {
+  position: fixed;
+  z-index: 80;
+  box-sizing: border-box;
+  min-width: 140px;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, #ffffff 48%, var(--line) 52%);
+  border-radius: 12px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 46%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  box-shadow:
+    0 20px 42px color-mix(in srgb, var(--text) 16%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent);
+  backdrop-filter: blur(26px) saturate(180%);
+  -webkit-backdrop-filter: blur(26px) saturate(180%);
+}
+
+.study-schedule-context-menu button {
+  width: 100%;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  color: var(--text);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 740;
+  text-align: left;
+}
+
+.study-schedule-context-menu button.is-danger {
+  color: var(--danger, #ff3b30);
 }
 
 .study-schedule-editor-backdrop {
@@ -3737,6 +3853,7 @@
 .study-schedule-editor-close:active,
 .study-schedule-editor-actions button:active,
 .study-schedule-draft-actions button:active,
+.study-schedule-context-menu button:active,
 .study-schedule-event-status button:active {
   transform: scale(0.965);
 }
@@ -3756,6 +3873,7 @@
   .study-schedule-editor-close:hover,
   .study-schedule-editor-actions button:hover,
   .study-schedule-draft-actions button:hover,
+  .study-schedule-context-menu button:hover,
   .study-schedule-event-status button:hover,
   .study-schedule-form button:not(:disabled):hover,
   .study-schedule-event:hover {
@@ -3848,6 +3966,7 @@
   .study-schedule-editor-close:active,
   .study-schedule-editor-actions button:active,
   .study-schedule-draft-actions button:active,
+  .study-schedule-context-menu button:active,
   .study-schedule-event-status button:active,
   .study-schedule-form button:active,
   .study-schedule-event:active,
@@ -3859,9 +3978,11 @@
   .study-schedule-editor-close:hover,
   .study-schedule-editor-actions button:hover,
   .study-schedule-draft-actions button:hover,
+  .study-schedule-context-menu button:hover,
   .study-schedule-event-status button:hover,
   .study-schedule-form button:not(:disabled):hover,
-  .study-schedule-event:hover {
+  .study-schedule-event:hover,
+  .study-schedule-drag-float {
     transform: none;
   }
 }
@@ -3880,7 +4001,9 @@
   }
 
   .study-schedule-editor-backdrop,
-  .study-schedule-draft-card {
+  .study-schedule-draft-card,
+  .study-schedule-context-menu,
+  .study-schedule-drag-float {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

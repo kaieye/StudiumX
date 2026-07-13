@@ -296,6 +296,10 @@ export function removeDoneStudyTasks(snapshot: StudySnapshot): StudySnapshot {
   return { ...snapshot, tasks: snapshot.tasks.filter((task) => !task.done) }
 }
 
+export function removeStudyTask(snapshot: StudySnapshot, taskId: string): StudySnapshot {
+  return { ...snapshot, tasks: snapshot.tasks.filter((task) => task.id !== taskId) }
+}
+
 export function selectStudySignal(snapshot: StudySnapshot, signalId: StudySignalId): StudySnapshot {
   return { ...snapshot, signalId }
 }

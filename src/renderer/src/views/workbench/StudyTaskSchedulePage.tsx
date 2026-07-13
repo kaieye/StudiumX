@@ -1,11 +1,14 @@
-import { ArrowLeft, CalendarDays, Check, Clock3, PencilLine, Plus, X } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, Clock3, PencilLine, Plus, Trash2, X } from 'lucide-react'
 import {
+  useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent
 } from 'react'
 import type {
@@ -23,6 +26,7 @@ type StudyTaskSchedulePageProps = {
   onAddScheduledTask: (title: string, schedule: StudyTaskScheduleInput) => boolean
   onUpdateTask: (taskId: string, update: StudyTaskUpdateInput) => boolean
   onToggleTask: (taskId: string) => void
+  onRemoveTask: (taskId: string) => void
   onBack: () => void
 }
 
@@ -60,6 +64,40 @@ type InlineTitleState = {
   title: string
 }
 
+type TaskContextMenuState = {
+  taskId: string
+  x: number
+  y: number
+}
+
+type PendingTaskDragState = {
+  task: ScheduledStudyTask
+  element: HTMLDivElement
+  pointerId: number
+  clientX: number
+  clientY: number
+  grabOffsetX: number
+  grabOffsetY: number
+  grabOffsetMinutes: number
+}
+
+type TaskDragState = {
+  taskId: string
+  title: string
+  done: boolean
+  pointerId: number
+  originSchedule: StudyTaskSchedule
+  previewSchedule: StudyTaskScheduleInput
+  durationMinutes: number
+  grabOffsetX: number
+  grabOffsetY: number
+  grabOffsetMinutes: number
+  clientX: number
+  clientY: number
+  width: number
+  height: number
+}
+
 type NumberVarStyle<Name extends string> = CSSProperties & Record<Name, number>
 type RangeVarStyle = CSSProperties & Record<'--range-start-ratio' | '--range-duration-ratio', number>
 type HoverVarStyle = CSSProperties & Record<'--hover-ratio', number>
@@ -68,6 +106,7 @@ type EventVarStyle = CSSProperties & Record<
   string | number
 >
 type ColorSwatchVarStyle = CSSProperties & Record<'--schedule-swatch-color' | '--schedule-swatch-ink', string>
+type TaskColorVarStyle = CSSProperties & Record<'--event-color' | '--event-ink', string>
 
 const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const hourMarks = [0, 4, 8, 12, 16, 20, 24]
@@ -147,6 +186,43 @@ function getMinutesFromPointer(element: HTMLElement, clientY: number): number {
   return clamp(Math.round(ratio * minutesPerDay), 0, minutesPerDay)
 }
 
+function snapMinutesToStep(minutes: number): number {
+  return Math.round(minutes / selectionStepMinutes) * selectionStepMinutes
+}
+
+function getScheduleColumnFromPoint(clientX: number, clientY: number): HTMLElement | null {
+  const pointElement = document.elementFromPoint(clientX, clientY)
+  return pointElement instanceof Element ? pointElement.closest<HTMLElement>('.study-schedule-day-column') : null
+}
+
+function getColumnDayIndex(column: HTMLElement): number | null {
+  const dayIndex = Number(column.dataset.dayIndex)
+  return Number.isInteger(dayIndex) && dayIndex >= 0 && dayIndex < weekDays.length ? dayIndex : null
+}
+
+function createTaskDragSchedule(
+  originSchedule: StudyTaskSchedule,
+  clientX: number,
+  clientY: number,
+  grabOffsetMinutes: number,
+  durationMinutes: number
+): StudyTaskScheduleInput | null {
+  const column = getScheduleColumnFromPoint(clientX, clientY)
+  if (!column) return null
+  const dayIndex = getColumnDayIndex(column)
+  if (dayIndex === null) return null
+  const safeDuration = clamp(durationMinutes, selectionStepMinutes, minutesPerDay)
+  const pointerMinutes = getMinutesFromPointer(column, clientY)
+  const startMinutes = clamp(snapMinutesToStep(pointerMinutes - grabOffsetMinutes), 0, minutesPerDay - safeDuration)
+  return {
+    ...originSchedule,
+    weekday: dayIndex,
+    startMinutes,
+    endMinutes: startMinutes + safeDuration,
+    colorId: originSchedule.colorId ?? defaultColorIdForWeekday(dayIndex)
+  }
+}
+
 function createSelectionSchedule(
   dayIndex: number,
   anchorMinutes: number,
@@ -214,6 +290,7 @@ export function StudyTaskSchedulePage({
   onAddScheduledTask,
   onUpdateTask,
   onToggleTask,
+  onRemoveTask,
   onBack
 }: StudyTaskSchedulePageProps) {
   const titleId = useId()
@@ -225,6 +302,11 @@ export function StudyTaskSchedulePage({
   const [hover, setHover] = useState<HoverState | null>(null)
   const [selection, setSelection] = useState<SelectionState | null>(null)
   const [inlineTitle, setInlineTitle] = useState<InlineTitleState | null>(null)
+  const [contextMenu, setContextMenu] = useState<TaskContextMenuState | null>(null)
+  const [taskDrag, setTaskDrag] = useState<TaskDragState | null>(null)
+  const pendingTaskDragRef = useRef<PendingTaskDragState | null>(null)
+  const taskDragRef = useRef<TaskDragState | null>(null)
+  const longPressTimerRef = useRef<number | null>(null)
   const scheduledTasks = useMemo(() => tasks.filter(hasSchedule), [tasks])
   const layoutsByDay = useMemo(() => {
     return weekDays.map((_, dayIndex) => layoutDayTasks(scheduledTasks.filter((task) => task.schedule.weekday === dayIndex)))
@@ -233,6 +315,97 @@ export function StudyTaskSchedulePage({
   const editorColorId = editor
     ? editor.schedule.colorId ?? defaultColorIdForWeekday(editor.schedule.weekday)
     : null
+  const contextMenuTask = contextMenu ? scheduledTasks.find((task) => task.id === contextMenu.taskId) ?? null : null
+  const draggedTaskColor = taskDrag ? getScheduleColor(taskDrag.previewSchedule) : null
+
+  const clearLongPressTimer = (): void => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }
+
+  const setActiveTaskDrag = (nextDrag: TaskDragState | null): void => {
+    taskDragRef.current = nextDrag
+    setTaskDrag(nextDrag)
+  }
+
+  const updateActiveTaskDrag = (clientX: number, clientY: number): TaskDragState | null => {
+    const current = taskDragRef.current
+    if (!current) return null
+    const previewSchedule = createTaskDragSchedule(
+      current.originSchedule,
+      clientX,
+      clientY,
+      current.grabOffsetMinutes,
+      current.durationMinutes
+    ) ?? current.previewSchedule
+    const nextDrag = { ...current, clientX, clientY, previewSchedule }
+    setActiveTaskDrag(nextDrag)
+    return nextDrag
+  }
+
+  const beginTaskDragFromPending = (): void => {
+    const pending = pendingTaskDragRef.current
+    if (!pending) return
+    longPressTimerRef.current = null
+    const rect = pending.element.getBoundingClientRect()
+    const durationMinutes = clamp(
+      pending.task.schedule.endMinutes - pending.task.schedule.startMinutes,
+      selectionStepMinutes,
+      minutesPerDay
+    )
+    const previewSchedule = createTaskDragSchedule(
+      pending.task.schedule,
+      pending.clientX,
+      pending.clientY,
+      pending.grabOffsetMinutes,
+      durationMinutes
+    ) ?? withDefaultScheduleColor(pending.task.schedule)
+    setEditor(null)
+    setInlineTitle(null)
+    setDraftTask(null)
+    setDraftError('')
+    setContextMenu(null)
+    setHover(null)
+    setSelection(null)
+    setActiveTaskDrag({
+      taskId: pending.task.id,
+      title: pending.task.title,
+      done: pending.task.done,
+      pointerId: pending.pointerId,
+      originSchedule: pending.task.schedule,
+      previewSchedule,
+      durationMinutes,
+      grabOffsetX: pending.grabOffsetX,
+      grabOffsetY: pending.grabOffsetY,
+      grabOffsetMinutes: pending.grabOffsetMinutes,
+      clientX: pending.clientX,
+      clientY: pending.clientY,
+      width: rect.width,
+      height: rect.height
+    })
+  }
+
+  useEffect(() => {
+    if (!contextMenu) return undefined
+    const closeMenu = (): void => setContextMenu(null)
+    const closeMenuWithKeyboard = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    window.addEventListener('pointerdown', closeMenu)
+    window.addEventListener('keydown', closeMenuWithKeyboard)
+    window.addEventListener('resize', closeMenu)
+    return () => {
+      window.removeEventListener('pointerdown', closeMenu)
+      window.removeEventListener('keydown', closeMenuWithKeyboard)
+      window.removeEventListener('resize', closeMenu)
+    }
+  }, [contextMenu])
+
+  useEffect(() => {
+    return () => clearLongPressTimer()
+  }, [])
 
   const openAddEditor = (schedule = createDefaultSchedule()): void => {
     setDraftTask(null)
@@ -334,6 +507,111 @@ export function StudyTaskSchedulePage({
 
   const clearDayHover = (dayIndex: number): void => {
     setHover((current) => current?.dayIndex === dayIndex ? null : current)
+  }
+
+  const openTaskContextMenu = (event: ReactMouseEvent<HTMLDivElement>, task: ScheduledStudyTask): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    clearLongPressTimer()
+    pendingTaskDragRef.current = null
+    const menuWidth = 148
+    const menuHeight = 92
+    setContextMenu({
+      taskId: task.id,
+      x: clamp(event.clientX, 8, Math.max(8, window.innerWidth - menuWidth - 8)),
+      y: clamp(event.clientY, 8, Math.max(8, window.innerHeight - menuHeight - 8))
+    })
+  }
+
+  const editTaskFromContextMenu = (task: ScheduledStudyTask): void => {
+    setContextMenu(null)
+    openEditEditor(task)
+  }
+
+  const removeTaskFromSchedule = (taskId: string): void => {
+    clearLongPressTimer()
+    pendingTaskDragRef.current = null
+    if (taskDragRef.current?.taskId === taskId) setActiveTaskDrag(null)
+    setContextMenu(null)
+    setInlineTitle((current) => current?.taskId === taskId ? null : current)
+    setEditor((current) => current?.mode === 'edit' && current.taskId === taskId ? null : current)
+    onRemoveTask(taskId)
+  }
+
+  const handleTaskPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    task: ScheduledStudyTask,
+    dayIndex: number
+  ): void => {
+    if (event.button !== 0 || inlineTitle?.taskId === task.id) {
+      event.stopPropagation()
+      return
+    }
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('button, input, select, textarea, form')) {
+      event.stopPropagation()
+      return
+    }
+    event.stopPropagation()
+    setContextMenu(null)
+    clearDayHover(dayIndex)
+    clearLongPressTimer()
+    const rect = event.currentTarget.getBoundingClientRect()
+    pendingTaskDragRef.current = {
+      task,
+      element: event.currentTarget,
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      grabOffsetX: event.clientX - rect.left,
+      grabOffsetY: event.clientY - rect.top,
+      grabOffsetMinutes: clamp(event.clientY - rect.top, 0, rect.height) / Math.max(1, rect.height)
+        * (task.schedule.endMinutes - task.schedule.startMinutes)
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    longPressTimerRef.current = window.setTimeout(beginTaskDragFromPending, 360)
+  }
+
+  const handleTaskPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    task: ScheduledStudyTask,
+    dayIndex: number
+  ): void => {
+    event.stopPropagation()
+    const pending = pendingTaskDragRef.current
+    if (pending?.task.id === task.id && pending.pointerId === event.pointerId) {
+      pending.clientX = event.clientX
+      pending.clientY = event.clientY
+    }
+    const activeDrag = taskDragRef.current
+    if (activeDrag?.taskId === task.id && activeDrag.pointerId === event.pointerId) {
+      event.preventDefault()
+      updateActiveTaskDrag(event.clientX, event.clientY)
+      return
+    }
+    clearDayHover(dayIndex)
+  }
+
+  const finishTaskPointerDrag = (event: ReactPointerEvent<HTMLDivElement>, taskId: string): void => {
+    event.stopPropagation()
+    clearLongPressTimer()
+    pendingTaskDragRef.current = null
+    const activeDrag = taskDragRef.current
+    if (activeDrag?.taskId === taskId && activeDrag.pointerId === event.pointerId) {
+      event.preventDefault()
+      const finalDrag = updateActiveTaskDrag(event.clientX, event.clientY) ?? activeDrag
+      onUpdateTask(taskId, { schedule: finalDrag.previewSchedule })
+      setActiveTaskDrag(null)
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  const cancelTaskPointerDrag = (event: ReactPointerEvent<HTMLDivElement>, taskId: string): void => {
+    event.stopPropagation()
+    clearLongPressTimer()
+    pendingTaskDragRef.current = null
+    if (taskDragRef.current?.taskId === taskId) setActiveTaskDrag(null)
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
 
   const handleColumnPointerMove = (dayIndex: number, event: ReactPointerEvent<HTMLDivElement>): void => {
@@ -446,6 +724,7 @@ export function StudyTaskSchedulePage({
             <div
               key={day}
               className="study-schedule-day-column"
+              data-day-index={dayIndex}
               role="gridcell"
               aria-label={day}
               onPointerMove={(event) => handleColumnPointerMove(dayIndex, event)}
@@ -509,25 +788,35 @@ export function StudyTaskSchedulePage({
                   {draftError ? <small role="status">{draftError}</small> : null}
                 </form>
               ) : null}
+              {taskDrag?.previewSchedule.weekday === dayIndex ? (
+                <div
+                  className="study-schedule-drag-preview"
+                  style={createRangeStyle(taskDrag.previewSchedule.startMinutes, taskDrag.previewSchedule.endMinutes)}
+                  aria-hidden="true"
+                >
+                  <span>{formatMinutes(taskDrag.previewSchedule.startMinutes)}-{formatMinutes(taskDrag.previewSchedule.endMinutes)}</span>
+                </div>
+              ) : null}
               {layoutsByDay[dayIndex]?.map(({ task, lane, lanes }) => {
                 const color = getScheduleColor(task.schedule)
                 const widthPercent = 100 / lanes
                 const leftPercent = lane * widthPercent
                 const editingTitle = inlineTitle?.taskId === task.id
+                const draggingThisTask = taskDrag?.taskId === task.id
                 return (
                   <div
                     key={task.id}
-                    className={`study-schedule-event${task.done ? ' is-done' : ''}${editingTitle ? ' is-editing-title' : ''}`}
+                    className={`study-schedule-event${task.done ? ' is-done' : ''}${editingTitle ? ' is-editing-title' : ''}${draggingThisTask ? ' is-drag-source' : ''}`}
                     role="button"
                     tabIndex={0}
                     onDoubleClick={() => openEditEditor(task)}
+                    onContextMenu={(event) => openTaskContextMenu(event, task)}
                     onKeyDown={(event) => handleTaskKeyDown(event, task)}
                     onPointerEnter={() => clearDayHover(dayIndex)}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onPointerMove={(event) => {
-                      event.stopPropagation()
-                      clearDayHover(dayIndex)
-                    }}
+                    onPointerDown={(event) => handleTaskPointerDown(event, task, dayIndex)}
+                    onPointerMove={(event) => handleTaskPointerMove(event, task, dayIndex)}
+                    onPointerUp={(event) => finishTaskPointerDrag(event, task.id)}
+                    onPointerCancel={(event) => cancelTaskPointerDrag(event, task.id)}
                     aria-label={`${day} ${formatMinutes(task.schedule.startMinutes)} 到 ${formatMinutes(task.schedule.endMinutes)}，${task.title}`}
                     style={{
                       '--event-start-ratio': task.schedule.startMinutes / minutesPerDay,
@@ -602,6 +891,52 @@ export function StudyTaskSchedulePage({
           )
         })}
       </div>
+
+      {taskDrag && draggedTaskColor ? (
+        <div
+          className="study-schedule-drag-float"
+          style={{
+            left: taskDrag.clientX - taskDrag.grabOffsetX,
+            top: taskDrag.clientY - taskDrag.grabOffsetY - 8,
+            width: taskDrag.width,
+            minHeight: taskDrag.height,
+            '--event-color': draggedTaskColor.color,
+            '--event-ink': draggedTaskColor.ink
+          } as TaskColorVarStyle}
+          aria-hidden="true"
+        >
+          <span className="study-schedule-event-time">
+            {formatMinutes(taskDrag.previewSchedule.startMinutes)}-{formatMinutes(taskDrag.previewSchedule.endMinutes)}
+          </span>
+          <strong>{taskDrag.title}</strong>
+          <span>{taskDrag.done ? '已完成' : '待完成'}</span>
+        </div>
+      ) : null}
+
+      {contextMenu && contextMenuTask ? (
+        <div
+          className="study-schedule-context-menu"
+          role="menu"
+          aria-label={`${contextMenuTask.title} 操作`}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button type="button" role="menuitem" onClick={() => editTaskFromContextMenu(contextMenuTask)}>
+            <PencilLine size={14} />
+            编辑
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="is-danger"
+            onClick={() => removeTaskFromSchedule(contextMenuTask.id)}
+          >
+            <Trash2 size={14} />
+            移除
+          </button>
+        </div>
+      ) : null}
 
       {editor ? (
         <div

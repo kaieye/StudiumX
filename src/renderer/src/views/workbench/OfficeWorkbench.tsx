@@ -402,6 +402,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     addScheduledTask,
     updateTask,
     toggleTask,
+    removeTask,
     removeDoneTasks
   } = useStudySession({
     showNotification,
@@ -640,6 +641,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           onAddScheduledTask={addScheduledTask}
           onUpdateTask={updateTask}
           onToggleTask={toggleTask}
+          onRemoveTask={removeTask}
           onBack={closeTaskSchedule}
         />
       </section>

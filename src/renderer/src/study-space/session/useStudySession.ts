@@ -21,6 +21,7 @@ import {
   followStudyRoomCycle,
   joinStudySpace,
   removeDoneStudyTasks,
+  removeStudyTask,
   resetStudyRelayUrl,
   resetStudyTimer,
   saveStudyNickname,
@@ -348,6 +349,10 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     setSnapshot((current) => removeDoneStudyTasks(current))
   }
 
+  const removeTask = (taskId: string): void => {
+    setSnapshot((current) => removeStudyTask(current, taskId))
+  }
+
   const toggleAmbientEnabled = (): void => {
     setSnapshot((current) => toggleStudyAmbient(current))
   }
@@ -381,6 +386,7 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     addScheduledTask,
     updateTask,
     toggleTask,
+    removeTask,
     removeDoneTasks,
     toggleAmbientEnabled,
     setAmbientVolume
