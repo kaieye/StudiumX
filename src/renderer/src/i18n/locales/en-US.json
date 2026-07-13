@@ -274,12 +274,7 @@
       "bubbleLabel": "Show status bubble",
       "bubbleDetail": "Show a short message while work is running, blocked, failed, or ready to review.",
       "appearanceTitle": "Current pet",
-      "appearanceDetail": "Boba is the only pet for now; the preview, floating pet, and study room share the same animation atlas.",
-      "appearances": {
-        "boba": "Boba"
-      },
-      "implementationTitle": "How it works",
-      "implementationDetail": "Boba is loaded the same way as a local Codex custom pet: metadata comes from pet.json and spritesheet.webp is rendered as an 8-column by 9-row v1 animation atlas. Generation and agent sessions drive state; reduced-motion mode freezes animations on their first frame.",
+      "appearanceDetail": "Choose a pet to use its animations in the preview, floating companion, and study room.",
       "hide": "Hide pet",
       "close": "Close pet",
       "overlayAria": "Pet {{name}}; drag to move, click to inspect status, or right-click to close",

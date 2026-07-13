@@ -16,6 +16,7 @@ const states = [
   'running',
   'review'
 ]
+const appearances = ['boba', 'lulu-capybara', 'shinchan', 'usagi']
 const port = await availablePort()
 const child = spawn(electronPath, [`--remote-debugging-port=${port}`, 'out/main/index.js'], {
   env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' },
@@ -124,18 +125,22 @@ try {
     assert.deepEqual(result.layout.clippedControls, [], 'preview action names should not be clipped')
     assert.equal(result.layout.controlsOverflow, false, 'preview controls should fit inside their panel')
     assert.equal(result.layout.pageOverflow, false, 'the pet page should not introduce horizontal overflow')
-    assert.equal(result.atlases.length, 1, 'the pet page should expose one Boba atlas')
+    assert.equal(result.atlases.length, appearances.length, 'the pet page should expose every bundled atlas')
+    assert.deepEqual(
+      result.atlases.map((atlas) => atlas.appearance),
+      appearances,
+      'appearance cards should follow the shared pet catalog order'
+    )
     for (const atlas of result.atlases) {
-      assert.equal(atlas.appearance, 'boba', 'the single pet atlas should be Boba')
-      assert.equal(atlas.naturalWidth, 1536, 'the Boba atlas should contain eight 192px columns')
-      assert.equal(atlas.naturalHeight, 1872, 'the Boba v1 atlas should contain nine 208px rows')
-      assert.equal(atlas.backgroundSize, '800% 900%', 'the sprite should use the Codex v1 background grid')
-      assert.equal(atlas.rows.length, 9, 'Boba should contain nine action rows')
+      assert.equal(atlas.naturalWidth, 1536, `${atlas.appearance} should contain eight 192px columns`)
+      assert.equal(atlas.naturalHeight, 1872, `${atlas.appearance} should contain nine 208px rows`)
+      assert.equal(atlas.backgroundSize, '800% 900%', `${atlas.appearance} should use the Codex v1 background grid`)
+      assert.equal(atlas.rows.length, 9, `${atlas.appearance} should contain nine action rows`)
       for (const row of atlas.rows) {
         assert.equal(
           row.uniqueFrames,
           row.activeFrames,
-          `boba/${row.state} should preserve every Codex-active animation frame`
+          `${atlas.appearance}/${row.state} should preserve every Codex-active animation frame`
         )
       }
     }

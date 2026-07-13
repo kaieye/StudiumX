@@ -24,8 +24,36 @@ export type ModelEndpointFormat = 'chat_completions' | 'responses' | 'messages' 
 export type ModelReasoningEffort = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export type AppCloseAction = 'quit' | 'tray'
-export const PET_APPEARANCE_IDS = ['robot', 'cat', 'owl', 'sprout', 'fox', 'penguin'] as const
+export const PET_APPEARANCE_IDS = ['boba', 'lulu-capybara', 'shinchan', 'usagi'] as const
 export type PetAppearanceId = (typeof PET_APPEARANCE_IDS)[number]
+export const DEFAULT_PET_APPEARANCE_ID: PetAppearanceId = 'boba'
+
+const LEGACY_PET_APPEARANCE_IDS: Record<string, PetAppearanceId> = {
+  robot: 'boba',
+  cat: 'boba',
+  owl: 'boba',
+  sprout: 'boba',
+  fox: 'boba',
+  penguin: 'boba',
+  classic: 'boba',
+  mint: 'boba',
+  sunset: 'boba',
+  midnight: 'boba',
+  berry: 'boba',
+  mono: 'boba',
+  lulu: 'lulu-capybara'
+}
+
+export function normalizePetAppearanceId(
+  input: unknown,
+  fallback: PetAppearanceId = DEFAULT_PET_APPEARANCE_ID
+): PetAppearanceId {
+  if (typeof input !== 'string') return fallback
+  const normalized = input.trim().toLowerCase()
+  if (PET_APPEARANCE_IDS.includes(normalized as PetAppearanceId)) return normalized as PetAppearanceId
+  return LEGACY_PET_APPEARANCE_IDS[normalized] ?? fallback
+}
+
 export type WebSearchBackend =
   | 'auto'
   | 'firecrawl'

@@ -22,9 +22,11 @@ import {
   modelReasoningEffortsForProviderModel
 } from '../../../shared/model-provider-catalog'
 import {
+  DEFAULT_PET_APPEARANCE_ID,
   PARALLEL_SEARCH_MODES,
   TEACHING_MODEL_PROVIDER_PRESETS,
   WEB_SEARCH_BACKENDS,
+  normalizePetAppearanceId,
   WORKSPACE_WRITE_PERMISSION_POLICIES,
   type ModelReasoningEffort,
   type SettingsSection,
@@ -122,7 +124,7 @@ export const emptySettings: TeachingSettingsV1 = {
     enabled: true,
     displayName: 'Boba',
     showStatusBubble: true,
-    appearance: 'robot'
+    appearance: DEFAULT_PET_APPEARANCE_ID
   },
   privacy: {
     maskApiKeys: true,
@@ -192,7 +194,8 @@ export function normalizeRendererSettings(input: TeachingSettingsPatch | Teachin
     },
     pet: {
       ...emptySettings.pet,
-      ...(settings.pet ?? {})
+      ...(settings.pet ?? {}),
+      appearance: normalizePetAppearanceId(settings.pet?.appearance, emptySettings.pet.appearance)
     },
     privacy: {
       ...emptySettings.privacy,

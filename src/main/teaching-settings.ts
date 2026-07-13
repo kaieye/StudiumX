@@ -2,17 +2,17 @@ import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { DEFAULT_LESSON_STYLE_ID, normalizeLessonStyleId } from '../shared/lesson-styles'
 import {
+  DEFAULT_PET_APPEARANCE_ID,
   MODEL_ENDPOINT_FORMATS,
   MODEL_REASONING_EFFORTS,
   PARALLEL_SEARCH_MODES,
-  PET_APPEARANCE_IDS,
   TEACHING_MODEL_PROVIDER_PRESETS,
   WEB_SEARCH_BACKENDS,
   WORKSPACE_WRITE_PERMISSION_POLICIES,
+  normalizePetAppearanceId,
   type ModelEndpointFormat,
   type ModelReasoningEffort,
   type ParallelSearchMode,
-  type PetAppearanceId,
   type TeachingModelProviderProfile,
   type TeachingSettingsPatch,
   type TeachingSettingsV1,
@@ -27,14 +27,6 @@ const DEFAULT_UI_FONT_SCALE = 1
 const MIN_UI_FONT_SCALE = 0.8
 const MAX_UI_FONT_SCALE = 1.2
 const SAFE_STORAGE_PREFIX = 'safeStorage:v1:'
-const legacyPetAppearances: Record<string, PetAppearanceId> = {
-  classic: 'robot',
-  mint: 'sprout',
-  sunset: 'fox',
-  midnight: 'owl',
-  berry: 'cat',
-  mono: 'penguin'
-}
 
 export type SettingsSecretStorage = {
   isEncryptionAvailable: () => boolean
@@ -342,7 +334,7 @@ export function defaultSettings(defaultRoot: string): TeachingSettingsV1 {
       enabled: true,
       displayName: 'Boba',
       showStatusBubble: true,
-      appearance: 'robot'
+      appearance: DEFAULT_PET_APPEARANCE_ID
     },
     privacy: {
       maskApiKeys: true,
@@ -542,7 +534,7 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       enabled: petInput.enabled !== false,
       displayName: normalizeString(petInput.displayName).slice(0, 24) || defaults.pet.displayName,
       showStatusBubble: petInput.showStatusBubble !== false,
-      appearance: normalizePetAppearance(petInput.appearance, defaults.pet.appearance)
+      appearance: normalizePetAppearanceId(petInput.appearance, defaults.pet.appearance)
     },
     privacy: {
       maskApiKeys: privacyInput.maskApiKeys !== false,
@@ -559,12 +551,6 @@ export function normalizeSettings(input: unknown, fallbackDefaultRoot: string): 
       retentionDays: Math.round(clampNumber(logInput.retentionDays, 1, 90, defaults.log.retentionDays))
     }
   }
-}
-
-function normalizePetAppearance(input: unknown, fallback: PetAppearanceId): PetAppearanceId {
-  if (typeof input !== 'string') return fallback
-  if (PET_APPEARANCE_IDS.includes(input as PetAppearanceId)) return input as PetAppearanceId
-  return legacyPetAppearances[input] ?? fallback
 }
 
 function normalizeProviders(input: unknown, fallback: TeachingModelProviderProfile[]): TeachingModelProviderProfile[] {

@@ -274,12 +274,7 @@
       "bubbleLabel": "显示状态气泡",
       "bubbleDetail": "在任务运行、等待处理或完成时展示简短说明。",
       "appearanceTitle": "当前宠物",
-      "appearanceDetail": "目前只提供 Boba，页面预览、悬浮宠物和自习室会使用同一套动画图集。",
-      "appearances": {
-        "boba": "Boba"
-      },
-      "implementationTitle": "实现方式",
-      "implementationDetail": "按照本机 Codex 的自定义宠物方式加载 Boba：从 pet.json 读取描述，并将 spritesheet.webp 作为 8 列 × 9 行的 v1 动画图集渲染。生成与 Agent 会话驱动状态；开启“减少动态效果”时固定显示首帧。",
+      "appearanceDetail": "选择宠物后，页面预览、悬浮宠物和自习室会同步使用对应动画。",
       "hide": "隐藏宠物",
       "close": "关闭宠物",
       "overlayAria": "宠物 {{name}}，拖动可移动，点击可查看状态，右键可关闭",
