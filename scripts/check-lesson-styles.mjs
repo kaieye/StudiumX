@@ -19,6 +19,7 @@ const FULL_CSS_THEME_IDS = ['manuscript', 'chalkboard', 'editorial', 'blueprint'
 
 const [
   styles,
+  lessonStyleRegistry,
   baseStyles,
   lessonMarkupContract,
   lessonRenderer,
@@ -43,6 +44,7 @@ const [
   fullCssThemeEntries
 ] = await Promise.all([
   readFile('src/shared/lesson-styles.ts', 'utf8'),
+  readFile('src/shared/lesson-style-registry.ts', 'utf8'),
   readFile('src/shared/lesson-style-themes/base.ts', 'utf8'),
   readFile('src/shared/lesson-style-themes/contract.ts', 'utf8'),
   readFile('src/main/ai/lesson-renderer.ts', 'utf8'),
@@ -138,6 +140,34 @@ for (const key of requiredDataAttributeKeys) {
   assert.ok(contractDataAttributes[key], `lesson markup contract should name the "${key}" data attribute`)
   assert.ok(contractDatasetKeys[key], `lesson markup contract should name the "${key}" dataset key`)
 }
+
+assert.match(
+  styles,
+  /import \{ lessonStyleRegistry \} from '\.\/lesson-style-registry'/,
+  'the public lesson-styles facade should delegate lookup policy to the shared registry'
+)
+for (const method of ['isStyleId', 'normalize', 'css']) {
+  assert.match(
+    styles,
+    new RegExp(`lessonStyleRegistry\.${method}`),
+    `the public lesson-styles facade should delegate ${method} to the shared registry`
+  )
+}
+assert.match(
+  lessonStyleRegistry,
+  /const orderedLessonStyles = \[/,
+  'the shared registry should own the ordered style definitions'
+)
+assert.match(
+  lessonStyleRegistry,
+  /contains duplicate id/,
+  'the shared registry should validate duplicate style IDs'
+)
+assert.match(
+  lessonStyleRegistry,
+  /default id .* is not registered/,
+  'the shared registry should validate its default style ID'
+)
 
 for (const name of [
   'LESSON_MARKUP_CLASSES',

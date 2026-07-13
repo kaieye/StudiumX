@@ -11,21 +11,9 @@ export type LessonStyleId =
   | 'mono'
   | 'terminal'
 
-export const LESSON_STYLE_IDS = [
-  'manuscript',
-  'chalkboard',
-  'editorial',
-  'blueprint',
-  'poster',
-  'classic',
-  'nightfall',
-  'paper',
-  'vivid',
-  'mono',
-  'terminal'
-] as const satisfies readonly LessonStyleId[]
-
-export const DEFAULT_LESSON_STYLE_ID: LessonStyleId = 'classic'
+// Runtime catalog values live with the ordered definitions. Re-exporting keeps
+// this types module's existing public contract without a second ID list.
+export { DEFAULT_LESSON_STYLE_ID, LESSON_STYLE_IDS } from '../lesson-style-registry'
 
 export type LessonStyleTokens = {
   fontBody: string
