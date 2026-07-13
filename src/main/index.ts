@@ -20,6 +20,7 @@ const APP_NAME = 'StudiumX'
 
 let logger: Logger
 let tray: TrayManager
+let isFinalizingQuit = false
 
 protocol.registerSchemesAsPrivileged(
   [PREVIEW_PROTOCOL, LEGACY_PREVIEW_PROTOCOL].map((scheme) => ({
@@ -215,7 +216,7 @@ if (!hasSingleInstanceLock) {
       enabled: initialSettings.log.enabled,
       retentionDays: initialSettings.log.retentionDays
     })
-    installConsoleSink(logger)
+    logger.captureConsole()
 
     tray = new TrayManager(logger)
 
@@ -279,8 +280,13 @@ if (!hasSingleInstanceLock) {
     focusExistingWindow()
   })
 
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
     setAppIsQuitting(true)
+    if (isFinalizingQuit || !logger) return
+
+    isFinalizingQuit = true
+    event.preventDefault()
+    void logger.shutdown().finally(() => app.quit())
   })
 
   app.on('window-all-closed', () => {
@@ -304,28 +310,6 @@ async function openWindowExternalUrl(rawUrl: string, settingsService: TeachingSe
   }
 }
 
-function installConsoleSink(log: Logger): void {
-  const originalWarn = console.warn.bind(console)
-  const originalError = console.error.bind(console)
-  console.warn = (...args: unknown[]) => {
-    log.warn(args.map(stringifyArg).join(' '))
-    originalWarn(...args)
-  }
-  console.error = (...args: unknown[]) => {
-    log.error(args.map(stringifyArg).join(' '))
-    originalError(...args)
-  }
-}
-
-function stringifyArg(value: unknown): string {
-  if (value instanceof Error) return value.stack ?? value.message
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
