@@ -88,7 +88,7 @@ import {
   pruneWorkspacePathMetaForItemRemoval,
   shouldArchiveWorkspaceItem
 } from './teaching-workspace/item-lifecycle'
-import { TeachingWorkspaceReviewModule } from './teaching-workspace/review'
+import { TeachingWorkspaceReviewDeck } from './teaching-workspace/review'
 import { TeachingWorkspaceChangeAudit } from './teaching-workspace-change-audit'
 import {
   previewUrlForDocument,
@@ -166,7 +166,7 @@ export class TeachingWorkspaceService {
   private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
   private readonly skillLibraryService?: SkillLibraryService
   private readonly memoryStore: TeachingMemoryStore
-  private readonly reviewModule = new TeachingWorkspaceReviewModule()
+  private readonly reviewDeck = new TeachingWorkspaceReviewDeck()
   private readonly changeAudit: TeachingWorkspaceChangeAudit
   private readonly documents = new TeachingWorkspaceDocuments()
 
@@ -815,19 +815,22 @@ export class TeachingWorkspaceService {
   async listReviewCards(workspaceId: string): Promise<ListReviewCardsResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, workspaceId)
-    return this.reviewModule.listReviewCards(workspace)
+    const deck = await this.reviewDeck.loadDeck(workspace)
+    return { cards: deck.cards }
   }
 
   async recordProgress(payload: RecordProgressPayload): Promise<GetProgressResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    return this.reviewModule.recordProgress(workspace, payload)
+    const deck = await this.reviewDeck.recordAttempt(workspace, payload)
+    return { workspaceId: workspace.id, progress: deck.progress }
   }
 
   async getProgress(workspaceId: string): Promise<GetProgressResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, workspaceId)
-    return this.reviewModule.getProgress(workspace)
+    const deck = await this.reviewDeck.loadDeck(workspace)
+    return { workspaceId: workspace.id, progress: deck.progress }
   }
 
   async readLesson(payload: ReadLessonPayload): Promise<ReadLessonResult> {
