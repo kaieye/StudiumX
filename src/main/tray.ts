@@ -1,28 +1,19 @@
 import { app, BrowserWindow, Menu, Tray, nativeImage } from 'electron'
 import type { Logger } from './logger'
+import { applicationTrayLifecycle, type TrayLocale, type TrayMenuLabels } from './tray-lifecycle'
 
 // 1x1 accent-blue PNG; Electron scales it up for the tray. Good enough as a
 // placeholder until a real icon asset is bundled.
 const TRAY_ICON_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mN4+P+/HgAFDwIAB6s5FQAAAABJRU5ErkJggg=='
 
-type TrayLocale = 'zh-CN' | 'en-US'
-
-const TRAY_LABELS: Record<TrayLocale, { show: string; quit: string }> = {
-  'zh-CN': { show: '显示 StudiumX', quit: '退出' },
-  'en-US': { show: 'Show StudiumX', quit: 'Quit' }
-}
-
 /**
- * Manages the system tray icon and the close-to-tray behavior. When
- * closeAction === 'tray', the main window's close event is intercepted to
- * hide instead of quit, keeping the app alive in the tray.
+ * Electron adapter for the pure tray lifecycle policy. It owns all BrowserWindow,
+ * Tray, Menu, and app side effects at the existing desktop seam.
  */
 export class TrayManager {
   private tray: Tray | null = null
   private window: BrowserWindow | null = null
-  private closeAction: 'quit' | 'tray' = 'quit'
-  private locale: TrayLocale = 'zh-CN'
   private readonly logger: Logger | null
 
   constructor(logger: Logger | null = null) {
@@ -32,19 +23,17 @@ export class TrayManager {
   attach(window: BrowserWindow): void {
     this.window = window
     window.on('close', (event: Electron.Event) => {
-      if (this.closeAction === 'tray' && !appIsQuitting) {
-        event.preventDefault()
-        window.hide()
-      }
+      if (applicationTrayLifecycle.closeOutcome() !== 'hide') return
+      event.preventDefault()
+      window.hide()
     })
   }
 
-  configure(closeAction: 'quit' | 'tray', locale: TrayLocale = this.locale): void {
-    this.closeAction = closeAction
-    this.locale = locale
-    if (closeAction === 'tray') {
+  configure(closeAction: 'quit' | 'tray', locale: TrayLocale = applicationTrayLifecycle.configuration().locale): void {
+    const configuration = applicationTrayLifecycle.configure(closeAction, locale)
+    if (configuration.trayEnabled) {
       this.ensureTray()
-      this.rebuildMenu()
+      this.rebuildMenu(configuration.labels)
     } else if (this.tray) {
       this.tray.destroy()
       this.tray = null
@@ -59,9 +48,8 @@ export class TrayManager {
     this.logger?.info('Tray initialized')
   }
 
-  private rebuildMenu(): void {
+  private rebuildMenu(labels: TrayMenuLabels): void {
     if (!this.tray) return
-    const labels = TRAY_LABELS[this.locale]
     this.tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: labels.show, click: () => this.show() },
@@ -80,20 +68,16 @@ export class TrayManager {
   }
 
   private quit(): void {
-    appIsQuitting = true
+    applicationTrayLifecycle.beginQuit()
     app.quit()
   }
 }
 
-// Module-level flag so the close handler can distinguish a real quit from
-// a hide-to-tray. Set true just before app.quit() from the tray menu.
-let appIsQuitting = false
-
+/** Preserves the existing main-process quit setter import contract. */
 export function setAppIsQuitting(value: boolean): void {
-  appIsQuitting = value
+  applicationTrayLifecycle.setQuitting(value)
 }
 
 export function isAppQuitting(): boolean {
-  return appIsQuitting
+  return applicationTrayLifecycle.isQuitting()
 }
-
