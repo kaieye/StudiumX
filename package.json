@@ -17,6 +17,7 @@
     "check:agent-chat": "node scripts/check-agent-chat-model-routing.mjs",
     "check:agent-chat-cancel": "node scripts/check-agent-chat-cancel.mjs",
     "check:app-data-migration": "node scripts/check-app-data-migration.mjs",
+    "check:application-runtime": "node scripts/check-application-runtime.mjs",
     "check:app-shell-context-transitions": "node scripts/check-app-shell-context-transitions.mjs",
     "check:teaching-ipc-contract": "node scripts/check-teaching-ipc-contract.mjs",
     "check:teaching-ipc-commands": "node scripts/check-teaching-ipc-commands.mjs",

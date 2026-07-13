@@ -10,6 +10,7 @@ import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { createAppDataMigrationPlan } from './app-data-migration-plan'
 import { openExternalHttpUrl } from './external-links'
+import { createApplicationRuntime, type ApplicationRuntime } from './application-runtime'
 import { LEGACY_PREVIEW_PROTOCOL, PREVIEW_PROTOCOL } from '../shared/preview-markdown-bridge'
 import type { TeachingSettingsV1 } from '../shared/teaching-types'
 
@@ -17,10 +18,6 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL)
 const APP_NAME = 'StudiumX'
-
-let logger: Logger
-let tray: TrayManager
-let isFinalizingQuit = false
 
 protocol.registerSchemesAsPrivileged(
   [PREVIEW_PROTOCOL, LEGACY_PREVIEW_PROTOCOL].map((scheme) => ({
@@ -34,7 +31,7 @@ protocol.registerSchemesAsPrivileged(
   }))
 )
 
-function registerPreviewProtocol(service: TeachingWorkspaceService): void {
+function registerPreviewProtocol(service: TeachingWorkspaceService, logger: Logger): void {
   const handlePreviewRequest = async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url)
@@ -50,7 +47,7 @@ function registerPreviewProtocol(service: TeachingWorkspaceService): void {
         }
       })
     } catch (error) {
-      logger?.warn(`Preview protocol failed: ${errorMessage(error)}`)
+      logger.warn(`Preview protocol failed: ${errorMessage(error)}`)
       return new Response('Preview unavailable', { status: 500 })
     }
   }
@@ -79,7 +76,11 @@ function buildWindowsTitleBarOverlay(): Electron.TitleBarOverlay {
 const MAC_WINDOW_BUTTON_POSITION = { x: 22, y: 23 }
 
 /** Apply app-behavior settings (login item, tray, logging) to the live process. */
-async function applyAppBehavior(settings: TeachingSettingsV1): Promise<void> {
+async function applyAppBehavior(
+  settings: TeachingSettingsV1,
+  tray: TrayManager,
+  logger: Logger
+): Promise<void> {
   try {
     nativeTheme.themeSource = settings.theme
     if (process.platform === 'win32') {
@@ -94,7 +95,7 @@ async function applyAppBehavior(settings: TeachingSettingsV1): Promise<void> {
       args: settings.appBehavior.startMinimized ? ['--hidden'] : []
     })
   } catch (error) {
-    logger?.warn(`Failed to set login item: ${errorMessage(error)}`)
+    logger.warn(`Failed to set login item: ${errorMessage(error)}`)
   }
   tray.configure(settings.appBehavior.closeAction, settings.locale)
   logger.configure(settings.log.enabled, settings.log.retentionDays)
@@ -128,6 +129,8 @@ function buildDesktopWindowVisualOptions(): Electron.BrowserWindowConstructorOpt
 
 function createWindow(
   settingsService: TeachingSettingsService,
+  tray: TrayManager,
+  logger: Logger,
   hidden = false
 ): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -154,7 +157,7 @@ function createWindow(
   tray.attach(mainWindow)
 
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
-    logger?.error(`Preload failed at ${preloadPath}: ${error.stack ?? error.message}`)
+    logger.error(`Preload failed at ${preloadPath}: ${error.stack ?? error.message}`)
   })
 
   mainWindow.once('ready-to-show', () => {
@@ -167,7 +170,7 @@ function createWindow(
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void openWindowExternalUrl(url, settingsService)
+    void openWindowExternalUrl(url, settingsService, logger)
     return { action: 'deny' }
   })
 
@@ -193,6 +196,8 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
   app.quit()
 } else {
+  let runtime: ApplicationRuntime | undefined
+
   app.whenReady().then(async () => {
     app.setName(APP_NAME)
     app.setAppUserModelId('com.local.studiumx')
@@ -201,78 +206,107 @@ if (!hasSingleInstanceLock) {
     const userDataPath = app.getPath('userData')
     const defaultRoot = join(app.getPath('documents'), `${APP_NAME} Workspaces`)
     const appDataMigration = createAppDataMigrationPlan({ appDataPath, userDataPath })
-    await appDataMigration.apply()
-    const { registryPath } = appDataMigration
 
-    const settingsService = new TeachingSettingsService({
-      userDataPath,
-      defaultRoot,
-      secretStorage: safeStorage
+    runtime = createApplicationRuntime({
+      prepare: () => appDataMigration.apply(),
+      create: async () => {
+        const settingsService = new TeachingSettingsService({
+          userDataPath,
+          defaultRoot,
+          secretStorage: safeStorage
+        })
+        const initialSettings = await settingsService.load()
+        const logger = new Logger({
+          userDataPath,
+          enabled: initialSettings.log.enabled,
+          retentionDays: initialSettings.log.retentionDays
+        })
+        logger.captureConsole()
+
+        const tray = new TrayManager(logger)
+        const skillLibraryService = new SkillLibraryService({
+          builtInRoots: [
+            join(process.resourcesPath, 'builtin-skills'),
+            join(app.getAppPath(), 'resources', 'builtin-skills'),
+            join(process.cwd(), 'resources', 'builtin-skills')
+          ]
+        })
+        await skillLibraryService.listSkills()
+
+        const workspaceService = new TeachingWorkspaceService({
+          registryPath: appDataMigration.registryPath,
+          defaultRoot,
+          settingsProvider: () => settingsService.load(),
+          skillLibraryService
+        })
+        return {
+          settingsService,
+          initialSettings,
+          logger,
+          tray,
+          skillLibraryService,
+          workspaceService
+        }
+      },
+      recover: async (services) => {
+        await services.workspaceService.reconcileInterruptedAgentRuns()
+
+        const learningAnalyticsService = new LearningAnalyticsService({
+          appDataRoot: userDataPath,
+          listWorkspaceSummaries: () => services.workspaceService.listWorkspaceSummariesForAnalytics(),
+          readConversation: (workspaceId, conversationId) => services.workspaceService.readAgentConversation({
+            workspaceId,
+            conversationId
+          }),
+          getProgress: (workspaceId) => services.workspaceService.getProgress(workspaceId),
+          listReviewCards: (workspaceId) => services.workspaceService.listReviewCards(workspaceId),
+          listMemory: (workspaceRoot) => services.workspaceService.listMemory(workspaceRoot),
+          getMemoryDiagnostics: () => services.workspaceService.getMemoryDiagnostics(),
+          listSkills: () => services.skillLibraryService.listSkills(),
+          loadSettings: () => services.settingsService.load(),
+          getConnectorStatuses: () => services.workspaceService.getConnectorStatuses(),
+          listWorkspaceChanges: (workspaceId) => services.workspaceService.listWorkspaceChangesForAnalytics(workspaceId)
+        })
+
+        return { ...services, learningAnalyticsService }
+      },
+      register: ({
+        workspaceService,
+        settingsService,
+        skillLibraryService,
+        learningAnalyticsService,
+        logger,
+        tray
+      }) => {
+        registerPreviewProtocol(workspaceService, logger)
+        registerTeachingIpcGateway({
+          workspaceService,
+          settingsService,
+          skillLibraryService,
+          learningAnalyticsService,
+          logger,
+          applyAppBehavior: (settings) => applyAppBehavior(settings, tray, logger)
+        })
+      },
+      open: ({ settingsService, initialSettings, tray, logger }) => {
+        const startHidden = initialSettings.appBehavior.startMinimized || process.argv.includes('--hidden')
+        createWindow(settingsService, tray, logger, startHidden)
+      },
+      applyBehavior: ({ initialSettings, tray, logger }) => {
+        void applyAppBehavior(initialSettings, tray, logger)
+      },
+      activate: ({ settingsService, tray, logger }) => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          createWindow(settingsService, tray, logger)
+        }
+      },
+      drain: ({ logger }) => logger.shutdown()
     })
-    const initialSettings = await settingsService.load()
 
-    logger = new Logger({
-      userDataPath,
-      enabled: initialSettings.log.enabled,
-      retentionDays: initialSettings.log.retentionDays
-    })
-    logger.captureConsole()
-
-    tray = new TrayManager(logger)
-
-    const skillLibraryService = new SkillLibraryService({
-      builtInRoots: [
-        join(process.resourcesPath, 'builtin-skills'),
-        join(app.getAppPath(), 'resources', 'builtin-skills'),
-        join(process.cwd(), 'resources', 'builtin-skills')
-      ]
-    })
-    await skillLibraryService.listSkills()
-
-    const workspaceService = new TeachingWorkspaceService({
-      registryPath,
-      defaultRoot,
-      settingsProvider: () => settingsService.load(),
-      skillLibraryService
-    })
-    await workspaceService.reconcileInterruptedAgentRuns()
-
-    const learningAnalyticsService = new LearningAnalyticsService({
-      appDataRoot: userDataPath,
-      listWorkspaceSummaries: () => workspaceService.listWorkspaceSummariesForAnalytics(),
-      readConversation: (workspaceId, conversationId) => workspaceService.readAgentConversation({
-        workspaceId,
-        conversationId
-      }),
-      getProgress: (workspaceId) => workspaceService.getProgress(workspaceId),
-      listReviewCards: (workspaceId) => workspaceService.listReviewCards(workspaceId),
-      listMemory: (workspaceRoot) => workspaceService.listMemory(workspaceRoot),
-      getMemoryDiagnostics: () => workspaceService.getMemoryDiagnostics(),
-      listSkills: () => skillLibraryService.listSkills(),
-      loadSettings: () => settingsService.load(),
-      getConnectorStatuses: () => workspaceService.getConnectorStatuses(),
-      listWorkspaceChanges: (workspaceId) => workspaceService.listWorkspaceChangesForAnalytics(workspaceId)
-    })
-
-    registerPreviewProtocol(workspaceService)
-    registerTeachingIpcGateway({
-      workspaceService,
-      settingsService,
-      skillLibraryService,
-      learningAnalyticsService,
-      logger,
-      applyAppBehavior
-    })
-
-    const startHidden = initialSettings.appBehavior.startMinimized || process.argv.includes('--hidden')
-    createWindow(settingsService, startHidden)
-
-    void applyAppBehavior(initialSettings)
+    await runtime.start()
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow(settingsService)
-      }
+      runtime?.activate()
     })
   })
 
@@ -282,11 +316,11 @@ if (!hasSingleInstanceLock) {
 
   app.on('before-quit', (event) => {
     setAppIsQuitting(true)
-    if (isFinalizingQuit || !logger) return
+    const shutdown = runtime?.beginShutdown()
+    if (!shutdown) return
 
-    isFinalizingQuit = true
     event.preventDefault()
-    void logger.shutdown().finally(() => app.quit())
+    void shutdown.finally(() => app.quit())
   })
 
   app.on('window-all-closed', () => {
@@ -298,18 +332,21 @@ if (!hasSingleInstanceLock) {
   })
 }
 
-async function openWindowExternalUrl(rawUrl: string, settingsService: TeachingSettingsService): Promise<void> {
+async function openWindowExternalUrl(
+  rawUrl: string,
+  settingsService: TeachingSettingsService,
+  logger: Logger
+): Promise<void> {
   try {
     const settings = await settingsService.load()
     const result = await openExternalHttpUrl(rawUrl, settings, (url) => shell.openExternal(url))
     if (!result.ok) {
-      logger?.warn(`External link blocked: ${result.message ?? 'Unknown reason.'}`)
+      logger.warn(`External link blocked: ${result.message ?? 'Unknown reason.'}`)
     }
   } catch (error) {
-    logger?.warn(`External link blocked: ${errorMessage(error)}`)
+    logger.warn(`External link blocked: ${errorMessage(error)}`)
   }
 }
-
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
