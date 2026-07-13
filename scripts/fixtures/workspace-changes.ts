@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { execFile as execFileCallback } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 import {
@@ -24,6 +24,23 @@ async function git(cwd: string, args: string[]): Promise<string> {
 }
 
 let tempRoot = ''
+
+async function withGitUnavailable(action: () => Promise<void>): Promise<void> {
+  const emptyPath = join(tempRoot, 'empty-git-path')
+  await mkdir(emptyPath, { recursive: true })
+  const previousPath = process.env.PATH
+  const previousPathCase = process.env.Path
+  process.env.PATH = emptyPath
+  process.env.Path = emptyPath
+  try {
+    await action()
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
+    if (previousPathCase === undefined) delete process.env.Path
+    else process.env.Path = previousPathCase
+  }
+}
 
 try {
   tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-workspace-changes-'))
@@ -144,6 +161,24 @@ try {
   assert.ok(nestedDiff.ok && nestedDiff.diff.includes('+# Generated mission'))
   assert.ok(nestedDiff.ok && !nestedDiff.diff.includes('outside changed during generation'))
 
+  const linkedWorktreeRoot = join(tempRoot, 'linked-worktree')
+  await git(workspaceRoot, ['worktree', 'add', '-b', 'feature/checkpoint-worktree', linkedWorktreeRoot])
+  const linkedBefore = await captureWorkspaceChangeSnapshot(linkedWorktreeRoot)
+  assert.equal(linkedBefore.git.available, true, linkedBefore.git.message)
+  assert.equal(linkedBefore.git.repositoryRoot, resolve(linkedWorktreeRoot))
+  await writeFile(join(linkedWorktreeRoot, 'worktree-lesson.md'), '# Linked worktree lesson\n', 'utf8')
+  const linkedSummary = await summarizeWorkspaceChanges({
+    workspaceId: 'workspace-linked-worktree',
+    workspaceRoot: linkedWorktreeRoot,
+    timestamp: '2026-07-11T00:00:00.000Z',
+    trigger: { kind: 'lesson_generation', label: 'Generated lesson' },
+    before: linkedBefore,
+    affectedPaths: ['worktree-lesson.md']
+  })
+  assert.ok(linkedSummary, linkedBefore.git.message)
+  assert.equal(linkedSummary.git.repositoryRoot, resolve(linkedWorktreeRoot))
+  assert.deepEqual(linkedSummary.changedFiles.map((file) => file.relativePath), ['worktree-lesson.md'])
+
   const nonGitRoot = join(tempRoot, 'non-git')
   await mkdir(nonGitRoot, { recursive: true })
   const nonGitBefore = await captureWorkspaceChangeSnapshot(nonGitRoot)
@@ -158,7 +193,18 @@ try {
   })
   assert.ok(nonGitSummary)
   assert.equal(nonGitSummary.git.available, false)
+  assert.equal(nonGitSummary.git.reason, 'not_git_repo')
+  assert.equal(nonGitSummary.git.message, 'Current workspace is not a Git repository.')
   assert.deepEqual(nonGitSummary.changedFiles.map((file) => file.relativePath), ['lesson.md'])
+
+  await withGitUnavailable(async () => {
+    const unavailableSnapshot = await captureWorkspaceChangeSnapshot(workspaceRoot)
+    assert.deepEqual(unavailableSnapshot.git, {
+      available: false,
+      reason: 'git_unavailable',
+      message: 'Git is not available in PATH.'
+    })
+  })
 
   console.log('workspace changes ok')
 } finally {

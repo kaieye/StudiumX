@@ -1,10 +1,16 @@
-import { execFile as execFileCallback } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFile, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { promisify } from 'node:util'
+import { isAbsolute, join, resolve } from 'node:path'
 import { isPathInsideRoot } from './path-access'
+import {
+  canonicalizeGitPath,
+  classifyGitRepositoryFailure,
+  executeGitCommand,
+  normalizeGitPath,
+  openTeachingGitRepository,
+  workspacePathInRepository
+} from './teaching-git-repository'
 import {
   normalizeWorkspaceRelativePath
 } from './teaching-workspace-paths'
@@ -18,8 +24,6 @@ import type {
   WorkspaceChangeDiffResult
 } from '../shared/teaching-types'
 
-const execFile = promisify(execFileCallback)
-const MAX_GIT_OUTPUT = 8 * 1024 * 1024
 const DEFAULT_DIFF_LIMIT = 220_000
 
 type GitStatusEntry = {
@@ -149,7 +153,7 @@ export async function readWorkspaceChangeDiff(options: {
     : latestCheckpointPairByWorkspace.get(resolve(options.workspaceRoot))
   if (checkpointPair) {
     const repoRelativePath = toRepositoryRelativePath(checkpointPair.after, relativePath)
-    const diff = await runGit(checkpointPair.after.repositoryRoot, [
+    const diff = await executeGitCommand(checkpointPair.after.repositoryRoot, [
       'diff',
       '--no-ext-diff',
       '--no-color',
@@ -163,7 +167,7 @@ export async function readWorkspaceChangeDiff(options: {
   }
   const git = await captureWorkspaceChangeSnapshot(options.workspaceRoot)
   if (git.git.available) {
-    const diff = await runGit(options.workspaceRoot, ['diff', '--no-ext-diff', '--no-color', 'HEAD', '--', relativePath]).catch(() => '')
+    const diff = await executeGitCommand(options.workspaceRoot, ['diff', '--no-ext-diff', '--no-color', 'HEAD', '--', relativePath]).catch(() => '')
     if (diff.trim()) return truncateDiff(relativePath, diff, limit)
     if (git.statusByPath.get(relativePath)?.code !== '??') {
       return { ok: false, message: 'No diff is available for this file yet.' }
@@ -191,14 +195,17 @@ async function deserializeCheckpointPair(
   if (!/^[0-9a-f]{40,64}$/i.test(checkpoint.beforeCommitOid) || !/^[0-9a-f]{40,64}$/i.test(checkpoint.afterCommitOid)) {
     return null
   }
-  const resolvedWorkspaceRoot = await realpath(resolve(workspaceRoot)).catch(() => '')
-  const repositoryRoot = await realpath(resolve(checkpoint.repositoryRoot)).catch(() => '')
+  const resolvedWorkspaceRoot = await canonicalizeGitPath(workspaceRoot).catch(() => '')
+  const repositoryRoot = await canonicalizeGitPath(checkpoint.repositoryRoot).catch(() => '')
   if (!resolvedWorkspaceRoot || !repositoryRoot) return null
-  const workspaceFromRepository = relative(repositoryRoot, resolvedWorkspaceRoot)
-  if (workspaceFromRepository === '..' || workspaceFromRepository.startsWith(`..${sep}`) || isAbsolute(workspaceFromRepository)) {
-    return null
-  }
-  const workspaceInRepository = normalizeGitPath(workspaceFromRepository) || '.'
+  const workspaceInRepository = (() => {
+    try {
+      return workspacePathInRepository(repositoryRoot, resolvedWorkspaceRoot)
+    } catch {
+      return ''
+    }
+  })()
+  if (!workspaceInRepository) return null
   if (workspaceInRepository !== checkpoint.workspaceInRepository) return null
   return {
     before: {
@@ -218,19 +225,14 @@ async function retainCheckpointPair(pair: GitCheckpointPair, id: string): Promis
   const key = createHash('sha256').update(id).digest('hex').slice(0, 24)
   const prefix = `refs/studiumx/checkpoints/${key}`
   await Promise.all([
-    runGit(pair.after.repositoryRoot, ['update-ref', `${prefix}/before`, pair.before.commitOid]),
-    runGit(pair.after.repositoryRoot, ['update-ref', `${prefix}/after`, pair.after.commitOid])
+    executeGitCommand(pair.after.repositoryRoot, ['update-ref', `${prefix}/before`, pair.before.commitOid]),
+    executeGitCommand(pair.after.repositoryRoot, ['update-ref', `${prefix}/after`, pair.after.commitOid])
   ])
 }
 
 async function createGitTreeCheckpoint(workspaceRoot: string): Promise<GitTreeCheckpoint> {
-  const resolvedWorkspaceRoot = await realpath(resolve(workspaceRoot))
-  const repositoryRoot = await realpath(resolve((await runGit(resolvedWorkspaceRoot, ['rev-parse', '--show-toplevel'])).trim()))
-  const workspaceFromRepository = relative(repositoryRoot, resolvedWorkspaceRoot)
-  if (workspaceFromRepository === '..' || workspaceFromRepository.startsWith(`..${sep}`) || isAbsolute(workspaceFromRepository)) {
-    throw new Error('Workspace is outside the resolved Git repository.')
-  }
-  const workspaceInRepository = normalizeGitPath(workspaceFromRepository) || '.'
+  const repository = await openTeachingGitRepository(workspaceRoot)
+  const { repositoryRoot, workspaceInRepository } = repository
   const tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-git-checkpoint-'))
   const temporaryIndex = join(tempRoot, 'index')
   const checkpointEnv = {
@@ -242,19 +244,21 @@ async function createGitTreeCheckpoint(workspaceRoot: string): Promise<GitTreeCh
   }
 
   try {
-    const indexPathOutput = (await runGit(repositoryRoot, ['rev-parse', '--git-path', 'index'])).trim()
+    const indexPathOutput = (await repository.execute(['rev-parse', '--git-path', 'index'], { scope: 'repository' })).trim()
     const indexPath = isAbsolute(indexPathOutput) ? indexPathOutput : resolve(repositoryRoot, indexPathOutput)
     const copiedIndex = await copyFile(indexPath, temporaryIndex).then(() => true).catch(() => false)
     if (!copiedIndex) {
-      const hasHead = await runGit(repositoryRoot, ['rev-parse', '--verify', 'HEAD']).then(() => true).catch(() => false)
-      await runGit(repositoryRoot, hasHead ? ['read-tree', 'HEAD'] : ['read-tree', '--empty'], checkpointEnv)
+      const hasHead = await repository.execute(['rev-parse', '--verify', 'HEAD'], { scope: 'repository' }).then(() => true).catch(() => false)
+      await repository.execute(hasHead ? ['read-tree', 'HEAD'] : ['read-tree', '--empty'], {
+        scope: 'repository',
+        env: checkpointEnv
+      })
     }
-    await runGit(repositoryRoot, ['add', '-A', '--', workspaceInRepository], checkpointEnv)
-    const treeOid = (await runGit(repositoryRoot, ['write-tree'], checkpointEnv)).trim()
-    const commitOid = (await runGit(
-      repositoryRoot,
+    await repository.execute(['add', '-A', '--', workspaceInRepository], { scope: 'repository', env: checkpointEnv })
+    const treeOid = (await repository.execute(['write-tree'], { scope: 'repository', env: checkpointEnv })).trim()
+    const commitOid = (await repository.execute(
       ['commit-tree', treeOid, '-m', `studiumx checkpoint ${Date.now()}`],
-      checkpointEnv
+      { scope: 'repository', env: checkpointEnv }
     )).trim()
     return { commitOid, repositoryRoot, workspaceInRepository }
   } finally {
@@ -273,7 +277,7 @@ function comparableCheckpointPair(
 }
 
 async function readCheckpointDiffEntries(pair: GitCheckpointPair): Promise<GitCheckpointDiffEntry[]> {
-  const output = await runGit(pair.after.repositoryRoot, [
+  const output = await executeGitCommand(pair.after.repositoryRoot, [
     'diff',
     '--name-status',
     '--find-renames',
@@ -308,7 +312,7 @@ async function readCheckpointDiffStats(
 ): Promise<Map<string, { additions: number | null; deletions: number | null }>> {
   const stats = new Map<string, { additions: number | null; deletions: number | null }>()
   await Promise.all(relativePaths.map(async (relativePath) => {
-    const output = await runGit(pair.after.repositoryRoot, [
+    const output = await executeGitCommand(pair.after.repositoryRoot, [
       'diff',
       '--numstat',
       '--no-ext-diff',
@@ -354,9 +358,6 @@ function toRepositoryRelativePath(checkpoint: GitTreeCheckpoint, relativePath: s
     : `${checkpoint.workspaceInRepository}/${normalizeGitPath(relativePath)}`
 }
 
-function normalizeGitPath(value: string): string {
-  return value.split(sep).join('/').replace(/^\.\//, '').replace(/\/$/, '')
-}
 
 function collectChangedPaths(
   before: TeachingWorkspaceChangeSnapshot,
@@ -384,7 +385,7 @@ async function readGitDiffStats(
 ): Promise<Map<string, { additions: number | null; deletions: number | null }>> {
   const stats = new Map<string, { additions: number | null; deletions: number | null }>()
   if (relativePaths.length === 0) return stats
-  const output = await runGit(workspaceRoot, ['diff', '--numstat', '--no-ext-diff', 'HEAD', '--', ...relativePaths]).catch(() => '')
+  const output = await executeGitCommand(workspaceRoot, ['diff', '--numstat', '--no-ext-diff', 'HEAD', '--', ...relativePaths]).catch(() => '')
   for (const line of output.split(/\r?\n/)) {
     if (!line.trim()) continue
     const [additionsRaw, deletionsRaw, rawPath] = line.split('\t')
@@ -513,26 +514,7 @@ function countLines(text: string): number {
   return text.endsWith('\n') ? text.split(/\r?\n/).length - 1 : text.split(/\r?\n/).length
 }
 
-async function runGit(
-  workspaceRoot: string,
-  args: string[],
-  envOverrides: Record<string, string> = {}
-): Promise<string> {
-  const { stdout } = await execFile('git', ['-C', resolve(workspaceRoot), ...args], {
-    windowsHide: true,
-    maxBuffer: MAX_GIT_OUTPUT,
-    env: { ...process.env, LC_ALL: 'C', LANG: 'C', ...envOverrides }
-  })
-  return stdout
-}
-
 function gitUnavailable(error: unknown): TeachingWorkspaceChangeSummary['git'] {
-  const message = error instanceof Error ? error.message : String(error)
-  if (/not a git repository/i.test(message)) {
-    return { available: false, reason: 'not_git_repo', message: 'Current workspace is not a Git repository.' }
-  }
-  if (/spawn git ENOENT/i.test(message) || /'git' is not recognized/i.test(message)) {
-    return { available: false, reason: 'git_unavailable', message: 'Git is not available in PATH.' }
-  }
-  return { available: false, reason: 'error', message }
+  const failure = classifyGitRepositoryFailure(error)
+  return { available: false, ...failure }
 }
