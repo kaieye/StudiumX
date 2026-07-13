@@ -1,16 +1,21 @@
 import { X } from 'lucide-react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conversation-state'
 import { useAppStore } from '../../app-shell/appStore'
+import '../../styles/pet-context-menu.css'
 import { PetAssistantDialog } from './PetAssistantDialog'
 import { PetSprite, type PetVisualState } from './PetSprite'
 
 const PET_POSITION_KEY = 'studiumx-pet-position-v1'
 const EDGE_GAP = 14
+const CONTEXT_MENU_GAP = 8
+const CONTEXT_MENU_WIDTH = 172
+const CONTEXT_MENU_HEIGHT = 48
 
 type PetPosition = { x: number; y: number }
+type PetContextMenuPosition = { x: number; y: number }
 
 type DragSession = {
   pointerId: number
@@ -43,6 +48,19 @@ function clampPosition(position: PetPosition, element: HTMLElement | null): PetP
   }
 }
 
+function clampContextMenuPosition(x: number, y: number): PetContextMenuPosition {
+  return {
+    x: Math.min(
+      Math.max(CONTEXT_MENU_GAP, x),
+      Math.max(CONTEXT_MENU_GAP, window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_GAP)
+    ),
+    y: Math.min(
+      Math.max(CONTEXT_MENU_GAP, y),
+      Math.max(CONTEXT_MENU_GAP, window.innerHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_GAP)
+    )
+  }
+}
+
 export function AppPet() {
   const { t } = useTranslation()
   const settings = useAppStore((state) => state.settings.pet)
@@ -53,12 +71,15 @@ export function AppPet() {
   const agentTurns = useAppStore((state) => state.agentTurns)
   const pendingConversation = useAppStore((state) => state.pendingAgentConversation)
   const petRef = useRef<HTMLDivElement>(null)
+  const mascotRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragSession | null>(null)
   const wasBusyRef = useRef(false)
   const [position, setPosition] = useState<PetPosition | null>(() => storedPosition())
   const [dragState, setDragState] = useState<PetVisualState | null>(null)
   const [hovered, setHovered] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [contextMenu, setContextMenu] = useState<PetContextMenuPosition | null>(null)
   const [introVisible, setIntroVisible] = useState(true)
   const [reviewVisible, setReviewVisible] = useState(false)
 
@@ -98,6 +119,36 @@ export function AppPet() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  useEffect(() => {
+    if (!contextMenu) return
+
+    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+
+    const handleDocumentPointerDown = (event: PointerEvent): void => {
+      if (menuRef.current?.contains(event.target as Node)) return
+      setContextMenu(null)
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      setContextMenu(null)
+      mascotRef.current?.focus()
+    }
+    const dismissContextMenu = (): void => setContextMenu(null)
+
+    document.addEventListener('pointerdown', handleDocumentPointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('scroll', dismissContextMenu, true)
+    window.addEventListener('resize', dismissContextMenu)
+    window.addEventListener('blur', dismissContextMenu)
+    return () => {
+      document.removeEventListener('pointerdown', handleDocumentPointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('scroll', dismissContextMenu, true)
+      window.removeEventListener('resize', dismissContextMenu)
+      window.removeEventListener('blur', dismissContextMenu)
+    }
+  }, [contextMenu])
 
   const baseState: PetVisualState = waiting
     ? 'waiting'
@@ -159,6 +210,23 @@ export function AppPet() {
     }
   }
 
+  const handleContextMenu = (event: ReactMouseEvent<HTMLButtonElement>): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    dragRef.current = null
+    setDragState(null)
+    const rect = event.currentTarget.getBoundingClientRect()
+    const anchorX = event.clientX || rect.right - CONTEXT_MENU_GAP
+    const anchorY = event.clientY || rect.bottom - CONTEXT_MENU_GAP
+    setContextMenu(clampContextMenuPosition(anchorX, anchorY))
+  }
+
+  const closePet = (): void => {
+    setContextMenu(null)
+    setAssistantOpen(false)
+    void updateSettings({ pet: { enabled: false } })
+  }
+
   if (!settings.enabled) return null
 
   return (
@@ -191,14 +259,18 @@ export function AppPet() {
           </div>
         ) : null}
         <button
+          ref={mascotRef}
           className="app-pet-mascot"
           type="button"
           aria-label={t('resources.pets.overlayAria', { name: settings.displayName })}
+          aria-haspopup="menu"
+          aria-expanded={Boolean(contextMenu)}
           title={t(`resources.pets.states.${baseState}`)}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={finishPointer}
           onPointerCancel={finishPointer}
+          onContextMenu={handleContextMenu}
           onPointerEnter={() => setHovered(true)}
           onPointerLeave={() => setHovered(false)}
         >
@@ -210,6 +282,21 @@ export function AppPet() {
           />
         </button>
       </div>
+      {contextMenu ? (
+        <div
+          ref={menuRef}
+          className="app-pet-context-menu"
+          role="menu"
+          aria-label={t('resources.pets.title')}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button type="button" role="menuitem" onClick={closePet}>
+            <X size={14} aria-hidden="true" />
+            <span>{t('resources.pets.close')}</span>
+          </button>
+        </div>
+      ) : null}
     </>
   )
 }

@@ -286,7 +286,8 @@
       "implementationTitle": "How it works",
       "implementationDetail": "Six original pixel characters use distinct silhouettes, props, and movement details with eight-frame state atlases. Generation and agent sessions drive state; reduced-motion mode freezes animations on their first frame.",
       "hide": "Hide pet",
-      "overlayAria": "Pet {{name}}; drag to move and click to inspect status",
+      "close": "Close pet",
+      "overlayAria": "Pet {{name}}; drag to move, click to inspect status, or right-click to close",
       "stateLabels": {
         "idle": "Idle",
         "running-right": "Run right",
