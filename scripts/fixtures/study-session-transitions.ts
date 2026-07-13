@@ -20,6 +20,7 @@ import {
   toggleStudyContract,
   toggleStudyTask,
   toggleStudyTimer,
+  updateStudyTask,
   updateStudyTimerPreset
 } from '../../src/renderer/src/study-space/session/transitions'
 import type { StudySnapshot } from '../../src/renderer/src/study-space/types'
@@ -205,13 +206,27 @@ assert.equal(addStudyTask(snapshot, '   ', 'blank').added, false)
 const scheduled = addScheduledStudyTask(snapshot, ' Lecture prep ', 'scheduled-task', {
   weekday: 1,
   startMinutes: 9 * 60,
-  endMinutes: 10 * 60 + 30
+  endMinutes: 10 * 60 + 30,
+  colorId: 'mist'
 })
 assert.equal(scheduled.added, true)
-assert.deepEqual(scheduled.snapshot.tasks[0]?.schedule, { weekday: 1, startMinutes: 540, endMinutes: 630 })
+assert.deepEqual(scheduled.snapshot.tasks[0]?.schedule, { weekday: 1, startMinutes: 540, endMinutes: 630, colorId: 'mist' })
 
 const toggled = toggleStudyTask(snapshot, 'task-1')
 assert.equal(toggled.tasks.find((task) => task.id === 'task-1')?.done, true)
+
+const updatedTask = updateStudyTask(snapshot, 'task-1', {
+  title: '  Read chapter 2  ',
+  done: true,
+  schedule: { weekday: 2, startMinutes: 13 * 60, endMinutes: 14 * 60, colorId: 'clay' }
+})
+assert.equal(updatedTask.updated, true)
+assert.deepEqual(updatedTask.snapshot.tasks.find((task) => task.id === 'task-1'), {
+  id: 'task-1',
+  title: 'Read chapter 2',
+  done: true,
+  schedule: { weekday: 2, startMinutes: 780, endMinutes: 840, colorId: 'clay' }
+})
 
 const relay = saveStudyRelayUrl(snapshot, 'not a url')
 assert.equal(relay.relayUrl, 'wss://broker.emqx.io:8084/mqtt')

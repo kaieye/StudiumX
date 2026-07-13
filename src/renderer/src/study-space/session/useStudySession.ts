@@ -7,7 +7,7 @@ import {
   readStudySnapshot,
   syncStudyLocation
 } from '../domain'
-import type { StudyRoomEventKind, StudyRoomId, StudySnapshot, StudyTaskScheduleInput, StudyTimerMode } from '../types'
+import type { StudyRoomEventKind, StudyRoomId, StudySnapshot, StudyTaskScheduleInput, StudyTaskUpdateInput, StudyTimerMode } from '../types'
 import { useStudyAmbient } from '../useStudyAmbient'
 import { useStudyPresence } from '../useStudyPresence'
 import { createStudySpaceViewModel } from '../viewModel'
@@ -35,6 +35,7 @@ import {
   toggleStudyTask,
   toggleStudyTimer,
   updateStudyContractText,
+  updateStudyTask,
   updateStudyTimerPreset
 } from './transitions'
 
@@ -329,6 +330,12 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     return true
   }
 
+  const updateTask = (taskId: string, updateInput: StudyTaskUpdateInput): boolean => {
+    if (!snapshot.tasks.some((task) => task.id === taskId)) return false
+    setSnapshot((current) => updateStudyTask(current, taskId, updateInput).snapshot)
+    return true
+  }
+
   const toggleTask = (taskId: string): void => {
     const task = snapshot.tasks.find((item) => item.id === taskId)
     if (task && !task.done) {
@@ -372,6 +379,7 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     switchTimerMode,
     addTask,
     addScheduledTask,
+    updateTask,
     toggleTask,
     removeDoneTasks,
     toggleAmbientEnabled,

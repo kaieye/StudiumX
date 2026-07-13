@@ -7,7 +7,7 @@ import {
   normalizeStudyTaskSchedule,
   todayKey
 } from '../domain'
-import type { StudySignalId, StudySnapshot, StudyTaskScheduleInput, StudyTimerMode } from '../types'
+import type { StudySignalId, StudySnapshot, StudyTaskScheduleInput, StudyTaskUpdateInput, StudyTimerMode } from '../types'
 
 type StudyRoom = typeof studyRooms[number]
 type StudyMode = typeof studyModes[number]
@@ -253,6 +253,43 @@ export function toggleStudyTask(snapshot: StudySnapshot, taskId: string): StudyS
     ...snapshot,
     tasks: snapshot.tasks.map((task) => task.id === taskId ? { ...task, done: !task.done } : task)
   }
+}
+
+export function updateStudyTask(
+  snapshot: StudySnapshot,
+  taskId: string,
+  updateInput: StudyTaskUpdateInput
+): {
+  snapshot: StudySnapshot
+  updated: boolean
+} {
+  let updated = false
+  const tasks = snapshot.tasks.map((task) => {
+    if (task.id !== taskId) return task
+    let taskUpdated = false
+    const nextTask = { ...task }
+    if (typeof updateInput.title === 'string') {
+      const title = updateInput.title.trim().slice(0, 80)
+      if (title) {
+        nextTask.title = title
+        taskUpdated = true
+      }
+    }
+    if (typeof updateInput.done === 'boolean') {
+      nextTask.done = updateInput.done
+      taskUpdated = true
+    }
+    if (updateInput.schedule) {
+      const schedule = normalizeStudyTaskSchedule(updateInput.schedule)
+      if (schedule) {
+        nextTask.schedule = schedule
+        taskUpdated = true
+      }
+    }
+    updated = updated || taskUpdated
+    return taskUpdated ? nextTask : task
+  })
+  return { snapshot: updated ? { ...snapshot, tasks } : snapshot, updated }
 }
 
 export function removeDoneStudyTasks(snapshot: StudySnapshot): StudySnapshot {

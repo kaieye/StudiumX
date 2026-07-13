@@ -16,7 +16,19 @@ import {
   studyRooms,
   studySignals
 } from './constants'
-import type { StudyModeId, StudyRoomCycle, StudyRoomCyclePhase, StudyRoomId, StudySignalId, StudySnapshot, StudyTask, StudyTaskSchedule, StudyTimerMode, StudyTimerState } from './types'
+import type {
+  StudyModeId,
+  StudyRoomCycle,
+  StudyRoomCyclePhase,
+  StudyRoomId,
+  StudySignalId,
+  StudySnapshot,
+  StudyTask,
+  StudyTaskSchedule,
+  StudyTaskScheduleColorId,
+  StudyTimerMode,
+  StudyTimerState
+} from './types'
 
 export type StudySeatClaim = {
   clientId: string
@@ -238,6 +250,14 @@ export function studyPresenceTopic(spaceCode: string): string {
   return `${STUDY_PRESENCE_TOPIC_ROOT}/${normalizeStudySpaceCode(spaceCode).toLowerCase()}/presence`
 }
 
+const studyTaskScheduleColorIds: StudyTaskScheduleColorId[] = ['sage', 'mist', 'clay', 'mauve', 'sand', 'slate', 'rose']
+
+function normalizeStudyTaskScheduleColorId(input: unknown): StudyTaskScheduleColorId | undefined {
+  return typeof input === 'string' && studyTaskScheduleColorIds.includes(input as StudyTaskScheduleColorId)
+    ? input as StudyTaskScheduleColorId
+    : undefined
+}
+
 export function normalizeStudyTaskSchedule(input: unknown): StudyTaskSchedule | undefined {
   if (!input || typeof input !== 'object') return undefined
   const raw = input as Partial<StudyTaskSchedule>
@@ -246,7 +266,8 @@ export function normalizeStudyTaskSchedule(input: unknown): StudyTaskSchedule | 
   const fallbackEnd = Math.min(24 * 60, startMinutes + 60)
   const rawEndMinutes = Math.floor(clampNumber(raw.endMinutes, 1, 24 * 60, fallbackEnd))
   const endMinutes = rawEndMinutes > startMinutes ? rawEndMinutes : fallbackEnd
-  return { weekday, startMinutes, endMinutes }
+  const colorId = normalizeStudyTaskScheduleColorId(raw.colorId)
+  return { weekday, startMinutes, endMinutes, ...(colorId ? { colorId } : {}) }
 }
 
 export function normalizeStudyTasks(input: unknown): StudyTask[] {

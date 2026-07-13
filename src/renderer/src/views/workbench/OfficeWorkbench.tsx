@@ -400,6 +400,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     toggleAmbientEnabled,
     addTask,
     addScheduledTask,
+    updateTask,
     toggleTask,
     removeDoneTasks
   } = useStudySession({
@@ -637,6 +638,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           openTasks={viewModel.openTasks}
           completedTasks={viewModel.completedTasks}
           onAddScheduledTask={addScheduledTask}
+          onUpdateTask={updateTask}
           onToggleTask={toggleTask}
           onBack={closeTaskSchedule}
         />

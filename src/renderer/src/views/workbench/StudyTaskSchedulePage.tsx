@@ -1,12 +1,27 @@
-import { ArrowLeft, CalendarDays, Check, Clock3, Plus } from 'lucide-react'
-import { useId, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
-import type { StudyTask, StudyTaskSchedule, StudyTaskScheduleInput } from '../../study-space/types'
+import { ArrowLeft, CalendarDays, Check, Clock3, PencilLine, Plus, X } from 'lucide-react'
+import {
+  useId,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent
+} from 'react'
+import type {
+  StudyTask,
+  StudyTaskSchedule,
+  StudyTaskScheduleColorId,
+  StudyTaskScheduleInput,
+  StudyTaskUpdateInput
+} from '../../study-space/types'
 
 type StudyTaskSchedulePageProps = {
   tasks: StudyTask[]
   openTasks: number
   completedTasks: number
   onAddScheduledTask: (title: string, schedule: StudyTaskScheduleInput) => boolean
+  onUpdateTask: (taskId: string, update: StudyTaskUpdateInput) => boolean
   onToggleTask: (taskId: string) => void
   onBack: () => void
 }
@@ -19,33 +34,104 @@ type ScheduledTaskLayout = {
   lanes: number
 }
 
+type TaskEditorState =
+  | { mode: 'add'; title: string; schedule: StudyTaskScheduleInput }
+  | { mode: 'edit'; taskId: string; title: string; done: boolean; schedule: StudyTaskScheduleInput }
+
+type DraftTaskState = {
+  title: string
+  schedule: StudyTaskScheduleInput
+}
+
+type HoverState = {
+  dayIndex: number
+  minutes: number
+}
+
+type SelectionState = {
+  dayIndex: number
+  anchorMinutes: number
+  currentMinutes: number
+  pointerId: number
+}
+
+type InlineTitleState = {
+  taskId: string
+  title: string
+}
+
 type NumberVarStyle<Name extends string> = CSSProperties & Record<Name, number>
+type RangeVarStyle = CSSProperties & Record<'--range-start-ratio' | '--range-duration-ratio', number>
+type HoverVarStyle = CSSProperties & Record<'--hover-ratio', number>
+type EventVarStyle = CSSProperties & Record<
+  '--event-start-ratio' | '--event-duration-ratio' | '--event-left' | '--event-width' | '--event-color' | '--event-ink',
+  string | number
+>
+type ColorSwatchVarStyle = CSSProperties & Record<'--schedule-swatch-color' | '--schedule-swatch-ink', string>
 
 const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-const hourMarks = Array.from({ length: 25 }, (_, hour) => hour)
-const eventColors = ['#007aff', '#34c759', '#ff9f0a', '#af52de', '#ff375f', '#30b0c7', '#5856d6']
+const hourMarks = [0, 4, 8, 12, 16, 20, 24]
+const morandiTaskColors: Array<{
+  id: StudyTaskScheduleColorId
+  name: string
+  color: string
+  ink: string
+}> = [
+  { id: 'sage', name: '鼠尾草', color: '#829d91', ink: '#ffffff' },
+  { id: 'mist', name: '雾蓝', color: '#8197aa', ink: '#ffffff' },
+  { id: 'clay', name: '暖陶土', color: '#ab8b80', ink: '#ffffff' },
+  { id: 'mauve', name: '灰紫', color: '#9c8aa5', ink: '#ffffff' },
+  { id: 'sand', name: '麦砂', color: '#b3a184', ink: '#ffffff' },
+  { id: 'slate', name: '岩灰', color: '#7d8a91', ink: '#ffffff' },
+  { id: 'rose', name: '柔玫', color: '#ad8f98', ink: '#ffffff' }
+]
+const minutesPerDay = 24 * 60
+const selectionStepMinutes = 15
 
-const startTimeOptions = createTimeOptions(0, 23 * 60 + 30)
-const endTimeOptions = createTimeOptions(30, 24 * 60)
+const startTimeOptions = createTimeOptions(0, 23 * 60 + 45)
+const endTimeOptions = createTimeOptions(selectionStepMinutes, minutesPerDay)
 
 function createTimeOptions(startMinutes: number, endMinutes: number): number[] {
   const options: number[] = []
-  for (let minutes = startMinutes; minutes <= endMinutes; minutes += 30) {
+  for (let minutes = startMinutes; minutes <= endMinutes; minutes += selectionStepMinutes) {
     options.push(minutes)
   }
   return options
+}
+
+function defaultColorIdForWeekday(weekday: number): StudyTaskScheduleColorId {
+  const colorIndex = Math.abs(Math.floor(weekday)) % morandiTaskColors.length
+  return morandiTaskColors[colorIndex]?.id ?? 'sage'
+}
+
+function withDefaultScheduleColor(schedule: StudyTaskScheduleInput): StudyTaskScheduleInput {
+  return { ...schedule, colorId: schedule.colorId ?? defaultColorIdForWeekday(schedule.weekday) }
+}
+
+function getScheduleColor(schedule: StudyTaskSchedule): (typeof morandiTaskColors)[number] {
+  const fallbackColorId = defaultColorIdForWeekday(schedule.weekday)
+  return morandiTaskColors.find((color) => color.id === (schedule.colorId ?? fallbackColorId)) ?? morandiTaskColors[0]!
 }
 
 function currentWeekdayIndex(): number {
   return (new Date().getDay() + 6) % 7
 }
 
+function createDefaultSchedule(): StudyTaskScheduleInput {
+  const weekday = currentWeekdayIndex()
+  return { weekday, startMinutes: 9 * 60, endMinutes: 10 * 60, colorId: defaultColorIdForWeekday(weekday) }
+}
+
 function hasSchedule(task: StudyTask): task is ScheduledStudyTask {
   return Boolean(task.schedule)
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
 function formatMinutes(minutes: number): string {
-  if (minutes >= 24 * 60) return '24:00'
+  if (minutes >= minutesPerDay) return '24:00'
   const hour = Math.floor(minutes / 60)
   const minute = minutes % 60
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
@@ -53,6 +139,35 @@ function formatMinutes(minutes: number): string {
 
 function formatHour(hour: number): string {
   return `${hour}:00`
+}
+
+function getMinutesFromPointer(element: HTMLElement, clientY: number): number {
+  const rect = element.getBoundingClientRect()
+  const ratio = rect.height > 0 ? (clientY - rect.top) / rect.height : 0
+  return clamp(Math.round(ratio * minutesPerDay), 0, minutesPerDay)
+}
+
+function createSelectionSchedule(
+  dayIndex: number,
+  anchorMinutes: number,
+  currentMinutes: number,
+  requireDrag = false
+): StudyTaskScheduleInput | null {
+  if (requireDrag && Math.abs(currentMinutes - anchorMinutes) < 8) return null
+  const lowerMinutes = Math.min(anchorMinutes, currentMinutes)
+  const upperMinutes = Math.max(anchorMinutes, currentMinutes)
+  const snappedStart = Math.floor(lowerMinutes / selectionStepMinutes) * selectionStepMinutes
+  const snappedEnd = Math.ceil(upperMinutes / selectionStepMinutes) * selectionStepMinutes
+  const startMinutes = clamp(snappedStart, 0, minutesPerDay - selectionStepMinutes)
+  const endMinutes = clamp(Math.max(snappedEnd, startMinutes + selectionStepMinutes), startMinutes + selectionStepMinutes, minutesPerDay)
+  return { weekday: dayIndex, startMinutes, endMinutes, colorId: defaultColorIdForWeekday(dayIndex) }
+}
+
+function createRangeStyle(startMinutes: number, endMinutes: number): RangeVarStyle {
+  return {
+    '--range-start-ratio': startMinutes / minutesPerDay,
+    '--range-duration-ratio': (endMinutes - startMinutes) / minutesPerDay
+  }
 }
 
 function layoutDayTasks(tasks: ScheduledStudyTask[]): ScheduledTaskLayout[] {
@@ -97,42 +212,181 @@ export function StudyTaskSchedulePage({
   openTasks,
   completedTasks,
   onAddScheduledTask,
+  onUpdateTask,
   onToggleTask,
   onBack
 }: StudyTaskSchedulePageProps) {
   const titleId = useId()
-  const [title, setTitle] = useState('')
-  const [weekday, setWeekday] = useState(() => currentWeekdayIndex())
-  const [startMinutes, setStartMinutes] = useState(9 * 60)
-  const [endMinutes, setEndMinutes] = useState(10 * 60)
-  const [error, setError] = useState('')
+  const editorTitleId = useId()
+  const [editor, setEditor] = useState<TaskEditorState | null>(null)
+  const [editorError, setEditorError] = useState('')
+  const [draftTask, setDraftTask] = useState<DraftTaskState | null>(null)
+  const [draftError, setDraftError] = useState('')
+  const [hover, setHover] = useState<HoverState | null>(null)
+  const [selection, setSelection] = useState<SelectionState | null>(null)
+  const [inlineTitle, setInlineTitle] = useState<InlineTitleState | null>(null)
   const scheduledTasks = useMemo(() => tasks.filter(hasSchedule), [tasks])
-  const unscheduledCount = tasks.length - scheduledTasks.length
   const layoutsByDay = useMemo(() => {
     return weekDays.map((_, dayIndex) => layoutDayTasks(scheduledTasks.filter((task) => task.schedule.weekday === dayIndex)))
   }, [scheduledTasks])
   const todayIndex = currentWeekdayIndex()
+  const editorColorId = editor
+    ? editor.schedule.colorId ?? defaultColorIdForWeekday(editor.schedule.weekday)
+    : null
 
-  const handleStartChange = (minutes: number): void => {
-    setStartMinutes(minutes)
-    if (endMinutes <= minutes) setEndMinutes(Math.min(24 * 60, minutes + 60))
+  const openAddEditor = (schedule = createDefaultSchedule()): void => {
+    setDraftTask(null)
+    setInlineTitle(null)
+    setEditorError('')
+    setEditor({ mode: 'add', title: '', schedule: withDefaultScheduleColor(schedule) })
   }
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
+  const openEditEditor = (task: ScheduledStudyTask): void => {
+    setDraftTask(null)
+    setInlineTitle(null)
+    setEditorError('')
+    setEditor({
+      mode: 'edit',
+      taskId: task.id,
+      title: task.title,
+      done: task.done,
+      schedule: withDefaultScheduleColor(task.schedule)
+    })
+  }
+
+  const closeEditor = (): void => {
+    setEditor(null)
+    setEditorError('')
+  }
+
+  const updateEditorSchedule = (patch: Partial<StudyTaskScheduleInput>): void => {
+    setEditor((current) => {
+      if (!current) return current
+      const nextSchedule = { ...current.schedule, ...patch }
+      if (nextSchedule.endMinutes <= nextSchedule.startMinutes) {
+        nextSchedule.endMinutes = Math.min(minutesPerDay, nextSchedule.startMinutes + 60)
+      }
+      return { ...current, schedule: nextSchedule }
+    })
+  }
+
+  const handleEditorSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    const trimmedTitle = title.trim()
-    if (!trimmedTitle) {
-      setError('先写下任务名称')
+    if (!editor) return
+    const title = editor.title.trim()
+    if (!title) {
+      setEditorError('先写下任务名称')
       return
     }
-    if (endMinutes <= startMinutes) {
-      setError('结束时间需要晚于开始时间')
+    if (editor.schedule.endMinutes <= editor.schedule.startMinutes) {
+      setEditorError('结束时间需要晚于开始时间')
       return
     }
-    if (onAddScheduledTask(trimmedTitle, { weekday, startMinutes, endMinutes })) {
-      setTitle('')
-      setError('')
+    const saved = editor.mode === 'add'
+      ? onAddScheduledTask(title, editor.schedule)
+      : onUpdateTask(editor.taskId, {
+          title,
+          done: editor.done,
+          schedule: editor.schedule
+        })
+    if (saved) closeEditor()
+  }
+
+  const handleDraftSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    if (!draftTask) return
+    const title = draftTask.title.trim()
+    if (!title) {
+      setDraftError('先写下任务名称')
+      return
     }
+    if (onAddScheduledTask(title, draftTask.schedule)) {
+      setDraftTask(null)
+      setDraftError('')
+    }
+  }
+
+  const beginInlineTitleEdit = (task: ScheduledStudyTask): void => {
+    setEditor(null)
+    setDraftTask(null)
+    setInlineTitle({ taskId: task.id, title: task.title })
+  }
+
+  const commitInlineTitle = (taskId: string): void => {
+    if (!inlineTitle || inlineTitle.taskId !== taskId) return
+    const nextTitle = inlineTitle.title.trim()
+    setInlineTitle(null)
+    if (nextTitle) onUpdateTask(taskId, { title: nextTitle })
+  }
+
+  const handleTaskKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>, task: ScheduledStudyTask): void => {
+    if (inlineTitle?.taskId === task.id) return
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      openEditEditor(task)
+      return
+    }
+    if (event.key === ' ' || event.key === 'Spacebar') {
+      event.preventDefault()
+      onToggleTask(task.id)
+    }
+  }
+
+  const clearDayHover = (dayIndex: number): void => {
+    setHover((current) => current?.dayIndex === dayIndex ? null : current)
+  }
+
+  const handleColumnPointerMove = (dayIndex: number, event: ReactPointerEvent<HTMLDivElement>): void => {
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('.study-schedule-event, .study-schedule-draft-card') && selection?.pointerId !== event.pointerId) {
+      clearDayHover(dayIndex)
+      return
+    }
+    const minutes = getMinutesFromPointer(event.currentTarget, event.clientY)
+    setHover({ dayIndex, minutes })
+    setSelection((current) => {
+      if (!current || current.dayIndex !== dayIndex || current.pointerId !== event.pointerId) return current
+      return { ...current, currentMinutes: minutes }
+    })
+  }
+
+  const handleColumnPointerDown = (dayIndex: number, event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('.study-schedule-event, .study-schedule-draft-card')) return
+    const minutes = getMinutesFromPointer(event.currentTarget, event.clientY)
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setEditor(null)
+    setInlineTitle(null)
+    setDraftTask(null)
+    setDraftError('')
+    setHover({ dayIndex, minutes })
+    setSelection({ dayIndex, anchorMinutes: minutes, currentMinutes: minutes, pointerId: event.pointerId })
+  }
+
+  const handleColumnPointerUp = (dayIndex: number, event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!selection || selection.dayIndex !== dayIndex || selection.pointerId !== event.pointerId) return
+    const minutes = getMinutesFromPointer(event.currentTarget, event.clientY)
+    const schedule = createSelectionSchedule(dayIndex, selection.anchorMinutes, minutes, true)
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    setSelection(null)
+    if (schedule) {
+      setEditor(null)
+      setInlineTitle(null)
+      setDraftTask({ title: '', schedule })
+      setDraftError('')
+    }
+  }
+
+  const handleColumnPointerCancel = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    setSelection(null)
+  }
+
+  const handleColumnPointerLeave = (dayIndex: number): void => {
+    if (selection?.dayIndex === dayIndex) return
+    setHover((current) => current?.dayIndex === dayIndex ? null : current)
   }
 
   return (
@@ -146,56 +400,22 @@ export function StudyTaskSchedulePage({
           <h1 id={titleId}>一周任务表</h1>
         </div>
         <div className="study-schedule-stats" aria-label="任务统计">
-          <span><strong>{openTasks}</strong>待完成</span>
-          <span><strong>{completedTasks}</strong>已完成</span>
-          <span><strong>{scheduledTasks.length}</strong>已排期</span>
+          <div className="study-schedule-stat-card study-schedule-stat-card--pending">
+            <button
+              type="button"
+              className="study-schedule-stat-add-button"
+              onClick={() => openAddEditor()}
+              aria-label="添加任务"
+              title="添加任务"
+            >
+              <Plus size={16} />
+            </button>
+            <span><strong>{openTasks}</strong>待完成</span>
+          </div>
+          <div className="study-schedule-stat-card"><span><strong>{completedTasks}</strong>已完成</span></div>
+          <div className="study-schedule-stat-card"><span><strong>{scheduledTasks.length}</strong>已排期</span></div>
         </div>
       </header>
-
-      <form className="study-schedule-form" onSubmit={handleSubmit}>
-        <label>
-          <span>任务</span>
-          <input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="例如：复盘线性代数错题"
-            maxLength={80}
-          />
-        </label>
-        <label>
-          <span>星期</span>
-          <select value={weekday} onChange={(event) => setWeekday(Number(event.target.value))}>
-            {weekDays.map((day, index) => (
-              <option key={day} value={index}>{day}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>开始</span>
-          <select value={startMinutes} onChange={(event) => handleStartChange(Number(event.target.value))}>
-            {startTimeOptions.map((minutes) => (
-              <option key={minutes} value={minutes}>{formatMinutes(minutes)}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>结束</span>
-          <select value={endMinutes} onChange={(event) => setEndMinutes(Number(event.target.value))}>
-            {endTimeOptions.map((minutes) => (
-              <option key={minutes} value={minutes} disabled={minutes <= startMinutes}>
-                {formatMinutes(minutes)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="submit" disabled={!title.trim()}>
-          <Plus size={16} />
-          添加
-        </button>
-        <div className="study-schedule-form-status" role="status" aria-live="polite">
-          {error || (unscheduledCount > 0 ? `${unscheduledCount} 个任务尚未排期` : '')}
-        </div>
-      </form>
 
       <div className="study-schedule-board" role="grid" aria-label="一周 0 点到 24 点任务表">
         <div className="study-schedule-corner" aria-hidden="true">
@@ -212,43 +432,309 @@ export function StudyTaskSchedulePage({
             <span
               key={hour}
               className="study-schedule-hour-label"
-              style={{ '--hour-index': hour } as NumberVarStyle<'--hour-index'>}
+              style={{ '--hour-ratio': hour / 24 } as NumberVarStyle<'--hour-ratio'>}
             >
               {formatHour(hour)}
             </span>
           ))}
         </div>
-        {weekDays.map((day, dayIndex) => (
-          <div key={day} className="study-schedule-day-column" role="gridcell" aria-label={day}>
-            {layoutsByDay[dayIndex]?.map(({ task, lane, lanes }) => {
-              const color = eventColors[dayIndex % eventColors.length]
-              const widthPercent = 100 / lanes
-              const leftPercent = lane * widthPercent
-              return (
-                <button
-                  key={task.id}
-                  type="button"
-                  className={`study-schedule-event${task.done ? ' is-done' : ''}`}
-                  onClick={() => onToggleTask(task.id)}
-                  aria-pressed={task.done}
-                  aria-label={`${day} ${formatMinutes(task.schedule.startMinutes)} 到 ${formatMinutes(task.schedule.endMinutes)}，${task.title}`}
-                  style={{
-                    '--event-start': task.schedule.startMinutes / 60,
-                    '--event-duration': (task.schedule.endMinutes - task.schedule.startMinutes) / 60,
-                    '--event-left': `calc(${leftPercent}% + 4px)`,
-                    '--event-width': `calc(${widthPercent}% - 8px)`,
-                    '--event-color': color
-                  } as CSSProperties & Record<'--event-start' | '--event-duration' | '--event-left' | '--event-width' | '--event-color', string | number>}
+        {weekDays.map((day, dayIndex) => {
+          const selectionSchedule = selection?.dayIndex === dayIndex
+            ? createSelectionSchedule(dayIndex, selection.anchorMinutes, selection.currentMinutes)
+            : null
+          return (
+            <div
+              key={day}
+              className="study-schedule-day-column"
+              role="gridcell"
+              aria-label={day}
+              onPointerMove={(event) => handleColumnPointerMove(dayIndex, event)}
+              onPointerDown={(event) => handleColumnPointerDown(dayIndex, event)}
+              onPointerUp={(event) => handleColumnPointerUp(dayIndex, event)}
+              onPointerCancel={handleColumnPointerCancel}
+              onPointerLeave={() => handleColumnPointerLeave(dayIndex)}
+            >
+              {hover?.dayIndex === dayIndex ? (
+                <div
+                  className={`study-schedule-hover-line${hover.minutes >= 23 * 60 + 30 ? ' is-late' : ''}`}
+                  style={{ '--hover-ratio': hover.minutes / minutesPerDay } as HoverVarStyle}
+                  aria-hidden="true"
                 >
-                  <span>{formatMinutes(task.schedule.startMinutes)}-{formatMinutes(task.schedule.endMinutes)}</span>
-                  <strong>{task.title}</strong>
-                  <small>{task.done ? <Check size={11} /> : null}{task.done ? '已完成' : '待完成'}</small>
-                </button>
-              )
-            })}
-          </div>
-        ))}
+                  <span>{formatMinutes(hover.minutes)}</span>
+                </div>
+              ) : null}
+              {selectionSchedule ? (
+                <div
+                  className="study-schedule-selection"
+                  style={createRangeStyle(selectionSchedule.startMinutes, selectionSchedule.endMinutes)}
+                  aria-hidden="true"
+                >
+                  <span>{formatMinutes(selectionSchedule.startMinutes)}-{formatMinutes(selectionSchedule.endMinutes)}</span>
+                </div>
+              ) : null}
+              {draftTask?.schedule.weekday === dayIndex ? (
+                <form
+                  className="study-schedule-draft-card"
+                  style={createRangeStyle(draftTask.schedule.startMinutes, draftTask.schedule.endMinutes)}
+                  onSubmit={handleDraftSubmit}
+                  onPointerEnter={() => clearDayHover(dayIndex)}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onPointerMove={(event) => {
+                    event.stopPropagation()
+                    clearDayHover(dayIndex)
+                  }}
+                >
+                  <span>{formatMinutes(draftTask.schedule.startMinutes)}-{formatMinutes(draftTask.schedule.endMinutes)}</span>
+                  <input
+                    value={draftTask.title}
+                    onChange={(event) => {
+                      setDraftTask((current) => current ? { ...current, title: event.target.value } : current)
+                      setDraftError('')
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setDraftTask(null)
+                    }}
+                    placeholder="任务名称"
+                    maxLength={80}
+                    autoFocus
+                  />
+                  <div className="study-schedule-draft-actions">
+                    <button type="submit" aria-label="保存任务">
+                      <Check size={13} />
+                    </button>
+                    <button type="button" onClick={() => setDraftTask(null)} aria-label="取消">
+                      <X size={13} />
+                    </button>
+                  </div>
+                  {draftError ? <small role="status">{draftError}</small> : null}
+                </form>
+              ) : null}
+              {layoutsByDay[dayIndex]?.map(({ task, lane, lanes }) => {
+                const color = getScheduleColor(task.schedule)
+                const widthPercent = 100 / lanes
+                const leftPercent = lane * widthPercent
+                const editingTitle = inlineTitle?.taskId === task.id
+                return (
+                  <div
+                    key={task.id}
+                    className={`study-schedule-event${task.done ? ' is-done' : ''}${editingTitle ? ' is-editing-title' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    onDoubleClick={() => openEditEditor(task)}
+                    onKeyDown={(event) => handleTaskKeyDown(event, task)}
+                    onPointerEnter={() => clearDayHover(dayIndex)}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onPointerMove={(event) => {
+                      event.stopPropagation()
+                      clearDayHover(dayIndex)
+                    }}
+                    aria-label={`${day} ${formatMinutes(task.schedule.startMinutes)} 到 ${formatMinutes(task.schedule.endMinutes)}，${task.title}`}
+                    style={{
+                      '--event-start-ratio': task.schedule.startMinutes / minutesPerDay,
+                      '--event-duration-ratio': (task.schedule.endMinutes - task.schedule.startMinutes) / minutesPerDay,
+                      '--event-left': `calc(${leftPercent}% + 4px)`,
+                      '--event-width': `calc(${widthPercent}% - 8px)`,
+                      '--event-color': color.color,
+                      '--event-ink': color.ink
+                    } as EventVarStyle}
+                  >
+                    <span className="study-schedule-event-time">
+                      {formatMinutes(task.schedule.startMinutes)}-{formatMinutes(task.schedule.endMinutes)}
+                    </span>
+                    {editingTitle ? (
+                      <form
+                        className="study-schedule-inline-title-form"
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          commitInlineTitle(task.id)
+                        }}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                      >
+                        <input
+                          value={inlineTitle.title}
+                          onChange={(event) => {
+                            setInlineTitle((current) => current?.taskId === task.id
+                              ? { ...current, title: event.target.value }
+                              : current)
+                          }}
+                          onBlur={() => commitInlineTitle(task.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                              event.preventDefault()
+                              setInlineTitle(null)
+                            }
+                          }}
+                          maxLength={80}
+                          autoFocus
+                        />
+                      </form>
+                    ) : (
+                      <strong
+                        onDoubleClick={(event) => {
+                          event.stopPropagation()
+                          beginInlineTitleEdit(task)
+                        }}
+                      >
+                        {task.title}
+                      </strong>
+                    )}
+                    <div className="study-schedule-event-status">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onToggleTask(task.id)
+                        }}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        aria-pressed={task.done}
+                        aria-label={task.done ? '标记为待完成' : '标记为已完成'}
+                      >
+                        {task.done ? <Check size={11} /> : null}
+                      </button>
+                      <span>{task.done ? '已完成' : '待完成'}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
       </div>
+
+      {editor ? (
+        <div
+          className="study-schedule-editor-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeEditor()
+          }}
+        >
+          <form
+            className="study-schedule-editor-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={editorTitleId}
+            onSubmit={handleEditorSubmit}
+          >
+            <div className="study-schedule-editor-head">
+              <div>
+                <span>{editor.mode === 'add' ? <Plus size={15} /> : <PencilLine size={15} />}{editor.mode === 'add' ? '添加任务' : '编辑任务'}</span>
+                <h2 id={editorTitleId}>{weekDays[editor.schedule.weekday]} {formatMinutes(editor.schedule.startMinutes)}-{formatMinutes(editor.schedule.endMinutes)}</h2>
+              </div>
+              <button type="button" className="study-schedule-editor-close" onClick={closeEditor} aria-label="关闭">
+                <X size={16} />
+              </button>
+            </div>
+
+            <label>
+              <span>任务</span>
+              <input
+                value={editor.title}
+                onChange={(event) => {
+                  setEditor((current) => current ? { ...current, title: event.target.value } : current)
+                  setEditorError('')
+                }}
+                placeholder="例如：复盘线性代数错题"
+                maxLength={80}
+                autoFocus
+              />
+            </label>
+            <div className="study-schedule-editor-grid">
+              <label>
+                <span>星期</span>
+                <select
+                  value={editor.schedule.weekday}
+                  onChange={(event) => updateEditorSchedule({ weekday: Number(event.target.value) })}
+                >
+                  {weekDays.map((day, index) => (
+                    <option key={day} value={index}>{day}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>开始</span>
+                <select
+                  value={editor.schedule.startMinutes}
+                  onChange={(event) => {
+                    const nextStart = Number(event.target.value)
+                    updateEditorSchedule({
+                      startMinutes: nextStart,
+                      endMinutes: editor.schedule.endMinutes <= nextStart
+                        ? Math.min(minutesPerDay, nextStart + 60)
+                        : editor.schedule.endMinutes
+                    })
+                  }}
+                >
+                  {startTimeOptions.map((minutes) => (
+                    <option key={minutes} value={minutes}>{formatMinutes(minutes)}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>结束</span>
+                <select
+                  value={editor.schedule.endMinutes}
+                  onChange={(event) => updateEditorSchedule({ endMinutes: Number(event.target.value) })}
+                >
+                  {endTimeOptions.map((minutes) => (
+                    <option key={minutes} value={minutes} disabled={minutes <= editor.schedule.startMinutes}>
+                      {formatMinutes(minutes)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="study-schedule-editor-colors">
+              <span>配色</span>
+              <div className="study-schedule-color-swatches" aria-label="卡片配色">
+                {morandiTaskColors.map((color) => (
+                  <button
+                    key={color.id}
+                    type="button"
+                    className={`study-schedule-color-swatch${editorColorId === color.id ? ' is-selected' : ''}`}
+                    style={{
+                      '--schedule-swatch-color': color.color,
+                      '--schedule-swatch-ink': color.ink
+                    } as ColorSwatchVarStyle}
+                    aria-pressed={editorColorId === color.id}
+                    title={color.name}
+                    onClick={() => updateEditorSchedule({ colorId: color.id })}
+                  >
+                    <span aria-hidden="true" />
+                    <em>{color.name}</em>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {editor.mode === 'edit' ? (
+              <label className="study-schedule-editor-check">
+                <input
+                  type="checkbox"
+                  checked={editor.done}
+                  onChange={(event) => {
+                    setEditor((current) => current && current.mode === 'edit'
+                      ? { ...current, done: event.target.checked }
+                      : current)
+                  }}
+                />
+                <span>已完成</span>
+              </label>
+            ) : null}
+            <div className="study-schedule-editor-status" role="status" aria-live="polite">
+              {editorError}
+            </div>
+            <div className="study-schedule-editor-actions">
+              <button type="button" className="study-schedule-secondary-button" onClick={closeEditor}>取消</button>
+              <button type="submit" className="study-schedule-primary-button">
+                <Check size={15} />
+                {editor.mode === 'add' ? '添加' : '保存'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   )
 }
