@@ -15,11 +15,13 @@ async function readReachableCss(entryPath, seen = new Set()) {
   return [content, ...importedCss].join('\n')
 }
 
-const [app, main, css] = await Promise.all([
+const [app, chrome, main, reachableCss] = await Promise.all([
   readFile('src/renderer/src/App.tsx', 'utf8'),
+  readFile('src/renderer/src/app-frame/window-chrome.tsx', 'utf8'),
   readFile('src/main/index.ts', 'utf8'),
   readReachableCss('src/renderer/src/styles.css')
 ])
+const css = reachableCss.replace(/\r\n/g, '\n')
 
 function cssRule(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -114,7 +116,7 @@ assert.match(
 assertAppRegion('.windows-window-chrome .window-controls', 'no-drag', 'Windows window control buttons must remain clickable')
 
 assert.doesNotMatch(
-  app.match(/function WindowsWindowChrome\(\) \{[\s\S]*?\n\}/)?.[0] ?? '',
+  chrome.match(/function WindowsWindowChromeAdapter\([\s\S]*?\n\}/)?.[0] ?? '',
   /<WindowControlButtons \/>/,
   'Windows chrome should not render custom window control buttons over the native titlebar overlay'
 )
@@ -156,46 +158,40 @@ assert.match(
 )
 
 assert.match(
-  app,
-  /className=\{`windows-sidebar-drag-region\$\{sidebarCollapsed \? ' is-sidebar-collapsed' : ''\}`\}/,
-  'Windows should render an explicit sidebar-top drag strip that tracks collapsed state'
+  chrome,
+  /const WINDOWS_WINDOW_CHROME_POLICY:[\s\S]*adapter: 'windows',[\s\S]*titlebar: 'native-overlay',[\s\S]*sidebarTogglePlacement: 'window-chrome',[\s\S]*sidebarDragRegionClass: 'windows-sidebar-drag-region'/,
+  'Windows should choose the native-overlay adapter and an explicit sidebar-top drag strip'
 )
 
 assert.match(
-  app,
-  /className=\{`mac-sidebar-drag-region\$\{sidebarCollapsed \? ' is-sidebar-collapsed' : ''\}`\}/,
-  'macOS should render an explicit sidebar-top drag strip that starts after the custom chrome buttons'
+  chrome,
+  /const MACOS_WINDOW_CHROME_POLICY:[\s\S]*adapter: 'macos',[\s\S]*titlebar: 'native-traffic-lights',[\s\S]*sidebarTogglePlacement: 'window-chrome',[\s\S]*sidebarDragRegionClass: 'mac-sidebar-drag-region'/,
+  'macOS should choose native traffic lights and an explicit sidebar-top drag strip'
 )
 
 assert.match(
-  app,
-  /\{isWindows && <WindowsSidebarToggleChrome \/>\}[\s\S]*\{isWindows && <WindowsWindowChrome \/>\}/,
+  chrome,
+  /function WindowsWindowChromeAdapter[\s\S]*<SidebarDragRegion[\s\S]*<SidebarToggleChrome[\s\S]*windows-window-chrome/,
   'Windows sidebar toggle should render as a separate no-drag layer before the draggable chrome'
 )
 
 assert.match(
-  app,
-  /\{isWindows && <WindowsWindowChrome \/>\}\s*\n\s*\{isMac && <MacSidebarToggleChrome \/>\}/,
+  chrome,
+  /function MacWindowChromeAdapter[\s\S]*<SidebarDragRegion[\s\S]*<SidebarToggleChrome/,
   'macOS should render a top-level sidebar toggle beside native traffic lights'
 )
 
-assert.doesNotMatch(app, /function MacWindowChrome\(|function MacTrafficLights\(|MacTrafficLightButton/, 'macOS should not self-draw traffic light buttons')
+assert.doesNotMatch(chrome, /function MacWindowChrome\(|function MacTrafficLights\(|MacTrafficLightButton/, 'macOS should not self-draw traffic light buttons')
 
 assert.match(
-  app,
-  /function WindowsSidebarToggleChrome\(\) \{[\s\S]*const handlePointerDown = \(event: ReactPointerEvent<HTMLButtonElement>\): void => \{[\s\S]*event\.preventDefault\(\)[\s\S]*event\.stopPropagation\(\)[\s\S]*toggleSidebar\(\)[\s\S]*onPointerDown=\{handlePointerDown\}/,
-  'Windows sidebar toggle should switch on pointerdown before draggable chrome can swallow click'
+  chrome,
+  /function SidebarToggleChrome[\s\S]*const handlePointerDown = \(event: ReactPointerEvent<HTMLButtonElement>\): void => \{[\s\S]*event\.preventDefault\(\)[\s\S]*event\.stopPropagation\(\)[\s\S]*onSidebarToggle\(\)[\s\S]*onPointerDown=\{handlePointerDown\}/,
+  'Chrome sidebar toggles should switch on pointerdown before draggable chrome can swallow click'
 )
 
 assert.match(
   app,
-  /function MacSidebarToggleChrome\(\) \{[\s\S]*const handlePointerDown = \(event: ReactPointerEvent<HTMLButtonElement>\): void => \{[\s\S]*event\.preventDefault\(\)[\s\S]*event\.stopPropagation\(\)[\s\S]*toggleSidebar\(\)[\s\S]*onPointerDown=\{handlePointerDown\}/,
-  'macOS sidebar toggle should switch on pointerdown beside the native traffic lights'
-)
-
-assert.match(
-  app,
-  /const showInlineSidebarToggle = !isWindows && !isMac/,
+  /const showInlineSidebarToggle = chrome\.sidebarTogglePlacement === 'inline-topbar'/,
   'macOS should not duplicate the sidebar toggle inside page topbars because it has chrome-level placement'
 )
 

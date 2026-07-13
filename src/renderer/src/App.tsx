@@ -25,7 +25,6 @@ import {
   LibraryBig,
   Loader2,
   MessageSquare,
-  Minus,
   PanelLeftClose,
   PanelLeftOpen,
   Palette,
@@ -43,7 +42,7 @@ import {
   X,
   Wrench
 } from 'lucide-react'
-import type { CSSProperties, ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
+import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Component, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -55,6 +54,13 @@ import { MarkdownEditor } from './markdown-editor'
 import { MarkdownPreview } from './markdown-preview'
 import { OfficeWorkbench } from './views/workbench/OfficeWorkbench'
 import { buildAgentProcessTimeline } from './agent-process-timeline'
+import {
+  defaultSidebarWidth,
+  DesktopAppFrame,
+  resolveSidebarResizePolicy,
+  resolveWindowChromePolicy,
+  SidebarResizeHandle
+} from './app-frame/window-chrome'
 import {
   lessonToCoursePreviewFile,
   mergeAgentInputHistory,
@@ -116,7 +122,6 @@ import {
   type TeachingWorkspaceChangeSummary,
   type TeachingWorkspaceSummary,
   type WorkspaceMarkdownDocument,
-  type WindowControlAction,
   type WorkspaceView
 } from '../../shared/teaching-types'
 
@@ -133,13 +138,6 @@ const navItems = [
 function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
   const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number }
   return Boolean(nativeEvent.isComposing || nativeEvent.keyCode === 229)
-}
-
-function controlAppWindow(action: WindowControlAction): void {
-  const request = window.teachingSystem?.controlWindow(action)
-  void request?.catch((error: unknown) => {
-    console.error(`[StudiumX] window control failed (${action}):`, error)
-  })
 }
 
 // ================================================================
@@ -191,19 +189,11 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 // Main App Component
 // ================================================================
 
-const DEFAULT_SIDEBAR_WIDTH = 232
-const MIN_SIDEBAR_WIDTH = 176
-const MAX_SIDEBAR_WIDTH = 340
-
 function App() {
-  const platform = window.teachingSystem?.platform ?? 'win32'
-  const isMac = platform === 'darwin'
-  const isWindows = platform === 'win32'
-  const showTitlebar = !isMac && !isWindows
-  const { settings, sidebarCollapsed } = useAppStore()
-  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
-  const appShellStyle = { '--sidebar-width': `${sidebarWidth}px` } as CSSProperties
-  const platformClass = isMac ? ' platform-darwin' : isWindows ? ' platform-win32' : ''
+  const chrome = resolveWindowChromePolicy(window.teachingSystem?.platform ?? 'win32')
+  const { settings, sidebarCollapsed, setSidebarCollapsed } = useAppStore()
+  const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth)
+  const sidebarResizePolicy = resolveSidebarResizePolicy(sidebarCollapsed)
 
   useEffect(() => {
     applySettingsSideEffects(settings)
@@ -217,40 +207,20 @@ function App() {
 
   return (
     <AppErrorBoundary>
-      <div className={`app-frame${platformClass}`} style={appShellStyle}>
-        {isWindows && (
-          <div
-            className={`windows-sidebar-drag-region${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
-            aria-hidden="true"
-          />
-        )}
-        {isMac && (
-          <div
-            className={`mac-sidebar-drag-region${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
-            aria-hidden="true"
-          />
-        )}
-        {isWindows && <WindowsSidebarToggleChrome />}
-        {isWindows && <WindowsWindowChrome />}
-        {isMac && <MacSidebarToggleChrome />}
-        {showTitlebar && <WindowTitlebar />}
-        <div
-          className={`app-shell${platformClass}${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
-          data-density={settings.density}
-          style={appShellStyle}
-        >
-          <Sidebar />
-          <SidebarResizer disabled={sidebarCollapsed} onResize={setSidebarWidth} width={sidebarWidth} />
-          <MainArea />
-        </div>
-        <AppPet />
-      </div>
+      <DesktopAppFrame
+        chrome={chrome}
+        density={settings.density}
+        floatingContent={<AppPet />}
+        onSidebarToggle={() => setSidebarCollapsed(!useAppStore.getState().sidebarCollapsed)}
+        sidebarCollapsed={sidebarCollapsed}
+        sidebarWidth={sidebarWidth}
+      >
+        <Sidebar />
+        <SidebarResizeHandle policy={sidebarResizePolicy} onResize={setSidebarWidth} width={sidebarWidth} />
+        <MainArea />
+      </DesktopAppFrame>
     </AppErrorBoundary>
   )
-}
-
-function clampSidebarWidth(width: number): number {
-  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)))
 }
 
 function SidebarToggleIcon({
@@ -264,194 +234,6 @@ function SidebarToggleIcon({
 }) {
   const Icon = collapsed ? PanelLeftOpen : PanelLeftClose
   return <Icon className={className} size={size} strokeWidth={1.9} aria-hidden="true" />
-}
-
-function SidebarResizer({
-  disabled,
-  onResize,
-  width
-}: {
-  disabled: boolean
-  onResize: (width: number) => void
-  width: number
-}) {
-  const { t } = useTranslation()
-  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    if (disabled) return
-
-    event.preventDefault()
-    const startX = event.clientX
-    const startWidth = width
-    const previousCursor = document.body.style.cursor
-    const previousUserSelect = document.body.style.userSelect
-
-    const handlePointerMove = (moveEvent: PointerEvent): void => {
-      onResize(clampSidebarWidth(startWidth + moveEvent.clientX - startX))
-    }
-
-    const finishResize = (): void => {
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', finishResize)
-      window.removeEventListener('pointercancel', finishResize)
-      document.body.classList.remove('is-sidebar-resizing')
-      document.body.style.cursor = previousCursor
-      document.body.style.userSelect = previousUserSelect
-    }
-
-    document.body.classList.add('is-sidebar-resizing')
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', finishResize)
-    window.addEventListener('pointercancel', finishResize)
-  }
-
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
-    if (disabled) return
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault()
-      onResize(clampSidebarWidth(width - 12))
-    }
-    if (event.key === 'ArrowRight') {
-      event.preventDefault()
-      onResize(clampSidebarWidth(width + 12))
-    }
-  }
-
-  return (
-    <div
-      aria-label={t('sidebarResizer.aria')}
-      aria-orientation="vertical"
-      aria-valuemax={MAX_SIDEBAR_WIDTH}
-      aria-valuemin={MIN_SIDEBAR_WIDTH}
-      aria-valuenow={width}
-      className={`sidebar-resizer${disabled ? ' is-disabled' : ''}`}
-      onKeyDown={handleKeyDown}
-      onPointerDown={handlePointerDown}
-      role="separator"
-      tabIndex={disabled ? -1 : 0}
-    />
-  )
-}
-
-// ================================================================
-// Window Titlebar (Windows / Linux)
-// ================================================================
-
-function WindowControlButtons() {
-  const { t } = useTranslation()
-
-  return (
-    <div className="window-controls" role="group" aria-label={t('titlebar.group')}>
-      <button
-        className="window-control-btn"
-        type="button"
-        aria-label={t('titlebar.minimize')}
-        title={t('titlebar.minimize')}
-        onClick={() => controlAppWindow('minimize')}
-      >
-        <Minus size={14} strokeWidth={1.8} />
-      </button>
-      <button
-        className="window-control-btn"
-        type="button"
-        aria-label={t('titlebar.maximize')}
-        title={t('titlebar.maximize')}
-        onClick={() => controlAppWindow('toggle-maximize')}
-      >
-        <Square size={12} strokeWidth={1.7} />
-      </button>
-      <button
-        className="window-control-btn window-control-btn--close"
-        type="button"
-        aria-label={t('titlebar.close')}
-        title={t('titlebar.close')}
-        onClick={() => controlAppWindow('close')}
-      >
-        <X size={15} strokeWidth={1.8} />
-      </button>
-    </div>
-  )
-}
-
-function WindowTitlebar() {
-  return (
-    <div className="window-titlebar">
-      <WindowControlButtons />
-    </div>
-  )
-}
-
-function WindowsSidebarToggleChrome() {
-  const { t } = useTranslation()
-  const { sidebarCollapsed, setSidebarCollapsed } = useAppStore()
-  const toggleSidebar = (): void => setSidebarCollapsed(!useAppStore.getState().sidebarCollapsed)
-  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
-    if (event.button !== 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    toggleSidebar()
-  }
-  const handleClick = (event: ReactMouseEvent<HTMLButtonElement>): void => {
-    if (event.detail !== 0) {
-      event.preventDefault()
-      return
-    }
-    toggleSidebar()
-  }
-
-  return (
-    <div className="windows-sidebar-toggle-chrome">
-      <button
-        className="icon-button windows-sidebar-toggle"
-        type="button"
-        aria-label={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
-        title={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
-        onClick={handleClick}
-        onPointerDown={handlePointerDown}
-      >
-        <SidebarToggleIcon className="windows-sidebar-action-icon" collapsed={sidebarCollapsed} />
-      </button>
-    </div>
-  )
-}
-
-function MacSidebarToggleChrome() {
-  const { t } = useTranslation()
-  const { sidebarCollapsed, setSidebarCollapsed } = useAppStore()
-  const toggleSidebar = (): void => setSidebarCollapsed(!useAppStore.getState().sidebarCollapsed)
-  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
-    if (event.button !== 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    toggleSidebar()
-  }
-  const handleClick = (event: ReactMouseEvent<HTMLButtonElement>): void => {
-    if (event.detail !== 0) {
-      event.preventDefault()
-      return
-    }
-    toggleSidebar()
-  }
-
-  return (
-    <div className="mac-sidebar-toggle-chrome">
-      <button
-        className="icon-button mac-sidebar-toggle"
-        type="button"
-        aria-label={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
-        title={sidebarCollapsed ? t('main.expandSidebar') : t('main.collapseSidebar')}
-        onClick={handleClick}
-        onPointerDown={handlePointerDown}
-      >
-        <SidebarToggleIcon className="mac-sidebar-action-icon" collapsed={sidebarCollapsed} />
-      </button>
-    </div>
-  )
-}
-
-function WindowsWindowChrome() {
-  return <div className="windows-window-chrome" aria-hidden="true" />
 }
 
 // ================================================================
@@ -1209,10 +991,9 @@ function MarkdownDocumentPanel({
 
 function MainArea() {
   const { t } = useTranslation()
-  const platform = window.teachingSystem?.platform ?? 'win32'
-  const isMac = platform === 'darwin'
-  const isWindows = platform === 'win32'
-  const showInlineSidebarToggle = !isWindows && !isMac
+  const chrome = resolveWindowChromePolicy(window.teachingSystem?.platform ?? 'win32')
+  const isWindows = chrome.adapter === 'windows'
+  const showInlineSidebarToggle = chrome.sidebarTogglePlacement === 'inline-topbar'
   const {
     view,
     settingsSection,

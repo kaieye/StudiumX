@@ -1,0 +1,14 @@
+/* The policy module owns the cross-platform interaction contract. Legacy platform
+   selectors retain their visual geometry; these generic selectors keep drag state
+   and clickability explicit at the module boundary. */
+.window-chrome-drag-region {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+.window-chrome-interactive,
+.window-chrome-interactive button,
+.window-chrome-interactive button * {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
