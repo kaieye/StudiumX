@@ -10,7 +10,7 @@ import type { AgentLoopEvent } from '../../src/main/ai/agent-loop'
 import type { ToolCall, ToolDefinition } from '../../src/main/ai/provider-adapter'
 import type { ToolHandlerMap } from '../../src/main/ai/tools/registry'
 
-type Scenario = 'no-tools' | 'single-tool' | 'multi-tool' | 'tool-error' | 'max-iterations' | 'max-iterations-tool-with-text'
+type Scenario = 'no-tools' | 'single-tool' | 'multi-tool' | 'tool-error' | 'max-iterations' | 'max-iterations-tool-with-text' | 'degraded'
 
 type RecordedRequest = {
   scenario: Scenario
@@ -35,6 +35,15 @@ const server = createServer(async (req, res) => {
   for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as RecordedRequest['body']
   requests.push({ scenario, body })
+
+  if (scenario === 'degraded') {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({
+      content: [{ type: 'text', text: 'Final answer from degraded endpoint.' }],
+      usage: { input_tokens: 7, output_tokens: 3 }
+    }))
+    return
+  }
 
   const toolResults = body.messages?.filter((message) => message.role === 'tool') ?? []
   const responseMessage = (() => {
@@ -162,25 +171,37 @@ try {
     toolHandlers?: ToolHandlerMap
     maxIterationsBehavior?: 'force_final_answer' | 'error'
     signal?: AbortSignal
+    endpointFormat?: 'chat_completions' | 'messages'
   } = {}): Promise<{ events: AgentLoopEvent[]; result: Awaited<ReturnType<typeof runAgentLoop>> }> => {
     scenario = nextScenario
     requests.length = 0
     const events: AgentLoopEvent[] = []
-    const result = await runAgentLoop({
-      settings,
-      provider,
-      messages: baseMessages,
-      tools: [webSearchTool, webFetchTool],
-      toolHandlers: options.toolHandlers ?? toolHandlers,
-      maxIterations: options.maxIterations,
-      maxIterationsBehavior: options.maxIterationsBehavior,
-      signal: options.signal,
-      callbacks: {
-        onEvent: (event) => events.push(event)
-      }
-    })
-    return { events, result }
+    const previousEndpointFormat = settings.generator.endpointFormat
+    settings.generator.endpointFormat = options.endpointFormat ?? 'chat_completions'
+    try {
+      const result = await runAgentLoop({
+        settings,
+        provider,
+        messages: baseMessages,
+        tools: [webSearchTool, webFetchTool],
+        toolHandlers: options.toolHandlers ?? toolHandlers,
+        maxIterations: options.maxIterations,
+        maxIterationsBehavior: options.maxIterationsBehavior,
+        signal: options.signal,
+        callbacks: {
+          onEvent: (event) => events.push(event)
+        }
+      })
+      return { events, result }
+    } finally {
+      settings.generator.endpointFormat = previousEndpointFormat
+    }
   }
+
+  const terminalStatuses = (events: AgentLoopEvent[]): string[] => events
+    .filter((event): event is Extract<AgentLoopEvent, { type: 'status' }> => event.type === 'status')
+    .map((event) => event.status)
+    .filter((status) => status === 'done' || status === 'error' || status === 'canceled')
 
   const noTools = await runScenario('no-tools')
   assert.equal(noTools.result.stopReason, 'final_answer')
@@ -188,6 +209,16 @@ try {
   assert.equal(noTools.result.iterations, 1)
   assert.equal(requests.length, 1)
   assert.ok(noTools.events.some((event) => event.type === 'token' && event.delta === 'Final answer without tools.'))
+  assert.deepEqual(terminalStatuses(noTools.events), ['done'])
+
+  const degraded = await runScenario('degraded', { endpointFormat: 'messages' })
+  assert.equal(degraded.result.stopReason, 'degraded')
+  assert.equal(degraded.result.finalText, 'Final answer from degraded endpoint.')
+  assert.equal(degraded.result.toolsSupported, false)
+  assert.equal(degraded.result.iterations, 1)
+  assert.deepEqual(terminalStatuses(degraded.events), ['done'])
+  assert.equal(degraded.events.some((event) => event.type === 'tool_call'), false)
+  assert.equal(requests.length, 1)
 
   const singleTool = await runScenario('single-tool')
   assert.equal(singleTool.result.stopReason, 'final_answer')
@@ -197,6 +228,29 @@ try {
   assert.equal(singleTool.events.filter((event) => event.type === 'tool_call').length, 1)
   assert.equal(singleTool.events.filter((event) => event.type === 'tool_result' && !event.isError).length, 1)
   assert.equal(requests[1]?.body.messages?.some((message) => message.role === 'tool'), true)
+  assert.deepEqual(terminalStatuses(singleTool.events), ['done'])
+
+  const childUsage = await runScenario('single-tool', {
+    toolHandlers: {
+      ...toolHandlers,
+      web_search: async (args, context) => {
+        const child = {
+          id: 'child-accounted-once',
+          label: 'child accounting fixture',
+          profile: 'fixture',
+          status: 'completed' as const,
+          usage: { providerCalls: 3, toolCalls: 2, promptTokens: 4, completionTokens: 2, totalTokens: 6 }
+        }
+        context.emit?.({ type: 'child_run_started', child: { ...child, status: 'running' } })
+        context.emit?.({ type: 'child_run_completed', child })
+        context.emit?.({ type: 'child_run_completed', child })
+        return JSON.stringify({ tool: 'web_search', args })
+      }
+    }
+  })
+  assert.equal(childUsage.result.usage.childRuns, 1)
+  assert.equal(childUsage.result.usage.providerCalls, 5, 'completed child usage must be counted once alongside two parent calls')
+  assert.equal(childUsage.result.usage.toolCalls, 3, 'completed child tool usage must be counted once alongside the parent tool')
 
   const multiTool = await runScenario('multi-tool')
   assert.equal(multiTool.result.stopReason, 'final_answer')
@@ -233,6 +287,7 @@ try {
   assert.equal(requests[1]?.body.tools, undefined, 'forced final request should omit tools from the provider body')
   assert.equal(requests[1]?.body.tool_choice, undefined, 'forced final request should omit tool_choice from the provider body')
   assert.ok(maxIterations.events.some((event) => event.type === 'status' && event.status === 'answering'))
+  assert.deepEqual(terminalStatuses(maxIterations.events), ['done'])
 
   const maxIterationsError = await runScenario('max-iterations', {
     maxIterations: 1,

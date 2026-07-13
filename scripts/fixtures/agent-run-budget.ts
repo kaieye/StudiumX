@@ -126,6 +126,10 @@ try {
   const warning = await run('warning', { maxProviderCalls: 2, warningThreshold: 0.5 })
   assert.equal(warning.events.filter((event) => event.type === 'status' && event.message?.includes('接近安全预算')).length, 1)
   assert.equal(warning.events.some((event) => event.type === 'status' && /test budget|test-key|价格/.test(event.message ?? '')), false)
+  const warningEventIndex = warning.events.findIndex((event) => event.type === 'status' && event.message?.includes('接近安全预算'))
+  const firstToolCallIndex = warning.events.findIndex((event) => event.type === 'tool_call')
+  assert.ok(warningEventIndex >= 0 && firstToolCallIndex >= 0)
+  assert.ok(warningEventIndex < firstToolCallIndex, 'budget warning must be emitted before the newly budgeted tool call')
 
   let time = 0
   const duration = await run('reported', { maxDurationMs: 5000 }, () => {
