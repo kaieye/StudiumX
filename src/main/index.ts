@@ -1,10 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, protocol, safeStorage, shell } from 'electron'
-import { mkdir, readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TeachingSettingsService } from './teaching-settings'
 import { TeachingWorkspaceService } from './teaching-workspace'
 import { SkillLibraryService } from './skill-library'
+import { LearningAnalyticsService } from './teaching/services/learning-analytics'
 import {
   createAndSwitchGitBranchForWorkspace,
   getGitBranchesForWorkspace,
@@ -60,7 +61,12 @@ import {
   requireString,
   requireWindowControlAction
 } from './teaching-ipc-commands'
-import type { TeachingSettingsV1 } from '../shared/teaching-types'
+import type {
+  AnalyticsExportRequest,
+  ClearAnalyticsRequest,
+  LearningAnalyticsQuery,
+  TeachingSettingsV1
+} from '../shared/teaching-types'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
 import type { AgentEventBus } from './ai/agent-event-bus'
 
@@ -91,7 +97,8 @@ protocol.registerSchemesAsPrivileged(
 function registerTeachingIpc(
   service: TeachingWorkspaceService,
   settingsService: TeachingSettingsService,
-  skillLibraryService: SkillLibraryService
+  skillLibraryService: SkillLibraryService,
+  learningAnalyticsService: LearningAnalyticsService
 ): void {
   const activeAgentChatStreams = new Map<string, AbortController>()
   const retainedAgentEventBuses = new Map<string, AgentEventBus>()
@@ -117,6 +124,35 @@ function registerTeachingIpc(
   }
 
   ipcMain.handle(teachingInvokeChannels.getState, async () => service.getState())
+  ipcMain.handle(teachingInvokeChannels.getLearningAnalytics, async (_, query: unknown) =>
+    learningAnalyticsService.getLearningAnalytics(query as LearningAnalyticsQuery)
+  )
+  ipcMain.handle(teachingInvokeChannels.clearLearningAnalytics, async (_, request: unknown) =>
+    learningAnalyticsService.clearLearningAnalytics(request as ClearAnalyticsRequest)
+  )
+  ipcMain.handle(teachingInvokeChannels.exportLearningAnalytics, async (_, request: unknown) => {
+    const exportRequest = request as AnalyticsExportRequest
+    const prepared = await learningAnalyticsService.prepareExport(exportRequest)
+    const options: Electron.SaveDialogOptions = {
+      title: '导出学习分析',
+      defaultPath: prepared.fileName,
+      filters: exportRequest.format === 'json'
+        ? [{ name: 'JSON', extensions: ['json'] }]
+        : [{ name: 'CSV', extensions: ['csv'] }]
+    }
+    const mainWindow = BrowserWindow.getFocusedWindow()
+    const result = mainWindow
+      ? await dialog.showSaveDialog(mainWindow, options)
+      : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { canceled: true as const }
+    await writeFile(result.filePath, prepared.content, { encoding: 'utf8', mode: 0o600 })
+    return {
+      canceled: false as const,
+      fileName: basename(result.filePath),
+      bytesWritten: Buffer.byteLength(prepared.content, 'utf8'),
+      manifest: prepared.manifest
+    }
+  })
   ipcMain.handle(teachingInvokeChannels.getSettings, async () => settingsService.load())
   ipcMain.handle(teachingInvokeChannels.listInterruptedAgentRuns, async () => service.listInterruptedAgentRuns())
   ipcMain.handle(teachingInvokeChannels.updateSettings, async (_, payload: unknown) => {
@@ -719,8 +755,25 @@ if (!hasSingleInstanceLock) {
     })
     await workspaceService.reconcileInterruptedAgentRuns()
 
+    const learningAnalyticsService = new LearningAnalyticsService({
+      appDataRoot: userDataPath,
+      listWorkspaceSummaries: () => workspaceService.listWorkspaceSummariesForAnalytics(),
+      readConversation: (workspaceId, conversationId) => workspaceService.readAgentConversation({
+        workspaceId,
+        conversationId
+      }),
+      getProgress: (workspaceId) => workspaceService.getProgress(workspaceId),
+      listReviewCards: (workspaceId) => workspaceService.listReviewCards(workspaceId),
+      listMemory: (workspaceRoot) => workspaceService.listMemory(workspaceRoot),
+      getMemoryDiagnostics: () => workspaceService.getMemoryDiagnostics(),
+      listSkills: () => skillLibraryService.listSkills(),
+      loadSettings: () => settingsService.load(),
+      getConnectorStatuses: () => workspaceService.getConnectorStatuses(),
+      listWorkspaceChanges: (workspaceId) => workspaceService.listWorkspaceChangesForAnalytics(workspaceId)
+    })
+
     registerPreviewProtocol(workspaceService)
-    registerTeachingIpc(workspaceService, settingsService, skillLibraryService)
+    registerTeachingIpc(workspaceService, settingsService, skillLibraryService, learningAnalyticsService)
 
     const startHidden = initialSettings.appBehavior.startMinimized || process.argv.includes('--hidden')
     createWindow(settingsService, startHidden)
