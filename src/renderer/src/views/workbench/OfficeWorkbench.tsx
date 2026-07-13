@@ -340,8 +340,8 @@ function fitCanvasToStage(stage: HTMLElement, canvas: HTMLCanvasElement): void {
   const canvasWidth = Math.round(officeWidth * visualScale)
   const canvasHeight = Math.round(officeHeight * visualScale)
 
-  stage.parentElement?.style.setProperty('--workbench-tools-scale', toolScale.toFixed(4))
-  stage.parentElement?.style.setProperty('--workbench-tools-layout-height', `${(100 / toolScale).toFixed(4)}%`)
+  stage.style.setProperty('--workbench-tools-scale', toolScale.toFixed(4))
+  stage.style.setProperty('--workbench-tools-layout-height', `${(100 / toolScale).toFixed(4)}%`)
   canvas.style.width = `${canvasWidth}px`
   canvas.style.height = `${canvasHeight}px`
   canvas.style.aspectRatio = `${officeWidth} / ${officeHeight}`
@@ -362,7 +362,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     viewModel,
     joinSpace,
     createSpace,
-    selectRoom,
     chooseSeat,
     toggleTimer,
     resetTimer,
@@ -584,38 +583,34 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           aria-live="polite"
           tabIndex={0}
         />
-      </div>
-      <aside className="workbench-tools" aria-label="自习工具">
-        <WorkbenchRoomSwitcher
-          activeRoom={viewModel.activeRoom}
-          spaceCode={snapshot.spaceCode}
-          presenceStatus={presence.status}
-          memberCount={viewModel.roomMembers.length}
-          onCreateSpace={createSpace}
-          onJoinSpace={joinSpace}
-          onSelectRoom={selectRoom}
-        />
         <WorkbenchLeaderboard members={viewModel.roomMembers} presenceStatus={presence.status} />
-        <WorkbenchPomodoro
-          snapshot={snapshot}
-          timerProgress={viewModel.timerProgress}
-          ambientLabel={viewModel.activeRoom.ambient}
-          onToggleTimer={toggleTimer}
-          onResetTimer={resetTimer}
-          onSwitchTimerMode={switchTimerMode}
-          onUpdateTimerPreset={updateTimerPreset}
-          onToggleAmbientEnabled={toggleAmbientEnabled}
-        />
-        <WorkbenchTasks
-          tasks={snapshot.tasks}
-          currentTask={viewModel.currentTask}
-          openTasks={viewModel.openTasks}
-          completedTasks={viewModel.completedTasks}
-          onAddTask={addTask}
-          onToggleTask={toggleTask}
-          onRemoveDoneTasks={removeDoneTasks}
-        />
-      </aside>
+        <div className="workbench-tools" role="group" aria-label="自习工具">
+          <WorkbenchRoomSwitcher
+            spaceCode={snapshot.spaceCode}
+            onCreateSpace={createSpace}
+            onJoinSpace={joinSpace}
+          />
+          <WorkbenchPomodoro
+            snapshot={snapshot}
+            timerProgress={viewModel.timerProgress}
+            ambientLabel={viewModel.activeRoom.ambient}
+            onToggleTimer={toggleTimer}
+            onResetTimer={resetTimer}
+            onSwitchTimerMode={switchTimerMode}
+            onUpdateTimerPreset={updateTimerPreset}
+            onToggleAmbientEnabled={toggleAmbientEnabled}
+          />
+          <WorkbenchTasks
+            tasks={snapshot.tasks}
+            currentTask={viewModel.currentTask}
+            openTasks={viewModel.openTasks}
+            completedTasks={viewModel.completedTasks}
+            onAddTask={addTask}
+            onToggleTask={toggleTask}
+            onRemoveDoneTasks={removeDoneTasks}
+          />
+        </div>
+      </div>
     </section>
   )
 }

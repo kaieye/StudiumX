@@ -1088,7 +1088,8 @@
 .workbench-room-code small,
 .workbench-room-code strong {
   display: block;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1127,10 +1128,10 @@
 
 .workbench-room-code {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 0;
   padding: 7px 7px 7px 9px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1155,6 +1156,7 @@
   background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
   font-size: 0.625rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .workbench-room-code button.is-create {
@@ -1475,9 +1477,9 @@
 }
 
 .workbench-room-code {
-  grid-template-columns: minmax(0, 1fr) 32px auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 7px;
-  margin-top: 12px;
+  margin-top: 0;
   padding: 8px;
   border-radius: var(--workbench-control-radius);
   background:
@@ -1981,9 +1983,9 @@
 }
 
 .workbench-room-code {
-  grid-template-columns: minmax(0, 1fr) 34px 72px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 7px;
-  margin-top: 14px;
+  margin-top: 0;
   padding: 8px;
   border: 1px solid color-mix(in srgb, var(--line) 66%, transparent);
   border-radius: var(--workbench-card-radius);
@@ -2037,7 +2039,7 @@
 }
 
 .workbench-room-join {
-  grid-template-columns: 18px minmax(0, 1fr) 54px;
+  grid-template-columns: 18px minmax(0, 1fr) 72px;
   gap: 8px;
   margin-top: 10px;
 }
@@ -2602,6 +2604,172 @@
   .workbench-tools .workbench-leaderboard-toggle::after,
   .workbench-leaderboard-panel::after,
   .workbench-space-join::after {
+    display: none;
+  }
+}
+
+/* Keep the controls on the study-room stage instead of inside a separate rail. */
+.office-workbench-stage .workbench-tools {
+  --workbench-tools-inline-inset: clamp(12px, 3vw, 32px);
+  --workbench-tools-block-inset: clamp(12px, 3vh, 28px);
+  top: var(--workbench-tools-block-inset);
+  right: var(--workbench-tools-inline-inset);
+  bottom: auto;
+  left: auto;
+  width: min(var(--workbench-card-width), calc(100% - var(--workbench-tools-inline-inset) - var(--workbench-tools-inline-inset)));
+  max-width: min(var(--workbench-card-width), calc(100% - var(--workbench-tools-inline-inset) - var(--workbench-tools-inline-inset)));
+  height: auto;
+  max-height: calc(100% - var(--workbench-tools-block-inset) - var(--workbench-tools-block-inset));
+  padding: 0;
+  overflow-x: visible;
+  overflow-y: auto;
+  border-left: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: none;
+  scrollbar-width: thin;
+}
+
+.office-workbench-stage .workbench-tools > * {
+  pointer-events: auto;
+}
+
+.office-workbench-stage > .workbench-leaderboard {
+  --workbench-leaderboard-inline-inset: clamp(12px, 3vw, 32px);
+  --workbench-leaderboard-block-inset: clamp(12px, 3vh, 28px);
+  position: absolute;
+  top: var(--workbench-leaderboard-block-inset);
+  left: var(--workbench-leaderboard-inline-inset);
+  z-index: 6;
+  box-sizing: border-box;
+  width: min(292px, calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset)));
+  max-width: min(292px, calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset)));
+  max-height: calc(100% - var(--workbench-leaderboard-block-inset) - var(--workbench-leaderboard-block-inset));
+  padding: 14px;
+  overflow: hidden;
+  color: var(--text);
+  border: 1px solid var(--liquid-glass-line);
+  border-radius: var(--workbench-card-radius);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 46%, transparent), transparent 34%),
+    linear-gradient(315deg, color-mix(in srgb, var(--surface-solid) 18%, transparent), transparent 48%),
+    var(--liquid-glass-tint);
+  box-shadow:
+    0 24px 70px var(--liquid-glass-depth),
+    0 7px 24px color-mix(in srgb, var(--text) 8%, transparent),
+    inset 0 1px 0 var(--liquid-glass-edge),
+    inset 1px 0 0 color-mix(in srgb, #ffffff 36%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 10%, transparent);
+  backdrop-filter: blur(46px) saturate(230%) contrast(1.12) brightness(1.04);
+  -webkit-backdrop-filter: blur(46px) saturate(230%) contrast(1.12) brightness(1.04);
+  transform: scale(var(--workbench-tools-scale));
+  transform-origin: top left;
+  scrollbar-width: thin;
+}
+
+.office-workbench-stage > .workbench-leaderboard::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(110deg, transparent 0 13%, color-mix(in srgb, #ffffff 48%, transparent) 20%, transparent 31% 100%),
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 44%, transparent), transparent 38%),
+    linear-gradient(90deg, var(--liquid-glass-accent), transparent 45%);
+  opacity: 0.82;
+  pointer-events: none;
+}
+
+.office-workbench-stage > .workbench-leaderboard > * {
+  position: relative;
+  z-index: 1;
+}
+
+.workbench-leaderboard-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.workbench-leaderboard-header .workbench-leaderboard-label {
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 760;
+}
+
+.workbench-leaderboard-header svg {
+  flex: 0 0 auto;
+  color: var(--amber);
+}
+
+.workbench-leaderboard-header > strong {
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 780;
+  font-variant-numeric: tabular-nums;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel {
+  width: 100%;
+  margin-top: 10px;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel::before,
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel::after {
+  display: none;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel > header {
+  padding: 0 1px 8px;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-list {
+  max-height: 238px;
+  padding-right: 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-row {
+  min-height: 42px;
+}
+
+@media (max-width: 720px) {
+  .office-workbench-stage .workbench-tools {
+    --workbench-tools-inline-inset: 10px;
+    --workbench-tools-block-inset: 10px;
+  }
+
+  .office-workbench-stage > .workbench-leaderboard {
+    --workbench-leaderboard-inline-inset: 10px;
+    --workbench-leaderboard-block-inset: 10px;
+    width: min(220px, calc(100% - 20px));
+    max-width: min(220px, calc(100% - 20px));
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .office-workbench-stage > .workbench-leaderboard {
+    background: var(--surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .office-workbench-stage > .workbench-leaderboard::before {
     display: none;
   }
 }
