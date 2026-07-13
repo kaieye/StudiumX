@@ -89,12 +89,7 @@ import {
   shouldArchiveWorkspaceItem
 } from './teaching-workspace/item-lifecycle'
 import { TeachingWorkspaceReviewModule } from './teaching-workspace/review'
-import {
-  captureWorkspaceChangeSnapshot,
-  readWorkspaceChangeDiff,
-  summarizeWorkspaceChanges
-} from './teaching-workspace-changes'
-import { TeachingWorkspaceChangeHistoryStore } from './teaching-workspace-change-history'
+import { TeachingWorkspaceChangeAudit } from './teaching-workspace-change-audit'
 import {
   previewUrlForDocument,
   TeachingWorkspaceDocuments,
@@ -172,7 +167,7 @@ export class TeachingWorkspaceService {
   private readonly skillLibraryService?: SkillLibraryService
   private readonly memoryStore: TeachingMemoryStore
   private readonly reviewModule = new TeachingWorkspaceReviewModule()
-  private readonly changeHistory: TeachingWorkspaceChangeHistoryStore
+  private readonly changeAudit: TeachingWorkspaceChangeAudit
   private readonly documents = new TeachingWorkspaceDocuments()
 
   constructor(options: {
@@ -190,8 +185,8 @@ export class TeachingWorkspaceService {
       rootDir: join(this.appDataRoot, 'memory'),
       settingsProvider: () => this.loadSettings()
     })
-    this.changeHistory = new TeachingWorkspaceChangeHistoryStore({
-      filePath: join(this.appDataRoot, 'learning-changes', 'history.json')
+    this.changeAudit = new TeachingWorkspaceChangeAudit({
+      historyFilePath: join(this.appDataRoot, 'learning-changes', 'history.json')
     })
   }
 
@@ -305,7 +300,7 @@ export class TeachingWorkspaceService {
   async listWorkspaceChangesForAnalytics(
     workspaceId: string
   ): Promise<TeachingWorkspaceChangeSummary[]> {
-    return this.changeHistory.list(workspaceId)
+    return this.changeAudit.listSummaries(workspaceId)
   }
 
   async reconcileInterruptedAgentRuns(): Promise<InterruptedAgentRun[]> {
@@ -751,7 +746,7 @@ export class TeachingWorkspaceService {
     changeSummary: TeachingWorkspaceChangeSummary | null
   }> {
     const { workspace } = options
-    const beforeChanges = await captureWorkspaceChangeSnapshot(workspace.rootPath)
+    const beforeChanges = await this.changeAudit.capturePreMutation(workspace.rootPath)
     await this.ensureWorkspaceStructure(workspace)
 
     const settings = await this.loadSettings()
@@ -785,7 +780,7 @@ export class TeachingWorkspaceService {
       paths: generation.eventPaths,
       meta: generation.eventMeta
     })
-    const changeSummary = await summarizeWorkspaceChanges({
+    const changeSummary = await this.changeAudit.recordCompletedMutation({
       workspaceId: workspace.id,
       workspaceRoot: workspace.rootPath,
       timestamp: now,
@@ -801,7 +796,6 @@ export class TeachingWorkspaceService {
         '.teachos/sessions.jsonl'
       ]
     })
-    if (changeSummary) await this.changeHistory.append(workspace.id, changeSummary)
 
     const registry = await this.ensureRegistry()
     const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
@@ -851,13 +845,11 @@ export class TeachingWorkspaceService {
   async readWorkspaceChangeDiff(payload: { workspaceId: string; relativePath: string; changeId?: string }) {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    const change = payload.changeId
-      ? await this.changeHistory.get(workspace.id, payload.changeId)
-      : await this.changeHistory.latest(workspace.id)
-    return readWorkspaceChangeDiff({
+    return this.changeAudit.readSelectedDiff({
+      workspaceId: workspace.id,
       workspaceRoot: workspace.rootPath,
       relativePath: payload.relativePath,
-      checkpoint: change?.checkpoint
+      ...(payload.changeId ? { changeId: payload.changeId } : {})
     })
   }
 
@@ -970,7 +962,7 @@ export class TeachingWorkspaceService {
           ? renderEmptyPreview(activeWorkspace)
           : ''
     const runtime = await this.runtimeState()
-    const changeHistory = activeWorkspace ? await this.changeHistory.list(activeWorkspace.id) : []
+    const changeHistory = activeWorkspace ? await this.changeAudit.listSummaries(activeWorkspace.id) : []
 
     return {
       workspaces: summaries,
