@@ -35,7 +35,8 @@ const requiredFiles = [
   'tests/helpers/accessibility.ts',
   'tests/helpers/visual.ts',
   'tests/smoke/test-foundation.unit.test.tsx',
-  'tests/e2e/foundation.e2e.spec.ts',\n  'tests/e2e/study-analytics.e2e.spec.ts'
+  'tests/e2e/foundation.e2e.spec.ts',
+  'tests/e2e/study-analytics.e2e.spec.ts'
 ]
 
 for (const script of requiredScripts) {
