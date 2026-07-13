@@ -1,29 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
-  AnalyticsCoverage,
   AnalyticsDateRange,
   AnalyticsHourBuckets,
   AnalyticsSectionResult,
-  LearningAnalyticsBundle,
   LearningAnalyticsQuery,
+  PersonalStudyAnalyticsSnapshot,
+  StudyAnalyticsFact,
   StudySessionFact,
-  StudyTaskActivityFact
+  StudyTaskActivityFact,
+  TokenAnalytics
 } from '@shared/teaching-types/analytics'
 import {
-  STUDY_SPACE_SESSION_CLIENT_KEY,
-  STUDY_SPACE_STORAGE_KEY,
-  defaultStudySnapshot
-} from '@renderer/study-space/constants'
+  PERSONAL_STUDY_SNAPSHOT_MAX_FACTS,
+  buildPersonalStudyAnalytics,
+  validatePersonalStudySnapshot
+} from '@shared/learning-analytics/personal-study-source'
 import {
   appendStudyAnalyticsFacts,
   clearStudyAnalyticsStore,
+  createPersonalStudyAnalyticsSnapshot,
   readStudyAnalyticsStore,
   subscribeStudyAnalyticsStore
 } from '@renderer/views/workbench/analytics/domain/activityLedger'
-import { mergePersonalActivityIntoAnalyticsBundle } from '@renderer/views/workbench/analytics/domain/personalAnalyticsAdapter'
-import { buildLearningAnalyticsQuery } from '@renderer/views/workbench/analytics/useStudyAnalytics'
 
 const clientId = 'study-client-adapter'
+const now = new Date('2026-07-13T12:00:00.000Z')
+const capturedAt = now.toISOString()
+
 const hours = (...entries: Array<[number, number]>): AnalyticsHourBuckets => {
   const values = Array.from({ length: 24 }, () => 0)
   for (const [hour, seconds] of entries) values[hour] = seconds
@@ -42,120 +45,89 @@ function range(from: string, to = from): AnalyticsDateRange {
   }
 }
 
-function query(from: string, to = from): LearningAnalyticsQuery {
-  return buildLearningAnalyticsQuery({
+function query(from = '2026-07-12', to = from): LearningAnalyticsQuery {
+  return {
     range: range(from, to),
-    localToday: '2026-07-13',
-    timeZone: 'Asia/Shanghai',
-    personalClientId: clientId,
-    teaching: { kind: 'none' },
-    presenceSpaceCode: 'SPACE-TEST'
-  })
-}
-
-function coverage(requestedRange: AnalyticsDateRange): AnalyticsCoverage {
-  return {
-    rangeApplied: true,
-    requestedRange,
-    effectiveRange: requestedRange,
-    trackingStartedOn: requestedRange.from,
-    dataStartDate: null,
-    dataEndDate: null,
-    retention: {
-      policy: 'rolling_local_days',
-      days: 400,
-      includesToday: true,
-      cutoffDate: '2025-06-09'
+    scope: {
+      personalFocus: { kind: 'personal', clientId },
+      teaching: { kind: 'none' },
+      presence: { kind: 'none' }
     },
-    complete: false,
-    sources: []
+    calendarContext: { localToday: '2026-07-13', timeZone: 'Asia/Shanghai', weekStartsOn: 1 }
   }
 }
 
-function unavailable<T>(requestedRange: AnalyticsDateRange): AnalyticsSectionResult<T> {
-  return {
-    state: 'unavailable',
-    reason: 'history_not_recorded',
-    temporal: { kind: 'range', range: requestedRange },
-    coverage: coverage(requestedRange),
-    warnings: []
-  }
-}
-
-function mainBundle(requestQuery: LearningAnalyticsQuery): LearningAnalyticsBundle {
-  const missing = unavailable<never>(requestQuery.range)
-  return {
-    contractVersion: 1,
-    generatedAt: '2026-07-13T12:00:00.000Z',
-    query: requestQuery,
-    hero: missing,
-    focus: missing,
-    tasks: missing,
-    tokens: missing,
-    workspaceAssets: missing,
-    review: missing,
-    memory: missing,
-    platform: missing,
-    presence: missing,
-    insights: missing
-  } as unknown as LearningAnalyticsBundle
-}
-
-function sessionFact(attribution: StudySessionFact['taskAttribution']): StudySessionFact {
+function sessionFact(overrides: Partial<StudySessionFact> = {}): StudySessionFact {
   return {
     factVersion: 1,
     factKind: 'study_session',
-    id: `session-${attribution.kind}`,
+    id: 'session-1',
     clientId,
     timerMode: 'focus',
     outcome: 'completed',
-    startedAt: '2026-07-12T15:50:00.000Z',
-    endedAt: '2026-07-12T16:15:00.000Z',
-    recordedAt: '2026-07-12T16:15:00.000Z',
+    startedAt: '2026-07-12T01:00:00.000Z',
+    endedAt: '2026-07-12T01:25:00.000Z',
+    recordedAt: '2026-07-12T01:25:00.000Z',
     plannedSeconds: 1500,
     activeSeconds: 1500,
     pausedSeconds: 0,
     completedFocusSessions: 1,
     xpEarned: 25,
-    context: { modeId: 'deepwork', roomId: 'deep', signalId: 'writing', spaceCode: 'SPACE-TEST' },
-    taskAttribution: attribution,
-    daySegments: [
-      {
-        localDate: '2026-07-12',
-        timezoneOffsetMinutes: -480,
-        startedAt: '2026-07-12T15:50:00.000Z',
-        endedAt: '2026-07-12T16:00:00.000Z',
-        activeSeconds: 600,
-        pausedSeconds: 0,
-        hourBuckets: hours([23, 600])
-      },
-      {
-        localDate: '2026-07-13',
-        timezoneOffsetMinutes: -480,
-        startedAt: '2026-07-12T16:00:00.000Z',
-        endedAt: '2026-07-12T16:15:00.000Z',
-        activeSeconds: 900,
-        pausedSeconds: 0,
-        hourBuckets: hours([0, 900])
-      }
-    ]
+    context: { modeId: 'deepwork', roomId: 'deep', signalId: 'writing' },
+    taskAttribution: {
+      kind: 'explicit',
+      capturedAt: 'session_start',
+      taskId: 'task-1',
+      taskTitleSnapshot: 'Cross-day task'
+    },
+    daySegments: [{
+      localDate: '2026-07-12',
+      timezoneOffsetMinutes: -480,
+      startedAt: '2026-07-12T01:00:00.000Z',
+      endedAt: '2026-07-12T01:25:00.000Z',
+      activeSeconds: 1500,
+      pausedSeconds: 0,
+      hourBuckets: hours([9, 1500])
+    }],
+    ...overrides
   }
 }
 
 function taskCompletedFact(): StudyTaskActivityFact {
   const before = { taskId: 'task-1', title: 'Cross-day task', done: false }
-  const after = { ...before, done: true }
   return {
     factVersion: 1,
     factKind: 'study_activity',
     id: 'task-completed',
     clientId,
-    occurredAt: '2026-07-12T16:15:00.000Z',
-    recordedAt: '2026-07-12T16:15:00.000Z',
-    localDate: '2026-07-13',
+    occurredAt: '2026-07-12T01:25:00.000Z',
+    recordedAt: '2026-07-12T01:25:00.000Z',
+    localDate: '2026-07-12',
     timezoneOffsetMinutes: -480,
-    activity: { kind: 'task_completed', before, after }
+    activity: { kind: 'task_completed', before, after: { ...before, done: true } }
   }
+}
+
+function snapshot(overrides: Partial<PersonalStudyAnalyticsSnapshot> = {}): PersonalStudyAnalyticsSnapshot {
+  const current = overrides.current ?? { xp: 375, streakDays: 4, tasks: [{ taskId: 'task-1', title: 'Cross-day task', done: true }] }
+  return {
+    version: 1,
+    identity: 'snapshot-1',
+    capturedAt,
+    clientId,
+    trackingStartedOn: '2026-07-12',
+    facts: [],
+    current,
+    diagnostics: { invalidFactRows: 0, retentionPruned: false },
+    ...overrides
+  }
+}
+
+function tokenSection(totalTokens = 42): AnalyticsSectionResult<TokenAnalytics> {
+  return {
+    state: 'available',
+    data: { totals: { totalTokens } }
+  } as AnalyticsSectionResult<TokenAnalytics>
 }
 
 function dataOf<T>(result: AnalyticsSectionResult<T>): T {
@@ -165,102 +137,144 @@ function dataOf<T>(result: AnalyticsSectionResult<T>): T {
   return result.data
 }
 
+function calculate(requestQuery: LearningAnalyticsQuery, rawSnapshot: unknown) {
+  const validation = validatePersonalStudySnapshot(rawSnapshot, {
+    clientId,
+    localToday: requestQuery.calendarContext.localToday,
+    now
+  })
+  return {
+    validation,
+    sections: buildPersonalStudyAnalytics({
+      query: requestQuery,
+      validation,
+      generatedAt: capturedAt,
+      tokens: tokenSection()
+    })
+  }
+}
+
 beforeEach(() => {
   localStorage.clear()
-  sessionStorage.clear()
-  sessionStorage.setItem(STUDY_SPACE_SESSION_CLIENT_KEY, clientId)
-  localStorage.setItem(STUDY_SPACE_STORAGE_KEY, JSON.stringify({
-    ...defaultStudySnapshot,
-    clientId,
-    xp: 375,
-    streakDays: 4,
-    tasks: [{ id: 'task-1', title: 'Cross-day task', done: true }]
-  }))
   vi.useRealTimers()
 })
 
-describe('renderer personal analytics adapter', () => {
-  it('keeps an empty covered day distinct from an untracked day', () => {
-    const coveredQuery = query('2026-07-13')
-    const covered = mergePersonalActivityIntoAnalyticsBundle(mainBundle(coveredQuery), coveredQuery)
-    expect(covered.focus.state).toBe('empty')
-    expect(dataOf(covered.focus).heatmap).toEqual([
-      expect.objectContaining({ date: '2026-07-13', focusSeconds: 0, isCovered: true })
-    ])
-
-    const untrackedQuery = query('2026-07-12')
-    const untracked = mergePersonalActivityIntoAnalyticsBundle(mainBundle(untrackedQuery), untrackedQuery)
-    expect(untracked.focus.state).toBe('unavailable')
-    expect(untracked.focus.coverage.complete).toBe(false)
-    expect(untracked.focus.warnings.map((warning) => warning.code)).toContain('range_before_tracking_started')
-  })
-
-  it('splits cross-midnight seconds by local date and owns completion on the ending date', () => {
-    appendStudyAnalyticsFacts(clientId, [
-      sessionFact({
-        kind: 'explicit',
-        capturedAt: 'session_start',
-        taskId: 'task-1',
-        taskTitleSnapshot: 'Cross-day task'
-      }),
-      taskCompletedFact()
-    ], { localToday: '2026-07-13', updatedAt: '2026-07-13T12:00:00.000Z' })
-
-    const firstDayQuery = query('2026-07-12')
-    const firstDay = mergePersonalActivityIntoAnalyticsBundle(mainBundle(firstDayQuery), firstDayQuery)
-    const firstFocus = dataOf(firstDay.focus)
-    const firstTasks = dataOf(firstDay.tasks)
-    expect(firstFocus.sessionStructure).toMatchObject({ focusSeconds: 600, completed: 0 })
-    expect(firstFocus.hourBuckets[23]).toBe(600)
-    expect(firstTasks.topByAttributedFocus[0]).toMatchObject({ focusSeconds: 600, completedInRange: false })
-
-    const endingDayQuery = query('2026-07-13')
-    const endingDay = mergePersonalActivityIntoAnalyticsBundle(mainBundle(endingDayQuery), endingDayQuery)
-    const endingFocus = dataOf(endingDay.focus)
-    const endingTasks = dataOf(endingDay.tasks)
-    expect(endingFocus.sessionStructure).toMatchObject({
-      focusSeconds: 900,
-      completed: 1,
-      averageCompletedFocusSeconds: 1500
+describe('personal Study analytics snapshot seam', () => {
+  it('adapts the renderer ledger into an identity-stable source snapshot and retains renderer-only clear behavior', () => {
+    appendStudyAnalyticsFacts(clientId, [sessionFact()], {
+      localToday: '2026-07-13',
+      updatedAt: capturedAt
     })
-    expect(endingFocus.hourBuckets[0]).toBe(900)
-    expect(endingTasks.topByAttributedFocus[0]).toMatchObject({ focusSeconds: 900, completedInRange: true })
-    expect(endingTasks.flow.completed).toBe(1)
-  })
 
-  it('preserves unattributed range seconds and keeps current inventory, growth, and Presence range-invariant', () => {
-    appendStudyAnalyticsFacts(clientId, [sessionFact({ kind: 'unattributed', reason: 'no_task_selected' })], {
-      localToday: '2026-07-13'
+    const first = createPersonalStudyAnalyticsSnapshot(clientId, {
+      xp: 375,
+      streakDays: 4,
+      tasks: [{ taskId: 'task-1', title: 'Cross-day task', done: true }]
+    }, { localToday: '2026-07-13', capturedAt })
+    const later = createPersonalStudyAnalyticsSnapshot(clientId, first.current, {
+      localToday: '2026-07-13',
+      capturedAt: '2026-07-13T12:01:00.000Z'
     })
-    const firstQuery = query('2026-07-12')
-    const secondQuery = query('2026-07-13')
-    const presence = unavailable<never>(firstQuery.range)
-    const firstMain = { ...mainBundle(firstQuery), presence } as LearningAnalyticsBundle
-    const secondMain = { ...mainBundle(secondQuery), presence } as LearningAnalyticsBundle
-    const first = mergePersonalActivityIntoAnalyticsBundle(firstMain, firstQuery)
-    const second = mergePersonalActivityIntoAnalyticsBundle(secondMain, secondQuery)
+    expect(first.identity).toBe(later.identity)
+    expect(first).toMatchObject({ facts: [expect.objectContaining({ id: 'session-1' })] })
+    expect(first).not.toHaveProperty('dailyProjections')
 
-    expect(dataOf(first.tasks).unattributedFocusSeconds).toBe(600)
-    expect(dataOf(second.tasks).unattributedFocusSeconds).toBe(900)
-    expect(dataOf(first.tasks).current).toMatchObject({ total: 1, completed: 1 })
-    expect(dataOf(second.tasks).current).toMatchObject({ total: 1, completed: 1 })
-    expect(dataOf(first.focus).currentGrowth).toEqual(dataOf(second.focus).currentGrowth)
-    expect(first.presence).toBe(presence)
-    expect(second.presence).toBe(presence)
-  })
-
-  it('clears only the renderer-owned ledger and notifies stable subscribers', () => {
-    appendStudyAnalyticsFacts(clientId, [sessionFact({ kind: 'unattributed', reason: 'no_task_selected' })], {
-      localToday: '2026-07-13'
-    })
     const listener = vi.fn()
     const unsubscribe = subscribeStudyAnalyticsStore(clientId, listener)
-
     expect(clearStudyAnalyticsStore(clientId, { localToday: '2026-07-13' })).toBe(true)
     unsubscribe()
-
-    expect(listener).toHaveBeenCalledTimes(1)
+    expect(listener).toHaveBeenCalledOnce()
     expect(readStudyAnalyticsStore(clientId, { localToday: '2026-07-13' }).facts).toEqual([])
-    expect(localStorage.getItem(STUDY_SPACE_STORAGE_KEY)).not.toBeNull()
+  })
+
+  it('returns a complete focus, task, and hero bundle from one valid snapshot', () => {
+    const { validation, sections } = calculate(query(), snapshot({ facts: [sessionFact(), taskCompletedFact()] }))
+    expect(validation.state).toBe('valid')
+    expect(sections.focus.state).toBe('available')
+    expect(sections.tasks.state).toBe('available')
+    expect(sections.hero.state).toBe('available')
+
+    expect(dataOf(sections.focus).sessionStructure).toMatchObject({ focusSeconds: 1500, completed: 1 })
+    expect(dataOf(sections.tasks)).toMatchObject({
+      current: { total: 1, completed: 1, completionRate: 1 },
+      flow: { completed: 1 },
+      plan: { attributedFocusSeconds: 1500 }
+    })
+    expect(dataOf(sections.tasks).topByAttributedFocus).toEqual([
+      expect.objectContaining({ taskId: 'task-1', focusSeconds: 1500, completedInRange: true, currentlyDone: true })
+    ])
+    expect(dataOf(sections.hero)).toMatchObject({
+      focusSeconds: 1500,
+      completedFocusSessions: 1,
+      currentXp: 375,
+      currentStreakDays: 4,
+      totalTokens: 42,
+      currentTaskCompletionRate: 1
+    })
+  })
+
+  it('keeps an empty covered day distinct from a day before tracking began', () => {
+    const empty = snapshot({ trackingStartedOn: '2026-07-13' })
+    const covered = calculate(query('2026-07-13'), empty).sections.focus
+    expect(covered.state).toBe('empty')
+    expect(dataOf(covered).heatmap).toEqual([expect.objectContaining({ date: '2026-07-13', focusSeconds: 0, isCovered: true })])
+
+    const beforeTracking = calculate(query('2026-07-12'), empty).sections.focus
+    expect(beforeTracking.state).toBe('unavailable')
+    expect(beforeTracking.warnings.map((item) => item.code)).toContain('range_before_tracking_started')
+  })
+
+  it('ignores malformed and foreign-client fact rows instead of allowing them to change analytics', () => {
+    const malformed = { ...sessionFact({ id: 'malformed', activeSeconds: 999_999 }), daySegments: [] } as unknown as StudyAnalyticsFact
+    const foreign = sessionFact({ id: 'foreign', clientId: 'another-client' })
+    const { validation, sections } = calculate(query(), snapshot({ facts: [sessionFact(), malformed, foreign] }))
+    expect(validation).toMatchObject({ state: 'valid', rejectedFacts: 2 })
+    expect(sections.focus.state).toBe('partial')
+    expect(dataOf(sections.focus).sessionStructure.focusSeconds).toBe(1500)
+    expect(sections.focus.warnings.map((item) => item.code)).toContain('facts_recovered_with_invalid_rows')
+  })
+
+  it('rejects stale and oversized snapshots before aggregation', () => {
+    const stale = calculate(query(), snapshot({ capturedAt: '2026-07-13T11:49:59.000Z' }))
+    expect(stale.validation.state).toBe('invalid')
+    expect(stale.sections.focus.state).toBe('unavailable')
+
+    const oversized = calculate(query(), snapshot({
+      facts: Array.from({ length: PERSONAL_STUDY_SNAPSHOT_MAX_FACTS + 1 }, (_, index) => sessionFact({ id: `session-${index}` }))
+    }))
+    expect(oversized.validation.state).toBe('invalid')
+    expect(oversized.sections.hero.state).toBe('unavailable')
+  })
+
+  it('prunes facts outside the 400-day window and ignores a personal payload for non-personal scopes', () => {
+    const old = sessionFact({
+      id: 'old-session',
+      startedAt: '2025-06-08T01:00:00.000Z',
+      endedAt: '2025-06-08T01:25:00.000Z',
+      recordedAt: '2025-06-08T01:25:00.000Z',
+      daySegments: [{
+        localDate: '2025-06-08',
+        timezoneOffsetMinutes: -480,
+        startedAt: '2025-06-08T01:00:00.000Z',
+        endedAt: '2025-06-08T01:25:00.000Z',
+        activeSeconds: 1500,
+        pausedSeconds: 0,
+        hourBuckets: hours([9, 1500])
+      }]
+    })
+    const retained = calculate(query(), snapshot({ trackingStartedOn: '2025-06-08', facts: [old] }))
+    expect(retained.validation).toMatchObject({ state: 'valid', retentionPruned: true })
+    if (retained.validation.state === 'valid') expect(retained.validation.snapshot.facts).toEqual([])
+    expect(retained.sections.focus.coverage.retention).toMatchObject({ days: 400, cutoffDate: '2025-06-09' })
+    expect(retained.sections.focus.warnings.map((item) => item.code)).toContain('retention_pruned')
+
+    const nonPersonal = query()
+    nonPersonal.scope.personalFocus = { kind: 'none' }
+    const ignored = calculate(nonPersonal, snapshot({ facts: [sessionFact()] })).sections
+    expect(ignored).toMatchObject({
+      hero: { state: 'unavailable', reason: 'not_applicable' },
+      focus: { state: 'unavailable', reason: 'not_applicable' },
+      tasks: { state: 'unavailable', reason: 'not_applicable' }
+    })
   })
 })

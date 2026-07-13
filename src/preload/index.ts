@@ -26,7 +26,7 @@ function registerIpcListener<T>(
 const api: TeachingSystemApi = {
   platform: process.platform,
   getState: () => ipcRenderer.invoke(teachingInvokeChannels.getState),
-  getLearningAnalytics: (query) => ipcRenderer.invoke(teachingInvokeChannels.getLearningAnalytics, query),
+  getLearningAnalytics: (request) => ipcRenderer.invoke(teachingInvokeChannels.getLearningAnalytics, request),
   exportLearningAnalytics: (request) => ipcRenderer.invoke(teachingInvokeChannels.exportLearningAnalytics, request),
   clearLearningAnalytics: (request) => ipcRenderer.invoke(teachingInvokeChannels.clearLearningAnalytics, request),
   getSettings: () => ipcRenderer.invoke(teachingInvokeChannels.getSettings),

@@ -16,11 +16,10 @@ import type {
   ClearAnalyticsRequest,
   ClearAnalyticsResult,
   ConnectorStatusesResult,
-  FocusAnalytics,
   GetProgressResult,
   LearningAnalyticsBundle,
   LearningAnalyticsQuery,
-  LearningAnalyticsHero,
+  LearningAnalyticsRequest,
   MemoryAnalytics,
   PlatformAnalytics,
   PresenceSnapshotAnalytics,
@@ -31,7 +30,6 @@ import type {
   TeachingSettingsV1,
   TeachingWorkspaceChangeSummary,
   TeachingWorkspaceSummary,
-  TaskAnalytics,
   TokenAnalytics,
   TokenUsageFact,
   TokenUsageNumbers,
@@ -39,6 +37,11 @@ import type {
 } from '../../../shared/teaching-types'
 import { agentConversationJsonRelativePathForMarkdown } from '../../../shared/agent-conversation-catalog'
 import { LEARNING_WORK_LEDGER_RELATIVE_PATH } from '../../learning-work-ledger'
+import {
+  buildPersonalStudyAnalytics,
+  validatePersonalStudySnapshot,
+  type PersonalStudySnapshotValidation
+} from '../../../shared/learning-analytics/personal-study-source'
 
 const CONTRACT_VERSION = 1 as const
 const RETENTION_DAYS = 400 as const
@@ -116,21 +119,29 @@ export class LearningAnalyticsService {
 
   constructor(private readonly dependencies: LearningAnalyticsDependencies) {}
 
-  async getLearningAnalytics(query: LearningAnalyticsQuery): Promise<LearningAnalyticsBundle> {
-    validateLearningAnalyticsQuery(query)
-    const queryKey = stableJson(query)
+  async getLearningAnalytics(request: LearningAnalyticsRequest | LearningAnalyticsQuery): Promise<LearningAnalyticsBundle> {
+    const normalized = normalizeLearningAnalyticsRequest(request)
+    validateLearningAnalyticsQuery(normalized.query)
+    const personal = normalized.query.scope.personalFocus.kind === 'personal'
+      ? validatePersonalStudySnapshot(normalized.personalStudy, {
+          clientId: normalized.query.scope.personalFocus.clientId,
+          localToday: normalized.query.calendarContext.localToday,
+          now: this.now()
+        })
+      : ({ state: 'missing', cacheIdentity: 'missing', warnings: [] } as PersonalStudySnapshotValidation)
+    const queryKey = digest(stableJson({ query: normalized.query, personal: personalCacheFingerprint(personal) }))
     const existing = this.inFlight.get(queryKey)
     if (existing) return existing
-    const request = this.loadBundle(query, queryKey).finally(() => {
-      if (this.inFlight.get(queryKey) === request) this.inFlight.delete(queryKey)
+    const pending = this.loadBundle(normalized.query, personal, queryKey).finally(() => {
+      if (this.inFlight.get(queryKey) === pending) this.inFlight.delete(queryKey)
     })
-    this.inFlight.set(queryKey, request)
-    return request
+    this.inFlight.set(queryKey, pending)
+    return pending
   }
 
   async prepareExport(request: AnalyticsExportRequest): Promise<AnalyticsPreparedExport> {
     validateAnalyticsExportRequest(request)
-    return createSafeAnalyticsExport(await this.getLearningAnalytics(request.query), request)
+    return createSafeAnalyticsExport(await this.getLearningAnalytics({ query: request.query, personalStudy: request.personalStudy }), request)
   }
 
   async clearLearningAnalytics(request: ClearAnalyticsRequest): Promise<ClearAnalyticsResult> {
@@ -165,20 +176,20 @@ export class LearningAnalyticsService {
 
   invalidate(): void { this.cache.clear() }
 
-  private async loadBundle(query: LearningAnalyticsQuery, queryKey: string): Promise<LearningAnalyticsBundle> {
-    const header = await this.loadScanHeader(query)
+  private async loadBundle(query: LearningAnalyticsQuery, personal: PersonalStudySnapshotValidation, queryKey: string): Promise<LearningAnalyticsBundle> {
+    const header = await this.loadScanHeader(query, personal)
     const cached = this.cache.get(queryKey)
     if (cached?.fingerprint === header.fingerprint) {
       cached.touchedAt = Date.now()
       return cached.bundle
     }
-    const bundle = await this.aggregate(query, header)
+    const bundle = await this.aggregate(query, header, personal)
     this.cache.set(queryKey, { fingerprint: header.fingerprint, bundle, touchedAt: Date.now() })
     this.pruneCache()
     return bundle
   }
 
-  private async loadScanHeader(query: LearningAnalyticsQuery): Promise<ScanHeader> {
+  private async loadScanHeader(query: LearningAnalyticsQuery, personal: PersonalStudySnapshotValidation): Promise<ScanHeader> {
     const warnings: AnalyticsWarning[] = []
     const [workspaceResult, settingsResult, skillsResult, connectorsResult] = await Promise.allSettled([
       this.dependencies.listWorkspaceSummaries(),
@@ -194,7 +205,7 @@ export class LearningAnalyticsService {
     const connectorStatuses = connectorsResult.status === 'fulfilled' ? connectorsResult.value : null
     if (!settings) warnings.push(warning('source_scan_incomplete', 'Settings could not be read for analytics.', 'settings'))
     if (!skills) warnings.push(warning('source_scan_incomplete', 'Skill catalog could not be read for analytics.', 'skill_catalog'))
-    const fingerprint = await this.fingerprint(query, selected, settings, skills, connectorStatuses)
+    const fingerprint = await this.fingerprint(query, selected, settings, skills, connectorStatuses, personal)
     return { selected, settings, skills, connectorStatuses, warnings, fingerprint }
   }
 
@@ -203,7 +214,8 @@ export class LearningAnalyticsService {
     selected: AnalyticsWorkspaceScanResult[],
     settings: TeachingSettingsV1 | null,
     skills: SkillCatalogResult | null,
-    connectors: ConnectorStatusesResult | null
+    connectors: ConnectorStatusesResult | null,
+    personal: PersonalStudySnapshotValidation
   ): Promise<string> {
     const paths = new Set<string>([
       join(this.dependencies.appDataRoot, 'memory'),
@@ -239,11 +251,12 @@ export class LearningAnalyticsService {
       settings,
       skills: skills?.skills.map((entry) => ({ id: entry.id, installed: entry.installed, version: entry.version, category: entry.category })),
       connectors: connectors?.connectors.map((entry) => ({ id: entry.id, state: entry.state })),
+      personalStudy: personalCacheFingerprint(personal),
       mtimes: await collectPathVersions([...paths])
     }))
   }
 
-  private async aggregate(query: LearningAnalyticsQuery, header: ScanHeader): Promise<LearningAnalyticsBundle> {
+  private async aggregate(query: LearningAnalyticsQuery, header: ScanHeader, personal: PersonalStudySnapshotValidation): Promise<LearningAnalyticsBundle> {
     const generatedAt = this.now().toISOString()
     const [tokenScan, workspaceAssets, review, memory, platform] = await Promise.all([
       this.scanTokens(query, header.selected, header.warnings),
@@ -252,10 +265,13 @@ export class LearningAnalyticsService {
       this.scanMemory(query, generatedAt, header.selected, header.warnings),
       this.scanPlatform(query, generatedAt, header)
     ])
-    const unsupportedCoverage = coverage(query, false, [], [], false)
-    const hero = unavailableSection<LearningAnalyticsHero>(mixedTemporal(query, generatedAt, ['focusSeconds', 'totalTokens'], ['currentStreakDays', 'currentXp', 'currentLevel', 'currentTaskCompletionRate']), unsupportedCoverage, 'history_not_recorded', [warning('source_not_configured', 'The hero requires personal Study state in addition to Teaching analytics.', 'study_snapshot')])
-    const focus = unavailableSection<FocusAnalytics>(queryTemporal(query), unsupportedCoverage, 'history_not_recorded', [warning('source_not_configured', 'Personal focus facts are provided by the renderer activity ledger.', 'study_fact_store')])
-    const tasks = unavailableSection<TaskAnalytics>(mixedTemporal(query, generatedAt, [], ['current']), unsupportedCoverage, 'history_not_recorded', [warning('task_history_missing', 'Task lifecycle history is not available to the Teaching scanner.', 'task_activity_facts')])
+    const personalSections = buildPersonalStudyAnalytics({
+      query,
+      validation: personal,
+      generatedAt,
+      tokens: tokenScan.section
+    })
+    const { hero, focus, tasks } = personalSections
     const presence = query.scope.presence.kind === 'none'
       ? unavailableSection<PresenceSnapshotAnalytics>(asOfTemporal(generatedAt), coverage(query, false, [], [], true), 'not_applicable', [])
       : unavailableSection<PresenceSnapshotAnalytics>(liveTemporal(generatedAt), coverage(query, false, [], [], false), 'source_missing', [warning('source_not_configured', 'Presence is a live renderer snapshot, not Teaching history.', 'presence')])
@@ -804,7 +820,8 @@ export function validateLearningAnalyticsQuery(query: LearningAnalyticsQuery): v
   if (!isLocalDate(query.calendarContext?.localToday) || !isValidTimeZone(query.calendarContext?.timeZone)) throw new Error('Analytics calendar context is invalid.')
   if (query.calendarContext.weekStartsOn !== 1 || query.range.weekStartsOn !== 1 || query.range.calendar !== 'local_gregorian' || query.range.fromInclusive !== true || query.range.toInclusive !== true) throw new Error('Analytics range semantics are invalid.')
   if (!isLocalDate(query.range.from) || !isLocalDate(query.range.to) || query.range.from > query.range.to || query.range.to > query.calendarContext.localToday) throw new Error('Analytics date range is invalid.')
-  if (query.scope.personalFocus?.kind !== 'personal' || !cleanString(query.scope.personalFocus.clientId)) throw new Error('Personal analytics scope is invalid.')
+  if (!['personal', 'none'].includes(query.scope.personalFocus?.kind)) throw new Error('Personal analytics scope is invalid.')
+  if (query.scope.personalFocus.kind === 'personal' && !cleanString(query.scope.personalFocus.clientId)) throw new Error('Personal analytics scope is invalid.')
   if (!['none', 'workspace', 'all_workspaces'].includes(query.scope.teaching?.kind)) throw new Error('Teaching analytics scope is invalid.')
   if (query.scope.teaching.kind === 'workspace' && !cleanString(query.scope.teaching.workspaceId)) throw new Error('Teaching workspace scope is invalid.')
   if (query.scope.teaching.kind === 'all_workspaces' && !Array.isArray(query.scope.teaching.workspaceIds)) throw new Error('Teaching workspace scope is invalid.')
@@ -919,6 +936,26 @@ function pushMap<K, V>(map: Map<K, V[]>, key: K, value: V): void { const current
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex') }
 function stableJson(value: unknown): string { return JSON.stringify(sortJson(value)) }
 function sortJson(value: unknown): unknown { if (Array.isArray(value)) return value.map(sortJson); if (!value || typeof value !== 'object') return value; return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, nested]) => [key, sortJson(nested)])) }
+function normalizeLearningAnalyticsRequest(value: LearningAnalyticsRequest | LearningAnalyticsQuery): LearningAnalyticsRequest {
+  if (value && typeof value === 'object' && 'query' in value && (value as { query?: unknown }).query) {
+    const request = value as LearningAnalyticsRequest
+    return { query: request.query, ...(request.personalStudy === undefined ? {} : { personalStudy: request.personalStudy }) }
+  }
+  return { query: value as LearningAnalyticsQuery }
+}
+function personalCacheFingerprint(validation: PersonalStudySnapshotValidation): unknown {
+  if (validation.state !== 'valid') return { state: validation.state, identity: validation.cacheIdentity }
+  const { snapshot } = validation
+  return {
+    state: validation.state,
+    identity: validation.cacheIdentity,
+    clientId: snapshot.clientId,
+    trackingStartedOn: snapshot.trackingStartedOn,
+    facts: snapshot.facts,
+    current: snapshot.current,
+    diagnostics: snapshot.diagnostics
+  }
+}
 async function collectPathVersions(paths: string[]): Promise<Array<{ pathKey: string; version: string }>> { const results = await Promise.all(paths.map(async (path) => ({ pathKey: digest(path), version: await pathVersion(path) }))); return results.sort((a, b) => a.pathKey.localeCompare(b.pathKey)) }
 async function pathVersion(path: string): Promise<string> { const info = await stat(path).catch(() => null); if (!info) return 'missing'; if (info.isFile()) return `${info.size}:${info.mtimeMs}`; if (!info.isDirectory()) return `other:${info.mtimeMs}`; const entries = await readdir(path, { withFileTypes: true }).catch(() => []); const nested = await Promise.all(entries.slice(0, 1000).map(async (entry) => { const childInfo = await stat(join(path, entry.name)).catch(() => null); return `${entry.name}:${childInfo?.size ?? -1}:${childInfo?.mtimeMs ?? -1}` })); return digest(nested.sort().join('|')) }
 async function safeRemove(path: string): Promise<void> { await rm(path, { recursive: true, force: true, maxRetries: 2, retryDelay: 50 }) }

@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createIsolatedTestRuntime, type IsolatedTestRuntime } from '../helpers/runtime-isolation'
 import type {
   AgentConversationRecord,
+  AnalyticsHourBuckets,
   LearningAnalyticsQuery,
+  LearningAnalyticsRequest,
+  PersonalStudyAnalyticsSnapshot,
+  StudySessionFact,
+  StudyTaskActivityFact,
   SkillCatalogResult,
   TeachingMemoryDiagnostics,
   TeachingSettingsV1,
@@ -17,6 +22,7 @@ import {
 
 const ledgerRelativePath = join('.studiumx', 'learning-work.jsonl')
 const instant = '2026-07-11T00:00:00.000Z'
+const analyticsNow = '2026-07-12T12:00:00.000Z'
 
 function query(range: LearningAnalyticsQuery['range'] = {
   from: '2026-07-10',
@@ -36,6 +42,86 @@ function query(range: LearningAnalyticsQuery['range'] = {
     },
     calendarContext: { localToday: '2026-07-12', timeZone: 'UTC', weekStartsOn: 1 }
   }
+}
+
+const hours = (...entries: Array<[number, number]>): AnalyticsHourBuckets => {
+  const values = Array.from({ length: 24 }, () => 0)
+  for (const [hour, seconds] of entries) values[hour] = seconds
+  return values as unknown as AnalyticsHourBuckets
+}
+
+function personalSessionFact(overrides: Partial<StudySessionFact> = {}): StudySessionFact {
+  return {
+    factVersion: 1,
+    factKind: 'study_session',
+    id: 'personal-session-1',
+    clientId: 'isolated-client',
+    timerMode: 'focus',
+    outcome: 'completed',
+    startedAt: '2026-07-11T01:00:00.000Z',
+    endedAt: '2026-07-11T01:25:00.000Z',
+    recordedAt: '2026-07-11T01:25:00.000Z',
+    plannedSeconds: 1500,
+    activeSeconds: 1500,
+    pausedSeconds: 0,
+    completedFocusSessions: 1,
+    xpEarned: 25,
+    context: { modeId: 'deepwork', roomId: 'deep', signalId: 'writing' },
+    taskAttribution: { kind: 'explicit', capturedAt: 'session_start', taskId: 'task-1', taskTitleSnapshot: 'Integration task' },
+    daySegments: [{
+      localDate: '2026-07-11',
+      timezoneOffsetMinutes: 0,
+      startedAt: '2026-07-11T01:00:00.000Z',
+      endedAt: '2026-07-11T01:25:00.000Z',
+      activeSeconds: 1500,
+      pausedSeconds: 0,
+      hourBuckets: hours([1, 1500])
+    }],
+    ...overrides
+  }
+}
+
+function personalTaskCompletedFact(): StudyTaskActivityFact {
+  const before = { taskId: 'task-1', title: 'Integration task', done: false }
+  return {
+    factVersion: 1,
+    factKind: 'study_activity',
+    id: 'personal-task-completed',
+    clientId: 'isolated-client',
+    occurredAt: '2026-07-11T01:25:00.000Z',
+    recordedAt: '2026-07-11T01:25:00.000Z',
+    localDate: '2026-07-11',
+    timezoneOffsetMinutes: 0,
+    activity: { kind: 'task_completed', before, after: { ...before, done: true } }
+  }
+}
+
+function personalStudy(overrides: Partial<PersonalStudyAnalyticsSnapshot> = {}): PersonalStudyAnalyticsSnapshot {
+  return {
+    version: 1,
+    identity: 'personal-snapshot-a',
+    capturedAt: analyticsNow,
+    clientId: 'isolated-client',
+    trackingStartedOn: '2026-07-10',
+    facts: [personalSessionFact(), personalTaskCompletedFact()],
+    current: {
+      xp: 375,
+      streakDays: 4,
+      tasks: [{ taskId: 'task-1', title: 'Integration task', done: true }]
+    },
+    ...overrides
+  }
+}
+
+function request(personalStudySnapshot = personalStudy(), requestQuery = query()): LearningAnalyticsRequest {
+  return { query: requestQuery, personalStudy: personalStudySnapshot }
+}
+
+function dataOf<T>(section: { state: string; data?: T }): T {
+  if (section.state !== 'available' && section.state !== 'partial' && section.state !== 'empty' || section.data === undefined) {
+    throw new Error(`Expected a data-bearing section, received ${section.state}`)
+  }
+  return section.data
 }
 
 function summary(runtime: IsolatedTestRuntime, id: string): TeachingWorkspaceSummary {
@@ -141,7 +227,8 @@ function makeService(runtime: IsolatedTestRuntime, scans: AnalyticsWorkspaceScan
     getMemoryDiagnostics: async () => diagnostics,
     listSkills: async () => skills,
     loadSettings: async () => settings(runtime),
-    listWorkspaceChanges: async () => []
+    listWorkspaceChanges: async () => [],
+    now: () => new Date(analyticsNow)
   })
 }
 
@@ -224,6 +311,74 @@ describe('teaching analytics integration', () => {
     await writeFile(conversationSummary.absolutePath, 'v2-with-different-size')
     await service.getLearningAnalytics(query())
     expect(count.value).toBe(2)
+  })
+
+
+  it('assembles complete personal focus, task, and hero sections in Main from the study snapshot', async () => {
+    const service = makeService(runtime, workspaceScan(runtime, [summary(runtime, 'ws-good')]), new Map(), { value: 0 })
+    const bundle = await service.getLearningAnalytics(request())
+
+    expect(bundle.focus.state).toBe('available')
+    expect(bundle.tasks.state).toBe('available')
+    expect(bundle.hero.state).toBe('available')
+    expect(dataOf(bundle.focus).sessionStructure).toMatchObject({ focusSeconds: 1500, completed: 1 })
+    expect(dataOf(bundle.tasks)).toMatchObject({
+      current: { total: 1, completed: 1, completionRate: 1 },
+      flow: { completed: 1 },
+      plan: { attributedFocusSeconds: 1500 }
+    })
+    expect(dataOf(bundle.hero)).toMatchObject({
+      focusSeconds: 1500,
+      completedFocusSessions: 1,
+      currentXp: 375,
+      currentStreakDays: 4,
+      currentTaskCompletionRate: 1
+    })
+  })
+
+  it('refreshes Main aggregation when personal snapshot identity or accepted content changes', async () => {
+    const good = summary(runtime, 'ws-good')
+    good.conversations = [{ id: 'conv-personal-cache', workspaceId: good.id, title: 'Cache', createdAt: instant, updatedAt: instant, relativePath: 'courses/demo/conversations/conv-personal-cache.md', absolutePath: join(runtime.workspaceDir, 'conv-personal-cache.md'), messageCount: 1 }]
+    const records = new Map([['conv-personal-cache', conversationRecord('conv-personal-cache', [{ id: 'turn-cache', role: 'assistant', content: 'answer', createdAt: instant, metadata: { version: 1, runUsage: usage(5, 3, 2) } }], runtime)]])
+    const count = { value: 0 }
+    const service = makeService(runtime, workspaceScan(runtime, [good]), records, count)
+
+    const firstRequest = request()
+    const first = await service.getLearningAnalytics(firstRequest)
+    const second = await service.getLearningAnalytics(firstRequest)
+    expect(second).toBe(first)
+    expect(count.value).toBe(1)
+
+    await service.getLearningAnalytics(request(personalStudy({ identity: 'personal-snapshot-b' })))
+    expect(count.value).toBe(2)
+
+    const changedContent = personalStudy({
+      facts: [personalSessionFact({ activeSeconds: 1200, plannedSeconds: 1200, id: 'changed-session', daySegments: [{
+        localDate: '2026-07-11', timezoneOffsetMinutes: 0, startedAt: '2026-07-11T01:00:00.000Z', endedAt: '2026-07-11T01:20:00.000Z', activeSeconds: 1200, pausedSeconds: 0, hourBuckets: hours([1, 1200])
+      }] }), personalTaskCompletedFact()]
+    })
+    const changed = await service.getLearningAnalytics(request(changedContent))
+    expect(count.value).toBe(3)
+    expect(dataOf(changed.focus).sessionStructure.focusSeconds).toBe(1200)
+  })
+
+  it('uses the same personal snapshot calculation for safe exports without exposing raw facts in the bundle query', async () => {
+    const service = makeService(runtime, workspaceScan(runtime, [summary(runtime, 'ws-good')]), new Map(), { value: 0 })
+    const personal = personalStudy()
+    const direct = await service.getLearningAnalytics(request(personal))
+    const prepared = await service.prepareExport({
+      query: query(),
+      personalStudy: personal,
+      format: 'json',
+      detail: 'summary',
+      sectionIds: ['hero', 'focus', 'tasks']
+    })
+    const exported = JSON.parse(prepared.content) as { query: Record<string, unknown>; sections: { hero: { data: { focusSeconds: number } }; focus: { data: { sessionStructure: { focusSeconds: number } } }; tasks: { data: { current: { completed: number } } } } }
+
+    expect(exported.sections.hero.data.focusSeconds).toBe(dataOf(direct.hero).focusSeconds)
+    expect(exported.sections.focus.data.sessionStructure.focusSeconds).toBe(dataOf(direct.focus).sessionStructure.focusSeconds)
+    expect(exported.sections.tasks.data.current.completed).toBe(dataOf(direct.tasks).current.completed)
+    expect(JSON.stringify(exported.query)).not.toContain('facts')
   })
 
   it('redacts export content and clears only analytics-owned data', async () => {

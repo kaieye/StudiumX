@@ -75,13 +75,13 @@ import type {
   ClearAnalyticsRequest,
   ClearAnalyticsResult,
   LearningAnalyticsBundle,
-  LearningAnalyticsQuery
+  LearningAnalyticsRequest
 } from './analytics'
 
 export type TeachingSystemApi = {
   platform: NodeJS.Platform
   getState: () => Promise<TeachingAppState>
-  getLearningAnalytics: (query: LearningAnalyticsQuery) => Promise<LearningAnalyticsBundle>
+  getLearningAnalytics: (request: LearningAnalyticsRequest) => Promise<LearningAnalyticsBundle>
   exportLearningAnalytics: (request: AnalyticsExportRequest) => Promise<AnalyticsExportResult>
   clearLearningAnalytics: (request: ClearAnalyticsRequest) => Promise<ClearAnalyticsResult>
   getSettings: () => Promise<TeachingSettingsV1>

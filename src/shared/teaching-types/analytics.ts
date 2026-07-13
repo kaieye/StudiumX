@@ -27,11 +27,16 @@ export type AnalyticsDateRange = {
   weekStartsOn: 1
 }
 
-export type PersonalFocusAnalyticsScope = {
-  kind: 'personal'
-  /** Local learner/client identity. Personal focus never includes presence peers. */
-  clientId: string
-}
+export type PersonalFocusAnalyticsScope =
+  | {
+      kind: 'personal'
+      /** Local learner/client identity. Personal focus never includes presence peers. */
+      clientId: string
+    }
+  | {
+      /** A legacy/non-personal query. Personal-study payloads must be ignored. */
+      kind: 'none'
+    }
 
 export type TeachingAnalyticsScope =
   | { kind: 'none' }
@@ -418,6 +423,36 @@ export type StudyAnalyticsStoreV1 = {
   /** Disposable cache derived only from `facts`. */
   dailyProjections: StudyDailyProjection[]
   updatedAt: AnalyticsInstant
+}
+
+/**
+ * Bounded renderer-to-main snapshot. The localStorage ledger remains renderer-owned;
+ * Main validates this payload and calculates all personal sections from accepted facts.
+ */
+export type PersonalStudyAnalyticsSnapshot = {
+  version: 1
+  /** Renderer-produced change identity. Main treats this as untrusted cache input. */
+  identity: string
+  capturedAt: AnalyticsInstant
+  clientId: string
+  trackingStartedOn: AnalyticsLocalDate
+  /** Immutable session/activity facts only. Daily projections never cross the IPC seam. */
+  facts: StudyAnalyticsFact[]
+  current: {
+    xp: number
+    streakDays: number
+    tasks: StudyTaskStateSnapshot[]
+  }
+  diagnostics?: {
+    invalidFactRows?: number
+    retentionPruned?: boolean
+  }
+}
+
+/** Request envelope keeps personal source data out of returned/exported bundle queries. */
+export type LearningAnalyticsRequest = {
+  query: LearningAnalyticsQuery
+  personalStudy?: PersonalStudyAnalyticsSnapshot
 }
 
 export type AnalyticsComparison = {
@@ -828,6 +863,8 @@ export type AnalyticsExportDetail = 'summary' | 'detailed'
 
 export type AnalyticsExportRequest = {
   query: LearningAnalyticsQuery
+  /** Reused only to calculate this export; it is not echoed into the export query. */
+  personalStudy?: PersonalStudyAnalyticsSnapshot
   format: AnalyticsExportFormat
   /** `summary` omits user-authored labels; `detailed` includes displayed titles/names only. */
   detail: AnalyticsExportDetail

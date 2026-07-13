@@ -1,0 +1,344 @@
+import type {
+  AnalyticsCoverage,
+  AnalyticsDateRange,
+  AnalyticsHourBuckets,
+  AnalyticsSectionResult,
+  AnalyticsSourceCoverage,
+  AnalyticsWarning,
+  FocusAnalytics,
+  LearningAnalyticsHero,
+  LearningAnalyticsQuery,
+  PersonalStudyAnalyticsSnapshot,
+  StudyActivityFact,
+  StudyAnalyticsFact,
+  StudyAnalyticsModeId,
+  StudyAnalyticsRoomId,
+  StudyAnalyticsSignalId,
+  StudyDailyProjection,
+  StudySessionFact,
+  StudyTaskActivityFact,
+  StudyTaskScheduleSnapshot,
+  StudyTaskStateSnapshot,
+  TaskAnalytics,
+  TokenAnalytics
+} from '../teaching-types/analytics'
+
+export const PERSONAL_STUDY_SNAPSHOT_MAX_FACTS = 4_000 as const
+export const PERSONAL_STUDY_SNAPSHOT_MAX_TASKS = 500 as const
+export const PERSONAL_STUDY_SNAPSHOT_MAX_AGE_MS = 10 * 60 * 1_000
+
+export type PersonalStudySnapshotValidation =
+  | { state: 'missing'; cacheIdentity: 'missing'; warnings: AnalyticsWarning[] }
+  | { state: 'invalid'; cacheIdentity: string; warnings: AnalyticsWarning[] }
+  | {
+      state: 'valid'
+      cacheIdentity: string
+      snapshot: PersonalStudyAnalyticsSnapshot
+      rejectedFacts: number
+      retentionPruned: boolean
+      warnings: AnalyticsWarning[]
+    }
+
+const EMPTY_HOURS = (): AnalyticsHourBuckets => Array.from({ length: 24 }, () => 0) as unknown as AnalyticsHourBuckets
+const LOCAL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+function warning(code: AnalyticsWarning['code'], message: string, details?: Record<string, string | number | boolean | null>): AnalyticsWarning {
+  return { code, severity: code === 'facts_recovered_with_invalid_rows' ? 'warning' : 'info', source: 'study_snapshot', message, ...(details ? { details } : {}) }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function boundedString(value: unknown, maximum = 256): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maximum
+}
+
+function isFiniteNonNegative(value: unknown, maximum = Number.MAX_SAFE_INTEGER): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= maximum && Math.floor(value) === value
+}
+
+function isInstant(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value))
+}
+
+export function isAnalyticsLocalDate(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const match = LOCAL_DATE.exec(value)
+  if (!match) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(0)
+  date.setUTCHours(12, 0, 0, 0)
+  date.setUTCFullYear(year, month - 1, day)
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+export function addAnalyticsLocalDays(value: string, amount: number): string {
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(0)
+  date.setUTCHours(12, 0, 0, 0)
+  date.setUTCFullYear(year, month - 1, day + amount)
+  return `${String(date.getUTCFullYear()).padStart(4, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+}
+
+function countInclusiveLocalDays(from: string, to: string): number {
+  const start = Date.parse(`${from}T12:00:00.000Z`)
+  const end = Date.parse(`${to}T12:00:00.000Z`)
+  return Math.floor((end - start) / 86_400_000) + 1
+}
+
+function inRange(date: string, range: AnalyticsDateRange): boolean {
+  return date >= range.from && date <= range.to
+}
+
+function isHourBuckets(value: unknown): value is AnalyticsHourBuckets {
+  return Array.isArray(value) && value.length === 24 && value.every((item) => isFiniteNonNegative(item, 86_400))
+}
+
+function isTaskSchedule(value: unknown): value is StudyTaskScheduleSnapshot {
+  if (!isRecord(value)) return false
+  return Number.isInteger(value.weekday) && Number(value.weekday) >= 0 && Number(value.weekday) <= 6
+    && isFiniteNonNegative(value.startMinutes, 1_440) && isFiniteNonNegative(value.endMinutes, 1_440)
+    && (value.colorId === undefined || boundedString(value.colorId, 64))
+}
+
+function isTaskState(value: unknown): value is StudyTaskStateSnapshot {
+  if (!isRecord(value)) return false
+  return boundedString(value.taskId) && boundedString(value.title, 160) && typeof value.done === 'boolean'
+    && (value.schedule === undefined || isTaskSchedule(value.schedule))
+    && (value.workspaceId === undefined || boundedString(value.workspaceId))
+}
+
+function hasUniqueTaskIds(tasks: StudyTaskStateSnapshot[]): boolean {
+  return new Set(tasks.map((task) => task.taskId)).size === tasks.length
+}
+
+function isActivity(value: unknown): value is StudyActivityFact['activity'] {
+  if (!isRecord(value) || typeof value.kind !== 'string') return false
+  switch (value.kind) {
+    case 'task_created': return isTaskState(value.after)
+    case 'task_completed':
+    case 'task_reopened':
+    case 'task_schedule_changed':
+    case 'task_title_changed': return isTaskState(value.before) && isTaskState(value.after)
+    case 'task_deleted': return isTaskState(value.before)
+    case 'review_answered': return boundedString(value.workspaceId) && boundedString(value.lessonId) && typeof value.correct === 'boolean'
+    case 'workspace_changed':
+    case 'lesson_generated': return boundedString(value.workspaceId)
+    case 'skill_used': return boundedString(value.skillId)
+    default: return false
+  }
+}
+
+function isFact(value: unknown): value is StudyAnalyticsFact {
+  if (!isRecord(value) || value.factVersion !== 1 || !boundedString(value.id) || !boundedString(value.clientId)) return false
+  if (value.factKind === 'study_activity') {
+    return isInstant(value.occurredAt) && isInstant(value.recordedAt) && isAnalyticsLocalDate(value.localDate)
+      && typeof value.timezoneOffsetMinutes === 'number' && Number.isFinite(value.timezoneOffsetMinutes) && isActivity(value.activity)
+  }
+  if (value.factKind !== 'study_session') return false
+  if ((value.timerMode !== 'focus' && value.timerMode !== 'break')
+    || (value.outcome !== 'completed' && value.outcome !== 'interrupted' && value.outcome !== 'canceled')
+    || !isInstant(value.startedAt) || !isInstant(value.endedAt) || !isInstant(value.recordedAt)
+    || !isFiniteNonNegative(value.plannedSeconds, 31_536_000) || !isFiniteNonNegative(value.activeSeconds, 31_536_000)
+    || !isFiniteNonNegative(value.pausedSeconds, 31_536_000) || !isFiniteNonNegative(value.xpEarned, 1_000_000)
+    || (value.completedFocusSessions !== 0 && value.completedFocusSessions !== 1)
+    || !isRecord(value.context) || !boundedString(value.context.modeId, 64) || !boundedString(value.context.roomId, 64) || !boundedString(value.context.signalId, 64)
+    || (value.context.spaceCode !== undefined && !boundedString(value.context.spaceCode, 128))
+    || !isRecord(value.taskAttribution) || !Array.isArray(value.daySegments) || value.daySegments.length === 0 || value.daySegments.length > 8) return false
+  const attribution = value.taskAttribution
+  const attributionIsValid = attribution.kind === 'unattributed'
+    ? attribution.reason === 'no_task_selected' || attribution.reason === 'legacy_session' || attribution.reason === 'task_missing'
+    : attribution.kind === 'explicit' && attribution.capturedAt === 'session_start' && boundedString(attribution.taskId) && boundedString(attribution.taskTitleSnapshot, 160) && (attribution.workspaceId === undefined || boundedString(attribution.workspaceId))
+  if (!attributionIsValid) return false
+  const segments = value.daySegments as Array<Record<string, unknown>>
+  if (!segments.every((segment) => isAnalyticsLocalDate(segment.localDate)
+    && typeof segment.timezoneOffsetMinutes === 'number' && Number.isInteger(segment.timezoneOffsetMinutes) && Number(segment.timezoneOffsetMinutes) >= -840 && Number(segment.timezoneOffsetMinutes) <= 840
+    && isInstant(segment.startedAt) && isInstant(segment.endedAt) && Date.parse(String(segment.startedAt)) <= Date.parse(String(segment.endedAt))
+    && isFiniteNonNegative(segment.activeSeconds, 31_536_000) && isFiniteNonNegative(segment.pausedSeconds, 31_536_000)
+    && isHourBuckets(segment.hourBuckets)
+    && (segment.hourBuckets as readonly number[]).reduce((total, seconds) => total + seconds, 0) === Number(segment.activeSeconds))) return false
+  return Date.parse(value.startedAt) <= Date.parse(value.endedAt)
+    && (value.completedFocusSessions === 0 || (value.timerMode === 'focus' && value.outcome === 'completed'))
+    && segments.reduce((total, segment) => total + Number(segment.activeSeconds), 0) === value.activeSeconds
+    && segments.reduce((total, segment) => total + Number(segment.pausedSeconds), 0) === value.pausedSeconds
+}
+
+function trimFactToRetention(fact: StudyAnalyticsFact, cutoffDate: string): StudyAnalyticsFact | null {
+  if (fact.factKind !== 'study_session') return fact.localDate >= cutoffDate ? fact : null
+  const daySegments = fact.daySegments.filter((segment) => segment.localDate >= cutoffDate)
+  if (daySegments.length === 0) return null
+  if (daySegments.length === fact.daySegments.length) return fact
+  return { ...fact, startedAt: daySegments[0].startedAt, activeSeconds: daySegments.reduce((total, segment) => total + segment.activeSeconds, 0), pausedSeconds: daySegments.reduce((total, segment) => total + segment.pausedSeconds, 0), daySegments }
+}
+
+/** Validates only the bounded renderer snapshot; invalid input never reaches aggregation. */
+export function validatePersonalStudySnapshot(value: unknown, input: { clientId: string; localToday: string; now: Date }): PersonalStudySnapshotValidation {
+  if (value === undefined || value === null) return { state: 'missing', cacheIdentity: 'missing', warnings: [] }
+  if (!isRecord(value)) return { state: 'invalid', cacheIdentity: 'invalid:shape', warnings: [warning('source_scan_incomplete', 'Personal Study snapshot was malformed and was ignored.')] }
+  const identity = boundedString(value.identity, 128) ? value.identity : 'invalid:identity'
+  const invalid = (message: string) => ({ state: 'invalid' as const, cacheIdentity: `invalid:${identity}`, warnings: [warning('source_scan_incomplete', message)] })
+  if (value.version !== 1 || !boundedString(value.identity, 128) || !boundedString(value.clientId) || !isInstant(value.capturedAt) || !isAnalyticsLocalDate(value.trackingStartedOn) || !isRecord(value.current) || !Array.isArray(value.facts)) return invalid('Personal Study snapshot was malformed and was ignored.')
+  if (value.clientId !== input.clientId) return invalid('Personal Study snapshot belonged to a different learner and was ignored.')
+  if (value.trackingStartedOn > input.localToday) return invalid('Personal Study snapshot claimed a future tracking start and was ignored.')
+  const capturedAt = Date.parse(value.capturedAt)
+  if (capturedAt > input.now.getTime() + 30_000 || input.now.getTime() - capturedAt > PERSONAL_STUDY_SNAPSHOT_MAX_AGE_MS) return invalid('Personal Study snapshot was stale and was ignored.')
+  if (value.facts.length > PERSONAL_STUDY_SNAPSHOT_MAX_FACTS) return invalid('Personal Study snapshot exceeded its safe fact limit and was ignored.')
+  if (!isFiniteNonNegative(value.current.xp, 1_000_000_000) || !isFiniteNonNegative(value.current.streakDays, 100_000) || !Array.isArray(value.current.tasks) || value.current.tasks.length > PERSONAL_STUDY_SNAPSHOT_MAX_TASKS || !value.current.tasks.every(isTaskState) || !hasUniqueTaskIds(value.current.tasks)) return invalid('Personal Study current-state snapshot was malformed and was ignored.')
+  const cutoffDate = addAnalyticsLocalDays(input.localToday, -399)
+  const ids = new Set<string>()
+  let rejectedFacts = 0
+  let retentionPruned = Boolean(isRecord(value.diagnostics) && value.diagnostics.retentionPruned === true)
+  const accepted: StudyAnalyticsFact[] = []
+  for (const rawFact of value.facts) {
+    const hasFutureDate = rawFact && typeof rawFact === 'object' && !Array.isArray(rawFact)
+      && ((rawFact as { factKind?: unknown }).factKind === 'study_activity'
+        ? typeof (rawFact as { localDate?: unknown }).localDate === 'string' && (rawFact as { localDate: string }).localDate > input.localToday
+        : Array.isArray((rawFact as { daySegments?: unknown }).daySegments) && (rawFact as { daySegments: Array<{ localDate?: unknown }> }).daySegments.some((segment) => typeof segment?.localDate === 'string' && segment.localDate > input.localToday))
+    if (!isFact(rawFact) || rawFact.clientId !== input.clientId || ids.has(rawFact.id) || hasFutureDate) { rejectedFacts += 1; continue }
+    ids.add(rawFact.id)
+    const retained = trimFactToRetention(rawFact, cutoffDate)
+    if (!retained) { retentionPruned = true; continue }
+    if (retained !== rawFact) retentionPruned = true
+    accepted.push(retained)
+  }
+  const upstreamRejected = isRecord(value.diagnostics) && isFiniteNonNegative(value.diagnostics.invalidFactRows, PERSONAL_STUDY_SNAPSHOT_MAX_FACTS) ? value.diagnostics.invalidFactRows : 0
+  const warnings: AnalyticsWarning[] = []
+  if (rejectedFacts + upstreamRejected > 0) warnings.push(warning('facts_recovered_with_invalid_rows', 'Invalid personal Study fact rows were ignored before analytics aggregation.', { invalidFactRows: rejectedFacts + upstreamRejected }))
+  if (retentionPruned) warnings.push(warning('retention_pruned', 'Personal Study facts outside the rolling 400-day retention window were ignored.'))
+  return { state: 'valid', cacheIdentity: identity, snapshot: { version: 1, identity, capturedAt: new Date(capturedAt).toISOString(), clientId: input.clientId, trackingStartedOn: value.trackingStartedOn, facts: accepted, current: { xp: value.current.xp, streakDays: value.current.streakDays, tasks: value.current.tasks }, diagnostics: { invalidFactRows: rejectedFacts + upstreamRejected, retentionPruned } }, rejectedFacts: rejectedFacts + upstreamRejected, retentionPruned, warnings }
+}
+
+export function rebuildPersonalStudyDailyProjections(facts: StudyAnalyticsFact[], rebuiltAt: string): StudyDailyProjection[] {
+  type MutableProjection = StudyDailyProjection & { buckets: number[] }
+  const projections = new Map<string, MutableProjection>()
+  const read = (date: string): MutableProjection => {
+    const existing = projections.get(date)
+    if (existing) return existing
+    const created: MutableProjection = { projectionVersion: 1, date, focusSeconds: 0, breakSeconds: 0, completedFocusSessions: 0, interruptedFocusSessions: 0, xpEarned: 0, modeSeconds: {}, roomSeconds: {}, signalSeconds: {}, hourBuckets: EMPTY_HOURS(), tasksCreated: 0, tasksCompleted: 0, tasksReopened: 0, tasksDeleted: 0, reviewAnswered: 0, reviewCorrect: 0, sourceFactCount: 0, rebuiltAt, buckets: Array.from({ length: 24 }, () => 0) }
+    projections.set(date, created)
+    return created
+  }
+  const seen = new Set<string>()
+  const add = <T extends string>(record: Partial<Record<T, number>>, key: T, amount: number): void => { record[key] = (record[key] ?? 0) + amount }
+  for (const fact of facts) {
+    if (seen.has(fact.id)) continue
+    seen.add(fact.id)
+    if (fact.factKind === 'study_session') {
+      const dates = new Set<string>()
+      const last = fact.daySegments.at(-1)
+      for (const segment of fact.daySegments) {
+        const projection = read(segment.localDate)
+        if (!dates.has(segment.localDate)) { dates.add(segment.localDate); projection.sourceFactCount += 1 }
+        if (fact.timerMode === 'focus') {
+          projection.focusSeconds += segment.activeSeconds
+          add<StudyAnalyticsModeId>(projection.modeSeconds, fact.context.modeId, segment.activeSeconds)
+          add<StudyAnalyticsRoomId>(projection.roomSeconds, fact.context.roomId, segment.activeSeconds)
+          add<StudyAnalyticsSignalId>(projection.signalSeconds, fact.context.signalId, segment.activeSeconds)
+          for (let hour = 0; hour < 24; hour += 1) projection.buckets[hour] += segment.hourBuckets[hour] ?? 0
+        } else projection.breakSeconds += segment.activeSeconds
+        if (segment === last) { projection.completedFocusSessions += fact.completedFocusSessions; projection.interruptedFocusSessions += fact.timerMode === 'focus' && fact.outcome === 'interrupted' ? 1 : 0; projection.xpEarned += fact.xpEarned }
+      }
+      continue
+    }
+    const projection = read(fact.localDate)
+    projection.sourceFactCount += 1
+    if (fact.activity.kind === 'task_created') projection.tasksCreated += 1
+    else if (fact.activity.kind === 'task_completed') projection.tasksCompleted += 1
+    else if (fact.activity.kind === 'task_reopened') projection.tasksReopened += 1
+    else if (fact.activity.kind === 'task_deleted') projection.tasksDeleted += 1
+    else if (fact.activity.kind === 'review_answered') { projection.reviewAnswered += 1; if (fact.activity.correct) projection.reviewCorrect += 1 }
+  }
+  return [...projections.values()].sort((left, right) => left.date.localeCompare(right.date)).map(({ buckets, ...item }) => ({ ...item, hourBuckets: buckets as unknown as AnalyticsHourBuckets }))
+}
+
+function level(xp: number): LearningAnalyticsHero['currentLevel'] { const current = xp % 120; return { level: Math.max(1, Math.floor(xp / 120) + 1), xpAtLevelStart: xp - current, xpAtNextLevel: 120, currentXp: xp, progress: current / 120 } }
+function plantStage(xp: number): string { if (xp >= 720) return '成林'; if (xp >= 420) return '开花'; if (xp >= 180) return '抽枝'; if (xp >= 60) return '发芽'; return '种子' }
+
+function coverage(query: LearningAnalyticsQuery, validation: Extract<PersonalStudySnapshotValidation, { state: 'valid' }>, projections: StudyDailyProjection[]): AnalyticsCoverage {
+  const snapshot = validation.snapshot
+  const cutoffDate = addAnalyticsLocalDays(query.calendarContext.localToday, -399)
+  const dataDates = projections.map((item) => item.date).sort()
+  const lowerBound = snapshot.trackingStartedOn > cutoffDate ? snapshot.trackingStartedOn : cutoffDate
+  const effectiveFrom = query.range.from > lowerBound ? query.range.from : lowerBound
+  const effectiveTo = query.range.to < query.calendarContext.localToday ? query.range.to : query.calendarContext.localToday
+  const effectiveRange = effectiveFrom <= effectiveTo ? { ...query.range, from: effectiveFrom, to: effectiveTo } : null
+  const requestedCovered = effectiveRange?.from === query.range.from && effectiveRange.to === query.range.to
+  const sourceState: AnalyticsSourceCoverage['state'] = validation.rejectedFacts > 0 || validation.retentionPruned || !requestedCovered ? 'partial' : 'complete'
+  return { rangeApplied: true, requestedRange: query.range, effectiveRange, trackingStartedOn: snapshot.trackingStartedOn, dataStartDate: dataDates[0] ?? null, dataEndDate: dataDates.at(-1) ?? null, retention: { policy: 'rolling_local_days', days: 400, includesToday: true, cutoffDate }, complete: sourceState === 'complete', sources: [{ source: 'study_fact_store', state: sourceState, scanned: snapshot.facts.length + validation.rejectedFacts, included: snapshot.facts.length, missing: 0, rejected: validation.rejectedFacts, earliestLocalDate: dataDates[0], latestLocalDate: dataDates.at(-1) }] }
+}
+
+function projectionRows(query: LearningAnalyticsQuery, validation: Extract<PersonalStudySnapshotValidation, { state: 'valid' }>, projections: StudyDailyProjection[]): Array<StudyDailyProjection & { covered: boolean }> {
+  const map = new Map(projections.map((item) => [item.date, item]))
+  const cutoffDate = addAnalyticsLocalDays(query.calendarContext.localToday, -399)
+  const coverageStart = validation.snapshot.trackingStartedOn > cutoffDate ? validation.snapshot.trackingStartedOn : cutoffDate
+  return Array.from({ length: countInclusiveLocalDays(query.range.from, query.range.to) }, (_, index) => {
+    const date = addAnalyticsLocalDays(query.range.from, index)
+    const existing = map.get(date)
+    return { ...(existing ?? { projectionVersion: 1 as const, date, focusSeconds: 0, breakSeconds: 0, completedFocusSessions: 0, interruptedFocusSessions: 0, xpEarned: 0, modeSeconds: {}, roomSeconds: {}, signalSeconds: {}, hourBuckets: EMPTY_HOURS(), tasksCreated: 0, tasksCompleted: 0, tasksReopened: 0, tasksDeleted: 0, reviewAnswered: 0, reviewCorrect: 0, sourceFactCount: 0, rebuiltAt: validation.snapshot.capturedAt }), covered: date >= coverageStart && date <= query.calendarContext.localToday }
+  })
+}
+
+function sumDimension<T extends string>(rows: Array<StudyDailyProjection & { covered: boolean }>, key: 'modeSeconds' | 'roomSeconds' | 'signalSeconds'): Array<{ id: T; seconds: number; share: number }> {
+  const totals = new Map<string, number>()
+  for (const row of rows) for (const [id, seconds] of Object.entries(row[key])) totals.set(id, (totals.get(id) ?? 0) + (seconds ?? 0))
+  const total = [...totals.values()].reduce((sum, value) => sum + value, 0)
+  return [...totals.entries()].sort((left, right) => right[1] - left[1]).map(([id, seconds]) => ({ id: id as T, seconds, share: total > 0 ? seconds / total : 0 }))
+}
+function sessionSecondsInRange(fact: StudySessionFact, range: AnalyticsDateRange): number { return fact.daySegments.filter((segment) => inRange(segment.localDate, range)).reduce((sum, segment) => sum + segment.activeSeconds, 0) }
+function sessionEndsInRange(fact: StudySessionFact, range: AnalyticsDateRange): boolean { return Boolean(fact.daySegments.at(-1) && inRange(fact.daySegments.at(-1)!.localDate, range)) }
+
+function unavailable<T>(query: LearningAnalyticsQuery, reason: 'history_not_recorded' | 'not_applicable', warnings: AnalyticsWarning[]): AnalyticsSectionResult<T> {
+  return { state: 'unavailable', reason, temporal: { kind: 'range', range: query.range }, coverage: { rangeApplied: true, requestedRange: query.range, effectiveRange: null, trackingStartedOn: null, dataStartDate: null, dataEndDate: null, retention: { policy: 'rolling_local_days', days: 400, includesToday: true, cutoffDate: addAnalyticsLocalDays(query.calendarContext.localToday, -399) }, complete: false, sources: [{ source: 'study_snapshot', state: 'unavailable', scanned: 0, included: 0, missing: 1, rejected: 0 }] }, warnings }
+}
+
+export function buildPersonalStudyAnalytics(input: { query: LearningAnalyticsQuery; validation: PersonalStudySnapshotValidation; generatedAt: string; tokens: AnalyticsSectionResult<TokenAnalytics> }): { hero: AnalyticsSectionResult<LearningAnalyticsHero>; focus: AnalyticsSectionResult<FocusAnalytics>; tasks: AnalyticsSectionResult<TaskAnalytics> } {
+  const { query, validation, generatedAt, tokens } = input
+  if (query.scope.personalFocus.kind !== 'personal') return { hero: unavailable<LearningAnalyticsHero>(query, 'not_applicable', []), focus: unavailable<FocusAnalytics>(query, 'not_applicable', []), tasks: unavailable<TaskAnalytics>(query, 'not_applicable', []) }
+  if (validation.state !== 'valid') {
+    const warnings = validation.state === 'missing' ? [warning('source_not_configured', 'No personal Study snapshot was supplied for this analytics request.')] : validation.warnings
+    return { hero: unavailable<LearningAnalyticsHero>(query, 'history_not_recorded', warnings), focus: unavailable<FocusAnalytics>(query, 'history_not_recorded', warnings), tasks: unavailable<TaskAnalytics>(query, 'history_not_recorded', warnings) }
+  }
+  const projections = rebuildPersonalStudyDailyProjections(validation.snapshot.facts, validation.snapshot.capturedAt)
+  const rows = projectionRows(query, validation, projections)
+  const sectionCoverage = coverage(query, validation, projections)
+  const warnings = [...validation.warnings]
+  if (query.range.from < addAnalyticsLocalDays(query.calendarContext.localToday, -399)) warnings.push(warning('range_before_retention_window', 'Part of the requested range predates the rolling 400-day personal Study retention window.'))
+  if (query.range.from < validation.snapshot.trackingStartedOn) warnings.push(warning('range_before_tracking_started', 'Part of the requested range predates local personal Study fact tracking.'))
+  const sessions = validation.snapshot.facts.filter((fact): fact is StudySessionFact => fact.factKind === 'study_session')
+  const rangedSessions = sessions.filter((fact) => fact.daySegments.some((segment) => inRange(segment.localDate, query.range)))
+  const terminalFocus = rangedSessions.filter((fact) => fact.timerMode === 'focus' && sessionEndsInRange(fact, query.range))
+  const completedFacts = terminalFocus.filter((fact) => fact.outcome === 'completed')
+  const completed = completedFacts.length
+  const interrupted = terminalFocus.filter((fact) => fact.outcome === 'interrupted').length
+  const canceled = terminalFocus.filter((fact) => fact.outcome === 'canceled').length
+  const focusSeconds = rows.reduce((sum, row) => sum + row.focusSeconds, 0)
+  const breakSeconds = rows.reduce((sum, row) => sum + row.breakSeconds, 0)
+  const growthLevel = level(validation.snapshot.current.xp)
+  const focusData: FocusAnalytics = { daily: rows.map(({ covered: _covered, ...row }) => row), heatmap: rows.map((row) => ({ date: row.date, focusSeconds: row.focusSeconds, completedFocusSessions: row.completedFocusSessions, tasksCompleted: row.tasksCompleted, isCovered: row.covered })), trend: rows.map((row) => ({ date: row.date, focusSeconds: row.focusSeconds, completedFocusSessions: row.completedFocusSessions })), hourBuckets: rows.reduce((hours, row) => hours.map((value, index) => value + (row.hourBuckets[index] ?? 0)) as unknown as AnalyticsHourBuckets, EMPTY_HOURS()), modeBreakdown: sumDimension<StudyAnalyticsModeId>(rows, 'modeSeconds'), roomBreakdown: sumDimension<StudyAnalyticsRoomId>(rows, 'roomSeconds'), signalBreakdown: sumDimension<StudyAnalyticsSignalId>(rows, 'signalSeconds'), sessionStructure: { focusSeconds, breakSeconds, completed, interrupted, canceled, averageCompletedFocusSeconds: completed > 0 ? completedFacts.reduce((sum, fact) => sum + fact.activeSeconds, 0) / completed : null, completionRate: terminalFocus.length > 0 ? completed / terminalFocus.length : null }, currentGrowth: { xp: validation.snapshot.current.xp, level: growthLevel, streakDays: validation.snapshot.current.streakDays, badges: [], plantStage: plantStage(validation.snapshot.current.xp) } }
+  const focus: AnalyticsSectionResult<FocusAnalytics> = rangedSessions.length === 0 && rows.some((row) => row.covered) ? { state: 'empty', data: focusData, reason: 'no_activity', temporal: { kind: 'range', range: query.range }, coverage: sectionCoverage, warnings } : rangedSessions.length === 0 ? { state: 'unavailable', reason: 'history_not_recorded', temporal: { kind: 'range', range: query.range }, coverage: sectionCoverage, warnings } : { state: sectionCoverage.complete ? 'available' : 'partial', data: focusData, temporal: { kind: 'range', range: query.range }, coverage: sectionCoverage, warnings }
+  const activities = validation.snapshot.facts.filter((fact): fact is StudyTaskActivityFact => fact.factKind === 'study_activity' && fact.activity.kind.startsWith('task_') && inRange(fact.localDate, query.range))
+  const byTask = new Map<string, { title: string; seconds: number; completedInRange: boolean; currentlyDone: boolean | null }>()
+  for (const fact of sessions) {
+    if (fact.timerMode !== 'focus' || fact.taskAttribution.kind !== 'explicit' || !fact.daySegments.some((segment) => inRange(segment.localDate, query.range))) continue
+    const attribution = fact.taskAttribution
+    const item = byTask.get(attribution.taskId) ?? { title: attribution.taskTitleSnapshot, seconds: 0, completedInRange: false, currentlyDone: validation.snapshot.current.tasks.find((task) => task.taskId === attribution.taskId)?.done ?? null }
+    item.seconds += sessionSecondsInRange(fact, query.range)
+    item.completedInRange ||= fact.outcome === 'completed' && sessionEndsInRange(fact, query.range)
+    byTask.set(attribution.taskId, item)
+  }
+  const currentTasks = validation.snapshot.current.tasks
+  const taskData: TaskAnalytics = { current: { asOf: generatedAt, total: currentTasks.length, open: currentTasks.filter((task) => !task.done).length, completed: currentTasks.filter((task) => task.done).length, overdue: 0, completionRate: currentTasks.length ? currentTasks.filter((task) => task.done).length / currentTasks.length : null }, flow: { created: activities.filter((fact) => fact.activity.kind === 'task_created').length, completed: activities.filter((fact) => fact.activity.kind === 'task_completed').length, reopened: activities.filter((fact) => fact.activity.kind === 'task_reopened').length, deleted: activities.filter((fact) => fact.activity.kind === 'task_deleted').length, byDay: rows.map((row) => ({ date: row.date, created: row.tasksCreated, completed: row.tasksCompleted, reopened: row.tasksReopened, deleted: row.tasksDeleted })) }, plan: { plannedSeconds: 0, scheduledOccurrences: 0, attributedFocusSeconds: [...byTask.values()].reduce((sum, item) => sum + item.seconds, 0), executionRate: null }, topByAttributedFocus: [...byTask.entries()].sort((left, right) => right[1].seconds - left[1].seconds).slice(0, 10).map(([taskId, item]) => ({ taskId, title: item.title, focusSeconds: item.seconds, completedInRange: item.completedInRange, currentlyDone: item.currentlyDone })), unattributedFocusSeconds: sessions.filter((fact) => fact.timerMode === 'focus' && fact.taskAttribution.kind === 'unattributed').reduce((sum, fact) => sum + sessionSecondsInRange(fact, query.range), 0) }
+  const taskWarnings = [...warnings, warning('schedule_history_missing', 'Task plan history is not reconstructable; planned time and execution rate remain unavailable.')]
+  if (taskData.plan.attributedFocusSeconds === 0) taskWarnings.push(warning('task_attribution_missing', 'No explicit task-attributed focus facts were available.'))
+  const taskTemporal = { kind: 'mixed' as const, range: query.range, asOf: generatedAt, rangeFields: ['flow', 'plan'], rangeInvariantFields: ['current'] }
+  const tasks: AnalyticsSectionResult<TaskAnalytics> = activities.length === 0 && currentTasks.length === 0 ? { state: 'empty', data: taskData, reason: 'scope_has_no_items', temporal: taskTemporal, coverage: sectionCoverage, warnings: taskWarnings } : { state: sectionCoverage.complete && activities.length > 0 ? 'available' : 'partial', data: taskData, temporal: taskTemporal, coverage: sectionCoverage, warnings: taskWarnings }
+  const tokenTotal = 'data' in tokens ? tokens.data.totals.totalTokens : 0
+  const heroData: LearningAnalyticsHero = { focusSeconds, completedFocusSessions: completed, currentStreakDays: validation.snapshot.current.streakDays, currentXp: validation.snapshot.current.xp, currentLevel: growthLevel, totalTokens: tokenTotal, currentTaskCompletionRate: taskData.current.completionRate, insightLine: 'Based on currently available local Study and Teaching data.' }
+  const heroTemporal = { kind: 'mixed' as const, range: query.range, asOf: generatedAt, rangeFields: ['focusSeconds', 'totalTokens'], rangeInvariantFields: ['currentStreakDays', 'currentXp', 'currentLevel', 'currentTaskCompletionRate'] }
+  const hero: AnalyticsSectionResult<LearningAnalyticsHero> = focus.state === 'unavailable' ? { state: 'unavailable', reason: 'history_not_recorded', temporal: heroTemporal, coverage: sectionCoverage, warnings } : { state: focus.state === 'available' ? 'available' : 'partial', data: heroData, temporal: heroTemporal, coverage: sectionCoverage, warnings: [...warnings, ...taskWarnings] }
+  return { hero, focus, tasks }
+}
+

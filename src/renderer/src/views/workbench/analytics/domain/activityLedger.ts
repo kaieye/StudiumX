@@ -10,6 +10,7 @@ import type {
   StudyAnalyticsModeId,
   StudyAnalyticsRoomId,
   StudyAnalyticsSignalId,
+  PersonalStudyAnalyticsSnapshot,
   StudyAnalyticsStoreV1,
   StudyDailyProjection,
   StudySessionFact,
@@ -496,6 +497,57 @@ export function readStudyAnalyticsStore(
   options: ReadStudyAnalyticsStoreOptions = {}
 ): StudyAnalyticsStoreV1 {
   return readStudyAnalyticsStoreWithDiagnostics(clientId, options).store
+}
+
+export type PersonalStudySnapshotCurrentState = Pick<
+  PersonalStudyAnalyticsSnapshot['current'],
+  'xp' | 'streakDays' | 'tasks'
+>
+
+function snapshotIdentity(value: unknown): string {
+  const text = JSON.stringify(value)
+  let hash = 2166136261
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `study-v1:${(hash >>> 0).toString(36)}:${text.length.toString(36)}`
+}
+
+/**
+ * Renderer adapter seam: reads localStorage and produces the bounded source payload
+ * consumed and independently validated by Main. It never calculates page sections.
+ */
+export function createPersonalStudyAnalyticsSnapshot(
+  clientId: string,
+  current: PersonalStudySnapshotCurrentState,
+  options: ReadStudyAnalyticsStoreOptions & { capturedAt?: string } = {}
+): PersonalStudyAnalyticsSnapshot {
+  const capturedAt = options.capturedAt ?? new Date().toISOString()
+  const { store, diagnostics } = readStudyAnalyticsStoreWithDiagnostics(clientId, {
+    storage: options.storage,
+    localToday: options.localToday,
+    updatedAt: options.updatedAt
+  })
+  const payload = {
+    storeUpdatedAt: store.updatedAt,
+    trackingStartedOn: store.trackingStartedOn,
+    facts: store.facts,
+    current
+  }
+  return {
+    version: 1,
+    identity: snapshotIdentity(payload),
+    capturedAt,
+    clientId,
+    trackingStartedOn: store.trackingStartedOn,
+    facts: store.facts,
+    current,
+    diagnostics: {
+      invalidFactRows: diagnostics.invalidFactRows,
+      retentionPruned: diagnostics.retentionPruned
+    }
+  }
 }
 
 export function persistStudyAnalyticsStore(

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { mergePersonalActivityIntoAnalyticsBundle } from './domain/personalAnalyticsAdapter'
-import { subscribeStudyAnalyticsStore } from './domain/activityLedger'
+import { readStudySnapshot } from '../../../study-space/domain'
+import { createPersonalStudyAnalyticsSnapshot, subscribeStudyAnalyticsStore } from './domain/activityLedger'
 import type {
   AnalyticsDateRange,
   AnalyticsLocalDate,
@@ -8,6 +8,7 @@ import type {
   AnalyticsSectionId,
   LearningAnalyticsBundle,
   LearningAnalyticsQuery,
+  LearningAnalyticsRequest,
   TeachingAnalyticsScope
 } from './types'
 
@@ -72,9 +73,9 @@ export type UseStudyAnalyticsOptions = {
 }
 
 type AnalyticsCapableSystemApi = {
-  getLearningAnalytics?: (query: LearningAnalyticsQuery) => Promise<LearningAnalyticsBundle>
+  getLearningAnalytics?: (request: LearningAnalyticsRequest) => Promise<LearningAnalyticsBundle>
   learningAnalytics?: {
-    get?: (query: LearningAnalyticsQuery) => Promise<LearningAnalyticsBundle>
+    get?: (request: LearningAnalyticsRequest) => Promise<LearningAnalyticsBundle>
   }
 }
 
@@ -210,6 +211,40 @@ function assertAnalyticsBundle(value: unknown): asserts value is LearningAnalyti
   }
 }
 
+function personalStudyRequest(query: LearningAnalyticsQuery): LearningAnalyticsRequest {
+  if (query.scope.personalFocus.kind !== 'personal') return { query }
+  const study = readStudySnapshot()
+  return {
+    query,
+    personalStudy: createPersonalStudyAnalyticsSnapshot(query.scope.personalFocus.clientId, {
+      xp: study.xp,
+      streakDays: study.streakDays,
+      tasks: study.tasks.map((task) => {
+        const schedule = task.schedule
+        const validSchedule = schedule
+          && Number.isInteger(schedule.weekday)
+          && schedule.weekday >= 0
+          && schedule.weekday <= 6
+          && Number.isFinite(schedule.startMinutes)
+          && Number.isFinite(schedule.endMinutes)
+        return {
+          taskId: task.id,
+          title: task.title,
+          done: task.done,
+          ...(validSchedule ? {
+            schedule: {
+              weekday: schedule.weekday as 0 | 1 | 2 | 3 | 4 | 5 | 6,
+              startMinutes: schedule.startMinutes,
+              endMinutes: schedule.endMinutes,
+              ...(schedule.colorId ? { colorId: schedule.colorId } : {})
+            }
+          } : {})
+        }
+      })
+    })
+  }
+}
+
 export const teachingSystemAnalyticsClient: LearningAnalyticsClient = {
   async getLearningAnalytics(query, signal) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -218,9 +253,9 @@ export const teachingSystemAnalyticsClient: LearningAnalyticsClient = {
       : window.teachingSystem as unknown as AnalyticsCapableSystemApi | undefined
     let bundle: LearningAnalyticsBundle
     if (system?.getLearningAnalytics) {
-      bundle = await system.getLearningAnalytics(query)
+      bundle = await system.getLearningAnalytics(personalStudyRequest(query))
     } else if (system?.learningAnalytics?.get) {
-      bundle = await system.learningAnalytics.get(query)
+      bundle = await system.learningAnalytics.get(personalStudyRequest(query))
     } else {
       throw new AnalyticsApiUnavailableError()
     }
@@ -253,10 +288,14 @@ export function useStudyAnalytics({
   const queryRef = useRef(query)
   queryRef.current = query
 
+  const personalClientId = query.scope.personalFocus.kind === 'personal'
+    ? query.scope.personalFocus.clientId
+    : null
+
   useEffect(() => {
-    if (!enabled || client !== teachingSystemAnalyticsClient) return
-    return subscribeStudyAnalyticsStore(query.scope.personalFocus.clientId, requestRefresh)
-  }, [client, enabled, query.scope.personalFocus.clientId])
+    if (!enabled || client !== teachingSystemAnalyticsClient || !personalClientId) return
+    return subscribeStudyAnalyticsStore(personalClientId, requestRefresh)
+  }, [client, enabled, personalClientId])
 
   useEffect(() => {
     if (!enabled) return
@@ -285,12 +324,9 @@ export function useStudyAnalytics({
     void client.getLearningAnalytics(queryRef.current, controller.signal).then(
       (bundle) => {
         if (controller.signal.aborted || sequence !== requestSequence.current) return
-        const resolvedBundle = client === teachingSystemAnalyticsClient
-          ? mergePersonalActivityIntoAnalyticsBundle(bundle, queryRef.current)
-          : bundle
         setState({
           phase: 'ready',
-          bundle: resolvedBundle,
+          bundle,
           isRefreshing: false,
           isStale: false,
           issue: null

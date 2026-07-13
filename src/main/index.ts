@@ -64,7 +64,7 @@ import {
 import type {
   AnalyticsExportRequest,
   ClearAnalyticsRequest,
-  LearningAnalyticsQuery,
+  LearningAnalyticsRequest,
   TeachingSettingsV1
 } from '../shared/teaching-types'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
@@ -125,7 +125,7 @@ function registerTeachingIpc(
 
   ipcMain.handle(teachingInvokeChannels.getState, async () => service.getState())
   ipcMain.handle(teachingInvokeChannels.getLearningAnalytics, async (_, query: unknown) =>
-    learningAnalyticsService.getLearningAnalytics(query as LearningAnalyticsQuery)
+    learningAnalyticsService.getLearningAnalytics(query as LearningAnalyticsRequest)
   )
   ipcMain.handle(teachingInvokeChannels.clearLearningAnalytics, async (_, request: unknown) =>
     learningAnalyticsService.clearLearningAnalytics(request as ClearAnalyticsRequest)
