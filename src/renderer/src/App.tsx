@@ -42,7 +42,7 @@ import {
   X,
   Wrench
 } from 'lucide-react'
-import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react'
+import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Component, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -2197,6 +2197,30 @@ function MarkdownMessage({
   tone: AgentChatTurn['role']
   compact?: boolean
 }) {
+  const openExternal = useAppStore((state) => state.openExternal)
+  const markdownComponents = useMemo<Components>(() => ({
+    a: ({ node: _node, href, children, ...props }) => (
+      <a
+        {...props}
+        href={href}
+        rel="noreferrer"
+        target="_blank"
+        onClick={(event) => {
+          if (!href) return
+          event.preventDefault()
+          void openExternal(href)
+        }}
+      >
+        {children}
+      </a>
+    ),
+    code: ({ node: _node, className, children, ...props }) => (
+      <code {...props} className={className}>
+        {children}
+      </code>
+    )
+  }), [openExternal])
+
   return (
     <div className={`markdown-message markdown-message--${tone}${compact ? ' is-compact' : ''}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -2204,31 +2228,6 @@ function MarkdownMessage({
       </ReactMarkdown>
     </div>
   )
-}
-
-const markdownComponents: Components = {
-  a: ({ node: _node, href, children, ...props }) => (
-    <a
-      {...props}
-      href={href}
-      rel="noreferrer"
-      target="_blank"
-      onClick={(event) => handleMarkdownLinkClick(event, href)}
-    >
-      {children}
-    </a>
-  ),
-  code: ({ node: _node, className, children, ...props }) => (
-    <code {...props} className={className}>
-      {children}
-    </code>
-  )
-}
-
-function handleMarkdownLinkClick(event: ReactMouseEvent<HTMLAnchorElement>, href?: string): void {
-  if (!href) return
-  event.preventDefault()
-  void window.teachingSystem?.openExternal(href)
 }
 
 function AgentProcessPanel({

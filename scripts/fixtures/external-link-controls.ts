@@ -29,6 +29,14 @@ assert.deepEqual(
 )
 assert.deepEqual(opened, ['https://example.com/docs'])
 
+assert.deepEqual(
+  await openExternalHttpUrl('javascript:alert(1)', disabledSettings, async (url) => {
+    opened.push(url)
+  }),
+  { ok: false, message: 'External links are disabled in privacy settings.' }
+)
+assert.deepEqual(opened, ['https://example.com/docs'])
+
 const openerError = await openExternalHttpUrl('https://example.com/fails', enabledSettings, async () => {
   throw new Error('open failed')
 })

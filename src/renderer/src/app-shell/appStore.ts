@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { classifyExternalDestination } from '../../../shared/external-destination'
 import i18n from '../i18n'
 import { initialWorkspaceViewFromUrl } from '../study-space'
 import {
@@ -1286,8 +1287,14 @@ export const useAppStore = create<StoreState>((set, get) => ({
   openExternal: async (url) => {
     const api = window.teachingSystem
     if (!api) return
+    const target = classifyExternalDestination(url)
+    if (target.kind === 'blocked') {
+      set({ error: toUserError(new Error(target.message)) })
+      return
+    }
     try {
-      const result = await api.openExternal(url)
+      // The main-process IPC handler repeats this classification and applies privacy policy.
+      const result = await api.openExternal(target.url)
       if (!result.ok) {
         set({ error: toUserError(new Error(result.message ?? i18n.t('errors.openExternal'))) })
       }

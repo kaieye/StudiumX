@@ -1,3 +1,5 @@
+import { EXTERNAL_DESTINATION_PROTOCOLS, classifyExternalDestination } from './external-destination'
+
 export const PREVIEW_PROTOCOL = 'studiumx-preview'
 export const LEGACY_PREVIEW_PROTOCOL = 'teachos-preview'
 export const PREVIEW_MARKDOWN_LINK_MESSAGE = 'studiumx:open-markdown'
@@ -34,7 +36,7 @@ function markdownBridgeScript(): string {
       window.parent.postMessage({ type: ${JSON.stringify(PREVIEW_MARKDOWN_LINK_MESSAGE)}, href: url.href }, '*');
       return;
     }
-    if (url.protocol === 'http:' || url.protocol === 'https:') {
+    if (${JSON.stringify(EXTERNAL_DESTINATION_PROTOCOLS)}.includes(url.protocol)) {
       event.preventDefault();
       window.parent.postMessage({ type: ${JSON.stringify(PREVIEW_EXTERNAL_LINK_MESSAGE)}, href: url.href }, '*');
     }
@@ -75,15 +77,10 @@ export function parsePreviewMarkdownHref(href: string): PreviewMarkdownLink | nu
   return { workspaceId, relativePath }
 }
 
+/** Browser-message adapter for the same external destination allowlist used before Electron opens it. */
 export function parsePreviewExternalHref(href: string): string | null {
-  let url: URL
-  try {
-    url = new URL(href)
-  } catch {
-    return null
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
-  return url.href
+  const target = classifyExternalDestination(href)
+  return target.kind === 'browser' ? target.url : null
 }
 
 function escapeHtmlAttribute(value: string): string {

@@ -1,5 +1,8 @@
 import type { OpenPathResult, TeachingSettingsV1 } from '../shared/teaching-types'
-import { requireHttpUrl } from './teaching-ipc-commands'
+import {
+  classifyExternalDestination,
+  resolveExternalDestinationLaunchIntent
+} from '../shared/external-destination'
 
 type ExternalLinkSettings = {
   privacy: Pick<TeachingSettingsV1['privacy'], 'allowExternalLinks'>
@@ -9,28 +12,27 @@ export type ExternalLinkOpener = (url: string) => Promise<void>
 
 export type ExternalHttpUrlResult = { ok: true; url: string } | { ok: false; message?: string }
 
+/** Electron-facing compatibility adapter for callers that need an http(s) URL string. */
 export function normalizeExternalHttpUrl(rawUrl: unknown): ExternalHttpUrlResult {
-  try {
-    return { ok: true, url: requireHttpUrl(rawUrl) }
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
+  const target = classifyExternalDestination(rawUrl)
+  return target.kind === 'browser'
+    ? { ok: true, url: target.url }
+    : { ok: false, message: target.message }
 }
 
+/** Electron-facing launch adapter; parsing and policy decisions live in external-destination. */
 export async function openExternalHttpUrl(
   rawUrl: unknown,
   settings: ExternalLinkSettings,
   opener: ExternalLinkOpener
 ): Promise<OpenPathResult> {
-  if (!settings.privacy.allowExternalLinks) {
-    return { ok: false, message: 'External links are disabled in privacy settings.' }
+  const intent = resolveExternalDestinationLaunchIntent(rawUrl, settings.privacy)
+  if (intent.kind === 'blocked') {
+    return { ok: false, message: intent.message }
   }
 
-  const parsed = normalizeExternalHttpUrl(rawUrl)
-  if (!parsed.ok) return parsed
-
   try {
-    await opener(parsed.url)
+    await opener(intent.target.url)
     return { ok: true }
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
