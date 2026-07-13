@@ -7,6 +7,7 @@ import {
   normalizeStudyTaskSchedule,
   todayKey
 } from '../domain'
+import { normalizeStudyTaskCategoryId } from '../taskCategories'
 import type { StudySignalId, StudySnapshot, StudyTaskScheduleInput, StudyTaskUpdateInput, StudyTimerMode } from '../types'
 
 type StudyRoom = typeof studyRooms[number]
@@ -260,7 +261,7 @@ export function addStudyTask(snapshot: StudySnapshot, titleInput: string, id: st
   return {
     snapshot: {
       ...snapshot,
-      tasks: [{ id, title: title.slice(0, 80), done: false }, ...snapshot.tasks].slice(0, STUDY_TASK_LIMIT)
+      tasks: [{ id, title: title.slice(0, 80), done: false, categoryId: 'study' as const }, ...snapshot.tasks].slice(0, STUDY_TASK_LIMIT)
     },
     added: true
   }
@@ -270,18 +271,26 @@ export function addScheduledStudyTask(
   snapshot: StudySnapshot,
   titleInput: string,
   id: string,
-  scheduleInput: StudyTaskScheduleInput
+  scheduleInput: StudyTaskScheduleInput,
+  categoryIdInput?: string | null
 ): {
   snapshot: StudySnapshot
   added: boolean
 } {
   const title = titleInput.trim()
   const schedule = normalizeStudyTaskSchedule(scheduleInput)
+  const categoryId = normalizeStudyTaskCategoryId(categoryIdInput) ?? 'study'
   if (!title || !schedule) return { snapshot, added: false }
   return {
     snapshot: {
       ...snapshot,
-      tasks: [{ id, title: title.slice(0, 80), done: false, schedule }, ...snapshot.tasks].slice(0, STUDY_TASK_LIMIT)
+      tasks: [{
+        id,
+        title: title.slice(0, 80),
+        done: false,
+        categoryId,
+        schedule
+      }, ...snapshot.tasks].slice(0, STUDY_TASK_LIMIT)
     },
     added: true
   }
@@ -322,6 +331,13 @@ export function updateStudyTask(
       const schedule = normalizeStudyTaskSchedule(updateInput.schedule)
       if (schedule) {
         nextTask.schedule = schedule
+        taskUpdated = true
+      }
+    }
+    if (updateInput.categoryId !== undefined) {
+      const categoryId = normalizeStudyTaskCategoryId(updateInput.categoryId) ?? 'study'
+      if (categoryId !== nextTask.categoryId) {
+        nextTask.categoryId = categoryId
         taskUpdated = true
       }
     }

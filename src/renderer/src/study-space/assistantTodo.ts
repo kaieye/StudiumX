@@ -70,7 +70,7 @@ export function mergeAssistantTodoTasks(
   const existingKeys = new Set(existingTasks.map((task) => task.title.trim().toLocaleLowerCase()))
   const newTasks = normalizeTaskTitles(titleInput)
     .filter((title) => !existingKeys.has(title.toLocaleLowerCase()))
-    .map((title, index) => ({ id: `ai-${now}-${index}`, title, done: false }))
+    .map((title, index) => ({ id: `ai-${now}-${index}`, title, done: false, categoryId: 'study' as const }))
 
   return {
     tasks: [...newTasks, ...existingTasks].slice(0, maxTasks),

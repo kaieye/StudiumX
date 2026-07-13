@@ -13,17 +13,27 @@ import {
 } from 'react'
 import type {
   StudyTask,
+  StudyTaskCategory,
+  StudyTaskCategoryId,
   StudyTaskSchedule,
-  StudyTaskScheduleColorId,
   StudyTaskScheduleInput,
   StudyTaskUpdateInput
 } from '../../study-space/types'
+import {
+  addStudyTaskCategory,
+  getReadableCategoryInk,
+  listStudyTaskCategories,
+  persistStudyTaskCategories,
+  removeStudyTaskCategory,
+  resolveStudyTaskCategory,
+  updateStudyTaskCategory
+} from '../../study-space/taskCategories'
 
 type StudyTaskSchedulePageProps = {
   tasks: StudyTask[]
   openTasks: number
   completedTasks: number
-  onAddScheduledTask: (title: string, schedule: StudyTaskScheduleInput) => boolean
+  onAddScheduledTask: (title: string, schedule: StudyTaskScheduleInput, categoryId?: StudyTaskCategoryId | null) => boolean
   onUpdateTask: (taskId: string, update: StudyTaskUpdateInput) => boolean
   onToggleTask: (taskId: string) => void
   onRemoveTask: (taskId: string) => void
@@ -39,8 +49,8 @@ type ScheduledTaskLayout = {
 }
 
 type TaskEditorState =
-  | { mode: 'add'; title: string; schedule: StudyTaskScheduleInput }
-  | { mode: 'edit'; taskId: string; title: string; done: boolean; schedule: StudyTaskScheduleInput }
+  | { mode: 'add'; title: string; categoryId: StudyTaskCategoryId; schedule: StudyTaskScheduleInput }
+  | { mode: 'edit'; taskId: string; title: string; done: boolean; categoryId: StudyTaskCategoryId; schedule: StudyTaskScheduleInput }
 
 type DraftTaskState = {
   title: string
@@ -70,12 +80,14 @@ type TaskContextMenuState = {
   y: number
 }
 
-type ColorContextMenuState = {
-  colorId: StudyTaskScheduleColorId
-  colorName: string
+type CategoryContextMenuState = {
+  categoryId: StudyTaskCategoryId
+  categoryName: string
   x: number
   y: number
 }
+
+type CategorySwatchVarStyle = CSSProperties & Record<'--category-swatch-color' | '--category-swatch-ink', string>
 
 type PendingTaskDragState = {
   task: ScheduledStudyTask
@@ -92,6 +104,7 @@ type TaskDragState = {
   taskId: string
   title: string
   done: boolean
+  categoryId: StudyTaskCategoryId
   pointerId: number
   originSchedule: StudyTaskSchedule
   previewSchedule: StudyTaskScheduleInput
@@ -112,15 +125,7 @@ type EventVarStyle = CSSProperties & Record<
   '--event-start-ratio' | '--event-duration-ratio' | '--event-left' | '--event-width' | '--event-color' | '--event-ink',
   string | number
 >
-type ColorSwatchVarStyle = CSSProperties & Record<'--schedule-swatch-color' | '--schedule-swatch-ink', string>
 type TaskColorVarStyle = CSSProperties & Record<'--event-color' | '--event-ink', string>
-
-type TaskColorDefinition = {
-  id: StudyTaskScheduleColorId
-  name: string
-  color: string
-  ink: string
-}
 
 type TimePart = 'hour' | 'minute'
 
@@ -135,99 +140,9 @@ type TimeSelectProps = {
 
 const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const hourMarks = [0, 4, 8, 12, 16, 20, 24]
-const morandiTaskColors: TaskColorDefinition[] = [
-  { id: 'mist', name: '雾蓝', color: '#8197aa', ink: '#ffffff' },
-  { id: 'mauve', name: '灰紫', color: '#9c8aa5', ink: '#ffffff' },
-  { id: 'sand', name: '麦砂', color: '#b3a184', ink: '#ffffff' },
-  { id: 'slate', name: '岩灰', color: '#7d8a91', ink: '#ffffff' },
-  { id: 'rose', name: '柔玫', color: '#ad8f98', ink: '#ffffff' }
-]
-const legacyTaskColors: TaskColorDefinition[] = [
-  { id: 'sage', name: '历史配色', color: '#829d91', ink: '#ffffff' },
-  { id: 'clay', name: '历史配色', color: '#ab8b80', ink: '#ffffff' }
-]
-const customColorStorageKey = 'studiumx:study-schedule-custom-colors:v1'
-const hiddenDefaultColorStorageKey = 'studiumx:study-schedule-hidden-default-colors:v1'
-const maxCustomColors = 12
 const minutesPerDay = 24 * 60
 const selectionStepMinutes = 15
 const minutePartOptions = Array.from({ length: 60 }, (_, minute) => minute)
-
-function defaultColorIdForWeekday(weekday: number): StudyTaskScheduleColorId {
-  const colorIndex = Math.abs(Math.floor(weekday)) % morandiTaskColors.length
-  return morandiTaskColors[colorIndex]?.id ?? 'mist'
-}
-
-function withDefaultScheduleColor(schedule: StudyTaskScheduleInput): StudyTaskScheduleInput {
-  return { ...schedule, colorId: schedule.colorId ?? defaultColorIdForWeekday(schedule.weekday) }
-}
-
-function isCustomScheduleColorId(value: unknown): value is `#${string}` {
-  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
-}
-
-function getReadableInk(color: string): string {
-  const red = Number.parseInt(color.slice(1, 3), 16)
-  const green = Number.parseInt(color.slice(3, 5), 16)
-  const blue = Number.parseInt(color.slice(5, 7), 16)
-  const luminance = (red * 299 + green * 587 + blue * 114) / 1000
-  return luminance >= 158 ? '#25313a' : '#ffffff'
-}
-
-function createCustomColorDefinition(colorId: `#${string}`): TaskColorDefinition {
-  return { id: colorId, name: colorId.toUpperCase(), color: colorId, ink: getReadableInk(colorId) }
-}
-
-function loadCustomColors(): `#${string}`[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(customColorStorageKey) ?? '[]')
-    if (!Array.isArray(stored)) return []
-    return Array.from(new Set(stored.filter(isCustomScheduleColorId).map((color) => color.toLowerCase() as `#${string}`)))
-      .slice(0, maxCustomColors)
-  } catch {
-    return []
-  }
-}
-
-function saveCustomColors(colors: `#${string}`[]): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(customColorStorageKey, JSON.stringify(colors))
-  } catch {
-    // Custom colors are a convenience; task data still keeps the selected color.
-  }
-}
-
-function isDefaultTaskColorId(value: unknown): value is StudyTaskScheduleColorId {
-  return typeof value === 'string' && morandiTaskColors.some((color) => color.id === value)
-}
-
-function loadHiddenDefaultColors(): StudyTaskScheduleColorId[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(hiddenDefaultColorStorageKey) ?? '[]')
-    return Array.isArray(stored) ? Array.from(new Set(stored.filter(isDefaultTaskColorId))) : []
-  } catch {
-    return []
-  }
-}
-
-function saveHiddenDefaultColors(colors: StudyTaskScheduleColorId[]): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(hiddenDefaultColorStorageKey, JSON.stringify(colors))
-  } catch {
-    // Keep the current session usable even when local storage is unavailable.
-  }
-}
-
-function getScheduleColor(schedule: StudyTaskSchedule): TaskColorDefinition {
-  const fallbackColorId = defaultColorIdForWeekday(schedule.weekday)
-  const colorId = schedule.colorId ?? fallbackColorId
-  if (isCustomScheduleColorId(colorId)) return createCustomColorDefinition(colorId)
-  return [...morandiTaskColors, ...legacyTaskColors].find((color) => color.id === colorId) ?? morandiTaskColors[0]!
-}
 
 function currentWeekdayIndex(): number {
   return (new Date().getDay() + 6) % 7
@@ -235,7 +150,25 @@ function currentWeekdayIndex(): number {
 
 function createDefaultSchedule(): StudyTaskScheduleInput {
   const weekday = currentWeekdayIndex()
-  return { weekday, startMinutes: 9 * 60, endMinutes: 10 * 60, colorId: defaultColorIdForWeekday(weekday) }
+  return { weekday, startMinutes: 9 * 60, endMinutes: 10 * 60 }
+}
+
+const defaultCategoryDraftColor: `#${string}` = '#6f8fa8'
+const maxCategoryNameLength = 16
+
+function categoryBadgeStyle(category: StudyTaskCategory): CategorySwatchVarStyle {
+  return {
+    '--category-swatch-color': category.color,
+    '--category-swatch-ink': getReadableCategoryInk(category.color)
+  }
+}
+
+function resolveTaskCategory(
+  categoryId: StudyTaskCategoryId | undefined | null,
+  categories: StudyTaskCategory[]
+): StudyTaskCategory {
+  return resolveStudyTaskCategory(categoryId, categories)
+    ?? resolveStudyTaskCategory('study', categories)!
 }
 
 function hasSchedule(task: StudyTask): task is ScheduledStudyTask {
@@ -583,8 +516,7 @@ function createTaskDragSchedule(
     ...originSchedule,
     weekday: dayIndex,
     startMinutes,
-    endMinutes: startMinutes + safeDuration,
-    colorId: originSchedule.colorId ?? defaultColorIdForWeekday(dayIndex)
+    endMinutes: startMinutes + safeDuration
   }
 }
 
@@ -601,7 +533,7 @@ function createSelectionSchedule(
   const snappedEnd = Math.ceil(upperMinutes / selectionStepMinutes) * selectionStepMinutes
   const startMinutes = clamp(snappedStart, 0, minutesPerDay - selectionStepMinutes)
   const endMinutes = clamp(Math.max(snappedEnd, startMinutes + selectionStepMinutes), startMinutes + selectionStepMinutes, minutesPerDay)
-  return { weekday: dayIndex, startMinutes, endMinutes, colorId: defaultColorIdForWeekday(dayIndex) }
+  return { weekday: dayIndex, startMinutes, endMinutes }
 }
 
 function createRangeStyle(startMinutes: number, endMinutes: number): RangeVarStyle {
@@ -669,10 +601,11 @@ export function StudyTaskSchedulePage({
   const [inlineTitle, setInlineTitle] = useState<InlineTitleState | null>(null)
   const [contextMenu, setContextMenu] = useState<TaskContextMenuState | null>(null)
   const [taskDrag, setTaskDrag] = useState<TaskDragState | null>(null)
-  const [customColors, setCustomColors] = useState<`#${string}`[]>(loadCustomColors)
-  const [customColorDraft, setCustomColorDraft] = useState<`#${string}`>('#6f8faf')
-  const [hiddenDefaultColors, setHiddenDefaultColors] = useState<StudyTaskScheduleColorId[]>(loadHiddenDefaultColors)
-  const [colorContextMenu, setColorContextMenu] = useState<ColorContextMenuState | null>(null)
+  const [taskCategories, setTaskCategories] = useState<StudyTaskCategory[]>(() => listStudyTaskCategories())
+  const [categoryContextMenu, setCategoryContextMenu] = useState<CategoryContextMenuState | null>(null)
+  const [customCategoryName, setCustomCategoryName] = useState('')
+  const [customCategoryColor, setCustomCategoryColor] = useState<`#${string}`>(defaultCategoryDraftColor)
+  const [customCategoryError, setCustomCategoryError] = useState('')
   const pendingTaskDragRef = useRef<PendingTaskDragState | null>(null)
   const taskDragRef = useRef<TaskDragState | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
@@ -681,19 +614,8 @@ export function StudyTaskSchedulePage({
     return weekDays.map((_, dayIndex) => layoutDayTasks(scheduledTasks.filter((task) => task.schedule.weekday === dayIndex)))
   }, [scheduledTasks])
   const todayIndex = currentWeekdayIndex()
-  const editorColorId = editor
-    ? editor.schedule.colorId ?? defaultColorIdForWeekday(editor.schedule.weekday)
-    : null
-  const availableTaskColors = useMemo(() => {
-    const colors = [...customColors]
-    if (editorColorId && isCustomScheduleColorId(editorColorId) && !colors.includes(editorColorId)) colors.unshift(editorColorId)
-    return [
-      ...morandiTaskColors.filter((color) => !hiddenDefaultColors.includes(color.id)),
-      ...colors.map(createCustomColorDefinition)
-    ]
-  }, [customColors, editorColorId, hiddenDefaultColors])
   const contextMenuTask = contextMenu ? scheduledTasks.find((task) => task.id === contextMenu.taskId) ?? null : null
-  const draggedTaskColor = taskDrag ? getScheduleColor(taskDrag.previewSchedule) : null
+  const draggedTaskCategory = taskDrag ? resolveTaskCategory(taskDrag.categoryId, taskCategories) : null
 
   const clearLongPressTimer = (): void => {
     if (longPressTimerRef.current !== null) {
@@ -738,7 +660,7 @@ export function StudyTaskSchedulePage({
       pending.clientY,
       pending.grabOffsetMinutes,
       durationMinutes
-    ) ?? withDefaultScheduleColor(pending.task.schedule)
+    ) ?? pending.task.schedule
     setEditor(null)
     setInlineTitle(null)
     setDraftTask(null)
@@ -750,6 +672,7 @@ export function StudyTaskSchedulePage({
       taskId: pending.task.id,
       title: pending.task.title,
       done: pending.task.done,
+      categoryId: pending.task.categoryId ?? 'study',
       pointerId: pending.pointerId,
       originSchedule: pending.task.schedule,
       previewSchedule,
@@ -780,56 +703,59 @@ export function StudyTaskSchedulePage({
     }
   }, [contextMenu])
 
+
   useEffect(() => {
-    if (!colorContextMenu) return undefined
-    const closeMenu = (): void => setColorContextMenu(null)
-    const closeMenuWithKeyboard = (event: KeyboardEvent): void => {
+    if (!categoryContextMenu) return undefined
+    const closeMenu = (): void => setCategoryContextMenu(null)
+    const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') closeMenu()
     }
     window.addEventListener('pointerdown', closeMenu)
-    window.addEventListener('keydown', closeMenuWithKeyboard)
+    window.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
     return () => {
       window.removeEventListener('pointerdown', closeMenu)
-      window.removeEventListener('keydown', closeMenuWithKeyboard)
+      window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
     }
-  }, [colorContextMenu])
+  }, [categoryContextMenu])
 
   useEffect(() => {
     return () => clearLongPressTimer()
   }, [])
 
   const openAddEditor = (schedule = createDefaultSchedule()): void => {
-    const nextSchedule = withDefaultScheduleColor(schedule)
-    if (nextSchedule.colorId && hiddenDefaultColors.includes(nextSchedule.colorId)) {
-      nextSchedule.colorId = availableTaskColors[0]?.id ?? nextSchedule.colorId
-    }
     setDraftTask(null)
     setInlineTitle(null)
-    setColorContextMenu(null)
+    setCategoryContextMenu(null)
     setEditorError('')
-    setEditor({ mode: 'add', title: '', schedule: nextSchedule })
+    setCustomCategoryError('')
+    setEditor({ mode: 'add', title: '', categoryId: 'study', schedule })
   }
 
   const openEditEditor = (task: ScheduledStudyTask): void => {
     setDraftTask(null)
     setInlineTitle(null)
-    setColorContextMenu(null)
+    setCategoryContextMenu(null)
     setEditorError('')
+    setCustomCategoryError('')
     setEditor({
       mode: 'edit',
       taskId: task.id,
       title: task.title,
       done: task.done,
-      schedule: withDefaultScheduleColor(task.schedule)
+      categoryId: task.categoryId ?? 'study',
+      schedule: task.schedule
     })
   }
 
   const closeEditor = (): void => {
     setEditor(null)
-    setColorContextMenu(null)
+    setCategoryContextMenu(null)
     setEditorError('')
+    setCustomCategoryError('')
   }
 
   const updateEditorSchedule = (patch: Partial<StudyTaskScheduleInput>): void => {
@@ -843,55 +769,63 @@ export function StudyTaskSchedulePage({
     })
   }
 
-  const addCustomColor = (): void => {
-    const colorId = customColorDraft.toLowerCase() as `#${string}`
-    setCustomColors((current) => {
-      const next = [colorId, ...current.filter((color) => color !== colorId)].slice(0, maxCustomColors)
-      saveCustomColors(next)
-      return next
-    })
-    updateEditorSchedule({ colorId })
+  const updateEditorCategory = (categoryId: StudyTaskCategoryId): void => {
+    setEditor((current) => current ? { ...current, categoryId } : current)
+    setCustomCategoryError('')
   }
 
-  const openColorContextMenu = (event: ReactMouseEvent<HTMLButtonElement>, color: TaskColorDefinition): void => {
+  const updateCategoryColor = (categoryId: StudyTaskCategoryId, color: `#${string}`): void => {
+    const next = updateStudyTaskCategory(taskCategories, categoryId, { color })
+    setTaskCategories(next)
+    persistStudyTaskCategories(next)
+  }
+
+  const addCustomCategory = (): void => {
+    const name = customCategoryName.trim()
+    if (!name) {
+      setCustomCategoryError('先写下类别名称')
+      return
+    }
+    const result = addStudyTaskCategory(taskCategories, {
+      name,
+      color: customCategoryColor
+    })
+    if (!result.category) {
+      setCustomCategoryError(taskCategories.filter((item) => !item.builtin).length >= 24
+        ? '自定义类别已达上限'
+        : '无法添加该类别')
+      return
+    }
+    setTaskCategories(result.categories)
+    persistStudyTaskCategories(result.categories)
+    updateEditorCategory(result.category.id)
+    setCustomCategoryName('')
+    setCustomCategoryError('')
+  }
+
+  const openCategoryContextMenu = (event: ReactMouseEvent<HTMLButtonElement>, category: StudyTaskCategory): void => {
+    if (category.builtin) return
     event.preventDefault()
     event.stopPropagation()
     const menuWidth = 152
     const menuHeight = 48
-    setColorContextMenu({
-      colorId: color.id,
-      colorName: color.name,
+    setCategoryContextMenu({
+      categoryId: category.id,
+      categoryName: category.name,
       x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
       y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))
     })
   }
 
-  const deletePaletteColor = (colorId: StudyTaskScheduleColorId): void => {
-    const nextCustomColors = isCustomScheduleColorId(colorId)
-      ? customColors.filter((color) => color !== colorId)
-      : customColors
-    const nextHiddenDefaultColors = isCustomScheduleColorId(colorId)
-      ? hiddenDefaultColors
-      : Array.from(new Set([...hiddenDefaultColors, colorId]))
-
-    if (isCustomScheduleColorId(colorId)) {
-      setCustomColors(nextCustomColors)
-      saveCustomColors(nextCustomColors)
-    } else {
-      setHiddenDefaultColors(nextHiddenDefaultColors)
-      saveHiddenDefaultColors(nextHiddenDefaultColors)
-    }
-
-    if (editorColorId === colorId) {
-      const fallbackColor = [
-        ...morandiTaskColors.filter((color) => !nextHiddenDefaultColors.includes(color.id)),
-        ...nextCustomColors.map(createCustomColorDefinition)
-      ][0]
-      updateEditorSchedule({
-        colorId: fallbackColor?.id ?? defaultColorIdForWeekday(editor?.schedule.weekday ?? currentWeekdayIndex())
-      })
-    }
-    setColorContextMenu(null)
+  const deleteCustomCategory = (categoryId: StudyTaskCategoryId): void => {
+    const next = removeStudyTaskCategory(taskCategories, categoryId)
+    setTaskCategories(next)
+    persistStudyTaskCategories(next)
+    tasks.forEach((task) => {
+      if (task.categoryId === categoryId) onUpdateTask(task.id, { categoryId: 'study' })
+    })
+    if (editor?.categoryId === categoryId) updateEditorCategory('study')
+    setCategoryContextMenu(null)
   }
 
   const handleEditorSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -907,10 +841,11 @@ export function StudyTaskSchedulePage({
       return
     }
     const saved = editor.mode === 'add'
-      ? onAddScheduledTask(title, editor.schedule)
+      ? onAddScheduledTask(title, editor.schedule, editor.categoryId)
       : onUpdateTask(editor.taskId, {
           title,
           done: editor.done,
+          categoryId: editor.categoryId,
           schedule: editor.schedule
         })
     if (saved) closeEditor()
@@ -924,7 +859,7 @@ export function StudyTaskSchedulePage({
       setDraftError('先写下任务名称')
       return
     }
-    if (onAddScheduledTask(title, draftTask.schedule)) {
+    if (onAddScheduledTask(title, draftTask.schedule, 'study')) {
       setDraftTask(null)
       setDraftError('')
     }
@@ -1248,7 +1183,7 @@ export function StudyTaskSchedulePage({
                 </div>
               ) : null}
               {layoutsByDay[dayIndex]?.map(({ task, lane, lanes }) => {
-                const color = getScheduleColor(task.schedule)
+                const category = resolveTaskCategory(task.categoryId, taskCategories)
                 const widthPercent = 100 / lanes
                 const leftPercent = lane * widthPercent
                 const editingTitle = inlineTitle?.taskId === task.id
@@ -1273,8 +1208,8 @@ export function StudyTaskSchedulePage({
                       '--event-duration-ratio': (task.schedule.endMinutes - task.schedule.startMinutes) / minutesPerDay,
                       '--event-left': `calc(${leftPercent}% + 4px)`,
                       '--event-width': `calc(${widthPercent}% - 8px)`,
-                      '--event-color': color.color,
-                      '--event-ink': color.ink
+                      '--event-color': category.color,
+                      '--event-ink': getReadableCategoryInk(category.color)
                     } as EventVarStyle}
                   >
                     <span className="study-schedule-event-time">
@@ -1318,6 +1253,10 @@ export function StudyTaskSchedulePage({
                         {task.title}
                       </strong>
                     )}
+                    <small className="study-schedule-event-category" style={categoryBadgeStyle(category)}>
+                      <span aria-hidden="true" />
+                      {category.name}
+                    </small>
                     <div className="study-schedule-event-status">
                       <button
                         type="button"
@@ -1342,7 +1281,7 @@ export function StudyTaskSchedulePage({
         })}
       </div>
 
-      {taskDrag && draggedTaskColor ? (
+      {taskDrag && draggedTaskCategory ? (
         <div
           className="study-schedule-drag-float"
           style={{
@@ -1350,8 +1289,8 @@ export function StudyTaskSchedulePage({
             top: taskDrag.clientY - taskDrag.grabOffsetY - 8,
             width: taskDrag.width,
             minHeight: taskDrag.height,
-            '--event-color': draggedTaskColor.color,
-            '--event-ink': draggedTaskColor.ink
+            '--event-color': draggedTaskCategory.color,
+            '--event-ink': getReadableCategoryInk(draggedTaskCategory.color)
           } as TaskColorVarStyle}
           aria-hidden="true"
         >
@@ -1388,12 +1327,13 @@ export function StudyTaskSchedulePage({
         </div>
       ) : null}
 
-      {colorContextMenu ? (
+
+      {categoryContextMenu ? (
         <div
-          className="study-schedule-context-menu study-schedule-color-context-menu"
+          className="study-schedule-context-menu study-schedule-category-context-menu"
           role="menu"
-          aria-label={`${colorContextMenu.colorName} 配色操作`}
-          style={{ left: colorContextMenu.x, top: colorContextMenu.y }}
+          aria-label={`${categoryContextMenu.categoryName} 类别操作`}
+          style={{ left: categoryContextMenu.x, top: categoryContextMenu.y }}
           onPointerDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
         >
@@ -1401,10 +1341,10 @@ export function StudyTaskSchedulePage({
             type="button"
             role="menuitem"
             className="is-danger"
-            onClick={() => deletePaletteColor(colorContextMenu.colorId)}
+            onClick={() => deleteCustomCategory(categoryContextMenu.categoryId)}
           >
             <Trash2 size={14} />
-            删除配色
+            删除类别
           </button>
         </div>
       ) : null}
@@ -1488,40 +1428,69 @@ export function StudyTaskSchedulePage({
                 />
               </div>
             </div>
-            <div className="study-schedule-editor-colors">
-              <span>配色</span>
-              <div className="study-schedule-color-swatches" aria-label="卡片配色">
-                {availableTaskColors.map((color) => (
-                  <button
-                    key={color.id}
-                    type="button"
-                    className={`study-schedule-color-swatch${editorColorId === color.id ? ' is-selected' : ''}`}
-                    style={{
-                      '--schedule-swatch-color': color.color,
-                      '--schedule-swatch-ink': color.ink
-                    } as ColorSwatchVarStyle}
-                    aria-pressed={editorColorId === color.id}
-                    title={`${color.name} · 右键删除`}
-                    onClick={() => updateEditorSchedule({ colorId: color.id })}
-                    onContextMenu={(event) => openColorContextMenu(event, color)}
+            <div className="study-schedule-editor-categories">
+              <span>类别</span>
+              <div className="study-schedule-category-swatches" aria-label="任务类别">
+                {taskCategories.map((category) => (
+                  <div
+                    key={category.id}
+                    className={`study-schedule-category-option${editor.categoryId === category.id ? ' is-selected' : ''}`}
+                    style={categoryBadgeStyle(category)}
                   >
-                    <span aria-hidden="true" />
-                    <em>{color.name}</em>
-                  </button>
+                    <button
+                      type="button"
+                      className="study-schedule-category-select"
+                      aria-pressed={editor.categoryId === category.id}
+                      title={category.builtin ? category.name : `${category.name} · 右键删除`}
+                      onClick={() => updateEditorCategory(category.id)}
+                      onContextMenu={(event) => openCategoryContextMenu(event, category)}
+                    >
+                      <em>{category.name}</em>
+                    </button>
+                    <label
+                      className="study-schedule-category-color"
+                      title={`修改${category.name}颜色`}
+                    >
+                      <input
+                        type="color"
+                        value={category.color}
+                        aria-label={`修改${category.name}颜色`}
+                        onChange={(event) => updateCategoryColor(
+                          category.id,
+                          event.target.value.toLowerCase() as `#${string}`
+                        )}
+                      />
+                      <span aria-hidden="true" />
+                    </label>
+                  </div>
                 ))}
               </div>
-              <div className="study-schedule-custom-color">
+              <div className="study-schedule-custom-category">
+                <input
+                  type="text"
+                  value={customCategoryName}
+                  maxLength={maxCategoryNameLength}
+                  placeholder="自定义类别名称"
+                  aria-label="自定义类别名称"
+                  onChange={(event) => {
+                    setCustomCategoryName(event.target.value)
+                    setCustomCategoryError('')
+                  }}
+                />
                 <input
                   type="color"
-                  value={customColorDraft}
-                  aria-label="选择自定义配色"
-                  onChange={(event) => setCustomColorDraft(event.target.value.toLowerCase() as `#${string}`)}
+                  value={customCategoryColor}
+                  aria-label="自定义类别颜色"
+                  onChange={(event) => setCustomCategoryColor(event.target.value.toLowerCase() as `#${string}`)}
                 />
-                <button type="button" onClick={addCustomColor}>
+                <button type="button" onClick={addCustomCategory}>
                   <Plus size={14} />
-                  添加自定义配色
+                  添加类别
                 </button>
               </div>
+              {customCategoryError ? (
+                <div className="study-schedule-category-error" role="status">{customCategoryError}</div>
+              ) : null}
             </div>
             <div className="study-schedule-editor-status" role="status" aria-live="polite">
               {editorError}

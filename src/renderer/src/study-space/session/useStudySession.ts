@@ -558,10 +558,20 @@ export function useStudySession({
     return true
   }
 
-  const addScheduledTask = (titleInput: string, schedule: StudyTaskScheduleInput): boolean => {
+  const addScheduledTask = (
+    titleInput: string,
+    schedule: StudyTaskScheduleInput,
+    categoryId?: string | null
+  ): boolean => {
     if (!titleInput.trim()) return false
     const current = snapshotRef.current
-    const result = addScheduledStudyTask(current, titleInput, createStudyAnalyticsFactId('scheduled-task'), schedule)
+    const result = addScheduledStudyTask(
+      current,
+      titleInput,
+      createStudyAnalyticsFactId('scheduled-task'),
+      schedule,
+      categoryId
+    )
     if (!result.added) return false
     recordTaskMutation(current, result.snapshot)
     commitSnapshot(result.snapshot)

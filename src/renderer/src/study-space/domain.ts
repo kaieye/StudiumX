@@ -28,6 +28,7 @@ import type {
   StudyTimerMode,
   StudyTimerState
 } from './types'
+import { normalizeStudyTaskCategoryId } from './taskCategories'
 
 export type StudySeatClaim = {
   clientId: string
@@ -289,10 +290,12 @@ export function normalizeStudyTasks(input: unknown): StudyTask[] {
     .filter((item): item is Partial<StudyTask> => Boolean(item) && typeof item === 'object')
     .map((item, index) => {
       const schedule = normalizeStudyTaskSchedule(item.schedule)
+      const categoryId = normalizeStudyTaskCategoryId(item.categoryId) ?? 'study'
       return {
         id: typeof item.id === 'string' && item.id ? item.id : `task-${index}`,
         title: typeof item.title === 'string' ? item.title.trim().slice(0, 80) : '',
         done: Boolean(item.done),
+        categoryId,
         ...(schedule ? { schedule } : {})
       }
     })

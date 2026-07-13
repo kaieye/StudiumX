@@ -16,6 +16,21 @@ export type StudyTaskScheduleColorId =
   | 'rose'
   | `#${string}`
 
+export type StudyTaskBuiltinCategoryId = 'study' | 'entertainment' | 'exercise'
+export type StudyTaskCategoryId = StudyTaskBuiltinCategoryId | `custom-${string}`
+
+export type StudyTaskCategory = {
+  id: StudyTaskCategoryId
+  name: string
+  color: `#${string}`
+  builtin: boolean
+}
+
+export type StudyTaskCategoryInput = {
+  name: string
+  color: `#${string}`
+}
+
 export type StudyTaskSchedule = {
   weekday: number
   startMinutes: number
@@ -28,6 +43,7 @@ export type StudyTaskScheduleInput = StudyTaskSchedule
 export type StudyTaskUpdateInput = {
   title?: string
   done?: boolean
+  categoryId?: StudyTaskCategoryId | null
   schedule?: StudyTaskScheduleInput
 }
 
@@ -35,6 +51,7 @@ export type StudyTask = {
   id: string
   title: string
   done: boolean
+  categoryId?: StudyTaskCategoryId
   schedule?: StudyTaskSchedule
 }
 

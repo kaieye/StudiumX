@@ -45,8 +45,8 @@ export const defaultStudySnapshot: StudySnapshot = {
   xp: 0,
   lastStudyDate: '',
   tasks: [
-    { id: 'reading', title: '整理下一节课的重点', done: false },
-    { id: 'review', title: '复盘一组检索练习', done: false }
+    { id: 'reading', title: '整理下一节课的重点', done: false, categoryId: 'study' },
+    { id: 'review', title: '复盘一组检索练习', done: false, categoryId: 'study' }
   ]
 }
 
