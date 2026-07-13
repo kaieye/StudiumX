@@ -1,91 +1,58 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
-const [app, types, main, commands, service, runtime] = await Promise.all([
+import { build } from 'esbuild'
+
+const [app, types, main, commands, service, runtime, turnContext, prompt] = await Promise.all([
   readFile('src/renderer/src/App.tsx', 'utf8'),
   readFile('src/shared/teaching-types/agent.ts', 'utf8'),
   readFile('src/main/index.ts', 'utf8'),
   readFile('src/main/teaching-ipc-commands.ts', 'utf8'),
   readFile('src/main/teaching-workspace.ts', 'utf8'),
-  readFile('src/main/teaching-conversation-runtime.ts', 'utf8')
+  readFile('src/main/teaching-conversation-runtime.ts', 'utf8'),
+  readFile('src/main/teaching-conversation-turn-context.ts', 'utf8'),
+  readFile('src/main/teaching-conversation-prompt.ts', 'utf8')
 ])
 
-assert.match(
-  types,
-  /export type AgentChatMode = 'temporary' \| 'teaching'/,
-  'agent chat payload should carry an explicit temporary/teaching mode'
-)
+assert.match(types, /export type AgentChatMode = 'temporary' \| 'teaching'/)
+assert.match(types, /mode\?: AgentChatMode/)
+assert.match(commands, /mode: record\.mode === 'teaching' \? 'teaching' : record\.mode === 'temporary' \? 'temporary' : undefined/)
+assert.match(main, /parseAgentChatStreamPayload\(payload\)/)
+assert.match(app, /void agentChat\(prompt, \{ mode: 'temporary', skillIds:/)
+assert.match(app, /void agentChat\(prompt, \{ mode: 'teaching', skillIds:/)
+assert.match(app, /<ProjectFolderPicker mode=\{isTeachingMode \? 'workspace' : 'temporary'\} \/>/)
+assert.match(app, /\{isTeachingMode \? <GitBranchPicker workspaceRoot=\{active\?\.rootPath \?\? ''\} \/> : null\}/)
+assert.match(service, /runTeachingConversationTurn\(payload, stream, workspace,/)
 
-assert.match(
-  types,
-  /mode\?: AgentChatMode/,
-  'agent chat stream payload should include the optional mode'
-)
+assert.match(runtime, /deriveConversationTurnContext\(\{/)
+assert.match(runtime, /workspaceRoot: conversation\.workspaceRoot/)
+assert.match(runtime, /mode: conversation\.mode/)
+assert.match(runtime, /createLessonToolLifecycle\(\{/)
+assert.match(runtime, /finalizeLearnerMemoryCapture\(\{/)
+assert.match(turnContext, /const workspaceRoot = isTeachingConversation \? options\.workspace\?\.rootPath : undefined/)
+assert.match(turnContext, /const memoryWorkspaceRoot = options\.workspace\?\.rootPath/)
+assert.match(prompt, /当前是临时会话/)
 
-assert.match(
-  commands,
-  /mode: record\.mode === 'teaching' \? 'teaching' : record\.mode === 'temporary' \? 'temporary' : undefined/,
-  'IPC parser should preserve explicit temporary chat mode'
-)
-
-assert.match(
-  main,
-  /parseAgentChatStreamPayload\(payload\)/,
-  'main IPC adapter should delegate agent chat payload parsing to the command module'
-)
-
-assert.match(
-  app,
-  /void agentChat\(prompt, \{ mode: 'temporary', skillIds:/,
-  'ordinary chat submit should send temporary mode to the backend'
-)
-
-assert.match(
-  app,
-  /void agentChat\(prompt, \{ mode: 'teaching', skillIds:/,
-  'teaching submissions should continue through the teaching conversation'
-)
-
-assert.match(
-  app,
-  /<ProjectFolderPicker mode=\{isTeachingMode \? 'workspace' : 'temporary'\} \/>/,
-  'overview chat status bar should label temporary sessions instead of the workspace folder'
-)
-
-assert.match(
-  app,
-  /\{isTeachingMode \? <GitBranchPicker workspaceRoot=\{active\?\.rootPath \?\? ''\} \/> : null\}/,
-  'temporary chat status bar should not show workspace Git branch controls'
-)
-
-assert.match(
-  service,
-  /runTeachingConversationTurn\(payload, stream, workspace,/,
-  'teaching workspace service should delegate agent chat turns through the runtime module'
-)
-
-assert.match(
-  runtime,
-  /const isTeachingConversation = \(payload\.mode \?\? 'teaching'\) === 'teaching'/,
-  'runtime should derive workspace access from the explicit chat mode'
-)
-
-assert.match(
-  runtime,
-  /const workspaceRoot = isTeachingConversation \? workspace\?\.rootPath : undefined/,
-  'temporary chat should not bind workspaceRoot for tools'
-)
-
-assert.match(
-  runtime,
-  /buildAgentChatSystemPrompt\(\{[\s\S]*mode: isTeachingConversation \? 'teaching' : 'temporary'/,
-  'system prompt should receive the chat mode'
-)
-
-assert.match(
-  runtime,
-  /当前是临时会话/,
-  'temporary chat prompt should explicitly tell the model it is in a temporary session'
-)
+const tempParent = join(process.cwd(), '.studiumx')
+await mkdir(tempParent, { recursive: true })
+const tempRoot = await mkdtemp(join(tempParent, 'conversation-turn-policies-'))
+const outfile = join(tempRoot, 'conversation-turn-policies.mjs')
+try {
+  await build({
+    absWorkingDir: process.cwd(),
+    entryPoints: [join(process.cwd(), 'scripts', 'fixtures', 'conversation-turn-policies.ts')],
+    bundle: true,
+    packages: 'external',
+    platform: 'node',
+    format: 'esm',
+    outfile,
+    logLevel: 'silent'
+  })
+  await import(pathToFileURL(outfile).href)
+} finally {
+  await rm(tempRoot, { recursive: true, force: true })
+}
 
 console.log('temporary chat context isolation ok')
