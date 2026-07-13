@@ -1,4 +1,5 @@
 import { Pause, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react'
+import type { CSSProperties } from 'react'
 import { formatStudyDuration } from '../../study-space/domain'
 import type { StudySnapshot, StudyTimerMode } from '../../study-space/types'
 
@@ -29,8 +30,17 @@ export function WorkbenchPomodoro({
   onUpdateTimerPreset,
   onToggleAmbientEnabled
 }: WorkbenchPomodoroProps) {
+  const progressStyle = { '--timer-progress': `${timerProgress}%` } as CSSProperties
+
   return (
-    <section className={`workbench-pomodoro-card is-${snapshot.timerMode}`} aria-label="番茄钟">
+    <section className={`workbench-pomodoro-card is-${snapshot.timerMode}`} style={progressStyle} aria-label="番茄钟">
+      <header className="workbench-card-header">
+        <span>{snapshot.timerMode === 'focus' ? '专注计时' : '休息计时'}</span>
+        <button type="button" onClick={onResetTimer} aria-label="重置番茄钟" title="重置">
+          <RotateCcw size={15} />
+        </button>
+      </header>
+
       <div className="workbench-pomodoro-mode" role="tablist" aria-label="计时模式">
         {(['focus', 'break'] as const).map((mode) => (
           <button
@@ -48,9 +58,13 @@ export function WorkbenchPomodoro({
         ))}
       </div>
 
-      <div className="workbench-pomodoro-time">
-        <strong>{formatStudyDuration(snapshot.remainingSeconds)}</strong>
-        <span>{snapshot.focusMinutes} 分钟专注 · {snapshot.breakMinutes} 分钟休息</span>
+      <div className="workbench-timer-face">
+        <div className="workbench-timer-ring" aria-hidden="true">
+          <div className="workbench-pomodoro-time">
+            <strong>{formatStudyDuration(snapshot.remainingSeconds)}</strong>
+            <span>{snapshot.focusMinutes} / {snapshot.breakMinutes} 分钟</span>
+          </div>
+        </div>
       </div>
       <div className="workbench-pomodoro-progress" aria-hidden="true">
         <span style={{ width: `${timerProgress}%` }} />
@@ -61,8 +75,14 @@ export function WorkbenchPomodoro({
           {snapshot.timerState === 'running' ? <Pause size={16} /> : <Play size={16} />}
           {snapshot.timerState === 'running' ? '暂停' : snapshot.timerState === 'paused' ? '继续' : '开始'}
         </button>
-        <button type="button" onClick={onResetTimer} aria-label="重置番茄钟" title="重置">
-          <RotateCcw size={16} />
+        <button
+          className={`workbench-pomodoro-ambient${snapshot.ambientEnabled ? ' is-active' : ''}`}
+          type="button"
+          onClick={onToggleAmbientEnabled}
+          aria-label={ambientLabel}
+          title={ambientLabel}
+        >
+          {snapshot.ambientEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
         </button>
       </div>
 
@@ -79,15 +99,6 @@ export function WorkbenchPomodoro({
           </button>
         ))}
       </div>
-
-      <button
-        className={`workbench-pomodoro-ambient${snapshot.ambientEnabled ? ' is-active' : ''}`}
-        type="button"
-        onClick={onToggleAmbientEnabled}
-      >
-        {snapshot.ambientEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-        {ambientLabel}
-      </button>
     </section>
   )
 }

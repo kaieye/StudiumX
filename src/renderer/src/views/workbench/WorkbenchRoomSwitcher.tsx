@@ -57,10 +57,13 @@ export function WorkbenchRoomSwitcher({
   return (
     <section className="workbench-room-switcher" aria-label="自习房间">
       <header className="workbench-room-current">
-        <span className={`workbench-room-status is-${presenceStatus}`} aria-hidden="true" />
         <div>
-          <small>{presenceLabels[presenceStatus]}</small>
+          <small>
+            <span className={`workbench-room-status is-${presenceStatus}`} aria-hidden="true" />
+            {presenceLabels[presenceStatus]}
+          </small>
           <strong>{activeRoom.name}</strong>
+          <em>{activeRoom.sessionMinutes} 分钟专注 / {activeRoom.breakMinutes} 分钟休息</em>
         </div>
         <span className="workbench-room-members" title="当前房间人数">
           <Users size={13} /> {memberCount}

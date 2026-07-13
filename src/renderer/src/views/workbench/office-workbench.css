@@ -1250,3 +1250,1358 @@
   cursor: default;
   opacity: 0.42;
 }
+
+/* Apple-inspired study cards: compact material, crisp hierarchy, instant touch feedback. */
+.office-workbench-page {
+  --workbench-card-radius: 8px;
+  --workbench-control-radius: 7px;
+  --workbench-card-width: 292px;
+  --workbench-card-blur: 26px;
+  --workbench-card-shadow:
+    0 18px 54px color-mix(in srgb, var(--text) 14%, transparent),
+    0 3px 10px color-mix(in srgb, var(--text) 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 72%, transparent);
+  --workbench-card-material:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-solid) 78%, transparent),
+      color-mix(in srgb, var(--surface-solid) 55%, transparent)
+    ),
+    color-mix(in srgb, var(--surface) 34%, transparent);
+  --workbench-card-material-heavy:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-solid) 88%, transparent),
+      color-mix(in srgb, var(--surface-solid) 66%, transparent)
+    ),
+    color-mix(in srgb, var(--surface) 48%, transparent);
+}
+
+.workbench-tools {
+  gap: 10px;
+  padding: 28px 18px 22px;
+}
+
+.workbench-room-switcher,
+.workbench-pomodoro-card,
+.workbench-task-card,
+.workbench-leaderboard-panel,
+.workbench-tools .workbench-leaderboard-toggle,
+.workbench-space-join {
+  position: relative;
+  width: 100%;
+  max-width: var(--workbench-card-width);
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, #ffffff 28%);
+  border-radius: var(--workbench-card-radius);
+  background: var(--workbench-card-material);
+  box-shadow: var(--workbench-card-shadow);
+  backdrop-filter: blur(var(--workbench-card-blur)) saturate(175%);
+  -webkit-backdrop-filter: blur(var(--workbench-card-blur)) saturate(175%);
+}
+
+.workbench-room-switcher,
+.workbench-pomodoro-card,
+.workbench-task-card,
+.workbench-leaderboard-panel {
+  padding: 14px;
+  overflow: hidden;
+}
+
+.workbench-room-switcher::before,
+.workbench-pomodoro-card::before,
+.workbench-task-card::before,
+.workbench-leaderboard-panel::before,
+.workbench-tools .workbench-leaderboard-toggle::before,
+.workbench-space-join::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 42%, transparent), transparent 46%),
+    linear-gradient(90deg, color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 12%, transparent), transparent 34%);
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.workbench-room-switcher > *,
+.workbench-pomodoro-card > *,
+.workbench-task-card > *,
+.workbench-leaderboard-panel > *,
+.workbench-tools .workbench-leaderboard-toggle > *,
+.workbench-space-join > * {
+  position: relative;
+  z-index: 1;
+}
+
+.workbench-tools button {
+  transition:
+    transform 120ms cubic-bezier(0.2, 0, 0, 1),
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.workbench-tools button:active {
+  transform: scale(0.97);
+}
+
+.workbench-tools button:focus-visible,
+.workbench-space-join input:focus,
+.workbench-room-join input:focus,
+.workbench-task-form input:focus {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 44%, var(--line));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 13%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 42%, transparent);
+}
+
+.workbench-tools .workbench-leaderboard-toggle,
+.workbench-space-join {
+  min-height: 40px;
+  padding: 4px 8px 4px 12px;
+  overflow: hidden;
+}
+
+.workbench-tools .workbench-leaderboard-toggle {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  color: var(--text-muted);
+}
+
+.workbench-leaderboard-toggle span,
+.workbench-space-join input,
+.workbench-room-current small,
+.workbench-room-code small,
+.workbench-task-head span,
+.workbench-pomodoro-time span,
+.workbench-pomodoro-presets button,
+.workbench-pomodoro-ambient,
+.workbench-task-summary span,
+.workbench-task-empty {
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.workbench-leaderboard-toggle strong,
+.workbench-room-current strong,
+.workbench-room-code strong,
+.workbench-task-head strong {
+  color: var(--text);
+  font-weight: 740;
+  letter-spacing: 0;
+}
+
+.workbench-leaderboard.is-open .workbench-leaderboard-toggle,
+.workbench-leaderboard-panel {
+  border-color: color-mix(in srgb, var(--amber) 28%, var(--line));
+  background: var(--workbench-card-material-heavy);
+}
+
+.workbench-leaderboard-panel {
+  margin-top: 8px;
+  transform-origin: top right;
+  animation: workbench-card-materialize 240ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes workbench-card-materialize {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.workbench-leaderboard-panel > header {
+  padding: 0 1px 8px;
+}
+
+.workbench-leaderboard-list {
+  gap: 5px;
+}
+
+.workbench-leaderboard-row {
+  min-height: 38px;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: var(--workbench-control-radius);
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+}
+
+.workbench-leaderboard-row.is-me {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent 58%),
+    color-mix(in srgb, var(--surface-solid) 72%, transparent);
+}
+
+.workbench-heartbeat-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.workbench-room-current {
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 9px;
+}
+
+.workbench-room-status {
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-soft) 12%, transparent);
+}
+
+.workbench-room-status.is-online {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 13%, transparent);
+}
+
+.workbench-room-status.is-connecting {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 13%, transparent);
+}
+
+.workbench-room-members {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: var(--workbench-control-radius);
+  background: color-mix(in srgb, var(--surface-solid) 58%, transparent);
+}
+
+.workbench-room-code {
+  grid-template-columns: minmax(0, 1fr) 32px auto;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 8px;
+  border-radius: var(--workbench-control-radius);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 55%),
+    color-mix(in srgb, var(--surface-solid) 60%, transparent);
+}
+
+.workbench-room-code button,
+.workbench-room-join button,
+.workbench-task-head > button,
+.workbench-task-form button,
+.workbench-pomodoro-actions button,
+.workbench-pomodoro-presets button {
+  border-radius: var(--workbench-control-radius);
+}
+
+.workbench-room-code button,
+.workbench-task-head > button,
+.workbench-pomodoro-actions button:not(.is-primary),
+.workbench-pomodoro-presets button,
+.workbench-task-row,
+.workbench-task-form input,
+.workbench-room-join input {
+  border-color: color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 64%, transparent);
+}
+
+.workbench-room-code button.is-create,
+.workbench-room-join button,
+.workbench-space-join button,
+.workbench-pomodoro-actions button.is-primary,
+.workbench-task-form button {
+  color: var(--workbench-accent-contrast);
+  border-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 38%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 84%, #ffffff), var(--pomodoro-accent, var(--accent)));
+  box-shadow:
+    0 7px 18px color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 21%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 28%, transparent);
+}
+
+.workbench-room-list {
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.workbench-tools .workbench-room-list button {
+  min-height: 44px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: var(--workbench-control-radius);
+  background: color-mix(in srgb, var(--surface-solid) 56%, transparent);
+}
+
+.workbench-tools .workbench-room-list button.is-active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent 72%),
+    color-mix(in srgb, var(--surface-solid) 70%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 82%, transparent);
+}
+
+.workbench-room-list button span,
+.workbench-room-list button small {
+  line-height: 1.25;
+}
+
+.workbench-room-join {
+  margin-top: 9px;
+}
+
+.workbench-room-join input {
+  height: 32px;
+}
+
+.workbench-pomodoro-card {
+  --pomodoro-accent: var(--accent);
+}
+
+.workbench-pomodoro-card.is-break {
+  --pomodoro-accent: var(--amber);
+}
+
+.workbench-pomodoro-mode,
+.workbench-task-summary {
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: var(--workbench-control-radius);
+  background: color-mix(in srgb, var(--surface-muted) 64%, transparent);
+}
+
+.workbench-pomodoro-mode button {
+  min-height: 28px;
+  border-radius: calc(var(--workbench-control-radius) - 2px);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 680;
+}
+
+.workbench-pomodoro-mode button.is-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  box-shadow:
+    0 3px 9px color-mix(in srgb, var(--text) 10%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 42%, transparent);
+}
+
+.workbench-pomodoro-time {
+  margin: 22px 0 14px;
+}
+
+.workbench-pomodoro-time strong {
+  color: var(--text);
+  font-size: 3.2rem;
+  font-weight: 620;
+  line-height: 0.98;
+  letter-spacing: 0;
+}
+
+.workbench-pomodoro-progress {
+  height: 6px;
+  padding: 1px;
+  border-color: color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.workbench-pomodoro-progress span {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--pomodoro-accent) 68%, transparent), var(--pomodoro-accent));
+  transition: width 260ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.workbench-pomodoro-actions {
+  gap: 7px;
+  margin-top: 16px;
+  grid-template-columns: minmax(0, 1fr) 38px;
+}
+
+.workbench-pomodoro-actions button {
+  min-height: 38px;
+}
+
+.workbench-pomodoro-presets {
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.workbench-pomodoro-presets button {
+  min-height: 30px;
+}
+
+.workbench-pomodoro-presets button.is-active,
+.workbench-pomodoro-ambient.is-active {
+  color: var(--pomodoro-accent);
+  border-color: color-mix(in srgb, var(--pomodoro-accent) 30%, var(--line));
+  background: color-mix(in srgb, var(--pomodoro-accent) 12%, var(--surface-solid));
+}
+
+.workbench-pomodoro-ambient {
+  min-height: 32px;
+  margin-top: 10px;
+  border-radius: var(--workbench-control-radius);
+}
+
+.workbench-task-head {
+  gap: 10px;
+}
+
+.workbench-task-head span {
+  color: var(--text-muted);
+}
+
+.workbench-task-head strong {
+  margin-top: 5px;
+  font-size: 0.875rem;
+  line-height: 1.32;
+}
+
+.workbench-task-head > button {
+  width: 30px;
+  height: 30px;
+}
+
+.workbench-task-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.workbench-task-summary span {
+  padding: 7px 8px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-task-summary strong {
+  color: var(--pomodoro-accent);
+  font-size: 0.875rem;
+  font-weight: 760;
+}
+
+.workbench-task-form {
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.workbench-task-form input {
+  height: 34px;
+  font-size: 0.6875rem;
+}
+
+.workbench-task-list {
+  gap: 6px;
+  max-height: 156px;
+  margin-top: 10px;
+  scrollbar-width: thin;
+}
+
+.workbench-task-row {
+  grid-template-columns: 18px minmax(0, 1fr);
+  min-height: 34px;
+  padding: 6px 8px;
+  border-radius: var(--workbench-control-radius);
+}
+
+.workbench-task-row > span {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  color: transparent;
+}
+
+.workbench-task-row.is-done > span {
+  color: var(--workbench-accent-contrast);
+  border-color: color-mix(in srgb, var(--green) 34%, var(--line));
+  background: var(--green);
+}
+
+.workbench-task-row.is-done strong {
+  color: var(--text-soft);
+  text-decoration-color: color-mix(in srgb, var(--text-soft) 70%, transparent);
+}
+
+.workbench-task-empty {
+  min-height: 48px;
+  border-radius: var(--workbench-control-radius);
+}
+
+@media (hover: hover) {
+  .workbench-tools .workbench-leaderboard-toggle:hover,
+  .workbench-room-code button:not(:disabled):hover,
+  .workbench-tools .workbench-room-list button:hover,
+  .workbench-room-join button:not(:disabled):hover,
+  .workbench-pomodoro-actions button:hover,
+  .workbench-pomodoro-presets button:not(:disabled):hover,
+  .workbench-pomodoro-ambient:hover,
+  .workbench-task-head > button:not(:disabled):hover,
+  .workbench-task-form button:not(:disabled):hover,
+  .workbench-space-join button:hover,
+  .workbench-task-row:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 32%, var(--line-strong));
+    box-shadow:
+      0 9px 24px color-mix(in srgb, var(--text) 11%, transparent),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 38%, transparent);
+  }
+}
+
+@media (max-width: 720px) {
+  .workbench-tools {
+    width: 232px;
+    padding: 22px 10px 16px;
+  }
+
+  .workbench-room-switcher,
+  .workbench-pomodoro-card,
+  .workbench-task-card,
+  .workbench-leaderboard-panel {
+    padding: 12px;
+  }
+
+  .workbench-pomodoro-time strong {
+    font-size: 2.55rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-leaderboard-panel {
+    animation: none;
+  }
+
+  .workbench-tools button,
+  .workbench-pomodoro-progress span {
+    transition-duration: 1ms;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .workbench-room-switcher,
+  .workbench-pomodoro-card,
+  .workbench-task-card,
+  .workbench-leaderboard-panel,
+  .workbench-tools .workbench-leaderboard-toggle,
+  .workbench-space-join {
+    background: var(--surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .workbench-room-switcher,
+  .workbench-pomodoro-card,
+  .workbench-task-card,
+  .workbench-leaderboard-panel,
+  .workbench-tools .workbench-leaderboard-toggle,
+  .workbench-space-join {
+    border-color: var(--line-strong);
+    background: var(--surface-solid);
+  }
+}
+
+/* Full Apple-style rebuild: a Control Center rail with distinct glass modules. */
+.office-workbench-page {
+  --workbench-card-width: 316px;
+  --workbench-card-radius: 8px;
+  --workbench-control-radius: 8px;
+  --workbench-rail-material:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-solid) 76%, transparent), color-mix(in srgb, var(--surface) 40%, transparent));
+  --workbench-module-material:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-solid) 88%, transparent), color-mix(in srgb, var(--surface-solid) 58%, transparent));
+  --workbench-module-inset: color-mix(in srgb, var(--surface-solid) 68%, transparent);
+  --workbench-module-line: color-mix(in srgb, var(--line) 68%, #ffffff 26%);
+  --workbench-module-shadow:
+    0 20px 60px color-mix(in srgb, var(--text) 14%, transparent),
+    0 4px 16px color-mix(in srgb, var(--text) 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 52%, transparent);
+}
+
+.workbench-tools {
+  width: var(--workbench-card-width);
+  max-width: var(--workbench-card-width);
+  align-items: stretch;
+  gap: 10px;
+  padding: 18px 14px;
+  background: var(--workbench-rail-material);
+  border-left: 1px solid color-mix(in srgb, var(--line) 58%, transparent);
+  box-shadow: -24px 0 70px color-mix(in srgb, var(--text) 11%, transparent);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+}
+
+.workbench-room-switcher,
+.workbench-pomodoro-card,
+.workbench-task-card,
+.workbench-leaderboard,
+.workbench-space-join {
+  max-width: none;
+}
+
+.workbench-room-switcher,
+.workbench-pomodoro-card,
+.workbench-task-card,
+.workbench-tools .workbench-leaderboard-toggle,
+.workbench-leaderboard-panel,
+.workbench-space-join {
+  border: 1px solid var(--workbench-module-line);
+  border-radius: var(--workbench-card-radius);
+  background: var(--workbench-module-material);
+  box-shadow: var(--workbench-module-shadow);
+  backdrop-filter: blur(30px) saturate(185%);
+  -webkit-backdrop-filter: blur(30px) saturate(185%);
+}
+
+.workbench-room-switcher::before,
+.workbench-pomodoro-card::before,
+.workbench-task-card::before,
+.workbench-tools .workbench-leaderboard-toggle::before,
+.workbench-leaderboard-panel::before,
+.workbench-space-join::before {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 46%, transparent), transparent 42%),
+    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 42%);
+  opacity: 0.9;
+}
+
+.workbench-room-switcher,
+.workbench-pomodoro-card,
+.workbench-task-card {
+  padding: 14px;
+}
+
+.workbench-card-header,
+.workbench-task-head,
+.workbench-leaderboard-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workbench-card-header {
+  margin-bottom: 10px;
+}
+
+.workbench-card-header span,
+.workbench-task-head span,
+.workbench-room-current small,
+.workbench-room-code small,
+.workbench-leaderboard-panel > header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.workbench-card-header button,
+.workbench-task-head > button,
+.workbench-room-code button,
+.workbench-room-join button,
+.workbench-pomodoro-actions button,
+.workbench-pomodoro-presets button,
+.workbench-tools .workbench-room-list button,
+.workbench-tools .workbench-leaderboard-toggle {
+  border-radius: var(--workbench-control-radius);
+}
+
+.workbench-card-header button,
+.workbench-task-head > button,
+.workbench-room-code button,
+.workbench-pomodoro-actions button:not(.is-primary),
+.workbench-pomodoro-ambient,
+.workbench-pomodoro-presets button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  min-height: 34px;
+  color: var(--text-muted);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: var(--workbench-module-inset);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 34%, transparent);
+}
+
+.workbench-room-current {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.workbench-room-current div {
+  min-width: 0;
+}
+
+.workbench-room-current small {
+  margin-bottom: 7px;
+}
+
+.workbench-room-current strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 1.35rem;
+  font-weight: 760;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-room-current em {
+  display: block;
+  margin-top: 5px;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 0.6875rem;
+  font-style: normal;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-room-status {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+}
+
+.workbench-room-members {
+  height: 34px;
+  padding: 0 10px;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: var(--workbench-control-radius);
+  background: var(--workbench-module-inset);
+}
+
+.workbench-room-code {
+  grid-template-columns: minmax(0, 1fr) 34px 72px;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 66%, transparent);
+  border-radius: var(--workbench-card-radius);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    var(--workbench-module-inset);
+}
+
+.workbench-room-code strong {
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 780;
+  letter-spacing: 0;
+}
+
+.workbench-room-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.workbench-tools .workbench-room-list button {
+  min-height: 52px;
+  padding: 9px 10px;
+  color: var(--text-muted);
+  border: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 56%, transparent);
+}
+
+.workbench-tools .workbench-room-list button.is-active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 25%, transparent), transparent 68%),
+    color-mix(in srgb, var(--surface-solid) 78%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 7px 20px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.workbench-room-list button span {
+  font-size: 0.75rem;
+  font-weight: 760;
+}
+
+.workbench-room-list button small {
+  margin-top: 4px;
+  font-size: 0.625rem;
+  font-weight: 650;
+}
+
+.workbench-room-join {
+  grid-template-columns: 18px minmax(0, 1fr) 54px;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.workbench-room-join input,
+.workbench-task-form input,
+.workbench-space-join input {
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--line) 68%, transparent);
+  border-radius: var(--workbench-control-radius);
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.workbench-room-code button.is-create,
+.workbench-room-join button,
+.workbench-space-join button,
+.workbench-pomodoro-actions button.is-primary,
+.workbench-task-form button {
+  color: var(--workbench-accent-contrast);
+  border: 1px solid color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 40%, var(--line));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 88%, white), var(--pomodoro-accent, var(--accent)));
+  box-shadow:
+    0 12px 26px color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 23%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 32%, transparent);
+}
+
+.workbench-pomodoro-card {
+  --pomodoro-accent: var(--accent);
+  padding: 14px 14px 13px;
+}
+
+.workbench-pomodoro-card.is-break {
+  --pomodoro-accent: var(--amber);
+}
+
+.workbench-pomodoro-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: var(--workbench-card-radius);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.workbench-pomodoro-mode button {
+  min-height: 32px;
+  color: var(--text-muted);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 730;
+}
+
+.workbench-pomodoro-mode button.is-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+  box-shadow:
+    0 4px 12px color-mix(in srgb, var(--text) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 46%, transparent);
+}
+
+.workbench-timer-face {
+  display: grid;
+  place-items: center;
+  padding: 15px 0 12px;
+}
+
+.workbench-timer-ring {
+  display: grid;
+  place-items: center;
+  width: 188px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, color-mix(in srgb, var(--surface-solid) 88%, transparent) 0 59%, transparent 60%),
+    conic-gradient(var(--pomodoro-accent) var(--timer-progress), color-mix(in srgb, var(--text) 9%, transparent) 0);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, #ffffff 45%, transparent),
+    0 18px 42px color-mix(in srgb, var(--pomodoro-accent) 16%, transparent);
+}
+
+.workbench-pomodoro-time {
+  margin: 0;
+  text-align: center;
+}
+
+.workbench-pomodoro-time strong {
+  color: var(--text);
+  font-size: 2.9rem;
+  font-weight: 680;
+  line-height: 0.95;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-time span {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 680;
+}
+
+.workbench-pomodoro-progress {
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+}
+
+.workbench-pomodoro-actions {
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.workbench-pomodoro-actions button {
+  min-height: 42px;
+}
+
+.workbench-pomodoro-ambient {
+  width: auto;
+  margin-top: 0;
+  padding: 0;
+}
+
+.workbench-pomodoro-ambient.is-active {
+  color: var(--pomodoro-accent);
+  border-color: color-mix(in srgb, var(--pomodoro-accent) 32%, var(--line));
+  background: color-mix(in srgb, var(--pomodoro-accent) 13%, var(--surface-solid));
+}
+
+.workbench-pomodoro-presets {
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.workbench-pomodoro-presets button {
+  min-height: 34px;
+  font-size: 0.6875rem;
+  font-weight: 760;
+}
+
+.workbench-pomodoro-presets button.is-active {
+  color: var(--pomodoro-accent);
+  border-color: color-mix(in srgb, var(--pomodoro-accent) 34%, var(--line));
+  background: color-mix(in srgb, var(--pomodoro-accent) 13%, var(--surface-solid));
+}
+
+.workbench-tools .workbench-leaderboard-toggle {
+  min-height: 46px;
+  padding: 0 12px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+}
+
+.workbench-leaderboard-toggle svg {
+  color: var(--amber);
+}
+
+.workbench-leaderboard-toggle span {
+  font-size: 0.75rem;
+  font-weight: 740;
+}
+
+.workbench-leaderboard-toggle strong {
+  color: var(--text);
+  font-size: 0.8125rem;
+}
+
+.workbench-leaderboard-panel {
+  padding: 10px;
+}
+
+.workbench-leaderboard-row {
+  min-height: 42px;
+  padding: 8px;
+  border-radius: var(--workbench-control-radius);
+  background: var(--workbench-module-inset);
+}
+
+.workbench-task-card {
+  padding: 14px;
+}
+
+.workbench-task-head > div {
+  min-width: 0;
+}
+
+.workbench-task-head strong {
+  margin-top: 6px;
+  font-size: 1rem;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.workbench-task-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-task-summary span {
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 66%, transparent);
+  border-radius: var(--workbench-control-radius);
+  background: var(--workbench-module-inset);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+}
+
+.workbench-task-summary strong {
+  display: block;
+  margin: 0 0 2px;
+  color: var(--accent);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.workbench-task-form {
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.workbench-task-form button {
+  border-radius: var(--workbench-control-radius);
+}
+
+.workbench-task-list {
+  gap: 7px;
+  max-height: 168px;
+  margin-top: 10px;
+  padding-right: 1px;
+}
+
+.workbench-task-row {
+  grid-template-columns: 20px minmax(0, 1fr);
+  min-height: 38px;
+  padding: 7px 9px;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
+  border-radius: var(--workbench-control-radius);
+  background: color-mix(in srgb, var(--surface-solid) 56%, transparent);
+}
+
+.workbench-task-row > span {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+}
+
+.workbench-task-row strong {
+  font-size: 0.75rem;
+  font-weight: 690;
+}
+
+.workbench-task-empty {
+  min-height: 54px;
+  border-radius: var(--workbench-control-radius);
+  background: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+}
+
+.workbench-space-join {
+  min-height: 42px;
+  grid-template-columns: 18px minmax(0, 1fr) 54px;
+}
+
+@media (hover: hover) {
+  .workbench-tools button:hover {
+    transform: translateY(-1px);
+  }
+
+  .workbench-tools .workbench-room-list button:hover,
+  .workbench-task-row:hover,
+  .workbench-tools .workbench-leaderboard-toggle:hover {
+    background: color-mix(in srgb, var(--surface-solid) 78%, transparent);
+  }
+}
+
+@media (max-width: 720px) {
+  .office-workbench-page {
+    --workbench-card-width: 232px;
+  }
+
+  .workbench-tools {
+    width: var(--workbench-card-width);
+    padding: 14px 10px;
+  }
+
+  .workbench-room-current strong {
+    font-size: 1.05rem;
+  }
+
+  .workbench-timer-ring {
+    width: 150px;
+  }
+
+  .workbench-pomodoro-time strong {
+    font-size: 2.2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-tools button,
+  .workbench-leaderboard-panel,
+  .workbench-pomodoro-progress span {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .workbench-tools,
+  .workbench-room-switcher,
+  .workbench-pomodoro-card,
+  .workbench-task-card,
+  .workbench-tools .workbench-leaderboard-toggle,
+  .workbench-leaderboard-panel,
+  .workbench-space-join {
+    background: var(--surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Liquid Glass pass: transparent lensing, bright rims, and refractive highlights. */
+.office-workbench-page {
+  --liquid-glass-tint: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+  --liquid-glass-tint-strong: color-mix(in srgb, var(--surface-solid) 56%, transparent);
+  --liquid-glass-line: color-mix(in srgb, #ffffff 58%, var(--line) 42%);
+  --liquid-glass-edge: color-mix(in srgb, #ffffff 74%, transparent);
+  --liquid-glass-depth: color-mix(in srgb, var(--text) 15%, transparent);
+  --liquid-glass-accent: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.workbench-tools {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, #ffffff 28%, transparent), transparent 18%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-solid) 28%, transparent), color-mix(in srgb, var(--surface) 16%, transparent));
+  border-left: 1px solid color-mix(in srgb, #ffffff 42%, var(--line));
+  box-shadow:
+    -1px 0 0 color-mix(in srgb, #ffffff 38%, transparent) inset,
+    -28px 0 86px color-mix(in srgb, var(--text) 12%, transparent);
+  backdrop-filter: blur(42px) saturate(210%) contrast(1.08);
+  -webkit-backdrop-filter: blur(42px) saturate(210%) contrast(1.08);
+}
+
+.workbench-room-switcher,
+.workbench-pomodoro-card,
+.workbench-task-card,
+.workbench-tools .workbench-leaderboard-toggle,
+.workbench-leaderboard-panel,
+.workbench-space-join {
+  isolation: isolate;
+  border-color: var(--liquid-glass-line);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 46%, transparent), transparent 34%),
+    linear-gradient(315deg, color-mix(in srgb, var(--surface-solid) 18%, transparent), transparent 48%),
+    var(--liquid-glass-tint);
+  box-shadow:
+    0 24px 70px var(--liquid-glass-depth),
+    0 7px 24px color-mix(in srgb, var(--text) 8%, transparent),
+    inset 0 1px 0 var(--liquid-glass-edge),
+    inset 1px 0 0 color-mix(in srgb, #ffffff 36%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 10%, transparent);
+  backdrop-filter: blur(46px) saturate(230%) contrast(1.12) brightness(1.04);
+  -webkit-backdrop-filter: blur(46px) saturate(230%) contrast(1.12) brightness(1.04);
+}
+
+.workbench-room-switcher::before,
+.workbench-pomodoro-card::before,
+.workbench-task-card::before,
+.workbench-tools .workbench-leaderboard-toggle::before,
+.workbench-leaderboard-panel::before,
+.workbench-space-join::before {
+  z-index: 0;
+  background:
+    linear-gradient(110deg, transparent 0 13%, color-mix(in srgb, #ffffff 48%, transparent) 20%, transparent 31% 100%),
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 44%, transparent), transparent 38%),
+    linear-gradient(90deg, var(--liquid-glass-accent), transparent 45%);
+  filter: blur(0.2px);
+  opacity: 0.82;
+}
+
+.workbench-room-switcher::after,
+.workbench-pomodoro-card::after,
+.workbench-task-card::after,
+.workbench-tools .workbench-leaderboard-toggle::after,
+.workbench-leaderboard-panel::after,
+.workbench-space-join::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: 0;
+  border-radius: calc(var(--workbench-card-radius) - 1px);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #ffffff 44%, transparent), transparent 23%),
+    linear-gradient(235deg, transparent 45%, color-mix(in srgb, #ffffff 22%, transparent) 55%, transparent 69%),
+    repeating-linear-gradient(112deg, transparent 0 18px, color-mix(in srgb, #ffffff 8%, transparent) 19px 20px, transparent 21px 42px);
+  mask-image: linear-gradient(180deg, #000, rgba(0, 0, 0, 0.58));
+  opacity: 0.55;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.workbench-room-switcher > *,
+.workbench-pomodoro-card > *,
+.workbench-task-card > *,
+.workbench-tools .workbench-leaderboard-toggle > *,
+.workbench-leaderboard-panel > *,
+.workbench-space-join > * {
+  position: relative;
+  z-index: 1;
+}
+
+.workbench-card-header button,
+.workbench-task-head > button,
+.workbench-room-code,
+.workbench-room-code button,
+.workbench-room-members,
+.workbench-tools .workbench-room-list button,
+.workbench-room-join input,
+.workbench-room-join button,
+.workbench-pomodoro-mode,
+.workbench-pomodoro-mode button.is-active,
+.workbench-pomodoro-actions button,
+.workbench-pomodoro-presets button,
+.workbench-task-summary span,
+.workbench-task-form input,
+.workbench-task-form button,
+.workbench-task-row,
+.workbench-leaderboard-row {
+  border-color: color-mix(in srgb, #ffffff 42%, var(--line) 58%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 32%, transparent), transparent 58%),
+    color-mix(in srgb, var(--surface-solid) 31%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent),
+    0 4px 14px color-mix(in srgb, var(--text) 7%, transparent);
+  backdrop-filter: blur(22px) saturate(190%);
+  -webkit-backdrop-filter: blur(22px) saturate(190%);
+}
+
+.workbench-room-code button.is-create,
+.workbench-room-join button,
+.workbench-space-join button,
+.workbench-pomodoro-actions button.is-primary,
+.workbench-task-form button {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 46%),
+    linear-gradient(180deg, color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 78%, #ffffff), var(--pomodoro-accent, var(--accent)));
+  box-shadow:
+    0 13px 30px color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 27%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 52%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.workbench-room-current strong,
+.workbench-pomodoro-time strong,
+.workbench-task-head strong,
+.workbench-leaderboard-toggle strong {
+  text-shadow: 0 1px 0 color-mix(in srgb, #ffffff 32%, transparent);
+}
+
+.workbench-timer-ring {
+  position: relative;
+  background:
+    radial-gradient(circle at center, color-mix(in srgb, var(--surface-solid) 54%, transparent) 0 54%, transparent 55%),
+    conic-gradient(var(--pomodoro-accent) var(--timer-progress), color-mix(in srgb, #ffffff 22%, transparent) 0),
+    color-mix(in srgb, var(--surface-solid) 22%, transparent);
+  box-shadow:
+    inset 0 2px 1px color-mix(in srgb, #ffffff 62%, transparent),
+    inset 0 -10px 24px color-mix(in srgb, var(--text) 8%, transparent),
+    0 20px 48px color-mix(in srgb, var(--pomodoro-accent) 18%, transparent);
+  backdrop-filter: blur(30px) saturate(220%);
+  -webkit-backdrop-filter: blur(30px) saturate(220%);
+}
+
+.workbench-timer-ring::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border: 1px solid color-mix(in srgb, #ffffff 46%, transparent);
+  border-radius: 50%;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 32%, transparent), transparent 48%),
+    color-mix(in srgb, var(--surface-solid) 26%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+}
+
+.workbench-pomodoro-time {
+  position: relative;
+  z-index: 1;
+}
+
+.workbench-tools .workbench-room-list button.is-active,
+.workbench-pomodoro-presets button.is-active,
+.workbench-pomodoro-ambient.is-active,
+.workbench-leaderboard-row.is-me {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 42%, transparent), transparent 46%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 24%, transparent), transparent 72%),
+    color-mix(in srgb, var(--surface-solid) 38%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 10px 26px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.workbench-tools button:active,
+.workbench-task-row:active {
+  transform: scale(0.965);
+  filter: brightness(1.04);
+}
+
+@media (hover: hover) {
+  .workbench-room-switcher:hover,
+  .workbench-pomodoro-card:hover,
+  .workbench-task-card:hover,
+  .workbench-tools .workbench-leaderboard-toggle:hover {
+    border-color: color-mix(in srgb, #ffffff 70%, var(--line));
+    box-shadow:
+      0 28px 82px color-mix(in srgb, var(--text) 17%, transparent),
+      0 9px 28px color-mix(in srgb, var(--text) 9%, transparent),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 82%, transparent),
+      inset 0 -1px 0 color-mix(in srgb, var(--text) 10%, transparent);
+  }
+}
+
+:root[data-resolved-theme='dark'] .office-workbench-page {
+  --liquid-glass-tint: color-mix(in srgb, var(--surface-solid) 34%, transparent);
+  --liquid-glass-tint-strong: color-mix(in srgb, var(--surface-solid) 48%, transparent);
+  --liquid-glass-line: color-mix(in srgb, #ffffff 22%, var(--line) 78%);
+  --liquid-glass-edge: color-mix(in srgb, #ffffff 32%, transparent);
+  --liquid-glass-depth: color-mix(in srgb, #000000 38%, transparent);
+}
+
+:root[data-resolved-theme='dark'] .workbench-room-current strong,
+:root[data-resolved-theme='dark'] .workbench-pomodoro-time strong,
+:root[data-resolved-theme='dark'] .workbench-task-head strong,
+:root[data-resolved-theme='dark'] .workbench-leaderboard-toggle strong {
+  text-shadow: 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .workbench-room-switcher::after,
+  .workbench-pomodoro-card::after,
+  .workbench-task-card::after,
+  .workbench-tools .workbench-leaderboard-toggle::after,
+  .workbench-leaderboard-panel::after,
+  .workbench-space-join::after {
+    display: none;
+  }
+}
