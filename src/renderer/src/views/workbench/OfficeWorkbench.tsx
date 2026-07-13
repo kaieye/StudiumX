@@ -18,7 +18,6 @@ import {
 } from '../pet/PetSprite'
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
-import { WorkbenchRoomSwitcher } from './WorkbenchRoomSwitcher'
 import { WorkbenchTasks } from './WorkbenchTasks'
 import { StudyTaskSchedulePage } from './StudyTaskSchedulePage'
 
@@ -676,13 +675,10 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           members={viewModel.roomMembers}
           presenceStatus={presence.status}
           spaceCode={snapshot.spaceCode}
+          onEnterRandomSpace={enterRandomSpace}
+          onJoinSpace={joinSpace}
         />
         <div className="workbench-tools" role="group" aria-label="自习工具">
-          <WorkbenchRoomSwitcher
-            spaceCode={snapshot.spaceCode}
-            onEnterRandomSpace={enterRandomSpace}
-            onJoinSpace={joinSpace}
-          />
           {viewModel.userSeatConflict ? (
             <div className="workbench-seat-alert" role="status">
               {viewModel.nextAvailableSeat === null

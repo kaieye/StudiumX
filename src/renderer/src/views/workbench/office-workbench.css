@@ -4447,3 +4447,187 @@
   --liquid-glass-blur: blur(30px) saturate(180%);
   --workbench-accent-contrast: #ffffff;
 }
+
+/* Room switching lives in the expanded leaderboard so the study tools rail
+   stays focused on the timer and tasks. */
+.office-workbench-stage > .workbench-leaderboard {
+  transition:
+    width 180ms ease,
+    max-width 180ms ease;
+}
+
+.office-workbench-stage > .workbench-leaderboard.is-open {
+  width: min(430px, calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset)));
+  max-width: min(430px, calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset)));
+  display: flex;
+  flex-direction: column;
+}
+
+.office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-toggle {
+  flex: 0 0 auto;
+}
+
+.office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-panel {
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-list {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.workbench-leaderboard-actions {
+  display: grid;
+  grid-template-columns: minmax(142px, 0.85fr) minmax(224px, 1.35fr);
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+}
+
+.workbench-leaderboard-actions button,
+.workbench-leaderboard-actions input {
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.workbench-room-random,
+.workbench-leaderboard-actions .workbench-room-join {
+  min-height: 42px;
+  border: 1px solid var(--liquid-glass-control-line, color-mix(in srgb, var(--line) 72%, transparent));
+  border-radius: var(--workbench-control-radius);
+}
+
+.workbench-room-random {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  color: var(--workbench-accent-contrast);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 46%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, #ffffff), var(--accent));
+  box-shadow:
+    0 10px 24px color-mix(in srgb, var(--accent) 24%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 52%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 18%, transparent);
+  font-size: 0.75rem;
+  font-weight: 760;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    filter 180ms ease;
+}
+
+.workbench-leaderboard-actions .workbench-room-join {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 4px 4px 4px 10px;
+  color: var(--text-muted);
+  background: var(--liquid-glass-control-fill, color-mix(in srgb, var(--surface-solid) 62%, transparent));
+  box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, color-mix(in srgb, #ffffff 34%, transparent));
+}
+
+.workbench-leaderboard-actions .workbench-room-join > svg {
+  color: var(--accent);
+}
+
+.workbench-leaderboard-actions .workbench-room-join input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  color: var(--text);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 680;
+  text-transform: uppercase;
+}
+
+.workbench-leaderboard-actions .workbench-room-join input::placeholder {
+  color: var(--text-soft);
+  text-transform: none;
+}
+
+.workbench-leaderboard-actions .workbench-room-join button {
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--workbench-accent-contrast);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: calc(var(--workbench-control-radius) - 3px);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 30%, transparent), transparent 48%),
+    var(--accent);
+  box-shadow:
+    0 7px 16px color-mix(in srgb, var(--accent) 21%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 42%, transparent);
+  font-size: 0.75rem;
+  font-weight: 760;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    filter 180ms ease,
+    opacity 180ms ease;
+}
+
+.workbench-room-random:hover,
+.workbench-leaderboard-actions .workbench-room-join button:not(:disabled):hover {
+  filter: brightness(1.05);
+}
+
+.workbench-room-random:active,
+.workbench-leaderboard-actions .workbench-room-join button:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+.workbench-room-random:focus-visible,
+.workbench-leaderboard-actions .workbench-room-join input:focus-visible,
+.workbench-leaderboard-actions .workbench-room-join button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 2px;
+}
+
+.workbench-leaderboard-actions .workbench-room-join button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+@media (max-width: 520px) {
+  .office-workbench-stage > .workbench-leaderboard.is-open {
+    width: calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset));
+    max-width: calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset));
+  }
+
+  .workbench-leaderboard-actions {
+    grid-template-columns: minmax(116px, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .workbench-room-random {
+    padding-inline: 8px;
+  }
+
+  .workbench-leaderboard-actions .workbench-room-join {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-left: 8px;
+  }
+
+  .workbench-leaderboard-actions .workbench-room-join > svg {
+    display: none;
+  }
+
+  .workbench-leaderboard-actions .workbench-room-join button {
+    padding-inline: 8px;
+  }
+}

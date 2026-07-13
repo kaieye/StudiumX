@@ -3,11 +3,14 @@ import { useState } from 'react'
 import { formatStudyHours, studySignalShortLabel } from '../../study-space/domain'
 import type { StudyPresenceStatus } from '../../study-space/types'
 import type { StudyRoomMember } from '../../study-space/viewModel'
+import { WorkbenchRoomSwitcher } from './WorkbenchRoomSwitcher'
 
 type WorkbenchLeaderboardProps = {
   members: StudyRoomMember[]
   presenceStatus: StudyPresenceStatus
   spaceCode: string
+  onEnterRandomSpace: () => void
+  onJoinSpace: (spaceCode: string) => void
 }
 
 function presenceStatusLabel(status: StudyPresenceStatus): string {
@@ -16,7 +19,13 @@ function presenceStatusLabel(status: StudyPresenceStatus): string {
   return '心跳离线'
 }
 
-export function WorkbenchLeaderboard({ members, presenceStatus, spaceCode }: WorkbenchLeaderboardProps) {
+export function WorkbenchLeaderboard({
+  members,
+  presenceStatus,
+  spaceCode,
+  onEnterRandomSpace,
+  onJoinSpace
+}: WorkbenchLeaderboardProps) {
   const [open, setOpen] = useState(false)
   const selfRank = Math.max(1, members.findIndex((member) => member.isSelf) + 1)
   const totalMembers = Math.max(1, members.length)
@@ -52,6 +61,10 @@ export function WorkbenchLeaderboard({ members, presenceStatus, spaceCode }: Wor
               </div>
             ))}
           </div>
+          <WorkbenchRoomSwitcher
+            onEnterRandomSpace={onEnterRandomSpace}
+            onJoinSpace={onJoinSpace}
+          />
         </section>
       ) : null}
     </section>
