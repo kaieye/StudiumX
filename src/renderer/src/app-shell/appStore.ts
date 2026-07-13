@@ -11,17 +11,9 @@ import {
 import {
   activeTeachingConversationSummary,
   agentTurnsToMessages,
-  applyAgentChatChunkToPending,
-  applyAgentChatStatusToPending,
-  applyAgentChatToolEventToPending,
-  cancelPendingAgentConversation,
-  createAgentConversationTurnDraft,
-  failPendingAgentConversation,
-  finishPendingAgentConversationSave,
-  reconcileAgentTurnsWithLocalProcess,
-  syncPendingAgentConversation,
   type PendingAgentConversation
 } from '../agent-conversation-state'
+import { AgentConversationTurnRunner } from './agent-conversation-runner'
 import {
   activateWorkspaceContext,
   clearAgentConversationContext,
@@ -53,10 +45,6 @@ import {
 } from './operationFeedback'
 import {
   type AgentChatMessage,
-  type AgentChatStreamChunk,
-  type AgentChatStreamStatus,
-  type AgentChatStreamToolEvent,
-  type AgentProjectionInvalidation,
   type AgentChatMode,
   type AgentChatTurn,
   type CreateTeachingMemoryPayload,
@@ -364,6 +352,31 @@ function lessonGeneratedNotificationBody(intent: LessonGenerationNotificationInt
   return i18n.t('notify.lessonGenerated.body', { title: intent.title, path: intent.path, suffix })
 }
 
+function createAgentConversationTurnRunner(
+  get: () => StoreState,
+  set: (patch: Partial<StoreState>) => void
+): AgentConversationTurnRunner<UserError> {
+  return new AgentConversationTurnRunner({
+    getState: get,
+    setState: set,
+    getApi: () => window.teachingSystem,
+    toUserError,
+    onGeneratedLessons: (lessons) => {
+      const effects = effectsForAgentGeneratedLessons({
+        lessons,
+        settings: lessonEffectSettings(get().settings)
+      })
+      if (effects.openPath) void get().openPath(effects.openPath)
+      if (effects.lessonGeneratedNotification) {
+        void get().showNotification(
+          i18n.t('notify.lessonGenerated.title'),
+          lessonGeneratedNotificationBody(effects.lessonGeneratedNotification)
+        )
+      }
+    }
+  })
+}
+
 export const useAppStore = create<StoreState>((set, get) => ({
   view: initialWorkspaceViewFromUrl(),
   settingsSection: 'general',
@@ -413,15 +426,7 @@ export const useAppStore = create<StoreState>((set, get) => ({
     set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null })
   },
   cancelAgentChat: async () => {
-    const api = window.teachingSystem
-    const pending = get().pendingAgentConversation
-    if (!pending || !get().agentChatBusy) return
-    set(cancelPendingAgentConversation({
-      pending,
-      activeConversationId: get().activeConversationId,
-      preserveToolsSupported: true
-    }))
-    await api?.cancelAgentChatStream(pending.summary.id).catch(() => undefined)
+    await createAgentConversationTurnRunner(get, set).cancel()
   },
   restorePendingAgentConversation: () => {
     const pending = get().pendingAgentConversation
@@ -862,195 +867,11 @@ export const useAppStore = create<StoreState>((set, get) => ({
     }
   },
   agentChat: async (inputOverride, options) => {
-    const api = window.teachingSystem
-    if (!api) return
-    const workspace = get().appState.activeWorkspace
-    const input = (inputOverride ?? get().agentInput).trim()
-    if (!workspace || !input || get().agentChatBusy) return
-    const mode: AgentChatMode = options?.mode ?? (get().overviewDialogMode === 'teaching' ? 'teaching' : 'temporary')
-    const draft = createAgentConversationTurnDraft({
-      state: get().appState,
-      workspace,
-      input,
-      mode,
-      activeConversationId: get().activeConversationId,
-      currentTurns: get().agentTurns,
-      selectedCourseRelativePath: get().selectedCourseRelativePath,
-      currentSelectedLessonPath: get().appState.selectedLessonPath,
-      createdAt: new Date().toISOString(),
-      idSeed: Date.now()
+    await createAgentConversationTurnRunner(get, set).run({
+      inputOverride,
+      mode: options?.mode,
+      skillIds: options?.skillIds
     })
-    const {
-      pendingConversationId,
-      selectedCourseRelativePath,
-      selectedLessonPath,
-      assistantId,
-      priorMessages,
-      initialTurns,
-      pendingConversation
-    } = draft
-    set({
-      agentChatBusy: true,
-      agentInput: '',
-      agentStatus: pendingConversation.status,
-      agentToolsSupported: null,
-      agentTurns: initialTurns,
-      activeConversationId: pendingConversationId,
-      pendingAgentConversation: pendingConversation
-    })
-    try {
-      const done = await api.agentChatStream(
-        {
-          streamId: pendingConversationId,
-          conversationId: pendingConversation.sourceConversationId ?? undefined,
-          workspaceId: workspace.id,
-          mode,
-          messages: priorMessages,
-          userInput: input,
-          ...(options?.skillIds?.length ? { skillIds: options.skillIds } : {})
-        },
-        (chunk: AgentChatStreamChunk) => {
-          const patch = applyAgentChatChunkToPending({
-            pending: get().pendingAgentConversation,
-            activeConversationId: get().activeConversationId,
-            assistantId,
-            chunk
-          })
-          if (patch) set(patch)
-        },
-        (status: AgentChatStreamStatus) => {
-          const patch = applyAgentChatStatusToPending({
-            pending: get().pendingAgentConversation,
-            activeConversationId: get().activeConversationId,
-            assistantId,
-            status
-          })
-          if (patch) set(patch)
-        },
-        (event: AgentChatStreamToolEvent) => {
-          const patch = applyAgentChatToolEventToPending({
-            pending: get().pendingAgentConversation,
-            activeConversationId: get().activeConversationId,
-            assistantId,
-            event
-          })
-          if (patch) set(patch)
-        },
-        (invalidation: AgentProjectionInvalidation) => {
-          const message = invalidation.reason === 'replay_gap'
-            ? '实时事件回放不完整；当前过程视图已标记失效，完成后将以保存的对话结果为准。'
-            : '实时事件回放已不可用；当前过程视图已标记失效，应用不会据此自动重跑。'
-          const patch = applyAgentChatStatusToPending({
-            pending: get().pendingAgentConversation,
-            activeConversationId: get().activeConversationId,
-            assistantId,
-            status: { streamId: invalidation.streamId, status: 'error', message }
-          })
-          if (patch) set(patch)
-        }
-      )
-      if ('canceled' in done) {
-        const pending = get().pendingAgentConversation
-        if (!pending || pending.summary.id !== pendingConversationId) return
-        set(cancelPendingAgentConversation({ pending, activeConversationId: get().activeConversationId }))
-        return
-      }
-      if ('error' in done && done.error) {
-        const pending = get().pendingAgentConversation
-        if (!pending || pending.summary.id !== pendingConversationId) return
-        const userError = toUserError(new Error(done.message))
-        set({
-          error: userError,
-          ...failPendingAgentConversation({
-            pending,
-            activeConversationId: get().activeConversationId,
-            assistantId
-          })
-        })
-        return
-      }
-      if (!('error' in done)) {
-        const pending = get().pendingAgentConversation
-        if (!pending || pending.summary.id !== pendingConversationId) return
-        const latestUserTurn = [...done.turns].reverse().find((turn) => turn.role === 'user')
-        const reconciledTurns = reconcileAgentTurnsWithLocalProcess(done.turns, pending.turns)
-        const savePatch = syncPendingAgentConversation({
-          pending,
-          pendingConversationId,
-          activeConversationId: get().activeConversationId,
-          patch: {
-            turns: reconciledTurns,
-            status: '保存对话…',
-            toolsSupported: done.toolsSupported
-          }
-        })
-        if (savePatch) set(savePatch)
-        set({
-          taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : get().taskPrompt
-        })
-        try {
-          const saved = await api.saveAgentConversation({
-            workspaceId: workspace.id,
-            mode,
-            conversationId: pending?.sourceConversationId ?? null,
-            selectedLessonPath,
-            selectedCourseRelativePath,
-            turns: reconciledTurns
-          })
-          set({
-            appState: saved.state,
-            ...finishPendingAgentConversationSave({
-              pending,
-              activeConversationId: get().activeConversationId,
-              savedConversationId: saved.conversation.id,
-              turns: reconciledTurns,
-              toolsSupported: done.toolsSupported
-            })
-          })
-          // Lessons generated inside the conversation (generate_lesson tool):
-          // saved.state already contains them; mirror the direct-generation
-          // notifications and auto-open behavior without yanking the user
-          // away from the conversation.
-          const generatedLessons = done.generatedLessons ?? []
-          if (generatedLessons.length > 0) {
-            const settings = get().settings
-            const effects = effectsForAgentGeneratedLessons({
-              lessons: generatedLessons,
-              settings: lessonEffectSettings(settings)
-            })
-            if (effects.openPath) {
-              void get().openPath(effects.openPath)
-            }
-            if (effects.lessonGeneratedNotification) {
-              void get().showNotification(
-                i18n.t('notify.lessonGenerated.title'),
-                lessonGeneratedNotificationBody(effects.lessonGeneratedNotification)
-              )
-            }
-          }
-        } catch (saveError) {
-          set({ error: toUserError(saveError) })
-        } finally {
-          if (get().pendingAgentConversation?.summary.id && get().pendingAgentConversation?.summary.id !== pendingConversationId) return
-          const visiblePatch = get().activeConversationId === pendingConversationId
-            ? { agentStatus: '' }
-            : {}
-          set({ agentChatBusy: false, ...visiblePatch })
-        }
-      }
-    } catch (error) {
-      const pending = get().pendingAgentConversation
-      if (!pending || pending.summary.id !== pendingConversationId) return
-      const userError = toUserError(error)
-      set({
-        error: userError,
-        ...failPendingAgentConversation({
-          pending,
-          activeConversationId: get().activeConversationId,
-          assistantId
-        })
-      })
-    }
   },
   setWorkspaceItemMeta: async (payload) => {
     const api = window.teachingSystem
