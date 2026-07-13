@@ -61,8 +61,12 @@ const stageShift = { x: 40, y: -20 }
 const canvasOutputScale = 2
 const officeScaleBoost = 0.78
 const compactScaleBoost = 0.5
-const minToolScale = 0.72
-const maxToolScale = 1.08
+const minToolScale = 0.42
+const maxToolScale = 1.22
+const toolRailWidth = 316
+const toolRailMinWidth = 270
+const compactToolRailWidth = 228
+const toolSceneGap = 20
 const workstationWidth = 64 * 3
 const workstationHeight = 64
 const chairYOffset = 65
@@ -320,10 +324,19 @@ function fitCanvasToStage(stage: HTMLElement, canvas: HTMLCanvasElement): void {
   const visibleHeight = Math.min(stageHeight, Math.max(1, window.innerHeight - Math.max(0, stageRect.top)))
   if (visibleWidth <= 0 || visibleHeight <= 0) return
 
-  const baseScale = Math.min(visibleWidth / officeWidth, visibleHeight / officeHeight)
-  const scaleBoost = visibleWidth <= 720 ? compactScaleBoost : officeScaleBoost
-  const visualScale = baseScale * scaleBoost
-  const toolScale = Math.min(maxToolScale, Math.max(minToolScale, baseScale))
+  const compactLayout = visibleWidth <= 720
+  const toolRailBaseWidth = compactLayout
+    ? compactToolRailWidth
+    : Math.min(toolRailWidth, Math.max(toolRailMinWidth, visibleWidth * 0.22))
+  const fullBaseScale = Math.min(visibleWidth / officeWidth, visibleHeight / officeHeight)
+  const scaleBoost = compactLayout ? compactScaleBoost : officeScaleBoost
+  const unblockedVisualScale = fullBaseScale * scaleBoost
+  const toolToSceneScale = compactLayout ? 1.18 : 1.08
+  const scaleSafetyWidth = officeWidth + toolRailBaseWidth * toolToSceneScale * 2
+  const gapSafetyWidth = toolSceneGap * 2
+  const safeVisualScale = Math.max(0.1, (visibleWidth - gapSafetyWidth) / scaleSafetyWidth)
+  const visualScale = Math.min(unblockedVisualScale, safeVisualScale)
+  const toolScale = Math.min(maxToolScale, Math.max(minToolScale, visualScale * toolToSceneScale))
   const canvasWidth = Math.round(officeWidth * visualScale)
   const canvasHeight = Math.round(officeHeight * visualScale)
 
