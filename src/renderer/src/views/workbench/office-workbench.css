@@ -3638,10 +3638,10 @@
   width: 100%;
   height: 40px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(46px, 1fr) auto minmax(46px, 1fr);
   align-items: center;
-  gap: 8px;
-  padding: 0 5px 0 10px;
+  gap: 5px;
+  padding: 0 7px 0 9px;
   color: var(--text);
   border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
   border-radius: 12px;
@@ -3658,19 +3658,41 @@
   color: var(--accent);
 }
 
+.study-schedule-time-part {
+  position: relative;
+  min-width: 0;
+  height: 30px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 66%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-solid) 52%, transparent);
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.study-schedule-time-part:focus-within,
+.study-schedule-time-part.is-open {
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-solid));
+}
+
 .study-schedule-editor-panel input.study-schedule-time-input:not([type="checkbox"]):not([type="color"]) {
-  height: 38px;
-  padding: 0;
+  height: 28px;
+  padding: 0 1px 0 5px;
   color: var(--text);
   border: 0;
   border-radius: 0;
   outline: 0;
   background: transparent;
   box-shadow: none;
-  font-size: 0.8125rem;
-  font-weight: 760;
+  font-size: 0.75rem;
+  font-weight: 780;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.035em;
+  text-align: center;
 }
 
 .study-schedule-editor-panel input.study-schedule-time-input:not([type="checkbox"]):not([type="color"]):focus {
@@ -3683,16 +3705,23 @@
   font-weight: 650;
 }
 
+.study-schedule-time-separator {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .study-schedule-time-toggle {
-  width: 30px;
-  height: 30px;
+  width: 20px;
+  height: 28px;
   display: grid;
   place-items: center;
   padding: 0;
   color: var(--text-muted);
   border: 0;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--surface-solid) 50%, transparent);
+  border-radius: 7px;
+  background: transparent;
   cursor: pointer;
 }
 
@@ -3705,6 +3734,10 @@
 
 .study-schedule-time-toggle svg {
   transition: transform 160ms ease;
+}
+
+.study-schedule-time-part.is-open .study-schedule-time-toggle svg {
+  transform: rotate(180deg);
 }
 
 .study-schedule-time-select.is-open .study-schedule-time-control,
@@ -3722,23 +3755,19 @@
     inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent);
 }
 
-.study-schedule-time-select.is-open .study-schedule-time-toggle svg {
-  transform: rotate(180deg);
-}
-
-.study-schedule-time-menu {
+.study-schedule-time-part-menu {
   position: absolute;
-  top: calc(100% + 7px);
+  top: calc(100% + 8px);
   left: 0;
-  z-index: 70;
+  z-index: 72;
   box-sizing: border-box;
-  width: min(310px, calc(100vw - 48px));
-  max-height: 292px;
+  width: min(188px, calc(100vw - 48px));
+  max-height: 268px;
   padding: 8px;
   overflow: auto;
   color: var(--text);
   border: 1px solid color-mix(in srgb, #ffffff 52%, var(--line) 48%);
-  border-radius: 15px;
+  border-radius: 14px;
   background:
     linear-gradient(145deg, color-mix(in srgb, #ffffff 34%, transparent), transparent 42%),
     color-mix(in srgb, var(--surface-solid) 92%, var(--app-shell-main-bg));
@@ -3750,70 +3779,74 @@
   overscroll-behavior: contain;
 }
 
-.study-schedule-editor-field:last-child .study-schedule-time-menu {
+.study-schedule-time-part-menu.is-minute {
+  right: 0;
+  left: auto;
+  width: min(250px, calc(100vw - 48px));
+}
+
+.study-schedule-editor-field:last-child .study-schedule-time-part-menu {
   right: 0;
   left: auto;
 }
 
-.study-schedule-time-group + .study-schedule-time-group {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid color-mix(in srgb, var(--line) 58%, transparent);
-}
-
-.study-schedule-time-group > span {
+.study-schedule-time-part-menu > span {
   position: sticky;
   top: -8px;
   z-index: 1;
   display: block;
-  padding: 4px 5px 6px;
+  padding: 4px 5px 7px;
   color: var(--text-muted);
-  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
   font-size: 0.625rem;
   font-weight: 780;
   letter-spacing: 0.08em;
 }
 
-.study-schedule-time-group > div {
+.study-schedule-time-part-menu > div {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 5px;
 }
 
-.study-schedule-time-group button {
+.study-schedule-time-part-menu.is-minute > div {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.study-schedule-time-part-menu button {
   min-width: 0;
-  height: 30px;
-  padding: 0 5px;
+  height: 29px;
+  padding: 0 4px;
   color: var(--text-muted);
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--surface-solid) 48%, transparent);
   font: inherit;
   font-size: 0.6875rem;
   font-weight: 720;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
-.study-schedule-time-group button.is-selected {
+.study-schedule-time-part-menu button.is-selected {
   color: #ffffff;
   border-color: color-mix(in srgb, var(--accent) 52%, transparent);
   background: var(--accent);
   box-shadow: 0 7px 14px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
-.study-schedule-time-group button:disabled {
-  opacity: 0.28;
+.study-schedule-time-part-menu button:disabled {
+  opacity: 0.24;
   cursor: not-allowed;
 }
 
-.study-schedule-time-group button:not(:disabled):focus-visible,
-.study-schedule-time-group button:not(:disabled):hover {
+.study-schedule-time-part-menu button:not(:disabled):focus-visible,
+.study-schedule-time-part-menu button:not(:disabled):hover {
   outline: 0;
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
   background: color-mix(in srgb, var(--accent) 11%, var(--surface-solid));
 }
-
 .study-schedule-editor-colors {
   display: grid;
   gap: 8px;

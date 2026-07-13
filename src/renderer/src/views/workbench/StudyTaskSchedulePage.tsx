@@ -122,9 +122,10 @@ type TaskColorDefinition = {
   ink: string
 }
 
+type TimePart = 'hour' | 'minute'
+
 type TimeSelectProps = {
   value: number
-  options: number[]
   minMinutes: number
   maxMinutes: number
   onChange: (minutes: number) => void
@@ -150,17 +151,7 @@ const hiddenDefaultColorStorageKey = 'studiumx:study-schedule-hidden-default-col
 const maxCustomColors = 12
 const minutesPerDay = 24 * 60
 const selectionStepMinutes = 15
-
-const startTimeOptions = createTimeOptions(0, 23 * 60 + 45)
-const endTimeOptions = createTimeOptions(selectionStepMinutes, minutesPerDay)
-
-function createTimeOptions(startMinutes: number, endMinutes: number): number[] {
-  const options: number[] = []
-  for (let minutes = startMinutes; minutes <= endMinutes; minutes += selectionStepMinutes) {
-    options.push(minutes)
-  }
-  return options
-}
+const minutePartOptions = Array.from({ length: 60 }, (_, minute) => minute)
 
 function defaultColorIdForWeekday(weekday: number): StudyTaskScheduleColorId {
   const colorIndex = Math.abs(Math.floor(weekday)) % morandiTaskColors.length
@@ -262,13 +253,25 @@ function formatMinutes(minutes: number): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
-function parseTimeText(value: string, minMinutes: number, maxMinutes: number): number | null {
-  const match = /^(\d{1,2})[:：](\d{2})$/.exec(value.trim())
-  if (!match) return null
-  const hour = Number.parseInt(match[1] ?? '', 10)
-  const minute = Number.parseInt(match[2] ?? '', 10)
-  if (!Number.isInteger(hour) || !Number.isInteger(minute) || minute > 59 || hour > 24) return null
-  if (hour === 24 && minute !== 0) return null
+function getTimeParts(minutes: number): { hour: number; minute: number } {
+  return { hour: Math.floor(minutes / 60), minute: minutes % 60 }
+}
+
+function parseTimePart(value: string, max: number): number | null {
+  if (!/^\d{1,2}$/.test(value.trim())) return null
+  const parsed = Number.parseInt(value, 10)
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= max ? parsed : null
+}
+
+function parseTimeParts(
+  hourValue: string,
+  minuteValue: string,
+  minMinutes: number,
+  maxMinutes: number
+): number | null {
+  const hour = parseTimePart(hourValue, 24)
+  const minute = parseTimePart(minuteValue, 59)
+  if (hour === null || minute === null || (hour === 24 && minute !== 0)) return null
   const totalMinutes = hour * 60 + minute
   return totalMinutes >= minMinutes && totalMinutes <= maxMinutes ? totalMinutes : null
 }
@@ -277,75 +280,93 @@ function formatHour(hour: number): string {
   return `${hour}:00`
 }
 
-
-const timePeriodGroups = [
-  { label: '凌晨', start: 0, end: 6 * 60 },
-  { label: '上午', start: 6 * 60, end: 12 * 60 },
-  { label: '下午', start: 12 * 60, end: 18 * 60 },
-  { label: '晚上', start: 18 * 60, end: minutesPerDay + 1 }
-]
-
-function TimeSelect({
-  value,
-  options,
-  minMinutes,
-  maxMinutes,
-  onChange,
-  disabledOption,
-  ariaLabel
-}: TimeSelectProps) {
-  const [open, setOpen] = useState(false)
-  const [draftValue, setDraftValue] = useState(() => formatMinutes(value))
+function TimeSelect({ value, minMinutes, maxMinutes, onChange, disabledOption, ariaLabel }: TimeSelectProps) {
+  const valueParts = getTimeParts(value)
+  const [openPart, setOpenPart] = useState<TimePart | null>(null)
+  const [hourDraft, setHourDraft] = useState(() => String(valueParts.hour).padStart(2, '0'))
+  const [minuteDraft, setMinuteDraft] = useState(() => String(valueParts.minute).padStart(2, '0'))
   const [invalid, setInvalid] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const inputRef = useRef<HTMLInputElement | null>(null)
+  const hourInputRef = useRef<HTMLInputElement | null>(null)
+  const minuteInputRef = useRef<HTMLInputElement | null>(null)
   const selectedRef = useRef<HTMLButtonElement | null>(null)
-  const listboxId = useId()
-  const scrollTargetMinutes = options.reduce(
-    (closest, minutes) => (Math.abs(minutes - value) < Math.abs(closest - value) ? minutes : closest),
-    options[0] ?? value
-  )
+  const listboxBaseId = useId()
+  const hourOptions = Array.from({ length: Math.floor(maxMinutes / 60) + 1 }, (_, hour) => hour)
+  const parsedDraftHour = parseTimePart(hourDraft, 24)
+  const parsedDraftMinute = parseTimePart(minuteDraft, 59)
 
-  const clearValidation = (): void => {
-    setInvalid(false)
-    inputRef.current?.setCustomValidity('')
+  const setValidation = (message: string): void => {
+    const hasError = message.length > 0
+    setInvalid(hasError)
+    hourInputRef.current?.setCustomValidity(message)
+    minuteInputRef.current?.setCustomValidity(message)
   }
 
-  const commitDraft = (): boolean => {
-    const minutes = parseTimeText(draftValue, minMinutes, maxMinutes)
-    if (minutes === null || disabledOption?.(minutes)) {
-      const range = `${formatMinutes(minMinutes)}–${formatMinutes(maxMinutes)}`
-      const message = minutes === null
-        ? `请输入 ${range} 范围内的时间，格式为 HH:mm`
-        : '结束时间必须晚于开始时间'
-      setInvalid(true)
-      inputRef.current?.setCustomValidity(message)
-      return false
-    }
-    clearValidation()
-    setDraftValue(formatMinutes(minutes))
-    if (minutes !== value) onChange(minutes)
+  const isAllowedTime = (hour: number, minute: number): boolean => {
+    const totalMinutes = hour * 60 + minute
+    if (hour === 24 && minute !== 0) return false
+    if (totalMinutes < minMinutes || totalMinutes > maxMinutes) return false
+    return !(disabledOption?.(totalMinutes) ?? false)
+  }
+
+  const applyTimeIfValid = (nextHourDraft: string, nextMinuteDraft: string): boolean => {
+    const totalMinutes = parseTimeParts(nextHourDraft, nextMinuteDraft, minMinutes, maxMinutes)
+    if (totalMinutes === null || disabledOption?.(totalMinutes)) return false
+    setValidation('')
+    if (totalMinutes !== value) onChange(totalMinutes)
     return true
   }
 
+  const commitDraft = (): boolean => {
+    const totalMinutes = parseTimeParts(hourDraft, minuteDraft, minMinutes, maxMinutes)
+    if (totalMinutes === null) {
+      setValidation('请输入有效的小时和分钟')
+      return false
+    }
+    if (disabledOption?.(totalMinutes)) {
+      setValidation('结束时间必须晚于开始时间')
+      return false
+    }
+    const nextParts = getTimeParts(totalMinutes)
+    setHourDraft(String(nextParts.hour).padStart(2, '0'))
+    setMinuteDraft(String(nextParts.minute).padStart(2, '0'))
+    setValidation('')
+    if (totalMinutes !== value) onChange(totalMinutes)
+    return true
+  }
+
+  const resetDraft = (): void => {
+    const nextParts = getTimeParts(value)
+    setHourDraft(String(nextParts.hour).padStart(2, '0'))
+    setMinuteDraft(String(nextParts.minute).padStart(2, '0'))
+    setValidation('')
+  }
+
   useEffect(() => {
-    setDraftValue(formatMinutes(value))
+    const nextParts = getTimeParts(value)
+    setHourDraft(String(nextParts.hour).padStart(2, '0'))
+    setMinuteDraft(String(nextParts.minute).padStart(2, '0'))
     setInvalid(false)
-    inputRef.current?.setCustomValidity('')
+    hourInputRef.current?.setCustomValidity('')
+    minuteInputRef.current?.setCustomValidity('')
   }, [value])
 
   useEffect(() => {
-    if (!open) return undefined
+    if (!openPart) return undefined
     const closeFromOutside = (event: PointerEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+      if (!rootRef.current?.contains(event.target as Node)) setOpenPart(null)
     }
     const closeFromKeyboard = (event: globalThis.KeyboardEvent): void => {
       if (event.key !== 'Escape') return
-      setOpen(false)
-      setDraftValue(formatMinutes(value))
+      setOpenPart(null)
+      const nextParts = getTimeParts(value)
+      setHourDraft(String(nextParts.hour).padStart(2, '0'))
+      setMinuteDraft(String(nextParts.minute).padStart(2, '0'))
       setInvalid(false)
-      inputRef.current?.setCustomValidity('')
-      inputRef.current?.focus()
+      hourInputRef.current?.setCustomValidity('')
+      minuteInputRef.current?.setCustomValidity('')
+      const input = openPart === 'hour' ? hourInputRef.current : minuteInputRef.current
+      input?.focus()
     }
     window.addEventListener('pointerdown', closeFromOutside)
     window.addEventListener('keydown', closeFromKeyboard)
@@ -354,126 +375,172 @@ function TimeSelect({
       window.removeEventListener('pointerdown', closeFromOutside)
       window.removeEventListener('keydown', closeFromKeyboard)
     }
-  }, [open, value])
+  }, [openPart, value])
 
-  const selectTime = (minutes: number): void => {
-    if (disabledOption?.(minutes)) return
-    clearValidation()
-    setDraftValue(formatMinutes(minutes))
-    onChange(minutes)
-    setOpen(false)
-    inputRef.current?.focus()
+  const handlePartChange = (part: TimePart, rawValue: string): void => {
+    const nextValue = rawValue.replace(/\D/g, '').slice(0, 2)
+    const nextHourDraft = part === 'hour' ? nextValue : hourDraft
+    const nextMinuteDraft = part === 'minute' ? nextValue : minuteDraft
+    if (part === 'hour') setHourDraft(nextValue)
+    else setMinuteDraft(nextValue)
+    setValidation('')
+    applyTimeIfValid(nextHourDraft, nextMinuteDraft)
+    setOpenPart(part)
   }
 
-  const handleDraftChange = (nextValue: string): void => {
-    setDraftValue(nextValue)
-    clearValidation()
-    const minutes = parseTimeText(nextValue, minMinutes, maxMinutes)
-    if (minutes !== null && !disabledOption?.(minutes) && minutes !== value) onChange(minutes)
-    setOpen(true)
-  }
-
-  const handleInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+  const handlePartKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>, part: TimePart): void => {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      setOpen(true)
+      setOpenPart(part)
       return
     }
     if (event.key === 'Enter') {
       event.preventDefault()
-      if (commitDraft()) setOpen(false)
+      if (commitDraft()) setOpenPart(null)
       return
     }
     if (event.key === 'Escape') {
       event.preventDefault()
-      setDraftValue(formatMinutes(value))
-      clearValidation()
-      setOpen(false)
+      resetDraft()
+      setOpenPart(null)
     }
   }
 
-  return (
-    <div ref={rootRef} className={`study-schedule-time-select${open ? ' is-open' : ''}${invalid ? ' is-invalid' : ''}`}>
-      <div className="study-schedule-time-control">
-        <Clock3 size={14} aria-hidden="true" />
+  const selectHour = (hour: number): void => {
+    const preferredMinute = parsedDraftMinute ?? valueParts.minute
+    const allowedMinutes = minutePartOptions.filter((minute) => isAllowedTime(hour, minute))
+    if (allowedMinutes.length === 0) return
+    const minute = allowedMinutes.reduce(
+      (closest, candidate) => (
+        Math.abs(candidate - preferredMinute) < Math.abs(closest - preferredMinute) ? candidate : closest
+      ),
+      allowedMinutes[0] ?? 0
+    )
+    const nextHourDraft = String(hour).padStart(2, '0')
+    const nextMinuteDraft = String(minute).padStart(2, '0')
+    setHourDraft(nextHourDraft)
+    setMinuteDraft(nextMinuteDraft)
+    setValidation('')
+    applyTimeIfValid(nextHourDraft, nextMinuteDraft)
+    setOpenPart(null)
+    hourInputRef.current?.focus()
+  }
+
+  const selectMinute = (minute: number): void => {
+    const hour = parsedDraftHour ?? valueParts.hour
+    if (!isAllowedTime(hour, minute)) return
+    const nextHourDraft = String(hour).padStart(2, '0')
+    const nextMinuteDraft = String(minute).padStart(2, '0')
+    setHourDraft(nextHourDraft)
+    setMinuteDraft(nextMinuteDraft)
+    setValidation('')
+    applyTimeIfValid(nextHourDraft, nextMinuteDraft)
+    setOpenPart(null)
+    minuteInputRef.current?.focus()
+  }
+
+  const renderPart = (part: TimePart) => {
+    const isHour = part === 'hour'
+    const draft = isHour ? hourDraft : minuteDraft
+    const inputRef = isHour ? hourInputRef : minuteInputRef
+    const partLabel = isHour ? '小时' : '分钟'
+    const listboxId = `${listboxBaseId}-${part}`
+    const partOpen = openPart === part
+    const options = isHour ? hourOptions : minutePartOptions
+    const selectedValue = isHour ? parsedDraftHour : parsedDraftMinute
+    const activeHour = parsedDraftHour ?? valueParts.hour
+
+    return (
+      <div className={`study-schedule-time-part is-${part}${partOpen ? ' is-open' : ''}`}>
         <input
           ref={inputRef}
           type="text"
           className="study-schedule-time-input"
-          value={draftValue}
+          value={draft}
           inputMode="numeric"
           autoComplete="off"
           spellCheck={false}
-          maxLength={5}
+          maxLength={2}
           required
           role="combobox"
-          aria-label={ariaLabel}
+          aria-label={`${ariaLabel}${partLabel}`}
           aria-haspopup="listbox"
-          aria-expanded={open}
+          aria-expanded={partOpen}
           aria-controls={listboxId}
           aria-autocomplete="list"
           aria-invalid={invalid}
-          placeholder="HH:mm"
-          title="可直接输入 HH:mm，支持精确到分钟"
-          onClick={() => setOpen(true)}
-          onChange={(event) => handleDraftChange(event.currentTarget.value)}
+          placeholder={isHour ? '时' : '分'}
+          title={`可直接输入${partLabel}，或从菜单中选择`}
+          onFocus={(event) => event.currentTarget.select()}
+          onClick={() => setOpenPart(part)}
+          onChange={(event) => handlePartChange(part, event.currentTarget.value)}
           onInvalid={() => setInvalid(true)}
-          onKeyDown={handleInputKeyDown}
+          onKeyDown={(event) => handlePartKeyDown(event, part)}
           onBlur={(event) => {
             if (rootRef.current?.contains(event.relatedTarget as Node | null)) return
             commitDraft()
-            setOpen(false)
+            setOpenPart(null)
           }}
         />
         <button
           type="button"
           className="study-schedule-time-toggle"
-          aria-label={`${open ? '收起' : '展开'}${ariaLabel}候选菜单`}
+          aria-label={`${partOpen ? '收起' : '展开'}${ariaLabel}${partLabel}菜单`}
           aria-haspopup="listbox"
-          aria-expanded={open}
+          aria-expanded={partOpen}
           aria-controls={listboxId}
           onClick={() => {
-            const nextOpen = !open
-            setOpen(nextOpen)
+            const nextOpen = partOpen ? null : part
+            setOpenPart(nextOpen)
             if (nextOpen) window.requestAnimationFrame(() => inputRef.current?.focus())
           }}
         >
-          <ChevronDown size={14} aria-hidden="true" />
+          <ChevronDown size={12} aria-hidden="true" />
         </button>
+        {partOpen ? (
+          <div
+            id={listboxId}
+            className={`study-schedule-time-part-menu is-${part}`}
+            role="listbox"
+            aria-label={`${ariaLabel}${partLabel}候选`}
+          >
+            <span>{partLabel}</span>
+            <div>
+              {options.map((option) => {
+                const disabled = isHour
+                  ? !minutePartOptions.some((minute) => isAllowedTime(option, minute))
+                  : !isAllowedTime(activeHour, option)
+                const selected = option === selectedValue
+                return (
+                  <button
+                    key={option}
+                    ref={selected ? selectedRef : undefined}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    disabled={disabled}
+                    className={selected ? 'is-selected' : ''}
+                    onClick={() => isHour ? selectHour(option) : selectMinute(option)}
+                  >
+                    {String(option).padStart(2, '0')}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
       </div>
-      {open ? (
-        <div id={listboxId} className="study-schedule-time-menu" role="listbox" aria-label={`${ariaLabel}候选时间`}>
-          {timePeriodGroups.map((group) => {
-            const groupOptions = options.filter((minutes) => minutes >= group.start && minutes < group.end)
-            if (groupOptions.length === 0) return null
-            return (
-              <section key={group.label} className="study-schedule-time-group" aria-label={group.label}>
-                <span>{group.label}</span>
-                <div>
-                  {groupOptions.map((minutes) => {
-                    const disabled = disabledOption?.(minutes) ?? false
-                    const selected = minutes === value
-                    return (
-                      <button
-                        key={minutes}
-                        ref={minutes === scrollTargetMinutes ? selectedRef : undefined}
-                        type="button"
-                        role="option"
-                        aria-selected={selected}
-                        disabled={disabled}
-                        className={selected ? 'is-selected' : ''}
-                        onClick={() => selectTime(minutes)}
-                      >
-                        {formatMinutes(minutes)}
-                      </button>
-                    )
-                  })}
-                </div>
-              </section>
-            )
-          })}
-        </div>
-      ) : null}
+    )
+  }
+
+  return (
+    <div ref={rootRef} className={`study-schedule-time-select${openPart ? ' is-open' : ''}${invalid ? ' is-invalid' : ''}`}>
+      <div className="study-schedule-time-control">
+        <Clock3 size={14} aria-hidden="true" />
+        {renderPart('hour')}
+        <span className="study-schedule-time-separator" aria-hidden="true">:</span>
+        {renderPart('minute')}
+      </div>
     </div>
   )
 }
@@ -1396,7 +1463,6 @@ export function StudyTaskSchedulePage({
                 <span>开始</span>
                 <TimeSelect
                   value={editor.schedule.startMinutes}
-                  options={startTimeOptions}
                   minMinutes={0}
                   maxMinutes={minutesPerDay - 1}
                   ariaLabel="开始时间"
@@ -1414,7 +1480,6 @@ export function StudyTaskSchedulePage({
                 <span>结束</span>
                 <TimeSelect
                   value={editor.schedule.endMinutes}
-                  options={endTimeOptions}
                   minMinutes={1}
                   maxMinutes={minutesPerDay}
                   ariaLabel="结束时间"
