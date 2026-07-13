@@ -1,18 +1,18 @@
 import { execFile as execFileCallback } from 'node:child_process'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import {
   releaseWorkspaceChangeCheckpoint,
   TeachingWorkspaceChangeAudit
 } from '../../src/main/teaching-workspace-change-audit'
+import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 
 const execFile = promisify(execFileCallback)
-const temporaryRoots: string[] = []
+const runtimeScope = createVitestRuntimeScope()
 
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFile('git', args, {
@@ -23,8 +23,8 @@ async function git(cwd: string, args: string[]): Promise<string> {
 }
 
 async function createRepository(name: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), `studiumx-change-audit-${name}-`))
-  temporaryRoots.push(root)
+  const runtime = await runtimeScope.create(`change-audit-${name}`)
+  const root = runtime.paths.workspace
   await execFile('git', ['init', root], { env: { ...process.env, LC_ALL: 'C', LANG: 'C' } })
   await git(root, ['config', 'user.email', 'audit@example.test'])
   await git(root, ['config', 'user.name', 'Change Audit Test'])
@@ -35,8 +35,8 @@ async function createRepository(name: string): Promise<string> {
   return root
 }
 
-async function withGitUnavailable<T>(action: () => Promise<T>): Promise<T> {
-  const emptyPath = join(temporaryRoots[0]!, 'no-git-in-path')
+async function withGitUnavailable<T>(root: string, action: () => Promise<T>): Promise<T> {
+  const emptyPath = join(root, 'no-git-in-path')
   await mkdir(emptyPath, { recursive: true })
   const path = process.env.PATH
   const pathCase = process.env.Path
@@ -51,10 +51,6 @@ async function withGitUnavailable<T>(action: () => Promise<T>): Promise<T> {
     else process.env.Path = pathCase
   }
 }
-
-afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
-})
 
 describe('TeachingWorkspaceChangeAudit', () => {
   it('captures, persists, reloads, selects, and cleans up durable Git-backed audits', async () => {
@@ -144,8 +140,8 @@ describe('TeachingWorkspaceChangeAudit', () => {
   })
 
   it('keeps fallback summaries and error semantics when Git or history persistence is unavailable', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'studiumx-change-audit-fallback-'))
-    temporaryRoots.push(root)
+    const runtime = await runtimeScope.create('change-audit-fallback')
+    const root = runtime.paths.workspace
     const nonGitRoot = join(root, 'non-git')
     await mkdir(nonGitRoot)
     const audit = new TeachingWorkspaceChangeAudit({ historyFilePath: join(root, 'history.json') })
@@ -158,7 +154,7 @@ describe('TeachingWorkspaceChangeAudit', () => {
     expect(fallback).toMatchObject({ git: { available: false, reason: 'not_git_repo' } })
     expect((await audit.listSummaries('non-git')).map((entry) => entry.id)).toEqual([fallback!.id])
 
-    await withGitUnavailable(async () => {
+    await withGitUnavailable(root, async () => {
       const unavailable = await audit.capturePreMutation(nonGitRoot)
       expect(unavailable.git).toEqual({
         available: false,

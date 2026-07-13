@@ -1,10 +1,10 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { TeachingWorkspaceDocuments } from '../../src/main/teaching-workspace-documents'
+import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import {
@@ -13,15 +13,11 @@ import {
   PREVIEW_MARKDOWN_LINK_MESSAGE
 } from '../../src/shared/preview-markdown-bridge'
 
-const temporaryRoots: string[] = []
-
-afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
-})
+const runtimeScope = createVitestRuntimeScope()
 
 async function createDocumentWorkspace() {
-  const rootPath = await mkdtemp(join(tmpdir(), 'studiumx-documents-'))
-  temporaryRoots.push(rootPath)
+  const runtime = await runtimeScope.create('workspace-documents')
+  const rootPath = runtime.paths.workspace
   await mkdir(join(rootPath, 'courses', 'course-a', 'lesson-a'), { recursive: true })
   await mkdir(join(rootPath, 'lessons', 'legacy'), { recursive: true })
   await mkdir(join(rootPath, 'learning-records'), { recursive: true })

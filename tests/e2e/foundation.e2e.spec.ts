@@ -11,9 +11,9 @@ test('launches the built Electron app with isolated user data', async ({
     documents: app.getPath('documents')
   }))
 
-  expect(paths.userData).toContain(runtime.rootDir)
-  expect(paths.documents).toContain(runtime.homeDir)
-  expect(workspacePath).toContain(runtime.rootDir)
+  expect(paths.userData).toContain(runtime.paths.root)
+  expect(paths.documents).toContain(runtime.paths.home)
+  expect(workspacePath).toContain(runtime.paths.root)
   await expect(mainWindow).toHaveTitle('StudiumX')
   await expect(mainWindow.locator('#root')).not.toBeEmpty()
 })
