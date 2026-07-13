@@ -2,41 +2,34 @@ import { runAgentLoop, type AgentLoopEvent } from './agent-loop'
 import type { ChatMessage } from './provider-adapter'
 import type { TeachingModelProviderProfile, TeachingSettingsV1 } from '../../shared/teaching-types'
 import {
-  buildDefaultRegistry,
-  buildToolContext,
-  type ToolRuntimeChildRunRecord,
-  type ToolRuntimeEvent
-} from './tools/registry'
+  ChildRunStore,
+  ChildRunSupervisor,
+  type ChildRunExecutionResult,
+  type SupervisedChildRun
+} from './child-run-supervisor'
+import type { ToolRuntimeEvent } from './tools/registry'
+import { buildDefaultRegistry, buildToolContext } from './tools/registry'
 
-export type ChildAgentProfile = 'read_only' | 'research' | 'workspace_audit'
-export type ChildRunStatus = ToolRuntimeChildRunRecord['status']
-
-export type ChildRunInput = {
-  label: string
-  prompt: string
-  context?: string
-  profile?: ChildAgentProfile
-  maxIterations?: number
-  timeoutMs?: number
-}
+export {
+  ChildRunStore,
+  type ChildAgentProfile,
+  type ChildRunInput,
+  type ChildRunRecord,
+  type ChildRunResult,
+  type ChildRunStatus,
+  type ChildRunUsage
+} from './child-run-supervisor'
+import type {
+  ChildAgentProfile,
+  ChildRunInput,
+  ChildRunRecord,
+  ChildRunResult,
+  ChildRunUsage
+} from './child-run-supervisor'
 
 export type ParallelChildRunInput = {
   tasks: ChildRunInput[]
   concurrency?: number
-}
-
-export type ChildRunUsage = NonNullable<ToolRuntimeChildRunRecord['usage']>
-
-export type ChildRunResult = {
-  childRunId: string
-  label: string
-  profile: ChildAgentProfile
-  status: ChildRunStatus
-  summary: string
-  error?: string
-  citations?: Array<{ sourceId: string; url: string; title?: string }>
-  filesRead?: string[]
-  usage?: ChildRunUsage
 }
 
 export type ParallelChildRunResult = {
@@ -50,11 +43,6 @@ export type ParallelChildRunResult = {
   summary: string
   results: ChildRunResult[]
   usage?: ChildRunUsage
-}
-
-export type ChildRunRecord = ToolRuntimeChildRunRecord & {
-  prompt: string
-  parentStreamId?: string
 }
 
 export type DelegationRuntimeOptions = {
@@ -86,79 +74,25 @@ const WORKSPACE_READ_TOOL_NAMES = [
 
 const WEB_TOOL_NAMES = ['web_search', 'web_fetch'] as const
 
-export class ChildRunStore {
-  private readonly records = new Map<string, ChildRunRecord>()
-
-  create(input: {
-    id: string
-    label: string
-    profile: ChildAgentProfile
-    prompt: string
-    parentStreamId?: string
-  }): ChildRunRecord {
-    const now = new Date().toISOString()
-    const record: ChildRunRecord = {
-      id: input.id,
-      parentStreamId: input.parentStreamId,
-      label: input.label,
-      profile: input.profile,
-      status: 'queued',
-      prompt: input.prompt,
-      startedAt: now
-    }
-    this.records.set(record.id, record)
-    return record
-  }
-
-  update(id: string, patch: Partial<ChildRunRecord>): ChildRunRecord {
-    const current = this.records.get(id)
-    if (!current) throw new Error(`Unknown child run: ${id}`)
-    const next: ChildRunRecord = { ...current, ...patch }
-    this.records.set(id, next)
-    return next
-  }
-
-  get(id: string): ChildRunRecord | null {
-    return this.records.get(id) ?? null
-  }
-
-  list(parentStreamId?: string): ChildRunRecord[] {
-    const records = [...this.records.values()]
-    return parentStreamId ? records.filter((record) => record.parentStreamId === parentStreamId) : records
-  }
-}
-
+/**
+ * Caller-facing facade for child delegation. The supervisor owns child-run
+ * supervision; this facade retains the agent-loop invocation and tool-policy
+ * boundaries that determine what a child may execute.
+ */
 export class DelegationRuntime {
-  private readonly settings: TeachingSettingsV1
-  private readonly provider: TeachingModelProviderProfile
-  private readonly workspaceRoot?: string
-  private readonly parentStreamId?: string
-  private readonly signal?: AbortSignal
-  private readonly store: ChildRunStore
-  private nextRunNumber = 0
+  private readonly supervisor: ChildRunSupervisor
 
-  constructor(options: DelegationRuntimeOptions & { store?: ChildRunStore }) {
-    this.settings = options.settings
-    this.provider = options.provider
-    this.workspaceRoot = options.workspaceRoot
-    this.parentStreamId = options.parentStreamId
-    this.signal = options.signal
-    this.store = options.store ?? new ChildRunStore()
+  constructor(private readonly options: DelegationRuntimeOptions & { store?: ChildRunStore }) {
+    this.supervisor = new ChildRunSupervisor({
+      parentStreamId: options.parentStreamId,
+      signal: options.signal,
+      store: options.store,
+      execute: (input, lifecycle) => this.executeChild(input, lifecycle)
+    })
   }
 
   async runChild(input: ChildRunInput, options: DelegationRuntimeRunOptions = {}): Promise<ChildRunResult> {
-    const normalized = normalizeChildRunInput(input, this.settings.tools.maxIterations)
-    const emit = options.emit ?? (() => undefined)
-    const childRunId = this.createChildRunId()
-    const record = this.store.create({
-      id: childRunId,
-      label: normalized.label,
-      profile: normalized.profile,
-      prompt: normalized.prompt,
-      parentStreamId: this.parentStreamId
-    })
-    emit({ type: 'child_run_queued', child: toRuntimeRecord(record) })
-    return this.runQueuedChild(childRunId, normalized, options)
+    return this.supervisor.run(normalizeChildRunInput(input, this.options.settings.tools.maxIterations), options)
   }
 
   async runChildren(input: ParallelChildRunInput, options: DelegationRuntimeRunOptions = {}): Promise<ParallelChildRunResult> {
@@ -173,70 +107,57 @@ export class DelegationRuntime {
       Math.min(MAX_PARALLEL_CHILD_CONCURRENCY, tasks.length),
       Math.min(DEFAULT_PARALLEL_CHILD_CONCURRENCY, tasks.length)
     )
-    const queued = tasks.map((task) => {
-      const normalized = normalizeChildRunInput(task, this.settings.tools.maxIterations)
-      const childRunId = this.createChildRunId()
-      const record = this.store.create({
-        id: childRunId,
-        label: normalized.label,
-        profile: normalized.profile,
-        prompt: normalized.prompt,
-        parentStreamId: this.parentStreamId
-      })
-      options.emit?.({ type: 'child_run_queued', child: toRuntimeRecord(record) })
-      return { childRunId, normalized }
-    })
-
-    const results = await mapWithConcurrencyLimit(queued, concurrency, ({ childRunId, normalized }) =>
-      this.runQueuedChild(childRunId, normalized, options)
+    const results = await this.supervisor.runMany(
+      tasks.map((task) => normalizeChildRunInput(task, this.options.settings.tools.maxIterations)),
+      concurrency,
+      options
     )
     return buildParallelChildRunResult(results, concurrency)
   }
 
-  private async runQueuedChild(
-    childRunId: string,
-    normalized: Required<ChildRunInput> & { profile: ChildAgentProfile },
-    options: DelegationRuntimeRunOptions
-  ): Promise<ChildRunResult> {
-    const emit = options.emit ?? (() => undefined)
-    const emitRecord = (type: ToolRuntimeEvent['type'], child: ToolRuntimeChildRunRecord): void => {
-      if (type === 'child_run_delta') return
-      emit({ type, child } as ToolRuntimeEvent)
-    }
+  abortChild(childRunId: string): Promise<void> {
+    this.supervisor.abort(childRunId)
+    return Promise.resolve()
+  }
 
-    const running = this.store.update(childRunId, { status: 'running', startedAt: new Date().toISOString() })
-    emitRecord('child_run_started', toRuntimeRecord(running))
+  listRuns(parentStreamId?: string): ChildRunRecord[] {
+    return this.supervisor.list(parentStreamId)
+  }
 
+  diagnostics(): { runs: ChildRunRecord[] } {
+    return this.supervisor.diagnostics()
+  }
+
+  private async executeChild(
+    input: SupervisedChildRun,
+    lifecycle: { signal: AbortSignal; onDelta: (message: string) => void }
+  ): Promise<ChildRunExecutionResult> {
+    const registry = childRegistryForProfile({
+      settings: this.options.settings,
+      workspaceRoot: this.options.workspaceRoot,
+      profile: input.profile
+    })
+    const childEvents: AgentLoopEvent[] = []
     try {
-      const controllerSignal = withTimeoutSignal(this.signal, normalized.timeoutMs)
-      const registry = childRegistryForProfile({
-        settings: this.settings,
-        workspaceRoot: this.workspaceRoot,
-        profile: normalized.profile
-      })
-      const childEvents: AgentLoopEvent[] = []
       const result = await runAgentLoop({
-        settings: this.settings,
-        provider: this.provider,
-        messages: buildChildMessages(normalized),
+        settings: this.options.settings,
+        provider: this.options.provider,
+        messages: buildChildMessages(input),
         tools: registry.definitions(),
-        toolHandlers: registry.handlerMap(buildToolContext(this.settings, {
-          workspaceRoot: this.workspaceRoot,
-          signal: controllerSignal
+        toolHandlers: registry.handlerMap(buildToolContext(this.options.settings, {
+          workspaceRoot: this.options.workspaceRoot,
+          signal: lifecycle.signal
         })),
-        maxIterations: normalized.maxIterations,
+        maxIterations: input.maxIterations,
         maxIterationsBehavior: 'error',
-        signal: controllerSignal,
+        signal: lifecycle.signal,
         callbacks: {
           onEvent: (event) => {
             childEvents.push(event)
-            if (event.type === 'status') {
-              emit({ type: 'child_run_delta', childRunId, message: event.message ?? event.status })
-            }
+            if (event.type === 'status') lifecycle.onDelta(event.message ?? event.status)
           }
         }
       })
-
       const usage: ChildRunUsage = {
         providerCalls: result.usage.providerCalls,
         toolCalls: result.usage.toolCalls,
@@ -247,92 +168,40 @@ export class DelegationRuntime {
       const filesRead = extractFilesRead(result.messages)
       const citations = extractCitations(result.messages)
       if (result.stopReason === 'canceled') {
-        const summary = '子任务已取消或超时。'
-        const canceled = this.store.update(childRunId, {
-          status: 'canceled',
-          summary,
-          usage,
-          completedAt: new Date().toISOString()
-        })
-        emitRecord('child_run_canceled', toRuntimeRecord(canceled))
-        return { childRunId, label: normalized.label, profile: normalized.profile, status: 'canceled', summary, filesRead, citations, usage }
+        return { status: 'canceled', summary: '子任务已取消或超时。', filesRead, citations, usage }
       }
       if (result.error) {
         const childError = latestChildToolError(childEvents) ?? result.error
-        const failed = this.store.update(childRunId, {
+        return {
           status: 'failed',
           summary: `子任务失败：${childError}`,
-          error: childError,
-          usage,
-          completedAt: new Date().toISOString()
-        })
-        emitRecord('child_run_failed', toRuntimeRecord(failed))
-        return {
-          childRunId,
-          label: normalized.label,
-          profile: normalized.profile,
-          status: 'failed',
-          summary: failed.summary ?? '',
           error: childError,
           filesRead,
           citations,
           usage
         }
       }
-
-      const summary = result.finalText.trim() || '子任务完成，但没有返回摘要。'
-      const completed = this.store.update(childRunId, {
+      return {
         status: 'completed',
-        summary,
-        usage,
-        completedAt: new Date().toISOString()
-      })
-      emitRecord('child_run_completed', toRuntimeRecord(completed))
-      return { childRunId, label: normalized.label, profile: normalized.profile, status: 'completed', summary, filesRead, citations, usage }
+        summary: result.finalText.trim() || '子任务完成，但没有返回摘要。',
+        filesRead,
+        citations,
+        usage
+      }
     } catch (error) {
+      if (lifecycle.signal.aborted) {
+        return { status: 'canceled', summary: '子任务已取消或超时。', usage: { toolCalls: 0 } }
+      }
       const message = error instanceof Error ? error.message : String(error)
-      const failed = this.store.update(childRunId, {
+      return {
         status: 'failed',
         summary: `子任务失败：${message}`,
         error: message,
-        completedAt: new Date().toISOString(),
         usage: { toolCalls: 0 }
-      })
-      emitRecord('child_run_failed', toRuntimeRecord(failed))
-      return {
-        childRunId,
-        label: normalized.label,
-        profile: normalized.profile,
-        status: 'failed',
-        summary: failed.summary ?? '',
-        error: message,
-        usage: failed.usage
       }
     }
   }
-
-  abortChild(childRunId: string): Promise<void> {
-    const current = this.store.get(childRunId)
-    if (current && current.status !== 'completed' && current.status !== 'failed' && current.status !== 'canceled') {
-      this.store.update(childRunId, { status: 'canceled', completedAt: new Date().toISOString() })
-    }
-    return Promise.resolve()
-  }
-
-  listRuns(parentStreamId?: string): ChildRunRecord[] {
-    return this.store.list(parentStreamId)
-  }
-
-  diagnostics(): { runs: ChildRunRecord[] } {
-    return { runs: this.store.list() }
-  }
-
-  private createChildRunId(): string {
-    this.nextRunNumber += 1
-    return `child-${Date.now().toString(36)}-${this.nextRunNumber.toString(36)}`
-  }
 }
-
 export function childRegistryForProfile(options: {
   settings: TeachingSettingsV1
   workspaceRoot?: string
@@ -403,11 +272,6 @@ function buildChildMessages(input: Required<ChildRunInput> & { profile: ChildAge
   ]
 }
 
-function withTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
-  const timeoutSignal = AbortSignal.timeout(timeoutMs)
-  return parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal
-}
-
 function buildParallelChildRunResult(results: ChildRunResult[], concurrency: number): ParallelChildRunResult {
   const completed = results.filter((result) => result.status === 'completed').length
   const failed = results.filter((result) => result.status === 'failed').length
@@ -441,26 +305,6 @@ function buildParallelChildRunResult(results: ChildRunResult[], concurrency: num
     results,
     usage: aggregateChildUsage(results)
   }
-}
-
-async function mapWithConcurrencyLimit<TIn, TOut>(
-  items: TIn[],
-  concurrency: number,
-  worker: (item: TIn, index: number) => Promise<TOut>
-): Promise<TOut[]> {
-  const limit = Math.max(1, Math.min(concurrency, items.length))
-  const results = new Array<TOut>(items.length)
-  let nextIndex = 0
-  await Promise.all(
-    new Array(limit).fill(null).map(async () => {
-      while (nextIndex < items.length) {
-        const index = nextIndex
-        nextIndex += 1
-        results[index] = await worker(items[index], index)
-      }
-    })
-  )
-  return results
 }
 
 function aggregateChildUsage(results: ChildRunResult[]): ChildRunUsage {
@@ -546,20 +390,6 @@ function collectCitations(value: unknown, out: Map<string, { sourceId: string; u
     })
   }
   for (const nested of Object.values(record)) collectCitations(nested, out)
-}
-
-function toRuntimeRecord(record: ChildRunRecord): ToolRuntimeChildRunRecord {
-  return {
-    id: record.id,
-    label: record.label,
-    profile: record.profile,
-    status: record.status,
-    summary: record.summary,
-    error: record.error,
-    startedAt: record.startedAt,
-    completedAt: record.completedAt,
-    usage: record.usage
-  }
 }
 
 function cleanText(value: unknown): string {

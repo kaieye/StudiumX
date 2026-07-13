@@ -10,7 +10,7 @@ import type { AgentLoopEvent } from '../../src/main/ai/agent-loop'
 import type { ToolCall } from '../../src/main/ai/provider-adapter'
 import { buildDefaultRegistry, buildToolContext } from '../../src/main/ai/tools/registry'
 import { createDelegationToolEntries } from '../../src/main/ai/tools/delegation'
-import { childRegistryForProfile } from '../../src/main/ai/delegation-runtime'
+import { DelegationRuntime, childRegistryForProfile } from '../../src/main/ai/delegation-runtime'
 
 type RecordedRequest = {
   phase: 'parent' | 'child'
@@ -22,7 +22,8 @@ type RecordedRequest = {
 }
 
 const requests: RecordedRequest[] = []
-let scenario: 'success' | 'child-error' | 'parallel' = 'success'
+let scenario: 'success' | 'child-error' | 'parallel' | 'slow' = 'success'
+let resolveSlowChildRequest: (() => void) | undefined
 
 const makeToolCall = (id: string, name: string, args: unknown): ToolCall => ({
   id,
@@ -101,6 +102,13 @@ const server = createServer(async (req, res) => {
 
   if (scenario === 'child-error') {
     reply({ role: 'assistant', content: null, tool_calls: [makeToolCall('call-denied-write', 'write_workspace_file', { path: 'NOTES.md', content: 'bad' })] })
+    return
+  }
+
+  if (scenario === 'slow') {
+    resolveSlowChildRequest?.()
+    await new Promise((resolve) => setTimeout(resolve, 1_500))
+    if (!res.destroyed) reply({ role: 'assistant', content: 'This response should be aborted before it completes.' })
     return
   }
 
@@ -278,6 +286,49 @@ try {
     parallel.events.some((event) => event.type === 'tool_call' && event.toolCall.function.name === 'read_workspace_file'),
     false,
     'parallel child tool calls should not be emitted as parent tool calls'
+  )
+
+  scenario = 'slow'
+  requests.length = 0
+  let childRunId = ''
+  const cancellationEvents: string[] = []
+  const slowRequestStarted = new Promise<void>((resolve) => {
+    resolveSlowChildRequest = resolve
+  })
+  const runtime = new DelegationRuntime({
+    settings,
+    provider,
+    workspaceRoot: tempRoot,
+    parentStreamId: 'abort-fixture'
+  })
+  const cancellationRun = runtime.runChild(
+    {
+      label: 'cancel active child',
+      prompt: 'Wait for the provider response.',
+      profile: 'workspace_audit',
+      timeoutMs: 5_000
+    },
+    {
+      emit: (event) => {
+        cancellationEvents.push(event.type)
+        if (event.type === 'child_run_started') childRunId = event.child.id
+      }
+    }
+  )
+  await slowRequestStarted
+  assert.ok(childRunId, 'the child must be running before it can be aborted')
+  await runtime.abortChild(childRunId)
+  const canceled = await Promise.race([
+    cancellationRun,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('abortChild did not abort the active child loop')), 750))
+  ])
+  assert.equal(canceled.status, 'canceled')
+  assert.equal(runtime.listRuns('abort-fixture')[0]?.status, 'canceled')
+  assert.ok(cancellationEvents.indexOf('child_run_queued') < cancellationEvents.indexOf('child_run_started'))
+  assert.ok(cancellationEvents.indexOf('child_run_started') < cancellationEvents.indexOf('child_run_canceled'))
+  assert.deepEqual(
+    cancellationEvents.filter((type) => type === 'child_run_completed' || type === 'child_run_failed' || type === 'child_run_canceled'),
+    ['child_run_canceled']
   )
 
   console.log('agent delegation runtime ok')
