@@ -1,8 +1,14 @@
-import { lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
-import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { lstat, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { extname, join, relative } from 'node:path'
 import type { Dirent } from 'node:fs'
 import type { ToolEntry, ToolContext } from './registry'
-import { isPathInsideRoot } from '../../path-access'
+import {
+  prepareWorkspaceWriteTarget,
+  resolveWorkspacePathTarget,
+  toPosixWorkspacePath,
+  verifyExistingWorkspaceTarget,
+  verifyWrittenWorkspaceTarget
+} from './workspace-path-target'
 
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_READ_CHARS = 24_000
@@ -85,41 +91,6 @@ const SENSITIVE_FILE_NAMES = new Set([
   'id_ed25519'
 ])
 
-type ResolvedWorkspacePath = {
-  root: string
-  absolutePath: string
-  relativePath: string
-}
-
-function requireWorkspaceRoot(ctx: ToolContext): string {
-  const root = ctx.workspaceRoot?.trim()
-  if (!root) throw new Error('当前没有绑定教学工作区，无法读取工作区文件。')
-  return resolve(root)
-}
-
-function resolveWorkspacePath(ctx: ToolContext, rawPath: unknown, fallback = '.'): ResolvedWorkspacePath {
-  const root = requireWorkspaceRoot(ctx)
-  const input = typeof rawPath === 'string' && rawPath.trim() ? rawPath.trim() : fallback
-  if (isAbsolute(input)) throw new Error('请使用相对工作区路径，不允许传入绝对路径。')
-  const absolutePath = resolve(root, input)
-  if (!isPathInsideRoot(root, absolutePath)) {
-    throw new Error('路径超出当前教学工作区。')
-  }
-  const relativePath = toPosixPath(relative(root, absolutePath)) || '.'
-  return { root, absolutePath, relativePath }
-}
-
-async function assertRealPathInside(rootPath: string, targetPath: string): Promise<void> {
-  const [realRoot, realTarget] = await Promise.all([realpath(rootPath), realpath(targetPath)])
-  if (!isPathInsideRoot(realRoot, realTarget)) {
-    throw new Error('路径经过符号链接后超出当前教学工作区。')
-  }
-}
-
-function toPosixPath(value: string): string {
-  return value.replace(/\\/g, '/')
-}
-
 function clampInteger(value: unknown, min: number, max: number, fallback: number): number {
   const parsed = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(parsed)) return fallback
@@ -154,7 +125,7 @@ function isSensitiveFileName(name: string): boolean {
 
 function isProtectedWorkspaceRelativePath(relativePath: string): boolean {
   if (!relativePath || relativePath === '.') return false
-  const parts = toPosixPath(relativePath)
+  const parts = toPosixWorkspacePath(relativePath)
     .split('/')
     .filter(Boolean)
   if (parts.some((part) => shouldSkipDir(part))) return true
@@ -169,7 +140,7 @@ function isProtectedWorkspaceRelativePath(relativePath: string): boolean {
  * providers' tool-call serialization.
  */
 function isLessonHtmlRelativePath(relativePath: string): boolean {
-  const posix = toPosixPath(relativePath).replace(/^\.\//, '').toLowerCase()
+  const posix = toPosixWorkspacePath(relativePath).replace(/^\.\//, '').toLowerCase()
   return posix.startsWith('lessons/') && /\.html?$/.test(posix)
 }
 
@@ -246,7 +217,7 @@ async function listDirectory(path: string, root: string, recursive: boolean): Pr
     for (const entry of dirents) {
       if (entries.length >= MAX_LIST_ENTRIES) return
       const absolute = join(current, entry.name)
-      const rel = toPosixPath(relative(root, absolute))
+      const rel = toPosixWorkspacePath(relative(root, absolute))
       if (isProtectedWorkspaceRelativePath(rel)) continue
       if (entry.isDirectory()) {
         entries.push({ path: `${rel}/`, kind: 'directory' })
@@ -273,7 +244,7 @@ async function walkFiles(root: string, start: string, onFile: (absolutePath: str
     dirents.sort((a, b) => a.name.localeCompare(b.name))
     for (const entry of dirents) {
       const absolute = join(current, entry.name)
-      const rel = toPosixPath(relative(root, absolute))
+      const rel = toPosixWorkspacePath(relative(root, absolute))
       if (entry.isDirectory()) {
         if (shouldSkipDir(entry.name)) continue
         if (await visit(absolute)) return true
@@ -289,7 +260,7 @@ async function walkFiles(root: string, start: string, onFile: (absolutePath: str
 
 function wildcardToRegExp(pattern: string): RegExp {
   let out = '^'
-  const normalized = toPosixPath(pattern).replace(/^\.\/+/, '')
+  const normalized = toPosixWorkspacePath(pattern).replace(/^\.\/+/, '')
   for (let i = 0; i < normalized.length; i++) {
     const ch = normalized[i]
     const next = normalized[i + 1]
@@ -314,7 +285,7 @@ function wildcardToRegExp(pattern: string): RegExp {
 }
 
 function normalizeGlobPattern(pattern: string): string {
-  const raw = toPosixPath(pattern.trim()).replace(/^\.\/+/, '')
+  const raw = toPosixWorkspacePath(pattern.trim()).replace(/^\.\/+/, '')
   if (!raw) return '**/*'
   return raw.includes('/') ? raw : `**/${raw}`
 }
@@ -347,11 +318,11 @@ export const listWorkspaceTool: ToolEntry = {
   handler: async (args: unknown, ctx: ToolContext): Promise<string> => {
     try {
       const input = (args ?? {}) as { path?: string; recursive?: boolean }
-      const target = resolveWorkspacePath(ctx, input.path)
+      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
       if (isProtectedWorkspaceRelativePath(target.relativePath)) {
         throw new Error('该路径属于隐藏、构建或敏感文件范围，已拒绝读取。')
       }
-      await assertRealPathInside(target.root, target.absolutePath)
+      await verifyExistingWorkspaceTarget(target)
       const info = await stat(target.absolutePath)
       if (!info.isDirectory()) throw new Error('目标不是目录。')
       const entries = await listDirectory(target.absolutePath, target.root, input.recursive === true)
@@ -390,11 +361,11 @@ export const readWorkspaceFileTool: ToolEntry = {
     try {
       const input = (args ?? {}) as { path?: string; offset?: number; limit?: number }
       if (!input.path?.trim()) throw new Error('缺少参数 path。')
-      const target = resolveWorkspacePath(ctx, input.path)
+      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
       if (isProtectedWorkspaceRelativePath(target.relativePath)) {
         throw new Error('该路径属于隐藏、构建或敏感文件范围，已拒绝读取。')
       }
-      await assertRealPathInside(target.root, target.absolutePath)
+      await verifyExistingWorkspaceTarget(target)
       const text = await readTextFile(target.absolutePath)
       const offset = clampInteger(input.offset, 0, Number.MAX_SAFE_INTEGER, 0)
       const limit = clampInteger(input.limit, 1, MAX_READ_LIMIT, DEFAULT_READ_LIMIT)
@@ -438,7 +409,7 @@ export const writeWorkspaceFileTool: ToolEntry = {
     describe: async (args: unknown, ctx: ToolContext) => {
       const input = (args ?? {}) as { path?: string; overwrite?: boolean }
       if (!input.path?.trim()) throw new Error('缺少参数 path。')
-      const target = resolveWorkspacePath(ctx, input.path)
+      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
       const existing = await lstatIfExists(target.absolutePath)
       return {
         operation: existing ? '覆盖工作区文件' : '创建工作区文件',
@@ -455,7 +426,7 @@ export const writeWorkspaceFileTool: ToolEntry = {
       const input = (args ?? {}) as { path?: string; content?: unknown; overwrite?: boolean }
       if (!input.path?.trim()) throw new Error('缺少参数 path。')
       if (typeof input.content !== 'string') throw new Error('缺少参数 content，且必须是字符串。')
-      const target = resolveWorkspacePath(ctx, input.path)
+      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
       if (isProtectedWorkspaceRelativePath(target.relativePath)) {
         throw new Error('该路径属于隐藏、构建或敏感文件范围，已拒绝写入。')
       }
@@ -472,30 +443,20 @@ export const writeWorkspaceFileTool: ToolEntry = {
         throw new Error(`写入内容过大（${bytes} bytes），已超过 ${MAX_WRITE_BYTES} bytes 上限。`)
       }
 
-      const linkInfo = await lstatIfExists(target.absolutePath)
-      if (linkInfo?.isSymbolicLink()) {
-        throw new Error('目标路径是符号链接，拒绝写入。')
+      const existing = await prepareWorkspaceWriteTarget(target)
+      if (existing.kind === 'directory') throw new Error('目标路径是目录，不能写入为文件。')
+      if (existing.kind === 'file' && input.overwrite !== true) {
+        throw new Error('文件已存在；如需覆盖请传 overwrite: true。')
       }
 
-      const existing = await stat(target.absolutePath).catch(() => null)
-      if (existing?.isDirectory()) throw new Error('目标路径是目录，不能写入为文件。')
-      if (existing?.isFile()) {
-        await assertRealPathInside(target.root, target.absolutePath)
-        if (input.overwrite !== true) {
-          throw new Error('文件已存在；如需覆盖请传 overwrite: true。')
-        }
-      }
-
-      await mkdir(dirname(target.absolutePath), { recursive: true })
-      await assertRealPathInside(target.root, dirname(target.absolutePath))
       await writeFile(target.absolutePath, input.content, 'utf8')
-      await assertRealPathInside(target.root, target.absolutePath)
+      await verifyWrittenWorkspaceTarget(target)
 
       return jsonResult({
         path: target.relativePath,
         bytes,
-        created: existing === null,
-        overwritten: existing?.isFile() === true,
+        created: existing.exists === false,
+        overwritten: existing.kind === 'file',
         message: `已写入 ${target.relativePath}`
       })
     } catch (error) {
@@ -526,17 +487,17 @@ export const searchWorkspaceTool: ToolEntry = {
     try {
       const input = (args ?? {}) as { pattern?: string; path?: string; regex?: boolean }
       if (!input.pattern?.trim()) throw new Error('缺少参数 pattern。')
-      const target = resolveWorkspacePath(ctx, input.path)
+      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
       if (isProtectedWorkspaceRelativePath(target.relativePath)) {
         throw new Error('该路径属于隐藏、构建或敏感文件范围，已拒绝搜索。')
       }
-      await assertRealPathInside(target.root, target.absolutePath)
+      await verifyExistingWorkspaceTarget(target)
       const re = compileSearchPattern(input.pattern, input.regex === true)
       const matches: Array<{ path: string; line: number; text: string }> = []
       const searchFile = async (absolutePath: string, relativePath: string): Promise<boolean> => {
         if (!isLikelyTextPath(relativePath)) return false
         if (isProtectedWorkspaceRelativePath(relativePath)) return false
-        const allowed = await assertRealPathInside(target.root, absolutePath)
+        const allowed = await verifyExistingWorkspaceTarget({ ...target, absolutePath, relativePath })
           .then(() => true)
           .catch(() => false)
         if (!allowed) return false
@@ -595,7 +556,7 @@ export const globWorkspaceTool: ToolEntry = {
     try {
       const input = (args ?? {}) as { pattern?: string }
       if (!input.pattern?.trim()) throw new Error('缺少参数 pattern。')
-      const root = await realpath(requireWorkspaceRoot(ctx))
+      const root = await realpath(resolveWorkspacePathTarget(ctx.workspaceRoot, '.').root)
       const pattern = normalizeGlobPattern(input.pattern)
       const re = wildcardToRegExp(pattern)
       const matches: string[] = []
