@@ -9,14 +9,11 @@ import {
   callProvider,
   toolsSupportedForFormat
 } from './provider-adapter'
-import { ContextEstimator, type TokenEstimate } from './context-estimator'
-import { applyRequestHistoryHygiene } from './request-history-hygiene'
 import {
-  ContextCompactor,
-  inferContextWindowTokens,
-  type ContextCompactionEvent,
-  type ContextCompactionOptions
-} from './context-compactor'
+  RequestContextProjector,
+  type ContextCompactionOptions,
+  type RequestContextProjectionTrace
+} from './request-context-projection'
 import type { ToolHandlerMap, ToolRuntimeEvent } from './tools/registry'
 import { executeToolCall } from './tools/execution'
 import type {
@@ -45,9 +42,7 @@ export type AgentLoopEvent =
   | { type: 'assistant_message'; message: ChatMessage }
   | { type: 'tool_call'; toolCall: ToolCall }
   | { type: 'tool_result'; toolCallId: string; name: string; result: string; isError: boolean }
-  | { type: 'context_estimated'; estimate: TokenEstimate }
-  | { type: 'context_hygiene_applied'; changed: boolean; savedTokens: number; compactedToolResults: number; digestedToolResults: number; compactedToolCallArgs: number }
-  | ContextCompactionEvent
+  | RequestContextProjectionTrace
   | { type: 'token'; delta: string }
   | ToolRuntimeEvent
 
@@ -105,25 +100,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
   const hasIterationLimit = maxIter > 0
   const transcript: ChatMessage[] = [...opts.messages]
   const emit = (event: AgentLoopEvent): void => execution.emit(event)
-  const estimator = new ContextEstimator()
-  const compactor = new ContextCompactor({
-    estimator,
-    enabled: opts.contextCompaction?.enabled ?? true,
-    contextWindowTokens:
-      opts.contextCompaction?.contextWindowTokens ?? inferContextWindowTokens(opts.settings.generator.model, opts.provider),
-    softThresholdTokens: opts.contextCompaction?.softThresholdTokens,
-    hardThresholdTokens: opts.contextCompaction?.hardThresholdTokens,
-    softThresholdRatio: opts.contextCompaction?.softThresholdRatio,
-    hardThresholdRatio: opts.contextCompaction?.hardThresholdRatio,
-    normalTailRatio: opts.contextCompaction?.normalTailRatio,
-    aggressiveTailRatio: opts.contextCompaction?.aggressiveTailRatio,
-    minTailMessages: opts.contextCompaction?.minTailMessages,
-    minMessagesToCompact: opts.contextCompaction?.minMessagesToCompact,
-    summaryInputTokenLimit: opts.contextCompaction?.summaryInputTokenLimit,
-    maxSummaryTokens: opts.contextCompaction?.maxSummaryTokens,
-    failureCooldownMs: opts.contextCompaction?.failureCooldownMs,
-    force: opts.contextCompaction?.force,
-    now: opts.contextCompaction?.now,
+  const requestContext = new RequestContextProjector({
+    modelId: opts.settings.generator.model,
+    provider: opts.provider,
+    compaction: opts.contextCompaction,
+    onTrace: emit,
     summarize: async (request) => {
       const summarySettings: TeachingSettingsV1 = {
         ...opts.settings,
@@ -166,24 +147,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     }
   })
   const prepareMessagesForProvider = async (messages: ChatMessage[], tools: ToolDefinition[]): Promise<ChatMessage[]> => {
-    const hygiene = applyRequestHistoryHygiene(messages, {}, estimator)
-    const estimate = estimator.estimateRequest(hygiene.messages, { tools })
-    emit({
-      type: 'context_hygiene_applied',
-      changed: hygiene.changed,
-      savedTokens: hygiene.savedTokens,
-      compactedToolResults: hygiene.stats.compactedToolResults,
-      digestedToolResults: hygiene.stats.digestedToolResults,
-      compactedToolCallArgs: hygiene.stats.compactedToolCallArgs
-    })
-    const compaction = await compactor.compactIfNeeded({
-      messages: hygiene.messages,
-      tools,
-      estimate
-    })
-    for (const event of compaction.events) emit(event)
-    emit({ type: 'context_estimated', estimate: compaction.estimateAfter })
-    return compaction.messages
+    return (await requestContext.project(messages, tools)).messages
   }
   let degradedReason: string | undefined
   let iterations = 0

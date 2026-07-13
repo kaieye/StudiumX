@@ -27,6 +27,15 @@ export type RequestHistoryHygieneResult = {
   stats: RequestHistoryHygieneStats
 }
 
+export type RequestHistoryHygieneDiagnostic = {
+  type: 'context_hygiene_applied'
+  changed: boolean
+  savedTokens: number
+  compactedToolResults: number
+  digestedToolResults: number
+  compactedToolCallArgs: number
+}
+
 type HygieneLimits = Required<RequestHistoryHygieneOptions>
 type CompactResult<T> = { value: T; changed: boolean }
 
@@ -110,6 +119,20 @@ export function applyRequestHistoryHygiene(
     afterMessageTokens,
     savedTokens: Math.max(0, beforeMessageTokens - afterMessageTokens),
     stats
+  }
+}
+
+
+export function requestHistoryHygieneDiagnostic(
+  result: RequestHistoryHygieneResult
+): RequestHistoryHygieneDiagnostic {
+  return {
+    type: 'context_hygiene_applied',
+    changed: result.changed,
+    savedTokens: result.savedTokens,
+    compactedToolResults: result.stats.compactedToolResults,
+    digestedToolResults: result.stats.digestedToolResults,
+    compactedToolCallArgs: result.stats.compactedToolCallArgs
   }
 }
 

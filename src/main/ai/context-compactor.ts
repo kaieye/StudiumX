@@ -71,7 +71,8 @@ export type ContextCompactionResult = {
   changed: boolean
   estimateBefore: TokenEstimate
   estimateAfter: TokenEstimate
-  events: ContextCompactionEvent[]
+  /** Ordered lifecycle trace for this compaction attempt. */
+  events: readonly ContextCompactionEvent[]
 }
 
 export type ContextCompactorSummarizer = (request: ContextCompactionSummaryRequest) => Promise<string>

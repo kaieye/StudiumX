@@ -200,7 +200,11 @@ try {
   )
   assert.ok(changedHygiene, 'loop should emit a hygiene diagnostic when a request projection changes')
   assert.ok(changedHygiene.savedTokens > 0)
-  assert.ok(events.some((event) => event.type === 'context_estimated' && event.estimate.totalTokens > 0))
+  const hygieneTraceIndex = events.indexOf(changedHygiene)
+  const estimateTraceIndex = events.findIndex(
+    (event, index) => index > hygieneTraceIndex && event.type === 'context_estimated' && event.estimate.totalTokens > 0
+  )
+  assert.ok(estimateTraceIndex > hygieneTraceIndex, 'request projection should emit hygiene before its estimate')
 
   console.log('agent loop context hygiene ok')
 } finally {

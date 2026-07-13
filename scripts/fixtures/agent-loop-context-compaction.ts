@@ -224,6 +224,7 @@ try {
     Number(completed.replacedTokens) > Number(completed.summaryTokens),
     'completed event should report a summary smaller than the replaced history'
   )
+  assertProjectionTraceOrder(success.events, started, completed)
 
   const failure = await runScenario('summary-failure')
   assert.equal(failure.result.stopReason, 'final_answer')
@@ -260,11 +261,27 @@ try {
   const failed = requireEvent(failure.events, 'context_compaction_failed')
   assert.equal(typeof failed.error, 'string')
   assert.match(String(failed.error), /summary failure|Provider/i)
+  assertProjectionTraceOrder(failure.events, requireEvent(failure.events, 'context_compaction_started'), failed)
 
   console.log('agent loop context compaction scaffold ok')
 } finally {
   await close(server).catch(() => {})
   if (tempRoot) await rm(tempRoot, { recursive: true, force: true })
+}
+
+
+function assertProjectionTraceOrder(
+  events: Array<Record<string, unknown>>,
+  compactionStarted: Record<string, unknown>,
+  compactionTerminal: Record<string, unknown>
+): void {
+  const hygieneIndex = events.findIndex((event) => event.type === 'context_hygiene_applied')
+  const startedIndex = events.indexOf(compactionStarted)
+  const terminalIndex = events.indexOf(compactionTerminal)
+  const estimateIndex = events.findIndex((event, index) => index > terminalIndex && event.type === 'context_estimated')
+  assert.ok(hygieneIndex >= 0 && hygieneIndex < startedIndex, 'projection should emit hygiene before compaction')
+  assert.ok(startedIndex < terminalIndex, 'compaction lifecycle events should keep their order')
+  assert.ok(terminalIndex < estimateIndex, 'projection should emit the final estimate after compaction')
 }
 
 function buildLongHistory(): ChatMessage[] {
