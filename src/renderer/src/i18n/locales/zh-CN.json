@@ -229,8 +229,8 @@
       "stylesDetail": "{{count}} 套课程页面风格，当前使用 {{style}}。",
       "skillsMeta": "Agent 技能",
       "skillsDetail": "{{count}} 个可用技能，已有 {{installed}} 个安装到个人技能目录。",
-      "petsMeta": "状态宠物",
-      "petsDetail": "让宠物响应生成、等待确认、失败与完成状态，并停留在应用界面上。",
+      "petsMeta": "Boba 状态宠物",
+      "petsDetail": "让 Boba 响应生成、等待确认、失败与完成状态，并停留在应用界面上。",
       "open": "打开",
       "back": "返回资源",
       "noResults": "没有匹配的资源"
@@ -262,7 +262,7 @@
     },
     "pets": {
       "title": "宠物",
-      "defaultName": "小搭档",
+      "defaultName": "Boba",
       "enabled": "已启用",
       "disabled": "未启用",
       "previewAria": "预览宠物 {{name}}",
@@ -273,18 +273,13 @@
       "nameLabel": "宠物名称",
       "bubbleLabel": "显示状态气泡",
       "bubbleDetail": "在任务运行、等待处理或完成时展示简短说明。",
-      "appearanceTitle": "更换宠物",
-      "appearanceDetail": "选择不同角色，页面预览和悬浮宠物会同步更新。",
+      "appearanceTitle": "当前宠物",
+      "appearanceDetail": "目前只提供 Boba，页面预览、悬浮宠物和自习室会使用同一套动画图集。",
       "appearances": {
-        "robot": "机灵机器人",
-        "cat": "墨团学生",
-        "owl": "书博士",
-        "sprout": "芽芽",
-        "fox": "小橘探险家",
-        "penguin": "团子信使"
+        "boba": "Boba"
       },
       "implementationTitle": "实现方式",
-      "implementationDetail": "使用六个不同轮廓、道具与动作细节的原创像素角色；每个角色都有 8 帧状态图集，生成与 Agent 会话驱动状态。开启“减少动态效果”时固定显示首帧。",
+      "implementationDetail": "按照本机 Codex 的自定义宠物方式加载 Boba：从 pet.json 读取描述，并将 spritesheet.webp 作为 8 列 × 9 行的 v1 动画图集渲染。生成与 Agent 会话驱动状态；开启“减少动态效果”时固定显示首帧。",
       "hide": "隐藏宠物",
       "close": "关闭宠物",
       "overlayAria": "宠物 {{name}}，拖动可移动，点击可查看状态，右键可关闭",

@@ -3,12 +3,6 @@ import type { CSSProperties } from 'react'
 import { formatStudyDuration } from '../../study-space/domain'
 import type { StudySnapshot, StudyTimerMode } from '../../study-space/types'
 
-const timerPresets = [
-  [25, 5],
-  [50, 10],
-  [90, 15]
-] as const
-
 type WorkbenchPomodoroProps = {
   snapshot: StudySnapshot
   timerProgress: number
@@ -16,7 +10,6 @@ type WorkbenchPomodoroProps = {
   onToggleTimer: () => void
   onResetTimer: () => void
   onSwitchTimerMode: (timerMode: StudyTimerMode) => void
-  onUpdateTimerPreset: (focusMinutes: number, breakMinutes: number) => void
   onToggleAmbientEnabled: () => void
 }
 
@@ -27,7 +20,6 @@ export function WorkbenchPomodoro({
   onToggleTimer,
   onResetTimer,
   onSwitchTimerMode,
-  onUpdateTimerPreset,
   onToggleAmbientEnabled
 }: WorkbenchPomodoroProps) {
   const progressStyle = { '--timer-progress': `${timerProgress}%` } as CSSProperties
@@ -84,20 +76,6 @@ export function WorkbenchPomodoro({
         >
           {snapshot.ambientEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
         </button>
-      </div>
-
-      <div className="workbench-pomodoro-presets" aria-label="常用时长">
-        {timerPresets.map(([focus, rest]) => (
-          <button
-            key={focus}
-            type="button"
-            className={snapshot.focusMinutes === focus && snapshot.breakMinutes === rest ? 'is-active' : ''}
-            disabled={snapshot.timerState === 'running'}
-            onClick={() => onUpdateTimerPreset(focus, rest)}
-          >
-            {focus}/{rest}
-          </button>
-        ))}
       </div>
     </section>
   )

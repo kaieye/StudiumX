@@ -42,7 +42,8 @@
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: var(--app-shell-main-bg);
+  /* Flat study-room surface: the same light grey in both light and dark themes. */
+  background: #f5f5f5;
   box-shadow: none;
 }
 
@@ -2147,6 +2148,20 @@
   --liquid-glass-edge: color-mix(in srgb, #ffffff 74%, transparent);
   --liquid-glass-depth: color-mix(in srgb, var(--text) 15%, transparent);
   --liquid-glass-accent: color-mix(in srgb, var(--accent) 22%, transparent);
+  /* Real Liquid Glass: a genuinely translucent tint so the stage aurora
+     refracts through the blur. Rim catches ambient light; sheen stands in
+     for specular reflection. No painted-on stripes. */
+  --liquid-glass-fill: rgba(255, 255, 255, 0.14);
+  --liquid-glass-fill-strong: rgba(255, 255, 255, 0.2);
+  --liquid-glass-rim: rgba(255, 255, 255, 0.7);
+  --liquid-glass-rim-soft: rgba(255, 255, 255, 0.4);
+  --liquid-glass-control-fill: rgba(255, 255, 255, 0.2);
+  --liquid-glass-control-line: rgba(255, 255, 255, 0.34);
+  --liquid-glass-sheen: radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.6), transparent 56%);
+  --liquid-glass-shadow:
+    0 24px 70px rgba(20, 47, 95, 0.16),
+    0 7px 24px rgba(20, 47, 95, 0.08);
+  --liquid-glass-blur: blur(30px) saturate(180%);
 }
 
 .workbench-tools {
@@ -2168,19 +2183,14 @@
 .workbench-leaderboard-panel,
 .workbench-space-join {
   isolation: isolate;
-  border-color: var(--liquid-glass-line);
-  background:
-    linear-gradient(145deg, color-mix(in srgb, #ffffff 46%, transparent), transparent 34%),
-    linear-gradient(315deg, color-mix(in srgb, var(--surface-solid) 18%, transparent), transparent 48%),
-    var(--liquid-glass-tint);
+  border: 1px solid var(--liquid-glass-line, rgba(255, 255, 255, 0.5));
+  background: var(--liquid-glass-fill, rgba(255, 255, 255, 0.14));
   box-shadow:
-    0 24px 70px var(--liquid-glass-depth),
-    0 7px 24px color-mix(in srgb, var(--text) 8%, transparent),
-    inset 0 1px 0 var(--liquid-glass-edge),
-    inset 1px 0 0 color-mix(in srgb, #ffffff 36%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text) 10%, transparent);
-  backdrop-filter: blur(46px) saturate(230%) contrast(1.12) brightness(1.04);
-  -webkit-backdrop-filter: blur(46px) saturate(230%) contrast(1.12) brightness(1.04);
+    var(--liquid-glass-shadow, 0 24px 70px rgba(20, 47, 95, 0.16), 0 7px 24px rgba(20, 47, 95, 0.08)),
+    inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7)),
+    inset 0 -1px 0 rgba(20, 47, 95, 0.05);
+  backdrop-filter: var(--liquid-glass-blur, blur(30px) saturate(180%));
+  -webkit-backdrop-filter: var(--liquid-glass-blur, blur(30px) saturate(180%));
 }
 
 .workbench-room-switcher::before,
@@ -2189,34 +2199,14 @@
 .workbench-tools .workbench-leaderboard-toggle::before,
 .workbench-leaderboard-panel::before,
 .workbench-space-join::before {
-  z-index: 0;
-  background:
-    linear-gradient(110deg, transparent 0 13%, color-mix(in srgb, #ffffff 48%, transparent) 20%, transparent 31% 100%),
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 44%, transparent), transparent 38%),
-    linear-gradient(90deg, var(--liquid-glass-accent), transparent 45%);
-  filter: blur(0.2px);
-  opacity: 0.82;
-}
-
-.workbench-room-switcher::after,
-.workbench-pomodoro-card::after,
-.workbench-task-card::after,
-.workbench-tools .workbench-leaderboard-toggle::after,
-.workbench-leaderboard-panel::after,
-.workbench-space-join::after {
   content: '';
   position: absolute;
-  inset: 1px;
+  inset: 0;
   z-index: 0;
-  border-radius: calc(var(--workbench-card-radius) - 1px);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, #ffffff 44%, transparent), transparent 23%),
-    linear-gradient(235deg, transparent 45%, color-mix(in srgb, #ffffff 22%, transparent) 55%, transparent 69%),
-    repeating-linear-gradient(112deg, transparent 0 18px, color-mix(in srgb, #ffffff 8%, transparent) 19px 20px, transparent 21px 42px);
-  mask-image: linear-gradient(180deg, #000, rgba(0, 0, 0, 0.58));
-  opacity: 0.55;
+  border-radius: inherit;
+  background: var(--liquid-glass-sheen, radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.6), transparent 56%));
+  opacity: 0.6;
   pointer-events: none;
-  mix-blend-mode: screen;
 }
 
 .workbench-room-switcher > *,
@@ -2229,6 +2219,9 @@
   z-index: 1;
 }
 
+/* Inner controls are etched into the glass, not stacked glass-on-glass
+   (stacking translucent surfaces collapses legibility). A faint fill +
+   inset rim reads as carved recess, keeping text crisp. */
 .workbench-card-header button,
 .workbench-task-head > button,
 .workbench-room-code,
@@ -2244,16 +2237,9 @@
 .workbench-task-form button,
 .workbench-task-row,
 .workbench-leaderboard-row {
-  border-color: color-mix(in srgb, #ffffff 42%, var(--line) 58%);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 32%, transparent), transparent 58%),
-    color-mix(in srgb, var(--surface-solid) 31%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent),
-    0 4px 14px color-mix(in srgb, var(--text) 7%, transparent);
-  backdrop-filter: blur(22px) saturate(190%);
-  -webkit-backdrop-filter: blur(22px) saturate(190%);
+  border: 1px solid var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34));
+  background: var(--liquid-glass-control-fill, rgba(255, 255, 255, 0.2));
+  box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, rgba(255, 255, 255, 0.4));
 }
 
 .workbench-room-code button.is-random,
@@ -2279,31 +2265,24 @@
 .workbench-timer-ring {
   position: relative;
   background:
-    radial-gradient(circle at center, color-mix(in srgb, var(--surface-solid) 54%, transparent) 0 54%, transparent 55%),
-    conic-gradient(var(--pomodoro-accent) var(--timer-progress), color-mix(in srgb, #ffffff 22%, transparent) 0),
-    color-mix(in srgb, var(--surface-solid) 22%, transparent);
+    radial-gradient(circle at center, var(--liquid-glass-fill, rgba(255, 255, 255, 0.14)) 0 54%, transparent 55%),
+    conic-gradient(var(--pomodoro-accent) var(--timer-progress), var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34)) 0);
   box-shadow:
-    inset 0 2px 1px color-mix(in srgb, #ffffff 62%, transparent),
-    inset 0 -10px 24px color-mix(in srgb, var(--text) 8%, transparent),
+    inset 0 2px 1px var(--liquid-glass-rim, rgba(255, 255, 255, 0.7)),
+    inset 0 -10px 24px rgba(20, 47, 95, 0.06),
     0 20px 48px color-mix(in srgb, var(--pomodoro-accent) 18%, transparent);
-  backdrop-filter: blur(30px) saturate(220%);
-  -webkit-backdrop-filter: blur(30px) saturate(220%);
+  backdrop-filter: var(--liquid-glass-blur, blur(30px) saturate(180%));
+  -webkit-backdrop-filter: var(--liquid-glass-blur, blur(30px) saturate(180%));
 }
 
 .workbench-timer-ring::before {
   content: '';
   position: absolute;
   inset: 8px;
-  border: 1px solid color-mix(in srgb, #ffffff 46%, transparent);
+  border: 1px solid var(--liquid-glass-line, rgba(255, 255, 255, 0.5));
   border-radius: 50%;
-  background:
-    linear-gradient(145deg, color-mix(in srgb, #ffffff 32%, transparent), transparent 48%),
-    color-mix(in srgb, var(--surface-solid) 26%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent);
-  backdrop-filter: blur(24px) saturate(200%);
-  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  background: var(--liquid-glass-sheen, radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.6), transparent 56%));
+  box-shadow: inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7));
 }
 
 .workbench-pomodoro-time {
@@ -2315,13 +2294,11 @@
 .workbench-pomodoro-ambient.is-active,
 .workbench-leaderboard-row.is-me {
   background:
-    linear-gradient(145deg, color-mix(in srgb, #ffffff 42%, transparent), transparent 46%),
-    linear-gradient(135deg, color-mix(in srgb, var(--accent) 24%, transparent), transparent 72%),
-    color-mix(in srgb, var(--surface-solid) 38%, transparent);
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 32%, transparent), transparent 50%),
+    color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
-    0 10px 26px color-mix(in srgb, var(--accent) 12%, transparent);
+    inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7)),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .workbench-tools button:active,
@@ -2335,12 +2312,12 @@
   .workbench-pomodoro-card:hover,
   .workbench-task-card:hover,
   .workbench-tools .workbench-leaderboard-toggle:hover {
-    border-color: color-mix(in srgb, #ffffff 70%, var(--line));
+    border-color: var(--liquid-glass-rim, rgba(255, 255, 255, 0.7));
     box-shadow:
-      0 28px 82px color-mix(in srgb, var(--text) 17%, transparent),
-      0 9px 28px color-mix(in srgb, var(--text) 9%, transparent),
-      inset 0 1px 0 color-mix(in srgb, #ffffff 82%, transparent),
-      inset 0 -1px 0 color-mix(in srgb, var(--text) 10%, transparent);
+      0 30px 80px rgba(20, 47, 95, 0.2),
+      0 9px 28px rgba(20, 47, 95, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.85),
+      inset 0 -1px 0 rgba(20, 47, 95, 0.06);
   }
 }
 
@@ -2350,6 +2327,17 @@
   --liquid-glass-line: color-mix(in srgb, #ffffff 22%, var(--line) 78%);
   --liquid-glass-edge: color-mix(in srgb, #ffffff 32%, transparent);
   --liquid-glass-depth: color-mix(in srgb, #000000 38%, transparent);
+  --liquid-glass-fill: rgba(255, 255, 255, 0.07);
+  --liquid-glass-fill-strong: rgba(255, 255, 255, 0.11);
+  --liquid-glass-rim: rgba(255, 255, 255, 0.32);
+  --liquid-glass-rim-soft: rgba(255, 255, 255, 0.16);
+  --liquid-glass-control-fill: rgba(255, 255, 255, 0.08);
+  --liquid-glass-control-line: rgba(255, 255, 255, 0.14);
+  --liquid-glass-sheen: radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.18), transparent 56%);
+  --liquid-glass-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.42),
+    0 7px 24px rgba(0, 0, 0, 0.24);
+  --liquid-glass-blur: blur(30px) saturate(160%);
 }
 
 :root[data-resolved-theme='dark'] .workbench-pomodoro-time strong,
@@ -2359,19 +2347,32 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .workbench-room-switcher::after,
-  .workbench-pomodoro-card::after,
-  .workbench-task-card::after,
-  .workbench-tools .workbench-leaderboard-toggle::after,
-  .workbench-leaderboard-panel::after,
-  .workbench-space-join::after {
+  .workbench-room-switcher,
+  .workbench-pomodoro-card,
+  .workbench-task-card,
+  .workbench-tools .workbench-leaderboard-toggle,
+  .workbench-leaderboard-panel,
+  .workbench-space-join,
+  .workbench-timer-ring {
+    background: var(--surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .workbench-room-switcher::before,
+  .workbench-pomodoro-card::before,
+  .workbench-task-card::before,
+  .workbench-tools .workbench-leaderboard-toggle::before,
+  .workbench-leaderboard-panel::before,
+  .workbench-space-join::before,
+  .workbench-timer-ring::before {
     display: none;
   }
 }
 
 /* Keep the controls on the study-room stage instead of inside a separate rail. */
 .office-workbench-stage .workbench-tools {
-  --workbench-tools-inline-inset: clamp(12px, 3vw, 32px);
+  --workbench-tools-inline-inset: clamp(6px, 1.25vw, 14px);
   --workbench-tools-block-inset: clamp(12px, 3vh, 28px);
   top: var(--workbench-tools-block-inset);
   right: var(--workbench-tools-inline-inset);
@@ -2410,6 +2411,21 @@
   pointer-events: auto;
 }
 
+/* Keep each floating module visually separate: large shared shadows bridge the
+   responsive gaps and read as a gray rail behind the cards. */
+.office-workbench-stage .workbench-tools > .workbench-room-switcher,
+.office-workbench-stage .workbench-tools > .workbench-pomodoro-card,
+.office-workbench-stage .workbench-tools > .workbench-task-card {
+  flex: 0 0 auto;
+  /* Stage cards float via the specular rim + translucency alone; a drop shadow
+     here would bleed across the inter-card gap and fail the separation check
+     (gap midpoint must read as the pure stage background). The leaderboard,
+     a single panel, keeps its shadow. */
+  box-shadow:
+    inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7)),
+    inset 0 -1px 0 rgba(20, 47, 95, 0.05);
+}
+
 .office-workbench-stage > .workbench-leaderboard {
   --workbench-leaderboard-inline-inset: clamp(12px, 3vw, 32px);
   --workbench-leaderboard-block-inset: clamp(12px, 3vh, 28px);
@@ -2426,18 +2442,13 @@
   color: var(--text);
   border: 1px solid var(--liquid-glass-line);
   border-radius: var(--workbench-card-radius);
-  background:
-    linear-gradient(145deg, color-mix(in srgb, #ffffff 46%, transparent), transparent 34%),
-    linear-gradient(315deg, color-mix(in srgb, var(--surface-solid) 18%, transparent), transparent 48%),
-    var(--liquid-glass-tint);
+  background: var(--liquid-glass-fill, rgba(255, 255, 255, 0.14));
   box-shadow:
-    0 24px 70px var(--liquid-glass-depth),
-    0 7px 24px color-mix(in srgb, var(--text) 8%, transparent),
-    inset 0 1px 0 var(--liquid-glass-edge),
-    inset 1px 0 0 color-mix(in srgb, #ffffff 36%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text) 10%, transparent);
-  backdrop-filter: blur(46px) saturate(230%) contrast(1.12) brightness(1.04);
-  -webkit-backdrop-filter: blur(46px) saturate(230%) contrast(1.12) brightness(1.04);
+    var(--liquid-glass-shadow, 0 24px 70px rgba(20, 47, 95, 0.16), 0 7px 24px rgba(20, 47, 95, 0.08)),
+    inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7)),
+    inset 0 -1px 0 rgba(20, 47, 95, 0.05);
+  backdrop-filter: var(--liquid-glass-blur, blur(30px) saturate(180%));
+  -webkit-backdrop-filter: var(--liquid-glass-blur, blur(30px) saturate(180%));
   transform: scale(var(--workbench-tools-scale));
   transform-origin: top left;
   scrollbar-width: thin;
@@ -2449,11 +2460,8 @@
   inset: 0;
   z-index: 0;
   border-radius: inherit;
-  background:
-    linear-gradient(110deg, transparent 0 13%, color-mix(in srgb, #ffffff 48%, transparent) 20%, transparent 31% 100%),
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 44%, transparent), transparent 38%),
-    linear-gradient(90deg, var(--liquid-glass-accent), transparent 45%);
-  opacity: 0.82;
+  background: var(--liquid-glass-sheen, radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.6), transparent 56%));
+  opacity: 0.6;
   pointer-events: none;
 }
 
@@ -2485,6 +2493,19 @@
   color: var(--text);
   font-size: 0.8125rem;
   font-weight: 760;
+}
+
+.workbench-leaderboard-space-code {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 780;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workbench-leaderboard-header svg {
@@ -2568,17 +2589,10 @@
   height: 30px;
   min-width: 30px;
   color: var(--text-muted);
-  border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
+  border: 1px solid var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34));
   border-radius: 10px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 32%, transparent), transparent 58%),
-    color-mix(in srgb, var(--surface-solid) 31%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent),
-    0 4px 14px color-mix(in srgb, var(--text) 7%, transparent);
-  backdrop-filter: blur(22px) saturate(190%);
-  -webkit-backdrop-filter: blur(22px) saturate(190%);
+  background: var(--liquid-glass-control-fill, rgba(255, 255, 255, 0.2));
+  box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, rgba(255, 255, 255, 0.4));
 }
 
 .workbench-task-actions > button:disabled {
@@ -2608,14 +2622,10 @@
   gap: 7px;
   margin-top: 12px;
   padding: 10px;
-  border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
+  border: 1px solid var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34));
   border-radius: var(--workbench-control-radius);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 30%, transparent), transparent 58%),
-    color-mix(in srgb, var(--surface-solid) 28%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+  background: var(--liquid-glass-control-fill, rgba(255, 255, 255, 0.2));
+  box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, rgba(255, 255, 255, 0.4));
 }
 
 .workbench-task-progress-head,
@@ -2732,20 +2742,16 @@
   width: 30px;
   height: 30px;
   color: var(--text-muted);
-  border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
+  border: 1px solid var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34));
   border-radius: var(--workbench-control-radius);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 28%, transparent), transparent 58%),
-    color-mix(in srgb, var(--surface-solid) 30%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 52%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+  background: var(--liquid-glass-control-fill, rgba(255, 255, 255, 0.2));
+  box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, rgba(255, 255, 255, 0.4));
 }
 
 .workbench-task-delete:hover {
   color: var(--red, #ff453a);
-  border-color: color-mix(in srgb, var(--red, #ff453a) 34%, var(--line));
-  background: color-mix(in srgb, var(--red, #ff453a) 10%, var(--surface-solid));
+  border-color: color-mix(in srgb, var(--red, #ff453a) 40%, var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34)));
+  background: color-mix(in srgb, var(--red, #ff453a) 16%, transparent);
 }
 
 @media (hover: hover) {
@@ -4260,4 +4266,184 @@
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
+}
+
+/* Preserve legible study-room controls at narrow window sizes without scaling
+   text and hit targets together with the decorative scene. */
+.office-workbench-stage .workbench-tools :is(button, input, small),
+.office-workbench-stage .workbench-room-code small,
+.office-workbench-stage .workbench-pomodoro-time span,
+.office-workbench-stage .workbench-task-progress-head,
+.office-workbench-stage .workbench-task-progress-meta,
+.office-workbench-stage .workbench-task-row strong,
+.office-workbench-stage .workbench-task-row small {
+  font-size: 0.75rem;
+}
+
+.office-workbench-stage .workbench-card-header span,
+.office-workbench-stage .workbench-task-head span,
+.office-workbench-stage .workbench-room-code strong,
+.office-workbench-stage .workbench-task-progress-head strong {
+  font-size: 0.8125rem;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-tools {
+    --workbench-tools-gap: 5px;
+  }
+
+  .office-workbench-stage .workbench-room-switcher,
+  .office-workbench-stage .workbench-pomodoro-card,
+  .office-workbench-stage .workbench-task-card {
+    padding: 8px;
+  }
+
+  .office-workbench-stage .workbench-card-header {
+    margin-bottom: 4px;
+  }
+
+  .office-workbench-stage .workbench-room-code {
+    padding: 5px;
+  }
+
+  .office-workbench-stage .workbench-card-header button,
+  .office-workbench-stage .workbench-room-code button {
+    min-height: 30px;
+  }
+
+  .office-workbench-stage .workbench-room-code button {
+    padding-inline: 6px;
+    white-space: nowrap;
+  }
+
+  .office-workbench-stage .workbench-room-join {
+    margin-top: 4px;
+  }
+
+  .office-workbench-stage .workbench-room-join input,
+  .office-workbench-stage .workbench-task-form input {
+    height: 30px;
+  }
+
+  .office-workbench-stage .workbench-task-form button {
+    min-height: 30px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-mode button {
+    min-height: 28px;
+  }
+
+  .office-workbench-stage .workbench-timer-face {
+    padding: 7px 0 5px;
+  }
+
+  .office-workbench-stage .workbench-timer-ring {
+    width: 124px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time strong {
+    font-size: 2.2rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time span {
+    margin-top: 4px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions {
+    grid-template-columns: minmax(0, 1fr) 36px;
+    gap: 6px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions button {
+    min-height: 36px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-presets {
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-presets button {
+    min-height: 30px;
+  }
+
+  .office-workbench-stage .workbench-task-progress {
+    gap: 4px;
+    margin-top: 6px;
+    padding: 6px;
+  }
+
+  .office-workbench-stage .workbench-task-progress-track {
+    height: 6px;
+  }
+
+  .office-workbench-stage .workbench-task-form,
+  .office-workbench-stage .workbench-task-list {
+    margin-top: 6px;
+  }
+
+  .office-workbench-stage .workbench-task-list {
+    gap: 4px;
+    max-height: 56px;
+  }
+
+  .office-workbench-stage .workbench-task-row {
+    min-height: 32px;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Dark-mode study room: the stage is a flat #f5f5f5 surface in both
+   themes, so the workbench subtree must render with light-theme tokens.
+   The dark palette (light text, ~7%-white glass) is tuned for a dark
+   backdrop and collapses to the point of illegibility on a light one.
+   Reset the base design tokens and the workbench liquid-glass palette
+   to their light values, scoped to the page so the rest of the app
+   stays dark. Later source order wins the equal-specificity tie with
+   the dark blocks above.
+   ------------------------------------------------------------------ */
+:root[data-resolved-theme='dark'] .office-workbench-page {
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-solid: #ffffff;
+  --surface-muted: #f4f6fa;
+  --surface-subtle: #f8fafc;
+  --surface-hover: rgba(59, 110, 187, 0.065);
+  --app-shell-main-bg: #ffffff;
+  --app-shell-divider: rgba(20, 47, 95, 0.12);
+  --line: #e8edf5;
+  --line-strong: #dce4f0;
+  --line-muted: rgba(20, 47, 95, 0.085);
+  --text: #24324a;
+  --text-muted: #68778f;
+  --text-soft: #9aa7ba;
+  --text-faint: #b0bccd;
+  --accent: #4f7cf5;
+  --accent-soft: #edf4ff;
+  --accent-hover: #3f6ee8;
+  --green: #2f9b73;
+  --green-soft: #eaf8f2;
+  --amber: #b57617;
+  --amber-soft: #fff6e7;
+  --shadow-card: 0 10px 28px rgba(20, 47, 95, 0.06);
+
+  /* Liquid-glass palette: light values so cards and inner controls stay
+     visible against #f5f5f5 (the dark fills are near-transparent white). */
+  --liquid-glass-tint: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+  --liquid-glass-tint-strong: color-mix(in srgb, var(--surface-solid) 56%, transparent);
+  --liquid-glass-line: color-mix(in srgb, #ffffff 58%, var(--line) 42%);
+  --liquid-glass-edge: color-mix(in srgb, #ffffff 74%, transparent);
+  --liquid-glass-depth: color-mix(in srgb, var(--text) 15%, transparent);
+  --liquid-glass-accent: color-mix(in srgb, var(--accent) 22%, transparent);
+  --liquid-glass-fill: rgba(255, 255, 255, 0.14);
+  --liquid-glass-fill-strong: rgba(255, 255, 255, 0.2);
+  --liquid-glass-rim: rgba(255, 255, 255, 0.7);
+  --liquid-glass-rim-soft: rgba(255, 255, 255, 0.4);
+  --liquid-glass-control-fill: rgba(255, 255, 255, 0.2);
+  --liquid-glass-control-line: rgba(255, 255, 255, 0.34);
+  --liquid-glass-sheen: radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.6), transparent 56%);
+  --liquid-glass-shadow:
+    0 24px 70px rgba(20, 47, 95, 0.16),
+    0 7px 24px rgba(20, 47, 95, 0.08);
+  --liquid-glass-blur: blur(30px) saturate(180%);
+  --workbench-accent-contrast: #ffffff;
 }

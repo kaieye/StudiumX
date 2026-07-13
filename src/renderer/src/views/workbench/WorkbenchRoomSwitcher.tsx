@@ -37,7 +37,6 @@ export function WorkbenchRoomSwitcher({
       <div className="workbench-room-code">
         <span>
           <small>房间码</small>
-          <strong>{spaceCode}</strong>
         </span>
         <div className="workbench-room-actions">
           <button className="is-copy" type="button" onClick={() => void copySpaceCode()}>

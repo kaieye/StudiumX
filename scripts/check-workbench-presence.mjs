@@ -30,8 +30,8 @@ assert.match(
 
 assert.match(
   workbench,
-  /<WorkbenchLeaderboard members=\{viewModel\.roomMembers\} presenceStatus=\{presence\.status\} \/>/,
-  'workbench should pass the live heartbeat status into the leaderboard'
+  /<WorkbenchLeaderboard[\s\S]*members=\{viewModel\.roomMembers\}[\s\S]*presenceStatus=\{presence\.status\}[\s\S]*spaceCode=\{snapshot\.spaceCode\}[\s\S]*\/>/,
+  'workbench should pass the live heartbeat status and room code into the leaderboard'
 )
 
 assert.match(
