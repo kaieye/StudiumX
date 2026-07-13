@@ -3761,10 +3761,9 @@
   left: 0;
   z-index: 72;
   box-sizing: border-box;
-  width: min(188px, calc(100vw - 48px));
-  max-height: 268px;
+  width: min(118px, calc(100vw - 48px));
   padding: 8px;
-  overflow: auto;
+  overflow: hidden;
   color: var(--text);
   border: 1px solid color-mix(in srgb, #ffffff 52%, var(--line) 48%);
   border-radius: 14px;
@@ -3782,7 +3781,6 @@
 .study-schedule-time-part-menu.is-minute {
   right: 0;
   left: auto;
-  width: min(250px, calc(100vw - 48px));
 }
 
 .study-schedule-editor-field:last-child .study-schedule-time-part-menu {
@@ -3805,12 +3803,28 @@
 
 .study-schedule-time-part-menu > div {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
+  max-height: 165px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: color-mix(in srgb, var(--accent) 42%, transparent) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
-.study-schedule-time-part-menu.is-minute > div {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+.study-schedule-time-part-menu > div::-webkit-scrollbar {
+  width: 6px;
+}
+
+.study-schedule-time-part-menu > div::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.study-schedule-time-part-menu > div::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
 }
 
 .study-schedule-time-part-menu button {
