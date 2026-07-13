@@ -7,7 +7,7 @@ import {
   parseLiteResults,
   parseXaiSearchResults
 } from './normalizers'
-import { SEARCH_TIMEOUT_MS, webSearchSettings, webSearchValue } from './settings'
+import { configuredBackend, normalizeProviderName, SEARCH_TIMEOUT_MS, webSearchSettings, webSearchValue } from './settings'
 import type { SearchProvider, SearchResult, WebSearchProviderName } from './types'
 
 const FIRECRAWL_DEFAULT_API_URL = 'https://api.firecrawl.dev'
@@ -16,7 +16,7 @@ const EXA_API_URL = 'https://api.exa.ai/search'
 const PARALLEL_API_URL = 'https://api.parallel.ai/v1/search'
 const XAI_RESPONSES_URL = 'https://api.x.ai/v1/responses'
 
-export const searchProviders: SearchProvider[] = [
+export const searchProviders: readonly SearchProvider[] = [
   {
     name: 'firecrawl',
     label: 'Firecrawl',
@@ -82,6 +82,28 @@ export const searchProviders: SearchProvider[] = [
     search: searchXai
   }
 ]
+
+export const supportedProviderNames: readonly WebSearchProviderName[] = searchProviders.map((provider) => provider.name)
+
+export type ConfiguredProviderResolution = {
+  requestedBackend: string
+  normalizedName?: WebSearchProviderName
+  provider?: SearchProvider
+}
+
+/**
+ * Resolve the requested backend through the same settings aliases and provider
+ * catalog used by both SearchRuntime and connector status reporting.
+ */
+export function resolveConfiguredProvider(ctx: ToolContext): ConfiguredProviderResolution {
+  const requestedBackend = configuredBackend(ctx)
+  const normalizedName = requestedBackend ? normalizeProviderName(requestedBackend) : undefined
+  return {
+    requestedBackend,
+    normalizedName,
+    ...(normalizedName ? { provider: providerByName(normalizedName) } : {})
+  }
+}
 
 export function availableProviders(ctx?: ToolContext): SearchProvider[] {
   if (!ctx) return [providerByName('ddgs')!]

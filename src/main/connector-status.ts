@@ -6,8 +6,7 @@ import type {
   TeachingSettingsV1
 } from '../shared/teaching-types'
 import { buildToolContext, type ToolContext } from './ai/tools/registry'
-import { availableProviders, providerByName } from './ai/tools/web-search/providers'
-import { configuredBackend, normalizeProviderName } from './ai/tools/web-search/settings'
+import { availableProviders, resolveConfiguredProvider } from './ai/tools/web-search/providers'
 
 const execFile = promisify(execFileCallback)
 
@@ -76,27 +75,26 @@ function webSearchConnectorStatus(settings: TeachingSettingsV1, ctx: ToolContext
     return disabledStatus('web_search', 'Web search', 'web', 'web_search 工具已关闭。', '在工具设置中启用 web_search。')
   }
 
-  const configured = configuredBackend(ctx)
-  if (configured) {
-    const normalized = normalizeProviderName(configured)
-    if (!normalized) {
+  const configured = resolveConfiguredProvider(ctx)
+  if (configured.requestedBackend) {
+    if (!configured.normalizedName) {
       return {
         id: 'web_search',
         name: 'Web search',
         category: 'web',
         state: 'failed',
-        detail: `未知搜索后端：${configured}`,
+        detail: `未知搜索后端：${configured.requestedBackend}`,
         repairAction: '在搜索设置中选择 Auto 或受支持的后端。'
       }
     }
-    const provider = providerByName(normalized)
+    const provider = configured.provider
     if (!provider) {
       return {
         id: 'web_search',
         name: 'Web search',
         category: 'web',
         state: 'failed',
-        detail: `搜索后端未注册：${normalized}`,
+        detail: `搜索后端未注册：${configured.normalizedName}`,
         repairAction: '切换到 Auto 或另一个后端。'
       }
     }

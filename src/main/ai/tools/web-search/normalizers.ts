@@ -228,7 +228,7 @@ export function stripTags(html: string): string {
     .trim()
 }
 
-function decodeHtmlEntities(value: string): string {
+export function decodeHtmlEntities(value: string): string {
   return value
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -236,8 +236,8 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number.parseInt(code, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(Number.parseInt(code, 16)))
 }
 
 export function asRecord(value: unknown): Record<string, unknown> {

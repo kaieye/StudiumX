@@ -2,6 +2,9 @@ import type { ToolContext } from '../registry'
 import type { WebSearchProviderName } from './types'
 
 export const SEARCH_TIMEOUT_MS = 15_000
+export const DEFAULT_MAX_SEARCH_RESULTS = 5
+export const MIN_SEARCH_RESULTS = 1
+export const MAX_SEARCH_RESULTS = 20
 
 const SEARCH_PROVIDER_ALIASES: Record<string, WebSearchProviderName> = {
   firecrawl: 'firecrawl',
@@ -42,4 +45,10 @@ export function configuredBackend(ctx: ToolContext): string {
   const settingsBackend = webSearchSettings(ctx).backend
   if (settingsBackend && settingsBackend !== 'auto') return settingsBackend
   return readEnv('STUDIUMX_WEB_SEARCH_BACKEND') || readEnv('TEACHOS_WEB_SEARCH_BACKEND') || readEnv('WEB_SEARCH_BACKEND')
+}
+
+export function configuredMaxResults(ctx: ToolContext): number {
+  const value = Number(webSearchSettings(ctx).maxResults)
+  if (!Number.isFinite(value)) return DEFAULT_MAX_SEARCH_RESULTS
+  return Math.round(Math.min(MAX_SEARCH_RESULTS, Math.max(MIN_SEARCH_RESULTS, value)))
 }

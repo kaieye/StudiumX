@@ -1,4 +1,9 @@
 import assert from 'node:assert/strict'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { buildConnectorStatuses } from '../../src/main/connector-status'
+import { defaultSettings } from '../../src/main/teaching-settings'
 
 import {
   SearchRuntime,
@@ -158,6 +163,25 @@ try {
       })
     }
 
+    if (url.startsWith('https://api.firecrawl.dev/v2/search')) {
+      return new Response('temporarily unavailable', { status: 503 })
+    }
+
+    if (url.startsWith('https://api.search.brave.com/res/v1/web/search')) {
+      return new Response(JSON.stringify({
+        web: {
+          results: [{
+            title: 'Shared catalog Brave result',
+            url: 'https://example.com/shared-catalog-brave',
+            description: 'Shared catalog Brave snippet'
+          }]
+        }
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+
     if (url === 'https://example.com/long-html') {
       return new Response(longHtml, {
         status: 200,
@@ -217,6 +241,51 @@ try {
   assertAttemptedBackend(unavailablePayload.attemptedBackends[0], /brave/i)
   assert.match(attemptError(unavailablePayload.attemptedBackends[0]), /brave|api|key|unavailable|需要|未设置/i)
   assert.equal(requests.length, 0, 'explicit unavailable backend should not fall back to ddgs fetch')
+
+  requests.length = 0
+  const fallbackPayload = asRecord(
+    await runtime.search(
+      { query: 'fall through a failed auto provider', maxResults: 2 },
+      makeCtx({ backend: 'auto', firecrawlApiKey: 'fc-test', fallbackEnabled: true })
+    )
+  )
+  assert.equal(fallbackPayload.backend, 'ddgs', 'auto mode should continue to the no-key provider after Firecrawl fails')
+  assert.equal(fallbackPayload.results.length, 2)
+  assert.ok(Array.isArray(fallbackPayload.attemptedBackends))
+  assert.ok(fallbackPayload.attemptedBackends.length >= 2)
+  assertAttemptedBackend(fallbackPayload.attemptedBackends[0], /firecrawl/i)
+  assert.match(attemptError(fallbackPayload.attemptedBackends[0]), /503/)
+  const ddgsAttempt = fallbackPayload.attemptedBackends.find((attempt) => /duckduckgo|ddgs/i.test(attemptName(attempt)))
+  assert.ok(ddgsAttempt, 'auto fallback should eventually try DDGS after a configured provider fails')
+
+  const previousBackend = process.env.STUDIUMX_WEB_SEARCH_BACKEND
+  process.env.STUDIUMX_WEB_SEARCH_BACKEND = 'brave-free'
+  try {
+    const sharedSettings = defaultSettings(join(tmpdir(), 'studiumx-runtime-catalog-fixture'))
+    sharedSettings.tools.enabled = true
+    sharedSettings.tools.webSearch = true
+    sharedSettings.webSearch.backend = 'auto'
+    sharedSettings.webSearch.braveApiKey = 'brave-test'
+
+    const connectorStatuses = await buildConnectorStatuses(sharedSettings, null, {
+      probeCommand: async () => ({ stdout: 'rg 14.1.0\n' })
+    })
+    const connector = connectorStatuses.connectors.find((item) => item.id === 'web_search')
+    assert.equal(connector?.state, 'available')
+    assert.match(connector?.detail ?? '', /Brave Search/)
+
+    requests.length = 0
+    const sharedRuntimePayload = asRecord(
+      await runtime.search({ query: 'shared catalog alias', maxResults: 1 }, makeCtx({ backend: 'auto', braveApiKey: 'brave-test' }))
+    )
+    assert.equal(sharedRuntimePayload.backend, 'brave')
+    assert.match(String(sharedRuntimePayload.provider), /Brave Search/)
+    assert.equal(sharedRuntimePayload.results.length, 1)
+    assert.ok(requests.some((request) => request.url.startsWith('https://api.search.brave.com/res/v1/web/search')))
+  } finally {
+    if (previousBackend === undefined) delete process.env.STUDIUMX_WEB_SEARCH_BACKEND
+    else process.env.STUDIUMX_WEB_SEARCH_BACKEND = previousBackend
+  }
 
   requests.length = 0
   const fetchPayload = asRecord(await runtime.fetch({ url: 'https://example.com/long-html' }, makeCtx()))
