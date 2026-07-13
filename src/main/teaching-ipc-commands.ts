@@ -129,6 +129,18 @@ function parseAgentChatContextCompaction(value: unknown): AgentChatContextCompac
   return Object.keys(request).length > 0 ? request : undefined
 }
 
+export function parseReplayAgentChatEventsPayload(payload: unknown): { streamId: string; afterSequence: number } {
+  const record = payload && typeof payload === 'object'
+    ? payload as { streamId?: unknown; afterSequence?: unknown }
+    : {}
+  return {
+    streamId: requireStreamId(record.streamId),
+    afterSequence: typeof record.afterSequence === 'number' && Number.isFinite(record.afterSequence)
+      ? Math.max(0, Math.floor(record.afterSequence))
+      : 0
+  }
+}
+
 export function decodeToolAnswerPayload(payload: unknown): {
   streamId: string
   toolCallId: string
