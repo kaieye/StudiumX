@@ -1,6 +1,6 @@
 import { STUDY_PRESENCE_BROKER_URL, STUDY_TASK_LIMIT, studyModes, studyRooms } from '../constants'
 import {
-  nextStudyStreak,
+  nextStudyStreakForDate,
   normalizeStudyRelayUrl,
   normalizeStudySeatIndex,
   normalizeStudySpaceCode,
@@ -18,18 +18,57 @@ export function defaultStudyContractText(snapshot: StudySnapshot, activeModeName
   return snapshot.tasks.find((task) => !task.done)?.title || activeModeName
 }
 
-export function tickStudyTimer(snapshot: StudySnapshot, today = todayKey()): StudySnapshot {
-  const studyingFocus = snapshot.timerMode === 'focus'
-  const streakDays = studyingFocus ? nextStudyStreak(snapshot.lastStudyDate, snapshot.streakDays) : snapshot.streakDays
-  const lastStudyDate = studyingFocus ? today : snapshot.lastStudyDate
-  const todayFocusSeconds = studyingFocus ? snapshot.todayFocusSeconds + 1 : snapshot.todayFocusSeconds
-  const totalFocusSeconds = studyingFocus ? snapshot.totalFocusSeconds + 1 : snapshot.totalFocusSeconds
+export type StudyTimerProgressInput = {
+  /** Newly observed whole active seconds since the previous sample. */
+  activeSeconds: number
+  /** Remaining active plan after this sample. */
+  remainingSeconds: number
+  completed: boolean
+  localToday?: string
+  /** Focus seconds keyed by captured local day; omitted for break timers. */
+  focusSecondsByLocalDate?: Partial<Record<string, number>>
+  /** Fact-aligned XP, useful for partial room-cycle sessions. */
+  xpEarned?: number
+}
 
-  if (snapshot.remainingSeconds > 1) {
+/** Applies elapsed-time deltas; it never assumes an interval callback represents one second. */
+export function advanceStudyTimerBySeconds(
+  snapshot: StudySnapshot,
+  input: StudyTimerProgressInput
+): StudySnapshot {
+  const localToday = input.localToday ?? todayKey()
+  const activeSeconds = Math.max(0, Math.floor(input.activeSeconds))
+  const todayFocusBase = snapshot.lastStudyDate === localToday ? snapshot.todayFocusSeconds : 0
+  const todaySessionsBase = snapshot.lastStudyDate === localToday ? snapshot.todaySessions : 0
+
+  let lastStudyDate = snapshot.lastStudyDate
+  let streakDays = snapshot.streakDays
+  let todayFocusSeconds = todayFocusBase
+  let totalFocusSeconds = snapshot.totalFocusSeconds
+  let focusDates: string[] = []
+
+  if (snapshot.timerMode === 'focus' && activeSeconds > 0) {
+    const byDate = input.focusSecondsByLocalDate && Object.keys(input.focusSecondsByLocalDate).length > 0
+      ? input.focusSecondsByLocalDate
+      : { [localToday]: activeSeconds }
+    focusDates = Object.entries(byDate)
+      .filter(([, seconds]) => (seconds ?? 0) > 0)
+      .map(([date]) => date)
+      .sort()
+    for (const date of focusDates) {
+      streakDays = nextStudyStreakForDate(lastStudyDate, streakDays, date)
+      lastStudyDate = date
+    }
+    todayFocusSeconds += Math.max(0, Math.floor(byDate[localToday] ?? 0))
+    totalFocusSeconds += activeSeconds
+  }
+
+  if (!input.completed) {
     return {
       ...snapshot,
-      remainingSeconds: snapshot.remainingSeconds - 1,
+      remainingSeconds: Math.max(1, Math.ceil(input.remainingSeconds)),
       todayFocusSeconds,
+      todaySessions: todaySessionsBase,
       totalFocusSeconds,
       streakDays,
       lastStudyDate
@@ -37,6 +76,7 @@ export function tickStudyTimer(snapshot: StudySnapshot, today = todayKey()): Stu
   }
 
   if (snapshot.timerMode === 'focus') {
+    const completionDate = focusDates.at(-1) ?? localToday
     return {
       ...snapshot,
       timerMode: 'break',
@@ -44,11 +84,11 @@ export function tickStudyTimer(snapshot: StudySnapshot, today = todayKey()): Stu
       remainingSeconds: snapshot.breakMinutes * 60,
       contractLocked: false,
       todayFocusSeconds,
-      todaySessions: snapshot.todaySessions + 1,
+      todaySessions: todaySessionsBase + (completionDate === localToday ? 1 : 0),
       totalFocusSeconds,
       totalSessions: snapshot.totalSessions + 1,
       streakDays,
-      xp: snapshot.xp + Math.max(10, snapshot.focusMinutes * 2),
+      xp: snapshot.xp + (input.xpEarned ?? Math.max(10, snapshot.focusMinutes * 2)),
       lastStudyDate
     }
   }
@@ -57,8 +97,21 @@ export function tickStudyTimer(snapshot: StudySnapshot, today = todayKey()): Stu
     ...snapshot,
     timerMode: 'focus',
     timerState: 'idle',
-    remainingSeconds: snapshot.focusMinutes * 60
+    remainingSeconds: snapshot.focusMinutes * 60,
+    todayFocusSeconds: todayFocusBase,
+    todaySessions: todaySessionsBase
   }
+}
+
+/** Compatibility helper for deterministic one-second transition checks. */
+export function tickStudyTimer(snapshot: StudySnapshot, today = todayKey()): StudySnapshot {
+  return advanceStudyTimerBySeconds(snapshot, {
+    activeSeconds: 1,
+    remainingSeconds: Math.max(0, snapshot.remainingSeconds - 1),
+    completed: snapshot.remainingSeconds <= 1,
+    localToday: today,
+    ...(snapshot.timerMode === 'focus' ? { focusSecondsByLocalDate: { [today]: 1 } } : {})
+  })
 }
 
 export function updateStudyTimerPreset(

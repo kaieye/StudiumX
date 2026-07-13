@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { StudyTaskAttribution } from '../../../../shared/teaching-types/analytics'
 import { STUDY_PRESENCE_BROKER_URL } from '../constants'
 import {
   formatStudySeatLabel,
@@ -7,14 +8,41 @@ import {
   readStudySnapshot,
   syncStudyLocation
 } from '../domain'
-import type { StudyRoomEventKind, StudyRoomId, StudySnapshot, StudyTaskScheduleInput, StudyTaskUpdateInput, StudyTimerMode } from '../types'
+import type {
+  StudyRoomEventKind,
+  StudyRoomId,
+  StudySnapshot,
+  StudyTaskScheduleInput,
+  StudyTaskUpdateInput,
+  StudyTimerMode
+} from '../types'
 import { useStudyAmbient } from '../useStudyAmbient'
 import { useStudyPresence } from '../useStudyPresence'
 import { createStudySpaceViewModel } from '../viewModel'
 import { STUDY_TASKS_CHANGED_EVENT } from '../assistantTodo'
 import {
+  appendStudyAnalyticsFacts,
+  createStudyAnalyticsFactId,
+  createTaskActivityFacts
+} from '../../views/workbench/analytics/domain/activityLedger'
+import {
+  getLocalDateKey,
+  resolvedLocalTimeZone
+} from '../../views/workbench/analytics/domain/dateRange'
+import {
+  advanceActiveStudySession,
+  createActiveStudySession,
+  finalizeActiveStudySession,
+  pauseActiveStudySession,
+  remainingActiveStudySessionSeconds,
+  resumeActiveStudySession,
+  type ActiveStudySessionV1
+} from '../../views/workbench/analytics/domain/sessionFacts'
+import type { ReliableTimerSample } from '../../views/workbench/analytics/domain/reliableTimer'
+import {
   addStudyTask,
   addScheduledStudyTask,
+  advanceStudyTimerBySeconds,
   chooseStudySeatSnapshot,
   defaultStudyContractText,
   deriveStudyHostAction,
@@ -29,7 +57,6 @@ import {
   setStudyAmbientVolume,
   setStudySpaceCode,
   switchStudyTimerMode,
-  tickStudyTimer,
   toggleStudyAmbient,
   toggleStudyContract,
   toggleStudyTask,
@@ -47,10 +74,75 @@ type StudyPresenceTarget = {
 type UseStudySessionOptions = {
   showNotification: (title: string, body: string) => Promise<void>
   openFocusTheater: () => void
+  /** Optional Teaching workspace captured only as explicit task/session attribution. */
+  workspaceId?: string
+  /** Optional explicitly selected task; omitted means the session stays unattributed. */
+  selectedTaskId?: string | null
 }
 
-export function useStudySession({ showNotification, openFocusTheater }: UseStudySessionOptions) {
+function timerSample(): ReliableTimerSample {
+  const monotonicMs = typeof performance !== 'undefined' && Number.isFinite(performance.now())
+    ? performance.now()
+    : undefined
+  return { wallMs: Date.now(), ...(monotonicMs === undefined ? {} : { monotonicMs }) }
+}
+
+function explicitTaskAttribution(
+  snapshot: StudySnapshot,
+  taskId: string | null | undefined,
+  workspaceId?: string
+): StudyTaskAttribution {
+  if (!taskId) return { kind: 'unattributed', reason: 'no_task_selected' }
+  const task = snapshot.tasks.find((item) => item.id === taskId)
+  if (!task) return { kind: 'unattributed', reason: 'task_missing' }
+  return {
+    kind: 'explicit',
+    capturedAt: 'session_start',
+    taskId: task.id,
+    taskTitleSnapshot: task.title,
+    ...(workspaceId ? { workspaceId } : {})
+  }
+}
+
+function createSessionFromSnapshot(
+  snapshot: StudySnapshot,
+  sample: ReliableTimerSample,
+  taskId: string | null | undefined,
+  workspaceId?: string,
+  legacy = false
+): ActiveStudySessionV1 {
+  const session = createActiveStudySession({
+    id: createStudyAnalyticsFactId('study-session', sample.wallMs),
+    clientId: snapshot.clientId,
+    timerMode: snapshot.timerMode,
+    plannedSeconds: snapshot.remainingSeconds,
+    sample,
+    timeZone: resolvedLocalTimeZone(),
+    context: {
+      modeId: snapshot.modeId,
+      roomId: snapshot.roomId,
+      signalId: snapshot.signalId,
+      spaceCode: snapshot.spaceCode
+    },
+    taskAttribution: legacy
+      ? { kind: 'unattributed', reason: 'legacy_session' }
+      : explicitTaskAttribution(snapshot, taskId, workspaceId)
+  })
+  return snapshot.timerState === 'paused'
+    ? pauseActiveStudySession(session, { sample, timeZone: session.currentTimeZone })
+    : session
+}
+
+export function useStudySession({
+  showNotification,
+  openFocusTheater,
+  workspaceId,
+  selectedTaskId
+}: UseStudySessionOptions) {
   const [snapshot, setSnapshot] = useState<StudySnapshot>(() => readStudySnapshot())
+  const snapshotRef = useRef(snapshot)
+  snapshotRef.current = snapshot
+  const activeSessionRef = useRef<ActiveStudySessionV1 | null>(null)
   const [roomCycleNow, setRoomCycleNow] = useState(() => Date.now())
   const presence = useStudyPresence(snapshot)
   useStudyAmbient(snapshot.ambientEnabled, snapshot.ambientVolume)
@@ -66,8 +158,107 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     totalSessions: snapshot.totalSessions
   })
 
-  const defaultContractText = (): string => {
-    return defaultStudyContractText(snapshot, viewModel.activeMode.name)
+  const commitSnapshot = (next: StudySnapshot): StudySnapshot => {
+    snapshotRef.current = next
+    setSnapshot(next)
+    return next
+  }
+
+  const appendSessionFact = (session: ActiveStudySessionV1, outcome: 'completed' | 'interrupted' | 'canceled'): void => {
+    const fact = finalizeActiveStudySession(session, outcome)
+    appendStudyAnalyticsFacts(fact.clientId, [fact], {
+      localToday: getLocalDateKey(Date.now(), resolvedLocalTimeZone()),
+      updatedAt: fact.recordedAt
+    })
+  }
+
+  const applyAdvancedSession = (
+    current: StudySnapshot,
+    session: ActiveStudySessionV1,
+    activeDeltaSeconds: number,
+    activeSecondsByLocalDate: Partial<Record<string, number>>,
+    completed: boolean
+  ): StudySnapshot => {
+    const completedFact = completed ? finalizeActiveStudySession(session, 'completed') : null
+    const next = advanceStudyTimerBySeconds(current, {
+      activeSeconds: activeDeltaSeconds,
+      remainingSeconds: remainingActiveStudySessionSeconds(session),
+      completed,
+      localToday: getLocalDateKey(Date.now(), resolvedLocalTimeZone()),
+      ...(current.timerMode === 'focus'
+        ? { focusSecondsByLocalDate: activeSecondsByLocalDate }
+        : {}),
+      ...(completedFact ? { xpEarned: completedFact.xpEarned } : {})
+    })
+    if (completedFact) {
+      appendStudyAnalyticsFacts(completedFact.clientId, [completedFact], {
+        localToday: getLocalDateKey(Date.now(), resolvedLocalTimeZone()),
+        updatedAt: completedFact.recordedAt
+      })
+      activeSessionRef.current = null
+    }
+    return next
+  }
+
+  const advanceRunningSession = (current: StudySnapshot, sample: ReliableTimerSample): {
+    snapshot: StudySnapshot
+    completed: boolean
+  } => {
+    const session = activeSessionRef.current
+      ?? createSessionFromSnapshot(current, sample, selectedTaskId, workspaceId, true)
+    const advanced = advanceActiveStudySession(session, {
+      sample,
+      timeZone: resolvedLocalTimeZone()
+    })
+    activeSessionRef.current = advanced.session
+    return {
+      snapshot: applyAdvancedSession(
+        current,
+        advanced.session,
+        advanced.activeDeltaSeconds,
+        advanced.activeSecondsByLocalDate,
+        advanced.completed
+      ),
+      completed: advanced.completed
+    }
+  }
+
+  const finishActiveSession = (
+    current: StudySnapshot,
+    outcome: 'interrupted' | 'canceled',
+    sample = timerSample()
+  ): StudySnapshot => {
+    let session = activeSessionRef.current
+    if (!session) return current
+    let next = current
+    if (session.timer.status === 'running') {
+      const advanced = advanceActiveStudySession(session, { sample, timeZone: resolvedLocalTimeZone() })
+      session = advanced.session
+      activeSessionRef.current = session
+      next = applyAdvancedSession(
+        current,
+        session,
+        advanced.activeDeltaSeconds,
+        advanced.activeSecondsByLocalDate,
+        advanced.completed
+      )
+      if (advanced.completed) return next
+    } else {
+      session = resumeActiveStudySession(session, { sample, timeZone: resolvedLocalTimeZone() })
+    }
+    appendSessionFact(session, outcome)
+    activeSessionRef.current = null
+    return next
+  }
+
+  const recordTaskMutation = (before: StudySnapshot, after: StudySnapshot): void => {
+    const facts = createTaskActivityFacts(before.tasks, after.tasks, {
+      clientId: before.clientId,
+      ...(workspaceId ? { workspaceId } : {}),
+      occurredAtMs: Date.now(),
+      timeZone: resolvedLocalTimeZone()
+    })
+    if (facts.length > 0) appendStudyAnalyticsFacts(before.clientId, facts)
   }
 
   const emitRoomEvent = (kind: StudyRoomEventKind, text: string, target?: StudyPresenceTarget): void => {
@@ -77,6 +268,17 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
   useEffect(() => {
     roomEventSenderRef.current = presence.sendEvent
   }, [presence.sendEvent])
+
+  useEffect(() => {
+    if (activeSessionRef.current || snapshotRef.current.timerState === 'idle') return
+    activeSessionRef.current = createSessionFromSnapshot(
+      snapshotRef.current,
+      timerSample(),
+      selectedTaskId,
+      workspaceId,
+      true
+    )
+  }, [selectedTaskId, workspaceId])
 
   useEffect(() => {
     const previous = timerTransitionRef.current
@@ -133,11 +335,14 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     const syncImportedTasks = (event: Event): void => {
       const tasks = (event as CustomEvent<StudySnapshot['tasks']>).detail
       if (!Array.isArray(tasks)) return
-      setSnapshot((current) => ({ ...current, tasks }))
+      const current = snapshotRef.current
+      const next = { ...current, tasks }
+      recordTaskMutation(current, next)
+      commitSnapshot(next)
     }
     window.addEventListener(STUDY_TASKS_CHANGED_EVENT, syncImportedTasks)
     return () => window.removeEventListener(STUDY_TASKS_CHANGED_EVENT, syncImportedTasks)
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
     syncStudyLocation(snapshot.spaceCode, snapshot.roomId)
@@ -173,18 +378,16 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
 
     const previousSeatIndex = viewModel.userSeat
     const previousSeatClaimedAt = snapshot.seatClaimedAt
-    setSnapshot((current) => {
-      if (
-        current.clientId !== snapshot.clientId
-        || current.spaceCode !== snapshot.spaceCode
-        || current.roomId !== snapshot.roomId
-        || current.seatIndex !== previousSeatIndex
-        || current.seatClaimedAt !== previousSeatClaimedAt
-      ) {
-        return current
-      }
-      return chooseStudySeatSnapshot(current, nextSeatIndex)
-    })
+    const current = snapshotRef.current
+    if (
+      current.clientId === snapshot.clientId
+      && current.spaceCode === snapshot.spaceCode
+      && current.roomId === snapshot.roomId
+      && current.seatIndex === previousSeatIndex
+      && current.seatClaimedAt === previousSeatClaimedAt
+    ) {
+      commitSnapshot(chooseStudySeatSnapshot(current, nextSeatIndex))
+    }
     roomEventSenderRef.current(
       'checkin',
       `${snapshot.nickname} 的座位冲突，已换到 ${formatStudySeatLabel(nextSeatIndex)}。`,
@@ -210,80 +413,116 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
   useEffect(() => {
     if (snapshot.timerState !== 'running') return undefined
     const id = window.setInterval(() => {
-      setSnapshot((current) => tickStudyTimer(current))
+      const current = snapshotRef.current
+      if (current.timerState !== 'running') return
+      const advanced = advanceRunningSession(current, timerSample())
+      commitSnapshot(advanced.snapshot)
     }, 1000)
     return () => window.clearInterval(id)
-  }, [snapshot.timerState])
+  }, [snapshot.timerState, selectedTaskId, workspaceId])
 
   const updateTimerPreset = (focusMinutes: number, breakMinutes: number): void => {
-    setSnapshot((current) => updateStudyTimerPreset(current, focusMinutes, breakMinutes))
+    commitSnapshot(updateStudyTimerPreset(snapshotRef.current, focusMinutes, breakMinutes))
   }
 
   const toggleContract = (): void => {
-    setSnapshot((current) => toggleStudyContract(current, defaultStudyContractText(current, viewModel.activeMode.name)))
+    const current = snapshotRef.current
+    commitSnapshot(toggleStudyContract(current, defaultStudyContractText(current, viewModel.activeMode.name)))
   }
 
   const updateContractText = (contractText: string): void => {
-    setSnapshot((current) => updateStudyContractText(current, contractText))
+    commitSnapshot(updateStudyContractText(snapshotRef.current, contractText))
   }
 
   const saveNickname = (nicknameInput: string): void => {
-    setSnapshot((current) => saveStudyNickname(current, nicknameInput))
+    commitSnapshot(saveStudyNickname(snapshotRef.current, nicknameInput))
   }
 
   const joinSpace = (spaceInput: string): void => {
-    setSnapshot((current) => joinStudySpace(current, spaceInput))
+    commitSnapshot(joinStudySpace(snapshotRef.current, spaceInput))
   }
 
   const enterRandomSpace = (): void => {
-    const spaceCode = randomStudySpaceCode()
-    setSnapshot((current) => setStudySpaceCode(current, spaceCode))
+    commitSnapshot(setStudySpaceCode(snapshotRef.current, randomStudySpaceCode()))
   }
 
   const saveRelayUrl = (relayInput: string): string => {
-    let relayUrl = STUDY_PRESENCE_BROKER_URL
-    setSnapshot((current) => {
-      const result = saveStudyRelayUrl(current, relayInput)
-      relayUrl = result.relayUrl
-      return result.snapshot
-    })
-    return relayUrl
+    const result = saveStudyRelayUrl(snapshotRef.current, relayInput)
+    commitSnapshot(result.snapshot)
+    return result.relayUrl
   }
 
   const resetRelayUrl = (): void => {
-    setSnapshot((current) => resetStudyRelayUrl(current))
+    commitSnapshot(resetStudyRelayUrl(snapshotRef.current))
   }
 
-  const toggleTimer = (): void => {
-    if (snapshot.timerState !== 'running' && snapshot.timerMode === 'focus') {
-      emitRoomEvent('focus_start', `${snapshot.nickname} 开始专注：${viewModel.contractDisplay}`)
+  const toggleTimer = (taskId: string | null = selectedTaskId ?? null): void => {
+    const current = snapshotRef.current
+    const sample = timerSample()
+    if (current.timerState === 'running') {
+      const advanced = advanceRunningSession(current, sample)
+      if (advanced.completed) {
+        commitSnapshot(advanced.snapshot)
+        return
+      }
+      const session = activeSessionRef.current
+      if (session) {
+        activeSessionRef.current = pauseActiveStudySession(session, {
+          sample,
+          timeZone: resolvedLocalTimeZone()
+        })
+      }
+      commitSnapshot(toggleStudyTimer(advanced.snapshot, defaultStudyContractText(advanced.snapshot, viewModel.activeMode.name)))
+      return
     }
-    setSnapshot((current) => toggleStudyTimer(current, defaultStudyContractText(current, viewModel.activeMode.name)))
+
+    if (current.timerState === 'paused') {
+      const session = activeSessionRef.current
+        ?? createSessionFromSnapshot(current, sample, taskId, workspaceId, true)
+      activeSessionRef.current = resumeActiveStudySession(session, {
+        sample,
+        timeZone: resolvedLocalTimeZone()
+      })
+      commitSnapshot(toggleStudyTimer(current, defaultStudyContractText(current, viewModel.activeMode.name)))
+      return
+    }
+
+    activeSessionRef.current = createSessionFromSnapshot(current, sample, taskId, workspaceId)
+    if (current.timerMode === 'focus') {
+      emitRoomEvent('focus_start', `${current.nickname} 开始专注：${viewModel.contractDisplay}`)
+    }
+    commitSnapshot(toggleStudyTimer(current, defaultStudyContractText(current, viewModel.activeMode.name)))
   }
 
   const followRoomCycle = (): void => {
-    const nextContract = (snapshot.contractText.trim() || defaultContractText()).slice(0, 120)
+    const current = finishActiveSession(snapshotRef.current, 'interrupted')
+    const nextContract = (
+      current.contractText.trim() || defaultStudyContractText(current, viewModel.activeMode.name)
+    ).slice(0, 120)
     if (viewModel.roomCycle.phase === 'focus') {
-      emitRoomEvent('focus_start', `${snapshot.nickname} 跟随第 ${viewModel.roomCycle.round} 轮开始专注：${nextContract}`)
+      emitRoomEvent('focus_start', `${current.nickname} 跟随第 ${viewModel.roomCycle.round} 轮开始专注：${nextContract}`)
     }
-    setSnapshot((current) => followStudyRoomCycle({
+    const next = followStudyRoomCycle({
       snapshot: current,
       room: viewModel.activeRoom,
       phase: viewModel.roomCycle.phase,
       remainingSeconds: viewModel.roomCycle.remainingSeconds,
       fallbackContract: defaultStudyContractText(current, viewModel.activeMode.name)
-    }))
+    })
+    activeSessionRef.current = createSessionFromSnapshot(next, timerSample(), selectedTaskId, workspaceId)
+    commitSnapshot(next)
   }
 
   const chooseSeat = (seatIndex: number): void => {
     if (seatIndex === viewModel.userSeat || viewModel.blockedSeatIndexes.has(seatIndex)) return
-    const seatLabel = formatStudySeatLabel(seatIndex)
-    setSnapshot((current) => chooseStudySeatSnapshot(current, seatIndex))
-    emitRoomEvent('checkin', `${snapshot.nickname} 换到 ${seatLabel}。`)
+    const current = snapshotRef.current
+    commitSnapshot(chooseStudySeatSnapshot(current, seatIndex))
+    emitRoomEvent('checkin', `${current.nickname} 换到 ${formatStudySeatLabel(seatIndex)}。`)
   }
 
   const runHostAction = (): void => {
-    const action = deriveStudyHostAction(snapshot, viewModel.followingRoomCycle)
+    const current = snapshotRef.current
+    const action = deriveStudyHostAction(current, viewModel.followingRoomCycle)
     if (action === 'open_focus_theater') {
       openFocusTheater()
       return
@@ -300,55 +539,75 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
   }
 
   const resetTimer = (): void => {
-    setSnapshot((current) => resetStudyTimer(current))
+    const finished = finishActiveSession(snapshotRef.current, 'canceled')
+    commitSnapshot(resetStudyTimer({ ...finished, timerState: 'idle' }))
   }
 
   const switchTimerMode = (timerMode: StudyTimerMode): void => {
-    setSnapshot((current) => switchStudyTimerMode(current, timerMode))
+    const finished = finishActiveSession(snapshotRef.current, 'interrupted')
+    commitSnapshot(switchStudyTimerMode({ ...finished, timerState: 'idle' }, timerMode))
   }
 
   const addTask = (titleInput: string): boolean => {
     if (!titleInput.trim()) return false
-    const taskId = `${Date.now()}`
-    setSnapshot((current) => addStudyTask(current, titleInput, taskId).snapshot)
+    const current = snapshotRef.current
+    const result = addStudyTask(current, titleInput, createStudyAnalyticsFactId('task'))
+    if (!result.added) return false
+    recordTaskMutation(current, result.snapshot)
+    commitSnapshot(result.snapshot)
     return true
   }
 
   const addScheduledTask = (titleInput: string, schedule: StudyTaskScheduleInput): boolean => {
     if (!titleInput.trim()) return false
-    const taskId = `scheduled-${Date.now()}`
-    setSnapshot((current) => addScheduledStudyTask(current, titleInput, taskId, schedule).snapshot)
+    const current = snapshotRef.current
+    const result = addScheduledStudyTask(current, titleInput, createStudyAnalyticsFactId('scheduled-task'), schedule)
+    if (!result.added) return false
+    recordTaskMutation(current, result.snapshot)
+    commitSnapshot(result.snapshot)
     return true
   }
 
   const updateTask = (taskId: string, updateInput: StudyTaskUpdateInput): boolean => {
-    if (!snapshot.tasks.some((task) => task.id === taskId)) return false
-    setSnapshot((current) => updateStudyTask(current, taskId, updateInput).snapshot)
+    const current = snapshotRef.current
+    const result = updateStudyTask(current, taskId, updateInput)
+    if (!result.updated) return false
+    recordTaskMutation(current, result.snapshot)
+    commitSnapshot(result.snapshot)
     return true
   }
 
   const toggleTask = (taskId: string): void => {
-    const task = snapshot.tasks.find((item) => item.id === taskId)
+    const current = snapshotRef.current
+    const task = current.tasks.find((item) => item.id === taskId)
     if (task && !task.done) {
-      emitRoomEvent('task_done', `${snapshot.nickname} 完成任务：${task.title}`)
+      emitRoomEvent('task_done', `${current.nickname} 完成任务：${task.title}`)
     }
-    setSnapshot((current) => toggleStudyTask(current, taskId))
+    const next = toggleStudyTask(current, taskId)
+    recordTaskMutation(current, next)
+    commitSnapshot(next)
   }
 
   const removeDoneTasks = (): void => {
-    setSnapshot((current) => removeDoneStudyTasks(current))
+    const current = snapshotRef.current
+    const next = removeDoneStudyTasks(current)
+    recordTaskMutation(current, next)
+    commitSnapshot(next)
   }
 
   const removeTask = (taskId: string): void => {
-    setSnapshot((current) => removeStudyTask(current, taskId))
+    const current = snapshotRef.current
+    const next = removeStudyTask(current, taskId)
+    recordTaskMutation(current, next)
+    commitSnapshot(next)
   }
 
   const toggleAmbientEnabled = (): void => {
-    setSnapshot((current) => toggleStudyAmbient(current))
+    commitSnapshot(toggleStudyAmbient(snapshotRef.current))
   }
 
   const setAmbientVolume = (ambientVolume: number): void => {
-    setSnapshot((current) => setStudyAmbientVolume(current, ambientVolume))
+    commitSnapshot(setStudyAmbientVolume(snapshotRef.current, ambientVolume))
   }
 
   return {
