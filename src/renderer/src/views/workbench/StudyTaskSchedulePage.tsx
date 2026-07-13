@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarDays, Check, Clock3, PencilLine, Plus, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, ChevronDown, Clock3, PencilLine, Plus, Trash2, X } from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -108,22 +108,36 @@ type EventVarStyle = CSSProperties & Record<
 type ColorSwatchVarStyle = CSSProperties & Record<'--schedule-swatch-color' | '--schedule-swatch-ink', string>
 type TaskColorVarStyle = CSSProperties & Record<'--event-color' | '--event-ink', string>
 
-const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-const hourMarks = [0, 4, 8, 12, 16, 20, 24]
-const morandiTaskColors: Array<{
+type TaskColorDefinition = {
   id: StudyTaskScheduleColorId
   name: string
   color: string
   ink: string
-}> = [
-  { id: 'sage', name: '鼠尾草', color: '#829d91', ink: '#ffffff' },
+}
+
+type TimeSelectProps = {
+  value: number
+  options: number[]
+  onChange: (minutes: number) => void
+  disabledOption?: (minutes: number) => boolean
+  ariaLabel: string
+}
+
+const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const hourMarks = [0, 4, 8, 12, 16, 20, 24]
+const morandiTaskColors: TaskColorDefinition[] = [
   { id: 'mist', name: '雾蓝', color: '#8197aa', ink: '#ffffff' },
-  { id: 'clay', name: '暖陶土', color: '#ab8b80', ink: '#ffffff' },
   { id: 'mauve', name: '灰紫', color: '#9c8aa5', ink: '#ffffff' },
   { id: 'sand', name: '麦砂', color: '#b3a184', ink: '#ffffff' },
   { id: 'slate', name: '岩灰', color: '#7d8a91', ink: '#ffffff' },
   { id: 'rose', name: '柔玫', color: '#ad8f98', ink: '#ffffff' }
 ]
+const legacyTaskColors: TaskColorDefinition[] = [
+  { id: 'sage', name: '历史配色', color: '#829d91', ink: '#ffffff' },
+  { id: 'clay', name: '历史配色', color: '#ab8b80', ink: '#ffffff' }
+]
+const customColorStorageKey = 'studiumx:study-schedule-custom-colors:v1'
+const maxCustomColors = 12
 const minutesPerDay = 24 * 60
 const selectionStepMinutes = 15
 
@@ -140,16 +154,55 @@ function createTimeOptions(startMinutes: number, endMinutes: number): number[] {
 
 function defaultColorIdForWeekday(weekday: number): StudyTaskScheduleColorId {
   const colorIndex = Math.abs(Math.floor(weekday)) % morandiTaskColors.length
-  return morandiTaskColors[colorIndex]?.id ?? 'sage'
+  return morandiTaskColors[colorIndex]?.id ?? 'mist'
 }
 
 function withDefaultScheduleColor(schedule: StudyTaskScheduleInput): StudyTaskScheduleInput {
   return { ...schedule, colorId: schedule.colorId ?? defaultColorIdForWeekday(schedule.weekday) }
 }
 
-function getScheduleColor(schedule: StudyTaskSchedule): (typeof morandiTaskColors)[number] {
+function isCustomScheduleColorId(value: unknown): value is `#${string}` {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
+}
+
+function getReadableInk(color: string): string {
+  const red = Number.parseInt(color.slice(1, 3), 16)
+  const green = Number.parseInt(color.slice(3, 5), 16)
+  const blue = Number.parseInt(color.slice(5, 7), 16)
+  const luminance = (red * 299 + green * 587 + blue * 114) / 1000
+  return luminance >= 158 ? '#25313a' : '#ffffff'
+}
+
+function createCustomColorDefinition(colorId: `#${string}`): TaskColorDefinition {
+  return { id: colorId, name: colorId.toUpperCase(), color: colorId, ink: getReadableInk(colorId) }
+}
+
+function loadCustomColors(): `#${string}`[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(customColorStorageKey) ?? '[]')
+    if (!Array.isArray(stored)) return []
+    return Array.from(new Set(stored.filter(isCustomScheduleColorId).map((color) => color.toLowerCase() as `#${string}`)))
+      .slice(0, maxCustomColors)
+  } catch {
+    return []
+  }
+}
+
+function saveCustomColors(colors: `#${string}`[]): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(customColorStorageKey, JSON.stringify(colors))
+  } catch {
+    // Custom colors are a convenience; task data still keeps the selected color.
+  }
+}
+
+function getScheduleColor(schedule: StudyTaskSchedule): TaskColorDefinition {
   const fallbackColorId = defaultColorIdForWeekday(schedule.weekday)
-  return morandiTaskColors.find((color) => color.id === (schedule.colorId ?? fallbackColorId)) ?? morandiTaskColors[0]!
+  const colorId = schedule.colorId ?? fallbackColorId
+  if (isCustomScheduleColorId(colorId)) return createCustomColorDefinition(colorId)
+  return [...morandiTaskColors, ...legacyTaskColors].find((color) => color.id === colorId) ?? morandiTaskColors[0]!
 }
 
 function currentWeekdayIndex(): number {
@@ -178,6 +231,100 @@ function formatMinutes(minutes: number): string {
 
 function formatHour(hour: number): string {
   return `${hour}:00`
+}
+
+
+const timePeriodGroups = [
+  { label: '凌晨', start: 0, end: 6 * 60 },
+  { label: '上午', start: 6 * 60, end: 12 * 60 },
+  { label: '下午', start: 12 * 60, end: 18 * 60 },
+  { label: '晚上', start: 18 * 60, end: minutesPerDay + 1 }
+]
+
+function TimeSelect({ value, options, onChange, disabledOption, ariaLabel }: TimeSelectProps) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const selectedRef = useRef<HTMLButtonElement | null>(null)
+  const listboxId = useId()
+
+  useEffect(() => {
+    if (!open) return undefined
+    const closeFromOutside = (event: PointerEvent): void => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const closeFromKeyboard = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      setOpen(false)
+      triggerRef.current?.focus()
+    }
+    window.addEventListener('pointerdown', closeFromOutside)
+    window.addEventListener('keydown', closeFromKeyboard)
+    window.requestAnimationFrame(() => selectedRef.current?.scrollIntoView({ block: 'nearest' }))
+    return () => {
+      window.removeEventListener('pointerdown', closeFromOutside)
+      window.removeEventListener('keydown', closeFromKeyboard)
+    }
+  }, [open])
+
+  const selectTime = (minutes: number): void => {
+    if (disabledOption?.(minutes)) return
+    onChange(minutes)
+    setOpen(false)
+    triggerRef.current?.focus()
+  }
+
+  return (
+    <div ref={rootRef} className={`study-schedule-time-select${open ? ' is-open' : ''}`}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="study-schedule-time-trigger"
+        aria-label={`${ariaLabel} ${formatMinutes(value)}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Clock3 size={14} aria-hidden="true" />
+        <strong>{formatMinutes(value)}</strong>
+        <ChevronDown size={14} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div id={listboxId} className="study-schedule-time-menu" role="listbox" aria-label={ariaLabel}>
+          {timePeriodGroups.map((group) => {
+            const groupOptions = options.filter((minutes) => minutes >= group.start && minutes < group.end)
+            if (groupOptions.length === 0) return null
+            return (
+              <section key={group.label} className="study-schedule-time-group" aria-label={group.label}>
+                <span>{group.label}</span>
+                <div>
+                  {groupOptions.map((minutes) => {
+                    const disabled = disabledOption?.(minutes) ?? false
+                    const selected = minutes === value
+                    return (
+                      <button
+                        key={minutes}
+                        ref={selected ? selectedRef : undefined}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        disabled={disabled}
+                        className={selected ? 'is-selected' : ''}
+                        onClick={() => selectTime(minutes)}
+                      >
+                        {formatMinutes(minutes)}
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function getMinutesFromPointer(element: HTMLElement, clientY: number): number {
@@ -304,6 +451,8 @@ export function StudyTaskSchedulePage({
   const [inlineTitle, setInlineTitle] = useState<InlineTitleState | null>(null)
   const [contextMenu, setContextMenu] = useState<TaskContextMenuState | null>(null)
   const [taskDrag, setTaskDrag] = useState<TaskDragState | null>(null)
+  const [customColors, setCustomColors] = useState<`#${string}`[]>(loadCustomColors)
+  const [customColorDraft, setCustomColorDraft] = useState<`#${string}`>('#6f8faf')
   const pendingTaskDragRef = useRef<PendingTaskDragState | null>(null)
   const taskDragRef = useRef<TaskDragState | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
@@ -315,6 +464,11 @@ export function StudyTaskSchedulePage({
   const editorColorId = editor
     ? editor.schedule.colorId ?? defaultColorIdForWeekday(editor.schedule.weekday)
     : null
+  const availableTaskColors = useMemo(() => {
+    const colors = [...customColors]
+    if (editorColorId && isCustomScheduleColorId(editorColorId) && !colors.includes(editorColorId)) colors.unshift(editorColorId)
+    return [...morandiTaskColors, ...colors.map(createCustomColorDefinition)]
+  }, [customColors, editorColorId])
   const contextMenuTask = contextMenu ? scheduledTasks.find((task) => task.id === contextMenu.taskId) ?? null : null
   const draggedTaskColor = taskDrag ? getScheduleColor(taskDrag.previewSchedule) : null
 
@@ -441,6 +595,16 @@ export function StudyTaskSchedulePage({
       }
       return { ...current, schedule: nextSchedule }
     })
+  }
+
+  const addCustomColor = (): void => {
+    const colorId = customColorDraft.toLowerCase() as `#${string}`
+    setCustomColors((current) => {
+      const next = [colorId, ...current.filter((color) => color !== colorId)].slice(0, maxCustomColors)
+      saveCustomColors(next)
+      return next
+    })
+    updateEditorSchedule({ colorId })
   }
 
   const handleEditorSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -674,20 +838,19 @@ export function StudyTaskSchedulePage({
           <ArrowLeft size={18} />
         </button>
         <div className="study-schedule-title">
-          <span><CalendarDays size={15} /> 任务详情</span>
-          <h1 id={titleId}>一周任务表</h1>
+          <h1 id={titleId}><CalendarDays size={17} /> 任务详情</h1>
         </div>
         <div className="study-schedule-stats" aria-label="任务统计">
+          <button
+            type="button"
+            className="study-schedule-stat-add-button"
+            onClick={() => openAddEditor()}
+            aria-label="添加任务"
+            title="添加任务"
+          >
+            <Plus size={18} />
+          </button>
           <div className="study-schedule-stat-card study-schedule-stat-card--pending">
-            <button
-              type="button"
-              className="study-schedule-stat-add-button"
-              onClick={() => openAddEditor()}
-              aria-label="添加任务"
-              title="添加任务"
-            >
-              <Plus size={16} />
-            </button>
             <span><strong>{openTasks}</strong>待完成</span>
           </div>
           <div className="study-schedule-stat-card"><span><strong>{completedTasks}</strong>已完成</span></div>
@@ -988,12 +1151,13 @@ export function StudyTaskSchedulePage({
                   ))}
                 </select>
               </label>
-              <label>
+              <div className="study-schedule-editor-field">
                 <span>开始</span>
-                <select
+                <TimeSelect
                   value={editor.schedule.startMinutes}
-                  onChange={(event) => {
-                    const nextStart = Number(event.target.value)
+                  options={startTimeOptions}
+                  ariaLabel="开始时间"
+                  onChange={(nextStart) => {
                     updateEditorSchedule({
                       startMinutes: nextStart,
                       endMinutes: editor.schedule.endMinutes <= nextStart
@@ -1001,30 +1165,23 @@ export function StudyTaskSchedulePage({
                         : editor.schedule.endMinutes
                     })
                   }}
-                >
-                  {startTimeOptions.map((minutes) => (
-                    <option key={minutes} value={minutes}>{formatMinutes(minutes)}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
+                />
+              </div>
+              <div className="study-schedule-editor-field">
                 <span>结束</span>
-                <select
+                <TimeSelect
                   value={editor.schedule.endMinutes}
-                  onChange={(event) => updateEditorSchedule({ endMinutes: Number(event.target.value) })}
-                >
-                  {endTimeOptions.map((minutes) => (
-                    <option key={minutes} value={minutes} disabled={minutes <= editor.schedule.startMinutes}>
-                      {formatMinutes(minutes)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  options={endTimeOptions}
+                  ariaLabel="结束时间"
+                  disabledOption={(minutes) => minutes <= editor.schedule.startMinutes}
+                  onChange={(endMinutes) => updateEditorSchedule({ endMinutes })}
+                />
+              </div>
             </div>
             <div className="study-schedule-editor-colors">
               <span>配色</span>
               <div className="study-schedule-color-swatches" aria-label="卡片配色">
-                {morandiTaskColors.map((color) => (
+                {availableTaskColors.map((color) => (
                   <button
                     key={color.id}
                     type="button"
@@ -1042,30 +1199,48 @@ export function StudyTaskSchedulePage({
                   </button>
                 ))}
               </div>
-            </div>
-            {editor.mode === 'edit' ? (
-              <label className="study-schedule-editor-check">
+              <div className="study-schedule-custom-color">
                 <input
-                  type="checkbox"
-                  checked={editor.done}
-                  onChange={(event) => {
-                    setEditor((current) => current && current.mode === 'edit'
-                      ? { ...current, done: event.target.checked }
-                      : current)
-                  }}
+                  type="color"
+                  value={customColorDraft}
+                  aria-label="选择自定义配色"
+                  onChange={(event) => setCustomColorDraft(event.target.value.toLowerCase() as `#${string}`)}
                 />
-                <span>已完成</span>
-              </label>
-            ) : null}
+                <button type="button" onClick={addCustomColor}>
+                  <Plus size={14} />
+                  添加自定义配色
+                </button>
+              </div>
+            </div>
             <div className="study-schedule-editor-status" role="status" aria-live="polite">
               {editorError}
             </div>
-            <div className="study-schedule-editor-actions">
-              <button type="button" className="study-schedule-secondary-button" onClick={closeEditor}>取消</button>
-              <button type="submit" className="study-schedule-primary-button">
-                <Check size={15} />
-                {editor.mode === 'add' ? '添加' : '保存'}
-              </button>
+            <div className="study-schedule-editor-footer">
+              {editor.mode === 'edit' ? (
+                <div className="study-schedule-editor-completion">
+                  <button
+                    type="button"
+                    className={editor.done ? 'is-complete' : ''}
+                    aria-pressed={editor.done}
+                    aria-label={editor.done ? '取消完成' : '标记为已完成'}
+                    onClick={() => {
+                      setEditor((current) => current && current.mode === 'edit'
+                        ? { ...current, done: !current.done }
+                        : current)
+                    }}
+                  >
+                    <Check size={17} />
+                  </button>
+                  <span>已完成</span>
+                </div>
+              ) : <span aria-hidden="true" />}
+              <div className="study-schedule-editor-actions">
+                <button type="button" className="study-schedule-secondary-button" onClick={closeEditor}>取消</button>
+                <button type="submit" className="study-schedule-primary-button">
+                  <Check size={15} />
+                  {editor.mode === 'add' ? '添加' : '保存'}
+                </button>
+              </div>
             </div>
           </form>
         </div>

@@ -253,9 +253,9 @@ export function studyPresenceTopic(spaceCode: string): string {
 const studyTaskScheduleColorIds: StudyTaskScheduleColorId[] = ['sage', 'mist', 'clay', 'mauve', 'sand', 'slate', 'rose']
 
 function normalizeStudyTaskScheduleColorId(input: unknown): StudyTaskScheduleColorId | undefined {
-  return typeof input === 'string' && studyTaskScheduleColorIds.includes(input as StudyTaskScheduleColorId)
-    ? input as StudyTaskScheduleColorId
-    : undefined
+  if (typeof input !== 'string') return undefined
+  if (studyTaskScheduleColorIds.includes(input as StudyTaskScheduleColorId)) return input as StudyTaskScheduleColorId
+  return /^#[0-9a-f]{6}$/i.test(input) ? input.toLowerCase() as `#${string}` : undefined
 }
 
 export function normalizeStudyTaskSchedule(input: unknown): StudyTaskSchedule | undefined {

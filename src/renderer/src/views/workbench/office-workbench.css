@@ -2840,21 +2840,14 @@
   min-width: 0;
 }
 
-.study-schedule-title span {
+.study-schedule-title h1 {
+  margin: 0;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  color: var(--accent);
-  font-size: 0.75rem;
-  font-weight: 760;
-  letter-spacing: 0;
-}
-
-.study-schedule-title h1 {
-  margin: 3px 0 0;
+  gap: 8px;
   overflow: hidden;
   color: var(--text);
-  font-size: 1.4rem;
+  font-size: 1.12rem;
   font-weight: 790;
   line-height: 1.14;
   letter-spacing: 0;
@@ -2862,9 +2855,14 @@
   white-space: nowrap;
 }
 
+.study-schedule-title h1 svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
 .study-schedule-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(74px, 1fr));
+  grid-template-columns: 42px repeat(3, minmax(74px, 1fr));
   gap: 8px;
   min-width: 0;
 }
@@ -3225,9 +3223,7 @@
 }
 
 .study-schedule-stat-card--pending {
-  grid-template-columns: 32px minmax(0, 1fr);
-  gap: 8px;
-  padding-left: 8px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .study-schedule-stat-add-button,
@@ -3247,11 +3243,12 @@
 }
 
 .study-schedule-stat-add-button {
-  width: 30px;
-  height: 30px;
+  width: 42px;
+  height: 42px;
+  align-self: center;
   color: #ffffff;
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  border-radius: 10px;
+  border-radius: 14px;
   background:
     linear-gradient(180deg, color-mix(in srgb, #ffffff 42%, transparent), transparent 48%),
     linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, #ffffff), var(--accent));
@@ -3536,8 +3533,8 @@
 
 .study-schedule-editor-panel {
   box-sizing: border-box;
-  width: min(520px, 100%);
-  max-height: min(620px, 100%);
+  width: min(560px, 100%);
+  max-height: min(700px, 100%);
   display: grid;
   gap: 14px;
   padding: 16px;
@@ -3582,7 +3579,7 @@
 }
 
 .study-schedule-editor-panel label > span,
-.study-schedule-editor-check span {
+.study-schedule-editor-field > span {
   display: block;
   margin: 0 0 6px 2px;
   color: var(--text-muted);
@@ -3590,7 +3587,7 @@
   font-weight: 720;
 }
 
-.study-schedule-editor-panel input:not([type="checkbox"]),
+.study-schedule-editor-panel input:not([type="checkbox"]):not([type="color"]),
 .study-schedule-editor-panel select {
   box-sizing: border-box;
   width: 100%;
@@ -3609,7 +3606,7 @@
   font-size: 0.8125rem;
 }
 
-.study-schedule-editor-panel input:not([type="checkbox"]):focus,
+.study-schedule-editor-panel input:not([type="checkbox"]):not([type="color"]):focus,
 .study-schedule-editor-panel select:focus,
 .study-schedule-draft-card input:focus,
 .study-schedule-inline-title-form input:focus {
@@ -3623,6 +3620,152 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+
+.study-schedule-editor-field {
+  position: relative;
+  min-width: 0;
+}
+
+.study-schedule-time-select {
+  position: relative;
+  min-width: 0;
+}
+
+.study-schedule-time-trigger {
+  box-sizing: border-box;
+  width: 100%;
+  height: 40px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 30%, transparent), transparent 58%),
+    color-mix(in srgb, var(--surface-solid) 45%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 52%, transparent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.study-schedule-time-trigger > svg:first-child {
+  color: var(--accent);
+}
+
+.study-schedule-time-trigger strong {
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 760;
+  text-align: left;
+}
+
+.study-schedule-time-trigger > svg:last-child {
+  color: var(--text-muted);
+  transition: transform 160ms ease;
+}
+
+.study-schedule-time-select.is-open .study-schedule-time-trigger {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent);
+}
+
+.study-schedule-time-select.is-open .study-schedule-time-trigger > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.study-schedule-time-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  z-index: 70;
+  box-sizing: border-box;
+  width: min(310px, calc(100vw - 48px));
+  max-height: 292px;
+  padding: 8px;
+  overflow: auto;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, #ffffff 52%, var(--line) 48%);
+  border-radius: 15px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 34%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface-solid) 92%, var(--app-shell-main-bg));
+  box-shadow:
+    0 22px 48px color-mix(in srgb, var(--text) 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 64%, transparent);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  overscroll-behavior: contain;
+}
+
+.study-schedule-editor-field:last-child .study-schedule-time-menu {
+  right: 0;
+  left: auto;
+}
+
+.study-schedule-time-group + .study-schedule-time-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 58%, transparent);
+}
+
+.study-schedule-time-group > span {
+  position: sticky;
+  top: -8px;
+  z-index: 1;
+  display: block;
+  padding: 4px 5px 6px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  font-size: 0.625rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+}
+
+.study-schedule-time-group > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.study-schedule-time-group button {
+  min-width: 0;
+  height: 30px;
+  padding: 0 5px;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-solid) 48%, transparent);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.study-schedule-time-group button.is-selected {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  background: var(--accent);
+  box-shadow: 0 7px 14px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.study-schedule-time-group button:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+}
+
+.study-schedule-time-group button:not(:disabled):focus-visible,
+.study-schedule-time-group button:not(:disabled):hover {
+  outline: 0;
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent) 11%, var(--surface-solid));
 }
 
 .study-schedule-editor-colors {
@@ -3639,7 +3782,7 @@
 
 .study-schedule-color-swatches {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
   gap: 7px;
 }
 
@@ -3700,24 +3843,109 @@
     inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent);
 }
 
-.study-schedule-editor-check {
-  display: inline-flex;
+
+.study-schedule-custom-color {
+  display: flex;
   align-items: center;
   gap: 8px;
-  width: fit-content;
+}
+
+.study-schedule-custom-color input[type="color"] {
+  box-sizing: border-box;
+  width: 42px;
+  height: 38px;
+  flex: 0 0 auto;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, #ffffff 46%, var(--line) 54%);
+  border-radius: 12px;
+  outline: 0;
+  background: color-mix(in srgb, var(--surface-solid) 50%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent);
+  cursor: pointer;
+}
+
+.study-schedule-custom-color input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.study-schedule-custom-color input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 8px;
+}
+
+.study-schedule-custom-color button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  color: var(--text);
+  border: 1px dashed color-mix(in srgb, var(--accent) 38%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-solid));
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.study-schedule-editor-footer {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.study-schedule-editor-completion {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   color: var(--text-muted);
-  font-size: 0.8125rem;
-  font-weight: 720;
+  font-size: 0.75rem;
+  font-weight: 740;
 }
 
-.study-schedule-editor-check input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
+.study-schedule-editor-completion > button {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  color: color-mix(in srgb, var(--text-muted) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 50%;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 58%),
+    color-mix(in srgb, var(--surface-solid) 50%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent);
+  cursor: pointer;
+  transition: transform 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
 }
 
-.study-schedule-editor-check span {
-  margin: 0;
+.study-schedule-editor-completion > button.is-complete {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 48%),
+    var(--accent);
+  box-shadow:
+    0 9px 20px color-mix(in srgb, var(--accent) 24%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+}
+
+.study-schedule-editor-completion > button:not(.is-complete) svg {
+  opacity: 0;
+}
+
+.study-schedule-editor-completion > button:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent);
 }
 
 .study-schedule-editor-status {
@@ -3731,6 +3959,7 @@
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  margin-left: auto;
 }
 
 .study-schedule-editor-actions button {
@@ -3761,6 +3990,8 @@
 }
 
 .study-schedule-stat-add-button:active,
+.study-schedule-custom-color button:active,
+.study-schedule-editor-completion > button:active,
 .study-schedule-color-swatch:active,
 .study-schedule-editor-close:active,
 .study-schedule-editor-actions button:active,
@@ -3781,6 +4012,8 @@
   .workbench-task-actions > button:not(:disabled):hover,
   .study-schedule-back:hover,
   .study-schedule-stat-add-button:hover,
+  .study-schedule-custom-color button:hover,
+  .study-schedule-editor-completion > button:hover,
   .study-schedule-color-swatch:hover,
   .study-schedule-editor-close:hover,
   .study-schedule-editor-actions button:hover,
@@ -3835,9 +4068,12 @@
     padding: 10px;
   }
 
-  .study-schedule-form,
-  .study-schedule-stats {
+  .study-schedule-form {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .study-schedule-stats {
+    grid-template-columns: 42px repeat(3, minmax(0, 1fr));
   }
 
   .study-schedule-editor-backdrop {
@@ -3854,7 +4090,15 @@
   }
 
   .study-schedule-color-swatches {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .study-schedule-editor-footer {
+    align-items: flex-end;
+  }
+
+  .study-schedule-editor-completion > span {
+    display: none;
   }
 
   .study-schedule-editor-actions {
@@ -3874,6 +4118,8 @@
 @media (prefers-reduced-motion: reduce) {
   .study-schedule-back:active,
   .study-schedule-stat-add-button:active,
+  .study-schedule-custom-color button:active,
+  .study-schedule-editor-completion > button:active,
   .study-schedule-color-swatch:active,
   .study-schedule-editor-close:active,
   .study-schedule-editor-actions button:active,
@@ -3886,6 +4132,8 @@
   .workbench-task-actions > button:not(:disabled):hover,
   .study-schedule-back:hover,
   .study-schedule-stat-add-button:hover,
+  .study-schedule-custom-color button:hover,
+  .study-schedule-editor-completion > button:hover,
   .study-schedule-color-swatch:hover,
   .study-schedule-editor-close:hover,
   .study-schedule-editor-actions button:hover,

@@ -6,7 +6,15 @@ export type StudyPresenceStatus = 'connecting' | 'online' | 'offline'
 export type StudyRoomEventKind = 'checkin' | 'focus_start' | 'task_done' | 'cheer'
 export type StudyRoomCyclePhase = 'focus' | 'break'
 export type StudySignalId = 'reading' | 'writing' | 'practice' | 'review' | 'exam'
-export type StudyTaskScheduleColorId = 'sage' | 'mist' | 'clay' | 'mauve' | 'sand' | 'slate' | 'rose'
+export type StudyTaskScheduleColorId =
+  | 'sage'
+  | 'mist'
+  | 'clay'
+  | 'mauve'
+  | 'sand'
+  | 'slate'
+  | 'rose'
+  | `#${string}`
 
 export type StudyTaskSchedule = {
   weekday: number
