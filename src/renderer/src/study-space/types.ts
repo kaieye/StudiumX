@@ -15,6 +15,12 @@ export type StudyTaskSchedule = {
 
 export type StudyTaskScheduleInput = StudyTaskSchedule
 
+export type StudyTaskUpdateInput = {
+  title?: string
+  done?: boolean
+  schedule?: StudyTaskScheduleInput
+}
+
 export type StudyTask = {
   id: string
   title: string
