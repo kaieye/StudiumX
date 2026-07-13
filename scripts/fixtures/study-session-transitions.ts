@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 
 import { studyModes, studyRooms } from '../../src/renderer/src/study-space/constants'
+import { resolveStudySeatConflict, studyRoomSeatCount } from '../../src/renderer/src/study-space/domain'
 import {
   addStudyTask,
+  addScheduledStudyTask,
+  chooseStudySeatSnapshot,
   defaultStudyContractText,
   deriveStudyHostAction,
   followStudyRoomCycle,
@@ -34,6 +37,7 @@ const snapshot: StudySnapshot = {
   ambientVolume: 0.5,
   roomId: 'silent',
   seatIndex: 0,
+  seatClaimedAt: 1000,
   timerMode: 'focus',
   timerState: 'idle',
   focusMinutes: 25,
@@ -101,10 +105,55 @@ const selectedDeepRoom = selectStudyRoomSnapshot(snapshot, deepRoom)
 assert.equal(selectedDeepRoom.roomId, 'deep')
 assert.equal(selectedDeepRoom.focusMinutes, 90)
 assert.equal(selectedDeepRoom.breakMinutes, 15)
+assert.ok(selectedDeepRoom.seatClaimedAt > snapshot.seatClaimedAt)
 
-assert.equal(joinStudySpace(snapshot, ' room-ab12 ').spaceCode, 'ROOM-AB12')
+assert.equal(joinStudySpace(snapshot, ' room-ab12 ', 3000).spaceCode, 'ROOM-AB12')
+assert.equal(joinStudySpace(snapshot, ' room-ab12 ', 3000).seatClaimedAt, 3000)
+assert.equal(joinStudySpace(snapshot, ' public ', 3000).seatClaimedAt, snapshot.seatClaimedAt)
 assert.equal(joinStudySpace(snapshot, 'x').spaceCode, 'PUBLIC')
-assert.equal(setStudySpaceCode(snapshot, 'ROOM-NEW').spaceCode, 'ROOM-NEW')
+assert.equal(setStudySpaceCode(snapshot, 'ROOM-NEW', 3100).spaceCode, 'ROOM-NEW')
+assert.equal(setStudySpaceCode(snapshot, 'ROOM-NEW', 3100).seatClaimedAt, 3100)
+
+const sameSeat = chooseStudySeatSnapshot(snapshot, 0, 3200)
+assert.equal(sameSeat.seatIndex, 0)
+assert.equal(sameSeat.seatClaimedAt, snapshot.seatClaimedAt)
+
+const changedSeat = chooseStudySeatSnapshot(snapshot, 4, 3200)
+assert.equal(changedSeat.seatIndex, 4)
+assert.equal(changedSeat.seatClaimedAt, 3200)
+
+const earlierSeatClaimWins = resolveStudySeatConflict({
+  self: { clientId: 'studiumx-loser', roomId: 'silent', seatIndex: 2, seatClaimedAt: 2000 },
+  peerClaims: [
+    { clientId: 'studiumx-winner', roomId: 'silent', seatIndex: 2, seatClaimedAt: 1000 },
+    { clientId: 'studiumx-neighbor', roomId: 'silent', seatIndex: 1, seatClaimedAt: 1500 }
+  ]
+})
+assert.equal(earlierSeatClaimWins.hasConflict, true)
+assert.equal(earlierSeatClaimWins.keepsSeat, false)
+assert.equal(earlierSeatClaimWins.winnerClientId, 'studiumx-winner')
+assert.equal(earlierSeatClaimWins.nextSeatIndex, 3)
+
+const tiedSeatClaimUsesClientId = resolveStudySeatConflict({
+  self: { clientId: 'studiumx-b', roomId: 'silent', seatIndex: 5, seatClaimedAt: 4000 },
+  peerClaims: [{ clientId: 'studiumx-a', roomId: 'silent', seatIndex: 5, seatClaimedAt: 4000 }]
+})
+assert.equal(tiedSeatClaimUsesClientId.hasConflict, true)
+assert.equal(tiedSeatClaimUsesClientId.keepsSeat, false)
+assert.equal(tiedSeatClaimUsesClientId.winnerClientId, 'studiumx-a')
+
+const fullRoomConflict = resolveStudySeatConflict({
+  self: { clientId: 'studiumx-full-loser', roomId: 'silent', seatIndex: 0, seatClaimedAt: 5000 },
+  peerClaims: Array.from({ length: studyRoomSeatCount('silent') }, (_, seatIndex) => ({
+    clientId: `studiumx-full-${seatIndex}`,
+    roomId: 'silent' as const,
+    seatIndex,
+    seatClaimedAt: seatIndex === 0 ? 1000 : 3000 + seatIndex
+  }))
+})
+assert.equal(fullRoomConflict.hasConflict, true)
+assert.equal(fullRoomConflict.keepsSeat, false)
+assert.equal(fullRoomConflict.nextSeatIndex, null)
 
 const examMode = studyModes.find((mode) => mode.id === 'exam')!
 const selectedMode = selectStudyModeSnapshot(snapshot, examMode)
@@ -152,6 +201,14 @@ const added = addStudyTask(snapshot, '  New task  ', 'new-task')
 assert.equal(added.added, true)
 assert.equal(added.snapshot.tasks[0]?.title, 'New task')
 assert.equal(addStudyTask(snapshot, '   ', 'blank').added, false)
+
+const scheduled = addScheduledStudyTask(snapshot, ' Lecture prep ', 'scheduled-task', {
+  weekday: 1,
+  startMinutes: 9 * 60,
+  endMinutes: 10 * 60 + 30
+})
+assert.equal(scheduled.added, true)
+assert.deepEqual(scheduled.snapshot.tasks[0]?.schedule, { weekday: 1, startMinutes: 540, endMinutes: 630 })
 
 const toggled = toggleStudyTask(snapshot, 'task-1')
 assert.equal(toggled.tasks.find((task) => task.id === 'task-1')?.done, true)

@@ -16,6 +16,7 @@ export const STUDY_PRESENCE_HEARTBEAT_MS = 10_000
 export const STUDY_PRESENCE_CONNECT_TIMEOUT_MS = 6500
 export const STUDY_PRESENCE_CLIENT_PREFIX = 'studiumx'
 export const STUDY_PUBLIC_SPACE_CODE = 'PUBLIC'
+export const STUDY_TASK_LIMIT = 48
 
 export const defaultStudySnapshot: StudySnapshot = {
   clientId: '',
@@ -30,6 +31,7 @@ export const defaultStudySnapshot: StudySnapshot = {
   ambientVolume: 0.45,
   roomId: 'silent',
   seatIndex: 0,
+  seatClaimedAt: 0,
   timerMode: 'focus',
   timerState: 'idle',
   focusMinutes: 25,

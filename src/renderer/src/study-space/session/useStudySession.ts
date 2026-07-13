@@ -7,13 +7,14 @@ import {
   readStudySnapshot,
   syncStudyLocation
 } from '../domain'
-import type { StudyRoomEventKind, StudyRoomId, StudySnapshot, StudyTimerMode } from '../types'
+import type { StudyRoomEventKind, StudyRoomId, StudySnapshot, StudyTaskScheduleInput, StudyTimerMode } from '../types'
 import { useStudyAmbient } from '../useStudyAmbient'
 import { useStudyPresence } from '../useStudyPresence'
 import { createStudySpaceViewModel } from '../viewModel'
 import { STUDY_TASKS_CHANGED_EVENT } from '../assistantTodo'
 import {
   addStudyTask,
+  addScheduledStudyTask,
   chooseStudySeatSnapshot,
   defaultStudyContractText,
   deriveStudyHostAction,
@@ -58,6 +59,7 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
   const viewModel = createStudySpaceViewModel(snapshot, presence, roomCycleNow)
   const roomEventSenderRef = useRef(presence.sendEvent)
   const lastFocusCompletionEventRef = useRef('')
+  const lastSeatConflictResolutionRef = useRef('')
   const timerTransitionRef = useRef({
     timerMode: snapshot.timerMode,
     timerState: snapshot.timerState,
@@ -143,6 +145,65 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
   }, [snapshot.roomId, snapshot.spaceCode])
 
   useEffect(() => {
+    if (!viewModel.userSeatConflict) {
+      lastSeatConflictResolutionRef.current = ''
+      return
+    }
+
+    const nextSeatIndex = viewModel.nextAvailableSeat
+    const conflictKey = [
+      snapshot.spaceCode,
+      snapshot.roomId,
+      snapshot.clientId,
+      viewModel.userSeat,
+      snapshot.seatClaimedAt,
+      viewModel.seatConflictWinnerClientId,
+      nextSeatIndex ?? 'full'
+    ].join(':')
+    if (lastSeatConflictResolutionRef.current === conflictKey) return
+    lastSeatConflictResolutionRef.current = conflictKey
+
+    if (nextSeatIndex === null) {
+      roomEventSenderRef.current(
+        'checkin',
+        `${snapshot.nickname} 的座位发生冲突，当前房间暂无空座。`,
+        { roomId: snapshot.roomId, spaceCode: snapshot.spaceCode }
+      )
+      return
+    }
+
+    const previousSeatIndex = viewModel.userSeat
+    const previousSeatClaimedAt = snapshot.seatClaimedAt
+    setSnapshot((current) => {
+      if (
+        current.clientId !== snapshot.clientId
+        || current.spaceCode !== snapshot.spaceCode
+        || current.roomId !== snapshot.roomId
+        || current.seatIndex !== previousSeatIndex
+        || current.seatClaimedAt !== previousSeatClaimedAt
+      ) {
+        return current
+      }
+      return chooseStudySeatSnapshot(current, nextSeatIndex)
+    })
+    roomEventSenderRef.current(
+      'checkin',
+      `${snapshot.nickname} 的座位冲突，已换到 ${formatStudySeatLabel(nextSeatIndex)}。`,
+      { roomId: snapshot.roomId, spaceCode: snapshot.spaceCode }
+    )
+  }, [
+    snapshot.clientId,
+    snapshot.nickname,
+    snapshot.roomId,
+    snapshot.seatClaimedAt,
+    snapshot.spaceCode,
+    viewModel.nextAvailableSeat,
+    viewModel.seatConflictWinnerClientId,
+    viewModel.userSeat,
+    viewModel.userSeatConflict
+  ])
+
+  useEffect(() => {
     const id = window.setInterval(() => setRoomCycleNow(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [])
@@ -223,7 +284,7 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
   }
 
   const chooseSeat = (seatIndex: number): void => {
-    if (seatIndex === viewModel.userSeat || viewModel.peersBySeat.has(seatIndex)) return
+    if (seatIndex === viewModel.userSeat || viewModel.blockedSeatIndexes.has(seatIndex)) return
     const seatLabel = formatStudySeatLabel(seatIndex)
     setSnapshot((current) => chooseStudySeatSnapshot(current, seatIndex))
     emitRoomEvent('checkin', `${snapshot.nickname} 换到 ${seatLabel}。`)
@@ -258,6 +319,13 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     if (!titleInput.trim()) return false
     const taskId = `${Date.now()}`
     setSnapshot((current) => addStudyTask(current, titleInput, taskId).snapshot)
+    return true
+  }
+
+  const addScheduledTask = (titleInput: string, schedule: StudyTaskScheduleInput): boolean => {
+    if (!titleInput.trim()) return false
+    const taskId = `scheduled-${Date.now()}`
+    setSnapshot((current) => addScheduledStudyTask(current, titleInput, taskId, schedule).snapshot)
     return true
   }
 
@@ -303,6 +371,7 @@ export function useStudySession({ showNotification, openFocusTheater }: UseStudy
     resetTimer,
     switchTimerMode,
     addTask,
+    addScheduledTask,
     toggleTask,
     removeDoneTasks,
     toggleAmbientEnabled,

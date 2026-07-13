@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PetAppearanceId } from '../../../../shared/teaching-types'
 import { useAppStore } from '../../app-shell/appStore'
+import { studyRooms } from '../../study-space/constants'
 import {
   formatStudyDuration,
+  formatStudySeatLabel,
   studyMemberStatusLabel
 } from '../../study-space/domain'
 import { useStudySession } from '../../study-space/session/useStudySession'
@@ -19,6 +21,7 @@ import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { WorkbenchRoomSwitcher } from './WorkbenchRoomSwitcher'
 import { WorkbenchTasks } from './WorkbenchTasks'
+import { StudyTaskSchedulePage } from './StudyTaskSchedulePage'
 
 type WorkbenchAssets = {
   deskImage: HTMLImageElement
@@ -52,6 +55,7 @@ type WorkbenchSeatState = {
   activeRoomName: string
   connectionLabel: string
   cycleLabel: string
+  blockedSeatIndexes: Set<number>
   occupantsByDeskId: Map<DeskId, WorkbenchSeatOccupant>
 }
 
@@ -128,6 +132,7 @@ function emptyWorkbenchSeatState(): WorkbenchSeatState {
     activeRoomName: '自习室',
     connectionLabel: '本机席位',
     cycleLabel: '',
+    blockedSeatIndexes: new Set(),
     occupantsByDeskId: new Map()
   }
 }
@@ -141,6 +146,30 @@ function ensureWorkbenchRouteParam(): void {
     window.history.replaceState(null, '', `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`)
   } catch {
     // URL sync is only for refresh/share behavior; the workbench still runs without it.
+  }
+}
+
+function isStudyScheduleRoute(): boolean {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('workbench') === 'schedule' || params.has('studySchedule')
+  } catch {
+    return false
+  }
+}
+
+function navigateWorkbenchRoute(page: 'room' | 'schedule', replace = false): void {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    params.delete('studySchedule')
+    params.set('workbench', page === 'schedule' ? 'schedule' : '1')
+    const search = params.toString()
+    const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`
+    if (nextUrl === `${window.location.pathname}${window.location.search}${window.location.hash}`) return
+    const method = replace ? 'replaceState' : 'pushState'
+    window.history[method](null, '', nextUrl)
+  } catch {
+    // The React state remains the source of truth when URL updates are unavailable.
   }
 }
 
@@ -362,6 +391,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     viewModel,
     joinSpace,
     createSpace,
+    selectRoom,
     chooseSeat,
     toggleTimer,
     resetTimer,
@@ -369,6 +399,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     updateTimerPreset,
     toggleAmbientEnabled,
     addTask,
+    addScheduledTask,
     toggleTask,
     removeDoneTasks
   } = useStudySession({
@@ -381,10 +412,11 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const seatStateRef = useRef<WorkbenchSeatState>(emptyWorkbenchSeatState())
   const chooseSeatRef = useRef(chooseSeat)
   const hoveredDeskIdRef = useRef<DeskId | null>(null)
+  const [scheduleOpen, setScheduleOpen] = useState(() => isStudyScheduleRoute())
   const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
   const occupantsByDeskId = new Map<DeskId, WorkbenchSeatOccupant>()
 
-  if (workbenchUserSeatIndex >= 0) {
+  if (!viewModel.userSeatConflict && workbenchUserSeatIndex >= 0) {
     occupantsByDeskId.set(deskIdForSeatIndex(workbenchUserSeatIndex), {
       kind: 'self',
       name: snapshot.nickname,
@@ -404,10 +436,11 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     })
   })
   seatStateRef.current = {
-    userSeatIndex: workbenchUserSeatIndex,
+    userSeatIndex: viewModel.userSeatConflict ? -1 : workbenchUserSeatIndex,
     activeRoomName: viewModel.activeRoom.name,
     connectionLabel: viewModel.connectionLabel,
     cycleLabel: `${viewModel.roomCycle.phase === 'focus' ? '专注中' : '休息中'} · ${formatStudyDuration(viewModel.roomCycle.remainingSeconds)}`,
+    blockedSeatIndexes: viewModel.blockedSeatIndexes,
     occupantsByDeskId
   }
   chooseSeatRef.current = chooseSeat
@@ -417,6 +450,23 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   }, [])
 
   useEffect(() => {
+    const handlePopState = () => setScheduleOpen(isStudyScheduleRoute())
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  const openTaskSchedule = (): void => {
+    navigateWorkbenchRoute('schedule')
+    setScheduleOpen(true)
+  }
+
+  const closeTaskSchedule = (): void => {
+    navigateWorkbenchRoute('room', true)
+    setScheduleOpen(false)
+  }
+
+  useEffect(() => {
+    if (scheduleOpen) return
     const stage = stageRef.current
     const canvas = canvasRef.current
     if (!stage || !canvas) return
@@ -432,9 +482,10 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       resizeObserver.disconnect()
       window.removeEventListener('resize', updateCanvasSize)
     }
-  }, [])
+  }, [scheduleOpen])
 
   useEffect(() => {
+    if (scheduleOpen) return
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -450,6 +501,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     }
 
     const selectDesk = (slot: DeskSlot) => {
+      const isBlocked = seatStateRef.current.blockedSeatIndexes.has(slot.slotIndex)
+      if (isBlocked) return
       const occupant = seatStateRef.current.occupantsByDeskId.get(slot.id)
       if (occupant?.kind === 'peer') return
       chooseSeatRef.current(slot.slotIndex)
@@ -462,7 +515,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       const slot = findDeskAt(canvasPointToScene(event, canvas))
       hoveredDeskIdRef.current = slot?.id ?? null
       const occupant = slot ? seatStateRef.current.occupantsByDeskId.get(slot.id) : null
-      canvas.style.cursor = slot && occupant?.kind !== 'peer' ? 'pointer' : 'default'
+      const isBlocked = slot ? seatStateRef.current.blockedSeatIndexes.has(slot.slotIndex) : false
+      canvas.style.cursor = slot && !isBlocked && occupant?.kind !== 'peer' ? 'pointer' : 'default'
     }
 
     const handleClick = (event: MouseEvent) => {
@@ -478,7 +532,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         for (let offset = 0; offset < deskSlots.length; offset += 1) {
           const index = (startIndex + offset * direction + deskSlots.length) % deskSlots.length
           const occupant = seatStateRef.current.occupantsByDeskId.get(deskSlots[index].id)
-          if (occupant?.kind !== 'peer') return index
+          const isBlocked = seatStateRef.current.blockedSeatIndexes.has(deskSlots[index].slotIndex)
+          if (!isBlocked && occupant?.kind !== 'peer') return index
         }
         return null
       }
@@ -516,9 +571,10 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       canvas.removeEventListener('pointerleave', handlePointerLeave)
       canvas.style.cursor = 'default'
     }
-  }, [])
+  }, [scheduleOpen])
 
   useEffect(() => {
+    if (scheduleOpen) return
     let canceled = false
     let animationFrame = 0
     const reducedMotionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)')
@@ -571,7 +627,22 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       reducedMotionQuery?.removeEventListener('change', updateReducedMotion)
       assetsRef.current = null
     }
-  }, [petAppearance])
+  }, [petAppearance, scheduleOpen])
+
+  if (scheduleOpen) {
+    return (
+      <section className="office-workbench-page" aria-label="任务详情">
+        <StudyTaskSchedulePage
+          tasks={snapshot.tasks}
+          openTasks={viewModel.openTasks}
+          completedTasks={viewModel.completedTasks}
+          onAddScheduledTask={addScheduledTask}
+          onToggleTask={toggleTask}
+          onBack={closeTaskSchedule}
+        />
+      </section>
+    )
+  }
 
   return (
     <section className="office-workbench-page" aria-label="自习室">
@@ -587,9 +658,21 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         <div className="workbench-tools" role="group" aria-label="自习工具">
           <WorkbenchRoomSwitcher
             spaceCode={snapshot.spaceCode}
+            rooms={studyRooms}
+            activeRoomId={snapshot.roomId}
+            connectionStatus={presence.status}
+            onlineCount={viewModel.online}
+            onSelectRoom={selectRoom}
             onCreateSpace={createSpace}
             onJoinSpace={joinSpace}
           />
+          {viewModel.userSeatConflict ? (
+            <div className="workbench-seat-alert" role="status">
+              {viewModel.nextAvailableSeat === null
+                ? '当前座位已被更早入座的同学占用，房间暂无空座。'
+                : `座位冲突，正在换到 ${formatStudySeatLabel(viewModel.nextAvailableSeat)}。`}
+            </div>
+          ) : null}
           <WorkbenchPomodoro
             snapshot={snapshot}
             timerProgress={viewModel.timerProgress}
@@ -608,6 +691,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             onAddTask={addTask}
             onToggleTask={toggleTask}
             onRemoveDoneTasks={removeDoneTasks}
+            onOpenSchedule={openTaskSchedule}
           />
         </div>
       </div>

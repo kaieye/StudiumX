@@ -12,6 +12,7 @@ import {
   displayStudyRelayUrl,
   normalizeStudyRelayUrl,
   normalizeStudyRoomId,
+  normalizeStudySeatClaimedAt,
   normalizeStudySeatIndex,
   normalizeStudySignalId,
   normalizeStudySpaceCode,
@@ -125,6 +126,7 @@ function normalizePresencePeer(input: unknown): StudyPresencePeer | null {
     nickname,
     signalId: normalizeStudySignalId(raw.signalId),
     seatIndex: normalizeStudySeatIndex(raw.seatIndex, roomId, raw.clientId),
+    seatClaimedAt: normalizeStudySeatClaimedAt(raw.seatClaimedAt, raw.updatedAt),
     status,
     timerMode: raw.timerMode === 'break' ? 'break' : 'focus',
     focusMinutes: clampNumber(raw.focusMinutes, 5, 120, 25),
@@ -215,6 +217,7 @@ export function useStudyPresence(snapshot: StudySnapshot): {
         nickname: current.nickname,
         signalId: current.signalId,
         seatIndex: normalizeStudySeatIndex(current.seatIndex, current.roomId, current.clientId),
+        seatClaimedAt: current.seatClaimedAt,
         status: current.timerState,
         timerMode: current.timerMode,
         focusMinutes: current.focusMinutes,
@@ -272,7 +275,11 @@ export function useStudyPresence(snapshot: StudySnapshot): {
           if (peer) {
             if (peer.clientId === snapshotRef.current.clientId) return
             setLastRemoteMessageAt(Date.now())
-            setPeers((current) => [peer, ...current.filter((item) => item.clientId !== peer.clientId)].slice(0, 80))
+            setPeers((current) => {
+              const existing = current.find((item) => item.clientId === peer.clientId)
+              if (existing && peer.updatedAt < existing.updatedAt) return current
+              return [peer, ...current.filter((item) => item.clientId !== peer.clientId)].slice(0, 80)
+            })
             return
           }
           const event = normalizeStudyRoomEvent(JSON.parse(publish.message))
@@ -337,6 +344,7 @@ export function useStudyPresence(snapshot: StudySnapshot): {
         nickname: snapshot.nickname,
         signalId: snapshot.signalId,
         seatIndex: normalizeStudySeatIndex(snapshot.seatIndex, snapshot.roomId, snapshot.clientId),
+        seatClaimedAt: snapshot.seatClaimedAt,
         status: snapshot.timerState,
         timerMode: snapshot.timerMode,
         focusMinutes: snapshot.focusMinutes,
@@ -353,6 +361,7 @@ export function useStudyPresence(snapshot: StudySnapshot): {
     snapshot.focusMinutes,
     snapshot.nickname,
     snapshot.roomId,
+    snapshot.seatClaimedAt,
     snapshot.seatIndex,
     snapshot.signalId,
     snapshot.spaceCode,

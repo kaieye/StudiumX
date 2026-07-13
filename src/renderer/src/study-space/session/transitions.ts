@@ -1,12 +1,13 @@
-import { STUDY_PRESENCE_BROKER_URL, studyModes, studyRooms } from '../constants'
+import { STUDY_PRESENCE_BROKER_URL, STUDY_TASK_LIMIT, studyModes, studyRooms } from '../constants'
 import {
   nextStudyStreak,
   normalizeStudyRelayUrl,
   normalizeStudySeatIndex,
   normalizeStudySpaceCode,
+  normalizeStudyTaskSchedule,
   todayKey
 } from '../domain'
-import type { StudySignalId, StudySnapshot, StudyTimerMode } from '../types'
+import type { StudySignalId, StudySnapshot, StudyTaskScheduleInput, StudyTimerMode } from '../types'
 
 type StudyRoom = typeof studyRooms[number]
 type StudyMode = typeof studyModes[number]
@@ -76,10 +77,12 @@ export function updateStudyTimerPreset(
 }
 
 export function selectStudyRoomSnapshot(snapshot: StudySnapshot, room: StudyRoom): StudySnapshot {
+  const roomChanged = room.id !== snapshot.roomId
   return {
     ...snapshot,
     roomId: room.id,
     seatIndex: normalizeStudySeatIndex(snapshot.seatIndex, room.id, snapshot.clientId),
+    seatClaimedAt: roomChanged ? Date.now() : snapshot.seatClaimedAt,
     focusMinutes: snapshot.timerState === 'running' ? snapshot.focusMinutes : room.sessionMinutes,
     breakMinutes: snapshot.timerState === 'running' ? snapshot.breakMinutes : room.breakMinutes,
     remainingSeconds: snapshot.timerState === 'running' ? snapshot.remainingSeconds : room.sessionMinutes * 60,
@@ -88,6 +91,7 @@ export function selectStudyRoomSnapshot(snapshot: StudySnapshot, room: StudyRoom
 }
 
 export function selectStudyModeSnapshot(snapshot: StudySnapshot, mode: StudyMode): StudySnapshot {
+  const roomChanged = snapshot.timerState !== 'running' && mode.roomId !== snapshot.roomId
   return {
     ...snapshot,
     modeId: mode.id,
@@ -95,6 +99,7 @@ export function selectStudyModeSnapshot(snapshot: StudySnapshot, mode: StudyMode
     seatIndex: snapshot.timerState === 'running'
       ? snapshot.seatIndex
       : normalizeStudySeatIndex(snapshot.seatIndex, mode.roomId, snapshot.clientId),
+    seatClaimedAt: roomChanged ? Date.now() : snapshot.seatClaimedAt,
     focusMinutes: snapshot.timerState === 'running' ? snapshot.focusMinutes : mode.focusMinutes,
     breakMinutes: snapshot.timerState === 'running' ? snapshot.breakMinutes : mode.breakMinutes,
     remainingSeconds: snapshot.timerState === 'running' ? snapshot.remainingSeconds : mode.focusMinutes * 60,
@@ -120,12 +125,13 @@ export function saveStudyNickname(snapshot: StudySnapshot, nicknameInput: string
   return nickname ? { ...snapshot, nickname } : snapshot
 }
 
-export function joinStudySpace(snapshot: StudySnapshot, spaceInput: string): StudySnapshot {
-  return { ...snapshot, spaceCode: normalizeStudySpaceCode(spaceInput) }
+export function joinStudySpace(snapshot: StudySnapshot, spaceInput: string, nowMs = Date.now()): StudySnapshot {
+  const spaceCode = normalizeStudySpaceCode(spaceInput)
+  return { ...snapshot, spaceCode, seatClaimedAt: spaceCode !== snapshot.spaceCode ? nowMs : snapshot.seatClaimedAt }
 }
 
-export function setStudySpaceCode(snapshot: StudySnapshot, spaceCode: string): StudySnapshot {
-  return { ...snapshot, spaceCode }
+export function setStudySpaceCode(snapshot: StudySnapshot, spaceCode: string, nowMs = Date.now()): StudySnapshot {
+  return { ...snapshot, spaceCode, seatClaimedAt: spaceCode !== snapshot.spaceCode ? nowMs : snapshot.seatClaimedAt }
 }
 
 export function saveStudyRelayUrl(snapshot: StudySnapshot, relayInput: string): {
@@ -172,8 +178,13 @@ export function followStudyRoomCycle(input: {
   }
 }
 
-export function chooseStudySeatSnapshot(snapshot: StudySnapshot, seatIndex: number): StudySnapshot {
-  return { ...snapshot, seatIndex }
+export function chooseStudySeatSnapshot(snapshot: StudySnapshot, seatIndex: number, nowMs = Date.now()): StudySnapshot {
+  const normalizedSeatIndex = normalizeStudySeatIndex(seatIndex, snapshot.roomId, snapshot.clientId)
+  return {
+    ...snapshot,
+    seatIndex: normalizedSeatIndex,
+    seatClaimedAt: normalizedSeatIndex !== snapshot.seatIndex ? nowMs : snapshot.seatClaimedAt
+  }
 }
 
 export function deriveStudyHostAction(snapshot: StudySnapshot, followingRoomCycle: boolean): StudyHostAction {
@@ -210,7 +221,28 @@ export function addStudyTask(snapshot: StudySnapshot, titleInput: string, id: st
   return {
     snapshot: {
       ...snapshot,
-      tasks: [{ id, title: title.slice(0, 80), done: false }, ...snapshot.tasks].slice(0, 8)
+      tasks: [{ id, title: title.slice(0, 80), done: false }, ...snapshot.tasks].slice(0, STUDY_TASK_LIMIT)
+    },
+    added: true
+  }
+}
+
+export function addScheduledStudyTask(
+  snapshot: StudySnapshot,
+  titleInput: string,
+  id: string,
+  scheduleInput: StudyTaskScheduleInput
+): {
+  snapshot: StudySnapshot
+  added: boolean
+} {
+  const title = titleInput.trim()
+  const schedule = normalizeStudyTaskSchedule(scheduleInput)
+  if (!title || !schedule) return { snapshot, added: false }
+  return {
+    snapshot: {
+      ...snapshot,
+      tasks: [{ id, title: title.slice(0, 80), done: false, schedule }, ...snapshot.tasks].slice(0, STUDY_TASK_LIMIT)
     },
     added: true
   }

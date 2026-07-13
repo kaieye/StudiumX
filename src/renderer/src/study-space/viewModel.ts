@@ -7,11 +7,14 @@ import {
   formatStudySeatLabel,
   getStudyRoomCycle,
   normalizeStudySeatIndex,
+  resolveStudySeatConflict,
   studyInviteUrl,
   studyLevel,
   studyMemberFreshnessLabel,
   studyMemberStatusLabel,
-  studySignalLabel
+  studySignalLabel,
+  winningStudySeatClaim,
+  type StudySeatClaim
 } from './domain'
 import type { StudyPresencePeer, StudyPresenceStatus, StudyRoomCycle, StudyRoomEvent, StudyRoomEventKind, StudySnapshot, StudyTimerMode, StudyTimerState } from './types'
 
@@ -58,7 +61,11 @@ export type StudySpaceViewModel = {
   currentTask: StudySnapshot['tasks'][number] | undefined
   seatCount: number
   userSeat: number
+  userSeatConflict: boolean
+  seatConflictWinnerClientId: string
+  nextAvailableSeat: number | null
   peersBySeat: Map<number, StudyPresencePeer>
+  blockedSeatIndexes: Set<number>
   weeklyFocus: number[]
   badges: Array<{ label: string; unlocked: boolean }>
   roomMembers: StudyRoomMember[]
@@ -157,10 +164,39 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
   const currentTask = snapshot.tasks.find((task) => !task.done)
   const seatCount = activeRoom.seats
   const userSeat = normalizeStudySeatIndex(snapshot.seatIndex, snapshot.roomId, snapshot.clientId)
+  const selfSeatClaim: StudySeatClaim = {
+    clientId: snapshot.clientId,
+    roomId: snapshot.roomId,
+    seatIndex: userSeat,
+    seatClaimedAt: snapshot.seatClaimedAt
+  }
+  const peerSeatClaims: StudySeatClaim[] = activePeers.map((peer) => ({
+    clientId: peer.clientId,
+    roomId: peer.roomId,
+    seatIndex: normalizeStudySeatIndex(peer.seatIndex, peer.roomId, peer.clientId),
+    seatClaimedAt: peer.seatClaimedAt
+  }))
+  const localSeatResolution = resolveStudySeatConflict({ self: selfSeatClaim, peerClaims: peerSeatClaims })
+  const userSeatConflict = localSeatResolution.hasConflict && !localSeatResolution.keepsSeat
+  const seatConflictWinnerClientId = localSeatResolution.winnerClientId
+  const nextAvailableSeat = localSeatResolution.nextSeatIndex
+  const winningClaimBySeat = new Map<number, StudySeatClaim>()
+  const claimsBySeat = new Map<number, StudySeatClaim[]>()
+  for (const claim of [selfSeatClaim, ...peerSeatClaims]) {
+    const items = claimsBySeat.get(claim.seatIndex) ?? []
+    items.push(claim)
+    claimsBySeat.set(claim.seatIndex, items)
+  }
+  claimsBySeat.forEach((claims, seatIndex) => {
+    const winner = winningStudySeatClaim(claims)
+    if (winner) winningClaimBySeat.set(seatIndex, winner)
+  })
+  const blockedSeatIndexes = new Set(peerSeatClaims.map((claim) => claim.seatIndex))
   const peersBySeat = new Map<number, StudyPresencePeer>()
   activePeers.forEach((peer) => {
     const seatIndex = normalizeStudySeatIndex(peer.seatIndex, peer.roomId, peer.clientId)
-    if (!peersBySeat.has(seatIndex)) peersBySeat.set(seatIndex, peer)
+    const winningClaim = winningClaimBySeat.get(seatIndex)
+    if (winningClaim?.clientId === peer.clientId && !peersBySeat.has(seatIndex)) peersBySeat.set(seatIndex, peer)
   })
   const weeklyFocus = [0.42, 0.66, 0.28, 0.74, 0.54, 0.86, Math.min(1, snapshot.todayFocusSeconds / Math.max(1, snapshot.focusMinutes * 60 * 4))]
   const badges = [
@@ -183,6 +219,7 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
       roomId: snapshot.roomId,
       spaceCode: snapshot.spaceCode,
       seatIndex: userSeat,
+      seatClaimedAt: snapshot.seatClaimedAt,
       updatedAt: nowMs,
       isSelf: true
     },
@@ -354,7 +391,11 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
     currentTask,
     seatCount,
     userSeat,
+    userSeatConflict,
+    seatConflictWinnerClientId,
+    nextAvailableSeat,
     peersBySeat,
+    blockedSeatIndexes,
     weeklyFocus,
     badges,
     roomMembers,

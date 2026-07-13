@@ -7,10 +7,19 @@ export type StudyRoomEventKind = 'checkin' | 'focus_start' | 'task_done' | 'chee
 export type StudyRoomCyclePhase = 'focus' | 'break'
 export type StudySignalId = 'reading' | 'writing' | 'practice' | 'review' | 'exam'
 
+export type StudyTaskSchedule = {
+  weekday: number
+  startMinutes: number
+  endMinutes: number
+}
+
+export type StudyTaskScheduleInput = StudyTaskSchedule
+
 export type StudyTask = {
   id: string
   title: string
   done: boolean
+  schedule?: StudyTaskSchedule
 }
 
 export type StudyPresencePeer = {
@@ -20,6 +29,7 @@ export type StudyPresencePeer = {
   nickname: string
   signalId: StudySignalId
   seatIndex: number
+  seatClaimedAt: number
   status: StudyTimerState
   timerMode: StudyTimerMode
   focusMinutes: number
@@ -63,6 +73,7 @@ export type StudySnapshot = {
   ambientVolume: number
   roomId: StudyRoomId
   seatIndex: number
+  seatClaimedAt: number
   timerMode: StudyTimerMode
   timerState: StudyTimerState
   focusMinutes: number

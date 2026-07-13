@@ -10,12 +10,27 @@ import {
   STUDY_PUBLIC_SPACE_CODE,
   STUDY_SPACE_SESSION_CLIENT_KEY,
   STUDY_SPACE_STORAGE_KEY,
+  STUDY_TASK_LIMIT,
   defaultStudySnapshot,
   studyModes,
   studyRooms,
   studySignals
 } from './constants'
-import type { StudyModeId, StudyRoomCycle, StudyRoomCyclePhase, StudyRoomId, StudySignalId, StudySnapshot, StudyTask, StudyTimerMode, StudyTimerState } from './types'
+import type { StudyModeId, StudyRoomCycle, StudyRoomCyclePhase, StudyRoomId, StudySignalId, StudySnapshot, StudyTask, StudyTaskSchedule, StudyTimerMode, StudyTimerState } from './types'
+
+export type StudySeatClaim = {
+  clientId: string
+  roomId: StudyRoomId
+  seatIndex: number
+  seatClaimedAt: number
+}
+
+export type StudySeatConflictResolution = {
+  hasConflict: boolean
+  keepsSeat: boolean
+  winnerClientId: string
+  nextSeatIndex: number | null
+}
 
 export function studyRoomCycleOffset(roomId: StudyRoomId): number {
   const roomIndex = studyRooms.findIndex((room) => room.id === roomId)
@@ -83,6 +98,88 @@ export function normalizeStudySeatIndex(input: unknown, roomId: StudyRoomId, cli
   return Math.floor(clampNumber(input, 0, Math.max(0, studyRoomSeatCount(roomId) - 1), defaultStudySeatIndex(clientId, roomId)))
 }
 
+export function normalizeStudySeatClaimedAt(input: unknown, fallback = Date.now()): number {
+  const maxFutureMs = Date.now() + 60_000
+  if (typeof input !== 'number' || !Number.isFinite(input) || input <= 0) return Math.floor(fallback)
+  return Math.floor(Math.min(maxFutureMs, Math.max(1, input)))
+}
+
+export function compareStudySeatClaims(left: StudySeatClaim, right: StudySeatClaim): number {
+  if (left.seatClaimedAt !== right.seatClaimedAt) return left.seatClaimedAt - right.seatClaimedAt
+  return left.clientId.localeCompare(right.clientId)
+}
+
+function normalizeStudySeatClaim(claim: StudySeatClaim, roomId = claim.roomId): StudySeatClaim {
+  return {
+    ...claim,
+    roomId,
+    seatIndex: normalizeStudySeatIndex(claim.seatIndex, roomId, claim.clientId),
+    seatClaimedAt: normalizeStudySeatClaimedAt(claim.seatClaimedAt)
+  }
+}
+
+export function winningStudySeatClaim(claims: StudySeatClaim[]): StudySeatClaim | null {
+  if (claims.length === 0) return null
+  return [...claims].sort(compareStudySeatClaims)[0] ?? null
+}
+
+export function findAvailableStudySeatIndex(input: {
+  preferredSeatIndex: number
+  roomId: StudyRoomId
+  clientId: string
+  occupiedSeatIndexes: Iterable<number>
+}): number | null {
+  const seatCount = studyRoomSeatCount(input.roomId)
+  const preferredSeatIndex = normalizeStudySeatIndex(input.preferredSeatIndex, input.roomId, input.clientId)
+  const occupiedSeats = new Set<number>()
+  for (const seatIndex of input.occupiedSeatIndexes) {
+    occupiedSeats.add(normalizeStudySeatIndex(seatIndex, input.roomId, input.clientId))
+  }
+  if (!occupiedSeats.has(preferredSeatIndex)) return preferredSeatIndex
+
+  const clientOffset = defaultStudySeatIndex(input.clientId, input.roomId)
+  const candidates = Array.from({ length: seatCount }, (_, index) => index)
+    .filter((seatIndex) => !occupiedSeats.has(seatIndex))
+    .sort((left, right) => {
+      const leftDistance = Math.abs(left - preferredSeatIndex)
+      const rightDistance = Math.abs(right - preferredSeatIndex)
+      if (leftDistance !== rightDistance) return leftDistance - rightDistance
+      const leftClientBias = (left - clientOffset + seatCount) % seatCount
+      const rightClientBias = (right - clientOffset + seatCount) % seatCount
+      return leftClientBias - rightClientBias
+    })
+
+  return candidates[0] ?? null
+}
+
+export function resolveStudySeatConflict(input: {
+  self: StudySeatClaim
+  peerClaims: StudySeatClaim[]
+}): StudySeatConflictResolution {
+  const self = normalizeStudySeatClaim(input.self)
+  const peerClaims = input.peerClaims
+    .filter((claim) => claim.roomId === self.roomId && claim.clientId !== self.clientId)
+    .map((claim) => normalizeStudySeatClaim(claim, self.roomId))
+  const sameSeatClaims = [self, ...peerClaims.filter((claim) => claim.seatIndex === self.seatIndex)]
+  const winner = winningStudySeatClaim(sameSeatClaims) ?? self
+  const hasConflict = sameSeatClaims.length > 1
+  const keepsSeat = winner.clientId === self.clientId
+
+  return {
+    hasConflict,
+    keepsSeat,
+    winnerClientId: winner.clientId,
+    nextSeatIndex: hasConflict && !keepsSeat
+      ? findAvailableStudySeatIndex({
+          preferredSeatIndex: self.seatIndex,
+          roomId: self.roomId,
+          clientId: self.clientId,
+          occupiedSeatIndexes: peerClaims.map((claim) => claim.seatIndex)
+        })
+      : self.seatIndex
+  }
+}
+
 export function formatStudySeatLabel(index: number): string {
   return `${String(index + 1).padStart(2, '0')}号座`
 }
@@ -141,17 +238,32 @@ export function studyPresenceTopic(spaceCode: string): string {
   return `${STUDY_PRESENCE_TOPIC_ROOT}/${normalizeStudySpaceCode(spaceCode).toLowerCase()}/presence`
 }
 
+export function normalizeStudyTaskSchedule(input: unknown): StudyTaskSchedule | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const raw = input as Partial<StudyTaskSchedule>
+  const weekday = Math.floor(clampNumber(raw.weekday, 0, 6, 0))
+  const startMinutes = Math.floor(clampNumber(raw.startMinutes, 0, 23 * 60 + 59, 9 * 60))
+  const fallbackEnd = Math.min(24 * 60, startMinutes + 60)
+  const rawEndMinutes = Math.floor(clampNumber(raw.endMinutes, 1, 24 * 60, fallbackEnd))
+  const endMinutes = rawEndMinutes > startMinutes ? rawEndMinutes : fallbackEnd
+  return { weekday, startMinutes, endMinutes }
+}
+
 export function normalizeStudyTasks(input: unknown): StudyTask[] {
   if (!Array.isArray(input)) return defaultStudySnapshot.tasks
   const tasks = input
     .filter((item): item is Partial<StudyTask> => Boolean(item) && typeof item === 'object')
-    .map((item, index) => ({
-      id: typeof item.id === 'string' && item.id ? item.id : `task-${index}`,
-      title: typeof item.title === 'string' ? item.title.trim().slice(0, 80) : '',
-      done: Boolean(item.done)
-    }))
+    .map((item, index) => {
+      const schedule = normalizeStudyTaskSchedule(item.schedule)
+      return {
+        id: typeof item.id === 'string' && item.id ? item.id : `task-${index}`,
+        title: typeof item.title === 'string' ? item.title.trim().slice(0, 80) : '',
+        done: Boolean(item.done),
+        ...(schedule ? { schedule } : {})
+      }
+    })
     .filter((item) => item.title)
-    .slice(0, 8)
+    .slice(0, STUDY_TASK_LIMIT)
   return tasks.length > 0 ? tasks : defaultStudySnapshot.tasks
 }
 
@@ -172,6 +284,7 @@ export function normalizeStudySnapshot(input: unknown): StudySnapshot {
   const maxRemaining = (timerMode === 'focus' ? focusMinutes : breakMinutes) * 60
   const lastStudyDate = typeof raw.lastStudyDate === 'string' ? raw.lastStudyDate : ''
   const isToday = lastStudyDate === todayKey()
+  const seatIndex = normalizeStudySeatIndex(raw.seatIndex, roomId, clientId)
   return {
     clientId,
     nickname,
@@ -184,7 +297,8 @@ export function normalizeStudySnapshot(input: unknown): StudySnapshot {
     ambientEnabled: Boolean(raw.ambientEnabled),
     ambientVolume: clampNumber(raw.ambientVolume, 0, 1, defaultStudySnapshot.ambientVolume),
     roomId,
-    seatIndex: normalizeStudySeatIndex(raw.seatIndex, roomId, clientId),
+    seatIndex,
+    seatClaimedAt: normalizeStudySeatClaimedAt(raw.seatClaimedAt),
     timerMode,
     timerState: raw.timerState === 'running' || raw.timerState === 'paused' ? raw.timerState : 'idle',
     focusMinutes,
@@ -232,7 +346,13 @@ export function applyStudySessionIdentity(snapshot: StudySnapshot): StudySnapsho
   const nickname = /^同学 [A-Z0-9]{4}$/.test(snapshot.nickname)
     ? defaultStudyNickname(clientId)
     : snapshot.nickname
-  return { ...snapshot, clientId, nickname }
+  return {
+    ...snapshot,
+    clientId,
+    nickname,
+    seatIndex: normalizeStudySeatIndex(snapshot.seatIndex, snapshot.roomId, clientId),
+    seatClaimedAt: Date.now()
+  }
 }
 
 export function applyStudyInviteParams(snapshot: StudySnapshot): StudySnapshot {
@@ -244,10 +364,14 @@ export function applyStudyInviteParams(snapshot: StudySnapshot): StudySnapshot {
     const nextRoomId = roomParam ? normalizeStudyRoomId(roomParam) : snapshot.roomId
     const nextRoom = studyRooms.find((room) => room.id === nextRoomId)
     if (!spaceParam && !roomParam) return snapshot
+    const spaceChanged = nextSpaceCode !== snapshot.spaceCode
+    const roomChanged = nextRoomId !== snapshot.roomId
     return {
       ...snapshot,
       spaceCode: nextSpaceCode,
       roomId: nextRoomId,
+      seatIndex: normalizeStudySeatIndex(snapshot.seatIndex, nextRoomId, snapshot.clientId),
+      seatClaimedAt: spaceChanged || roomChanged ? Date.now() : snapshot.seatClaimedAt,
       focusMinutes: snapshot.timerState === 'running' || !nextRoom ? snapshot.focusMinutes : nextRoom.sessionMinutes,
       breakMinutes: snapshot.timerState === 'running' || !nextRoom ? snapshot.breakMinutes : nextRoom.breakMinutes,
       remainingSeconds: snapshot.timerState === 'running' || !nextRoom ? snapshot.remainingSeconds : nextRoom.sessionMinutes * 60,
@@ -291,14 +415,14 @@ export function persistStudySnapshot(snapshot: StudySnapshot): void {
   }
 }
 
-export function syncStudyLocation(spaceCode: string, _roomId: StudyRoomId): void {
+export function syncStudyLocation(spaceCode: string, roomId: StudyRoomId): void {
   try {
     const params = new URLSearchParams(window.location.search)
     params.delete('space')
     params.delete('room')
-    params.delete('studyRoom')
     params.delete('studyFreshSession')
     params.set('studySpace', normalizeStudySpaceCode(spaceCode))
+    params.set('studyRoom', normalizeStudyRoomId(roomId))
     const search = params.toString()
     const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
@@ -361,11 +485,11 @@ export function studyPlantStage(xp: number): string {
   return '种子'
 }
 
-export function studyInviteUrl(spaceCode: string, _roomId: StudyRoomId): string {
+export function studyInviteUrl(spaceCode: string, roomId: StudyRoomId): string {
   try {
     const url = new URL(window.location.href)
     url.searchParams.set('studySpace', normalizeStudySpaceCode(spaceCode))
-    url.searchParams.delete('studyRoom')
+    url.searchParams.set('studyRoom', normalizeStudyRoomId(roomId))
     url.searchParams.delete('room')
     return url.toString()
   } catch {

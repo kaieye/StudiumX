@@ -1,4 +1,4 @@
-import { Check, CheckCircle2, Plus, Trash2 } from 'lucide-react'
+import { CalendarDays, Check, CheckCircle2, Plus, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import type { StudyTask } from '../../study-space/types'
 
@@ -10,6 +10,7 @@ type WorkbenchTasksProps = {
   onAddTask: (title: string) => boolean
   onToggleTask: (taskId: string) => void
   onRemoveDoneTasks: () => void
+  onOpenSchedule: () => void
 }
 
 export function WorkbenchTasks({
@@ -19,7 +20,8 @@ export function WorkbenchTasks({
   completedTasks,
   onAddTask,
   onToggleTask,
-  onRemoveDoneTasks
+  onRemoveDoneTasks,
+  onOpenSchedule
 }: WorkbenchTasksProps) {
   const [taskInput, setTaskInput] = useState('')
 
@@ -35,15 +37,27 @@ export function WorkbenchTasks({
           <span><CheckCircle2 size={13} /> 今日清单</span>
           <strong title={currentTask?.title}>{currentTask?.title ?? '今日任务已清空'}</strong>
         </div>
-        <button
-          type="button"
-          onClick={onRemoveDoneTasks}
-          disabled={completedTasks === 0}
-          aria-label="清除已完成任务"
-          title="清除已完成"
-        >
-          <Trash2 size={14} />
-        </button>
+        <div className="workbench-task-actions">
+          <button
+            type="button"
+            className="workbench-task-detail-button"
+            onClick={onOpenSchedule}
+            aria-label="查看任务详情"
+            title="任务详情"
+          >
+            <CalendarDays size={14} />
+            <span>详情</span>
+          </button>
+          <button
+            type="button"
+            onClick={onRemoveDoneTasks}
+            disabled={completedTasks === 0}
+            aria-label="清除已完成任务"
+            title="清除已完成"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
 
       <div className="workbench-task-summary" aria-label="任务执行摘要">
