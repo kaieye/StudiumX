@@ -42,8 +42,14 @@ import {
   type ResourcePreviewFile
 } from './contextTransitions'
 import { type LessonStyleId } from '../../../shared/lesson-styles'
-import { classifyProviderError } from '../../../shared/provider-error'
 import { deriveWorkspaceRemovalUiPatch } from '../../../shared/workspace-removal-state'
+import {
+  operationFeedback,
+  type OperationFeedback,
+  type OperationFeedbackError,
+  type OperationFeedbackNotificationSettings,
+  type OperationNotificationIntent
+} from './operationFeedback'
 import {
   type AgentChatMessage,
   type AgentChatStreamChunk,
@@ -93,13 +99,7 @@ import {
   type LessonGenerationNotificationIntent
 } from './lessonGenerationFlow'
 
-type ErrorSeverity = 'error' | 'warning' | 'info'
-
-export type UserError = {
-  message: string
-  severity: ErrorSeverity
-  detail?: string
-}
+export type UserError = OperationFeedbackError
 
 export type { CoursePreviewFile, DialogMode, ResourcePreviewFile } from './contextTransitions'
 export { lessonToCoursePreviewFile } from './contextTransitions'
@@ -227,157 +227,71 @@ const defaultPrompt = ''
 const nextPrompt = '基于当前 mission，生成下一节短小、可复习、带检索练习的 HTML lesson。'
 
 // ================================================================
-// Error Mapping — converts raw errors to user-friendly messages
+// Operation feedback seam
 // ================================================================
 
-export function toUserError(error: unknown): UserError {
-  const raw = error instanceof Error ? error.message : String(error)
+function operationFeedbackTranslate(key: string, interpolation?: Record<string, unknown>): string {
+  return i18n.t(key, interpolation)
+}
 
-  // IPC validation errors
-  if (raw.includes('No handler registered for')) {
-    return {
-      message: i18n.t('errors.ipcHandlerMissing.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.ipcHandlerMissing.detail')
-    }
-  }
-
-  if (raw.includes('未配置 API Key') || raw.includes('No API key') || raw.includes('API Key is required')) {
-    return {
-      message: i18n.t('errors.noApiKey.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.noApiKey.detail')
-    }
-  }
-
-  const providerError = classifyProviderError(raw)
-  if (providerError) {
-    const suffix = providerError.providerMessage ? ` ${providerError.providerMessage}` : ''
-    if (providerError.kind === 'insufficient_balance') {
-      return {
-        message: i18n.t('errors.providerInsufficientBalance.message'),
-        severity: 'warning',
-        detail: `${i18n.t('errors.providerInsufficientBalance.detail')}${suffix}`
-      }
-    }
-    if (providerError.kind === 'authentication') {
-      return {
-        message: i18n.t('errors.providerAuth.message'),
-        severity: 'warning',
-        detail: `${i18n.t('errors.providerAuth.detail')}${suffix}`
-      }
-    }
-    if (providerError.kind === 'rate_limit') {
-      return {
-        message: i18n.t('errors.providerRateLimit.message'),
-        severity: 'warning',
-        detail: `${i18n.t('errors.providerRateLimit.detail')}${suffix}`
-      }
-    }
-    return {
-      message: i18n.t('errors.providerHttp.message'),
-      severity: 'warning',
-      detail: `${i18n.t('errors.providerHttp.detail', { status: providerError.status ?? '-' })}${suffix}`
-    }
-  }
-
-  if (raw.includes('IPC payload field')) {
-    const field = raw.match(/"([^"]+)"/)?.[1] ?? i18n.t('errors.missingField.fallbackField')
-    return {
-      message: i18n.t('errors.missingField.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.missingField.detail', { field })
-    }
-  }
-
-  if (raw.includes('IPC payload must be an object')) {
-    return {
-      message: i18n.t('errors.badPayload.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.badPayload.detail')
-    }
-  }
-
-  if (raw.includes('Unsupported window control action')) {
-    return {
-      message: i18n.t('errors.windowControl.message'),
-      severity: 'info',
-      detail: i18n.t('errors.windowControl.detail')
-    }
-  }
-
-  // Workspace errors
-  if (raw.includes('Workspace not found')) {
-    return {
-      message: i18n.t('errors.workspaceNotFound.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.workspaceNotFound.detail')
-    }
-  }
-
-  if (raw.includes('not a directory') || raw.includes('Selected path')) {
-    return {
-      message: i18n.t('errors.invalidPath.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.invalidPath.detail')
-    }
-  }
-
-  if (raw.includes('Mission prompt is required')) {
-    return {
-      message: i18n.t('errors.emptyMission.message'),
-      severity: 'info',
-      detail: i18n.t('errors.emptyMission.detail')
-    }
-  }
-
-  if (raw.includes('Lesson prompt is required')) {
-    return {
-      message: i18n.t('errors.emptyTask.message'),
-      severity: 'info',
-      detail: i18n.t('errors.emptyTask.detail')
-    }
-  }
-
-  if (raw.includes('outside the workspace lessons directory') || raw.includes('Path is outside')) {
-    return {
-      message: i18n.t('errors.pathRestricted.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.pathRestricted.detail')
-    }
-  }
-
-  // File system errors
-  if (raw.includes('ENOENT') || raw.includes('no such file')) {
-    return {
-      message: i18n.t('errors.fileNotFound.message'),
-      severity: 'warning',
-      detail: i18n.t('errors.fileNotFound.detail')
-    }
-  }
-
-  if (raw.includes('EACCES') || raw.includes('permission denied')) {
-    return {
-      message: i18n.t('errors.accessDenied.message'),
-      severity: 'error',
-      detail: i18n.t('errors.accessDenied.detail')
-    }
-  }
-
-  // Generic fallback — don't expose raw stack traces
-  if (raw.includes('Error:') || raw.includes('TypeError:') || raw.includes('at ')) {
-    return {
-      message: i18n.t('errors.generic.message'),
-      severity: 'error',
-      detail: i18n.t('errors.generic.stackDetail')
-    }
-  }
-
+function notificationSettings(settings: TeachingSettingsV1): OperationFeedbackNotificationSettings {
   return {
-    message: raw || i18n.t('errors.generic.message'),
-    severity: 'error',
-    detail: i18n.t('errors.generic.detail')
+    enabled: settings.notifications.enabled,
+    errors: settings.notifications.errors,
+    lessonGenerated: settings.notifications.lessonGenerated,
+    workspaceImported: settings.notifications.workspaceImported
   }
+}
+
+function deliverOperationNotification(
+  notification: OperationNotificationIntent,
+  deliver: (title: string, body: string) => Promise<void>
+): void {
+  if (notification.kind === 'workspace-imported') {
+    void deliver(
+      i18n.t('notify.imported.title'),
+      i18n.t('notify.imported.body', { name: notification.workspaceName })
+    )
+    return
+  }
+  if (notification.kind === 'workspace-import-failed') {
+    void deliver(i18n.t('notify.importFailed.title'), notification.message)
+    return
+  }
+  if (notification.kind === 'lesson-generation-failed') {
+    void deliver(i18n.t('notify.generateFailed.title'), notification.message)
+    return
+  }
+  const suffix = notification.source === 'fallback'
+    ? (notification.reason
+        ? i18n.t('notify.lessonGenerated.fallbackWithReason', { reason: notification.reason })
+        : i18n.t('notify.lessonGenerated.fallbackNoReason'))
+    : ''
+  void deliver(
+    i18n.t('notify.lessonGenerated.title'),
+    i18n.t('notify.lessonGenerated.body', {
+      title: notification.title,
+      path: notification.path,
+      suffix
+    })
+  )
+}
+
+function deliverOperationFeedback(
+  feedback: OperationFeedback,
+  deliver: (title: string, body: string) => Promise<void>
+): void {
+  if (feedback.notification) deliverOperationNotification(feedback.notification, deliver)
+}
+
+export function toUserError(error: unknown): UserError {
+  const feedback = operationFeedback({
+    outcome: 'failure',
+    error,
+    translate: operationFeedbackTranslate
+  })
+  if (!feedback.visibleError) throw new Error('Operation feedback must classify failures.')
+  return feedback.visibleError
 }
 
 // ================================================================
@@ -682,17 +596,23 @@ export const useAppStore = create<StoreState>((set, get) => ({
         loading: false
       }))
       const settings = get().settings
-      if (settings.notifications.enabled && settings.notifications.workspaceImported) {
-        const wsName = result.state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
-        void get().showNotification(i18n.t('notify.imported.title'), i18n.t('notify.imported.body', { name: wsName }))
-      }
+      const feedback = operationFeedback({
+        outcome: 'workspace-imported',
+        workspaceName: result.state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName'),
+        notifications: notificationSettings(settings)
+      })
+      deliverOperationFeedback(feedback, get().showNotification)
       return true
     } catch (error) {
-      set({ loading: false, error: toUserError(error) })
-      const settings = get().settings
-      if (settings.notifications.enabled && settings.notifications.errors) {
-        void get().showNotification(i18n.t('notify.importFailed.title'), toUserError(error).message)
-      }
+      const feedback = operationFeedback({
+        outcome: 'failure',
+        error,
+        operation: 'workspace-import',
+        notifications: notificationSettings(get().settings),
+        translate: operationFeedbackTranslate
+      })
+      set({ loading: false, error: feedback.visibleError ?? toUserError(error) })
+      deliverOperationFeedback(feedback, get().showNotification)
       return false
     }
   },
@@ -701,7 +621,12 @@ export const useAppStore = create<StoreState>((set, get) => ({
     if (!api) return false
     const path = rootPath.trim()
     if (!path) {
-      set({ error: { message: i18n.t('errors.invalidPath.message'), severity: 'warning', detail: i18n.t('errors.invalidPath.detail') } })
+      const feedback = operationFeedback({
+        outcome: 'failure',
+        error: new Error('Selected path'),
+        translate: operationFeedbackTranslate
+      })
+      set({ error: feedback.visibleError ?? toUserError(new Error('Selected path')) })
       return false
     }
     set({ loading: true, error: null })
@@ -713,18 +638,23 @@ export const useAppStore = create<StoreState>((set, get) => ({
         loading: false
       }))
       const settings = get().settings
-      if (settings.notifications.enabled && settings.notifications.workspaceImported) {
-        const wsName = state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName')
-        void get().showNotification(i18n.t('notify.imported.title'), i18n.t('notify.imported.body', { name: wsName }))
-      }
+      const feedback = operationFeedback({
+        outcome: 'workspace-imported',
+        workspaceName: state.activeWorkspace?.name ?? i18n.t('notify.imported.fallbackName'),
+        notifications: notificationSettings(settings)
+      })
+      deliverOperationFeedback(feedback, get().showNotification)
       return true
     } catch (error) {
-      const userError = toUserError(error)
-      set({ loading: false, error: userError })
-      const settings = get().settings
-      if (settings.notifications.enabled && settings.notifications.errors) {
-        void get().showNotification(i18n.t('notify.importFailed.title'), userError.message)
-      }
+      const feedback = operationFeedback({
+        outcome: 'failure',
+        error,
+        operation: 'workspace-import',
+        notifications: notificationSettings(get().settings),
+        translate: operationFeedbackTranslate
+      })
+      set({ loading: false, error: feedback.visibleError ?? toUserError(error) })
+      deliverOperationFeedback(feedback, get().showNotification)
       return false
     }
   },
@@ -812,11 +742,15 @@ export const useAppStore = create<StoreState>((set, get) => ({
         void get().showNotification(i18n.t('notify.lessonGenerated.title'), lessonGeneratedNotificationBody(effects.lessonGeneratedNotification))
       }
     } catch (error) {
-      const userError = toUserError(error)
-      set(failLessonGeneration({ appState: get().appState, error: userError }))
-      if (settings.notifications.enabled && settings.notifications.errors) {
-        void get().showNotification(i18n.t('notify.generateFailed.title'), userError.message)
-      }
+      const feedback = operationFeedback({
+        outcome: 'failure',
+        error,
+        operation: 'lesson-generation',
+        notifications: notificationSettings(settings),
+        translate: operationFeedbackTranslate
+      })
+      set(failLessonGeneration({ appState: get().appState, error: feedback.visibleError ?? toUserError(error) }))
+      deliverOperationFeedback(feedback, get().showNotification)
     }
   },
   generateLessonStream: async (options) => {
@@ -870,11 +804,15 @@ export const useAppStore = create<StoreState>((set, get) => ({
         }
       )
       if ('error' in done && done.error) {
-        const userError = toUserError(new Error(done.message))
-        set(failStreamingLessonGeneration(userError))
-        if (settings.notifications.enabled && settings.notifications.errors) {
-          void get().showNotification(i18n.t('notify.generateFailed.title'), userError.message)
-        }
+        const feedback = operationFeedback({
+          outcome: 'failure',
+          error: new Error(done.message),
+          operation: 'lesson-generation',
+          notifications: notificationSettings(settings),
+          translate: operationFeedbackTranslate
+        })
+        set(failStreamingLessonGeneration(feedback.visibleError ?? toUserError(new Error(done.message))))
+        deliverOperationFeedback(feedback, get().showNotification)
         return
       }
       if (!('error' in done) && done.kind === 'lesson') {
@@ -1372,7 +1310,8 @@ export const useAppStore = create<StoreState>((set, get) => ({
     try {
       return await api.probeProvider(payload)
     } catch (error) {
-      return { ok: false, message: toUserError(error).message }
+      const feedback = operationFeedback({ outcome: 'failure', error, translate: operationFeedbackTranslate })
+      return { ok: false, message: feedback.visibleError?.message ?? toUserError(error).message }
     }
   },
   listUpstreamModels: async (payload) => {
@@ -1381,7 +1320,8 @@ export const useAppStore = create<StoreState>((set, get) => ({
     try {
       return await api.listUpstreamModels(payload)
     } catch (error) {
-      return { ok: false, message: toUserError(error).message }
+      const feedback = operationFeedback({ outcome: 'failure', error, translate: operationFeedbackTranslate })
+      return { ok: false, message: feedback.visibleError?.message ?? toUserError(error).message }
     }
   },
   listGitWorktrees: async (workspaceRoot) => {

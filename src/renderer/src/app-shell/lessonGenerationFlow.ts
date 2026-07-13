@@ -9,6 +9,7 @@ import type {
   WorkspaceView
 } from '../../../shared/teaching-types'
 import { lessonToCoursePreviewFile, type CoursePreviewFile } from './contextTransitions'
+import { operationFeedback } from './operationFeedback'
 
 export type LessonGenerationPatch<TError = never> = {
   view?: WorkspaceView
@@ -155,18 +156,34 @@ export function effectsForGeneratedLesson(input: {
   reason?: string
   settings: LessonGenerationEffectSettings
 }): LessonGenerationEffects {
+  const feedback = operationFeedback({
+    outcome: 'lesson-generated',
+    lesson: {
+      title: input.lesson.title,
+      path: input.lesson.relativePath,
+      source: input.source,
+      reason: input.reason
+    },
+    notifications: {
+      enabled: input.settings.notificationsEnabled,
+      errors: false,
+      lessonGenerated: input.settings.lessonGeneratedNotifications,
+      workspaceImported: false
+    }
+  })
+  const notification = feedback.notification
+  const lessonGeneratedNotification = notification?.kind === 'lesson-generated'
+    ? {
+        title: notification.title,
+        path: notification.path,
+        source: notification.source,
+        reason: notification.reason
+      }
+    : undefined
+
   return {
     ...(input.settings.autoOpenGeneratedLesson ? { openPath: input.lesson.absolutePath } : {}),
-    ...(input.settings.notificationsEnabled && input.settings.lessonGeneratedNotifications
-      ? {
-          lessonGeneratedNotification: {
-            title: input.lesson.title,
-            path: input.lesson.relativePath,
-            source: input.source ?? 'ai',
-            reason: input.reason
-          }
-        }
-      : {})
+    ...(lessonGeneratedNotification ? { lessonGeneratedNotification } : {})
   }
 }
 
