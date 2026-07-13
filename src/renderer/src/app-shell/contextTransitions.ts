@@ -59,6 +59,15 @@ export function clearMarkdownDocumentContext(): Pick<
   }
 }
 
+export function closeLearningAssetReaderContext(): AppShellTransitionPatch {
+  return {
+    lessonReaderOpen: false,
+    selectedCoursePreviewFile: null,
+    selectedResourcePreviewFile: null,
+    ...clearMarkdownDocumentContext()
+  }
+}
+
 export function clearAgentConversationContext(): AppShellTransitionPatch {
   return {
     agentTurns: [],
@@ -80,10 +89,7 @@ export function openPrimaryView(view: WorkspaceView): AppShellTransitionPatch {
 export function openLessonLibrary(): AppShellTransitionPatch {
   return {
     view: 'lessons',
-    lessonReaderOpen: false,
-    selectedCoursePreviewFile: null,
-    selectedResourcePreviewFile: null,
-    ...clearMarkdownDocumentContext()
+    ...closeLearningAssetReaderContext()
   }
 }
 
@@ -219,6 +225,33 @@ export function openLessonReaderContext(input: {
     },
     selectedCourseRelativePath: input.courseRelativePath,
     selectedCourseWorkspaceId: input.workspace.id
+  }
+}
+
+export function openWorkspaceMarkdownContext(input: {
+  appState: TeachingAppState
+  workspace: TeachingWorkspaceSummary
+  file: CoursePreviewFile
+  courseRelativePath: string | null
+}): { appState: TeachingAppState } & AppShellTransitionPatch {
+  return {
+    view: 'lessons',
+    overviewDialogMode: 'teaching',
+    lessonReaderOpen: false,
+    selectedCoursePreviewFile: null,
+    selectedResourcePreviewFile: null,
+    selectedMarkdownDocument: {
+      title: input.file.title,
+      relativePath: input.file.relativePath,
+      absolutePath: input.file.absolutePath,
+      content: '',
+      updatedAt: null
+    },
+    markdownDraft: '',
+    markdownSaving: false,
+    selectedCourseRelativePath: input.courseRelativePath,
+    selectedCourseWorkspaceId: input.workspace.id,
+    appState: { ...input.appState, selectedLessonPath: input.file.absolutePath }
   }
 }
 

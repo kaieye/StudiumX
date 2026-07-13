@@ -15,17 +15,20 @@ import {
 } from '../agent-conversation-state'
 import { AgentConversationTurnRunner } from './agent-conversation-runner'
 import {
+  createHtmlPreviewAdapter,
+  createLearningAssetReader,
+  createMarkdownDocumentAdapter,
+  type LearningAssetReader
+} from './learning-asset-reader'
+import {
   activateWorkspaceContext,
   clearAgentConversationContext,
   clearMarkdownDocumentContext,
   clearRemovedWorkspaceContext,
-  courseRelativePathForFile,
   lessonToCoursePreviewFile,
   openAgentConversationContext,
   openLessonLibrary as openLessonLibraryContext,
-  openLessonReaderContext,
   openPrimaryView,
-  openResourceReaderContext,
   openTeachingConversation,
   openWorkspaceTeaching,
   restorePendingConversationContext,
@@ -377,7 +380,38 @@ function createAgentConversationTurnRunner(
   })
 }
 
-export const useAppStore = create<StoreState>((set, get) => ({
+export const useAppStore = create<StoreState>((set, get) => {
+  let learningAssetReader: LearningAssetReader | null = null
+
+  const getLearningAssetReader = (): LearningAssetReader => {
+    const api = window.teachingSystem
+    learningAssetReader ??= createLearningAssetReader({
+      htmlPreview: api ? createHtmlPreviewAdapter(api) : null,
+      markdownDocument: api ? createMarkdownDocumentAdapter(api) : null,
+      port: {
+        getSnapshot: () => {
+          const state = get()
+          return {
+            appState: state.appState,
+            lessonReaderOpen: state.lessonReaderOpen,
+            selectedCoursePreviewFile: state.selectedCoursePreviewFile,
+            selectedResourcePreviewFile: state.selectedResourcePreviewFile,
+            selectedMarkdownDocument: state.selectedMarkdownDocument,
+            markdownDraft: state.markdownDraft,
+            markdownSaving: state.markdownSaving,
+            selectedCourseWorkspaceId: state.selectedCourseWorkspaceId
+          }
+        },
+        applyPatch: (patch) => set(patch),
+        toError: toUserError,
+        loadingPreviewHtml,
+        emptyPreviewHtml
+      }
+    })
+    return learningAssetReader
+  }
+
+  return ({
   view: initialWorkspaceViewFromUrl(),
   settingsSection: 'general',
   sidebarCollapsed: false,
@@ -976,123 +1010,34 @@ export const useAppStore = create<StoreState>((set, get) => ({
     }
   },
   loadLesson: async (lesson) => {
-    const api = window.teachingSystem
-    if (!api) return
     const workspace = get().appState.activeWorkspace
     if (!workspace) return
-    set(openLessonReaderContext({
-      appState: get().appState,
+    await getLearningAssetReader()?.openHtmlPreview({
       workspace,
-      previewFile: lessonToCoursePreviewFile(lesson),
-      previewHtml: loadingPreviewHtml(workspace),
+      file: lessonToCoursePreviewFile(lesson),
       courseRelativePath: lesson.courseRelativePath
-    }))
-    try {
-      const result = await api.readLesson({
-        workspaceId: workspace.id,
-        lessonPath: lesson.absolutePath
-      })
-      set({ appState: { ...get().appState, selectedLessonPath: lesson.absolutePath, previewHtml: result.html, previewUrl: result.url } })
-    } catch (error) {
-      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
-    }
+    })
   },
   loadCourseHtmlFile: async (file) => {
-    const api = window.teachingSystem
-    if (!api) return
     const workspace = get().appState.activeWorkspace
     if (!workspace) return
-    set(openLessonReaderContext({
-      appState: get().appState,
-      workspace,
-      previewFile: file,
-      previewHtml: loadingPreviewHtml(workspace),
-      courseRelativePath: courseRelativePathForFile(file.relativePath)
-    }))
-    try {
-      const result = await api.readLesson({
-        workspaceId: workspace.id,
-        lessonPath: file.absolutePath
-      })
-      set({
-        appState: { ...get().appState, selectedLessonPath: file.absolutePath, previewHtml: result.html, previewUrl: result.url },
-        selectedCoursePreviewFile: file
-      })
-    } catch (error) {
-      set({ error: toUserError(error), appState: { ...get().appState, previewHtml: emptyPreviewHtml(workspace), previewUrl: '' } })
-    }
+    await getLearningAssetReader()?.openHtmlPreview({ workspace, file })
   },
   loadWorkspaceMarkdownFile: async (file, workspaceId) => {
-    const api = window.teachingSystem
-    if (!api) return
     const workspace = workspaceId
       ? get().appState.workspaces.find((item) => item.id === workspaceId) ?? get().appState.activeWorkspace
       : get().appState.activeWorkspace
     if (!workspace) return
-    set({
-      view: 'lessons',
-      overviewDialogMode: 'teaching',
-      lessonReaderOpen: false,
-      selectedCoursePreviewFile: null,
-      selectedResourcePreviewFile: null,
-      selectedMarkdownDocument: {
-        title: file.title,
-        relativePath: file.relativePath,
-        absolutePath: file.absolutePath,
-        content: '',
-        updatedAt: null
-      },
-      markdownDraft: '',
-      markdownSaving: false,
-      selectedCourseRelativePath: courseRelativePathForFile(file.relativePath),
-      selectedCourseWorkspaceId: workspace.id,
-      error: null,
-      appState: { ...get().appState, selectedLessonPath: file.absolutePath }
-    })
-    try {
-      const document = await api.readWorkspaceMarkdown({
-        workspaceId: workspace.id,
-        documentPath: file.absolutePath
-      })
-      set({
-        selectedMarkdownDocument: document,
-        markdownDraft: document.content,
-        appState: { ...get().appState, selectedLessonPath: document.absolutePath }
-      })
-    } catch (error) {
-      set({ error: toUserError(error), ...clearMarkdownDocumentContext() })
-    }
+    await getLearningAssetReader()?.openMarkdownDocument({ workspace, file })
   },
-  setMarkdownDraft: (markdownDraft) => set({ markdownDraft }),
+  setMarkdownDraft: (markdownDraft) => getLearningAssetReader()?.updateMarkdownDraft(markdownDraft),
   saveMarkdownDocument: async () => {
-    const api = window.teachingSystem
-    if (!api) return
-    const document = get().selectedMarkdownDocument
-    const workspace = get().selectedCourseWorkspaceId
-      ? get().appState.workspaces.find((item) => item.id === get().selectedCourseWorkspaceId) ?? get().appState.activeWorkspace
-      : get().appState.activeWorkspace
-    if (!document || !workspace) return
-    set({ markdownSaving: true, error: null })
-    try {
-      const result = await api.saveWorkspaceMarkdown({
-        workspaceId: workspace.id,
-        documentPath: document.absolutePath,
-        content: get().markdownDraft
-      })
-      set({
-        appState: result.state,
-        selectedMarkdownDocument: result.document,
-        markdownDraft: result.document.content,
-        markdownSaving: false
-      })
-    } catch (error) {
-      set({ error: toUserError(error), markdownSaving: false })
-    }
+    await getLearningAssetReader()?.saveMarkdownDocument()
   },
   openResourceHtmlPreview: (selectedResourcePreviewFile) => {
-    set(openResourceReaderContext(selectedResourcePreviewFile))
+    getLearningAssetReader()?.openResourcePreview(selectedResourcePreviewFile)
   },
-  closeResourceHtmlPreview: () => set({ selectedResourcePreviewFile: null }),
+  closeResourceHtmlPreview: () => getLearningAssetReader()?.close(),
   openPath: async (path) => {
     const api = window.teachingSystem
     if (!api) return
@@ -1260,7 +1205,8 @@ export const useAppStore = create<StoreState>((set, get) => ({
       set({ error: toUserError(error) })
     }
   }
-}))
+  })
+})
 
 function interruptedAgentRunNotice(run: InterruptedAgentRun): AgentChatTurn {
   const waiting = run.previousStatus === 'waiting_for_permission'
