@@ -60,7 +60,7 @@ type WorkbenchSeatState = {
 
 const officeWidth = 64 * 17
 const officeHeight = 64 * 14
-const stageShift = { x: 40, y: -20 }
+const stageShift = { x: 0, y: -20 }
 const canvasOutputScale = 2
 const officeScaleBoost = 0.78
 const compactScaleBoost = 0.5
