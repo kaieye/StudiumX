@@ -1,14 +1,8 @@
-import { mkdir, writeFile } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { basename } from 'node:path'
 import { callProvider, ProviderAdapterError, resolveActiveProvider, streamProvider, toolsSupportedForFormat, type AdapterCallbacks } from './ai/provider-adapter'
 import { runAgentLoop } from './ai/agent-loop'
 import { buildDefaultRegistry, buildToolContext } from './ai/tools/registry'
 import { buildLessonSystemPrompt, buildLessonUserPrompt, buildLessonRepairPrompt } from './ai/lesson-prompts'
-import {
-  renderLearningRecordFromPlan,
-  renderLessonHtmlFromPlan,
-  renderReferenceHtmlFromPlan
-} from './ai/lesson-renderer'
 import { readMissionSummary } from './teaching-workspace-catalog'
 import { clampTitle, cleanText, collectTeachingFiles } from './teaching-workspace-paths'
 import { lessonPlanSchema, sanitizePlan, type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
@@ -25,7 +19,7 @@ import type {
   TeachingMemoryRecord,
   TeachingSettingsV1
 } from '../shared/teaching-types'
-import { buildLessonArtifactPlacement } from '../shared/teaching-placement'
+import { publishLessonArtifacts } from './teaching-lesson-artifacts'
 
 export type LessonGenerationWorkspace = {
   id: string
@@ -66,25 +60,6 @@ export class LessonGenerationError extends Error {
   }
 }
 
-type LessonArtifactPaths = {
-  courseId: string
-  courseName: string
-  courseRelativePath: string
-  courseAbsolutePath: string
-  sessionId: string
-  sessionName: string
-  sessionRelativePath: string
-  sessionAbsolutePath: string
-  lessonRelativePath: string
-  lessonAbsolutePath: string
-  referenceRelativePath: string | null
-  referenceAbsolutePath: string | null
-  recordRelativePath: string | null
-  recordAbsolutePath: string | null
-  reviewsRelativePath: string | null
-  reviewsAbsolutePath: string | null
-}
-
 export async function runLessonGenerationPipeline(options: {
   workspace: LessonGenerationWorkspace
   settings: TeachingSettingsV1
@@ -118,7 +93,6 @@ export async function runLessonGenerationPipeline(options: {
     ? buildLessonPromptFromBrief(brief)
     : buildLessonPromptWithConversation(prompt, messages)
   const sequence = await nextLessonNumber(workspace.rootPath, lessons)
-  const lessonId = String(sequence).padStart(4, '0')
   const recalledMemories = await retrieveMemories({
     query: `${mission.title}\n${mission.excerpt}\n${lessonPrompt}`,
     workspaceRoot: workspace.rootPath,
@@ -136,61 +110,31 @@ export async function runLessonGenerationPipeline(options: {
 
   const title = clampTitle(plan.title)
   const objective = cleanText(plan.objective) || `把「${deriveTopic(lessonPrompt, mission.title)}」压缩成一次可保存、可复习的学习动作。`
-  const artifacts = buildLessonArtifactPaths({
+
+  callbacks?.onStatus?.('rendering')
+  const publication = await publishLessonArtifacts({
     workspace,
+    plan,
     sequence,
-    title,
-    requestedCourseName,
-    includeReference: settings.generator.generateReference,
-    includeLearningRecord: settings.generator.generateLearningRecord,
-    includeReviews: plan.flashcards.length > 0
-  })
-  const lesson: LessonSummary = {
-    id: lessonId,
     title,
     objective,
     prompt: lessonPrompt,
     createdAt: now,
     durationMinutes: plan.durationMinutes || settings.generator.lessonDurationMinutes,
-    courseId: artifacts.courseId,
-    courseName: artifacts.courseName,
-    courseRelativePath: artifacts.courseRelativePath,
-    courseAbsolutePath: artifacts.courseAbsolutePath,
-    sessionId: artifacts.sessionId,
-    sessionName: artifacts.sessionName,
-    sessionRelativePath: artifacts.sessionRelativePath,
-    sessionAbsolutePath: artifacts.sessionAbsolutePath,
-    relativePath: artifacts.lessonRelativePath,
-    absolutePath: artifacts.lessonAbsolutePath
-  }
-
-  callbacks?.onStatus?.('rendering')
-  await writeLessonArtifacts({
-    plan,
-    lesson,
+    requestedCourseName,
     mission,
-    workspaceName: workspace.name,
-    recordRelativePath: artifacts.recordRelativePath,
-    recordAbsolutePath: artifacts.recordAbsolutePath,
-    referenceRelativePath: artifacts.referenceRelativePath,
-    referenceAbsolutePath: artifacts.referenceAbsolutePath,
-    reviewsRelativePath: artifacts.reviewsRelativePath,
-    reviewsAbsolutePath: artifacts.reviewsAbsolutePath,
-    generator: settings.generator
+    generator: settings.generator,
+    includeReference: settings.generator.generateReference,
+    includeLearningRecord: settings.generator.generateLearningRecord
   })
 
   return {
     kind: 'lesson',
-    lesson,
+    lesson: publication.lesson,
     source,
     reason,
     eventPrompt: lessonPrompt,
-    eventPaths: [
-      artifacts.lessonRelativePath,
-      artifacts.referenceRelativePath,
-      artifacts.recordRelativePath,
-      artifacts.reviewsRelativePath
-    ].filter((path): path is string => Boolean(path)),
+    eventPaths: publication.eventPaths,
     eventMeta: { source, reason, model: settings.generator.model || undefined }
   }
 }
@@ -378,99 +322,6 @@ function buildCompactLessonRegenerationPrompt(opts: {
 ${opts.validationError}
 
 请紧凑重试：不要复述分析，不要引用上一次原文，不要使用 markdown 围栏，只输出一个完整且符合系统结构的 JSON 对象。内容可以更短，但必须包含所有必填字段。`
-}
-
-async function writeLessonArtifacts(opts: {
-  plan: LessonPlan
-  lesson: LessonSummary
-  mission: { title: string; excerpt: string }
-  workspaceName: string
-  recordRelativePath: string | null
-  recordAbsolutePath: string | null
-  referenceRelativePath: string | null
-  referenceAbsolutePath: string | null
-  reviewsRelativePath: string | null
-  reviewsAbsolutePath: string | null
-  generator: TeachingSettingsV1['generator']
-}): Promise<void> {
-  const {
-    plan, lesson, mission, workspaceName,
-    recordRelativePath, recordAbsolutePath,
-    referenceRelativePath, referenceAbsolutePath,
-    reviewsRelativePath, reviewsAbsolutePath,
-    generator
-  } = opts
-
-  await mkdir(dirname(lesson.absolutePath), { recursive: true })
-  await mkdir(join(dirname(dirname(lesson.absolutePath)), 'conversation'), { recursive: true })
-  if (referenceAbsolutePath) await mkdir(dirname(referenceAbsolutePath), { recursive: true })
-  if (recordAbsolutePath) await mkdir(dirname(recordAbsolutePath), { recursive: true })
-  if (reviewsAbsolutePath) await mkdir(dirname(reviewsAbsolutePath), { recursive: true })
-
-  await writeFile(
-    lesson.absolutePath,
-    renderLessonHtmlFromPlan({ plan, lesson, mission, workspaceName, recordRelativePath, referenceRelativePath, generator }),
-    'utf8'
-  )
-  if (referenceAbsolutePath) {
-    await writeFile(referenceAbsolutePath, renderReferenceHtmlFromPlan({ plan, lesson, mission, workspaceName }), 'utf8')
-  }
-  if (recordAbsolutePath) {
-    await writeFile(recordAbsolutePath, renderLearningRecordFromPlan({ plan, lesson, mission }), 'utf8')
-  }
-  if (reviewsAbsolutePath && plan.flashcards.length) {
-    await writeFile(
-      reviewsAbsolutePath,
-      `${JSON.stringify({
-        lessonId: lesson.id,
-        lessonTitle: lesson.title,
-        relativePath: reviewsRelativePath,
-        cards: plan.flashcards
-      }, null, 2)}\n`,
-      'utf8'
-    )
-  }
-}
-
-function buildLessonArtifactPaths(options: {
-  workspace: LessonGenerationWorkspace
-  sequence: number
-  title: string
-  requestedCourseName?: string
-  includeReference: boolean
-  includeLearningRecord: boolean
-  includeReviews: boolean
-}): LessonArtifactPaths {
-  const placement = buildLessonArtifactPlacement({
-    workspaceName: options.workspace.name,
-    sequence: options.sequence,
-    title: options.title,
-    requestedCourseName: options.requestedCourseName,
-    includeReference: options.includeReference,
-    includeLearningRecord: options.includeLearningRecord,
-    includeReviews: options.includeReviews
-  })
-  const courseRelativePath = placement.courseRelativePath
-  const courseAbsolutePath = join(options.workspace.rootPath, courseRelativePath)
-
-  return {
-    courseId: placement.courseId,
-    courseName: placement.courseName,
-    courseRelativePath,
-    courseAbsolutePath,
-    sessionId: placement.sessionId,
-    sessionName: placement.sessionName,
-    sessionRelativePath: placement.sessionRelativePath,
-    sessionAbsolutePath: join(options.workspace.rootPath, placement.sessionRelativePath),
-    lessonRelativePath: placement.lessonRelativePath,
-    lessonAbsolutePath: join(options.workspace.rootPath, placement.lessonRelativePath),
-    referenceRelativePath: placement.referenceRelativePath,
-    referenceAbsolutePath: placement.referenceRelativePath ? join(options.workspace.rootPath, placement.referenceRelativePath) : null,
-    recordRelativePath: placement.recordRelativePath,
-    recordAbsolutePath: placement.recordRelativePath ? join(options.workspace.rootPath, placement.recordRelativePath) : null,
-    reviewsRelativePath: placement.reviewsRelativePath,
-    reviewsAbsolutePath: placement.reviewsRelativePath ? join(options.workspace.rootPath, placement.reviewsRelativePath) : null
-  }
 }
 
 async function nextLessonNumber(rootPath: string, lessons: LessonSummary[]): Promise<number> {
