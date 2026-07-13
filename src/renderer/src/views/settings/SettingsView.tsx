@@ -62,6 +62,7 @@ import {
   SettingsTextInput,
   ToggleSwitch
 } from './SettingsPrimitives'
+import { useTeachingWorkspaceConfiguration } from '../../workflows/teaching-workspace-configuration'
 import { ModelProviderSettingsSection } from './sections/ModelProviderSettingsSection'
 
 export function SettingsView({
@@ -120,34 +121,41 @@ export function SettingsView({
   const { t } = useTranslation()
   const worktreeRootPath = settings.worktree?.rootPath ?? ''
   const activeProvider = activeModelProvider(settings)
-  const [worktreeResult, setWorktreeResult] = useState<TeachingGitWorktreesResult | null>(null)
-  const [worktreeBusyPath, setWorktreeBusyPath] = useState<string | null>(null)
-  const [worktreeLoading, setWorktreeLoading] = useState(false)
-  const [memoryScopeFilter, setMemoryScopeFilter] = useState<'all' | TeachingMemoryScope>('all')
-  const [memoryDialog, setMemoryDialog] = useState<null | { mode: 'create' } | { mode: 'edit' | 'view'; memory: TeachingMemoryRecord }>(null)
-  const [memoryDraft, setMemoryDraft] = useState<{ content: string; scope: TeachingMemoryScope; tags: string; confidence: number }>({
-    content: '',
-    scope: 'workspace',
-    tags: '',
-    confidence: 1
+  const configuration = useTeachingWorkspaceConfiguration({
+    section,
+    settings,
+    activeWorkspace,
+    adapter: {
+      updateSettings: onUpdateSettings,
+      probeProvider: onProbeProvider,
+      listUpstreamModels: onListUpstreamModels,
+      listGitWorktrees: onListGitWorktrees,
+      removeGitWorktree: onRemoveGitWorktree,
+      listMemory: onListMemory,
+      createMemory: onCreateMemory,
+      updateMemory: onUpdateMemory,
+      deleteMemory: onDeleteMemory,
+      loadMemoryDiagnostics: onLoadMemoryDiagnostics
+    }
   })
+  const { worktrees, memory } = configuration.state
+  const worktreeResult = worktrees.result
+  const worktreeBusyPath = worktrees.busyPath
+  const worktreeLoading = worktrees.loading
+  const filteredMemoryRecords = configuration.filterMemoryRecords(memoryRecords)
   const [connectorStatuses, setConnectorStatuses] = useState<ConnectorStatusesResult | null>(null)
   const [connectorStatusesLoading, setConnectorStatusesLoading] = useState(false)
 
-  useEffect(() => {
-    if (section !== 'memory') return
-    void onListMemory(activeWorkspace?.rootPath)
-    void onLoadMemoryDiagnostics()
-  }, [section, activeWorkspace?.rootPath, onListMemory, onLoadMemoryDiagnostics])
-
-  useEffect(() => {
-    if (section !== 'worktree') return
-    if (!activeWorkspace?.rootPath) {
-      setWorktreeResult(null)
-      return
+  const refreshConnectorStatuses = async (): Promise<void> => {
+    const api = window.teachingSystem
+    if (!api) return
+    setConnectorStatusesLoading(true)
+    try {
+      setConnectorStatuses(await api.getConnectorStatuses())
+    } finally {
+      setConnectorStatusesLoading(false)
     }
-    void refreshWorktrees()
-  }, [section, activeWorkspace?.rootPath, worktreeRootPath])
+  }
 
   useEffect(() => {
     if (section !== 'connectors') return
@@ -171,82 +179,7 @@ export function SettingsView({
   ])
 
   const selectProvider = (providerId: string): void => {
-    const provider = settings.provider.providers.find((item) => item.id === providerId) ?? activeProvider
-    void onUpdateSettings({
-      provider: { activeProviderId: provider.id },
-      generator: {
-        providerId: provider.id,
-        model: provider.models[0] ?? '',
-        endpointFormat: provider.endpointFormat
-      }
-    })
-  }
-
-  const refreshWorktrees = async (): Promise<void> => {
-    if (!activeWorkspace?.rootPath) return
-    setWorktreeLoading(true)
-    try {
-      const result = await onListGitWorktrees(activeWorkspace.rootPath)
-      setWorktreeResult(result)
-    } finally {
-      setWorktreeLoading(false)
-    }
-  }
-
-  const removeWorktree = async (path: string): Promise<void> => {
-    if (!activeWorkspace?.rootPath) return
-    setWorktreeBusyPath(path)
-    try {
-      await onRemoveGitWorktree({ workspaceRoot: activeWorkspace.rootPath, worktreePath: path })
-      await refreshWorktrees()
-    } finally {
-      setWorktreeBusyPath(null)
-    }
-  }
-
-  const refreshConnectorStatuses = async (): Promise<void> => {
-    const api = window.teachingSystem
-    if (!api) return
-    setConnectorStatusesLoading(true)
-    try {
-      setConnectorStatuses(await api.getConnectorStatuses())
-    } finally {
-      setConnectorStatusesLoading(false)
-    }
-  }
-
-  const filteredMemoryRecords = memoryScopeFilter === 'all'
-    ? memoryRecords
-    : memoryRecords.filter((record) => record.scope === memoryScopeFilter)
-
-  const beginCreateMemory = (): void => {
-    setMemoryDraft({ content: '', scope: 'workspace', tags: '', confidence: 1 })
-    setMemoryDialog({ mode: 'create' })
-  }
-
-  const beginEditMemory = (memory: TeachingMemoryRecord): void => {
-    setMemoryDraft({
-      content: memory.content,
-      scope: memory.scope,
-      tags: memory.tags.join(', '),
-      confidence: memory.confidence ?? 1
-    })
-    setMemoryDialog({ mode: 'edit', memory })
-  }
-
-  const saveMemoryDraft = async (): Promise<void> => {
-    const payload = {
-      content: memoryDraft.content.trim(),
-      scope: memoryDraft.scope,
-      tags: memoryDraft.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
-      confidence: memoryDraft.confidence,
-      workspaceRoot: activeWorkspace?.rootPath
-    } satisfies CreateTeachingMemoryPayload
-    if (!payload.content) return
-    const ok = memoryDialog?.mode === 'edit'
-      ? await onUpdateMemory(memoryDialog.memory.id, payload)
-      : await onCreateMemory(payload)
-    if (ok) setMemoryDialog(null)
+    void configuration.selectGenerationProvider(providerId)
   }
 
   return (
@@ -293,7 +226,7 @@ export function SettingsView({
                     { value: 'light', label: t('general.theme.light'), icon: Sun },
                     { value: 'dark', label: t('general.theme.dark'), icon: Moon }
                   ]}
-                  onChange={(theme) => void onUpdateSettings({ theme })}
+                  onChange={(theme) => void configuration.updateSetting('theme', theme)}
                 />
               </SettingsRow>
               <SettingsRow label={t('general.language.label')} detail={t('general.language.detail')}>
@@ -303,7 +236,7 @@ export function SettingsView({
                     { value: 'zh-CN', label: t('general.language.zh') },
                     { value: 'en-US', label: t('general.language.en') }
                   ]}
-                  onChange={(locale) => void onUpdateSettings({ locale })}
+                  onChange={(locale) => void configuration.updateSetting('locale', locale)}
                 />
               </SettingsRow>
               <SettingsRow label={t('general.density.label')} detail={t('general.density.detail')}>
@@ -313,7 +246,7 @@ export function SettingsView({
                     { value: 'comfortable', label: t('general.density.comfortable') },
                     { value: 'compact', label: t('general.density.compact') }
                   ]}
-                  onChange={(density) => void onUpdateSettings({ density })}
+                  onChange={(density) => void configuration.updateSetting('density', density)}
                 />
               </SettingsRow>
               <SettingsRow label={t('general.fontScale.label')} detail={`${Math.round(settings.uiFontScale * 100)}%`}>
@@ -324,7 +257,7 @@ export function SettingsView({
                   step="0.05"
                   type="range"
                   value={settings.uiFontScale}
-                  onChange={(event) => void onUpdateSettings({ uiFontScale: Number(event.target.value) })}
+                  onChange={(event) => void configuration.updateSetting('uiFontScale', Number(event.target.value))}
                 />
               </SettingsRow>
               <SettingsRow label={t('general.closeAction.label')} detail={settings.appBehavior.closeAction === 'tray' ? t('general.closeAction.detailTray') : t('general.closeAction.detailQuit')}>
@@ -334,33 +267,33 @@ export function SettingsView({
                     { value: 'quit', label: t('general.closeAction.quit') },
                     { value: 'tray', label: t('general.closeAction.tray') }
                   ]}
-                  onChange={(closeAction) => void onUpdateSettings({ appBehavior: { closeAction, closeToTray: closeAction === 'tray' } })}
+                  onChange={(closeAction) => void configuration.updateSetting('appBehavior.closeAction', closeAction)}
                 />
               </SettingsRow>
               <SettingsRow label={t('general.openAtLogin.label')} detail={t('general.openAtLogin.detail')}>
                 <ToggleSwitch
                   checked={settings.appBehavior.openAtLogin}
-                  onChange={(openAtLogin) => void onUpdateSettings({ appBehavior: { openAtLogin } })}
+                  onChange={(openAtLogin) => void configuration.updateSetting('appBehavior.openAtLogin', openAtLogin)}
                 />
               </SettingsRow>
               <SettingsRow label={t('general.startMinimized.label')} detail={t('general.startMinimized.detail')}>
                 <ToggleSwitch
                   checked={settings.appBehavior.startMinimized}
-                  onChange={(startMinimized) => void onUpdateSettings({ appBehavior: { startMinimized } })}
+                  onChange={(startMinimized) => void configuration.updateSetting('appBehavior.startMinimized', startMinimized)}
                 />
               </SettingsRow>
               <SettingsRow label={t('general.log.label')} detail={t('general.log.detail', { state: settings.log.enabled ? t('general.log.enabled') : t('general.log.disabled'), days: settings.log.retentionDays })}>
                 <div className="settings-inline-group">
                   <ToggleSwitch
                     checked={settings.log.enabled}
-                    onChange={(enabled) => void onUpdateSettings({ log: { enabled } })}
+                    onChange={(enabled) => void configuration.updateSetting('log.enabled', enabled)}
                   />
                   <NumberInput
                     max={90}
                     min={1}
                     step={1}
                     value={settings.log.retentionDays}
-                    onChange={(retentionDays) => void onUpdateSettings({ log: { retentionDays } })}
+                    onChange={(retentionDays) => void configuration.updateSetting('log.retentionDays', retentionDays)}
                   />
                 </div>
               </SettingsRow>
@@ -382,7 +315,7 @@ export function SettingsView({
                     { value: 'light', label: t('general.theme.light'), icon: Sun },
                     { value: 'dark', label: t('general.theme.dark'), icon: Moon }
                   ]}
-                  onChange={(theme) => void onUpdateSettings({ theme })}
+                  onChange={(theme) => void configuration.updateSetting('theme', theme)}
                 />
               </SettingsRow>
               <SettingsRow label={t('general.density.label')} detail={settings.density === 'compact' ? t('general.density.compact') : t('general.density.comfortable')}>
@@ -392,7 +325,7 @@ export function SettingsView({
                     { value: 'comfortable', label: t('general.density.comfortable') },
                     { value: 'compact', label: t('general.density.compact') }
                   ]}
-                  onChange={(density) => void onUpdateSettings({ density })}
+                  onChange={(density) => void configuration.updateSetting('density', density)}
                 />
               </SettingsRow>
               <SettingsRow label={t('general.fontScale.label')} detail={`${Math.round(settings.uiFontScale * 100)}%`}>
@@ -403,7 +336,7 @@ export function SettingsView({
                   step="0.05"
                   type="range"
                   value={settings.uiFontScale}
-                  onChange={(event) => void onUpdateSettings({ uiFontScale: Number(event.target.value) })}
+                  onChange={(event) => void configuration.updateSetting('uiFontScale', Number(event.target.value))}
                 />
               </SettingsRow>
             </SettingsCard>
@@ -413,9 +346,7 @@ export function SettingsView({
         {section === 'model' && (
           <ModelProviderSettingsSection
             settings={settings}
-            onUpdateSettings={onUpdateSettings}
-            onProbeProvider={onProbeProvider}
-            onListUpstreamModels={onListUpstreamModels}
+            configuration={configuration}
             onOpenExternal={onOpenExternal}
           />
         )}
@@ -440,7 +371,7 @@ export function SettingsView({
                 <SettingsSelect
                   value={settings.generator.model}
                   options={activeProvider.models.map((model) => ({ value: model, label: model }))}
-                  onChange={(model) => void onUpdateSettings({ generator: { model } })}
+                  onChange={(model) => void configuration.updateSetting('generator.model', model)}
                 />
               </SettingsRow>
               <SettingsRow label={t('reasoning.title')} detail={reasoningEffortDescription(selectedReasoningEffort(settings))}>
@@ -451,7 +382,7 @@ export function SettingsView({
                     label: reasoningEffortLabel(effort),
                     icon: BrainCircuit
                   }))}
-                  onChange={(reasoningEffort) => void onUpdateSettings({ generator: { reasoningEffort } })}
+                  onChange={(reasoningEffort) => void configuration.updateSetting('generator.reasoningEffort', reasoningEffort)}
                 />
               </SettingsRow>
               <SettingsRow label={t('generation.temperature')} detail={settings.generator.temperature.toFixed(2)}>
@@ -460,7 +391,7 @@ export function SettingsView({
                   min={0}
                   step={0.05}
                   value={settings.generator.temperature}
-                  onChange={(temperature) => void onUpdateSettings({ generator: { temperature } })}
+                  onChange={(temperature) => void configuration.updateSetting('generator.temperature', temperature)}
                 />
               </SettingsRow>
               <SettingsRow label={t('generation.maxTokens')} detail={`${settings.generator.maxOutputTokens}`}>
@@ -469,7 +400,7 @@ export function SettingsView({
                   min={512}
                   step={256}
                   value={settings.generator.maxOutputTokens}
-                  onChange={(maxOutputTokens) => void onUpdateSettings({ generator: { maxOutputTokens } })}
+                  onChange={(maxOutputTokens) => void configuration.updateSetting('generator.maxOutputTokens', maxOutputTokens)}
                 />
               </SettingsRow>
               <SettingsRow label={t('generation.duration.label')} detail={t('generation.duration.detail', { count: settings.generator.lessonDurationMinutes })}>
@@ -478,37 +409,37 @@ export function SettingsView({
                   min={5}
                   step={1}
                   value={settings.generator.lessonDurationMinutes}
-                  onChange={(lessonDurationMinutes) => void onUpdateSettings({ generator: { lessonDurationMinutes } })}
+                  onChange={(lessonDurationMinutes) => void configuration.updateSetting('generator.lessonDurationMinutes', lessonDurationMinutes)}
                 />
               </SettingsRow>
               <SettingsRow label={t('generation.retrieval.label')} detail={t('generation.retrieval.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.includeRetrievalPractice}
-                  onChange={(includeRetrievalPractice) => void onUpdateSettings({ generator: { includeRetrievalPractice } })}
+                  onChange={(includeRetrievalPractice) => void configuration.updateSetting('generator.includeRetrievalPractice', includeRetrievalPractice)}
                 />
               </SettingsRow>
               <SettingsRow label={t('generation.reference.label')} detail={t('generation.reference.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.generateReference}
-                  onChange={(generateReference) => void onUpdateSettings({ generator: { generateReference } })}
+                  onChange={(generateReference) => void configuration.updateSetting('generator.generateReference', generateReference)}
                 />
               </SettingsRow>
               <SettingsRow label={t('generation.learningRecord.label')} detail={t('generation.learningRecord.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.generateLearningRecord}
-                  onChange={(generateLearningRecord) => void onUpdateSettings({ generator: { generateLearningRecord } })}
+                  onChange={(generateLearningRecord) => void configuration.updateSetting('generator.generateLearningRecord', generateLearningRecord)}
                 />
               </SettingsRow>
               <SettingsRow label={t('generation.structured.label')} detail={t('generation.structured.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.structuredOutput}
-                  onChange={(structuredOutput) => void onUpdateSettings({ generator: { structuredOutput } })}
+                  onChange={(structuredOutput) => void configuration.updateSetting('generator.structuredOutput', structuredOutput)}
                 />
               </SettingsRow>
               <SettingsRow label={t('generation.streaming.label')} detail={t('generation.streaming.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.streaming}
-                  onChange={(streaming) => void onUpdateSettings({ generator: { streaming } })}
+                  onChange={(streaming) => void configuration.updateSetting('generator.streaming', streaming)}
                 />
               </SettingsRow>
               <SettingsRow label={t('generation.timeout.label')} detail={t('generation.timeout.detail', { seconds: Math.round(settings.generator.requestTimeoutMs / 1000) })}>
@@ -517,7 +448,7 @@ export function SettingsView({
                   min={5000}
                   step={5000}
                   value={settings.generator.requestTimeoutMs}
-                  onChange={(requestTimeoutMs) => void onUpdateSettings({ generator: { requestTimeoutMs } })}
+                  onChange={(requestTimeoutMs) => void configuration.updateSetting('generator.requestTimeoutMs', requestTimeoutMs)}
                 />
               </SettingsRow>
             </SettingsCard>
@@ -533,13 +464,13 @@ export function SettingsView({
               <SettingsRow label="启用工具调用" detail="开启后 Agent 与课程生成可调用工具">
                 <ToggleSwitch
                   checked={settings.tools.enabled}
-                  onChange={(enabled) => void onUpdateSettings({ tools: { enabled } } as TeachingSettingsPatch)}
+                  onChange={(enabled) => void configuration.updateSetting('tools.enabled', enabled)}
                 />
               </SettingsRow>
               <SettingsRow label="工作区文件工具" detail="允许 Agent 列出、读取、搜索、写入当前教学工作区文件">
                 <ToggleSwitch
                   checked={settings.tools.workspaceRead}
-                  onChange={(workspaceRead) => void onUpdateSettings({ tools: { workspaceRead } } as TeachingSettingsPatch)}
+                  onChange={(workspaceRead) => void configuration.updateSetting('tools.workspaceRead', workspaceRead)}
                 />
               </SettingsRow>
               <SettingsRow label="工作区写入权限" detail="控制 Agent 写入课程、参考资料、学习记录和工作区文本文件前的主进程策略">
@@ -547,19 +478,19 @@ export function SettingsView({
                   value={settings.tools.workspaceWritePermission}
                   options={workspaceWritePermissionOptions}
                   onChange={(workspaceWritePermission: WorkspaceWritePermissionPolicy) =>
-                    void onUpdateSettings({ tools: { workspaceWritePermission } } as TeachingSettingsPatch)}
+                    void configuration.updateSetting('tools.workspaceWritePermission', workspaceWritePermission)}
                 />
               </SettingsRow>
               <SettingsRow label="web_search（多后端）" detail="自动使用 SearXNG、Brave Search 或 DuckDuckGo Lite 检索最新和课程外信息">
                 <ToggleSwitch
                   checked={settings.tools.webSearch}
-                  onChange={(webSearch) => void onUpdateSettings({ tools: { webSearch } } as TeachingSettingsPatch)}
+                  onChange={(webSearch) => void configuration.updateSetting('tools.webSearch', webSearch)}
                 />
               </SettingsRow>
               <SettingsRow label="web_fetch" detail="抓取指定 URL 正文（带 SSRF 防护）">
                 <ToggleSwitch
                   checked={settings.tools.webFetch}
-                  onChange={(webFetch) => void onUpdateSettings({ tools: { webFetch } } as TeachingSettingsPatch)}
+                  onChange={(webFetch) => void configuration.updateSetting('tools.webFetch', webFetch)}
                 />
               </SettingsRow>
               <SettingsRow label="最大工具调用轮数" detail={`默认 ${8}，控制单次任务的最大工具往返（教学对话中生成课程也算一轮）`}>
@@ -568,7 +499,7 @@ export function SettingsView({
                   min={1}
                   step={1}
                   value={settings.tools.maxIterations}
-                  onChange={(maxIterations) => void onUpdateSettings({ tools: { maxIterations } } as TeachingSettingsPatch)}
+                  onChange={(maxIterations) => void configuration.updateSetting('tools.maxIterations', maxIterations)}
                 />
               </SettingsRow>
               <SettingsRow label="端点格式支持" detail={
@@ -594,13 +525,13 @@ export function SettingsView({
                 <SettingsSelect<WebSearchBackend>
                   value={settings.webSearch.backend}
                   options={webSearchBackendOptions}
-                  onChange={(backend) => void onUpdateSettings({ webSearch: { backend } } as TeachingSettingsPatch)}
+                  onChange={(backend) => void configuration.updateSetting('webSearch.backend', backend)}
                 />
               </SettingsRow>
               <SettingsRow label="失败自动回退" detail="Auto 模式下某个后端失败或返回空结果时继续尝试下一个。">
                 <ToggleSwitch
                   checked={settings.webSearch.fallbackEnabled}
-                  onChange={(fallbackEnabled) => void onUpdateSettings({ webSearch: { fallbackEnabled } } as TeachingSettingsPatch)}
+                  onChange={(fallbackEnabled) => void configuration.updateSetting('webSearch.fallbackEnabled', fallbackEnabled)}
                 />
               </SettingsRow>
               <SettingsRow label="默认结果数" detail={`${settings.webSearch.maxResults} 条`}>
@@ -609,7 +540,7 @@ export function SettingsView({
                   min={1}
                   step={1}
                   value={settings.webSearch.maxResults}
-                  onChange={(maxResults) => void onUpdateSettings({ webSearch: { maxResults } } as TeachingSettingsPatch)}
+                  onChange={(maxResults) => void configuration.updateSetting('webSearch.maxResults', maxResults)}
                 />
               </SettingsRow>
             </SettingsCard>
@@ -620,14 +551,14 @@ export function SettingsView({
                   type={settings.privacy.maskApiKeys ? 'password' : 'text'}
                   value={settings.webSearch.firecrawlApiKey}
                   placeholder="fc-..."
-                  onChange={(firecrawlApiKey) => void onUpdateSettings({ webSearch: { firecrawlApiKey } } as TeachingSettingsPatch)}
+                  onChange={(firecrawlApiKey) => void configuration.updateSetting('webSearch.firecrawlApiKey', firecrawlApiKey)}
                 />
               </SettingsRow>
               <SettingsRow label="Firecrawl API URL" detail="留空使用 https://api.firecrawl.dev；自托管时填写实例地址。">
                 <SettingsTextInput
                   value={settings.webSearch.firecrawlApiUrl}
                   placeholder="http://localhost:3002"
-                  onChange={(firecrawlApiUrl) => void onUpdateSettings({ webSearch: { firecrawlApiUrl } } as TeachingSettingsPatch)}
+                  onChange={(firecrawlApiUrl) => void configuration.updateSetting('webSearch.firecrawlApiUrl', firecrawlApiUrl)}
                 />
               </SettingsRow>
               <SettingsRow label="Parallel API Key" detail="agentic 会映射到 pro processor；fast / one-shot 映射到 base。">
@@ -635,14 +566,14 @@ export function SettingsView({
                   type={settings.privacy.maskApiKeys ? 'password' : 'text'}
                   value={settings.webSearch.parallelApiKey}
                   placeholder="Parallel API Key"
-                  onChange={(parallelApiKey) => void onUpdateSettings({ webSearch: { parallelApiKey } } as TeachingSettingsPatch)}
+                  onChange={(parallelApiKey) => void configuration.updateSetting('webSearch.parallelApiKey', parallelApiKey)}
                 />
               </SettingsRow>
               <SettingsRow label="Parallel 搜索模式" detail={settings.webSearch.parallelSearchMode}>
                 <SettingsSelect
                   value={settings.webSearch.parallelSearchMode}
                   options={parallelSearchModeOptions}
-                  onChange={(parallelSearchMode) => void onUpdateSettings({ webSearch: { parallelSearchMode } } as TeachingSettingsPatch)}
+                  onChange={(parallelSearchMode) => void configuration.updateSetting('webSearch.parallelSearchMode', parallelSearchMode)}
                 />
               </SettingsRow>
               <SettingsRow label="Tavily API Key" detail="用于 Tavily Search API。">
@@ -650,7 +581,7 @@ export function SettingsView({
                   type={settings.privacy.maskApiKeys ? 'password' : 'text'}
                   value={settings.webSearch.tavilyApiKey}
                   placeholder="tvly-..."
-                  onChange={(tavilyApiKey) => void onUpdateSettings({ webSearch: { tavilyApiKey } } as TeachingSettingsPatch)}
+                  onChange={(tavilyApiKey) => void configuration.updateSetting('webSearch.tavilyApiKey', tavilyApiKey)}
                 />
               </SettingsRow>
               <SettingsRow label="Exa API Key" detail="用于 Exa 语义搜索。">
@@ -658,14 +589,14 @@ export function SettingsView({
                   type={settings.privacy.maskApiKeys ? 'password' : 'text'}
                   value={settings.webSearch.exaApiKey}
                   placeholder="Exa API Key"
-                  onChange={(exaApiKey) => void onUpdateSettings({ webSearch: { exaApiKey } } as TeachingSettingsPatch)}
+                  onChange={(exaApiKey) => void configuration.updateSetting('webSearch.exaApiKey', exaApiKey)}
                 />
               </SettingsRow>
               <SettingsRow label="SearXNG URL" detail="自托管或可信实例地址；需要启用 JSON format。">
                 <SettingsTextInput
                   value={settings.webSearch.searxngUrl}
                   placeholder="http://localhost:8888"
-                  onChange={(searxngUrl) => void onUpdateSettings({ webSearch: { searxngUrl } } as TeachingSettingsPatch)}
+                  onChange={(searxngUrl) => void configuration.updateSetting('webSearch.searxngUrl', searxngUrl)}
                 />
               </SettingsRow>
               <SettingsRow label="Brave Search API Key" detail="Brave Search Data API。">
@@ -673,7 +604,7 @@ export function SettingsView({
                   type={settings.privacy.maskApiKeys ? 'password' : 'text'}
                   value={settings.webSearch.braveApiKey}
                   placeholder="Brave Search API Key"
-                  onChange={(braveApiKey) => void onUpdateSettings({ webSearch: { braveApiKey } } as TeachingSettingsPatch)}
+                  onChange={(braveApiKey) => void configuration.updateSetting('webSearch.braveApiKey', braveApiKey)}
                 />
               </SettingsRow>
               <SettingsRow label="xAI API Key" detail="显式选择 xAI 后通过 Grok server-side web_search 搜索。">
@@ -681,14 +612,14 @@ export function SettingsView({
                   type={settings.privacy.maskApiKeys ? 'password' : 'text'}
                   value={settings.webSearch.xaiApiKey}
                   placeholder="xai-..."
-                  onChange={(xaiApiKey) => void onUpdateSettings({ webSearch: { xaiApiKey } } as TeachingSettingsPatch)}
+                  onChange={(xaiApiKey) => void configuration.updateSetting('webSearch.xaiApiKey', xaiApiKey)}
                 />
               </SettingsRow>
               <SettingsRow label="xAI 模型" detail="用于 Responses API 的 Grok 模型。">
                 <SettingsTextInput
                   value={settings.webSearch.xaiModel}
                   placeholder="grok-4.3"
-                  onChange={(xaiModel) => void onUpdateSettings({ webSearch: { xaiModel } } as TeachingSettingsPatch)}
+                  onChange={(xaiModel) => void configuration.updateSetting('webSearch.xaiModel', xaiModel)}
                 />
               </SettingsRow>
             </SettingsCard>
@@ -751,19 +682,19 @@ export function SettingsView({
               <SettingsRow label={t('workspace.confirm.label')} detail={t('workspace.confirm.detail')}>
                 <ToggleSwitch
                   checked={settings.workspace.confirmBeforeGenerating}
-                  onChange={(confirmBeforeGenerating) => void onUpdateSettings({ workspace: { confirmBeforeGenerating } })}
+                  onChange={(confirmBeforeGenerating) => void configuration.updateSetting('workspace.confirmBeforeGenerating', confirmBeforeGenerating)}
                 />
               </SettingsRow>
               <SettingsRow label={t('workspace.autoOpen.label')} detail={t('workspace.autoOpen.detail')}>
                 <ToggleSwitch
                   checked={settings.workspace.autoOpenGeneratedLesson}
-                  onChange={(autoOpenGeneratedLesson) => void onUpdateSettings({ workspace: { autoOpenGeneratedLesson } })}
+                  onChange={(autoOpenGeneratedLesson) => void configuration.updateSetting('workspace.autoOpenGeneratedLesson', autoOpenGeneratedLesson)}
                 />
               </SettingsRow>
               <SettingsRow label={t('workspace.showAllCourseFiles.label')} detail={t('workspace.showAllCourseFiles.detail')}>
                 <ToggleSwitch
                   checked={settings.workspace.showAllCourseFiles}
-                  onChange={(showAllCourseFiles) => void onUpdateSettings({ workspace: { showAllCourseFiles } })}
+                  onChange={(showAllCourseFiles) => void configuration.updateSetting('workspace.showAllCourseFiles', showAllCourseFiles)}
                 />
               </SettingsRow>
               <SettingsRow label={t('workspace.current.label')} detail={activeWorkspace?.rootPath ?? t('workspace.current.none')}>
@@ -805,7 +736,7 @@ export function SettingsView({
                   <span className="settings-status-badge">
                     {activeWorkspace?.git?.currentBranch ?? t('worktree.current.notGit')}
                   </span>
-                  <button className="ghost-button" type="button" onClick={() => void refreshWorktrees()} disabled={!activeWorkspace || worktreeLoading}>
+                  <button className="ghost-button" type="button" onClick={() => void configuration.refreshWorktrees()} disabled={!activeWorkspace || worktreeLoading}>
                     {worktreeLoading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
                     {t('worktree.refresh')}
                   </button>
@@ -834,7 +765,7 @@ export function SettingsView({
                         className="ghost-button danger"
                         type="button"
                         disabled={worktree.isPrimary || worktreeBusyPath === worktree.path}
-                        onClick={() => void removeWorktree(worktree.path)}
+                        onClick={() => void configuration.removeWorktree(worktree.path)}
                       >
                         {worktreeBusyPath === worktree.path ? <Loader2 className="spin" size={15} /> : <X size={15} />}
                         {t('worktree.remove')}
@@ -856,7 +787,7 @@ export function SettingsView({
               <SettingsRow label={t('memory.enable.label')} detail={t('memory.enable.detail')}>
                 <ToggleSwitch
                   checked={settings.memory.enabled}
-                  onChange={(enabled) => void onUpdateSettings({ memory: { enabled } })}
+                  onChange={(enabled) => void configuration.updateSetting('memory.enabled', enabled)}
                 />
               </SettingsRow>
               <SettingsRow label={t('memory.maxInjected.label')} detail={t('memory.maxInjected.detail', { count: settings.memory.maxInjected })}>
@@ -865,11 +796,11 @@ export function SettingsView({
                   max={12}
                   step={1}
                   value={settings.memory.maxInjected}
-                  onChange={(maxInjected) => void onUpdateSettings({ memory: { maxInjected } })}
+                  onChange={(maxInjected) => void configuration.updateSetting('memory.maxInjected', maxInjected)}
                 />
               </SettingsRow>
               <SettingsRow label={t('memory.diagnostics.label')} detail={memoryDiagnostics ? t('memory.diagnostics.detail', { active: memoryDiagnostics.activeCount, deleted: memoryDiagnostics.tombstoneCount }) : t('memory.diagnostics.loading')}>
-                <button className="ghost-button" type="button" onClick={() => void onLoadMemoryDiagnostics()}>
+                <button className="ghost-button" type="button" onClick={() => void configuration.refreshMemory()}>
                   <RefreshCw size={15} />
                   {t('memory.refresh')}
                 </button>
@@ -882,15 +813,15 @@ export function SettingsView({
                   {(['all', 'user', 'workspace', 'project'] as const).map((scope) => (
                     <button
                       key={scope}
-                      className={memoryScopeFilter === scope ? 'is-active' : ''}
+                      className={memory.scopeFilter === scope ? 'is-active' : ''}
                       type="button"
-                      onClick={() => setMemoryScopeFilter(scope)}
+                      onClick={() => configuration.setMemoryScopeFilter(scope)}
                     >
                       {t(`memory.scope.${scope}`)}
                     </button>
                   ))}
                 </div>
-                <button className="ghost-button strong" type="button" onClick={beginCreateMemory}>
+                <button className="ghost-button strong" type="button" onClick={configuration.beginCreateMemory}>
                   <Plus size={15} />
                   {t('memory.create')}
                 </button>
@@ -908,19 +839,19 @@ export function SettingsView({
                     </div>
                     <div className="settings-row-control">
                       <div className="settings-actions">
-                        <button className="ghost-button" type="button" onClick={() => setMemoryDialog({ mode: 'view', memory })}>
+                        <button className="ghost-button" type="button" onClick={() => configuration.viewMemory(memory)}>
                           <Info size={15} />
                           {t('memory.view')}
                         </button>
-                        <button className="ghost-button" type="button" onClick={() => beginEditMemory(memory)}>
+                        <button className="ghost-button" type="button" onClick={() => configuration.beginEditMemory(memory)}>
                           <FileCheck2 size={15} />
                           {t('memory.edit')}
                         </button>
-                        <button className="ghost-button" type="button" disabled={Boolean(memory.disabledAt)} onClick={() => void onUpdateMemory(memory.id, { disabled: true, workspaceRoot: activeWorkspace?.rootPath })}>
+                        <button className="ghost-button" type="button" disabled={Boolean(memory.disabledAt)} onClick={() => void configuration.disableMemory(memory.id)}>
                           <Minus size={15} />
                           {t('memory.disable')}
                         </button>
-                        <button className="ghost-button danger" type="button" onClick={() => void onDeleteMemory(memory.id, activeWorkspace?.rootPath)}>
+                        <button className="ghost-button danger" type="button" onClick={() => void configuration.deleteMemory(memory.id)}>
                           <X size={15} />
                           {t('memory.delete')}
                         </button>
@@ -931,14 +862,14 @@ export function SettingsView({
               )}
             </SettingsCard>
 
-            {memoryDialog && (
+            {memory.dialog && (
               <MemoryDialog
-                dialog={memoryDialog}
-                draft={memoryDraft}
+                dialog={memory.dialog}
+                draft={memory.draft}
                 locale={settings.locale}
-                onChange={setMemoryDraft}
-                onClose={() => setMemoryDialog(null)}
-                onSave={() => void saveMemoryDraft()}
+                onChange={configuration.setMemoryDraft}
+                onClose={configuration.closeMemoryDialog}
+                onSave={() => void configuration.saveMemoryDraft()}
                 t={t}
               />
             )}
@@ -954,25 +885,25 @@ export function SettingsView({
               <SettingsRow label={t('notifications.enabled.label')} detail={settings.notifications.enabled ? t('notifications.enabled.on') : t('notifications.enabled.off')}>
                 <ToggleSwitch
                   checked={settings.notifications.enabled}
-                  onChange={(enabled) => void onUpdateSettings({ notifications: { enabled } })}
+                  onChange={(enabled) => void configuration.updateSetting('notifications.enabled', enabled)}
                 />
               </SettingsRow>
               <SettingsRow label={t('notifications.lesson.label')} detail={t('notifications.lesson.detail')}>
                 <ToggleSwitch
                   checked={settings.notifications.lessonGenerated}
-                  onChange={(lessonGenerated) => void onUpdateSettings({ notifications: { lessonGenerated } })}
+                  onChange={(lessonGenerated) => void configuration.updateSetting('notifications.lessonGenerated', lessonGenerated)}
                 />
               </SettingsRow>
               <SettingsRow label={t('notifications.imported.label')} detail={t('notifications.imported.detail')}>
                 <ToggleSwitch
                   checked={settings.notifications.workspaceImported}
-                  onChange={(workspaceImported) => void onUpdateSettings({ notifications: { workspaceImported } })}
+                  onChange={(workspaceImported) => void configuration.updateSetting('notifications.workspaceImported', workspaceImported)}
                 />
               </SettingsRow>
               <SettingsRow label={t('notifications.errors.label')} detail={t('notifications.errors.detail')}>
                 <ToggleSwitch
                   checked={settings.notifications.errors}
-                  onChange={(errors) => void onUpdateSettings({ notifications: { errors } })}
+                  onChange={(errors) => void configuration.updateSetting('notifications.errors', errors)}
                 />
               </SettingsRow>
               <SettingsRow label={t('notifications.test.label')} detail={t('notifications.test.detail')}>
@@ -994,25 +925,25 @@ export function SettingsView({
               <SettingsRow label={t('privacy.maskKey.label')} detail={t('privacy.maskKey.detail')}>
                 <ToggleSwitch
                   checked={settings.privacy.maskApiKeys}
-                  onChange={(maskApiKeys) => void onUpdateSettings({ privacy: { maskApiKeys } })}
+                  onChange={(maskApiKeys) => void configuration.updateSetting('privacy.maskApiKeys', maskApiKeys)}
                 />
               </SettingsRow>
               <SettingsRow label={t('privacy.externalLinks.label')} detail={t('privacy.externalLinks.detail')}>
                 <ToggleSwitch
                   checked={settings.privacy.allowExternalLinks}
-                  onChange={(allowExternalLinks) => void onUpdateSettings({ privacy: { allowExternalLinks } })}
+                  onChange={(allowExternalLinks) => void configuration.updateSetting('privacy.allowExternalLinks', allowExternalLinks)}
                 />
               </SettingsRow>
               <SettingsRow label={t('privacy.proxy.label')} detail={settings.provider.proxy.enabled ? (settings.provider.proxy.url || t('privacy.proxy.on')) : t('privacy.proxy.off')}>
                 <div className="settings-inline-group">
                   <ToggleSwitch
                     checked={settings.provider.proxy.enabled}
-                    onChange={(enabled) => void onUpdateSettings({ provider: { proxy: { enabled } } })}
+                    onChange={(enabled) => void configuration.updateSetting('provider.proxy.enabled', enabled)}
                   />
                   <SettingsTextInput
                     value={settings.provider.proxy.url}
                     placeholder={t('privacy.proxy.placeholder')}
-                    onChange={(url) => void onUpdateSettings({ provider: { proxy: { url } } })}
+                    onChange={(url) => void configuration.updateSetting('provider.proxy.url', url)}
                   />
                 </div>
               </SettingsRow>
