@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
+  agentConversationChildTranscriptDirectoryRelativePathForMarkdown,
   agentConversationJsonRelativePathForMarkdown,
   agentConversationSessionArtifactDirectoryRelativePathForMarkdown,
   agentConversationSessionAuditRelativePathForMarkdown,
@@ -17,9 +18,10 @@ import {
   appendAgentConversationSessionAuditLog,
   archiveAgentConversationArtifacts,
   buildAgentConversationSessionAuditEntries,
-  parseAgentConversationSessionAuditLines
+  parseAgentConversationSessionAuditLines,
+  type AgentStagedChildTranscriptAllowance
 } from './agent-conversation-session-audit'
-import { isPathInsideRoot } from './path-access'
+import { isPathInsideRoot, readContainedRegularFile } from './path-access'
 import {
   appendLearningWorkLedgerSnapshot,
   buildLearningWorkLedgerEntry,
@@ -35,6 +37,10 @@ export type AgentConversationArchiveWorkspace = {
 
 const TOOL_ARTIFACT_DIRECTORY = 'tool-results'
 
+type AgentChildRunWithArchive = NonNullable<AgentTurnMetadata['childRuns']>[number] & {
+  archive?: AgentArtifactRef
+}
+
 /**
  * Durable archive module for one Agent conversation snapshot.
  *
@@ -45,11 +51,19 @@ const TOOL_ARTIFACT_DIRECTORY = 'tool-results'
 export async function saveAgentConversationArchive(input: {
   workspace: AgentConversationArchiveWorkspace
   record: AgentConversationRecord
+  allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
 }): Promise<void> {
   const paths = resolveArchivePaths(input.workspace.rootPath, input.record.relativePath)
+  assertArtifactKindsMatchMetadataPlacement(input.record)
   const persistedRecord = await archiveAgentConversationArtifacts({
     rootPath: input.workspace.rootPath,
-    record: input.record
+    record: input.record,
+    allowedStagedChildTranscripts: input.allowedStagedChildTranscripts
+  })
+  await preflightAgentConversationArchive({
+    workspace: input.workspace,
+    record: persistedRecord,
+    paths
   })
   const canonicalJson = renderCanonicalConversationJson(input.workspace, persistedRecord)
   const canonicalMarkdown = renderAgentConversationMarkdown(input.workspace, persistedRecord)
@@ -126,6 +140,26 @@ function renderCanonicalConversationJson(
   }, null, 2)}\n`
 }
 
+async function preflightAgentConversationArchive(input: {
+  workspace: AgentConversationArchiveWorkspace
+  record: AgentConversationRecord
+  paths: ArchivePaths
+}): Promise<void> {
+  if (
+    normalizeWorkspaceRelativePath(input.record.relativePath) !== input.paths.markdownRelativePath ||
+    (input.record.workspaceId ?? input.workspace.id) !== input.workspace.id
+  ) {
+    throw new Error('Conversation archive placement does not match its record.')
+  }
+  assertArtifactKindsMatchMetadataPlacement(input.record)
+  await verifyArchivedToolArtifacts(
+    input.workspace.rootPath,
+    input.record,
+    input.paths.artifactDirectoryRelativePath
+  )
+  await verifyArchivedChildTranscriptArtifacts(input.workspace.rootPath, input.record)
+}
+
 async function verifyAgentConversationArchive(input: {
   workspace: AgentConversationArchiveWorkspace
   record: AgentConversationRecord
@@ -155,6 +189,7 @@ async function verifyAgentConversationArchive(input: {
   }
 
   await verifyArchivedToolArtifacts(input.workspace.rootPath, input.record, input.paths.artifactDirectoryRelativePath)
+  await verifyArchivedChildTranscriptArtifacts(input.workspace.rootPath, input.record)
 
   const auditLines = parseAgentConversationSessionAuditLines(audit)
   const auditIds = new Set(auditLines.map((line) => line.id))
@@ -178,6 +213,22 @@ async function verifyAgentConversationArchive(input: {
   if (!hasLedgerEntry) throw new Error('Conversation archive learning-work ledger is incomplete.')
 }
 
+function assertArtifactKindsMatchMetadataPlacement(record: AgentConversationRecord): void {
+  for (const turn of record.turns) {
+    for (const childRun of turn.metadata?.childRuns ?? []) {
+      const archive = (childRun as AgentChildRunWithArchive).archive
+      if (archive && archive.kind !== 'child_transcript') {
+        throw new Error('Conversation child run contains a non-transcript artifact reference.')
+      }
+    }
+    for (const diagnostic of turn.metadata?.toolResults ?? []) {
+      if (diagnostic.archive && diagnostic.archive.kind !== 'tool_result') {
+        throw new Error('Conversation tool result contains a non-tool artifact reference.')
+      }
+    }
+  }
+}
+
 async function verifyArchivedToolArtifacts(
   rootPath: string,
   record: AgentConversationRecord,
@@ -186,22 +237,75 @@ async function verifyArchivedToolArtifacts(
   const expectedPrefix = `${artifactDirectoryRelativePath}/${TOOL_ARTIFACT_DIRECTORY}/`
   for (const artifact of collectToolResultArtifacts(record)) {
     const relativePath = normalizeWorkspaceRelativePath(artifact.relativePath)
-    if (!relativePath.startsWith(expectedPrefix)) {
+    if (!isArtifactPathWithinDirectory(artifact.relativePath, expectedPrefix)) {
       throw new Error('Conversation tool artifact is outside its conversation archive.')
     }
     const absolutePath = join(rootPath, relativePath)
     if (!isPathInsideRoot(rootPath, absolutePath)) {
       throw new Error('Conversation tool artifact path is outside the workspace.')
     }
-    const content = await readFile(absolutePath, 'utf8').catch(() => null)
-    if (content === null) throw new Error('Conversation tool artifact is missing.')
-    if (Buffer.byteLength(content, 'utf8') !== artifact.bytes) {
+    const content = await readArchivedArtifact(rootPath, absolutePath, 'tool')
+    if (content.byteLength !== artifact.bytes) {
       throw new Error('Conversation tool artifact byte count does not match.')
     }
     if (createHash('sha256').update(content).digest('hex') !== artifact.sha256) {
       throw new Error('Conversation tool artifact digest does not match.')
     }
   }
+}
+
+async function verifyArchivedChildTranscriptArtifacts(
+  rootPath: string,
+  record: AgentConversationRecord
+): Promise<void> {
+  const expectedPrefix = `${agentConversationChildTranscriptDirectoryRelativePathForMarkdown(record.relativePath)}/`
+  for (const artifact of collectChildTranscriptArtifacts(record)) {
+    const relativePath = normalizeWorkspaceRelativePath(artifact.relativePath)
+    if (!isArtifactPathWithinDirectory(artifact.relativePath, expectedPrefix)) {
+      throw new Error('Conversation child transcript artifact is outside its conversation archive.')
+    }
+    const absolutePath = join(rootPath, relativePath)
+    if (!isPathInsideRoot(rootPath, absolutePath)) {
+      throw new Error('Conversation child transcript artifact path is outside the workspace.')
+    }
+    const content = await readArchivedArtifact(rootPath, absolutePath, 'child transcript')
+    if (content.byteLength !== artifact.bytes) {
+      throw new Error('Conversation child transcript artifact byte count does not match.')
+    }
+    const text = content.toString('utf8')
+    const lines = text ? text.split(/\r\n|\r|\n/).length : 0
+    if (artifact.lines !== undefined && lines !== artifact.lines) {
+      throw new Error('Conversation child transcript artifact line count does not match.')
+    }
+    if (createHash('sha256').update(content).digest('hex') !== artifact.sha256) {
+      throw new Error('Conversation child transcript artifact digest does not match.')
+    }
+  }
+}
+
+async function readArchivedArtifact(
+  rootPath: string,
+  absolutePath: string,
+  label: 'tool' | 'child transcript'
+): Promise<Buffer> {
+  try {
+    return await readContainedRegularFile(rootPath, absolutePath)
+  } catch (error) {
+    const detail = error instanceof Error ? ` ${error.message}` : ''
+    throw new Error(`Conversation ${label} artifact is unavailable.${detail}`)
+  }
+}
+
+function collectChildTranscriptArtifacts(record: AgentConversationRecord): AgentArtifactRef[] {
+  const artifacts = new Map<string, AgentArtifactRef>()
+  for (const turn of record.turns) {
+    for (const childRun of turn.metadata?.childRuns ?? []) {
+      const archive = (childRun as AgentChildRunWithArchive).archive
+      if (archive?.kind !== 'child_transcript') continue
+      artifacts.set(archive.relativePath, archive)
+    }
+  }
+  return [...artifacts.values()]
 }
 
 function collectToolResultArtifacts(record: AgentConversationRecord): AgentArtifactRef[] {
@@ -257,7 +361,9 @@ function renderAgentTurnMetadataMarkdown(lines: string[], metadata: AgentTurnMet
     lines.push('Child runs:', '')
     for (const child of metadata.childRuns) {
       const summary = child.summary ? `: ${compactTextForMarkdown(child.summary, 240)}` : ''
-      lines.push(`- ${child.label} [${child.status}, ${child.profile}]${summary}`)
+      const archive = (child as AgentChildRunWithArchive).archive
+      const transcript = archive?.kind === 'child_transcript' ? ` (transcript: ${archive.relativePath})` : ''
+      lines.push(`- ${child.label} [${child.status}, ${child.profile}]${summary}${transcript}`)
     }
     lines.push('')
   }
@@ -278,6 +384,13 @@ function renderAgentTurnMetadataMarkdown(lines: string[], metadata: AgentTurnMet
     }
     lines.push('')
   }
+}
+
+function isArtifactPathWithinDirectory(relativePath: string, expectedPrefix: string): boolean {
+  const normalized = normalizeWorkspaceRelativePath(relativePath)
+  return normalized === relativePath.replace(/\\/g, '/') &&
+    !normalized.split('/').some((part) => part === '.' || part === '..') &&
+    normalized.startsWith(expectedPrefix)
 }
 
 function compactTextForMarkdown(value: string, maxLength: number): string {

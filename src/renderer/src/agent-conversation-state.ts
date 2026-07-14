@@ -41,6 +41,8 @@ export type AgentConversationTurnDraft = {
   selectedLessonPath: string | null
   assistantId: string
   priorMessages: AgentChatMessage[]
+  /** IDs aligned with persisted priorMessages; used only for compaction audit lineage. */
+  priorMessageTurnIds: string[]
   initialTurns: AgentChatTurn[]
   pendingConversation: PendingAgentConversation
 }
@@ -99,6 +101,7 @@ export function createAgentConversationTurnDraft({
     createdAt
   }
   const priorMessages = agentTurnsToMessages(currentTurns)
+  const priorMessageTurnIds = agentTurnsToMessageTurnIds(currentTurns)
   const initialTurns = [...currentTurns, userTurn, assistantTurn]
   const pendingConversation: PendingAgentConversation = {
     workspaceId: workspace.id,
@@ -126,6 +129,7 @@ export function createAgentConversationTurnDraft({
     selectedLessonPath: nextSelectedLessonPath,
     assistantId,
     priorMessages,
+    priorMessageTurnIds,
     initialTurns,
     pendingConversation
   }
@@ -440,6 +444,13 @@ export function agentTurnsToMessages(turns: AgentChatTurn[]): AgentChatMessage[]
   return turns
     .filter((turn) => turn.role === 'user' || turn.role === 'assistant')
     .map((turn) => ({ role: turn.role, content: turn.content }))
+}
+
+/** Turn IDs in the same order as `agentTurnsToMessages`; used only for audit lineage. */
+export function agentTurnsToMessageTurnIds(turns: AgentChatTurn[]): string[] {
+  return turns
+    .filter((turn) => turn.role === 'user' || turn.role === 'assistant')
+    .map((turn) => turn.id)
 }
 
 export function isPendingConversationSummary(

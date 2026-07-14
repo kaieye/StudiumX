@@ -16,7 +16,11 @@ import {
   agentConversationMarkdownRelativePath,
   isAgentConversationMarkdownRelativePath
 } from '../shared/agent-conversation-catalog'
-import { hydrateAgentConversationArtifacts } from './agent-conversation-session-audit'
+import {
+  hydrateAgentConversationArtifacts,
+  readAgentConversationChildTranscriptArtifact,
+  type AgentStagedChildTranscriptAllowance
+} from './agent-conversation-session-audit'
 import { saveAgentConversationArchive } from './agent-conversation-archive'
 import type {
   AgentArtifactRef,
@@ -45,6 +49,16 @@ const MAX_METADATA_FILES = 40
 const MAX_TEXT = 2000
 const MAX_SHORT_TEXT = 240
 const MAX_SNIPPET_TEXT = 500
+
+type AgentChildRunWithArchive = AgentChildRunMetadata & {
+  archive?: AgentArtifactRef
+}
+
+export type AgentConversationChildTranscript = {
+  childRunId: string
+  archive: AgentArtifactRef
+  content: string
+}
 
 export async function listAgentConversations(
   rootPath: string,
@@ -93,11 +107,43 @@ export async function readAgentConversationRecord(
   return readAgentConversationRecordAt(rootPath, jsonRelativePath, { hydrateArtifacts: true })
 }
 
+/**
+ * Controlled child transcript lookup. The caller supplies a conversation id and
+ * childRunId, never an artifact path; the stored reference is scope- and
+ * integrity-checked by the archive layer before its content is returned.
+ */
+export async function readAgentConversationChildTranscript(
+  rootPath: string,
+  conversationId: string,
+  childRunId: string
+): Promise<AgentConversationChildTranscript> {
+  const requestedChildRunId = requireSafeAgentConversationChildRunId(childRunId)
+  const record = await readAgentConversationRecord(rootPath, conversationId)
+  const childRun = record.turns
+    .flatMap((turn) => turn.metadata?.childRuns ?? [])
+    .find((child) => child.childRunId === requestedChildRunId) as AgentChildRunWithArchive | undefined
+  const archive = childRun?.archive
+  if (!archive || archive.kind !== 'child_transcript') {
+    throw new Error('Child transcript is not archived for this conversation.')
+  }
+  const content = await readAgentConversationChildTranscriptArtifact({
+    rootPath,
+    conversationRelativePath: record.relativePath,
+    artifact: archive
+  })
+  return { childRunId: requestedChildRunId, archive, content }
+}
+
 export async function writeAgentConversationRecord(
   workspace: AgentConversationWorkspace,
-  record: AgentConversationRecord
+  record: AgentConversationRecord,
+  options: { allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[] } = {}
 ): Promise<void> {
-  await saveAgentConversationArchive({ workspace, record })
+  await saveAgentConversationArchive({
+    workspace,
+    record,
+    allowedStagedChildTranscripts: options.allowedStagedChildTranscripts
+  })
 }
 
 export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[] {
@@ -196,6 +242,13 @@ export function requireSafeAgentConversationId(value: string): string {
     .slice(0, 100)
   if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(id)) throw new Error('Conversation id is invalid.')
   return id
+}
+
+function requireSafeAgentConversationChildRunId(value: string): string {
+  if (typeof value !== 'string' || value !== value.trim() || !value || value.length > MAX_SHORT_TEXT || /[\\/\u0000\r\n]/.test(value)) {
+    throw new Error('Child run id is invalid.')
+  }
+  return value
 }
 
 export function toAgentConversationSummary(
@@ -324,9 +377,9 @@ function normalizeSources(value: unknown): AgentSourceMetadata[] {
   return [...out.values()]
 }
 
-function normalizeChildRuns(value: unknown): AgentChildRunMetadata[] {
+function normalizeChildRuns(value: unknown): AgentChildRunWithArchive[] {
   if (!Array.isArray(value)) return []
-  const out: AgentChildRunMetadata[] = []
+  const out: AgentChildRunWithArchive[] = []
   for (const item of value) {
     if (!item || typeof item !== 'object') continue
     const record = item as Record<string, unknown>
@@ -342,6 +395,7 @@ function normalizeChildRuns(value: unknown): AgentChildRunMetadata[] {
       filesRead: normalizeStringArray(record.filesRead, MAX_METADATA_FILES, MAX_SHORT_TEXT),
       citations: normalizeCitations(record.citations),
       usage: normalizeChildUsage(record.usage),
+      archive: normalizeChildTranscriptArchive(record.archive),
       startedAt: textValue(record.startedAt, MAX_SHORT_TEXT),
       completedAt: textValue(record.completedAt, MAX_SHORT_TEXT)
     }))
@@ -358,7 +412,12 @@ function normalizeCompactions(value: unknown): AgentCompactionMetadata[] {
     const record = item as Record<string, unknown>
     const sourceDigest = textValue(record.sourceDigest, MAX_SHORT_TEXT)
     if (!sourceDigest) continue
+    const id = textValue(record.id, MAX_SHORT_TEXT) ?? `compaction:${sourceDigest}`
+    const createdAt = textValue(record.createdAt, MAX_SHORT_TEXT) ?? '1970-01-01T00:00:00.000Z'
     out.push(pruneUndefined({
+      id,
+      createdAt,
+      replacedTurnIds: normalizeStringArray(record.replacedTurnIds, MAX_METADATA_ITEMS, MAX_SHORT_TEXT) ?? [],
       sourceDigest,
       reason: textValue(record.reason, MAX_SHORT_TEXT) ?? 'unknown',
       mode: textValue(record.mode, MAX_SHORT_TEXT) ?? 'normal',
@@ -426,11 +485,21 @@ function normalizeToolResults(value: unknown): AgentToolResultDiagnostic[] {
       lines,
       approxTokens: numberValue(record.approxTokens),
       isError: record.isError === true ? true : undefined,
-      archive: normalizeArtifactRef(record.archive)
+      archive: normalizeToolResultArchive(record.archive)
     }))
     if (out.length >= MAX_METADATA_ITEMS) break
   }
   return out
+}
+
+function normalizeToolResultArchive(value: unknown): AgentArtifactRef | undefined {
+  const artifact = normalizeArtifactRef(value)
+  return artifact?.kind === 'tool_result' ? artifact : undefined
+}
+
+function normalizeChildTranscriptArchive(value: unknown): AgentArtifactRef | undefined {
+  const artifact = normalizeArtifactRef(value)
+  return artifact?.kind === 'child_transcript' ? artifact : undefined
 }
 
 function normalizeArtifactRef(value: unknown): AgentArtifactRef | undefined {
@@ -553,7 +622,7 @@ async function collectAgentConversationJsonRelativePaths(
   for (const directory of agentConversationJsonScanDirectories(options)) {
     const entries = await readdir(join(rootPath, directory), { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
+      if (entry.isFile() && isAgentConversationRecordFileName(entry.name)) {
         result.push(workspaceRelativePath(directory, entry.name))
       }
     }
@@ -565,13 +634,23 @@ async function collectAgentConversationJsonRelativePaths(
     for (const directory of agentConversationCourseJsonScanDirectories(courseEntry.name)) {
       const entries = await readdir(join(rootPath, directory), { withFileTypes: true }).catch(() => [])
       for (const entry of entries) {
-        if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
+        if (entry.isFile() && isAgentConversationRecordFileName(entry.name)) {
           result.push(workspaceRelativePath(directory, entry.name))
         }
       }
     }
   }
   return result
+}
+
+function isAgentConversationRecordFileName(fileName: string): boolean {
+  if (!fileName.endsWith('.json')) return false
+  const id = fileName.slice(0, -'.json'.length)
+  try {
+    return requireSafeAgentConversationId(id) === id
+  } catch {
+    return false
+  }
 }
 
 async function agentConversationIdExists(rootPath: string, id: string): Promise<boolean> {

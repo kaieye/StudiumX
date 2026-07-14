@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import {
   agentConversationDirectoryRelativePath,
+  agentConversationChildTranscriptDirectoryRelativePathForMarkdown,
   agentConversationDirectoryRelativePathsForCourse,
   agentConversationJsonRelativePathForMarkdown,
   agentConversationSessionArtifactDirectoryRelativePathForMarkdown,
@@ -70,6 +71,14 @@ assert.equal(
 assert.equal(
   agentConversationSessionArtifactDirectoryRelativePathForMarkdown('courses/rag/conversation/chat-10.md'),
   'courses/rag/conversation/.agent-sessions/chat-10'
+)
+assert.equal(
+  agentConversationChildTranscriptDirectoryRelativePathForMarkdown('courses/rag/conversation/chat-10.md'),
+  'courses/rag/conversation/.agent-sessions/chat-10/child-transcripts'
+)
+assert.throws(
+  () => agentConversationChildTranscriptDirectoryRelativePathForMarkdown('notes/chat-10.md'),
+  /outside a conversations directory/
 )
 
 assert.equal(primaryAgentConversationDirectoryRelativePathForCourse('lessons'), 'conversation')

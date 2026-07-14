@@ -1,30 +1,57 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { defaultSettings } from '../../src/main/teaching-settings'
+import { parseAgentChatStreamPayload } from '../../src/main/teaching-ipc-commands'
 import { SkillLibraryService } from '../../src/main/skill-library'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
+import { agentConversationJsonRelativePathForMarkdown } from '../../src/shared/agent-conversation-catalog'
 
 const MODEL_REPLY = 'MODEL_REPLY_FROM_PROVIDER'
 
-const requests: Array<{
+type RecordedRequestBody = {
+  model?: string
+  messages?: Array<{
+    role: string
+    content?: string | null
+    tool_calls?: Array<{
+      id: string
+      type: 'function'
+      function: { name: string; arguments: string }
+    }>
+    tool_call_id?: string
+  }>
+}
+
+type RecordedRequest = {
   method: string | undefined
   url: string | undefined
-  body: { model?: string; messages?: Array<{ role: string; content?: string }> }
-}> = []
+  phase: 'parent' | 'child'
+  body: RecordedRequestBody
+}
+
+const requests: RecordedRequest[] = []
+let delegationScenarioActive = false
+
+const makeToolCall = (id: string, name: string, args: unknown) => ({
+  id,
+  type: 'function' as const,
+  function: { name, arguments: JSON.stringify(args) }
+})
+
+const requestPhase = (body: RecordedRequestBody): RecordedRequest['phase'] =>
+  String(body.messages?.[0]?.content ?? '').includes('只读 child agent') ? 'child' : 'parent'
 
 const server = createServer(async (req, res) => {
   const chunks: Buffer[] = []
   for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-  const body = Buffer.concat(chunks).toString('utf8')
-  requests.push({
-    method: req.method,
-    url: req.url,
-    body: body ? JSON.parse(body) : {}
-  })
+  const requestText = Buffer.concat(chunks).toString('utf8')
+  const body = (requestText ? JSON.parse(requestText) : {}) as RecordedRequestBody
+  const phase = requestPhase(body)
+  requests.push({ method: req.method, url: req.url, phase, body })
 
   if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
     res.writeHead(404, { 'content-type': 'application/json' })
@@ -32,17 +59,44 @@ const server = createServer(async (req, res) => {
     return
   }
 
-  res.writeHead(200, { 'content-type': 'application/json' })
-  res.end(JSON.stringify({
-    choices: [
-      {
-        message: {
+  const reply = (message: Record<string, unknown>): void => {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ choices: [{ message }] }))
+  }
+
+  if (delegationScenarioActive) {
+    const toolResult = body.messages?.find((message) => message.role === 'tool')
+    if (phase === 'child') {
+      if (!toolResult) {
+        reply({
           role: 'assistant',
-          content: MODEL_REPLY
-        }
+          content: null,
+          tool_calls: [makeToolCall('call-read-mission', 'read_workspace_file', { path: 'MISSION.md' })]
+        })
+        return
       }
-    ]
-  }))
+      reply({ role: 'assistant', content: 'MISSION.md 已读取，学习目标是掌握 RAG。' })
+      return
+    }
+
+    if (!toolResult) {
+      reply({
+        role: 'assistant',
+        content: null,
+        tool_calls: [makeToolCall('call-delegate-save', 'delegate_task', {
+          label: '检查 mission',
+          prompt: '读取 MISSION.md，并用一句话总结学习目标。',
+          profile: 'read_only',
+          maxIterations: 3
+        })]
+      })
+      return
+    }
+    reply({ role: 'assistant', content: '父任务已整合 child agent 的 MISSION.md 检查结果。' })
+    return
+  }
+
+  reply({ role: 'assistant', content: MODEL_REPLY })
 })
 
 const listen = (srv: typeof server): Promise<void> => new Promise((resolve, reject) => {
@@ -106,7 +160,7 @@ try {
     {
       workspaceId: workspace.id,
       messages: [],
-      userInput: '我想学习 RAG'
+      userInput: '请介绍 RAG'
     },
     {
       streamId: 'test-stream',
@@ -134,7 +188,7 @@ try {
   assert.match(sentMessages[0]?.content ?? '', /do not treat readiness hints as a canned assistant answer/)
   assert.doesNotMatch(sentMessages[0]?.content ?? '', /Claude|Anthropic/)
   assert.equal(sentMessages.at(-1)?.role, 'user')
-  assert.equal(sentMessages.at(-1)?.content, '我想学习 RAG')
+  assert.equal(sentMessages.at(-1)?.content, '请介绍 RAG')
 
   const identityChunks: string[] = []
   const identityStatuses: string[] = []
@@ -239,6 +293,171 @@ try {
   assert.equal('canceled' in canceledResult, true, 'aborted agent chat should return a canceled result')
   assert.equal(requests.length, 4, 'aborted agent chat should not call the provider')
   assert.deepEqual(canceledStatuses, [])
+
+  const lineageMessages = [
+    { role: 'system' as const, content: 'obsolete client system prompt' },
+    { role: 'user' as const, content: `history-1 ${'context '.repeat(160)}` },
+    {
+      role: 'assistant' as const,
+      content: null,
+      toolCalls: [{ id: 'lineage-tool-call', name: 'lookup', arguments: '{}' }]
+    },
+    {
+      role: 'tool' as const,
+      content: `tool-history ${'context '.repeat(160)}`,
+      toolCallId: 'lineage-tool-call'
+    },
+    ...Array.from({ length: 10 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
+      content: `history-${index + 2} ${'context '.repeat(160)}`
+    }))
+  ]
+  const lineageTurnIds = [
+    '',
+    'u1',
+    'a1',
+    undefined,
+    ...Array.from({ length: 10 }, (_, index) => `${index % 2 === 0 ? 'u' : 'a'}${Math.floor(index / 2) + 2}`)
+  ]
+  const parsedLineagePayload = parseAgentChatStreamPayload({
+    workspaceId: workspace.id,
+    mode: 'temporary',
+    messages: lineageMessages,
+    messageTurnIds: lineageTurnIds,
+    contextCompaction: { enabled: true, force: true, contextWindowTokens: 2000 },
+    userInput: '总结当前讨论'
+  })
+  assert.equal(parsedLineagePayload.messageTurnIds?.length, lineageMessages.length)
+  assert.equal(parsedLineagePayload.messageTurnIds?.[0], undefined, 'system placeholder should preserve its index')
+  assert.equal(parsedLineagePayload.messageTurnIds?.[3], undefined, 'tool placeholder should preserve its index')
+  const mismatchedLineagePayload = parseAgentChatStreamPayload({
+    messages: lineageMessages,
+    messageTurnIds: lineageTurnIds.slice(1),
+    userInput: '长度不匹配时忽略 lineage'
+  })
+  assert.equal(mismatchedLineagePayload.messageTurnIds, undefined, 'misaligned turn IDs must not pass downstream')
+  const lineageResult = await service.agentChatStream(
+    parsedLineagePayload,
+    {
+      streamId: 'lineage-stream',
+      onChunk: () => {},
+      onStatus: () => {},
+      onTool: () => {}
+    }
+  )
+  assert.ok(!('error' in lineageResult), 'forced compaction should complete through the configured provider')
+  const lineageCompaction = 'turns' in lineageResult
+    ? lineageResult.turns.at(-1)?.metadata?.compactions?.at(-1)
+    : undefined
+  assert.ok(lineageCompaction, 'forced compaction should persist audit metadata')
+  assert.ok(lineageCompaction.replacedTurnIds.length > 0, 'compaction should retain persisted source turn IDs')
+  assert.deepEqual(lineageCompaction.replacedTurnIds.slice(0, 2), ['u1', 'a1'])
+  assert.equal(requests.length, 6, 'forced compaction should make one summary call and one answer call')
+
+  const delegationRunId = 'delegation-save-stream'
+  delegationScenarioActive = true
+  const delegationResult = await service.agentChatStream(
+    {
+      workspaceId: workspace.id,
+      messages: [],
+      userInput: '派发只读 child agent 检查 MISSION.md'
+    },
+    {
+      streamId: delegationRunId,
+      onChunk: () => {},
+      onStatus: () => {},
+      onTool: () => {}
+    }
+  )
+  assert.ok(!('error' in delegationResult) && !('canceled' in delegationResult), 'delegation run should complete')
+  assert.deepEqual(
+    requests.slice(-4).map((request) => request.phase),
+    ['parent', 'child', 'child', 'parent'],
+    'delegation should exercise the parent and child provider loops through the local server'
+  )
+
+  const stagedChild = delegationResult.turns
+    .flatMap((turn) => turn.metadata?.childRuns ?? [])
+    .find((child) => child.archive?.relativePath.startsWith(`.agent-sessions/child-transcripts/${delegationRunId}/`))
+  assert.ok(stagedChild?.archive, 'delegation result should expose a run-scoped staged child transcript')
+  const stagedArchive = stagedChild.archive
+  assert.equal(stagedArchive.kind, 'child_transcript')
+  assert.match(
+    stagedArchive.relativePath,
+    /^\.agent-sessions\/child-transcripts\/delegation-save-stream\/[a-f0-9]{16}-[a-f0-9]{64}\.txt$/
+  )
+
+  const stagedSavePayload = {
+    workspaceId: workspace.id,
+    runId: delegationRunId,
+    turns: delegationResult.turns
+  }
+  await assert.rejects(
+    () => service.saveAgentConversation({ ...stagedSavePayload, runId: 'wrong-delegation-save-stream' }),
+    /not authorized for this run/i,
+    'a different run id must not authorize promotion of this staged transcript'
+  )
+
+  const tamperedTurns = structuredClone(delegationResult.turns)
+  const tamperedArchive = tamperedTurns
+    .flatMap((turn) => turn.metadata?.childRuns ?? [])
+    .find((child) => child.childRunId === stagedChild.childRunId)
+    ?.archive
+  assert.ok(tamperedArchive, 'tamper test should find the staged child transcript')
+  tamperedArchive.sha256 = tamperedArchive.sha256.startsWith('0')
+    ? `1${tamperedArchive.sha256.slice(1)}`
+    : `0${tamperedArchive.sha256.slice(1)}`
+  await assert.rejects(
+    () => service.saveAgentConversation({ ...stagedSavePayload, turns: tamperedTurns }),
+    /unrecognized artifact reference/i,
+    'a mutated staged transcript reference must not inherit the run capability'
+  )
+
+  const savedDelegation = await service.saveAgentConversation(stagedSavePayload)
+  const canonicalPath = join(
+    workspace.rootPath,
+    agentConversationJsonRelativePathForMarkdown(savedDelegation.conversation.relativePath)
+  )
+  const canonicalJson = await readFile(canonicalPath, 'utf8')
+
+  const loadedDelegation = await service.readAgentConversation({
+    workspaceId: workspace.id,
+    conversationId: savedDelegation.conversation.id
+  })
+  const promotedArchive = loadedDelegation.turns
+    .flatMap((turn) => turn.metadata?.childRuns ?? [])
+    .find((child) => child.childRunId === stagedChild.childRunId)
+    ?.archive
+  assert.ok(promotedArchive, 'saved conversation should retain the promoted child transcript reference')
+  assert.notEqual(promotedArchive.relativePath, stagedArchive.relativePath)
+  assert.equal(promotedArchive.relativePath.startsWith('.agent-sessions/child-transcripts/'), false)
+
+  await assert.rejects(
+    () => service.saveAgentConversation(stagedSavePayload),
+    /not authorized for this run/i,
+    'a successfully consumed staged transcript capability must not be replayable'
+  )
+
+  const resavedDelegation = await service.saveAgentConversation({
+    workspaceId: workspace.id,
+    conversationId: loadedDelegation.id,
+    turns: loadedDelegation.turns
+  })
+  assert.equal(resavedDelegation.conversation.id, loadedDelegation.id)
+  const resavedCanonicalJson = await readFile(canonicalPath, 'utf8')
+  assert.equal(requests.length, 10, 'conversation persistence should not make additional provider calls')
+  for (const persistedJson of [canonicalJson, resavedCanonicalJson]) {
+    assert.equal(
+      persistedJson.includes(stagedArchive.relativePath),
+      false,
+      'canonical conversation JSON must not retain the run-scoped staging path'
+    )
+    assert.doesNotMatch(
+      persistedJson,
+      /"relativePath"\s*:\s*"\.agent-sessions\/child-transcripts\//,
+      'canonical conversation JSON must contain only conversation-scoped child transcript references'
+    )
+  }
 
   console.log('agent chat model routing ok')
 } finally {

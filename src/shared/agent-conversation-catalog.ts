@@ -214,6 +214,19 @@ export function agentConversationSessionArtifactDirectoryRelativePathForMarkdown
   return joinAgentConversationRelativePath(info.directoryRelativePath, '.agent-sessions', info.id)
 }
 
+/**
+ * Directory reserved for durable child-run transcripts belonging to one
+ * conversation. Individual filenames are intentionally allocated in the main
+ * process from a child id and content digest; callers must never append an
+ * untrusted childRunId to this path.
+ */
+export function agentConversationChildTranscriptDirectoryRelativePathForMarkdown(markdownRelativePath: string): string {
+  return joinAgentConversationRelativePath(
+    agentConversationSessionArtifactDirectoryRelativePathForMarkdown(markdownRelativePath),
+    'child-transcripts'
+  )
+}
+
 export function normalizeAgentConversationDirectory(conversationDir: string): string {
   const normalized = normalizeAgentConversationRelativePath(conversationDir)
   if (normalized === 'conversation') return 'conversation'

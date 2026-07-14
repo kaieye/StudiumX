@@ -1,7 +1,7 @@
 import { lstat, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import type { ToolDefinition } from '../provider-adapter'
-import type { TeachingSettingsV1 } from '../../../shared/teaching-types'
+import type { AgentArtifactRef, TeachingSettingsV1 } from '../../../shared/teaching-types'
 import type { AgentOperationJournal, AgentOperationRecord } from '../agent-operation-journal'
 import { webSearchTool } from './web_search'
 import { webFetchTool } from './web_fetch'
@@ -65,6 +65,7 @@ export type ToolRuntimeChildRunRecord = {
   error?: string
   startedAt?: string
   completedAt?: string
+  archive?: AgentArtifactRef
   usage?: {
     providerCalls?: number
     promptTokens?: number

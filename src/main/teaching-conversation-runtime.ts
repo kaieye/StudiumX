@@ -222,7 +222,12 @@ async function runTeachingConversationTurnActive(
     }))
   }
   if (conversation.workspaceToolsEnabled) {
-    for (const tool of createDelegationToolEntries({ provider, streamId: stream.streamId, signal: stream.signal })) {
+    for (const tool of createDelegationToolEntries({
+      provider,
+      streamId: stream.streamId,
+      signal: stream.signal,
+      runStore: deps.runStore
+    })) {
       registry.register(tool)
     }
   }
@@ -250,6 +255,12 @@ async function runTeachingConversationTurnActive(
   const temporaryContext = conversation.mode === 'temporary' && workspace
     ? await deps.buildTemporaryChatContext(workspace, existingMemories)
     : null
+  const priorMessageTurnIds = payload.messageTurnIds?.length === priorMessages.length
+    ? payload.messageTurnIds.map((id) => id || undefined)
+    : priorMessages.map(() => undefined)
+  const priorMessagesWithTurnIds = priorMessages
+    .map((message, index) => ({ message, turnId: priorMessageTurnIds[index] }))
+    .filter(({ message }) => message.role !== 'system')
   const messages: ChatMessage[] = [
     {
       role: 'system',
@@ -265,8 +276,13 @@ async function runTeachingConversationTurnActive(
         visiblePageContext: payload.context
       })
     },
-    ...priorMessages.filter((m) => m.role !== 'system'),
+    ...priorMessagesWithTurnIds.map(({ message }) => message),
     { role: 'user', content: userInput }
+  ]
+  const messageTurnIds = [
+    undefined,
+    ...priorMessagesWithTurnIds.map(({ turnId }) => turnId),
+    undefined
   ]
   const lessonGenerationRequested = lessonTool.isGenerationRequested(userInput)
   const maxIterations = lessonGenerationRequested
@@ -278,6 +294,7 @@ async function runTeachingConversationTurnActive(
     settings,
     provider,
     messages,
+    messageTurnIds,
     tools: registry.definitions(),
     toolHandlers: registry.handlerMap(ctx),
     maxIterations,

@@ -101,6 +101,16 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
   const skillIds = Array.isArray(record.skillIds)
     ? [...new Set(record.skillIds.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))].slice(0, 8)
     : undefined
+  const messageTurnIds = Array.isArray(record.messageTurnIds) && record.messageTurnIds.length <= 400
+    ? Array.from(record.messageTurnIds, (item) => {
+        const turnId = typeof item === 'string' ? item.trim() : ''
+        return turnId || undefined
+      })
+    : undefined
+  const messages = parseAgentChatMessages(record.messages)
+  const alignedMessageTurnIds = messageTurnIds?.length === messages.length
+    ? messageTurnIds as AgentChatStreamPayload['messageTurnIds']
+    : undefined
   return {
     streamId: optionalStreamId(record.streamId),
     conversationId: optionalStreamId(record.conversationId),
@@ -109,7 +119,8 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
     context: optionalString(record.context),
     contextCompaction: parseAgentChatContextCompaction(record.contextCompaction),
     ...(skillIds?.length ? { skillIds } : {}),
-    messages: parseAgentChatMessages(record.messages),
+    ...(alignedMessageTurnIds ? { messageTurnIds: alignedMessageTurnIds } : {}),
+    messages,
     userInput: requireString(record.userInput, 'userInput')
   }
 }
@@ -164,8 +175,10 @@ export function decodeToolAnswerPayload(payload: unknown): {
 
 export function parseSaveAgentConversationPayload(payload: unknown): SaveAgentConversationPayload {
   const record = requireRecord(payload)
+  const runId = optionalStreamId(record.runId)
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    ...(runId ? { runId } : {}),
     mode: record.mode === 'teaching' ? 'teaching' : record.mode === 'temporary' ? 'temporary' : undefined,
     conversationId: optionalString(record.conversationId) ?? null,
     selectedLessonPath:

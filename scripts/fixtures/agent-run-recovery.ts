@@ -8,6 +8,7 @@ import {
   DEFAULT_AGENT_RUN_BUDGET,
   agentOperationId
 } from '../../src/main/ai/agent-run-store'
+import { ChildRunSupervisor } from '../../src/main/ai/child-run-supervisor'
 import { defaultSettings, normalizeSettings } from '../../src/main/teaching-settings'
 
 const root = await mkdtemp(join(tmpdir(), 'studiumx-agent-run-recovery-'))
@@ -39,6 +40,89 @@ try {
   await mkdir(join(root, 'notes'), { recursive: true })
   await writeFile(join(root, 'notes', 'recovery.md'), 'side effect exists\n')
 
+  const childStore = store.createChildRunStore('run-permission')
+  const queuedChild = childStore.create({
+    id: 'child-queued',
+    label: 'Queued child',
+    profile: 'read_only',
+    prompt: 'This prompt must never enter the durable child lifecycle journal.',
+    parentStreamId: 'run-permission'
+  })
+  const runningChild = childStore.create({
+    id: 'child-running',
+    label: 'Running child',
+    profile: 'research',
+    prompt: 'Summarize the current workspace.',
+    parentStreamId: 'run-permission'
+  })
+  childStore.transition(runningChild.id, 'running')
+  const completedChild = childStore.create({
+    id: 'child-completed',
+    label: 'Completed child',
+    profile: 'workspace_audit',
+    prompt: 'Inspect the workspace.',
+    parentStreamId: 'run-permission'
+  })
+  childStore.transition(completedChild.id, 'running')
+  childStore.transition(completedChild.id, 'completed', {
+    summary: 'Already complete.',
+    completedAt: '2026-07-12T00:00:00.000Z',
+    usage: { toolCalls: 1 }
+  })
+  await childStore.flush()
+  const durableChildDirectory = join(root, '.agent-sessions', 'child-runs', 'run-permission')
+  assert.doesNotMatch(await readFile(join(durableChildDirectory, `${queuedChild.id}.json`), 'utf8'), /This prompt must never enter/)
+
+  // The public reconciliation seam is also safe to invoke before startup recovery: a live parent
+  // still owns its children, so it must not settle their queued/running state prematurely.
+  assert.deepEqual(await store.reconcileOrphanedChildRuns(), [])
+  const liveChildren = await store.listChildRuns('run-permission')
+  assert.equal(liveChildren.find((child) => child.childRunId === queuedChild.id)?.status, 'queued')
+  assert.equal(liveChildren.find((child) => child.childRunId === runningChild.id)?.status, 'running')
+
+  const preAbortedRoot = join(root, 'pre-aborted-parent')
+  const preAbortedStore = new AgentRunStore(preAbortedRoot, now)
+  await preAbortedStore.create({
+    runId: 'run-pre-aborted',
+    streamId: 'run-pre-aborted',
+    budget: DEFAULT_AGENT_RUN_BUDGET
+  })
+  const parentController = new AbortController()
+  parentController.abort()
+  let preAbortedExecutorRan = false
+  const preAbortedSupervisor = new ChildRunSupervisor({
+    parentStreamId: 'run-pre-aborted',
+    signal: parentController.signal,
+    store: preAbortedStore.createChildRunStore('run-pre-aborted'),
+    execute: async () => {
+      preAbortedExecutorRan = true
+      return {
+        status: 'completed',
+        summary: 'A pre-aborted child must never execute.',
+        usage: { toolCalls: 0 }
+      }
+    }
+  })
+  const preAbortedResult = await preAbortedSupervisor.run({
+    label: 'Pre-aborted child',
+    prompt: 'Do not execute this child.',
+    context: '',
+    profile: 'read_only',
+    maxIterations: 1,
+    timeoutMs: 1_000
+  })
+  assert.equal(preAbortedExecutorRan, false)
+  assert.equal(preAbortedResult.status, 'canceled')
+  const preAbortedJournal = JSON.parse(await readFile(join(
+    preAbortedRoot,
+    '.agent-sessions',
+    'child-runs',
+    'run-pre-aborted',
+    `${preAbortedResult.childRunId}.json`
+  ), 'utf8'))
+  assert.equal(preAbortedJournal.childRunId, preAbortedResult.childRunId)
+  assert.equal(preAbortedJournal.status, 'canceled')
+
   await assert.rejects(
     store.create({
       runId: 'run-permission',
@@ -58,6 +142,14 @@ try {
   assert.equal(checkpoint.status, 'interrupted')
   assert.equal(checkpoint.pendingPermissionId, undefined)
   assert.match(checkpoint.interruptionReason ?? '', /旧审批和追问已失效/)
+  const recoveredChildren = await restarted.listChildRuns('run-permission')
+  assert.equal(recoveredChildren.find((child) => child.childRunId === queuedChild.id)?.status, 'recoverable')
+  assert.match(recoveredChildren.find((child) => child.childRunId === queuedChild.id)?.recoveryReason ?? '', /尚未执行/)
+  const canceledChild = recoveredChildren.find((child) => child.childRunId === runningChild.id)
+  assert.equal(canceledChild?.status, 'canceled')
+  assert.equal(canceledChild?.completedAt, canceledChild?.recoveredAt)
+  assert.match(canceledChild?.recoveryReason ?? '', /无法安全继续/)
+  assert.equal(recoveredChildren.find((child) => child.childRunId === completedChild.id)?.status, 'completed')
 
   const operationPath = join(
     root,
@@ -73,7 +165,47 @@ try {
   if (process.platform !== 'win32') {
     assert.equal((await stat(operationPath)).mode & 0o777, 0o600)
     assert.equal((await stat(join(root, '.agent-sessions', 'runs', 'run-permission.json'))).mode & 0o777, 0o600)
+    assert.equal((await stat(join(durableChildDirectory, `${queuedChild.id}.json`))).mode & 0o777, 0o600)
   }
+
+  await restarted.create({
+    runId: 'run-child-terminal',
+    streamId: 'run-child-terminal',
+    budget: DEFAULT_AGENT_RUN_BUDGET
+  })
+  await restarted.update('run-child-terminal', { status: 'completed', completedAt: now() })
+  const terminalChildStore = restarted.createChildRunStore('run-child-terminal')
+  terminalChildStore.create({
+    id: 'child-after-parent',
+    label: 'Parent-terminal child',
+    profile: 'read_only',
+    prompt: 'Never run after the parent finishes.'
+  })
+  await terminalChildStore.flush()
+
+  const missingParentChildStore = restarted.createChildRunStore('missing-parent')
+  missingParentChildStore.create({
+    id: 'child-missing-parent',
+    label: 'Missing-parent child',
+    profile: 'read_only',
+    prompt: 'A missing parent must not leave an active child behind.'
+  })
+  await missingParentChildStore.flush()
+
+  const recoveryRestart = new AgentRunStore(root, now)
+  assert.deepEqual(await recoveryRestart.reconcileInterrupted(), [])
+  assert.equal((await recoveryRestart.listChildRuns('run-child-terminal'))[0]?.status, 'canceled')
+  assert.equal((await recoveryRestart.listChildRuns('missing-parent'))[0]?.status, 'recoverable')
+  const childFiles = [
+    join(durableChildDirectory, `${queuedChild.id}.json`),
+    join(durableChildDirectory, `${runningChild.id}.json`),
+    join(durableChildDirectory, `${completedChild.id}.json`),
+    join(root, '.agent-sessions', 'child-runs', 'run-child-terminal', 'child-after-parent.json'),
+    join(root, '.agent-sessions', 'child-runs', 'missing-parent', 'child-missing-parent.json')
+  ]
+  const childJournalBeforeSecondRecovery = await Promise.all(childFiles.map((path) => readFile(path, 'utf8')))
+  assert.deepEqual(await recoveryRestart.reconcileInterrupted(), [])
+  assert.deepEqual(await Promise.all(childFiles.map((path) => readFile(path, 'utf8'))), childJournalBeforeSecondRecovery)
 
   await restarted.create({
     runId: 'run-ask',

@@ -50,6 +50,8 @@ export type RunAgentLoopOptions = {
   settings: TeachingSettingsV1
   provider: TeachingModelProviderProfile
   messages: ChatMessage[]
+  /** Stable persisted turn IDs aligned with the initial conversation messages. */
+  messageTurnIds?: readonly (string | undefined)[]
   tools: ToolDefinition[]
   toolHandlers: ToolHandlerMap
   maxIterations?: number
@@ -146,8 +148,13 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       return summary.text
     }
   })
+  const initialMessageCount = opts.messages.length
+  const initialMessageTurnIds = opts.messageTurnIds?.slice(0, initialMessageCount)
   const prepareMessagesForProvider = async (messages: ChatMessage[], tools: ToolDefinition[]): Promise<ChatMessage[]> => {
-    return (await requestContext.project(messages, tools)).messages
+    const messageTurnIds = messages.map((_, index) =>
+      index < initialMessageCount ? initialMessageTurnIds?.[index] : undefined
+    )
+    return (await requestContext.project(messages, tools, messageTurnIds)).messages
   }
   let degradedReason: string | undefined
   let iterations = 0

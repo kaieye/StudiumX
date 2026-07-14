@@ -34,6 +34,44 @@ export type AgentRunCheckpoint = {
   interruptionReason?: string
 }
 
+export type AgentRunChildStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
+  | 'recoverable'
+
+/**
+ * Durable, deliberately prompt-free child-run lifecycle record. Final child output remains
+ * attached to the parent turn audit; this journal exists so startup can explain and settle
+ * work that was still in memory when the process exited.
+ */
+export type AgentRunChildRecord = {
+  version: 1
+  runId: string
+  childRunId: string
+  parentStreamId?: string
+  label: string
+  profile: 'read_only' | 'research' | 'workspace_audit'
+  status: AgentRunChildStatus
+  createdAt: string
+  startedAt?: string
+  completedAt?: string
+  updatedAt: string
+  summary?: string
+  error?: string
+  usage?: {
+    providerCalls?: number
+    promptTokens?: number
+    completionTokens?: number
+    totalTokens?: number
+    toolCalls: number
+  }
+  recoveryReason?: string
+  recoveredAt?: string
+}
+
 export type AgentOperationState =
   | 'started'
   | 'completed'

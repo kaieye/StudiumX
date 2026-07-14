@@ -1,12 +1,18 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
+  agentConversationChildTranscriptDirectoryRelativePathForMarkdown,
   agentConversationSessionArtifactDirectoryRelativePathForMarkdown,
   agentConversationSessionAuditRelativePathForMarkdown
 } from '../shared/agent-conversation-catalog'
-import { isPathInsideRoot } from './path-access'
+import { agentRunChildTranscriptRelativePath } from './ai/agent-run-persistence'
+import {
+  isPathInsideRoot,
+  readContainedRegularFile,
+  writeContentAddressedFile
+} from './path-access'
 import type {
   AgentArtifactRef,
   AgentChatTurn,
@@ -26,6 +32,19 @@ const TOOL_RESULT_ARCHIVE_MIN_BYTES = 2048
 const TOOL_RESULT_ARCHIVE_MIN_LINES = 40
 const TOOL_RESULT_PREVIEW_LENGTH = 1200
 const MAX_TOOL_RESULT_DIAGNOSTICS = 20
+
+export type AgentStagedChildTranscriptAllowance = {
+  childRunId: string
+  archive: AgentArtifactRef
+}
+
+type AgentChildRunWithArchive = AgentChildRunMetadata & {
+  archive?: AgentArtifactRef
+  /** Transient runtime-only content; stripped after durable archival. */
+  transcript?: string
+  /** Accepted during migration from early runtime producers. */
+  transcriptText?: string
+}
 
 export type AgentConversationSessionAuditHeader = {
   type: 'session'
@@ -128,6 +147,7 @@ export async function archiveAgentConversationArtifacts(input: {
   rootPath: string
   record: AgentConversationRecord
   now?: string
+  allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
 }): Promise<AgentConversationRecord> {
   let changed = false
   const now = input.now ?? new Date().toISOString()
@@ -162,9 +182,82 @@ export async function archiveAgentConversationArtifacts(input: {
     if (toolCallsChanged) {
       nextTurn = { ...nextTurn, toolCalls }
     }
+
+    const childTranscriptResult = await archiveChildRunTranscripts({
+      rootPath: input.rootPath,
+      conversationRelativePath: input.record.relativePath,
+      turn: nextTurn,
+      now,
+      allowedStagedChildTranscripts: input.allowedStagedChildTranscripts
+    })
+    if (childTranscriptResult.changed) {
+      nextTurn = childTranscriptResult.turn
+      changed = true
+    }
     turns.push(nextTurn)
   }
   return changed ? { ...input.record, turns } : input.record
+}
+
+async function archiveChildRunTranscripts(input: {
+  rootPath: string
+  conversationRelativePath: string
+  turn: AgentChatTurn
+  now: string
+  allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
+}): Promise<{ turn: AgentChatTurn; changed: boolean }> {
+  const childRuns = input.turn.metadata?.childRuns
+  if (!childRuns?.length) return { turn: input.turn, changed: false }
+
+  let changed = false
+  const persistedChildRuns: AgentChildRunWithArchive[] = []
+  for (const childRun of childRuns) {
+    const child = childRun as AgentChildRunWithArchive
+    const transientTranscript = childTranscriptText(child)
+    const existingArchive = childTranscriptArchive(child)
+    const stagedTranscript = existingArchive
+      ? await readStagedChildTranscript(
+          input.rootPath,
+          child.childRunId,
+          existingArchive,
+          input.allowedStagedChildTranscripts
+        )
+      : null
+    const transcript = transientTranscript ?? stagedTranscript
+    if (transcript === null) {
+      persistedChildRuns.push(child)
+      continue
+    }
+
+    const materializedArtifact = await writeChildTranscriptArtifact({
+      rootPath: input.rootPath,
+      conversationRelativePath: input.conversationRelativePath,
+      childRunId: child.childRunId,
+      transcript,
+      now: input.now
+    })
+    const artifact = existingArchive && existingArchive.sha256 === materializedArtifact.sha256 &&
+      existingArchive.bytes === materializedArtifact.bytes &&
+      existingArchive.lines === materializedArtifact.lines &&
+      existingArchive.relativePath === materializedArtifact.relativePath
+      ? existingArchive
+      : materializedArtifact
+    persistedChildRuns.push(withChildTranscriptArchive(child, artifact))
+    changed = true
+  }
+
+  if (!changed) return { turn: input.turn, changed: false }
+  return {
+    changed: true,
+    turn: {
+      ...input.turn,
+      metadata: {
+        ...input.turn.metadata,
+        version: 1,
+        childRuns: persistedChildRuns
+      }
+    }
+  }
 }
 
 export async function hydrateAgentConversationArtifacts(input: {
@@ -184,7 +277,10 @@ export async function hydrateAgentConversationArtifacts(input: {
     const toolCalls = await Promise.all(turn.toolCalls.map(async (tool) => {
       const artifact = artifactByTool.get(`${tool.id}:${tool.name}`)
       if (!artifact) return tool
-      const content = await readArtifactContent(input.rootPath, artifact)
+      const content = await readArtifactContent(input.rootPath, artifact, {
+        conversationRelativePath: input.record.relativePath,
+        expectedKind: 'tool_result'
+      })
       if (content === null) return tool
       changed = true
       return { ...tool, result: content }
@@ -192,6 +288,24 @@ export async function hydrateAgentConversationArtifacts(input: {
     return { ...turn, toolCalls }
   }))
   return changed ? { ...input.record, turns } : input.record
+}
+
+/**
+ * Reads a child transcript only after checking that its stored artifact belongs
+ * to the requested conversation's child-transcript directory and still matches
+ * the recorded digest. This is deliberately not a general artifact-path API.
+ */
+export async function readAgentConversationChildTranscriptArtifact(input: {
+  rootPath: string
+  conversationRelativePath: string
+  artifact: AgentArtifactRef
+}): Promise<string> {
+  const content = await readArtifactContent(input.rootPath, input.artifact, {
+    conversationRelativePath: input.conversationRelativePath,
+    expectedKind: 'child_transcript'
+  })
+  if (content === null) throw new Error('Child transcript artifact is unavailable or failed integrity validation.')
+  return content
 }
 
 export async function appendAgentConversationSessionAuditLog(input: {
@@ -312,10 +426,10 @@ function appendMetadataEntries(
       childRun
     })
   }
-  metadata.compactions?.forEach((compaction, index) => {
+  metadata.compactions?.forEach((compaction) => {
     entries.push({
       type: 'compaction',
-      id: auditEntryId('compaction', turn.id, compaction.sourceDigest, String(index)),
+      id: auditEntryId('compaction', turn.id, compaction.id || compaction.sourceDigest),
       parentId: turnEntryId,
       timestamp,
       turnId: turn.id,
@@ -393,8 +507,7 @@ async function writeToolResultArtifact(input: {
   if (!isPathInsideRoot(input.rootPath, absolutePath)) {
     throw new Error('Tool result artifact path is outside the workspace.')
   }
-  await mkdir(dirname(absolutePath), { recursive: true })
-  await writeFile(absolutePath, input.result, 'utf8')
+  await writeArtifactIfNeeded(input.rootPath, absolutePath, input.result, sha256)
   return {
     kind: 'tool_result',
     relativePath,
@@ -406,13 +519,65 @@ async function writeToolResultArtifact(input: {
   }
 }
 
-async function readArtifactContent(rootPath: string, artifact: AgentArtifactRef): Promise<string | null> {
-  if (artifact.kind !== 'tool_result') return null
-  const absolutePath = join(rootPath, artifact.relativePath)
+async function writeChildTranscriptArtifact(input: {
+  rootPath: string
+  conversationRelativePath: string
+  childRunId: string
+  transcript: string
+  now: string
+}): Promise<AgentArtifactRef> {
+  const sha256 = createHash('sha256').update(input.transcript).digest('hex')
+  const childKey = createHash('sha256').update(input.childRunId).digest('hex').slice(0, 16)
+  const directoryRelativePath = agentConversationChildTranscriptDirectoryRelativePathForMarkdown(input.conversationRelativePath)
+  const relativePath = join(directoryRelativePath, `${childKey}-${sha256.slice(0, 16)}.txt`).replace(/\\/g, '/')
+  const absolutePath = join(input.rootPath, relativePath)
+  if (!isPathInsideRoot(input.rootPath, absolutePath)) {
+    throw new Error('Child transcript artifact path is outside the workspace.')
+  }
+  await writeArtifactIfNeeded(input.rootPath, absolutePath, input.transcript, sha256)
+  return {
+    kind: 'child_transcript',
+    relativePath,
+    sha256,
+    bytes: byteLength(input.transcript),
+    lines: lineCount(input.transcript),
+    archivedAt: input.now
+  }
+}
+
+async function writeArtifactIfNeeded(
+  rootPath: string,
+  absolutePath: string,
+  content: string,
+  sha256: string
+): Promise<void> {
+  await writeContentAddressedFile({ rootPath, targetPath: absolutePath, content, sha256 })
+}
+
+async function readArtifactContent(
+  rootPath: string,
+  artifact: AgentArtifactRef,
+  options: { conversationRelativePath?: string; expectedKind?: AgentArtifactRef['kind'] } = {}
+): Promise<string | null> {
+  if (options.expectedKind && artifact.kind !== options.expectedKind) return null
+  if (artifact.kind !== 'tool_result' && artifact.kind !== 'child_transcript') return null
+  const normalizedRelativePath = artifact.relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+  if (!normalizedRelativePath || normalizedRelativePath !== artifact.relativePath.replace(/\\/g, '/') ||
+    normalizedRelativePath.split('/').some((part) => part === '.' || part === '..')) return null
+  if (options.conversationRelativePath) {
+    const artifactDirectory = agentConversationSessionArtifactDirectoryRelativePathForMarkdown(options.conversationRelativePath)
+    const directory = artifact.kind === 'child_transcript'
+      ? agentConversationChildTranscriptDirectoryRelativePathForMarkdown(options.conversationRelativePath)
+      : join(artifactDirectory, 'tool-results').replace(/\\/g, '/')
+    if (!normalizedRelativePath.startsWith(`${directory}/`)) return null
+  }
+  const absolutePath = join(rootPath, normalizedRelativePath)
   if (!isPathInsideRoot(rootPath, absolutePath)) return null
-  const content = await readFile(absolutePath, 'utf8').catch(() => null)
-  if (content === null) return null
-  const sha256 = createHash('sha256').update(content).digest('hex')
+  const bytes = await readContainedRegularFile(rootPath, absolutePath).catch(() => null)
+  if (bytes === null || bytes.byteLength !== artifact.bytes) return null
+  const content = bytes.toString('utf8')
+  if (artifact.lines !== undefined && lineCount(content) !== artifact.lines) return null
+  const sha256 = createHash('sha256').update(bytes).digest('hex')
   return sha256 === artifact.sha256 ? content : null
 }
 
@@ -436,6 +601,64 @@ function archivedToolResultPlaceholder(artifact: AgentArtifactRef): string {
 
 function isArchivedToolResultPlaceholder(value: string): boolean {
   return value.startsWith('[tool result archived]\n')
+}
+
+async function readStagedChildTranscript(
+  rootPath: string,
+  childRunId: string,
+  artifact: AgentArtifactRef,
+  allowances: readonly AgentStagedChildTranscriptAllowance[] | undefined
+): Promise<string | null> {
+  const prefix = '.agent-sessions/child-transcripts/'
+  const normalizedRelativePath = artifact.relativePath.replace(/\\/g, '/')
+  if (!normalizedRelativePath.startsWith(prefix)) return null
+  const allowed = allowances?.some((allowance) =>
+    allowance.childRunId === childRunId && artifactRefsEqual(allowance.archive, artifact)
+  )
+  if (!allowed) throw new Error('Staged child transcript artifact is not authorized for this conversation save.')
+  const parts = normalizedRelativePath.split('/')
+  if (parts.length !== 4 || parts[0] !== '.agent-sessions' || parts[1] !== 'child-transcripts') {
+    throw new Error('Invalid staged child transcript artifact path.')
+  }
+  let expectedRelativePath: string
+  try {
+    expectedRelativePath = agentRunChildTranscriptRelativePath(parts[2], childRunId, artifact.sha256)
+  } catch {
+    throw new Error('Invalid staged child transcript artifact path.')
+  }
+  if (artifact.kind !== 'child_transcript' || normalizedRelativePath !== expectedRelativePath ||
+    artifact.relativePath !== normalizedRelativePath) {
+    throw new Error('Invalid staged child transcript artifact path.')
+  }
+  const content = await readArtifactContent(rootPath, artifact)
+  if (content === null) throw new Error('Staged child transcript artifact failed integrity validation.')
+  return content
+}
+
+function artifactRefsEqual(left: AgentArtifactRef, right: AgentArtifactRef): boolean {
+  return left.kind === right.kind &&
+    left.relativePath === right.relativePath &&
+    left.sha256 === right.sha256 &&
+    left.bytes === right.bytes &&
+    left.lines === right.lines
+}
+
+function childTranscriptText(child: AgentChildRunWithArchive): string | null {
+  if (typeof child.transcript === 'string') return child.transcript
+  if (typeof child.transcriptText === 'string') return child.transcriptText
+  return null
+}
+
+function childTranscriptArchive(child: AgentChildRunWithArchive): AgentArtifactRef | null {
+  return child.archive?.kind === 'child_transcript' ? child.archive : null
+}
+
+function withChildTranscriptArchive(
+  child: AgentChildRunWithArchive,
+  archive: AgentArtifactRef
+): AgentChildRunWithArchive {
+  const { transcript: _transcript, transcriptText: _transcriptText, ...persisted } = child
+  return { ...persisted, archive }
 }
 
 function withToolResultArchiveMetadata(

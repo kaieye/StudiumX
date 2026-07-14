@@ -113,6 +113,7 @@ export class AgentConversationTurnRunner<TError> {
       selectedLessonPath,
       assistantId,
       priorMessages,
+      priorMessageTurnIds,
       initialTurns,
       pendingConversation
     } = draft
@@ -135,6 +136,7 @@ export class AgentConversationTurnRunner<TError> {
           workspaceId: workspace.id,
           mode,
           messages: priorMessages,
+          ...(priorMessageTurnIds.length ? { messageTurnIds: priorMessageTurnIds } : {}),
           userInput: input,
           ...(options.skillIds?.length ? { skillIds: options.skillIds } : {})
         },
@@ -288,6 +290,7 @@ export class AgentConversationTurnRunner<TError> {
     try {
       const saved = await api.saveAgentConversation({
         workspaceId,
+        runId: pendingConversationId,
         mode,
         conversationId: pending.sourceConversationId ?? null,
         selectedLessonPath,

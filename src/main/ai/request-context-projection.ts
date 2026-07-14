@@ -82,7 +82,11 @@ export class RequestContextProjector {
     })
   }
 
-  async project(transcript: ChatMessage[], tools: ToolDefinition[]): Promise<RequestContextProjection> {
+  async project(
+    transcript: ChatMessage[],
+    tools: ToolDefinition[],
+    messageTurnIds?: readonly (string | undefined)[]
+  ): Promise<RequestContextProjection> {
     const hygiene = applyRequestHistoryHygiene(transcript, this.hygiene, this.estimator)
     const estimate = this.estimator.estimateRequest(hygiene.messages, { tools })
     const trace: RequestContextProjectionTrace[] = []
@@ -94,7 +98,8 @@ export class RequestContextProjector {
     const compaction = await this.compactor.compactIfNeeded({
       messages: hygiene.messages,
       tools,
-      estimate
+      estimate,
+      messageTurnIds: messageTurnIds?.length === transcript.length ? messageTurnIds : undefined
     })
     for (const event of compaction.events) recordTrace(event)
     recordTrace({ type: 'context_estimated', estimate: compaction.estimateAfter })

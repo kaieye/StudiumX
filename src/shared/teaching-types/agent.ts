@@ -66,11 +66,17 @@ export type AgentChildRunMetadata = {
     completionTokens?: number
     totalTokens?: number
   }
+  archive?: AgentArtifactRef
   startedAt?: string
   completedAt?: string
 }
 
 export type AgentCompactionMetadata = {
+  /** Stable per-source identifier; prevents replay/retry duplicates. */
+  id: string
+  createdAt: string
+  /** Original persisted conversation turns represented by this summary. */
+  replacedTurnIds: string[]
   sourceDigest: string
   reason: string
   mode: string
@@ -184,6 +190,8 @@ export type AgentChatStreamPayload = {
   context?: string
   contextCompaction?: AgentChatContextCompactionRequest
   skillIds?: string[]
+  /** Stable source turn IDs aligned one-to-one with `messages`; entries without persisted turns use `undefined`. */
+  messageTurnIds?: Array<string | undefined>
   messages: AgentChatMessage[]
   userInput: string
 }
@@ -382,6 +390,8 @@ export type AgentConversationRecord = AgentConversationSummary & {
 
 export type SaveAgentConversationPayload = {
   workspaceId: string
+  /** Main-process stream/run capability used only to promote staged child transcript artifacts. */
+  runId?: string
   mode?: AgentChatMode
   conversationId?: string | null
   selectedLessonPath?: string | null

@@ -1,8 +1,9 @@
-import type { AgentRunBudget, InterruptedAgentRun } from '../../shared/teaching-types'
+import type { AgentArtifactRef, AgentRunBudget, InterruptedAgentRun } from '../../shared/teaching-types'
 import { AgentOperationJournal } from './agent-operation-journal'
+import { ChildRunStore, type ChildRunRecord } from './child-run-supervisor'
 import { AgentRunLifecycle } from './agent-run-lifecycle'
 import { AgentRunPersistence } from './agent-run-persistence'
-import type { AgentOperationRecord, AgentRunCheckpoint } from './agent-run-types'
+import type { AgentOperationRecord, AgentRunCheckpoint, AgentRunChildRecord } from './agent-run-types'
 
 export {
   DEFAULT_AGENT_RUN_BUDGET,
@@ -14,7 +15,9 @@ export type {
   AgentOperationRecord,
   AgentOperationState,
   AgentRunCheckpoint,
-  AgentRunCheckpointStatus
+  AgentRunCheckpointStatus,
+  AgentRunChildRecord,
+  AgentRunChildStatus
 } from './agent-run-types'
 
 /**
@@ -58,6 +61,45 @@ export class AgentRunStore {
     return this.lifecycle.listInterrupted()
   }
 
+  /**
+   * Creates a child-run store backed by this run's durable journal. The persisted record excludes
+   * the child prompt and deltas; it is only the lifecycle evidence needed for safe restart.
+   */
+  createChildRunStore(runId: string): ChildRunStore {
+    return new ChildRunStore({
+      save: (record) => this.persistChildRun(runId, record).then(() => undefined)
+    })
+  }
+
+  listChildRuns(runId: string): Promise<AgentRunChildRecord[]> {
+    return this.lifecycle.listChildRuns(runId)
+  }
+
+  reconcileOrphanedChildRuns(): Promise<AgentRunChildRecord[]> {
+    return this.lifecycle.reconcileOrphanedChildRuns()
+  }
+
+  stageChildTranscript(runId: string, childRunId: string, transcript: string): Promise<AgentArtifactRef> {
+    return this.persistence.stageChildTranscript(runId, childRunId, transcript)
+  }
+
+  private persistChildRun(runId: string, record: ChildRunRecord): Promise<AgentRunChildRecord> {
+    return this.lifecycle.persistChildRun({
+      runId,
+      childRunId: record.id,
+      ...(record.parentStreamId ? { parentStreamId: record.parentStreamId } : {}),
+      label: record.label,
+      profile: durableChildProfile(record.profile),
+      status: record.status,
+      ...(record.status === 'queued' ? {} : { startedAt: record.startedAt }),
+      ...(record.completedAt ? { completedAt: record.completedAt } : {}),
+      ...(record.summary ? { summary: record.summary } : {}),
+      ...(record.error ? { error: record.error } : {}),
+      ...(record.usage ? { usage: record.usage } : {}),
+      createdAt: record.startedAt
+    })
+  }
+
   /** @deprecated New tool callers should depend on the narrower `operations` seam. */
   startOperation(input: Parameters<AgentOperationJournal['startOperation']>[0]) {
     return this.operations.startOperation(input)
@@ -76,4 +118,9 @@ export class AgentRunStore {
   async flush(): Promise<void> {
     await this.persistence.flush()
   }
+}
+
+function durableChildProfile(profile: string): AgentRunChildRecord['profile'] {
+  if (profile === 'read_only' || profile === 'research' || profile === 'workspace_audit') return profile
+  throw new Error(`Invalid child run profile: ${profile}`)
 }

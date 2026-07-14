@@ -1,3 +1,4 @@
+import type { AgentArtifactRef } from '../../shared/teaching-types'
 import type { ToolRuntimeChildRunRecord, ToolRuntimeEvent } from './tools/registry'
 
 export type ChildAgentProfile = 'read_only' | 'research' | 'workspace_audit'
@@ -24,6 +25,7 @@ export type ChildRunResult = {
   citations?: Array<{ sourceId: string; url: string; title?: string }>
   filesRead?: string[]
   usage?: ChildRunUsage
+  archive?: AgentArtifactRef
 }
 
 export type ChildRunRecord = ToolRuntimeChildRunRecord & {
@@ -39,15 +41,23 @@ export type ChildRunExecutionResult = Omit<ChildRunResult, 'childRunId' | 'label
 
 export type ChildRunExecutor = (
   input: SupervisedChildRun,
-  lifecycle: { signal: AbortSignal; onDelta: (message: string) => void }
+  lifecycle: { childRunId: string; signal: AbortSignal; onDelta: (message: string) => void }
 ) => Promise<ChildRunExecutionResult>
 
 export type ChildRunSupervisorRunOptions = {
   emit?: (event: ToolRuntimeEvent) => void
 }
 
+export type ChildRunPersistence = {
+  save(record: ChildRunRecord): Promise<void>
+}
+
 export class ChildRunStore {
   private readonly records = new Map<string, ChildRunRecord>()
+  private persistenceTail = Promise.resolve()
+  private latestPersistence = Promise.resolve()
+
+  constructor(private readonly persistence?: ChildRunPersistence) {}
 
   create(input: {
     id: string
@@ -68,6 +78,7 @@ export class ChildRunStore {
       startedAt: now
     }
     this.records.set(record.id, record)
+    this.persist(record)
     return record
   }
 
@@ -82,6 +93,7 @@ export class ChildRunStore {
     }
     const next: ChildRunRecord = { ...current, ...patch, status }
     this.records.set(id, next)
+    this.persist(next)
     return next
   }
 
@@ -101,11 +113,25 @@ export class ChildRunStore {
     return parentStreamId ? records.filter((record) => record.parentStreamId === parentStreamId) : records
   }
 
+  /** Wait until every currently queued durable write has settled. */
+  flush(): Promise<void> {
+    return this.latestPersistence
+  }
+
   private patch(id: string, patch: Partial<ChildRunRecord>): ChildRunRecord {
     const current = this.require(id)
     const next: ChildRunRecord = { ...current, ...patch }
     this.records.set(id, next)
+    this.persist(next)
     return next
+  }
+
+  private persist(record: ChildRunRecord): void {
+    if (!this.persistence) return
+    const snapshot = { ...record }
+    const write = this.persistenceTail.then(() => this.persistence?.save(snapshot))
+    this.latestPersistence = write
+    this.persistenceTail = write.then(() => undefined, () => undefined)
   }
 
   private require(id: string): ChildRunRecord {
@@ -123,6 +149,8 @@ type SupervisedJob = {
   timer?: ReturnType<typeof setTimeout>
   detachParentAbort?: () => void
   terminalResult?: ChildRunResult
+  cancelPersistence?: Promise<boolean>
+  canceledEventEmitted?: boolean
 }
 
 export class ChildRunSupervisor {
@@ -140,8 +168,7 @@ export class ChildRunSupervisor {
   }
 
   async run(input: SupervisedChildRun, options: ChildRunSupervisorRunOptions = {}): Promise<ChildRunResult> {
-    const job = this.queue(input, options)
-    return this.runQueued(job)
+    return this.runQueued(await this.queue(input, options))
   }
 
   async runMany(
@@ -149,16 +176,15 @@ export class ChildRunSupervisor {
     concurrency: number,
     options: ChildRunSupervisorRunOptions = {}
   ): Promise<ChildRunResult[]> {
-    const jobs = inputs.map((input) => this.queue(input, options))
+    const jobs = await Promise.all(inputs.map((input) => this.queue(input, options)))
     return mapWithConcurrencyLimit(jobs, concurrency, (job) => this.runQueued(job))
   }
 
-  abort(childRunId: string): boolean {
+  async abort(childRunId: string): Promise<boolean> {
     const job = this.jobs.get(childRunId)
     const record = this.store.get(childRunId)
     if (!record || isTerminal(record.status)) return false
-    this.cancel(job, '子任务已取消或超时。')
-    return true
+    return await this.cancel(job, '子任务已取消或超时。')
   }
 
   list(parentStreamId?: string): ChildRunRecord[] {
@@ -169,7 +195,7 @@ export class ChildRunSupervisor {
     return { runs: this.store.list() }
   }
 
-  private queue(input: SupervisedChildRun, options: ChildRunSupervisorRunOptions): SupervisedJob {
+  private async queue(input: SupervisedChildRun, options: ChildRunSupervisorRunOptions): Promise<SupervisedJob> {
     const id = this.createChildRunId()
     const emit = options.emit ?? (() => undefined)
     const record = this.store.create({
@@ -181,10 +207,18 @@ export class ChildRunSupervisor {
     })
     const job: SupervisedJob = { id, input, emit }
     this.jobs.set(id, job)
+    try {
+      await this.store.flush()
+    } catch (error) {
+      this.jobs.delete(id)
+      throw error
+    }
     emit({ type: 'child_run_queued', child: toRuntimeRecord(record) })
-    const cancelFromParent = (): void => this.cancel(job, '子任务已取消或超时。')
+    const cancelFromParent = (): void => {
+      void this.cancel(job, '子任务已取消或超时。').catch(() => undefined)
+    }
     if (this.options.signal?.aborted) {
-      cancelFromParent()
+      await this.cancel(job, '子任务已取消或超时。')
     } else if (this.options.signal) {
       this.options.signal.addEventListener('abort', cancelFromParent, { once: true })
       job.detachParentAbort = () => this.options.signal?.removeEventListener('abort', cancelFromParent)
@@ -196,6 +230,8 @@ export class ChildRunSupervisor {
     const beforeStart = this.store.get(job.id)
     if (!beforeStart) throw new Error(`Unknown child run: ${job.id}`)
     if (isTerminal(beforeStart.status)) {
+      await job.cancelPersistence
+      await this.store.flush()
       const result = this.requireTerminalResult(job, beforeStart)
       this.dispose(job)
       return result
@@ -204,22 +240,34 @@ export class ChildRunSupervisor {
     const controller = new AbortController()
     job.controller = controller
     const running = this.store.transition(job.id, 'running', { startedAt: new Date().toISOString() })
+    await this.store.flush()
     job.emit({ type: 'child_run_started', child: toRuntimeRecord(running) })
-    job.timer = setTimeout(() => this.cancel(job, '子任务已取消或超时。'), job.input.timeoutMs)
+    job.timer = setTimeout(() => {
+      void this.cancel(job, '子任务已取消或超时。').catch(() => undefined)
+    }, job.input.timeoutMs)
 
     try {
       const output = await this.options.execute(job.input, {
+        childRunId: job.id,
         signal: this.composeSignal(controller.signal),
         onDelta: (message) => {
           const current = this.store.get(job.id)
           if (current?.status === 'running') job.emit({ type: 'child_run_delta', childRunId: job.id, message })
         }
       })
-      return this.settle(job, output)
+      return await this.settle(job, output)
     } catch (error) {
-      if (this.store.get(job.id)?.status === 'canceled') return this.requireTerminalResult(job, this.store.get(job.id)!)
+      const canceled = this.store.get(job.id)
+      if (canceled?.status === 'canceled') {
+        return await this.settle(job, {
+          status: 'canceled',
+          summary: canceled.summary ?? '子任务已取消或超时。',
+          usage: canceled.usage,
+          archive: canceled.archive
+        })
+      }
       const message = error instanceof Error ? error.message : String(error)
-      return this.settle(job, {
+      return await this.settle(job, {
         status: 'failed',
         summary: `子任务失败：${message}`,
         error: message,
@@ -230,13 +278,14 @@ export class ChildRunSupervisor {
     }
   }
 
-  private settle(job: SupervisedJob, output: ChildRunExecutionResult): ChildRunResult {
+  private async settle(job: SupervisedJob, output: ChildRunExecutionResult): Promise<ChildRunResult> {
     const current = this.store.get(job.id)
     if (!current) throw new Error(`Unknown child run: ${job.id}`)
     if (current.status === 'canceled') {
       const canceled = this.store.update(job.id, {
         summary: output.status === 'canceled' ? output.summary : current.summary,
         usage: output.usage ?? current.usage,
+        archive: output.archive ?? current.archive,
         completedAt: current.completedAt ?? new Date().toISOString()
       })
       const result = this.resultFrom(job, canceled, {
@@ -246,6 +295,11 @@ export class ChildRunSupervisor {
         error: undefined
       })
       job.terminalResult = result
+      await this.store.flush()
+      if (!job.canceledEventEmitted) {
+        job.canceledEventEmitted = true
+        job.emit({ type: 'child_run_canceled', child: toRuntimeRecord(canceled) })
+      }
       return result
     }
     if (current.status !== 'running') return this.requireTerminalResult(job, current)
@@ -254,20 +308,23 @@ export class ChildRunSupervisor {
       summary: output.summary,
       error: output.error,
       usage: output.usage,
+      archive: output.archive,
       completedAt: new Date().toISOString()
     })
     const result = this.resultFrom(job, terminal, output)
     job.terminalResult = result
+    await this.store.flush()
     if (output.status === 'completed') job.emit({ type: 'child_run_completed', child: toRuntimeRecord(terminal) })
     else if (output.status === 'failed') job.emit({ type: 'child_run_failed', child: toRuntimeRecord(terminal) })
     else job.emit({ type: 'child_run_canceled', child: toRuntimeRecord(terminal) })
     return result
   }
 
-  private cancel(job: SupervisedJob | undefined, summary: string): void {
-    if (!job) return
+  private cancel(job: SupervisedJob | undefined, summary: string): Promise<boolean> {
+    if (!job) return Promise.resolve(false)
+    if (job.cancelPersistence) return job.cancelPersistence
     const current = this.store.get(job.id)
-    if (!current || isTerminal(current.status)) return
+    if (!current || isTerminal(current.status)) return Promise.resolve(false)
     job.controller?.abort()
     const canceled = this.store.transition(job.id, 'canceled', {
       summary,
@@ -279,7 +336,15 @@ export class ChildRunSupervisor {
       usage: canceled.usage
     })
     job.terminalResult = result
-    job.emit({ type: 'child_run_canceled', child: toRuntimeRecord(canceled) })
+    const emitImmediately = current.status === 'queued'
+    job.cancelPersistence = this.store.flush().then(() => {
+      if (emitImmediately && !job.canceledEventEmitted) {
+        job.canceledEventEmitted = true
+        job.emit({ type: 'child_run_canceled', child: toRuntimeRecord(canceled) })
+      }
+      return true
+    })
+    return job.cancelPersistence
   }
 
   private composeSignal(controllerSignal: AbortSignal): AbortSignal {
@@ -313,7 +378,8 @@ export class ChildRunSupervisor {
       error: output.error,
       filesRead: output.filesRead,
       citations: output.citations,
-      usage: output.usage
+      usage: output.usage,
+      archive: output.archive
     }
   }
 
@@ -344,6 +410,7 @@ function toRuntimeRecord(record: ChildRunRecord): ToolRuntimeChildRunRecord {
     error: record.error,
     startedAt: record.startedAt,
     completedAt: record.completedAt,
+    archive: record.archive,
     usage: record.usage
   }
 }

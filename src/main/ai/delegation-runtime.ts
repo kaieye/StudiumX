@@ -1,6 +1,6 @@
 import { runAgentLoop, type AgentLoopEvent } from './agent-loop'
 import type { ChatMessage } from './provider-adapter'
-import type { TeachingModelProviderProfile, TeachingSettingsV1 } from '../../shared/teaching-types'
+import type { AgentArtifactRef, TeachingModelProviderProfile, TeachingSettingsV1 } from '../../shared/teaching-types'
 import {
   ChildRunStore,
   ChildRunSupervisor,
@@ -51,6 +51,7 @@ export type DelegationRuntimeOptions = {
   workspaceRoot?: string
   parentStreamId?: string
   signal?: AbortSignal
+  stageTranscript?: (childRunId: string, transcript: string) => Promise<AgentArtifactRef>
 }
 
 export type DelegationRuntimeRunOptions = {
@@ -115,9 +116,8 @@ export class DelegationRuntime {
     return buildParallelChildRunResult(results, concurrency)
   }
 
-  abortChild(childRunId: string): Promise<void> {
-    this.supervisor.abort(childRunId)
-    return Promise.resolve()
+  async abortChild(childRunId: string): Promise<void> {
+    await this.supervisor.abort(childRunId)
   }
 
   listRuns(parentStreamId?: string): ChildRunRecord[] {
@@ -130,7 +130,7 @@ export class DelegationRuntime {
 
   private async executeChild(
     input: SupervisedChildRun,
-    lifecycle: { signal: AbortSignal; onDelta: (message: string) => void }
+    lifecycle: { childRunId: string; signal: AbortSignal; onDelta: (message: string) => void }
   ): Promise<ChildRunExecutionResult> {
     const registry = childRegistryForProfile({
       settings: this.options.settings,
@@ -138,11 +138,15 @@ export class DelegationRuntime {
       profile: input.profile
     })
     const childEvents: AgentLoopEvent[] = []
+    const initialMessages = buildChildMessages(input)
+    let transcriptMessages = initialMessages
+    let stopReason: string | undefined
+    let output: ChildRunExecutionResult
     try {
       const result = await runAgentLoop({
         settings: this.options.settings,
         provider: this.options.provider,
-        messages: buildChildMessages(input),
+        messages: initialMessages,
         tools: registry.definitions(),
         toolHandlers: registry.handlerMap(buildToolContext(this.options.settings, {
           workspaceRoot: this.options.workspaceRoot,
@@ -158,6 +162,8 @@ export class DelegationRuntime {
           }
         }
       })
+      transcriptMessages = result.messages
+      stopReason = result.stopReason
       const usage: ChildRunUsage = {
         providerCalls: result.usage.providerCalls,
         toolCalls: result.usage.toolCalls,
@@ -168,11 +174,10 @@ export class DelegationRuntime {
       const filesRead = extractFilesRead(result.messages)
       const citations = extractCitations(result.messages)
       if (result.stopReason === 'canceled') {
-        return { status: 'canceled', summary: '子任务已取消或超时。', filesRead, citations, usage }
-      }
-      if (result.error) {
+        output = { status: 'canceled', summary: '子任务已取消或超时。', filesRead, citations, usage }
+      } else if (result.error) {
         const childError = latestChildToolError(childEvents) ?? result.error
-        return {
+        output = {
           status: 'failed',
           summary: `子任务失败：${childError}`,
           error: childError,
@@ -180,26 +185,37 @@ export class DelegationRuntime {
           citations,
           usage
         }
-      }
-      return {
-        status: 'completed',
-        summary: result.finalText.trim() || '子任务完成，但没有返回摘要。',
-        filesRead,
-        citations,
-        usage
+      } else {
+        output = {
+          status: 'completed',
+          summary: result.finalText.trim() || '子任务完成，但没有返回摘要。',
+          filesRead,
+          citations,
+          usage
+        }
       }
     } catch (error) {
-      if (lifecycle.signal.aborted) {
-        return { status: 'canceled', summary: '子任务已取消或超时。', usage: { toolCalls: 0 } }
-      }
       const message = error instanceof Error ? error.message : String(error)
-      return {
-        status: 'failed',
-        summary: `子任务失败：${message}`,
-        error: message,
-        usage: { toolCalls: 0 }
-      }
+      output = lifecycle.signal.aborted
+        ? { status: 'canceled', summary: '子任务已取消或超时。', usage: { toolCalls: 0 } }
+        : {
+            status: 'failed',
+            summary: `子任务失败：${message}`,
+            error: message,
+            usage: { toolCalls: 0 }
+          }
     }
+
+    const archive = this.options.stageTranscript
+      ? await this.options.stageTranscript(lifecycle.childRunId, buildChildTranscript({
+          childRunId: lifecycle.childRunId,
+          input,
+          output,
+          stopReason,
+          messages: transcriptMessages
+        }))
+      : undefined
+    return archive ? { ...output, archive } : output
   }
 }
 export function childRegistryForProfile(options: {
@@ -270,6 +286,26 @@ function buildChildMessages(input: Required<ChildRunInput> & { profile: ChildAge
       ].join('\n')
     }
   ]
+}
+
+function buildChildTranscript(input: {
+  childRunId: string
+  input: SupervisedChildRun
+  output: ChildRunExecutionResult
+  stopReason?: string
+  messages: ChatMessage[]
+}): string {
+  return `${JSON.stringify({
+    version: 1,
+    childRunId: input.childRunId,
+    label: input.input.label,
+    profile: input.input.profile,
+    status: input.output.status,
+    stopReason: input.stopReason,
+    error: input.output.error,
+    usage: input.output.usage,
+    messages: input.messages
+  }, null, 2)}\n`
 }
 
 function buildParallelChildRunResult(results: ChildRunResult[], concurrency: number): ParallelChildRunResult {

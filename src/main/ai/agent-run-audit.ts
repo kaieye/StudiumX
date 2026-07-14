@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import type {
   AgentChatToolCallView,
   AgentChatTurn,
+  AgentArtifactRef,
   AgentChildRunMetadata,
   AgentCompactionMetadata,
   AgentContextEstimateMetadata,
@@ -63,6 +64,9 @@ export function buildAgentTurnAuditMetadata(
     }
     if (event.type === 'context_compaction_completed') {
       compactions.push({
+        id: event.compactionId || `compaction:${event.sourceDigest}`,
+        createdAt: event.createdAt || '1970-01-01T00:00:00.000Z',
+        replacedTurnIds: event.replacedTurnIds ?? [],
         sourceDigest: event.sourceDigest,
         reason: event.reason,
         mode: event.mode,
@@ -78,6 +82,9 @@ export function buildAgentTurnAuditMetadata(
     }
     if (event.type === 'context_compaction_failed') {
       compactions.push({
+        id: event.compactionId || `compaction:${event.sourceDigest}:failed`,
+        createdAt: event.createdAt || '1970-01-01T00:00:00.000Z',
+        replacedTurnIds: event.replacedTurnIds ?? [],
         sourceDigest: event.sourceDigest,
         reason: event.reason,
         mode: event.mode,
@@ -137,7 +144,7 @@ export function buildAgentTurnAuditMetadata(
   const metadata: AgentTurnMetadata = { version: 1 }
   const sourceList = [...sources.values()].slice(0, MAX_SOURCES)
   const childRunList = [...childRuns.values()].slice(0, MAX_CHILD_RUNS)
-  const compactionList = compactions.slice(-MAX_COMPACTIONS)
+  const compactionList = uniqueBy(compactions, (item) => item.id).slice(-MAX_COMPACTIONS)
   const hygieneList = contextHygiene.slice(-MAX_CONTEXT_HYGIENE)
   const diagnosticList = toolResults.slice(-MAX_TOOL_DIAGNOSTICS)
   if (sourceList.length) metadata.sources = sourceList
@@ -268,6 +275,7 @@ function childRunMetadataFromRuntimeEvent(child: {
   startedAt?: string
   completedAt?: string
   usage?: AgentChildRunMetadata['usage']
+  archive?: AgentChildRunMetadata['archive']
 }): AgentChildRunMetadata {
   return pruneUndefined({
     childRunId: child.id,
@@ -278,7 +286,8 @@ function childRunMetadataFromRuntimeEvent(child: {
     error: textValue(child.error, MAX_ERROR_LENGTH),
     startedAt: textValue(child.startedAt, MAX_TITLE_LENGTH),
     completedAt: textValue(child.completedAt, MAX_TITLE_LENGTH),
-    usage: normalizeUsage(child.usage)
+    usage: normalizeUsage(child.usage),
+    archive: normalizeChildTranscriptArchive(child.archive)
   })
 }
 
@@ -297,6 +306,7 @@ function childRunMetadataFromToolResult(value: unknown): AgentChildRunMetadata |
     filesRead: normalizeStringArray(record.filesRead, MAX_FILES_READ, MAX_TITLE_LENGTH),
     citations: normalizeCitations(record.citations),
     usage: normalizeUsage(record.usage),
+    archive: normalizeChildTranscriptArchive(record.archive),
     startedAt: textValue(record.startedAt, MAX_TITLE_LENGTH),
     completedAt: textValue(record.completedAt, MAX_TITLE_LENGTH)
   })
@@ -321,6 +331,7 @@ function upsertChildRun(
     filesRead: child.filesRead ?? existing.filesRead,
     citations: child.citations ?? existing.citations,
     usage: child.usage ?? existing.usage,
+    archive: child.archive ?? existing.archive,
     startedAt: existing.startedAt ?? child.startedAt,
     completedAt: child.completedAt ?? existing.completedAt
   }))
@@ -429,6 +440,36 @@ function normalizeUsage(value: unknown): AgentChildRunMetadata['usage'] | undefi
     : undefined
 }
 
+function normalizeChildTranscriptArchive(value: unknown): AgentArtifactRef | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (record.kind !== 'child_transcript') return undefined
+  const relativePath = typeof record.relativePath === 'string' ? record.relativePath : ''
+  if (!relativePath || relativePath.length > 2000 || relativePath.includes('\\') ||
+    relativePath.startsWith('/') || relativePath.split('/').some((part) => !part || part === '.' || part === '..')) {
+    return undefined
+  }
+  const sha256 = typeof record.sha256 === 'string' && /^[a-f0-9]{64}$/.test(record.sha256)
+    ? record.sha256
+    : undefined
+  const bytes = strictNonNegativeInteger(record.bytes)
+  const lines = record.lines === undefined ? undefined : strictNonNegativeInteger(record.lines)
+  if (!sha256 || bytes === undefined || (record.lines !== undefined && lines === undefined)) return undefined
+  return pruneUndefined({
+    kind: 'child_transcript' as const,
+    relativePath,
+    sha256,
+    bytes,
+    lines,
+    preview: textValue(record.preview, 1200),
+    archivedAt: textValue(record.archivedAt, MAX_TITLE_LENGTH)
+  })
+}
+
+function strictNonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
 function normalizeCitations(value: unknown): AgentChildRunMetadata['citations'] | undefined {
   if (!Array.isArray(value)) return undefined
   const citations = value
@@ -481,6 +522,16 @@ function textValue(value: unknown, maxLength: number): string | undefined {
 function numberValue(value: unknown): number | undefined {
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : undefined
+}
+
+function uniqueBy<T>(values: T[], key: (value: T) => string): T[] {
+  const seen = new Set<string>()
+  return values.filter((value) => {
+    const valueKey = key(value)
+    if (seen.has(valueKey)) return false
+    seen.add(valueKey)
+    return true
+  })
 }
 
 function compactText(value: string, maxLength: number): string {

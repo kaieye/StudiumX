@@ -56,6 +56,9 @@ export type ContextCompactionEvent =
       tailMessages: number
       sourceDigest: string
       cached: boolean
+      compactionId: string
+      createdAt: string
+      replacedTurnIds: string[]
     }
   | {
       type: 'context_compaction_failed'
@@ -64,6 +67,9 @@ export type ContextCompactionEvent =
       error: string
       cooldownUntil: string
       sourceDigest: string
+      compactionId: string
+      createdAt: string
+      replacedTurnIds: string[]
     }
 
 export type ContextCompactionResult = {
@@ -91,6 +97,7 @@ type CompactionPlan = {
   compactedMessages: ChatMessage[]
   tailMessages: ChatMessage[]
   sourceDigest: string
+  replacedTurnIds: string[]
   summaryInput: ChatMessage[]
   summaryInputTokens: number
 }
@@ -128,6 +135,8 @@ export class ContextCompactor {
     messages: ChatMessage[]
     tools?: ToolDefinition[]
     estimate?: TokenEstimate
+    /** IDs aligned with messages, used only for persisted conversation lineage. */
+    messageTurnIds?: readonly (string | undefined)[]
   }): Promise<ContextCompactionResult> {
     const estimateBefore = input.estimate ?? this.estimator.estimateRequest(input.messages, { tools: input.tools })
     const unchanged = (): ContextCompactionResult => ({
@@ -141,7 +150,7 @@ export class ContextCompactor {
     if (!this.options.enabled) return unchanged()
     if (!this.options.force && this.options.now() < this.failureCooldownUntil) return unchanged()
 
-    const plan = this.plan(input.messages, input.tools, estimateBefore)
+    const plan = this.plan(input.messages, input.tools, estimateBefore, input.messageTurnIds)
     if (!plan) return unchanged()
 
     const events: ContextCompactionEvent[] = [
@@ -195,7 +204,10 @@ export class ContextCompactor {
         replacedMessages: plan.compactedMessages.length,
         tailMessages: plan.tailMessages.length,
         sourceDigest: plan.sourceDigest,
-        cached: Boolean(cached)
+        cached: Boolean(cached),
+        compactionId: `compaction:${plan.sourceDigest}`,
+        createdAt: new Date(this.options.now()).toISOString(),
+        replacedTurnIds: plan.replacedTurnIds
       })
       return {
         messages,
@@ -206,7 +218,8 @@ export class ContextCompactor {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      const cooldownUntilMs = this.options.now() + this.options.failureCooldownMs
+      const failedAtMs = this.options.now()
+      const cooldownUntilMs = failedAtMs + this.options.failureCooldownMs
       this.failureCooldownUntil = cooldownUntilMs
       events.push({
         type: 'context_compaction_failed',
@@ -214,7 +227,10 @@ export class ContextCompactor {
         mode: plan.mode,
         error: message,
         cooldownUntil: new Date(cooldownUntilMs).toISOString(),
-        sourceDigest: plan.sourceDigest
+        sourceDigest: plan.sourceDigest,
+        compactionId: `compaction:${plan.sourceDigest}:failed`,
+        createdAt: new Date(failedAtMs).toISOString(),
+        replacedTurnIds: []
       })
       return {
         messages: input.messages,
@@ -229,7 +245,8 @@ export class ContextCompactor {
   private plan(
     messages: ChatMessage[],
     tools: ToolDefinition[] | undefined,
-    estimate: TokenEstimate
+    estimate: TokenEstimate,
+    messageTurnIds: readonly (string | undefined)[] | undefined
   ): CompactionPlan | null {
     const contextWindowTokens = this.options.contextWindowTokens
     const softThreshold = this.options.softThresholdTokens ?? Math.floor(contextWindowTokens * this.options.softThresholdRatio)
@@ -255,6 +272,7 @@ export class ContextCompactor {
     if (boundary <= systemCount) return null
 
     const compactedMessages = messages.slice(systemCount, boundary)
+    const replacedTurnIds = uniqueTurnIds(messageTurnIds?.slice(systemCount, boundary))
     if (compactedMessages.length < this.options.minMessagesToCompact) return null
 
     const tailMessages = messages.slice(boundary)
@@ -277,6 +295,7 @@ export class ContextCompactor {
       compactedMessages,
       tailMessages,
       sourceDigest,
+      replacedTurnIds,
       summaryInput,
       summaryInputTokens: rendered.tokens
     }
@@ -375,6 +394,19 @@ function normalizeOptions(
     failureCooldownMs: clampInteger(options.failureCooldownMs, 1_000, 60 * 60 * 1000, DEFAULT_FAILURE_COOLDOWN_MS),
     now: options.now ?? (() => Date.now())
   }
+}
+
+function uniqueTurnIds(values: readonly (string | undefined)[] | undefined): string[] {
+  if (!values) return []
+  const seen = new Set<string>()
+  const ids: string[] = []
+  for (const value of values) {
+    const id = typeof value === 'string' ? value.trim() : ''
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  return ids
 }
 
 function triggerForEstimate(input: {

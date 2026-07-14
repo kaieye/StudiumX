@@ -33,6 +33,7 @@ import {
   type TemporaryChatContext
 } from './teaching-conversation-runtime'
 import { AgentRunStore } from './ai/agent-run-store'
+import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
 import type { SkillLibraryService } from './skill-library'
 import type { LessonPlanSource } from '../shared/lesson-schema'
 import {
@@ -100,6 +101,7 @@ import type {
   AgentConversationRecord,
   AgentConversationSummary,
   AgentChatMessage,
+  AgentChatTurn,
   AgentChatStreamPayload,
   AgentChatStreamResult,
   ReadAgentConversationPayload,
@@ -134,6 +136,14 @@ type AgentConversationLocation = {
   global: boolean
 }
 
+type PendingAgentRunArchiveScope = {
+  workspaceId: string
+  mode: 'teaching' | 'temporary'
+  conversationId: string | null
+  allowances: AgentStagedChildTranscriptAllowance[]
+  createdAt: number
+}
+
 const DEFAULT_RUNTIME: TeachingRuntimeState = {
   status: 'idle',
   currentStep: 'ready',
@@ -152,6 +162,7 @@ export class TeachingWorkspaceService {
   private readonly changeAudit: TeachingWorkspaceChangeAudit
   private readonly documents = new TeachingWorkspaceDocuments()
   private readonly activation: TeachingWorkspaceActivationLifecycle
+  private readonly pendingAgentRunArchiveScopes = new Map<string, PendingAgentRunArchiveScope>()
 
   constructor(options: {
     registryPath: string
@@ -404,7 +415,10 @@ export class TeachingWorkspaceService {
       : null
     const isTeachingConversation = (payload.mode ?? 'teaching') === 'teaching'
     const runStorageRoot = isTeachingConversation && workspace ? workspace.rootPath : this.appDataRoot
-    return runTeachingConversationTurn(payload, stream, workspace, {
+    // A stream id is a one-run capability. Reusing it must never retain a prior
+    // run's staged transcript promotion allowance, including after a failed run.
+    this.pendingAgentRunArchiveScopes.delete(stream.streamId)
+    const result = await runTeachingConversationTurn(payload, stream, workspace, {
       runStore: new AgentRunStore(runStorageRoot),
       loadSettings: () => this.loadSettings(),
       listMemories: (workspaceRoot) => this.memoryStore.list(workspaceRoot),
@@ -431,6 +445,20 @@ export class TeachingWorkspaceService {
         : undefined,
       buildTemporaryChatContext: (runtimeWorkspace, memories) => this.buildTemporaryChatContext(runtimeWorkspace, memories)
     })
+    if ('turns' in result) {
+      const allowances = collectStagedChildTranscriptAllowances(result.turns)
+      if (allowances.length > 0) {
+        this.pendingAgentRunArchiveScopes.set(stream.streamId, {
+          workspaceId: payload.workspaceId ?? '',
+          mode: isTeachingConversation ? 'teaching' : 'temporary',
+          conversationId: payload.conversationId ?? null,
+          allowances,
+          createdAt: Date.now()
+        })
+        prunePendingAgentRunArchiveScopes(this.pendingAgentRunArchiveScopes)
+      }
+    }
+    return result
   }
 
   async saveAgentConversation(payload: SaveAgentConversationPayload): Promise<SaveAgentConversationResult> {
@@ -457,6 +485,16 @@ export class TeachingWorkspaceService {
         ? 'conversations'
       : agentConversationDirectoryRelativePath(payload)
     if (!isTemporaryConversation) await ensureTeachingContentDirectories(workspace.rootPath)
+    const stagedAllowances = collectStagedChildTranscriptAllowances(turns)
+    const authorizedAllowances = stagedAllowances.length > 0
+      ? await this.authorizeStagedChildTranscriptPromotion({
+          payload,
+          workspaceId: workspace.id,
+          storageRoot,
+          allowances: stagedAllowances
+        })
+      : []
+
     const record: AgentConversationRecord = {
       id,
       workspaceId: existing?.workspaceId ?? workspace.id,
@@ -469,7 +507,9 @@ export class TeachingWorkspaceService {
       turns
     }
 
-    await writeAgentConversationRecord({ ...workspace, rootPath: storageRoot }, record)
+    await writeAgentConversationRecord({ ...workspace, rootPath: storageRoot }, record, {
+      allowedStagedChildTranscripts: authorizedAllowances
+    })
     if (!isTemporaryConversation) {
       await this.appendSessionEvent(workspace.rootPath, {
         id: randomUUID(),
@@ -483,10 +523,61 @@ export class TeachingWorkspaceService {
 
     const nextRegistry = isTemporaryConversation ? registry : touchRegistryWorkspace(registry, workspace.id, now)
     if (!isTemporaryConversation) await this.saveRegistry(nextRegistry)
-    return {
+    const result = {
       state: await this.buildState(nextRegistry, workspace.id, payload.selectedLessonPath ?? null),
       conversation: toAgentConversationSummary(record, {}, workspace.id)
     }
+    const runId = payload.runId?.trim()
+    if (runId && authorizedAllowances.length > 0) {
+      this.pendingAgentRunArchiveScopes.delete(runId)
+    }
+    return result
+  }
+
+  private async authorizeStagedChildTranscriptPromotion(input: {
+    payload: SaveAgentConversationPayload
+    workspaceId: string
+    storageRoot: string
+    allowances: AgentStagedChildTranscriptAllowance[]
+  }): Promise<AgentStagedChildTranscriptAllowance[]> {
+    const runId = input.payload.runId?.trim()
+    if (!runId) throw new Error('A run id is required to promote staged child transcripts.')
+    const scope = this.pendingAgentRunArchiveScopes.get(runId)
+    if (!scope) throw new Error('Staged child transcript promotion is not authorized for this run.')
+    const mode = input.payload.mode ?? 'teaching'
+    if (
+      scope.workspaceId !== input.workspaceId ||
+      scope.mode !== mode ||
+      scope.conversationId !== (input.payload.conversationId ?? null)
+    ) {
+      throw new Error('Staged child transcript promotion scope does not match this conversation save.')
+    }
+    if (!sameStagedChildTranscriptAllowances(scope.allowances, input.allowances)) {
+      throw new Error('Staged child transcript promotion contains an unrecognized artifact reference.')
+    }
+    const expectedRunPrefix = `${STAGED_CHILD_TRANSCRIPT_PREFIX}${runId}/`
+    if (input.allowances.some((allowance) => !allowance.archive.relativePath.startsWith(expectedRunPrefix))) {
+      throw new Error('Staged child transcript promotion is not bound to this run.')
+    }
+
+    const runStore = new AgentRunStore(input.storageRoot)
+    const checkpoint = await runStore.readCheckpoint(runId)
+    if (
+      checkpoint.runId !== runId ||
+      checkpoint.streamId !== runId ||
+      checkpoint.workspaceId !== input.workspaceId ||
+      (checkpoint.conversationId ?? null) !== scope.conversationId
+    ) {
+      throw new Error('Staged child transcript run checkpoint does not match this conversation save.')
+    }
+    const durableChildren = new Map((await runStore.listChildRuns(runId)).map((child) => [child.childRunId, child]))
+    for (const allowance of input.allowances) {
+      const child = durableChildren.get(allowance.childRunId)
+      if (!child || (child.status !== 'completed' && child.status !== 'failed' && child.status !== 'canceled')) {
+        throw new Error('Staged child transcript does not have a terminal durable child record.')
+      }
+    }
+    return scope.allowances
   }
 
   async readAgentConversation(payload: ReadAgentConversationPayload): Promise<AgentConversationRecord> {
@@ -974,4 +1065,52 @@ function renderEmptyPreview(workspace: TeachingWorkspaceSummary): string {
   </main>
 </body>
 </html>`
+}
+
+const STAGED_CHILD_TRANSCRIPT_PREFIX = '.agent-sessions/child-transcripts/'
+const MAX_PENDING_AGENT_RUN_ARCHIVE_SCOPES = 64
+
+function collectStagedChildTranscriptAllowances(turns: readonly AgentChatTurn[]): AgentStagedChildTranscriptAllowance[] {
+  const allowances: AgentStagedChildTranscriptAllowance[] = []
+  const seen = new Set<string>()
+  for (const turn of turns) {
+    for (const child of turn.metadata?.childRuns ?? []) {
+      const archive = child.archive
+      if (archive?.kind !== 'child_transcript' || !archive.relativePath.startsWith(STAGED_CHILD_TRANSCRIPT_PREFIX)) continue
+      const key = stagedChildTranscriptAllowanceKey({ childRunId: child.childRunId, archive })
+      if (seen.has(key)) continue
+      seen.add(key)
+      allowances.push({ childRunId: child.childRunId, archive: { ...archive } })
+    }
+  }
+  return allowances
+}
+
+function sameStagedChildTranscriptAllowances(
+  expected: readonly AgentStagedChildTranscriptAllowance[],
+  actual: readonly AgentStagedChildTranscriptAllowance[]
+): boolean {
+  if (expected.length !== actual.length) return false
+  const expectedKeys = new Set(expected.map(stagedChildTranscriptAllowanceKey))
+  return actual.every((allowance) => expectedKeys.has(stagedChildTranscriptAllowanceKey(allowance)))
+}
+
+function stagedChildTranscriptAllowanceKey(allowance: AgentStagedChildTranscriptAllowance): string {
+  const { archive } = allowance
+  return JSON.stringify([
+    allowance.childRunId,
+    archive.kind,
+    archive.relativePath,
+    archive.sha256,
+    archive.bytes,
+    archive.lines ?? null
+  ])
+}
+
+function prunePendingAgentRunArchiveScopes(scopes: Map<string, PendingAgentRunArchiveScope>): void {
+  while (scopes.size > MAX_PENDING_AGENT_RUN_ARCHIVE_SCOPES) {
+    const oldest = [...scopes.entries()].sort((left, right) => left[1].createdAt - right[1].createdAt)[0]
+    if (!oldest) return
+    scopes.delete(oldest[0])
+  }
 }

@@ -3,14 +3,19 @@ import {
   DelegationRuntime,
   type ChildAgentProfile,
   type ChildRunInput,
-  type ParallelChildRunInput
+  type ChildRunResult,
+  type ParallelChildRunInput,
+  type ParallelChildRunResult
 } from '../delegation-runtime'
 import type { TeachingModelProviderProfile } from '../../../shared/teaching-types'
+import type { AgentRunStore } from '../agent-run-store'
 
 export type DelegationToolOptions = {
   provider: TeachingModelProviderProfile
   streamId?: string
   signal?: AbortSignal
+  /** Optional durable parent-run journal for child lifecycle recovery. */
+  runStore?: AgentRunStore
 }
 
 export function createDelegationToolEntries(options: DelegationToolOptions): ToolEntry[] {
@@ -78,10 +83,16 @@ function createDelegationToolEntry(
         provider: options.provider,
         workspaceRoot: ctx.workspaceRoot,
         parentStreamId: options.streamId,
-        signal: options.signal
+        signal: options.signal,
+        store: options.runStore && options.streamId
+          ? options.runStore.createChildRunStore(options.streamId)
+          : undefined,
+        stageTranscript: options.runStore && options.streamId
+          ? (childRunId, transcript) => options.runStore!.stageChildTranscript(options.streamId!, childRunId, transcript)
+          : undefined
       })
       const result = await runtime.runChild(input, { emit: callCtx?.emit })
-      return JSON.stringify(result, null, 2)
+      return JSON.stringify(withoutChildTranscriptArchive(result), null, 2)
     }
   }
 }
@@ -155,10 +166,16 @@ function createParallelTasksToolEntry(options: DelegationToolOptions): ToolEntry
         provider: options.provider,
         workspaceRoot: ctx.workspaceRoot,
         parentStreamId: options.streamId,
-        signal: options.signal
+        signal: options.signal,
+        store: options.runStore && options.streamId
+          ? options.runStore.createChildRunStore(options.streamId)
+          : undefined,
+        stageTranscript: options.runStore && options.streamId
+          ? (childRunId, transcript) => options.runStore!.stageChildTranscript(options.streamId!, childRunId, transcript)
+          : undefined
       })
       const result = await runtime.runChildren(input, { emit: callCtx?.emit })
-      return JSON.stringify(result, null, 2)
+      return JSON.stringify(withoutParallelChildTranscriptArchives(result), null, 2)
     }
   }
 }
@@ -195,4 +212,20 @@ function normalizeParallelTasksArgs(args: unknown): ParallelChildRunInput {
 
 function normalizeProfile(value: unknown): ChildAgentProfile {
   return value === 'research' || value === 'workspace_audit' ? value : 'read_only'
+}
+
+function withoutChildTranscriptArchive(
+  result: ChildRunResult
+): Omit<ChildRunResult, 'archive'> {
+  const { archive: _archive, ...publicResult } = result
+  return publicResult
+}
+
+function withoutParallelChildTranscriptArchives(
+  result: ParallelChildRunResult
+): Omit<ParallelChildRunResult, 'results'> & { results: Array<Omit<ChildRunResult, 'archive'>> } {
+  return {
+    ...result,
+    results: result.results.map(withoutChildTranscriptArchive)
+  }
 }

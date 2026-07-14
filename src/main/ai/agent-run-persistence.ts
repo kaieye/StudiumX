@@ -1,11 +1,26 @@
+import { createHash } from 'node:crypto'
 import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
-import type { AgentRunBudget, AgentRunUsageAggregate } from '../../shared/teaching-types'
-import type { AgentOperationRecord, AgentRunCheckpoint } from './agent-run-types'
+import type { AgentArtifactRef, AgentRunBudget, AgentRunUsageAggregate } from '../../shared/teaching-types'
+import { writeContentAddressedFile } from '../path-access'
+import type { AgentOperationRecord, AgentRunCheckpoint, AgentRunChildRecord } from './agent-run-types'
 import { assertSafeId } from './agent-run-types'
 
 const MAX_RESULT_BYTES = 16 * 1024
+const CHILD_TRANSCRIPT_DIRECTORY = '.agent-sessions/child-transcripts'
+
+export function agentRunChildTranscriptRelativePath(
+  runId: string,
+  childRunId: string,
+  sha256: string
+): string {
+  assertSafeId(runId, 'runId')
+  assertSafeId(childRunId, 'childRunId')
+  if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Invalid child transcript digest.')
+  const childKey = createHash('sha256').update(childRunId).digest('hex').slice(0, 16)
+  return `${CHILD_TRANSCRIPT_DIRECTORY}/${runId}/${childKey}-${sha256}.txt`
+}
 
 /** Internal shared persistence implementation. Lifecycle and operation modules share its queue,
  * path containment rules, atomic writes, and schema validation without exposing those concerns
@@ -48,6 +63,34 @@ export class AgentRunPersistence {
     return this.readValidated(await this.safeFilePath('runs', name, false), validateCheckpoint)
   }
 
+  async readChildRun(runId: string, childRunId: string): Promise<AgentRunChildRecord> {
+    assertSafeId(runId, 'runId')
+    assertSafeId(childRunId, 'childRunId')
+    return this.readValidated(
+      await this.safeFilePath(join('child-runs', runId), `${childRunId}.json`, false),
+      validateChildRun
+    )
+  }
+
+  async writeChildRun(record: AgentRunChildRecord, replace: boolean): Promise<void> {
+    const path = await this.safeFilePath(join('child-runs', record.runId), `${record.childRunId}.json`, true)
+    await atomicPrivateJson(path, validateChildRun(record), replace)
+  }
+
+  async listChildRunFiles(runId: string): Promise<string[]> {
+    assertSafeId(runId, 'runId')
+    const directory = await this.safeDirectory(join('child-runs', runId), true)
+    return (await readdir(directory).catch(() => [])).filter((name) => name.endsWith('.json')).sort()
+  }
+
+  async listChildRunParentIds(): Promise<string[]> {
+    const directory = await this.safeDirectory('child-runs', true)
+    return (await readdir(directory, { withFileTypes: true }).catch(() => []))
+      .filter((entry) => entry.isDirectory() && /^[A-Za-z0-9._:-]{1,160}$/.test(entry.name))
+      .map((entry) => entry.name)
+      .sort()
+  }
+
   async readOperation(runId: string, operationId: string): Promise<AgentOperationRecord> {
     assertSafeId(runId, 'runId')
     assertSafeId(operationId, 'operationId')
@@ -63,6 +106,27 @@ export class AgentRunPersistence {
     assertSafeId(runId, 'runId')
     const directory = await this.safeDirectory(join('operations', runId), true)
     return (await readdir(directory).catch(() => [])).filter((name) => name.endsWith('.json')).sort()
+  }
+
+  async stageChildTranscript(runId: string, childRunId: string, content: string): Promise<AgentArtifactRef> {
+    assertSafeId(runId, 'runId')
+    assertSafeId(childRunId, 'childRunId')
+    const sha256 = createHash('sha256').update(content).digest('hex')
+    const relativePath = agentRunChildTranscriptRelativePath(runId, childRunId, sha256)
+    await writeContentAddressedFile({
+      rootPath: this.storageRoot,
+      targetPath: join(this.storageRoot, relativePath),
+      content,
+      sha256
+    })
+    return {
+      kind: 'child_transcript',
+      relativePath,
+      sha256,
+      bytes: Buffer.byteLength(content, 'utf8'),
+      lines: content ? content.split(/\r\n|\r|\n/).length : 0,
+      archivedAt: this.now()
+    }
   }
 
   async artifactExists(pointer: string): Promise<boolean> {
@@ -140,6 +204,32 @@ function validateCheckpoint(value: unknown): AgentRunCheckpoint {
   }
 }
 
+function validateChildRun(value: unknown): AgentRunChildRecord {
+  const record = strictRecord(value, [
+    'version', 'runId', 'childRunId', 'parentStreamId', 'label', 'profile', 'status', 'createdAt', 'startedAt',
+    'completedAt', 'updatedAt', 'summary', 'error', 'usage', 'recoveryReason', 'recoveredAt'
+  ])
+  if (record.version !== 1) throw new Error('Unsupported child run version.')
+  return {
+    version: 1,
+    runId: safeIdValue(record.runId, 'runId'),
+    childRunId: safeIdValue(record.childRunId, 'childRunId'),
+    ...(optionalSafeId(record.parentStreamId, 'parentStreamId') ? { parentStreamId: optionalSafeId(record.parentStreamId, 'parentStreamId') } : {}),
+    label: shortText(record.label),
+    profile: stringEnum(record.profile, ['read_only', 'research', 'workspace_audit'] as const),
+    status: stringEnum(record.status, ['queued', 'running', 'completed', 'failed', 'canceled', 'recoverable'] as const),
+    createdAt: isoString(record.createdAt),
+    ...(record.startedAt !== undefined ? { startedAt: isoString(record.startedAt) } : {}),
+    ...(record.completedAt !== undefined ? { completedAt: isoString(record.completedAt) } : {}),
+    updatedAt: isoString(record.updatedAt),
+    ...(record.summary !== undefined ? { summary: shortText(record.summary) } : {}),
+    ...(record.error !== undefined ? { error: shortText(record.error) } : {}),
+    ...(record.usage !== undefined ? { usage: validateChildUsage(record.usage) } : {}),
+    ...(record.recoveryReason !== undefined ? { recoveryReason: shortText(record.recoveryReason) } : {}),
+    ...(record.recoveredAt !== undefined ? { recoveredAt: isoString(record.recoveredAt) } : {})
+  }
+}
+
 function validateOperation(value: unknown): AgentOperationRecord {
   const record = strictRecord(value, [
     'version', 'operationId', 'runId', 'toolCallId', 'toolName', 'normalizedTarget', 'state', 'resultHash',
@@ -163,6 +253,17 @@ function validateOperation(value: unknown): AgentOperationRecord {
     updatedAt: isoString(record.updatedAt),
     ...(record.completedAt !== undefined ? { completedAt: isoString(record.completedAt) } : {}),
     ...(record.error !== undefined ? { error: shortText(record.error) } : {})
+  }
+}
+
+function validateChildUsage(value: unknown): NonNullable<AgentRunChildRecord['usage']> {
+  const record = strictRecord(value, ['providerCalls', 'promptTokens', 'completionTokens', 'totalTokens', 'toolCalls'])
+  return {
+    ...(record.providerCalls !== undefined ? { providerCalls: nonNegativeInteger(record.providerCalls) } : {}),
+    ...(record.promptTokens !== undefined ? { promptTokens: nonNegativeInteger(record.promptTokens) } : {}),
+    ...(record.completionTokens !== undefined ? { completionTokens: nonNegativeInteger(record.completionTokens) } : {}),
+    ...(record.totalTokens !== undefined ? { totalTokens: nonNegativeInteger(record.totalTokens) } : {}),
+    toolCalls: nonNegativeInteger(record.toolCalls)
   }
 }
 

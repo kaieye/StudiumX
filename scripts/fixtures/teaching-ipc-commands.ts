@@ -63,6 +63,7 @@ assert.throws(() => parseStreamId('../bad'), /streamId/)
 assert.deepEqual(
   parseSaveAgentConversationPayload({
     workspaceId: 'workspace-1',
+    runId: ' run-save-1 ',
     mode: 'temporary',
     conversationId: null,
     selectedLessonPath: null,
@@ -71,6 +72,7 @@ assert.deepEqual(
   }),
   {
     workspaceId: 'workspace-1',
+    runId: 'run-save-1',
     mode: 'temporary',
     conversationId: null,
     selectedLessonPath: null,
@@ -78,6 +80,11 @@ assert.deepEqual(
     courseName: undefined,
     turns: [{ id: 't1', role: 'user', content: 'hi', createdAt: '2026-01-01T00:00:00.000Z' }]
   }
+)
+
+assert.throws(
+  () => parseSaveAgentConversationPayload({ workspaceId: 'workspace-1', runId: '../bad', turns: [] }),
+  /streamId/
 )
 
 const providers = [
