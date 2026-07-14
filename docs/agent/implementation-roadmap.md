@@ -1,215 +1,102 @@
-# 实施路线图
+# Agent 能力实施路线图
 
-路线图按可独立提交的阶段拆分。每阶段都应先补测试面，再改 runtime，避免一次性重写 agent loop。
+本文只列尚未完成的工作。阶段完成并通过验证后，直接删除对应章节；实现记录和提交信息由 Git 历史保存。
 
-## Phase 0：基线测试与诊断
+## Phase 7：Pending stream staging
 
-状态：已完成。
+状态：未开始。
 
-目标：在不改变行为的前提下固定现状。
+目标：在父 turn 尚未写入最终 conversation 前，持久化足够的进行中证据，使进程崩溃后能够解释本轮输入、已确认事件和未完成状态。
 
-工作：
+范围：
 
-- 为 `ToolRegistry` 增加注册、覆盖、handlerMap 的单元测试。
-- 为 `runAgentLoop` 增加 fake provider 测试：无工具、单工具、多工具、工具错误、最大迭代、取消。
-- 为 `web_search` / `web_fetch` 当前输出加快照或结构测试。
-- 增加基础 usage/diagnostic 类型，但先不接 UI。
+- 为用户输入、运行关联、最后 durable event sequence 和必要的 provider/tool 边界设计 staging record。
+- staging 写入与现有 run lifecycle checkpoint、operation journal、conversation save 保持幂等。
+- 最终 turn 保存成功后原子地结算或删除 staging；失败或启动恢复时不得产生重复 turn。
+- 启动恢复要区分可继续展示的已确认内容、需要人工确认的副作用和不可恢复的流式片段。
+- 补充崩溃点、重复启动、取消、权限等待和最终保存失败测试。
 
-验收：
+非目标：
 
-- 当前行为有测试保护。
-- 后续 refactor 可以证明没有破坏现有工具调用。
-
-建议 commit：
-
-- `test(agent): cover current loop and tool registry`
-
-## Phase 1：搜索 runtime 深模块
-
-状态：已完成。
-
-目标：把搜索 provider 和抓取安全从工具 handler 中抽出来。
-
-工作：
-
-- 新增 `SearchRuntime` 与 `SearchProvider` 接口。
-- 将现有后端迁移为 provider adapters。
-- 统一 `SearchResultEnvelope` 与 `FetchResultEnvelope`。
-- 增加 `sourceId/retrievedAt/provider/attempts`。
-- 加强 `web_fetch` SSRF、防重定向绕过和 body 流式上限。
-- 使用 fake provider 建集成测试。
+- 不承诺逐 token 无损恢复。
+- 不在本阶段实现会话 branch/fork 或 archived-history 搜索。
 
 验收：
 
-- 设置中的所有现有 backend 仍能工作。
-- agent 能得到结构化 sources。
-- 安全测试覆盖 IPv4、IPv6、DNS、重定向和 proxy 场景。
+- 崩溃后的父 run 不再只有状态记录而缺少可解释的输入/输出证据。
+- recovery 不会重复执行工具、重复追加 turn 或自动提交未确认的 assistant 文本。
+- staging 文件有路径包含校验、大小上限、schema 版本和损坏数据隔离。
 
-建议 commit：
+## Phase 8：会话 checkpoint、归档检索与 artifact 生命周期
 
-- `feat(search): add search runtime and structured sources`
-- `fix(fetch): harden url resolution and response limits`
+状态：未开始。
 
-## Phase 2：发送前 context hygiene
+目标：让历史快照和归档内容可以受控检索，并为长期存储提供清理、保留和隐私边界。
 
-状态：已完成。
+范围：
 
-目标：先解决 tool result 无限增长，不引入 LLM 摘要。
-
-工作：
-
-- 新增 `ContextEstimator`。
-- 新增 `RequestHistoryHygiene`。
-- 在 `runAgentLoop` 调 provider 前对 messages 做发送投影。
-- 保持 result transcript 写回原始内容。
-- 增加 context estimate 和 hygiene events。
+- 定义会话/历史 checkpoint；不要复用或混淆现有的单次运行 `AgentRunCheckpoint`。
+- 为 conversation turns、session sidecar、tool-result artifact 和 child-transcript artifact 建立可重建索引。
+- 提供显式 archived-history 查询 API，返回有界摘要和稳定引用，不默认注入 provider history。
+- 定义 artifact 保留期、孤儿检测、重复内容处理、删除审计和索引重建流程。
+- 在写入摘要、transcript、索引字段前统一执行 secret redaction，并测试敏感值不会落盘。
+- 为损坏索引、缺失 artifact、hash 不匹配、超预算检索和重复清理补测试。
 
 验收：
 
-- 大 tool result 不再完整重复发送。
-- 最近工具结果仍完整保留。
-- 持久化 conversation 不被 hygiene 改写。
+- 用户或上层 runtime 可以按 conversation、时间和 artifact 类型显式检索历史。
+- 删除或重建索引不改变原始 conversation turns，也不会让 learner memory 自动吸收归档内容。
+- 清理流程可 dry-run、可审计、幂等，并且不会删除仍被有效引用的 artifact。
 
-建议 commit：
+## Phase 9：Session tree 与分支生命周期
 
-- `feat(context): add send-time history hygiene`
+状态：未开始。
 
-## Phase 3：自动与手动压缩
+目标：把当前线性 conversation 历史扩展为可解释的 session tree，支持 branch / fork / replay / open。
 
-状态：已完成。
+范围：
 
-目标：在上下文接近阈值时压缩历史。
-
-工作：
-
-- 新增 `ContextCompactor`。
-- 增加 model context profile 和 soft/hard thresholds。
-- 支持 reference-only summary message。
-- 支持压缩事件和失败 cooldown。
-- 保护最近用户消息、最近 assistant 消息和 tool pair。
-- 提供手动压缩入口，先可只在 main process 暴露。
+- 定义 session、branch、head、fork point、replay source 和 open state 的稳定标识与关系。
+- 明确 fork 后共享历史与新增 turn 的存储方式，避免复制大型 artifact。
+- replay 默认只重建输入和审计上下文，不自动重放有副作用的工具。
+- branch 删除、归档、恢复和并发写入遵守引用完整性与权限边界。
+- UI 能选择和打开 branch，并清楚区分原始 turn、replay 结果和恢复提示。
 
 验收：
 
-- 构造长会话会触发压缩。
-- 压缩后仍回答最新用户消息。
-- 摘要失败不会静默丢历史。
+- 从任意允许的历史点 fork 后，原 branch 保持不变，新 branch 有独立 head。
+- replay 不会静默执行写工具，也不会把 archived retrieval 当作原始用户输入。
+- session tree 在重启、索引重建和 artifact 清理后仍保持引用一致。
 
-建议 commit：
+## Phase 10：SDK/provider hooks
 
-- `feat(context): compact long conversations safely`
+状态：未开始。
 
-## Phase 4：只读子 agent
+目标：为不同 provider/SDK 提供统一、可测试的运行 hook，而不把 provider 特例散落到 agent loop 和 UI。
 
-状态：已完成。
+范围：
 
-目标：主 agent 可以派发一个只读 child task。
-
-工作：
-
-- 新增 `DelegationRuntime`、`ChildAgentExecutor`、`ChildRunStore`。
-- 新增 profile 到 tool policy 的映射。
-- 注册 `read_only_task` 或 `delegate_task`。
-- child agent 默认只读，禁止写入、课程生成、ask 和递归派发。
-- child summary 回流父 transcript。
+- 定义请求开始、首 token、usage、retry、rate limit、provider stop reason、取消和错误的规范化 hook。
+- 把 hook 输出接入预算、诊断和 durable lifecycle；缺失 usage 时保持明确的 unknown 语义。
+- provider 特有 metadata 必须经过大小限制、隐私过滤和兼容性归一化。
+- 使用 fake provider/SDK 覆盖乱序、重复回调、取消竞争、部分 usage 和重试场景。
 
 验收：
 
-- 主 agent 能派发只读调研并得到摘要。
-- child 不能写 workspace。
-- child 失败不会终止父对话。
+- agent loop 只依赖稳定 hook contract，不读取 SDK 私有对象。
+- 相同事件重复到达不会重复计费、重复结束 run 或破坏 transcript。
+- UI 与审计层能区分本地估算、provider 报告值和未知值。
 
-建议 commit：
+## 跨阶段风险
 
-- `feat(agent): add read-only child task delegation`
+- staging、checkpoint、索引和 branch 同时引入多个事实来源，必须明确每类数据的权威性和重建方向。
+- replay、恢复和清理都可能触碰有副作用的工具结果，默认必须停在人工确认边界。
+- archived retrieval 与 provider metadata 可能扩大敏感信息落盘范围，redaction 需要先于持久化。
+- 索引和 artifact 会持续增长，所有新格式都需要版本、上限、完整性校验和迁移策略。
 
-## Phase 5：并行任务与状态 UI
+## 推荐顺序
 
-状态：已完成。
-
-目标：支持多个独立只读任务并发执行，并让用户看见状态。
-
-工作：
-
-- 新增 `parallel_tasks` 工具。
-- 增加 FIFO 并发槽和 timeout。
-- 扩展 stream event：queued/running/completed/failed/canceled。
-- UI 显示每个 child run label 和最终摘要。
-- usage 聚合到父结果。
-
-验收：
-
-- 2-3 个子任务可以并发执行。
-- 一个任务失败不影响其他任务完成。
-- UI 能展示子任务状态和错误。
-
-落地记录：
-
-- 已新增 `parallel_tasks` 工具，支持 1-8 个只读 child task，默认并发 3、最大并发 4。
-- 已复用 Phase 4 的只读 child profile 和工具白名单，child 仍不能写入、生成课程、ask 或递归派发。
-- 已新增 queued/running/progress/completed/failed/canceled 状态映射，renderer 过程面板可展示子任务状态。
-- 已聚合每个 child 的 label/profile/status/summary/filesRead/citations 和 toolCalls usage；父 transcript 只保存 `parallel_tasks` 的聚合工具结果。
-- 已补 `check:agent-delegation-runtime` 与 `check:agent-conversation-state` 覆盖并行任务和状态 UI。
-
-建议 commit：
-
-- `feat(agent): run read-only child tasks in parallel`
-
-## Phase 6：持久化与恢复
-
-状态：进行中（Phase 6A/6B 已完成）。
-
-目标：让 child runs、压缩摘要和搜索 sources 可审计。
-
-工作：
-
-- 已完成：child run 摘要、状态、filesRead、citations 和 usage 持久化到 final assistant turn metadata。
-- 已完成：conversation record 中记录 compaction/hygiene/context estimate metadata。
-- 已完成：sources 存入 turn metadata，并在 Markdown 导出中可回看。
-- 已完成：append-only `.agent-sessions/<conversationId>.jsonl` sidecar 写入 header、turn、tool_call、source、child_run、compaction、hygiene、context estimate 和 tool result diagnostic entry。
-- 已完成：大型 tool result 归档到 `.agent-sessions/<conversationId>/tool-results/...txt` artifact，conversation JSON 保留 digest、preview、归档路径和 token/size 估算，并在显式读取完整 conversation 时 hydrate。
-- 启动时标记 orphan child run 为 canceled 或 recoverable。
-- 明确 learner memory、conversation compaction、archived retrieval 三类数据边界。
-
-验收：
-
-- 重启后不会出现悬挂 running child。
-- 历史对话能看到 sources 和压缩记录。
-- 诊断视图可以解释一次回答用过哪些能力。
-- 长会话 JSON 不再因为大型工具结果无限膨胀。
-
-落地记录：
-
-- 已新增 `AgentTurnMetadata` 和 `agent-run-audit` extractor，保存 sources、childRuns、compactions、contextHygiene、contextEstimate 和大型 tool result 诊断。
-- 已在 `runTeachingConversationTurn` 收集结构化 loop events，并把 audit metadata 附到本轮最终 assistant turn。
-- 已在 conversation JSON reader 显式 normalize/cap metadata，Markdown 导出显示 Sources、Child runs、Context compaction 和 Tool result diagnostics。
-- 已新增 `check:agent-conversation-audit-metadata` 覆盖 extractor、roundtrip、Markdown 和 malformed metadata 兼容。
-- 已新增 `.agent-sessions` sidecar JSONL 和 tool result artifact 目录；catalog path helper 可定位 sidecar 与 artifact 根目录，workspace tree 会隐藏该内部目录。
-- 已扩展测试覆盖大型 tool result 归档、显式读取 hydrate、sidecar typed entries、repeat write 幂等和 continuation append。
-
-建议 commit：
-
-- 已用 `66895da feat(agent): persist conversation audit metadata`
-- 已用 `8d144e8 feat(agent): archive conversation session artifacts`
-
-## 风险清单
-
-- 成本失控：子任务并发和自动压缩都会增加模型调用，必须有预算和上限。
-- 上下文污染：child transcript 不能直接进入父上下文。
-- 权限升级：child 默认禁止写入和递归派发。
-- 搜索幻觉：snippet 与 fetch 正文必须区分，不能把没抓取的页面当作已阅读。
-- 压缩误导：摘要必须标记为历史参考，最新用户消息永远优先。
-- 工具配对损坏：压缩和 hygiene 不能产生孤立 tool result。
-- UI 噪声：事件要可折叠，默认只显示对用户有意义的状态。
-
-## 推荐近期顺序
-
-当前最稳妥的起步顺序：
-
-1. Phase 0 固定测试基线。
-2. Phase 2 做 deterministic context hygiene，快速降低长会话风险。
-3. Phase 1 拆搜索 runtime，因为它能给后续子 agent 提供稳定 sources。
-4. Phase 4 做只读 child task。
-5. Phase 3 引入摘要压缩。
-
-Phase 2 可以先于 Phase 1，因为它对用户体验的风险收益比最高，且不依赖搜索重构。
+1. 先完成 Phase 7，补齐父 turn 崩溃恢复证据。
+2. 再完成 Phase 8，为后续 session tree 提供稳定索引和存储生命周期。
+3. Phase 9 依赖 Phase 8 的引用与索引边界。
+4. Phase 10 可在 Phase 7 之后按 provider 需求独立切片，但不得绕过既有持久化和预算接口。

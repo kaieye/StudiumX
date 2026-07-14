@@ -1,28 +1,35 @@
 # AI 执行 Prompt
 
-把下面模板交给 AI，可以让它按当前文档体系继续实现 agent 能力。每次只填一个阶段或一个清晰切片，不要一次要求完成所有 Phase。
+把下面模板交给 AI，用于实现一个尚未完成的 agent 切片。每次只选择一个可独立验证的交付物，不要同时推进多个阶段。
 
 ## 通用模板
 
 ```text
 你在 D:\project\StudiumX 工作。
 
-先阅读这些文档：
+先阅读：
 - docs/agent/README.md
 - docs/agent/progress.md
 - docs/agent/implementation-roadmap.md
-- 与本阶段直接相关的专题文档：<列出 1-3 个>
+- 与本切片直接相关的专题文档和代码 seam
 
 目标：
-完成 <Phase 编号和名称>：<一句话写清本次要交付什么>。
+完成 <Phase / 切片名称>：<一句话写清本次唯一交付物>。
 
 范围：
-- 只实现本阶段，不顺手做后续 Phase。
+- 只实现本切片，不顺手扩展相邻阶段。
 - 优先沿用当前代码结构和项目测试框架。
 - 可以参考 ref_project，但不要照搬大块实现；按 StudiumX 当前 TypeScript/Electron runtime 落地。
 - 如果需要调研，可以派只读子 agent；如果需要代码改动，必须明确文件范围，避免互相覆盖。
-- 工作区可能已有别人留下的脏改动；不要回滚、覆盖或提交无关文件。
-- 不要把无关格式化、重命名、清理混进本次提交。
+- 工作区可能已有别人留下的脏改动；不要回滚、覆盖、提交或格式化无关文件。
+- 不要把已存在的 AgentRunCheckpoint、workspace checkpoint、event replay 与本切片中的会话 checkpoint 或 durable session replay 混为一谈。
+
+长期约束：
+- 原始 conversation turns 是事实来源，发送投影、摘要和 retrieval 不能静默改写它。
+- archived retrieval 默认不注入 provider history，也不自动写入 learner memory。
+- 恢复、replay 和清理不得自动重复执行有副作用的工具。
+- 所有新持久化格式都要有 schema version、大小上限、路径包含校验、完整性检查和 secret redaction。
+- 自动行为必须幂等、可审计并有故障路径测试。
 
 非目标：
 - <明确写出 2-5 条本次不做的内容>
@@ -31,34 +38,33 @@
 - <列出 3-6 条可验证结果>
 - 新增或更新必要测试。
 - 运行相关测试、类型检查或 lint；如果无法运行，说明原因。
-- 更新 docs/agent/progress.md，把已完成项、commit、验证结果和剩余风险写清楚。
-- 如 roadmap 状态发生变化，同步更新 docs/agent/implementation-roadmap.md 的 Phase 状态。
+- 仅保留尚未完成的文档内容：完成本切片后，从 progress、roadmap 和专题文档中删除对应的完成项。
+- 不在 docs/agent 中追加完成流水、commit 列表或重复的验证命令清单。
 
 提交要求：
-- 只 stage 本阶段相关文件。
+- 只 stage 本切片相关文件。
 - 不提交已有无关脏改动。
 - commit message 使用：<建议 commit message>
 
 完成后回复：
 - 改了哪些文件
 - 实现了哪些能力
-- 运行了哪些验证
-- commit hash
+- 运行了哪些验证及结果
+- commit hash；如果未提交则明确写“未提交”
 - 剩余风险和下一步建议
 ```
 
-## 推荐填写方式
+## 文档更新规则
 
-已完成 Phase 的示例和对应临时设计稿已清理。继续实施时，使用上面的通用模板，并只引用当前仍存在的专题文档；目前主要是 [state-persistence-and-memory.md](state-persistence-and-memory.md)。
+- 开始工作时，可在 [progress.md](progress.md) 的“当前进行中”记录唯一交付物和计划验证。
+- 部分完成时，只保留未满足的验收项，不记录已完成流水。
+- 全部完成并验证后，删除 [progress.md](progress.md)、[implementation-roadmap.md](implementation-roadmap.md) 和专题文档中的对应条目。
+- 如果完成一个条目后某个文档只剩标题或重复信息，直接删除该空文档并同步清理所有链接。
+- 提交、PR 和测试是完成历史的权威来源；不要在本目录重建历史账本。
 
-## 执行规则
+## 状态定义
 
-每个 AI 任务结束时都必须更新 [progress.md](progress.md)。如果只完成部分内容，状态写“部分完成”，并列出未完成项，不要把 Phase 标成完成。
-
-状态定义：
-
-- 未开始：没有代码或测试落地。
-- 进行中：已有部分实现或测试，但验收标准未全部满足。
-- 已完成：代码、测试、文档进度和 commit 都完成。
-- 阻塞：连续尝试后无法推进，必须说明阻塞原因和需要的输入。
-
+- 未开始：尚无本切片实现。
+- 进行中：仍有验收项未满足。
+- 阻塞：连续尝试后无法推进，且已写明原因、尝试和所需输入。
+- 完成：代码和验证都满足；此时从当前文档中移除该条目，而不是保留“已完成”状态。

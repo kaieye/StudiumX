@@ -1,171 +1,137 @@
 # 状态、持久化与记忆边界
 
-目标是让 agent 能力增强后仍然可审计、可恢复、可解释，同时避免把 learner memory、会话摘要和历史归档混成一套概念。
+本文只描述尚未完成的持久化工作及其约束。现有类型以 `src/shared/teaching-types/agent.ts`、`src/main/ai/agent-run-types.ts` 和实际 reader/writer 为准，本文不复制容易漂移的 TypeScript 类型定义。
 
-## 当前状态
+## 兼容基线
 
-`src/main/teaching-agent-conversations.ts` 持久化 conversation JSON turns。Phase 6B 后，大型 tool result 会从 JSON 中移到 `.agent-sessions/<conversationId>/tool-results/...txt` artifact；显式读取完整 conversation 时再 hydrate 回内存。Markdown 展示仍会截断 tool result。
+后续实现必须兼容现有 conversation JSON、session audit sidecar、tool/child artifacts、run lifecycle checkpoint 和 child lifecycle recovery。这里的基线只用于界定兼容性，不作为完成记录。
 
-Phase 6A 已在 `AgentChatTurn.metadata` 中保存审计 metadata：sources、child run 摘要、compaction/hygiene/context estimate 和大型 tool result 诊断。读取旧 JSON 时会 normalize/cap 这些字段，避免 malformed metadata 污染记录。
+需要始终满足：
 
-Phase 6B 已新增 `.agent-sessions/<conversationId>.jsonl` append-only sidecar，记录 header、turn、tool_call、source、child_run、compaction、hygiene、context estimate 和 tool result diagnostic entry。它是 teaching conversation 的审计投影和 artifact 索引，还不是完整 session tree 或独立 `AgentSessionStore`。
+- conversation turns 是对话事实来源；发送投影、compaction 和 retrieval 不能静默改写它。
+- `AgentRunCheckpoint` 表示单次运行状态，不等同于会话/历史快照 checkpoint。
+- event bus 的短窗口 replay 不等同于 durable session replay。
+- child transcript 和 archived content 不自动展开进父上下文。
+- learner memory、conversation compaction、archived retrieval 使用独立的写入与读取策略。
+- 所有路径必须经过 workspace 包含关系、稳定 id、大小上限和完整性校验。
 
-`src/shared/teaching-memory-capture.ts` 已有 learner profile memory 捕获、去重和同意流程。这是长期用户画像，不是 conversation compaction。
+## 未完成：Pending parent-turn staging
 
-`src/shared/teaching-types.ts` 已有 `AgentChatMessage` / `AgentChatTurn` 和 `AgentTurnMetadata`。仍缺：
+### 问题
 
-- replaced turn ids。
-- checkpoint 或 archived-history 索引。
-- child transcript 独立持久化。
-- pending stream staging、启动恢复和 branch/fork/open 生命周期。
+run 状态可以持久化，但最终 conversation turn 写入前仍缺少完整的父 turn staging 闭环。进程在 provider/tool 流程中崩溃时，需要有足够证据解释用户输入、已确认事件和未完成输出。
 
-## 数据分层
+### 设计约束
 
-### Conversation Turns
+- staging 至少关联 `runId`、`streamId`、`conversationId`、用户输入摘要或引用、最后 durable sequence、状态和时间戳。
+- staging 只保存恢复所需的最小事实；不要把每个 token 都当作必须持久化的事实。
+- provider 文本只有在明确标记为已确认时才能用于恢复展示；未完成 delta 不能自动成为 assistant final turn。
+- tool 副作用由 operation journal 和权限记录裁决，恢复流程不得自动重复执行。
+- 最终 conversation save 与 staging 结算必须幂等；重复启动不能追加重复 turn。
+- 损坏、超限或引用越界的 staging 进入隔离路径，不阻塞其他 conversation 启动。
 
-原始对话事实来源。保存用户消息、assistant 消息、tool call 和 tool result。
+### 验收重点
 
-原则：
+- 覆盖 provider 前、provider 中、tool 前、tool 后、权限等待、最终保存前后的崩溃点。
+- interrupted UI 能说明哪些内容已持久化、哪些需要重发或人工确认。
+- staging 清理失败不会让已完成 turn 在下次启动时重复恢复。
 
-- 不因发送前 hygiene 改写原始 turn。
-- 不因自动 compaction 删除原始 turn，至少 v1 不删除。
-- 可以增加 metadata，让 UI 和诊断知道某些历史已被摘要覆盖。
+相关 seam：
 
-### Compaction Items
+- `src/main/teaching-conversation-runtime.ts`
+- `src/main/ai/agent-run-lifecycle.ts`
+- `src/main/ai/agent-run-persistence.ts`
+- `src/main/ai/agent-operation-journal.ts`
+- `src/main/teaching-agent-conversations.ts`
 
-当前会话的预算化摘要。用于继续当前会话，不是长期记忆。
+## 未完成：会话/历史 checkpoint 与 archived retrieval
 
-建议字段：
+### 定义
 
-```ts
-type AgentCompactionMetadata = {
-  id: string
-  createdAt: string
-  mode: 'normal' | 'aggressive' | 'manual'
-  reason: string
-  replacedTurnIds: string[]
-  replacedTokenEstimate: number
-  summaryTokenEstimate: number
-  sourceDigest: string
-  model?: string
-}
-```
+- **Run lifecycle checkpoint**：已有的单次运行状态记录，不负责历史快照。
+- **会话/历史 checkpoint**：待设计的可命名恢复点，用于解释或恢复某个 conversation/session 的历史状态。
+- **Archived retrieval**：显式查询已归档 turn、tool result 或 child transcript，并返回有界内容与稳定引用。
 
-### Child Runs
+### 设计约束
 
-子 agent 执行记录。父 turn 只需要保存 child summary 和 child run id。
+- checkpoint 不复制大型 artifact；优先保存稳定引用、head、digest、schema version 和创建原因。
+- 检索索引必须可以从权威 conversation、sidecar 和 artifact 重建。
+- retrieval 默认不注入 provider history；注入必须由上层显式请求，并记录来源、预算和截断信息。
+- retrieval 结果不能自动写入 learner memory，也不能被伪装成原始 user/assistant turn。
+- 缺失 artifact、hash 不匹配、索引损坏和旧 schema 必须以可解释错误返回，不能静默降级为错误内容。
+- 手动压缩、课程生成和批量写文件是否自动创建 checkpoint，需要在实现前确定一致策略。
 
-建议字段：
+### 验收重点
 
-```ts
-type AgentChildRunMetadata = {
-  childRunId: string
-  label: string
-  profile: string
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'canceled'
-  summary?: string
-  error?: string
-  usage?: {
-    promptTokens?: number
-    completionTokens?: number
-    totalTokens?: number
-    toolCalls: number
-  }
-}
-```
+- 可以按 conversation、时间范围和 artifact 类型进行有界检索。
+- 索引删除后可以重建，重建不会修改原始 turns。
+- checkpoint 恢复不会重新执行有副作用工具。
+- UI 能显示 retrieval 来源和 checkpoint 关系，而不是只展示无来源摘要。
 
-### Sources
+相关 seam：
 
-搜索和抓取产生的来源。来源应作为 turn metadata 保存，避免只藏在 assistant 文本里。
+- `src/main/agent-conversation-session-audit.ts`
+- `src/main/agent-conversation-archive.ts`
+- `src/main/teaching-agent-conversations.ts`
+- `src/shared/agent-conversation-catalog.ts`
 
-建议字段：
+## 未完成：Artifact 生命周期
 
-```ts
-type AgentSourceMetadata = {
-  sourceId: string
-  url: string
-  title?: string
-  provider: string
-  retrievedAt: string
-  publishedAt?: string
-}
-```
+### 范围
 
-### Learner Memory
+- tool result、child transcript、未来 staging 和索引文件的保留期。
+- 孤儿 artifact 发现、重复内容处理、引用计数或等价保护机制。
+- dry-run 清理、删除审计、失败重试和索引重建。
+- 写入前 secret redaction，以及清理日志自身的隐私过滤。
 
-长期用户画像。仍沿用现有 memory capture 流程：
+### 约束
 
-- 只保存对未来学习有价值的信息。
-- 遵守已有同意策略。
-- 有注入上限。
-- 不由 compaction 自动写入。
+- 清理前必须证明 artifact 不再被有效 conversation、checkpoint、branch 或 audit entry 引用。
+- 内容 digest 可以用于检测重复，但不能仅凭 digest 合并具有不同权限或来源语义的记录。
+- 清理操作必须幂等；部分失败后重试不能扩大删除范围。
+- 默认保留策略需要可配置，但不能允许不受上限的永久增长作为唯一模式。
 
-## 推荐类型扩展
+## 未完成：Session tree 与 durable replay
 
-`AgentChatTurn` 已增加可选 metadata，而不是引入完全不同的 turn 类型：
+### 目标模型
 
-```ts
-type AgentTurnMetadata = {
-  sources?: AgentSourceMetadata[]
-  compactions?: AgentCompactionMetadata[]
-  childRuns?: AgentChildRunMetadata[]
-  contextHygiene?: AgentContextHygieneMetadata[]
-  contextEstimate?: AgentContextEstimateMetadata
-  toolResults?: AgentToolResultDiagnostic[]
-}
-```
+未来 session 需要显式的 `sessionId`、`branchId`、branch head、fork point 和 replay source。当前线性 `parentId` 不能被直接解释成完整 branch 模型。
 
-这样旧数据仍可读取，新 UI 可以逐步识别 metadata。当前 metadata 是审计数据；续聊 provider history projection 仍只发送 role/content。
+### 设计约束
 
-## 持久化策略
+- fork 后原 branch 不变，新 branch 共享不可变历史引用并拥有独立 head。
+- replay 只重建允许的输入与审计上下文；默认不重新执行写工具、权限决定或外部请求。
+- session replay 与 event bus 的短窗口事件 replay 必须使用不同 API 和命名。
+- archived retrieval 结果、compaction summary 和 recovery notice 都要保留各自 provenance，不能转成普通原始 turn。
+- branch 删除或归档前要检查 checkpoint 与 artifact 引用完整性。
+- 并发打开和写入同一 branch 需要明确的版本冲突策略。
 
-v1：
+### 验收重点
 
-- 原始 turns 的结构、普通消息和普通 tool result 保留在 JSON；大型 tool result 的完整内容进入 artifact。
-- compaction summary 仍只作为发送投影注入；metadata 保存 compaction 诊断、sourceDigest 和 token/message 计数。
-- child run 只保存最终摘要、状态、filesRead、citations 和 usage。
-- sources 保存到相关 assistant turn metadata。
-- 大型 tool result 归档到 `.agent-sessions/<conversationId>/tool-results/...txt`，JSON turn 保留 digest、preview、归档路径和 token/size 估算。
-- `.agent-sessions/<conversationId>.jsonl` 保存 append-only 审计投影，用稳定 id 和 `parentId` 串起当前线性 turn 链。
+- 可从允许的历史点 fork、打开和继续不同 branch。
+- 重启与索引重建后 branch lineage 保持稳定。
+- UI 能区分原始历史、fork 后新增内容、replay 输出和 recovery notice。
 
-v2：
+## SDK/provider hooks 对持久化的要求
 
-- child transcript 单独保存，可按 childRunId 打开。
-- pending stream staging 和启动恢复，避免崩溃后留下不可解释的 running/orphan child run。
-- 完整 session tree/fork/replay 索引，可按 branch 或 replaced turn ids 解释历史变化。
-- archived history 建索引，支持后续检索。
+- hook 只输出规范化事件，不把 SDK 私有对象直接写入 checkpoint、turn metadata 或 sidecar。
+- usage、retry、rate limit、stop reason 和错误需要区分 provider 报告值、本地估算值和 unknown。
+- 重复或乱序 hook 不能重复计费、重复终结 run 或推进错误的 durable sequence。
+- provider metadata 在持久化前必须经过字段白名单、大小限制和 secret redaction。
 
-## Checkpoint 与恢复
+## 开放问题
 
-短期只需要恢复安全：
+- staging 保存完整用户输入、加密内容还是 conversation draft 引用。
+- 会话 checkpoint 的默认创建时机和用户可见命名方式。
+- archived-history 索引采用可重建文件索引还是独立数据库。
+- artifact 保留策略按时间、大小、conversation 状态还是组合阈值执行。
+- branch 并发冲突采用乐观版本、单写者锁还是显式 fork。
+- retrieval 内容进入 provider context 时使用专用 message role、tool result 还是 reference block。
 
-- 应用重启时，内存中的 running child run 标记为 canceled 或 unknown。
-- compaction summary 已写入后不得重复插入同一 digest。
-- 发送前 hygiene 是纯函数，重启后可重新计算。
+## 主要风险
 
-长期可以增加 checkpoint controller：
-
-- 每次课程生成、批量写文件、手动压缩前创建 checkpoint。
-- 支持查看 checkpoint 和恢复历史状态。
-- checkpoint 不应成为 Phase 1-4 的阻塞项。
-
-## UI 诊断
-
-建议 UI 渐进展示：
-
-- 当前上下文估算：local estimate、provider prompt tokens、tool schema overhead。
-- 最近一次 hygiene：压缩了多少旧工具输出。
-- 最近一次 compaction：原因、模式、替换 token 估算。
-- 子任务列表：label、状态、耗时、错误。
-- 来源列表：title、url、retrievedAt。
-
-默认聊天界面不展开原始诊断；提供折叠入口即可。
-
-## 风险
-
-- JSON 无限增长：Phase 6B 已缓解父 conversation 大型 tool result 膨胀；child transcript、archived history 索引和重复 artifact 清理仍需要后续边界。
-- 摘要漂移：多次压缩会累积误差，需要 source digest 和 replaced turn ids。
-- 隐私泄漏：摘要生成前要复用 secret redaction，避免把 token/key 写入摘要。
-- 旧任务复活：摘要必须是 reference-only，并由最新用户消息覆盖。
-- memory 污染：不能把压缩摘要自动变成长期 learner memory。
-
+- 多个持久化层可能形成互相冲突的事实来源，必须为每种数据声明权威来源和重建方向。
+- staging 或 replay 处理不当会重复产生副作用或把未确认内容伪装成最终回答。
+- archive 索引和 provider metadata 会扩大敏感信息落盘面，redaction 必须先于持久化。
+- branch、checkpoint 和清理相互依赖，任何删除操作都必须先验证引用完整性。
+- retrieval 与 compaction 反复转换可能导致语义漂移，必须保留 provenance、digest 和截断诊断。

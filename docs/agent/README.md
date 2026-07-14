@@ -1,29 +1,35 @@
 # Agent 能力建设文档索引
 
-本目录只保留仍在推进的 agent runtime 文档。Phase 0–5 的临时设计稿和参考映射已在实现与检查通过后清理；完成记录继续保留在进度文档和 Git 历史中。
+本目录只维护尚未完成的 agent runtime 工作。已经落地的能力、验证记录和提交信息不在这里重复保存，需要追溯时使用 Git 历史。
 
 ## 当前范围
 
-当前剩余工作集中在持久化与恢复边界：child transcript、compaction replaced turn ids、启动恢复语义，以及长期归档/检索边界。
+- 父 turn 的 pending stream staging 与崩溃恢复。
+- 会话/历史 checkpoint、archived-history 检索索引和 artifact 生命周期管理。
+- 完整 session tree，以及 branch / fork / replay / open 生命周期。
+- SDK/provider hooks 与统一运行诊断。
+
+> 这里的“会话/历史 checkpoint”不是现有的 run lifecycle checkpoint；前者用于历史快照、检索和恢复，后者只记录单次运行的 durable 状态。
 
 ## 文档结构
 
-- [状态、持久化与记忆边界](state-persistence-and-memory.md)：turn、child run、source、compaction、checkpoint 与 learner memory 的边界。
-- [实施路线图](implementation-roadmap.md)：Phase 0–6 的状态、验收标准和剩余工作。
-- [AI 执行 Prompt](ai-execution-prompt.md)：继续实施未完成切片时使用的通用模板。
-- [实施进度](progress.md)：已完成、进行中、验证命令和剩余风险的记录。
+- [实施路线图](implementation-roadmap.md)：仅列出未完成阶段、依赖和验收标准。
+- [实施进度](progress.md)：仅记录当前进行中、未开始或阻塞的切片。
+- [状态、持久化与记忆边界](state-persistence-and-memory.md)：未完成持久化工作的约束、方案和开放问题。
+- [AI 执行 Prompt](ai-execution-prompt.md)：实施单个未完成切片时使用的通用模板。
 
-## 已完成能力的验证入口
+## 维护规则
 
-- 搜索 runtime：`pnpm run check:search-runtime`
-- 上下文 hygiene / compaction：`pnpm run check:agent-loop-context-hygiene`、`pnpm run check:agent-loop-context-compaction`
-- 子 agent / 并行任务：`pnpm run check:agent-delegation-runtime`
-- 持久化审计与恢复：`pnpm run check:agent-conversation-audit-metadata`、`pnpm run check:agent-run-recovery`
+1. 文档只保留尚未满足的目标、验收标准、风险和开放问题。
+2. 一个切片完成并验证后，从路线图、进度和专题文档中删除对应内容，不新增“已完成”章节。
+3. 提交 hash、详细验证输出和实现历史交给 Git 保存。
+4. 新发现的后续工作只有在明确不属于当前切片时才加入文档。
+5. 不把已存在的运行 checkpoint、workspace checkpoint 与待设计的会话/历史 checkpoint 混为一谈。
 
 ## 设计原则
 
-1. 深模块优先：调用方看到小接口，复杂策略留在模块实现里。
-2. 发送时清理优先于持久化裁剪：原始会话记录保留，发给模型前再做预算化投影。
-3. 子 agent 默认最小权限：先支持只读和前台短任务，再放开后台、写入和恢复。
-4. 所有自动行为都可解释：搜索后端、压缩原因、子任务状态、预算消耗必须在事件或诊断里可见。
-5. 每阶段都能独立上线：先补测试和观测，再逐步增加 runtime 能力。
+1. 原始 conversation turns 是对话事实来源；发送投影、摘要和检索结果不能静默改写原始历史。
+2. archived retrieval 默认不注入 provider history，必须显式触发、受预算限制并可审计。
+3. learner memory、conversation compaction 和 archived retrieval 保持独立的写入与读取策略。
+4. 子 agent 与恢复流程默认最小权限，不能借恢复、回放或检索扩大工具权限。
+5. 自动清理、恢复和 provider hook 都必须幂等、可解释并有测试保护。
