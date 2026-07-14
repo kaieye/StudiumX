@@ -11,7 +11,6 @@
 - docs/agent/README.md
 - docs/agent/progress.md
 - docs/agent/implementation-roadmap.md
-- docs/agent/runtime-baseline.md
 - 与本阶段直接相关的专题文档：<列出 1-3 个>
 
 目标：
@@ -50,83 +49,7 @@
 
 ## 推荐填写方式
 
-### Phase 0 示例
-
-```text
-你在 D:\project\StudiumX 工作。
-
-先阅读这些文档：
-- docs/agent/README.md
-- docs/agent/progress.md
-- docs/agent/implementation-roadmap.md
-- docs/agent/runtime-baseline.md
-
-目标：
-完成 Phase 0：基线测试与诊断。
-
-范围：
-- 为 ToolRegistry 增加注册、覆盖、handlerMap 测试。
-- 为 runAgentLoop 增加 fake provider 测试，覆盖无工具、单工具、多工具、工具错误、最大迭代、取消。
-- 为 web_search / web_fetch 当前输出补最小结构测试，优先固定现状。
-- 不改变生产行为，除非为了让代码更可测试且保持兼容。
-
-非目标：
-- 不实现 context hygiene。
-- 不重构搜索 provider。
-- 不实现子 agent。
-- 不改 UI。
-
-验收标准：
-- 当前 agent loop 和 tool registry 行为有自动化测试保护。
-- 测试能在本地命令中运行。
-- docs/agent/progress.md 标记 Phase 0 完成，并记录验证命令和 commit。
-
-提交要求：
-- 只 stage 测试和必要的最小生产代码改动。
-- 不提交已有无关脏改动。
-- commit message 使用：test(agent): cover current loop and tool registry
-```
-
-### Phase 2 示例
-
-```text
-你在 D:\project\StudiumX 工作。
-
-先阅读这些文档：
-- docs/agent/README.md
-- docs/agent/progress.md
-- docs/agent/implementation-roadmap.md
-- docs/agent/context-compression.md
-- docs/agent/state-persistence-and-memory.md
-
-目标：
-完成 Phase 2：发送前 context hygiene。
-
-范围：
-- 新增 ContextEstimator。
-- 新增 RequestHistoryHygiene。
-- 在发给 provider 前清理长 tool result，但不改持久化 transcript。
-- 保留最近工具结果，旧结果压成 digest。
-- 增加 context estimate 和 hygiene 相关事件或诊断，先用最小可观测实现。
-
-非目标：
-- 不做 LLM 摘要压缩。
-- 不做 child agent。
-- 不重构搜索 provider。
-- 不做 UI 大改。
-
-验收标准：
-- 大 tool result 不再完整重复发送给 provider。
-- 最近工具结果仍完整保留。
-- 持久化 conversation 不被 hygiene 改写。
-- 覆盖 CJK/ASCII 估算、长 tool result、累计预算、tool call/result 配对的测试。
-- docs/agent/progress.md 标记 Phase 2 完成，并记录验证命令和 commit。
-
-提交要求：
-- 只 stage 本阶段相关文件。
-- 不提交已有无关脏改动。
-- commit message 使用：feat(context): add send-time history hygiene
-```
+已完成 Phase 的示例和对应临时设计稿已清理。继续实施时，使用上面的通用模板，并只引用当前仍存在的专题文档；目前主要是 [state-persistence-and-memory.md](state-persistence-and-memory.md)。
 
 ## 执行规则
 

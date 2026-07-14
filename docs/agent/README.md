@@ -1,27 +1,24 @@
 # Agent 能力建设文档索引
 
-本目录记录 StudiumX 下一阶段 agent 能力建设方案。文档按能力域拆分，避免把搜索、派发、压缩和落地步骤混在一个臃肿文档里。
+本目录只保留仍在推进的 agent runtime 文档。Phase 0–5 的临时设计稿和参考映射已在实现与检查通过后清理；完成记录继续保留在进度文档和 Git 历史中。
 
-## 范围
+## 当前范围
 
-当前优先级是让主 agent 从“单轮工具调用循环”演进为可持续工作的教学 agent runtime：
-
-- 搜索与抓取：稳定检索、结构化来源、可追踪引用、抓取安全和后端能力抽象。
-- 子 agent 派发：把调研、只读检查、并行任务和后台任务从主对话上下文中隔离出去。
-- 上下文压缩：在长会话中保留当前任务、用户约束、教学记忆和最近工具结果，同时压缩历史噪声。
-- 观测与预算：每个工具调用、子任务和压缩动作都能被 UI、日志和持久化记录解释。
+当前剩余工作集中在持久化与恢复边界：child transcript、compaction replaced turn ids、启动恢复语义，以及长期归档/检索边界。
 
 ## 文档结构
 
-- [运行时现状与缺口](runtime-baseline.md)：当前主循环、工具注册、对话入口和持久化的实际形状。
-- [搜索与检索设计](search-and-retrieval.md)：搜索 provider seam、抓取安全、引用结构和测试计划。
-- [子 agent 与任务派发](subagents-and-delegation.md)：`delegate_task`、只读子任务、并行任务、事件和权限策略。
-- [上下文压缩设计](context-compression.md)：token 估算、发送前历史清理、自动压缩和摘要语义。
-- [状态、持久化与记忆边界](state-persistence-and-memory.md)：turn 元数据、child run、sources、compaction 和 learner memory 的边界。
-- [参考项目映射](reference-map.md)：从 `ref_project` 中提炼出的可复用模式。
-- [实施路线图](implementation-roadmap.md)：分阶段落地顺序、验收标准和建议提交粒度。
-- [AI 执行 Prompt](ai-execution-prompt.md)：交给 AI 实施任一阶段时使用的通用模板。
-- [实施进度](progress.md)：记录已完成、进行中、未开始的阶段和提交。
+- [状态、持久化与记忆边界](state-persistence-and-memory.md)：turn、child run、source、compaction、checkpoint 与 learner memory 的边界。
+- [实施路线图](implementation-roadmap.md)：Phase 0–6 的状态、验收标准和剩余工作。
+- [AI 执行 Prompt](ai-execution-prompt.md)：继续实施未完成切片时使用的通用模板。
+- [实施进度](progress.md)：已完成、进行中、验证命令和剩余风险的记录。
+
+## 已完成能力的验证入口
+
+- 搜索 runtime：`pnpm run check:search-runtime`
+- 上下文 hygiene / compaction：`pnpm run check:agent-loop-context-hygiene`、`pnpm run check:agent-loop-context-compaction`
+- 子 agent / 并行任务：`pnpm run check:agent-delegation-runtime`
+- 持久化审计与恢复：`pnpm run check:agent-conversation-audit-metadata`、`pnpm run check:agent-run-recovery`
 
 ## 设计原则
 

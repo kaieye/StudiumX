@@ -23,13 +23,9 @@
 完成内容：
 
 - 新增 [README.md](README.md) 作为 agent 文档索引。
-- 新增 [runtime-baseline.md](runtime-baseline.md)，记录当前主循环、工具注册和对话入口缺口。
-- 新增 [search-and-retrieval.md](search-and-retrieval.md)，设计搜索 provider seam、抓取安全和结构化 sources。
-- 新增 [subagents-and-delegation.md](subagents-and-delegation.md)，设计只读子任务、并行任务、profile 和工具策略。
-- 新增 [context-compression.md](context-compression.md)，设计发送前 hygiene、token 估算和压缩摘要。
 - 新增 [state-persistence-and-memory.md](state-persistence-and-memory.md)，定义 turns、compaction、child runs、sources 和 learner memory 边界。
-- 新增 [reference-map.md](reference-map.md)，整理 Kun、Reasonix、Hermes、codex-plusplus 可借鉴点。
 - 新增 [implementation-roadmap.md](implementation-roadmap.md)，拆分 Phase 0-6。
+- Phase 0–5 实现与检查完成后，已清理对应的 runtime baseline、搜索、上下文压缩、子 agent 和参考映射临时设计稿；历史内容仍可从 Git 提交 `a292a79` 查看。
 
 提交：
 
