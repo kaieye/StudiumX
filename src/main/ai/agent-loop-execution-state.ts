@@ -43,7 +43,6 @@ export class AgentLoopExecutionState {
   }
   private readonly childRuns = new Set<string>()
   private readonly accountedChildRuns = new Set<string>()
-  private tokenUsageComplete = true
   private iterations = 0
   private budgetWarningEmitted = false
 
@@ -80,13 +79,16 @@ export class AgentLoopExecutionState {
   }
 
   recordProviderUsage(providerUsage: ChatAdapterResult['usage']): void {
-    if (!providerUsage || providerUsage.promptTokens === undefined || providerUsage.completionTokens === undefined || providerUsage.totalTokens === undefined) {
-      this.tokenUsageComplete = false
-      return
+    if (!providerUsage) return
+    if (providerUsage.promptTokens !== undefined) {
+      this.usage.promptTokens = (this.usage.promptTokens ?? 0) + providerUsage.promptTokens
     }
-    this.usage.promptTokens = (this.usage.promptTokens ?? 0) + providerUsage.promptTokens
-    this.usage.completionTokens = (this.usage.completionTokens ?? 0) + providerUsage.completionTokens
-    this.usage.totalTokens = (this.usage.totalTokens ?? 0) + providerUsage.totalTokens
+    if (providerUsage.completionTokens !== undefined) {
+      this.usage.completionTokens = (this.usage.completionTokens ?? 0) + providerUsage.completionTokens
+    }
+    if (providerUsage.totalTokens !== undefined) {
+      this.usage.totalTokens = (this.usage.totalTokens ?? 0) + providerUsage.totalTokens
+    }
   }
 
   startToolCall(): void {
@@ -174,13 +176,16 @@ export class AgentLoopExecutionState {
     const childUsage = event.child.usage
     this.usage.providerCalls += childUsage?.providerCalls ?? 0
     this.usage.toolCalls += childUsage?.toolCalls ?? 0
-    if (!childUsage || childUsage.promptTokens === undefined || childUsage.completionTokens === undefined || childUsage.totalTokens === undefined) {
-      this.tokenUsageComplete = false
-      return
+    if (!childUsage) return
+    if (childUsage.promptTokens !== undefined) {
+      this.usage.promptTokens = (this.usage.promptTokens ?? 0) + childUsage.promptTokens
     }
-    this.usage.promptTokens = (this.usage.promptTokens ?? 0) + childUsage.promptTokens
-    this.usage.completionTokens = (this.usage.completionTokens ?? 0) + childUsage.completionTokens
-    this.usage.totalTokens = (this.usage.totalTokens ?? 0) + childUsage.totalTokens
+    if (childUsage.completionTokens !== undefined) {
+      this.usage.completionTokens = (this.usage.completionTokens ?? 0) + childUsage.completionTokens
+    }
+    if (childUsage.totalTokens !== undefined) {
+      this.usage.totalTokens = (this.usage.totalTokens ?? 0) + childUsage.totalTokens
+    }
   }
 
   private withUsage(result: TerminalResult, budgetStopReason?: AgentRunBudgetStopReason): RunAgentLoopResult {
@@ -190,11 +195,6 @@ export class AgentLoopExecutionState {
       childRuns: this.childRuns.size,
       durationMs: Math.max(0, Math.floor(this.options.now() - this.startedAt)),
       ...(budgetStopReason ? { budgetStopReason } : {})
-    }
-    if (!this.tokenUsageComplete) {
-      delete usage.promptTokens
-      delete usage.completionTokens
-      delete usage.totalTokens
     }
     return {
       ...result,
