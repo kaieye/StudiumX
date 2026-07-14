@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rm, unlink } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
+import { mkdir, readFile, rm } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
 import { inspectGitWorkspace } from './teaching-git'
-import { isPathInsideRoot } from './path-access'
 import {
   buildCourseSummaries,
   buildWorkspaceCatalog
@@ -71,15 +70,7 @@ import {
   type SessionEvent,
   type WorkspaceIndex
 } from './teaching-workspace/lifecycle'
-import {
-  archiveWorkspaceItemPathMeta,
-  mergeWorkspaceItemPathMeta,
-  planTemporaryConversationDiskRemoval,
-  planWorkspaceItemDiskRemoval,
-  pruneWorkspaceIndexForItemRemoval,
-  pruneWorkspacePathMetaForItemRemoval,
-  shouldArchiveWorkspaceItem
-} from './teaching-workspace/item-lifecycle'
+import { TeachingWorkspaceItemLifecycleExecutor } from './teaching-workspace/item-lifecycle-executor'
 import { TeachingWorkspaceActivationLifecycle } from './teaching-workspace/activation-lifecycle'
 import { TeachingWorkspaceReviewDeck } from './teaching-workspace/review'
 import { TeachingWorkspaceChangeAudit } from './teaching-workspace-change-audit'
@@ -125,7 +116,6 @@ import type {
   TeachingWorkspaceChangeSummary,
   TeachingWorkspaceSummary,
   InterruptedAgentRun,
-  WorkspaceItemKind,
   WorkspaceMarkdownDocument,
   WorkspaceItemMetaPayload,
   WorkspaceItemRemovePayload,
@@ -523,64 +513,25 @@ export class TeachingWorkspaceService {
       await this.saveRegistry(nextRegistry)
       return this.buildState(nextRegistry, activeWorkspaceId, null)
     }
-    if (isRootAgentConversationMarkdownRelativePath(relativePath)) {
-      const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
-      if (await this.hasTemporaryConversation(id)) {
-        const index = await this.loadTemporaryConversationIndex()
-        const pathMeta = mergeWorkspaceItemPathMeta(index.pathMeta, relativePath, payload)
-        await this.saveTemporaryConversationIndex({ ...index, pathMeta })
-        return this.buildState(registry, workspace.id, null)
-      }
-    }
-    const index = await this.loadWorkspaceIndex(workspace)
-    const pathMeta = mergeWorkspaceItemPathMeta(index.pathMeta, relativePath, payload)
-    await this.saveWorkspaceIndex(workspace.rootPath, { ...index, pathMeta, updatedAt: new Date().toISOString() })
-    return this.buildState(registry, workspace.id, null)
+
+    return this.createItemLifecycleExecutor(registry).execute({
+      workspace,
+      target: {
+        relativePath: payload.relativePath,
+        kind: isRootAgentConversationMarkdownRelativePath(relativePath) ? 'conversation' : 'file'
+      },
+      intent: { type: 'set-meta', change: payload }
+    })
   }
 
   async removeWorkspaceItem(payload: WorkspaceItemRemovePayload): Promise<TeachingAppState> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    const relativePath = normalizeWorkspaceRelativePath(payload.relativePath)
-    if (!relativePath) throw new Error('relativePath is required.')
-    const absolutePath = resolve(join(workspace.rootPath, relativePath))
-    if (!isPathInsideRoot(workspace.rootPath, absolutePath)) {
-      throw new Error('Path is outside the workspace.')
-    }
-
-    if (shouldArchiveWorkspaceItem(payload.mode)) {
-      return this.archiveWorkspaceItem(registry, workspace, relativePath, payload.kind)
-    }
-
-    const index = await this.loadWorkspaceIndex(workspace)
-
-    if (payload.kind === 'conversation') {
-      const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
-      if (isRootAgentConversationMarkdownRelativePath(relativePath) && await this.hasTemporaryConversation(id)) {
-        const index = await this.loadTemporaryConversationIndex()
-        const plan = planTemporaryConversationDiskRemoval(this.appDataRoot, relativePath)
-        for (const file of plan.files) await unlink(file).catch(() => {})
-        await this.saveTemporaryConversationIndex({
-          ...index,
-          pathMeta: pruneWorkspacePathMetaForItemRemoval(index.pathMeta, { relativePath, kind: payload.kind })
-        })
-        return this.buildState(registry, workspace.id, null)
-      }
-    }
-
-    const plan = planWorkspaceItemDiskRemoval(workspace.rootPath, index, { relativePath, kind: payload.kind })
-    for (const directory of plan.directories) await rm(directory, { recursive: true, force: true })
-    for (const file of plan.files) await unlink(file).catch(() => {})
-
-    const { lessons, pathMeta } = pruneWorkspaceIndexForItemRemoval(index, { relativePath, kind: payload.kind })
-    await this.saveWorkspaceIndex(workspace.rootPath, {
-      ...index,
-      lessons,
-      pathMeta,
-      updatedAt: new Date().toISOString()
+    return this.createItemLifecycleExecutor(registry).execute({
+      workspace,
+      target: { relativePath: payload.relativePath, kind: payload.kind },
+      intent: { type: 'remove', mode: payload.mode }
     })
-
-    return this.buildState(registry, workspace.id, null)
   }
 
   async removeWorkspace(payload: WorkspaceRemovePayload): Promise<TeachingAppState> {
@@ -602,32 +553,6 @@ export class TeachingWorkspaceService {
     const nextRegistry = { activeWorkspaceId, workspaces }
     await this.saveRegistry(nextRegistry)
     return this.buildState(nextRegistry, activeWorkspaceId, null)
-  }
-
-  private async archiveWorkspaceItem(
-    registry: WorkspaceRegistry,
-    workspace: RegistryWorkspace,
-    relativePath: string,
-    kind: WorkspaceItemKind
-  ): Promise<TeachingAppState> {
-    if (kind === 'conversation') {
-      const id = requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
-      if (isRootAgentConversationMarkdownRelativePath(relativePath) && await this.hasTemporaryConversation(id)) {
-        const index = await this.loadTemporaryConversationIndex()
-        const pathMeta = archiveWorkspaceItemPathMeta(index.pathMeta, relativePath)
-        await this.saveTemporaryConversationIndex({ ...index, pathMeta })
-        return this.buildState(registry, workspace.id, null)
-      }
-    }
-
-    const index = await this.loadWorkspaceIndex(workspace)
-    const pathMeta = archiveWorkspaceItemPathMeta(index.pathMeta, relativePath)
-    await this.saveWorkspaceIndex(workspace.rootPath, {
-      ...index,
-      pathMeta,
-      updatedAt: new Date().toISOString()
-    })
-    return this.buildState(registry, workspace.id, null)
   }
 
   /**
@@ -951,6 +876,20 @@ export class TeachingWorkspaceService {
 
   private async appendSessionEvent(rootPath: string, event: SessionEvent): Promise<void> {
     await appendWorkspaceSessionEvent(rootPath, event)
+  }
+
+  private createItemLifecycleExecutor(
+    registry: WorkspaceRegistry
+  ): TeachingWorkspaceItemLifecycleExecutor<TeachingAppState> {
+    return new TeachingWorkspaceItemLifecycleExecutor({
+      appDataRoot: this.appDataRoot,
+      loadWorkspaceIndex: (workspace) => this.loadWorkspaceIndex(workspace),
+      saveWorkspaceIndex: (rootPath, index) => this.saveWorkspaceIndex(rootPath, index),
+      loadTemporaryConversationIndex: () => this.loadTemporaryConversationIndex(),
+      saveTemporaryConversationIndex: (index) => this.saveTemporaryConversationIndex(index),
+      hasTemporaryConversation: (id) => this.hasTemporaryConversation(id),
+      rebuildState: (workspace) => this.buildState(registry, workspace.id, null)
+    })
   }
 
   private async loadSettings(): Promise<TeachingSettingsV1> {

@@ -273,6 +273,50 @@ try {
     'removing the default lessons folder from disk should delete the folder itself'
   )
 
+  const temporaryConversation = await service.saveAgentConversation({
+    workspaceId: current.id,
+    mode: 'temporary',
+    turns: [
+      { id: 'temporary-user', role: 'user', content: 'Remove this temporary conversation.', createdAt: '2026-07-14T00:00:00.000Z' },
+      { id: 'temporary-assistant', role: 'assistant', content: 'Temporary conversation ready.', createdAt: '2026-07-14T00:00:01.000Z' }
+    ]
+  })
+  const temporaryConversationPath = temporaryConversation.conversation.relativePath
+  const temporaryConversationJsonPath = join(tempRoot, 'user-data', 'conversations', `${temporaryConversation.conversation.id}.json`)
+  const temporaryConversationMarkdownPath = join(tempRoot, 'user-data', temporaryConversationPath)
+  await service.setWorkspaceItemMeta({
+    workspaceId: current.id,
+    relativePath: temporaryConversationPath,
+    pinned: true
+  })
+  const afterTemporaryConversationRemoval = await service.removeWorkspaceItem({
+    workspaceId: current.id,
+    relativePath: temporaryConversationPath,
+    kind: 'conversation',
+    mode: 'disk'
+  })
+  assert.equal(
+    afterTemporaryConversationRemoval.temporaryConversations.some((conversation) => conversation.id === temporaryConversation.conversation.id),
+    false,
+    'removing a temporary Agent conversation should rebuild the shared conversation catalog without it'
+  )
+  assert.equal(
+    await stat(temporaryConversationJsonPath).then(() => true).catch(() => false),
+    false,
+    'removing a temporary Agent conversation should delete its app-data JSON record'
+  )
+  assert.equal(
+    await stat(temporaryConversationMarkdownPath).then(() => true).catch(() => false),
+    false,
+    'removing a temporary Agent conversation should delete its app-data Markdown record'
+  )
+  const temporaryConversationIndex = JSON.parse(await readFile(join(tempRoot, 'user-data', 'conversations', '.index.json'), 'utf8'))
+  assert.equal(
+    temporaryConversationIndex.pathMeta?.[temporaryConversationPath],
+    undefined,
+    'removing a temporary Agent conversation should prune its app-data path metadata'
+  )
+
   const listRemovalRoot = join(tempRoot, 'workspace-remove-from-list')
   await mkdir(listRemovalRoot, { recursive: true })
   await writeFile(join(listRemovalRoot, 'MISSION.md'), '# Mission: Remove From List\n', 'utf8')
