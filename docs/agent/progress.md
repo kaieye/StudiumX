@@ -4,9 +4,7 @@
 
 ## 当前队列
 
-| 切片 | 状态 | 下一交付物 | 主要依赖 |
-| --- | --- | --- | --- |
-| Phase 10：SDK/provider hooks | 未开始 | 统一 hook contract 与 fake-provider 测试 | 现有持久化与预算接口 |
+当前没有待实施的切片。
 
 ## 当前进行中
 
@@ -18,7 +16,7 @@
 
 ## 跨切片待决策
 
-- provider hook 的最小稳定字段，以及 provider 私有 metadata 的保留上限。
+无。
 
 ## 更新规则
 

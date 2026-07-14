@@ -10,22 +10,18 @@
 
 - conversation turns 是对话事实来源；发送投影、compaction 和 retrieval 不能静默改写它。
 - `AgentRunCheckpoint` 表示单次运行状态，不等同于会话/历史快照 checkpoint。
+- event bus 的短窗口 replay 不等同于 durable session replay。
 - child transcript 和 archived content 不自动展开进父上下文。
 - learner memory、conversation compaction、archived retrieval 使用独立的写入与读取策略。
 - 所有路径必须经过 workspace 包含关系、稳定 id、大小上限和完整性校验。
 
-## SDK/provider hooks 对持久化的要求
-
-- hook 只输出规范化事件，不把 SDK 私有对象直接写入 checkpoint、turn metadata 或 sidecar。
-- usage、retry、rate limit、stop reason 和错误需要区分 provider 报告值、本地估算值和 unknown。
-- 重复或乱序 hook 不能重复计费、重复终结 run 或推进错误的 durable sequence。
-- provider metadata 在持久化前必须经过字段白名单、大小限制和 secret redaction。
-
 ## 开放问题
 
-- retrieval 内容进入 provider context 时使用专用 message role、tool result 还是 reference block。
+当前没有待决的持久化设计问题。
 
 ## 主要风险
 
-- provider metadata 会扩大敏感信息落盘面，redaction 必须先于持久化。
+- 多个持久化层可能形成互相冲突的事实来源，必须为每种数据声明权威来源和重建方向。
+- replay 处理不当会重复产生副作用或把未确认内容伪装成最终回答。
+- branch 删除、归档或恢复前必须验证既有 checkpoint 与 artifact 引用完整性。
 - retrieval 与 compaction 反复转换可能导致语义漂移，必须保留 provenance、digest 和截断诊断。

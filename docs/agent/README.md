@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-- SDK/provider hooks 与统一运行诊断。
+当前没有待实施的 agent runtime 切片。
 
 ## 文档结构
 

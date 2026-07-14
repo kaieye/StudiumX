@@ -2,13 +2,15 @@ import type { ChatAdapterResult, ChatMessage } from './provider-adapter'
 import type {
   AgentRunBudget,
   AgentRunBudgetStopReason,
-  AgentRunUsageAggregate
+  AgentRunUsageAggregate,
+  AgentRunUsageProvenance
 } from '../../shared/teaching-types'
 import type {
   AgentLoopEvent,
   AgentLoopStopReason,
   RunAgentLoopResult
 } from './agent-loop'
+import { ProviderHookLedger, type ProviderUsageSource } from './provider-hooks'
 
 export type AgentLoopCallKind = 'provider' | 'tool'
 
@@ -43,6 +45,9 @@ export class AgentLoopExecutionState {
   }
   private readonly childRuns = new Set<string>()
   private readonly accountedChildRuns = new Set<string>()
+  private readonly providerHooks = new ProviderHookLedger()
+  private providerCallSeq = 0
+  private currentProviderCallId?: string
   private iterations = 0
   private budgetWarningEmitted = false
 
@@ -76,9 +81,20 @@ export class AgentLoopExecutionState {
 
   startProviderCall(): void {
     this.usage.providerCalls += 1
+    this.providerCallSeq += 1
+    this.currentProviderCallId = `provider-${this.providerCallSeq}`
+    this.providerHooks.record({ kind: 'request_started', callId: this.currentProviderCallId })
   }
 
-  recordProviderUsage(providerUsage: ChatAdapterResult['usage']): void {
+  recordProviderUsage(
+    providerUsage: ChatAdapterResult['usage'],
+    source: ProviderUsageSource = 'provider_reported'
+  ): void {
+    const callId = this.currentProviderCallId
+    if (callId) {
+      if (providerUsage) this.providerHooks.record({ kind: 'usage', callId, usage: providerUsage, source })
+      this.providerHooks.record({ kind: 'stop', callId, reason: 'stop' })
+    }
     if (!providerUsage) return
     if (providerUsage.promptTokens !== undefined) {
       this.usage.promptTokens = (this.usage.promptTokens ?? 0) + providerUsage.promptTokens
@@ -89,6 +105,11 @@ export class AgentLoopExecutionState {
     if (providerUsage.totalTokens !== undefined) {
       this.usage.totalTokens = (this.usage.totalTokens ?? 0) + providerUsage.totalTokens
     }
+  }
+
+  /** Feed an already-normalized provider hook event into the ledger (SDK adapters). */
+  recordProviderHookEvent(event: Parameters<ProviderHookLedger['record']>[0]): void {
+    this.providerHooks.record(event)
   }
 
   startToolCall(): void {
@@ -194,13 +215,29 @@ export class AgentLoopExecutionState {
       iterations: this.iterations,
       childRuns: this.childRuns.size,
       durationMs: Math.max(0, Math.floor(this.options.now() - this.startedAt)),
-      ...(budgetStopReason ? { budgetStopReason } : {})
+      ...(budgetStopReason ? { budgetStopReason } : {}),
+      ...this.usageProvenanceField()
     }
     return {
       ...result,
       iterations: this.iterations,
       usage
     }
+  }
+
+  /**
+   * Only assert provenance when the run actually reported provider token usage.
+   * A run whose tokens came only from child aggregation (or none at all) leaves
+   * the field absent, which downstream treats as `unknown`.
+   */
+  private usageProvenanceField(): { usageProvenance?: AgentRunUsageProvenance } {
+    if (this.usage.promptTokens === undefined &&
+      this.usage.completionTokens === undefined &&
+      this.usage.totalTokens === undefined) {
+      return {}
+    }
+    const provenance = this.providerHooks.snapshot().usageProvenance
+    return provenance === 'unknown' ? {} : { usageProvenance: provenance }
   }
 }
 
