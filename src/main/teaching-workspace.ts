@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rm, stat, unlink } from 'node:fs/promises'
+import { mkdir, readFile, rm, unlink } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
@@ -13,10 +13,7 @@ import { planLessonIndexReconciliation } from './teaching-workspace/catalog-reco
 import { runLessonGenerationPipeline, type LessonGenerationCallbacks } from './teaching-lesson-generation'
 import {
   cleanText,
-  directoryExists,
   normalizeWorkspaceRelativePath,
-  slugify,
-  toWorkspaceRelativePath,
   type WorkspacePathMeta
 } from './teaching-workspace-paths'
 import {
@@ -57,12 +54,8 @@ import {
   applyRegistryWorkspaceMeta,
   assertSafeWorkspaceRootForRemoval,
   findWorkspace,
-  isRegistryWorkspace,
   orderRegistryWorkspaces,
-  samePath,
-  sameRegistryWorkspaceOrder,
   touchRegistryWorkspace,
-  upsertRegistryWorkspace,
   visibleRegistryWorkspaces,
   type RegistryWorkspace,
   type WorkspaceRegistry
@@ -70,12 +63,11 @@ import {
 import {
   appendSessionEvent as appendWorkspaceSessionEvent,
   atomicWriteFile,
+  deriveWorkspaceTopic,
   ensureWorkspaceStructure as ensureWorkspaceLifecycleStructure,
   loadWorkspaceIndex as loadWorkspaceLifecycleIndex,
   renderMission,
-  renderResources,
   saveWorkspaceIndex as saveWorkspaceLifecycleIndex,
-  writeIfMissing,
   type SessionEvent,
   type WorkspaceIndex
 } from './teaching-workspace/lifecycle'
@@ -88,10 +80,10 @@ import {
   pruneWorkspacePathMetaForItemRemoval,
   shouldArchiveWorkspaceItem
 } from './teaching-workspace/item-lifecycle'
+import { TeachingWorkspaceActivationLifecycle } from './teaching-workspace/activation-lifecycle'
 import { TeachingWorkspaceReviewDeck } from './teaching-workspace/review'
 import { TeachingWorkspaceChangeAudit } from './teaching-workspace-change-audit'
 import {
-  previewUrlForDocument,
   TeachingWorkspaceDocuments,
   type WorkspacePreviewFile
 } from './teaching-workspace-documents'
@@ -169,6 +161,7 @@ export class TeachingWorkspaceService {
   private readonly reviewDeck = new TeachingWorkspaceReviewDeck()
   private readonly changeAudit: TeachingWorkspaceChangeAudit
   private readonly documents = new TeachingWorkspaceDocuments()
+  private readonly activation: TeachingWorkspaceActivationLifecycle
 
   constructor(options: {
     registryPath: string
@@ -187,6 +180,17 @@ export class TeachingWorkspaceService {
     })
     this.changeAudit = new TeachingWorkspaceChangeAudit({
       historyFilePath: join(this.appDataRoot, 'learning-changes', 'history.json')
+    })
+    this.activation = new TeachingWorkspaceActivationLifecycle({
+      registryPath: this.registryPath,
+      defaultRoot: this.defaultRoot,
+      loadSettings: () => this.loadSettings(),
+      summarizeWorkspace: (workspace) => this.summarizeWorkspace(workspace),
+      listTemporaryConversations: (registry) => this.listTemporaryConversations(registry),
+      readLessonHtml: async (workspaceId, lessonPath) => (await this.readLesson({ workspaceId, lessonPath })).html,
+      runtimeState: () => this.runtimeState(),
+      listChangeHistory: (workspaceId) => this.changeAudit.listSummaries(workspaceId),
+      renderEmptyPreview
     })
   }
 
@@ -270,8 +274,7 @@ export class TeachingWorkspaceService {
     activeWorkspaceId?: string | null
     selectedLessonPath?: string | null
   } = {}): Promise<TeachingAppState> {
-    const registry = await this.ensureRegistry()
-    return this.buildState(registry, options.activeWorkspaceId, options.selectedLessonPath)
+    return this.activation.load(options)
   }
 
 
@@ -325,63 +328,15 @@ export class TeachingWorkspaceService {
   }
 
   async createWorkspace(payload: CreateWorkspacePayload): Promise<TeachingAppState> {
-    const now = new Date().toISOString()
-    const name = cleanText(payload.name) || 'learn'
-    const prompt = cleanText(payload.prompt) || `学习 ${name}`
-    const entry = await this.initializeWorkspace({
-      id: randomUUID(),
-      name,
-      rootPath: await this.nextWorkspacePath(name),
-      prompt,
-      now,
-      eventKind: 'workspace_created'
-    })
-    const registry = await this.loadRegistry()
-    const nextRegistry = upsertRegistryWorkspace(registry, entry, entry.id)
-    await this.saveRegistry(nextRegistry)
-    return this.buildState(nextRegistry, entry.id, null)
+    return this.activation.create(payload)
   }
 
   async selectWorkspace(workspaceId: string): Promise<TeachingAppState> {
-    const registry = await this.ensureRegistry()
-    const workspace = findWorkspace(registry, workspaceId)
-    const nextRegistry = { ...registry, activeWorkspaceId: workspace.id }
-    await this.saveRegistry(nextRegistry)
-    return this.buildState(nextRegistry, workspace.id, null)
+    return this.activation.select(workspaceId)
   }
 
   async importWorkspace(rootPath: string): Promise<TeachingAppState> {
-    const now = new Date().toISOString()
-    const normalizedRoot = resolve(rootPath)
-    const info = await stat(normalizedRoot)
-    if (!info.isDirectory()) throw new Error('Selected path is not a directory.')
-
-    const registry = await this.loadRegistry()
-    const existing = registry.workspaces.find((workspace) => samePath(workspace.rootPath, normalizedRoot))
-    if (existing) {
-      const nextRegistry = {
-        activeWorkspaceId: existing.id,
-        workspaces: orderRegistryWorkspaces(registry.workspaces.map((workspace) =>
-          workspace.id === existing.id
-            ? { ...workspace, archived: false, updatedAt: now }
-            : workspace
-        ))
-      }
-      await this.saveRegistry(nextRegistry)
-      return this.buildState(nextRegistry, existing.id, null)
-    }
-
-    const entry = await this.initializeWorkspace({
-      id: randomUUID(),
-      name: basename(normalizedRoot) || 'workspace',
-      rootPath: normalizedRoot,
-      prompt: `继续整理 ${basename(normalizedRoot) || 'workspace'} 教学工作区`,
-      now,
-      eventKind: 'workspace_imported'
-    })
-    const nextRegistry = upsertRegistryWorkspace(registry, entry, entry.id)
-    await this.saveRegistry(nextRegistry)
-    return this.buildState(nextRegistry, entry.id, null)
+    return this.activation.import(rootPath)
   }
 
   async updateMission(payload: UpdateMissionPayload): Promise<TeachingAppState> {
@@ -391,7 +346,7 @@ export class TeachingWorkspaceService {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
     const now = new Date().toISOString()
-    const topic = deriveTopic(prompt, workspace.name)
+    const topic = deriveWorkspaceTopic(prompt, workspace.name)
     await atomicWriteFile(join(workspace.rootPath, 'MISSION.md'), renderMission(topic, prompt))
     await this.appendSessionEvent(workspace.rootPath, {
       id: randomUUID(),
@@ -914,37 +869,11 @@ export class TeachingWorkspaceService {
   }
 
   private async ensureRegistry(): Promise<WorkspaceRegistry> {
-    const registry = await this.loadRegistry()
-    const existing = await this.existingRegistryWorkspaces(registry.workspaces)
-    if (existing.length > 0) {
-      const orderedExisting = orderRegistryWorkspaces(existing)
-      const visible = visibleRegistryWorkspaces(orderedExisting)
-      const activeWorkspaceId = visible.some((item) => item.id === registry.activeWorkspaceId)
-        ? registry.activeWorkspaceId
-        : visible[0]?.id ?? null
-      const nextRegistry = { activeWorkspaceId, workspaces: orderedExisting }
-      if (
-        nextRegistry.workspaces.length !== registry.workspaces.length ||
-        nextRegistry.activeWorkspaceId !== registry.activeWorkspaceId ||
-        !sameRegistryWorkspaceOrder(nextRegistry.workspaces, registry.workspaces)
-      ) {
-        await this.saveRegistry(nextRegistry)
-      }
-      return nextRegistry
-    }
+    return this.activation.ensureRegistry()
+  }
 
-    const now = new Date().toISOString()
-    const entry = await this.initializeWorkspace({
-      id: randomUUID(),
-      name: 'learn',
-      rootPath: await this.nextWorkspacePath('learn'),
-      prompt: '搭建个人化 AI 教学系统的第一版工作流',
-      now,
-      eventKind: 'workspace_created'
-    })
-    const nextRegistry = { activeWorkspaceId: entry.id, workspaces: [entry] }
-    await this.saveRegistry(nextRegistry)
-    return nextRegistry
+  private async saveRegistry(registry: WorkspaceRegistry): Promise<void> {
+    await this.activation.saveRegistry(registry)
   }
 
   private async buildState(
@@ -952,32 +881,7 @@ export class TeachingWorkspaceService {
     activeWorkspaceId?: string | null,
     selectedLessonPath?: string | null
   ): Promise<TeachingAppState> {
-    const visibleWorkspaces = visibleRegistryWorkspaces(orderRegistryWorkspaces(registry.workspaces))
-    const summaries = await Promise.all(visibleWorkspaces.map((workspace) => this.summarizeWorkspace(workspace)))
-    const temporaryConversations = await this.listTemporaryConversations(registry)
-    const activeId = activeWorkspaceId ?? registry.activeWorkspaceId ?? summaries[0]?.id ?? null
-    const activeWorkspace = summaries.find((workspace) => workspace.id === activeId) ?? summaries[0] ?? null
-    const lessonPath = selectedLessonPath ?? activeWorkspace?.lessons[0]?.absolutePath ?? null
-    const previewHtml =
-      activeWorkspace && lessonPath
-        ? await this.readLesson({ workspaceId: activeWorkspace.id, lessonPath }).then((result) => result.html).catch(() => renderEmptyPreview(activeWorkspace))
-        : activeWorkspace
-          ? renderEmptyPreview(activeWorkspace)
-          : ''
-    const runtime = await this.runtimeState()
-    const changeHistory = activeWorkspace ? await this.changeAudit.listSummaries(activeWorkspace.id) : []
-
-    return {
-      workspaces: summaries,
-      activeWorkspace,
-      temporaryConversations,
-      previewHtml,
-      previewUrl: activeWorkspace && lessonPath ? previewUrlForDocument(activeWorkspace.id, toWorkspaceRelativePath(activeWorkspace.rootPath, lessonPath)) : '',
-      selectedLessonPath: lessonPath,
-      runtime,
-      recentChangeSummary: changeHistory[0] ?? null,
-      changeHistory
-    }
+    return this.activation.assembleState(registry, activeWorkspaceId, selectedLessonPath)
   }
 
   private async summarizeWorkspace(workspace: RegistryWorkspace): Promise<TeachingWorkspaceSummary> {
@@ -1027,44 +931,6 @@ export class TeachingWorkspaceService {
     return { learnerProfiles, courses }
   }
 
-  private async initializeWorkspace(options: {
-    id: string
-    name: string
-    rootPath: string
-    prompt: string
-    now: string
-    eventKind: SessionEvent['kind']
-  }): Promise<RegistryWorkspace> {
-    const entry: RegistryWorkspace = {
-      id: options.id,
-      name: options.name,
-      rootPath: resolve(options.rootPath),
-      createdAt: options.now,
-      updatedAt: options.now
-    }
-    await this.ensureWorkspaceStructure(entry)
-    const topic = deriveTopic(options.prompt, options.name)
-    await writeIfMissing(join(entry.rootPath, 'MISSION.md'), renderMission(topic, options.prompt))
-    await writeIfMissing(join(entry.rootPath, 'RESOURCES.md'), renderResources(topic))
-    await this.saveWorkspaceIndex(entry.rootPath, {
-      id: entry.id,
-      name: entry.name,
-      rootPath: entry.rootPath,
-      createdAt: entry.createdAt,
-      updatedAt: entry.updatedAt,
-      lessons: []
-    })
-    await this.appendSessionEvent(entry.rootPath, {
-      id: randomUUID(),
-      kind: options.eventKind,
-      timestamp: options.now,
-      workspaceId: entry.id,
-      prompt: options.prompt,
-      paths: ['MISSION.md', 'RESOURCES.md', 'assets/lesson.css', 'assets/quiz.js']
-    })
-    return entry
-  }
-
   private async ensureWorkspaceStructure(
     workspace: RegistryWorkspace,
     pathMeta?: Record<string, WorkspacePathMeta>
@@ -1073,31 +939,6 @@ export class TeachingWorkspaceService {
       pathMeta,
       loadSettings: () => this.loadSettings()
     })
-  }
-
-  private async loadRegistry(): Promise<WorkspaceRegistry> {
-    try {
-      const parsed = JSON.parse(await readFile(this.registryPath, 'utf8')) as WorkspaceRegistry
-      if (!Array.isArray(parsed.workspaces)) return EMPTY_REGISTRY
-      return {
-        activeWorkspaceId: typeof parsed.activeWorkspaceId === 'string' ? parsed.activeWorkspaceId : null,
-        workspaces: parsed.workspaces.filter(isRegistryWorkspace).map((workspace) => ({
-          id: workspace.id,
-          name: workspace.name,
-          rootPath: resolve(workspace.rootPath),
-          createdAt: workspace.createdAt,
-          updatedAt: workspace.updatedAt,
-          ...(workspace.pinned === true ? { pinned: true } : {}),
-          ...(workspace.archived === true ? { archived: true } : {})
-        }))
-      }
-    } catch {
-      return EMPTY_REGISTRY
-    }
-  }
-
-  private async saveRegistry(registry: WorkspaceRegistry): Promise<void> {
-    await atomicWriteFile(this.registryPath, `${JSON.stringify(registry, null, 2)}\n`)
   }
 
   private async loadWorkspaceIndex(workspace: RegistryWorkspace): Promise<WorkspaceIndex> {
@@ -1110,42 +951,6 @@ export class TeachingWorkspaceService {
 
   private async appendSessionEvent(rootPath: string, event: SessionEvent): Promise<void> {
     await appendWorkspaceSessionEvent(rootPath, event)
-  }
-
-  private async existingRegistryWorkspaces(workspaces: RegistryWorkspace[]): Promise<RegistryWorkspace[]> {
-    const existing: RegistryWorkspace[] = []
-    const seen = new Set<string>()
-    for (const workspace of workspaces) {
-      const rootPath = resolve(workspace.rootPath)
-      const key = rootPath.toLowerCase()
-      if (seen.has(key)) continue
-      if (await directoryExists(rootPath)) {
-        existing.push({ ...workspace, rootPath })
-        seen.add(key)
-      }
-    }
-    return existing
-  }
-
-  private async nextWorkspacePath(name: string): Promise<string> {
-    const defaultRoot = await this.resolveDefaultRoot()
-    await mkdir(defaultRoot, { recursive: true })
-    const base = slugify(name, 'workspace')
-    let candidate = join(defaultRoot, base)
-    let suffix = 2
-    while (await directoryExists(candidate)) {
-      candidate = join(defaultRoot, `${base}-${suffix}`)
-      suffix += 1
-    }
-    return candidate
-  }
-
-  private async resolveDefaultRoot(): Promise<string> {
-    try {
-      return (await this.loadSettings()).workspace.defaultRoot || this.defaultRoot
-    } catch {
-      return this.defaultRoot
-    }
   }
 
   private async loadSettings(): Promise<TeachingSettingsV1> {
@@ -1189,16 +994,6 @@ function lessonToolStepMessage(step: string): string {
 
 function upsertLesson(lessons: LessonSummary[], lesson: LessonSummary): LessonSummary[] {
   return [lesson, ...lessons.filter((item) => item.absolutePath !== lesson.absolutePath)]
-}
-
-function deriveTopic(prompt: string, fallback: string): string {
-  const cleaned = cleanText(prompt)
-    .replace(/^我想(先)?学习/, '')
-    .replace(/^学习/, '')
-    .replace(/^如何/, '')
-  const firstSentence = cleaned.split(/[。.!?？\n]/)[0]?.trim()
-  const topic = firstSentence && firstSentence.length <= 34 ? firstSentence : firstSentence?.slice(0, 34)
-  return topic || cleanText(fallback) || '学习任务'
 }
 
 function safeJsonParse(text: string): unknown {

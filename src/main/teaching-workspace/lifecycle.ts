@@ -89,6 +89,33 @@ export async function ensureWorkspaceStructure(
   await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, effectivePathMeta, 'MISSION.md', renderMission(workspace.name, `学习 ${workspace.name}`))
 }
 
+export async function provisionWorkspaceMaterial(
+  workspace: RegistryWorkspace,
+  options: {
+    pathMeta?: Record<string, WorkspacePathMeta>
+    loadSettings: () => Promise<TeachingSettingsV1>
+    topic: string
+    prompt: string
+  }
+): Promise<void> {
+  const pathMeta = options.pathMeta ?? {}
+  await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, pathMeta, 'MISSION.md', renderMission(options.topic, options.prompt))
+  await writeWorkspaceScaffoldFileIfMissing(workspace.rootPath, pathMeta, 'RESOURCES.md', renderResources(options.topic))
+  await ensureWorkspaceStructure(workspace, {
+    pathMeta,
+    loadSettings: options.loadSettings
+  })
+}
+
+export function deriveWorkspaceTopic(prompt: string, fallback: string): string {
+  const cleaned = cleanText(prompt)
+    .replace(/^我想(先)?学习/, '')
+    .replace(/^学习/, '')
+    .replace(/^如何/, '')
+  const firstSentence = cleaned.split(/[。.!?？\n]/)[0]?.trim()
+  const topic = firstSentence && firstSentence.length <= 34 ? firstSentence : firstSentence?.slice(0, 34)
+  return topic || cleanText(fallback) || '学习任务'
+}
 export async function loadWorkspaceIndex(workspace: RegistryWorkspace): Promise<WorkspaceIndex> {
   try {
     const parsed = JSON.parse(await readFile(join(workspace.rootPath, '.teachos', 'index.json'), 'utf8')) as WorkspaceIndex
