@@ -12,27 +12,14 @@
 
 .study-analytics-page {
   /* Liquid glass tokens */
-  --analytics-card: color-mix(in srgb, var(--surface-solid) 58%, transparent);
-  --analytics-card-strong: color-mix(in srgb, var(--surface-solid) 74%, transparent);
-  --analytics-line: color-mix(in srgb, var(--line) 60%, transparent);
+  --analytics-card: rgb(251, 251, 251);
+  --analytics-card-border: rgb(247, 247, 247);
+  --analytics-card-strong: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  --analytics-line: color-mix(in srgb, var(--line) 72%, transparent);
   --analytics-soft: color-mix(in srgb, var(--accent) 9%, transparent);
-  --analytics-shadow:
-    0 28px 70px color-mix(in srgb, var(--text) 12%, transparent),
-    0 4px 14px color-mix(in srgb, var(--text) 6%, transparent);
+  --analytics-shadow: 0 0 0 0 transparent;
   --glass-blur: 30px;
   --glass-saturate: 180%;
-  /* Top-left specular sheen + soft base wash */
-  --glass-sheen: linear-gradient(
-    150deg,
-    color-mix(in srgb, #ffffff 62%, transparent) 0%,
-    color-mix(in srgb, #ffffff 10%, transparent) 26%,
-    transparent 52%
-  );
-  /* Inner rim: bright top edge, faint dark bottom edge */
-  --glass-rim:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text) 6%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, #ffffff 22%, transparent);
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -45,21 +32,6 @@
   container-name: study-analytics;
   container-type: inline-size;
   -webkit-app-region: no-drag;
-}
-
-/* Ambient light — colored blobs the glass refracts over */
-.study-analytics-page::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(46% 40% at 14% 8%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%),
-    radial-gradient(40% 42% at 88% 4%, color-mix(in srgb, #7d5cf5 26%, transparent), transparent 72%),
-    radial-gradient(52% 48% at 82% 88%, color-mix(in srgb, #22c3a6 22%, transparent), transparent 72%),
-    radial-gradient(46% 46% at 8% 92%, color-mix(in srgb, #f5a04f 20%, transparent), transparent 74%);
-  filter: saturate(120%);
 }
 
 .study-analytics-scroll {
@@ -225,7 +197,9 @@
   padding: 0 15px;
   color: var(--text-muted);
   border-radius: 13px;
-  background: color-mix(in srgb, var(--surface-solid) 64%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 46%, transparent);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
   cursor: pointer;
   font-size: 0.8125rem;
   font-weight: 720;
@@ -275,46 +249,23 @@
   flex-direction: column;
   gap: 16px;
   padding: clamp(18px, 2.4cqi, 28px);
-  border: 1px solid var(--analytics-line);
+  border: 1px solid var(--analytics-card-border);
   border-radius: clamp(20px, 2.4cqi, 28px);
   background: var(--analytics-card);
-  box-shadow: var(--analytics-shadow), var(--glass-rim);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   overflow: hidden;
   content-visibility: auto;
   contain-intrinsic-size: auto 320px;
-  transition: box-shadow 260ms ease-out, transform 260ms ease-out;
-}
-
-/* Specular sheen sweeping the top-left corner */
-.analytics-section-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  background: var(--glass-sheen);
-  opacity: 0.9;
-  mix-blend-mode: screen;
-}
-
-.analytics-section-card > * {
-  position: relative;
-  z-index: 1;
 }
 
 .analytics-section-card--wide {
   grid-column: 1 / -1;
 }
 
-.analytics-section-card[data-section-state='partial'] {
-  border-color: color-mix(in srgb, #c4862d 42%, var(--analytics-line));
-}
-
+.analytics-section-card[data-section-state='partial'],
 .analytics-section-card[data-section-state='error'] {
-  border-color: color-mix(in srgb, var(--danger, #b44343) 46%, var(--analytics-line));
+  border-color: var(--analytics-card-border);
 }
 
 .analytics-section-card-header {
@@ -431,10 +382,8 @@
   border: 1px solid var(--analytics-line);
   border-radius: 16px;
   background:
-    var(--glass-sheen),
     linear-gradient(145deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 62%),
     var(--analytics-card-strong);
-  box-shadow: var(--glass-rim);
   backdrop-filter: blur(14px) saturate(150%);
   -webkit-backdrop-filter: blur(14px) saturate(150%);
   transition: transform 200ms ease-out, box-shadow 200ms ease-out;
@@ -472,7 +421,6 @@
   border: 1px solid var(--analytics-line);
   border-radius: 18px;
   background: color-mix(in srgb, var(--surface-solid) 40%, transparent);
-  box-shadow: var(--glass-rim);
   backdrop-filter: blur(16px) saturate(150%);
   -webkit-backdrop-filter: blur(16px) saturate(150%);
 }
@@ -1023,10 +971,11 @@
 /* ------------------------------------------------------------ Dark theme --- */
 
 :root[data-resolved-theme='dark'] .study-analytics-page {
-  --analytics-card: color-mix(in srgb, var(--surface-solid) 76%, transparent);
-  --analytics-card-strong: color-mix(in srgb, var(--surface-solid) 91%, transparent);
-  --analytics-line: color-mix(in srgb, var(--line) 88%, transparent);
-  --analytics-shadow: 0 24px 70px rgba(0, 0, 0, 0.3);
+  --analytics-card: color-mix(in srgb, var(--surface-solid) 52%, transparent);
+  --analytics-card-border: color-mix(in srgb, var(--line) 90%, transparent);
+  --analytics-card-strong: color-mix(in srgb, var(--surface-solid) 68%, transparent);
+  --analytics-line: color-mix(in srgb, var(--line) 90%, transparent);
+  --analytics-shadow: 0 0 0 transparent;
 }
 
 /* --------------------------------------------------------- Container queries */
@@ -1116,6 +1065,7 @@
     border-color: color-mix(in srgb, var(--accent) 38%, var(--analytics-line));
     background: color-mix(in srgb, var(--accent) 8%, var(--analytics-card-strong));
   }
+
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1139,7 +1089,13 @@
     --analytics-card-strong: var(--surface-solid);
   }
 
-  .analytics-section-card {
+  .analytics-section-card,
+  .analytics-stat,
+  .analytics-subcard,
+  .analytics-filter-button,
+  .analytics-back-button,
+  .analytics-refresh-button,
+  .analytics-secondary-button {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -1156,6 +1112,7 @@
     --analytics-card: Canvas;
     --analytics-card-strong: Canvas;
     --analytics-line: CanvasText;
+    --analytics-card-border: CanvasText;
     --analytics-shadow: none;
     color: CanvasText;
     background: Canvas;

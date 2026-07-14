@@ -60,13 +60,6 @@ export function WorkbenchPomodoro({
       >
         <div ref={revealInnerRef} className="workbench-disclosure-reveal-inner workbench-pomodoro-reveal-inner">
           <div id="workbench-pomodoro-panel" className="workbench-disclosure-panel workbench-pomodoro-panel">
-            <header className="workbench-card-header">
-              <span>计时设置</span>
-              <button type="button" onClick={onResetTimer} aria-label="重置番茄钟" title="重置">
-                <RotateCcw size={15} />
-              </button>
-            </header>
-
             <div className="workbench-pomodoro-mode" role="tablist" aria-label="计时模式">
               {(['focus', 'break'] as const).map((mode) => (
                 <button
@@ -97,7 +90,16 @@ export function WorkbenchPomodoro({
             </div>
 
             <div className="workbench-pomodoro-actions">
-              <button className="is-primary" type="button" onClick={onToggleTimer}>
+              <button
+                className="workbench-pomodoro-reset"
+                type="button"
+                onClick={onResetTimer}
+                aria-label="重置番茄钟"
+                title="重置"
+              >
+                <RotateCcw size={16} />
+              </button>
+              <button className="workbench-pomodoro-start" type="button" onClick={onToggleTimer}>
                 {snapshot.timerState === 'running' ? <Pause size={16} /> : <Play size={16} />}
                 {snapshot.timerState === 'running' ? '暂停' : snapshot.timerState === 'paused' ? '继续' : '开始'}
               </button>
