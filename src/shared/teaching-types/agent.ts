@@ -206,6 +206,13 @@ export type AgentRunBudgetStopReason =
   | 'tool_calls'
   | 'total_tokens'
 
+/**
+ * Where a run's aggregated token usage came from, so the UI and audit layer can
+ * distinguish provider-reported figures from local estimates and from the
+ * absence of any figure. `unknown` means no usage was reported at all.
+ */
+export type AgentRunUsageProvenance = 'provider_reported' | 'local_estimate' | 'unknown'
+
 export type AgentRunBudget = {
   maxDurationMs: number
   maxProviderCalls: number
@@ -225,6 +232,8 @@ export type AgentRunUsageAggregate = {
   completionTokens?: number
   totalTokens?: number
   budgetStopReason?: AgentRunBudgetStopReason
+  /** Provenance of the token figures above; absent is treated as `unknown`. */
+  usageProvenance?: AgentRunUsageProvenance
 }
 
 export type AgentProjectionInvalidation = {

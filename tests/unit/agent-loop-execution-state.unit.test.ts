@@ -42,3 +42,35 @@ describe('AgentLoopExecutionState token accounting', () => {
     expect(result.usage).toMatchObject({ promptTokens: 60, completionTokens: 40, totalTokens: 100 })
   })
 })
+
+describe('AgentLoopExecutionState usage provenance', () => {
+  it('marks provider-reported usage when tokens came from the provider', () => {
+    const execution = new AgentLoopExecutionState({ budget, now: () => 1_000 })
+    execution.startProviderCall()
+    execution.recordProviderUsage({ totalTokens: 50 })
+
+    const result = execution.completed([], { finalText: 'done', toolsSupported: true, stopReason: 'final_answer' })
+
+    expect(result.usage.usageProvenance).toBe('provider_reported')
+  })
+
+  it('marks local_estimate when any provider usage was estimated', () => {
+    const execution = new AgentLoopExecutionState({ budget, now: () => 1_000 })
+    execution.startProviderCall()
+    execution.recordProviderUsage({ totalTokens: 50 }, 'local_estimate')
+
+    const result = execution.completed([], { finalText: 'done', toolsSupported: true, stopReason: 'final_answer' })
+
+    expect(result.usage.usageProvenance).toBe('local_estimate')
+  })
+
+  it('omits provenance when no provider tokens were reported', () => {
+    const execution = new AgentLoopExecutionState({ budget, now: () => 1_000 })
+    execution.startProviderCall()
+    execution.recordProviderUsage(undefined)
+
+    const result = execution.completed([], { finalText: 'done', toolsSupported: true, stopReason: 'final_answer' })
+
+    expect(result.usage).not.toHaveProperty('usageProvenance')
+  })
+})

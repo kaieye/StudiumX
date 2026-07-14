@@ -410,7 +410,8 @@ function normalizeRunUsage(value: AgentRunUsageAggregate): AgentRunUsageAggregat
     promptTokens: numberValue(value.promptTokens),
     completionTokens: numberValue(value.completionTokens),
     totalTokens: numberValue(value.totalTokens),
-    budgetStopReason: value.budgetStopReason
+    budgetStopReason: value.budgetStopReason,
+    usageProvenance: value.usageProvenance
   })
 }
 

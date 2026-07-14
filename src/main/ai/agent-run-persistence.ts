@@ -408,7 +408,7 @@ function validateBudget(value: unknown): AgentRunBudget {
 function validateUsage(value: unknown): AgentRunUsageAggregate {
   const record = strictRecord(value, [
     'providerCalls', 'toolCalls', 'toolErrors', 'iterations', 'childRuns', 'durationMs',
-    'promptTokens', 'completionTokens', 'totalTokens', 'budgetStopReason'
+    'promptTokens', 'completionTokens', 'totalTokens', 'budgetStopReason', 'usageProvenance'
   ])
   return {
     providerCalls: nonNegativeInteger(record.providerCalls),
@@ -420,7 +420,8 @@ function validateUsage(value: unknown): AgentRunUsageAggregate {
     ...(record.promptTokens !== undefined ? { promptTokens: nonNegativeInteger(record.promptTokens) } : {}),
     ...(record.completionTokens !== undefined ? { completionTokens: nonNegativeInteger(record.completionTokens) } : {}),
     ...(record.totalTokens !== undefined ? { totalTokens: nonNegativeInteger(record.totalTokens) } : {}),
-    ...(record.budgetStopReason !== undefined ? { budgetStopReason: stringEnum(record.budgetStopReason, ['duration', 'provider_calls', 'tool_calls', 'total_tokens'] as const) } : {})
+    ...(record.budgetStopReason !== undefined ? { budgetStopReason: stringEnum(record.budgetStopReason, ['duration', 'provider_calls', 'tool_calls', 'total_tokens'] as const) } : {}),
+    ...(record.usageProvenance !== undefined ? { usageProvenance: stringEnum(record.usageProvenance, ['provider_reported', 'local_estimate', 'unknown'] as const) } : {})
   }
 }
 

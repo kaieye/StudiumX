@@ -36,13 +36,6 @@
 - 重启与索引重建后 branch lineage 保持稳定。
 - UI 能区分原始历史、fork 后新增内容、replay 输出和 recovery notice。
 
-## SDK/provider hooks 对持久化的要求
-
-- hook 只输出规范化事件，不把 SDK 私有对象直接写入 checkpoint、turn metadata 或 sidecar。
-- usage、retry、rate limit、stop reason 和错误需要区分 provider 报告值、本地估算值和 unknown。
-- 重复或乱序 hook 不能重复计费、重复终结 run 或推进错误的 durable sequence。
-- provider metadata 在持久化前必须经过字段白名单、大小限制和 secret redaction。
-
 ## 开放问题
 
 - branch 并发冲突采用乐观版本、单写者锁还是显式 fork。
@@ -52,6 +45,5 @@
 
 - 多个持久化层可能形成互相冲突的事实来源，必须为每种数据声明权威来源和重建方向。
 - replay 处理不当会重复产生副作用或把未确认内容伪装成最终回答。
-- provider metadata 会扩大敏感信息落盘面，redaction 必须先于持久化。
 - branch 删除、归档或恢复前必须验证既有 checkpoint 与 artifact 引用完整性。
 - retrieval 与 compaction 反复转换可能导致语义漂移，必须保留 provenance、digest 和截断诊断。
