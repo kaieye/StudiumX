@@ -11,12 +11,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conversation-state'
 import { useAppStore } from '../../app-shell/appStore'
-import {
-  appendAssistantTodoTasks,
-  appendTodoOutputContract,
-  parseAssistantTodoPayload,
-  stripAssistantTodoPayload
-} from '../../study-space/assistantTodo'
+import { AssistantTodoCapture } from '../../study-space/assistantTodo'
 import {
   PET_ASSISTANT_GEOMETRY_STORAGE_KEY,
   canFinishAssistantDialogInteraction,
@@ -145,7 +140,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     if (!activeWorkspace || !prompt || agentChatBusy || hasInterruption) return
     rememberAgentInput(prompt)
     setInput('')
-    void agentChat(appendTodoOutputContract(prompt), { mode: 'temporary' })
+    void agentChat(AssistantTodoCapture.preparePrompt(prompt), { mode: 'temporary' })
   }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -166,7 +161,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   }
 
   const importTodo = (turnId: string, titles: string[]): void => {
-    appendAssistantTodoTasks(titles)
+    AssistantTodoCapture.importTasks(titles)
     setImportedTodoTurns((current) => new Set(current).add(turnId))
   }
 
@@ -266,10 +261,11 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
           </div>
         ) : (
           agentTurns.map((turn) => {
-            const todoTitles = turn.role === 'assistant' ? parseAssistantTodoPayload(turn.content) : []
-            const visibleContent = turn.role === 'assistant'
-              ? stripAssistantTodoPayload(turn.content)
-              : turn.content
+            const todoInspection = turn.role === 'assistant'
+              ? AssistantTodoCapture.inspectAssistantTurn(turn.content)
+              : null
+            const todoTitles = todoInspection?.tasks ?? []
+            const visibleContent = todoInspection?.visibleContent ?? turn.content
             const imported = importedTodoTurns.has(turn.id)
             return (
               <article key={turn.id} className={`pet-assistant-message is-${turn.role}`}>
