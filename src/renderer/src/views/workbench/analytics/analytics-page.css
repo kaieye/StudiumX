@@ -11,12 +11,30 @@
 }
 
 .study-analytics-page {
-  --analytics-card: color-mix(in srgb, var(--surface-solid) 82%, transparent);
-  --analytics-card-strong: color-mix(in srgb, var(--surface-solid) 94%, transparent);
-  --analytics-line: color-mix(in srgb, var(--line) 82%, transparent);
+  /* Liquid glass tokens */
+  --analytics-card: color-mix(in srgb, var(--surface-solid) 58%, transparent);
+  --analytics-card-strong: color-mix(in srgb, var(--surface-solid) 74%, transparent);
+  --analytics-line: color-mix(in srgb, var(--line) 60%, transparent);
   --analytics-soft: color-mix(in srgb, var(--accent) 9%, transparent);
-  --analytics-shadow: 0 22px 64px color-mix(in srgb, var(--text) 8%, transparent);
+  --analytics-shadow:
+    0 28px 70px color-mix(in srgb, var(--text) 12%, transparent),
+    0 4px 14px color-mix(in srgb, var(--text) 6%, transparent);
+  --glass-blur: 30px;
+  --glass-saturate: 180%;
+  /* Top-left specular sheen + soft base wash */
+  --glass-sheen: linear-gradient(
+    150deg,
+    color-mix(in srgb, #ffffff 62%, transparent) 0%,
+    color-mix(in srgb, #ffffff 10%, transparent) 26%,
+    transparent 52%
+  );
+  /* Inner rim: bright top edge, faint dark bottom edge */
+  --glass-rim:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 6%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, #ffffff 22%, transparent);
   position: relative;
+  isolation: isolate;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -27,6 +45,26 @@
   container-name: study-analytics;
   container-type: inline-size;
   -webkit-app-region: no-drag;
+}
+
+/* Ambient light — colored blobs the glass refracts over */
+.study-analytics-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(46% 40% at 14% 8%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%),
+    radial-gradient(40% 42% at 88% 4%, color-mix(in srgb, #7d5cf5 26%, transparent), transparent 72%),
+    radial-gradient(52% 48% at 82% 88%, color-mix(in srgb, #22c3a6 22%, transparent), transparent 72%),
+    radial-gradient(46% 46% at 8% 92%, color-mix(in srgb, #f5a04f 20%, transparent), transparent 74%);
+  filter: saturate(120%);
+}
+
+.study-analytics-scroll {
+  position: relative;
+  z-index: 1;
 }
 
 .study-analytics-scroll {
@@ -231,6 +269,7 @@
 }
 
 .analytics-section-card {
+  position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -239,12 +278,31 @@
   border: 1px solid var(--analytics-line);
   border-radius: clamp(20px, 2.4cqi, 28px);
   background: var(--analytics-card);
-  box-shadow: var(--analytics-shadow);
-  backdrop-filter: blur(22px) saturate(140%);
-  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  box-shadow: var(--analytics-shadow), var(--glass-rim);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   overflow: hidden;
   content-visibility: auto;
   contain-intrinsic-size: auto 320px;
+  transition: box-shadow 260ms ease-out, transform 260ms ease-out;
+}
+
+/* Specular sheen sweeping the top-left corner */
+.analytics-section-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--glass-sheen);
+  opacity: 0.9;
+  mix-blend-mode: screen;
+}
+
+.analytics-section-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .analytics-section-card--wide {
@@ -372,7 +430,14 @@
   padding: clamp(13px, 1.7cqi, 18px);
   border: 1px solid var(--analytics-line);
   border-radius: 16px;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 62%), var(--analytics-card-strong);
+  background:
+    var(--glass-sheen),
+    linear-gradient(145deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 62%),
+    var(--analytics-card-strong);
+  box-shadow: var(--glass-rim);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  transition: transform 200ms ease-out, box-shadow 200ms ease-out;
 }
 
 .analytics-stat__label {
@@ -398,6 +463,7 @@
 }
 
 .analytics-subcard {
+  position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -405,7 +471,10 @@
   padding: clamp(14px, 1.9cqi, 20px);
   border: 1px solid var(--analytics-line);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--surface-solid) 56%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 40%, transparent);
+  box-shadow: var(--glass-rim);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
 }
 
 .analytics-subcard__title {
