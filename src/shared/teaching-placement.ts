@@ -2,6 +2,13 @@ export const DEFAULT_COURSE_RELATIVE_PATH = 'lessons'
 export const COURSES_ROOT_RELATIVE_PATH = 'courses'
 export const DEFAULT_COURSE_LESSON_FOLDER_NAME = 'lessons'
 export const COURSE_LESSON_FOLDER_NAME = 'lesson'
+export const LEARNING_SESSIONS_ROOT_RELATIVE_PATH = 'learning-sessions'
+export const LEARNING_SESSION_MANIFEST_FILE_NAME = 'session.json'
+export const LEARNING_SESSION_EVENTS_DIRECTORY_NAME = 'events'
+export const LEARNING_SESSION_OUTCOME_FILE_NAME = 'outcome.json'
+
+const LEARNING_SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?$/
+const WINDOWS_DEVICE_NAME_PATTERN = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 
 export type CoursePlacement = {
   courseId: string
@@ -22,6 +29,32 @@ export type LessonArtifactPlacement = LessonPlacement & {
   reviewsRelativePath: string | null
 }
 
+export function learningSessionRelativePath(sessionId: string): string {
+  return joinTeachingRelativePath(LEARNING_SESSIONS_ROOT_RELATIVE_PATH, requireLearningSessionId(sessionId))
+}
+
+export function learningSessionManifestRelativePath(sessionId: string): string {
+  return joinTeachingRelativePath(learningSessionRelativePath(sessionId), LEARNING_SESSION_MANIFEST_FILE_NAME)
+}
+
+export function learningSessionEventsRelativePath(sessionId: string): string {
+  return joinTeachingRelativePath(learningSessionRelativePath(sessionId), LEARNING_SESSION_EVENTS_DIRECTORY_NAME)
+}
+
+export function learningSessionOutcomeRelativePath(sessionId: string): string {
+  return joinTeachingRelativePath(learningSessionRelativePath(sessionId), LEARNING_SESSION_OUTCOME_FILE_NAME)
+}
+
+export function isLearningSessionId(value: string): boolean {
+  return typeof value === 'string' &&
+    LEARNING_SESSION_ID_PATTERN.test(value) &&
+    !WINDOWS_DEVICE_NAME_PATTERN.test(value)
+}
+
+export function requireLearningSessionId(value: string): string {
+  if (!isLearningSessionId(value)) throw new Error('Learning Session path requires a stable Session ID.')
+  return value
+}
 export function normalizeTeachingRelativePath(value: string): string {
   return value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '').replace(/\/+$/, '')
 }

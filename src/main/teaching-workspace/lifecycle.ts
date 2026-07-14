@@ -9,6 +9,7 @@ import {
   normalizeLessonStyleId
 } from '../../shared/lesson-styles'
 import type { LessonPlanSource } from '../../shared/lesson-schema'
+import { LEARNING_SESSIONS_ROOT_RELATIVE_PATH } from '../../shared/teaching-placement'
 import type { LessonSummary, TeachingSettingsV1, WorkspaceItemKind } from '../../shared/teaching-types'
 import { normalizeLessonSummary } from '../teaching-workspace-catalog'
 import {
@@ -31,7 +32,7 @@ export type WorkspaceIndex = {
   pathMeta?: Record<string, WorkspacePathMeta>
 }
 
-export type SessionEvent = {
+export type WorkspaceLifecycleEvent = {
   id: string
   kind: 'workspace_created' | 'workspace_imported' | 'mission_updated' | 'lesson_generated' | 'lesson_style_applied' | 'agent_conversation_recorded'
   timestamp: string
@@ -41,13 +42,17 @@ export type SessionEvent = {
   meta?: { source?: LessonPlanSource; reason?: string; model?: string; styleId?: string }
 }
 
+/** @deprecated Use WorkspaceLifecycleEvent. This is not a teaching Session evidence event. */
+export type SessionEvent = WorkspaceLifecycleEvent
+
 const WORKSPACE_SCAFFOLD_DIRECTORIES = new Set([
   'lessons',
   'conversation',
   'reference',
   'learning-records',
   'reviews',
-  'assets'
+  'assets',
+  LEARNING_SESSIONS_ROOT_RELATIVE_PATH
 ])
 
 const WORKSPACE_SCAFFOLD_FILES = new Set([
@@ -148,9 +153,14 @@ export async function saveWorkspaceIndex(rootPath: string, index: WorkspaceIndex
   await atomicWriteFile(join(rootPath, '.teachos', 'index.json'), `${JSON.stringify(index, null, 2)}\n`)
 }
 
-export async function appendSessionEvent(rootPath: string, event: SessionEvent): Promise<void> {
+export async function appendWorkspaceLifecycleEvent(rootPath: string, event: WorkspaceLifecycleEvent): Promise<void> {
   await mkdir(join(rootPath, '.teachos'), { recursive: true })
   await appendFile(join(rootPath, '.teachos', 'sessions.jsonl'), `${JSON.stringify(event)}\n`, 'utf8')
+}
+
+/** @deprecated Use appendWorkspaceLifecycleEvent. This log does not contain teaching Session evidence. */
+export async function appendSessionEvent(rootPath: string, event: SessionEvent): Promise<void> {
+  await appendWorkspaceLifecycleEvent(rootPath, event)
 }
 
 export async function atomicWriteFile(path: string, content: string): Promise<void> {

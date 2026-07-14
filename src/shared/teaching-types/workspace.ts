@@ -1,6 +1,7 @@
 import type { AgentChatMessage, AgentConversationSummary } from './agent'
 import type { TeachingWorkspaceChangeSummary } from './changes'
 import type { TeachingGitWorkspaceInfo } from './git'
+import type { LearningOutcomeRef, LearningSessionSource, LearningSessionStatus } from './learning-session'
 
 export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'workbench' | 'review' | 'settings'
 
@@ -55,6 +56,13 @@ export type TeachingSessionSummary = {
   relativePath: string
   absolutePath: string
   lesson: LessonSummary
+  /** Present for canonical ledger Sessions and legacy read-only projections after catalog integration. */
+  source?: LearningSessionSource
+  status?: LearningSessionStatus
+  version?: number
+  eventCount?: number
+  readOnly?: boolean
+  outcomeRef?: LearningOutcomeRef | null
 }
 
 export type TeachingCourseSummary = {
