@@ -1,9 +1,10 @@
-import type { AgentArtifactRef, AgentRunBudget, InterruptedAgentRun } from '../../shared/teaching-types'
+import type { AgentArtifactRef, AgentRealtimeEvent, AgentRunBudget, InterruptedAgentRun } from '../../shared/teaching-types'
 import { AgentOperationJournal } from './agent-operation-journal'
+import { AgentParentTurnStaging } from './agent-parent-turn-staging'
 import { ChildRunStore, type ChildRunRecord } from './child-run-supervisor'
 import { AgentRunLifecycle } from './agent-run-lifecycle'
 import { AgentRunPersistence } from './agent-run-persistence'
-import type { AgentOperationRecord, AgentRunCheckpoint, AgentRunChildRecord } from './agent-run-types'
+import type { AgentOperationRecord, AgentParentTurnStage, AgentRunCheckpoint, AgentRunChildRecord } from './agent-run-types'
 
 export {
   DEFAULT_AGENT_RUN_BUDGET,
@@ -14,6 +15,11 @@ export {
 export type {
   AgentOperationRecord,
   AgentOperationState,
+  AgentParentTurnStage,
+  AgentParentTurnStageBoundary,
+  AgentParentTurnStageEvidence,
+  AgentParentTurnStageStatus,
+  AgentParentTurnTextEvidence,
   AgentRunCheckpoint,
   AgentRunCheckpointStatus,
   AgentRunChildRecord,
@@ -27,12 +33,14 @@ export type {
 export class AgentRunStore {
   readonly operations: AgentOperationJournal
   private readonly persistence: AgentRunPersistence
+  private readonly parentTurns: AgentParentTurnStaging
   private readonly lifecycle: AgentRunLifecycle
 
   constructor(readonly storageRoot: string, now: () => string = () => new Date().toISOString()) {
     this.persistence = new AgentRunPersistence(storageRoot, now)
     this.operations = new AgentOperationJournal(this.persistence)
-    this.lifecycle = new AgentRunLifecycle(this.persistence, this.operations)
+    this.parentTurns = new AgentParentTurnStaging(this.persistence)
+    this.lifecycle = new AgentRunLifecycle(this.persistence, this.operations, this.parentTurns)
   }
 
   create(input: {
@@ -40,6 +48,7 @@ export class AgentRunStore {
     streamId: string
     workspaceId?: string
     conversationId?: string
+    parentTurn?: { userInput: string }
     budget: AgentRunBudget
   }): Promise<AgentRunCheckpoint> {
     return this.lifecycle.create(input)
@@ -53,8 +62,46 @@ export class AgentRunStore {
     return this.lifecycle.readCheckpoint(runId)
   }
 
-  reconcileInterrupted(): Promise<InterruptedAgentRun[]> {
-    return this.lifecycle.reconcileInterrupted()
+  recordParentTurnEvent(runId: string, event: AgentRealtimeEvent): Promise<AgentParentTurnStage | null> {
+    return this.lifecycle.recordParentTurnEvent(runId, event)
+  }
+
+  confirmParentTurnFinal(runId: string, finalText: string): Promise<AgentParentTurnStage | null> {
+    return this.lifecycle.confirmParentTurnFinal(runId, finalText)
+  }
+
+  prepareParentTurnSave(
+    runId: string,
+    targetConversationId: string,
+    expectedTurnDigest: string
+  ): Promise<AgentParentTurnStage | null> {
+    return this.lifecycle.prepareParentTurnSave(runId, targetConversationId, expectedTurnDigest)
+  }
+
+  settleParentTurn(
+    runId: string,
+    targetConversationId: string,
+    expectedTurnDigest: string
+  ): Promise<AgentParentTurnStage | null> {
+    return this.lifecycle.settleParentTurn(runId, targetConversationId, expectedTurnDigest)
+  }
+
+  markParentTurnTerminal(
+    runId: string,
+    status: 'failed' | 'canceled',
+    reason?: string
+  ): Promise<AgentParentTurnStage | null> {
+    return this.lifecycle.markParentTurnTerminal(runId, status, reason)
+  }
+
+  readParentTurnStage(runId: string): Promise<AgentParentTurnStage> {
+    return this.lifecycle.readParentTurnStage(runId)
+  }
+
+  reconcileInterrupted(
+    isConversationSaved?: (stage: AgentParentTurnStage) => boolean | Promise<boolean>
+  ): Promise<InterruptedAgentRun[]> {
+    return this.lifecycle.reconcileInterrupted(isConversationSaved)
   }
 
   listInterrupted(): Promise<InterruptedAgentRun[]> {

@@ -135,6 +135,10 @@ export type AgentTurnMetadata = {
   contextEstimate?: AgentContextEstimateMetadata
   toolResults?: AgentToolResultDiagnostic[]
   runUsage?: AgentRunUsageAggregate
+  /** Durable run marker used to settle a pending parent turn without duplicating it after restart. */
+  runId?: string
+  /** Digest of the saved parent-turn projection associated with `runId`. */
+  parentTurnDigest?: string
 }
 
 export type AgentChatProcessEvent = {
@@ -231,19 +235,45 @@ export type AgentProjectionInvalidation = {
   nextSequence: number
 }
 
+export type AgentParentTurnRecoveryEvidence = {
+  sequence: number
+  kind:
+    | 'status'
+    | 'tool_call'
+    | 'tool_result'
+    | 'permission_wait'
+    | 'permission_resolved'
+    | 'elicitation_wait'
+    | 'elicitation_resolved'
+    | 'terminal'
+  title: string
+  detail?: string
+  toolName?: string
+  isError?: boolean
+  createdAt: string
+}
+
 export type InterruptedAgentRun = {
   runId: string
   streamId: string
   workspaceId?: string
   conversationId?: string
   status: 'interrupted'
-  previousStatus: 'running' | 'waiting_for_permission' | 'waiting_for_elicitation'
+  previousStatus: 'running' | 'waiting_for_permission' | 'waiting_for_elicitation' | 'awaiting_conversation_save'
   lastDurableSequence: number
   updatedAt: string
   interruptedAt: string
   reason: string
   operationReviewCount: number
   usage: AgentRunUsageAggregate
+  /** Redacted, bounded evidence only; it is never promoted to an original conversation turn. */
+  userInputPreview?: string
+  userInputSha256?: string
+  confirmedAssistantPreview?: string
+  confirmedAssistantSha256?: string
+  confirmedAssistantTruncated?: boolean
+  unrecoverableAssistantDeltaBytes?: number
+  evidence?: AgentParentTurnRecoveryEvidence[]
 }
 
 export type AgentChatContextCompactionRequest = {

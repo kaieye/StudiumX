@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
@@ -16,7 +16,10 @@ import {
   type WorkspacePathMeta
 } from './teaching-workspace-paths'
 import {
+  agentParentTurnDigest,
+  attachAgentParentTurnCommit,
   deriveConversationTitle,
+  hasAgentParentTurnCommit,
   ensureTeachingContentDirectories,
   listAgentConversations,
   nextAgentConversationId,
@@ -333,7 +336,11 @@ export class TeachingWorkspaceService {
 
   async reconcileInterruptedAgentRuns(): Promise<InterruptedAgentRun[]> {
     const stores = await this.agentRunStores()
-    return (await Promise.all(stores.map((store) => store.reconcileInterrupted().catch(() => [])))).flat()
+    return (await Promise.all(stores.map((store) => store.reconcileInterrupted(async (stage) => {
+      if (!stage.targetConversationId || !stage.expectedTurnDigest) return false
+      const record = await readAgentConversationRecord(store.storageRoot, stage.targetConversationId).catch(() => null)
+      return Boolean(record && hasAgentParentTurnCommit(record.turns, stage.runId, stage.expectedTurnDigest))
+    }).catch(() => [])))).flat()
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
@@ -490,7 +497,7 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     await this.ensureWorkspaceStructure(workspace)
 
-    const turns = normalizeAgentConversationTurns(payload.turns)
+    let turns = normalizeAgentConversationTurns(payload.turns)
     if (turns.length === 0) throw new Error('Conversation is empty.')
 
     const now = new Date().toISOString()
@@ -501,8 +508,14 @@ export class TeachingWorkspaceService {
     const isTemporaryConversation = existingLocation?.global === true || payload.mode === 'temporary'
     const storageRoot = isTemporaryConversation ? this.appDataRoot : workspace.rootPath
     if (isTemporaryConversation) await this.ensureTemporaryConversationStructure()
+    const runId = payload.runId?.trim()
+    const runStore = runId ? new AgentRunStore(storageRoot) : null
+    const stagedParentTurn = runStore && runId
+      ? await runStore.readParentTurnStage(runId).catch(() => null)
+      : null
     const title = existing?.title ?? deriveConversationTitle(turns, now)
-    const id = existing?.id ?? await nextAgentConversationId(storageRoot, title, now)
+    const id = existing?.id ?? stagedParentTurn?.targetConversationId ?? await nextAgentConversationId(storageRoot, title, now)
+    const parentTurnDigest = runId ? agentParentTurnDigest(turns) : null
     const conversationDir = existing
       ? normalizeAgentConversationDirectory(dirname(existing.relativePath).replace(/\\/g, '/'))
       : isTemporaryConversation
@@ -518,6 +531,30 @@ export class TeachingWorkspaceService {
           allowances: stagedAllowances
         })
       : []
+    if (runStore && runId && parentTurnDigest) {
+      if (!stagedParentTurn) {
+        throw new Error('Parent turn staging is unavailable; refusing an unverified conversation save.')
+      }
+      const finalAssistantIndex = turns.findLastIndex((turn) => turn.role === 'assistant')
+      const finalAssistant = finalAssistantIndex >= 0 ? turns[finalAssistantIndex] : null
+      const finalUser = finalAssistantIndex >= 0
+        ? turns.slice(0, finalAssistantIndex).findLast((turn) => turn.role === 'user')
+        : null
+      const confirmedSha256 = finalAssistant
+        ? createHash('sha256').update(finalAssistant.content).digest('hex')
+        : null
+      const userInputSha256 = finalUser
+        ? createHash('sha256').update(finalUser.content.trim()).digest('hex')
+        : null
+      if (!stagedParentTurn.confirmedAssistant || confirmedSha256 !== stagedParentTurn.confirmedAssistant.sha256) {
+        throw new Error('Conversation final answer does not match the explicitly confirmed parent turn.')
+      }
+      if (userInputSha256 !== stagedParentTurn.userInput.sha256) {
+        throw new Error('Conversation user input does not match the staged parent turn.')
+      }
+      await runStore.prepareParentTurnSave(runId, id, parentTurnDigest)
+      turns = attachAgentParentTurnCommit(turns, runId, parentTurnDigest)
+    }
 
     const record: AgentConversationRecord = {
       id,
@@ -547,11 +584,13 @@ export class TeachingWorkspaceService {
 
     const nextRegistry = isTemporaryConversation ? registry : touchRegistryWorkspace(registry, workspace.id, now)
     if (!isTemporaryConversation) await this.saveRegistry(nextRegistry)
+    if (runStore && runId && parentTurnDigest && stagedParentTurn) {
+      await runStore.settleParentTurn(runId, id, parentTurnDigest)
+    }
     const result = {
       state: await this.buildState(nextRegistry, workspace.id, payload.selectedLessonPath ?? null),
       conversation: toAgentConversationSummary(record, {}, workspace.id)
     }
-    const runId = payload.runId?.trim()
     if (runId && authorizedAllowances.length > 0) {
       this.pendingAgentRunArchiveScopes.delete(runId)
     }

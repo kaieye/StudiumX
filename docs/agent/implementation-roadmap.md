@@ -2,31 +2,6 @@
 
 本文只列尚未完成的工作。阶段完成并通过验证后，直接删除对应章节；实现记录和提交信息由 Git 历史保存。
 
-## Phase 7：Pending stream staging
-
-状态：未开始。
-
-目标：在父 turn 尚未写入最终 conversation 前，持久化足够的进行中证据，使进程崩溃后能够解释本轮输入、已确认事件和未完成状态。
-
-范围：
-
-- 为用户输入、运行关联、最后 durable event sequence 和必要的 provider/tool 边界设计 staging record。
-- staging 写入与现有 run lifecycle checkpoint、operation journal、conversation save 保持幂等。
-- 最终 turn 保存成功后原子地结算或删除 staging；失败或启动恢复时不得产生重复 turn。
-- 启动恢复要区分可继续展示的已确认内容、需要人工确认的副作用和不可恢复的流式片段。
-- 补充崩溃点、重复启动、取消、权限等待和最终保存失败测试。
-
-非目标：
-
-- 不承诺逐 token 无损恢复。
-- 不在本阶段实现会话 branch/fork 或 archived-history 搜索。
-
-验收：
-
-- 崩溃后的父 run 不再只有状态记录而缺少可解释的输入/输出证据。
-- recovery 不会重复执行工具、重复追加 turn 或自动提交未确认的 assistant 文本。
-- staging 文件有路径包含校验、大小上限、schema 版本和损坏数据隔离。
-
 ## Phase 8：会话 checkpoint、归档检索与 artifact 生命周期
 
 状态：未开始。
@@ -89,14 +64,13 @@
 
 ## 跨阶段风险
 
-- staging、checkpoint、索引和 branch 同时引入多个事实来源，必须明确每类数据的权威性和重建方向。
+- run checkpoint、会话 checkpoint、索引和 branch 同时引入多个事实来源，必须明确每类数据的权威性和重建方向。
 - replay、恢复和清理都可能触碰有副作用的工具结果，默认必须停在人工确认边界。
 - archived retrieval 与 provider metadata 可能扩大敏感信息落盘范围，redaction 需要先于持久化。
 - 索引和 artifact 会持续增长，所有新格式都需要版本、上限、完整性校验和迁移策略。
 
 ## 推荐顺序
 
-1. 先完成 Phase 7，补齐父 turn 崩溃恢复证据。
-2. 再完成 Phase 8，为后续 session tree 提供稳定索引和存储生命周期。
-3. Phase 9 依赖 Phase 8 的引用与索引边界。
-4. Phase 10 可在 Phase 7 之后按 provider 需求独立切片，但不得绕过既有持久化和预算接口。
+1. 先完成 Phase 8，为后续 session tree 提供稳定索引和存储生命周期。
+2. Phase 9 依赖 Phase 8 的引用与索引边界。
+3. Phase 10 可按 provider 需求独立切片，但不得绕过既有持久化和预算接口。

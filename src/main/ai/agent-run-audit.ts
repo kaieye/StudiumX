@@ -368,7 +368,9 @@ function mergeAgentTurnMetadata(
     contextHygiene: nonEmpty([...(existing.contextHygiene ?? []), ...(incoming.contextHygiene ?? [])].slice(-MAX_CONTEXT_HYGIENE)),
     contextEstimate: incoming.contextEstimate ?? existing.contextEstimate,
     toolResults: nonEmpty(mergeBy(existing.toolResults, incoming.toolResults, (tool) => `${tool.toolCallId}:${tool.toolName}`).slice(-MAX_TOOL_DIAGNOSTICS)),
-    runUsage: incoming.runUsage ?? existing.runUsage
+    runUsage: incoming.runUsage ?? existing.runUsage,
+    runId: incoming.runId ?? existing.runId,
+    parentTurnDigest: incoming.parentTurnDigest ?? existing.parentTurnDigest
   })
 }
 
@@ -391,7 +393,9 @@ function hasAgentTurnMetadataContent(metadata: AgentTurnMetadata): boolean {
     metadata.contextHygiene?.length ||
     metadata.contextEstimate ||
     metadata.toolResults?.length ||
-    metadata.runUsage
+    metadata.runUsage ||
+    metadata.runId ||
+    metadata.parentTurnDigest
   )
 }
 

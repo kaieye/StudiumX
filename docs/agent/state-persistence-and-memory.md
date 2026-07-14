@@ -15,35 +15,6 @@
 - learner memory、conversation compaction、archived retrieval 使用独立的写入与读取策略。
 - 所有路径必须经过 workspace 包含关系、稳定 id、大小上限和完整性校验。
 
-## 未完成：Pending parent-turn staging
-
-### 问题
-
-run 状态可以持久化，但最终 conversation turn 写入前仍缺少完整的父 turn staging 闭环。进程在 provider/tool 流程中崩溃时，需要有足够证据解释用户输入、已确认事件和未完成输出。
-
-### 设计约束
-
-- staging 至少关联 `runId`、`streamId`、`conversationId`、用户输入摘要或引用、最后 durable sequence、状态和时间戳。
-- staging 只保存恢复所需的最小事实；不要把每个 token 都当作必须持久化的事实。
-- provider 文本只有在明确标记为已确认时才能用于恢复展示；未完成 delta 不能自动成为 assistant final turn。
-- tool 副作用由 operation journal 和权限记录裁决，恢复流程不得自动重复执行。
-- 最终 conversation save 与 staging 结算必须幂等；重复启动不能追加重复 turn。
-- 损坏、超限或引用越界的 staging 进入隔离路径，不阻塞其他 conversation 启动。
-
-### 验收重点
-
-- 覆盖 provider 前、provider 中、tool 前、tool 后、权限等待、最终保存前后的崩溃点。
-- interrupted UI 能说明哪些内容已持久化、哪些需要重发或人工确认。
-- staging 清理失败不会让已完成 turn 在下次启动时重复恢复。
-
-相关 seam：
-
-- `src/main/teaching-conversation-runtime.ts`
-- `src/main/ai/agent-run-lifecycle.ts`
-- `src/main/ai/agent-run-persistence.ts`
-- `src/main/ai/agent-operation-journal.ts`
-- `src/main/teaching-agent-conversations.ts`
-
 ## 未完成：会话/历史 checkpoint 与 archived retrieval
 
 ### 定义
@@ -79,7 +50,7 @@ run 状态可以持久化，但最终 conversation turn 写入前仍缺少完整
 
 ### 范围
 
-- tool result、child transcript、未来 staging 和索引文件的保留期。
+- tool result、child transcript、parent-turn staging 和索引文件的保留期。
 - 孤儿 artifact 发现、重复内容处理、引用计数或等价保护机制。
 - dry-run 清理、删除审计、失败重试和索引重建。
 - 写入前 secret redaction，以及清理日志自身的隐私过滤。
@@ -121,7 +92,6 @@ run 状态可以持久化，但最终 conversation turn 写入前仍缺少完整
 
 ## 开放问题
 
-- staging 保存完整用户输入、加密内容还是 conversation draft 引用。
 - 会话 checkpoint 的默认创建时机和用户可见命名方式。
 - archived-history 索引采用可重建文件索引还是独立数据库。
 - artifact 保留策略按时间、大小、conversation 状态还是组合阈值执行。
@@ -131,7 +101,7 @@ run 状态可以持久化，但最终 conversation turn 写入前仍缺少完整
 ## 主要风险
 
 - 多个持久化层可能形成互相冲突的事实来源，必须为每种数据声明权威来源和重建方向。
-- staging 或 replay 处理不当会重复产生副作用或把未确认内容伪装成最终回答。
+- replay 处理不当会重复产生副作用或把未确认内容伪装成最终回答。
 - archive 索引和 provider metadata 会扩大敏感信息落盘面，redaction 必须先于持久化。
 - branch、checkpoint 和清理相互依赖，任何删除操作都必须先验证引用完整性。
 - retrieval 与 compaction 反复转换可能导致语义漂移，必须保留 provenance、digest 和截断诊断。

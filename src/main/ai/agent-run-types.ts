@@ -6,6 +6,7 @@ export type AgentRunCheckpointStatus =
   | 'running'
   | 'waiting_for_permission'
   | 'waiting_for_elicitation'
+  | 'awaiting_conversation_save'
   | 'completed'
   | 'failed'
   | 'canceled'
@@ -18,13 +19,14 @@ export type AgentRunCheckpoint = {
   workspaceId?: string
   conversationId?: string
   status: AgentRunCheckpointStatus
-  previousStatus?: 'running' | 'waiting_for_permission' | 'waiting_for_elicitation'
+  previousStatus?: 'running' | 'waiting_for_permission' | 'waiting_for_elicitation' | 'awaiting_conversation_save'
   lastDurableSequence: number
   createdAt: string
   updatedAt: string
   completedAt?: string
   interruptedAt?: string
   transcriptPointer?: string
+  parentTurnStagingPointer?: string
   operationJournalPointer: string
   pendingPermissionId?: string
   pendingElicitationId?: string
@@ -32,6 +34,80 @@ export type AgentRunCheckpoint = {
   usage: AgentRunUsageAggregate
   stopReason?: string
   interruptionReason?: string
+}
+
+export type AgentParentTurnStageStatus =
+  | 'running'
+  | 'waiting_for_permission'
+  | 'waiting_for_elicitation'
+  | 'awaiting_conversation_save'
+  | 'interrupted'
+  | 'settled'
+  | 'failed'
+  | 'canceled'
+
+export type AgentParentTurnStageBoundary =
+  | 'input_received'
+  | 'provider_stream'
+  | 'tool_boundary'
+  | 'permission_boundary'
+  | 'elicitation_boundary'
+  | 'final_confirmed'
+  | 'conversation_save'
+
+export type AgentParentTurnTextEvidence = {
+  sha256: string
+  preview: string
+  originalBytes: number
+  truncated: boolean
+}
+
+export type AgentParentTurnStageEvidence = {
+  sequence: number
+  kind:
+    | 'status'
+    | 'tool_call'
+    | 'tool_result'
+    | 'permission_wait'
+    | 'permission_resolved'
+    | 'elicitation_wait'
+    | 'elicitation_resolved'
+    | 'terminal'
+  title: string
+  detail?: string
+  toolName?: string
+  isError?: boolean
+  createdAt: string
+}
+
+/**
+ * Minimal durable evidence for a parent turn before its final conversation snapshot is saved.
+ * Provider deltas are counted but never promoted to a final assistant turn; only an explicitly
+ * confirmed final answer may be retained as bounded, redacted recovery evidence.
+ */
+export type AgentParentTurnStage = {
+  schemaVersion: 1
+  runId: string
+  streamId: string
+  workspaceId?: string
+  conversationId?: string
+  targetConversationId?: string
+  status: AgentParentTurnStageStatus
+  previousStatus?: Exclude<AgentParentTurnStageStatus, 'interrupted' | 'settled' | 'failed' | 'canceled'>
+  boundary: AgentParentTurnStageBoundary
+  userInput: AgentParentTurnTextEvidence
+  confirmedAssistant?: AgentParentTurnTextEvidence
+  lastDurableSequence: number
+  unrecoverableAssistantDeltaBytes: number
+  unrecoverableAssistantDeltaCount: number
+  evidence: AgentParentTurnStageEvidence[]
+  expectedTurnDigest?: string
+  createdAt: string
+  updatedAt: string
+  interruptedAt?: string
+  settledAt?: string
+  failureReason?: string
+  recoveryReason?: string
 }
 
 export type AgentRunChildStatus =

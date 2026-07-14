@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { isPathInsideRoot } from './path-access'
@@ -144,6 +145,51 @@ export async function writeAgentConversationRecord(
     record,
     allowedStagedChildTranscripts: options.allowedStagedChildTranscripts
   })
+}
+
+export function agentParentTurnDigest(turns: readonly AgentChatTurn[]): string {
+  const assistantIndex = turns.findLastIndex((turn) => turn.role === 'assistant')
+  const assistant = assistantIndex >= 0 ? turns[assistantIndex] : null
+  const user = assistantIndex >= 0
+    ? turns.slice(0, assistantIndex).findLast((turn) => turn.role === 'user')
+    : null
+  if (!user || !assistant) throw new Error('A parent turn digest requires a user turn followed by an assistant turn.')
+  const projection = {
+    user: { id: user.id, content: user.content, createdAt: user.createdAt },
+    assistant: { id: assistant.id, content: assistant.content, createdAt: assistant.createdAt }
+  }
+  return createHash('sha256').update(JSON.stringify(projection)).digest('hex')
+}
+
+export function attachAgentParentTurnCommit(
+  turns: readonly AgentChatTurn[],
+  runId: string,
+  digest: string
+): AgentChatTurn[] {
+  const assistantIndex = turns.findLastIndex((turn) => turn.role === 'assistant')
+  if (assistantIndex < 0) throw new Error('A saved parent turn requires an assistant turn.')
+  return turns.map((turn, index) => index === assistantIndex
+    ? {
+        ...turn,
+        metadata: {
+          ...(turn.metadata ?? { version: 1 as const }),
+          version: 1,
+          runId,
+          parentTurnDigest: digest
+        }
+      }
+    : turn)
+}
+
+export function hasAgentParentTurnCommit(
+  turns: readonly AgentChatTurn[],
+  runId: string,
+  digest: string
+): boolean {
+  return turns.some((turn, index) => turn.role === 'assistant' &&
+    turn.metadata?.runId === runId &&
+    turn.metadata.parentTurnDigest === digest &&
+    agentParentTurnDigest(turns.slice(0, index + 1)) === digest)
 }
 
 export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[] {
@@ -330,6 +376,10 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
   const contextEstimate = normalizeContextEstimate(record.contextEstimate)
   const toolResults = normalizeToolResults(record.toolResults)
   const runUsage = normalizeRunUsage(record.runUsage)
+  const runId = typeof record.runId === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(record.runId) ? record.runId : undefined
+  const parentTurnDigest = typeof record.parentTurnDigest === 'string' && /^[a-f0-9]{64}$/.test(record.parentTurnDigest)
+    ? record.parentTurnDigest
+    : undefined
   const metadata: AgentTurnMetadata = {
     version: 1,
     sources: sources.length > 0 ? sources : undefined,
@@ -338,7 +388,9 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     contextHygiene: contextHygiene.length > 0 ? contextHygiene : undefined,
     contextEstimate,
     toolResults: toolResults.length > 0 ? toolResults : undefined,
-    runUsage
+    runUsage,
+    runId,
+    parentTurnDigest
   }
   return metadata.sources ||
     metadata.childRuns ||
@@ -346,7 +398,9 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     metadata.contextHygiene ||
     metadata.contextEstimate ||
     metadata.toolResults ||
-    metadata.runUsage
+    metadata.runUsage ||
+    metadata.runId ||
+    metadata.parentTurnDigest
     ? metadata
     : undefined
 }

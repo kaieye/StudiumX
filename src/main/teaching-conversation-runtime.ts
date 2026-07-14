@@ -93,6 +93,7 @@ export async function runTeachingConversationTurn(
     streamId: stream.streamId,
     workspaceId: payload.workspaceId,
     conversationId: payload.conversationId,
+    parentTurn: { userInput },
     budget
   })
   try {
@@ -101,16 +102,34 @@ export async function runTeachingConversationTurn(
       loadSettings: async () => settings
     })
     const usage = result.usage ?? emptyAgentRunUsage()
-    const status = 'canceled' in result ? 'canceled' : 'error' in result ? 'failed' : 'completed'
+    const status = 'canceled' in result
+      ? 'canceled'
+      : 'error' in result
+        ? 'failed'
+        : 'awaiting_conversation_save'
+    if ('turns' in result) {
+      await deps.runStore.confirmParentTurnFinal(stream.streamId, result.finalText)
+    } else {
+      await deps.runStore.markParentTurnTerminal(
+        stream.streamId,
+        'canceled' in result ? 'canceled' : 'failed',
+        'error' in result ? result.message : '运行已取消。'
+      )
+    }
     await deps.runStore.update(stream.streamId, {
       status,
-      completedAt: new Date().toISOString(),
+      ...(status === 'awaiting_conversation_save' ? {} : { completedAt: new Date().toISOString() }),
       usage,
       stopReason: 'stopReason' in result ? result.stopReason : status
     })
     await deps.runStore.flush()
     return result
   } catch (error) {
+    await deps.runStore.markParentTurnTerminal(
+      stream.streamId,
+      stream.signal?.aborted ? 'canceled' : 'failed',
+      error instanceof Error ? error.message : String(error)
+    ).catch(() => undefined)
     await deps.runStore.update(stream.streamId, {
       status: stream.signal?.aborted ? 'canceled' : 'failed',
       completedAt: new Date().toISOString(),
@@ -168,7 +187,7 @@ async function runTeachingConversationTurnActive(
     onTool: stream.onTool,
     onRealtimeEvent: stream.onRealtimeEvent,
     onRecorded: (event) => {
-      void deps.runStore.update(stream.streamId, { lastDurableSequence: event.sequence })
+      void deps.runStore.recordParentTurnEvent(stream.streamId, event).catch(() => undefined)
     }
   })
   stream.onEventBusReady?.(eventBus)

@@ -1,13 +1,23 @@
 import { createHash } from 'node:crypto'
-import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { AgentArtifactRef, AgentRunBudget, AgentRunUsageAggregate } from '../../shared/teaching-types'
 import { writeContentAddressedFile } from '../path-access'
-import type { AgentOperationRecord, AgentRunCheckpoint, AgentRunChildRecord } from './agent-run-types'
+import type {
+  AgentOperationRecord,
+  AgentParentTurnStage,
+  AgentParentTurnStageEvidence,
+  AgentParentTurnTextEvidence,
+  AgentRunCheckpoint,
+  AgentRunChildRecord
+} from './agent-run-types'
 import { assertSafeId } from './agent-run-types'
 
 const MAX_RESULT_BYTES = 16 * 1024
+const MAX_PARENT_TURN_STAGE_BYTES = 96 * 1024
+const MAX_PARENT_TURN_PREVIEW_BYTES = 16 * 1024
+const MAX_PARENT_TURN_EVIDENCE = 32
 const CHILD_TRANSCRIPT_DIRECTORY = '.agent-sessions/child-transcripts'
 
 export function agentRunChildTranscriptRelativePath(
@@ -61,6 +71,33 @@ export class AgentRunPersistence {
 
   async readCheckpointFile(name: string): Promise<AgentRunCheckpoint> {
     return this.readValidated(await this.safeFilePath('runs', name, false), validateCheckpoint)
+  }
+
+  async readParentTurnStage(runId: string): Promise<AgentParentTurnStage> {
+    assertSafeId(runId, 'runId')
+    return this.readValidated(
+      await this.safeFilePath('parent-turns', `${runId}.json`, false),
+      validateParentTurnStage,
+      MAX_PARENT_TURN_STAGE_BYTES
+    )
+  }
+
+  async writeParentTurnStage(stage: AgentParentTurnStage, replace: boolean): Promise<void> {
+    const path = await this.safeFilePath('parent-turns', `${stage.runId}.json`, true)
+    await atomicPrivateJson(path, validateParentTurnStage(stage), replace, MAX_PARENT_TURN_STAGE_BYTES)
+  }
+
+  async listParentTurnStageFiles(): Promise<string[]> {
+    const directory = await this.safeDirectory('parent-turns', true)
+    return (await readdir(directory).catch(() => [])).filter((name) => name.endsWith('.json')).sort()
+  }
+
+  async readParentTurnStageFile(name: string): Promise<AgentParentTurnStage> {
+    return this.readValidated(
+      await this.safeFilePath('parent-turns', name, false),
+      validateParentTurnStage,
+      MAX_PARENT_TURN_STAGE_BYTES
+    )
   }
 
   async readChildRun(runId: string, childRunId: string): Promise<AgentRunChildRecord> {
@@ -133,8 +170,12 @@ export class AgentRunPersistence {
     return containedArtifactExists(this.storageRoot, pointer)
   }
 
-  private async readValidated<T>(path: string, validate: (value: unknown) => T): Promise<T> {
+  private async readValidated<T>(path: string, validate: (value: unknown) => T, maxBytes?: number): Promise<T> {
     try {
+      if (maxBytes !== undefined) {
+        const info = await stat(path)
+        if (!info.isFile() || info.size > maxBytes) throw new Error('Agent state record exceeds its storage limit.')
+      }
       return validate(JSON.parse(await readFile(path, 'utf8')))
     } catch (error) {
       if (isNotFound(error)) throw error
@@ -167,7 +208,90 @@ export class AgentRunPersistence {
     const directory = await this.safeDirectory(relativeDirectory, create)
     const path = join(directory, name)
     if (!inside(resolve(this.storageRoot), resolve(path))) throw new Error('Agent state path escapes storage root.')
+    const existing = await lstat(path).catch((error) => {
+      if (isNotFound(error)) return null
+      throw error
+    })
+    if (existing?.isSymbolicLink()) throw new Error('Agent state file must not be a symbolic link.')
     return path
+  }
+}
+
+function validateParentTurnStage(value: unknown): AgentParentTurnStage {
+  const record = strictRecord(value, [
+    'schemaVersion', 'runId', 'streamId', 'workspaceId', 'conversationId', 'targetConversationId',
+    'status', 'previousStatus', 'boundary', 'userInput', 'confirmedAssistant', 'lastDurableSequence',
+    'unrecoverableAssistantDeltaBytes', 'unrecoverableAssistantDeltaCount', 'evidence', 'expectedTurnDigest',
+    'createdAt', 'updatedAt', 'interruptedAt', 'settledAt', 'failureReason', 'recoveryReason'
+  ])
+  if (record.schemaVersion !== 1) throw new Error('Unsupported parent turn staging schema version.')
+  const evidence = Array.isArray(record.evidence) ? record.evidence.map(validateParentTurnEvidence) : null
+  if (!evidence || evidence.length > MAX_PARENT_TURN_EVIDENCE) throw new Error('Invalid parent turn staging evidence.')
+  const stage: AgentParentTurnStage = {
+    schemaVersion: 1,
+    runId: safeIdValue(record.runId, 'runId'),
+    streamId: safeIdValue(record.streamId, 'streamId'),
+    ...(optionalSafeId(record.workspaceId, 'workspaceId') ? { workspaceId: optionalSafeId(record.workspaceId, 'workspaceId') } : {}),
+    ...(optionalSafeId(record.conversationId, 'conversationId') ? { conversationId: optionalSafeId(record.conversationId, 'conversationId') } : {}),
+    ...(optionalSafeId(record.targetConversationId, 'targetConversationId') ? { targetConversationId: optionalSafeId(record.targetConversationId, 'targetConversationId') } : {}),
+    status: stringEnum(record.status, ['running', 'waiting_for_permission', 'waiting_for_elicitation', 'awaiting_conversation_save', 'interrupted', 'settled', 'failed', 'canceled'] as const),
+    ...(record.previousStatus !== undefined ? {
+      previousStatus: stringEnum(record.previousStatus, ['running', 'waiting_for_permission', 'waiting_for_elicitation', 'awaiting_conversation_save'] as const)
+    } : {}),
+    boundary: stringEnum(record.boundary, ['input_received', 'provider_stream', 'tool_boundary', 'permission_boundary', 'elicitation_boundary', 'final_confirmed', 'conversation_save'] as const),
+    userInput: validateParentTurnTextEvidence(record.userInput),
+    ...(record.confirmedAssistant !== undefined ? { confirmedAssistant: validateParentTurnTextEvidence(record.confirmedAssistant) } : {}),
+    lastDurableSequence: nonNegativeInteger(record.lastDurableSequence),
+    unrecoverableAssistantDeltaBytes: nonNegativeInteger(record.unrecoverableAssistantDeltaBytes),
+    unrecoverableAssistantDeltaCount: nonNegativeInteger(record.unrecoverableAssistantDeltaCount),
+    evidence,
+    ...(record.expectedTurnDigest !== undefined ? { expectedTurnDigest: hashValue(record.expectedTurnDigest) } : {}),
+    createdAt: isoString(record.createdAt),
+    updatedAt: isoString(record.updatedAt),
+    ...(record.interruptedAt !== undefined ? { interruptedAt: isoString(record.interruptedAt) } : {}),
+    ...(record.settledAt !== undefined ? { settledAt: isoString(record.settledAt) } : {}),
+    ...(record.failureReason !== undefined ? { failureReason: shortText(record.failureReason) } : {}),
+    ...(record.recoveryReason !== undefined ? { recoveryReason: shortText(record.recoveryReason) } : {})
+  }
+  if (Boolean(stage.targetConversationId) !== Boolean(stage.expectedTurnDigest)) {
+    throw new Error('Parent turn staging commit target and digest must be persisted together.')
+  }
+  if (stage.status === 'awaiting_conversation_save' && !stage.confirmedAssistant) {
+    throw new Error('Awaiting parent turn staging requires a confirmed assistant answer.')
+  }
+  if (stage.status === 'settled' && (!stage.confirmedAssistant || !stage.targetConversationId || !stage.expectedTurnDigest || !stage.settledAt)) {
+    throw new Error('Settled parent turn staging is incomplete.')
+  }
+  if (stage.status === 'interrupted' && (!stage.previousStatus || !stage.interruptedAt)) {
+    throw new Error('Interrupted parent turn staging is incomplete.')
+  }
+  if (stage.evidence.some((item) => item.sequence > stage.lastDurableSequence)) {
+    throw new Error('Parent turn staging evidence exceeds its durable sequence.')
+  }
+  return stage
+}
+
+function validateParentTurnTextEvidence(value: unknown): AgentParentTurnTextEvidence {
+  const record = strictRecord(value, ['sha256', 'preview', 'originalBytes', 'truncated'])
+  if (typeof record.truncated !== 'boolean') throw new Error('Invalid parent turn truncation marker.')
+  return {
+    sha256: hashValue(record.sha256),
+    preview: limitedString(record.preview, MAX_PARENT_TURN_PREVIEW_BYTES),
+    originalBytes: integerInRange(record.originalBytes, 0, 64 * 1024 * 1024),
+    truncated: record.truncated
+  }
+}
+
+function validateParentTurnEvidence(value: unknown): AgentParentTurnStageEvidence {
+  const record = strictRecord(value, ['sequence', 'kind', 'title', 'detail', 'toolName', 'isError', 'createdAt'])
+  return {
+    sequence: nonNegativeInteger(record.sequence),
+    kind: stringEnum(record.kind, ['status', 'tool_call', 'tool_result', 'permission_wait', 'permission_resolved', 'elicitation_wait', 'elicitation_resolved', 'terminal'] as const),
+    title: limitedString(record.title, 512),
+    ...(record.detail !== undefined ? { detail: limitedString(record.detail, 2048) } : {}),
+    ...(record.toolName !== undefined ? { toolName: safeIdValue(record.toolName, 'toolName') } : {}),
+    ...(typeof record.isError === 'boolean' ? { isError: record.isError } : {}),
+    createdAt: isoString(record.createdAt)
   }
 }
 
@@ -175,11 +299,11 @@ function validateCheckpoint(value: unknown): AgentRunCheckpoint {
   const record = strictRecord(value, [
     'version', 'runId', 'streamId', 'workspaceId', 'conversationId', 'status', 'previousStatus',
     'lastDurableSequence', 'createdAt', 'updatedAt', 'completedAt', 'interruptedAt', 'transcriptPointer',
-    'operationJournalPointer', 'pendingPermissionId', 'pendingElicitationId', 'budget', 'usage', 'stopReason',
+    'parentTurnStagingPointer', 'operationJournalPointer', 'pendingPermissionId', 'pendingElicitationId', 'budget', 'usage', 'stopReason',
     'interruptionReason'
   ])
   if (record.version !== 1) throw new Error('Unsupported checkpoint version.')
-  const status = stringEnum(record.status, ['running', 'waiting_for_permission', 'waiting_for_elicitation', 'completed', 'failed', 'canceled', 'interrupted'] as const)
+  const status = stringEnum(record.status, ['running', 'waiting_for_permission', 'waiting_for_elicitation', 'awaiting_conversation_save', 'completed', 'failed', 'canceled', 'interrupted'] as const)
   return {
     version: 1,
     runId: safeIdValue(record.runId, 'runId'),
@@ -187,13 +311,14 @@ function validateCheckpoint(value: unknown): AgentRunCheckpoint {
     ...(optionalSafeId(record.workspaceId, 'workspaceId') ? { workspaceId: optionalSafeId(record.workspaceId, 'workspaceId') } : {}),
     ...(optionalSafeId(record.conversationId, 'conversationId') ? { conversationId: optionalSafeId(record.conversationId, 'conversationId') } : {}),
     status,
-    ...(record.previousStatus !== undefined ? { previousStatus: stringEnum(record.previousStatus, ['running', 'waiting_for_permission', 'waiting_for_elicitation'] as const) } : {}),
+    ...(record.previousStatus !== undefined ? { previousStatus: stringEnum(record.previousStatus, ['running', 'waiting_for_permission', 'waiting_for_elicitation', 'awaiting_conversation_save'] as const) } : {}),
     lastDurableSequence: nonNegativeInteger(record.lastDurableSequence),
     createdAt: isoString(record.createdAt),
     updatedAt: isoString(record.updatedAt),
     ...(record.completedAt !== undefined ? { completedAt: isoString(record.completedAt) } : {}),
     ...(record.interruptedAt !== undefined ? { interruptedAt: isoString(record.interruptedAt) } : {}),
     ...(record.transcriptPointer !== undefined ? { transcriptPointer: safePointerValue(record.transcriptPointer) } : {}),
+    ...(record.parentTurnStagingPointer !== undefined ? { parentTurnStagingPointer: safePointerValue(record.parentTurnStagingPointer) } : {}),
     operationJournalPointer: safePointerValue(record.operationJournalPointer),
     ...(record.pendingPermissionId !== undefined ? { pendingPermissionId: safeIdValue(record.pendingPermissionId, 'pendingPermissionId') } : {}),
     ...(record.pendingElicitationId !== undefined ? { pendingElicitationId: safeIdValue(record.pendingElicitationId, 'pendingElicitationId') } : {}),
@@ -297,14 +422,22 @@ function validateUsage(value: unknown): AgentRunUsageAggregate {
   }
 }
 
-async function atomicPrivateJson(path: string, value: unknown, replace: boolean): Promise<void> {
+async function atomicPrivateJson(path: string, value: unknown, replace: boolean, maxBytes?: number): Promise<void> {
+  const serialized = `${JSON.stringify(value, null, 2)}\n`
+  if (maxBytes !== undefined && Buffer.byteLength(serialized, 'utf8') > maxBytes) {
+    throw new Error('Agent state record exceeds its storage limit.')
+  }
   await mkdir(dirname(path), { recursive: true })
   if (!replace && await stat(path).then(() => true).catch(() => false)) throw new Error('Agent state record already exists.')
   const temporary = `${path}.tmp-${process.pid}-${Date.now()}`
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-  await chmod(temporary, 0o600)
-  await rename(temporary, path)
-  await chmod(path, 0o600)
+  try {
+    await writeFile(temporary, serialized, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    await chmod(temporary, 0o600)
+    await rename(temporary, path)
+    await chmod(path, 0o600)
+  } finally {
+    await unlink(temporary).catch(() => undefined)
+  }
 }
 
 async function quarantine(path: string, now: string): Promise<void> {

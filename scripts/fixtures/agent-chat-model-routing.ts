@@ -8,6 +8,7 @@ import { defaultSettings } from '../../src/main/teaching-settings'
 import { parseAgentChatStreamPayload } from '../../src/main/teaching-ipc-commands'
 import { SkillLibraryService } from '../../src/main/skill-library'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
+import { hasAgentParentTurnCommit } from '../../src/main/teaching-agent-conversations'
 import { agentConversationJsonRelativePathForMarkdown } from '../../src/shared/agent-conversation-catalog'
 
 const MODEL_REPLY = 'MODEL_REPLY_FROM_PROVIDER'
@@ -189,6 +190,28 @@ try {
   assert.doesNotMatch(sentMessages[0]?.content ?? '', /Claude|Anthropic/)
   assert.equal(sentMessages.at(-1)?.role, 'user')
   assert.equal(sentMessages.at(-1)?.content, '请介绍 RAG')
+
+  const retryableSavePayload = {
+    workspaceId: workspace.id,
+    runId: 'test-stream',
+    turns: result.turns
+  }
+  const firstSavedTurn = await service.saveAgentConversation(retryableSavePayload)
+  const retriedSavedTurn = await service.saveAgentConversation(retryableSavePayload)
+  assert.equal(
+    retriedSavedTurn.conversation.id,
+    firstSavedTurn.conversation.id,
+    'a lost save response must retry against the same staged conversation target'
+  )
+  const retriedConversation = await service.readAgentConversation({
+    workspaceId: workspace.id,
+    conversationId: firstSavedTurn.conversation.id
+  })
+  assert.equal(
+    retriedConversation.turns.filter((turn) => turn.role === 'assistant' && turn.metadata?.runId === 'test-stream').length,
+    1,
+    'retrying a settled parent turn must not append a duplicate assistant turn'
+  )
 
   const identityChunks: string[] = []
   const identityStatuses: string[] = []
@@ -398,6 +421,26 @@ try {
     'a different run id must not authorize promotion of this staged transcript'
   )
 
+  const mismatchedFinalTurns = structuredClone(delegationResult.turns)
+  const mismatchedFinal = mismatchedFinalTurns.findLast((turn) => turn.role === 'assistant')
+  assert.ok(mismatchedFinal, 'final mismatch test should find the assistant turn')
+  mismatchedFinal.content = 'renderer 中未被 runtime 确认的回答'
+  await assert.rejects(
+    () => service.saveAgentConversation({ ...stagedSavePayload, turns: mismatchedFinalTurns }),
+    /does not match the explicitly confirmed parent turn/i,
+    'conversation persistence must reject assistant text that differs from the confirmed final'
+  )
+
+  const mismatchedUserTurns = structuredClone(delegationResult.turns)
+  const mismatchedUser = mismatchedUserTurns.findLast((turn) => turn.role === 'user')
+  assert.ok(mismatchedUser, 'user mismatch test should find the current user turn')
+  mismatchedUser.content = 'renderer 中被替换的用户输入'
+  await assert.rejects(
+    () => service.saveAgentConversation({ ...stagedSavePayload, turns: mismatchedUserTurns }),
+    /does not match the staged parent turn/i,
+    'conversation persistence must reject user text that differs from staging'
+  )
+
   const tamperedTurns = structuredClone(delegationResult.turns)
   const tamperedArchive = tamperedTurns
     .flatMap((turn) => turn.metadata?.childRuns ?? [])
@@ -429,6 +472,15 @@ try {
     .find((child) => child.childRunId === stagedChild.childRunId)
     ?.archive
   assert.ok(promotedArchive, 'saved conversation should retain the promoted child transcript reference')
+  const savedParentTurnMarker = loadedDelegation.turns
+    .findLast((turn) => turn.role === 'assistant' && turn.metadata?.runId === delegationRunId)
+    ?.metadata?.parentTurnDigest
+  assert.ok(savedParentTurnMarker, 'saved conversation should retain the parent-turn commit marker')
+  assert.equal(
+    hasAgentParentTurnCommit(loadedDelegation.turns, delegationRunId, savedParentTurnMarker),
+    true,
+    'the persisted parent-turn digest must survive archive promotion and normalization'
+  )
   assert.notEqual(promotedArchive.relativePath, stagedArchive.relativePath)
   assert.equal(promotedArchive.relativePath.startsWith('.agent-sessions/child-transcripts/'), false)
 
@@ -436,6 +488,17 @@ try {
     () => service.saveAgentConversation(stagedSavePayload),
     /not authorized for this run/i,
     'a successfully consumed staged transcript capability must not be replayable'
+  )
+
+  await assert.rejects(
+    () => service.saveAgentConversation({
+      workspaceId: workspace.id,
+      conversationId: loadedDelegation.id,
+      runId: 'missing-parent-turn-stage',
+      turns: loadedDelegation.turns
+    }),
+    /parent turn staging is unavailable/i,
+    'a run-scoped save must fail closed when its staging record is missing or quarantined'
   )
 
   const resavedDelegation = await service.saveAgentConversation({

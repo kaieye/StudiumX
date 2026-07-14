@@ -26,6 +26,7 @@
     "check:message-history-keyboard": "node scripts/check-message-history-keyboard.mjs",
     "check:agent-event-bus": "node scripts/check-agent-event-bus.mjs",
     "check:agent-run-recovery": "node scripts/check-agent-run-recovery.mjs",
+    "check:agent-parent-turn-staging": "node scripts/check-agent-parent-turn-staging.mjs",
     "check:agent-operation-idempotency": "node scripts/check-agent-operation-idempotency.mjs",
     "check:agent-process-timeline": "node scripts/check-agent-process-timeline.mjs",
     "check:agent-process-dark-theme": "node scripts/check-agent-process-dark-theme.mjs",

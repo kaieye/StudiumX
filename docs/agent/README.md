@@ -4,7 +4,6 @@
 
 ## 当前范围
 
-- 父 turn 的 pending stream staging 与崩溃恢复。
 - 会话/历史 checkpoint、archived-history 检索索引和 artifact 生命周期管理。
 - 完整 session tree，以及 branch / fork / replay / open 生命周期。
 - SDK/provider hooks 与统一运行诊断。

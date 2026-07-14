@@ -1213,11 +1213,25 @@ function interruptedAgentRunNotice(run: InterruptedAgentRun): AgentChatTurn {
     ? '退出时正在等待写入审批；旧审批已失效。'
     : run.previousStatus === 'waiting_for_elicitation'
       ? '退出时正在等待你的选择；旧问题不会自动恢复。'
-      : '退出时该运行仍在进行。'
+      : run.previousStatus === 'awaiting_conversation_save'
+        ? '回答已经确认，但最终 conversation 尚未完成结算。'
+        : '退出时该运行仍在进行。'
   const review = run.operationReviewCount > 0
     ? ` 有 ${run.operationReviewCount} 个已开始但完成状态不明的写入需要人工检查，应用不会自动重做。`
     : ''
-  const content = `上次 Agent 运行被中断。${waiting}${review}\n\n请检查已有结果后，明确输入“继续”或重新发送请求。`
+  const inputEvidence = run.userInputPreview
+    ? `\n\n**本轮输入（已脱敏）**\n${run.userInputPreview}`
+    : ''
+  const confirmedEvidence = run.confirmedAssistantPreview
+    ? `\n\n**已确认但未自动提交的回答（已脱敏）**\n${run.confirmedAssistantPreview}${run.confirmedAssistantTruncated ? '\n\n（恢复证据已截断。）' : ''}`
+    : ''
+  const partialEvidence = (run.unrecoverableAssistantDeltaBytes ?? 0) > 0 && !run.confirmedAssistantPreview
+    ? `\n\n检测到约 ${run.unrecoverableAssistantDeltaBytes} 字节未完成流式片段；这些片段不会被当作最终回答。`
+    : ''
+  const boundaryEvidence = run.evidence?.length
+    ? `\n\n**已持久化边界**\n${run.evidence.slice(-6).map((item) => `- ${item.title}${item.detail ? `：${item.detail}` : ''}`).join('\n')}`
+    : ''
+  const content = `上次 Agent 运行被中断。${waiting}${review}${inputEvidence}${confirmedEvidence}${partialEvidence}${boundaryEvidence}\n\n请检查已有结果和可能的副作用后，明确输入“继续”或重新发送请求。`
   return {
     id: `interrupted-${run.runId}`,
     role: 'assistant',

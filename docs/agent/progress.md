@@ -6,10 +6,9 @@
 
 | 切片 | 状态 | 下一交付物 | 主要依赖 |
 | --- | --- | --- | --- |
-| Phase 7：pending parent-turn stream staging | 未开始 | 可恢复、可解释且幂等的父 turn staging | 现有 run lifecycle checkpoint、operation journal、conversation save |
-| Phase 8：会话 checkpoint、归档检索与 artifact 生命周期 | 未开始 | 可重建索引、显式有界检索、保留与清理策略 | Phase 7 的崩溃恢复边界 |
+| Phase 8：会话 checkpoint、归档检索与 artifact 生命周期 | 未开始 | 可重建索引、显式有界检索、保留与清理策略 | 现有运行与 conversation 持久化边界 |
 | Phase 9：session tree 与分支生命周期 | 未开始 | branch / fork / durable replay / open | Phase 8 的索引和引用完整性 |
-| Phase 10：SDK/provider hooks | 未开始 | 统一 hook contract 与 fake-provider 测试 | 可在 Phase 7 后独立切片 |
+| Phase 10：SDK/provider hooks | 未开始 | 统一 hook contract 与 fake-provider 测试 | 现有持久化与预算接口 |
 
 ## 当前进行中
 
@@ -21,7 +20,6 @@
 
 ## 跨切片待决策
 
-- staging 持久化到事件粒度还是消息片段粒度；不得承诺逐 token 无损恢复。
 - 会话/历史 checkpoint 的范围、创建时机和恢复权限；不得与现有 `AgentRunCheckpoint` 混淆。
 - archived-history 索引使用可重建文件索引还是独立数据库。
 - session fork 是共享不可变历史引用，还是复制小型 turn metadata。
