@@ -41,6 +41,12 @@ export interface LearningAnalyticsClient {
     query: LearningAnalyticsQuery,
     signal: AbortSignal
   ) => Promise<LearningAnalyticsBundle>
+  /** Optional transport for a selective section retry. */
+  refreshLearningAnalyticsSections?: (
+    query: LearningAnalyticsQuery,
+    sectionIds: readonly AnalyticsSectionId[],
+    signal: AbortSignal
+  ) => Promise<LearningAnalyticsBundle>
 }
 
 export class AnalyticsApiUnavailableError extends Error {
@@ -72,10 +78,11 @@ export type UseStudyAnalyticsOptions = {
   enabled?: boolean
 }
 
+type SelectiveRefreshRequest = LearningAnalyticsRequest & { refreshSectionIds?: AnalyticsSectionId[] }
 type AnalyticsCapableSystemApi = {
-  getLearningAnalytics?: (request: LearningAnalyticsRequest) => Promise<LearningAnalyticsBundle>
+  getLearningAnalytics?: (request: SelectiveRefreshRequest) => Promise<LearningAnalyticsBundle>
   learningAnalytics?: {
-    get?: (request: LearningAnalyticsRequest) => Promise<LearningAnalyticsBundle>
+    get?: (request: SelectiveRefreshRequest) => Promise<LearningAnalyticsBundle>
   }
 }
 
@@ -247,22 +254,33 @@ function personalStudyRequest(query: LearningAnalyticsQuery): LearningAnalyticsR
 
 export const teachingSystemAnalyticsClient: LearningAnalyticsClient = {
   async getLearningAnalytics(query, signal) {
-    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-    const system = typeof window === 'undefined'
-      ? undefined
-      : window.teachingSystem as unknown as AnalyticsCapableSystemApi | undefined
-    let bundle: LearningAnalyticsBundle
-    if (system?.getLearningAnalytics) {
-      bundle = await system.getLearningAnalytics(personalStudyRequest(query))
-    } else if (system?.learningAnalytics?.get) {
-      bundle = await system.learningAnalytics.get(personalStudyRequest(query))
-    } else {
-      throw new AnalyticsApiUnavailableError()
-    }
-    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-    assertAnalyticsBundle(bundle)
-    return bundle
+    return requestAnalyticsBundle(query, signal)
+  },
+  async refreshLearningAnalyticsSections(query, sectionIds, signal) {
+    return requestAnalyticsBundle(query, signal, sectionIds)
   }
+}
+
+async function requestAnalyticsBundle(query: LearningAnalyticsQuery, signal: AbortSignal, refreshSectionIds?: readonly AnalyticsSectionId[]): Promise<LearningAnalyticsBundle> {
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  const system = typeof window === 'undefined'
+    ? undefined
+    : window.teachingSystem as unknown as AnalyticsCapableSystemApi | undefined
+  const request: SelectiveRefreshRequest = {
+    ...personalStudyRequest(query),
+    ...(refreshSectionIds?.length ? { refreshSectionIds: [...new Set(refreshSectionIds)] } : {})
+  }
+  let bundle: LearningAnalyticsBundle
+  if (system?.getLearningAnalytics) {
+    bundle = await system.getLearningAnalytics(request)
+  } else if (system?.learningAnalytics?.get) {
+    bundle = await system.learningAnalytics.get(request)
+  } else {
+    throw new AnalyticsApiUnavailableError()
+  }
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  assertAnalyticsBundle(bundle)
+  return bundle
 }
 
 function requestErrorMessage(error: unknown): string {
@@ -286,6 +304,7 @@ export function useStudyAnalytics({
   })
   const requestSequence = useRef(0)
   const queryRef = useRef(query)
+  const retrySectionRef = useRef<AnalyticsSectionId | null>(null)
   queryRef.current = query
 
   const personalClientId = query.scope.personalFocus.kind === 'personal'
@@ -294,7 +313,10 @@ export function useStudyAnalytics({
 
   useEffect(() => {
     if (!enabled || client !== teachingSystemAnalyticsClient || !personalClientId) return
-    return subscribeStudyAnalyticsStore(personalClientId, requestRefresh)
+    return subscribeStudyAnalyticsStore(personalClientId, () => {
+      retrySectionRef.current = null
+      requestRefresh()
+    })
   }, [client, enabled, personalClientId])
 
   useEffect(() => {
@@ -321,7 +343,12 @@ export function useStudyAnalytics({
       }
     })
 
-    void client.getLearningAnalytics(queryRef.current, controller.signal).then(
+    const sectionId = retrySectionRef.current
+    retrySectionRef.current = null
+    const request = sectionId && client.refreshLearningAnalyticsSections
+      ? client.refreshLearningAnalyticsSections(queryRef.current, [sectionId], controller.signal)
+      : client.getLearningAnalytics(queryRef.current, controller.signal)
+    void request.then(
       (bundle) => {
         if (controller.signal.aborted || sequence !== requestSequence.current) return
         setState({
@@ -362,8 +389,14 @@ export function useStudyAnalytics({
     return () => controller.abort()
   }, [client, enabled, queryKey, refreshVersion])
 
-  const refresh = useCallback(() => requestRefresh(), [])
-  const retrySection = useCallback((_sectionId: AnalyticsSectionId) => requestRefresh(), [])
+  const refresh = useCallback(() => {
+    retrySectionRef.current = null
+    requestRefresh()
+  }, [])
+  const retrySection = useCallback((sectionId: AnalyticsSectionId) => {
+    retrySectionRef.current = sectionId
+    requestRefresh()
+  }, [])
 
   return {
     ...state,

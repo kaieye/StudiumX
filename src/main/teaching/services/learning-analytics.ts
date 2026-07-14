@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import {
+  LearningAnalyticsSourcePlan,
+  type LearningAnalyticsInvalidation,
+  type SourcePlanReport
+} from './analytics/source-plan'
 import type {
   AgentConversationRecord,
   AnalyticsCoverage,
@@ -51,7 +56,6 @@ import {
 
 const CONTRACT_VERSION = 1 as const
 const RETENTION_DAYS = 400 as const
-const CACHE_LIMIT = 12
 const ANALYTICS_DIR = 'analytics'
 const TRACKING_FILE = 'tracking-start.json'
 
@@ -78,42 +82,42 @@ export type LearningAnalyticsDependencies = {
   now?: () => Date
 }
 
-type CacheEntry = { fingerprint: string; bundle: LearningAnalyticsBundle; touchedAt: number }
+type AnalyticsPlanContext = {
+  query: LearningAnalyticsQuery
+  personal: PersonalStudySnapshotValidation
+  key: string
+}
 type ScanHeader = {
   selected: AnalyticsWorkspaceScanResult[]
   settings: TeachingSettingsV1 | null
   skills: SkillCatalogResult | null
   connectorStatuses: ConnectorStatusesResult | null
   warnings: AnalyticsWarning[]
-  fingerprint: string
 }
 type TokenScanResult = { section: AnalyticsSectionResult<TokenAnalytics> }
 export type AnalyticsPreparedExport = { fileName: string; content: string; manifest: AnalyticsExportManifest }
 
 export class LearningAnalyticsService {
-  private readonly cache = new Map<string, CacheEntry>()
-  private readonly inFlight = new Map<string, Promise<LearningAnalyticsBundle>>()
+  private readonly sourcePlan: LearningAnalyticsSourcePlan<AnalyticsPlanContext>
 
-  constructor(private readonly dependencies: LearningAnalyticsDependencies) {}
+  constructor(private readonly dependencies: LearningAnalyticsDependencies) {
+    this.sourcePlan = this.createSourcePlan()
+  }
 
   async getLearningAnalytics(request: LearningAnalyticsRequest | LearningAnalyticsQuery): Promise<LearningAnalyticsBundle> {
-    const normalized = normalizeLearningAnalyticsRequest(request)
-    validateLearningAnalyticsQuery(normalized.query)
-    const personal = normalized.query.scope.personalFocus.kind === 'personal'
-      ? validatePersonalStudySnapshot(normalized.personalStudy, {
-          clientId: normalized.query.scope.personalFocus.clientId,
-          localToday: normalized.query.calendarContext.localToday,
-          now: this.now()
-        })
-      : ({ state: 'missing', cacheIdentity: 'missing', warnings: [] } as PersonalStudySnapshotValidation)
-    const queryKey = digest(stableJson({ query: normalized.query, personal: personalCacheFingerprint(personal) }))
-    const existing = this.inFlight.get(queryKey)
-    if (existing) return existing
-    const pending = this.loadBundle(normalized.query, personal, queryKey).finally(() => {
-      if (this.inFlight.get(queryKey) === pending) this.inFlight.delete(queryKey)
-    })
-    this.inFlight.set(queryKey, pending)
-    return pending
+    const context = this.analyticsContext(request)
+    const selectiveSections = selectiveRefreshSections(request)
+    if (selectiveSections.length) {
+      return this.sourcePlan.refresh({ key: context.key, context, sectionIds: selectiveSections }, (input, previous, refreshedSections) => this.assembleBundle(context, input.values, previous, refreshedSections))
+    }
+    return this.sourcePlan.read({ key: context.key, context }, (input, previous, refreshedSections) => this.assembleBundle(context, input.values, previous, refreshedSections))
+  }
+
+  /** Selectively rereads only the sources needed by the requested sections. */
+  async refreshLearningAnalyticsSections(request: LearningAnalyticsRequest | LearningAnalyticsQuery, sectionIds: readonly AnalyticsSectionId[]): Promise<LearningAnalyticsBundle> {
+    if (!sectionIds.length) return this.getLearningAnalytics(request)
+    const context = this.analyticsContext(request)
+    return this.sourcePlan.refresh({ key: context.key, context, sectionIds }, (input, previous, refreshedSections) => this.assembleBundle(context, input.values, previous, refreshedSections))
   }
 
   async prepareExport(request: AnalyticsExportRequest): Promise<AnalyticsPreparedExport> {
@@ -128,7 +132,7 @@ export class LearningAnalyticsService {
     let trackingRestartedOn: string | undefined
     for (const target of [...new Set(request.targets)]) {
       if (target === 'derived_cache') {
-        this.cache.clear()
+        this.sourcePlan.invalidate()
         await safeRemove(join(analyticsRoot, 'cache'))
         await safeRemove(join(analyticsRoot, 'daily-projections'))
       } else if (target === 'personal_activity_history') {
@@ -138,7 +142,7 @@ export class LearningAnalyticsService {
         trackingRestartedOn = dateToLocalKey(this.now(), this.localTimeZone())
         await mkdir(analyticsRoot, { recursive: true })
         await writeFile(join(analyticsRoot, TRACKING_FILE), `${JSON.stringify({ trackingStartedOn: trackingRestartedOn })}\n`, { mode: 0o600 })
-        this.cache.clear()
+        this.sourcePlan.invalidate(['personal_activity'])
       } else {
         await safeRemove(join(analyticsRoot, 'preferences.json'))
       }
@@ -151,22 +155,159 @@ export class LearningAnalyticsService {
     }
   }
 
-  invalidate(): void { this.cache.clear() }
+  /** Invalidates only sources affected by a Teaching-domain mutation. */
+  invalidate(targets?: readonly LearningAnalyticsInvalidation[]): void {
+    this.sourcePlan.invalidate(targets)
+  }
 
-  private async loadBundle(query: LearningAnalyticsQuery, personal: PersonalStudySnapshotValidation, queryKey: string): Promise<LearningAnalyticsBundle> {
-    const header = await this.loadScanHeader(query, personal)
-    const cached = this.cache.get(queryKey)
-    if (cached?.fingerprint === header.fingerprint) {
-      cached.touchedAt = Date.now()
-      return cached.bundle
+  /** Dependency/cache diagnostics without exposing any evidence payloads. */
+  reportSourcePlan(): SourcePlanReport {
+    return this.sourcePlan.report()
+  }
+
+  private analyticsContext(request: LearningAnalyticsRequest | LearningAnalyticsQuery): AnalyticsPlanContext {
+    const normalized = normalizeLearningAnalyticsRequest(request)
+    validateLearningAnalyticsQuery(normalized.query)
+    const personal = normalized.query.scope.personalFocus.kind === 'personal'
+      ? validatePersonalStudySnapshot(normalized.personalStudy, {
+          clientId: normalized.query.scope.personalFocus.clientId,
+          localToday: normalized.query.calendarContext.localToday,
+          now: this.now()
+        })
+      : ({ state: 'missing', cacheIdentity: 'missing', warnings: [] } as PersonalStudySnapshotValidation)
+    return {
+      query: normalized.query,
+      personal,
+      key: digest(stableJson({ query: normalized.query, personal: personalCacheFingerprint(personal) }))
     }
-    const bundle = await this.aggregate(query, header, personal)
-    this.cache.set(queryKey, { fingerprint: header.fingerprint, bundle, touchedAt: Date.now() })
-    this.pruneCache()
+  }
+
+  private createSourcePlan(): LearningAnalyticsSourcePlan<AnalyticsPlanContext> {
+    return new LearningAnalyticsSourcePlan<AnalyticsPlanContext>([
+      {
+        id: 'workspace_catalog',
+        fingerprint: async (context) => digest(stableJson({ query: context.query.scope.teaching })),
+        read: async (context) => {
+          const header = await this.loadScanHeader(context.query)
+          return { value: header, warnings: header.warnings, partial: header.warnings.length > 0 }
+        }
+      },
+      {
+        id: 'token_evidence',
+        dependsOn: ['workspace_catalog'],
+        sections: ['tokens'],
+        fingerprint: async (_context, dependencies) => this.fingerprintTokenEvidence(dependencies.get('workspace_catalog')!.value as ScanHeader),
+        read: async (context, access) => {
+          const header = access.value<ScanHeader>('workspace_catalog')
+          const token = await this.scanTokens(context.query, header.selected, access.warningsFor('workspace_catalog'))
+          return { value: token, warnings: token.section.warnings, partial: token.section.state === 'partial' || token.section.state === 'error' }
+        }
+      },
+      {
+        id: 'workspace_assets',
+        dependsOn: ['workspace_catalog'],
+        sections: ['workspace_assets'],
+        fingerprint: async (_context, dependencies) => this.fingerprintWorkspaceAssets(dependencies.get('workspace_catalog')!.value as ScanHeader),
+        read: async (context, access) => {
+          const header = access.value<ScanHeader>('workspace_catalog')
+          return sectionSource(buildWorkspaceAssetsSection(context.query, this.now().toISOString(), header.selected, access.warningsFor('workspace_catalog')))
+        }
+      },
+      {
+        id: 'review_sources',
+        dependsOn: ['workspace_catalog'],
+        sections: ['review'],
+        fingerprint: async (_context, dependencies) => this.fingerprintReviewSources(dependencies.get('workspace_catalog')!.value as ScanHeader),
+        read: async (context, access) => {
+          const header = access.value<ScanHeader>('workspace_catalog')
+          return sectionSource(await this.scanReview(context.query, this.now().toISOString(), header.selected, access.warningsFor('workspace_catalog')))
+        }
+      },
+      {
+        id: 'memory_store',
+        dependsOn: ['workspace_catalog'],
+        sections: ['memory'],
+        fingerprint: async (_context, dependencies) => this.fingerprintMemoryStore(dependencies.get('workspace_catalog')!.value as ScanHeader),
+        read: async (context, access) => {
+          const header = access.value<ScanHeader>('workspace_catalog')
+          return sectionSource(await this.scanMemory(context.query, this.now().toISOString(), header.selected, access.warningsFor('workspace_catalog')))
+        }
+      },
+      {
+        id: 'platform_sources',
+        dependsOn: ['workspace_catalog'],
+        sections: ['platform'],
+        fingerprint: async (_context, dependencies) => this.fingerprintPlatformSources(dependencies.get('workspace_catalog')!.value as ScanHeader),
+        read: async (context, access) => sectionSource(await this.scanPlatform(context.query, this.now().toISOString(), access.value<ScanHeader>('workspace_catalog')))
+      },
+      {
+        id: 'personal_study',
+        dependsOn: ['token_evidence'],
+        sections: ['hero', 'focus', 'tasks'],
+        fingerprint: async (context, dependencies) => digest(stableJson({ personal: personalCacheFingerprint(context.personal), tokens: dependencies.get('token_evidence')!.fingerprint })),
+        read: async (context, access) => ({
+          value: buildPersonalStudyAnalytics({
+            query: context.query,
+            validation: context.personal,
+            generatedAt: this.now().toISOString(),
+            tokens: access.value<TokenScanResult>('token_evidence').section
+          })
+        })
+      },
+      {
+        id: 'presence_snapshot',
+        sections: ['presence'],
+        fingerprint: async (context) => digest(stableJson(context.query.scope.presence)),
+        read: async (context) => ({
+          value: context.query.scope.presence.kind === 'none'
+            ? unavailableSection<PresenceSnapshotAnalytics>(asOfTemporal(this.now().toISOString()), coverage(context.query, false, [], [], true), 'not_applicable', [])
+            : unavailableSection<PresenceSnapshotAnalytics>(liveTemporal(this.now().toISOString()), coverage(context.query, false, [], [], false), 'source_missing', [warning('source_not_configured', 'Presence is a live renderer snapshot, not Teaching history.', 'presence')])
+        })
+      },
+      {
+        id: 'insight_derivation',
+        dependsOn: ['token_evidence', 'workspace_assets', 'review_sources', 'memory_store', 'platform_sources'],
+        sections: ['insights'],
+        fingerprint: async (_context, dependencies) => digest(stableJson([...dependencies.entries()].map(([id, item]) => [id, item.fingerprint]))),
+        read: async (context, access) => ({
+          value: buildInsightsSection(
+            context.query,
+            this.now().toISOString(),
+            access.value<TokenScanResult>('token_evidence').section,
+            access.value<AnalyticsSectionResult<WorkspaceAssetsAnalytics>>('workspace_assets'),
+            access.value<AnalyticsSectionResult<ReviewAnalytics>>('review_sources'),
+            access.value<AnalyticsSectionResult<MemoryAnalytics>>('memory_store'),
+            access.value<AnalyticsSectionResult<PlatformAnalytics>>('platform_sources')
+          )
+        })
+      }
+    ])
+  }
+
+  private assembleBundle(context: AnalyticsPlanContext, values: ReadonlyMap<string, unknown>, previous: LearningAnalyticsBundle | null, refreshedSections: readonly AnalyticsSectionId[]): LearningAnalyticsBundle {
+    const generatedAt = this.now().toISOString()
+    const bundle: LearningAnalyticsBundle = previous
+      ? { ...previous, generatedAt, query: context.query }
+      : { contractVersion: CONTRACT_VERSION, generatedAt, query: context.query } as LearningAnalyticsBundle
+    const refreshed = new Set(refreshedSections)
+    const include = (section: AnalyticsSectionId): boolean => !previous || refreshed.has(section)
+    if (include('tokens')) bundle.tokens = (values.get('token_evidence') as TokenScanResult).section
+    if (include('workspace_assets')) bundle.workspaceAssets = values.get('workspace_assets') as AnalyticsSectionResult<WorkspaceAssetsAnalytics>
+    if (include('review')) bundle.review = values.get('review_sources') as AnalyticsSectionResult<ReviewAnalytics>
+    if (include('memory')) bundle.memory = values.get('memory_store') as AnalyticsSectionResult<MemoryAnalytics>
+    if (include('platform')) bundle.platform = values.get('platform_sources') as AnalyticsSectionResult<PlatformAnalytics>
+    if (include('presence')) bundle.presence = values.get('presence_snapshot') as AnalyticsSectionResult<PresenceSnapshotAnalytics>
+    if (include('hero') || include('focus') || include('tasks')) {
+      const personal = values.get('personal_study') as ReturnType<typeof buildPersonalStudyAnalytics>
+      if (include('hero')) bundle.hero = personal.hero
+      if (include('focus')) bundle.focus = personal.focus
+      if (include('tasks')) bundle.tasks = personal.tasks
+    }
+    if (include('insights')) bundle.insights = values.get('insight_derivation') as LearningAnalyticsBundle['insights']
     return bundle
   }
 
-  private async loadScanHeader(query: LearningAnalyticsQuery, personal: PersonalStudySnapshotValidation): Promise<ScanHeader> {
+  private async loadScanHeader(query: LearningAnalyticsQuery): Promise<ScanHeader> {
     const warnings: AnalyticsWarning[] = []
     const [workspaceResult, settingsResult, skillsResult, connectorsResult] = await Promise.allSettled([
       this.dependencies.listWorkspaceSummaries(),
@@ -182,92 +323,48 @@ export class LearningAnalyticsService {
     const connectorStatuses = connectorsResult.status === 'fulfilled' ? connectorsResult.value : null
     if (!settings) warnings.push(warning('source_scan_incomplete', 'Settings could not be read for analytics.', 'settings'))
     if (!skills) warnings.push(warning('source_scan_incomplete', 'Skill catalog could not be read for analytics.', 'skill_catalog'))
-    const fingerprint = await this.fingerprint(query, selected, settings, skills, connectorStatuses, personal)
-    return { selected, settings, skills, connectorStatuses, warnings, fingerprint }
+    return { selected, settings, skills, connectorStatuses, warnings }
   }
 
-  private async fingerprint(
-    query: LearningAnalyticsQuery,
-    selected: AnalyticsWorkspaceScanResult[],
-    settings: TeachingSettingsV1 | null,
-    skills: SkillCatalogResult | null,
-    connectors: ConnectorStatusesResult | null,
-    personal: PersonalStudySnapshotValidation
-  ): Promise<string> {
-    const paths = new Set<string>([
-      join(this.dependencies.appDataRoot, 'memory'),
-      join(this.dependencies.appDataRoot, 'learning-changes', 'history.json'),
-      join(this.dependencies.appDataRoot, ANALYTICS_DIR, TRACKING_FILE)
-    ])
-    for (const item of selected) {
+  private async fingerprintTokenEvidence(header: ScanHeader): Promise<string> {
+    const paths = new Set<string>()
+    for (const item of header.selected) {
       paths.add(join(item.rootPath, LEARNING_WORK_LEDGER_RELATIVE_PATH))
-      paths.add(join(item.rootPath, '.teachos', 'progress.json'))
-      paths.add(join(item.rootPath, '.teachos', 'reviews'))
-      paths.add(join(item.rootPath, '.teachos', 'review'))
-      paths.add(join(item.rootPath, 'MISSION.md'))
       for (const conversation of item.summary?.conversations ?? []) {
         paths.add(conversation.absolutePath)
         paths.add(join(item.rootPath, agentConversationJsonRelativePathForMarkdown(conversation.relativePath)))
       }
-      for (const lesson of item.summary?.lessons ?? []) paths.add(lesson.absolutePath)
     }
-    return digest(stableJson({
-      contractVersion: CONTRACT_VERSION,
-      query,
-      workspaces: selected.map((item) => ({
-        id: item.workspaceId,
-        name: item.workspaceName,
-        error: Boolean(item.error),
-        updatedAt: item.summary?.updatedAt,
-        conversations: item.summary?.conversations.map((entry) => ({ id: entry.id, updatedAt: entry.updatedAt, messageCount: entry.messageCount })),
-        lessons: item.summary?.lessons.map((entry) => ({ id: entry.id, createdAt: entry.createdAt })),
-        resources: item.summary?.resources.length,
-        records: item.summary?.records.length,
-        references: item.summary?.referenceCount
-      })),
-      settings,
-      skills: skills?.skills.map((entry) => ({ id: entry.id, installed: entry.installed, version: entry.version, category: entry.category })),
-      connectors: connectors?.connectors.map((entry) => ({ id: entry.id, state: entry.state })),
-      personalStudy: personalCacheFingerprint(personal),
-      mtimes: await collectPathVersions([...paths])
-    }))
+    return digest(stableJson({ selected: sourceHeaderIdentity(header), mtimes: await collectPathVersions([...paths]) }))
   }
 
-  private async aggregate(query: LearningAnalyticsQuery, header: ScanHeader, personal: PersonalStudySnapshotValidation): Promise<LearningAnalyticsBundle> {
-    const generatedAt = this.now().toISOString()
-    const [tokenScan, workspaceAssets, review, memory, platform] = await Promise.all([
-      this.scanTokens(query, header.selected, header.warnings),
-      Promise.resolve(buildWorkspaceAssetsSection(query, generatedAt, header.selected, header.warnings)),
-      this.scanReview(query, generatedAt, header.selected, header.warnings),
-      this.scanMemory(query, generatedAt, header.selected, header.warnings),
-      this.scanPlatform(query, generatedAt, header)
-    ])
-    const personalSections = buildPersonalStudyAnalytics({
-      query,
-      validation: personal,
-      generatedAt,
-      tokens: tokenScan.section
-    })
-    const { hero, focus, tasks } = personalSections
-    const presence = query.scope.presence.kind === 'none'
-      ? unavailableSection<PresenceSnapshotAnalytics>(asOfTemporal(generatedAt), coverage(query, false, [], [], true), 'not_applicable', [])
-      : unavailableSection<PresenceSnapshotAnalytics>(liveTemporal(generatedAt), coverage(query, false, [], [], false), 'source_missing', [warning('source_not_configured', 'Presence is a live renderer snapshot, not Teaching history.', 'presence')])
-    return {
-      contractVersion: CONTRACT_VERSION,
-      generatedAt,
-      query,
-      hero,
-      focus,
-      tasks,
-      tokens: tokenScan.section,
-      workspaceAssets,
-      review,
-      memory,
-      platform,
-      presence,
-      insights: buildInsightsSection(query, generatedAt, tokenScan.section, workspaceAssets, review, memory, platform)
+  private async fingerprintWorkspaceAssets(header: ScanHeader): Promise<string> {
+    const paths = new Set<string>()
+    for (const item of header.selected) {
+      const summary = item.summary
+      if (!summary) continue
+      paths.add(summary.resourcesPath)
+      paths.add(summary.recordsDir)
+      paths.add(summary.referenceDir)
+      for (const lesson of summary.lessons) paths.add(lesson.absolutePath)
+      for (const record of summary.records) paths.add(record.absolutePath)
     }
+    return digest(stableJson({ selected: sourceHeaderIdentity(header), mtimes: await collectPathVersions([...paths]) }))
   }
+
+  private async fingerprintReviewSources(header: ScanHeader): Promise<string> {
+    const paths = header.selected.flatMap((item) => [join(item.rootPath, '.teachos', 'progress.json'), join(item.rootPath, '.teachos', 'reviews'), join(item.rootPath, '.teachos', 'review')])
+    return digest(stableJson({ selected: sourceHeaderIdentity(header), mtimes: await collectPathVersions(paths) }))
+  }
+
+  private async fingerprintMemoryStore(header: ScanHeader): Promise<string> {
+    return digest(stableJson({ selected: header.selected.map((item) => item.workspaceId), memory: await collectPathVersions([join(this.dependencies.appDataRoot, 'memory')]) }))
+  }
+
+  private async fingerprintPlatformSources(header: ScanHeader): Promise<string> {
+    return digest(stableJson({ header: sourceHeaderIdentity(header), changes: await collectPathVersions([join(this.dependencies.appDataRoot, 'learning-changes', 'history.json')]) }))
+  }
+
   private async scanTokens(query: LearningAnalyticsQuery, selected: AnalyticsWorkspaceScanResult[], inheritedWarnings: AnalyticsWarning[]): Promise<TokenScanResult> {
     if (query.scope.teaching.kind === 'none') return { section: unavailableSection(queryTemporal(query), coverage(query, true, [], [], true), 'not_applicable', []) }
     if (query.scope.teaching.kind === 'workspace' && selected.length === 0) return { section: unavailableSection(queryTemporal(query), coverage(query, true, [], [], false), 'no_active_workspace', []) }
@@ -437,11 +534,6 @@ export class LearningAnalyticsService {
     return availableSection(temporal, sectionCoverage, data, warnings)
   }
 
-  private pruneCache(): void {
-    if (this.cache.size <= CACHE_LIMIT) return
-    const oldest = [...this.cache.entries()].sort((a, b) => a[1].touchedAt - b[1].touchedAt)
-    for (const [key] of oldest.slice(0, this.cache.size - CACHE_LIMIT)) this.cache.delete(key)
-  }
   private now(): Date { return this.dependencies.now?.() ?? new Date() }
   private localTimeZone(): string { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }
 }
@@ -504,6 +596,27 @@ function buildInsightsSection(query: LearningAnalyticsQuery, generatedAt: string
   return items.length ? (sectionCoverage.complete ? availableSection(asOfTemporal(generatedAt), sectionCoverage, data, combinedWarnings) : partialSection(asOfTemporal(generatedAt), sectionCoverage, data, combinedWarnings)) : emptySection(asOfTemporal(generatedAt), sectionCoverage, data, 'no_activity', combinedWarnings)
 }
 
+function sectionSource<T>(section: AnalyticsSectionResult<T>): { value: AnalyticsSectionResult<T>; warnings: AnalyticsWarning[]; partial: boolean } {
+  return { value: section, warnings: section.warnings, partial: section.state === 'partial' || section.state === 'error' }
+}
+function sourceHeaderIdentity(header: ScanHeader): unknown {
+  return {
+    selected: header.selected.map((item) => ({
+      id: item.workspaceId,
+      name: item.workspaceName,
+      error: Boolean(item.error),
+      updatedAt: item.summary?.updatedAt,
+      conversations: item.summary?.conversations.map((entry) => ({ id: entry.id, updatedAt: entry.updatedAt, messageCount: entry.messageCount })),
+      lessons: item.summary?.lessons.map((entry) => ({ id: entry.id, createdAt: entry.createdAt })),
+      records: item.summary?.records.map((entry) => ({ relativePath: entry.relativePath, date: entry.date })),
+      references: item.summary?.referenceCount
+    })),
+    settings: header.settings ? { providerId: header.settings.generator.providerId, model: header.settings.generator.model } : null,
+    skills: header.skills?.skills.map((entry) => ({ id: entry.id, installed: entry.installed, version: entry.version })),
+    connectors: header.connectorStatuses?.connectors.map((entry) => ({ id: entry.id, state: entry.state }))
+  }
+}
+
 function selectWorkspaceScans(query: LearningAnalyticsQuery, workspaces: AnalyticsWorkspaceScanResult[]): AnalyticsWorkspaceScanResult[] {
   if (query.scope.teaching.kind === 'none') return []
   if (query.scope.teaching.kind === 'workspace') {
@@ -544,6 +657,13 @@ function latestString(values: Array<string | undefined>): string | undefined { r
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex') }
 function stableJson(value: unknown): string { return JSON.stringify(sortJson(value)) }
 function sortJson(value: unknown): unknown { if (Array.isArray(value)) return value.map(sortJson); if (!value || typeof value !== 'object') return value; return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, nested]) => [key, sortJson(nested)])) }
+function selectiveRefreshSections(value: LearningAnalyticsRequest | LearningAnalyticsQuery): AnalyticsSectionId[] {
+  if (!value || typeof value !== 'object' || !('refreshSectionIds' in value)) return []
+  const candidates = (value as { refreshSectionIds?: unknown }).refreshSectionIds
+  const allowed = new Set<AnalyticsSectionId>(['hero', 'focus', 'tasks', 'tokens', 'workspace_assets', 'review', 'memory', 'platform', 'presence', 'insights'])
+  return Array.isArray(candidates) ? [...new Set(candidates.filter((candidate): candidate is AnalyticsSectionId => typeof candidate === 'string' && allowed.has(candidate as AnalyticsSectionId)))] : []
+}
+
 function normalizeLearningAnalyticsRequest(value: LearningAnalyticsRequest | LearningAnalyticsQuery): LearningAnalyticsRequest {
   if (value && typeof value === 'object' && 'query' in value && (value as { query?: unknown }).query) {
     const request = value as LearningAnalyticsRequest

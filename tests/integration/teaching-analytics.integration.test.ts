@@ -209,7 +209,7 @@ function settings(runtime: IsolatedTestRuntime): TeachingSettingsV1 {
   }
 }
 
-function makeService(runtime: IsolatedTestRuntime, scans: AnalyticsWorkspaceScanResult[], records: Map<string, AgentConversationRecord>, readCount: { value: number }) {
+function makeService(runtime: IsolatedTestRuntime, scans: AnalyticsWorkspaceScanResult[], records: Map<string, AgentConversationRecord>, readCount: { value: number }, sourceReads?: { review: number; memory: number }) {
   const skills: SkillCatalogResult = { rootPath: runtime.rootDir, skills: [] }
   const diagnostics: TeachingMemoryDiagnostics = { enabled: true, rootDir: runtime.rootDir, activeCount: 0, tombstoneCount: 0, lastInjectedIds: [] }
   return new LearningAnalyticsService({
@@ -221,9 +221,9 @@ function makeService(runtime: IsolatedTestRuntime, scans: AnalyticsWorkspaceScan
       if (!record) throw new Error('missing fixture')
       return record
     },
-    getProgress: async (workspaceId) => ({ workspaceId, progress: { totalAnswered: 2, correct: 1, byLesson: {} } }),
-    listReviewCards: async () => ({ cards: [] }),
-    listMemory: async () => [],
+    getProgress: async (workspaceId) => { if (sourceReads) sourceReads.review += 1; return { workspaceId, progress: { totalAnswered: 2, correct: 1, byLesson: {} } } },
+    listReviewCards: async () => { if (sourceReads) sourceReads.review += 1; return { cards: [] } },
+    listMemory: async () => { if (sourceReads) sourceReads.memory += 1; return [] },
     getMemoryDiagnostics: async () => diagnostics,
     listSkills: async () => skills,
     loadSettings: async () => settings(runtime),
@@ -295,6 +295,50 @@ describe('teaching analytics integration', () => {
     expect('data' in narrow.workspaceAssets && 'data' in broad.workspaceAssets && narrow.workspaceAssets.data.counts.conversations).toBe(broad.workspaceAssets.data.counts.conversations)
     expect('data' in narrow.review && 'data' in broad.review && narrow.review.data.cumulative.totalAnswered).toBe(broad.review.data.cumulative.totalAnswered)
     if ('data' in narrow.tokens && 'data' in broad.tokens) expect(narrow.tokens.data.totals.totalTokens).not.toBe(broad.tokens.data.totals.totalTokens)
+  })
+
+  it('selectively refreshes token evidence, rederives insights, and leaves review/memory scans cached', async () => {
+    const good = summary(runtime, 'ws-good')
+    const conversation = { id: 'retry-conversation', workspaceId: good.id, title: 'Retry conversation', createdAt: instant, updatedAt: instant, relativePath: 'courses/demo/conversations/retry.md', absolutePath: join(runtime.workspaceDir, 'retry.md'), messageCount: 1 }
+    good.conversations = [conversation]
+    const records = new Map<string, AgentConversationRecord>([['retry-conversation', conversationRecord('retry-conversation', [{ id: 'turn', role: 'assistant', content: 'usage', createdAt: instant, metadata: { version: 1, runUsage: usage(7) } }], runtime)]])
+    const evidenceReads = { value: 0 }
+    const sourceReads = { review: 0, memory: 0 }
+    const service = makeService(runtime, workspaceScan(runtime, [good]), records, evidenceReads, sourceReads)
+
+    const initial = await service.getLearningAnalytics(query())
+    const initialScans = { ...sourceReads }
+    const retried = await service.refreshLearningAnalyticsSections(query(), ['tokens'])
+
+    expect(evidenceReads.value).toBe(2)
+    expect(sourceReads).toEqual(initialScans)
+    expect(retried.insights).not.toBe(initial.insights)
+    expect(retried.contractVersion).toBe(1)
+    expect(retried.query).toEqual(initial.query)
+  })
+
+  it('keeps a Teaching workspace evidence failure within the sections that depend on Teaching evidence', async () => {
+    const good = summary(runtime, 'ws-good')
+    const bad = summary(runtime, 'ws-bad')
+    const service = makeService(runtime, [...workspaceScan(runtime, [good]), ...workspaceScan(runtime, [bad], true)], new Map(), { value: 0 })
+
+    const result = await service.getLearningAnalytics(query())
+
+    expect(result.tokens.state).toBe('partial')
+    expect(result.workspaceAssets.state).toBe('partial')
+    expect(result.presence).toMatchObject({ state: 'unavailable', reason: 'not_applicable' })
+    expect(result.platform.state).not.toBe('error')
+  })
+
+  it('retains the complete LearningAnalyticsBundle contract across a full refresh', async () => {
+    const service = makeService(runtime, workspaceScan(runtime, [summary(runtime, 'ws-good')]), new Map(), { value: 0 })
+    const first = await service.getLearningAnalytics(query())
+    service.invalidate(['workspace'])
+    const refreshed = await service.getLearningAnalytics(query())
+
+    expect(Object.keys(refreshed).sort()).toEqual(Object.keys(first).sort())
+    expect(refreshed).toMatchObject({ contractVersion: 1, query: first.query })
+    expect(refreshed).toHaveProperty('insights')
   })
 
   it('deduplicates concurrent requests and invalidates cache when a relevant file changes', async () => {
