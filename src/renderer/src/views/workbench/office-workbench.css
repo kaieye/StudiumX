@@ -42,8 +42,8 @@
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  /* Flat light study-room surface. */
-  background: #f5f5f5;
+  /* White study-room surface. */
+  background: #ffffff;
   box-shadow: none;
 }
 
@@ -2436,8 +2436,7 @@
   flex: 0 0 auto;
   /* Stage cards float via the specular rim + translucency alone; a drop shadow
      here would bleed across the inter-card gap and fail the separation check
-     (gap midpoint must read as the pure stage background). The leaderboard,
-     a single panel, keeps its shadow. */
+     (gap midpoint must read as the pure stage background). */
   box-shadow:
     inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7)),
     inset 0 -1px 0 rgba(20, 47, 95, 0.05);
@@ -2450,6 +2449,7 @@
   top: var(--workbench-leaderboard-block-inset);
   left: var(--workbench-leaderboard-inline-inset);
   z-index: 6;
+  isolation: isolate;
   box-sizing: border-box;
   width: min(292px, calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset)));
   max-width: min(292px, calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset)));
@@ -2460,8 +2460,8 @@
   border: 1px solid var(--liquid-glass-line);
   border-radius: var(--workbench-card-radius);
   background: var(--liquid-glass-fill, rgba(255, 255, 255, 0.14));
+  /* Match the today-task card: material depth comes from its inset rim, not a floating drop shadow. */
   box-shadow:
-    var(--liquid-glass-shadow, 0 24px 70px rgba(20, 47, 95, 0.16), 0 7px 24px rgba(20, 47, 95, 0.08)),
     inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7)),
     inset 0 -1px 0 rgba(20, 47, 95, 0.05);
   backdrop-filter: var(--liquid-glass-blur, blur(30px) saturate(180%));

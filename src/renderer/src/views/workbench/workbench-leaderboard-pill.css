@@ -57,16 +57,6 @@
   border-radius: 999px;
 }
 
-@media (hover: hover) {
-  .office-workbench-stage > .workbench-leaderboard:hover {
-    border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
-    box-shadow:
-      0 18px 42px color-mix(in srgb, var(--accent) 17%, transparent),
-      inset 0 1px 0 color-mix(in srgb, #ffffff 78%, transparent);
-    filter: brightness(1.025);
-  }
-}
-
 .workbench-leaderboard-reveal {
   min-width: 0;
   height: 0;
