@@ -1,10 +1,18 @@
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../../app-shell/appStore'
 import { readStudySnapshot } from '../../../study-space/domain'
 import { getAnalyticsCopy } from './analyticsCopy'
-import { TokenConsumptionCard } from './components/TokenConsumptionCard'
+import { createAnalyticsFormatters, resolveAnalyticsLocale } from './chartFormatters'
+import { AnalyticsSection, type AnalyticsFallbackState } from './components/AnalyticsSection'
+import {
+  FocusBody,
+  HeroBody,
+  ReviewBody,
+  TaskBody,
+  TokenBody
+} from './components/SectionBodies'
 import {
   buildAnalyticsDateRange,
   buildLearningAnalyticsQuery,
@@ -12,6 +20,7 @@ import {
   useStudyAnalytics,
   type LearningAnalyticsClient
 } from './useStudyAnalytics'
+import type { AnalyticsRangePreset, LearningAnalyticsBundle } from './types'
 import './analytics-page.css'
 
 export type StudyAnalyticsIdentity = {
@@ -24,6 +33,14 @@ export type StudyAnalyticsPageProps = {
   client?: LearningAnalyticsClient
   identity?: StudyAnalyticsIdentity
 }
+
+const RANGE_PRESETS: readonly Exclude<AnalyticsRangePreset, 'custom'>[] = [
+  'today',
+  'week',
+  'month',
+  '90d',
+  'all'
+]
 
 function useLocalToday(): string {
   const [today, setToday] = useState(() => localDateKey(new Date()))
@@ -50,19 +67,29 @@ function defaultIdentity(): StudyAnalyticsIdentity {
   }
 }
 
+function fallbackStateFor(phase: ReturnType<typeof useStudyAnalytics>['phase']): AnalyticsFallbackState {
+  if (phase === 'loading') return 'loading'
+  if (phase === 'error') return 'error'
+  return 'unavailable'
+}
+
 export function StudyAnalyticsPage({
   onBack,
   client,
   identity: identityOverride
 }: StudyAnalyticsPageProps) {
   const { i18n } = useTranslation()
+  const locale = resolveAnalyticsLocale(i18n.language)
   const copy = getAnalyticsCopy(i18n.language || 'zh-CN')
+  const fmt = useMemo(() => createAnalyticsFormatters(locale), [locale])
   const localToday = useLocalToday()
   const workspaces = useAppStore((state) => state.appState.workspaces)
   const [identity] = useState<StudyAnalyticsIdentity>(() => identityOverride ?? defaultIdentity())
-  const workspaceIdsKey = workspaces.map((workspace) => workspace.id).join('\u001f')
+  const [preset, setPreset] = useState<Exclude<AnalyticsRangePreset, 'custom'>>('week')
+
+  const workspaceIdsKey = workspaces.map((workspace) => workspace.id).join('')
   const query = useMemo(() => buildLearningAnalyticsQuery({
-    range: buildAnalyticsDateRange('all', localToday),
+    range: buildAnalyticsDateRange(preset, localToday),
     localToday,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Etc/UTC',
     personalClientId: identity.personalClientId,
@@ -70,13 +97,15 @@ export function StudyAnalyticsPage({
       ? { kind: 'all_workspaces', workspaceIds: workspaces.map((workspace) => workspace.id) }
       : { kind: 'none' },
     presenceSpaceCode: identity.presenceSpaceCode
-  }), [identity.personalClientId, identity.presenceSpaceCode, localToday, workspaceIdsKey])
+  }), [identity.personalClientId, identity.presenceSpaceCode, localToday, preset, workspaceIdsKey])
+
   const analytics = useStudyAnalytics({ query, client })
-  const fallbackState = analytics.phase === 'loading'
-    ? 'loading'
-    : analytics.phase === 'error'
-      ? 'error'
-      : 'unavailable'
+  const bundle: LearningAnalyticsBundle | null = analytics.bundle
+  const fallbackState = fallbackStateFor(analytics.phase)
+  const fallbackMessage = analytics.issue?.kind === 'unavailable'
+    ? copy.page.unavailableDetail
+    : analytics.issue?.message
+
   const liveMessage = analytics.isRefreshing
     ? copy.page.refreshing
     : analytics.phase === 'ready'
@@ -87,11 +116,21 @@ export function StudyAnalyticsPage({
           ? copy.page.unavailable
           : copy.states.loading
 
+  const shared = {
+    copy,
+    fallbackState,
+    fallbackMessage,
+    isRefreshing: analytics.isRefreshing,
+    isStale: analytics.isStale
+  }
+  const ctx = { copy, fmt, localToday }
+
   return (
     <div className="study-analytics-page">
+      <a className="analytics-skip-link" href="#analytics-main">{copy.page.skip}</a>
       <div className="study-analytics-scroll">
-        <header className="analytics-page-header analytics-page-header--compact">
-          <div className="analytics-title-row analytics-title-row--compact">
+        <header className="analytics-page-header">
+          <div className="analytics-title-row">
             <button type="button" className="analytics-back-button" onClick={onBack} aria-label={copy.page.back}>
               <ArrowLeft size={19} aria-hidden="true" />
               <span>{copy.page.back}</span>
@@ -100,21 +139,96 @@ export function StudyAnalyticsPage({
               <p>{copy.page.eyebrow}</p>
               <h1>{copy.page.title}</h1>
             </div>
+            <button
+              type="button"
+              className="analytics-refresh-button"
+              onClick={analytics.refresh}
+              disabled={analytics.isRefreshing}
+              aria-label={copy.page.refresh}
+            >
+              <RefreshCw size={18} aria-hidden="true" />
+              <span>{copy.page.refresh}</span>
+            </button>
+          </div>
+
+
+          <div className="analytics-range-bar" role="group" aria-label={copy.page.rangeLabel}>
+            {RANGE_PRESETS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                className="analytics-filter-button"
+                aria-pressed={preset === value}
+                onClick={() => setPreset(value)}
+              >
+                {copy.ranges[value]}
+              </button>
+            ))}
           </div>
         </header>
 
         <p className="analytics-live-status" aria-live="polite" aria-atomic="true">{liveMessage}</p>
 
-        <div id="analytics-main" className="analytics-main analytics-main--token-only">
-          <TokenConsumptionCard
-            result={analytics.bundle?.tokens ?? null}
-            localToday={localToday}
-            isRefreshing={analytics.isRefreshing}
-            isStale={analytics.isStale}
-            fallbackState={fallbackState}
-            fallbackMessage={analytics.issue?.message}
+        <div id="analytics-main" className="analytics-main">
+          <AnalyticsSection
+            {...shared}
+            id="analytics-section-hero"
+            title={copy.hero.title}
+            result={bundle?.hero ?? null}
+            renderEmpty
+            wide
+            onRetry={() => analytics.retrySection('hero')}
+          >
+            {(result) => <HeroBody {...ctx} data={result.data} />}
+          </AnalyticsSection>
+
+          <AnalyticsSection
+            {...shared}
+            id="analytics-section-focus"
+            title={copy.focus.title}
+            description={copy.focus.description}
+            result={bundle?.focus ?? null}
+            wide
+            onRetry={() => analytics.retrySection('focus')}
+          >
+            {(result) => <FocusBody {...ctx} data={result.data} />}
+          </AnalyticsSection>
+
+          <AnalyticsSection
+            {...shared}
+            id="analytics-section-tokens"
+            title={copy.tokens.title}
+            description={copy.tokens.description}
+            result={bundle?.tokens ?? null}
+            wide
             onRetry={() => analytics.retrySection('tokens')}
-          />
+          >
+            {(result) => <TokenBody {...ctx} data={result.data} />}
+          </AnalyticsSection>
+
+          <div className="analytics-grid">
+            <AnalyticsSection
+              {...shared}
+              id="analytics-section-tasks"
+              title={copy.tasks.title}
+              description={copy.tasks.description}
+              result={bundle?.tasks ?? null}
+              onRetry={() => analytics.retrySection('tasks')}
+            >
+              {(result) => <TaskBody {...ctx} data={result.data} />}
+            </AnalyticsSection>
+
+            <AnalyticsSection
+              {...shared}
+              id="analytics-section-review"
+              title={copy.review.title}
+              description={copy.review.description}
+              result={bundle?.review ?? null}
+              onRetry={() => analytics.retrySection('review')}
+            >
+              {(result) => <ReviewBody {...ctx} data={result.data} />}
+            </AnalyticsSection>
+          </div>
         </div>
       </div>
     </div>

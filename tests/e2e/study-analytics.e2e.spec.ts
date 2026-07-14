@@ -24,7 +24,7 @@ test('opens analytics from a deep link and exposes page landmarks and unavailabl
   await expect(mainWindow).toHaveURL(/workbench=analytics/)
   await expect(mainWindow.locator('#analytics-main')).toBeVisible()
   await expect(mainWindow.locator('.study-analytics-page h1')).toBeVisible()
-  await expect(mainWindow.locator('.study-analytics-page [data-state]').first()).toBeVisible()
+  await expect(mainWindow.locator('.study-analytics-page [data-section-state]').first()).toBeVisible()
   await expect(mainWindow.locator('.study-analytics-scroll')).toHaveCount(1)
   const overflow = await mainWindow.locator('.study-analytics-scroll').evaluate((element) => ({
     scrollWidth: element.scrollWidth,
@@ -46,10 +46,16 @@ test('FAB opens analytics and back restores the FAB focus', async ({ mainWindow 
   await expect(mainWindow.locator('.workbench-analytics-fab')).toBeFocused()
 })
 
-test('analytics stays focused on a single token usage card', async ({ mainWindow }) => {
+test('analytics renders the full multi-section dashboard', async ({ mainWindow }) => {
   await openAnalytics(mainWindow)
 
-  await expect(mainWindow.locator('.token-consumption-card')).toHaveCount(1)
-  await expect(mainWindow.locator('.focus-heatmap__grid')).toHaveCount(0)
-  await expect(mainWindow.locator('.analytics-section-card')).toHaveCount(0)
+  // The stripped-down single token card is gone.
+  await expect(mainWindow.locator('.token-consumption-card')).toHaveCount(0)
+
+  // The streamlined section set and range presets are present.
+  await expect(mainWindow.locator('.analytics-section-card')).toHaveCount(5)
+  await expect(mainWindow.locator('#analytics-section-memory')).toHaveCount(0)
+  await expect(mainWindow.locator('#analytics-section-platform')).toHaveCount(0)
+  await expect(mainWindow.locator('#analytics-section-insights')).toHaveCount(0)
+  await expect(mainWindow.locator('.analytics-range-bar')).toBeVisible()
 })

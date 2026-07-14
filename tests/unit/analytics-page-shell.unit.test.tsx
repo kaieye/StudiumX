@@ -6,11 +6,12 @@ import type {
   AnalyticsCoverage,
   AnalyticsSectionResult,
   LearningAnalyticsBundle,
+  LearningAnalyticsHero,
   LearningAnalyticsQuery,
   TokenAnalytics
 } from '@renderer/views/workbench/analytics/types'
 import type { LearningAnalyticsClient } from '@renderer/views/workbench/analytics/useStudyAnalytics'
-import { renderUi, screen, setupUser } from '../helpers/render'
+import { renderUi, screen, setupUser, waitFor } from '../helpers/render'
 
 function coverage(query: LearningAnalyticsQuery): AnalyticsCoverage {
   return {
@@ -84,6 +85,25 @@ function tokenResult(query: LearningAnalyticsQuery): AnalyticsSectionResult<Toke
   }
 }
 
+function heroResult(query: LearningAnalyticsQuery): AnalyticsSectionResult<LearningAnalyticsHero> {
+  return {
+    state: 'available',
+    temporal: { kind: 'range', range: query.range },
+    coverage: coverage(query),
+    warnings: [],
+    data: {
+      focusSeconds: 7_200,
+      completedFocusSessions: 4,
+      currentStreakDays: 3,
+      currentXp: 480,
+      currentLevel: { level: 5, xpAtLevelStart: 480, xpAtNextLevel: 120, currentXp: 480, progress: 0 },
+      totalTokens: 1_250,
+      currentTaskCompletionRate: 0.5,
+      insightLine: 'steady focus'
+    }
+  }
+}
+
 function bundle(query: LearningAnalyticsQuery): LearningAnalyticsBundle {
   const unavailable = {
     state: 'unavailable',
@@ -96,7 +116,7 @@ function bundle(query: LearningAnalyticsQuery): LearningAnalyticsBundle {
     contractVersion: 1,
     generatedAt: '2026-07-13T12:00:00.000Z',
     query,
-    hero: unavailable,
+    hero: heroResult(query),
     focus: unavailable,
     tasks: unavailable,
     tokens: tokenResult(query),
@@ -110,8 +130,7 @@ function bundle(query: LearningAnalyticsQuery): LearningAnalyticsBundle {
 }
 
 describe('StudyAnalyticsPage', () => {
-  it('calculates and displays token consumption from the analytics client', async () => {
-    const user = setupUser()
+  it('renders a multi-section dashboard from the analytics bundle', async () => {
     const onBack = vi.fn()
     const client: LearningAnalyticsClient = {
       getLearningAnalytics: vi.fn(async (query) => bundle(query))
@@ -126,26 +145,58 @@ describe('StudyAnalyticsPage', () => {
     )
 
     expect(screen.getByRole('heading', { name: '学习分析' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'Token 消耗量' })).toBeInTheDocument()
-    expect(screen.getByText('总 Token 量')).toBeInTheDocument()
-    expect(screen.getByText('今日 Token 量')).toBeInTheDocument()
+
+    // Hero section renders its stat cards from the bundle.
+    expect(await screen.findByRole('heading', { name: '概览' })).toBeInTheDocument()
+    expect(screen.getByText('专注时长')).toBeInTheDocument()
+
+    // Token section only keeps total, today, and the usage trend.
+    const tokenHeading = screen.getByRole('heading', { name: 'Token 消耗' })
+    expect(tokenHeading).toBeInTheDocument()
+    const tokenSection = tokenHeading.closest('section')
+    expect(tokenSection).not.toBeNull()
+    expect(tokenSection?.querySelectorAll('.analytics-stat')).toHaveLength(2)
+    expect(tokenSection?.querySelectorAll('.analytics-subcard')).toHaveLength(1)
     expect(screen.getByText('1,250')).toBeInTheDocument()
-    expect(screen.getByText('250')).toBeInTheDocument()
-    expect(document.querySelectorAll('.token-consumption-card')).toHaveLength(1)
-    const compactContent = document.querySelector('.token-consumption-card__content')
-    expect(compactContent?.children[0]).toHaveClass('token-consumption-card__metrics')
-    expect(compactContent?.children[1]).toHaveClass('token-consumption-card__chart-panel')
-    expect(document.querySelectorAll('.token-consumption-card__metric-row')).toHaveLength(2)
-    expect(screen.getByRole('button', { name: '近 7 天' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('img', { name: 'Token 使用趋势，近 7 天' })).toBeInTheDocument()
+    expect(screen.getByText('今日 Token 量')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Token 使用趋势' })).toBeInTheDocument()
+    expect(screen.queryByText('模型调用')).not.toBeInTheDocument()
+    expect(screen.queryByText('工具调用')).not.toBeInTheDocument()
+    expect(screen.queryByText('Token 效率')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '近 30 天' }))
-    expect(screen.getByRole('button', { name: '近 30 天' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('img', { name: 'Token 使用趋势，近 30 天' })).toBeInTheDocument()
+    // The requested cards and standalone summary copy are removed.
+    expect(screen.queryByText('汇总你的专注时段、任务节奏、模型消耗与知识沉淀。')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '记忆分析' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '平台分析' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '洞察' })).not.toBeInTheDocument()
+    expect(document.querySelector('.token-consumption-card')).toBeNull()
+    expect(document.querySelectorAll('.analytics-section-card')).toHaveLength(5)
 
-    await user.click(screen.getByRole('button', { name: '返回自习室' }))
+    // Range presets are exposed and default to "this week".
+    expect(screen.getByRole('button', { name: '本周' })).toHaveAttribute('aria-pressed', 'true')
+
+    await setupUser().click(screen.getByRole('button', { name: '返回自习室' }))
     expect(onBack).toHaveBeenCalledTimes(1)
     expect(client.getLearningAnalytics).toHaveBeenCalled()
+  })
+
+  it('switches the analytics range when a preset is selected', async () => {
+    const user = setupUser()
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async (query) => bundle(query))
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client' }}
+      />
+    )
+
+    await screen.findByRole('heading', { name: '概览' })
+    await user.click(screen.getByRole('button', { name: '近 90 天' }))
+    expect(screen.getByRole('button', { name: '近 90 天' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('retains the clipped page shell and container-query safeguards', () => {

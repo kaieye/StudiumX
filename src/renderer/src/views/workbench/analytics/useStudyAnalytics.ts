@@ -251,9 +251,22 @@ function personalStudyRequest(query: LearningAnalyticsQuery): LearningAnalyticsR
   }
 }
 
+const ALL_ANALYTICS_SECTION_IDS: readonly AnalyticsSectionId[] = [
+  'hero',
+  'focus',
+  'tasks',
+  'tokens',
+  'workspace_assets',
+  'review',
+  'memory',
+  'platform',
+  'presence',
+  'insights'
+]
+
 export const teachingSystemAnalyticsClient: LearningAnalyticsClient = {
   async getLearningAnalytics(query, signal) {
-    return requestAnalyticsBundle(query, signal, { sectionIds: ['tokens'] })
+    return requestAnalyticsBundle(query, signal, { sectionIds: ALL_ANALYTICS_SECTION_IDS })
   },
   async refreshLearningAnalyticsSections(query, sectionIds, signal) {
     return requestAnalyticsBundle(query, signal, { refreshSectionIds: sectionIds })

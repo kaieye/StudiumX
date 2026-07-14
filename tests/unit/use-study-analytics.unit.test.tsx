@@ -80,7 +80,7 @@ describe('analytics query construction', () => {
 })
 
 describe('useStudyAnalytics', () => {
-  it('requests only the token section from Main for the lean Learning Analytics page', async () => {
+  it('requests every analytics section from Main for the full Learning Analytics page', async () => {
     const query = buildLearningAnalyticsQuery({
       range: buildAnalyticsDateRange('week', '2026-07-13'),
       localToday: '2026-07-13',
@@ -100,7 +100,7 @@ describe('useStudyAnalytics', () => {
       await teachingSystemAnalyticsClient.getLearningAnalytics(query, new AbortController().signal)
       expect(getLearningAnalytics).toHaveBeenCalledWith(expect.objectContaining({
         query,
-        sectionIds: ['tokens']
+        sectionIds: ['hero', 'focus', 'tasks', 'tokens', 'workspace_assets', 'review', 'memory', 'platform', 'presence', 'insights']
       }))
       expect(getLearningAnalytics.mock.calls[0]?.[0]).not.toHaveProperty('refreshSectionIds')
     } finally {
