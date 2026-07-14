@@ -227,6 +227,21 @@ export function agentConversationChildTranscriptDirectoryRelativePathForMarkdown
   )
 }
 
+export function agentConversationCheckpointDirectoryRelativePathForMarkdown(markdownRelativePath: string): string {
+  return joinAgentConversationRelativePath(
+    agentConversationSessionArtifactDirectoryRelativePathForMarkdown(markdownRelativePath),
+    'checkpoints'
+  )
+}
+
+export function agentConversationHistoryIndexRelativePath(): string {
+  return '.agent-sessions/history-index.v1.json'
+}
+
+export function agentArtifactCleanupAuditRelativePath(): string {
+  return '.agent-sessions/artifact-cleanup.jsonl'
+}
+
 export function normalizeAgentConversationDirectory(conversationDir: string): string {
   const normalized = normalizeAgentConversationRelativePath(conversationDir)
   if (normalized === 'conversation') return 'conversation'

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
+import { redactAgentSecretText } from '../../shared/agent-secret-redaction'
 import type { AgentArtifactRef, AgentRunBudget, AgentRunUsageAggregate } from '../../shared/teaching-types'
 import { writeContentAddressedFile } from '../path-access'
 import type {
@@ -148,20 +149,21 @@ export class AgentRunPersistence {
   async stageChildTranscript(runId: string, childRunId: string, content: string): Promise<AgentArtifactRef> {
     assertSafeId(runId, 'runId')
     assertSafeId(childRunId, 'childRunId')
-    const sha256 = createHash('sha256').update(content).digest('hex')
+    const redactedContent = redactAgentSecretText(content)
+    const sha256 = createHash('sha256').update(redactedContent).digest('hex')
     const relativePath = agentRunChildTranscriptRelativePath(runId, childRunId, sha256)
     await writeContentAddressedFile({
       rootPath: this.storageRoot,
       targetPath: join(this.storageRoot, relativePath),
-      content,
+      content: redactedContent,
       sha256
     })
     return {
       kind: 'child_transcript',
       relativePath,
       sha256,
-      bytes: Buffer.byteLength(content, 'utf8'),
-      lines: content ? content.split(/\r\n|\r|\n/).length : 0,
+      bytes: Buffer.byteLength(redactedContent, 'utf8'),
+      lines: redactedContent ? redactedContent.split(/\r\n|\r|\n/).length : 0,
       archivedAt: this.now()
     }
   }
@@ -250,8 +252,8 @@ function validateParentTurnStage(value: unknown): AgentParentTurnStage {
     updatedAt: isoString(record.updatedAt),
     ...(record.interruptedAt !== undefined ? { interruptedAt: isoString(record.interruptedAt) } : {}),
     ...(record.settledAt !== undefined ? { settledAt: isoString(record.settledAt) } : {}),
-    ...(record.failureReason !== undefined ? { failureReason: shortText(record.failureReason) } : {}),
-    ...(record.recoveryReason !== undefined ? { recoveryReason: shortText(record.recoveryReason) } : {})
+    ...(record.failureReason !== undefined ? { failureReason: redactedShortText(record.failureReason) } : {}),
+    ...(record.recoveryReason !== undefined ? { recoveryReason: redactedShortText(record.recoveryReason) } : {})
   }
   if (Boolean(stage.targetConversationId) !== Boolean(stage.expectedTurnDigest)) {
     throw new Error('Parent turn staging commit target and digest must be persisted together.')
@@ -276,7 +278,7 @@ function validateParentTurnTextEvidence(value: unknown): AgentParentTurnTextEvid
   if (typeof record.truncated !== 'boolean') throw new Error('Invalid parent turn truncation marker.')
   return {
     sha256: hashValue(record.sha256),
-    preview: limitedString(record.preview, MAX_PARENT_TURN_PREVIEW_BYTES),
+    preview: redactedLimitedString(record.preview, MAX_PARENT_TURN_PREVIEW_BYTES),
     originalBytes: integerInRange(record.originalBytes, 0, 64 * 1024 * 1024),
     truncated: record.truncated
   }
@@ -287,8 +289,8 @@ function validateParentTurnEvidence(value: unknown): AgentParentTurnStageEvidenc
   return {
     sequence: nonNegativeInteger(record.sequence),
     kind: stringEnum(record.kind, ['status', 'tool_call', 'tool_result', 'permission_wait', 'permission_resolved', 'elicitation_wait', 'elicitation_resolved', 'terminal'] as const),
-    title: limitedString(record.title, 512),
-    ...(record.detail !== undefined ? { detail: limitedString(record.detail, 2048) } : {}),
+    title: redactedLimitedString(record.title, 512),
+    ...(record.detail !== undefined ? { detail: redactedLimitedString(record.detail, 2048) } : {}),
     ...(record.toolName !== undefined ? { toolName: safeIdValue(record.toolName, 'toolName') } : {}),
     ...(typeof record.isError === 'boolean' ? { isError: record.isError } : {}),
     createdAt: isoString(record.createdAt)
@@ -324,8 +326,8 @@ function validateCheckpoint(value: unknown): AgentRunCheckpoint {
     ...(record.pendingElicitationId !== undefined ? { pendingElicitationId: safeIdValue(record.pendingElicitationId, 'pendingElicitationId') } : {}),
     budget: validateBudget(record.budget),
     usage: validateUsage(record.usage),
-    ...(record.stopReason !== undefined ? { stopReason: shortText(record.stopReason) } : {}),
-    ...(record.interruptionReason !== undefined ? { interruptionReason: shortText(record.interruptionReason) } : {})
+    ...(record.stopReason !== undefined ? { stopReason: redactedShortText(record.stopReason) } : {}),
+    ...(record.interruptionReason !== undefined ? { interruptionReason: redactedShortText(record.interruptionReason) } : {})
   }
 }
 
@@ -340,17 +342,17 @@ function validateChildRun(value: unknown): AgentRunChildRecord {
     runId: safeIdValue(record.runId, 'runId'),
     childRunId: safeIdValue(record.childRunId, 'childRunId'),
     ...(optionalSafeId(record.parentStreamId, 'parentStreamId') ? { parentStreamId: optionalSafeId(record.parentStreamId, 'parentStreamId') } : {}),
-    label: shortText(record.label),
+    label: redactedShortText(record.label),
     profile: stringEnum(record.profile, ['read_only', 'research', 'workspace_audit'] as const),
     status: stringEnum(record.status, ['queued', 'running', 'completed', 'failed', 'canceled', 'recoverable'] as const),
     createdAt: isoString(record.createdAt),
     ...(record.startedAt !== undefined ? { startedAt: isoString(record.startedAt) } : {}),
     ...(record.completedAt !== undefined ? { completedAt: isoString(record.completedAt) } : {}),
     updatedAt: isoString(record.updatedAt),
-    ...(record.summary !== undefined ? { summary: shortText(record.summary) } : {}),
-    ...(record.error !== undefined ? { error: shortText(record.error) } : {}),
+    ...(record.summary !== undefined ? { summary: redactedShortText(record.summary) } : {}),
+    ...(record.error !== undefined ? { error: redactedShortText(record.error) } : {}),
     ...(record.usage !== undefined ? { usage: validateChildUsage(record.usage) } : {}),
-    ...(record.recoveryReason !== undefined ? { recoveryReason: shortText(record.recoveryReason) } : {}),
+    ...(record.recoveryReason !== undefined ? { recoveryReason: redactedShortText(record.recoveryReason) } : {}),
     ...(record.recoveredAt !== undefined ? { recoveredAt: isoString(record.recoveredAt) } : {})
   }
 }
@@ -370,14 +372,14 @@ function validateOperation(value: unknown): AgentOperationRecord {
     ...(record.normalizedTarget !== undefined ? { normalizedTarget: safePointerValue(record.normalizedTarget) } : {}),
     state: stringEnum(record.state, ['started', 'completed', 'failed', 'interrupted', 'needs_review'] as const),
     ...(record.resultHash !== undefined ? { resultHash: hashValue(record.resultHash) } : {}),
-    ...(record.result !== undefined ? { result: limitedString(record.result, MAX_RESULT_BYTES) } : {}),
+    ...(record.result !== undefined ? { result: redactedLimitedString(record.result, MAX_RESULT_BYTES) } : {}),
     ...(record.artifactPointer !== undefined ? { artifactPointer: safePointerValue(record.artifactPointer) } : {}),
     ...(typeof record.artifactExists === 'boolean' ? { artifactExists: record.artifactExists } : {}),
     disposition: stringEnum(record.disposition, ['first_execution', 'idempotent_reuse', 'manual_review'] as const),
     createdAt: isoString(record.createdAt),
     updatedAt: isoString(record.updatedAt),
     ...(record.completedAt !== undefined ? { completedAt: isoString(record.completedAt) } : {}),
-    ...(record.error !== undefined ? { error: shortText(record.error) } : {})
+    ...(record.error !== undefined ? { error: redactedShortText(record.error) } : {})
   }
 }
 
@@ -533,17 +535,21 @@ function limitedString(value: unknown, maxBytes: number): string {
   return value
 }
 
+function redactedShortText(value: unknown): string {
+  return redactAgentSecretText(shortText(value))
+}
+
+function redactedLimitedString(value: unknown, maxBytes: number): string {
+  return redactAgentSecretText(limitedString(value, maxBytes))
+}
+
 function hashValue(value: unknown): string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new Error('Invalid hash.')
   return value
 }
 
 function cleanDiagnostic(value: unknown): string {
-  return (value instanceof Error ? value.message : String(value))
-    .replace(/\b(?:authorization|proxy-authorization)\s*[:=]\s*[^\r\n]*/gi, '[redacted]')
-    .replace(/\bbearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
-    .replace(/\b(?:api[-_ ]?key|token|secret|password|proxy)\s*[:=]\s*[^\s,;]+/gi, '[redacted]')
-    .slice(0, 1000)
+  return redactAgentSecretText(value instanceof Error ? value.message : String(value)).slice(0, 1000)
 }
 
 function isNotFound(error: unknown): boolean {

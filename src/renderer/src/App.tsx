@@ -98,6 +98,7 @@ import {
 } from './agent-conversation-state'
 import { buildAgentConversationPresentation } from './agent-conversation-presentation'
 import { AgentConversationReader } from './views/agent-conversation/AgentConversationReader'
+import { AgentArchivedHistoryPanel } from './views/agent-conversation/AgentArchivedHistoryPanel'
 import {
   LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE,
   LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE,
@@ -2094,6 +2095,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       {hasConversation && (
         <div ref={scrollRef} className="overview-dialog-thread">
           <div className="overview-dialog-thread-inner">
+          {active && activeConversationId ? (
+            <AgentArchivedHistoryPanel workspaceId={active.id} conversationId={activeConversationId} />
+          ) : null}
           {agentTurns.map((turn) => {
             const turnPresentation = conversationPresentation.turns.find((item) => item.turnId === turn.id)
             const isBusyTurn = activeAssistantTurnId === turn.id

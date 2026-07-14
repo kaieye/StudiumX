@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
 import type { AgentRealtimeEvent } from '../../shared/teaching-types'
-import { redactProviderErrorText } from '../../shared/provider-error'
+import { redactAgentSecretText } from '../../shared/agent-secret-redaction'
 import { AgentRunPersistence } from './agent-run-persistence'
 import type {
   AgentParentTurnStage,
@@ -324,8 +324,7 @@ function boundedRedacted(value: string, maxLength: number): string {
 }
 
 function redactStagingText(value: string): string {
-  return redactProviderErrorText(value)
-    .replace(/(["']?\b(?:password|passphrase|client_secret|refresh_token)\b["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&}]+)/gi, '$1[redacted]')
+  return redactAgentSecretText(value)
 }
 
 function checkpointStatusToStageStatus(status: AgentRunCheckpoint['status']): AgentParentTurnStageStatus | null {

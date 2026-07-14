@@ -1,9 +1,15 @@
 import type {
+  AgentArchivedHistoryItemType,
   AgentChatContextCompactionRequest,
   AgentChatMessage,
   AgentChatStreamPayload,
   AgentChatTurn,
   ApplyLessonStylePayload,
+  CleanupAgentArtifactsPayload,
+  CreateAgentConversationCheckpointPayload,
+  QueryAgentArchivedHistoryPayload,
+  RebuildAgentHistoryIndexPayload,
+  ResolveAgentConversationCheckpointPayload,
   AskAnswer,
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
@@ -205,6 +211,68 @@ export function parseReadAgentConversationPayload(payload: unknown): ReadAgentCo
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     conversationId: requireString(record.conversationId, 'conversationId')
+  }
+}
+
+export function parseCreateAgentConversationCheckpointPayload(payload: unknown): CreateAgentConversationCheckpointPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    conversationId: requireString(record.conversationId, 'conversationId'),
+    label: optionalBoundedString(record.label, 240),
+    reason: optionalBoundedString(record.reason, 2_000)
+  }
+}
+
+export function parseResolveAgentConversationCheckpointPayload(payload: unknown): ResolveAgentConversationCheckpointPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    conversationId: requireString(record.conversationId, 'conversationId'),
+    checkpointId: requireString(record.checkpointId, 'checkpointId')
+  }
+}
+
+export function parseQueryAgentArchivedHistoryPayload(payload: unknown): QueryAgentArchivedHistoryPayload {
+  const record = requireRecord(payload)
+  const types = Array.isArray(record.types)
+    ? record.types.map((value): AgentArchivedHistoryItemType => {
+        if (value === 'conversation_turn' || value === 'session_sidecar' || value === 'tool_result' ||
+          value === 'child_transcript' || value === 'checkpoint') return value
+        throw new Error('IPC payload field "types" contains an invalid archived history item type.')
+      })
+    : undefined
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    scope: requireAgentConversationStorageScope(record.scope),
+    conversationId: optionalString(record.conversationId),
+    from: optionalIsoDate(record.from, 'from'),
+    to: optionalIsoDate(record.to, 'to'),
+    types: types?.length ? types : undefined,
+    checkpointId: optionalString(record.checkpointId),
+    limit: optionalPositiveInteger(record.limit, 1, 500),
+    maxBytes: optionalPositiveInteger(record.maxBytes, 1_024, 2 * 1024 * 1024),
+    maxExcerptBytes: optionalPositiveInteger(record.maxExcerptBytes, 64, 8 * 1024)
+  }
+}
+
+export function parseRebuildAgentHistoryIndexPayload(payload: unknown): RebuildAgentHistoryIndexPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    scope: requireAgentConversationStorageScope(record.scope)
+  }
+}
+
+export function parseCleanupAgentArtifactsPayload(payload: unknown): CleanupAgentArtifactsPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    scope: requireAgentConversationStorageScope(record.scope),
+    dryRun: record.dryRun !== false,
+    retentionDays: optionalPositiveInteger(record.retentionDays, 1, 3_650),
+    graceHours: optionalPositiveInteger(record.graceHours, 1, 24 * 30),
+    maxTotalBytes: optionalPositiveInteger(record.maxTotalBytes, 1024 * 1024, 10 * 1024 * 1024 * 1024)
   }
 }
 
@@ -440,6 +508,25 @@ export function parseStreamId(value: string): string {
 
 export function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function optionalBoundedString(value: unknown, maxLength: number): string | undefined {
+  const text = optionalString(value)?.trim()
+  return text ? text.slice(0, maxLength) : undefined
+}
+
+function optionalIsoDate(value: unknown, key: string): string | undefined {
+  const text = optionalString(value)
+  if (!text) return undefined
+  const timestamp = Date.parse(text)
+  if (!Number.isFinite(timestamp)) throw new Error(`IPC payload field "${key}" must be an ISO date.`)
+  return new Date(timestamp).toISOString()
+}
+
+function requireAgentConversationStorageScope(value: unknown): 'workspace' | 'temporary' | 'all' | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  if (value === 'workspace' || value === 'temporary' || value === 'all') return value
+  throw new Error('IPC payload field "scope" must be workspace, temporary, or all.')
 }
 
 function optionalPositiveInteger(value: unknown, min: number, max: number): number | undefined {

@@ -25,6 +25,8 @@ import {
   nextAgentConversationId,
   normalizeAgentConversationTurns,
   readAgentConversationRecord,
+  readRawAgentConversationRecord,
+  listPersistedAgentConversationRecords,
   requireSafeAgentConversationId,
   sortAgentConversationSummaries,
   toAgentConversationSummary,
@@ -37,6 +39,14 @@ import {
 } from './teaching-conversation-runtime'
 import { AgentRunStore } from './ai/agent-run-store'
 import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
+import { createAgentConversationCheckpoint, resolveAgentConversationCheckpoint } from './agent-conversation-checkpoints'
+import { cleanupAgentArtifacts as runAgentArtifactCleanup } from './agent-artifact-lifecycle'
+import {
+  AGENT_CONVERSATION_HISTORY_INDEX_RELATIVE_PATH,
+  queryAgentArchivedHistory as queryArchivedHistoryAtRoot,
+  rebuildAgentConversationHistoryIndex
+} from './agent-conversation-history'
+import { collectAgentArtifactProtectionSnapshot } from './agent-artifact-protection'
 import type { SkillLibraryService } from './skill-library'
 import type { LessonPlanSource } from '../shared/lesson-schema'
 import {
@@ -88,6 +98,18 @@ import type { AnalyticsWorkspaceScanResult } from './teaching/services/learning-
 import { buildConnectorStatuses } from './connector-status'
 import type {
   ApplyLessonStylePayload,
+  AgentArchivedHistoryIssue,
+  AgentConversationCheckpoint,
+  AgentConversationStorageScope,
+  CleanupAgentArtifactsPayload,
+  CleanupAgentArtifactsResult,
+  CreateAgentConversationCheckpointPayload,
+  QueryAgentArchivedHistoryPayload,
+  QueryAgentArchivedHistoryResult,
+  RebuildAgentHistoryIndexPayload,
+  RebuildAgentHistoryIndexResult,
+  ResolveAgentConversationCheckpointPayload,
+  ResolveAgentConversationCheckpointResult,
   ConnectorStatusesResult,
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
@@ -568,6 +590,7 @@ export class TeachingWorkspaceService {
       turns
     }
 
+    await invalidateAgentHistoryIndex(storageRoot)
     await writeAgentConversationRecord({ ...workspace, rootPath: storageRoot }, record, {
       allowedStagedChildTranscripts: authorizedAllowances
     })
@@ -647,6 +670,181 @@ export class TeachingWorkspaceService {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
     return (await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId)).record
+  }
+
+  async createAgentConversationCheckpoint(
+    payload: CreateAgentConversationCheckpointPayload
+  ): Promise<AgentConversationCheckpoint> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const location = await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId)
+    const record = await readRawAgentConversationRecord(location.rootPath, payload.conversationId)
+    await invalidateAgentHistoryIndex(location.rootPath)
+    const checkpoint = await createAgentConversationCheckpoint({
+      rootPath: location.rootPath,
+      record,
+      label: payload.label,
+      reason: payload.reason
+    })
+    return checkpoint
+  }
+
+  async resolveAgentConversationCheckpoint(
+    payload: ResolveAgentConversationCheckpointPayload
+  ): Promise<ResolveAgentConversationCheckpointResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const location = await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId)
+    const record = await readRawAgentConversationRecord(location.rootPath, payload.conversationId)
+    return resolveAgentConversationCheckpoint({
+      rootPath: location.rootPath,
+      record,
+      checkpointId: payload.checkpointId
+    })
+  }
+
+  async rebuildAgentHistoryIndex(
+    payload: RebuildAgentHistoryIndexPayload
+  ): Promise<RebuildAgentHistoryIndexResult> {
+    const roots = await this.agentStorageRoots(payload.workspaceId, payload.scope)
+    const scopes = await Promise.all(roots.map(async ({ scope, rootPath }) => {
+      const records = (await listPersistedAgentConversationRecords(rootPath)).map((entry) => entry.record)
+      const rebuilt = await rebuildAgentConversationHistoryIndex({ rootPath, records })
+      return {
+        scope,
+        entries: rebuilt.index.items.length,
+        issues: rebuilt.issues,
+        indexRelativePath: rebuilt.indexRelativePath
+      }
+    }))
+    return { scopes }
+  }
+
+  async queryAgentArchivedHistory(
+    payload: QueryAgentArchivedHistoryPayload
+  ): Promise<QueryAgentArchivedHistoryResult> {
+    const roots = await this.agentStorageRoots(payload.workspaceId, payload.scope)
+    const limit = payload.limit ?? 100
+    const maxBytes = payload.maxBytes ?? 256 * 1024
+    const maxExcerptBytes = payload.maxExcerptBytes ?? 1200
+    const scoped = await Promise.all(roots.map(async ({ scope, rootPath }) => ({
+      scope,
+      result: await queryArchivedHistoryAtRoot({
+        rootPath,
+        conversationId: payload.conversationId,
+        from: payload.from,
+        to: payload.to,
+        types: payload.types,
+        checkpointId: payload.checkpointId,
+        limit,
+        maxBytes,
+        maxExcerptBytes
+      })
+    })))
+
+    const candidates = scoped.flatMap(({ scope, result }) => result.items.map((item) => ({
+      ...item,
+      reference: `${scope}:${item.reference}`
+    }))).sort((left, right) =>
+      left.timestamp.localeCompare(right.timestamp) || left.reference.localeCompare(right.reference)
+    )
+    const items: QueryAgentArchivedHistoryResult['items'] = []
+    let bytes = 0
+    let truncated = scoped.some((entry) => entry.result.truncated)
+    for (const item of candidates) {
+      if (items.length >= limit) {
+        truncated = true
+        break
+      }
+      const itemBytes = Buffer.byteLength(JSON.stringify(item), 'utf8')
+      if (bytes + itemBytes > maxBytes) {
+        truncated = true
+        break
+      }
+      items.push(item)
+      bytes += itemBytes
+    }
+    if (items.length < candidates.length) truncated = true
+
+    const issues: AgentArchivedHistoryIssue[] = scoped.flatMap(({ scope, result }) =>
+      result.issues.map((issue) => ({
+        ...issue,
+        ...(issue.reference ? { reference: `${scope}:${issue.reference}` } : {})
+      })))
+    return {
+      items,
+      truncated,
+      usage: { items: items.length, bytes, limit, maxBytes, maxExcerptBytes },
+      issues,
+      providerInjection: 'none',
+      memoryWrite: 'none'
+    }
+  }
+
+  async cleanupAgentArtifacts(payload: CleanupAgentArtifactsPayload): Promise<CleanupAgentArtifactsResult> {
+    const roots = await this.agentStorageRoots(payload.workspaceId, payload.scope)
+    const results = await Promise.all(roots.map(async ({ scope, rootPath }) => ({
+      scope,
+      result: await runAgentArtifactCleanup({
+        storageRoot: rootPath,
+        dryRun: payload.dryRun !== false,
+        policy: {
+          retentionDays: payload.retentionDays,
+          gracePeriodHours: payload.graceHours,
+          maxTotalBytes: payload.maxTotalBytes
+        },
+        resolveProtectionSnapshot: () => collectAgentArtifactProtectionSnapshot(rootPath)
+      })
+    })))
+
+    return {
+      dryRun: payload.dryRun !== false,
+      scanned: results.reduce((sum, entry) => sum + entry.result.totals.scannedEntries, 0),
+      scannedBytes: results.reduce((sum, entry) => sum + entry.result.totals.scannedBytes, 0),
+      deleted: results.reduce((sum, entry) => sum + entry.result.totals.deletedEntries, 0),
+      deletedBytes: results.reduce((sum, entry) => sum + entry.result.totals.deletedBytes, 0),
+      retained: results.reduce((sum, entry) => sum + entry.result.totals.protectedEntries, 0),
+      duplicateGroups: results.reduce((sum, entry) => sum + entry.result.duplicates.length, 0),
+      actions: results.flatMap(({ scope, result }) => [
+        ...result.actions.map((action) => ({
+          relativePath: `${scope}:${action.relativePath}`,
+          kind: cleanupArtifactKind(action.kind),
+          bytes: action.bytes,
+          sha256: action.sha256,
+          reason: action.reason === 'storage_budget' ? 'over_budget' as const : 'expired_orphan' as const,
+          action: action.status === 'deleted' || action.status === 'planned' ? 'delete' as const : 'retain' as const
+        })),
+        ...result.duplicates.flatMap((duplicate) => duplicate.relativePaths.map((relativePath) => ({
+          relativePath: `${scope}:${relativePath}`,
+          kind: 'unknown' as const,
+          bytes: duplicate.bytes,
+          sha256: duplicate.sha256,
+          reason: 'duplicate' as const,
+          action: 'report_duplicate' as const
+        })))
+      ]),
+      issues: results.flatMap(({ scope, result }) => result.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        ...(issue.relativePath ? { relativePath: `${scope}:${issue.relativePath}` } : {})
+      }))),
+      auditRelativePaths: results.flatMap(({ scope, result }) => result.auditRelativePath
+        ? [`${scope}:${result.auditRelativePath}`]
+        : [])
+    }
+  }
+
+  private async agentStorageRoots(
+    workspaceId: string,
+    scope: AgentConversationStorageScope = 'all'
+  ): Promise<Array<{ scope: 'workspace' | 'temporary'; rootPath: string }>> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, workspaceId)
+    const roots: Array<{ scope: 'workspace' | 'temporary'; rootPath: string }> = []
+    if (scope === 'all' || scope === 'temporary') roots.push({ scope: 'temporary', rootPath: this.appDataRoot })
+    if (scope === 'all' || scope === 'workspace') roots.push({ scope: 'workspace', rootPath: workspace.rootPath })
+    return roots.filter((entry, index, values) =>
+      values.findIndex((candidate) => resolve(candidate.rootPath) === resolve(entry.rootPath)) === index)
   }
 
   async setWorkspaceItemMeta(payload: WorkspaceItemMetaPayload): Promise<TeachingAppState> {
@@ -1176,4 +1374,15 @@ function prunePendingAgentRunArchiveScopes(scopes: Map<string, PendingAgentRunAr
     if (!oldest) return
     scopes.delete(oldest[0])
   }
+}
+
+function cleanupArtifactKind(kind: string): 'tool_result' | 'child_transcript' | 'parent_turn_staging' | 'unknown' {
+  if (kind === 'conversation_tool_result') return 'tool_result'
+  if (kind === 'conversation_child_transcript' || kind === 'staged_child_transcript') return 'child_transcript'
+  if (kind === 'parent_turn_stage') return 'parent_turn_staging'
+  return 'unknown'
+}
+
+async function invalidateAgentHistoryIndex(rootPath: string): Promise<void> {
+  await rm(join(rootPath, AGENT_CONVERSATION_HISTORY_INDEX_RELATIVE_PATH), { force: true })
 }

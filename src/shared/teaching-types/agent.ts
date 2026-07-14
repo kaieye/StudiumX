@@ -439,3 +439,154 @@ export type ReadAgentConversationPayload = {
   workspaceId: string
   conversationId: string
 }
+
+export type AgentConversationStorageScope = 'workspace' | 'temporary' | 'all'
+
+/** A durable conversation-history checkpoint. This is intentionally distinct from AgentRunCheckpoint. */
+export type AgentConversationCheckpoint = {
+  schemaVersion: 1
+  checkpointId: string
+  conversationId: string
+  conversationRelativePath: string
+  label?: string
+  reason?: string
+  createdAt: string
+  headTurnId?: string
+  turnCount: number
+  sourceDigest: string
+  artifacts: AgentArtifactRef[]
+  integritySha256: string
+}
+
+export type CreateAgentConversationCheckpointPayload = {
+  workspaceId: string
+  conversationId: string
+  label?: string
+  reason?: string
+}
+
+export type ResolveAgentConversationCheckpointPayload = {
+  workspaceId: string
+  conversationId: string
+  checkpointId: string
+}
+
+export type ResolveAgentConversationCheckpointResult = {
+  checkpoint: AgentConversationCheckpoint
+  turns: AgentChatTurn[]
+  toolsReplayed: false
+  artifactsHydrated: false
+}
+
+export type AgentArchivedHistoryItemType =
+  | 'conversation_turn'
+  | 'session_sidecar'
+  | 'tool_result'
+  | 'child_transcript'
+  | 'checkpoint'
+
+export type AgentArchivedHistoryIntegrity =
+  | 'verified'
+  | 'missing'
+  | 'hash_mismatch'
+  | 'not_applicable'
+
+export type AgentArchivedHistoryItem = {
+  reference: string
+  type: AgentArchivedHistoryItemType
+  conversationId: string
+  conversationRelativePath: string
+  timestamp: string
+  summary: string
+  sourceRelativePath: string
+  turnId?: string
+  artifact?: AgentArtifactRef
+  checkpointIds?: string[]
+  bytes: number
+  integrity: AgentArchivedHistoryIntegrity
+}
+
+export type AgentArchivedHistoryIssue = {
+  code: string
+  message: string
+  reference?: string
+}
+
+export type QueryAgentArchivedHistoryPayload = {
+  workspaceId: string
+  scope?: AgentConversationStorageScope
+  conversationId?: string
+  from?: string
+  to?: string
+  types?: AgentArchivedHistoryItemType[]
+  checkpointId?: string
+  limit?: number
+  maxBytes?: number
+  maxExcerptBytes?: number
+}
+
+export type QueryAgentArchivedHistoryResult = {
+  items: AgentArchivedHistoryItem[]
+  truncated: boolean
+  usage: {
+    items: number
+    bytes: number
+    limit: number
+    maxBytes: number
+    maxExcerptBytes: number
+  }
+  issues: AgentArchivedHistoryIssue[]
+  providerInjection: 'none'
+  memoryWrite: 'none'
+}
+
+export type RebuildAgentHistoryIndexPayload = {
+  workspaceId: string
+  scope?: AgentConversationStorageScope
+}
+
+export type RebuildAgentHistoryIndexResult = {
+  scopes: Array<{
+    scope: Exclude<AgentConversationStorageScope, 'all'>
+    entries: number
+    issues: AgentArchivedHistoryIssue[]
+    indexRelativePath: string
+  }>
+}
+
+export type CleanupAgentArtifactsPayload = {
+  workspaceId: string
+  scope?: AgentConversationStorageScope
+  dryRun?: boolean
+  retentionDays?: number
+  graceHours?: number
+  maxTotalBytes?: number
+}
+
+export type AgentArtifactCleanupAction = {
+  relativePath: string
+  kind: 'tool_result' | 'child_transcript' | 'parent_turn_staging' | 'unknown'
+  bytes: number
+  sha256?: string
+  reason: 'expired_orphan' | 'over_budget' | 'duplicate' | 'protected_reference' | 'protected_active_scope'
+  action: 'delete' | 'retain' | 'report_duplicate'
+}
+
+export type AgentArtifactCleanupIssue = {
+  code: string
+  message: string
+  relativePath?: string
+}
+
+export type CleanupAgentArtifactsResult = {
+  dryRun: boolean
+  scanned: number
+  scannedBytes: number
+  deleted: number
+  deletedBytes: number
+  retained: number
+  duplicateGroups: number
+  actions: AgentArtifactCleanupAction[]
+  issues: AgentArtifactCleanupIssue[]
+  auditRelativePaths: string[]
+}

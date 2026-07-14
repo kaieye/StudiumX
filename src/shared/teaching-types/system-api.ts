@@ -9,6 +9,16 @@ import type {
   AgentProjectionInvalidation,
   InterruptedAgentRun,
   AgentConversationRecord,
+  AgentConversationCheckpoint,
+  CleanupAgentArtifactsPayload,
+  CleanupAgentArtifactsResult,
+  CreateAgentConversationCheckpointPayload,
+  QueryAgentArchivedHistoryPayload,
+  QueryAgentArchivedHistoryResult,
+  RebuildAgentHistoryIndexPayload,
+  RebuildAgentHistoryIndexResult,
+  ResolveAgentConversationCheckpointPayload,
+  ResolveAgentConversationCheckpointResult,
   AskAnswer,
   ReadAgentConversationPayload,
   ReplayAgentChatEventsPayload,
@@ -134,6 +144,11 @@ export type TeachingSystemApi = {
   onAgentChatEvent: (handler: (event: AgentRealtimeEvent) => void) => () => void
   saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>
   readAgentConversation: (payload: ReadAgentConversationPayload) => Promise<AgentConversationRecord>
+  createAgentConversationCheckpoint: (payload: CreateAgentConversationCheckpointPayload) => Promise<AgentConversationCheckpoint>
+  resolveAgentConversationCheckpoint: (payload: ResolveAgentConversationCheckpointPayload) => Promise<ResolveAgentConversationCheckpointResult>
+  queryAgentArchivedHistory: (payload: QueryAgentArchivedHistoryPayload) => Promise<QueryAgentArchivedHistoryResult>
+  rebuildAgentHistoryIndex: (payload: RebuildAgentHistoryIndexPayload) => Promise<RebuildAgentHistoryIndexResult>
+  cleanupAgentArtifacts: (payload: CleanupAgentArtifactsPayload) => Promise<CleanupAgentArtifactsResult>
   setWorkspaceItemMeta: (payload: WorkspaceItemMetaPayload) => Promise<TeachingAppState>
   removeWorkspaceItem: (payload: WorkspaceItemRemovePayload) => Promise<TeachingAppState>
   removeWorkspace: (payload: WorkspaceRemovePayload) => Promise<TeachingAppState>

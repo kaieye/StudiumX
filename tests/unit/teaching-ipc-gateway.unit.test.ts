@@ -117,6 +117,38 @@ describe('Teaching IPC gateway', () => {
     expect(invalidate).toHaveBeenCalledWith(['conversation'])
   })
 
+  it('routes explicit archived-history operations through bounded parsers', async () => {
+    const queryAgentArchivedHistory = vi.fn().mockResolvedValue({ items: [], truncated: false })
+    const cleanupAgentArtifacts = vi.fn().mockResolvedValue({ dryRun: true, actions: [] })
+    registerTeachingIpcGateway(registration({
+      workspaceService: { queryAgentArchivedHistory, cleanupAgentArtifacts }
+    }))
+
+    await handler(teachingInvokeChannels.queryAgentArchivedHistory)(event, {
+      workspaceId: 'workspace-1',
+      scope: 'all',
+      conversationId: 'chat-1',
+      types: ['tool_result'],
+      limit: 10,
+      maxBytes: 4096,
+      maxExcerptBytes: 256
+    })
+    expect(queryAgentArchivedHistory).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: 'workspace-1',
+      scope: 'all',
+      conversationId: 'chat-1',
+      types: ['tool_result'],
+      limit: 10
+    }))
+
+    await handler(teachingInvokeChannels.cleanupAgentArtifacts)(event, {
+      workspaceId: 'workspace-1', dryRun: true, retentionDays: 90
+    })
+    expect(cleanupAgentArtifacts).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: 'workspace-1', dryRun: true, retentionDays: 90
+    }))
+  })
+
   it('registers every existing Teaching invoke channel exactly once', () => {
     registerTeachingIpcGateway(registration())
 

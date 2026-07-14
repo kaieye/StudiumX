@@ -22,6 +22,7 @@ import {
   type AgentStagedChildTranscriptAllowance
 } from './agent-conversation-session-audit'
 import { isPathInsideRoot, readContainedRegularFile } from './path-access'
+import { assertAgentConversationCheckpointPrefixesPreserved } from './agent-conversation-checkpoints'
 import {
   appendLearningWorkLedgerSnapshot,
   buildLearningWorkLedgerEntry,
@@ -55,6 +56,10 @@ export async function saveAgentConversationArchive(input: {
 }): Promise<void> {
   const paths = resolveArchivePaths(input.workspace.rootPath, input.record.relativePath)
   assertArtifactKindsMatchMetadataPlacement(input.record)
+  await assertAgentConversationCheckpointPrefixesPreserved({
+    rootPath: input.workspace.rootPath,
+    record: input.record
+  })
   const persistedRecord = await archiveAgentConversationArtifacts({
     rootPath: input.workspace.rootPath,
     record: input.record,

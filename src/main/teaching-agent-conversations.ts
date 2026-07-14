@@ -108,6 +108,32 @@ export async function readAgentConversationRecord(
   return readAgentConversationRecordAt(rootPath, jsonRelativePath, { hydrateArtifacts: true })
 }
 
+/** Reads persisted conversation facts without hydrating archived tool results. */
+export async function readRawAgentConversationRecord(
+  rootPath: string,
+  conversationId: string
+): Promise<AgentConversationRecord> {
+  const id = requireSafeAgentConversationId(conversationId)
+  const jsonRelativePath = await findAgentConversationJsonRelativePath(rootPath, id)
+  return readAgentConversationRecordAt(rootPath, jsonRelativePath, { hydrateArtifacts: false })
+}
+
+export type PersistedAgentConversationRecord = {
+  jsonRelativePath: string
+  record: AgentConversationRecord
+}
+
+/** Enumerates canonical persisted records for rebuild-only consumers such as the history index. */
+export async function listPersistedAgentConversationRecords(
+  rootPath: string
+): Promise<PersistedAgentConversationRecord[]> {
+  const relativePaths = await collectAgentConversationJsonRelativePaths(rootPath)
+  return Promise.all(relativePaths.map(async (jsonRelativePath) => ({
+    jsonRelativePath,
+    record: await readAgentConversationRecordAt(rootPath, jsonRelativePath, { hydrateArtifacts: false })
+  })))
+}
+
 /**
  * Controlled child transcript lookup. The caller supplies a conversation id and
  * childRunId, never an artifact path; the stored reference is scope- and

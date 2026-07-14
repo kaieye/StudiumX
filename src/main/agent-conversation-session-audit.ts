@@ -7,6 +7,7 @@ import {
   agentConversationSessionArtifactDirectoryRelativePathForMarkdown,
   agentConversationSessionAuditRelativePathForMarkdown
 } from '../shared/agent-conversation-catalog'
+import { redactAgentSecretText } from '../shared/agent-secret-redaction'
 import { agentRunChildTranscriptRelativePath } from './ai/agent-run-persistence'
 import {
   isPathInsideRoot,
@@ -153,10 +154,11 @@ export async function archiveAgentConversationArtifacts(input: {
   const now = input.now ?? new Date().toISOString()
   const turns: AgentChatTurn[] = []
   for (const turn of input.record.turns) {
-    let nextTurn = turn
+    let nextTurn = redactAgentTurnPersistenceText(turn)
+    if (nextTurn !== turn) changed = true
     const toolCalls: AgentChatToolCallView[] = []
     let toolCallsChanged = false
-    for (const tool of turn.toolCalls ?? []) {
+    for (const tool of nextTurn.toolCalls ?? []) {
       if (!shouldArchiveToolResult(tool.result)) {
         toolCalls.push(tool)
         continue
@@ -407,23 +409,25 @@ function appendMetadataEntries(
   const metadata = turn.metadata
   if (!metadata) return
   for (const source of metadata.sources ?? []) {
+    const redactedSource = redactSourceMetadata(source)
     entries.push({
       type: 'source',
-      id: auditEntryId('source', turn.id, source.sourceId || hashText(source.url)),
+      id: auditEntryId('source', turn.id, redactedSource.sourceId || hashText(redactedSource.url)),
       parentId: turnEntryId,
       timestamp,
       turnId: turn.id,
-      source
+      source: redactedSource
     })
   }
   for (const childRun of metadata.childRuns ?? []) {
+    const redactedChildRun = childRunForAudit(childRun as AgentChildRunWithArchive)
     entries.push({
       type: 'child_run',
-      id: auditEntryId('child', turn.id, childRun.childRunId),
+      id: auditEntryId('child', turn.id, redactedChildRun.childRunId),
       parentId: turnEntryId,
-      timestamp: timestampValue(childRun.completedAt ?? childRun.startedAt, timestamp),
+      timestamp: timestampValue(redactedChildRun.completedAt ?? redactedChildRun.startedAt, timestamp),
       turnId: turn.id,
-      childRun
+      childRun: redactedChildRun
     })
   }
   metadata.compactions?.forEach((compaction) => {
@@ -433,7 +437,7 @@ function appendMetadataEntries(
       parentId: turnEntryId,
       timestamp,
       turnId: turn.id,
-      compaction
+      compaction: redactCompactionMetadata(compaction)
     })
   })
   metadata.contextHygiene?.forEach((contextHygiene, index) => {
@@ -473,7 +477,7 @@ function appendMetadataEntries(
       parentId: turnEntryId,
       timestamp,
       turnId: turn.id,
-      diagnostic
+      diagnostic: redactToolResultDiagnostic(diagnostic)
     })
   }
 }
@@ -484,7 +488,7 @@ function agentConversationSessionAuditHeader(record: AgentConversationRecord): A
     version: AGENT_CONVERSATION_SESSION_AUDIT_VERSION,
     id: record.id,
     workspaceId: record.workspaceId,
-    title: record.title,
+    title: redactAgentSecretText(record.title),
     createdAt: record.createdAt,
     conversationRelativePath: record.relativePath
   })
@@ -499,7 +503,8 @@ async function writeToolResultArtifact(input: {
   result: string
   now: string
 }): Promise<AgentArtifactRef> {
-  const sha256 = createHash('sha256').update(input.result).digest('hex')
+  const result = redactAgentSecretText(input.result)
+  const sha256 = createHash('sha256').update(result).digest('hex')
   const baseDir = agentConversationSessionArtifactDirectoryRelativePathForMarkdown(input.conversationRelativePath)
   const fileName = `${safePathPart(input.turnId)}-${safePathPart(input.toolCallId)}-${sha256.slice(0, 16)}.txt`
   const relativePath = join(baseDir, 'tool-results', fileName).replace(/\\/g, '/')
@@ -507,14 +512,14 @@ async function writeToolResultArtifact(input: {
   if (!isPathInsideRoot(input.rootPath, absolutePath)) {
     throw new Error('Tool result artifact path is outside the workspace.')
   }
-  await writeArtifactIfNeeded(input.rootPath, absolutePath, input.result, sha256)
+  await writeArtifactIfNeeded(input.rootPath, absolutePath, result, sha256)
   return {
     kind: 'tool_result',
     relativePath,
     sha256,
-    bytes: byteLength(input.result),
-    lines: lineCount(input.result),
-    preview: compactText(input.result, TOOL_RESULT_PREVIEW_LENGTH),
+    bytes: byteLength(result),
+    lines: lineCount(result),
+    preview: compactText(result, TOOL_RESULT_PREVIEW_LENGTH),
     archivedAt: input.now
   }
 }
@@ -526,7 +531,8 @@ async function writeChildTranscriptArtifact(input: {
   transcript: string
   now: string
 }): Promise<AgentArtifactRef> {
-  const sha256 = createHash('sha256').update(input.transcript).digest('hex')
+  const transcript = redactAgentSecretText(input.transcript)
+  const sha256 = createHash('sha256').update(transcript).digest('hex')
   const childKey = createHash('sha256').update(input.childRunId).digest('hex').slice(0, 16)
   const directoryRelativePath = agentConversationChildTranscriptDirectoryRelativePathForMarkdown(input.conversationRelativePath)
   const relativePath = join(directoryRelativePath, `${childKey}-${sha256.slice(0, 16)}.txt`).replace(/\\/g, '/')
@@ -534,13 +540,13 @@ async function writeChildTranscriptArtifact(input: {
   if (!isPathInsideRoot(input.rootPath, absolutePath)) {
     throw new Error('Child transcript artifact path is outside the workspace.')
   }
-  await writeArtifactIfNeeded(input.rootPath, absolutePath, input.transcript, sha256)
+  await writeArtifactIfNeeded(input.rootPath, absolutePath, transcript, sha256)
   return {
     kind: 'child_transcript',
     relativePath,
     sha256,
-    bytes: byteLength(input.transcript),
-    lines: lineCount(input.transcript),
+    bytes: byteLength(transcript),
+    lines: lineCount(transcript),
     archivedAt: input.now
   }
 }
@@ -595,7 +601,7 @@ function archivedToolResultPlaceholder(artifact: AgentArtifactRef): string {
     `bytes: ${artifact.bytes}`,
     artifact.lines !== undefined ? `lines: ${artifact.lines}` : '',
     '',
-    artifact.preview ? `preview: ${artifact.preview}` : ''
+    artifact.preview ? `preview: ${redactAgentSecretText(artifact.preview)}` : ''
   ].filter(Boolean).join('\n')
 }
 
@@ -633,6 +639,136 @@ async function readStagedChildTranscript(
   const content = await readArtifactContent(rootPath, artifact)
   if (content === null) throw new Error('Staged child transcript artifact failed integrity validation.')
   return content
+}
+
+function redactAgentTurnPersistenceText(turn: AgentChatTurn): AgentChatTurn {
+  const toolCalls = turn.toolCalls?.map(redactToolCall)
+  const processEvents = turn.processEvents?.map((event) => {
+    const title = redactAgentSecretText(event.title)
+    const detail = event.detail === undefined ? undefined : redactAgentSecretText(event.detail)
+    return title === event.title && detail === event.detail ? event : {
+      ...event,
+      title,
+      ...(detail === undefined ? {} : { detail })
+    }
+  })
+  const metadata = redactTurnMetadata(turn.metadata)
+  const toolCallsChanged = Boolean(toolCalls?.some((tool, index) => tool !== turn.toolCalls?.[index]))
+  const processEventsChanged = Boolean(processEvents?.some((event, index) => event !== turn.processEvents?.[index]))
+  if (!toolCallsChanged && !processEventsChanged && metadata === turn.metadata) return turn
+  return {
+    ...turn,
+    ...(toolCalls === undefined ? {} : { toolCalls }),
+    ...(processEvents === undefined ? {} : { processEvents }),
+    ...(metadata === undefined ? {} : { metadata })
+  }
+}
+
+function redactToolCall(tool: AgentChatToolCallView): AgentChatToolCallView {
+  const argumentsText = redactAgentSecretText(tool.arguments)
+  const result = tool.result === undefined ? undefined : redactAgentSecretText(tool.result)
+  if (argumentsText === tool.arguments && result === tool.result) return tool
+  return {
+    ...tool,
+    arguments: argumentsText,
+    ...(result === undefined ? {} : { result })
+  }
+}
+
+function redactTurnMetadata(metadata: AgentTurnMetadata | undefined): AgentTurnMetadata | undefined {
+  if (!metadata) return metadata
+  const sources = metadata.sources?.map(redactSourceMetadata)
+  const childRuns = metadata.childRuns?.map((child) => redactChildRunMetadata(child as AgentChildRunWithArchive))
+  const compactions = metadata.compactions?.map(redactCompactionMetadata)
+  const toolResults = metadata.toolResults?.map(redactToolResultDiagnostic)
+  const changed = Boolean(
+    sources?.some((source, index) => source !== metadata.sources?.[index]) ||
+    childRuns?.some((child, index) => child !== metadata.childRuns?.[index]) ||
+    compactions?.some((compaction, index) => compaction !== metadata.compactions?.[index]) ||
+    toolResults?.some((diagnostic, index) => diagnostic !== metadata.toolResults?.[index])
+  )
+  if (!changed) return metadata
+  return {
+    ...metadata,
+    ...(sources === undefined ? {} : { sources }),
+    ...(childRuns === undefined ? {} : { childRuns }),
+    ...(compactions === undefined ? {} : { compactions }),
+    ...(toolResults === undefined ? {} : { toolResults })
+  }
+}
+
+function redactSourceMetadata(source: AgentSourceMetadata): AgentSourceMetadata {
+  const url = redactAgentSecretText(source.url)
+  const title = source.title === undefined ? undefined : redactAgentSecretText(source.title)
+  const snippet = source.snippet === undefined ? undefined : redactAgentSecretText(source.snippet)
+  if (url === source.url && title === source.title && snippet === source.snippet) return source
+  return {
+    ...source,
+    url,
+    ...(title === undefined ? {} : { title }),
+    ...(snippet === undefined ? {} : { snippet })
+  }
+}
+
+function redactChildRunMetadata(child: AgentChildRunWithArchive): AgentChildRunWithArchive {
+  const label = redactAgentSecretText(child.label)
+  const summary = child.summary === undefined ? undefined : redactAgentSecretText(child.summary)
+  const error = child.error === undefined ? undefined : redactAgentSecretText(child.error)
+  const transcript = child.transcript === undefined ? undefined : redactAgentSecretText(child.transcript)
+  const transcriptText = child.transcriptText === undefined ? undefined : redactAgentSecretText(child.transcriptText)
+  const archive = child.archive === undefined ? undefined : redactArtifactRefPreview(child.archive)
+  const citations = child.citations?.map((citation) => {
+    const url = redactAgentSecretText(citation.url)
+    const title = citation.title === undefined ? undefined : redactAgentSecretText(citation.title)
+    return url === citation.url && title === citation.title ? citation : {
+      ...citation,
+      url,
+      ...(title === undefined ? {} : { title })
+    }
+  })
+  const citationsChanged = Boolean(citations?.some((citation, index) => citation !== child.citations?.[index]))
+  if (label === child.label && summary === child.summary && error === child.error &&
+    transcript === child.transcript && transcriptText === child.transcriptText && archive === child.archive &&
+    !citationsChanged) return child
+  return {
+    ...child,
+    label,
+    ...(summary === undefined ? {} : { summary }),
+    ...(error === undefined ? {} : { error }),
+    ...(transcript === undefined ? {} : { transcript }),
+    ...(transcriptText === undefined ? {} : { transcriptText }),
+    ...(archive === undefined ? {} : { archive }),
+    ...(citations === undefined ? {} : { citations })
+  }
+}
+
+function childRunForAudit(child: AgentChildRunWithArchive): AgentChildRunMetadata {
+  const redacted = redactChildRunMetadata(child)
+  const { transcript: _transcript, transcriptText: _transcriptText, ...persisted } = redacted
+  return persisted
+}
+
+function redactCompactionMetadata(compaction: AgentCompactionMetadata): AgentCompactionMetadata {
+  const reason = redactAgentSecretText(compaction.reason)
+  const error = compaction.error === undefined ? undefined : redactAgentSecretText(compaction.error)
+  if (reason === compaction.reason && error === compaction.error) return compaction
+  return {
+    ...compaction,
+    reason,
+    ...(error === undefined ? {} : { error })
+  }
+}
+
+function redactToolResultDiagnostic(diagnostic: AgentToolResultDiagnostic): AgentToolResultDiagnostic {
+  if (!diagnostic.archive) return diagnostic
+  const archive = redactArtifactRefPreview(diagnostic.archive)
+  return archive === diagnostic.archive ? diagnostic : { ...diagnostic, archive }
+}
+
+function redactArtifactRefPreview(artifact: AgentArtifactRef): AgentArtifactRef {
+  if (artifact.preview === undefined) return artifact
+  const preview = redactAgentSecretText(artifact.preview)
+  return preview === artifact.preview ? artifact : { ...artifact, preview }
 }
 
 function artifactRefsEqual(left: AgentArtifactRef, right: AgentArtifactRef): boolean {
@@ -706,7 +842,7 @@ function timestampValue(value: string | undefined, fallback: string): string {
 }
 
 function compactText(value: string, maxLength: number): string {
-  const compact = value.replace(/\s+/g, ' ').trim()
+  const compact = redactAgentSecretText(value).replace(/\s+/g, ' ').trim()
   if (!compact) return ''
   return compact.length > maxLength ? `${compact.slice(0, Math.max(0, maxLength - 3))}...` : compact
 }

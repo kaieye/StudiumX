@@ -2,7 +2,12 @@ import assert from 'node:assert/strict'
 
 import {
   parseAgentChatStreamPayload,
+  parseCleanupAgentArtifactsPayload,
+  parseCreateAgentConversationCheckpointPayload,
   parseListUpstreamModelsPayload,
+  parseQueryAgentArchivedHistoryPayload,
+  parseRebuildAgentHistoryIndexPayload,
+  parseResolveAgentConversationCheckpointPayload,
   parseSaveAgentConversationPayload,
   parseStreamId,
   parseWorkspaceItemRemovePayload,
@@ -86,6 +91,61 @@ assert.throws(
   () => parseSaveAgentConversationPayload({ workspaceId: 'workspace-1', runId: '../bad', turns: [] }),
   /streamId/
 )
+
+
+assert.deepEqual(parseCreateAgentConversationCheckpointPayload({
+  workspaceId: 'workspace-1',
+  conversationId: 'chat-1',
+  label: ' before refactor ',
+  reason: 'manual'
+}), {
+  workspaceId: 'workspace-1',
+  conversationId: 'chat-1',
+  label: 'before refactor',
+  reason: 'manual'
+})
+assert.deepEqual(parseResolveAgentConversationCheckpointPayload({
+  workspaceId: 'workspace-1', conversationId: 'chat-1', checkpointId: 'checkpoint-1'
+}), {
+  workspaceId: 'workspace-1', conversationId: 'chat-1', checkpointId: 'checkpoint-1'
+})
+assert.deepEqual(parseQueryAgentArchivedHistoryPayload({
+  workspaceId: 'workspace-1',
+  scope: 'all',
+  conversationId: 'chat-1',
+  from: '2026-07-14T00:00:00Z',
+  types: ['tool_result', 'checkpoint'],
+  limit: 20,
+  maxBytes: 4096,
+  maxExcerptBytes: 256
+}), {
+  workspaceId: 'workspace-1',
+  scope: 'all',
+  conversationId: 'chat-1',
+  from: '2026-07-14T00:00:00.000Z',
+  to: undefined,
+  types: ['tool_result', 'checkpoint'],
+  checkpointId: undefined,
+  limit: 20,
+  maxBytes: 4096,
+  maxExcerptBytes: 256
+})
+assert.throws(() => parseQueryAgentArchivedHistoryPayload({
+  workspaceId: 'workspace-1', types: ['everything']
+}), /invalid archived history item type/)
+assert.deepEqual(parseRebuildAgentHistoryIndexPayload({ workspaceId: 'workspace-1', scope: 'workspace' }), {
+  workspaceId: 'workspace-1', scope: 'workspace'
+})
+assert.deepEqual(parseCleanupAgentArtifactsPayload({
+  workspaceId: 'workspace-1', scope: 'temporary', dryRun: false, retentionDays: 30, graceHours: 12
+}), {
+  workspaceId: 'workspace-1',
+  scope: 'temporary',
+  dryRun: false,
+  retentionDays: 30,
+  graceHours: 12,
+  maxTotalBytes: undefined
+})
 
 const providers = [
   { id: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk', endpointFormat: 'chat_completions' as const }

@@ -4,11 +4,8 @@
 
 ## 当前范围
 
-- 会话/历史 checkpoint、archived-history 检索索引和 artifact 生命周期管理。
 - 完整 session tree，以及 branch / fork / replay / open 生命周期。
 - SDK/provider hooks 与统一运行诊断。
-
-> 这里的“会话/历史 checkpoint”不是现有的 run lifecycle checkpoint；前者用于历史快照、检索和恢复，后者只记录单次运行的 durable 状态。
 
 ## 文档结构
 
@@ -23,7 +20,7 @@
 2. 一个切片完成并验证后，从路线图、进度和专题文档中删除对应内容，不新增“已完成”章节。
 3. 提交 hash、详细验证输出和实现历史交给 Git 保存。
 4. 新发现的后续工作只有在明确不属于当前切片时才加入文档。
-5. 不把已存在的运行 checkpoint、workspace checkpoint 与待设计的会话/历史 checkpoint 混为一谈。
+5. 不把运行 checkpoint、workspace checkpoint 与会话/历史 checkpoint 混为一谈。
 
 ## 设计原则
 

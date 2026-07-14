@@ -2,27 +2,6 @@
 
 本文只列尚未完成的工作。阶段完成并通过验证后，直接删除对应章节；实现记录和提交信息由 Git 历史保存。
 
-## Phase 8：会话 checkpoint、归档检索与 artifact 生命周期
-
-状态：未开始。
-
-目标：让历史快照和归档内容可以受控检索，并为长期存储提供清理、保留和隐私边界。
-
-范围：
-
-- 定义会话/历史 checkpoint；不要复用或混淆现有的单次运行 `AgentRunCheckpoint`。
-- 为 conversation turns、session sidecar、tool-result artifact 和 child-transcript artifact 建立可重建索引。
-- 提供显式 archived-history 查询 API，返回有界摘要和稳定引用，不默认注入 provider history。
-- 定义 artifact 保留期、孤儿检测、重复内容处理、删除审计和索引重建流程。
-- 在写入摘要、transcript、索引字段前统一执行 secret redaction，并测试敏感值不会落盘。
-- 为损坏索引、缺失 artifact、hash 不匹配、超预算检索和重复清理补测试。
-
-验收：
-
-- 用户或上层 runtime 可以按 conversation、时间和 artifact 类型显式检索历史。
-- 删除或重建索引不改变原始 conversation turns，也不会让 learner memory 自动吸收归档内容。
-- 清理流程可 dry-run、可审计、幂等，并且不会删除仍被有效引用的 artifact。
-
 ## Phase 9：Session tree 与分支生命周期
 
 状态：未开始。
@@ -64,13 +43,12 @@
 
 ## 跨阶段风险
 
-- run checkpoint、会话 checkpoint、索引和 branch 同时引入多个事实来源，必须明确每类数据的权威性和重建方向。
-- replay、恢复和清理都可能触碰有副作用的工具结果，默认必须停在人工确认边界。
-- archived retrieval 与 provider metadata 可能扩大敏感信息落盘范围，redaction 需要先于持久化。
-- 索引和 artifact 会持续增长，所有新格式都需要版本、上限、完整性校验和迁移策略。
+- session tree 引入 branch、head 和 replay source 后，必须明确它们与既有 conversation、checkpoint 和索引的权威性及重建方向。
+- replay 和恢复可能触碰有副作用的工具结果，默认必须停在人工确认边界。
+- provider metadata 可能扩大敏感信息落盘范围，redaction 需要先于持久化。
+- 新增 branch 或 provider 持久化格式都需要版本、上限、完整性校验和迁移策略。
 
 ## 推荐顺序
 
-1. 先完成 Phase 8，为后续 session tree 提供稳定索引和存储生命周期。
-2. Phase 9 依赖 Phase 8 的引用与索引边界。
-3. Phase 10 可按 provider 需求独立切片，但不得绕过既有持久化和预算接口。
+1. 先完成 Phase 9 的 session tree 与分支生命周期。
+2. Phase 10 可按 provider 需求独立切片，但不得绕过既有持久化和预算接口。

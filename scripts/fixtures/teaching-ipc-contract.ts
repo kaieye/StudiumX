@@ -24,6 +24,11 @@ const requiredInvokeCapabilities: TeachingInvokeCapability[] = [
   'generateLessonStream',
   'agentChatStream',
   'replayAgentChatEvents',
+  'createAgentConversationCheckpoint',
+  'resolveAgentConversationCheckpoint',
+  'queryAgentArchivedHistory',
+  'rebuildAgentHistoryIndex',
+  'cleanupAgentArtifacts',
   'listUpstreamModels',
   'getConnectorStatuses',
   'openAppDataDir'
