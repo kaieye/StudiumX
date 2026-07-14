@@ -88,6 +88,35 @@ describe('Teaching IPC gateway', () => {
     expect(createWorkspace).not.toHaveBeenCalled()
   })
 
+  it('invalidates conversation analytics after saving a conversation', async () => {
+    const saved = {
+      state: { workspaces: [] },
+      conversation: { id: 'conversation-1' }
+    }
+    const saveAgentConversation = vi.fn().mockResolvedValue(saved)
+    const invalidate = vi.fn()
+    registerTeachingIpcGateway(registration({
+      workspaceService: { saveAgentConversation },
+      learningAnalyticsService: { invalidate }
+    }))
+
+    const payload = {
+      workspaceId: 'workspace-1',
+      mode: 'teaching',
+      conversationId: null,
+      selectedLessonPath: null,
+      selectedCourseRelativePath: null,
+      turns: [
+        { id: 'user-1', role: 'user', content: 'Hello', createdAt: '2026-07-14T00:00:00.000Z' },
+        { id: 'assistant-1', role: 'assistant', content: 'Hi', createdAt: '2026-07-14T00:00:01.000Z' }
+      ]
+    }
+
+    await expect(handler(teachingInvokeChannels.saveAgentConversation)(event, payload)).resolves.toEqual(saved)
+    expect(saveAgentConversation).toHaveBeenCalledWith(payload)
+    expect(invalidate).toHaveBeenCalledWith(['conversation'])
+  })
+
   it('registers every existing Teaching invoke channel exactly once', () => {
     registerTeachingIpcGateway(registration())
 

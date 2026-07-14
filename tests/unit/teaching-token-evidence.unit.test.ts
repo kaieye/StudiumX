@@ -138,6 +138,83 @@ describe('Teaching token evidence discovery', () => {
     ]))
   })
 
+  it('combines Teaching and temporary conversations without colliding on conversation or turn ids', async () => {
+    const teachingRecord = record('shared-id', [{
+      id: 'shared-turn',
+      role: 'assistant',
+      content: 'teaching answer',
+      createdAt: '2026-07-12T10:00:00.000Z',
+      metadata: { version: 1, runUsage: usage(100) }
+    }])
+    const temporaryRecord: AgentConversationRecord = {
+      ...record('shared-id', [{
+        id: 'shared-turn',
+        role: 'assistant',
+        content: 'temporary answer',
+        createdAt: '2026-07-12T11:00:00.000Z',
+        metadata: { version: 1, runUsage: usage(25, 15, 10) }
+      }]),
+      relativePath: 'conversations/shared-id.md',
+      absolutePath: 'C:/app-data/conversations/shared-id.md'
+    }
+    const report = await discoverTokenEvidence({
+      query,
+      workspaces: [workspace([conversationSummary('shared-id', teachingRecord.messageCount)])],
+      temporaryConversations: [{
+        id: temporaryRecord.id,
+        workspaceId: 'ws-1',
+        title: temporaryRecord.title,
+        createdAt: temporaryRecord.createdAt,
+        updatedAt: temporaryRecord.updatedAt,
+        relativePath: temporaryRecord.relativePath,
+        absolutePath: temporaryRecord.absolutePath,
+        messageCount: temporaryRecord.messageCount
+      }],
+      inheritedWarnings: [],
+      adapters: {
+        conversations: { read: async () => ({ state: 'readable', record: teachingRecord }) },
+        temporaryConversations: { read: async () => ({ state: 'readable', record: temporaryRecord }) },
+        ledger: { read: async () => ({ latestByConversation: new Map(), scanned: 0, invalid: 0, readError: false }) }
+      }
+    })
+
+    expect(report.facts).toHaveLength(2)
+    expect(report.facts.map((fact) => fact.usage.totalTokens).sort((left, right) => left - right)).toEqual([25, 100])
+    expect(new Set(report.facts.map((fact) => fact.dedupeKey)).size).toBe(2)
+    expect(report.counters).toMatchObject({
+      conversationsScanned: 2,
+      conversationsReadable: 2,
+      conversationsWithUsage: 2
+    })
+  })
+
+  it('starts independent conversation reads concurrently instead of serializing the token scan', async () => {
+    const resolvers: Array<(value: { state: 'unreadable' }) => void> = []
+    const started: string[] = []
+    const adapters: TokenEvidenceAdapters = {
+      conversations: {
+        read: async (_workspaceId, conversationId) => {
+          started.push(conversationId)
+          return await new Promise<{ state: 'unreadable' }>((resolve) => resolvers.push(resolve))
+        }
+      },
+      ledger: { read: async () => ({ latestByConversation: new Map(), scanned: 0, invalid: 0, readError: false }) }
+    }
+    const reportPromise = discoverTokenEvidence({
+      query,
+      workspaces: [workspace([conversationSummary('one', 1), conversationSummary('two', 1), conversationSummary('three', 1)])],
+      inheritedWarnings: [],
+      adapters
+    })
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(started).toEqual(['one', 'two', 'three'])
+
+    for (const resolve of resolvers) resolve({ state: 'unreadable' })
+    await reportPromise
+  })
+
   it('turns a rejected durable read into an explicit unreadable source for ledger fallback', async () => {
     const conversationAdapter = createDurableConversationEvidenceAdapter(async () => {
       throw new Error('durable record is unavailable')

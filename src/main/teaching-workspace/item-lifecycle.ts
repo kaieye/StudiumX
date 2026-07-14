@@ -2,7 +2,9 @@ import { basename, dirname, join, resolve } from 'node:path'
 import type { WorkspaceItemKind, WorkspaceItemRemoveMode } from '../../shared/teaching-types'
 import {
   agentConversationJsonRelativePath,
-  agentConversationMarkdownRelativePath
+  agentConversationMarkdownRelativePath,
+  agentConversationSessionArtifactDirectoryRelativePathForMarkdown,
+  agentConversationSessionAuditRelativePathForMarkdown
 } from '../../shared/agent-conversation-catalog'
 import type { WorkspacePathMeta } from '../teaching-workspace-paths'
 import {
@@ -68,12 +70,16 @@ export function planTemporaryConversationDiskRemoval(
   relativePath: string
 ): WorkspaceItemDiskRemovalPlan {
   const id = conversationIdFromMarkdownPath(relativePath)
+  const markdownRelativePath = agentConversationMarkdownRelativePath(id, 'conversations')
   return {
     files: [
       join(appDataRoot, agentConversationJsonRelativePath(id, 'conversations')),
-      join(appDataRoot, agentConversationMarkdownRelativePath(id, 'conversations'))
+      join(appDataRoot, markdownRelativePath),
+      join(appDataRoot, agentConversationSessionAuditRelativePathForMarkdown(markdownRelativePath))
     ],
-    directories: []
+    directories: [
+      join(appDataRoot, agentConversationSessionArtifactDirectoryRelativePathForMarkdown(markdownRelativePath))
+    ]
   }
 }
 
@@ -92,12 +98,16 @@ export function planWorkspaceItemDiskRemoval(
   if (target.kind === 'conversation') {
     const id = conversationIdFromMarkdownPath(relativePath)
     const conversationDir = dirname(relativePath).replace(/\\/g, '/')
+    const markdownRelativePath = agentConversationMarkdownRelativePath(id, conversationDir)
     return {
       files: [
         join(rootPath, agentConversationJsonRelativePath(id, conversationDir)),
-        join(rootPath, agentConversationMarkdownRelativePath(id, conversationDir))
+        join(rootPath, markdownRelativePath),
+        join(rootPath, agentConversationSessionAuditRelativePathForMarkdown(markdownRelativePath))
       ],
-      directories: []
+      directories: [
+        join(rootPath, agentConversationSessionArtifactDirectoryRelativePathForMarkdown(markdownRelativePath))
+      ]
     }
   }
 

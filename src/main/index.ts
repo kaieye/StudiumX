@@ -254,6 +254,11 @@ if (!hasSingleInstanceLock) {
         const learningAnalyticsService = new LearningAnalyticsService({
           appDataRoot: userDataPath,
           listWorkspaceSummaries: () => services.workspaceService.listWorkspaceSummariesForAnalytics(),
+          listTemporaryConversationSummaries: () => services.workspaceService.listTemporaryConversationSummariesForAnalytics(),
+          readTemporaryConversation: (workspaceId, conversationId) => services.workspaceService.readTemporaryConversationForAnalytics(
+            workspaceId,
+            conversationId
+          ),
           readConversation: (workspaceId, conversationId) => services.workspaceService.readAgentConversation({
             workspaceId,
             conversationId

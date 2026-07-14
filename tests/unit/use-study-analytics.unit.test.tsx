@@ -1,10 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { LearningAnalyticsBundle, LearningAnalyticsQuery } from '@shared/teaching-types/analytics'
 import {
   AnalyticsApiUnavailableError,
   buildAnalyticsDateRange,
   buildLearningAnalyticsQuery,
+  teachingSystemAnalyticsClient,
   useStudyAnalytics,
   validateCustomAnalyticsRange,
   type LearningAnalyticsClient
@@ -79,6 +80,38 @@ describe('analytics query construction', () => {
 })
 
 describe('useStudyAnalytics', () => {
+  it('requests only the token section from Main for the lean Learning Analytics page', async () => {
+    const query = buildLearningAnalyticsQuery({
+      range: buildAnalyticsDateRange('week', '2026-07-13'),
+      localToday: '2026-07-13',
+      timeZone: 'Asia/Shanghai',
+      personalClientId: 'client-1',
+      teaching: { kind: 'none' }
+    })
+    const getLearningAnalytics = vi.fn(async () => bundleFor(query, '2026-07-13T10:00:00.000Z'))
+    const originalSystem = window.teachingSystem
+    Object.defineProperty(window, 'teachingSystem', {
+      configurable: true,
+      writable: true,
+      value: { getLearningAnalytics }
+    })
+
+    try {
+      await teachingSystemAnalyticsClient.getLearningAnalytics(query, new AbortController().signal)
+      expect(getLearningAnalytics).toHaveBeenCalledWith(expect.objectContaining({
+        query,
+        sectionIds: ['tokens']
+      }))
+      expect(getLearningAnalytics.mock.calls[0]?.[0]).not.toHaveProperty('refreshSectionIds')
+    } finally {
+      Object.defineProperty(window, 'teachingSystem', {
+        configurable: true,
+        writable: true,
+        value: originalSystem
+      })
+    }
+  })
+
   it('aborts superseded work and ignores a late response from the old query', async () => {
     const first = deferred<LearningAnalyticsBundle>()
     const second = deferred<LearningAnalyticsBundle>()

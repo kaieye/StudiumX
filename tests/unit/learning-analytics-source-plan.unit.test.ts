@@ -38,10 +38,27 @@ describe('LearningAnalyticsSourcePlan', () => {
     expect(reads).toEqual({ workspace: 1, token: 2, review: 1, memory: 1, insights: 2 })
   })
 
+  it('starts an initial token-only read without touching unrelated analytics sources', async () => {
+    const reads = { workspace: 0, token: 0, review: 0, memory: 0 }
+    const plan = new LearningAnalyticsSourcePlan<Context>([
+      { id: 'workspace_catalog', fingerprint: async () => 'workspace-v1', read: async () => ({ value: ++reads.workspace }) },
+      { id: 'token_evidence', dependsOn: ['workspace_catalog'], sections: ['tokens'], fingerprint: async () => 'token-v1', read: async () => ({ value: ++reads.token }) },
+      { id: 'review_sources', dependsOn: ['workspace_catalog'], sections: ['review'], fingerprint: async () => 'review-v1', read: async () => ({ value: ++reads.review }) },
+      { id: 'memory_store', dependsOn: ['workspace_catalog'], sections: ['memory'], fingerprint: async () => 'memory-v1', read: async () => ({ value: ++reads.memory }) }
+    ])
+
+    await plan.read(
+      { key: 'query-token-only', context: { key: 'query-token-only' }, sectionIds: ['tokens'] },
+      () => bundle()
+    )
+
+    expect(reads).toEqual({ workspace: 1, token: 1, review: 0, memory: 0 })
+  })
+
   it('maps Learning record and Reference invalidation to workspace assets only', () => {
     expect(sourceIdsForInvalidation('learning_record')).toEqual(['workspace_assets'])
     expect(sourceIdsForInvalidation('reference')).toEqual(['workspace_assets'])
-    expect(sourceIdsForInvalidation('conversation')).toEqual(['token_evidence'])
+    expect(sourceIdsForInvalidation('conversation')).toEqual(['workspace_catalog', 'token_evidence'])
   })
 
   it('reports explicit source-to-section dependencies', () => {

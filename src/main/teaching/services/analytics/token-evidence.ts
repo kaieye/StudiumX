@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   AgentConversationRecord,
+  AgentConversationSummary,
   AnalyticsDateRange,
   AnalyticsLocalDate,
   AnalyticsSourceCoverage,
@@ -24,6 +25,8 @@ export type TokenEvidenceWorkspace = {
 }
 
 type InternalTokenUsageFact = TokenUsageFact & { messageCount: number }
+
+const TOKEN_CONVERSATION_READ_CONCURRENCY = 8
 
 export type TokenToolFact = {
   name: string
@@ -82,6 +85,12 @@ export type TokenEvidenceAdapters = {
       | { state: 'unreadable' }
     >
   }
+  temporaryConversations?: {
+    read: (workspaceId: string | undefined, conversationId: string) => Promise<
+      | { state: 'readable'; record: AgentConversationRecord }
+      | { state: 'unreadable' }
+    >
+  }
   ledger: {
     read: (workspace: TokenEvidenceWorkspace) => Promise<LearningWorkLedgerSnapshotsRead>
   }
@@ -136,6 +145,20 @@ export function createDurableConversationEvidenceAdapter(
   }
 }
 
+export function createDurableTemporaryConversationEvidenceAdapter(
+  readConversation: (workspaceId: string | undefined, conversationId: string) => Promise<AgentConversationRecord>
+): NonNullable<TokenEvidenceAdapters['temporaryConversations']> {
+  return {
+    async read(workspaceId, conversationId) {
+      try {
+        return { state: 'readable', record: await readConversation(workspaceId, conversationId) }
+      } catch {
+        return { state: 'unreadable' }
+      }
+    }
+  }
+}
+
 export function createLearningWorkLedgerEvidenceAdapter(): TokenEvidenceAdapters['ledger'] {
   return { read: (workspace) => readLatestLedgerSnapshots(workspace.rootPath) }
 }
@@ -143,6 +166,7 @@ export function createLearningWorkLedgerEvidenceAdapter(): TokenEvidenceAdapters
 export async function discoverTokenEvidence(input: {
   query: LearningAnalyticsQuery
   workspaces: TokenEvidenceWorkspace[]
+  temporaryConversations?: AgentConversationSummary[]
   inheritedWarnings: AnalyticsWarning[]
   adapters: TokenEvidenceAdapters
 }): Promise<TokenEvidenceReport> {
@@ -177,12 +201,28 @@ export async function discoverTokenEvidence(input: {
       continue
     }
 
-    let ledger: LearningWorkLedgerSnapshotsRead
-    try {
-      ledger = await adapters.ledger.read(workspace)
-    } catch {
-      ledger = { latestByConversation: new Map(), scanned: 0, invalid: 0, readError: true }
-    }
+    const conversationSummaries = [...new Map(
+      workspace.summary.conversations.map((summary) => [summary.id, summary])
+    ).values()]
+    const ledgerPromise: Promise<LearningWorkLedgerSnapshotsRead> = adapters.ledger.read(workspace).catch(() => ({
+      latestByConversation: new Map(),
+      scanned: 0,
+      invalid: 0,
+      readError: true
+    }))
+    const conversationReadsPromise = mapWithConcurrency(
+      conversationSummaries,
+      TOKEN_CONVERSATION_READ_CONCURRENCY,
+      async (summary) => {
+        try {
+          return await adapters.conversations.read(workspace.workspaceId, summary.id)
+        } catch {
+          return { state: 'unreadable' as const }
+        }
+      }
+    )
+    const [ledger, conversationReads] = await Promise.all([ledgerPromise, conversationReadsPromise])
+
     counters.ledgerSnapshotsScanned += ledger.scanned
     counters.invalidLedgerRows += ledger.invalid
     if (ledger.readError) {
@@ -191,23 +231,14 @@ export async function discoverTokenEvidence(input: {
     }
     if (ledger.invalid > 0) warnings.push(warning('ledger_rows_invalid', 'Some learning-work ledger rows were invalid and ignored.', 'learning_work_ledger', { workspaceId: workspace.workspaceId, invalidRows: ledger.invalid }))
 
-    const seenConversations = new Set<string>()
-    let workspaceConversationsScanned = 0
+    const workspaceConversationsScanned = conversationSummaries.length
     let workspaceConversationFacts = 0
     let workspaceLedgerFacts = 0
     let workspacePartialUsage = false
-    for (const summary of workspace.summary.conversations) {
-      if (seenConversations.has(summary.id)) continue
-      seenConversations.add(summary.id)
+    for (let index = 0; index < conversationSummaries.length; index += 1) {
+      const summary = conversationSummaries[index]
+      const conversationRead = conversationReads[index]
       counters.conversationsScanned += 1
-      workspaceConversationsScanned += 1
-
-      let conversationRead: Awaited<ReturnType<TokenEvidenceAdapters['conversations']['read']>>
-      try {
-        conversationRead = await adapters.conversations.read(workspace.workspaceId, summary.id)
-      } catch {
-        conversationRead = { state: 'unreadable' }
-      }
       if (conversationRead.state === 'unreadable') {
         warnings.push(warning('source_scan_incomplete', 'A conversation record could not be read; a ledger fallback was attempted.', 'agent_conversations', { workspaceId: workspace.workspaceId, conversationId: summary.id }))
       } else {
@@ -255,6 +286,84 @@ export async function discoverTokenEvidence(input: {
     sources.push({ source: 'learning_work_ledger', state: ledger.readError ? 'error' : ledger.invalid > 0 ? 'partial' : 'complete', scanned: ledger.scanned, included: workspaceLedgerFacts, missing: ledger.readError ? Math.max(0, workspace.summary.conversations.length - workspaceConversationFacts) : 0, rejected: ledger.invalid })
   }
 
+  const temporarySummaries = [...new Map(
+    (input.temporaryConversations ?? []).map((summary) => [
+      `${summary.workspaceId ?? ''}:${summary.id}:${summary.relativePath}`,
+      summary
+    ])
+  ).values()]
+  if (temporarySummaries.length > 0) {
+    const workspaceNames = new Map(workspaces.map((workspace) => [workspace.workspaceId, workspace.workspaceName]))
+    const temporaryReads = await mapWithConcurrency(
+      temporarySummaries,
+      TOKEN_CONVERSATION_READ_CONCURRENCY,
+      async (summary) => {
+        if (!adapters.temporaryConversations) return { state: 'unreadable' as const }
+        try {
+          return await adapters.temporaryConversations.read(summary.workspaceId, summary.id)
+        } catch {
+          return { state: 'unreadable' as const }
+        }
+      }
+    )
+    let included = 0
+    let missing = 0
+    let partial = false
+    for (let index = 0; index < temporarySummaries.length; index += 1) {
+      const summary = temporarySummaries[index]
+      const conversationRead = temporaryReads[index]
+      const workspaceId = summary.workspaceId ?? 'global-temporary'
+      const workspaceName = workspaceNames.get(workspaceId) ?? 'Temporary conversations'
+      counters.conversationsScanned += 1
+      if (conversationRead.state === 'unreadable') {
+        partial = true
+        missing += 1
+        counters.missingUsageConversations += 1
+        warnings.push(warning('source_scan_incomplete', 'A temporary conversation record could not be read.', 'agent_conversations', { workspaceId, conversationId: summary.id }))
+        continue
+      }
+
+      counters.conversationsReadable += 1
+      const scan = collectConversationTokenFacts(
+        conversationRead.record,
+        workspaceId,
+        workspaceName,
+        query.calendarContext.timeZone,
+        `temporary:${summary.absolutePath}`
+      )
+      if (!scan.facts.length) {
+        partial = true
+        missing += 1
+        counters.missingUsageConversations += 1
+        warnings.push(warning('conversation_usage_missing', 'A temporary conversation has no usable token usage.', 'agent_conversations', { workspaceId, conversationId: summary.id }))
+        continue
+      }
+
+      counters.conversationsWithUsage += 1
+      included += scan.facts.length
+      facts.push(...scan.facts)
+      toolFacts.push(...scan.toolNames)
+      counters.duplicateRuns += scan.duplicateRuns
+      counters.componentMissing += scan.componentMissing
+      counters.totalInconsistent += scan.totalInconsistent
+      counters.governance.push(...scan.governance)
+      counters.invalidTimestampTurns += scan.invalidTimestampTurns
+      if (scan.missingUsageTurns > 0) {
+        partial = true
+        counters.conversationsPartiallyMissingUsage += 1
+        warnings.push(warning('conversation_usage_partially_missing', 'Some assistant turns in a temporary conversation have no usable run usage.', 'agent_conversations', { workspaceId, conversationId: summary.id, missingTurns: scan.missingUsageTurns }))
+      }
+    }
+    sources.push({
+      source: 'agent_conversations',
+      state: partial ? 'partial' : 'complete',
+      scanned: temporarySummaries.length,
+      included,
+      missing,
+      rejected: 0
+    })
+  }
+
   if (counters.componentMissing > 0) warnings.push(warning('token_components_missing', 'Some usage facts provide only total tokens; prompt and completion components remain unknown.', 'agent_conversations', { facts: counters.componentMissing }))
   if (counters.totalInconsistent > 0) warnings.push(warning('token_total_inconsistent', 'Some source totals differ from prompt plus completion; source totals were preserved.', 'agent_conversations', { facts: counters.totalInconsistent }))
   if (counters.duplicateRuns > 0) warnings.push(warning('custom', 'Duplicate conversation run identities were ignored.', 'agent_conversations', { duplicateRuns: counters.duplicateRuns }))
@@ -274,6 +383,28 @@ export async function discoverTokenEvidence(input: {
   }
 }
 
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), items.length) },
+    async () => {
+      while (true) {
+        const index = nextIndex
+        nextIndex += 1
+        if (index >= items.length) return
+        results[index] = await mapper(items[index], index)
+      }
+    }
+  )
+  await Promise.all(workers)
+  return results
+}
+
 function isStaleLedgerSnapshot(snapshot: LedgerSnapshot, summary: TeachingWorkspaceSummary['conversations'][number]): boolean {
   const summaryUpdatedAt = validInstant(summary.updatedAt)
   return (summaryUpdatedAt !== null && summaryUpdatedAt !== snapshot.occurredAt) || summary.messageCount !== snapshot.messageCount
@@ -287,7 +418,8 @@ export function collectConversationTokenFacts(
   record: AgentConversationRecord,
   workspaceId: string,
   workspaceName: string,
-  timeZone: string
+  timeZone: string,
+  evidenceScopeId = workspaceId
 ): ConversationTokenScan {
   const facts: InternalTokenUsageFact[] = []
   const toolNames: ConversationTokenScan['toolNames'] = []
@@ -304,7 +436,7 @@ export function collectConversationTokenFacts(
   for (const turn of record.turns) {
     if (turn.role !== 'assistant') continue
     assistantTurns += 1
-    const dedupeKey = `${workspaceId}:${record.id}:${turn.id}`
+    const dedupeKey = `${evidenceScopeId}:${record.id}:${turn.id}`
     if (seen.has(dedupeKey)) {
       duplicateRuns += 1
       continue
@@ -330,7 +462,7 @@ export function collectConversationTokenFacts(
     facts.push({
       source: 'conversation',
       dedupeKey,
-      conversationKey: `${workspaceId}:${record.id}`,
+      conversationKey: `${evidenceScopeId}:${record.id}`,
       conversationId: record.id,
       conversationTitle: record.title,
       workspaceId,

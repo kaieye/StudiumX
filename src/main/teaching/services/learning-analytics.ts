@@ -8,6 +8,7 @@ import {
 } from './analytics/source-plan'
 import type {
   AgentConversationRecord,
+  AgentConversationSummary,
   AnalyticsCoverage,
   AnalyticsDateRange,
   AnalyticsExportManifest,
@@ -43,6 +44,7 @@ import { LEARNING_WORK_LEDGER_RELATIVE_PATH } from '../../learning-work-ledger'
 import {
   aggregateTokenFacts,
   createDurableConversationEvidenceAdapter,
+  createDurableTemporaryConversationEvidenceAdapter,
   createLearningWorkLedgerEvidenceAdapter,
   discoverTokenEvidence
 } from './analytics/token-evidence'
@@ -70,6 +72,8 @@ export type AnalyticsWorkspaceScanResult = {
 export type LearningAnalyticsDependencies = {
   appDataRoot: string
   listWorkspaceSummaries: () => Promise<AnalyticsWorkspaceScanResult[]>
+  listTemporaryConversationSummaries?: () => Promise<AgentConversationSummary[]>
+  readTemporaryConversation?: (workspaceId: string | undefined, conversationId: string) => Promise<AgentConversationRecord>
   readConversation: (workspaceId: string, conversationId: string) => Promise<AgentConversationRecord>
   getProgress: (workspaceId: string) => Promise<GetProgressResult>
   listReviewCards: (workspaceId: string) => Promise<{ cards: Array<{ lessonId: string; lessonTitle: string }> }>
@@ -89,10 +93,14 @@ type AnalyticsPlanContext = {
 }
 type ScanHeader = {
   selected: AnalyticsWorkspaceScanResult[]
+  temporaryConversations: AgentConversationSummary[]
+  temporaryWarnings: AnalyticsWarning[]
+  warnings: AnalyticsWarning[]
+}
+type PlatformScanHeader = ScanHeader & {
   settings: TeachingSettingsV1 | null
   skills: SkillCatalogResult | null
   connectorStatuses: ConnectorStatusesResult | null
-  warnings: AnalyticsWarning[]
 }
 type TokenScanResult = { section: AnalyticsSectionResult<TokenAnalytics> }
 export type AnalyticsPreparedExport = { fileName: string; content: string; manifest: AnalyticsExportManifest }
@@ -106,11 +114,16 @@ export class LearningAnalyticsService {
 
   async getLearningAnalytics(request: LearningAnalyticsRequest | LearningAnalyticsQuery): Promise<LearningAnalyticsBundle> {
     const context = this.analyticsContext(request)
-    const selectiveSections = selectiveRefreshSections(request)
-    if (selectiveSections.length) {
-      return this.sourcePlan.refresh({ key: context.key, context, sectionIds: selectiveSections }, (input, previous, refreshedSections) => this.assembleBundle(context, input.values, previous, refreshedSections))
+    const refreshSections = selectiveRefreshSections(request)
+    if (refreshSections.length) {
+      return this.sourcePlan.refresh({ key: context.key, context, sectionIds: refreshSections }, (input, previous, refreshedSections) => this.assembleBundle(context, input.values, previous, refreshedSections))
     }
-    return this.sourcePlan.read({ key: context.key, context }, (input, previous, refreshedSections) => this.assembleBundle(context, input.values, previous, refreshedSections))
+    const requestedSections = selectiveRequestedSections(request)
+    return this.sourcePlan.read({
+      key: context.key,
+      context,
+      ...(requestedSections.length ? { sectionIds: requestedSections } : {})
+    }, (input, previous, refreshedSections) => this.assembleBundle(context, input.values, previous, refreshedSections))
   }
 
   /** Selectively rereads only the sources needed by the requested sections. */
@@ -199,7 +212,10 @@ export class LearningAnalyticsService {
         fingerprint: async (_context, dependencies) => this.fingerprintTokenEvidence(dependencies.get('workspace_catalog')!.value as ScanHeader),
         read: async (context, access) => {
           const header = access.value<ScanHeader>('workspace_catalog')
-          const token = await this.scanTokens(context.query, header.selected, access.warningsFor('workspace_catalog'))
+          const token = await this.scanTokens(context.query, header, [
+            ...access.warningsFor('workspace_catalog'),
+            ...header.temporaryWarnings
+          ])
           return { value: token, warnings: token.section.warnings, partial: token.section.state === 'partial' || token.section.state === 'error' }
         }
       },
@@ -238,7 +254,10 @@ export class LearningAnalyticsService {
         dependsOn: ['workspace_catalog'],
         sections: ['platform'],
         fingerprint: async (_context, dependencies) => this.fingerprintPlatformSources(dependencies.get('workspace_catalog')!.value as ScanHeader),
-        read: async (context, access) => sectionSource(await this.scanPlatform(context.query, this.now().toISOString(), access.value<ScanHeader>('workspace_catalog')))
+        read: async (context, access) => {
+          const header = await this.loadPlatformHeader(access.value<ScanHeader>('workspace_catalog'))
+          return sectionSource(await this.scanPlatform(context.query, this.now().toISOString(), header))
+        }
       },
       {
         id: 'personal_study',
@@ -288,9 +307,9 @@ export class LearningAnalyticsService {
     const generatedAt = this.now().toISOString()
     const bundle: LearningAnalyticsBundle = previous
       ? { ...previous, generatedAt, query: context.query }
-      : { contractVersion: CONTRACT_VERSION, generatedAt, query: context.query } as LearningAnalyticsBundle
+      : createUnrequestedBundle(context.query, generatedAt)
     const refreshed = new Set(refreshedSections)
-    const include = (section: AnalyticsSectionId): boolean => !previous || refreshed.has(section)
+    const include = (section: AnalyticsSectionId): boolean => refreshed.has(section)
     if (include('tokens')) bundle.tokens = (values.get('token_evidence') as TokenScanResult).section
     if (include('workspace_assets')) bundle.workspaceAssets = values.get('workspace_assets') as AnalyticsSectionResult<WorkspaceAssetsAnalytics>
     if (include('review')) bundle.review = values.get('review_sources') as AnalyticsSectionResult<ReviewAnalytics>
@@ -309,21 +328,36 @@ export class LearningAnalyticsService {
 
   private async loadScanHeader(query: LearningAnalyticsQuery): Promise<ScanHeader> {
     const warnings: AnalyticsWarning[] = []
-    const [workspaceResult, settingsResult, skillsResult, connectorsResult] = await Promise.allSettled([
-      this.dependencies.listWorkspaceSummaries(),
+    const temporaryWarnings: AnalyticsWarning[] = []
+    const [workspaceResult, temporaryResult] = await Promise.all([
+      this.dependencies.listWorkspaceSummaries().catch(() => null),
+      this.dependencies.listTemporaryConversationSummaries?.().catch(() => null) ?? Promise.resolve([])
+    ])
+    if (!workspaceResult) warnings.push(warning('source_scan_incomplete', 'Teaching workspace catalog could not be scanned.', 'workspace_catalog'))
+    if (this.dependencies.listTemporaryConversationSummaries && !temporaryResult) {
+      temporaryWarnings.push(warning('source_scan_incomplete', 'Temporary conversation catalog could not be scanned.', 'agent_conversations'))
+    }
+    return {
+      selected: selectWorkspaceScans(query, workspaceResult ?? []),
+      temporaryConversations: temporaryResult ?? [],
+      temporaryWarnings,
+      warnings
+    }
+  }
+
+  private async loadPlatformHeader(header: ScanHeader): Promise<PlatformScanHeader> {
+    const warnings = [...header.warnings]
+    const [settingsResult, skillsResult, connectorsResult] = await Promise.allSettled([
       this.dependencies.loadSettings(),
       this.dependencies.listSkills(),
       this.dependencies.getConnectorStatuses?.() ?? Promise.resolve(null)
     ])
-    const workspaces = workspaceResult.status === 'fulfilled' ? workspaceResult.value : []
-    if (workspaceResult.status === 'rejected') warnings.push(warning('source_scan_incomplete', 'Teaching workspace catalog could not be scanned.', 'workspace_catalog'))
-    const selected = selectWorkspaceScans(query, workspaces)
     const settings = settingsResult.status === 'fulfilled' ? settingsResult.value : null
     const skills = skillsResult.status === 'fulfilled' ? skillsResult.value : null
     const connectorStatuses = connectorsResult.status === 'fulfilled' ? connectorsResult.value : null
     if (!settings) warnings.push(warning('source_scan_incomplete', 'Settings could not be read for analytics.', 'settings'))
     if (!skills) warnings.push(warning('source_scan_incomplete', 'Skill catalog could not be read for analytics.', 'skill_catalog'))
-    return { selected, settings, skills, connectorStatuses, warnings }
+    return { ...header, settings, skills, connectorStatuses, warnings }
   }
 
   private async fingerprintTokenEvidence(header: ScanHeader): Promise<string> {
@@ -335,7 +369,19 @@ export class LearningAnalyticsService {
         paths.add(join(item.rootPath, agentConversationJsonRelativePathForMarkdown(conversation.relativePath)))
       }
     }
-    return digest(stableJson({ selected: sourceHeaderIdentity(header), mtimes: await collectPathVersions([...paths]) }))
+    if (this.dependencies.listTemporaryConversationSummaries) {
+      paths.add(join(this.dependencies.appDataRoot, 'conversations'))
+      paths.add(join(this.dependencies.appDataRoot, 'conversations', '.index.json'))
+    }
+    for (const conversation of header.temporaryConversations) {
+      paths.add(conversation.absolutePath)
+      paths.add(conversation.absolutePath.replace(/\.md$/i, '.json'))
+    }
+    return digest(stableJson({
+      selected: sourceHeaderIdentity(header),
+      temporaryConversations: temporaryConversationIdentity(header),
+      mtimes: await collectPathVersions([...paths])
+    }))
   }
 
   private async fingerprintWorkspaceAssets(header: ScanHeader): Promise<string> {
@@ -365,23 +411,33 @@ export class LearningAnalyticsService {
     return digest(stableJson({ header: sourceHeaderIdentity(header), changes: await collectPathVersions([join(this.dependencies.appDataRoot, 'learning-changes', 'history.json')]) }))
   }
 
-  private async scanTokens(query: LearningAnalyticsQuery, selected: AnalyticsWorkspaceScanResult[], inheritedWarnings: AnalyticsWarning[]): Promise<TokenScanResult> {
-    if (query.scope.teaching.kind === 'none') return { section: unavailableSection(queryTemporal(query), coverage(query, true, [], [], true), 'not_applicable', []) }
-    if (query.scope.teaching.kind === 'workspace' && selected.length === 0) return { section: unavailableSection(queryTemporal(query), coverage(query, true, [], [], false), 'no_active_workspace', []) }
+  private async scanTokens(query: LearningAnalyticsQuery, header: ScanHeader, inheritedWarnings: AnalyticsWarning[]): Promise<TokenScanResult> {
+    const { selected, temporaryConversations } = header
+    if (query.scope.teaching.kind === 'none' && temporaryConversations.length === 0) {
+      return { section: unavailableSection(queryTemporal(query), coverage(query, true, [], [], true), 'not_applicable', inheritedWarnings) }
+    }
+    if (query.scope.teaching.kind === 'workspace' && selected.length === 0 && temporaryConversations.length === 0) {
+      return { section: unavailableSection(queryTemporal(query), coverage(query, true, [], [], false), 'no_active_workspace', inheritedWarnings) }
+    }
 
     const evidence = await discoverTokenEvidence({
       query,
       workspaces: selected,
+      temporaryConversations,
       inheritedWarnings,
       adapters: {
         conversations: createDurableConversationEvidenceAdapter(this.dependencies.readConversation),
+        ...(this.dependencies.readTemporaryConversation ? {
+          temporaryConversations: createDurableTemporaryConversationEvidenceAdapter(this.dependencies.readTemporaryConversation)
+        } : {}),
         ledger: createLearningWorkLedgerEvidenceAdapter()
       }
     })
     const data = aggregateTokenFacts(evidence.rangedFacts, evidence.toolFacts, evidence.counters)
-    const sectionCoverage = coverage(query, true, evidence.sources, evidence.facts.map((fact) => fact.localDate), evidence.complete)
-    const isPartial = !evidence.complete || evidence.counters.componentMissing > 0 || evidence.counters.totalInconsistent > 0
-    if (selected.length > 0 && evidence.counters.workspaceErrors === selected.length) {
+    const complete = evidence.complete && header.temporaryWarnings.length === 0
+    const sectionCoverage = coverage(query, true, evidence.sources, evidence.facts.map((fact) => fact.localDate), complete)
+    const isPartial = !complete || evidence.counters.componentMissing > 0 || evidence.counters.totalInconsistent > 0
+    if (selected.length > 0 && evidence.counters.workspaceErrors === selected.length && temporaryConversations.length === 0) {
       return { section: errorSection(queryTemporal(query), sectionCoverage, 'workspace_scan_failed', 'No selected Teaching workspace could be scanned.', true, evidence.warnings) }
     }
     const state = evidence.facts.length === 0 && evidence.counters.conversationsScanned === 0 && evidence.counters.workspaceErrors === 0
@@ -487,7 +543,7 @@ export class LearningAnalyticsService {
     return availableSection(asOfTemporal(generatedAt), sectionCoverage, data, warnings)
   }
 
-  private async scanPlatform(query: LearningAnalyticsQuery, generatedAt: string, header: ScanHeader): Promise<AnalyticsSectionResult<PlatformAnalytics>> {
+  private async scanPlatform(query: LearningAnalyticsQuery, generatedAt: string, header: PlatformScanHeader): Promise<AnalyticsSectionResult<PlatformAnalytics>> {
     const warnings = [...header.warnings]
     const settings = header.settings
     const skills = header.skills
@@ -596,6 +652,30 @@ function buildInsightsSection(query: LearningAnalyticsQuery, generatedAt: string
   return items.length ? (sectionCoverage.complete ? availableSection(asOfTemporal(generatedAt), sectionCoverage, data, combinedWarnings) : partialSection(asOfTemporal(generatedAt), sectionCoverage, data, combinedWarnings)) : emptySection(asOfTemporal(generatedAt), sectionCoverage, data, 'no_activity', combinedWarnings)
 }
 
+function createUnrequestedBundle(query: LearningAnalyticsQuery, generatedAt: string): LearningAnalyticsBundle {
+  const omitted = <T>(): AnalyticsSectionResult<T> => unavailableSection(
+    queryTemporal(query),
+    coverage(query, true, [], [], false),
+    'source_missing',
+    []
+  )
+  return {
+    contractVersion: CONTRACT_VERSION,
+    generatedAt,
+    query,
+    hero: omitted(),
+    focus: omitted(),
+    tasks: omitted(),
+    tokens: omitted(),
+    workspaceAssets: omitted(),
+    review: omitted(),
+    memory: omitted(),
+    platform: omitted(),
+    presence: omitted(),
+    insights: omitted()
+  }
+}
+
 function sectionSource<T>(section: AnalyticsSectionResult<T>): { value: AnalyticsSectionResult<T>; warnings: AnalyticsWarning[]; partial: boolean } {
   return { value: section, warnings: section.warnings, partial: section.state === 'partial' || section.state === 'error' }
 }
@@ -610,11 +690,18 @@ function sourceHeaderIdentity(header: ScanHeader): unknown {
       lessons: item.summary?.lessons.map((entry) => ({ id: entry.id, createdAt: entry.createdAt })),
       records: item.summary?.records.map((entry) => ({ relativePath: entry.relativePath, date: entry.date })),
       references: item.summary?.referenceCount
-    })),
-    settings: header.settings ? { providerId: header.settings.generator.providerId, model: header.settings.generator.model } : null,
-    skills: header.skills?.skills.map((entry) => ({ id: entry.id, installed: entry.installed, version: entry.version })),
-    connectors: header.connectorStatuses?.connectors.map((entry) => ({ id: entry.id, state: entry.state }))
+    }))
   }
+}
+
+function temporaryConversationIdentity(header: ScanHeader): unknown {
+  return header.temporaryConversations.map((entry) => ({
+    id: entry.id,
+    workspaceId: entry.workspaceId,
+    relativePath: entry.relativePath,
+    updatedAt: entry.updatedAt,
+    messageCount: entry.messageCount
+  }))
 }
 
 function selectWorkspaceScans(query: LearningAnalyticsQuery, workspaces: AnalyticsWorkspaceScanResult[]): AnalyticsWorkspaceScanResult[] {
@@ -657,11 +744,19 @@ function latestString(values: Array<string | undefined>): string | undefined { r
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex') }
 function stableJson(value: unknown): string { return JSON.stringify(sortJson(value)) }
 function sortJson(value: unknown): unknown { if (Array.isArray(value)) return value.map(sortJson); if (!value || typeof value !== 'object') return value; return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, nested]) => [key, sortJson(nested)])) }
+const ANALYTICS_SECTION_IDS = new Set<AnalyticsSectionId>(['hero', 'focus', 'tasks', 'tokens', 'workspace_assets', 'review', 'memory', 'platform', 'presence', 'insights'])
+function selectiveRequestedSections(value: LearningAnalyticsRequest | LearningAnalyticsQuery): AnalyticsSectionId[] {
+  return selectiveSections(value, 'sectionIds')
+}
 function selectiveRefreshSections(value: LearningAnalyticsRequest | LearningAnalyticsQuery): AnalyticsSectionId[] {
-  if (!value || typeof value !== 'object' || !('refreshSectionIds' in value)) return []
-  const candidates = (value as { refreshSectionIds?: unknown }).refreshSectionIds
-  const allowed = new Set<AnalyticsSectionId>(['hero', 'focus', 'tasks', 'tokens', 'workspace_assets', 'review', 'memory', 'platform', 'presence', 'insights'])
-  return Array.isArray(candidates) ? [...new Set(candidates.filter((candidate): candidate is AnalyticsSectionId => typeof candidate === 'string' && allowed.has(candidate as AnalyticsSectionId)))] : []
+  return selectiveSections(value, 'refreshSectionIds')
+}
+function selectiveSections(value: LearningAnalyticsRequest | LearningAnalyticsQuery, key: 'sectionIds' | 'refreshSectionIds'): AnalyticsSectionId[] {
+  if (!value || typeof value !== 'object' || !(key in value)) return []
+  const candidates = (value as Record<string, unknown>)[key]
+  return Array.isArray(candidates)
+    ? [...new Set(candidates.filter((candidate): candidate is AnalyticsSectionId => typeof candidate === 'string' && ANALYTICS_SECTION_IDS.has(candidate as AnalyticsSectionId)))]
+    : []
 }
 
 function normalizeLearningAnalyticsRequest(value: LearningAnalyticsRequest | LearningAnalyticsQuery): LearningAnalyticsRequest {

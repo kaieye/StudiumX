@@ -236,7 +236,17 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: (_event, payload) => { if (!resolveAskPending(payload.streamId, payload.toolCallId, payload.answers)) resolveToolPermissionPending(payload.streamId, payload.toolCallId, payload.answers); return { ok: true } },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
-    command({ channel: teachingInvokeChannels.saveAgentConversation, parser: (payload) => parseSaveAgentConversationPayload(payload), action: (_event, payload) => service.saveAgentConversation(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({
+      channel: teachingInvokeChannels.saveAgentConversation,
+      parser: (payload) => parseSaveAgentConversationPayload(payload),
+      action: async (_event, payload) => {
+        const result = await service.saveAgentConversation(payload)
+        analytics.invalidate(['conversation'])
+        return result
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
     command({ channel: teachingInvokeChannels.readAgentConversation, parser: (payload) => parseReadAgentConversationPayload(payload), action: (_event, payload) => service.readAgentConversation(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.setWorkspaceItemMeta, parser: (payload) => parseWorkspaceItemMetaPayload(payload), action: (_event, payload) => service.setWorkspaceItemMeta(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.removeWorkspaceItem, parser: (payload) => parseWorkspaceItemRemovePayload(payload), action: (_event, payload) => service.removeWorkspaceItem(payload), reply: identityReply, streamCleanup: noStreamCleanup }),

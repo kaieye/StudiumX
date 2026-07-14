@@ -91,7 +91,9 @@ const INVALIDATION_SOURCES: Record<LearningAnalyticsInvalidation, LearningAnalyt
   presence_snapshot: ['presence_snapshot'],
   insight_derivation: ['insight_derivation'],
   workspace: ['workspace_catalog'],
-  conversation: ['token_evidence'],
+  // Saving a conversation can add a brand-new catalog entry as well as
+  // change token evidence for an existing entry. Refresh both layers.
+  conversation: ['workspace_catalog', 'token_evidence'],
   ledger: ['token_evidence'],
   learning_record: ['workspace_assets'],
   reference: ['workspace_assets'],
@@ -178,7 +180,7 @@ export class LearningAnalyticsSourcePlan<Context> {
     const isSelective = options.sectionIds !== undefined
     const previous = this.bundleCache.get(options.key) ?? null
     if (forcedSections.length) sections = this.expandDependentSections(sections, forcedSections)
-    if (isSelective && !previous) {
+    if (isSelective && !previous && forcedSections.length) {
       // A selective retry without a prior bundle cannot safely merge a result.
       // Establish a complete baseline, while still forcing the requested source.
       sections = ALL_SECTIONS

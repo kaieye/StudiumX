@@ -47,6 +47,7 @@ import {
   agentConversationJsonRelativePathForMarkdown,
   agentConversationMarkdownRelativePath,
   isRootAgentConversationMarkdownRelativePath,
+  isTemporaryAgentConversationPath,
   normalizeAgentConversationDirectory
 } from '../shared/agent-conversation-catalog'
 import {
@@ -299,6 +300,29 @@ export class TeachingWorkspaceService {
         }
       }
     }))
+  }
+
+  async listTemporaryConversationSummariesForAnalytics(): Promise<AgentConversationSummary[]> {
+    return this.listTemporaryConversations(await this.ensureRegistry())
+  }
+
+  async readTemporaryConversationForAnalytics(
+    workspaceId: string | undefined,
+    conversationId: string
+  ): Promise<AgentConversationRecord> {
+    const id = requireSafeAgentConversationId(conversationId)
+    const globalRecord = await readAgentConversationRecord(this.appDataRoot, id).catch(() => null)
+    if (globalRecord && isTemporaryAgentConversationPath(globalRecord.relativePath)) return globalRecord
+
+    const registry = await this.ensureRegistry()
+    const candidates = workspaceId
+      ? registry.workspaces.filter((workspace) => workspace.id === workspaceId)
+      : registry.workspaces
+    for (const workspace of candidates) {
+      const record = await readAgentConversationRecord(workspace.rootPath, id).catch(() => null)
+      if (record && isTemporaryAgentConversationPath(record.relativePath)) return record
+    }
+    throw new Error(`Temporary conversation ${id} was not found.`)
   }
 
   async listWorkspaceChangesForAnalytics(

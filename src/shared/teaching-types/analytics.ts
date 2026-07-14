@@ -453,6 +453,10 @@ export type PersonalStudyAnalyticsSnapshot = {
 export type LearningAnalyticsRequest = {
   query: LearningAnalyticsQuery
   personalStudy?: PersonalStudyAnalyticsSnapshot
+  /** Initial sections required by a lean analytics page read. */
+  sectionIds?: AnalyticsSectionId[]
+  /** Explicit retry sections whose providers should bypass cache once. */
+  refreshSectionIds?: AnalyticsSectionId[]
 }
 
 export type AnalyticsComparison = {

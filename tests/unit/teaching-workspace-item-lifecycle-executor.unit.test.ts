@@ -213,6 +213,46 @@ describe('TeachingWorkspaceItemLifecycleExecutor', () => {
     expect(state.durableIndex.pathMeta).toEqual({ [relativePath]: { pinned: true, archived: true } })
   })
 
+  it('removes every durable Agent conversation artifact from disk', async () => {
+    const root = await createRoot()
+    const conversationId = 'chat-durable-executor'
+    const relativePath = `conversation/${conversationId}.md`
+    const conversationDirectory = join(root, 'conversation')
+    const markdownPath = join(root, relativePath)
+    const jsonPath = join(conversationDirectory, `${conversationId}.json`)
+    const auditPath = join(conversationDirectory, '.agent-sessions', `${conversationId}.jsonl`)
+    const artifactDirectory = join(conversationDirectory, '.agent-sessions', conversationId)
+    const childTranscriptPath = join(artifactDirectory, 'child-transcripts', 'child-1.jsonl')
+    await mkdir(join(artifactDirectory, 'child-transcripts'), { recursive: true })
+    await Promise.all([
+      writeFile(markdownPath, '# Durable conversation', 'utf8'),
+      writeFile(jsonPath, '{"id":"chat-durable-executor"}', 'utf8'),
+      writeFile(auditPath, '{}\n', 'utf8'),
+      writeFile(childTranscriptPath, '{}\n', 'utf8')
+    ])
+    const events: string[] = []
+    const { executor } = createExecutor({
+      appDataRoot: join(root, 'app-data'),
+      workspaceIndex: indexFor(root, [], { [relativePath]: { pinned: true } }),
+      events
+    })
+
+    const state = await executor.execute({
+      workspace: workspace(root),
+      target: { relativePath, kind: 'conversation' },
+      intent: { type: 'remove', mode: 'disk' }
+    })
+
+    await Promise.all([
+      expectMissing(markdownPath),
+      expectMissing(jsonPath),
+      expectMissing(auditPath),
+      expectMissing(artifactDirectory)
+    ])
+    expect(state.durableIndex.pathMeta).toEqual({})
+    expect(events).toEqual(['save-durable', 'rebuild'])
+  })
+
   it('removes a temporary Agent conversation through its distinct app-data representation', async () => {
     const root = await createRoot()
     const appDataRoot = join(root, 'app-data')
@@ -220,10 +260,15 @@ describe('TeachingWorkspaceItemLifecycleExecutor', () => {
     const relativePath = `conversations/${conversationId}.md`
     const markdownPath = join(appDataRoot, relativePath)
     const jsonPath = join(appDataRoot, 'conversations', `${conversationId}.json`)
-    await mkdir(join(appDataRoot, 'conversations'), { recursive: true })
+    const auditPath = join(appDataRoot, 'conversations', '.agent-sessions', `${conversationId}.jsonl`)
+    const artifactDirectory = join(appDataRoot, 'conversations', '.agent-sessions', conversationId)
+    const childTranscriptPath = join(artifactDirectory, 'child-transcripts', 'child-1.jsonl')
+    await mkdir(join(artifactDirectory, 'child-transcripts'), { recursive: true })
     await Promise.all([
       writeFile(markdownPath, '# Temporary conversation', 'utf8'),
-      writeFile(jsonPath, '{"id":"chat-temporary-executor"}', 'utf8')
+      writeFile(jsonPath, '{"id":"chat-temporary-executor"}', 'utf8'),
+      writeFile(auditPath, '{}\n', 'utf8'),
+      writeFile(childTranscriptPath, '{}\n', 'utf8')
     ])
     const events: string[] = []
     const { executor } = createExecutor({
@@ -240,7 +285,12 @@ describe('TeachingWorkspaceItemLifecycleExecutor', () => {
       intent: { type: 'remove', mode: 'disk' }
     })
 
-    await Promise.all([expectMissing(markdownPath), expectMissing(jsonPath)])
+    await Promise.all([
+      expectMissing(markdownPath),
+      expectMissing(jsonPath),
+      expectMissing(auditPath),
+      expectMissing(artifactDirectory)
+    ])
     expect(state.temporaryIndex.pathMeta).toEqual({})
     expect(state.durableIndex.pathMeta).toEqual({ [relativePath]: { pinned: true } })
     expect(events).toEqual(['save-temporary', 'rebuild'])

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createIsolatedTestRuntime, type IsolatedTestRuntime } from '../helpers/runtime-isolation'
 import type {
   AgentConversationRecord,
+  AgentConversationSummary,
   AnalyticsHourBuckets,
   LearningAnalyticsQuery,
   LearningAnalyticsRequest,
@@ -209,12 +210,26 @@ function settings(runtime: IsolatedTestRuntime): TeachingSettingsV1 {
   }
 }
 
-function makeService(runtime: IsolatedTestRuntime, scans: AnalyticsWorkspaceScanResult[], records: Map<string, AgentConversationRecord>, readCount: { value: number }, sourceReads?: { review: number; memory: number }) {
+function makeService(
+  runtime: IsolatedTestRuntime,
+  scans: AnalyticsWorkspaceScanResult[],
+  records: Map<string, AgentConversationRecord>,
+  readCount: { value: number },
+  sourceReads?: { review: number; memory: number; platform?: number },
+  temporary?: {
+    list: () => Promise<AgentConversationSummary[]>
+    read: (workspaceId: string | undefined, conversationId: string) => Promise<AgentConversationRecord>
+  }
+) {
   const skills: SkillCatalogResult = { rootPath: runtime.rootDir, skills: [] }
   const diagnostics: TeachingMemoryDiagnostics = { enabled: true, rootDir: runtime.rootDir, activeCount: 0, tombstoneCount: 0, lastInjectedIds: [] }
   return new LearningAnalyticsService({
     appDataRoot: runtime.userDataDir,
     listWorkspaceSummaries: async () => scans,
+    ...(temporary ? {
+      listTemporaryConversationSummaries: temporary.list,
+      readTemporaryConversation: temporary.read
+    } : {}),
     readConversation: async (_workspaceId, conversationId) => {
       readCount.value += 1
       const record = records.get(conversationId)
@@ -225,8 +240,8 @@ function makeService(runtime: IsolatedTestRuntime, scans: AnalyticsWorkspaceScan
     listReviewCards: async () => { if (sourceReads) sourceReads.review += 1; return { cards: [] } },
     listMemory: async () => { if (sourceReads) sourceReads.memory += 1; return [] },
     getMemoryDiagnostics: async () => diagnostics,
-    listSkills: async () => skills,
-    loadSettings: async () => settings(runtime),
+    listSkills: async () => { if (sourceReads) sourceReads.platform = (sourceReads.platform ?? 0) + 1; return skills },
+    loadSettings: async () => { if (sourceReads) sourceReads.platform = (sourceReads.platform ?? 0) + 1; return settings(runtime) },
     listWorkspaceChanges: async () => [],
     now: () => new Date(analyticsNow)
   })
@@ -237,6 +252,25 @@ beforeEach(async () => { runtime = await createIsolatedTestRuntime('teaching-ana
 afterEach(async () => { await runtime.cleanup() })
 
 describe('teaching analytics integration', () => {
+  it('serves an initial token-only request without loading unrelated analytics providers', async () => {
+    const good = summary(runtime, 'ws-good')
+    good.conversations = []
+    const sourceReads = { review: 0, memory: 0, platform: 0 }
+    const service = makeService(runtime, workspaceScan(runtime, [good]), new Map(), { value: 0 }, sourceReads)
+
+    const bundle = await service.getLearningAnalytics({ ...request(), sectionIds: ['tokens'] })
+
+    expect(bundle.tokens.state).toBe('empty')
+    expect(bundle.review.state).toBe('unavailable')
+    expect(bundle.memory.state).toBe('unavailable')
+    expect(bundle.platform.state).toBe('unavailable')
+    expect(sourceReads).toEqual({ review: 0, memory: 0, platform: 0 })
+    expect(service.reportSourcePlan().cachedSources.map((entry) => entry.id).sort()).toEqual([
+      'token_evidence',
+      'workspace_catalog'
+    ])
+  })
+
   it('uses conversation turns first, falls back to one latest ledger snapshot, and never adds ledger to partial turns', async () => {
     const good = summary(runtime, 'ws-good')
     const convSummary = {
@@ -339,6 +373,123 @@ describe('teaching analytics integration', () => {
     expect(Object.keys(refreshed).sort()).toEqual(Object.keys(first).sort())
     expect(refreshed).toMatchObject({ contractVersion: 1, query: first.query })
     expect(refreshed).toHaveProperty('insights')
+  })
+
+  it('discovers a newly saved conversation after conversation cache invalidation', async () => {
+    const good = summary(runtime, 'ws-good')
+    const scans = workspaceScan(runtime, [good])
+    const records = new Map<string, AgentConversationRecord>()
+    const count = { value: 0 }
+    const service = makeService(runtime, scans, records, count)
+
+    const before = await service.getLearningAnalytics({ ...request(), sectionIds: ['tokens'] })
+    expect(dataOf(before.tokens).totals.totalTokens).toBe(0)
+
+    const saved = conversationRecord('conv-new', [{
+      id: 'turn-new',
+      role: 'assistant',
+      content: 'new answer',
+      createdAt: instant,
+      metadata: { version: 1, runUsage: usage(25, 15, 10) }
+    }], runtime)
+    const updatedGood = {
+      ...good,
+      conversations: [{
+        id: saved.id,
+        workspaceId: good.id,
+        title: saved.title,
+        createdAt: saved.createdAt,
+        updatedAt: saved.updatedAt,
+        relativePath: saved.relativePath,
+        absolutePath: saved.absolutePath,
+        messageCount: saved.messageCount
+      }]
+    }
+    scans[0] = workspaceScan(runtime, [updatedGood])[0]
+    records.set(saved.id, saved)
+    await writeFile(saved.absolutePath, 'saved conversation')
+
+    service.invalidate(['conversation'])
+    const after = await service.getLearningAnalytics({ ...request(), sectionIds: ['tokens'] })
+
+    expect(dataOf(after.tokens).totals).toMatchObject({
+      promptTokens: 15,
+      completionTokens: 10,
+      totalTokens: 25
+    })
+    expect(count.value).toBe(1)
+  })
+
+  it('includes newly saved temporary conversations in global token totals', async () => {
+    const good = summary(runtime, 'ws-good')
+    good.conversations = []
+    let temporaryCatalog: AgentConversationSummary[] = []
+    const temporaryRecords = new Map<string, AgentConversationRecord>()
+    const count = { value: 0 }
+    const service = makeService(
+      runtime,
+      workspaceScan(runtime, [good]),
+      new Map(),
+      count,
+      undefined,
+      {
+        list: async () => temporaryCatalog.map((entry) => ({ ...entry })),
+        read: async (_workspaceId, conversationId) => {
+          count.value += 1
+          const record = temporaryRecords.get(conversationId)
+          if (!record) throw new Error('missing temporary fixture')
+          return record
+        }
+      }
+    )
+
+    const before = await service.getLearningAnalytics({ ...request(), sectionIds: ['tokens'] })
+    expect(dataOf(before.tokens).totals.totalTokens).toBe(0)
+
+    const saved = {
+      ...conversationRecord('temporary-global', [{
+        id: 'temporary-assistant',
+        role: 'assistant' as const,
+        content: 'answer',
+        createdAt: instant,
+        metadata: { version: 1 as const, runUsage: usage(25, 15, 10) }
+      }], runtime),
+      workspaceId: good.id,
+      relativePath: 'conversations/temporary-global.md',
+      absolutePath: join(runtime.userDataDir, 'conversations', 'temporary-global.md')
+    }
+    await mkdir(join(runtime.userDataDir, 'conversations'), { recursive: true })
+    await writeFile(saved.absolutePath, 'saved temporary conversation')
+    temporaryRecords.set(saved.id, saved)
+    temporaryCatalog = [{
+      id: saved.id,
+      workspaceId: saved.workspaceId,
+      title: saved.title,
+      createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+      relativePath: saved.relativePath,
+      absolutePath: saved.absolutePath,
+      messageCount: saved.messageCount
+    }]
+
+    service.invalidate(['conversation'])
+    const after = await service.getLearningAnalytics({ ...request(), sectionIds: ['tokens'] })
+
+    expect(dataOf(after.tokens).totals).toMatchObject({
+      promptTokens: 15,
+      completionTokens: 10,
+      totalTokens: 25
+    })
+    expect(count.value).toBe(1)
+
+    const noTeachingScope = query()
+    noTeachingScope.scope = { ...noTeachingScope.scope, teaching: { kind: 'none' } }
+    const globalOnly = await service.getLearningAnalytics({
+      ...request(personalStudy(), noTeachingScope),
+      sectionIds: ['tokens']
+    })
+    expect(dataOf(globalOnly.tokens).totals.totalTokens).toBe(25)
+    expect(count.value).toBe(2)
   })
 
   it('deduplicates concurrent requests and invalidates cache when a relevant file changes', async () => {

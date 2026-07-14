@@ -78,11 +78,10 @@ export type UseStudyAnalyticsOptions = {
   enabled?: boolean
 }
 
-type SelectiveRefreshRequest = LearningAnalyticsRequest & { refreshSectionIds?: AnalyticsSectionId[] }
 type AnalyticsCapableSystemApi = {
-  getLearningAnalytics?: (request: SelectiveRefreshRequest) => Promise<LearningAnalyticsBundle>
+  getLearningAnalytics?: (request: LearningAnalyticsRequest) => Promise<LearningAnalyticsBundle>
   learningAnalytics?: {
-    get?: (request: SelectiveRefreshRequest) => Promise<LearningAnalyticsBundle>
+    get?: (request: LearningAnalyticsRequest) => Promise<LearningAnalyticsBundle>
   }
 }
 
@@ -254,21 +253,27 @@ function personalStudyRequest(query: LearningAnalyticsQuery): LearningAnalyticsR
 
 export const teachingSystemAnalyticsClient: LearningAnalyticsClient = {
   async getLearningAnalytics(query, signal) {
-    return requestAnalyticsBundle(query, signal)
+    return requestAnalyticsBundle(query, signal, { sectionIds: ['tokens'] })
   },
   async refreshLearningAnalyticsSections(query, sectionIds, signal) {
-    return requestAnalyticsBundle(query, signal, sectionIds)
+    return requestAnalyticsBundle(query, signal, { refreshSectionIds: sectionIds })
   }
 }
 
-async function requestAnalyticsBundle(query: LearningAnalyticsQuery, signal: AbortSignal, refreshSectionIds?: readonly AnalyticsSectionId[]): Promise<LearningAnalyticsBundle> {
+type AnalyticsBundleRequestOptions = {
+  sectionIds?: readonly AnalyticsSectionId[]
+  refreshSectionIds?: readonly AnalyticsSectionId[]
+}
+
+async function requestAnalyticsBundle(query: LearningAnalyticsQuery, signal: AbortSignal, options: AnalyticsBundleRequestOptions = {}): Promise<LearningAnalyticsBundle> {
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
   const system = typeof window === 'undefined'
     ? undefined
     : window.teachingSystem as unknown as AnalyticsCapableSystemApi | undefined
-  const request: SelectiveRefreshRequest = {
+  const request: LearningAnalyticsRequest = {
     ...personalStudyRequest(query),
-    ...(refreshSectionIds?.length ? { refreshSectionIds: [...new Set(refreshSectionIds)] } : {})
+    ...(options.sectionIds?.length ? { sectionIds: [...new Set(options.sectionIds)] } : {}),
+    ...(options.refreshSectionIds?.length ? { refreshSectionIds: [...new Set(options.refreshSectionIds)] } : {})
   }
   let bundle: LearningAnalyticsBundle
   if (system?.getLearningAnalytics) {
