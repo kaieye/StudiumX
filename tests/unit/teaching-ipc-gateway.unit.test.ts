@@ -104,6 +104,7 @@ describe('Teaching IPC gateway', () => {
       workspaceId: 'workspace-1',
       mode: 'teaching',
       conversationId: null,
+      expectedBranchRevision: 0,
       selectedLessonPath: null,
       selectedCourseRelativePath: null,
       turns: [
@@ -115,6 +116,167 @@ describe('Teaching IPC gateway', () => {
     await expect(handler(teachingInvokeChannels.saveAgentConversation)(event, payload)).resolves.toEqual(saved)
     expect(saveAgentConversation).toHaveBeenCalledWith(payload)
     expect(invalidate).toHaveBeenCalledWith(['conversation'])
+  })
+
+  it('rejects malformed saved conversation turns before persistence', async () => {
+    const saveAgentConversation = vi.fn()
+    registerTeachingIpcGateway(registration({ workspaceService: { saveAgentConversation } }))
+
+    const basePayload = {
+      workspaceId: 'workspace-1',
+      mode: 'teaching',
+      conversationId: null,
+      expectedBranchRevision: 0,
+      selectedLessonPath: null,
+      selectedCourseRelativePath: null
+    }
+    const userTurn = {
+      id: 'user-1',
+      role: 'user',
+      content: 'Hello',
+      createdAt: '2026-07-14T00:00:00.000Z'
+    }
+
+    const invalidPayloads = [
+      {
+        payload: { ...basePayload, turns: {} },
+        message: 'IPC payload field "turns" must be an array.'
+      },
+      {
+        payload: { ...basePayload, turns: [userTurn, { ...userTurn }] },
+        message: 'duplicate turn id "user-1"'
+      },
+      {
+        payload: { ...basePayload, turns: [{ ...userTurn, id: '../user-1' }] },
+        message: 'must be a safe turn id'
+      },
+      {
+        payload: {
+          ...basePayload,
+          turns: [{
+            ...userTurn,
+            metadata: {
+              provenance: {
+                kind: 'replayed',
+                sourceConversationId: 'conversation-1',
+                sourceBranchId: 'branch-1'
+              }
+            }
+          }]
+        },
+        message: 'Replayed conversation turns require complete source provenance.'
+      },
+      {
+        payload: {
+          ...basePayload,
+          turns: [{
+            ...userTurn,
+            metadata: {
+              provenance: {
+                kind: 'recovery_notice',
+                sourceTurnId: 'turn-1',
+                replayId: 'replay-1'
+              }
+            }
+          }]
+        },
+        message: 'Recovery notices cannot claim replay provenance.'
+      }
+    ]
+
+    for (const invalid of invalidPayloads) {
+      await expect(handler(teachingInvokeChannels.saveAgentConversation)(event, invalid.payload))
+        .rejects.toThrow(invalid.message)
+    }
+    expect(saveAgentConversation).not.toHaveBeenCalled()
+  })
+
+  it('routes conversation branch lifecycle operations through their bounded parsers', async () => {
+    const readAgentConversationSessionTree = vi.fn().mockResolvedValue({ schemaVersion: 1, branches: [] })
+    const openAgentConversationBranch = vi.fn().mockResolvedValue({ conversation: { id: 'branch-1' }, tree: {} })
+    const forkAgentConversationBranch = vi.fn().mockResolvedValue({ conversation: { id: 'branch-2' }, tree: {} })
+    const replayAgentConversationBranch = vi.fn().mockResolvedValue({ turns: [], replaySource: { replayId: 'replay-1' } })
+    const updateAgentConversationBranchStatus = vi.fn().mockResolvedValue({ conversation: { id: 'branch-1' }, tree: {} })
+    registerTeachingIpcGateway(registration({
+      workspaceService: {
+        readAgentConversationSessionTree,
+        openAgentConversationBranch,
+        forkAgentConversationBranch,
+        replayAgentConversationBranch,
+        updateAgentConversationBranchStatus
+      }
+    }))
+
+    const branch = { workspaceId: 'workspace-1', conversationId: 'branch-1' }
+    await handler(teachingInvokeChannels.readAgentConversationSessionTree)(event, branch)
+    await handler(teachingInvokeChannels.openAgentConversationBranch)(event, branch)
+    await handler(teachingInvokeChannels.forkAgentConversationBranch)(event, {
+      ...branch,
+      sourceTurnId: 'turn-1',
+      title: '  Alternate path  ',
+      expectedRevision: 2
+    })
+    await handler(teachingInvokeChannels.replayAgentConversationBranch)(event, {
+      ...branch,
+      sourceTurnId: 'turn-1'
+    })
+    await handler(teachingInvokeChannels.updateAgentConversationBranchStatus)(event, {
+      ...branch,
+      status: 'archived',
+      expectedRevision: 2
+    })
+
+    expect(readAgentConversationSessionTree).toHaveBeenCalledWith(branch)
+    expect(openAgentConversationBranch).toHaveBeenCalledWith(branch)
+    expect(forkAgentConversationBranch).toHaveBeenCalledWith({
+      ...branch,
+      sourceTurnId: 'turn-1',
+      title: 'Alternate path',
+      expectedRevision: 2
+    })
+    expect(replayAgentConversationBranch).toHaveBeenCalledWith({ ...branch, sourceTurnId: 'turn-1' })
+    expect(updateAgentConversationBranchStatus).toHaveBeenCalledWith({
+      ...branch,
+      status: 'archived',
+      expectedRevision: 2
+    })
+  })
+
+  it('rejects unsafe branch ids, oversized titles, invalid status, and invalid revisions before dispatch', async () => {
+    const forkAgentConversationBranch = vi.fn()
+    const updateAgentConversationBranchStatus = vi.fn()
+    registerTeachingIpcGateway(registration({
+      workspaceService: { forkAgentConversationBranch, updateAgentConversationBranchStatus }
+    }))
+
+    await expect(handler(teachingInvokeChannels.forkAgentConversationBranch)(event, {
+      workspaceId: 'workspace-1',
+      conversationId: '../branch-1'
+    })).rejects.toThrow('conversationId')
+    await expect(handler(teachingInvokeChannels.forkAgentConversationBranch)(event, {
+      workspaceId: 'workspace-1',
+      conversationId: 'branch-1',
+      title: 'x'.repeat(241),
+      expectedRevision: 2
+    })).rejects.toThrow('title')
+    await expect(handler(teachingInvokeChannels.forkAgentConversationBranch)(event, {
+      workspaceId: 'workspace-1',
+      conversationId: 'branch-1'
+    })).rejects.toThrow('expectedRevision')
+    await expect(handler(teachingInvokeChannels.updateAgentConversationBranchStatus)(event, {
+      workspaceId: 'workspace-1',
+      conversationId: 'branch-1',
+      status: 'unknown'
+    })).rejects.toThrow('status')
+    await expect(handler(teachingInvokeChannels.updateAgentConversationBranchStatus)(event, {
+      workspaceId: 'workspace-1',
+      conversationId: 'branch-1',
+      status: 'active',
+      expectedRevision: -1
+    })).rejects.toThrow('expectedRevision')
+
+    expect(forkAgentConversationBranch).not.toHaveBeenCalled()
+    expect(updateAgentConversationBranchStatus).not.toHaveBeenCalled()
   })
 
   it('routes explicit archived-history operations through bounded parsers', async () => {

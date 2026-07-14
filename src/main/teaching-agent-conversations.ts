@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { isPathInsideRoot } from './path-access'
 import {
   cleanText,
@@ -15,6 +15,7 @@ import {
   agentConversationCourseJsonScanDirectories,
   agentConversationJsonScanDirectories,
   agentConversationMarkdownRelativePath,
+  describeAgentConversationPath,
   isAgentConversationMarkdownRelativePath
 } from '../shared/agent-conversation-catalog'
 import {
@@ -29,6 +30,7 @@ import type {
   AgentChatProcessEvent,
   AgentChatTurn,
   AgentCompactionMetadata,
+  AgentConversationBranchMetadata,
   AgentConversationRecord,
   AgentConversationSummary,
   AgentContextEstimateMetadata,
@@ -79,6 +81,7 @@ export async function listAgentConversations(
   )
   return sortAgentConversationSummaries(records
     .filter((record): record is AgentConversationRecord => Boolean(record))
+    .filter((record) => record.branch?.status !== 'deleted')
     .map((record) => toAgentConversationSummary(record, pathMeta, options.fallbackWorkspaceId))
     .filter((summary) => !isPathArchived(pathMeta, summary.relativePath))
   )
@@ -103,7 +106,7 @@ export async function readAgentConversationRecord(
   rootPath: string,
   conversationId: string
 ): Promise<AgentConversationRecord> {
-  const id = requireSafeAgentConversationId(conversationId)
+  const id = requireCanonicalAgentConversationId(conversationId)
   const jsonRelativePath = await findAgentConversationJsonRelativePath(rootPath, id)
   return readAgentConversationRecordAt(rootPath, jsonRelativePath, { hydrateArtifacts: true })
 }
@@ -113,7 +116,7 @@ export async function readRawAgentConversationRecord(
   rootPath: string,
   conversationId: string
 ): Promise<AgentConversationRecord> {
-  const id = requireSafeAgentConversationId(conversationId)
+  const id = requireCanonicalAgentConversationId(conversationId)
   const jsonRelativePath = await findAgentConversationJsonRelativePath(rootPath, id)
   return readAgentConversationRecordAt(rootPath, jsonRelativePath, { hydrateArtifacts: false })
 }
@@ -316,6 +319,13 @@ export function requireSafeAgentConversationId(value: string): string {
   return id
 }
 
+export function requireCanonicalAgentConversationId(value: string): string {
+  if (typeof value !== 'string' || value !== value.trim()) throw new Error('Conversation id is invalid.')
+  const canonical = requireSafeAgentConversationId(value)
+  if (canonical !== value) throw new Error('Conversation id is not canonical.')
+  return value
+}
+
 function requireSafeAgentConversationChildRunId(value: string): string {
   if (typeof value !== 'string' || value !== value.trim() || !value || value.length > MAX_SHORT_TEXT || /[\\/\u0000\r\n]/.test(value)) {
     throw new Error('Child run id is invalid.')
@@ -337,7 +347,8 @@ export function toAgentConversationSummary(
     relativePath: record.relativePath,
     absolutePath: record.absolutePath,
     messageCount: record.messageCount,
-    pinned: Boolean(pathMeta[record.relativePath]?.pinned)
+    pinned: Boolean(pathMeta[record.relativePath]?.pinned),
+    branch: record.branch
   }
 }
 
@@ -358,12 +369,15 @@ async function readAgentConversationRecordAt(
   options: { hydrateArtifacts?: boolean } = {}
 ): Promise<AgentConversationRecord> {
   const normalizedJsonRelativePath = normalizeWorkspaceRelativePath(jsonRelativePath)
-  const id = requireSafeAgentConversationId(basename(normalizedJsonRelativePath).replace(/\.json$/i, ''))
-  const jsonPath = join(rootPath, jsonRelativePath)
+  const jsonPathInfo = describeAgentConversationPath(normalizedJsonRelativePath)
+  if (!jsonPathInfo || jsonPathInfo.format !== 'json') throw new Error('Conversation JSON path is invalid.')
+  const id = requireCanonicalAgentConversationId(jsonPathInfo.id)
+  const jsonPath = join(rootPath, normalizedJsonRelativePath)
   if (!isPathInsideRoot(rootPath, jsonPath)) throw new Error('Conversation path is outside the workspace.')
   const parsed = safeJsonParse(await readFile(jsonPath, 'utf8'))
   if (!parsed || typeof parsed !== 'object') throw new Error('Conversation record is invalid.')
   const record = parsed as Record<string, unknown>
+  if (record.id !== id) throw new Error('Conversation record id does not match its JSON basename.')
   const turns = normalizeAgentConversationTurns(record.turns)
   const createdAt = typeof record.createdAt === 'string' ? record.createdAt : new Date().toISOString()
   const updatedAt = typeof record.updatedAt === 'string' ? record.updatedAt : createdAt
@@ -372,9 +386,18 @@ async function readAgentConversationRecordAt(
     ? normalizeWorkspaceRelativePath(record.relativePath)
     : ''
   const conversationDir = dirname(normalizedJsonRelativePath).replace(/\\/g, '/')
-  const relativePath = isAgentConversationMarkdownRelativePath(storedMarkdownRelativePath)
-    ? storedMarkdownRelativePath
-    : agentConversationMarkdownRelativePath(id, conversationDir)
+  const storedPathInfo = storedMarkdownRelativePath
+    ? describeAgentConversationPath(storedMarkdownRelativePath)
+    : null
+  if (storedMarkdownRelativePath && (
+    record.relativePath !== storedMarkdownRelativePath ||
+    !isAgentConversationMarkdownRelativePath(storedMarkdownRelativePath) ||
+    storedPathInfo?.id !== id ||
+    storedPathInfo.directoryRelativePath !== jsonPathInfo.directoryRelativePath
+  )) {
+    throw new Error('Conversation record relativePath is not bound to its JSON basename.')
+  }
+  const relativePath = storedMarkdownRelativePath || agentConversationMarkdownRelativePath(id, conversationDir)
   const conversationRecord: AgentConversationRecord = {
     id,
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
@@ -384,6 +407,7 @@ async function readAgentConversationRecordAt(
     relativePath,
     absolutePath: join(rootPath, relativePath),
     messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
+    branch: normalizeAgentConversationBranchMetadata(record.branch, id),
     turns
   }
   return options.hydrateArtifacts
@@ -391,6 +415,137 @@ async function readAgentConversationRecordAt(
     : conversationRecord
 }
 
+
+export function inferAgentConversationBranchMetadata(
+  record: Pick<AgentConversationRecord, 'id' | 'branch'>
+): AgentConversationBranchMetadata {
+  return record.branch ?? {
+    schemaVersion: 1,
+    sessionId: requireSafeAgentConversationId(record.id),
+    branchId: requireSafeAgentConversationId(record.id),
+    revision: 0,
+    status: 'active'
+  }
+}
+
+function normalizeAgentConversationBranchMetadata(
+  value: unknown,
+  conversationId: string
+): AgentConversationBranchMetadata | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  if (record.schemaVersion !== 1) throw new Error('Conversation branch schema version is unsupported.')
+  const sessionId = safeBranchIdentifier(record.sessionId)
+  const branchId = safeBranchIdentifier(record.branchId)
+  const revision = nonNegativeInteger(record.revision)
+  const status = record.status === 'active' || record.status === 'archived' || record.status === 'deleted'
+    ? record.status
+    : null
+  if (!sessionId || !branchId || revision === null || !status || branchId !== conversationId) {
+    throw new Error('Conversation branch metadata is invalid.')
+  }
+  const parentBranchId = record.parentBranchId === undefined
+    ? undefined
+    : safeBranchIdentifier(record.parentBranchId) ?? undefined
+  if (record.parentBranchId !== undefined && !parentBranchId) throw new Error('Conversation parent branch id is invalid.')
+  const forkPoint = normalizeForkPoint(record.forkPoint)
+  const replaySource = normalizeReplaySource(record.replaySource)
+  if ((parentBranchId || forkPoint || replaySource) && !(parentBranchId && forkPoint && replaySource)) {
+    throw new Error('Conversation branch lineage metadata is incomplete.')
+  }
+  return {
+    schemaVersion: 1,
+    sessionId,
+    branchId,
+    revision,
+    status,
+    parentBranchId,
+    forkPoint,
+    replaySource
+  }
+}
+
+function normalizeForkPoint(value: unknown): AgentConversationBranchMetadata['forkPoint'] {
+  if (value === undefined) return undefined
+  if (!value || typeof value !== 'object') throw new Error('Conversation fork point is invalid.')
+  const record = value as Record<string, unknown>
+  const sourceConversationId = safeBranchIdentifier(record.sourceConversationId)
+  const sourceBranchId = safeBranchIdentifier(record.sourceBranchId)
+  const sourceTurnId = record.sourceTurnId === undefined
+    ? undefined
+    : safeTurnIdentifier(record.sourceTurnId) ?? undefined
+  const sourceTurnCount = nonNegativeInteger(record.sourceTurnCount)
+  const sourceDigest = sha256Value(record.sourceDigest)
+  if (!sourceConversationId || !sourceBranchId || sourceTurnCount === null || !sourceDigest ||
+      (record.sourceTurnId !== undefined && !sourceTurnId)) {
+    throw new Error('Conversation fork point is invalid.')
+  }
+  return { sourceConversationId, sourceBranchId, sourceTurnId, sourceTurnCount, sourceDigest }
+}
+
+function normalizeReplaySource(value: unknown): AgentConversationBranchMetadata['replaySource'] {
+  if (value === undefined) return undefined
+  if (!value || typeof value !== 'object') throw new Error('Conversation replay source is invalid.')
+  const record = value as Record<string, unknown>
+  const replayId = safeBranchIdentifier(record.replayId)
+  const sourceConversationId = safeBranchIdentifier(record.sourceConversationId)
+  const sourceBranchId = safeBranchIdentifier(record.sourceBranchId)
+  const sourceTurnCount = nonNegativeInteger(record.sourceTurnCount)
+  const sourceDigest = sha256Value(record.sourceDigest)
+  const createdAt = textValue(record.createdAt, MAX_SHORT_TEXT)
+  if (!replayId || !sourceConversationId || !sourceBranchId || sourceTurnCount === null || !sourceDigest || !createdAt ||
+      record.toolsReplayed !== false || record.archivedRetrievalPromoted !== false ||
+      record.providerHistoryInjected !== false || record.memoryWritten !== false) {
+    throw new Error('Conversation replay source is invalid.')
+  }
+  return {
+    replayId, sourceConversationId, sourceBranchId, sourceTurnCount, sourceDigest, createdAt,
+    toolsReplayed: false, archivedRetrievalPromoted: false, providerHistoryInjected: false, memoryWritten: false
+  }
+}
+
+function normalizeAgentTurnProvenance(value: unknown): AgentTurnMetadata['provenance'] {
+  if (value === undefined) return undefined
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const kind = record.kind === 'original' || record.kind === 'replayed' || record.kind === 'recovery_notice'
+    ? record.kind
+    : null
+  if (!kind) return undefined
+  const sourceConversationId = record.sourceConversationId === undefined
+    ? undefined
+    : safeBranchIdentifier(record.sourceConversationId) ?? undefined
+  const sourceBranchId = record.sourceBranchId === undefined
+    ? undefined
+    : safeBranchIdentifier(record.sourceBranchId) ?? undefined
+  const sourceTurnId = record.sourceTurnId === undefined
+    ? undefined
+    : safeTurnIdentifier(record.sourceTurnId) ?? undefined
+  const replayId = record.replayId === undefined
+    ? undefined
+    : safeBranchIdentifier(record.replayId) ?? undefined
+  if ((record.sourceConversationId !== undefined && !sourceConversationId) ||
+      (record.sourceBranchId !== undefined && !sourceBranchId) ||
+      (record.sourceTurnId !== undefined && !sourceTurnId) ||
+      (record.replayId !== undefined && !replayId)) return undefined
+  return { kind, sourceConversationId, sourceBranchId, sourceTurnId, replayId }
+}
+
+function safeBranchIdentifier(value: unknown): string | null {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(value) ? value : null
+}
+
+function safeTurnIdentifier(value: unknown): string | null {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,240}$/.test(value) ? value : null
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
+function sha256Value(value: unknown): string | null {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : null
+}
 
 function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefined {
   if (!value || typeof value !== 'object') return undefined
@@ -406,6 +561,7 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
   const parentTurnDigest = typeof record.parentTurnDigest === 'string' && /^[a-f0-9]{64}$/.test(record.parentTurnDigest)
     ? record.parentTurnDigest
     : undefined
+  const provenance = normalizeAgentTurnProvenance(record.provenance)
   const metadata: AgentTurnMetadata = {
     version: 1,
     sources: sources.length > 0 ? sources : undefined,
@@ -416,7 +572,8 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     toolResults: toolResults.length > 0 ? toolResults : undefined,
     runUsage,
     runId,
-    parentTurnDigest
+    parentTurnDigest,
+    provenance
   }
   return metadata.sources ||
     metadata.childRuns ||
@@ -426,7 +583,8 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     metadata.toolResults ||
     metadata.runUsage ||
     metadata.runId ||
-    metadata.parentTurnDigest
+    metadata.parentTurnDigest ||
+    metadata.provenance
     ? metadata
     : undefined
 }
@@ -734,19 +892,21 @@ function isAgentConversationRecordFileName(fileName: string): boolean {
 }
 
 async function agentConversationIdExists(rootPath: string, id: string): Promise<boolean> {
-  return findAgentConversationJsonRelativePath(rootPath, id)
-    .then(() => true)
-    .catch(() => false)
+  const safeId = requireCanonicalAgentConversationId(id)
+  return (await collectAgentConversationJsonRelativePaths(rootPath))
+    .some((relativePath) => describeAgentConversationPath(relativePath)?.id === safeId)
 }
 
 async function findAgentConversationJsonRelativePath(rootPath: string, id: string): Promise<string> {
-  const safeId = requireSafeAgentConversationId(id)
+  const safeId = requireCanonicalAgentConversationId(id)
   const matches = (await collectAgentConversationJsonRelativePaths(rootPath))
-    .filter((relativePath) => basename(relativePath).replace(/\.json$/i, '') === safeId)
-    .sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true, sensitivity: 'base' }))
-  const first = matches[0]
-  if (!first) throw new Error('Conversation not found.')
-  return first
+    .filter((relativePath) => describeAgentConversationPath(relativePath)?.id === safeId)
+    .sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true, sensitivity: 'variant' }))
+  if (matches.length === 0) throw new Error('Conversation not found.')
+  if (matches.length > 1) {
+    throw new Error(`Conversation id "${safeId}" is ambiguous within this storage root.`)
+  }
+  return matches[0]
 }
 
 function formatConversationTimestamp(date: Date): string {

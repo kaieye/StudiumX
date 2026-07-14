@@ -10,7 +10,7 @@ import type { CoursePreviewFile } from './contextTransitions'
 import type { PendingAgentConversation } from '../agent-conversation-state'
 import { isPendingConversationSummary } from '../agent-conversation-state'
 import type {
-  AgentConversationSummary, LessonSummary, TeachingWorkspaceSummary,
+  AgentConversationLookupScope, AgentConversationSummary, LessonSummary, TeachingWorkspaceSummary,
   WorkspaceFileNode, WorkspaceItemKind, WorkspaceView
 } from '../../../shared/teaching-types'
 import {
@@ -38,7 +38,7 @@ export type TeachingWorkspaceNavigatorProps = {
   onLoadLesson: (lesson: LessonSummary) => Promise<void>
   onLoadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
   onLoadWorkspaceMarkdownFile: (file: CoursePreviewFile, workspaceId: string) => Promise<void>
-  onLoadAgentConversation: (conversationId: string, workspaceId: string | null | undefined) => Promise<void>
+  onLoadAgentConversation: (conversationId: string, workspaceId: string | null | undefined, scope: AgentConversationLookupScope) => Promise<void>
   onRestorePendingAgentConversation: () => void
   onOpenPath: (path: string) => Promise<void>
   onImportWorkspace: () => Promise<boolean>
@@ -96,7 +96,7 @@ export function TeachingWorkspaceNavigator({
               onOpenPath={onOpenPath} onOpenHtmlFile={onLoadCourseHtmlFile}
               onOpenMarkdownFile={(file) => onLoadWorkspaceMarkdownFile(file, workspace.id)}
               onOpenCourse={onSelectCourseFolder} onOpenLesson={onLoadLesson}
-              onOpenConversation={(conversationId) => onLoadAgentConversation(conversationId, workspace.id)}
+              onOpenConversation={(conversationId) => onLoadAgentConversation(conversationId, workspace.id, 'workspace')}
               onRestorePendingConversation={onRestorePendingAgentConversation}
               onSetWorkspaceItemMeta={onSetWorkspaceItemMeta} onRemoveWorkspaceItem={onRemoveWorkspaceItem} onRemoveWorkspace={onRemoveWorkspace}
             />)}
@@ -119,7 +119,7 @@ export function TeachingWorkspaceNavigator({
         <div className="sidebar-disclosure-inner"><div className="workspace-conversation-list is-flat">
           {visibleTemporaryConversations.length === 0 ? <div className="workspace-conversation-empty">{t('sidebar.emptyConversations')}</div> : visibleTemporaryConversations.map((conversation) => <ConversationListRow
             key={conversation.id} conversation={conversation} isActiveConversation={view === 'agent' && conversation.id === activeConversationId}
-            onOpen={() => conversation.pending ? onRestorePendingAgentConversation() : void onLoadAgentConversation(conversation.id, conversation.workspaceId)}
+            onOpen={() => conversation.pending ? onRestorePendingAgentConversation() : void onLoadAgentConversation(conversation.id, conversation.workspaceId, 'temporary')}
             onSetWorkspaceItemMeta={onSetWorkspaceItemMeta} onRemoveWorkspaceItem={onRemoveWorkspaceItem}
           />)}
         </div></div>

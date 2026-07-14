@@ -99,6 +99,7 @@ import {
 import { buildAgentConversationPresentation } from './agent-conversation-presentation'
 import { AgentConversationReader } from './views/agent-conversation/AgentConversationReader'
 import { AgentArchivedHistoryPanel } from './views/agent-conversation/AgentArchivedHistoryPanel'
+import { AgentSessionTreePanel, AgentTurnProvenance } from './views/agent-conversation/AgentSessionTreePanel'
 import {
   LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE,
   LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE,
@@ -1949,9 +1950,18 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const [inputHistoryIndex, setInputHistoryIndex] = useState<number | null>(null)
   const [inputHistoryDraft, setInputHistoryDraft] = useState('')
   const activeConversationId = useAppStore((s) => s.activeConversationId)
+  const activeConversationRevision = useAppStore((s) => s.activeConversationRevision)
+  const activeSessionTree = useAppStore((s) => s.activeSessionTree)
+  const openAgentConversationBranch = useAppStore((s) => s.openAgentConversationBranch)
+  const forkAgentConversationBranch = useAppStore((s) => s.forkAgentConversationBranch)
+  const replayAgentConversationBranch = useAppStore((s) => s.replayAgentConversationBranch)
+  const updateAgentConversationBranchStatus = useAppStore((s) => s.updateAgentConversationBranchStatus)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
   const viewingBusyPendingConversation = agentChatBusy && activeConversationId === pendingAgentConversation?.summary.id
   const canCancelAgentChat = agentChatBusy && Boolean(pendingAgentConversation)
+  const activeBranchStatus = activeSessionTree?.branches.find((branch) => branch.conversationId === activeConversationId)?.status
+  const activeBranchReadOnly = activeBranchStatus === 'archived' || activeBranchStatus === 'deleted'
+  const canForkTurns = Boolean(activeConversationId && activeSessionTree && activeBranchStatus === 'active' && !agentChatBusy)
   const pendingAskStreamId = pendingAgentConversation?.summary.id ?? null
   const pendingAsk = pendingAskStreamId
     ? selectPendingAsk(agentTurns, pendingAskStreamId)
@@ -1988,7 +1998,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const blockedPermission = conversationPresentation.blocked?.kind === 'tool_permission'
     ? conversationPresentation.blocked
     : null
-  const canSend = Boolean(active && inputValue.trim() && !busy && !hasPendingInterruption)
+  const canSend = Boolean(active && inputValue.trim() && !busy && !hasPendingInterruption && !activeBranchReadOnly)
   const sentInputHistory = useMemo(
     () => mergeAgentInputHistory(agentInputHistory, userTurnInputHistory(agentTurns)),
     [agentInputHistory, agentTurns]
@@ -2095,6 +2105,16 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       {hasConversation && (
         <div ref={scrollRef} className="overview-dialog-thread">
           <div className="overview-dialog-thread-inner">
+          {activeConversationId && activeSessionTree ? (
+            <AgentSessionTreePanel
+              tree={activeSessionTree}
+              activeConversationId={activeConversationId}
+              onOpen={openAgentConversationBranch}
+              onFork={forkAgentConversationBranch}
+              onReplay={replayAgentConversationBranch}
+              onStatus={updateAgentConversationBranchStatus}
+            />
+          ) : null}
           {active && activeConversationId ? (
             <AgentArchivedHistoryPanel workspaceId={active.id} conversationId={activeConversationId} />
           ) : null}
@@ -2108,6 +2128,11 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
                 key={turn.id}
                 className={`overview-dialog-message ${turn.role === 'user' ? 'is-user' : 'is-assistant'}`}
               >
+                <AgentTurnProvenance
+                  turn={turn}
+                  canFork={canForkTurns}
+                  onFork={(turnId) => { if (activeConversationId && activeConversationRevision !== null) void forkAgentConversationBranch(activeConversationId, turnId, activeConversationRevision) }}
+                />
                 {turn.role === 'assistant' ? <AgentConversationReader presentation={turnPresentation} compact /> : null}
                 {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
               </div>
@@ -2158,12 +2183,14 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
               ? pendingPermission
                 ? '请先处理上方写入审批...'
                 : '请先回答上方追问...'
+              : activeBranchReadOnly
+                ? '该分支为只读状态；请先恢复或 Fork 后继续...'
               : active
               ? isTeachingMode
                 ? '说说你想学什么、当前基础，以及希望先解决什么问题…'
                 : '输入对话内容...'
               : t('overview.placeholderEmpty')}
-            disabled={hasPendingInterruption}
+            disabled={hasPendingInterruption || activeBranchReadOnly}
             onChange={(event) => {
               setAgentInput(event.target.value)
               setInputHistoryIndex(null)

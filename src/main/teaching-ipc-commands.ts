@@ -7,6 +7,8 @@ import type {
   ApplyLessonStylePayload,
   CleanupAgentArtifactsPayload,
   CreateAgentConversationCheckpointPayload,
+  ForkAgentConversationBranchPayload,
+  OpenAgentConversationBranchPayload,
   QueryAgentArchivedHistoryPayload,
   RebuildAgentHistoryIndexPayload,
   ResolveAgentConversationCheckpointPayload,
@@ -20,6 +22,8 @@ import type {
   ProbeProviderPayload,
   ReadWorkspaceChangeDiffPayload,
   ReadAgentConversationPayload,
+  ReadAgentConversationSessionTreePayload,
+  ReplayAgentConversationBranchPayload,
   ReadLessonPayload,
   ReadWorkspaceMarkdownPayload,
   RemoveTeachingGitWorktreePayload,
@@ -31,11 +35,19 @@ import type {
   SaveAgentConversationPayload,
   SaveWorkspaceMarkdownPayload,
   TeachingSettingsPatch,
+  UpdateAgentConversationBranchStatusPayload,
   UpdateTeachingMemoryPayload,
   UpdateMissionPayload,
   WindowControlAction
 } from '../shared/teaching-types'
 import { isLessonStyleId } from '../shared/lesson-styles'
+
+const MAX_SAVED_CONVERSATION_TURNS = 400
+const MAX_SAVED_CONVERSATION_BYTES = 8 * 1024 * 1024
+const MAX_SAVED_TURN_CONTENT_BYTES = 1024 * 1024
+const SAFE_CONVERSATION_ID = /^[a-z0-9][a-z0-9-]{0,99}$/
+const SAFE_LINEAGE_ID = /^[A-Za-z0-9._:-]{1,160}$/
+const SAFE_TURN_ID = /^[A-Za-z0-9._:-]{1,240}$/
 
 export function parseCreateWorkspacePayload(payload: unknown): CreateWorkspacePayload {
   const record = requireRecord(payload)
@@ -114,6 +126,7 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
       })
     : undefined
   const messages = parseAgentChatMessages(record.messages)
+  const expectedBranchRevision = optionalNonNegativeInteger(record.expectedBranchRevision, 'expectedBranchRevision')
   const alignedMessageTurnIds = messageTurnIds?.length === messages.length
     ? messageTurnIds as AgentChatStreamPayload['messageTurnIds']
     : undefined
@@ -121,6 +134,7 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
     streamId: optionalStreamId(record.streamId),
     conversationId: optionalStreamId(record.conversationId),
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
+    ...(expectedBranchRevision !== undefined ? { expectedBranchRevision } : {}),
     mode: record.mode === 'teaching' ? 'teaching' : record.mode === 'temporary' ? 'temporary' : undefined,
     context: optionalString(record.context),
     contextCompaction: parseAgentChatContextCompaction(record.contextCompaction),
@@ -182,11 +196,14 @@ export function decodeToolAnswerPayload(payload: unknown): {
 export function parseSaveAgentConversationPayload(payload: unknown): SaveAgentConversationPayload {
   const record = requireRecord(payload)
   const runId = optionalStreamId(record.runId)
+  const courseName = optionalString(record.courseName)
+  const expectedBranchRevision = optionalNonNegativeInteger(record.expectedBranchRevision, 'expectedBranchRevision')
   return {
-    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    workspaceId: requireSafeId(record.workspaceId, 'workspaceId'),
     ...(runId ? { runId } : {}),
     mode: record.mode === 'teaching' ? 'teaching' : record.mode === 'temporary' ? 'temporary' : undefined,
-    conversationId: optionalString(record.conversationId) ?? null,
+    conversationId: optionalCanonicalConversationId(record.conversationId) ?? null,
+    ...(expectedBranchRevision !== undefined ? { expectedBranchRevision } : {}),
     selectedLessonPath:
       typeof record.selectedLessonPath === 'string'
         ? record.selectedLessonPath
@@ -199,18 +216,60 @@ export function parseSaveAgentConversationPayload(payload: unknown): SaveAgentCo
         : record.selectedCourseRelativePath === null
           ? null
           : undefined,
-    courseName: optionalString(record.courseName),
-    turns: Array.isArray(record.turns)
-      ? record.turns.filter((turn): turn is AgentChatTurn => Boolean(turn) && typeof turn === 'object') as AgentChatTurn[]
-      : []
+    ...(courseName ? { courseName } : {}),
+    turns: parseSavedAgentConversationTurns(record.turns)
   }
 }
 
 export function parseReadAgentConversationPayload(payload: unknown): ReadAgentConversationPayload {
   const record = requireRecord(payload)
+  return parseAgentConversationBranchReference(record)
+}
+
+export function parseReadAgentConversationSessionTreePayload(
+  payload: unknown
+): ReadAgentConversationSessionTreePayload {
+  return parseAgentConversationBranchReference(requireRecord(payload))
+}
+
+export function parseOpenAgentConversationBranchPayload(payload: unknown): OpenAgentConversationBranchPayload {
+  return parseAgentConversationBranchReference(requireRecord(payload))
+}
+
+export function parseForkAgentConversationBranchPayload(payload: unknown): ForkAgentConversationBranchPayload {
+  const record = requireRecord(payload)
+  const branch = parseAgentConversationBranchReference(record)
+  const sourceTurnId = optionalSafeId(record.sourceTurnId, 'sourceTurnId', 240)
+  const title = optionalBoundedTrimmedString(record.title, 'title', 240)
+  const expectedRevision = requireNonNegativeInteger(record.expectedRevision, 'expectedRevision')
   return {
-    workspaceId: requireString(record.workspaceId, 'workspaceId'),
-    conversationId: requireString(record.conversationId, 'conversationId')
+    ...branch,
+    ...(sourceTurnId ? { sourceTurnId } : {}),
+    ...(title ? { title } : {}),
+    expectedRevision
+  }
+}
+
+export function parseReplayAgentConversationBranchPayload(payload: unknown): ReplayAgentConversationBranchPayload {
+  const record = requireRecord(payload)
+  const sourceTurnId = optionalSafeId(record.sourceTurnId, 'sourceTurnId', 240)
+  return {
+    ...parseAgentConversationBranchReference(record),
+    ...(sourceTurnId ? { sourceTurnId } : {})
+  }
+}
+
+export function parseUpdateAgentConversationBranchStatusPayload(
+  payload: unknown
+): UpdateAgentConversationBranchStatusPayload {
+  const record = requireRecord(payload)
+  const branch = parseAgentConversationBranchReference(record)
+  const status = requireAgentConversationBranchStatus(record.status)
+  const expectedRevision = requireNonNegativeInteger(record.expectedRevision, 'expectedRevision')
+  return {
+    ...branch,
+    status,
+    expectedRevision
   }
 }
 
@@ -508,6 +567,172 @@ export function parseStreamId(value: string): string {
 
 export function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function parseSavedAgentConversationTurns(value: unknown): AgentChatTurn[] {
+  if (!Array.isArray(value)) throw new Error('IPC payload field "turns" must be an array.')
+  if (value.length > MAX_SAVED_CONVERSATION_TURNS) {
+    throw new Error(`IPC payload field "turns" must contain at most ${MAX_SAVED_CONVERSATION_TURNS} turns.`)
+  }
+  let serialized: string
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    throw new Error('IPC payload field "turns" must be JSON serializable.')
+  }
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_SAVED_CONVERSATION_BYTES) {
+    throw new Error(`IPC payload field "turns" exceeds ${MAX_SAVED_CONVERSATION_BYTES} bytes.`)
+  }
+
+  const ids = new Set<string>()
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`IPC payload turn ${index} must be an object.`)
+    }
+    const turn = item as Record<string, unknown>
+    const id = requireSafeTurnId(turn.id, `turns[${index}].id`)
+    if (ids.has(id)) throw new Error(`IPC payload field "turns" contains duplicate turn id "${id}".`)
+    ids.add(id)
+    if (turn.role !== 'user' && turn.role !== 'assistant') {
+      throw new Error(`IPC payload field "turns[${index}].role" must be user or assistant.`)
+    }
+    if (typeof turn.content !== 'string') {
+      throw new Error(`IPC payload field "turns[${index}].content" must be a string.`)
+    }
+    if (Buffer.byteLength(turn.content, 'utf8') > MAX_SAVED_TURN_CONTENT_BYTES) {
+      throw new Error(`IPC payload field "turns[${index}].content" is too large.`)
+    }
+    if (typeof turn.createdAt !== 'string' || Number.isNaN(Date.parse(turn.createdAt))) {
+      throw new Error(`IPC payload field "turns[${index}].createdAt" must be an ISO date.`)
+    }
+    validateSavedTurnProvenance(turn.metadata, index)
+    return item as AgentChatTurn
+  })
+}
+
+function validateSavedTurnProvenance(metadata: unknown, turnIndex: number): void {
+  if (metadata === undefined) return
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error(`IPC payload field "turns[${turnIndex}].metadata" must be an object.`)
+  }
+  const provenance = (metadata as Record<string, unknown>).provenance
+  if (provenance === undefined) return
+  if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) {
+    throw new Error(`IPC payload field "turns[${turnIndex}].metadata.provenance" is invalid.`)
+  }
+  const record = provenance as Record<string, unknown>
+  const allowedKeys = new Set(['kind', 'sourceConversationId', 'sourceBranchId', 'sourceTurnId', 'replayId'])
+  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
+    throw new Error(`IPC payload field "turns[${turnIndex}].metadata.provenance" contains unsupported fields.`)
+  }
+  const kind = record.kind
+  if (kind !== 'original' && kind !== 'replayed' && kind !== 'recovery_notice') {
+    throw new Error(`IPC payload field "turns[${turnIndex}].metadata.provenance.kind" is invalid.`)
+  }
+  const sourceConversationId = optionalExactSafeId(record.sourceConversationId, SAFE_LINEAGE_ID)
+  const sourceBranchId = optionalExactSafeId(record.sourceBranchId, SAFE_LINEAGE_ID)
+  const sourceTurnId = optionalExactSafeId(record.sourceTurnId, SAFE_TURN_ID)
+  const replayId = optionalExactSafeId(record.replayId, SAFE_LINEAGE_ID)
+  if (kind === 'original' && (sourceConversationId || sourceBranchId || sourceTurnId || replayId)) {
+    throw new Error('Original conversation turns cannot claim replay provenance.')
+  }
+  if (kind === 'replayed' && !(sourceConversationId && sourceBranchId && sourceTurnId && replayId)) {
+    throw new Error('Replayed conversation turns require complete source provenance.')
+  }
+  if (kind === 'recovery_notice' && (sourceBranchId || sourceTurnId || replayId)) {
+    throw new Error('Recovery notices cannot claim replay provenance.')
+  }
+}
+
+function optionalExactSafeId(value: unknown, pattern: RegExp): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value !== value.trim() || !pattern.test(value)) {
+    throw new Error('Conversation turn provenance contains an invalid id.')
+  }
+  return value
+}
+
+function requireSafeTurnId(value: unknown, key: string): string {
+  const id = requireString(value, key)
+  if (id !== id.trim() || !SAFE_TURN_ID.test(id)) {
+    throw new Error(`IPC payload field "${key}" must be a safe turn id.`)
+  }
+  return id
+}
+
+function requireCanonicalConversationId(value: unknown): string {
+  const id = requireString(value, 'conversationId')
+  if (id !== id.trim() || !SAFE_CONVERSATION_ID.test(id)) {
+    throw new Error('IPC payload field "conversationId" must be a canonical conversation id.')
+  }
+  return id
+}
+
+function optionalCanonicalConversationId(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  return requireCanonicalConversationId(value)
+}
+
+function requireAgentConversationLookupScope(value: unknown): 'workspace' | 'temporary' | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  if (value === 'workspace' || value === 'temporary') return value
+  throw new Error('IPC payload field "scope" must be workspace or temporary.')
+}
+
+function parseAgentConversationBranchReference(record: Record<string, unknown>): {
+  workspaceId: string
+  conversationId: string
+  scope?: 'workspace' | 'temporary'
+} {
+  const scope = requireAgentConversationLookupScope(record.scope)
+  return {
+    workspaceId: requireSafeId(record.workspaceId, 'workspaceId'),
+    conversationId: requireCanonicalConversationId(record.conversationId),
+    ...(scope ? { scope } : {})
+  }
+}
+
+function requireSafeId(value: unknown, key: string, maxLength = 160): string {
+  const id = requireString(value, key).trim()
+  if (id.length > maxLength || !/^[A-Za-z0-9._:-]+$/.test(id)) {
+    throw new Error(`IPC payload field "${key}" must be a safe id of at most ${maxLength} characters.`)
+  }
+  return id
+}
+
+function optionalSafeId(value: unknown, key: string, maxLength = 160): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  return requireSafeId(value, key, maxLength)
+}
+
+function optionalBoundedTrimmedString(value: unknown, key: string, maxLength: number): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  const text = requireString(value, key).trim()
+  if (!text) return undefined
+  if (text.length > maxLength) {
+    throw new Error(`IPC payload field "${key}" must be at most ${maxLength} characters.`)
+  }
+  return text
+}
+
+function requireNonNegativeInteger(value: unknown, key: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`IPC payload field "${key}" must be a non-negative integer.`)
+  }
+  return value
+}
+
+function optionalNonNegativeInteger(value: unknown, key: string): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`IPC payload field "${key}" must be a non-negative integer.`)
+  }
+  return value
+}
+
+function requireAgentConversationBranchStatus(value: unknown): 'active' | 'archived' | 'deleted' {
+  if (value === 'active' || value === 'archived' || value === 'deleted') return value
+  throw new Error('IPC payload field "status" must be active, archived, or deleted.')
 }
 
 function optionalBoundedString(value: unknown, maxLength: number): string | undefined {

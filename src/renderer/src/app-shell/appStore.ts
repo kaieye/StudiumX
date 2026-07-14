@@ -50,6 +50,10 @@ import {
   type AgentChatMessage,
   type AgentChatMode,
   type AgentChatTurn,
+  type AgentConversationBranchStatus,
+  type AgentConversationLookupScope,
+  type AgentConversationRecord,
+  type AgentConversationSessionTree,
   type CreateTeachingMemoryPayload,
   type LessonStreamChunk,
   type LessonSummary,
@@ -172,6 +176,9 @@ export type StoreState = {
   memoryDiagnostics: TeachingMemoryDiagnostics | null
   agentTurns: AgentChatTurn[]
   activeConversationId: string | null
+  activeConversationScope: AgentConversationLookupScope | null
+  activeConversationRevision: number | null
+  activeSessionTree: AgentConversationSessionTree | null
   agentChatBusy: boolean
   agentStatus: string
   agentInput: string
@@ -188,7 +195,11 @@ export type StoreState = {
   restorePendingAgentConversation: () => void
   loadGitBranches: (workspaceRoot: string, options?: { force?: boolean }) => Promise<void>
   setGitBranchesResult: (workspaceRoot: string, result: TeachingGitBranchesResult) => void
-  loadAgentConversation: (conversationId: string, workspaceId?: string | null) => Promise<void>
+  loadAgentConversation: (conversationId: string, workspaceId?: string | null, scope?: AgentConversationLookupScope) => Promise<void>
+  openAgentConversationBranch: (conversationId: string) => Promise<void>
+  forkAgentConversationBranch: (conversationId: string, sourceTurnId: string | undefined, expectedRevision: number) => Promise<void>
+  replayAgentConversationBranch: (conversationId?: string, sourceTurnId?: string) => Promise<AgentChatTurn[] | null>
+  updateAgentConversationBranchStatus: (conversationId: string, status: AgentConversationBranchStatus, expectedRevision: number) => Promise<void>
   agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode; skillIds?: string[] }) => Promise<void>
   setWorkspaceItemMeta: (payload: { workspaceId?: string | null; relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
   removeWorkspaceItem: (payload: { workspaceId?: string | null; relativePath: string; kind: WorkspaceItemKind; mode?: WorkspaceItemRemoveMode }) => Promise<void>
@@ -437,6 +448,9 @@ export const useAppStore = create<StoreState>((set, get) => {
   memoryDiagnostics: null,
   agentTurns: [],
   activeConversationId: null,
+  activeConversationScope: null,
+  activeConversationRevision: null,
+  activeSessionTree: null,
   agentChatBusy: false,
   agentStatus: '',
   agentInput: '',
@@ -454,10 +468,10 @@ export const useAppStore = create<StoreState>((set, get) => {
   },
   clearAgentChat: () => {
     if (get().agentChatBusy && get().pendingAgentConversation) {
-      set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null })
+      set({ agentTurns: [], activeConversationId: null, activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null, agentStatus: '', agentInput: '', agentToolsSupported: null })
       return
     }
-    set({ agentTurns: [], activeConversationId: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null })
+    set({ agentTurns: [], activeConversationId: null, activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null })
   },
   cancelAgentChat: async () => {
     await createAgentConversationTurnRunner(get, set).cancel()
@@ -505,13 +519,19 @@ export const useAppStore = create<StoreState>((set, get) => {
   openLessonLibrary: () => set(openLessonLibraryContext()),
   openTeachingConversationView: () => set(openTeachingConversation()),
   openWorkspaceTeachingMode: () => {
-    set(openWorkspaceTeaching())
+    set({ ...openWorkspaceTeaching(), activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null })
   },
   selectCourseFolder: (selectedCourseRelativePath, workspaceId) => {
     const targetWorkspace = workspaceId
       ? get().appState.workspaces.find((workspace) => workspace.id === workspaceId) ?? null
       : get().appState.activeWorkspace
-    set(selectCourseFolderContext({ selectedCourseRelativePath, workspaceId, targetWorkspace }))
+    const patch = selectCourseFolderContext({ selectedCourseRelativePath, workspaceId, targetWorkspace })
+    set({
+      ...patch,
+      ...(patch.activeConversationId === null
+        ? { activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null }
+        : {})
+    })
   },
   setSettingsSection: (settingsSection) => set({ settingsSection }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
@@ -538,16 +558,37 @@ export const useAppStore = create<StoreState>((set, get) => {
       const interrupted = state.activeWorkspace
         ? interruptedRuns.find((run) => run.workspaceId === state.activeWorkspace?.id)
         : interruptedRuns.find((run) => !run.workspaceId)
-      let recoveryTurns: AgentChatTurn[] = []
-      if (interrupted) {
-        if (interrupted.workspaceId && interrupted.conversationId) {
-          recoveryTurns = await api.readAgentConversation({
+      let recoveryConversation: AgentConversationRecord | null = null
+      let recoveryConversationScope: AgentConversationLookupScope | null = null
+      let recoverySessionTree: AgentConversationSessionTree | null = null
+      if (interrupted?.workspaceId && interrupted.conversationId) {
+        const [workspaceConversation, temporaryConversation] = await Promise.all([
+          api.readAgentConversation({
             workspaceId: interrupted.workspaceId,
-            conversationId: interrupted.conversationId
-          }).then((record) => record.turns).catch(() => [])
+            conversationId: interrupted.conversationId,
+            scope: 'workspace'
+          }).catch(() => null),
+          api.readAgentConversation({
+            workspaceId: interrupted.workspaceId,
+            conversationId: interrupted.conversationId,
+            scope: 'temporary'
+          }).catch(() => null)
+        ])
+        if (Boolean(workspaceConversation) !== Boolean(temporaryConversation)) {
+          recoveryConversation = workspaceConversation ?? temporaryConversation
+          recoveryConversationScope = workspaceConversation ? 'workspace' : 'temporary'
         }
-        recoveryTurns = [...recoveryTurns, interruptedAgentRunNotice(interrupted)]
+        if (recoveryConversation && recoveryConversationScope) {
+          recoverySessionTree = await api.readAgentConversationSessionTree({
+            workspaceId: interrupted.workspaceId,
+            conversationId: interrupted.conversationId,
+            scope: recoveryConversationScope
+          }).catch(() => null)
+        }
       }
+      const recoveryTurns = interrupted
+        ? [...(recoveryConversation?.turns ?? []), interruptedAgentRunNotice(interrupted)]
+        : []
       set({
         appState: state,
         settings,
@@ -555,6 +596,9 @@ export const useAppStore = create<StoreState>((set, get) => {
         loading: false,
         agentTurns: recoveryTurns,
         activeConversationId: interrupted?.conversationId ?? null,
+        activeConversationScope: recoveryConversationScope,
+        activeConversationRevision: recoveryConversation?.branch?.revision ?? (recoveryConversation ? 0 : null),
+        activeSessionTree: recoverySessionTree,
         agentStatus: interrupted ? '上次运行已中断，等待你明确继续或重新发送。' : '',
         agentChatBusy: false,
         pendingAgentConversation: null
@@ -592,11 +636,16 @@ export const useAppStore = create<StoreState>((set, get) => {
     set({ loading: true, error: null })
     try {
       const state = await api.selectWorkspace(workspaceId)
-      set(activateWorkspaceContext({
-        appState: state,
-        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        loading: false
-      }))
+      set({
+        ...activateWorkspaceContext({
+          appState: state,
+          taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+          loading: false
+        }),
+        activeConversationScope: null,
+        activeConversationRevision: null,
+        activeSessionTree: null
+      })
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -611,11 +660,16 @@ export const useAppStore = create<StoreState>((set, get) => {
     set({ loading: true, error: null })
     try {
       const state = await api.createWorkspace({ name, prompt })
-      set(activateWorkspaceContext({
-        appState: state,
-        taskPrompt: defaultPrompt,
-        loading: false
-      }))
+      set({
+        ...activateWorkspaceContext({
+          appState: state,
+          taskPrompt: defaultPrompt,
+          loading: false
+        }),
+        activeConversationScope: null,
+        activeConversationRevision: null,
+        activeSessionTree: null
+      })
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -630,11 +684,16 @@ export const useAppStore = create<StoreState>((set, get) => {
         set({ loading: false })
         return false
       }
-      set(activateWorkspaceContext({
-        appState: result.state,
-        taskPrompt: result.state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        loading: false
-      }))
+      set({
+        ...activateWorkspaceContext({
+          appState: result.state,
+          taskPrompt: result.state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+          loading: false
+        }),
+        activeConversationScope: null,
+        activeConversationRevision: null,
+        activeSessionTree: null
+      })
       const settings = get().settings
       const feedback = operationFeedback({
         outcome: 'workspace-imported',
@@ -672,11 +731,16 @@ export const useAppStore = create<StoreState>((set, get) => {
     set({ loading: true, error: null })
     try {
       const state = await api.importWorkspacePath(path)
-      set(activateWorkspaceContext({
-        appState: state,
-        taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
-        loading: false
-      }))
+      set({
+        ...activateWorkspaceContext({
+          appState: state,
+          taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
+          loading: false
+        }),
+        activeConversationScope: null,
+        activeConversationRevision: null,
+        activeSessionTree: null
+      })
       const settings = get().settings
       const feedback = operationFeedback({
         outcome: 'workspace-imported',
@@ -874,7 +938,7 @@ export const useAppStore = create<StoreState>((set, get) => {
       set(failLessonGeneration({ appState: get().appState, error: userError }))
     }
   },
-  loadAgentConversation: async (conversationId, workspaceId) => {
+  loadAgentConversation: async (conversationId, workspaceId, scope = 'workspace') => {
     const api = window.teachingSystem
     if (!api) return
     const requestedWorkspaceId = workspaceId ?? get().appState.activeWorkspace?.id ?? null
@@ -884,17 +948,174 @@ export const useAppStore = create<StoreState>((set, get) => {
     if (!workspace) return
     set({ error: null })
     try {
-      const conversation = await api.readAgentConversation({ workspaceId: workspace.id, conversationId })
+      const initialTree = await api.readAgentConversationSessionTree({ workspaceId: workspace.id, conversationId, scope })
+      const requestedBranch = initialTree.branches.find((branch) => branch.conversationId === conversationId)
+      if (!requestedBranch) throw new Error('Conversation branch is missing from its session tree.')
+      const result = requestedBranch.status === 'active'
+        ? await api.openAgentConversationBranch({ workspaceId: workspace.id, conversationId, scope })
+        : {
+            conversation: await api.readAgentConversation({ workspaceId: workspace.id, conversationId, scope }),
+            tree: initialTree
+          }
       set({
+        activeConversationScope: scope,
         appState: workspace.id === get().appState.activeWorkspace?.id
           ? get().appState
           : await api.selectWorkspace(workspace.id),
         ...openAgentConversationContext({
-          conversation,
+          conversation: result.conversation,
           workspaceId: workspace.id,
           currentOverviewDialogMode: get().overviewDialogMode,
           currentTaskPrompt: get().taskPrompt
+        }),
+        activeConversationRevision: result.conversation.branch?.revision
+          ?? result.tree.branches.find((branch) => branch.conversationId === result.conversation.id)?.revision
+          ?? 0,
+        activeSessionTree: result.tree
+      })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  openAgentConversationBranch: async (conversationId) => {
+    const api = window.teachingSystem
+    const workspace = get().appState.activeWorkspace
+    const scope = get().activeConversationScope ?? 'workspace'
+    if (!api || !workspace) return
+    set({ error: null })
+    try {
+      const result = await api.openAgentConversationBranch({ workspaceId: workspace.id, conversationId, scope })
+      set({
+        ...openAgentConversationContext({
+          conversation: result.conversation,
+          workspaceId: workspace.id,
+          currentOverviewDialogMode: get().overviewDialogMode,
+          currentTaskPrompt: get().taskPrompt
+        }),
+        activeConversationRevision: result.conversation.branch?.revision
+          ?? result.tree.branches.find((branch) => branch.conversationId === result.conversation.id)?.revision
+          ?? 0,
+        activeSessionTree: result.tree
+      })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  forkAgentConversationBranch: async (conversationId, sourceTurnId, expectedRevision) => {
+    const api = window.teachingSystem
+    const workspace = get().appState.activeWorkspace
+    const sourceConversationId = conversationId
+    const scope = get().activeConversationScope ?? 'workspace'
+    if (!api || !workspace || !sourceConversationId) return
+    set({ error: null })
+    try {
+      const result = await api.forkAgentConversationBranch({
+        workspaceId: workspace.id,
+        conversationId: sourceConversationId,
+        scope,
+        sourceTurnId,
+        expectedRevision
+      })
+      if (get().appState.activeWorkspace?.id !== workspace.id) return
+      set({
+        appState: result.state,
+        ...openAgentConversationContext({
+          conversation: result.conversation,
+          workspaceId: workspace.id,
+          currentOverviewDialogMode: get().overviewDialogMode,
+          currentTaskPrompt: get().taskPrompt
+        }),
+        activeConversationRevision: result.conversation.branch?.revision
+          ?? result.tree.branches.find((branch) => branch.conversationId === result.conversation.id)?.revision
+          ?? 0,
+        activeSessionTree: result.tree
+      })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
+  },
+  replayAgentConversationBranch: async (conversationId, sourceTurnId) => {
+    const api = window.teachingSystem
+    const workspace = get().appState.activeWorkspace
+    const sourceConversationId = conversationId ?? get().activeConversationId
+    const scope = get().activeConversationScope ?? 'workspace'
+    if (!api || !workspace || !sourceConversationId) return null
+    set({ error: null })
+    try {
+      const result = await api.replayAgentConversationBranch({
+        workspaceId: workspace.id,
+        conversationId: sourceConversationId,
+        scope,
+        sourceTurnId
+      })
+      return result.turns
+    } catch (error) {
+      set({ error: toUserError(error) })
+      return null
+    }
+  },
+  updateAgentConversationBranchStatus: async (conversationId, status, expectedRevision) => {
+    const api = window.teachingSystem
+    const workspace = get().appState.activeWorkspace
+    const scope = get().activeConversationScope ?? 'workspace'
+    if (!api || !workspace) return
+    set({ error: null })
+    try {
+      const result = await api.updateAgentConversationBranchStatus({
+        workspaceId: workspace.id,
+        conversationId,
+        scope,
+        status,
+        expectedRevision
+      })
+      if (get().appState.activeWorkspace?.id !== workspace.id) return
+      const currentConversationId = get().activeConversationId
+      const updatedIsCurrent = currentConversationId === result.conversation.id
+      const openBranch = result.tree.branches.find((branch) => branch.branchId === result.tree.openBranchId)
+      if (status === 'active') {
+        set({
+          appState: result.state,
+          ...openAgentConversationContext({
+            conversation: result.conversation,
+            workspaceId: workspace.id,
+            currentOverviewDialogMode: get().overviewDialogMode,
+            currentTaskPrompt: get().taskPrompt
+          }),
+          activeConversationRevision: result.conversation.branch?.revision
+            ?? result.tree.branches.find((branch) => branch.conversationId === result.conversation.id)?.revision
+            ?? expectedRevision
+            ?? 0,
+          activeSessionTree: result.tree
         })
+        return
+      }
+      if (updatedIsCurrent && openBranch && openBranch.conversationId !== result.conversation.id) {
+        const opened = await api.openAgentConversationBranch({
+          workspaceId: workspace.id,
+          conversationId: openBranch.conversationId,
+          scope
+        })
+        if (get().appState.activeWorkspace?.id !== workspace.id) return
+        set({
+          appState: result.state,
+          ...openAgentConversationContext({
+            conversation: opened.conversation,
+            workspaceId: workspace.id,
+            currentOverviewDialogMode: get().overviewDialogMode,
+            currentTaskPrompt: get().taskPrompt
+          }),
+          activeConversationRevision: opened.conversation.branch?.revision
+            ?? opened.tree.branches.find((branch) => branch.conversationId === opened.conversation.id)?.revision
+            ?? 0,
+          activeSessionTree: opened.tree
+        })
+        return
+      }
+      const currentBranch = result.tree.branches.find((branch) => branch.conversationId === currentConversationId)
+      set({
+        appState: result.state,
+        activeSessionTree: result.tree,
+        ...(currentBranch ? { activeConversationRevision: currentBranch.revision } : {})
       })
     } catch (error) {
       set({ error: toUserError(error) })
@@ -931,10 +1152,15 @@ export const useAppStore = create<StoreState>((set, get) => {
         appState: state,
         error: null,
         ...(clearsCurrentContext
-          ? activateWorkspaceContext({
-              appState: state,
-              taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt
-            })
+          ? {
+              ...activateWorkspaceContext({
+                appState: state,
+                taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt
+              }),
+              activeConversationScope: null,
+              activeConversationRevision: null,
+              activeSessionTree: null
+            }
           : {})
       })
     } catch (error) {
@@ -965,7 +1191,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         appState: state,
         error: null,
         ...(uiPatch.clearActiveConversation
-          ? clearAgentConversationContext()
+          ? { ...clearAgentConversationContext(), activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null }
           : {}),
         ...(uiPatch.clearSelectedCoursePreview
           ? { lessonReaderOpen: false, selectedCoursePreviewFile: null, ...clearMarkdownDocumentContext() }
@@ -997,12 +1223,17 @@ export const useAppStore = create<StoreState>((set, get) => {
         appState: state,
         error: null,
         ...(clearsCurrentContext
-          ? clearRemovedWorkspaceContext({
-              nextState: state,
-              previousView: previous.view,
-              nextPrompt,
-              defaultPrompt
-            })
+          ? {
+              ...clearRemovedWorkspaceContext({
+                nextState: state,
+                previousView: previous.view,
+                nextPrompt,
+                defaultPrompt
+              }),
+              activeConversationScope: null,
+              activeConversationRevision: null,
+              activeSessionTree: null
+            }
           : {})
       })
     } catch (error) {
@@ -1246,7 +1477,11 @@ function interruptedAgentRunNotice(run: InterruptedAgentRun): AgentChatTurn {
       isError: true,
       createdAt: run.interruptedAt
     }],
-    metadata: { version: 1, runUsage: run.usage }
+    metadata: {
+      version: 1,
+      runUsage: run.usage,
+      provenance: { kind: 'recovery_notice' }
+    }
   }
 }
 

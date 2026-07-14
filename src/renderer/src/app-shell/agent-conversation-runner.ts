@@ -16,6 +16,8 @@ import type {
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
   AgentChatTurn,
+  AgentConversationLookupScope,
+  AgentConversationSessionTree,
   AgentProjectionInvalidation,
   LessonSummary,
   TeachingAppState,
@@ -30,6 +32,9 @@ export type AgentConversationTurnRunnerState = {
   agentStatus: string
   agentTurns: AgentChatTurn[]
   activeConversationId: string | null
+  activeConversationScope: AgentConversationLookupScope | null
+  activeConversationRevision: number | null
+  activeSessionTree: AgentConversationSessionTree | null
   agentToolsSupported: boolean | null
   pendingAgentConversation: PendingAgentConversation | null
   selectedCourseRelativePath: string | null
@@ -45,6 +50,9 @@ export type AgentConversationTurnRunnerPatch<TError> = Partial<
     | 'agentStatus'
     | 'agentTurns'
     | 'activeConversationId'
+    | 'activeConversationScope'
+    | 'activeConversationRevision'
+    | 'activeSessionTree'
     | 'agentToolsSupported'
     | 'pendingAgentConversation'
     | 'taskPrompt'
@@ -55,7 +63,7 @@ export type AgentConversationTurnRunnerPatch<TError> = Partial<
 
 export type AgentConversationTurnRunnerApi = Pick<
   TeachingSystemApi,
-  'agentChatStream' | 'cancelAgentChatStream' | 'saveAgentConversation'
+  'agentChatStream' | 'cancelAgentChatStream' | 'saveAgentConversation' | 'readAgentConversationSessionTree'
 >
 
 export type AgentConversationTurnRunnerDependencies<TError> = {
@@ -94,13 +102,43 @@ export class AgentConversationTurnRunner<TError> {
     const input = (options.inputOverride ?? initialState.agentInput).trim()
     if (!workspace || !input || initialState.agentChatBusy) return
 
-    const mode = options.mode ?? (initialState.overviewDialogMode === 'teaching' ? 'teaching' : 'temporary')
+    const activeBranch = initialState.activeConversationId
+      ? initialState.activeSessionTree?.branches.find(
+          (branch) => branch.conversationId === initialState.activeConversationId
+        )
+      : null
+    if (activeBranch && activeBranch.status !== 'active') {
+      this.dependencies.setState({
+        error: this.dependencies.toUserError(
+          new Error('Archived or deleted conversation branches are read-only. Restore the branch before continuing.')
+        )
+      })
+      return
+    }
+    const activeBranchRevision = initialState.activeConversationRevision ?? activeBranch?.revision ?? null
+    const continuingPersistedBranch = Boolean(
+      initialState.activeConversationId && !initialState.activeConversationId.startsWith('pending-')
+    )
+    if (continuingPersistedBranch && (!Number.isSafeInteger(activeBranchRevision) || (activeBranchRevision ?? -1) < 0)) {
+      this.dependencies.setState({
+        error: this.dependencies.toUserError(
+          new Error('Conversation branch revision is unavailable. Reopen the branch before continuing.')
+        )
+      })
+      return
+    }
+
+    const mode = options.mode
+      ?? (continuingPersistedBranch && initialState.activeConversationScope
+        ? initialState.activeConversationScope === 'temporary' ? 'temporary' : 'teaching'
+        : initialState.overviewDialogMode === 'teaching' ? 'teaching' : 'temporary')
     const draft = createAgentConversationTurnDraft({
       state: initialState.appState,
       workspace,
       input,
       mode,
       activeConversationId: initialState.activeConversationId,
+      activeConversationRevision: activeBranchRevision,
       currentTurns: initialState.agentTurns,
       selectedCourseRelativePath: initialState.selectedCourseRelativePath,
       currentSelectedLessonPath: initialState.appState.selectedLessonPath,
@@ -125,6 +163,7 @@ export class AgentConversationTurnRunner<TError> {
       agentToolsSupported: null,
       agentTurns: initialTurns,
       activeConversationId: pendingConversationId,
+      activeConversationScope: mode === 'temporary' ? 'temporary' : 'workspace',
       pendingAgentConversation: pendingConversation
     })
 
@@ -134,6 +173,7 @@ export class AgentConversationTurnRunner<TError> {
           streamId: pendingConversationId,
           conversationId: pendingConversation.sourceConversationId ?? undefined,
           workspaceId: workspace.id,
+          expectedBranchRevision: pendingConversation.sourceConversationRevision ?? undefined,
           mode,
           messages: priorMessages,
           ...(priorMessageTurnIds.length ? { messageTurnIds: priorMessageTurnIds } : {}),
@@ -293,21 +333,46 @@ export class AgentConversationTurnRunner<TError> {
         runId: pendingConversationId,
         mode,
         conversationId: pending.sourceConversationId ?? null,
+        expectedBranchRevision: pending.sourceConversationRevision ?? undefined,
         selectedLessonPath,
         selectedCourseRelativePath,
         turns: reconciledTurns
       })
-      const stateAfterSave = this.dependencies.getState()
-      this.dependencies.setState({
-        appState: saved.state,
-        ...finishPendingAgentConversationSave({
-          pending,
-          activeConversationId: stateAfterSave.activeConversationId,
-          savedConversationId: saved.conversation.id,
-          turns: reconciledTurns,
-          toolsSupported: done.toolsSupported
+      let sessionTree: AgentConversationSessionTree | null = null
+      let treeError: unknown = null
+      try {
+        sessionTree = await api.readAgentConversationSessionTree({
+          workspaceId,
+          conversationId: saved.conversation.id,
+          scope: mode === 'temporary' ? 'temporary' : 'workspace'
         })
-      })
+      } catch (error) {
+        treeError = error
+      }
+      const latestState = this.dependencies.getState()
+      const pendingIsVisible = latestState.activeConversationId === pendingConversationId
+        && latestState.pendingAgentConversation?.summary.id === pendingConversationId
+      if (pendingIsVisible) {
+        this.dependencies.setState({
+          appState: saved.state,
+          activeConversationScope: mode === 'temporary' ? 'temporary' : 'workspace',
+          activeConversationRevision: saved.conversation.branch?.revision
+            ?? (pending.sourceConversationRevision === null ? 1 : pending.sourceConversationRevision + 1),
+          activeSessionTree: sessionTree,
+          ...finishPendingAgentConversationSave({
+            pending,
+            activeConversationId: latestState.activeConversationId,
+            savedConversationId: saved.conversation.id,
+            turns: reconciledTurns,
+            toolsSupported: done.toolsSupported
+          })
+        })
+      } else {
+        // Navigation that happened while the save/tree refresh was in flight owns
+        // the visible branch context, revision, and tree. Only merge the catalog.
+        this.dependencies.setState({ appState: saved.state })
+      }
+      if (treeError) this.dependencies.setState({ error: this.dependencies.toUserError(treeError) })
       if (done.generatedLessons?.length) this.dependencies.onGeneratedLessons(done.generatedLessons)
     } catch (error) {
       this.dependencies.setState({ error: this.dependencies.toUserError(error) })

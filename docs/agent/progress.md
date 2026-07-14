@@ -6,7 +6,6 @@
 
 | 切片 | 状态 | 下一交付物 | 主要依赖 |
 | --- | --- | --- | --- |
-| Phase 9：session tree 与分支生命周期 | 未开始 | branch / fork / durable replay / open | 现有 checkpoint、索引和引用完整性边界 |
 | Phase 10：SDK/provider hooks | 未开始 | 统一 hook contract 与 fake-provider 测试 | 现有持久化与预算接口 |
 
 ## 当前进行中
@@ -19,7 +18,6 @@
 
 ## 跨切片待决策
 
-- session fork 是共享不可变历史引用，还是复制小型 turn metadata。
 - provider hook 的最小稳定字段，以及 provider 私有 metadata 的保留上限。
 
 ## 更新规则

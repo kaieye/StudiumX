@@ -7,6 +7,7 @@ import {
   agentConversationJsonRelativePathForMarkdown,
   agentConversationSessionArtifactDirectoryRelativePathForMarkdown,
   agentConversationSessionAuditRelativePathForMarkdown,
+  describeAgentConversationPath,
   isAgentConversationMarkdownRelativePath
 } from '../shared/agent-conversation-catalog'
 import type {
@@ -54,7 +55,7 @@ export async function saveAgentConversationArchive(input: {
   record: AgentConversationRecord
   allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
 }): Promise<void> {
-  const paths = resolveArchivePaths(input.workspace.rootPath, input.record.relativePath)
+  const paths = resolveArchivePaths(input.workspace.rootPath, input.record.relativePath, input.record.id)
   assertArtifactKindsMatchMetadataPlacement(input.record)
   await assertAgentConversationCheckpointPrefixesPreserved({
     rootPath: input.workspace.rootPath,
@@ -102,10 +103,16 @@ type ArchivePaths = {
   ledger: string
 }
 
-function resolveArchivePaths(rootPath: string, relativePath: string): ArchivePaths {
+function resolveArchivePaths(rootPath: string, relativePath: string, conversationId: string): ArchivePaths {
   const markdownRelativePath = normalizeWorkspaceRelativePath(relativePath)
-  if (!isAgentConversationMarkdownRelativePath(markdownRelativePath)) {
-    throw new Error('Conversation markdown path is outside a conversations directory.')
+  const pathInfo = describeAgentConversationPath(markdownRelativePath)
+  if (
+    relativePath.replace(/\\/g, '/') !== markdownRelativePath ||
+    !isAgentConversationMarkdownRelativePath(markdownRelativePath) ||
+    pathInfo?.format !== 'markdown' ||
+    pathInfo.id !== conversationId
+  ) {
+    throw new Error('Conversation markdown path is not canonically bound to its conversation id.')
   }
   const jsonRelativePath = agentConversationJsonRelativePathForMarkdown(markdownRelativePath)
   const auditRelativePath = agentConversationSessionAuditRelativePathForMarkdown(markdownRelativePath)
@@ -134,13 +141,14 @@ function renderCanonicalConversationJson(
   record: AgentConversationRecord
 ): string {
   return `${JSON.stringify({
-    version: 1,
+    version: record.branch ? 2 : 1,
     workspaceId: record.workspaceId ?? workspace.id,
     id: record.id,
     title: record.title,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     relativePath: record.relativePath,
+    branch: record.branch,
     turns: record.turns
   }, null, 2)}\n`
 }
@@ -152,6 +160,7 @@ async function preflightAgentConversationArchive(input: {
 }): Promise<void> {
   if (
     normalizeWorkspaceRelativePath(input.record.relativePath) !== input.paths.markdownRelativePath ||
+    describeAgentConversationPath(input.record.relativePath)?.id !== input.record.id ||
     (input.record.workspaceId ?? input.workspace.id) !== input.workspace.id
   ) {
     throw new Error('Conversation archive placement does not match its record.')
@@ -334,6 +343,10 @@ function renderAgentConversationMarkdown(
     `Workspace: ${workspace.name}`,
     `Created: ${record.createdAt}`,
     `Updated: ${record.updatedAt}`,
+    ...(record.branch ? [
+      `Session: ${record.branch.sessionId}`,
+      `Branch: ${record.branch.branchId} (${record.branch.status}, revision ${record.branch.revision})`
+    ] : []),
     ''
   ]
   for (const turn of record.turns) {

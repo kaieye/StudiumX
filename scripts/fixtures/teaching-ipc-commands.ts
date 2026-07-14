@@ -19,6 +19,7 @@ assert.deepEqual(
   parseAgentChatStreamPayload({
     streamId: 'pending-123',
     workspaceId: 'workspace-1',
+    expectedBranchRevision: 0,
     mode: 'temporary',
     context: undefined,
     contextCompaction: {
@@ -42,6 +43,7 @@ assert.deepEqual(
     streamId: 'pending-123',
     conversationId: undefined,
     workspaceId: 'workspace-1',
+    expectedBranchRevision: 0,
     mode: 'temporary',
     context: undefined,
     contextCompaction: {
@@ -73,7 +75,7 @@ assert.deepEqual(
     conversationId: null,
     selectedLessonPath: null,
     selectedCourseRelativePath: null,
-    turns: [{ id: 't1', role: 'user', content: 'hi', createdAt: '2026-01-01T00:00:00.000Z' }, null]
+    turns: [{ id: 't1', role: 'user', content: 'hi', createdAt: '2026-01-01T00:00:00.000Z' }]
   }),
   {
     workspaceId: 'workspace-1',
@@ -82,7 +84,6 @@ assert.deepEqual(
     conversationId: null,
     selectedLessonPath: null,
     selectedCourseRelativePath: null,
-    courseName: undefined,
     turns: [{ id: 't1', role: 'user', content: 'hi', createdAt: '2026-01-01T00:00:00.000Z' }]
   }
 )
@@ -90,6 +91,13 @@ assert.deepEqual(
 assert.throws(
   () => parseSaveAgentConversationPayload({ workspaceId: 'workspace-1', runId: '../bad', turns: [] }),
   /streamId/
+)
+
+assert.throws(
+  () => parseSaveAgentConversationPayload({ workspaceId: 'workspace-1', turns: [{
+    id: 't1', role: 'user', content: 'hi', createdAt: '2026-01-01T00:00:00.000Z'
+  }, null] }),
+  /turn 1 must be an object/
 )
 
 

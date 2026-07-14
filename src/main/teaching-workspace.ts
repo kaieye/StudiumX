@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
 import { inspectGitWorkspace } from './teaching-git'
@@ -20,6 +20,7 @@ import {
   attachAgentParentTurnCommit,
   deriveConversationTitle,
   hasAgentParentTurnCommit,
+  inferAgentConversationBranchMetadata,
   ensureTeachingContentDirectories,
   listAgentConversations,
   nextAgentConversationId,
@@ -27,6 +28,7 @@ import {
   readAgentConversationRecord,
   readRawAgentConversationRecord,
   listPersistedAgentConversationRecords,
+  requireCanonicalAgentConversationId,
   requireSafeAgentConversationId,
   sortAgentConversationSummaries,
   toAgentConversationSummary,
@@ -40,6 +42,14 @@ import {
 import { AgentRunStore } from './ai/agent-run-store'
 import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
 import { createAgentConversationCheckpoint, resolveAgentConversationCheckpoint } from './agent-conversation-checkpoints'
+import {
+  forkAgentConversationBranchAtRoot,
+  openAgentConversationBranchAtRoot,
+  readAgentConversationSessionTreeAtRoot,
+  replayAgentConversationBranchAtRoot,
+  saveAgentConversationBranchAtRoot,
+  updateAgentConversationBranchStatusAtRoot
+} from './agent-conversation-session-tree'
 import { cleanupAgentArtifacts as runAgentArtifactCleanup } from './agent-artifact-lifecycle'
 import {
   AGENT_CONVERSATION_HISTORY_INDEX_RELATIVE_PATH,
@@ -100,10 +110,15 @@ import type {
   ApplyLessonStylePayload,
   AgentArchivedHistoryIssue,
   AgentConversationCheckpoint,
+  AgentConversationSessionTree,
   AgentConversationStorageScope,
   CleanupAgentArtifactsPayload,
   CleanupAgentArtifactsResult,
   CreateAgentConversationCheckpointPayload,
+  ForkAgentConversationBranchPayload,
+  ForkAgentConversationBranchResult,
+  OpenAgentConversationBranchPayload,
+  OpenAgentConversationBranchResult,
   QueryAgentArchivedHistoryPayload,
   QueryAgentArchivedHistoryResult,
   RebuildAgentHistoryIndexPayload,
@@ -131,6 +146,9 @@ import type {
   AgentChatStreamPayload,
   AgentChatStreamResult,
   ReadAgentConversationPayload,
+  ReadAgentConversationSessionTreePayload,
+  ReplayAgentConversationBranchPayload,
+  ReplayAgentConversationBranchResult,
   SaveAgentConversationPayload,
   SaveAgentConversationResult,
   ReadWorkspaceMarkdownPayload,
@@ -148,6 +166,8 @@ import type {
   WorkspaceItemMetaPayload,
   WorkspaceItemRemovePayload,
   WorkspaceRemovePayload,
+  UpdateAgentConversationBranchStatusPayload,
+  UpdateAgentConversationBranchStatusResult,
   UpdateTeachingMemoryPayload,
   UpdateMissionPayload
 } from '../shared/teaching-types'
@@ -283,14 +303,36 @@ export class TeachingWorkspaceService {
     return sortAgentConversationSummaries([...deduped.values()])
   }
 
-  private async findAgentConversationLocation(workspaceRoot: string, conversationId: string): Promise<AgentConversationLocation> {
-    const id = requireSafeAgentConversationId(conversationId)
-    const globalRecord = await readAgentConversationRecord(this.appDataRoot, id).catch(() => null)
-    if (globalRecord) {
-      return { record: globalRecord, rootPath: this.appDataRoot, global: true }
+  private async findAgentConversationLocation(
+    workspaceRoot: string,
+    conversationId: string,
+    scope?: 'workspace' | 'temporary'
+  ): Promise<AgentConversationLocation> {
+    const id = requireCanonicalAgentConversationId(conversationId)
+    if (scope === 'temporary') {
+      const record = await readAgentConversationRecord(this.appDataRoot, id)
+      return { record, rootPath: this.appDataRoot, global: true }
     }
-    const workspaceRecord = await readAgentConversationRecord(workspaceRoot, id)
-    return { record: workspaceRecord, rootPath: workspaceRoot, global: false }
+    if (scope === 'workspace') {
+      const record = await readAgentConversationRecord(workspaceRoot, id)
+      return { record, rootPath: workspaceRoot, global: false }
+    }
+    const [globalRecord, workspaceRecord] = await Promise.all([
+      readAgentConversationRecord(this.appDataRoot, id).catch((error: unknown) => {
+        if (error instanceof Error && error.message === 'Conversation not found.') return null
+        throw error
+      }),
+      readAgentConversationRecord(workspaceRoot, id).catch((error: unknown) => {
+        if (error instanceof Error && error.message === 'Conversation not found.') return null
+        throw error
+      })
+    ])
+    if (globalRecord && workspaceRecord) {
+      throw new Error(`Conversation id "${id}" exists in both temporary and workspace storage; an explicit scope is required.`)
+    }
+    if (globalRecord) return { record: globalRecord, rootPath: this.appDataRoot, global: true }
+    if (workspaceRecord) return { record: workspaceRecord, rootPath: workspaceRoot, global: false }
+    throw new Error('Conversation not found.')
   }
 
   private async hasTemporaryConversation(id: string): Promise<boolean> {
@@ -467,6 +509,24 @@ export class TeachingWorkspaceService {
       ? findWorkspace(registryState, payload.workspaceId)
       : null
     const isTeachingConversation = (payload.mode ?? 'teaching') === 'teaching'
+    if (workspace && payload.conversationId) {
+      const location = await this.findAgentConversationLocation(
+        workspace.rootPath,
+        payload.conversationId,
+        isTeachingConversation ? 'workspace' : 'temporary'
+      )
+      const branch = inferAgentConversationBranchMetadata(location.record)
+      if (branch.status === 'deleted') throw new Error('Deleted conversation branches cannot be continued.')
+      if (branch.status === 'archived') throw new Error('Archived conversation branches must be restored before continuing.')
+      if (payload.expectedBranchRevision === undefined) {
+        throw new Error('Expected branch revision is required when continuing an existing conversation.')
+      }
+      if (payload.expectedBranchRevision !== branch.revision) {
+        throw new Error(
+          `Conversation branch revision conflict: expected ${payload.expectedBranchRevision}, current ${branch.revision}.`
+        )
+      }
+    }
     const runStorageRoot = isTeachingConversation && workspace ? workspace.rootPath : this.appDataRoot
     // A stream id is a one-run capability. Reusing it must never retain a prior
     // run's staged transcript promotion allowance, including after a failed run.
@@ -523,8 +583,17 @@ export class TeachingWorkspaceService {
     if (turns.length === 0) throw new Error('Conversation is empty.')
 
     const now = new Date().toISOString()
+    const requestedScope = payload.mode === 'temporary'
+      ? 'temporary' as const
+      : payload.mode === 'teaching'
+        ? 'workspace' as const
+        : undefined
     const existingLocation = payload.conversationId
-      ? await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId).catch(() => null)
+      ? await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, requestedScope)
+          .catch((error: unknown) => {
+            if (error instanceof Error && error.message === 'Conversation not found.') return null
+            throw error
+          })
       : null
     const existing = existingLocation?.record ?? null
     const isTemporaryConversation = existingLocation?.global === true || payload.mode === 'temporary'
@@ -537,6 +606,25 @@ export class TeachingWorkspaceService {
       : null
     const title = existing?.title ?? deriveConversationTitle(turns, now)
     const id = existing?.id ?? stagedParentTurn?.targetConversationId ?? await nextAgentConversationId(storageRoot, title, now)
+    const existingBranch = existing ? inferAgentConversationBranchMetadata(existing) : null
+    if (existingBranch?.status === 'deleted') throw new Error('Deleted conversation branches cannot be updated.')
+    if (existingBranch?.status === 'archived') throw new Error('Archived conversation branches must be restored before updating.')
+    if (existingBranch && payload.expectedBranchRevision === undefined) {
+      throw new Error('Expected branch revision is required when saving an existing conversation.')
+    }
+    if (existingBranch && payload.expectedBranchRevision !== existingBranch.revision) {
+      throw new Error(`Conversation branch revision conflict: expected ${payload.expectedBranchRevision}, current ${existingBranch.revision}.`)
+    }
+    turns = turns.map((turn) => turn.metadata?.provenance
+      ? turn
+      : {
+          ...turn,
+          metadata: {
+            ...(turn.metadata ?? { version: 1 as const }),
+            version: 1,
+            provenance: { kind: 'original' as const }
+          }
+        })
     const parentTurnDigest = runId ? agentParentTurnDigest(turns) : null
     const conversationDir = existing
       ? normalizeAgentConversationDirectory(dirname(existing.relativePath).replace(/\\/g, '/'))
@@ -587,21 +675,29 @@ export class TeachingWorkspaceService {
       relativePath: agentConversationMarkdownRelativePath(id, conversationDir),
       absolutePath: join(storageRoot, agentConversationMarkdownRelativePath(id, conversationDir)),
       messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
+      branch: existingBranch
+        ? existingBranch
+        : { schemaVersion: 1, sessionId: id, branchId: id, revision: 1, status: 'active' },
       turns
     }
 
     await invalidateAgentHistoryIndex(storageRoot)
-    await writeAgentConversationRecord({ ...workspace, rootPath: storageRoot }, record, {
-      allowedStagedChildTranscripts: authorizedAllowances
-    })
+    const persistedRecord = existing
+      ? await saveAgentConversationBranchAtRoot({ ...workspace, rootPath: storageRoot }, record, {
+          expectedRevision: payload.expectedBranchRevision,
+          allowedStagedChildTranscripts: authorizedAllowances
+        })
+      : (await writeAgentConversationRecord({ ...workspace, rootPath: storageRoot }, record, {
+          allowedStagedChildTranscripts: authorizedAllowances
+        }), record)
     if (!isTemporaryConversation) {
       await this.appendSessionEvent(workspace.rootPath, {
         id: randomUUID(),
         kind: 'agent_conversation_recorded',
-        timestamp: now,
+        timestamp: persistedRecord.updatedAt,
         workspaceId: workspace.id,
         prompt: title,
-        paths: [record.relativePath, agentConversationJsonRelativePathForMarkdown(record.relativePath)]
+        paths: [persistedRecord.relativePath, agentConversationJsonRelativePathForMarkdown(persistedRecord.relativePath)]
       })
     }
 
@@ -612,7 +708,7 @@ export class TeachingWorkspaceService {
     }
     const result = {
       state: await this.buildState(nextRegistry, workspace.id, payload.selectedLessonPath ?? null),
-      conversation: toAgentConversationSummary(record, {}, workspace.id)
+      conversation: toAgentConversationSummary(persistedRecord, {}, workspace.id)
     }
     if (runId && authorizedAllowances.length > 0) {
       this.pendingAgentRunArchiveScopes.delete(runId)
@@ -669,7 +765,112 @@ export class TeachingWorkspaceService {
   async readAgentConversation(payload: ReadAgentConversationPayload): Promise<AgentConversationRecord> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    return (await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId)).record
+    const record = (await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)).record
+    return { ...record, branch: inferAgentConversationBranchMetadata(record) }
+  }
+
+  async readAgentConversationSessionTree(
+    payload: ReadAgentConversationSessionTreePayload
+  ): Promise<AgentConversationSessionTree> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const location = await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)
+    const branch = inferAgentConversationBranchMetadata(location.record)
+    return readAgentConversationSessionTreeAtRoot(location.rootPath, branch.sessionId)
+  }
+
+  async openAgentConversationBranch(
+    payload: OpenAgentConversationBranchPayload
+  ): Promise<OpenAgentConversationBranchResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const location = await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)
+    const branch = inferAgentConversationBranchMetadata(location.record)
+    const opened = await openAgentConversationBranchAtRoot(location.rootPath, branch.sessionId, {
+      requestedBranchId: branch.branchId
+    })
+    return {
+      conversation: { ...opened.record, branch: inferAgentConversationBranchMetadata(opened.record) },
+      tree: opened.tree
+    }
+  }
+
+  async replayAgentConversationBranch(
+    payload: ReplayAgentConversationBranchPayload
+  ): Promise<ReplayAgentConversationBranchResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const location = await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)
+    const projection = await replayAgentConversationBranchAtRoot(location.rootPath, location.record.id, {
+      sourceTurnId: payload.sourceTurnId
+    })
+    return { turns: projection.turns, replaySource: projection.replaySource }
+  }
+
+  async forkAgentConversationBranch(
+    payload: ForkAgentConversationBranchPayload
+  ): Promise<ForkAgentConversationBranchResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const location = await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)
+    const storageWorkspace = { ...workspace, rootPath: location.rootPath }
+    await invalidateAgentHistoryIndex(location.rootPath)
+    const record = await forkAgentConversationBranchAtRoot(storageWorkspace, location.record.id, {
+      sourceTurnId: payload.sourceTurnId,
+      title: payload.title,
+      expectedRevision: payload.expectedRevision
+    })
+    const branch = inferAgentConversationBranchMetadata(record)
+    const opened = await openAgentConversationBranchAtRoot(location.rootPath, branch.sessionId, {
+      requestedBranchId: branch.branchId
+    })
+    let nextRegistry = registry
+    if (!location.global) {
+      await this.appendSessionEvent(workspace.rootPath, {
+        id: randomUUID(),
+        kind: 'agent_conversation_recorded',
+        timestamp: record.updatedAt,
+        workspaceId: workspace.id,
+        prompt: record.title,
+        paths: [record.relativePath, agentConversationJsonRelativePathForMarkdown(record.relativePath)]
+      })
+      nextRegistry = touchRegistryWorkspace(registry, workspace.id, record.updatedAt)
+      await this.saveRegistry(nextRegistry)
+    }
+    return {
+      state: await this.buildState(nextRegistry, workspace.id, null),
+      conversation: { ...record, branch },
+      tree: opened.tree
+    }
+  }
+
+  async updateAgentConversationBranchStatus(
+    payload: UpdateAgentConversationBranchStatusPayload
+  ): Promise<UpdateAgentConversationBranchStatusResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const location = await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)
+    const storageWorkspace = { ...workspace, rootPath: location.rootPath }
+    await invalidateAgentHistoryIndex(location.rootPath)
+    const record = await updateAgentConversationBranchStatusAtRoot(
+      storageWorkspace,
+      location.record.id,
+      payload.status,
+      { expectedRevision: payload.expectedRevision }
+    )
+    const branch = inferAgentConversationBranchMetadata(record)
+    const opened = await openAgentConversationBranchAtRoot(location.rootPath, branch.sessionId, {
+      ...(branch.status === 'active' ? { requestedBranchId: branch.branchId } : {})
+    })
+    const nextRegistry = location.global
+      ? registry
+      : touchRegistryWorkspace(registry, workspace.id, record.updatedAt)
+    if (!location.global) await this.saveRegistry(nextRegistry)
+    return {
+      state: await this.buildState(nextRegistry, workspace.id, null),
+      conversation: { ...record, branch },
+      tree: opened.tree
+    }
   }
 
   async createAgentConversationCheckpoint(
@@ -879,6 +1080,29 @@ export class TeachingWorkspaceService {
   async removeWorkspaceItem(payload: WorkspaceItemRemovePayload): Promise<TeachingAppState> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
+    if (payload.kind === 'conversation' && (payload.mode ?? 'disk') === 'disk') {
+      const id = requireCanonicalAgentConversationId(basename(normalizeWorkspaceRelativePath(payload.relativePath)).replace(/\.md$/i, ''))
+      const scope = isTemporaryAgentConversationPath(payload.relativePath) ? 'temporary' : 'workspace'
+      const location = await this.findAgentConversationLocation(workspace.rootPath, id, scope).catch((error: unknown) => {
+        if (error instanceof Error && error.message === 'Conversation not found.') return null
+        throw error
+      })
+      if (location) {
+        const branch = inferAgentConversationBranchMetadata(location.record)
+        const tree = await readAgentConversationSessionTreeAtRoot(location.rootPath, branch.sessionId)
+        if (location.record.branch || tree.branches.length > 1) {
+          await invalidateAgentHistoryIndex(location.rootPath)
+          await updateAgentConversationBranchStatusAtRoot(
+            { ...workspace, rootPath: location.rootPath },
+            id,
+            'deleted',
+            { expectedRevision: branch.revision }
+          )
+          await openAgentConversationBranchAtRoot(location.rootPath, branch.sessionId)
+          return this.buildState(registry, workspace.id, null)
+        }
+      }
+    }
     return this.createItemLifecycleExecutor(registry).execute({
       workspace,
       target: { relativePath: payload.relativePath, kind: payload.kind },

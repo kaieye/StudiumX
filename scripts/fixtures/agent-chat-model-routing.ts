@@ -213,6 +213,21 @@ try {
     'retrying a settled parent turn must not append a duplicate assistant turn'
   )
 
+  await assert.rejects(
+    () => service.agentChatStream(
+      {
+        workspaceId: workspace.id,
+        conversationId: retriedConversation.id,
+        messages: [],
+        userInput: '继续'
+      },
+      { streamId: 'missing-revision', onChunk: () => {}, onStatus: () => {}, onTool: () => {} }
+    ),
+    /expected branch revision is required/i,
+    'continuing an existing branch must fail before provider execution when the CAS token is missing'
+  )
+  assert.equal(requests.length, 1, 'missing branch revision must be rejected before provider execution')
+
   const identityChunks: string[] = []
   const identityStatuses: string[] = []
   const identityResult = await service.agentChatStream(
@@ -494,6 +509,7 @@ try {
     () => service.saveAgentConversation({
       workspaceId: workspace.id,
       conversationId: loadedDelegation.id,
+      expectedBranchRevision: loadedDelegation.branch?.revision,
       runId: 'missing-parent-turn-stage',
       turns: loadedDelegation.turns
     }),
@@ -504,6 +520,7 @@ try {
   const resavedDelegation = await service.saveAgentConversation({
     workspaceId: workspace.id,
     conversationId: loadedDelegation.id,
+    expectedBranchRevision: loadedDelegation.branch?.revision,
     turns: loadedDelegation.turns
   })
   assert.equal(resavedDelegation.conversation.id, loadedDelegation.id)

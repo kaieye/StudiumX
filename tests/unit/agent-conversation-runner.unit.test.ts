@@ -8,6 +8,7 @@ import {
 import type {
   AgentChatStreamDone,
   AgentChatTurn,
+  AgentConversationSessionTree,
   LessonSummary,
   TeachingAppState,
   TeachingWorkspaceSummary
@@ -15,8 +16,12 @@ import type {
 
 type TestState = AgentConversationTurnRunnerState & { error: string | null }
 
+type TestApi = Omit<AgentConversationTurnRunnerApi, 'readAgentConversationSessionTree'> &
+  Partial<Pick<AgentConversationTurnRunnerApi, 'readAgentConversationSessionTree'>>
+
 type Harness = {
   getState: () => TestState
+  setState: (patch: Partial<TestState>) => void
   patches: Array<AgentConversationTurnRunnerPatch<string>>
   effects: LessonSummary[][]
   runner: AgentConversationTurnRunner<string>
@@ -66,7 +71,7 @@ function appState(activeWorkspace = workspace()): TeachingAppState {
 }
 
 function makeHarness(
-  api: AgentConversationTurnRunnerApi,
+  api: TestApi,
   overrides: Partial<TestState> = {}
 ): Harness {
   let state: TestState = {
@@ -77,12 +82,19 @@ function makeHarness(
     agentStatus: '',
     agentTurns: [],
     activeConversationId: null,
+    activeConversationScope: null,
+    activeConversationRevision: null,
+    activeSessionTree: null,
     agentToolsSupported: null,
     pendingAgentConversation: null,
     selectedCourseRelativePath: 'courses/mechanics',
     taskPrompt: 'previous prompt',
     error: null,
     ...overrides
+  }
+  const runnerApi: AgentConversationTurnRunnerApi = {
+    readAgentConversationSessionTree: vi.fn(async ({ conversationId }) => sessionTree(conversationId)),
+    ...api
   }
   const patches: Array<AgentConversationTurnRunnerPatch<string>> = []
   const effects: LessonSummary[][] = []
@@ -92,13 +104,19 @@ function makeHarness(
       patches.push(patch)
       state = { ...state, ...patch }
     },
-    getApi: () => api,
+    getApi: () => runnerApi,
     toUserError: (error) => `user:${error instanceof Error ? error.message : String(error)}`,
     onGeneratedLessons: (lessons) => effects.push(lessons),
     now: () => createdAt,
     nextIdSeed: () => 42
   })
-  return { getState: () => state, patches, effects, runner }
+  return {
+    getState: () => state,
+    setState: (patch) => { state = { ...state, ...patch } },
+    patches,
+    effects,
+    runner
+  }
 }
 
 function completedTurn(content = 'Saved answer'): AgentChatStreamDone {
@@ -118,6 +136,25 @@ function completedTurn(content = 'Saved answer'): AgentChatStreamDone {
     iterations: 1,
     toolsSupported: true,
     usage: { providerCalls: 1, toolCalls: 1, toolErrors: 0, iterations: 1, childRuns: 0, durationMs: 1 }
+  }
+}
+
+function sessionTree(conversationId = 'conversation-9', revision = 1): AgentConversationSessionTree {
+  return {
+    schemaVersion: 1,
+    sessionId: 'session-tree-1',
+    openBranchId: `branch-${conversationId}`,
+    branches: [{
+      sessionId: 'session-tree-1',
+      branchId: `branch-${conversationId}`,
+      conversationId,
+      title: 'Momentum',
+      status: 'active',
+      revision,
+      head: { turnId: 'a-42', turnCount: 2, updatedAt: createdAt },
+      relativePath: `.agent-sessions/conversations/${conversationId}.json`,
+      isOpen: true
+    }]
   }
 }
 
@@ -202,6 +239,254 @@ describe('AgentConversationTurnRunner', () => {
       agentToolsSupported: true
     })
     expect(harness.effects).toEqual([[generatedLesson()]])
+  })
+
+  it('sends the expected branch revision and refreshes revision and tree after saving', async () => {
+    const readTree = vi.fn(async () => sessionTree('conversation-7', 8))
+    const save = vi.fn(async (payload) => ({
+      state: appState(),
+      conversation: {
+        id: 'conversation-7',
+        title: 'Momentum branch',
+        createdAt,
+        updatedAt: createdAt,
+        relativePath: '.agent-sessions/conversations/conversation-7.json',
+        absolutePath: '/workspace/.agent-sessions/conversations/conversation-7.json',
+        messageCount: payload.turns.length,
+        branch: {
+          schemaVersion: 1 as const,
+          sessionId: 'session-tree-1',
+          branchId: 'branch-conversation-7',
+          revision: 8,
+          status: 'active' as const
+        }
+      }
+    }))
+    const priorTurn: AgentChatTurn = { id: 'u-prior', role: 'user', content: 'Prior question', createdAt }
+    const stream = vi.fn(async () => completedTurn())
+    const harness = makeHarness({
+      agentChatStream: stream,
+      saveAgentConversation: save,
+      cancelAgentChatStream: vi.fn(),
+      readAgentConversationSessionTree: readTree
+    }, {
+      activeConversationId: 'conversation-7',
+      activeConversationRevision: 7,
+      activeSessionTree: sessionTree('conversation-7', 7),
+      agentTurns: [priorTurn]
+    })
+
+    await harness.runner.run({ inputOverride: 'Continue the branch' })
+
+    expect(stream).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conversation-7',
+      expectedBranchRevision: 7
+    }), expect.any(Function), expect.any(Function), expect.any(Function), expect.any(Function))
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conversation-7',
+      expectedBranchRevision: 7
+    }))
+    expect(readTree).toHaveBeenCalledWith({ workspaceId: 'workspace-1', conversationId: 'conversation-7', scope: 'workspace' })
+    expect(harness.getState()).toMatchObject({
+      activeConversationId: 'conversation-7',
+      activeConversationRevision: 8,
+      activeSessionTree: { branches: [expect.objectContaining({ conversationId: 'conversation-7', revision: 8 })] }
+    })
+  })
+
+  it('clears a stale tree when post-save refresh fails', async () => {
+    const save = vi.fn(async (payload) => ({
+      state: appState(),
+      conversation: {
+        id: 'conversation-7',
+        title: 'Momentum branch',
+        createdAt,
+        updatedAt: createdAt,
+        relativePath: '.agent-sessions/conversations/conversation-7.json',
+        absolutePath: '/workspace/.agent-sessions/conversations/conversation-7.json',
+        messageCount: payload.turns.length,
+        branch: {
+          schemaVersion: 1 as const,
+          sessionId: 'session-tree-1',
+          branchId: 'branch-conversation-7',
+          revision: 8,
+          status: 'active' as const
+        }
+      }
+    }))
+    const harness = makeHarness({
+      agentChatStream: vi.fn(async () => completedTurn()),
+      saveAgentConversation: save,
+      cancelAgentChatStream: vi.fn(),
+      readAgentConversationSessionTree: vi.fn(async () => { throw new Error('tree unavailable') })
+    }, {
+      activeConversationId: 'conversation-7',
+      activeConversationRevision: 7,
+      activeSessionTree: sessionTree('conversation-7', 7),
+      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
+    })
+
+    await harness.runner.run({ inputOverride: 'Continue the branch' })
+
+    expect(harness.getState()).toMatchObject({
+      activeConversationId: 'conversation-7',
+      activeConversationRevision: 8,
+      activeSessionTree: null,
+      error: 'user:tree unavailable'
+    })
+  })
+
+  it('does not overwrite branch navigation that completes during post-save tree refresh', async () => {
+    let resolveTree: ((tree: AgentConversationSessionTree) => void) | undefined
+    const readTree = vi.fn(() => new Promise<AgentConversationSessionTree>((resolve) => { resolveTree = resolve }))
+    const save = vi.fn(async (payload) => ({
+      state: appState(),
+      conversation: {
+        id: 'conversation-7',
+        title: 'Momentum branch',
+        createdAt,
+        updatedAt: createdAt,
+        relativePath: '.agent-sessions/conversations/conversation-7.json',
+        absolutePath: '/workspace/.agent-sessions/conversations/conversation-7.json',
+        messageCount: payload.turns.length,
+        branch: {
+          schemaVersion: 1 as const,
+          sessionId: 'session-tree-1',
+          branchId: 'branch-conversation-7',
+          revision: 8,
+          status: 'active' as const
+        }
+      }
+    }))
+    const harness = makeHarness({
+      agentChatStream: vi.fn(async () => completedTurn()),
+      saveAgentConversation: save,
+      cancelAgentChatStream: vi.fn(),
+      readAgentConversationSessionTree: readTree
+    }, {
+      activeConversationId: 'conversation-7',
+      activeConversationRevision: 7,
+      activeSessionTree: sessionTree('conversation-7', 7),
+      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
+    })
+
+    const running = harness.runner.run({ inputOverride: 'Continue the branch' })
+    await vi.waitFor(() => expect(readTree).toHaveBeenCalled())
+    const branchBTree = sessionTree('conversation-b', 3)
+    harness.setState({
+      activeConversationId: 'conversation-b',
+      activeConversationRevision: 3,
+      activeSessionTree: branchBTree,
+      agentTurns: [{ id: 'b-turn', role: 'assistant', content: 'Branch B', createdAt }]
+    })
+    resolveTree?.(sessionTree('conversation-7', 8))
+    await running
+
+    expect(harness.getState()).toMatchObject({
+      activeConversationId: 'conversation-b',
+      activeConversationRevision: 3,
+      activeSessionTree: branchBTree,
+      agentTurns: [{ id: 'b-turn', content: 'Branch B' }]
+    })
+  })
+
+  it('continues a temporary legacy branch with revision zero under CAS', async () => {
+    const stream = vi.fn(async () => completedTurn())
+    const save = vi.fn(async (payload) => ({
+      state: appState(),
+      conversation: {
+        id: 'conversation-legacy',
+        title: 'Legacy branch',
+        createdAt,
+        updatedAt: createdAt,
+        relativePath: 'conversation/conversation-legacy.md',
+        absolutePath: '/workspace/conversation/conversation-legacy.md',
+        messageCount: payload.turns.length,
+        branch: {
+          schemaVersion: 1 as const,
+          sessionId: 'session-tree-1',
+          branchId: 'conversation-legacy',
+          revision: 1,
+          status: 'active' as const
+        }
+      }
+    }))
+    const readTree = vi.fn(async () => sessionTree('conversation-legacy', 1))
+    const harness = makeHarness({
+      agentChatStream: stream,
+      saveAgentConversation: save,
+      cancelAgentChatStream: vi.fn(),
+      readAgentConversationSessionTree: readTree
+    }, {
+      overviewDialogMode: 'teaching',
+      activeConversationId: 'conversation-legacy',
+      activeConversationScope: 'temporary',
+      activeConversationRevision: 0,
+      activeSessionTree: sessionTree('conversation-legacy', 0),
+      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Legacy question', createdAt }]
+    })
+
+    await harness.runner.run({ inputOverride: 'Continue legacy branch' })
+
+    expect(stream).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conversation-legacy',
+      expectedBranchRevision: 0,
+      mode: 'temporary'
+    }), expect.any(Function), expect.any(Function), expect.any(Function), expect.any(Function))
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conversation-legacy',
+      expectedBranchRevision: 0,
+      mode: 'temporary'
+    }))
+    expect(readTree).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1', conversationId: 'conversation-legacy', scope: 'temporary'
+    })
+  })
+
+  it('refuses to run a persisted branch without a concurrency revision', async () => {
+    const stream = vi.fn(async () => completedTurn())
+    const harness = makeHarness({
+      agentChatStream: stream,
+      saveAgentConversation: vi.fn(),
+      cancelAgentChatStream: vi.fn()
+    }, {
+      activeConversationId: 'conversation-7',
+      activeConversationRevision: null,
+      activeSessionTree: null,
+      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
+    })
+
+    await harness.runner.run({ inputOverride: 'Continue without revision' })
+
+    expect(stream).not.toHaveBeenCalled()
+    expect(harness.getState().error).toContain('revision is unavailable')
+  })
+
+  it('refuses to run an archived branch before invoking the provider', async () => {
+    const stream = vi.fn(async () => completedTurn())
+    const save = vi.fn()
+    const archivedTree = sessionTree('conversation-7', 8)
+    archivedTree.branches[0] = { ...archivedTree.branches[0], status: 'archived', isOpen: false }
+    const harness = makeHarness({
+      agentChatStream: stream,
+      saveAgentConversation: save,
+      cancelAgentChatStream: vi.fn()
+    }, {
+      activeConversationId: 'conversation-7',
+      activeConversationRevision: 8,
+      activeSessionTree: archivedTree,
+      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
+    })
+
+    await harness.runner.run({ inputOverride: 'Continue the archived branch' })
+
+    expect(stream).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+    expect(harness.getState()).toMatchObject({
+      agentChatBusy: false,
+      activeConversationId: 'conversation-7',
+      error: expect.stringContaining('read-only')
+    })
   })
 
   it('keeps temporary turns detached from the selected Course and Session', async () => {

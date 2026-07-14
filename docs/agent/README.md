@@ -4,7 +4,6 @@
 
 ## 当前范围
 
-- 完整 session tree，以及 branch / fork / replay / open 生命周期。
 - SDK/provider hooks 与统一运行诊断。
 
 ## 文档结构

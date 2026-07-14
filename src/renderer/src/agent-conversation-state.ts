@@ -25,6 +25,7 @@ const TOOL_PERMISSION_NAME = 'tool_permission'
 export type PendingAgentConversation = {
   workspaceId: string
   sourceConversationId: string | null
+  sourceConversationRevision: number | null
   mode: AgentChatMode
   summary: AgentConversationSummary & { pending: true }
   turns: AgentChatTurn[]
@@ -47,6 +48,29 @@ export type AgentConversationTurnDraft = {
   pendingConversation: PendingAgentConversation
 }
 
+export type AgentTurnProvenancePresentation = {
+  kind: 'original' | 'replayed' | 'recovery_notice'
+  label: string
+  detail?: string
+}
+
+/** Legacy turns predate durable provenance metadata and are presented as original. */
+export function presentAgentTurnProvenance(turn: AgentChatTurn): AgentTurnProvenancePresentation {
+  const provenance = turn.metadata?.provenance
+  if (provenance?.kind === 'recovery_notice') {
+    return { kind: 'recovery_notice', label: '恢复提示', detail: '运行恢复边界，不是模型重放结果' }
+  }
+  if (provenance?.kind === 'replayed') {
+    const source = [provenance.sourceBranchId, provenance.sourceTurnId].filter(Boolean).join(' · ')
+    return {
+      kind: 'replayed',
+      label: '回放结果',
+      detail: source ? `来源 ${source}` : '由安全回放生成，未重执行工具'
+    }
+  }
+  return { kind: 'original', label: '原始轮次', detail: '当前分支的原始对话记录' }
+}
+
 export type PendingConversationStorePatch = Partial<{
   agentChatBusy: boolean
   pendingAgentConversation: PendingAgentConversation | null
@@ -62,6 +86,7 @@ export function createAgentConversationTurnDraft({
   input,
   mode,
   activeConversationId,
+  activeConversationRevision,
   currentTurns,
   selectedCourseRelativePath,
   currentSelectedLessonPath,
@@ -73,6 +98,7 @@ export function createAgentConversationTurnDraft({
   input: string
   mode: AgentChatMode
   activeConversationId: string | null
+  activeConversationRevision: number | null
   currentTurns: AgentChatTurn[]
   selectedCourseRelativePath: string | null
   currentSelectedLessonPath: string | null
@@ -84,6 +110,7 @@ export function createAgentConversationTurnDraft({
   const sourceConversation = sourceConversationId
     ? findConversationSummary(state, workspace.id, sourceConversationId)
     : null
+  const sourceConversationRevision = sourceConversationId ? activeConversationRevision : null
   const nextSelectedCourseRelativePath = sourceConversationId || mode === 'temporary' ? null : selectedCourseRelativePath
   const nextSelectedLessonPath = !sourceConversationId && nextSelectedCourseRelativePath ? currentSelectedLessonPath : null
   const userTurn: AgentChatTurn = {
@@ -106,6 +133,7 @@ export function createAgentConversationTurnDraft({
   const pendingConversation: PendingAgentConversation = {
     workspaceId: workspace.id,
     sourceConversationId,
+    sourceConversationRevision,
     mode,
     summary: createPendingAgentConversationSummary({
       id: pendingConversationId,
@@ -756,7 +784,11 @@ function mergeAgentTurnMetadata(
     compactions: mergeMetadataItems(server.compactions, local.compactions, (compaction) => compaction.sourceDigest),
     contextHygiene: nonEmptyMetadataItems([...(server.contextHygiene ?? []), ...(local.contextHygiene ?? [])]),
     contextEstimate: server.contextEstimate ?? local.contextEstimate,
-    toolResults: mergeMetadataItems(server.toolResults, local.toolResults, (tool) => `${tool.toolCallId}:${tool.toolName}`)
+    toolResults: mergeMetadataItems(server.toolResults, local.toolResults, (tool) => `${tool.toolCallId}:${tool.toolName}`),
+    runUsage: server.runUsage ?? local.runUsage,
+    runId: server.runId ?? local.runId,
+    parentTurnDigest: server.parentTurnDigest ?? local.parentTurnDigest,
+    provenance: server.provenance ?? local.provenance
   }
 }
 

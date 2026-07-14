@@ -2,6 +2,74 @@ import type { TeachingMemoryCaptureResult } from './memory'
 import type { LessonSummary, TeachingAppState } from './workspace'
 
 export type AgentChatMode = 'temporary' | 'teaching'
+export type AgentConversationLookupScope = 'workspace' | 'temporary'
+
+export type AgentConversationBranchStatus = 'active' | 'archived' | 'deleted'
+
+export type AgentConversationForkPoint = {
+  sourceConversationId: string
+  sourceBranchId: string
+  sourceTurnId?: string
+  sourceTurnCount: number
+  sourceDigest: string
+}
+
+export type AgentConversationReplaySource = {
+  replayId: string
+  sourceConversationId: string
+  sourceBranchId: string
+  sourceTurnCount: number
+  sourceDigest: string
+  createdAt: string
+  toolsReplayed: false
+  archivedRetrievalPromoted: false
+  providerHistoryInjected: false
+  memoryWritten: false
+}
+
+export type AgentConversationBranchMetadata = {
+  schemaVersion: 1
+  sessionId: string
+  branchId: string
+  revision: number
+  status: AgentConversationBranchStatus
+  parentBranchId?: string
+  forkPoint?: AgentConversationForkPoint
+  replaySource?: AgentConversationReplaySource
+}
+
+export type AgentConversationBranchHead = {
+  turnId?: string
+  turnCount: number
+  updatedAt: string
+}
+
+export type AgentConversationSessionTreeNode = {
+  sessionId: string
+  branchId: string
+  conversationId: string
+  title: string
+  status: AgentConversationBranchStatus
+  revision: number
+  parentBranchId?: string
+  forkPoint?: AgentConversationForkPoint
+  replaySource?: AgentConversationReplaySource
+  head: AgentConversationBranchHead
+  relativePath: string
+  isOpen: boolean
+}
+
+export type AgentConversationSessionTree = {
+  schemaVersion: 1
+  sessionId: string
+  openBranchId: string
+  branches: AgentConversationSessionTreeNode[]
+}
+
+/** Compatibility aliases for callers that use the shorter tree vocabulary. */
+export type AgentConversationTreeHead = AgentConversationBranchHead
+export type AgentConversationTreeNode = AgentConversationSessionTreeNode
+export type AgentConversationTree = AgentConversationSessionTree
 
 export type AgentConversationSummary = {
   id: string
@@ -13,6 +81,7 @@ export type AgentConversationSummary = {
   absolutePath: string
   messageCount: number
   pinned?: boolean
+  branch?: AgentConversationBranchMetadata
 }
 
 export type AgentChatRole = 'system' | 'user' | 'assistant' | 'tool'
@@ -139,6 +208,13 @@ export type AgentTurnMetadata = {
   runId?: string
   /** Digest of the saved parent-turn projection associated with `runId`. */
   parentTurnDigest?: string
+  provenance?: {
+    kind: 'original' | 'replayed' | 'recovery_notice'
+    sourceConversationId?: string
+    sourceBranchId?: string
+    sourceTurnId?: string
+    replayId?: string
+  }
 }
 
 export type AgentChatProcessEvent = {
@@ -190,6 +266,7 @@ export type AgentChatStreamPayload = {
   streamId?: string
   conversationId?: string
   workspaceId?: string
+  expectedBranchRevision?: number
   mode?: AgentChatMode
   context?: string
   contextCompaction?: AgentChatContextCompactionRequest
@@ -424,6 +501,7 @@ export type SaveAgentConversationPayload = {
   runId?: string
   mode?: AgentChatMode
   conversationId?: string | null
+  expectedBranchRevision?: number
   selectedLessonPath?: string | null
   selectedCourseRelativePath?: string | null
   courseName?: string
@@ -438,6 +516,65 @@ export type SaveAgentConversationResult = {
 export type ReadAgentConversationPayload = {
   workspaceId: string
   conversationId: string
+  scope?: AgentConversationLookupScope
+}
+
+export type ReadAgentConversationSessionTreePayload = {
+  workspaceId: string
+  conversationId: string
+  scope?: AgentConversationLookupScope
+}
+
+export type OpenAgentConversationBranchPayload = {
+  workspaceId: string
+  conversationId: string
+  scope?: AgentConversationLookupScope
+}
+
+export type OpenAgentConversationBranchResult = {
+  conversation: AgentConversationRecord
+  tree: AgentConversationSessionTree
+}
+
+export type ForkAgentConversationBranchPayload = {
+  workspaceId: string
+  conversationId: string
+  scope?: AgentConversationLookupScope
+  sourceTurnId?: string
+  title?: string
+  expectedRevision: number
+}
+
+export type ForkAgentConversationBranchResult = {
+  state: TeachingAppState
+  conversation: AgentConversationRecord
+  tree: AgentConversationSessionTree
+}
+
+export type ReplayAgentConversationBranchPayload = {
+  workspaceId: string
+  conversationId: string
+  scope?: AgentConversationLookupScope
+  sourceTurnId?: string
+}
+
+export type ReplayAgentConversationBranchResult = {
+  turns: AgentChatTurn[]
+  replaySource: AgentConversationReplaySource
+}
+
+export type UpdateAgentConversationBranchStatusPayload = {
+  workspaceId: string
+  conversationId: string
+  scope?: AgentConversationLookupScope
+  status: AgentConversationBranchStatus
+  expectedRevision: number
+}
+
+export type UpdateAgentConversationBranchStatusResult = {
+  state: TeachingAppState
+  conversation: AgentConversationRecord
+  tree: AgentConversationSessionTree
 }
 
 export type AgentConversationStorageScope = 'workspace' | 'temporary' | 'all'

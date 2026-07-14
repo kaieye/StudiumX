@@ -10,6 +10,11 @@ import type {
   InterruptedAgentRun,
   AgentConversationRecord,
   AgentConversationCheckpoint,
+  AgentConversationSessionTree,
+  ForkAgentConversationBranchPayload,
+  ForkAgentConversationBranchResult,
+  OpenAgentConversationBranchPayload,
+  OpenAgentConversationBranchResult,
   CleanupAgentArtifactsPayload,
   CleanupAgentArtifactsResult,
   CreateAgentConversationCheckpointPayload,
@@ -21,9 +26,14 @@ import type {
   ResolveAgentConversationCheckpointResult,
   AskAnswer,
   ReadAgentConversationPayload,
+  ReadAgentConversationSessionTreePayload,
+  ReplayAgentConversationBranchPayload,
+  ReplayAgentConversationBranchResult,
   ReplayAgentChatEventsPayload,
   SaveAgentConversationPayload,
-  SaveAgentConversationResult
+  SaveAgentConversationResult,
+  UpdateAgentConversationBranchStatusPayload,
+  UpdateAgentConversationBranchStatusResult
 } from './agent'
 import type {
   CreateTeachingMemoryPayload,
@@ -144,6 +154,11 @@ export type TeachingSystemApi = {
   onAgentChatEvent: (handler: (event: AgentRealtimeEvent) => void) => () => void
   saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>
   readAgentConversation: (payload: ReadAgentConversationPayload) => Promise<AgentConversationRecord>
+  readAgentConversationSessionTree: (payload: ReadAgentConversationSessionTreePayload) => Promise<AgentConversationSessionTree>
+  openAgentConversationBranch: (payload: OpenAgentConversationBranchPayload) => Promise<OpenAgentConversationBranchResult>
+  forkAgentConversationBranch: (payload: ForkAgentConversationBranchPayload) => Promise<ForkAgentConversationBranchResult>
+  replayAgentConversationBranch: (payload: ReplayAgentConversationBranchPayload) => Promise<ReplayAgentConversationBranchResult>
+  updateAgentConversationBranchStatus: (payload: UpdateAgentConversationBranchStatusPayload) => Promise<UpdateAgentConversationBranchStatusResult>
   createAgentConversationCheckpoint: (payload: CreateAgentConversationCheckpointPayload) => Promise<AgentConversationCheckpoint>
   resolveAgentConversationCheckpoint: (payload: ResolveAgentConversationCheckpointPayload) => Promise<ResolveAgentConversationCheckpointResult>
   queryAgentArchivedHistory: (payload: QueryAgentArchivedHistoryPayload) => Promise<QueryAgentArchivedHistoryResult>

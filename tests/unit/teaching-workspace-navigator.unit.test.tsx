@@ -72,7 +72,7 @@ describe('TeachingWorkspaceNavigator', () => {
     expect(screen.getByRole('treeitem', { name: 'Session 1 — Limits' })).toHaveClass('is-selected')
     await user.click(screen.getByRole('button', { name: 'conversation' }))
     await user.click(screen.getByRole('button', { name: 'Course conversation' }))
-    expect(callbacks.onLoadAgentConversation).toHaveBeenCalledWith('durable-1', 'workspace-1')
+    expect(callbacks.onLoadAgentConversation).toHaveBeenCalledWith('durable-1', 'workspace-1', 'workspace')
     expect(callbacks.onSetOverviewDialogMode).toHaveBeenCalled()
   })
 

@@ -16,12 +16,14 @@ import { isPathInsideRoot } from './path-access'
 import {
   listPersistedAgentConversationRecords,
   nextAgentConversationId,
+  readAgentConversationRecord,
   readRawAgentConversationRecord,
   requireSafeAgentConversationId,
   writeAgentConversationRecord,
   type AgentConversationWorkspace,
   type PersistedAgentConversationRecord
 } from './teaching-agent-conversations'
+import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
 
 export const AGENT_CONVERSATION_OPEN_STATE_RELATIVE_PATH = '.agent-sessions/session-open-state.v1.json'
 export const AGENT_CONVERSATION_OPEN_STATE_MAX_BYTES = 64 * 1024
@@ -29,6 +31,7 @@ const MAX_OPEN_STATE_ENTRIES = 256
 const SAFE_LINEAGE_ID = /^[A-Za-z0-9._:-]{1,160}$/
 const SAFE_TURN_ID = /^[A-Za-z0-9._:-]{1,240}$/
 const SHA256 = /^[a-f0-9]{64}$/
+const pendingRootOperations = new Map<string, Promise<void>>()
 
 type BranchAwareConversationRecord = AgentConversationRecord & {
   branch?: AgentConversationBranchMetadata
@@ -304,6 +307,16 @@ export function rebuildAgentConversationSessionTree(
   const nodesByBranch = new Map<string, InternalSessionTreeNode>()
   for (const item of persisted) {
     const record = item.record as BranchAwareConversationRecord
+    const jsonPath = describeAgentConversationPath(item.jsonRelativePath)
+    const markdownPath = describeAgentConversationPath(record.relativePath)
+    if (!jsonPath || jsonPath.format !== 'json' || jsonPath.id !== record.id ||
+        !markdownPath || markdownPath.format !== 'markdown' || markdownPath.id !== record.id ||
+        jsonPath.directoryRelativePath !== markdownPath.directoryRelativePath) {
+      throw new AgentConversationSessionTreeError(
+        'invalid_metadata',
+        `Conversation "${record.id}" persistence paths are not bound to its id.`
+      )
+    }
     const metadata = inferAgentConversationBranchMetadata(record)
     if (metadata.sessionId !== safeSessionId) continue
     if (nodesByBranch.has(metadata.branchId)) {
@@ -379,13 +392,13 @@ export function rebuildAgentConversationSessionTree(
 export async function listAgentConversationSessionTreesAtRoot(
   rootPath: string
 ): Promise<AgentConversationSessionTree[]> {
-  const [internalTrees, state] = await Promise.all([
-    listPersistedAgentConversationRecords(rootPath).then(rebuildAgentConversationSessionTrees),
-    readAgentConversationOpenStateAtRoot(rootPath)
-  ])
-  return internalTrees.map((tree) => {
-    const storedBranchId = state?.sessions.find((entry) => entry.sessionId === tree.sessionId)?.branchId
-    return toSharedSessionTree(tree, selectActiveOpenBranchId(tree, storedBranchId))
+  return runAgentConversationRootExclusive(rootPath, async () => {
+    const internalTrees = rebuildAgentConversationSessionTrees(await listPersistedAgentConversationRecords(rootPath))
+    const state = await readOrRepairAgentConversationOpenStateUnlocked(rootPath, internalTrees)
+    return internalTrees.map((tree) => {
+      const storedBranchId = state?.sessions.find((entry) => entry.sessionId === tree.sessionId)?.branchId
+      return toSharedSessionTree(tree, selectActiveOpenBranchId(tree, storedBranchId))
+    })
   })
 }
 
@@ -393,11 +406,19 @@ export async function readAgentConversationSessionTreeAtRoot(
   rootPath: string,
   sessionId: string
 ): Promise<AgentConversationSessionTree> {
-  const internalTree = await readInternalSessionTreeAtRoot(rootPath, sessionId)
-  const state = await readAgentConversationOpenStateAtRoot(rootPath)
-  const storedBranchId = state?.sessions.find((entry) => entry.sessionId === internalTree.sessionId)?.branchId
-  return toSharedSessionTree(internalTree, selectActiveOpenBranchId(internalTree, storedBranchId))
+  return runAgentConversationRootExclusive(rootPath, async () => {
+    const safeSessionId = requireExactConversationId(sessionId, 'session id')
+    const internalTrees = rebuildAgentConversationSessionTrees(await listPersistedAgentConversationRecords(rootPath))
+    const internalTree = internalTrees.find((tree) => tree.sessionId === safeSessionId)
+    if (!internalTree) {
+      throw new AgentConversationSessionTreeError('session_not_found', `Conversation session "${safeSessionId}" was not found.`)
+    }
+    const state = await readOrRepairAgentConversationOpenStateUnlocked(rootPath, internalTrees)
+    const storedBranchId = state?.sessions.find((entry) => entry.sessionId === internalTree.sessionId)?.branchId
+    return toSharedSessionTree(internalTree, selectActiveOpenBranchId(internalTree, storedBranchId))
+  })
 }
+
 
 /** Reads a source branch and returns its safe, non-executing replay projection without persisting it. */
 export async function replayAgentConversationBranchAtRoot(
@@ -430,79 +451,109 @@ export async function forkAgentConversationBranchAtRoot(
     replayId?: string
   } = {}
 ): Promise<AgentConversationRecord> {
-  const source = await readRawAgentConversationRecord(
-    workspace.rootPath,
-    requireExactConversationId(sourceConversationId, 'source conversation id')
-  ) as BranchAwareConversationRecord
-  const sourceMetadata = inferAgentConversationBranchMetadata(source)
-  if (sourceMetadata.status === 'deleted') throw new Error('Deleted conversation branches cannot be forked.')
-  assertExpectedRevision(sourceMetadata.revision, options.expectedRevision)
-  const now = requireTimestamp(options.now ?? new Date().toISOString(), 'fork timestamp')
-  const title = options.title?.trim() || `${source.title} (fork)`
-  const allocate = options.createConversationId ?? nextAgentConversationId
-  const newId = requireExactConversationId(await allocate(workspace.rootPath, title, now), 'fork conversation id')
-  const persisted = await listPersistedAgentConversationRecords(workspace.rootPath)
-  if (persisted.some((item) => item.record.id === newId)) {
-    throw new Error(`Conversation branch "${newId}" already exists.`)
-  }
-  const replayId = requireLineageId(options.replayId ?? `replay-${randomUUID()}`, 'replay id')
-  const projection = projectAgentConversationReplay({
-    source,
-    sourceTurnId: options.sourceTurnId,
-    replayId,
-    createdAt: now
+  return runAgentConversationRootExclusive(workspace.rootPath, async () => {
+    const source = await readRawAgentConversationRecord(
+      workspace.rootPath,
+      requireExactConversationId(sourceConversationId, 'source conversation id')
+    ) as BranchAwareConversationRecord
+    const sourceMetadata = inferAgentConversationBranchMetadata(source)
+    if (sourceMetadata.status === 'deleted') throw new Error('Deleted conversation branches cannot be forked.')
+    assertRequiredExpectedRevision(sourceMetadata.revision, options.expectedRevision)
+    const now = requireTimestamp(options.now ?? new Date().toISOString(), 'fork timestamp')
+    const title = options.title?.trim() || `${source.title} (fork)`
+    const allocate = options.createConversationId ?? nextAgentConversationId
+    const newId = requireExactConversationId(await allocate(workspace.rootPath, title, now), 'fork conversation id')
+    const persisted = await listPersistedAgentConversationRecords(workspace.rootPath)
+    if (persisted.some((item) => item.record.id === newId)) {
+      throw new Error(`Conversation branch "${newId}" already exists.`)
+    }
+    const replayId = requireLineageId(options.replayId ?? `replay-${randomUUID()}`, 'replay id')
+    const projection = projectAgentConversationReplay({
+      source,
+      sourceTurnId: options.sourceTurnId,
+      replayId,
+      createdAt: now
+    })
+    const sourcePath = describeAgentConversationPath(source.relativePath)
+    if (!sourcePath || sourcePath.format !== 'markdown' || sourcePath.id !== source.id) {
+      throw new Error('Source conversation path is not bound to its conversation id.')
+    }
+
+    // Materialize inferred metadata before a legacy root gains descendants. Keeping
+    // revision 0 makes a failed first fork safely retryable with the same CAS token.
+    if (!source.branch) {
+      const upgradedSource: BranchAwareConversationRecord = {
+        ...source,
+        branch: sourceMetadata
+      }
+      await writeAgentConversationRecord(workspace, upgradedSource)
+      source.branch = sourceMetadata
+      const persistedSource = persisted.find((item) => item.record.id === source.id)
+      if (persistedSource) persistedSource.record = upgradedSource
+    }
+
+    const relativePath = agentConversationMarkdownRelativePath(newId, sourcePath.directoryRelativePath)
+    const record: BranchAwareConversationRecord = {
+      id: newId,
+      workspaceId: source.workspaceId ?? workspace.id,
+      title,
+      createdAt: now,
+      updatedAt: now,
+      relativePath,
+      absolutePath: join(workspace.rootPath, relativePath),
+      messageCount: projection.turns.length,
+      branch: {
+        schemaVersion: 1,
+        sessionId: sourceMetadata.sessionId,
+        branchId: newId,
+        revision: 1,
+        status: 'active',
+        parentBranchId: sourceMetadata.branchId,
+        forkPoint: projection.forkPoint,
+        replaySource: projection.replaySource
+      },
+      turns: projection.turns
+    }
+    validateCandidateConversationRecord(persisted, record, sourceMetadata.sessionId)
+    await writeAgentConversationRecord(workspace, record)
+    return record
   })
-  const sourcePath = describeAgentConversationPath(source.relativePath)
-  if (!sourcePath) throw new Error('Source conversation path is not a supported conversation path.')
-  const relativePath = agentConversationMarkdownRelativePath(newId, sourcePath.directoryRelativePath)
-  const record: BranchAwareConversationRecord = {
-    id: newId,
-    workspaceId: source.workspaceId ?? workspace.id,
-    title,
-    createdAt: now,
-    updatedAt: now,
-    relativePath,
-    absolutePath: join(workspace.rootPath, relativePath),
-    messageCount: projection.turns.length,
-    branch: {
-      schemaVersion: 1,
-      sessionId: sourceMetadata.sessionId,
-      branchId: newId,
-      revision: 1,
-      status: 'active',
-      parentBranchId: sourceMetadata.branchId,
-      forkPoint: projection.forkPoint,
-      replaySource: projection.replaySource
-    },
-    turns: projection.turns
-  }
-  await writeAgentConversationRecord(workspace, record)
-  return record
 }
 
 export async function saveAgentConversationBranchAtRoot(
   workspace: AgentConversationWorkspace,
   record: AgentConversationRecord,
-  options: { expectedRevision?: number } = {}
+  options: {
+    expectedRevision?: number
+    allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
+  } = {}
 ): Promise<AgentConversationRecord> {
-  const current = await readRawAgentConversationRecord(
-    workspace.rootPath,
-    requireExactConversationId(record.id, 'conversation id')
-  ) as BranchAwareConversationRecord
-  const currentMetadata = inferAgentConversationBranchMetadata(current)
-  if (currentMetadata.status === 'deleted') throw new Error('Deleted conversation branches cannot be saved.')
-  if (currentMetadata.status === 'archived') throw new Error('Archived conversation branches must be restored before saving.')
-  assertExpectedRevision(currentMetadata.revision, options.expectedRevision)
-  const next: BranchAwareConversationRecord = {
-    ...record,
-    id: current.id,
-    branch: {
-      ...currentMetadata,
-      revision: currentMetadata.revision + 1
+  return runAgentConversationRootExclusive(workspace.rootPath, async () => {
+    const id = requireExactConversationId(record.id, 'conversation id')
+    const current = await readRawAgentConversationRecord(workspace.rootPath, id) as BranchAwareConversationRecord
+    const currentMetadata = inferAgentConversationBranchMetadata(current)
+    if (currentMetadata.status === 'deleted') throw new Error('Deleted conversation branches cannot be saved.')
+    if (currentMetadata.status === 'archived') throw new Error('Archived conversation branches must be restored before saving.')
+    assertRequiredExpectedRevision(currentMetadata.revision, options.expectedRevision)
+    const next: BranchAwareConversationRecord = {
+      ...record,
+      id: current.id,
+      workspaceId: current.workspaceId ?? record.workspaceId ?? workspace.id,
+      createdAt: current.createdAt,
+      relativePath: current.relativePath,
+      absolutePath: join(workspace.rootPath, current.relativePath),
+      branch: {
+        ...currentMetadata,
+        revision: currentMetadata.revision + 1
+      }
     }
-  }
-  await writeAgentConversationRecord(workspace, next)
-  return next
+    const persisted = await listPersistedAgentConversationRecords(workspace.rootPath)
+    validateCandidateConversationRecord(persisted, next, currentMetadata.sessionId)
+    await writeAgentConversationRecord(workspace, next, {
+      allowedStagedChildTranscripts: options.allowedStagedChildTranscripts
+    })
+    return next
+  })
 }
 
 export async function updateAgentConversationBranchStatusAtRoot(
@@ -511,38 +562,78 @@ export async function updateAgentConversationBranchStatusAtRoot(
   status: AgentConversationBranchStatus,
   options: { expectedRevision?: number } = {}
 ): Promise<AgentConversationRecord> {
-  const id = requireExactConversationId(conversationId, 'conversation id')
-  const targetStatus = requireBranchStatus(status, id)
-  const current = await readRawAgentConversationRecord(workspace.rootPath, id) as BranchAwareConversationRecord
-  const metadata = inferAgentConversationBranchMetadata(current)
-  assertExpectedRevision(metadata.revision, options.expectedRevision)
-  if (metadata.status === 'deleted') {
-    if (targetStatus === 'deleted') return current
-    throw new Error('Deleted conversation branches are tombstones and cannot be restored.')
-  }
-  if (targetStatus === metadata.status) return current
-  if (targetStatus === 'archived' && metadata.status !== 'active') {
-    throw new Error('Only active conversation branches can be archived.')
-  }
-  if (targetStatus === 'active' && metadata.status !== 'archived') {
-    throw new Error('Only archived conversation branches can be restored.')
-  }
-  const next: BranchAwareConversationRecord = {
-    ...current,
-    branch: {
-      ...metadata,
-      revision: metadata.revision + 1,
-      status: targetStatus
+  return runAgentConversationRootExclusive(workspace.rootPath, async () => {
+    const id = requireExactConversationId(conversationId, 'conversation id')
+    const targetStatus = requireBranchStatus(status, id)
+    const current = await readRawAgentConversationRecord(workspace.rootPath, id) as BranchAwareConversationRecord
+    const metadata = inferAgentConversationBranchMetadata(current)
+    const expectedRevision = requireExpectedRevision(options.expectedRevision)
+
+    // A response may be lost after the canonical JSON commit but before every
+    // archive projection is verified. The same-state retry is therefore a repair
+    // operation and accepts the immediately preceding CAS token.
+    if (targetStatus === metadata.status) {
+      if (expectedRevision !== metadata.revision && expectedRevision !== metadata.revision - 1) {
+        throw new AgentConversationBranchRevisionConflictError(expectedRevision, metadata.revision)
+      }
+      const repairRecord: BranchAwareConversationRecord = current.branch
+        ? current
+        : { ...current, branch: metadata }
+      await writeAgentConversationRecord(workspace, repairRecord)
+      return repairRecord
     }
-  }
-  await writeAgentConversationRecord(workspace, next)
-  return next
+
+    assertExpectedRevision(metadata.revision, expectedRevision)
+    if (metadata.status === 'deleted') {
+      throw new Error('Deleted conversation branches are tombstones and cannot be restored.')
+    }
+    if (targetStatus === 'archived' && metadata.status !== 'active') {
+      throw new Error('Only active conversation branches can be archived.')
+    }
+    if (targetStatus === 'active' && metadata.status !== 'archived') {
+      throw new Error('Only archived conversation branches can be restored.')
+    }
+    if (metadata.status === 'active' && targetStatus !== 'active') {
+      const sessionTree = await readInternalSessionTreeAtRoot(workspace.rootPath, metadata.sessionId)
+      const hasActiveFallback = sessionTree.nodes.some((node) => (
+        node.branchId !== metadata.branchId && node.status === 'active'
+      ))
+      if (!hasActiveFallback) {
+        throw new Error('The last active conversation branch cannot be archived or deleted.')
+      }
+    }
+    const next: BranchAwareConversationRecord = {
+      ...current,
+      branch: {
+        ...metadata,
+        revision: metadata.revision + 1,
+        status: targetStatus
+      }
+    }
+    const persisted = await listPersistedAgentConversationRecords(workspace.rootPath)
+    validateCandidateConversationRecord(persisted, next, metadata.sessionId)
+    await writeAgentConversationRecord(workspace, next)
+    return next
+  })
 }
 
 
 
 
 export async function readAgentConversationOpenStateAtRoot(
+  rootPath: string
+): Promise<AgentConversationOpenState | null> {
+  return runAgentConversationRootExclusive(rootPath, () => readAgentConversationOpenStateAtRootUnlocked(rootPath))
+}
+
+export async function writeAgentConversationOpenStateAtRoot(
+  rootPath: string,
+  entries: readonly AgentConversationOpenStateEntry[]
+): Promise<AgentConversationOpenState> {
+  return runAgentConversationRootExclusive(rootPath, () => writeAgentConversationOpenStateAtRootUnlocked(rootPath, entries))
+}
+
+async function readAgentConversationOpenStateAtRootUnlocked(
   rootPath: string
 ): Promise<AgentConversationOpenState | null> {
   const targetPath = openStatePath(rootPath)
@@ -577,12 +668,11 @@ export async function readAgentConversationOpenStateAtRoot(
   return normalizeOpenState(parsed)
 }
 
-export async function writeAgentConversationOpenStateAtRoot(
+async function writeAgentConversationOpenStateAtRootUnlocked(
   rootPath: string,
   entries: readonly AgentConversationOpenStateEntry[]
 ): Promise<AgentConversationOpenState> {
-  const sessions = normalizeOpenStateEntries(entries)
-    .sort((left, right) => left.sessionId.localeCompare(right.sessionId))
+  const sessions = compactOpenStateEntries(entries)
   const payload = { schemaVersion: 1 as const, sessions }
   const state: AgentConversationOpenState = {
     ...payload,
@@ -631,6 +721,18 @@ export async function openAgentConversationBranchAtRoot(
     repairInvalidOpenState?: boolean
   } = {}
 ): Promise<AgentConversationOpenResult> {
+  return runAgentConversationRootExclusive(rootPath, () => openAgentConversationBranchAtRootUnlocked(rootPath, sessionId, options))
+}
+
+async function openAgentConversationBranchAtRootUnlocked(
+  rootPath: string,
+  sessionId: string,
+  options: {
+    requestedBranchId?: string
+    now?: string
+    repairInvalidOpenState?: boolean
+  }
+): Promise<AgentConversationOpenResult> {
   const internalTree = await readInternalSessionTreeAtRoot(rootPath, sessionId)
   const nodes = new Map(internalTree.nodes.map((node) => [node.branchId, node]))
   const issues: AgentConversationOpenIssue[] = []
@@ -648,7 +750,7 @@ export async function openAgentConversationBranchAtRoot(
 
   let state: AgentConversationOpenState | null = null
   try {
-    state = await readAgentConversationOpenStateAtRoot(rootPath)
+    state = await readAgentConversationOpenStateAtRootUnlocked(rootPath)
   } catch (error) {
     if (options.repairInvalidOpenState === false) throw error
     const message = error instanceof Error ? error.message : 'Conversation open-state sidecar is invalid.'
@@ -689,12 +791,14 @@ export async function openAgentConversationBranchAtRoot(
   const preservedEntries = state?.sessions.filter((entry) => entry.sessionId !== internalTree.sessionId) ?? []
   const nextEntries = [...preservedEntries, { sessionId: internalTree.sessionId, branchId: node.branchId, updatedAt: now }]
   const shouldWrite = !state || storedEntry?.branchId !== node.branchId || requestedBranchId !== undefined || issues.length > 0
-  if (shouldWrite) await writeAgentConversationOpenStateAtRoot(rootPath, nextEntries)
+  if (shouldWrite) await writeAgentConversationOpenStateAtRootUnlocked(rootPath, nextEntries)
   const tree = toSharedSessionTree(internalTree, node.branchId)
   const sharedNode = tree.branches.find((branch) => branch.branchId === node?.branchId)
   if (!sharedNode) throw new Error(`Opened conversation branch "${node.branchId}" disappeared from the rebuilt tree.`)
-  return { tree, node: sharedNode, record: node.record, selectedBy, issues }
+  const hydratedRecord = await readAgentConversationRecord(rootPath, node.conversationId)
+  return { tree, node: sharedNode, record: hydratedRecord, selectedBy, issues }
 }
+
 
 function normalizeForkPoint(value: unknown, branchId: string): AgentConversationForkPoint {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -790,8 +894,8 @@ function validatePersistedReplayPrefix(
   for (const [index, source] of sourcePrefix.entries()) {
     const replayed = node.record.turns[index]
     const provenance = replayed?.metadata?.provenance
-    const onlyReplayMetadata = replayed?.metadata && Object.keys(replayed.metadata)
-      .every((key) => key === 'version' || key === 'provenance')
+    const onlyReplayMetadata = replayed?.metadata && Object.entries(replayed.metadata)
+      .every(([key, value]) => key === 'version' || key === 'provenance' || value === undefined)
     if (!replayed || replayed.role !== source.role || replayed.content !== source.content || replayed.createdAt !== source.createdAt ||
         replayed.toolCalls !== undefined || replayed.processEvents !== undefined || !onlyReplayMetadata ||
         provenance?.kind !== 'replayed' || provenance.sourceConversationId !== replay.sourceConversationId ||
@@ -860,6 +964,64 @@ function replayTurnId(
   index: number
 ): string {
   return `replay-${sha256(stableCanonicalJson({ replayId, sourceConversationId, sourceBranchId, sourceTurnId, index })).slice(0, 32)}`
+}
+
+async function readOrRepairAgentConversationOpenStateUnlocked(
+  rootPath: string,
+  trees: readonly InternalSessionTree[]
+): Promise<AgentConversationOpenState | null> {
+  let state: AgentConversationOpenState | null = null
+  let corrupted = false
+  try {
+    state = await readAgentConversationOpenStateAtRootUnlocked(rootPath)
+  } catch {
+    corrupted = true
+  }
+  if (!state && !corrupted) return null
+
+  const treesBySession = new Map(trees.map((tree) => [tree.sessionId, tree]))
+  const nextEntries: AgentConversationOpenStateEntry[] = []
+  let repaired = corrupted
+  for (const entry of state?.sessions ?? []) {
+    const tree = treesBySession.get(entry.sessionId)
+    if (!tree) {
+      repaired = true
+      continue
+    }
+    const selected = selectActiveOpenBranchId(tree, entry.branchId)
+    if (selected !== entry.branchId) repaired = true
+    nextEntries.push({ ...entry, branchId: selected })
+    treesBySession.delete(entry.sessionId)
+  }
+  if (corrupted) {
+    const now = new Date().toISOString()
+    for (const tree of treesBySession.values()) {
+      nextEntries.push({
+        sessionId: tree.sessionId,
+        branchId: selectActiveOpenBranchId(tree),
+        updatedAt: now
+      })
+    }
+  }
+  return repaired
+    ? writeAgentConversationOpenStateAtRootUnlocked(rootPath, nextEntries)
+    : state
+}
+
+function compactOpenStateEntries(
+  entries: readonly AgentConversationOpenStateEntry[]
+): AgentConversationOpenStateEntry[] {
+  const latestBySession = new Map<string, AgentConversationOpenStateEntry>()
+  for (const entry of entries) {
+    const normalized = normalizeOpenStateEntries([entry])[0]
+    const existing = latestBySession.get(normalized.sessionId)
+    if (!existing || existing.updatedAt <= normalized.updatedAt) {
+      latestBySession.set(normalized.sessionId, normalized)
+    }
+  }
+  return [...latestBySession.values()]
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.sessionId.localeCompare(right.sessionId))
+    .slice(0, MAX_OPEN_STATE_ENTRIES)
 }
 
 function normalizeOpenState(value: unknown): AgentConversationOpenState {
@@ -967,6 +1129,34 @@ async function assertExistingPathContained(rootPath: string, targetPath: string)
 
 async function readInternalSessionTreeAtRoot(rootPath: string, sessionId: string): Promise<InternalSessionTree> {
   return rebuildAgentConversationSessionTree(await listPersistedAgentConversationRecords(rootPath), sessionId)
+}
+
+function validateCandidateConversationRecord(
+  persisted: readonly PersistedAgentConversationRecord[],
+  candidate: AgentConversationRecord,
+  sessionId: string
+): void {
+  const candidatePath = describeAgentConversationPath(candidate.relativePath)
+  if (!candidatePath || candidatePath.format !== 'markdown' || candidatePath.id !== candidate.id) {
+    throw new Error('Conversation record path is not bound to its conversation id.')
+  }
+  let replaced = false
+  const next = persisted.map((item) => {
+    if (item.record.id !== candidate.id) return item
+    if (replaced) throw new AgentConversationSessionTreeError(
+      'duplicate_branch',
+      `Conversation "${candidate.id}" has multiple persisted records.`
+    )
+    replaced = true
+    return { ...item, record: candidate }
+  })
+  if (!replaced) {
+    next.push({
+      jsonRelativePath: candidate.relativePath.replace(/\.md$/i, '.json'),
+      record: candidate
+    })
+  }
+  rebuildAgentConversationSessionTree(next, sessionId)
 }
 
 function selectActiveOpenBranchId(
@@ -1093,6 +1283,17 @@ function requireOpenStateTimestamp(value: unknown): string {
   }
 }
 
+function requireExpectedRevision(expectedRevision: number | undefined): number {
+  if (!Number.isSafeInteger(expectedRevision) || (expectedRevision ?? -1) < 0) {
+    throw new Error('Expected branch revision is required and must be a non-negative integer.')
+  }
+  return expectedRevision as number
+}
+
+function assertRequiredExpectedRevision(currentRevision: number, expectedRevision: number | undefined): void {
+  assertExpectedRevision(currentRevision, requireExpectedRevision(expectedRevision))
+}
+
 function assertExpectedRevision(currentRevision: number, expectedRevision: number | undefined): void {
   if (expectedRevision === undefined) return
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error('Expected branch revision is invalid.')
@@ -1110,6 +1311,22 @@ function assertOnlyKeys(record: Record<string, unknown>, expected: readonly stri
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex')
+}
+
+async function runAgentConversationRootExclusive<T>(rootPath: string, operation: () => Promise<T>): Promise<T> {
+  const key = resolve(rootPath).replace(/\\/g, '/').toLowerCase()
+  const previous = pendingRootOperations.get(key) ?? Promise.resolve()
+  let release: (() => void) | undefined
+  const gate = new Promise<void>((resolveGate) => { release = resolveGate })
+  const queued = previous.catch(() => undefined).then(() => gate)
+  pendingRootOperations.set(key, queued)
+  await previous.catch(() => undefined)
+  try {
+    return await operation()
+  } finally {
+    release?.()
+    if (pendingRootOperations.get(key) === queued) pendingRootOperations.delete(key)
+  }
 }
 
 function isErrnoException(error: unknown, code: string): error is NodeJS.ErrnoException {
