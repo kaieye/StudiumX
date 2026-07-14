@@ -13,6 +13,10 @@ export type AgentProcessTimelineItem =
       toolCall: AgentProcessToolCall
     }
 
+/**
+ * Preserves live event arrival order, then appends durable tool evidence that
+ * was not represented by a live process event in persisted tool-call order.
+ */
 export function buildAgentProcessTimeline(turn: AgentChatTurn): AgentProcessTimelineItem[] {
   const events = turn.processEvents ?? []
   const toolCalls = turn.toolCalls ?? []

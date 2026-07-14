@@ -1,7 +1,6 @@
 import {
   AlertCircle,
   AlertTriangle,
-  Archive,
   ArrowLeft,
   ArrowUpRight,
   Bell,
@@ -10,7 +9,6 @@ import {
   Bot,
   BrainCircuit,
   Check,
-  CheckCircle2,
   ChevronDown,
   Clock3,
   FileText,
@@ -18,7 +16,6 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
-  GitFork,
   GraduationCap,
   History,
   Info,
@@ -35,7 +32,6 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
-  Sparkles,
   Square,
   Play,
   SendHorizontal,
@@ -53,7 +49,6 @@ import i18n from './i18n'
 import { MarkdownEditor } from './markdown-editor'
 import { MarkdownPreview } from './markdown-preview'
 import { OfficeWorkbench } from './views/workbench/OfficeWorkbench'
-import { buildAgentProcessTimeline } from './agent-process-timeline'
 import {
   defaultSidebarWidth,
   DesktopAppFrame,
@@ -98,10 +93,11 @@ import {
   projectVisibleAgentConversationWorkspaces
 } from './agent-conversation-projection'
 import {
-  parseAskToolCall,
   selectPendingAsk,
   selectPendingToolPermission,
 } from './agent-conversation-state'
+import { buildAgentConversationPresentation } from './agent-conversation-presentation'
+import { AgentConversationReader } from './views/agent-conversation/AgentConversationReader'
 import {
   LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE,
   LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE,
@@ -111,7 +107,6 @@ import {
   PREVIEW_MARKDOWN_LINK_MESSAGE
 } from '../../shared/preview-markdown-bridge'
 import {
-  type AgentChatProcessEvent,
   type AgentChatTurn,
   type AgentToolPermissionRequest,
   type AskAnswer,
@@ -1964,6 +1959,34 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     ? selectPendingToolPermission(agentTurns, pendingAskStreamId)
     : null
   const hasPendingInterruption = Boolean(pendingAsk || pendingPermission)
+  const activeAssistantTurnId = viewingBusyPendingConversation
+    ? [...agentTurns].reverse().find((turn) => turn.role === 'assistant')?.id
+    : null
+  const conversationPresentation = useMemo(() => buildAgentConversationPresentation({
+    turns: agentTurns,
+    activeTurnId: activeAssistantTurnId,
+    interruption: pendingAsk
+      ? {
+          kind: 'ask',
+          streamId: pendingAsk.streamId,
+          toolCallId: pendingAsk.toolCallId,
+          questions: pendingAsk.questions
+        }
+      : pendingPermission
+        ? {
+            kind: 'tool_permission',
+            streamId: pendingPermission.streamId,
+            toolCallId: pendingPermission.toolCallId,
+            request: pendingPermission.request
+          }
+        : null
+  }), [agentTurns, activeAssistantTurnId, pendingAsk, pendingPermission])
+  const blockedAsk = conversationPresentation.blocked?.kind === 'ask'
+    ? conversationPresentation.blocked
+    : null
+  const blockedPermission = conversationPresentation.blocked?.kind === 'tool_permission'
+    ? conversationPresentation.blocked
+    : null
   const canSend = Boolean(active && inputValue.trim() && !busy && !hasPendingInterruption)
   const sentInputHistory = useMemo(
     () => mergeAgentInputHistory(agentInputHistory, userTurnInputHistory(agentTurns)),
@@ -1994,22 +2017,24 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     else submitChatPrompt(inputValue)
   }
   const answerAsk = (answers: AskAnswer[]): void => {
-    if (!pendingAsk) return
+    const command = blockedAsk?.command
+    if (!command) return
     void window.teachingSystem?.answerAgentChatTool(
-      pendingAsk.streamId,
-      pendingAsk.toolCallId,
+      command.streamId,
+      command.toolCallId,
       answers
     )
   }
   const answerPermission = (decision: 'allow_once' | 'allow_for_run' | 'allow_for_directory' | 'deny'): void => {
-    if (!pendingPermission) return
+    const command = blockedPermission?.command
+    if (!command) return
     void window.teachingSystem?.answerAgentChatTool(
-      pendingPermission.streamId,
-      pendingPermission.toolCallId,
+      command.streamId,
+      command.toolCallId,
       [
         { questionId: 'permission', selected: [decision] },
-        ...(decision === 'allow_for_directory' && pendingPermission.request.directoryScopePath
-          ? [{ questionId: 'scope', selected: [pendingPermission.request.directoryScopePath] }]
+        ...(decision === 'allow_for_directory' && blockedPermission.request.directoryScopePath
+          ? [{ questionId: 'scope', selected: [blockedPermission.request.directoryScopePath] }]
           : [])
       ]
     )
@@ -2061,10 +2086,6 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     if (!node) return
     node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
   }, [agentTurns, agentStatus, pendingAsk, pendingPermission])
-  const activeAssistantTurnId = viewingBusyPendingConversation
-    ? [...agentTurns].reverse().find((turn) => turn.role === 'assistant')?.id
-    : null
-
   return (
     <section
       className={`overview-dialog-shell${hasConversation ? ' has-conversation' : ''}`}
@@ -2074,19 +2095,17 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         <div ref={scrollRef} className="overview-dialog-thread">
           <div className="overview-dialog-thread-inner">
           {agentTurns.map((turn) => {
+            const turnPresentation = conversationPresentation.turns.find((item) => item.turnId === turn.id)
             const isBusyTurn = activeAssistantTurnId === turn.id
-            const hasProcess =
-              turn.role === 'assistant' &&
-              (Boolean(turn.processEvents?.length) || Boolean(turn.toolCalls?.length))
+            const hasProcess = Boolean(turnPresentation?.items.length)
             const content = turn.content || (turn.role === 'assistant' && isBusyTurn && !hasProcess ? '正在回复…' : '')
             return (
               <div
                 key={turn.id}
                 className={`overview-dialog-message ${turn.role === 'user' ? 'is-user' : 'is-assistant'}`}
               >
-                {turn.role === 'assistant' && <AgentProcessPanel turn={turn} busy={isBusyTurn} compact />}
+                {turn.role === 'assistant' ? <AgentConversationReader presentation={turnPresentation} compact /> : null}
                 {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
-                {turn.role === 'assistant' ? <AskQABlock turn={turn} /> : null}
               </div>
             )
           })}
@@ -2095,20 +2114,20 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       )}
 
       <DialogModeSwitch />
-      {pendingAsk && (
+      {blockedAsk && (
         <div className="overview-dialog-stack ask-stack">
           <AskCard
-            questions={pendingAsk.questions}
+            questions={blockedAsk.questions}
             onSubmit={answerAsk}
             onDismiss={() => answerAsk([])}
             onCancel={() => void cancelAgentChat()}
           />
         </div>
       )}
-      {pendingPermission && (
+      {blockedPermission && (
         <div className="overview-dialog-stack ask-stack">
           <ToolPermissionCard
-            request={pendingPermission.request}
+            request={blockedPermission.request}
             onAllowOnce={() => answerPermission('allow_once')}
             onAllowRun={() => answerPermission('allow_for_run')}
             onAllowDirectory={() => answerPermission('allow_for_directory')}
@@ -2228,161 +2247,6 @@ function MarkdownMessage({
       </ReactMarkdown>
     </div>
   )
-}
-
-function AgentProcessPanel({
-  turn,
-  busy,
-  compact = false
-}: {
-  turn: AgentChatTurn
-  busy: boolean
-  compact?: boolean
-}) {
-  const events = turn.processEvents ?? []
-  const toolCalls = turn.toolCalls ?? []
-  const timeline = buildAgentProcessTimeline(turn)
-  if (events.length === 0 && toolCalls.length === 0) return null
-  return (
-    <div className={`agent-process-panel${compact ? ' is-compact' : ''}`}>
-      <div className="agent-process-header">
-        <BrainCircuit size={compact ? 13 : 14} />
-        <strong>思考过程</strong>
-        {busy ? <span>进行中</span> : <span>已记录</span>}
-      </div>
-      <div className="agent-process-list">
-        {timeline.map((item, index) => (
-          item.kind === 'event' ? (
-            <AgentProcessEventRow
-              key={item.event.id}
-              event={item.event}
-              active={busy && index === timeline.length - 1 && item.event.status !== 'done'}
-            >
-              <AgentProcessToolDetail event={item.event} toolCall={item.toolCall} />
-            </AgentProcessEventRow>
-          ) : (
-            <ToolCallCard key={item.toolCall.id} toolCall={item.toolCall} />
-          )
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function AgentProcessEventRow({
-  event,
-  active,
-  children
-}: {
-  event: AgentChatProcessEvent
-  active: boolean
-  children?: ReactNode
-}) {
-  return (
-    <div className={`agent-process-event${event.isError ? ' is-error' : ''}${active ? ' is-active' : ''}`}>
-      <span className="agent-process-event-icon">
-        <AgentProcessIcon event={event} active={active} />
-      </span>
-      <div className="agent-process-event-copy">
-        <strong>{event.title}</strong>
-        {event.detail ? <small>{event.detail}</small> : null}
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function AgentProcessToolDetail({
-  event,
-  toolCall
-}: {
-  event: AgentChatProcessEvent
-  toolCall?: NonNullable<AgentChatTurn['toolCalls']>[number]
-}) {
-  const [open, setOpen] = useState(false)
-  if (!isToolBackedProcessEvent(event)) return null
-
-  const argsPretty = toolCall?.arguments ? prettyJson(toolCall.arguments) : ''
-  const hasResult = isToolBackedResultEvent(event) && (toolCall?.result !== undefined || Boolean(event.detail))
-  const resultPretty = toolCall?.result !== undefined ? prettyJson(toolCall.result ?? '') : (isToolBackedResultEvent(event) ? event.detail ?? '' : '')
-  const hasExpandableDetail = Boolean(argsPretty || resultPretty)
-  if (!hasExpandableDetail) return null
-
-  return (
-    <div className="agent-process-tool-detail">
-      <button
-        aria-expanded={open}
-        className="agent-process-tool-detail-trigger"
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span>{toolBackedDetailLabel(event, hasResult)}</span>
-        <ChevronDown className={open ? 'is-open' : ''} size={12} />
-      </button>
-      {open && (
-        <div className="tool-call-body is-inline">
-          {argsPretty && (
-            <div className="tool-call-section">
-              <div>参数</div>
-              <pre>{argsPretty}</pre>
-            </div>
-          )}
-          {hasResult && resultPretty && (
-            <div className="tool-call-section">
-              <div>结果</div>
-              <pre>{resultPretty}</pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function isToolBackedProcessEvent(event: AgentChatProcessEvent): boolean {
-  return event.kind === 'tool_call' ||
-    event.kind === 'tool_result' ||
-    event.kind === 'permission_request' ||
-    event.kind === 'permission_resolved' ||
-    event.kind === 'elicitation_request' ||
-    event.kind === 'elicitation_resolved'
-}
-
-function isToolBackedResultEvent(event: AgentChatProcessEvent): boolean {
-  return event.kind === 'tool_result' ||
-    event.kind === 'permission_resolved' ||
-    event.kind === 'elicitation_resolved'
-}
-
-function toolBackedDetailLabel(event: AgentChatProcessEvent, hasResult: boolean): string {
-  if (event.kind === 'permission_request') return '查看审批请求'
-  if (event.kind === 'permission_resolved') return '查看审批结果'
-  if (event.kind === 'elicitation_request') return '查看问题参数'
-  if (event.kind === 'elicitation_resolved') return '查看用户回答'
-  return hasResult ? '查看工具结果' : '查看工具参数'
-}
-
-function AgentProcessIcon({
-  event,
-  active
-}: {
-  event: AgentChatProcessEvent
-  active: boolean
-}) {
-  if (event.isError || event.status === 'error') return <AlertCircle size={13} />
-  if (active) return <Loader2 className="spin" size={13} />
-  if (event.kind === 'permission_request') return <Bell size={13} />
-  if (event.kind === 'permission_resolved') return <CheckCircle2 size={13} />
-  if (event.kind === 'elicitation_request') return <MessageSquare size={13} />
-  if (event.kind === 'elicitation_resolved') return <CheckCircle2 size={13} />
-  if (event.kind.startsWith('child_run_')) return <GitFork size={13} />
-  if (event.kind === 'compaction') return <Archive size={13} />
-  if (event.kind === 'tool_call') return <Search size={13} />
-  if (event.kind === 'tool_result') return <CheckCircle2 size={13} />
-  if (event.status === 'done') return <CheckCircle2 size={13} />
-  if (event.status === 'answering') return <Sparkles size={13} />
-  if (event.status === 'tool_running' || event.status === 'tool_done') return <Wrench size={13} />
-  return <Clock3 size={13} />
 }
 
 function ToolPermissionCard({
@@ -2638,85 +2502,9 @@ function AskCard({
   )
 }
 
-function AskQABlock({ turn }: { turn: AgentChatTurn }) {
-  const parsed = parseAskToolCall(turn)
-  if (!parsed || parsed.result === undefined || parsed.isError) return null
-  return (
-    <div className="ask-qa-block">
-      <div className="ask-qa-block__head">
-        <CheckCircle2 size={13} />
-        <span>已询问用户</span>
-      </div>
-      <div className="ask-qa-block__body">
-        {parsed.result.split(/\n\n/).map((block, index) => (
-          <div key={index} className="ask-qa-block__item">
-            {block.split('\n').map((line, lineIndex) => (
-              <p key={lineIndex}>{line}</p>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function compactPrompt(prompt: string): string {
   const trimmed = prompt.replace(/\s+/g, ' ').trim()
   return trimmed.length > 18 ? `${trimmed.slice(0, 17)}...` : trimmed
-}
-
-function ToolCallCard({ toolCall }: { toolCall: NonNullable<AgentChatTurn['toolCalls']>[number] }) {
-  const [open, setOpen] = useState(false)
-  const name = toolCall.name || 'tool'
-  const argsPretty = prettyJson(toolCall.arguments)
-  const hasResult = toolCall.result !== undefined
-  if (name === 'ask') {
-    return (
-      <div className="tool-call-card is-ask">
-        <div className="tool-call-trigger">
-          <MessageSquare size={14} />
-          <strong>询问用户</strong>
-          {hasResult && (
-            <span className="tool-call-state">{toolCall.isError ? '失败' : '已回答'}</span>
-          )}
-        </div>
-      </div>
-    )
-  }
-  return (
-    <div className={`tool-call-card${toolCall.isError ? ' is-error' : ''}`}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="tool-call-trigger"
-      >
-        <Search size={14} />
-        <strong>{name}</strong>
-        {hasResult && (
-          <span className="tool-call-state">
-            {toolCall.isError ? '失败' : '完成'}
-          </span>
-        )}
-        <ChevronDown className={open ? 'is-open' : ''} size={13} />
-      </button>
-      {open && (
-        <div className="tool-call-body">
-          {argsPretty && (
-            <div className="tool-call-section">
-              <div>参数</div>
-              <pre>{argsPretty}</pre>
-            </div>
-          )}
-          {hasResult && (
-            <div className="tool-call-section">
-              <div>结果</div>
-              <pre>{prettyJson(toolCall.result ?? '')}</pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
 }
 
 // ================================================================
@@ -2767,14 +2555,5 @@ function stripLessonIndexPrefix(name: string, id: string): string {
   return rest || name
 }
 
-
-function prettyJson(value: string): string {
-  if (!value) return ''
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2)
-  } catch {
-    return value
-  }
-}
 
 export { App, AppErrorBoundary }
