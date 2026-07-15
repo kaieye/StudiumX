@@ -92,6 +92,64 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
     })).rejects.toThrow('No trusted Lesson preview binding')
   })
 
+  it('serializes same-binding retries into one durable host-attributed event and rejects changed replay authority', async () => {
+    const service = await createService('preview-evidence-idempotency')
+    const workspace = (await service.createWorkspace({ name: 'Idempotent evidence', prompt: 'Teach durable retry safety.' })).activeWorkspace!
+    const lesson = (await service.generateLesson({
+      workspaceId: workspace.id,
+      prompt: 'Explain why a retry must retain its original host attribution.',
+      messages: []
+    })).lesson
+    const senderId = 707
+    const intent = { eventId: 'preview-retry-001', kind: 'lesson_opened' as const, itemId: lesson.id }
+
+    await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, senderId)
+    const [first, concurrentRetry] = await Promise.all([
+      service.recordPreviewLessonInteraction(senderId, intent),
+      service.recordPreviewLessonInteraction(senderId, intent)
+    ])
+    expect([first.duplicate, concurrentRetry.duplicate].sort()).toEqual([false, true])
+    expect({ ...first, duplicate: false }).toEqual({ ...concurrentRetry, duplicate: false })
+
+    const sequentialRetry = await service.recordPreviewLessonInteraction(senderId, intent)
+    expect(sequentialRetry).toEqual({ ...first, duplicate: true })
+
+    const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
+    const snapshot = await ledger.load(lesson.sessionId)
+    expect(snapshot?.events).toHaveLength(1)
+    expect(snapshot?.events[0]).toMatchObject({
+      eventId: intent.eventId,
+      sequence: first.sequence,
+      payload: {
+        lessonInteraction: {
+          eventId: intent.eventId,
+          workspaceId: workspace.id,
+          courseId: lesson.courseId,
+          sessionId: lesson.sessionId,
+          lessonId: lesson.id,
+          artifactDigest: createHash('sha256').update(await readFile(lesson.absolutePath)).digest('hex'),
+          attempt: 1,
+          surface: 'lesson_preview'
+        }
+      }
+    })
+    const recorded = snapshot?.events[0]?.payload.lessonInteraction as Record<string, unknown>
+    expect(recorded.observedAt).toEqual(expect.any(String))
+
+    await expect(service.recordPreviewLessonInteraction(senderId, {
+      eventId: intent.eventId, kind: 'lesson_completed', itemId: lesson.id
+    })).rejects.toMatchObject({ code: 'binding_intent_conflict' })
+    await expect(service.recordPreviewLessonInteraction(senderId, {
+      eventId: intent.eventId, kind: 'lesson_opened', itemId: 'different-item'
+    })).rejects.toMatchObject({ code: 'binding_intent_conflict' })
+    expect((await ledger.load(lesson.sessionId))?.events).toHaveLength(1)
+
+    service.clearPreviewLessonBinding(senderId)
+    await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, senderId)
+    await expect(service.recordPreviewLessonInteraction(senderId, intent)).rejects.toMatchObject({ code: 'identity_conflict' })
+    expect((await ledger.load(lesson.sessionId))?.events).toHaveLength(1)
+  })
+
   it('keeps concurrent trusted bindings isolated by numeric preview sender', async () => {
     const service = await createService('preview-evidence-concurrent-senders')
     const workspace = (await service.createWorkspace({ name: 'Concurrent bindings', prompt: 'Teach sender-scoped authority.' })).activeWorkspace!

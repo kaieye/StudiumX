@@ -71,6 +71,7 @@ import { activeLearnerProfileLines } from '../shared/teaching-personalization'
 import { createPreviewLessonInteraction } from '../shared/preview-markdown-bridge'
 import {
   normalizePreviewLessonInteractionIntent,
+  type LessonInteraction,
   type PreviewLessonInteractionIntent,
   type PreviewLessonInteractionReceipt
 } from '../shared/teaching-types/lesson-interaction'
@@ -192,6 +193,11 @@ type AgentConversationLocation = {
   global: boolean
 }
 
+type BoundPreviewLessonInteraction = {
+  intent: PreviewLessonInteractionIntent
+  event: LessonInteraction
+}
+
 type ActivePreviewBinding = {
   workspaceRoot: string
   workspaceId: string
@@ -203,12 +209,17 @@ type ActivePreviewBinding = {
   lessonTitle: string
   lessonRelativePath: string
   artifactDigest: string
+  /** Host-issued binding attempt; makes event-ID replays across bindings conflict. */
+  attempt: number
+  revoked: boolean
+  recordedInteractions: Map<string, BoundPreviewLessonInteraction>
 }
 
 export type PreviewLessonInteractionBindingErrorCode =
   | 'sender_unavailable'
   | 'binding_unavailable'
   | 'binding_identity_mismatch'
+  | 'binding_intent_conflict'
 
 export class PreviewLessonInteractionBindingError extends Error {
   constructor(readonly code: PreviewLessonInteractionBindingErrorCode, message: string) {
@@ -246,6 +257,8 @@ export class TeachingWorkspaceService {
   private readonly pendingAgentRunArchiveScopes = new Map<string, PendingAgentRunArchiveScope>()
   /** Per-renderer trusted preview authority; never stores a WebContents object. */
   private readonly activePreviewBindings = new Map<number, ActivePreviewBinding>()
+  private readonly previewInteractionQueues = new Map<number, Promise<void>>()
+  private nextPreviewBindingAttempt = 1
   private readonly previewReadGenerations = new Map<number, number>()
 
   constructor(options: {
@@ -1363,7 +1376,10 @@ export class TeachingWorkspaceService {
       lessonId: lesson.id,
       lessonTitle: lesson.title,
       lessonRelativePath: lesson.relativePath,
-      artifactDigest: createHash('sha256').update(artifact).digest('hex')
+      artifactDigest: createHash('sha256').update(artifact).digest('hex'),
+      attempt: this.nextPreviewBindingAttempt++,
+      revoked: false,
+      recordedInteractions: new Map()
     })
     return result
   }
@@ -1376,7 +1392,7 @@ export class TeachingWorkspaceService {
   }
 
   clearPreviewLessonBinding(webContentsId: number): void {
-    this.activePreviewBindings.delete(webContentsId)
+    this.revokePreviewLessonBinding(webContentsId)
     this.advancePreviewReadGeneration(webContentsId)
   }
 
@@ -1384,32 +1400,34 @@ export class TeachingWorkspaceService {
     webContentsId: number,
     intent: PreviewLessonInteractionIntent
   ): Promise<PreviewLessonInteractionReceipt> {
-    const binding = this.activePreviewBindings.get(webContentsId)
-    if (!binding) throw new PreviewLessonInteractionBindingError('binding_unavailable', 'No trusted Lesson preview binding is active.')
-
     const normalizedIntent = normalizePreviewLessonInteractionIntent(intent)
-    const ledger = createLearningSessionLedger({ workspaceRoot: binding.workspaceRoot })
-    const session = await ledger.load(binding.sessionId)
-    if (!isCanonicalWritablePreviewBinding(session, binding)) {
-      throw new PreviewLessonInteractionBindingError(
-        'binding_identity_mismatch',
-        'Trusted Lesson preview binding no longer matches a writable canonical Learning Session.'
-      )
-    }
+    return this.serializePreviewInteraction(webContentsId, async () => {
+      const binding = this.activePreviewBindings.get(webContentsId)
+      if (!binding || binding.revoked) {
+        throw new PreviewLessonInteractionBindingError('binding_unavailable', 'No trusted Lesson preview binding is active.')
+      }
 
-    const event = createPreviewLessonInteraction({
-      ...binding,
-      observedAt: new Date().toISOString(),
-      attempt: 1,
-      surface: 'lesson_preview'
-    }, normalizedIntent)
-    const receipt = await createLessonInteractionRecorder({ ledger }).record(event)
-    return {
-      eventId: receipt.eventId,
-      sessionId: receipt.sessionId,
-      sequence: receipt.sequence,
-      duplicate: receipt.duplicate
-    }
+      const ledger = createLearningSessionLedger({ workspaceRoot: binding.workspaceRoot })
+      const session = await ledger.load(binding.sessionId)
+      if (!this.isActivePreviewBinding(webContentsId, binding)) {
+        throw new PreviewLessonInteractionBindingError('binding_unavailable', 'No trusted Lesson preview binding is active.')
+      }
+      if (!isCanonicalWritablePreviewBinding(session, binding)) {
+        throw new PreviewLessonInteractionBindingError(
+          'binding_identity_mismatch',
+          'Trusted Lesson preview binding no longer matches a writable canonical Learning Session.'
+        )
+      }
+
+      const event = this.previewInteractionEvent(binding, normalizedIntent)
+      const receipt = await createLessonInteractionRecorder({ ledger }).record(event)
+      return {
+        eventId: receipt.eventId,
+        sessionId: receipt.sessionId,
+        sequence: receipt.sequence,
+        duplicate: receipt.duplicate
+      }
+    })
   }
 
   async readWorkspaceChangeDiff(payload: { workspaceId: string; relativePath: string; changeId?: string }) {
@@ -1544,8 +1562,60 @@ export class TeachingWorkspaceService {
   }
 
   private beginPreviewLessonRead(webContentsId: number): number {
-    this.activePreviewBindings.delete(webContentsId)
+    this.revokePreviewLessonBinding(webContentsId)
     return this.advancePreviewReadGeneration(webContentsId)
+  }
+
+  private revokePreviewLessonBinding(webContentsId: number): void {
+    const binding = this.activePreviewBindings.get(webContentsId)
+    if (binding) binding.revoked = true
+    this.activePreviewBindings.delete(webContentsId)
+  }
+
+  private isActivePreviewBinding(webContentsId: number, binding: ActivePreviewBinding): boolean {
+    return !binding.revoked && this.activePreviewBindings.get(webContentsId) === binding
+  }
+
+  private async serializePreviewInteraction<Result>(
+    webContentsId: number,
+    action: () => Promise<Result>
+  ): Promise<Result> {
+    const previous = this.previewInteractionQueues.get(webContentsId) ?? Promise.resolve()
+    let release!: () => void
+    const current = new Promise<void>((resolve) => { release = resolve })
+    this.previewInteractionQueues.set(webContentsId, current)
+    await previous.catch(() => undefined)
+    try {
+      return await action()
+    } finally {
+      release()
+      if (this.previewInteractionQueues.get(webContentsId) === current) this.previewInteractionQueues.delete(webContentsId)
+    }
+  }
+
+  private previewInteractionEvent(
+    binding: ActivePreviewBinding,
+    intent: PreviewLessonInteractionIntent
+  ): LessonInteraction {
+    const existing = binding.recordedInteractions.get(intent.eventId)
+    if (existing) {
+      if (!samePreviewLessonInteractionIntent(existing.intent, intent)) {
+        throw new PreviewLessonInteractionBindingError(
+          'binding_intent_conflict',
+          `Preview Lesson event ID "${intent.eventId}" is already bound to a different intent.`
+        )
+      }
+      return existing.event
+    }
+
+    const event = createPreviewLessonInteraction({
+      ...binding,
+      observedAt: new Date().toISOString(),
+      attempt: binding.attempt,
+      surface: 'lesson_preview'
+    }, intent)
+    binding.recordedInteractions.set(intent.eventId, { intent, event })
+    return event
   }
 
   private advancePreviewReadGeneration(webContentsId: number): number {
@@ -1639,6 +1709,27 @@ export class TeachingWorkspaceService {
 }
 
 /** Progress copy shown in the conversation while generate_lesson runs. */
+function samePreviewLessonInteractionIntent(
+  left: PreviewLessonInteractionIntent,
+  right: PreviewLessonInteractionIntent
+): boolean {
+  if (left.eventId !== right.eventId || left.kind !== right.kind || left.itemId !== right.itemId) return false
+  switch (left.kind) {
+    case 'lesson_opened':
+    case 'lesson_completed':
+      return true
+    case 'quiz_answered':
+      return right.kind === 'quiz_answered' && left.correct === right.correct &&
+        left.selectedOptionIds.length === right.selectedOptionIds.length &&
+        left.selectedOptionIds.every((value, index) => value === right.selectedOptionIds[index])
+    case 'flashcard_rated':
+      return right.kind === 'flashcard_rated' && left.rating === right.rating
+    case 'retrieval_response_submitted':
+    case 'learner_response_recorded':
+      return right.kind === left.kind && left.responseDigest === right.responseDigest && left.responseKind === right.responseKind
+  }
+}
+
 function isCanonicalWritableLessonSession(
   session: LearningSessionSnapshot | null,
   workspace: RegistryWorkspace,

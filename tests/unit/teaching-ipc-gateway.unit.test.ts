@@ -1,4 +1,11 @@
+import { join } from 'node:path'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { createLearningSessionLedger } from '../../src/main/learning-session-ledger'
+import { defaultSettings } from '../../src/main/teaching-settings'
+import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
+import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 import type { TeachingIpcRegistration } from '../../src/main/teaching-ipc-gateway'
 import { teachingInvokeChannels } from '../../src/shared/teaching-ipc-contract'
 
@@ -38,6 +45,18 @@ vi.mock('../../src/main/ai/tool-permission-pending', () => ({
 
 const { registerTeachingIpcGateway } = await import('../../src/main/teaching-ipc-gateway')
 
+const runtimeScope = createVitestRuntimeScope()
+
+async function createEvidenceService(label: string) {
+  const runtime = await runtimeScope.create(label)
+  const managedRoot = join(runtime.paths.workspace, 'managed')
+  return new TeachingWorkspaceService({
+    registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+    defaultRoot: managedRoot,
+    settingsProvider: async () => defaultSettings(managedRoot)
+  })
+}
+
 function registration(overrides: Record<string, unknown> = {}): TeachingIpcRegistration {
   const workspaceService = new Proxy({}, { get: () => vi.fn() })
   const settingsService = new Proxy({}, { get: () => vi.fn() })
@@ -54,7 +73,11 @@ function registration(overrides: Record<string, unknown> = {}): TeachingIpcRegis
   } as TeachingIpcRegistration
 }
 
-const event = { sender: { id: 41, isDestroyed: vi.fn(() => false), once: vi.fn(), send: vi.fn() } }
+function previewEvent(id = 41) {
+  return { sender: { id, isDestroyed: vi.fn(() => false), once: vi.fn(), on: vi.fn(), send: vi.fn() } }
+}
+
+const event = previewEvent()
 
 function handler(channel: string) {
   const registered = electron.handlers.get(channel)
@@ -100,6 +123,62 @@ describe('Teaching IPC gateway', () => {
     })
     expect(recordPreviewLessonInteraction).toHaveBeenCalledWith(41, intent)
     expect(event.sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function))
+  })
+
+  it('installs one numeric sender lifecycle cleanup across repeated preview calls and fails closed after destruction', async () => {
+    const clearPreviewLessonBinding = vi.fn()
+    const recordPreviewLessonInteraction = vi.fn().mockResolvedValue({
+      eventId: 'preview-repeated', sessionId: 'session-1', sequence: 1, duplicate: false
+    })
+    const senderEvent = previewEvent(73)
+    registerTeachingIpcGateway(registration({ workspaceService: { clearPreviewLessonBinding, recordPreviewLessonInteraction } }))
+
+    for (let index = 0; index < 100; index += 1) {
+      await handler(teachingInvokeChannels.recordPreviewLessonInteraction)(senderEvent, {
+        eventId: `preview-repeated-${index}`, kind: 'lesson_opened', itemId: 'lesson-1'
+      })
+    }
+    expect(senderEvent.sender.once).toHaveBeenCalledTimes(1)
+    expect(senderEvent.sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function))
+    expect(senderEvent.sender.on).toHaveBeenCalledTimes(1)
+    expect(senderEvent.sender.on).toHaveBeenCalledWith('did-start-navigation', expect.any(Function))
+
+    const destroyed = senderEvent.sender.once.mock.calls[0]?.[1] as (() => void) | undefined
+    destroyed?.()
+    expect(clearPreviewLessonBinding).toHaveBeenCalledTimes(1)
+    expect(clearPreviewLessonBinding).toHaveBeenLastCalledWith(73)
+
+    senderEvent.sender.isDestroyed.mockReturnValue(true)
+    await expect(handler(teachingInvokeChannels.recordPreviewLessonInteraction)(senderEvent, {
+      eventId: 'preview-after-destroyed-001', kind: 'lesson_opened', itemId: 'lesson-1'
+    })).rejects.toMatchObject({ code: 'sender_unavailable' })
+    expect(recordPreviewLessonInteraction).toHaveBeenCalledTimes(100)
+  })
+
+  it('revokes a canonical lesson binding at child-frame navigation start before the same sender can record evidence', async () => {
+    const service = await createEvidenceService('gateway-preview-navigation')
+    const workspace = (await service.createWorkspace({ name: 'Navigation evidence', prompt: 'Teach preview navigation revocation.' })).activeWorkspace!
+    const lesson = (await service.generateLesson({
+      workspaceId: workspace.id,
+      prompt: 'Explain why iframe document navigation revokes trusted authority.',
+      messages: []
+    })).lesson
+    const senderEvent = previewEvent(86)
+    registerTeachingIpcGateway(registration({ workspaceService: service }))
+
+    await handler(teachingInvokeChannels.readLesson)(senderEvent, {
+      workspaceId: workspace.id,
+      lessonPath: lesson.relativePath
+    })
+    const navigationStarted = senderEvent.sender.on.mock.calls.find(([name]) => name === 'did-start-navigation')?.[1] as (() => void) | undefined
+    expect(navigationStarted).toBeTypeOf('function')
+
+    // Electron emits this for every frame, so this models a same-WindowProxy iframe navigation.
+    navigationStarted?.()
+    await expect(handler(teachingInvokeChannels.recordPreviewLessonInteraction)(senderEvent, {
+      eventId: 'preview-after-iframe-navigation-001', kind: 'lesson_opened', itemId: lesson.id
+    })).rejects.toMatchObject({ code: 'binding_unavailable' })
+    expect((await createLearningSessionLedger({ workspaceRoot: workspace.rootPath }).load(lesson.sessionId))?.events).toHaveLength(0)
   })
 
   it('clears a sender binding when Electron destroys the preview sender', async () => {
