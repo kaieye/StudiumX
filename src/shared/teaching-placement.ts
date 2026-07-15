@@ -8,7 +8,11 @@ export const LEARNING_SESSION_EVENTS_DIRECTORY_NAME = 'events'
 export const LEARNING_SESSION_OUTCOME_FILE_NAME = 'outcome.json'
 
 const LEARNING_SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?$/
-const WINDOWS_DEVICE_NAME_PATTERN = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
+const WINDOWS_DEVICE_NAME_PATTERN = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i
+const WINDOWS_UNSAFE_SEGMENT_CHARACTER_PATTERN = /[<>\"|?*:\u0000-\u001f\u007f-\u009f]/
+const WINDOWS_DRIVE_PREFIX_PATTERN = /^[A-Za-z]:/
+const MAX_TEACHING_RELATIVE_PATH_LENGTH = 4096
+const MAX_TEACHING_RELATIVE_PATH_SEGMENT_LENGTH = 255
 
 export type CoursePlacement = {
   courseId: string
@@ -53,8 +57,46 @@ export function isLearningSessionId(value: string): boolean {
 
 export function requireLearningSessionId(value: string): string {
   if (!isLearningSessionId(value)) throw new Error('Learning Session path requires a stable Session ID.')
-  return value
+  return value.toLocaleLowerCase('en-US')
 }
+
+/**
+ * Validates portable workspace-relative refs using Windows' stricter path rules
+ * on every platform. This prevents drive-relative, UNC, ADS/device-name, and
+ * case-alias surprises before a ref is ever resolved against a workspace.
+ */
+export function requireSafeTeachingRelativePath(value: string, label = 'Teaching path'): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is required.`)
+  const normalized = value.replace(/\\/g, '/')
+  if (
+    normalized.length > MAX_TEACHING_RELATIVE_PATH_LENGTH ||
+    normalized.startsWith('/') ||
+    normalized.startsWith('//') ||
+    WINDOWS_DRIVE_PREFIX_PATTERN.test(normalized)
+  ) {
+    throw new Error(`${label} must be a safe workspace-relative path.`)
+  }
+  const segments = normalized.split('/')
+  if (segments.some((segment) =>
+    !segment ||
+    segment === '.' ||
+    segment === '..' ||
+    segment.length > MAX_TEACHING_RELATIVE_PATH_SEGMENT_LENGTH ||
+    segment.endsWith('.') ||
+    segment.endsWith(' ') ||
+    WINDOWS_UNSAFE_SEGMENT_CHARACTER_PATTERN.test(segment) ||
+    WINDOWS_DEVICE_NAME_PATTERN.test(segment)
+  )) {
+    throw new Error(`${label} must be a safe workspace-relative path.`)
+  }
+  return normalized
+}
+
+/** Identity key for refs that resolve on Windows' case-insensitive namespace. */
+export function windowsTeachingRelativePathKey(value: string): string {
+  return requireSafeTeachingRelativePath(value).toLocaleLowerCase('en-US')
+}
+
 export function normalizeTeachingRelativePath(value: string): string {
   return value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '').replace(/\/+$/, '')
 }

@@ -1,7 +1,12 @@
 import type { AgentChatMessage, AgentConversationSummary } from './agent'
 import type { TeachingWorkspaceChangeSummary } from './changes'
 import type { TeachingGitWorkspaceInfo } from './git'
-import type { LearningOutcomeRef, LearningSessionSource, LearningSessionStatus } from './learning-session'
+import type {
+  LearningOutcomeRef,
+  LearningSessionConversationRef,
+  LearningSessionCourseRef,
+  LearningSessionLessonRef
+} from './learning-session'
 
 export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'workbench' | 'review' | 'settings'
 
@@ -50,20 +55,54 @@ export type LessonSummary = {
   pinned?: boolean
 }
 
+/** Existing catalog/UI shape retained until SX-P0-INTEGRATE migrates callers. */
 export type TeachingSessionSummary = {
   id: string
   name: string
   relativePath: string
   absolutePath: string
   lesson: LessonSummary
-  /** Present for canonical ledger Sessions and legacy read-only projections after catalog integration. */
-  source?: LearningSessionSource
-  status?: LearningSessionStatus
-  version?: number
-  eventCount?: number
-  readOnly?: boolean
-  outcomeRef?: LearningOutcomeRef | null
 }
+
+type LearningSessionTeachingSummaryBase = {
+  id: string
+  workspaceId: string | null
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+  courseRef: LearningSessionCourseRef
+  lessonRef: LearningSessionLessonRef | null
+  conversationRefs: LearningSessionConversationRef[]
+  version: number
+  eventCount: number
+  outcomeRef: LearningOutcomeRef | null
+}
+
+export type CanonicalTeachingSessionSummary = LearningSessionTeachingSummaryBase & {
+  kind: 'canonical_learning_session'
+  source: 'canonical'
+  status: 'active' | 'completed'
+  readOnly: false
+  workspaceId: string
+}
+
+export type LegacyTeachingSessionProjectionSummary = LearningSessionTeachingSummaryBase & {
+  kind: 'legacy_lesson_projection'
+  source: 'legacy_lesson'
+  status: 'legacy_read_only'
+  readOnly: true
+  lessonRef: LearningSessionLessonRef
+  conversationRefs: []
+  version: 0
+  eventCount: 0
+  outcomeRef: null
+  completedAt: null
+}
+
+/** Deep, discriminated Session summary; canonical Sessions never carry a LessonSummary wrapper. */
+export type LearningSessionTeachingSummary =
+  | CanonicalTeachingSessionSummary
+  | LegacyTeachingSessionProjectionSummary
 
 export type TeachingCourseSummary = {
   id: string

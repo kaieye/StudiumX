@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { createLearningSessionLedger, projectLegacyLessonToLearningSession } from '../../src/main/learning-session-ledger'
+import { createLearningSessionLedger, encodeCommittedLearningSessionOutcome, projectLegacyLessonToLearningSession } from '../../src/main/learning-session-ledger'
 
 const roots: string[] = []
 
@@ -211,17 +211,18 @@ describe('LearningSessionLedger', () => {
       payload: { correct: true }
     }
     await ledger.append('session-complete', event)
+    const committedOutcome = encodeCommittedLearningSessionOutcome({
+      sessionId: 'session-complete',
+      outcomeId: 'outcome-1',
+      kind: 'misconception_corrected',
+      evidenceEventIds: ['attempt-corrected-1']
+    })
     await writeFile(
       join(workspaceRoot, 'learning-sessions', 'session-complete', 'outcome.json'),
-      '{"schemaVersion":1,"outcomeId":"outcome-1"}\n',
+      committedOutcome.content,
       'utf8'
     )
-    const outcomeRef = {
-      outcomeId: 'outcome-1',
-      kind: 'misconception_corrected' as const,
-      relativePath: 'learning-sessions/session-complete/outcome.json',
-      evidenceEventIds: ['attempt-corrected-1']
-    }
+    const outcomeRef = committedOutcome.ref
 
     const completed = await ledger.complete('session-complete', outcomeRef)
 

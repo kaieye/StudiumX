@@ -9,9 +9,17 @@ const root = await mkdtemp(join(tmpdir(), 'studiumx-session-recovery-fixture-'))
 const outside = await mkdtemp(join(tmpdir(), 'studiumx-session-recovery-outside-'))
 try {
   const times = ['2026-07-15T12:00:00.000Z', '2026-07-15T12:00:01.000Z']
+  let injectedCrashWindow = false
   const ledger = createLearningSessionLedger({
     workspaceRoot: root,
-    now: () => times.shift() ?? '2026-07-15T12:00:02.000Z'
+    now: () => times.shift() ?? '2026-07-15T12:00:02.000Z',
+    testingFaults: {
+      inject: (point) => {
+        if (injectedCrashWindow || point !== 'after_event_publish') return
+        injectedCrashWindow = true
+        throw new Error('simulated crash after immutable event publication')
+      }
+    }
   })
   const openInput = {
     workspaceId: 'workspace-recovery',
@@ -24,17 +32,18 @@ try {
     conversationRefs: [{ conversationId: 'conversation-recovery', relativePath: 'conversation/conversation-recovery.json' }]
   })
   const manifestPath = join(root, 'learning-sessions', 'session-recovery', 'session.json')
-  const oldManifest = await readFile(manifestPath, 'utf8')
-  await ledger.append('session-recovery', {
-    schemaVersion: 1,
-    eventId: 'event-durable-before-manifest',
-    sessionId: 'session-recovery',
-    kind: 'lesson_opened',
-    occurredAt: '2026-07-15T12:00:00.500Z',
-    payload: {}
-  })
-  await writeFile(manifestPath, oldManifest, 'utf8')
-  await writeFile(join(root, 'learning-sessions', 'session-recovery', '.manifest-stage-crash'), '{"partial":true}', 'utf8')
+  await assert.rejects(
+    ledger.append('session-recovery', {
+      schemaVersion: 1,
+      eventId: 'event-durable-before-manifest',
+      sessionId: 'session-recovery',
+      kind: 'lesson_opened',
+      occurredAt: '2026-07-15T12:00:00.500Z',
+      payload: {}
+    }),
+    /simulated crash after immutable event publication/
+  )
+  assert.equal(injectedCrashWindow, true)
 
   const restarted = createLearningSessionLedger({ workspaceRoot: root })
   const repaired = await restarted.load('session-recovery')

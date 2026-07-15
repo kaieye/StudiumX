@@ -1,6 +1,8 @@
 export const LEARNING_SESSION_SCHEMA_VERSION = 1 as const
+export const LEARNING_SESSION_OUTCOME_SCHEMA_VERSION = 1 as const
 
 export type LearningSessionSchemaVersion = typeof LEARNING_SESSION_SCHEMA_VERSION
+export type LearningSessionOutcomeSchemaVersion = typeof LEARNING_SESSION_OUTCOME_SCHEMA_VERSION
 export type LearningSessionSource = 'canonical' | 'legacy_lesson'
 export type LearningSessionStatus = 'active' | 'completed' | 'legacy_read_only'
 export type LearningOutcomeKind =
@@ -27,6 +29,21 @@ export type LearningSessionConversationRef = {
 }
 
 export type LearningOutcomeRef = {
+  outcomeId: string
+  kind: LearningOutcomeKind
+  relativePath: string
+  evidenceEventIds: string[]
+  /** SHA-256 of the exact committed outcome envelope bytes. */
+  contentSha256: string
+}
+
+/**
+ * Ledger-owned settlement envelope. P0-3 owns rubric/evaluation content, but
+ * must commit this minimal identity/provenance record before completing a Session.
+ */
+export type CommittedLearningSessionOutcome = {
+  schemaVersion: LearningSessionOutcomeSchemaVersion
+  sessionId: string
   outcomeId: string
   kind: LearningOutcomeKind
   relativePath: string
@@ -114,12 +131,73 @@ export type LearningSessionSnapshot = CanonicalLearningSessionSnapshot | LegacyL
 export type LearningSessionDiagnosticCode =
   | 'invalid_session_manifest'
   | 'invalid_session_event'
+  | 'invalid_session_outcome'
+  | 'unknown_session_schema'
   | 'event_sequence_conflict'
   | 'unsafe_session_storage'
+  | 'canonical_legacy_conflict'
+  | 'canonical_identity_conflict'
+  | 'stale_session_stage'
+  | 'unsafe_session_stage'
+  | 'writer_recovery'
 
 export type LearningSessionDiagnostic = {
   code: LearningSessionDiagnosticCode
   sessionId: string
   relativePath: string
   message: string
+}
+
+
+export type LearningSessionDurabilitySettlement = {
+  fileSync: 'supported'
+  directorySync: 'supported' | 'unsupported'
+}
+
+export type LearningSessionStageState = 'pending' | 'cleaned' | 'unsafe'
+
+export type LearningSessionStageInfo = {
+  relativePath: string
+  kind: 'session' | 'event' | 'manifest'
+  state: LearningSessionStageState
+  modifiedAt: string
+}
+
+export type LearningSessionRecoveryInfo = {
+  relativePath: string
+  state: 'preserved'
+  owner: {
+    operation: 'open' | 'append' | 'complete' | 'load' | 'scan' | 'repair'
+    sessionId: string | null
+    pid: number
+    hostname: string
+    acquiredAt: string
+  } | null
+}
+
+export type LearningSessionQuarantine = {
+  sessionId: string
+  diagnostic: LearningSessionDiagnostic
+}
+
+export type LearningSessionLegacyScanInput = {
+  lesson: import('./workspace').LessonSummary
+  workspaceId?: string | null
+}
+
+/** Explicit read-only legacy inputs keep catalog ownership outside the ledger. */
+export type LearningSessionScanInput = {
+  legacyLessons?: LearningSessionLegacyScanInput[]
+}
+
+/** Filesystem-owned discovery result; catalog integrations must not parse ledger files. */
+export type LearningSessionScanResult = {
+  sessions: LearningSessionSnapshot[]
+  canonicalSessions: CanonicalLearningSessionSnapshot[]
+  legacySessions: LegacyLearningSessionSnapshot[]
+  diagnostics: LearningSessionDiagnostic[]
+  quarantined: LearningSessionQuarantine[]
+  stages: LearningSessionStageInfo[]
+  recoveries: LearningSessionRecoveryInfo[]
+  settlement: LearningSessionDurabilitySettlement
 }

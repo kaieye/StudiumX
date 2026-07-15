@@ -3,7 +3,7 @@ import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createLearningSessionLedger } from '../../src/main/learning-session-ledger'
+import { createLearningSessionLedger, encodeCommittedLearningSessionOutcome } from '../../src/main/learning-session-ledger'
 
 const root = await mkdtemp(join(tmpdir(), 'studiumx-session-ledger-fixture-'))
 try {
@@ -48,17 +48,18 @@ try {
   assert.equal(appended.eventCount, 1)
   assert.deepEqual(replayed, appended)
 
-  await writeFile(
-    join(root, 'learning-sessions', 'session-check', 'outcome.json'),
-    '{"schemaVersion":1,"outcomeId":"outcome-check"}\n',
-    'utf8'
-  )
-  const completed = await ledger.complete('session-check', {
+  const committedOutcome = encodeCommittedLearningSessionOutcome({
+    sessionId: 'session-check',
     outcomeId: 'outcome-check',
     kind: 'needs_practice',
-    relativePath: 'learning-sessions/session-check/outcome.json',
     evidenceEventIds: ['attempt-check-1']
   })
+  await writeFile(
+    join(root, ...committedOutcome.ref.relativePath.split('/')),
+    committedOutcome.content,
+    'utf8'
+  )
+  const completed = await ledger.complete('session-check', committedOutcome.ref)
   assert.equal(completed.status, 'completed')
   assert.equal(completed.version, 4)
   assert.equal((await createLearningSessionLedger({ workspaceRoot: root }).load('session-check'))?.eventCount, 1)

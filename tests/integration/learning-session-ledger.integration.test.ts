@@ -21,10 +21,18 @@ describe('LearningSessionLedger filesystem recovery', () => {
   it('repairs a stale manifest from the immutable event files after restart', async () => {
     const workspaceRoot = await createWorkspace()
     const times = ['2026-07-15T06:00:00.000Z', '2026-07-15T06:00:01.000Z']
+    let injectedCrashWindow = false
     const ledger = createLearningSessionLedger({
       workspaceRoot,
       now: () => times.shift() ?? '2026-07-15T06:00:02.000Z',
-      createId: () => 'session-recovery'
+      createId: () => 'session-recovery',
+      testingFaults: {
+        inject: (point) => {
+          if (injectedCrashWindow || point !== 'after_event_publish') return
+          injectedCrashWindow = true
+          throw new Error('simulated crash after immutable event publication')
+        }
+      }
     })
     const openInput = {
       workspaceId: 'workspace-1',
@@ -37,20 +45,15 @@ describe('LearningSessionLedger filesystem recovery', () => {
       conversationRefs: [{ conversationId: 'conversation-recovery', relativePath: 'conversation/conversation-recovery.json' }]
     })
     const manifestPath = join(workspaceRoot, 'learning-sessions', 'session-recovery', 'session.json')
-    const beforeAppend = await readFile(manifestPath, 'utf8')
-    await ledger.append('session-recovery', {
+    await expect(ledger.append('session-recovery', {
       schemaVersion: 1,
       eventId: 'event-before-crash',
       sessionId: 'session-recovery',
       kind: 'lesson_opened',
       occurredAt: '2026-07-15T06:00:00.500Z',
       payload: {}
-    })
-
-    // Simulate the crash window where the immutable event is durable but the
-    // manifest publication did not settle.
-    await writeFile(manifestPath, beforeAppend, 'utf8')
-    await writeFile(join(workspaceRoot, 'learning-sessions', 'session-recovery', '.manifest-stage-crash'), '{"partial":true}', 'utf8')
+    })).rejects.toThrow('simulated crash after immutable event publication')
+    expect(injectedCrashWindow).toBe(true)
 
     const restarted = createLearningSessionLedger({ workspaceRoot })
     const recovered = await restarted.load('session-recovery')
