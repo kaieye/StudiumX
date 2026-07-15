@@ -309,6 +309,42 @@
       "resizeAria": "调整宠物尺寸",
       "bubbleLabel": "显示状态气泡",
       "bubbleDetail": "在任务运行、等待处理或完成时展示简短说明。",
+      "notificationPreferences": {
+        "title": "Pet 通知偏好",
+        "detail": "选择悬浮宠物需要展示哪些真实任务动态。",
+        "actionableOnly": {
+          "label": "仅显示需要操作的通知",
+          "detail": "隐藏进度、完成和问候动态；等待处理的请求与失败仍会显示。"
+        },
+        "showRunning": {
+          "label": "显示运行中任务",
+          "detail": "Agent 或课程生成正在工作时展示进度。"
+        },
+        "showReview": {
+          "label": "短暂显示完成结果",
+          "detail": "新结果完成后保留一小段查看时间。"
+        },
+        "showWaving": {
+          "label": "显示问候动画",
+          "detail": "Pet 可用时短暂挥手问候。"
+        },
+        "sources": {
+          "title": "通知来源",
+          "detail": "来源设置适用于进度、完成和问候动态。",
+          "agent": "Agent",
+          "lessonGeneration": "课程生成",
+          "onboarding": "新手引导"
+        },
+        "quiet": {
+          "title": "临时安静模式",
+          "detail": "暂停非关键 Pet 动态，但不改变任何运行中任务。",
+          "active": "非关键动态将安静至 {{time}}。",
+          "thirtyMinutes": "安静 30 分钟",
+          "oneHour": "安静 1 小时",
+          "end": "结束安静模式"
+        },
+        "criticalNote": "需要回答或授权的请求以及失败任务始终可发现。"
+      },
       "appearanceTitle": "当前宠物",
       "appearanceDetail": "选择宠物后，页面预览、悬浮宠物和自习室会同步使用对应动画。",
       "hide": "隐藏宠物",

@@ -309,6 +309,42 @@
       "resizeAria": "Resize pet",
       "bubbleLabel": "Show status bubble",
       "bubbleDetail": "Show a short message while work is running, blocked, failed, or ready to review.",
+      "notificationPreferences": {
+        "title": "Pet notifications",
+        "detail": "Choose which real task updates the floating pet should surface.",
+        "actionableOnly": {
+          "label": "Only show items that need action",
+          "detail": "Hide progress, completion, and greeting updates. Waiting requests and failures stay visible."
+        },
+        "showRunning": {
+          "label": "Show running tasks",
+          "detail": "Show progress while Agent or lesson generation work is active."
+        },
+        "showReview": {
+          "label": "Show completed results briefly",
+          "detail": "Keep newly completed results visible for a short review window."
+        },
+        "showWaving": {
+          "label": "Show greeting animation",
+          "detail": "Let the pet wave briefly when it becomes available."
+        },
+        "sources": {
+          "title": "Notification sources",
+          "detail": "Source controls apply to progress, completion, and greeting updates.",
+          "agent": "Agent",
+          "lessonGeneration": "Lesson generation",
+          "onboarding": "Onboarding"
+        },
+        "quiet": {
+          "title": "Temporary quiet mode",
+          "detail": "Pause noncritical Pet updates without changing any running task.",
+          "active": "Noncritical updates are quiet until {{time}}.",
+          "thirtyMinutes": "Quiet for 30 minutes",
+          "oneHour": "Quiet for 1 hour",
+          "end": "End quiet mode"
+        },
+        "criticalNote": "Requests that need your answer or permission, and failed tasks, always remain discoverable."
+      },
       "appearanceTitle": "Current pet",
       "appearanceDetail": "Choose a pet to use its animations in the preview, floating companion, and study room.",
       "hide": "Hide pet",
