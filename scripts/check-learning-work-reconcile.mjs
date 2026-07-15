@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { platform } from 'node:process'
 import { join } from 'node:path'
 
 import { reconcileLearningWorkLedger } from './lib/learning-work-reconcile.mjs'
@@ -18,7 +19,11 @@ try {
     messageCount: 4
   }))
   await writeFile(join(outside, 'escaped.json'), '{}')
-  await symlink(join(outside, 'escaped.json'), join(root, 'conversations', 'escaped.json'))
+  await symlink(
+    outside,
+    join(root, 'conversations', 'escaped'),
+    platform === 'win32' ? 'junction' : 'dir'
+  )
 
   const baseEntry = {
     version: 1,
@@ -42,7 +47,7 @@ try {
     conversation: { ...baseEntry.conversation, id: 'conversation-2' },
     pointers: {
       markdown: 'conversations/missing.md',
-      materializedJson: 'conversations/escaped.json',
+      materializedJson: 'conversations/escaped/escaped.json',
       sessionAudit: '../outside.jsonl'
     }
   }
