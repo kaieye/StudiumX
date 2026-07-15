@@ -18,6 +18,7 @@ import {
   parseListUpstreamModelsPayload, parseNotificationPayload, parseProbeProviderPayload,
   parseQueryAgentArchivedHistoryPayload, parseReadAgentConversationPayload,
   parseReadAgentConversationSessionTreePayload, parseReadLessonPayload, parseReadWorkspaceChangeDiffPayload,
+  parsePreviewLessonInteractionIntent,
   parseReplayAgentConversationBranchPayload,
   parseRebuildAgentHistoryIndexPayload, parseResolveAgentConversationCheckpointPayload,
   parseReadWorkspaceMarkdownPayload, parseRecordProgressPayload, parseRemoveGitWorktreePayload, parseReplayAgentChatEventsPayload,
@@ -29,7 +30,7 @@ import {
 } from './teaching-ipc-commands'
 import type { TeachingSettingsService } from './teaching-settings'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
-import type { TeachingWorkspaceService } from './teaching-workspace'
+import { PreviewLessonInteractionBindingError, type TeachingWorkspaceService } from './teaching-workspace'
 import type { LearningAnalyticsService } from './teaching/services/learning-analytics'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
 import type { AnalyticsExportRequest, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
@@ -81,6 +82,22 @@ function command<Payload, Result>(declaration: CommandDeclaration<Payload, Resul
       }
     }
   }
+}
+
+function previewBindingSenderId(service: TeachingWorkspaceService, event: Electron.IpcMainInvokeEvent): number {
+  const sender = event.sender
+  if (!sender || sender.isDestroyed() || !Number.isSafeInteger(sender.id) || sender.id < 1) {
+    throw new PreviewLessonInteractionBindingError('sender_unavailable', 'Preview lesson interaction sender is unavailable.')
+  }
+  sender.once('destroyed', () => service.clearPreviewLessonBinding(sender.id))
+  return sender.id
+}
+
+function clearPreviewLessonBindingForSender(service: TeachingWorkspaceService, event: Electron.IpcMainInvokeEvent): void {
+  const sender = event.sender
+  if (!sender || sender.isDestroyed() || !Number.isSafeInteger(sender.id) || sender.id < 1) return
+  service.clearPreviewLessonBinding(sender.id)
+  sender.once('destroyed', () => service.clearPreviewLessonBinding(sender.id))
 }
 
 /**
@@ -144,7 +161,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => { const updated = await settings.patch(payload); void context.applyAppBehavior(updated); return updated },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
-    command({ channel: teachingInvokeChannels.selectWorkspace, parser: (workspaceId) => requireString(workspaceId, 'workspaceId'), action: (_event, workspaceId) => service.selectWorkspace(workspaceId), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.selectWorkspace, parser: (workspaceId) => requireString(workspaceId, 'workspaceId'), action: (event, workspaceId) => { clearPreviewLessonBindingForSender(service, event); return service.selectWorkspace(workspaceId) }, reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.createWorkspace, parser: (payload) => parseCreateWorkspacePayload(payload), action: (_event, payload) => service.createWorkspace(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({
       channel: teachingInvokeChannels.importWorkspace, parser: () => undefined,
@@ -267,8 +284,15 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({ channel: teachingInvokeChannels.setWorkspaceItemMeta, parser: (payload) => parseWorkspaceItemMetaPayload(payload), action: (_event, payload) => service.setWorkspaceItemMeta(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.removeWorkspaceItem, parser: (payload) => parseWorkspaceItemRemovePayload(payload), action: (_event, payload) => service.removeWorkspaceItem(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.removeWorkspace, parser: (payload) => parseWorkspaceRemovePayload(payload), action: (_event, payload) => service.removeWorkspace(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
-    command({ channel: teachingInvokeChannels.readLesson, parser: (payload) => parseReadLessonPayload(payload), action: (_event, payload) => service.readLesson(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
-    command({ channel: teachingInvokeChannels.readWorkspaceMarkdown, parser: (payload) => parseReadWorkspaceMarkdownPayload(payload), action: (_event, payload) => service.readWorkspaceMarkdown(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.readLesson, parser: (payload) => parseReadLessonPayload(payload), action: (event, payload) => {
+      const senderId = previewBindingSenderId(service, event)
+      return service.readLesson(payload, senderId)
+    }, reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.recordPreviewLessonInteraction, parser: (payload) => parsePreviewLessonInteractionIntent(payload), action: (event, intent) => service.recordPreviewLessonInteraction(previewBindingSenderId(service, event), intent), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.readWorkspaceMarkdown, parser: (payload) => parseReadWorkspaceMarkdownPayload(payload), action: (event, payload) => {
+      const senderId = previewBindingSenderId(service, event)
+      return service.readWorkspaceMarkdown(payload, senderId)
+    }, reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.readWorkspaceChangeDiff, parser: (payload) => parseReadWorkspaceChangeDiffPayload(payload), action: (_event, payload) => service.readWorkspaceChangeDiff(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.saveWorkspaceMarkdown, parser: (payload) => parseSaveWorkspaceMarkdownPayload(payload), action: (_event, payload) => service.saveWorkspaceMarkdown(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({

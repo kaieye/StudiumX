@@ -33,6 +33,7 @@ export const teachingInvokeChannels = {
   installSkill: 'teach:install-skill',
   generateLesson: 'teach:generate-lesson',
   readLesson: 'teach:read-lesson',
+  recordPreviewLessonInteraction: 'teach:record-preview-lesson-interaction',
   readWorkspaceMarkdown: 'teach:read-workspace-markdown',
   saveWorkspaceMarkdown: 'teach:save-workspace-markdown',
   openPath: 'teach:open-path',

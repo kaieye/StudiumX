@@ -3,6 +3,9 @@ import { mkdir, readFile, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
+import { createLearningSessionLedger } from './learning-session-ledger'
+import { createLessonInteractionRecorder } from './lesson-interaction-recorder'
+import { readContainedRegularFile } from './path-access'
 import { inspectGitWorkspace } from './teaching-git'
 import {
   buildCourseSummaries,
@@ -65,6 +68,13 @@ import {
 } from '../shared/lesson-styles'
 import type { LessonBrief } from '../shared/teaching-workflow'
 import { activeLearnerProfileLines } from '../shared/teaching-personalization'
+import { createPreviewLessonInteraction } from '../shared/preview-markdown-bridge'
+import {
+  normalizePreviewLessonInteractionIntent,
+  type PreviewLessonInteractionIntent,
+  type PreviewLessonInteractionReceipt
+} from '../shared/teaching-types/lesson-interaction'
+import type { LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
 import {
   agentConversationDirectoryRelativePath,
   agentConversationJsonRelativePathForMarkdown,
@@ -182,6 +192,31 @@ type AgentConversationLocation = {
   global: boolean
 }
 
+type ActivePreviewBinding = {
+  workspaceRoot: string
+  workspaceId: string
+  courseId: string
+  courseName: string
+  courseRelativePath: string
+  sessionId: string
+  lessonId: string
+  lessonTitle: string
+  lessonRelativePath: string
+  artifactDigest: string
+}
+
+export type PreviewLessonInteractionBindingErrorCode =
+  | 'sender_unavailable'
+  | 'binding_unavailable'
+  | 'binding_identity_mismatch'
+
+export class PreviewLessonInteractionBindingError extends Error {
+  constructor(readonly code: PreviewLessonInteractionBindingErrorCode, message: string) {
+    super(message)
+    this.name = 'PreviewLessonInteractionBindingError'
+  }
+}
+
 type PendingAgentRunArchiveScope = {
   workspaceId: string
   mode: 'teaching' | 'temporary'
@@ -209,6 +244,9 @@ export class TeachingWorkspaceService {
   private readonly documents = new TeachingWorkspaceDocuments()
   private readonly activation: TeachingWorkspaceActivationLifecycle
   private readonly pendingAgentRunArchiveScopes = new Map<string, PendingAgentRunArchiveScope>()
+  /** Per-renderer trusted preview authority; never stores a WebContents object. */
+  private readonly activePreviewBindings = new Map<number, ActivePreviewBinding>()
+  private readonly previewReadGenerations = new Map<number, number>()
 
   constructor(options: {
     registryPath: string
@@ -1222,6 +1260,8 @@ export class TeachingWorkspaceService {
       callbacks: options.callbacks
     })
 
+    await this.openCanonicalLessonSession(workspace, generation.lesson)
+
     await this.saveWorkspaceIndex(workspace.rootPath, {
       ...index,
       updatedAt: now,
@@ -1289,16 +1329,87 @@ export class TeachingWorkspaceService {
     return { workspaceId: workspace.id, progress: deck.progress }
   }
 
-  async readLesson(payload: ReadLessonPayload): Promise<ReadLessonResult> {
+  async readLesson(payload: ReadLessonPayload, webContentsId?: number): Promise<ReadLessonResult> {
+    const requestGeneration = typeof webContentsId === 'number' ? this.beginPreviewLessonRead(webContentsId) : null
+
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    return this.documents.readLesson(workspace, payload.lessonPath)
+    const result = await this.documents.readLesson(workspace, payload.lessonPath)
+    if (requestGeneration === null || !this.isCurrentPreviewLessonRead(webContentsId, requestGeneration)) return result
+
+    const index = await this.loadWorkspaceIndex(workspace)
+    const requestedPath = normalizeWorkspaceRelativePath(payload.lessonPath)
+    const lesson = index.lessons.find((candidate) => normalizeWorkspaceRelativePath(candidate.relativePath) === requestedPath)
+    if (!lesson) return result
+
+    const previewFile = await this.documents.resolvePreviewFile(workspace, lesson.relativePath)
+    if (!previewFile || normalizeWorkspaceRelativePath(previewFile.relativePath) !== normalizeWorkspaceRelativePath(lesson.relativePath)) {
+      return result
+    }
+
+    const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
+    const session = await ledger.load(lesson.sessionId)
+    if (!isCanonicalWritableLessonSession(session, workspace, lesson)) return result
+
+    const artifact = await readContainedRegularFile(workspace.rootPath, previewFile.absolutePath)
+    if (!this.isCurrentPreviewLessonRead(webContentsId, requestGeneration)) return result
+    this.activePreviewBindings.set(webContentsId, {
+      workspaceRoot: workspace.rootPath,
+      workspaceId: workspace.id,
+      courseId: lesson.courseId,
+      courseName: lesson.courseName,
+      courseRelativePath: lesson.courseRelativePath,
+      sessionId: lesson.sessionId,
+      lessonId: lesson.id,
+      lessonTitle: lesson.title,
+      lessonRelativePath: lesson.relativePath,
+      artifactDigest: createHash('sha256').update(artifact).digest('hex')
+    })
+    return result
   }
 
-  async readWorkspaceMarkdown(payload: ReadWorkspaceMarkdownPayload): Promise<WorkspaceMarkdownDocument> {
+  async readWorkspaceMarkdown(payload: ReadWorkspaceMarkdownPayload, webContentsId?: number): Promise<WorkspaceMarkdownDocument> {
+    if (typeof webContentsId === 'number') this.clearPreviewLessonBinding(webContentsId)
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
     return this.documents.readMarkdown(workspace, payload.documentPath)
+  }
+
+  clearPreviewLessonBinding(webContentsId: number): void {
+    this.activePreviewBindings.delete(webContentsId)
+    this.advancePreviewReadGeneration(webContentsId)
+  }
+
+  async recordPreviewLessonInteraction(
+    webContentsId: number,
+    intent: PreviewLessonInteractionIntent
+  ): Promise<PreviewLessonInteractionReceipt> {
+    const binding = this.activePreviewBindings.get(webContentsId)
+    if (!binding) throw new PreviewLessonInteractionBindingError('binding_unavailable', 'No trusted Lesson preview binding is active.')
+
+    const normalizedIntent = normalizePreviewLessonInteractionIntent(intent)
+    const ledger = createLearningSessionLedger({ workspaceRoot: binding.workspaceRoot })
+    const session = await ledger.load(binding.sessionId)
+    if (!isCanonicalWritablePreviewBinding(session, binding)) {
+      throw new PreviewLessonInteractionBindingError(
+        'binding_identity_mismatch',
+        'Trusted Lesson preview binding no longer matches a writable canonical Learning Session.'
+      )
+    }
+
+    const event = createPreviewLessonInteraction({
+      ...binding,
+      observedAt: new Date().toISOString(),
+      attempt: 1,
+      surface: 'lesson_preview'
+    }, normalizedIntent)
+    const receipt = await createLessonInteractionRecorder({ ledger }).record(event)
+    return {
+      eventId: receipt.eventId,
+      sessionId: receipt.sessionId,
+      sequence: receipt.sequence,
+      duplicate: receipt.duplicate
+    }
   }
 
   async readWorkspaceChangeDiff(payload: { workspaceId: string; relativePath: string; changeId?: string }) {
@@ -1432,6 +1543,42 @@ export class TeachingWorkspaceService {
     return { learnerProfiles, courses }
   }
 
+  private beginPreviewLessonRead(webContentsId: number): number {
+    this.activePreviewBindings.delete(webContentsId)
+    return this.advancePreviewReadGeneration(webContentsId)
+  }
+
+  private advancePreviewReadGeneration(webContentsId: number): number {
+    const generation = (this.previewReadGenerations.get(webContentsId) ?? 0) + 1
+    this.previewReadGenerations.set(webContentsId, generation)
+    return generation
+  }
+
+  private isCurrentPreviewLessonRead(webContentsId: number | undefined, generation: number | null): webContentsId is number {
+    return typeof webContentsId === 'number' && generation !== null && this.previewReadGenerations.get(webContentsId) === generation
+  }
+
+  private async openCanonicalLessonSession(workspace: RegistryWorkspace, lesson: LessonSummary): Promise<void> {
+    const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
+    const session = await ledger.open({
+      sessionId: lesson.sessionId,
+      workspaceId: workspace.id,
+      courseRef: {
+        courseId: lesson.courseId,
+        courseName: lesson.courseName,
+        relativePath: lesson.courseRelativePath
+      },
+      lessonRef: {
+        lessonId: lesson.id,
+        title: lesson.title,
+        relativePath: lesson.relativePath
+      }
+    })
+    if (!isCanonicalWritableLessonSession(session, workspace, lesson)) {
+      throw new Error('Generated Lesson could not open its canonical writable Learning Session.')
+    }
+  }
+
   private async ensureWorkspaceStructure(
     workspace: RegistryWorkspace,
     pathMeta?: Record<string, WorkspacePathMeta>
@@ -1492,6 +1639,47 @@ export class TeachingWorkspaceService {
 }
 
 /** Progress copy shown in the conversation while generate_lesson runs. */
+function isCanonicalWritableLessonSession(
+  session: LearningSessionSnapshot | null,
+  workspace: RegistryWorkspace,
+  lesson: LessonSummary
+): boolean {
+  return Boolean(
+    session &&
+    session.source === 'canonical' &&
+    !session.readOnly &&
+    session.status === 'active' &&
+    session.id === lesson.sessionId &&
+    session.workspaceId === workspace.id &&
+    session.courseRef.courseId === lesson.courseId &&
+    session.courseRef.courseName === lesson.courseName &&
+    session.courseRef.relativePath === lesson.courseRelativePath &&
+    session.lessonRef?.lessonId === lesson.id &&
+    session.lessonRef.title === lesson.title &&
+    session.lessonRef.relativePath === lesson.relativePath
+  )
+}
+
+function isCanonicalWritablePreviewBinding(
+  session: LearningSessionSnapshot | null,
+  binding: ActivePreviewBinding
+): boolean {
+  return Boolean(
+    session &&
+    session.source === 'canonical' &&
+    !session.readOnly &&
+    session.status === 'active' &&
+    session.id === binding.sessionId &&
+    session.workspaceId === binding.workspaceId &&
+    session.courseRef.courseId === binding.courseId &&
+    session.courseRef.courseName === binding.courseName &&
+    session.courseRef.relativePath === binding.courseRelativePath &&
+    session.lessonRef?.lessonId === binding.lessonId &&
+    session.lessonRef.title === binding.lessonTitle &&
+    session.lessonRef.relativePath === binding.lessonRelativePath
+  )
+}
+
 function lessonToolStepMessage(step: string): string {
   switch (step) {
     case 'calling':

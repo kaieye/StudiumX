@@ -116,6 +116,8 @@ export type EvidenceReceipt = {
   evidence: PersistedLessonInteraction
 }
 
+export type PreviewLessonInteractionReceipt = Pick<EvidenceReceipt, 'eventId' | 'sessionId' | 'sequence' | 'duplicate'>
+
 export type PreviewLessonInteractionIntent =
   | { eventId: string; kind: 'lesson_opened'; itemId: string }
   | { eventId: string; kind: 'lesson_completed'; itemId: string }

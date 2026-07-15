@@ -88,6 +88,7 @@ import type {
   WorkspaceRemovePayload
 } from './workspace'
 import type { TeachingSettingsPatch, TeachingSettingsV1 } from './settings'
+import type { PreviewLessonInteractionIntent, PreviewLessonInteractionReceipt } from './lesson-interaction'
 import type { SkillCatalogResult, SkillSummary } from './skill'
 import type {
   AnalyticsExportRequest,
@@ -118,6 +119,7 @@ export type TeachingSystemApi = {
   installSkill: (skillId: string) => Promise<SkillSummary>
   generateLesson: (payload: GenerateLessonPayload) => Promise<GenerateLessonResult>
   readLesson: (payload: ReadLessonPayload) => Promise<ReadLessonResult>
+  recordPreviewLessonInteraction: (intent: PreviewLessonInteractionIntent) => Promise<PreviewLessonInteractionReceipt>
   readWorkspaceMarkdown: (payload: ReadWorkspaceMarkdownPayload) => Promise<WorkspaceMarkdownDocument>
   saveWorkspaceMarkdown: (payload: SaveWorkspaceMarkdownPayload) => Promise<SaveWorkspaceMarkdownResult>
   openPath: (path: string) => Promise<OpenPathResult>

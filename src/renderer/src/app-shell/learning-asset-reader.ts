@@ -145,7 +145,7 @@ export function createLearningAssetReader<ErrorState>(input: {
       try {
         const result = await htmlPreview.read({
           workspaceId: workspace.id,
-          lessonPath: file.absolutePath
+          lessonPath: file.relativePath
         })
         if (!matchesHtmlSelection(version, file)) return
         const state = input.port.getSnapshot()
@@ -186,7 +186,7 @@ export function createLearningAssetReader<ErrorState>(input: {
       try {
         const document = await markdownDocument.read({
           workspaceId: workspace.id,
-          documentPath: file.absolutePath
+          documentPath: file.relativePath
         })
         if (!matchesMarkdownSelection(version, file, workspace.id)) return
         const state = input.port.getSnapshot()
@@ -229,7 +229,7 @@ export function createLearningAssetReader<ErrorState>(input: {
       try {
         const result = await markdownDocument.save({
           workspaceId,
-          documentPath: document.absolutePath,
+          documentPath: document.relativePath,
           content: draftAtSave
         })
         if (!matchesMarkdownSelection(selectionAtSave, document, workspaceId) || saveVersion !== thisSave) return

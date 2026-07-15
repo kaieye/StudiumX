@@ -40,7 +40,7 @@ import {
 } from 'lucide-react'
 import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Component, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Component, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { type Components } from 'react-markdown'
@@ -104,10 +104,12 @@ import {
   LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE,
   LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE,
   parsePreviewExternalHref,
+  parsePreviewLessonInteractionMessage,
   parsePreviewMarkdownHref,
   PREVIEW_EXTERNAL_LINK_MESSAGE,
   PREVIEW_MARKDOWN_LINK_MESSAGE
 } from '../../shared/preview-markdown-bridge'
+import type { PreviewLessonInteractionIntent } from '../../shared/teaching-types/lesson-interaction'
 import {
   type AgentChatTurn,
   type AgentToolPermissionRequest,
@@ -936,7 +938,8 @@ function MarkdownDocumentPanel({
   onDraftChange,
   onSave,
   onOpenExternal,
-  onOpenWorkspaceMarkdown
+  onOpenWorkspaceMarkdown,
+  onPreviewLessonInteraction
 }: {
   document: WorkspaceMarkdownDocument
   draft: string
@@ -946,6 +949,7 @@ function MarkdownDocumentPanel({
   onSave: () => void
   onOpenExternal: (href: string) => void
   onOpenWorkspaceMarkdown: (relativePath: string) => void
+  onPreviewLessonInteraction: (intent: PreviewLessonInteractionIntent) => void
 }) {
   const { t } = useTranslation()
   const dirty = draft !== document.content
@@ -975,6 +979,7 @@ function MarkdownDocumentPanel({
             emptyHint={t('markdown.emptyHint')}
             onOpenExternal={onOpenExternal}
             onOpenWorkspaceMarkdown={onOpenWorkspaceMarkdown}
+            lessonInteraction={{ onIntent: onPreviewLessonInteraction }}
           />
         </div>
       </div>
@@ -986,8 +991,17 @@ function MarkdownDocumentPanel({
 // Main Content Area
 // ================================================================
 
+export function previewLessonInteractionForCurrentIframe(
+  event: Pick<MessageEvent, 'data' | 'source'>,
+  lessonFrame: HTMLIFrameElement | null
+): PreviewLessonInteractionIntent | null {
+  const intent = parsePreviewLessonInteractionMessage(event.data)
+  return intent && event.source === lessonFrame?.contentWindow ? intent : null
+}
+
 function MainArea() {
   const { t } = useTranslation()
+  const lessonFrameRef = useRef<HTMLIFrameElement | null>(null)
   const chrome = resolveWindowChromePolicy(window.teachingSystem?.platform ?? 'win32')
   const isWindows = chrome.adapter === 'windows'
   const showInlineSidebarToggle = chrome.sidebarTogglePlacement === 'inline-topbar'
@@ -1090,6 +1104,12 @@ function MainArea() {
       setChangeDiffLoadingPath(null)
     }
   }
+  const recordPreviewLessonInteraction = useCallback((intent: PreviewLessonInteractionIntent): void => {
+    const api = window.teachingSystem
+    if (!api) return
+    void api.recordPreviewLessonInteraction(intent).catch(() => undefined)
+  }, [])
+
   const renderSidebarToggle = (className = 'icon-button') => (
     <button
       className={className}
@@ -1103,6 +1123,12 @@ function MainArea() {
 
   useEffect(() => {
     const handlePreviewMessage = (event: MessageEvent): void => {
+      const lessonInteraction = previewLessonInteractionForCurrentIframe(event, lessonFrameRef.current)
+      if (lessonInteraction) {
+        recordPreviewLessonInteraction(lessonInteraction)
+        return
+      }
+
       const data = event.data as { type?: unknown; href?: unknown }
       if (!data || typeof data.type !== 'string' || typeof data.href !== 'string') return
       if (data.type === PREVIEW_EXTERNAL_LINK_MESSAGE || data.type === LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE) {
@@ -1128,7 +1154,7 @@ function MainArea() {
 
     window.addEventListener('message', handlePreviewMessage)
     return () => window.removeEventListener('message', handlePreviewMessage)
-  }, [appState.workspaces, loadWorkspaceMarkdownFile, openExternal])
+  }, [appState.workspaces, loadWorkspaceMarkdownFile, openExternal, recordPreviewLessonInteraction])
 
   // Show skeleton during initial load
   if (loading && !active) {
@@ -1249,6 +1275,7 @@ function MainArea() {
               <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
                 <div className="lesson-reader-frame-wrap">
                   <iframe
+                    ref={lessonFrameRef}
                     key={lessonFrameKey}
                     className="lesson-reader-frame"
                     title={selectedPreviewFile.title}
@@ -1267,6 +1294,7 @@ function MainArea() {
                 onDraftChange={setMarkdownDraft}
                 onSave={() => void saveMarkdownDocument()}
                 onOpenExternal={(href) => void openExternal(href)}
+                onPreviewLessonInteraction={recordPreviewLessonInteraction}
                 onOpenWorkspaceMarkdown={(relativePath) => {
                   if (!selectedCourseWorkspaceId) return
                   void loadWorkspaceMarkdownFile(

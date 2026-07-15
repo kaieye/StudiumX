@@ -40,6 +40,7 @@ import type {
   UpdateMissionPayload,
   WindowControlAction
 } from '../shared/teaching-types'
+import { normalizePreviewLessonInteractionIntent, type PreviewLessonInteractionIntent } from '../shared/teaching-types/lesson-interaction'
 import { isLessonStyleId } from '../shared/lesson-styles'
 
 const MAX_SAVED_CONVERSATION_TURNS = 400
@@ -373,6 +374,10 @@ export function parseWorkspaceRemovePayload(payload: unknown): WorkspaceRemovePa
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     mode
   }
+}
+
+export function parsePreviewLessonInteractionIntent(payload: unknown): PreviewLessonInteractionIntent {
+  return normalizePreviewLessonInteractionIntent(payload)
 }
 
 export function parseReadLessonPayload(payload: unknown): ReadLessonPayload {
