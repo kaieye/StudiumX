@@ -8,7 +8,9 @@ import { createLearningSessionLedger, encodeCommittedLearningSessionOutcome } fr
 
 const roots: string[] = []
 const activeWorkers = new Set<ChildProcessWithoutNullStreams>()
-const WORKER_TIMEOUT_MS = 10_000
+const WORKER_TIMEOUT_MS = 20_000
+const STRESS_WRITER_COUNT = 24
+const STRESS_ROUNDS = 3
 let workerRoot = ''
 let workerPath = ''
 
@@ -87,6 +89,44 @@ describe('LearningSessionLedger cross-process writer', () => {
     expect(recovered).toMatchObject({ status: 'active', eventCount: 2 })
     expect(recovered?.events.map((value) => value.sequence)).toEqual([1, 2])
     expect(recovered?.events.map((value) => value.eventId).sort()).toEqual(['event-process-a', 'event-process-b'])
+  })
+
+  it('preserves every event through repeated 24-process writer-lock churn', { timeout: 60_000 }, async () => {
+    const workspaceRoot = await createWorkspace()
+    const sessionId = 'session-process-lock-churn'
+    await createLearningSessionLedger({ workspaceRoot }).open({
+      sessionId,
+      workspaceId: 'workspace-1',
+      courseRef: { courseId: 'course-1', courseName: 'Concurrency', relativePath: 'courses/concurrency' }
+    })
+
+    const expectedEventIds: string[] = []
+    for (let round = 0; round < STRESS_ROUNDS; round += 1) {
+      const workers = Array.from({ length: STRESS_WRITER_COUNT }, (_, writer) => {
+        const eventId = `event-lock-churn-${round}-${writer}`
+        expectedEventIds.push(eventId)
+        return startWorker({
+          workspaceRoot,
+          operation: 'append',
+          writerLockWaitMs: 15_000,
+          input: {
+            sessionId,
+            event: event(sessionId, eventId, { round, writer })
+          }
+        })
+      })
+      const results = await Promise.all(workers.map(collectWorker))
+      const failures = results.filter((result) => !result.ok)
+      expect(failures, `round ${round} worker failures: ${JSON.stringify(failures)}`).toEqual([])
+    }
+
+    const recovered = await createLearningSessionLedger({ workspaceRoot }).load(sessionId)
+    expect(recovered?.eventCount).toBe(expectedEventIds.length)
+    expect(recovered?.events.map((value) => value.sequence)).toEqual(
+      Array.from({ length: expectedEventIds.length }, (_, index) => index + 1)
+    )
+    expect(new Set(recovered?.events.map((value) => value.eventId)).size).toBe(expectedEventIds.length)
+    expect(recovered?.events.map((value) => value.eventId).sort()).toEqual(expectedEventIds.sort())
   })
 
   it('deduplicates identical cross-process retries and rejects conflicting content for the same event ID', async () => {

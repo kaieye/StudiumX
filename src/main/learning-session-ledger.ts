@@ -86,6 +86,7 @@ export type LearningSessionWriterOwner = {
 
 export type LearningSessionLedgerFaultPoint =
   | 'after_writer_lock_acquired'
+  | 'after_writer_lock_lstat'
   | 'after_state_loaded'
   | 'after_event_publish'
   | 'after_stage_sync'
@@ -1746,6 +1747,7 @@ async function withFilesystemWriterLock<T>(
       workspaceRoot,
       workspaceRoot,
       owner,
+      options,
       options.writerLockWaitMs ?? DEFAULT_WRITER_LOCK_WAIT_MS,
       options.writerLockStaleMs ?? DEFAULT_WRITER_LOCK_STALE_MS,
       settlement
@@ -1778,6 +1780,7 @@ async function acquireFilesystemWriterLock(
   workspaceRoot: string,
   sessionsRoot: string,
   owner: LearningSessionWriterOwner,
+  options: LearningSessionLedgerOptions,
   waitMs: number,
   staleMs: number,
   settlement: LearningSessionDurabilitySettlement
@@ -1790,11 +1793,21 @@ async function acquireFilesystemWriterLock(
   let observedOwner: LearningSessionWriterOwner | null = null
   while (true) {
     const sessionsIdentity = await captureDirectoryIdentity(workspaceRoot, sessionsRoot)
+    let created = false
     try {
       await mkdir(lockPath)
-      await assertDirectoryIdentity(workspaceRoot, sessionsRoot, sessionsIdentity)
-      await syncDirectory(sessionsRoot, settlement)
+      created = true
+    } catch (error) {
+      if (!isErrnoException(error, 'EEXIST') && !isWriterLockLifecycleError(error)) throw error
+      if (isWriterLockLifecycleError(error)) {
+        await assertDirectoryIdentity(workspaceRoot, sessionsRoot, sessionsIdentity)
+      }
+    }
+
+    if (created) {
       try {
+        await assertDirectoryIdentity(workspaceRoot, sessionsRoot, sessionsIdentity)
+        await syncDirectory(sessionsRoot, settlement)
         await durableWriteNewFile(join(lockPath, WRITER_LOCK_OWNER_FILE), serializeJson(owner))
         await syncDirectory(lockPath, settlement)
         await syncDirectory(sessionsRoot, settlement)
@@ -1803,16 +1816,15 @@ async function acquireFilesystemWriterLock(
         await removeWriterLockDirectoryIfSafe(workspaceRoot, sessionsRoot, lockPath, null, settlement).catch(() => undefined)
         throw error
       }
-    } catch (error) {
-      if (!isErrnoException(error, 'EEXIST')) throw error
     }
 
     let observed: InspectedWriterLock
     try {
-      observed = await inspectWriterLock(workspaceRoot, sessionsRoot, lockPath)
+      observed = await inspectWriterLock(workspaceRoot, sessionsRoot, lockPath, options, owner.operation, owner.sessionId)
     } catch (error) {
-      if (isErrnoException(error, 'ENOENT')) continue
-      throw error
+      if (!isWriterLockObservationUnstable(error)) throw error
+      await waitForWriterLockRetry(deadline, observedOwner)
+      continue
     }
     observedOwner = observed.owner
     if (await isConservativelyStaleWriter(observed, staleMs)) {
@@ -1822,58 +1834,180 @@ async function acquireFilesystemWriterLock(
         await syncDirectory(sessionsRoot, settlement)
         continue
       } catch (error) {
-        if (isErrnoException(error, 'ENOENT') || isErrnoException(error, 'EEXIST') || isErrnoException(error, 'ENOTEMPTY')) {
+        if (
+          isWriterLockLifecycleError(error) ||
+          isErrnoException(error, 'EEXIST') ||
+          isErrnoException(error, 'ENOTEMPTY')
+        ) {
+          await waitForWriterLockRetry(deadline, observedOwner)
           continue
         }
         throw error
       }
     }
-    if (Date.now() >= deadline) {
-      throw new LearningSessionLedgerError(
-        'writer_busy',
-        `Learning Session filesystem writer is busy${observedOwner ? ` (${observedOwner.operation}).` : '.'}`,
-        undefined,
-        observedOwner
-      )
-    }
-    await sleep(WRITER_LOCK_POLL_MS)
+    await waitForWriterLockRetry(deadline, observedOwner)
   }
+}
+
+type WriterLockEntryIdentity = {
+  dev: number
+  ino: number
+  kind: 'directory' | 'symlink' | 'other'
 }
 
 type InspectedWriterLock = {
   owner: LearningSessionWriterOwner | null
   modifiedAtMs: number
+  entryIdentity: WriterLockEntryIdentity
+}
+
+class WriterLockObservationUnstableError extends Error {
+  constructor(readonly observationError?: unknown) {
+    super('Learning Session writer lock observation was unstable.')
+    this.name = 'WriterLockObservationUnstableError'
+  }
 }
 
 async function inspectWriterLock(
   workspaceRoot: string,
   sessionsRoot: string,
-  lockPath: string
+  lockPath: string,
+  options?: LearningSessionLedgerOptions,
+  operation: LearningSessionWriterOperation = 'repair',
+  sessionId: string | null = null
 ): Promise<InspectedWriterLock> {
   await assertSafeWriterRoot(workspaceRoot, sessionsRoot)
-  const info = await lstat(lockPath)
-  if (info.isSymbolicLink() || !info.isDirectory()) {
+  const info = await lstatWriterLockEntry(lockPath)
+  const entryIdentity = writerLockEntryIdentity(info)
+  if (entryIdentity.kind !== 'directory') {
+    await assertStableWriterLockEntry(lockPath, entryIdentity)
     throw new LearningSessionLedgerError('unsafe_storage', 'Learning Session writer lock path is unsafe.')
   }
-  await assertRealContained(workspaceRoot, lockPath)
-  const ownerPath = join(lockPath, WRITER_LOCK_OWNER_FILE)
-  const ownerInfo = await lstat(ownerPath).catch((error: unknown) => {
-    if (isErrnoException(error, 'ENOENT')) return null
-    throw error
-  })
-  if (!ownerInfo) return { owner: null, modifiedAtMs: info.mtimeMs }
-  if (ownerInfo.isSymbolicLink() || !ownerInfo.isFile() || ownerInfo.size > 16 * 1024) {
-    return { owner: null, modifiedAtMs: Math.max(info.mtimeMs, ownerInfo.mtimeMs) }
-  }
+
+  const realWorkspaceRoot = await realpath(workspaceRoot)
+  let realLockPath: string
   try {
-    const value = JSON.parse(await readFile(ownerPath, 'utf8'))
-    return {
-      owner: parseWriterOwner(value),
-      modifiedAtMs: Math.max(info.mtimeMs, ownerInfo.mtimeMs)
+    if (options) {
+      await injectFault(options, 'after_writer_lock_lstat', {
+        operation,
+        sessionId,
+        path: relativePath(workspaceRoot, lockPath)
+      })
     }
-  } catch {
-    return { owner: null, modifiedAtMs: Math.max(info.mtimeMs, ownerInfo.mtimeMs) }
+    realLockPath = await realpath(lockPath)
+  } catch (error) {
+    return await throwWriterLockObservationFailure(lockPath, entryIdentity, error)
   }
+
+  await assertStableWriterLockEntry(lockPath, entryIdentity)
+  if (!isPathInsideRoot(realWorkspaceRoot, realLockPath)) {
+    throw new LearningSessionLedgerError(
+      'unsafe_storage',
+      'Learning Session writer lock escapes the Teaching workspace through a symbolic link.'
+    )
+  }
+
+  const ownerPath = join(lockPath, WRITER_LOCK_OWNER_FILE)
+  let ownerInfo: Stats | null
+  try {
+    ownerInfo = await lstat(ownerPath)
+  } catch (error) {
+    if (isErrnoException(error, 'ENOENT')) ownerInfo = null
+    else return await throwWriterLockObservationFailure(lockPath, entryIdentity, error)
+  }
+  if (!ownerInfo) {
+    await assertStableWriterLockEntry(lockPath, entryIdentity)
+    return { owner: null, modifiedAtMs: info.mtimeMs, entryIdentity }
+  }
+  const modifiedAtMs = Math.max(info.mtimeMs, ownerInfo.mtimeMs)
+  if (ownerInfo.isSymbolicLink() || !ownerInfo.isFile() || ownerInfo.size > 16 * 1024) {
+    await assertStableWriterLockEntry(lockPath, entryIdentity)
+    return { owner: null, modifiedAtMs, entryIdentity }
+  }
+
+  let ownerText: string
+  try {
+    ownerText = await readFile(ownerPath, 'utf8')
+  } catch (error) {
+    if (isWriterLockLifecycleError(error)) {
+      return await throwWriterLockObservationFailure(lockPath, entryIdentity, error)
+    }
+    await assertStableWriterLockEntry(lockPath, entryIdentity)
+    return { owner: null, modifiedAtMs, entryIdentity }
+  }
+  let owner: LearningSessionWriterOwner | null = null
+  try {
+    owner = parseWriterOwner(JSON.parse(ownerText))
+  } catch {
+    owner = null
+  }
+  await assertStableWriterLockEntry(lockPath, entryIdentity)
+  return { owner, modifiedAtMs, entryIdentity }
+}
+
+async function lstatWriterLockEntry(lockPath: string): Promise<Stats> {
+  try {
+    return await lstat(lockPath)
+  } catch (error) {
+    if (isWriterLockLifecycleError(error)) throw new WriterLockObservationUnstableError(error)
+    throw error
+  }
+}
+
+async function assertStableWriterLockEntry(
+  lockPath: string,
+  expected: WriterLockEntryIdentity
+): Promise<Stats> {
+  const current = await lstatWriterLockEntry(lockPath)
+  if (!sameWriterLockEntryIdentity(expected, writerLockEntryIdentity(current))) {
+    throw new WriterLockObservationUnstableError()
+  }
+  return current
+}
+
+async function throwWriterLockObservationFailure(
+  lockPath: string,
+  expected: WriterLockEntryIdentity,
+  error: unknown
+): Promise<never> {
+  await assertStableWriterLockEntry(lockPath, expected)
+  if (isWriterLockLifecycleError(error)) throw new WriterLockObservationUnstableError(error)
+  throw error
+}
+
+function writerLockEntryIdentity(info: Stats): WriterLockEntryIdentity {
+  return {
+    dev: info.dev,
+    ino: info.ino,
+    kind: info.isSymbolicLink() ? 'symlink' : info.isDirectory() ? 'directory' : 'other'
+  }
+}
+
+function sameWriterLockEntryIdentity(left: WriterLockEntryIdentity, right: WriterLockEntryIdentity): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.kind === right.kind
+}
+
+function isWriterLockLifecycleError(error: unknown): boolean {
+  return isErrnoException(error, 'ENOENT') || isErrnoException(error, 'EPERM') || isErrnoException(error, 'EBADF')
+}
+
+function isWriterLockObservationUnstable(error: unknown): error is WriterLockObservationUnstableError {
+  return error instanceof WriterLockObservationUnstableError
+}
+
+async function waitForWriterLockRetry(
+  deadline: number,
+  observedOwner: LearningSessionWriterOwner | null
+): Promise<void> {
+  if (Date.now() >= deadline) {
+    throw new LearningSessionLedgerError(
+      'writer_busy',
+      `Learning Session filesystem writer is busy${observedOwner ? ` (${observedOwner.operation}).` : '.'}`,
+      undefined,
+      observedOwner
+    )
+  }
+  await sleep(Math.min(WRITER_LOCK_POLL_MS, Math.max(1, deadline - Date.now())))
 }
 
 function parseWriterOwner(value: unknown): LearningSessionWriterOwner | null {

@@ -173,6 +173,63 @@ describe('LearningSessionLedger reviewer contracts', () => {
     }).scan()).rejects.toMatchObject({ code: 'writer_busy', writerOwner: null })
   })
 
+  it.each(['EPERM', 'EBADF'] as const)(
+    'retries an unstable writer-lock observation after a simulated Windows %s deletion race',
+    async (errorCode) => {
+      const workspaceRoot = await createWorkspace()
+      const lockPath = join(workspaceRoot, '.learning-session-ledger-writer.lock')
+      await mkdir(lockPath)
+      let injected = false
+      const ledger = createLearningSessionLedger({
+        workspaceRoot,
+        writerLockWaitMs: 2_000,
+        testingFaults: {
+          inject: async (point) => {
+            if (injected || point !== 'after_writer_lock_lstat') return
+            injected = true
+            await rm(lockPath, { recursive: true, force: true })
+            throw Object.assign(new Error(`simulated ${errorCode} during lock release`), { code: errorCode })
+          }
+        }
+      })
+
+      await expect(ledger.scan()).resolves.toMatchObject({ canonicalSessions: [] })
+      expect(injected).toBe(true)
+    }
+  )
+
+  it('fails closed when a stable writer-lock entry is a junction', async () => {
+    const workspaceRoot = await createWorkspace()
+    const outsideRoot = await createWorkspace()
+    await symlink(outsideRoot, join(workspaceRoot, '.learning-session-ledger-writer.lock'), 'junction')
+
+    await expect(createLearningSessionLedger({ workspaceRoot, writerLockWaitMs: 100 }).scan())
+      .rejects.toMatchObject({ code: 'unsafe_storage' })
+  })
+
+  it('retries an identity-changing lock race and then fails closed on the stable junction replacement', async () => {
+    const workspaceRoot = await createWorkspace()
+    const outsideRoot = await createWorkspace()
+    const lockPath = join(workspaceRoot, '.learning-session-ledger-writer.lock')
+    await mkdir(lockPath)
+    let replaced = false
+    const ledger = createLearningSessionLedger({
+      workspaceRoot,
+      writerLockWaitMs: 1_000,
+      testingFaults: {
+        inject: async (point) => {
+          if (replaced || point !== 'after_writer_lock_lstat') return
+          replaced = true
+          await rm(lockPath, { recursive: true, force: true })
+          await symlink(outsideRoot, lockPath, 'junction')
+        }
+      }
+    })
+
+    await expect(ledger.scan()).rejects.toMatchObject({ code: 'unsafe_storage' })
+    expect(replaced).toBe(true)
+  })
+
   it('reports and bounded-cleans stale safe stage files without treating them as canonical facts', async () => {
     const workspaceRoot = await createWorkspace()
     const ledger = createLearningSessionLedger({ workspaceRoot })
