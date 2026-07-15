@@ -21,6 +21,8 @@ export const LEARNING_OUTCOME_EVALUATION_SCHEMA_VERSION = 1 as const
 export type LearningOutcomeArtifactStatus =
   | 'verified'
   | 'missing_lesson'
+  | 'missing_assessment'
+  | 'digest_mismatch'
   | 'unsafe_path'
   | 'not_html'
   | 'unreadable'
@@ -87,15 +89,20 @@ export async function evaluateLearningSessionOutcome(
 
   const lesson = input.session.source === 'canonical' && !input.session.readOnly ? input.session.lessonRef : null
   if (!lesson) return base({ relativePath: null, sha256: null, status: 'missing_lesson' })
+  const assessment = lesson.assessment
+  if (!assessment) return base({ relativePath: null, sha256: null, status: 'missing_assessment' })
 
   let relativePath: string
   try {
-    relativePath = requireSafeTeachingRelativePath(lesson.relativePath, 'Lesson path')
+    relativePath = requireSafeTeachingRelativePath(assessment.relativePath, 'Assessment artifact path')
   } catch {
-    return base({ relativePath: lesson.relativePath, sha256: null, status: 'unsafe_path' })
+    return base({ relativePath: assessment.relativePath, sha256: null, status: 'unsafe_path' })
   }
-  if (!isCanonicalLessonHtmlPath(relativePath)) {
+  if (!isCanonicalAssessmentHtmlPath(relativePath)) {
     return base({ relativePath, sha256: null, status: 'not_html' })
+  }
+  if (!isSha256(assessment.contentSha256)) {
+    return base({ relativePath, sha256: null, status: 'unparseable' })
   }
 
   let content: Buffer
@@ -114,6 +121,7 @@ export async function evaluateLearningSessionOutcome(
   }
 
   const sha256 = createHash('sha256').update(content).digest('hex')
+  if (sha256 !== assessment.contentSha256) return base({ relativePath, sha256, status: 'digest_mismatch' })
   const quizzes = parseCanonicalQuizzes(content.toString('utf8'))
   if (!quizzes) return base({ relativePath, sha256, status: 'unparseable' })
 
@@ -208,8 +216,12 @@ function compareAssessments(left: LearningOutcomeEvidenceAssessment, right: Lear
   return left.sequence - right.sequence || left.eventId.localeCompare(right.eventId)
 }
 
-function isCanonicalLessonHtmlPath(relativePath: string): boolean {
-  return (relativePath.startsWith('courses/') || relativePath.startsWith('lessons/')) && relativePath.endsWith('.html')
+function isCanonicalAssessmentHtmlPath(relativePath: string): boolean {
+  return (relativePath.startsWith('courses/') || relativePath.startsWith('lessons/')) && relativePath.endsWith('-assessment.html')
+}
+
+function isSha256(value: string): boolean {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
 }
 
 const MAX_CANONICAL_ARTIFACT_BYTES = 512 * 1024
@@ -236,7 +248,14 @@ function parseCanonicalQuizzes(html: string): CanonicalQuiz[] | null {
     if (!elements) return null
     const cards = elements.filter(isQuizCard)
     if (cards.some((card) => !hasCompleteSourceLocation(card) || isNestedQuizCard(card))) return null
-    return cards.map((card, index) => parseQuizCard(`quiz-${index + 1}`, card))
+    const quizzes: CanonicalQuiz[] = []
+    for (let index = 0; index < cards.length; index += 1) {
+      const card = cards[index]!
+      const itemId = attributeValue(card, 'data-item-id')
+      if (itemId !== `quiz-${index + 1}`) return null
+      quizzes.push(parseQuizCard(itemId, card))
+    }
+    return quizzes
   } catch {
     return null
   }

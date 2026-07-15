@@ -307,6 +307,47 @@ describe('LearningSessionLedger reviewer contracts', () => {
     await expect(access(stagePath)).resolves.toBeUndefined()
   })
 
+  it('round-trips an immutable assessment binding and rejects every later addition, replacement, or deletion', async () => {
+    const workspaceRoot = await createWorkspace()
+    const ledger = createLearningSessionLedger({ workspaceRoot })
+    const identity = {
+      sessionId: 'session-assessment-binding',
+      workspaceId: 'workspace-1',
+      courseRef: { courseId: 'course-1', courseName: 'Review', relativePath: 'courses/review' },
+      lessonRef: {
+        lessonId: 'lesson-1',
+        title: 'Assessment binding',
+        relativePath: 'courses/review/lesson/0001-assessment-binding.html',
+        assessment: {
+          relativePath: 'courses/review/lesson/0001-assessment-binding-assessment.html',
+          contentSha256: 'a'.repeat(64)
+        }
+      }
+    }
+
+    const opened = await ledger.open(identity)
+    const reloaded = await createLearningSessionLedger({ workspaceRoot }).load(identity.sessionId)
+    expect(opened.lessonRef).toEqual(identity.lessonRef)
+    expect(reloaded?.lessonRef).toEqual(identity.lessonRef)
+    await expect(ledger.open(identity)).resolves.toMatchObject({ lessonRef: identity.lessonRef })
+    await expect(ledger.open({ ...identity, lessonRef: { ...identity.lessonRef, assessment: undefined } })).rejects.toMatchObject({ code: 'identity_conflict' })
+    await expect(ledger.open({ ...identity, lessonRef: { ...identity.lessonRef, assessment: { ...identity.lessonRef.assessment, contentSha256: 'b'.repeat(64) } } })).rejects.toMatchObject({ code: 'identity_conflict' })
+
+    const legacyMissing = await ledger.open({
+      sessionId: 'session-legacy-missing-assessment',
+      workspaceId: 'workspace-1',
+      courseRef: identity.courseRef,
+      lessonRef: { lessonId: 'lesson-2', title: 'Legacy', relativePath: 'courses/review/lesson/0002-legacy.html' }
+    })
+    expect(legacyMissing.lessonRef).not.toHaveProperty('assessment')
+    await expect(ledger.open({
+      sessionId: legacyMissing.id,
+      workspaceId: 'workspace-1',
+      courseRef: identity.courseRef,
+      lessonRef: { ...legacyMissing.lessonRef!, assessment: identity.lessonRef.assessment }
+    })).rejects.toMatchObject({ code: 'identity_conflict' })
+  })
+
   it('rejects unsafe lesson and conversation refs with the same Windows-portable rules', async () => {
     const workspaceRoot = await createWorkspace()
     const ledger = createLearningSessionLedger({ workspaceRoot })

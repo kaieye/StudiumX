@@ -28,6 +28,7 @@ export type LessonPlacement = CoursePlacement & {
 
 export type LessonArtifactPlacement = LessonPlacement & {
   lessonRelativePath: string
+  assessmentRelativePath: string
   referenceRelativePath: string | null
   reviewsRelativePath: string | null
 }
@@ -199,6 +200,7 @@ export function buildLessonArtifactPlacement(input: {
   const lessonDirRelativePath = lessonFolderRelativePathForCourse(course.courseRelativePath)
   const fileSlug = slugifyPlacement(input.title, 'lesson')
   const lessonRelativePath = joinTeachingRelativePath(lessonDirRelativePath, `${paddedSequence}-${fileSlug}.html`)
+  const assessmentRelativePath = joinTeachingRelativePath(lessonDirRelativePath, `${paddedSequence}-${fileSlug}-assessment.html`)
   const referenceRelativePath = input.includeReference
     ? joinTeachingRelativePath(lessonDirRelativePath, `${paddedSequence}-${fileSlug}-reference.html`)
     : null
@@ -212,6 +214,7 @@ export function buildLessonArtifactPlacement(input: {
     sessionName,
     sessionRelativePath: lessonDirRelativePath,
     lessonRelativePath,
+    assessmentRelativePath,
     referenceRelativePath,
     reviewsRelativePath
   }

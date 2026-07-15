@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildWorkspaceCatalog } from '../../src/main/teaching-workspace-catalog'
 import { readLearningAssetCatalog } from '../../src/main/teaching-workspace/learning-assets-catalog'
+import { planLessonIndexReconciliation } from '../../src/main/teaching-workspace/catalog-reconciliation'
 
 const temporaryRoots: string[] = []
 
@@ -66,6 +67,22 @@ describe('learning asset catalog', () => {
         records: [{ relativePath: 'learning-records/0001-testing-reflection.md' }],
         referenceCount: 1
       })
+  })
+
+  it('does not recover canonical assessment sidecars as a second Lesson during catalog reconciliation', async () => {
+    const rootPath = await createWorkspace({
+      'lessons/0001-testing-basics.html': '<!doctype html><title>Lesson</title>',
+      'lessons/0001-testing-basics-assessment.html': '<!doctype html><title>Assessment</title>'
+    })
+    const plan = await planLessonIndexReconciliation({
+      rootPath,
+      workspaceName: 'Testing workspace',
+      lessons: []
+    })
+
+    expect(plan.recoveredRelativePaths).toEqual(['lessons/0001-testing-basics.html'])
+    expect(plan.lessons).toHaveLength(1)
+    expect(plan.lessons[0]?.relativePath).toBe('lessons/0001-testing-basics.html')
   })
 
   it('keeps the existing empty workspace fallbacks', async () => {

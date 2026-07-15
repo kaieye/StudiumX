@@ -1289,7 +1289,7 @@ export class TeachingWorkspaceService {
       callbacks: options.callbacks
     })
 
-    await this.openCanonicalLessonSession(workspace, generation.lesson)
+    await this.openCanonicalLessonSession(workspace, generation.lesson, generation.assessment)
 
     await this.saveWorkspaceIndex(workspace.rootPath, {
       ...index,
@@ -1689,7 +1689,11 @@ export class TeachingWorkspaceService {
     return typeof webContentsId === 'number' && generation !== null && this.previewReadGenerations.get(webContentsId) === generation
   }
 
-  private async openCanonicalLessonSession(workspace: RegistryWorkspace, lesson: LessonSummary): Promise<void> {
+  private async openCanonicalLessonSession(
+    workspace: RegistryWorkspace,
+    lesson: LessonSummary,
+    assessment: { relativePath: string; contentSha256: string }
+  ): Promise<void> {
     const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
     const session = await ledger.open({
       sessionId: lesson.sessionId,
@@ -1702,7 +1706,8 @@ export class TeachingWorkspaceService {
       lessonRef: {
         lessonId: lesson.id,
         title: lesson.title,
-        relativePath: lesson.relativePath
+        relativePath: lesson.relativePath,
+        assessment
       }
     })
     if (!isCanonicalWritableLessonSession(session, workspace, lesson)) {
@@ -1812,7 +1817,8 @@ function isCanonicalWritableLessonSession(
     session.courseRef.relativePath === lesson.courseRelativePath &&
     session.lessonRef?.lessonId === lesson.id &&
     session.lessonRef.title === lesson.title &&
-    session.lessonRef.relativePath === lesson.relativePath
+    session.lessonRef.relativePath === lesson.relativePath &&
+    Boolean(session.lessonRef.assessment)
   )
 }
 

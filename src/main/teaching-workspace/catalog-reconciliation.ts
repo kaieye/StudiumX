@@ -71,7 +71,7 @@ export async function planLessonIndexReconciliation(
 
 function isLessonHtmlFile(filePath: string): boolean {
   const lower = filePath.toLowerCase()
-  return lower.endsWith('.html') && !lower.endsWith('-reference.html')
+  return lower.endsWith('.html') && !lower.endsWith('-reference.html') && !lower.endsWith('-assessment.html')
 }
 
 function recoveredLessonSummary(rootPath: string, workspaceName: string, absolutePath: string): LessonSummary {

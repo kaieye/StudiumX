@@ -93,7 +93,7 @@ ${plan.flashcards
   const quiz = plan.quiz.length
     ? `      <section class="${cls.practice}">
         <h2>检索练习</h2>
-${plan.quiz.map(renderQuizCard).join('\n')}
+${renderLessonQuizCards(plan)}
       </section>`
     : ''
   const footerLine = plan.followupPrompt && plan.followupPrompt.trim()
@@ -181,12 +181,43 @@ ${plan.keyPoints.map((point) => `  <li>${escapeHtml(point)}</li>`).join('\n')}
   })
 }
 
+/**
+ * Pure shared quiz/card renderer used by both the interactive Lesson and its
+ * static assessment sidecar. IDs are durable document-order bindings rather
+ * than runtime-generated identifiers.
+ */
+export function renderLessonQuizCards(plan: LessonPlan): string {
+  return plan.quiz.map((item, index) => renderQuizCard(item, `quiz-${index + 1}`)).join('\n')
+}
+
+/** Renders a standards-mode, inert assessment authority from the sanitized plan. */
+export function renderAssessmentHtmlFromPlan(opts: { plan: LessonPlan }): string {
+  const quiz = opts.plan.quiz.length
+    ? `      <section class="${cls.practice}">
+        <h1>${escapeHtml(opts.plan.title)}</h1>
+${renderLessonQuizCards(opts.plan)}
+      </section>`
+    : `      <section class="${cls.practice}">
+        <h1>${escapeHtml(opts.plan.title)}</h1>
+      </section>`
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <title>${escapeHtml(opts.plan.title)} assessment</title>
+</head>
+<body>
+${quiz}
+</body>
+</html>
+`
+}
+
 // Quiz markup remains byte-for-byte shaped for the shared assets/quiz.js
 // event contract; document-frame owns loading that shared script.
-function renderQuizCard(item: LessonQuizItem): string {
+function renderQuizCard(item: LessonQuizItem, itemId: string): string {
   const type = item.type
   if (type === 'fill') {
-    return `        <article class="${cls.quizCard}" ${data.quizType}="fill" ${data.quizAnswer}="${escapeAttr(String(item.answer))}">
+    return `        <article class="${cls.quizCard}" data-item-id="${escapeAttr(itemId)}" ${data.quizType}="fill" ${data.quizAnswer}="${escapeAttr(String(item.answer))}">
           <p>${escapeHtml(item.question)}</p>
           <div class="${cls.quizFill}">
             <input type="text" placeholder="输入你的答案" aria-label="答案输入" />
@@ -198,7 +229,7 @@ function renderQuizCard(item: LessonQuizItem): string {
   }
   if (type === 'truefalse') {
     const answer = String(item.answer) === '1' || String(item.answer).toLowerCase() === 'true' ? 'true' : 'false'
-    return `        <article class="${cls.quizCard}" ${data.quizType}="truefalse" ${data.quizAnswer}="${escapeAttr(answer)}">
+    return `        <article class="${cls.quizCard}" data-item-id="${escapeAttr(itemId)}" ${data.quizType}="truefalse" ${data.quizAnswer}="${escapeAttr(answer)}">
           <p>${escapeHtml(item.question)}</p>
           <div class="${cls.quizChoices}">
             <button type="button" ${data.quizChoice}="true">正确</button>
@@ -220,7 +251,7 @@ function renderQuizCard(item: LessonQuizItem): string {
   const choices = item.choices
     .map((choice, index) => `            <button type="button" ${data.quizChoice}="${letterFor(index)}">${escapeHtml(choice)}</button>`)
     .join('\n')
-  return `        <article class="${cls.quizCard}" ${data.quizType}="${escapeAttr(type)}" ${data.quizAnswer}="${escapeAttr(letters)}">
+  return `        <article class="${cls.quizCard}" data-item-id="${escapeAttr(itemId)}" ${data.quizType}="${escapeAttr(type)}" ${data.quizAnswer}="${escapeAttr(letters)}">
           <p>${escapeHtml(item.question)}</p>
           <div class="${cls.quizChoices}">
 ${choices}

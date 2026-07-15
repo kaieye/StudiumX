@@ -17,10 +17,17 @@ export type LearningSessionCourseRef = {
   relativePath: string
 }
 
+export type LearningSessionAssessmentRef = {
+  relativePath: string
+  contentSha256: string
+}
+
 export type LearningSessionLessonRef = {
   lessonId: string
   title: string
   relativePath: string
+  /** Absent only for legacy/pre-assessment Sessions; once bound it is immutable. */
+  assessment?: LearningSessionAssessmentRef
 }
 
 export type LearningSessionConversationRef = {

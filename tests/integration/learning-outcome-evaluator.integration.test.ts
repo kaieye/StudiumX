@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createLearningSessionLedger } from '../../src/main/learning-session-ledger'
 import { createLessonInteractionRecorder } from '../../src/main/lesson-interaction-recorder'
 import { evaluateLearningSessionOutcome } from '../../src/main/learning-outcome-evaluator'
+import { publishLessonArtifacts } from '../../src/main/teaching-lesson-artifacts'
+import type { TeachingSettingsV1 } from '../../src/shared/teaching-types'
 
 const roots: string[] = []
 
@@ -16,8 +17,19 @@ async function workspace(): Promise<string> {
   return root
 }
 
-function sha256(value: string): string {
-  return createHash('sha256').update(value, 'utf8').digest('hex')
+const generator: TeachingSettingsV1['generator'] = {
+  providerId: 'test-provider',
+  model: 'test-model',
+  endpointFormat: 'chat_completions',
+  temperature: 0.2,
+  maxOutputTokens: 4096,
+  lessonDurationMinutes: 25,
+  includeRetrievalPractice: true,
+  generateReference: false,
+  structuredOutput: true,
+  streaming: false,
+  reasoningEffort: 'off',
+  requestTimeoutMs: 30_000
 }
 
 afterEach(async () => {
@@ -25,13 +37,38 @@ afterEach(async () => {
 })
 
 describe('LearningOutcomeEvaluator durable integration', () => {
-  it('evaluates a reloaded ledger snapshot and ignores the persisted renderer correctness claim', async () => {
+  it('establishes mastery only from a reloaded trusted session binding and a publisher-produced assessment sidecar', async () => {
     const workspaceRoot = await workspace()
-    const relativePath = 'courses/foundations/lesson-1.html'
-    const html = '<!doctype html><article class="quiz-card" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
-    await mkdir(join(workspaceRoot, 'courses', 'foundations'), { recursive: true })
-    await writeFile(join(workspaceRoot, ...relativePath.split('/')), html, 'utf8')
-    const digest = sha256(html)
+    const publication = await publishLessonArtifacts({
+      workspace: { name: 'Foundations', rootPath: workspaceRoot },
+      plan: {
+        title: 'Trusted assessment',
+        objective: 'Use canonical sidecar facts.',
+        durationMinutes: 25,
+        sections: [{ heading: 'Evidence', body: 'Normal previews are not assessment authority.' }],
+        keyPoints: ['Bind the sidecar digest'],
+        quiz: [{
+          type: 'single',
+          question: 'Which artifact is authoritative?',
+          choices: ['Normal preview', 'Assessment sidecar'],
+          answer: 1,
+          explanation: 'Only the static sidecar is evaluated.'
+        }],
+        flashcards: [],
+        callouts: [],
+        referenceNotes: '',
+        learningRecordNote: ''
+      },
+      sequence: 1,
+      title: 'Trusted assessment',
+      objective: 'Use canonical sidecar facts.',
+      prompt: 'Teach trusted assessment.',
+      createdAt: '2026-07-15T13:00:00.000Z',
+      durationMinutes: 25,
+      mission: { title: 'Foundations', excerpt: 'Trust static evidence.' },
+      generator,
+      includeReference: false
+    })
     const ledger = createLearningSessionLedger({
       workspaceRoot,
       now: () => '2026-07-15T13:00:00.000Z',
@@ -39,8 +76,17 @@ describe('LearningOutcomeEvaluator durable integration', () => {
     })
     await ledger.open({
       workspaceId: 'workspace-1',
-      courseRef: { courseId: 'course-1', courseName: 'Foundations', relativePath: 'courses/foundations' },
-      lessonRef: { lessonId: 'lesson-1', title: 'Evidence', relativePath }
+      courseRef: {
+        courseId: publication.lesson.courseId,
+        courseName: publication.lesson.courseName,
+        relativePath: publication.lesson.courseRelativePath
+      },
+      lessonRef: {
+        lessonId: publication.lesson.id,
+        title: publication.lesson.title,
+        relativePath: publication.lesson.relativePath,
+        assessment: publication.assessment
+      }
     })
     const recorder = createLessonInteractionRecorder({ ledger })
     await recorder.record({
@@ -48,16 +94,16 @@ describe('LearningOutcomeEvaluator durable integration', () => {
       eventId: 'quiz-outcome-integration-1',
       kind: 'quiz_answered',
       workspaceId: 'workspace-1',
-      courseId: 'course-1',
+      courseId: publication.lesson.courseId,
       sessionId: 'session-outcome-integration',
-      lessonId: 'lesson-1',
+      lessonId: publication.lesson.id,
       itemId: 'quiz-1',
       attempt: 1,
       observedAt: '2026-07-15T13:00:01.000Z',
-      artifactDigest: digest,
+      artifactDigest: publication.assessment.contentSha256,
       surface: 'lesson_preview',
-      selectedOptionIds: ['a'],
-      correct: true
+      selectedOptionIds: ['b'],
+      correct: false
     })
     const reloaded = await createLearningSessionLedger({ workspaceRoot }).load('session-outcome-integration')
     expect(reloaded).not.toBeNull()
@@ -65,10 +111,11 @@ describe('LearningOutcomeEvaluator durable integration', () => {
     const result = await evaluateLearningSessionOutcome({ workspaceRoot, session: reloaded! })
 
     expect(result).toMatchObject({
-      kind: 'needs_practice',
-      mastery: false,
+      kind: 'established',
+      mastery: true,
       evidenceEventIds: ['quiz-outcome-integration-1'],
-      assessments: [{ disposition: 'verified_incorrect', reason: 'verified' }]
+      artifact: { relativePath: publication.assessment.relativePath, status: 'verified', sha256: publication.assessment.contentSha256 },
+      assessments: [{ disposition: 'verified_correct', reason: 'verified' }]
     })
   })
 })

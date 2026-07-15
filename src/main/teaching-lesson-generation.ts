@@ -38,6 +38,7 @@ export type LessonGenerationMemoryRetriever = (options: {
 export type LessonGenerationResult = {
   kind: 'lesson'
   lesson: LessonSummary
+  assessment: { relativePath: string; contentSha256: string }
   source: LessonPlanSource
   reason?: string
   eventPrompt: string
@@ -132,6 +133,7 @@ export async function runLessonGenerationPipeline(options: {
   return {
     kind: 'lesson',
     lesson: publication.lesson,
+    assessment: publication.assessment,
     source,
     reason,
     eventPrompt: lessonPrompt,

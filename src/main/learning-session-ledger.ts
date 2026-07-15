@@ -11,6 +11,7 @@ import {
   type CanonicalLearningSessionSnapshot,
   type CommittedLearningSessionOutcome,
   type LearningOutcomeRef,
+  type LearningSessionAssessmentRef,
   type LearningSessionDiagnostic,
   type LearningSessionDurabilitySettlement,
   type LearningSessionEvent,
@@ -1016,7 +1017,17 @@ function sameLessonRefs(
   if (left === null || right === null) return left === right
   return left.lessonId === right.lessonId &&
     left.title === right.title &&
-    windowsTeachingRelativePathKey(left.relativePath) === windowsTeachingRelativePathKey(right.relativePath)
+    windowsTeachingRelativePathKey(left.relativePath) === windowsTeachingRelativePathKey(right.relativePath) &&
+    sameAssessmentRefs(left.assessment, right.assessment)
+}
+
+function sameAssessmentRefs(
+  left: LearningSessionAssessmentRef | undefined,
+  right: LearningSessionAssessmentRef | undefined
+): boolean {
+  if (left === undefined || right === undefined) return left === right
+  return windowsTeachingRelativePathKey(left.relativePath) === windowsTeachingRelativePathKey(right.relativePath) &&
+    left.contentSha256 === right.contentSha256
 }
 
 function mergeConversationRefs(
@@ -1191,11 +1202,25 @@ function normalizeCourseRef(value: unknown) {
 
 function normalizeLessonRef(value: unknown) {
   if (!isRecord(value)) throw invalidInput('Lesson ref must be an object.')
-  assertOnlyKeys(value, ['lessonId', 'title', 'relativePath'])
+  assertOnlyKeys(value, ['lessonId', 'title', 'relativePath', 'assessment'])
+  const assessment = value.assessment === undefined ? undefined : normalizeAssessmentRef(value.assessment)
   return {
     lessonId: requireNonEmptyText(value.lessonId, 'Lesson ID'),
     title: requireNonEmptyText(value.title, 'Lesson title'),
-    relativePath: requireSafeRelativePath(value.relativePath, 'Lesson path')
+    relativePath: requireSafeRelativePath(value.relativePath, 'Lesson path'),
+    ...(assessment ? { assessment } : {})
+  }
+}
+
+function normalizeAssessmentRef(value: unknown) {
+  if (!isRecord(value)) throw invalidInput('Lesson assessment ref must be an object.')
+  assertOnlyKeys(value, ['relativePath', 'contentSha256'])
+  if (typeof value.contentSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.contentSha256)) {
+    throw invalidInput('Lesson assessment content digest must be a lowercase SHA-256 value.')
+  }
+  return {
+    relativePath: requireSafeRelativePath(value.relativePath, 'Lesson assessment path'),
+    contentSha256: value.contentSha256
   }
 }
 

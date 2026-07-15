@@ -1,7 +1,8 @@
 import * as fs from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
+  renderAssessmentHtmlFromPlan,
   renderLessonHtmlFromPlan,
   renderReferenceHtmlFromPlan
 } from './ai/lesson-renderer'
@@ -39,6 +40,8 @@ export type LessonArtifactPaths = {
   sessionAbsolutePath: string
   lessonRelativePath: string
   lessonAbsolutePath: string
+  assessmentRelativePath: string
+  assessmentAbsolutePath: string
   referenceRelativePath: string | null
   referenceAbsolutePath: string | null
   reviewsRelativePath: string | null
@@ -47,6 +50,7 @@ export type LessonArtifactPaths = {
 
 export type LessonArtifactPublication = {
   lesson: LessonSummary
+  assessment: { relativePath: string; contentSha256: string }
   paths: LessonArtifactPaths
   eventPaths: string[]
 }
@@ -78,8 +82,13 @@ export async function publishLessonArtifacts(
     conversationDirectory: join(dirname(dirname(lesson.absolutePath)), 'conversation')
   })
 
+  const assessment = artifacts[1]!
   return {
     lesson,
+    assessment: {
+      relativePath: paths.assessmentRelativePath,
+      contentSha256: createHash('sha256').update(Buffer.from(assessment.bytes, 'utf8')).digest('hex')
+    },
     paths,
     eventPaths: artifacts.map((artifact) => artifact.relativePath)
   }
@@ -108,6 +117,8 @@ export function deriveLessonArtifactPublication(facts: LessonArtifactPublication
     sessionAbsolutePath: join(facts.workspace.rootPath, placement.sessionRelativePath),
     lessonRelativePath: placement.lessonRelativePath,
     lessonAbsolutePath: join(facts.workspace.rootPath, placement.lessonRelativePath),
+    assessmentRelativePath: placement.assessmentRelativePath,
+    assessmentAbsolutePath: join(facts.workspace.rootPath, placement.assessmentRelativePath),
     referenceRelativePath: placement.referenceRelativePath,
     referenceAbsolutePath: placement.referenceRelativePath
       ? join(facts.workspace.rootPath, placement.referenceRelativePath)
@@ -157,6 +168,12 @@ function renderLessonArtifacts(opts: {
       generator: facts.generator
     })
   }]
+
+  artifacts.push({
+    absolutePath: paths.assessmentAbsolutePath,
+    relativePath: paths.assessmentRelativePath,
+    bytes: renderAssessmentHtmlFromPlan({ plan: facts.plan })
+  })
 
   if (paths.referenceAbsolutePath && paths.referenceRelativePath) {
     artifacts.push({
