@@ -240,7 +240,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
       id="pet-assistant-dialog"
       className="pet-assistant-dialog"
       role="dialog"
-      aria-label={`${petName} AI 对话`}
+      aria-label={`${petName} · ${t('resources.pets.assistant.title')}`}
       aria-modal="false"
       tabIndex={-1}
       style={{ left: geometry.x, top: geometry.y, width: geometry.width, height: geometry.height }}
@@ -255,14 +255,16 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
         <span className="pet-assistant-title-icon" aria-hidden="true"><MessageCircle size={16} /></span>
         <span>
           <strong>{petName}</strong>
-          <small>{agentChatBusy ? agentStatus || '正在思考' : '学习搭档'}</small>
+          <small>{agentChatBusy
+            ? t('resources.pets.assistant.status.thinking')
+            : t('resources.pets.assistant.title')}</small>
         </span>
         <button
           type="button"
           onClick={clearAgentChat}
           disabled={agentChatBusy || agentTurns.length === 0}
-          aria-label="新建对话"
-          title="新建对话"
+          aria-label={t('resources.pets.assistant.actions.newConversation')}
+          title={t('resources.pets.assistant.actions.newConversation')}
         >
           <Plus size={15} />
         </button>
