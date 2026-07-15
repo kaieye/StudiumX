@@ -215,6 +215,8 @@ function parseCanonicalQuizzes(html: string): CanonicalQuiz[] | null {
   } catch {
     return null
   }
+  // Canonical lessons must be standards-mode so their selector semantics stay stable.
+  if (document.mode !== 'no-quirks') return null
 
   const cards = documentOrderElements(document).filter(isQuizCard)
   if (cards.some((card) => !hasCompleteSourceLocation(card) || isNestedQuizCard(card))) return null

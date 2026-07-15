@@ -28,7 +28,7 @@ describe('LearningOutcomeEvaluator durable integration', () => {
   it('evaluates a reloaded ledger snapshot and ignores the persisted renderer correctness claim', async () => {
     const workspaceRoot = await workspace()
     const relativePath = 'courses/foundations/lesson-1.html'
-    const html = '<article class="quiz-card" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = '<!doctype html><article class="quiz-card" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
     await mkdir(join(workspaceRoot, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(workspaceRoot, ...relativePath.split('/')), html, 'utf8')
     const digest = sha256(html)
