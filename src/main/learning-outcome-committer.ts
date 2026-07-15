@@ -192,7 +192,17 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
         diagnostics.push('missing_record')
         return { sessionId: safeSessionId, state: 'review_required', marker, record: null, catalogRecordPresent: false, diagnostics }
       }
-      if (marker && !sameMarkerIdentity(marker, repairedMarker)) diagnostics.push('conflicting_outcome')
+      if (marker && !sameMarkerIdentity(marker, repairedMarker)) {
+        diagnostics.push('conflicting_outcome')
+        return {
+          sessionId: safeSessionId,
+          state: 'review_required',
+          marker,
+          record: repairedMarker.record,
+          catalogRecordPresent: await this.catalogHas(repairedMarker.record),
+          diagnostics
+        }
+      }
       const encoded = encodeCommittedLearningSessionOutcome({
         sessionId: safeSessionId,
         outcomeId: repairedMarker.outcomeId,
@@ -458,7 +468,7 @@ async function readMarker(path: string): Promise<{ marker: OutcomeSettlementMark
 }
 
 async function readCanonicalRecord(workspaceRoot: string, sessionId: string): Promise<ParsedRecord | null> {
-  const content = await readFile(join(workspaceRoot, LEARNING_RECORDS_DIRECTORY, `outcome-${sessionId}.md`), 'utf8').catch(() => null)
+  const content = await readRegularFile(join(workspaceRoot, LEARNING_RECORDS_DIRECTORY, `outcome-${sessionId}.md`))
   if (content === null) return null
   const start = content.indexOf(RECORD_METADATA_PREFIX)
   const end = start < 0 ? -1 : content.indexOf(RECORD_METADATA_SUFFIX, start)

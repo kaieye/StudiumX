@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -143,6 +143,71 @@ describe('LearningOutcomeCommitter', () => {
     expect((await readdir(join(workspaceRoot, 'learning-records'))).filter((file) => file.endsWith('.md'))).toEqual([
       'outcome-session-repair-unit.md'
     ])
+  })
+
+  it('returns review_required without completing or overwriting when the marker conflicts with a canonical record', async () => {
+    const workspaceRoot = await workspace()
+    const ledger = await openSession(workspaceRoot, 'session-conflict-unit')
+    await appendEvidence(ledger, 'session-conflict-unit', 'evidence-conflict-1')
+    const options = {
+      workspaceRoot,
+      ledger,
+      createId: () => 'outcome-conflict-record-1',
+      evaluate: async ({ session }: { session: { id: string } }) => decision(session.id, 'established', ['evidence-conflict-1'])
+    }
+    const interrupted = createLearningOutcomeCommitter({
+      ...options,
+      testingFaults: {
+        inject(point) {
+          if (point === 'after_record_publish') throw new Error('simulated crash after record publish')
+        }
+      }
+    })
+
+    await expect(interrupted.commit({ sessionId: 'session-conflict-unit', operationId: 'outcome-conflict-operation-1' })).rejects.toThrow('simulated crash')
+    const markerPath = join(workspaceRoot, 'learning-sessions', 'session-conflict-unit', 'outcome-settlement.json')
+    const conflictingMarker = {
+      schemaVersion: 1, sessionId: 'session-conflict-unit', outcomeId: 'different-outcome-1', operationId: 'different-operation-1',
+      kind: 'established', evidenceEventIds: ['different-evidence-1'], evaluatorVersion: 1,
+      record: {
+        recordId: 'learning-outcome-session-conflict-unit-different-outcome-1',
+        relativePath: 'learning-records/outcome-session-conflict-unit.md',
+        contentSha256: 'b'.repeat(64)
+      }
+    }
+    await writeFile(markerPath, `${JSON.stringify(conflictingMarker)}\n`, 'utf8')
+    const recovered = createLearningOutcomeCommitter(options)
+    const outcomePath = join(workspaceRoot, 'learning-sessions', 'session-conflict-unit', 'outcome.json')
+
+    await expect(recovered.reconcile('session-conflict-unit')).resolves.toMatchObject({
+      state: 'review_required', diagnostics: ['conflicting_outcome']
+    })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load('session-conflict-unit')).resolves.toMatchObject({ status: 'active' })
+    await expect(readFile(markerPath, 'utf8')).resolves.toBe(`${JSON.stringify(conflictingMarker)}\n`)
+  })
+
+  it('rejects a symlink at the canonical record path during reconciliation', async () => {
+    const workspaceRoot = await workspace()
+    const ledger = await openSession(workspaceRoot, 'session-symlink-unit')
+    const recordsDirectory = join(workspaceRoot, 'learning-records')
+    const targetPath = join(workspaceRoot, 'outside-canonical-record.md')
+    const canonicalPath = join(recordsDirectory, 'outcome-session-symlink-unit.md')
+    await mkdir(recordsDirectory, { recursive: true })
+    await writeFile(targetPath, '<!-- studiumx-learning-outcome {} -->\n', 'utf8')
+    try {
+      await symlink(targetPath, canonicalPath, 'file')
+    } catch (error) {
+      // Windows requires a privilege or Developer Mode for file symlinks; POSIX
+      // runners execute the behavioral assertion below.
+      expect(error).toMatchObject({ code: 'EPERM' })
+      return
+    }
+    const committer = createLearningOutcomeCommitter({ workspaceRoot, ledger })
+
+    await expect(committer.reconcile('session-symlink-unit')).resolves.toMatchObject({
+      state: 'pending', record: null
+    })
   })
 
   it('reports legacy_generated records as read-only diagnostics without upgrading their bytes', async () => {
