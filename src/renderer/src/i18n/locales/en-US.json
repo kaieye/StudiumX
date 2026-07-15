@@ -364,6 +364,7 @@
         "expand": "Show {{count}} activities",
         "collapse": "Collapse activities",
         "dismiss": "Dismiss “{{title}}”",
+        "announcement": "{{state}}: {{title}}. {{detail}}",
         "sources": {
           "agent": "Agent",
           "lesson-generation": "Lesson generation",

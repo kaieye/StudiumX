@@ -16,6 +16,8 @@ const PET_DRAG_THRESHOLD = 4
 const PET_CONTEXT_MENU_GAP = 8
 const PET_CONTEXT_MENU_WIDTH = 196
 const PET_CONTEXT_MENU_HEIGHT = 192
+const PET_BUBBLE_VIEWPORT_GAP = 12
+const PET_BUBBLE_ANCHOR_GAP = 8
 const ASSISTANT_EDGE_GAP = 16
 const ASSISTANT_MIN_WIDTH = 300
 const ASSISTANT_MIN_HEIGHT = 320
@@ -26,6 +28,14 @@ export type PetPoint = { x: number; y: number }
 export type PetPlacement = PetPoint
 export type FloatingSurfaceSize = { width: number; height: number }
 export type InteractionViewport = { width: number; height: number }
+export type FloatingSurfaceRect = PetPlacement & FloatingSurfaceSize
+export type PetBubbleLayout = FloatingSurfaceRect & {
+  maxWidth: number
+  maxHeight: number
+  horizontal: 'start' | 'center' | 'end'
+  vertical: 'above' | 'below'
+}
+export type PetActivityNavigationKey = 'ArrowDown' | 'ArrowUp' | 'Home' | 'End'
 export type AssistantDialogGeometry = PetPlacement & FloatingSurfaceSize
 export type AssistantDialogResizeDirection = 'n' | 'e' | 's' | 'w' | 'ne' | 'se' | 'sw' | 'nw'
 export type AssistantDialogInteractionMode = 'drag' | 'resize'
@@ -113,6 +123,75 @@ export function clampPetPlacement(
     x: clamp(placement.x, PET_EDGE_GAP, Math.max(PET_EDGE_GAP, viewport.width - size.width - PET_EDGE_GAP)),
     y: clamp(placement.y, PET_EDGE_GAP, Math.max(PET_EDGE_GAP, viewport.height - size.height - PET_EDGE_GAP))
   }
+}
+
+export function resolvePetBubbleLayout(
+  anchor: FloatingSurfaceRect,
+  bubble: FloatingSurfaceSize,
+  viewport: InteractionViewport
+): PetBubbleLayout {
+  const maxWidth = Math.max(1, viewport.width - PET_BUBBLE_VIEWPORT_GAP * 2)
+  const maxHeight = Math.max(1, viewport.height - PET_BUBBLE_VIEWPORT_GAP * 2)
+  const width = Math.min(Math.max(1, bubble.width), maxWidth)
+  const height = Math.min(Math.max(1, bubble.height), maxHeight)
+  const preferredX = anchor.x + anchor.width / 2 - width / 2
+  const maximumX = Math.max(PET_BUBBLE_VIEWPORT_GAP, viewport.width - PET_BUBBLE_VIEWPORT_GAP - width)
+  const x = clamp(preferredX, PET_BUBBLE_VIEWPORT_GAP, maximumX)
+  const horizontal = preferredX < x
+    ? 'start'
+    : preferredX > x
+      ? 'end'
+      : 'center'
+  const aboveSpace = anchor.y - PET_BUBBLE_VIEWPORT_GAP - PET_BUBBLE_ANCHOR_GAP
+  const belowSpace = viewport.height - PET_BUBBLE_VIEWPORT_GAP - anchor.y - anchor.height - PET_BUBBLE_ANCHOR_GAP
+  const vertical = height <= aboveSpace
+    ? 'above'
+    : height <= belowSpace
+      ? 'below'
+      : aboveSpace >= belowSpace
+        ? 'above'
+        : 'below'
+  const preferredY = vertical === 'above'
+    ? anchor.y - PET_BUBBLE_ANCHOR_GAP - height
+    : anchor.y + anchor.height + PET_BUBBLE_ANCHOR_GAP
+  const maximumY = Math.max(PET_BUBBLE_VIEWPORT_GAP, viewport.height - PET_BUBBLE_VIEWPORT_GAP - height)
+
+  return {
+    x,
+    y: clamp(preferredY, PET_BUBBLE_VIEWPORT_GAP, maximumY),
+    width,
+    height,
+    maxWidth,
+    maxHeight,
+    horizontal,
+    vertical
+  }
+}
+
+export function resolvePetActivityNavigation(
+  notificationIds: readonly string[],
+  currentId: string | null,
+  key: PetActivityNavigationKey
+): string | null {
+  if (notificationIds.length === 0) return null
+  if (key === 'Home') return notificationIds[0]
+  if (key === 'End') return notificationIds[notificationIds.length - 1]
+  const currentIndex = currentId ? notificationIds.indexOf(currentId) : -1
+  if (currentIndex < 0) return key === 'ArrowDown' ? notificationIds[0] : notificationIds[notificationIds.length - 1]
+  const direction = key === 'ArrowDown' ? 1 : -1
+  return notificationIds[(currentIndex + direction + notificationIds.length) % notificationIds.length]
+}
+
+export function resolvePetActivityFocusAfterRemoval(
+  previousIds: readonly string[],
+  nextIds: readonly string[],
+  focusedId: string | null
+): string | null {
+  if (nextIds.length === 0) return null
+  if (focusedId && nextIds.includes(focusedId)) return focusedId
+  const previousIndex = focusedId ? previousIds.indexOf(focusedId) : -1
+  if (previousIndex < 0) return nextIds[0]
+  return nextIds[Math.min(previousIndex, nextIds.length - 1)]
 }
 
 export function startPetDrag(

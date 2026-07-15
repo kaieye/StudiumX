@@ -15,6 +15,9 @@ import {
   parseStoredPetPlacement,
   petSurfaceSize,
   projectAssistantDialogInteraction,
+  resolvePetActivityFocusAfterRemoval,
+  resolvePetActivityNavigation,
+  resolvePetBubbleLayout,
   shouldDismissPetContextMenu,
   shouldRestorePetFocusAfterContextMenuDismissal,
   startAssistantDialogInteraction,
@@ -50,6 +53,51 @@ describe('pet-interaction contract', () => {
       y: 14
     })
     expect(clampPetContextMenuPlacement({ x: 990, y: 790 }, desktop)).toEqual({ x: 796, y: 600 })
+  })
+
+  it('keeps Pet bubbles inside left and right viewport edges without moving the Pet anchor', () => {
+    const viewport = { width: 320, height: 480 }
+    const bubble = { width: 240, height: 120 }
+
+    const left = resolvePetBubbleLayout({ x: 4, y: 220, width: 112, height: 121 }, bubble, viewport)
+    expect(left).toMatchObject({ x: 12, horizontal: 'start', vertical: 'above' })
+    expect(left.x + left.width).toBeLessThanOrEqual(viewport.width - 12)
+
+    const right = resolvePetBubbleLayout({ x: 250, y: 220, width: 112, height: 121 }, bubble, viewport)
+    expect(right).toMatchObject({ x: 68, horizontal: 'end', vertical: 'above' })
+    expect(right.x + right.width).toBeLessThanOrEqual(viewport.width - 12)
+  })
+
+  it('flips a Pet bubble below the mascot when the upper viewport cannot contain it', () => {
+    expect(resolvePetBubbleLayout(
+      { x: 160, y: 8, width: 112, height: 121 },
+      { width: 240, height: 180 },
+      { width: 640, height: 480 }
+    )).toMatchObject({ y: 137, vertical: 'below', maxHeight: 456 })
+  })
+
+  it('keeps oversized activity bubbles usable in tiny viewports with an internal height budget', () => {
+    const layout = resolvePetBubbleLayout(
+      { x: 40, y: 40, width: 112, height: 121 },
+      { width: 360, height: 520 },
+      { width: 180, height: 160 }
+    )
+
+    expect(layout).toMatchObject({ x: 12, y: 12, width: 156, maxHeight: 136 })
+    expect(layout.x + layout.width).toBe(168)
+    expect(layout.y + layout.height).toBe(148)
+  })
+
+  it('navigates activity identities cyclically and preserves the nearest notification after removal', () => {
+    const ids = ['waiting:ask-1', 'failed:run-1', 'running:run-2']
+    expect(resolvePetActivityNavigation(ids, 'waiting:ask-1', 'ArrowDown')).toBe('failed:run-1')
+    expect(resolvePetActivityNavigation(ids, 'waiting:ask-1', 'ArrowUp')).toBe('running:run-2')
+    expect(resolvePetActivityNavigation(ids, 'failed:run-1', 'Home')).toBe('waiting:ask-1')
+    expect(resolvePetActivityNavigation(ids, 'failed:run-1', 'End')).toBe('running:run-2')
+    expect(resolvePetActivityFocusAfterRemoval(ids, ['waiting:ask-1', 'running:run-2'], 'failed:run-1'))
+      .toBe('running:run-2')
+    expect(resolvePetActivityFocusAfterRemoval(ids, ['waiting:ask-1'], 'running:run-2'))
+      .toBe('waiting:ask-1')
   })
 
   it('distinguishes a click activation from a moved drag that persists placement', () => {

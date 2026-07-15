@@ -230,7 +230,7 @@ describe('AppPet accessibility', () => {
     const list = await screen.findByRole('list', { name: /活动|activities/i })
     const items = within(list).getAllByRole('listitem')
     expect(items).toHaveLength(3)
-    expect(items.every((item) => item.tabIndex === 0)).toBe(true)
+    expect(items.map((item) => item.tabIndex)).toEqual([0, -1, -1])
     expect(within(list).getAllByText(/Agent/).length).toBeGreaterThan(0)
     expect(within(list).getByText(/课程生成|Lesson generation/i)).toBeInTheDocument()
 
@@ -240,11 +240,351 @@ describe('AppPet accessibility', () => {
       expect(document.activeElement).not.toBe(document.body)
     })
 
-    within(list).getAllByRole('listitem')[0].focus()
+    within(within(list).getAllByRole('listitem')[0]).getByRole('button', { name: /处理请求|handle request/i }).focus()
     await user.keyboard('{Escape}')
 
     expect(screen.queryByRole('list', { name: /活动|activities/i })).not.toBeInTheDocument()
     expect(expand).toHaveFocus()
+  })
+
+  it('recomputes a viewport-safe bubble alignment after viewport changes without persisting a new Pet position', async () => {
+    const originalWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')
+    const originalHeight = Object.getOwnPropertyDescriptor(window, 'innerHeight')
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    let mascotRect = { x: 4, y: 220, width: 112, height: 121 }
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 480 })
+    window.localStorage.setItem('studiumx-pet-position-v1', JSON.stringify({ x: 4, y: 220 }))
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList.contains('app-pet-mascot')) {
+        return { ...mascotRect, top: mascotRect.y, left: mascotRect.x, right: mascotRect.x + mascotRect.width, bottom: mascotRect.y + mascotRect.height, toJSON: () => ({}) }
+      }
+      if (this.classList.contains('app-pet-bubble')) {
+        return { x: 0, y: 0, top: 0, left: 0, right: 240, bottom: 120, width: 240, height: 120, toJSON: () => ({}) }
+      }
+      if (this.classList.contains('app-pet')) {
+        return { ...mascotRect, top: mascotRect.y, left: mascotRect.x, right: mascotRect.x + mascotRect.width, bottom: mascotRect.y + mascotRect.height, toJSON: () => ({}) }
+      }
+      return originalRect.call(this)
+    })
+
+    try {
+      const { container } = renderUi(<AppPet />)
+      const bubble = await waitFor(() => {
+        const element = container.querySelector<HTMLElement>('.app-pet-bubble')
+        expect(element).toHaveAttribute('data-horizontal', 'start')
+        expect(element).toHaveAttribute('data-vertical', 'above')
+        return element!
+      })
+      expect(bubble.style.maxWidth).toBe('296px')
+
+      mascotRect = { ...mascotRect, x: 250 }
+      fireEvent(window, new Event('resize'))
+      await waitFor(() => expect(bubble).toHaveAttribute('data-horizontal', 'end'))
+
+      mascotRect = { ...mascotRect, x: 100, y: 8 }
+      fireEvent(window, new Event('resize'))
+      await waitFor(() => expect(bubble).toHaveAttribute('data-vertical', 'below'))
+      expect(window.localStorage.getItem('studiumx-pet-position-v1')).toBe(JSON.stringify({ x: 4, y: 220 }))
+    } finally {
+      rectSpy.mockRestore()
+      if (originalWidth) Object.defineProperty(window, 'innerWidth', originalWidth)
+      if (originalHeight) Object.defineProperty(window, 'innerHeight', originalHeight)
+    }
+  })
+
+  it('keeps three expanded activities operable in a tiny viewport without changing persisted Pet placement', async () => {
+    const originalWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')
+    const originalHeight = Object.getOwnPropertyDescriptor(window, 'innerHeight')
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 180 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 160 })
+    window.localStorage.setItem('studiumx-pet-position-v1', JSON.stringify({ x: 20, y: 20 }))
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList.contains('app-pet-bubble')) {
+        return { x: 0, y: 0, top: 0, left: 0, right: 360, bottom: 520, width: 360, height: 520, toJSON: () => ({}) }
+      }
+      if (this.classList.contains('app-pet-mascot') || this.classList.contains('app-pet')) {
+        return { x: 20, y: 20, top: 20, left: 20, right: 132, bottom: 141, width: 112, height: 121, toJSON: () => ({}) }
+      }
+      return originalRect.call(this)
+    })
+
+    try {
+      const { conversation } = pendingAskConversation()
+      useAppStore.setState({
+        agentChatBusy: true,
+        pendingAgentConversation: conversation,
+        generating: true,
+        lessonGenerationRunId: 'workspace-1:lesson-run-1'
+      })
+      const user = setupUser()
+      const { container } = renderUi(<AppPet />)
+
+      await user.click(await screen.findByRole('button', { name: /展开.*活动|show.*activities/i }))
+      const list = await screen.findByRole('list', { name: /活动|activities/i })
+      const items = within(list).getAllByRole('listitem')
+      const bubble = container.querySelector<HTMLElement>('.app-pet-bubble')!
+
+      await waitFor(() => {
+        expect(bubble.style.maxWidth).toBe('156px')
+        expect(bubble.style.maxHeight).toBe('136px')
+      })
+      expect(items).toHaveLength(3)
+      for (const item of items) {
+        const action = within(item).getAllByRole('button')[0]
+        action.focus()
+        expect(action).toHaveFocus()
+      }
+      expect(window.localStorage.getItem('studiumx-pet-position-v1')).toBe(JSON.stringify({ x: 20, y: 20 }))
+    } finally {
+      rectSpy.mockRestore()
+      if (originalWidth) Object.defineProperty(window, 'innerWidth', originalWidth)
+      if (originalHeight) Object.defineProperty(window, 'innerHeight', originalHeight)
+    }
+  })
+
+  it('navigates Activity Stack items cyclically with arrows, Home, and End', async () => {
+    const { conversation } = pendingAskConversation()
+    useAppStore.setState({
+      agentChatBusy: true,
+      pendingAgentConversation: conversation,
+      generating: true,
+      lessonGenerationRunId: 'workspace-1:lesson-run-1'
+    })
+    const user = setupUser()
+    renderUi(<AppPet />)
+
+    await user.click(await screen.findByRole('button', { name: /展开.*活动|show.*activities/i }))
+    const items = within(await screen.findByRole('list', { name: /活动|activities/i })).getAllByRole('listitem')
+    expect(items.map((item) => item.tabIndex)).toEqual([0, -1, -1])
+
+    items[0].focus()
+    await user.keyboard('{ArrowDown}')
+    expect(items[1]).toHaveFocus()
+    await user.keyboard('{ArrowDown}')
+    expect(items[2]).toHaveFocus()
+    await user.keyboard('{ArrowDown}')
+    expect(items[0]).toHaveFocus()
+    await user.keyboard('{ArrowUp}')
+    expect(items[2]).toHaveFocus()
+    await user.keyboard('{Home}')
+    expect(items[0]).toHaveFocus()
+    await user.keyboard('{End}')
+    expect(items[2]).toHaveFocus()
+
+    const nativeAction = within(items[0]).getByRole('button', { name: /处理请求|handle request/i })
+    nativeAction.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(useAppStore.getState()).toMatchObject({ view: 'agent', overviewDialogMode: 'chat' }))
+  })
+
+  it('moves focus to the adjacent notification identity when the focused activity is dismissed', async () => {
+    const { conversation } = pendingAskConversation()
+    useAppStore.setState({
+      agentChatBusy: true,
+      pendingAgentConversation: conversation,
+      generating: true,
+      lessonGenerationRunId: 'workspace-1:lesson-run-1'
+    })
+    const user = setupUser()
+    renderUi(<AppPet />)
+
+    await user.click(await screen.findByRole('button', { name: /展开.*活动|show.*activities/i }))
+    const list = await screen.findByRole('list', { name: /活动|activities/i })
+    const agentItem = within(list).getByText(/Agent 正在工作|Agent is working/i).closest<HTMLElement>('[role="listitem"]')!
+    const lessonItem = within(list).getByText(/正在生成课程|Lesson generation is running/i).closest<HTMLElement>('[role="listitem"]')!
+    const dismissAgent = within(agentItem).getByRole('button', { name: /忽略“Agent 正在工作”|Dismiss “Agent is working”/i })
+
+    dismissAgent.focus()
+    await user.click(dismissAgent)
+
+    await waitFor(() => {
+      expect(agentItem).not.toBeInTheDocument()
+      expect(lessonItem).toHaveFocus()
+    })
+  })
+
+  it('returns focus to the mascot when Activity Stack automatically collapses to one notification', async () => {
+    const { conversation } = pendingAskConversation()
+    useAppStore.setState({
+      agentChatBusy: true,
+      pendingAgentConversation: conversation,
+      generating: true,
+      lessonGenerationRunId: 'workspace-1:lesson-run-1'
+    })
+    const user = setupUser()
+    const { container } = renderUi(<AppPet />)
+
+    await user.click(await screen.findByRole('button', { name: /展开.*活动|show.*activities/i }))
+    const list = await screen.findByRole('list', { name: /活动|activities/i })
+    within(list).getAllByRole('listitem')[1].focus()
+
+    act(() => {
+      useAppStore.setState({
+        agentChatBusy: false,
+        pendingAgentConversation: null,
+        generating: false,
+        lessonGenerationRunId: null
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('list', { name: /活动|activities/i })).not.toBeInTheDocument()
+      expect(container.querySelector('.app-pet-mascot')).toHaveFocus()
+    })
+  })
+
+  it('announces a highest-priority notification once without replaying it for rerenders, hover, resize, or stack expansion', async () => {
+    const { conversation } = pendingAskConversation()
+    useAppStore.setState({
+      agentChatBusy: true,
+      pendingAgentConversation: conversation,
+      generating: true,
+      lessonGenerationRunId: 'workspace-1:lesson-run-1'
+    })
+    const { container, rerender } = renderUi(<AppPet />)
+
+    const liveRegion = await screen.findByRole('status')
+    await waitFor(() => expect(liveRegion).toHaveTextContent(/等待.*有请求需要处理.*Agent 正在等待|Waiting.*Request needs your attention.*Agent question/i))
+    expect(liveRegion).toHaveAttribute('aria-live', 'assertive')
+    const mutations: MutationRecord[] = []
+    const observer = new MutationObserver((records) => mutations.push(...records))
+    observer.observe(liveRegion, { childList: true, characterData: true, subtree: true })
+
+    rerender(<AppPet />)
+    fireEvent.pointerEnter(container.querySelector('.app-pet-mascot')!)
+    fireEvent(window, new Event('resize'))
+    fireEvent.pointerLeave(container.querySelector('.app-pet-mascot')!)
+    fireEvent.click(await screen.findByRole('button', { name: /展开.*活动|show.*activities/i }))
+    await act(async () => {})
+
+    expect(mutations).toHaveLength(0)
+    observer.disconnect()
+  })
+
+  it('announces waiting over running, treats a new business ID as new, and clears dismissed content', async () => {
+    const { conversation, turns } = pendingAskConversation()
+    const runningConversation = { ...conversation, turns: [], status: '运行中' }
+    useAppStore.setState({ agentChatBusy: true, pendingAgentConversation: runningConversation })
+    const user = setupUser()
+    renderUi(<AppPet />)
+
+    const liveRegion = await screen.findByRole('status')
+    await waitFor(() => expect(liveRegion).toHaveTextContent(/工作中.*Agent 正在工作|Working.*Agent is working/i))
+    expect(liveRegion).toHaveAttribute('aria-live', 'polite')
+    const runningKey = liveRegion.getAttribute('data-announcement-key')
+
+    act(() => useAppStore.setState({ pendingAgentConversation: conversation }))
+    await waitFor(() => expect(liveRegion).toHaveTextContent(/等待.*有请求需要处理|Waiting.*Request needs your attention/i))
+    expect(liveRegion).toHaveAttribute('aria-live', 'assertive')
+    const firstWaitingKey = liveRegion.getAttribute('data-announcement-key')
+    expect(firstWaitingKey).not.toBe(runningKey)
+
+    const nextTurns = turns.map((turn) => ({
+      ...turn,
+      toolCalls: turn.toolCalls?.map((toolCall) => ({ ...toolCall, id: 'ask-2' }))
+    }))
+    act(() => useAppStore.setState({
+      pendingAgentConversation: { ...conversation, turns: nextTurns }
+    }))
+    await waitFor(() => expect(liveRegion.getAttribute('data-announcement-key')).not.toBe(firstWaitingKey))
+
+    await user.click(screen.getByRole('button', { name: /忽略本次提醒|dismiss this notification/i }))
+    await waitFor(() => expect(liveRegion).not.toHaveTextContent(/有请求需要处理|Request needs your attention/i))
+  })
+
+  it('moves focus by notification ID when a focused review automatically expires', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-15T08:00:00.000Z'))
+    try {
+      const { conversation } = pendingAskConversation()
+      const runConversation = {
+        ...conversation,
+        turns: [],
+        status: '运行中',
+        summary: { ...conversation.summary, id: 'agent-run-1' }
+      }
+      useAppStore.setState({
+        agentChatBusy: true,
+        pendingAgentConversation: runConversation,
+        generating: true,
+        lessonGenerationRunId: 'workspace-1:lesson-run-1'
+      })
+      renderUi(<AppPet />)
+      await act(async () => {})
+
+      act(() => useAppStore.setState({
+        agentChatBusy: false,
+        agentPetNotificationResult: {
+          runId: 'agent-run-1',
+          resultId: 'agent-result-1',
+          targetId: 'agent-run-1'
+        }
+      }))
+      await act(async () => {})
+
+      const expand = screen.getByRole('button', { name: /展开.*活动|show.*activities/i })
+      fireEvent.click(expand)
+      const list = screen.getByRole('list', { name: /活动|activities/i })
+      const reviewItem = within(list).getByText(/Agent 结果已就绪|Agent result is ready/i).closest<HTMLElement>('[role="listitem"]')!
+      const lessonItem = within(list).getByText(/正在生成课程|Lesson generation is running/i).closest<HTMLElement>('[role="listitem"]')!
+      reviewItem.focus()
+
+      act(() => vi.advanceTimersByTime(7_002))
+      await act(async () => {})
+      act(() => vi.advanceTimersByTime(20))
+
+      expect(reviewItem).not.toBeInTheDocument()
+      expect(lessonItem).toHaveFocus()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps focus on the same notification ID when priority changes reorder the stack', async () => {
+    const { conversation } = pendingAskConversation()
+    const runningConversation = { ...conversation, turns: [], status: '运行中' }
+    useAppStore.setState({
+      agentChatBusy: true,
+      pendingAgentConversation: runningConversation,
+      generating: true,
+      lessonGenerationRunId: 'workspace-1:lesson-run-1'
+    })
+    const user = setupUser()
+    renderUi(<AppPet />)
+
+    await user.click(await screen.findByRole('button', { name: /展开.*活动|show.*activities/i }))
+    const list = await screen.findByRole('list', { name: /活动|activities/i })
+    const lessonItem = within(list).getByText(/正在生成课程|Lesson generation is running/i).closest<HTMLElement>('[role="listitem"]')!
+    lessonItem.focus()
+
+    act(() => useAppStore.setState({ pendingAgentConversation: conversation }))
+
+    await waitFor(() => {
+      expect(within(list).getAllByRole('listitem')[2]).toBe(lessonItem)
+      expect(lessonItem).toHaveFocus()
+      expect(lessonItem).toHaveAttribute('tabindex', '0')
+    })
+  })
+
+  it('returns focus to the mascot when the focused notification bubble automatically expires', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-15T08:00:00.000Z'))
+    try {
+      const { container } = renderUi(<AppPet />)
+      await act(async () => {})
+      const action = screen.getByRole('button', { name: /开始对话|start a chat/i })
+      action.focus()
+
+      act(() => vi.advanceTimersByTime(8_002))
+      await act(async () => {})
+
+      expect(screen.queryByRole('button', { name: /开始对话|start a chat/i })).not.toBeInTheDocument()
+      expect(container.querySelector('.app-pet-mascot')).toHaveFocus()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('ignores unrelated global errors and only shows explicitly sourced operation failures', async () => {

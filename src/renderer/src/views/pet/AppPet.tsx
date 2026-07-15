@@ -5,7 +5,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent
 } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conversation-state'
 import { DEFAULT_PET_SIZE, MAX_PET_SIZE, MIN_PET_SIZE } from '../../../../shared/teaching-types'
@@ -24,6 +24,9 @@ import {
   movePetDrag,
   movePetResize,
   parseStoredPetPlacement,
+  resolvePetActivityFocusAfterRemoval,
+  resolvePetActivityNavigation,
+  resolvePetBubbleLayout,
   petSurfaceSize,
   serializePetPlacement,
   shouldDismissPetContextMenu,
@@ -32,7 +35,8 @@ import {
   startPetResize,
   type PetDragSession,
   type PetResizeSession,
-  type PetPlacement
+  type PetPlacement,
+  type PetBubbleLayout
 } from './pet-interaction'
 import { PetSprite } from './PetSprite'
 import {
@@ -51,6 +55,23 @@ import {
 
 type PetContextMenuPosition = PetPlacement
 type ContextMenuDismissalReason = 'escape' | 'outside-pointer' | 'scroll' | 'viewport-change' | 'window-blur'
+
+type PetBubbleCssLayout = Pick<PetBubbleLayout, 'horizontal' | 'vertical'> & {
+  left: number
+  top: number
+  maxWidth: number
+  maxHeight: number
+}
+
+function samePetBubbleCssLayout(left: PetBubbleCssLayout | null, right: PetBubbleCssLayout): boolean {
+  return Boolean(left)
+    && left?.left === right.left
+    && left.top === right.top
+    && left.maxWidth === right.maxWidth
+    && left.maxHeight === right.maxHeight
+    && left.horizontal === right.horizontal
+    && left.vertical === right.vertical
+}
 
 function viewport() {
   return { width: window.innerWidth, height: window.innerHeight }
@@ -77,7 +98,7 @@ function persistPosition(position: PetPlacement): void {
 }
 
 export function AppPet() {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
   const settings = useAppStore((state) => state.settings.pet)
   const updateSettings = useAppStore((state) => state.updateSettings)
   const generating = useAppStore((state) => state.generating)
@@ -99,6 +120,13 @@ export function AppPet() {
   const menuRef = useRef<HTMLDivElement>(null)
   const activityToggleRef = useRef<HTMLButtonElement>(null)
   const activityStackRef = useRef<HTMLDivElement>(null)
+  const bubbleRef = useRef<HTMLDivElement>(null)
+  const activityItemRefs = useRef(new Map<string, HTMLDivElement>())
+  const previousActivityIdsRef = useRef<string[]>([])
+  const focusedActivityIdRef = useRef<string | null>(null)
+  const activityHadFocusRef = useRef(false)
+  const bubbleHadFocusRef = useRef(false)
+  const announcedNotificationKeyRef = useRef<string | null>(null)
   const dragRef = useRef<PetDragSession | null>(null)
   const resizeRef = useRef<PetResizeSession | null>(null)
   const [position, setPosition] = useState<PetPlacement | null>(() => storedPosition())
@@ -109,6 +137,13 @@ export function AppPet() {
   const [contextMenu, setContextMenu] = useState<PetContextMenuPosition | null>(null)
   const [dismissedNotifications, setDismissedNotifications] = useState<DismissedPetNotifications>({})
   const [activityExpanded, setActivityExpanded] = useState(false)
+  const [activeActivityId, setActiveActivityId] = useState<string | null>(null)
+  const [bubbleLayout, setBubbleLayout] = useState<PetBubbleCssLayout | null>(null)
+  const [notificationAnnouncement, setNotificationAnnouncement] = useState({
+    key: '',
+    text: '',
+    politeness: 'polite' as 'polite' | 'assertive'
+  })
 
   const pendingTurns = pendingConversation?.turns ?? agentTurns
   const pendingStreamId = pendingConversation?.summary.id ?? null
@@ -241,16 +276,59 @@ export function AppPet() {
   const notification = visibleNotifications[0] ?? null
   const activityNotifications = visibleNotifications.slice(0, 3)
   const canExpandActivity = visibleNotifications.length > 1
+  const activityNotificationIds = activityNotifications.map((item) => item.id)
+
+  useLayoutEffect(() => {
+    const previousIds = previousActivityIdsRef.current
+    const focusedId = focusedActivityIdRef.current
+    const nextActiveId = resolvePetActivityFocusAfterRemoval(
+      previousIds,
+      activityNotificationIds,
+      focusedId ?? activeActivityId
+    )
+    if (nextActiveId !== activeActivityId) setActiveActivityId(nextActiveId)
+    if (
+      activityExpanded
+      && canExpandActivity
+      && activityHadFocusRef.current
+      && focusedId
+      && !activityNotificationIds.includes(focusedId)
+      && nextActiveId
+    ) {
+      focusedActivityIdRef.current = nextActiveId
+      activityItemRefs.current.get(nextActiveId)?.focus()
+    }
+    previousActivityIdsRef.current = activityNotificationIds
+  }, [activeActivityId, activityExpanded, activityNotificationIds.join('\u0000'), canExpandActivity])
 
   useEffect(() => {
     setDismissedNotifications((current) => pruneDismissedPetNotifications(current, retainedNotificationIds))
   }, [retainedNotificationIds])
 
   useEffect(() => {
+    const handleFocusIn = (event: FocusEvent): void => {
+      if (activityStackRef.current?.contains(event.target as Node)) return
+      queueMicrotask(() => {
+        if (!activityStackRef.current?.contains(document.activeElement)) {
+          activityHadFocusRef.current = false
+          focusedActivityIdRef.current = null
+        }
+        if (!bubbleRef.current?.contains(document.activeElement)) bubbleHadFocusRef.current = false
+      })
+    }
+    document.addEventListener('focusin', handleFocusIn)
+    return () => document.removeEventListener('focusin', handleFocusIn)
+  }, [])
+
+  useLayoutEffect(() => {
     if (!activityExpanded || canExpandActivity) return
-    const focusWasInStack = activityStackRef.current?.contains(document.activeElement) ?? false
+    const focusWasInStack = activityHadFocusRef.current
     setActivityExpanded(false)
-    if (focusWasInStack) window.requestAnimationFrame(() => mascotRef.current?.focus())
+    if (focusWasInStack) {
+      activityHadFocusRef.current = false
+      focusedActivityIdRef.current = null
+      window.requestAnimationFrame(() => mascotRef.current?.focus())
+    }
   }, [activityExpanded, canExpandActivity])
 
   useEffect(() => {
@@ -346,6 +424,32 @@ export function AppPet() {
     }
   }, [contextMenu])
 
+  const measureBubbleLayout = useCallback((): void => {
+    const root = petRef.current
+    const mascot = mascotRef.current
+    const bubble = bubbleRef.current
+    if (!root || !mascot || !bubble) return
+    const rootRect = root.getBoundingClientRect()
+    const mascotRect = mascot.getBoundingClientRect()
+    const bubbleRect = bubble.getBoundingClientRect()
+    const layout = resolvePetBubbleLayout(
+      { x: mascotRect.left, y: mascotRect.top, width: mascotRect.width, height: mascotRect.height },
+      { width: bubbleRect.width, height: bubbleRect.height },
+      viewport()
+    )
+    const scaleX = rootRect.width > 0 && root.offsetWidth > 0 ? rootRect.width / root.offsetWidth : 1
+    const scaleY = rootRect.height > 0 && root.offsetHeight > 0 ? rootRect.height / root.offsetHeight : 1
+    const nextLayout: PetBubbleCssLayout = {
+      left: Math.round(((layout.x - rootRect.left) / scaleX) * 100) / 100,
+      top: Math.round(((layout.y - rootRect.top) / scaleY) * 100) / 100,
+      maxWidth: Math.round((layout.maxWidth / scaleX) * 100) / 100,
+      maxHeight: Math.round((layout.maxHeight / scaleY) * 100) / 100,
+      horizontal: layout.horizontal,
+      vertical: layout.vertical
+    }
+    setBubbleLayout((current) => samePetBubbleCssLayout(current, nextLayout) ? current : nextLayout)
+  }, [])
+
   const attention = derivePetAttention({
     notificationState: notification?.state ?? null,
     hovered,
@@ -353,6 +457,55 @@ export function AppPet() {
     showStatusBubble: settings.showStatusBubble
   })
   const showStatusBubble = attention.showBubble && notification !== null
+
+  useEffect(() => {
+    if (!showStatusBubble || !notification) {
+      setNotificationAnnouncement((current) => current.text ? { ...current, key: '', text: '' } : current)
+      return
+    }
+    const language = i18n.resolvedLanguage ?? i18n.language
+    const key = `${language}:${notification.id}:${notification.state}`
+    if (announcedNotificationKeyRef.current === key) return
+    announcedNotificationKeyRef.current = key
+    setNotificationAnnouncement({
+      key,
+      text: t('resources.pets.activity.announcement', {
+        state: t(`resources.pets.stateLabels.${notification.state}`),
+        title: notification.title,
+        detail: notification.detail
+      }),
+      politeness: notification.state === 'waiting' || notification.state === 'failed' ? 'assertive' : 'polite'
+    })
+  }, [i18n.language, i18n.resolvedLanguage, notification, showStatusBubble, t])
+
+  useLayoutEffect(() => {
+    if (showStatusBubble || !settings.enabled || !bubbleHadFocusRef.current) return
+    bubbleHadFocusRef.current = false
+    mascotRef.current?.focus()
+  }, [settings.enabled, showStatusBubble])
+
+  useLayoutEffect(() => {
+    if (!showStatusBubble) {
+      setBubbleLayout(null)
+      return
+    }
+    let frame = 0
+    const scheduleMeasurement = (): void => {
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(measureBubbleLayout)
+    }
+    measureBubbleLayout()
+    const observer = new ResizeObserver(scheduleMeasurement)
+    if (petRef.current) observer.observe(petRef.current)
+    if (mascotRef.current) observer.observe(mascotRef.current)
+    if (bubbleRef.current) observer.observe(bubbleRef.current)
+    window.addEventListener('resize', scheduleMeasurement)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer.disconnect()
+      window.removeEventListener('resize', scheduleMeasurement)
+    }
+  }, [activityExpanded, measureBubbleLayout, notification?.detail, notification?.id, notification?.title, showStatusBubble])
 
   const openAssistant = (): void => {
     setContextMenu(null)
@@ -395,27 +548,37 @@ export function AppPet() {
       dismissPetNotification(current, item, Date.now()),
       retainedNotificationIds
     ))
-    window.requestAnimationFrame(() => {
-      const nextItem = activityExpanded
-        ? activityStackRef.current?.querySelector<HTMLElement>('[role="listitem"]')
-        : null
-      if (nextItem) nextItem.focus()
-      else if (activityToggleRef.current) activityToggleRef.current.focus()
-      else mascotRef.current?.focus()
-    })
   }
 
   const collapseActivityStack = (): void => {
     if (activityToggleRef.current) activityToggleRef.current.focus()
     else mascotRef.current?.focus()
+    activityHadFocusRef.current = false
+    focusedActivityIdRef.current = null
     setActivityExpanded(false)
   }
 
   const handleActivityKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
-    if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      collapseActivityStack()
+      return
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    const item = (event.target as HTMLElement).closest<HTMLElement>('[data-pet-notification-id]')
+    const nextId = resolvePetActivityNavigation(
+      activityNotificationIds,
+      item?.dataset.petNotificationId ?? activeActivityId,
+      event.key as 'ArrowDown' | 'ArrowUp' | 'Home' | 'End'
+    )
+    if (!nextId) return
     event.preventDefault()
-    event.stopPropagation()
-    collapseActivityStack()
+    setActiveActivityId(nextId)
+    focusedActivityIdRef.current = nextId
+    activityHadFocusRef.current = true
+    activityItemRefs.current.get(nextId)?.focus()
   }
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
@@ -638,15 +801,39 @@ export function AppPet() {
       />
       <div
         ref={petRef}
-        className={`app-pet${position ? ' is-positioned' : ''}${position && position.x < 260 ? ' is-left-edge' : ''}`}
+        className={`app-pet${position ? ' is-positioned' : ''}`}
         data-state={attention.baseState}
         style={petStyle}
       >
+        <span
+          className="app-pet-live-region"
+          role="status"
+          aria-live={notificationAnnouncement.politeness}
+          aria-atomic="true"
+          data-announcement-key={notificationAnnouncement.key || undefined}
+        >
+          {notificationAnnouncement.text}
+        </span>
         {showStatusBubble ? (
           <div
+            ref={bubbleRef}
             className={`app-pet-bubble${activityExpanded ? ' is-expanded' : ''}`}
-            role="status"
+            data-horizontal={bubbleLayout?.horizontal}
+            data-vertical={bubbleLayout?.vertical}
+            style={bubbleLayout ? {
+              left: bubbleLayout.left,
+              top: bubbleLayout.top,
+              right: 'auto',
+              bottom: 'auto',
+              maxWidth: bubbleLayout.maxWidth,
+              maxHeight: bubbleLayout.maxHeight
+            } : undefined}
             onKeyDown={handleActivityKeyDown}
+            onFocusCapture={() => { bubbleHadFocusRef.current = true }}
+            onBlurCapture={(event) => {
+              const nextTarget = event.relatedTarget as Node | null
+              if (nextTarget && !event.currentTarget.contains(nextTarget)) bubbleHadFocusRef.current = false
+            }}
           >
             <span className="app-pet-bubble-copy">
               <strong>{notification?.title}</strong>
@@ -691,9 +878,30 @@ export function AppPet() {
                 className="app-pet-activity-stack"
                 role="list"
                 aria-label={t('resources.pets.activity.label')}
+                onBlurCapture={(event) => {
+                  const nextTarget = event.relatedTarget as Node | null
+                  if (!nextTarget || event.currentTarget.contains(nextTarget)) return
+                  activityHadFocusRef.current = false
+                  focusedActivityIdRef.current = null
+                }}
               >
                 {activityNotifications.map((item) => (
-                  <div className="app-pet-activity-item" role="listitem" tabIndex={0} key={item.id}>
+                  <div
+                    className="app-pet-activity-item"
+                    role="listitem"
+                    tabIndex={activeActivityId === item.id ? 0 : -1}
+                    data-pet-notification-id={item.id}
+                    key={item.id}
+                    ref={(element) => {
+                      if (element) activityItemRefs.current.set(item.id, element)
+                      else activityItemRefs.current.delete(item.id)
+                    }}
+                    onFocusCapture={() => {
+                      activityHadFocusRef.current = true
+                      focusedActivityIdRef.current = item.id
+                      setActiveActivityId(item.id)
+                    }}
+                  >
                     <span className="app-pet-activity-meta">
                       <span>{t(`resources.pets.activity.sources.${item.source}`)}</span>
                       <span>{t(`resources.pets.stateLabels.${item.state}`)}</span>

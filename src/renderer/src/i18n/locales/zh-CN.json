@@ -364,6 +364,7 @@
         "expand": "展开 {{count}} 条活动",
         "collapse": "收起活动",
         "dismiss": "忽略“{{title}}”",
+        "announcement": "{{state}}：{{title}}。{{detail}}",
         "sources": {
           "agent": "Agent",
           "lesson-generation": "课程生成",
