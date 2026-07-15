@@ -112,6 +112,7 @@ import { TeachingWorkspaceReviewDeck } from './teaching-workspace/review'
 import { TeachingWorkspaceChangeAudit } from './teaching-workspace-change-audit'
 import {
   TeachingWorkspaceDocuments,
+  previewUrlForDocument,
   type WorkspacePreviewFile
 } from './teaching-workspace-documents'
 export type { WorkspacePreviewFile } from './teaching-workspace-documents'
@@ -198,6 +199,16 @@ type BoundPreviewLessonInteraction = {
   event: LessonInteraction
 }
 
+type PreviewLessonBindingState = 'pending_initial_navigation' | 'active'
+
+export type PreviewLessonNavigation = {
+  url: string | null
+  isMainFrame: boolean | null
+  isSameDocument: boolean | null
+  frameProcessId: number | null
+  frameRoutingId: number | null
+}
+
 type ActivePreviewBinding = {
   workspaceRoot: string
   workspaceId: string
@@ -209,6 +220,11 @@ type ActivePreviewBinding = {
   lessonTitle: string
   lessonRelativePath: string
   artifactDigest: string
+  /** Exact canonical protocol URL that alone may activate the pending child frame. */
+  previewUrl: string
+  navigationState: PreviewLessonBindingState
+  activeFrameProcessId: number | null
+  activeFrameRoutingId: number | null
   /** Host-issued binding attempt; makes event-ID replays across bindings conflict. */
   attempt: number
   revoked: boolean
@@ -1356,7 +1372,12 @@ export class TeachingWorkspaceService {
     if (!lesson) return result
 
     const previewFile = await this.documents.resolvePreviewFile(workspace, lesson.relativePath)
-    if (!previewFile || normalizeWorkspaceRelativePath(previewFile.relativePath) !== normalizeWorkspaceRelativePath(lesson.relativePath)) {
+    const previewUrl = previewUrlForDocument(workspace.id, lesson.relativePath)
+    if (
+      !previewFile ||
+      normalizeWorkspaceRelativePath(previewFile.relativePath) !== normalizeWorkspaceRelativePath(lesson.relativePath) ||
+      result.url !== previewUrl
+    ) {
       return result
     }
 
@@ -1377,6 +1398,10 @@ export class TeachingWorkspaceService {
       lessonTitle: lesson.title,
       lessonRelativePath: lesson.relativePath,
       artifactDigest: createHash('sha256').update(artifact).digest('hex'),
+      previewUrl,
+      navigationState: 'pending_initial_navigation',
+      activeFrameProcessId: null,
+      activeFrameRoutingId: null,
       attempt: this.nextPreviewBindingAttempt++,
       revoked: false,
       recordedInteractions: new Map()
@@ -1396,6 +1421,42 @@ export class TeachingWorkspaceService {
     this.advancePreviewReadGeneration(webContentsId)
   }
 
+  /**
+   * Main-process navigation proof for a renderer-owned lesson iframe. A binding
+   * starts pending and may activate exactly once for its canonical protocol URL;
+   * srcDoc/about:srcdoc and any other first navigation cannot establish trust.
+   */
+  observePreviewLessonNavigation(webContentsId: number, navigation: PreviewLessonNavigation): void {
+    const binding = this.activePreviewBindings.get(webContentsId)
+    if (!binding || binding.revoked) return
+
+    if (navigation.isMainFrame !== false) {
+      this.clearPreviewLessonBinding(webContentsId)
+      return
+    }
+
+    if (binding.navigationState === 'pending_initial_navigation') {
+      if (
+        navigation.isSameDocument !== false ||
+        navigation.url !== binding.previewUrl ||
+        !isSafePreviewFrameId(navigation.frameProcessId) ||
+        !isSafePreviewFrameId(navigation.frameRoutingId)
+      ) {
+        this.clearPreviewLessonBinding(webContentsId)
+        return
+      }
+      binding.navigationState = 'active'
+      binding.activeFrameProcessId = navigation.frameProcessId
+      binding.activeFrameRoutingId = navigation.frameRoutingId
+      return
+    }
+
+    // A same-document child transition keeps the active document. Every
+    // cross-document child transition, including the same iframe WindowProxy,
+    // invalidates authority before it can post another narrow IPC intent.
+    if (navigation.isSameDocument !== true) this.clearPreviewLessonBinding(webContentsId)
+  }
+
   async recordPreviewLessonInteraction(
     webContentsId: number,
     intent: PreviewLessonInteractionIntent
@@ -1403,7 +1464,7 @@ export class TeachingWorkspaceService {
     const normalizedIntent = normalizePreviewLessonInteractionIntent(intent)
     return this.serializePreviewInteraction(webContentsId, async () => {
       const binding = this.activePreviewBindings.get(webContentsId)
-      if (!binding || binding.revoked) {
+      if (!binding || binding.revoked || binding.navigationState !== 'active') {
         throw new PreviewLessonInteractionBindingError('binding_unavailable', 'No trusted Lesson preview binding is active.')
       }
 
@@ -1573,7 +1634,7 @@ export class TeachingWorkspaceService {
   }
 
   private isActivePreviewBinding(webContentsId: number, binding: ActivePreviewBinding): boolean {
-    return !binding.revoked && this.activePreviewBindings.get(webContentsId) === binding
+    return !binding.revoked && binding.navigationState === 'active' && this.activePreviewBindings.get(webContentsId) === binding
   }
 
   private async serializePreviewInteraction<Result>(
@@ -1709,6 +1770,10 @@ export class TeachingWorkspaceService {
 }
 
 /** Progress copy shown in the conversation while generate_lesson runs. */
+function isSafePreviewFrameId(value: number | null): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
 function samePreviewLessonInteractionIntent(
   left: PreviewLessonInteractionIntent,
   right: PreviewLessonInteractionIntent

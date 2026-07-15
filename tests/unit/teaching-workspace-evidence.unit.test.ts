@@ -21,6 +21,16 @@ async function createService(label: string) {
   })
 }
 
+function activatePreviewLesson(service: TeachingWorkspaceService, webContentsId: number, url: string): void {
+  service.observePreviewLessonNavigation(webContentsId, {
+    url,
+    isMainFrame: false,
+    isSameDocument: false,
+    frameProcessId: webContentsId,
+    frameRoutingId: webContentsId + 1000
+  })
+}
+
 describe('TeachingWorkspaceService preview lesson evidence', () => {
   it('generates a canonical writable Session, binds a lesson preview to its sender, and durably reloads host-owned evidence', async () => {
     const service = await createService('preview-evidence')
@@ -45,7 +55,8 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
       lessonRef: { lessonId: lesson.id, title: lesson.title, relativePath: lesson.relativePath }
     })
 
-    await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, 101)
+    const lessonPreview = await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, 101)
+    activatePreviewLesson(service, 101, lessonPreview.url)
     const receipt = await service.recordPreviewLessonInteraction(101, {
       eventId: 'preview-open-001', kind: 'lesson_opened', itemId: lesson.id
     })
@@ -103,7 +114,8 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
     const senderId = 707
     const intent = { eventId: 'preview-retry-001', kind: 'lesson_opened' as const, itemId: lesson.id }
 
-    await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, senderId)
+    const lessonPreview = await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, senderId)
+    activatePreviewLesson(service, senderId, lessonPreview.url)
     const [first, concurrentRetry] = await Promise.all([
       service.recordPreviewLessonInteraction(senderId, intent),
       service.recordPreviewLessonInteraction(senderId, intent)
@@ -145,7 +157,8 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
     expect((await ledger.load(lesson.sessionId))?.events).toHaveLength(1)
 
     service.clearPreviewLessonBinding(senderId)
-    await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, senderId)
+    const reboundPreview = await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, senderId)
+    activatePreviewLesson(service, senderId, reboundPreview.url)
     await expect(service.recordPreviewLessonInteraction(senderId, intent)).rejects.toMatchObject({ code: 'identity_conflict' })
     expect((await ledger.load(lesson.sessionId))?.events).toHaveLength(1)
   })
@@ -173,9 +186,11 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
 
     const firstRead = service.readLesson({ workspaceId: workspace.id, lessonPath: first.relativePath }, 401)
     await firstReadStartedPromise
-    await service.readLesson({ workspaceId: workspace.id, lessonPath: second.relativePath }, 402)
+    const secondPreview = await service.readLesson({ workspaceId: workspace.id, lessonPath: second.relativePath }, 402)
+    activatePreviewLesson(service, 402, secondPreview.url)
     releaseFirstRead()
-    await firstRead
+    const firstPreview = await firstRead
+    activatePreviewLesson(service, 401, firstPreview.url)
 
     await expect(service.recordPreviewLessonInteraction(401, {
       eventId: 'preview-concurrent-first-001', kind: 'lesson_opened', itemId: first.id
@@ -208,7 +223,8 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
 
     const staleRead = service.readLesson({ workspaceId: workspace.id, lessonPath: first.relativePath }, 303)
     await firstReadStartedPromise
-    await service.readLesson({ workspaceId: workspace.id, lessonPath: second.relativePath }, 303)
+    const secondPreview = await service.readLesson({ workspaceId: workspace.id, lessonPath: second.relativePath }, 303)
+    activatePreviewLesson(service, 303, secondPreview.url)
     releaseFirstRead()
     await staleRead
 

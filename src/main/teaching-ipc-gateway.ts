@@ -30,7 +30,11 @@ import {
 } from './teaching-ipc-commands'
 import type { TeachingSettingsService } from './teaching-settings'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
-import { PreviewLessonInteractionBindingError, type TeachingWorkspaceService } from './teaching-workspace'
+import {
+  PreviewLessonInteractionBindingError,
+  type PreviewLessonNavigation,
+  type TeachingWorkspaceService
+} from './teaching-workspace'
 import type { LearningAnalyticsService } from './teaching/services/learning-analytics'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
 import type { AnalyticsExportRequest, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
@@ -105,7 +109,47 @@ function ensurePreviewBindingLifecycle(context: GatewayContext, sender: Electron
   context.previewBindingLifecycleSenders.add(sender)
   const senderId = sender.id
   sender.once('destroyed', () => context.workspaceService.clearPreviewLessonBinding(senderId))
-  sender.on('did-start-navigation', () => context.workspaceService.clearPreviewLessonBinding(senderId))
+  sender.on('did-start-navigation', (details, url, isInPlace, isMainFrame, frameProcessId, frameRoutingId) => {
+    context.workspaceService.observePreviewLessonNavigation(senderId, previewLessonNavigation(
+      details, url, isInPlace, isMainFrame, frameProcessId, frameRoutingId
+    ))
+  })
+}
+
+/** Extract navigation facts from Electron only; malformed or unavailable facts fail closed in the service. */
+function previewLessonNavigation(
+  details: unknown,
+  url: unknown,
+  isInPlace: unknown,
+  isMainFrame: unknown,
+  frameProcessId: unknown,
+  frameRoutingId: unknown
+): PreviewLessonNavigation {
+  const detail = isUnknownRecord(details) ? details : null
+  const frame = detail && isUnknownRecord(detail.frame) ? detail.frame : null
+  return {
+    url: stringNavigationFact(detail?.url, url),
+    isMainFrame: booleanNavigationFact(detail?.isMainFrame, isMainFrame),
+    isSameDocument: booleanNavigationFact(detail?.isSameDocument, isInPlace),
+    frameProcessId: numberNavigationFact(frame?.processId, frameProcessId),
+    frameRoutingId: numberNavigationFact(frame?.routingId, frameRoutingId)
+  }
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function stringNavigationFact(primary: unknown, fallback: unknown): string | null {
+  return typeof primary === 'string' ? primary : typeof fallback === 'string' ? fallback : null
+}
+
+function booleanNavigationFact(primary: unknown, fallback: unknown): boolean | null {
+  return typeof primary === 'boolean' ? primary : typeof fallback === 'boolean' ? fallback : null
+}
+
+function numberNavigationFact(primary: unknown, fallback: unknown): number | null {
+  return typeof primary === 'number' ? primary : typeof fallback === 'number' ? fallback : null
 }
 
 function clearPreviewLessonBindingForSender(context: GatewayContext, event: Electron.IpcMainInvokeEvent): void {

@@ -85,6 +85,27 @@ function handler(channel: string) {
   return registered
 }
 
+type NavigationStarted = (details: unknown, url: string, isInPlace: boolean, isMainFrame: boolean, frameProcessId: number, frameRoutingId: number) => void
+
+function navigationStarted(senderEvent: ReturnType<typeof previewEvent>): NavigationStarted {
+  const listener = senderEvent.sender.on.mock.calls.find(([name]) => name === 'did-start-navigation')?.[1]
+  if (typeof listener !== 'function') throw new Error('Preview navigation listener was not registered.')
+  return listener as NavigationStarted
+}
+
+function startNavigation(
+  listener: NavigationStarted,
+  input: { url: string; isMainFrame: boolean; frameProcessId: number; frameRoutingId: number; isSameDocument?: boolean }
+): void {
+  const isSameDocument = input.isSameDocument ?? false
+  listener({
+    url: input.url,
+    isSameDocument,
+    isMainFrame: input.isMainFrame,
+    frame: { processId: input.frameProcessId, routingId: input.frameRoutingId }
+  }, input.url, isSameDocument, input.isMainFrame, input.frameProcessId, input.frameRoutingId)
+}
+
 describe('Teaching IPC gateway', () => {
   beforeEach(() => {
     electron.handlers.clear()
@@ -155,7 +176,7 @@ describe('Teaching IPC gateway', () => {
     expect(recordPreviewLessonInteraction).toHaveBeenCalledTimes(100)
   })
 
-  it('revokes a canonical lesson binding at child-frame navigation start before the same sender can record evidence', async () => {
+  it('activates only a matching canonical preview child navigation, then revokes cross-document and main-frame navigation', async () => {
     const service = await createEvidenceService('gateway-preview-navigation')
     const workspace = (await service.createWorkspace({ name: 'Navigation evidence', prompt: 'Teach preview navigation revocation.' })).activeWorkspace!
     const lesson = (await service.generateLesson({
@@ -165,20 +186,61 @@ describe('Teaching IPC gateway', () => {
     })).lesson
     const senderEvent = previewEvent(86)
     registerTeachingIpcGateway(registration({ workspaceService: service }))
-
-    await handler(teachingInvokeChannels.readLesson)(senderEvent, {
+    const read = async () => handler(teachingInvokeChannels.readLesson)(senderEvent, {
       workspaceId: workspace.id,
       lessonPath: lesson.relativePath
+    }) as Promise<{ url: string }>
+    const record = (eventId: string) => handler(teachingInvokeChannels.recordPreviewLessonInteraction)(senderEvent, {
+      eventId, kind: 'lesson_opened', itemId: lesson.id
     })
-    const navigationStarted = senderEvent.sender.on.mock.calls.find(([name]) => name === 'did-start-navigation')?.[1] as (() => void) | undefined
-    expect(navigationStarted).toBeTypeOf('function')
 
-    // Electron emits this for every frame, so this models a same-WindowProxy iframe navigation.
-    navigationStarted?.()
-    await expect(handler(teachingInvokeChannels.recordPreviewLessonInteraction)(senderEvent, {
-      eventId: 'preview-after-iframe-navigation-001', kind: 'lesson_opened', itemId: lesson.id
-    })).rejects.toMatchObject({ code: 'binding_unavailable' })
-    expect((await createLearningSessionLedger({ workspaceRoot: workspace.rootPath }).load(lesson.sessionId))?.events).toHaveLength(0)
+    const first = await read()
+    const navigation = navigationStarted(senderEvent)
+    await expect(record('preview-before-activation-001')).rejects.toMatchObject({ code: 'binding_unavailable' })
+
+    // An arbitrary first child navigation cannot activate a pending canonical binding.
+    startNavigation(navigation, {
+      url: 'about:srcdoc', isMainFrame: false, frameProcessId: 610, frameRoutingId: 611
+    })
+    await expect(record('preview-after-noncanonical-initial-001')).rejects.toMatchObject({ code: 'binding_unavailable' })
+
+    const activated = await read()
+    startNavigation(navigation, {
+      url: activated.url, isMainFrame: false, frameProcessId: 620, frameRoutingId: 621
+    })
+    await expect(record('preview-active-001')).resolves.toMatchObject({
+      eventId: 'preview-active-001', sessionId: lesson.sessionId, sequence: 1, duplicate: false
+    })
+    expect(activated.url).toBe(first.url)
+    const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
+    expect((await ledger.load(lesson.sessionId))?.events).toHaveLength(1)
+
+    // The same iframe frame retains a WindowProxy, but a new generic document revokes its authority.
+    startNavigation(navigation, {
+      url: 'https://example.invalid/generic.html', isMainFrame: false, frameProcessId: 620, frameRoutingId: 621
+    })
+    await expect(record('preview-after-generic-child-navigation-001')).rejects.toMatchObject({ code: 'binding_unavailable' })
+    expect((await ledger.load(lesson.sessionId))?.events).toHaveLength(1)
+
+    const afterChildRevocation = await read()
+    startNavigation(navigation, {
+      url: afterChildRevocation.url, isMainFrame: false, frameProcessId: 630, frameRoutingId: 631
+    })
+    startNavigation(navigation, {
+      url: 'studiumx://main-frame-navigation', isMainFrame: true, frameProcessId: 1, frameRoutingId: 2
+    })
+    await expect(record('preview-after-main-navigation-001')).rejects.toMatchObject({ code: 'binding_unavailable' })
+    expect((await ledger.load(lesson.sessionId))?.events).toHaveLength(1)
+
+    const rebound = await read()
+    startNavigation(navigation, {
+      url: rebound.url, isMainFrame: false, frameProcessId: 640, frameRoutingId: 641
+    })
+    await expect(record('preview-active-001')).rejects.toMatchObject({ code: 'identity_conflict' })
+    await expect(record('preview-rebound-001')).resolves.toMatchObject({
+      eventId: 'preview-rebound-001', sessionId: lesson.sessionId, sequence: 2, duplicate: false
+    })
+    expect((await ledger.load(lesson.sessionId))?.events).toHaveLength(2)
   })
 
   it('clears a sender binding when Electron destroys the preview sender', async () => {
