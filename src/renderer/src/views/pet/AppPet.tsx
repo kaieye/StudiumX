@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { Bell, BellOff, ChevronDown, ChevronUp, MessageCircle, RotateCcw, Ruler, X } from 'lucide-react'
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -8,7 +8,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conversation-state'
-import { MAX_PET_SIZE, MIN_PET_SIZE } from '../../../../shared/teaching-types'
+import { DEFAULT_PET_SIZE, MAX_PET_SIZE, MIN_PET_SIZE } from '../../../../shared/teaching-types'
 import { useAppStore } from '../../app-shell/appStore'
 import '../../styles/pet-context-menu.css'
 import { PetAssistantDialog } from './PetAssistantDialog'
@@ -35,6 +35,19 @@ import {
   type PetPlacement
 } from './pet-interaction'
 import { PetSprite } from './PetSprite'
+import {
+  advancePetNotificationProjection,
+  createInitialPetNotificationProjectionState,
+  dismissPetNotification,
+  projectPetNotifications,
+  pruneDismissedPetNotifications,
+  retainedPetNotificationIds,
+  selectPetNotifications,
+  type DismissedPetNotifications,
+  type PetNotification,
+  type PetNotificationCopy,
+  type PetNotificationSignals
+} from './pet-notifications'
 
 type PetContextMenuPosition = PetPlacement
 type ContextMenuDismissalReason = 'escape' | 'outside-pointer' | 'scroll' | 'viewport-change' | 'window-blur'
@@ -68,55 +81,203 @@ export function AppPet() {
   const settings = useAppStore((state) => state.settings.pet)
   const updateSettings = useAppStore((state) => state.updateSettings)
   const generating = useAppStore((state) => state.generating)
+  const lessonGenerationRunId = useAppStore((state) => state.lessonGenerationRunId)
+  const agentPetNotificationResult = useAppStore((state) => state.agentPetNotificationResult)
+  const lessonGenerationPetNotificationResult = useAppStore((state) => state.lessonGenerationPetNotificationResult)
   const agentChatBusy = useAppStore((state) => state.agentChatBusy)
-  const error = useAppStore((state) => state.error)
+  const petNotificationErrors = useAppStore((state) => state.petNotificationErrors)
   const agentTurns = useAppStore((state) => state.agentTurns)
+  const activeConversationId = useAppStore((state) => state.activeConversationId)
   const pendingConversation = useAppStore((state) => state.pendingAgentConversation)
+  const restorePendingAgentConversation = useAppStore((state) => state.restorePendingAgentConversation)
+  const cancelAgentChat = useAppStore((state) => state.cancelAgentChat)
+  const loadAgentConversation = useAppStore((state) => state.loadAgentConversation)
+  const setOverviewDialogMode = useAppStore((state) => state.setOverviewDialogMode)
+  const setView = useAppStore((state) => state.setView)
   const petRef = useRef<HTMLDivElement>(null)
   const mascotRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const activityToggleRef = useRef<HTMLButtonElement>(null)
+  const activityStackRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<PetDragSession | null>(null)
   const resizeRef = useRef<PetResizeSession | null>(null)
-  const wasBusyRef = useRef(false)
-  const wasEnabledRef = useRef(settings.enabled)
   const [position, setPosition] = useState<PetPlacement | null>(() => storedPosition())
   const [dragDirection, setDragDirection] = useState<'left' | 'right' | null>(null)
   const [displaySize, setDisplaySize] = useState(settings.size)
   const [hovered, setHovered] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [contextMenu, setContextMenu] = useState<PetContextMenuPosition | null>(null)
-  const [introVisible, setIntroVisible] = useState(settings.enabled)
-  const [reviewVisible, setReviewVisible] = useState(false)
+  const [dismissedNotifications, setDismissedNotifications] = useState<DismissedPetNotifications>({})
+  const [activityExpanded, setActivityExpanded] = useState(false)
 
   const pendingTurns = pendingConversation?.turns ?? agentTurns
   const pendingStreamId = pendingConversation?.summary.id ?? null
-  const waiting = useMemo(() => {
-    if (!pendingStreamId) return false
-    return Boolean(
-      selectPendingAsk(pendingTurns, pendingStreamId) ||
-      selectPendingToolPermission(pendingTurns, pendingStreamId)
-    )
+  const pendingRequest = useMemo(() => {
+    if (!pendingStreamId) return null
+    const ask = selectPendingAsk(pendingTurns, pendingStreamId)
+    if (ask) return { id: ask.toolCallId, conversationId: pendingStreamId, kind: 'ask' as const }
+    const permission = selectPendingToolPermission(pendingTurns, pendingStreamId)
+    if (permission) {
+      return { id: permission.toolCallId, conversationId: pendingStreamId, kind: 'tool-permission' as const }
+    }
+    return null
   }, [pendingStreamId, pendingTurns])
-  const busy = generating || agentChatBusy
+
+  const notificationCopy = useMemo<PetNotificationCopy>(() => ({
+    waiting: {
+      title: t('resources.pets.notifications.waiting.title'),
+      detail: t('resources.pets.notifications.waiting.detail'),
+      actionLabel: t('resources.pets.actions.waiting')
+    },
+    agentRunning: {
+      title: t('resources.pets.notifications.agentRunning.title'),
+      detail: t('resources.pets.notifications.agentRunning.detail'),
+      actionLabel: t('resources.pets.actions.running')
+    },
+    lessonRunning: {
+      title: t('resources.pets.notifications.lessonRunning.title'),
+      detail: t('resources.pets.notifications.lessonRunning.detail'),
+      actionLabel: t('resources.pets.actions.running')
+    },
+    agentReview: {
+      title: t('resources.pets.notifications.agentReview.title'),
+      detail: t('resources.pets.notifications.agentReview.detail'),
+      actionLabel: t('resources.pets.actions.review')
+    },
+    lessonReview: {
+      title: t('resources.pets.notifications.lessonReview.title'),
+      detail: t('resources.pets.notifications.lessonReview.detail'),
+      actionLabel: t('resources.pets.actions.review')
+    },
+    agentFailed: {
+      title: t('resources.pets.notifications.agentFailed.title'),
+      actionLabel: t('resources.pets.actions.failed')
+    },
+    lessonFailed: {
+      title: t('resources.pets.notifications.lessonFailed.title'),
+      actionLabel: t('resources.pets.actions.failed')
+    },
+    waving: {
+      title: t('resources.pets.notifications.waving.title', { name: settings.displayName }),
+      detail: t('resources.pets.notifications.waving.detail'),
+      actionLabel: t('resources.pets.actions.waving')
+    }
+  }), [settings.displayName, t])
+
+  const baseNotificationSignals = useMemo<Omit<PetNotificationSignals, 'now'>>(() => ({
+    enabled: settings.enabled,
+    pendingRequest,
+    agent: {
+      busy: agentChatBusy,
+      runId: pendingConversation?.summary.id,
+      conversationId: pendingConversation?.summary.id,
+      result: agentPetNotificationResult ?? undefined
+    },
+    lessonGeneration: {
+      busy: generating,
+      runId: lessonGenerationRunId ?? undefined,
+      result: lessonGenerationPetNotificationResult ?? undefined
+    },
+    errors: petNotificationErrors.map((item) => ({
+      id: item.id,
+      source: item.source,
+      sourceId: item.sourceId,
+      targetId: item.targetId,
+      detail: item.error.detail ?? item.error.message,
+      createdAt: item.createdAt
+    }))
+  }), [
+    activeConversationId,
+    agentPetNotificationResult,
+    agentChatBusy,
+    generating,
+    lessonGenerationRunId,
+    lessonGenerationPetNotificationResult,
+    pendingConversation?.summary.id,
+    pendingRequest,
+    petNotificationErrors,
+    settings.enabled
+  ])
+  const [notificationProjection, setNotificationProjection] = useState(() => {
+    const now = Date.now()
+    return {
+      now,
+      state: advancePetNotificationProjection(
+        createInitialPetNotificationProjectionState(),
+        { ...baseNotificationSignals, now }
+      )
+    }
+  })
 
   useEffect(() => {
-    if (!settings.enabled) {
-      wasEnabledRef.current = false
-      dragRef.current = null
-      resizeRef.current = null
-      setDragDirection(null)
-      setHovered(false)
-      setAssistantOpen(false)
-      setContextMenu(null)
-      setDisplaySize(settings.size)
-      setIntroVisible(false)
-      return
-    }
-    if (!wasEnabledRef.current) setIntroVisible(true)
-    wasEnabledRef.current = true
-    const timer = window.setTimeout(() => setIntroVisible(false), 8_000)
+    const now = Date.now()
+    setNotificationProjection((current) => ({
+      now,
+      state: advancePetNotificationProjection(current.state, { ...baseNotificationSignals, now })
+    }))
+    if (!settings.enabled) setDismissedNotifications({})
+  }, [baseNotificationSignals, settings.enabled])
+
+  const notificationSignals = useMemo<PetNotificationSignals>(() => ({
+    ...baseNotificationSignals,
+    now: notificationProjection.now
+  }), [baseNotificationSignals, notificationProjection.now])
+  const notifications = useMemo(
+    () => projectPetNotifications(notificationProjection.state, notificationSignals, notificationCopy),
+    [notificationCopy, notificationProjection.state, notificationSignals]
+  )
+  const retainedNotificationIds = useMemo(
+    () => retainedPetNotificationIds(notificationProjection.state, notificationSignals),
+    [notificationProjection.state, notificationSignals]
+  )
+  const visibleNotifications = useMemo(
+    () => selectPetNotifications(
+      notifications,
+      dismissedNotifications,
+      notificationProjection.now
+    ),
+    [dismissedNotifications, notificationProjection.now, notifications]
+  )
+  const notification = visibleNotifications[0] ?? null
+  const activityNotifications = visibleNotifications.slice(0, 3)
+  const canExpandActivity = visibleNotifications.length > 1
+
+  useEffect(() => {
+    setDismissedNotifications((current) => pruneDismissedPetNotifications(current, retainedNotificationIds))
+  }, [retainedNotificationIds])
+
+  useEffect(() => {
+    if (!activityExpanded || canExpandActivity) return
+    const focusWasInStack = activityStackRef.current?.contains(document.activeElement) ?? false
+    setActivityExpanded(false)
+    if (focusWasInStack) window.requestAnimationFrame(() => mascotRef.current?.focus())
+  }, [activityExpanded, canExpandActivity])
+
+  useEffect(() => {
+    const expirations = notifications.flatMap((item) => item.expiresAt === undefined ? [] : [item.expiresAt])
+    if (expirations.length === 0) return
+    const nextExpiration = Math.min(...expirations)
+    const timer = window.setTimeout(() => {
+      const now = Date.now()
+      setNotificationProjection((current) => ({
+        now,
+        state: advancePetNotificationProjection(current.state, { ...baseNotificationSignals, now })
+      }))
+    }, Math.max(0, nextExpiration - Date.now()) + 1)
     return () => window.clearTimeout(timer)
-  }, [settings.enabled])
+  }, [baseNotificationSignals, notifications])
+
+  useEffect(() => {
+    if (settings.enabled) return
+    dragRef.current = null
+    resizeRef.current = null
+    setDragDirection(null)
+    setHovered(false)
+    setAssistantOpen(false)
+    setContextMenu(null)
+    setActivityExpanded(false)
+    setDisplaySize(settings.size)
+  }, [settings.enabled, settings.size])
 
   useEffect(() => {
     if (resizeRef.current) return
@@ -125,20 +286,6 @@ export function AppPet() {
       ? clampPetPlacement(current, viewport(), petSurfaceSize(settings.size))
       : null)
   }, [settings.size])
-
-  useEffect(() => {
-    let timer = 0
-    if (!settings.enabled) {
-      setReviewVisible(false)
-    } else if (busy) {
-      setReviewVisible(false)
-    } else if (wasBusyRef.current && !waiting && !error) {
-      setReviewVisible(true)
-      timer = window.setTimeout(() => setReviewVisible(false), 7_000)
-    }
-    wasBusyRef.current = busy
-    return () => window.clearTimeout(timer)
-  }, [busy, error, settings.enabled, waiting])
 
   useEffect(() => {
     const handleResize = (): void => {
@@ -163,7 +310,23 @@ export function AppPet() {
       dismissContextMenu('outside-pointer', Boolean(menuRef.current?.contains(event.target as Node)))
     }
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') dismissContextMenu('escape')
+      if (event.key === 'Escape') {
+        dismissContextMenu('escape')
+        return
+      }
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+      const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])
+      if (items.length === 0) return
+      event.preventDefault()
+      const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement)
+      const nextIndex = event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? items.length - 1
+          : event.key === 'ArrowDown'
+            ? (currentIndex + 1 + items.length) % items.length
+            : (currentIndex - 1 + items.length) % items.length
+      items[nextIndex]?.focus()
     }
     const handleScroll = (): void => dismissContextMenu('scroll')
     const handleResize = (): void => dismissContextMenu('viewport-change')
@@ -184,15 +347,76 @@ export function AppPet() {
   }, [contextMenu])
 
   const attention = derivePetAttention({
-    waiting,
-    failed: Boolean(error),
-    reviewVisible,
-    busy,
-    introVisible,
+    notificationState: notification?.state ?? null,
     hovered,
     dragDirection,
     showStatusBubble: settings.showStatusBubble
   })
+  const showStatusBubble = attention.showBubble && notification !== null
+
+  const openAssistant = (): void => {
+    setContextMenu(null)
+    setAssistantOpen(true)
+  }
+
+  const openConversation = (conversationId?: string): void => {
+    setContextMenu(null)
+    setAssistantOpen(false)
+    if (pendingConversation && (!conversationId || pendingConversation.summary.id === conversationId)) {
+      restorePendingAgentConversation()
+    } else if (conversationId && activeConversationId !== conversationId) {
+      void loadAgentConversation(conversationId)
+    }
+    setOverviewDialogMode('chat')
+    setView('agent')
+  }
+
+  const handleNotificationAction = (item: PetNotification | null = notification): void => {
+    if (!item) return
+    if (item.action === 'open-conversation') {
+      openConversation(item.targetId)
+      return
+    }
+    if (item.action === 'open-lessons') {
+      setContextMenu(null)
+      setAssistantOpen(false)
+      setView('lessons')
+      return
+    }
+    if (item.action === 'stop-run') {
+      void cancelAgentChat()
+      return
+    }
+    openAssistant()
+  }
+
+  const dismissNotification = (item: PetNotification): void => {
+    setDismissedNotifications((current) => pruneDismissedPetNotifications(
+      dismissPetNotification(current, item, Date.now()),
+      retainedNotificationIds
+    ))
+    window.requestAnimationFrame(() => {
+      const nextItem = activityExpanded
+        ? activityStackRef.current?.querySelector<HTMLElement>('[role="listitem"]')
+        : null
+      if (nextItem) nextItem.focus()
+      else if (activityToggleRef.current) activityToggleRef.current.focus()
+      else mascotRef.current?.focus()
+    })
+  }
+
+  const collapseActivityStack = (): void => {
+    if (activityToggleRef.current) activityToggleRef.current.focus()
+    else mascotRef.current?.focus()
+    setActivityExpanded(false)
+  }
+
+  const handleActivityKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+    event.preventDefault()
+    event.stopPropagation()
+    collapseActivityStack()
+  }
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
     if (event.button !== 0) return
@@ -367,6 +591,31 @@ export function AppPet() {
     void updateSettings({ pet: { enabled: false } })
   }
 
+  const resetPetPosition = (): void => {
+    setContextMenu(null)
+    setPosition(null)
+    try {
+      window.localStorage.removeItem(PET_POSITION_STORAGE_KEY)
+    } catch {
+      // Reset still applies to the current session when storage is unavailable.
+    }
+  }
+
+  const resetPetSize = (): void => {
+    setContextMenu(null)
+    setDisplaySize(DEFAULT_PET_SIZE)
+    setPosition((current) => current
+      ? clampPetPlacement(current, viewport(), petSurfaceSize(DEFAULT_PET_SIZE))
+      : null)
+    void updateSettings({ pet: { size: DEFAULT_PET_SIZE } })
+  }
+
+  const toggleStatusBubble = (): void => {
+    setContextMenu(null)
+    setDismissedNotifications({})
+    void updateSettings({ pet: { showStatusBubble: !settings.showStatusBubble } })
+  }
+
   if (!settings.enabled) return null
 
   const surface = petSurfaceSize(displaySize)
@@ -393,20 +642,81 @@ export function AppPet() {
         data-state={attention.baseState}
         style={petStyle}
       >
-        {attention.showBubble ? (
-          <div className="app-pet-bubble" role="status">
-            <span>
-              <strong>{settings.displayName}</strong>
-              <small>{t(`resources.pets.states.${attention.baseState}`)}</small>
+        {showStatusBubble ? (
+          <div
+            className={`app-pet-bubble${activityExpanded ? ' is-expanded' : ''}`}
+            role="status"
+            onKeyDown={handleActivityKeyDown}
+          >
+            <span className="app-pet-bubble-copy">
+              <strong>{notification?.title}</strong>
+              <small>{notification?.detail}</small>
+              <button className="app-pet-bubble-action" type="button" onClick={() => handleNotificationAction()}>
+                {notification?.actionLabel}
+              </button>
             </span>
-            <button
-              type="button"
-              aria-label={t('resources.pets.hide')}
-              title={t('resources.pets.hide')}
-              onClick={() => void updateSettings({ pet: { enabled: false } })}
-            >
-              <X size={12} />
-            </button>
+            <span className="app-pet-bubble-controls">
+              {canExpandActivity ? (
+                <button
+                  ref={activityToggleRef}
+                  className="app-pet-activity-toggle"
+                  type="button"
+                  aria-expanded={activityExpanded}
+                  aria-controls="pet-activity-stack"
+                  aria-label={activityExpanded
+                    ? t('resources.pets.activity.collapse')
+                    : t('resources.pets.activity.expand', { count: Math.min(3, visibleNotifications.length) })}
+                  title={activityExpanded
+                    ? t('resources.pets.activity.collapse')
+                    : t('resources.pets.activity.expand', { count: Math.min(3, visibleNotifications.length) })}
+                  onClick={() => setActivityExpanded((current) => !current)}
+                >
+                  {activityExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                </button>
+              ) : null}
+              <button
+                className="app-pet-bubble-dismiss"
+                type="button"
+                aria-label={t('resources.pets.dismissNotification')}
+                title={t('resources.pets.dismissNotification')}
+                onClick={() => notification && dismissNotification(notification)}
+              >
+                <X size={12} />
+              </button>
+            </span>
+            {activityExpanded ? (
+              <div
+                ref={activityStackRef}
+                id="pet-activity-stack"
+                className="app-pet-activity-stack"
+                role="list"
+                aria-label={t('resources.pets.activity.label')}
+              >
+                {activityNotifications.map((item) => (
+                  <div className="app-pet-activity-item" role="listitem" tabIndex={0} key={item.id}>
+                    <span className="app-pet-activity-meta">
+                      <span>{t(`resources.pets.activity.sources.${item.source}`)}</span>
+                      <span>{t(`resources.pets.stateLabels.${item.state}`)}</span>
+                    </span>
+                    <strong>{item.title}</strong>
+                    <small>{item.detail}</small>
+                    <span className="app-pet-activity-actions">
+                      <button type="button" className="app-pet-bubble-action" onClick={() => handleNotificationAction(item)}>
+                        {item.actionLabel}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={t('resources.pets.activity.dismiss', { title: item.title })}
+                        title={t('resources.pets.activity.dismiss', { title: item.title })}
+                        onClick={() => dismissNotification(item)}
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
         <button
@@ -417,7 +727,7 @@ export function AppPet() {
           aria-haspopup="dialog"
           aria-controls="pet-assistant-dialog"
           aria-expanded={assistantOpen}
-          title={t(`resources.pets.states.${attention.baseState}`)}
+          title={notification?.detail ?? t('resources.pets.states.idle')}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={finishPointer}
@@ -460,7 +770,25 @@ export function AppPet() {
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onContextMenu={(event) => event.preventDefault()}
         >
-          <button type="button" role="menuitem" onClick={closePet}>
+          <button type="button" role="menuitem" onClick={openAssistant}>
+            <MessageCircle size={14} aria-hidden="true" />
+            <span>{t('resources.pets.openAssistant')}</span>
+          </button>
+          <button type="button" role="menuitem" onClick={resetPetPosition}>
+            <RotateCcw size={14} aria-hidden="true" />
+            <span>{t('resources.pets.resetPosition')}</span>
+          </button>
+          <button type="button" role="menuitem" onClick={resetPetSize}>
+            <Ruler size={14} aria-hidden="true" />
+            <span>{t('resources.pets.resetSize')}</span>
+          </button>
+          <button type="button" role="menuitem" onClick={toggleStatusBubble}>
+            {settings.showStatusBubble
+              ? <BellOff size={14} aria-hidden="true" />
+              : <Bell size={14} aria-hidden="true" />}
+            <span>{t(settings.showStatusBubble ? 'resources.pets.hideBubble' : 'resources.pets.showBubble')}</span>
+          </button>
+          <button className="is-destructive" type="button" role="menuitem" onClick={closePet}>
             <X size={14} aria-hidden="true" />
             <span>{t('resources.pets.close')}</span>
           </button>

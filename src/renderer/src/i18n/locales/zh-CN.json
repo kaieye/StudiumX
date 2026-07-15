@@ -280,7 +280,24 @@
       "appearanceDetail": "选择宠物后，页面预览、悬浮宠物和自习室会同步使用对应动画。",
       "hide": "隐藏宠物",
       "close": "关闭宠物",
-      "overlayAria": "宠物 {{name}}，拖动可移动，点击可查看状态，右键可关闭",
+      "dismissNotification": "忽略本次提醒",
+      "openAssistant": "打开宠物助手",
+      "resetPosition": "重置位置",
+      "resetSize": "重置尺寸",
+      "hideBubble": "隐藏状态气泡",
+      "showBubble": "显示状态气泡",
+      "overlayAria": "宠物 {{name}}，拖动可移动，点击可查看状态，右键可打开操作菜单",
+      "actions": {
+        "idle": "开始对话",
+        "running-right": "查看状态",
+        "running-left": "查看状态",
+        "waving": "开始对话",
+        "jumping": "开始对话",
+        "failed": "查看错误",
+        "waiting": "处理请求",
+        "running": "查看进度",
+        "review": "查看结果"
+      },
       "stateLabels": {
         "idle": "待机",
         "running-right": "向右跑",
@@ -309,6 +326,49 @@
         "review": "完成结果会保留一段时间供你查看。",
         "running": "任务运行时持续显示工作动作。",
         "idle": "没有待办时回到安静的待机状态。"
+      },
+      "notifications": {
+        "waiting": {
+          "title": "有请求需要处理",
+          "detail": "Agent 正在等待你的回答或工具授权。"
+        },
+        "agentRunning": {
+          "title": "Agent 正在工作",
+          "detail": "当前对话任务仍在运行。"
+        },
+        "lessonRunning": {
+          "title": "正在生成课程",
+          "detail": "StudiumX 正在准备下一节课程。"
+        },
+        "agentReview": {
+          "title": "Agent 结果已就绪",
+          "detail": "对话任务已经完成，可以查看结果。"
+        },
+        "lessonReview": {
+          "title": "课程已生成",
+          "detail": "新课程已经准备好，可以查看结果。"
+        },
+        "agentFailed": {
+          "title": "Agent 任务失败"
+        },
+        "lessonFailed": {
+          "title": "课程生成失败"
+        },
+        "waving": {
+          "title": "你好，我是 {{name}}",
+          "detail": "我会帮你留意学习任务和待处理请求。"
+        }
+      },
+      "activity": {
+        "label": "Pet 活动",
+        "expand": "展开 {{count}} 条活动",
+        "collapse": "收起活动",
+        "dismiss": "忽略“{{title}}”",
+        "sources": {
+          "agent": "Agent",
+          "lesson-generation": "课程生成",
+          "onboarding": "Pet"
+        }
       }
     },
     "tutorials": {

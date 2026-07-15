@@ -49,7 +49,7 @@ describe('pet-interaction contract', () => {
       x: 14,
       y: 14
     })
-    expect(clampPetContextMenuPlacement({ x: 990, y: 790 }, desktop)).toEqual({ x: 820, y: 744 })
+    expect(clampPetContextMenuPlacement({ x: 990, y: 790 }, desktop)).toEqual({ x: 796, y: 600 })
   })
 
   it('distinguishes a click activation from a moved drag that persists placement', () => {
@@ -106,22 +106,21 @@ describe('pet-interaction contract', () => {
 
   it('uses established attention precedence and limits hover animation to idle', () => {
     expect(derivePetAttention({
-      waiting: true,
-      failed: true,
-      reviewVisible: true,
-      busy: true,
-      introVisible: true,
+      notificationState: 'waiting',
       hovered: true,
       dragDirection: null,
       showStatusBubble: true
     })).toEqual({ baseState: 'waiting', visualState: 'waiting', showBubble: true })
 
     expect(derivePetAttention({
-      waiting: false,
-      failed: false,
-      reviewVisible: false,
-      busy: false,
-      introVisible: false,
+      notificationState: 'failed',
+      hovered: true,
+      dragDirection: 'left',
+      showStatusBubble: true
+    })).toEqual({ baseState: 'failed', visualState: 'running-left', showBubble: true })
+
+    expect(derivePetAttention({
+      notificationState: null,
       hovered: true,
       dragDirection: null,
       showStatusBubble: true

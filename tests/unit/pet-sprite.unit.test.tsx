@@ -46,4 +46,18 @@ describe('PetSprite', () => {
     act(() => vi.advanceTimersByTime(5_000))
     expect(sprite.dataset.frame).toBe('0')
   })
+
+  it('settles non-idle animation after three cycles to avoid continuous distraction', () => {
+    vi.useFakeTimers()
+    vi.mocked(window.matchMedia).mockReturnValue(mediaQuery(false))
+    const { container } = renderUi(
+      <PetSprite appearance="boba" label="Boba" size={112} state="running-right" />
+    )
+    const sprite = container.querySelector<HTMLElement>('.pet-sprite')!
+
+    act(() => vi.advanceTimersByTime(3_500))
+    expect(sprite.dataset.frame).toBe('0')
+    act(() => vi.advanceTimersByTime(2_000))
+    expect(sprite.dataset.frame).toBe('0')
+  })
 })

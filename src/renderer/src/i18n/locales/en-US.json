@@ -280,7 +280,24 @@
       "appearanceDetail": "Choose a pet to use its animations in the preview, floating companion, and study room.",
       "hide": "Hide pet",
       "close": "Close pet",
-      "overlayAria": "Pet {{name}}; drag to move, click to inspect status, or right-click to close",
+      "dismissNotification": "Dismiss this notification",
+      "openAssistant": "Open pet assistant",
+      "resetPosition": "Reset position",
+      "resetSize": "Reset size",
+      "hideBubble": "Hide status bubble",
+      "showBubble": "Show status bubble",
+      "overlayAria": "Pet {{name}}; drag to move, click to inspect status, or right-click for actions",
+      "actions": {
+        "idle": "Start a chat",
+        "running-right": "View status",
+        "running-left": "View status",
+        "waving": "Start a chat",
+        "jumping": "Start a chat",
+        "failed": "View error",
+        "waiting": "Handle request",
+        "running": "View progress",
+        "review": "View result"
+      },
       "stateLabels": {
         "idle": "Idle",
         "running-right": "Run right",
@@ -309,6 +326,49 @@
         "review": "Completed results remain visible briefly for review.",
         "running": "Active tasks keep the pet in its working animation.",
         "idle": "With nothing pending, the pet returns to a quiet idle state."
+      },
+      "notifications": {
+        "waiting": {
+          "title": "Request needs your attention",
+          "detail": "An Agent question or tool permission is waiting for you."
+        },
+        "agentRunning": {
+          "title": "Agent is working",
+          "detail": "Your conversation task is still running."
+        },
+        "lessonRunning": {
+          "title": "Lesson generation is running",
+          "detail": "StudiumX is preparing the next lesson."
+        },
+        "agentReview": {
+          "title": "Agent result is ready",
+          "detail": "The completed conversation result is ready to review."
+        },
+        "lessonReview": {
+          "title": "Lesson is ready",
+          "detail": "The generated lesson is ready to review."
+        },
+        "agentFailed": {
+          "title": "Agent task failed"
+        },
+        "lessonFailed": {
+          "title": "Lesson generation failed"
+        },
+        "waving": {
+          "title": "Hi, I’m {{name}}",
+          "detail": "I’ll keep an eye on study tasks and requests for you."
+        }
+      },
+      "activity": {
+        "label": "Pet activities",
+        "expand": "Show {{count}} activities",
+        "collapse": "Collapse activities",
+        "dismiss": "Dismiss “{{title}}”",
+        "sources": {
+          "agent": "Agent",
+          "lesson-generation": "Lesson generation",
+          "onboarding": "Pet"
+        }
       }
     },
     "tutorials": {

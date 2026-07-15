@@ -70,14 +70,24 @@ export function PetSprite({
     if (reducedMotion) return
     let canceled = false
     let frameCursor = 0
+    let completedCycles = 0
     let timer = 0
+    const cycleLimit = state === 'idle' ? Number.POSITIVE_INFINITY : 3
 
     const scheduleNextFrame = (): void => {
       const current = frames[frameCursor] ?? frames[0]
       if (!current) return
       timer = window.setTimeout(() => {
         if (canceled) return
-        frameCursor = (frameCursor + 1) % frames.length
+        const nextFrameCursor = frameCursor + 1
+        if (nextFrameCursor >= frames.length) {
+          completedCycles += 1
+          frameCursor = 0
+          setFrame(frames[0]?.columnIndex ?? 0)
+          if (completedCycles >= cycleLimit) return
+        } else {
+          frameCursor = nextFrameCursor
+        }
         setFrame(frames[frameCursor]?.columnIndex ?? 0)
         scheduleNextFrame()
       }, current.frameDurationMs)

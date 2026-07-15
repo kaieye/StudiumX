@@ -867,7 +867,8 @@
   position: absolute;
   right: var(--pet-bubble-offset-x, 82px);
   bottom: var(--pet-bubble-offset-y, 100px);
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
   gap: 8px;
   width: max-content;
@@ -883,10 +884,60 @@
   pointer-events: auto;
   animation: app-pet-bubble-in 180ms ease-out both;
 }
-.app-pet-bubble > span {
+.app-pet-bubble.is-expanded {
+  width: min(280px, calc(100vw - 24px));
+  max-width: 280px;
+}
+.app-pet-bubble-copy {
   display: grid;
   min-width: 0;
+  gap: 3px;
+}
+.app-pet-bubble-controls,
+.app-pet-activity-actions,
+.app-pet-activity-meta {
+  display: flex;
+  align-items: center;
+}
+.app-pet-bubble-controls {
   gap: 2px;
+}
+.app-pet-activity-stack {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 6px;
+  width: 100%;
+  max-height: 230px;
+  margin-top: 4px;
+  overflow-y: auto;
+}
+.app-pet-activity-item {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 70%, transparent);
+  border-radius: 10px;
+  outline: 0;
+  background: color-mix(in srgb, var(--surface-muted) 62%, transparent);
+}
+.app-pet-activity-item:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.app-pet-activity-meta {
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 9px;
+  font-weight: 650;
+}
+.app-pet-activity-actions {
+  justify-content: space-between;
+  gap: 6px;
+}
+.app-pet-activity-item .app-pet-bubble-action {
+  margin-top: 1px;
 }
 .app-pet-bubble strong {
   overflow: hidden;
@@ -916,6 +967,23 @@
 .app-pet-bubble button:hover {
   color: var(--text);
   background: var(--surface-muted);
+}
+.app-pet-bubble .app-pet-bubble-action {
+  justify-self: start;
+  width: auto;
+  height: 22px;
+  margin-top: 2px;
+  padding: 0 7px;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: 10px;
+  font-weight: 650;
+}
+.app-pet-bubble .app-pet-bubble-action:hover,
+.app-pet-bubble .app-pet-bubble-action:focus-visible {
+  color: var(--accent-strong, var(--accent));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 @keyframes app-pet-bubble-in {
   from {

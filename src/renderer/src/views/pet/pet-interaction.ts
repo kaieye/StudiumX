@@ -14,8 +14,8 @@ const PET_DEFAULT_WIDTH = 150
 const PET_DEFAULT_HEIGHT = 130
 const PET_DRAG_THRESHOLD = 4
 const PET_CONTEXT_MENU_GAP = 8
-const PET_CONTEXT_MENU_WIDTH = 172
-const PET_CONTEXT_MENU_HEIGHT = 48
+const PET_CONTEXT_MENU_WIDTH = 196
+const PET_CONTEXT_MENU_HEIGHT = 192
 const ASSISTANT_EDGE_GAP = 16
 const ASSISTANT_MIN_WIDTH = 300
 const ASSISTANT_MIN_HEIGHT = 320
@@ -224,26 +224,12 @@ export function finishPetResize(
 }
 
 export function derivePetAttention(input: {
-  waiting: boolean
-  failed: boolean
-  reviewVisible: boolean
-  busy: boolean
-  introVisible: boolean
+  notificationState: Exclude<PetAttentionState, 'idle' | 'running-right' | 'running-left' | 'jumping'> | null
   hovered: boolean
   dragDirection: 'left' | 'right' | null
   showStatusBubble: boolean
 }): { baseState: PetAttentionState; visualState: PetAttentionState; showBubble: boolean } {
-  const baseState: PetAttentionState = input.waiting
-    ? 'waiting'
-    : input.failed
-      ? 'failed'
-      : input.reviewVisible
-        ? 'review'
-        : input.busy
-          ? 'running'
-          : input.introVisible
-            ? 'waving'
-            : 'idle'
+  const baseState: PetAttentionState = input.notificationState ?? 'idle'
   const visualState: PetAttentionState = input.dragDirection
     ? `running-${input.dragDirection}`
     : input.hovered && baseState === 'idle'

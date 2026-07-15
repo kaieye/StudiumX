@@ -4,7 +4,7 @@ import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
 import { AppPet } from '../../src/renderer/src/views/pet/AppPet'
 import type { PendingAgentConversation } from '../../src/renderer/src/agent-conversation-state'
 import type { AgentChatTurn, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
-import { act, fireEvent, renderUi, screen, setupUser, waitFor } from '../helpers/render'
+import { act, fireEvent, renderUi, screen, setupUser, waitFor, within } from '../helpers/render'
 
 const originalState = useAppStore.getState()
 
@@ -91,10 +91,22 @@ function resetStore(): void {
       }
     },
     generating: false,
+    lessonGenerationRunId: null,
+    agentPetNotificationResult: null,
+    lessonGenerationPetNotificationResult: null,
     agentChatBusy: false,
     agentTurns: [],
     pendingAgentConversation: null,
-    error: null
+    error: null,
+    petNotificationErrors: [],
+    updateSettings: async (patch) => {
+      useAppStore.setState((state) => ({
+        settings: {
+          ...state.settings,
+          pet: { ...state.settings.pet, ...(patch.pet ?? {}) }
+        }
+      }))
+    }
   })
 }
 
@@ -156,8 +168,11 @@ describe('AppPet accessibility', () => {
     const mascot = container.querySelector<HTMLButtonElement>('.app-pet-mascot')!
 
     fireEvent.contextMenu(mascot, { clientX: 80, clientY: 90 })
-    const closeItem = await screen.findByRole('menuitem')
-    await waitFor(() => expect(closeItem).toHaveFocus())
+    const openItem = await screen.findByRole('menuitem', { name: /打开宠物助手|open pet assistant/i })
+    await waitFor(() => expect(openItem).toHaveFocus())
+
+    await user.keyboard('{ArrowDown}')
+    expect(screen.getByRole('menuitem', { name: /重置位置|reset position/i })).toHaveFocus()
 
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
@@ -167,6 +182,117 @@ describe('AppPet accessibility', () => {
     expect(await screen.findByRole('menu')).toBeInTheDocument()
     fireEvent(window, new Event('resize'))
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('dismisses a status notification without disabling the pet and opens its related action', async () => {
+    const { conversation } = pendingAskConversation()
+    useAppStore.setState({
+      agentTurns: [],
+      agentChatBusy: true,
+      pendingAgentConversation: conversation
+    })
+    const user = setupUser()
+    const { container } = renderUi(<AppPet />)
+
+    const action = await screen.findByRole('button', { name: /处理请求|handle request/i })
+    await user.click(action)
+    await waitFor(() => expect(useAppStore.getState()).toMatchObject({
+      view: 'agent',
+      overviewDialogMode: 'chat',
+      activeConversationId: conversation.summary.id,
+      agentTurns: conversation.turns
+    }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    const dismiss = await screen.findByRole('button', { name: /忽略本次提醒|dismiss this notification/i })
+    await user.click(dismiss)
+
+    expect(container.querySelector('.app-pet')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /处理请求|handle request/i })).not.toBeInTheDocument()
+    expect(useAppStore.getState().settings.pet.enabled).toBe(true)
+  })
+
+  it('expands at most three real activities and collapses with Escape without losing focus', async () => {
+    const { conversation } = pendingAskConversation()
+    useAppStore.setState({
+      agentChatBusy: true,
+      pendingAgentConversation: conversation,
+      generating: true,
+      lessonGenerationRunId: 'workspace-1:lesson-run-1'
+    })
+    const user = setupUser()
+    renderUi(<AppPet />)
+
+    expect(screen.queryByRole('list', { name: /活动|activities/i })).not.toBeInTheDocument()
+    const expand = await screen.findByRole('button', { name: /展开.*活动|show.*activities/i })
+    await user.click(expand)
+
+    const list = await screen.findByRole('list', { name: /活动|activities/i })
+    const items = within(list).getAllByRole('listitem')
+    expect(items).toHaveLength(3)
+    expect(items.every((item) => item.tabIndex === 0)).toBe(true)
+    expect(within(list).getAllByText(/Agent/).length).toBeGreaterThan(0)
+    expect(within(list).getByText(/课程生成|Lesson generation/i)).toBeInTheDocument()
+
+    await user.click(within(list).getByRole('button', { name: /忽略“正在生成课程”|Dismiss “Lesson generation is running”/i }))
+    await waitFor(() => {
+      expect(within(list).queryByText(/正在生成课程|Lesson generation is running/i)).not.toBeInTheDocument()
+      expect(document.activeElement).not.toBe(document.body)
+    })
+
+    within(list).getAllByRole('listitem')[0].focus()
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByRole('list', { name: /活动|activities/i })).not.toBeInTheDocument()
+    expect(expand).toHaveFocus()
+  })
+
+  it('ignores unrelated global errors and only shows explicitly sourced operation failures', async () => {
+    useAppStore.setState({
+      error: { message: 'Unrelated settings failure', severity: 'error' },
+      petNotificationErrors: []
+    })
+    const { container, rerender } = renderUi(<AppPet />)
+    expect(container.querySelector('.app-pet')).not.toHaveAttribute('data-state', 'failed')
+
+    useAppStore.setState({
+      petNotificationErrors: [{
+        id: 'agent:run-1:failed:1',
+        source: 'agent',
+        sourceId: 'run-1',
+        error: { message: 'Agent failed safely', severity: 'error' },
+        createdAt: Date.now()
+      }]
+    })
+    rerender(<AppPet />)
+
+    await waitFor(() => expect(container.querySelector('.app-pet')).toHaveAttribute('data-state', 'failed'))
+    expect(screen.getByText('Agent failed safely')).toBeInTheDocument()
+  })
+
+  it('offers safe utility actions from the pet context menu', async () => {
+    window.localStorage.setItem('studiumx-pet-position-v1', JSON.stringify({ x: 120, y: 140 }))
+    useAppStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        pet: { ...state.settings.pet, size: 176, showStatusBubble: true }
+      }
+    }))
+    const user = setupUser()
+    const { container } = renderUi(<AppPet />)
+    const mascot = container.querySelector<HTMLButtonElement>('.app-pet-mascot')!
+
+    fireEvent.contextMenu(mascot, { clientX: 80, clientY: 90 })
+    await user.click(await screen.findByRole('menuitem', { name: /重置位置|reset position/i }))
+    expect(window.localStorage.getItem('studiumx-pet-position-v1')).toBeNull()
+
+    fireEvent.contextMenu(mascot, { clientX: 80, clientY: 90 })
+    await user.click(await screen.findByRole('menuitem', { name: /重置尺寸|reset size/i }))
+    await waitFor(() => expect(useAppStore.getState().settings.pet.size).toBe(112))
+
+    fireEvent.contextMenu(mascot, { clientX: 80, clientY: 90 })
+    await user.click(await screen.findByRole('menuitem', { name: /隐藏状态气泡|hide status bubble/i }))
+    await waitFor(() => expect(useAppStore.getState().settings.pet.showStatusBubble).toBe(false))
   })
 
 
