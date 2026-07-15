@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentChatTurn } from '../../src/shared/teaching-types'
 import type { PendingAgentConversation } from '../../src/renderer/src/agent-conversation-state'
-import { projectPetAssistantConversation } from '../../src/renderer/src/views/pet/pet-assistant-dialog-model'
+import {
+  projectPetAssistantAnnouncement,
+  projectPetAssistantConversation
+} from '../../src/renderer/src/views/pet/pet-assistant-dialog-model'
 
 const savedTurns: AgentChatTurn[] = [{ id: 'saved-turn', role: 'assistant', content: 'saved', createdAt: '2026-01-01' }]
 const pendingTurns: AgentChatTurn[] = [{ id: 'pending-turn', role: 'assistant', content: 'pending', createdAt: '2026-01-02' }]
@@ -76,5 +79,45 @@ describe('projectPetAssistantConversation', () => {
       activeConversationBelongsToWorkspace: true, agentTurns: savedTurns,
       pendingConversation: null
     })).toEqual({ identity: 'saved-1', runIdentity: null, source: 'saved', turns: savedTurns })
+  })
+})
+
+describe('projectPetAssistantAnnouncement', () => {
+  const running = {
+    busy: true,
+    runIdentity: 'pending-1',
+    conversationIdentity: 'pending-1',
+    conversationSource: 'pending' as const,
+    interruption: null,
+    errorToken: null
+  }
+
+  it('announces run start once and ignores streamed token-only updates', () => {
+    expect(projectPetAssistantAnnouncement(null, running)).toEqual({
+      key: 'pending-1:started', kind: 'started'
+    })
+    expect(projectPetAssistantAnnouncement(running, { ...running })).toBeNull()
+  })
+
+  it('announces each ask or permission identity only once', () => {
+    const question = { ...running, interruption: { kind: 'question' as const, identity: 'ask-1' } }
+    expect(projectPetAssistantAnnouncement(running, question)).toEqual({
+      key: 'pending-1:question:ask-1', kind: 'question'
+    })
+    expect(projectPetAssistantAnnouncement(question, { ...question })).toBeNull()
+  })
+
+  it('announces completion, failure, and cancellation from stable run identity', () => {
+    expect(projectPetAssistantAnnouncement(running, {
+      ...running, busy: false, runIdentity: null, conversationIdentity: 'saved-1', conversationSource: 'saved'
+    })).toEqual({ key: 'pending-1:completed', kind: 'completed' })
+    const failure = new Error('failed')
+    expect(projectPetAssistantAnnouncement(running, {
+      ...running, busy: false, runIdentity: null, conversationIdentity: null,
+      conversationSource: 'empty', errorToken: failure
+    })).toEqual({ key: 'pending-1:failed', kind: 'failed' })
+    expect(projectPetAssistantAnnouncement(running, {
+      ...running, busy: false, runIdentity: null, conversationIdentity: null, conversationSource: 'empty'
+    })).toEqual({ key: 'pending-1:canceled', kind: 'canceled' })
   })
 })

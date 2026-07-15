@@ -434,6 +434,14 @@
           "placeholder": "Type a message…",
           "workspaceRequired": "Create or import a study workspace first",
           "ariaLabel": "Send a message to AI"
+        },
+        "announcements": {
+          "started": "Assistant started replying.",
+          "question": "Assistant needs you to answer a question.",
+          "permission": "Assistant needs tool permission confirmation.",
+          "completed": "Assistant reply is complete.",
+          "failed": "Assistant reply failed.",
+          "canceled": "Assistant reply was canceled."
         }
       }
     },

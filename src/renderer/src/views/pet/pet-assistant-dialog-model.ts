@@ -46,3 +46,47 @@ export function projectPetAssistantConversation(input: {
     turns: input.agentTurns
   }
 }
+
+export type PetAssistantAnnouncementSnapshot = {
+  busy: boolean
+  runIdentity: string | null
+  conversationIdentity: string | null
+  conversationSource: PetAssistantConversationProjection['source']
+  interruption: { kind: 'question' | 'permission'; identity: string } | null
+  errorToken: unknown | null
+}
+
+export type PetAssistantAnnouncementEvent = {
+  key: string
+  kind: 'started' | 'question' | 'permission' | 'completed' | 'failed' | 'canceled'
+}
+
+/** Projects only meaningful run events; streamed token content is intentionally absent. */
+export function projectPetAssistantAnnouncement(
+  previous: PetAssistantAnnouncementSnapshot | null,
+  current: PetAssistantAnnouncementSnapshot
+): PetAssistantAnnouncementEvent | null {
+  if (current.runIdentity && current.interruption) {
+    const key = `${current.runIdentity}:${current.interruption.kind}:${current.interruption.identity}`
+    const previousKey = previous?.runIdentity && previous.interruption
+      ? `${previous.runIdentity}:${previous.interruption.kind}:${previous.interruption.identity}`
+      : null
+    if (key !== previousKey) return { key, kind: current.interruption.kind }
+  }
+
+  if (current.busy && current.runIdentity && (!previous?.busy || previous.runIdentity !== current.runIdentity)) {
+    return { key: `${current.runIdentity}:started`, kind: 'started' }
+  }
+
+  if (previous?.busy && previous.runIdentity && !current.busy) {
+    if (current.errorToken && current.errorToken !== previous.errorToken) {
+      return { key: `${previous.runIdentity}:failed`, kind: 'failed' }
+    }
+    if (current.conversationSource === 'saved' && current.conversationIdentity) {
+      return { key: `${previous.runIdentity}:completed`, kind: 'completed' }
+    }
+    return { key: `${previous.runIdentity}:canceled`, kind: 'canceled' }
+  }
+
+  return null
+}

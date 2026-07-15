@@ -26,7 +26,11 @@ import {
   type AssistantDialogInteraction,
   type AssistantDialogResizeDirection
 } from './pet-interaction'
-import { projectPetAssistantConversation } from './pet-assistant-dialog-model'
+import {
+  projectPetAssistantAnnouncement,
+  projectPetAssistantConversation,
+  type PetAssistantAnnouncementSnapshot
+} from './pet-assistant-dialog-model'
 
 type PetAssistantDialogProps = {
   open: boolean
@@ -90,6 +94,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   const setView = useAppStore((state) => state.setView)
   const [input, setInput] = useState('')
   const [importedTodoTurns, setImportedTodoTurns] = useState<Set<string>>(() => new Set())
+  const [announcement, setAnnouncement] = useState<{ key: string; text: string } | null>(null)
   const customizedGeometryRef = useRef(false)
   const [geometry, setGeometry] = useState<DialogGeometry>(() => {
     const stored = storedDialogGeometry()
@@ -101,6 +106,9 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   const interruptionRef = useRef<HTMLButtonElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
+  const announcementSnapshotRef = useRef<PetAssistantAnnouncementSnapshot | null>(null)
+  const focusFrameRef = useRef<number | null>(null)
+  const interruptionWasVisibleRef = useRef(false)
   const interactionRef = useRef<DialogPointerInteraction | null>(null)
   const activeConversationBelongsToWorkspace = Boolean(activeWorkspace && activeConversationId && (
     activeWorkspace.conversations.some((conversation) => conversation.id === activeConversationId) ||
@@ -124,6 +132,11 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     ? selectPendingToolPermission(displayTurns, conversation.runIdentity)
     : null
   const hasInterruption = Boolean(pendingAsk || pendingPermission)
+  const interruption = pendingPermission
+    ? { kind: 'permission' as const, identity: pendingPermission.toolCallId }
+    : pendingAsk
+      ? { kind: 'question' as const, identity: pendingAsk.toolCallId }
+      : null
   const canSend = Boolean(activeWorkspace && input.trim() && !agentChatBusy && !hasInterruption)
   const suggestions = [
     t('resources.pets.assistant.suggestions.todo'),
@@ -147,6 +160,53 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
       window.removeEventListener('keydown', handleEscape)
     }
   }, [onClose, open])
+
+  useEffect(() => {
+    const currentSnapshot: PetAssistantAnnouncementSnapshot = {
+      busy: agentChatBusy,
+      runIdentity: conversation.runIdentity,
+      conversationIdentity: conversation.identity,
+      conversationSource: conversation.source,
+      interruption,
+      errorToken: error
+    }
+    const event = projectPetAssistantAnnouncement(announcementSnapshotRef.current, currentSnapshot)
+    announcementSnapshotRef.current = currentSnapshot
+    if (event) {
+      setAnnouncement({
+        key: event.key,
+        text: t(`resources.pets.assistant.announcements.${event.kind}`)
+      })
+    }
+  }, [agentChatBusy, conversation.identity, conversation.runIdentity, conversation.source, error, interruption?.identity, interruption?.kind, t])
+
+  useEffect(() => {
+    if (!open) {
+      interruptionWasVisibleRef.current = false
+      return
+    }
+    const interruptionChanged = interruptionWasVisibleRef.current !== hasInterruption
+    interruptionWasVisibleRef.current = hasInterruption
+    if (!interruptionChanged) return
+    const timer = window.setTimeout(() => {
+      const target = hasInterruption
+        ? interruptionRef.current
+        : inputRef.current && !inputRef.current.disabled
+          ? inputRef.current
+          : closeButtonRef.current ?? dialogRef.current
+      target?.focus()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [hasInterruption, open])
+
+  useEffect(() => () => {
+    if (focusFrameRef.current !== null) window.cancelAnimationFrame(focusFrameRef.current)
+    const activeInteraction = interactionRef.current
+    if (activeInteraction?.captureElement.hasPointerCapture(activeInteraction.interaction.pointerId)) {
+      activeInteraction.captureElement.releasePointerCapture(activeInteraction.interaction.pointerId)
+    }
+    interactionRef.current = null
+  }, [])
 
   useEffect(() => {
     setImportedTodoTurns(new Set())
@@ -192,7 +252,11 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     setInput('')
     setImportedTodoTurns(new Set())
     clearAgentChat()
-    window.requestAnimationFrame(() => inputRef.current?.focus())
+    if (focusFrameRef.current !== null) window.cancelAnimationFrame(focusFrameRef.current)
+    focusFrameRef.current = window.requestAnimationFrame(() => {
+      focusFrameRef.current = null
+      inputRef.current?.focus()
+    })
   }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -276,6 +340,15 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
       tabIndex={-1}
       style={{ left: geometry.x, top: geometry.y, width: geometry.width, height: geometry.height }}
     >
+      <span
+        className="pet-assistant-live-region"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-announcement-key={announcement?.key}
+      >
+        {announcement?.text ?? ''}
+      </span>
       <header
         className="pet-assistant-header"
         onPointerDown={(event) => startInteraction(event, 'drag')}
@@ -304,7 +377,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
         </button>
       </header>
 
-      <div ref={threadRef} className="pet-assistant-thread" aria-live="polite">
+      <div ref={threadRef} className="pet-assistant-thread">
         {displayTurns.length === 0 ? (
           <div className="pet-assistant-empty">
             <MessageCircle size={22} />

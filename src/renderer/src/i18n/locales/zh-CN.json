@@ -434,6 +434,14 @@
           "placeholder": "输入消息…",
           "workspaceRequired": "请先创建或导入学习空间",
           "ariaLabel": "给 AI 发送消息"
+        },
+        "announcements": {
+          "started": "Assistant 已开始回复。",
+          "question": "Assistant 需要你回答一个问题。",
+          "permission": "Assistant 需要你确认工具权限。",
+          "completed": "Assistant 回复已完成。",
+          "failed": "Assistant 回复失败。",
+          "canceled": "Assistant 回复已取消。"
         }
       }
     },
