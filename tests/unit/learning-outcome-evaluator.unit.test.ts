@@ -504,6 +504,38 @@ describe('LearningOutcomeEvaluator', () => {
     })
   })
 
+  it('classifies a verified wrong answer followed by a verified correction on the same item with stable provenance', async () => {
+    const root = await workspace()
+    const relativePath = 'courses/foundations/lesson-1-assessment.html'
+    const html = staticAssessmentDocument(staticSingleQuizCard())
+    await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
+    await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
+    const wrong = snapshot(sha256(html), ['a']).events[0]!
+    wrong.eventId = 'quiz-event-wrong'
+    wrong.sequence = 1
+    ;((wrong.payload.lessonInteraction as { eventId: string }).eventId) = wrong.eventId
+    const correction = structuredClone(wrong)
+    correction.eventId = 'quiz-event-correction'
+    correction.sequence = 2
+    ;((correction.payload.lessonInteraction as { eventId: string; selectedOptionIds: string[] }).eventId) = correction.eventId
+    ;((correction.payload.lessonInteraction as { selectedOptionIds: string[] }).selectedOptionIds) = ['b']
+    const session = snapshot(sha256(html))
+    session.events = [correction, wrong]
+    session.eventCount = 2
+
+    const result = await evaluateLearningSessionOutcome({ workspaceRoot: root, session })
+
+    expect(result).toMatchObject({
+      kind: 'misconception_corrected',
+      mastery: true,
+      evidenceEventIds: ['quiz-event-wrong', 'quiz-event-correction'],
+      assessments: [
+        { eventId: 'quiz-event-wrong', sequence: 1, disposition: 'verified_incorrect', reason: 'verified' },
+        { eventId: 'quiz-event-correction', sequence: 2, disposition: 'verified_correct', reason: 'verified' }
+      ]
+    })
+  })
+
   it('returns a deeply equal result for repeated evaluation of identical durable facts', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
