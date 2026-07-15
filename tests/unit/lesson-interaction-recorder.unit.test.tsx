@@ -13,9 +13,20 @@ import {
 import {
   createPreviewLessonInteraction,
   parsePreviewLessonInteractionMessage,
-  type LessonInteractionRecordingContext
+  type LessonInteractionRecordingContext,
+  type PreviewLessonInteractionIntent
 } from '../../src/shared/preview-markdown-bridge'
+import type { LearnerResponseKind } from '../../src/shared/teaching-types/lesson-interaction'
 import { MarkdownPreview } from '../../src/renderer/src/markdown-preview'
+
+type Assert<Condition extends true> = Condition
+type PreviewResponseIntent = Extract<
+  PreviewLessonInteractionIntent,
+  { kind: 'retrieval_response_submitted' | 'learner_response_recorded' }
+>
+type _previewResponseIntentsRequireResponseKind = Assert<
+  PreviewResponseIntent extends { responseKind: LearnerResponseKind } ? true : false
+>
 
 const roots: string[] = []
 const artifactDigest = 'a'.repeat(64)
@@ -95,6 +106,23 @@ describe('LessonInteractionRecorder contracts', () => {
       eventId: 'preview-attack-003', kind: 'learner_response_recorded', itemId: 'prompt-1',
       response: 'private reasoning', chainOfThought: 'never persist this'
     } as never)).toThrow(LessonInteractionValidationError)
+  })
+
+  it('rejects preview response intents that omit the required response kind', () => {
+    expect(parsePreviewLessonInteractionMessage({
+      source: 'studiumx-lesson-evidence', type: 'studiumx:lesson-interaction',
+      interaction: {
+        eventId: 'preview-response-kind-001', kind: 'retrieval_response_submitted', itemId: 'prompt-1',
+        responseDigest: 'b'.repeat(64)
+      }
+    })).toBeNull()
+    expect(parsePreviewLessonInteractionMessage({
+      source: 'studiumx-lesson-evidence', type: 'studiumx:lesson-interaction',
+      interaction: {
+        eventId: 'preview-response-kind-002', kind: 'learner_response_recorded', itemId: 'prompt-2',
+        responseDigest: 'c'.repeat(64)
+      }
+    })).toBeNull()
   })
 
   it('rejects direct evidence whose workspace, course, or lesson identity does not match the bound Session', async () => {

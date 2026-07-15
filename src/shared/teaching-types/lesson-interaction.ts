@@ -121,8 +121,8 @@ export type PreviewLessonInteractionIntent =
   | { eventId: string; kind: 'lesson_completed'; itemId: string }
   | { eventId: string; kind: 'quiz_answered'; itemId: string; selectedOptionIds: string[]; correct: boolean }
   | { eventId: string; kind: 'flashcard_rated'; itemId: string; rating: FlashcardRating }
-  | { eventId: string; kind: 'retrieval_response_submitted'; itemId: string; responseDigest: string; responseKind?: LearnerResponseKind }
-  | { eventId: string; kind: 'learner_response_recorded'; itemId: string; responseDigest: string; responseKind?: LearnerResponseKind }
+  | { eventId: string; kind: 'retrieval_response_submitted'; itemId: string; responseDigest: string; responseKind: LearnerResponseKind }
+  | { eventId: string; kind: 'learner_response_recorded'; itemId: string; responseDigest: string; responseKind: LearnerResponseKind }
 
 export class LessonInteractionValidationError extends Error {
   constructor(message: string) {
