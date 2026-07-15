@@ -90,6 +90,8 @@ function assertAtomicReceiptContract(source) {
   })
   assert.equal(beforeEventReads.length, 0, 'record must not read before.events on its top-level success path')
 
+  assertWholeMethodLedgerContract(record, receiptCall, before.name)
+
   const receiptReturn = returns[0]
   assert(ts.isObjectLiteralExpression(receiptReturn.expression), 'record must return an EvidenceReceipt object')
   assertReceiptReturn(receiptReturn.expression, receipt.name, persistedEvidence.name)
@@ -187,6 +189,40 @@ function assertReceiptReturn(receipt, receiptName, persistedEvidenceName) {
   assertPropertyPath(evidenceSequence.initializer, [receiptName, 'event', 'sequence'], 'evidence sequence must come from the top-level receipt binding')
   assert(recordedAt && ts.isPropertyAssignment(recordedAt), 'returned evidence must retain its persisted timestamp')
   assertPropertyPath(recordedAt.initializer, [receiptName, 'event', 'recordedAt'], 'evidence recordedAt must come from the top-level receipt binding')
+}
+
+function assertWholeMethodLedgerContract(record, receiptCall, beforeName) {
+  const nodes = nodesInRecordBody(record.body)
+  const ledgerCalls = nodes.filter(ts.isCallExpression).filter((call) => ledgerMethodName(call) !== null)
+  const receiptCalls = ledgerCalls.filter((call) => ledgerMethodName(call) === 'appendWithReceipt')
+  const appendCalls = ledgerCalls.filter((call) => ledgerMethodName(call) === 'append')
+  const otherMutationCalls = ledgerCalls.filter((call) => {
+    const method = ledgerMethodName(call)
+    return isLedgerMutationMethod(method) && method !== 'appendWithReceipt'
+  })
+  const beforeEventReads = nodes.filter((node) => {
+    return ts.isPropertyAccessExpression(node) && propertyPath(node)?.[0] === beforeName && propertyPath(node)?.includes('events')
+  })
+
+  assert.equal(receiptCalls.length, 1, 'record must contain exactly one this.ledger.appendWithReceipt call across its entire body')
+  assert.equal(receiptCalls[0], receiptCall, 'the only appendWithReceipt call must be the verified top-level receipt initializer')
+  assert.equal(appendCalls.length, 0, 'record must not call this.ledger.append anywhere in its body')
+  assert.equal(otherMutationCalls.length, 0, 'record must not call other mutating this.ledger methods anywhere in its body')
+  assert.equal(beforeEventReads.length, 0, 'record must not read before.events anywhere in its body')
+}
+
+function nodesInRecordBody(body) {
+  const nodes = []
+  const visit = (node) => {
+    nodes.push(node)
+    ts.forEachChild(node, visit)
+  }
+  visit(body)
+  return nodes
+}
+
+function isLedgerMutationMethod(method) {
+  return method === 'open' || method === 'append' || method === 'appendWithReceipt' || method === 'complete'
 }
 
 function isAwaitedLedgerCall(expression, method) {
