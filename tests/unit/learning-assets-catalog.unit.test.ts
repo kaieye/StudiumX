@@ -1,10 +1,12 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildWorkspaceCatalog } from '../../src/main/teaching-workspace-catalog'
 import { readLearningAssetCatalog } from '../../src/main/teaching-workspace/learning-assets-catalog'
 import { planLessonIndexReconciliation } from '../../src/main/teaching-workspace/catalog-reconciliation'
+import { createLearningSessionLedger } from '../../src/main/learning-session-ledger'
 
 const temporaryRoots: string[] = []
 
@@ -69,7 +71,7 @@ describe('learning asset catalog', () => {
       })
   })
 
-  it('excludes only publisher-marked assessment sidecars while retaining Assessment-suffixed and legacy Lesson files', async () => {
+  it('keeps marker-spoofed and unbound assessment-looking files as legacy Lessons', async () => {
     const rootPath = await createWorkspace({
       'lessons/0001-testing-basics.html': '<!doctype html><title>Lesson</title>',
       'lessons/0001-testing-basics-assessment.html': '<!doctype html>\n<html lang="zh-CN">\n<head>\n  <title>Testing basics assessment</title>\n  <meta name="studiumx-artifact-kind" content="assessment-sidecar">\n</head>\n<body>\n</body>\n</html>\n',
@@ -80,17 +82,67 @@ describe('learning asset catalog', () => {
     const plan = await planLessonIndexReconciliation({
       rootPath,
       workspaceName: 'Testing workspace',
+      workspaceId: 'workspace-1',
       lessons: []
     })
 
     expect(plan.recoveredRelativePaths).toEqual([
+      'lessons/0001-testing-basics-assessment.html',
       'lessons/0001-testing-basics.html',
       'lessons/0002-assessment.html',
       'lessons/0003-foo-assessment.html',
       'lessons/0004-legacy-assessment.html'
     ])
-    expect(plan.lessons).toHaveLength(4)
-    expect(plan.lessons.map((lesson) => lesson.relativePath)).not.toContain('lessons/0001-testing-basics-assessment.html')
+  })
+
+  it('hides only a safely-read sidecar immutably claimed by its matching canonical Session', async () => {
+    const normal = '<!doctype html><title>Lesson</title>'
+    const assessment = '<!doctype html><html><head><title>Assessment</title></head><body></body></html>'
+    const rootPath = await createWorkspace({
+      'lessons/0001-testing-basics.html': normal,
+      'lessons/0001-testing-basics-assessment.html': assessment
+    })
+    const ledger = createLearningSessionLedger({ workspaceRoot: rootPath })
+    await ledger.open({
+      sessionId: 'lesson-0001',
+      workspaceId: 'workspace-1',
+      courseRef: { courseId: 'testing-workspace', courseName: 'Testing workspace', relativePath: 'lessons' },
+      lessonRef: {
+        lessonId: '0001',
+        title: 'Testing basics',
+        relativePath: 'lessons/0001-testing-basics.html',
+        assessment: {
+          relativePath: 'lessons/0001-testing-basics-assessment.html',
+          contentSha256: createHash('sha256').update(assessment).digest('hex')
+        }
+      }
+    })
+
+    const plan = await planLessonIndexReconciliation({
+      rootPath,
+      workspaceName: 'Testing workspace',
+      workspaceId: 'workspace-1',
+      lessons: []
+    })
+
+    expect(plan.recoveredRelativePaths).toEqual(['lessons/0001-testing-basics.html'])
+  })
+
+  it('retains a claimed sidecar when its immutable digest or parsed bytes no longer match', async () => {
+    const rootPath = await createWorkspace({
+      'lessons/0001-testing-basics.html': '<!doctype html><title>Lesson</title>',
+      'lessons/0001-testing-basics-assessment.html': '<!doctype html><html><body><div broken></body></html>'
+    })
+    const ledger = createLearningSessionLedger({ workspaceRoot: rootPath })
+    await ledger.open({
+      sessionId: 'lesson-0001', workspaceId: 'workspace-1',
+      courseRef: { courseId: 'testing-workspace', courseName: 'Testing workspace', relativePath: 'lessons' },
+      lessonRef: { lessonId: '0001', title: 'Testing basics', relativePath: 'lessons/0001-testing-basics.html', assessment: {
+        relativePath: 'lessons/0001-testing-basics-assessment.html', contentSha256: 'a'.repeat(64)
+      } }
+    })
+    const plan = await planLessonIndexReconciliation({ rootPath, workspaceName: 'Testing workspace', workspaceId: 'workspace-1', lessons: [] })
+    expect(plan.recoveredRelativePaths).toContain('lessons/0001-testing-basics-assessment.html')
   })
 
   it('keeps the existing empty workspace fallbacks', async () => {

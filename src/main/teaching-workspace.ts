@@ -12,6 +12,7 @@ import {
 } from './teaching-workspace-catalog'
 import { planLessonIndexReconciliation } from './teaching-workspace/catalog-reconciliation'
 import { runLessonGenerationPipeline, type LessonGenerationCallbacks } from './teaching-lesson-generation'
+import { finalizeLessonArtifactPublication } from './teaching-lesson-artifacts'
 import {
   cleanText,
   normalizeWorkspaceRelativePath,
@@ -1306,6 +1307,10 @@ export class TeachingWorkspaceService {
       paths: generation.eventPaths,
       meta: generation.eventMeta
     })
+    // The filesystem index and event log are canonical projections. Once both
+    // are durable, retaining the publisher journal would only cause recovery
+    // work; failure to remove it is harmless and recoverable on the next scan.
+    await finalizeLessonArtifactPublication(workspace.rootPath, generation.transactionId).catch(() => undefined)
     const changeSummary = await this.changeAudit.recordCompletedMutation({
       workspaceId: workspace.id,
       workspaceRoot: workspace.rootPath,
@@ -1585,6 +1590,7 @@ export class TeachingWorkspaceService {
     const lessonIndexPlan = await planLessonIndexReconciliation({
       rootPath: workspace.rootPath,
       workspaceName: workspace.name,
+      workspaceId: workspace.id,
       lessons: index.lessons
     })
     if (lessonIndexPlan.requiresPersist) {
@@ -1698,6 +1704,10 @@ export class TeachingWorkspaceService {
     assessment: { relativePath: string; contentSha256: string }
   ): Promise<(() => Promise<void>) | void> {
     const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
+    // A retry may find the exact immutable session already open. Only remove a
+    // session that this publication invocation created; a compensator must not
+    // erase a previously durable canonical root.
+    const prior = typeof ledger.load === 'function' ? await ledger.load(lesson.sessionId) : null
     const session = await ledger.open({
       sessionId: lesson.sessionId,
       workspaceId: workspace.id,
@@ -1719,6 +1729,7 @@ export class TeachingWorkspaceService {
     // The generated session ID is scoped to this just-rendered Lesson. If the
     // final Lesson commit fails, remove only that matching canonical root so a
     // future retry can open the same immutable identity cleanly.
+    if (prior) return
     return async () => {
       const current = await ledger.load(lesson.sessionId)
       if (!isCanonicalWritableLessonSession(current, workspace, lesson)) return

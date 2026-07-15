@@ -1,8 +1,13 @@
-import { basename, resolve } from 'node:path'
-import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { basename, join, resolve } from 'node:path'
+
+import { parse } from 'parse5'
 
 import type { LessonSummary } from '../../shared/teaching-types'
 import { deriveLessonPlacementFromRelativePath } from '../../shared/teaching-placement'
+import { createLearningSessionLedger } from '../learning-session-ledger'
+import { readContainedRegularFileBounded } from '../path-access'
+import { recoverLessonArtifactPublications } from '../teaching-lesson-artifacts'
 import {
   collectTeachingFiles,
   titleFromFilename,
@@ -12,6 +17,8 @@ import {
 export type LessonIndexReconciliationInput = {
   rootPath: string
   workspaceName: string
+  /** Required before a canonical assessment may be hidden from the catalog. */
+  workspaceId?: string
   lessons: LessonSummary[]
 }
 
@@ -37,8 +44,11 @@ export type LessonIndexReconciliationPlan = {
 export async function planLessonIndexReconciliation(
   input: LessonIndexReconciliationInput
 ): Promise<LessonIndexReconciliationPlan> {
-  const diskLessonPaths = await collectTeachingFiles(input.rootPath, (filePath) => filePath.toLowerCase().endsWith('.html'))
-  const visibleLessonPaths = await filterPublishedAssessmentSidecars(diskLessonPaths)
+  const recovery = await recoverLessonArtifactPublications(input.rootPath)
+  const isolatedPaths = new Set(recovery.isolatedRelativePaths.map(canonicalRelativePath))
+  const diskLessonPaths = (await collectTeachingFiles(input.rootPath, (filePath) => filePath.toLowerCase().endsWith('.html')))
+    .filter((filePath) => !isolatedPaths.has(canonicalRelativePath(toWorkspaceRelativePath(input.rootPath, filePath))))
+  const visibleLessonPaths = await filterPublishedAssessmentSidecars(input, diskLessonPaths)
   const diskPathsByKey = new Map(
     visibleLessonPaths.map((absolutePath) => [canonicalPath(absolutePath), absolutePath])
   )
@@ -72,31 +82,110 @@ export async function planLessonIndexReconciliation(
 }
 
 
-const ASSESSMENT_SIDECAR_HEAD_PREFIX = '<!doctype html>\n<html lang="zh-CN">\n<head>\n  <title>'
-const ASSESSMENT_SIDECAR_MARKER = '</title>\n  <meta name="studiumx-artifact-kind" content="assessment-sidecar">\n</head>\n<body>\n'
+const MAX_ASSESSMENT_SIDECAR_BYTES = 512 * 1024
 
-/** Excludes only publisher-marked assessment sidecars; filename suffixes remain valid Lesson titles. */
-async function filterPublishedAssessmentSidecars(paths: string[]): Promise<string[]> {
+type CanonicalAssessmentSidecar = {
+  normalRelativePath: string
+  sha256: string
+}
+
+/**
+ * A sidecar is catalog-internal only when a canonical Session immutably claims
+ * this exact path and exact bytes. Public HTML markers and filename suffixes
+ * are presentation data, never authority.
+ */
+async function filterPublishedAssessmentSidecars(
+  input: LessonIndexReconciliationInput,
+  paths: string[]
+): Promise<string[]> {
+  if (!input.workspaceId) return paths
+  const sidecars = await canonicalAssessmentSidecars(input)
+  if (sidecars.size === 0) return paths
   const verdicts = await Promise.all(paths.map(async (filePath) => ({
     filePath,
-    sidecar: await isPublishedAssessmentSidecar(filePath)
+    sidecar: await isPublishedAssessmentSidecar(input.rootPath, filePath, sidecars)
   })))
   return verdicts.filter((entry) => !entry.sidecar).map((entry) => entry.filePath)
 }
 
-async function isPublishedAssessmentSidecar(filePath: string): Promise<boolean> {
-  // Keep this intentionally narrower than generic HTML marker matching: only the
-  // deterministic publisher head layout is catalog-internal. A failed or
-  // non-matching read is never used to hide a potential legacy Lesson.
+async function canonicalAssessmentSidecars(input: LessonIndexReconciliationInput): Promise<Map<string, CanonicalAssessmentSidecar>> {
   try {
-    const content = await readFile(filePath, 'utf8')
-    if (!content.startsWith(ASSESSMENT_SIDECAR_HEAD_PREFIX)) return false
-    const markerIndex = content.indexOf(ASSESSMENT_SIDECAR_MARKER, ASSESSMENT_SIDECAR_HEAD_PREFIX.length)
-    return markerIndex > ASSESSMENT_SIDECAR_HEAD_PREFIX.length &&
-      content.indexOf('<', ASSESSMENT_SIDECAR_HEAD_PREFIX.length) === markerIndex
+    const scan = await createLearningSessionLedger({ workspaceRoot: input.rootPath }).scan()
+    const sidecars = new Map<string, CanonicalAssessmentSidecar>()
+    const ambiguous = new Set<string>()
+    for (const session of scan.canonicalSessions) {
+      const lesson = session.lessonRef
+      const assessment = lesson?.assessment
+      if (!lesson || !assessment || session.workspaceId !== input.workspaceId) continue
+      if (!canonicalLessonIdentityMatches(input, session.id, session.courseRef, lesson)) continue
+      const key = canonicalRelativePath(assessment.relativePath)
+      if (ambiguous.has(key)) continue
+      if (sidecars.has(key)) {
+        sidecars.delete(key)
+        ambiguous.add(key)
+        continue
+      }
+      sidecars.set(key, {
+        normalRelativePath: canonicalRelativePath(lesson.relativePath),
+        sha256: assessment.contentSha256
+      })
+    }
+    return sidecars
+  } catch {
+    // Unsafe/corrupt Session storage must retain possible legacy lessons.
+    return new Map()
+  }
+}
+
+async function isPublishedAssessmentSidecar(
+  rootPath: string,
+  filePath: string,
+  sidecars: Map<string, CanonicalAssessmentSidecar>
+): Promise<boolean> {
+  try {
+    const relativePath = canonicalRelativePath(toWorkspaceRelativePath(rootPath, filePath))
+    const claimed = sidecars.get(relativePath)
+    if (!claimed) return false
+
+    // A claimed sidecar is never hidden without its matching ordinary Lesson;
+    // this prevents a detached assessment from disappearing from recovery.
+    const normalPath = join(rootPath, ...claimed.normalRelativePath.split('/'))
+    const normalRead = await readContainedRegularFileBounded(rootPath, normalPath, MAX_ASSESSMENT_SIDECAR_BYTES)
+    if (normalRead.status !== 'ok') return false
+
+    const read = await readContainedRegularFileBounded(rootPath, filePath, MAX_ASSESSMENT_SIDECAR_BYTES)
+    if (read.status !== 'ok') return false
+    if (createHash('sha256').update(read.content).digest('hex') !== claimed.sha256) return false
+
+    const errors: unknown[] = []
+    parse(read.content.toString('utf8'), { onParseError: (error) => errors.push(error) })
+    return errors.length === 0
   } catch {
     return false
   }
+}
+
+function canonicalLessonIdentityMatches(
+  input: LessonIndexReconciliationInput,
+  sessionId: string,
+  courseRef: { courseId: string; courseName: string; relativePath: string },
+  lesson: { lessonId: string; relativePath: string }
+): boolean {
+  try {
+    const relativePath = canonicalRelativePath(lesson.relativePath)
+    const placement = deriveLessonPlacementFromRelativePath({ workspaceName: input.workspaceName, relativePath })
+    return placement.sessionId === sessionId &&
+      placement.courseId === courseRef.courseId &&
+      placement.courseName === courseRef.courseName &&
+      canonicalRelativePath(placement.courseRelativePath) === canonicalRelativePath(courseRef.relativePath) &&
+      lesson.lessonId === placement.sessionId.replace(/^lesson-/, '')
+  } catch {
+    return false
+  }
+}
+
+function canonicalRelativePath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/^\.\//, '').toLocaleLowerCase()
 }
 
 function recoveredLessonSummary(rootPath: string, workspaceName: string, absolutePath: string): LessonSummary {

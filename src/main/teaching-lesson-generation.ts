@@ -39,6 +39,8 @@ export type LessonGenerationResult = {
   kind: 'lesson'
   lesson: LessonSummary
   assessment: { relativePath: string; contentSha256: string }
+  /** Durable publisher journal acknowledged only after filesystem projections persist. */
+  transactionId: string
   source: LessonPlanSource
   reason?: string
   eventPrompt: string
@@ -136,6 +138,7 @@ export async function runLessonGenerationPipeline(options: {
     kind: 'lesson',
     lesson: publication.lesson,
     assessment: publication.assessment,
+    transactionId: publication.transactionId,
     source,
     reason,
     eventPrompt: lessonPrompt,

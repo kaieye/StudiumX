@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { publishLessonArtifacts, type LessonArtifactPublicationFacts } from '../../src/main/teaching-lesson-artifacts'
 import { runLessonGenerationPipeline } from '../../src/main/teaching-lesson-generation'
 import { planLessonIndexReconciliation } from '../../src/main/teaching-workspace/catalog-reconciliation'
+import { createLearningSessionLedger } from '../../src/main/learning-session-ledger'
 import { normalizeTeachingSettings } from '../../src/shared/teaching-settings-schema'
 import type { TeachingSettingsV1 } from '../../src/shared/teaching-types'
 import { createIsolatedTestRuntime, type IsolatedTestRuntime } from '../helpers/runtime-isolation'
@@ -257,13 +258,34 @@ describe('Lesson artifact publisher integration', () => {
       plan: { ...base.plan, title: 'Assessment' }
     }
 
-    const published = await publishLessonArtifacts(facts)
+    const workspaceId = 'workspace-assessment-collision'
+    const ledger = createLearningSessionLedger({ workspaceRoot: isolated.workspaceDir })
+    const published = await publishLessonArtifacts(facts, {
+      bindCanonicalSession: async ({ lesson, assessment }) => {
+        await ledger.open({
+          sessionId: lesson.sessionId,
+          workspaceId,
+          courseRef: {
+            courseId: lesson.courseId,
+            courseName: lesson.courseName,
+            relativePath: lesson.courseRelativePath
+          },
+          lessonRef: {
+            lessonId: lesson.id,
+            title: lesson.title,
+            relativePath: lesson.relativePath,
+            assessment
+          }
+        })
+      }
+    })
     expect(published.lesson.relativePath).toBe('lessons/0001-assessment.html')
     expect(published.assessment.relativePath).toBe('lessons/0001-assessment-assessment.html')
 
     const reconciliation = await planLessonIndexReconciliation({
       rootPath: isolated.workspaceDir,
-      workspaceName: isolated.workspaceName,
+      workspaceName: 'Learning Lab',
+      workspaceId,
       lessons: []
     })
     expect(reconciliation.recoveredRelativePaths).toEqual([published.lesson.relativePath])
