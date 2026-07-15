@@ -5,7 +5,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent
 } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conversation-state'
 import { MAX_PET_SIZE, MIN_PET_SIZE } from '../../../../shared/teaching-types'
@@ -102,6 +102,13 @@ export function AppPet() {
   useEffect(() => {
     if (!settings.enabled) {
       wasEnabledRef.current = false
+      dragRef.current = null
+      resizeRef.current = null
+      setDragDirection(null)
+      setHovered(false)
+      setAssistantOpen(false)
+      setContextMenu(null)
+      setDisplaySize(settings.size)
       setIntroVisible(false)
       return
     }
@@ -121,7 +128,9 @@ export function AppPet() {
 
   useEffect(() => {
     let timer = 0
-    if (busy) {
+    if (!settings.enabled) {
+      setReviewVisible(false)
+    } else if (busy) {
       setReviewVisible(false)
     } else if (wasBusyRef.current && !waiting && !error) {
       setReviewVisible(true)
@@ -129,7 +138,7 @@ export function AppPet() {
     }
     wasBusyRef.current = busy
     return () => window.clearTimeout(timer)
-  }, [busy, error, waiting])
+  }, [busy, error, settings.enabled, waiting])
 
   useEffect(() => {
     const handleResize = (): void => {
@@ -254,10 +263,12 @@ export function AppPet() {
     setAssistantOpen(true)
   }
 
-  const closeAssistant = (): void => {
+  const closeAssistant = useCallback((options?: { restoreFocus?: boolean }): void => {
     setAssistantOpen(false)
-    window.requestAnimationFrame(() => mascotRef.current?.focus())
-  }
+    if (options?.restoreFocus !== false) {
+      window.requestAnimationFrame(() => mascotRef.current?.focus())
+    }
+  }, [])
 
   const cancelPointer = (event: ReactPointerEvent<HTMLButtonElement>): void => {
     const drag = dragRef.current

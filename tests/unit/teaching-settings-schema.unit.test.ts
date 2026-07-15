@@ -21,6 +21,12 @@ describe('teaching settings schema', () => {
     })
   })
 
+  it('defaults, clamps, and rounds persisted pet sizes explicitly', () => {
+    expect(normalizeTeachingSettings({}, fallbackRoot).pet.size).toBe(112)
+    expect(normalizeTeachingSettings({ pet: { size: 12 } }, fallbackRoot).pet.size).toBe(80)
+    expect(normalizeTeachingSettings({ pet: { size: 111.6 } }, fallbackRoot).pet.size).toBe(112)
+  })
+
   it('normalizes malformed persisted data, missing objects, and legacy values', () => {
     const normalized = normalizeTeachingSettings({
       version: 0,

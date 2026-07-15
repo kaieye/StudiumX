@@ -29,7 +29,11 @@ import {
 type PetAssistantDialogProps = {
   open: boolean
   petName: string
-  onClose: () => void
+  onClose: (options?: { restoreFocus?: boolean }) => void
+}
+
+function isImeComposing(event: { isComposing?: boolean; keyCode?: number }): boolean {
+  return Boolean(event.isComposing || event.keyCode === 229)
 }
 
 const suggestions = [
@@ -93,7 +97,10 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     customizedGeometryRef.current = Boolean(stored)
     return stored ?? defaultAssistantDialogGeometry(viewport())
   })
+  const dialogRef = useRef<HTMLElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const interruptionRef = useRef<HTMLButtonElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const interactionRef = useRef<DialogPointerInteraction | null>(null)
   const pendingStreamId = pendingConversation?.summary.id ?? null
@@ -105,9 +112,13 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
 
   useEffect(() => {
     if (!open) return
-    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 80)
+    const focusTimer = window.setTimeout(() => {
+      const input = inputRef.current
+      if (input && !input.disabled) input.focus()
+      else (interruptionRef.current ?? closeButtonRef.current ?? dialogRef.current)?.focus()
+    }, 80)
     const handleEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape' && !isImeComposing(event)) onClose()
     }
     window.addEventListener('keydown', handleEscape)
     return () => {
@@ -122,7 +133,8 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     if (!thread) return
 
     if (typeof thread.scrollTo === 'function') {
-      thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' })
+      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+      thread.scrollTo({ top: thread.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' })
     } else {
       thread.scrollTop = thread.scrollHeight
     }
@@ -157,7 +169,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   }
 
   const handleInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+    if (event.key !== 'Enter' || event.shiftKey || isImeComposing(event.nativeEvent)) return
     event.preventDefault()
     if (canSend) sendPrompt(input)
   }
@@ -166,7 +178,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     if (pendingConversation) restorePendingAgentConversation()
     setOverviewDialogMode('chat')
     setView('agent')
-    onClose()
+    onClose({ restoreFocus: false })
   }
 
   const importTodo = (turnId: string, titles: string[]): void => {
@@ -223,11 +235,13 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
 
   return (
     <section
+      ref={dialogRef}
       id="pet-assistant-dialog"
       className="pet-assistant-dialog"
       role="dialog"
       aria-label={`${petName} AI 对话`}
       aria-modal="false"
+      tabIndex={-1}
       style={{ left: geometry.x, top: geometry.y, width: geometry.width, height: geometry.height }}
     >
       <header
@@ -251,7 +265,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
         >
           <Plus size={15} />
         </button>
-        <button type="button" onClick={onClose} aria-label="关闭对话" title="关闭对话">
+        <button ref={closeButtonRef} type="button" onClick={() => onClose()} aria-label="关闭对话" title="关闭对话">
           <X size={16} />
         </button>
       </header>
@@ -316,7 +330,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
       </div>
 
       {hasInterruption ? (
-        <button className="pet-assistant-interruption" type="button" onClick={openFullConversation}>
+        <button ref={interruptionRef} className="pet-assistant-interruption" type="button" onClick={openFullConversation}>
           <span>{pendingPermission ? '需要确认工具权限' : '需要回答一个问题'}</span>
           <ArrowUpRight size={14} />
         </button>

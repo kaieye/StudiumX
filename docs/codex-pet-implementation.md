@@ -642,7 +642,7 @@ StudiumX Pet 的定位是应用内的学习与 Agent 进度提示器：在 Studi
 - 默认显示宽度 `112 px`，可调范围 `80–224 px`；
 - 按“等待优先、失败其次”的原则选择任务状态；
 - 拖动阈值保持约 `4 px`，但方向按最近一次横向移动即时更新，反向拖动不会等待越过起点；
-- 减少动态效果偏好下停在首帧，而不是继续播放动画。
+- 减少动态效果偏好下精灵停在首帧，对话线程自动滚动也不使用平滑动画。
 
 没有采用的桌面级能力应在需求真正出现时单独设计，不应通过向当前 Renderer 堆叠主进程或 native 逻辑来“补齐文档”。
 
@@ -671,6 +671,7 @@ StudiumX Pet 的定位是应用内的学习与 Agent 进度提示器：在 Studi
 - 左下 resize handle 既支持 pointer 拖拽，也以 `role="slider"` 支持键盘：箭头键步进 `8 px`，按住 Shift 步进 `16 px`，Home/End 跳到边界。
 - 变大后位置会重新 clamp，避免浮层落到主窗口外；pointer cancel 的 resize 会回退到已保存的设置尺寸。
 - 右键菜单仅保留“关闭宠物”这一安全、明确的当前操作；关闭更新 `pet.enabled`。
+- 从资源页或状态气泡禁用 Pet 时，会清理未完成的 drag/resize、Assistant 和 context menu 瞬态状态；再次启用从干净的 welcome 状态开始，不会恢复旧弹层。
 
 ### 17.3 状态与 Agent 会话衔接
 
@@ -691,7 +692,7 @@ waiting > failed > review > running > waving > idle
 
 拖动是一项显式用户操作，临时覆盖视觉动作为 `running-left/right`；hover 只在 `idle` 时覆盖为 `jumping`，因此不会掩盖等待、失败、运行或可复核结果。
 
-`PetAssistantDialog` 读取 `pendingAgentConversation.turns`（存在 pending conversation 时）来判定 ask/permission，而不是错误地只读当前清空后的 `agentTurns`。用户从 Pet Assistant 打开完整对话时，会先调用 `restorePendingAgentConversation()`，再切换到聊天视图，保证待处理的确认/提问不丢失。
+`PetAssistantDialog` 读取 `pendingAgentConversation.turns`（存在 pending conversation 时）来判定 ask/permission，而不是错误地只读当前清空后的 `agentTurns`。打开后，焦点优先进入可用输入框；输入框禁用时进入 interruption 操作或关闭按钮。用户从 Pet Assistant 打开完整对话时，会先调用 `restorePendingAgentConversation()`，再切换到聊天视图，保证待处理的确认/提问不丢失，同时不会把焦点抢回 Pet launcher。IME 组合输入期间的 Escape 只取消组合，不关闭对话。
 
 ## 18. 取舍矩阵与后续门槛
 
@@ -717,15 +718,20 @@ Pet 相关变更至少运行：
 ```bash
 pnpm exec vitest run --project unit \
   tests/unit/app-pet.unit.test.tsx \
+  tests/unit/pet-library.unit.test.tsx \
   tests/unit/pet-interaction.unit.test.ts \
   tests/unit/pet-sprite.unit.test.tsx \
   tests/unit/teaching-settings-schema.unit.test.ts
 pnpm run typecheck
 pnpm run check:pet-library
+pnpm exec vitest run --project integration \
+  tests/integration/teaching-analytics.integration.test.ts
 pnpm run build
+pnpm run check:pet-animation
+git diff --check
 ```
 
-其中单元测试覆盖：键盘打开 Pet Assistant 与关闭后焦点恢复、拖动方向反转、pointer cancel、不合法/边界尺寸、resize 提交、surface 几何、设置归一化，以及 Reduced Motion 固定首帧。`check:pet-library` 还检查内置 atlas、共享 settings 契约、资源页 slider 和悬浮 Pet 的可访问 resize 接口。
+其中单元测试覆盖：键盘打开 Pet Assistant、打开后的对话内焦点与普通关闭后的焦点恢复、pending ask 恢复、禁用/重新启用的瞬态状态清理、IME Escape（含 Chromium `keyCode 229` 兼容路径）、Reduced Motion 自动滚动、context menu、pointer cancel、Pet Library 尺寸提交、不合法/边界尺寸、resize 提交、surface 几何、设置默认/归一化，以及 Reduced Motion 固定精灵首帧。正式基线还复跑 Teaching Analytics 集成测试，确认 Pet/settings 变更未影响既有分析流程。`check:pet-library` 检查内置素材注册、共享 settings 契约、资源页 slider 和悬浮 Pet 的可访问 resize 静态接口；`check:pet-animation`（package script 会再次执行 build）使用隔离的临时 userData 启动构建后的 Electron，验证 launcher 能打开 Assistant，并解码实际 atlas 检查尺寸、九行动作和有效帧；成功或失败时都会有界关闭 CDP、确认 Electron 进程树退出后再删除临时目录。
 
 ### 19.2 手动验收清单
 
