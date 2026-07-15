@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent
 } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { useTranslation } from 'react-i18next'
 import remarkGfm from 'remark-gfm'
 import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conversation-state'
 import { useAppStore } from '../../app-shell/appStore'
@@ -35,12 +36,6 @@ type PetAssistantDialogProps = {
 function isImeComposing(event: { isComposing?: boolean; keyCode?: number }): boolean {
   return Boolean(event.isComposing || event.keyCode === 229)
 }
-
-const suggestions = [
-  '帮我制作今天的 TodoList，按优先级拆成可执行任务',
-  '根据我现在的目标安排一轮专注计划',
-  '把一个复杂任务拆成可以立即开始的小步骤'
-]
 
 const resizeDirections = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'] as const satisfies readonly AssistantDialogResizeDirection[]
 
@@ -75,6 +70,7 @@ function persistDialogGeometry(geometry: DialogGeometry): void {
 }
 
 export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialogProps) {
+  const { t } = useTranslation()
   const activeWorkspace = useAppStore((state) => state.appState.activeWorkspace)
   const agentTurns = useAppStore((state) => state.agentTurns)
   const agentChatBusy = useAppStore((state) => state.agentChatBusy)
@@ -109,6 +105,11 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   const pendingPermission = pendingStreamId ? selectPendingToolPermission(pendingTurns, pendingStreamId) : null
   const hasInterruption = Boolean(pendingAsk || pendingPermission)
   const canSend = Boolean(activeWorkspace && input.trim() && !agentChatBusy && !hasInterruption)
+  const suggestions = [
+    t('resources.pets.assistant.suggestions.todo'),
+    t('resources.pets.assistant.suggestions.focus'),
+    t('resources.pets.assistant.suggestions.breakdown')
+  ]
 
   useEffect(() => {
     if (!open) return
@@ -265,7 +266,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
         >
           <Plus size={15} />
         </button>
-        <button ref={closeButtonRef} type="button" onClick={() => onClose()} aria-label="关闭对话" title="关闭对话">
+        <button ref={closeButtonRef} type="button" onClick={() => onClose()} aria-label={t('resources.pets.assistant.actions.close')} title={t('resources.pets.assistant.actions.close')}>
           <X size={16} />
         </button>
       </header>
@@ -274,7 +275,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
         {agentTurns.length === 0 ? (
           <div className="pet-assistant-empty">
             <MessageCircle size={22} />
-            <strong>现在想推进什么？</strong>
+            <strong>{t('resources.pets.assistant.emptyTitle')}</strong>
             <div className="pet-assistant-suggestions">
               {suggestions.map((suggestion) => (
                 <button key={suggestion} type="button" onClick={() => sendPrompt(suggestion)} disabled={!activeWorkspace}>
@@ -310,7 +311,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
                     )
                   }}
                 >
-                  {visibleContent || (agentChatBusy ? '正在回复...' : '')}
+                  {visibleContent || (agentChatBusy ? t('resources.pets.assistant.status.replying') : '')}
                 </ReactMarkdown>
                 {todoTitles.length > 0 ? (
                   <button
@@ -319,7 +320,9 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
                     onClick={() => importTodo(turn.id, todoTitles)}
                     disabled={imported}
                   >
-                    {imported ? '已加入今日清单' : `加入今日清单 · ${todoTitles.length} 项`}
+                    {imported
+                      ? t('resources.pets.assistant.actions.todoAdded')
+                      : t('resources.pets.assistant.actions.addTodo', { count: todoTitles.length })}
                   </button>
                 ) : null}
               </article>
@@ -331,7 +334,9 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
 
       {hasInterruption ? (
         <button ref={interruptionRef} className="pet-assistant-interruption" type="button" onClick={openFullConversation}>
-          <span>{pendingPermission ? '需要确认工具权限' : '需要回答一个问题'}</span>
+          <span>{pendingPermission
+            ? t('resources.pets.assistant.interruptions.toolPermission')
+            : t('resources.pets.assistant.interruptions.question')}</span>
           <ArrowUpRight size={14} />
         </button>
       ) : null}
@@ -342,8 +347,10 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleInputKeyDown}
-          placeholder={activeWorkspace ? '输入消息...' : '请先创建或导入学习空间'}
-          aria-label="给 AI 发送消息"
+          placeholder={activeWorkspace
+            ? t('resources.pets.assistant.composer.placeholder')
+            : t('resources.pets.assistant.composer.workspaceRequired')}
+          aria-label={t('resources.pets.assistant.composer.ariaLabel')}
           disabled={!activeWorkspace || hasInterruption}
           rows={2}
         />
@@ -351,8 +358,12 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
           type={agentChatBusy ? 'button' : 'submit'}
           onClick={agentChatBusy ? () => void cancelAgentChat() : undefined}
           disabled={agentChatBusy ? false : !canSend}
-          aria-label={agentChatBusy ? '停止回复' : '发送消息'}
-          title={agentChatBusy ? '停止回复' : '发送消息'}
+          aria-label={agentChatBusy
+            ? t('resources.pets.assistant.actions.stop')
+            : t('resources.pets.assistant.actions.send')}
+          title={agentChatBusy
+            ? t('resources.pets.assistant.actions.stop')
+            : t('resources.pets.assistant.actions.send')}
         >
           {agentChatBusy ? <Square size={15} /> : <SendHorizontal size={16} />}
         </button>

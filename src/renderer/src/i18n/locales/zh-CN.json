@@ -247,17 +247,50 @@
       "applyHint": "应用后会更新工作区「{{workspace}}」的 assets/lesson.css，已有与新生成的课程页面都会立即使用该风格。",
       "applyHintNoWorkspace": "当前没有活动工作区：应用后将作为默认风格，创建工作区时自动生效。",
       "items": {
-        "manuscript": { "name": "稿纸批注", "detail": "作文稿纸的方格与朱笔批注，楷体标题与印章题签，最有课堂味的一套。" },
-        "chalkboard": { "name": "晚自习黑板", "detail": "墨绿板面配木质包边，粉笔手写标题与虚线粉笔框。" },
-        "editorial": { "name": "特稿排版", "detail": "墨蓝与信号橘的杂志特稿版式：衬线大标题、首字下沉与拉引。" },
-        "blueprint": { "name": "蓝晒图纸", "detail": "普鲁士蓝图纸、白色线稿与工程标题栏，理工课程的气质。" },
-        "poster": { "name": "教室海报", "detail": "复古教育挂图：厚描边、硬阴影，湖蓝、芥末与番茄三色。" },
-        "classic": { "name": "清爽学术", "detail": "浅色学术风：白卡片、深蓝题头，适合日常阅读。" },
-        "nightfall": { "name": "暗夜专注", "detail": "低光深色界面，夜间学习不刺眼。" },
-        "paper": { "name": "纸质书卷", "detail": "米黄纸面与衬线字体，还原纸书阅读感。" },
-        "vivid": { "name": "活力渐变", "detail": "明快渐变与大圆角，学习氛围更轻松。" },
-        "mono": { "name": "极简黑白", "detail": "黑白排版与衬线标题，报刊式极简风格。" },
-        "terminal": { "name": "终端极客", "detail": "等宽字体与终端绿，属于程序员的味道。" }
+        "manuscript": {
+          "name": "稿纸批注",
+          "detail": "作文稿纸的方格与朱笔批注，楷体标题与印章题签，最有课堂味的一套。"
+        },
+        "chalkboard": {
+          "name": "晚自习黑板",
+          "detail": "墨绿板面配木质包边，粉笔手写标题与虚线粉笔框。"
+        },
+        "editorial": {
+          "name": "特稿排版",
+          "detail": "墨蓝与信号橘的杂志特稿版式：衬线大标题、首字下沉与拉引。"
+        },
+        "blueprint": {
+          "name": "蓝晒图纸",
+          "detail": "普鲁士蓝图纸、白色线稿与工程标题栏，理工课程的气质。"
+        },
+        "poster": {
+          "name": "教室海报",
+          "detail": "复古教育挂图：厚描边、硬阴影，湖蓝、芥末与番茄三色。"
+        },
+        "classic": {
+          "name": "清爽学术",
+          "detail": "浅色学术风：白卡片、深蓝题头，适合日常阅读。"
+        },
+        "nightfall": {
+          "name": "暗夜专注",
+          "detail": "低光深色界面，夜间学习不刺眼。"
+        },
+        "paper": {
+          "name": "纸质书卷",
+          "detail": "米黄纸面与衬线字体，还原纸书阅读感。"
+        },
+        "vivid": {
+          "name": "活力渐变",
+          "detail": "明快渐变与大圆角，学习氛围更轻松。"
+        },
+        "mono": {
+          "name": "极简黑白",
+          "detail": "黑白排版与衬线标题，报刊式极简风格。"
+        },
+        "terminal": {
+          "name": "终端极客",
+          "detail": "等宽字体与终端绿，属于程序员的味道。"
+        }
       }
     },
     "pets": {
@@ -370,6 +403,38 @@
           "lesson-generation": "课程生成",
           "onboarding": "Pet"
         }
+      },
+      "assistant": {
+        "title": "学习搭档",
+        "status": {
+          "thinking": "正在思考",
+          "ready": "准备好了",
+          "replying": "正在回复…"
+        },
+        "actions": {
+          "newConversation": "新建对话",
+          "close": "关闭对话",
+          "stop": "停止回复",
+          "send": "发送消息",
+          "addTodo": "加入今日清单 · {{count}} 项",
+          "todoAdded": "已加入今日清单",
+          "openFullConversation": "打开完整对话"
+        },
+        "emptyTitle": "现在想推进什么？",
+        "suggestions": {
+          "todo": "帮我制作今天的 TodoList，按优先级拆成可执行任务",
+          "focus": "根据我现在的目标安排一轮专注计划",
+          "breakdown": "把一个复杂任务拆成可以立即开始的小步骤"
+        },
+        "interruptions": {
+          "toolPermission": "需要确认工具权限",
+          "question": "需要回答一个问题"
+        },
+        "composer": {
+          "placeholder": "输入消息…",
+          "workspaceRequired": "请先创建或导入学习空间",
+          "ariaLabel": "给 AI 发送消息"
+        }
       }
     },
     "tutorials": {
@@ -456,31 +521,105 @@
     "navHeading": "Settings"
   },
   "settingsSection": {
-    "general": { "label": "通用", "detail": "应用行为、日志" },
-    "appearance": { "label": "外观", "detail": "主题、语言、密度、字体" },
-    "model": { "label": "模型", "detail": "Provider 与密钥" },
-    "generation": { "label": "生成", "detail": "课程输出策略" },
-    "workspace": { "label": "工作区", "detail": "默认目录和文件行为" },
-    "worktree": { "label": "工作树", "detail": "Git worktree 池与清理" },
-    "memory": { "label": "记忆", "detail": "长期上下文与注入" },
-    "notifications": { "label": "通知", "detail": "桌面提醒" },
-    "privacy": { "label": "隐私", "detail": "链接和密钥显示" },
-    "tools": { "label": "工具", "detail": "工作区与网络工具" },
-    "search": { "label": "搜索", "detail": "Web search 后端" },
-    "connectors": { "label": "连接器", "detail": "状态和修复动作" },
-    "about": { "label": "关于", "detail": "版本、日志、数据目录" }
+    "general": {
+      "label": "通用",
+      "detail": "应用行为、日志"
+    },
+    "appearance": {
+      "label": "外观",
+      "detail": "主题、语言、密度、字体"
+    },
+    "model": {
+      "label": "模型",
+      "detail": "Provider 与密钥"
+    },
+    "generation": {
+      "label": "生成",
+      "detail": "课程输出策略"
+    },
+    "workspace": {
+      "label": "工作区",
+      "detail": "默认目录和文件行为"
+    },
+    "worktree": {
+      "label": "工作树",
+      "detail": "Git worktree 池与清理"
+    },
+    "memory": {
+      "label": "记忆",
+      "detail": "长期上下文与注入"
+    },
+    "notifications": {
+      "label": "通知",
+      "detail": "桌面提醒"
+    },
+    "privacy": {
+      "label": "隐私",
+      "detail": "链接和密钥显示"
+    },
+    "tools": {
+      "label": "工具",
+      "detail": "工作区与网络工具"
+    },
+    "search": {
+      "label": "搜索",
+      "detail": "Web search 后端"
+    },
+    "connectors": {
+      "label": "连接器",
+      "detail": "状态和修复动作"
+    },
+    "about": {
+      "label": "关于",
+      "detail": "版本、日志、数据目录"
+    }
   },
   "general": {
     "title": "通用",
     "subtitle": "本地偏好会保存到 StudiumX 的应用数据目录。",
-    "theme": { "label": "主题", "detail": "跟随系统、浅色或深色。", "system": "系统", "light": "浅色", "dark": "深色" },
-    "language": { "label": "语言", "detail": "界面显示语言。", "zh": "中文", "en": "English" },
-    "density": { "label": "界面密度", "detail": "紧凑模式会减少行高和面板间距。", "comfortable": "舒适", "compact": "紧凑" },
-    "fontScale": { "label": "字体缩放" },
-    "closeAction": { "label": "关闭行为", "detailQuit": "直接退出", "detailTray": "关闭到托盘", "quit": "退出", "tray": "托盘" },
-    "openAtLogin": { "label": "开机启动", "detail": "由 Electron login item 设置控制。" },
-    "startMinimized": { "label": "启动时最小化", "detail": "开机启动时仅显示托盘图标。" },
-    "log": { "label": "日志", "enabled": "已启用", "disabled": "已关闭", "detail": "{{state}} · 保留 {{days}} 天" }
+    "theme": {
+      "label": "主题",
+      "detail": "跟随系统、浅色或深色。",
+      "system": "系统",
+      "light": "浅色",
+      "dark": "深色"
+    },
+    "language": {
+      "label": "语言",
+      "detail": "界面显示语言。",
+      "zh": "中文",
+      "en": "English"
+    },
+    "density": {
+      "label": "界面密度",
+      "detail": "紧凑模式会减少行高和面板间距。",
+      "comfortable": "舒适",
+      "compact": "紧凑"
+    },
+    "fontScale": {
+      "label": "字体缩放"
+    },
+    "closeAction": {
+      "label": "关闭行为",
+      "detailQuit": "直接退出",
+      "detailTray": "关闭到托盘",
+      "quit": "退出",
+      "tray": "托盘"
+    },
+    "openAtLogin": {
+      "label": "开机启动",
+      "detail": "由 Electron login item 设置控制。"
+    },
+    "startMinimized": {
+      "label": "启动时最小化",
+      "detail": "开机启动时仅显示托盘图标。"
+    },
+    "log": {
+      "label": "日志",
+      "enabled": "已启用",
+      "disabled": "已关闭",
+      "detail": "{{state}} · 保留 {{days}} 天"
+    }
   },
   "appearance": {
     "title": "外观",
@@ -489,10 +628,26 @@
   "model": {
     "title": "模型",
     "subtitle": "Provider 预设来自 Kun 的模型设置组织方式，字段会完整保存并供生成配置读取。",
-    "apiKey": { "label": "API Key", "filled": "已填写", "empty": "未填写", "placeholder": "sk-...", "show": "显示 API Key", "hide": "隐藏 API Key" },
+    "apiKey": {
+      "label": "API Key",
+      "filled": "已填写",
+      "empty": "未填写",
+      "placeholder": "sk-...",
+      "show": "显示 API Key",
+      "hide": "隐藏 API Key"
+    },
     "baseUrl": "Base URL",
-    "models": { "label": "默认模型" },
-    "actions": { "label": "Provider 操作", "test": "测试", "pull": "拉取模型", "docs": "文档", "key": "Key", "reset": "重置" },
+    "models": {
+      "label": "默认模型"
+    },
+    "actions": {
+      "label": "Provider 操作",
+      "test": "测试",
+      "pull": "拉取模型",
+      "docs": "文档",
+      "key": "Key",
+      "reset": "重置"
+    },
     "statusConnecting": "正在连接 provider...",
     "statusOk": "连接成功：{{latency}}ms，发现 {{count}} 个模型。",
     "statusPulling": "正在拉取模型列表...",
@@ -525,25 +680,69 @@
     "title": "生成",
     "subtitle": "这些设置会直接影响后续 lesson 文件和伴随产物。",
     "provider": "生成 Provider",
-    "model": { "label": "模型", "none": "未选择" },
+    "model": {
+      "label": "模型",
+      "none": "未选择"
+    },
     "temperature": "Temperature",
     "maxTokens": "最大输出 Tokens",
-    "duration": { "label": "课程时长", "detail": "{{count}} 分钟" },
-    "retrieval": { "label": "检索练习", "detail": "写入 lesson 内的交互练习。" },
-    "reference": { "label": "Reference HTML", "detail": "生成 reference/*.html 速查材料。" },
-    "learningRecord": { "label": "Learning record", "detail": "生成 learning-records/*.md 学习记录。" },
-    "structured": { "label": "Structured JSON", "detail": "在 lesson HTML 内嵌结构化元数据。" },
-    "streaming": { "label": "流式生成", "detail": "打开后使用 SSE/流式预览；失败会回退到非流式或本地计划。" },
-    "timeout": { "label": "请求超时", "detail": "{{seconds}} 秒" }
+    "duration": {
+      "label": "课程时长",
+      "detail": "{{count}} 分钟"
+    },
+    "retrieval": {
+      "label": "检索练习",
+      "detail": "写入 lesson 内的交互练习。"
+    },
+    "reference": {
+      "label": "Reference HTML",
+      "detail": "生成 reference/*.html 速查材料。"
+    },
+    "learningRecord": {
+      "label": "Learning record",
+      "detail": "生成 learning-records/*.md 学习记录。"
+    },
+    "structured": {
+      "label": "Structured JSON",
+      "detail": "在 lesson HTML 内嵌结构化元数据。"
+    },
+    "streaming": {
+      "label": "流式生成",
+      "detail": "打开后使用 SSE/流式预览；失败会回退到非流式或本地计划。"
+    },
+    "timeout": {
+      "label": "请求超时",
+      "detail": "{{seconds}} 秒"
+    }
   },
   "workspace": {
     "title": "工作区",
     "subtitle": "新建、导入和打开路径均走 Electron 主进程的受控文件访问。",
-    "defaultRoot": { "label": "默认工作区根目录", "none": "未设置", "choose": "选择", "open": "打开" },
-    "confirm": { "label": "生成前确认", "detail": "发送任务前要求二次确认。" },
-    "autoOpen": { "label": "生成后打开 lesson", "detail": "生成完成后调用系统默认程序打开 HTML。" },
-    "showAllCourseFiles": { "label": "显示所有课程文件", "detail": "开启后在课程树中显示 reference、学习记录和复习数据等伴随文件。" },
-    "current": { "label": "当前工作区", "none": "未选择", "create": "新建", "import": "导入", "open": "打开" }
+    "defaultRoot": {
+      "label": "默认工作区根目录",
+      "none": "未设置",
+      "choose": "选择",
+      "open": "打开"
+    },
+    "confirm": {
+      "label": "生成前确认",
+      "detail": "发送任务前要求二次确认。"
+    },
+    "autoOpen": {
+      "label": "生成后打开 lesson",
+      "detail": "生成完成后调用系统默认程序打开 HTML。"
+    },
+    "showAllCourseFiles": {
+      "label": "显示所有课程文件",
+      "detail": "开启后在课程树中显示 reference、学习记录和复习数据等伴随文件。"
+    },
+    "current": {
+      "label": "当前工作区",
+      "none": "未选择",
+      "create": "新建",
+      "import": "导入",
+      "open": "打开"
+    }
   },
   "workspaceImport": {
     "title": "添加项目",
@@ -558,8 +757,16 @@
   "worktree": {
     "title": "工作树",
     "subtitle": "查看当前教学工作区所在仓库的 Git worktrees，并清理受管副本。",
-    "root": { "label": "工作树池目录", "none": "未设置", "open": "打开" },
-    "current": { "label": "当前仓库", "none": "当前工作区不是 Git 仓库", "notGit": "非 Git 工作区" },
+    "root": {
+      "label": "工作树池目录",
+      "none": "未设置",
+      "open": "打开"
+    },
+    "current": {
+      "label": "当前仓库",
+      "none": "当前工作区不是 Git 仓库",
+      "notGit": "非 Git 工作区"
+    },
     "refresh": "刷新",
     "empty": "暂无可显示的工作树。",
     "detached": "DETACHED",
@@ -570,9 +777,19 @@
   "memory": {
     "title": "记忆",
     "subtitle": "持久化可复用的长期上下文，并在生成课程时按相关性注入。",
-    "enable": { "label": "启用长期记忆", "detail": "关闭后不会向生成请求注入记忆。" },
-    "maxInjected": { "label": "最大注入条数", "detail": "每次生成最多注入 {{count}} 条。" },
-    "diagnostics": { "label": "记忆诊断", "detail": "活跃 {{active}} 条，已删除 {{deleted}} 条", "loading": "读取诊断中..." },
+    "enable": {
+      "label": "启用长期记忆",
+      "detail": "关闭后不会向生成请求注入记忆。"
+    },
+    "maxInjected": {
+      "label": "最大注入条数",
+      "detail": "每次生成最多注入 {{count}} 条。"
+    },
+    "diagnostics": {
+      "label": "记忆诊断",
+      "detail": "活跃 {{active}} 条，已删除 {{deleted}} 条",
+      "loading": "读取诊断中..."
+    },
     "refresh": "刷新",
     "create": "新建记忆",
     "empty": "还没有记忆记录。",
@@ -602,18 +819,46 @@
   "notifications": {
     "title": "通知",
     "subtitle": "通知通过 Electron 原生 Notification 发出。",
-    "enabled": { "label": "启用通知", "on": "已启用", "off": "已关闭" },
-    "lesson": { "label": "课程生成完成", "detail": "lesson 保存成功后提醒。" },
-    "imported": { "label": "工作区导入", "detail": "导入成功后提醒。" },
-    "errors": { "label": "错误提醒", "detail": "生成或导入失败时提醒。" },
-    "test": { "label": "测试通知", "detail": "发送一条本地测试通知。", "button": "发送测试" }
+    "enabled": {
+      "label": "启用通知",
+      "on": "已启用",
+      "off": "已关闭"
+    },
+    "lesson": {
+      "label": "课程生成完成",
+      "detail": "lesson 保存成功后提醒。"
+    },
+    "imported": {
+      "label": "工作区导入",
+      "detail": "导入成功后提醒。"
+    },
+    "errors": {
+      "label": "错误提醒",
+      "detail": "生成或导入失败时提醒。"
+    },
+    "test": {
+      "label": "测试通知",
+      "detail": "发送一条本地测试通知。",
+      "button": "发送测试"
+    }
   },
   "privacy": {
     "title": "隐私",
     "subtitle": "StudiumX 默认本地优先，设置、工作区索引和课程文件都存放在本机。",
-    "maskKey": { "label": "隐藏 API Key", "detail": "设置页用密码输入框显示密钥。" },
-    "externalLinks": { "label": "允许打开外部链接", "detail": "控制 provider 文档和 Key 页面按钮。" },
-    "proxy": { "label": "Provider Proxy", "on": "已启用", "off": "未启用", "placeholder": "http://127.0.0.1:7890" }
+    "maskKey": {
+      "label": "隐藏 API Key",
+      "detail": "设置页用密码输入框显示密钥。"
+    },
+    "externalLinks": {
+      "label": "允许打开外部链接",
+      "detail": "控制 provider 文档和 Key 页面按钮。"
+    },
+    "proxy": {
+      "label": "Provider Proxy",
+      "on": "已启用",
+      "off": "未启用",
+      "placeholder": "http://127.0.0.1:7890"
+    }
   },
   "connectors": {
     "title": "连接器状态",
@@ -643,28 +888,93 @@
     "runtime": "当前 Runtime",
     "streaming": "Streaming",
     "oneShot": "One-shot",
-    "currentWorkspace": { "label": "当前工作区", "none": "未选择工作区", "open": "打开" },
-    "logFile": { "label": "日志文件", "detail": "保留 {{days}} 天", "open": "打开日志" },
-    "appData": { "label": "应用数据目录", "detail": "settings、workspace registry 和日志所在位置。", "open": "打开目录" }
+    "currentWorkspace": {
+      "label": "当前工作区",
+      "none": "未选择工作区",
+      "open": "打开"
+    },
+    "logFile": {
+      "label": "日志文件",
+      "detail": "保留 {{days}} 天",
+      "open": "打开日志"
+    },
+    "appData": {
+      "label": "应用数据目录",
+      "detail": "settings、workspace registry 和日志所在位置。",
+      "open": "打开目录"
+    }
   },
   "errors": {
-    "ipcHandlerMissing": { "message": "需要重启应用", "detail": "当前窗口连接的是旧版 Electron main 进程。请重启 StudiumX 以加载最新的通信处理器。" },
-    "noApiKey": { "message": "需要配置 API Key", "detail": "请打开模型设置并填写 API Key，然后再使用对话。" },
-    "providerInsufficientBalance": { "message": "Provider 余额不足", "detail": "上游模型服务返回 402 Payment Required。请充值、切换 provider 或换用可用模型。" },
-    "providerAuth": { "message": "Provider 认证失败", "detail": "请检查当前 provider 的 API Key、Base URL 和端点格式。" },
-    "providerRateLimit": { "message": "Provider 速率限制", "detail": "上游模型服务暂时限制请求。请稍后重试，或切换 provider/model。" },
-    "providerHttp": { "message": "Provider 请求失败", "detail": "上游模型服务返回 HTTP {{status}}。请检查 provider 设置或稍后重试。" },
-    "missingField": { "message": "操作参数不完整", "detail": "缺少必要字段：{{field}}。请检查输入后重试。", "fallbackField": "参数" },
-    "badPayload": { "message": "请求格式有误", "detail": "内部通信数据格式异常，请刷新页面后重试。" },
-    "windowControl": { "message": "窗口操作不支持", "detail": "该窗口操作在当前平台不可用。" },
-    "workspaceNotFound": { "message": "工作区未找到", "detail": "该工作区可能已被移动或删除，请重新导入。" },
-    "invalidPath": { "message": "路径无效", "detail": "请选择一个有效的文件夹作为教学工作区。" },
-    "emptyMission": { "message": "请输入学习使命", "detail": "学习使命不能为空，请简要描述你想学习的内容。" },
-    "emptyTask": { "message": "请输入教学任务", "detail": "请在上方输入框中描述你想生成的课程主题。" },
-    "pathRestricted": { "message": "路径访问受限", "detail": "仅允许访问教学工作区内的文件。" },
-    "fileNotFound": { "message": "文件未找到", "detail": "所选文件可能已被移动或删除。" },
-    "accessDenied": { "message": "文件访问被拒绝", "detail": "没有权限访问该文件，请检查文件权限设置。" },
-    "generic": { "message": "操作未成功", "detail": "请稍后重试。如果问题持续出现，请联系支持。", "stackDetail": "应用遇到意外错误。如果问题持续出现，请重启应用。" },
+    "ipcHandlerMissing": {
+      "message": "需要重启应用",
+      "detail": "当前窗口连接的是旧版 Electron main 进程。请重启 StudiumX 以加载最新的通信处理器。"
+    },
+    "noApiKey": {
+      "message": "需要配置 API Key",
+      "detail": "请打开模型设置并填写 API Key，然后再使用对话。"
+    },
+    "providerInsufficientBalance": {
+      "message": "Provider 余额不足",
+      "detail": "上游模型服务返回 402 Payment Required。请充值、切换 provider 或换用可用模型。"
+    },
+    "providerAuth": {
+      "message": "Provider 认证失败",
+      "detail": "请检查当前 provider 的 API Key、Base URL 和端点格式。"
+    },
+    "providerRateLimit": {
+      "message": "Provider 速率限制",
+      "detail": "上游模型服务暂时限制请求。请稍后重试，或切换 provider/model。"
+    },
+    "providerHttp": {
+      "message": "Provider 请求失败",
+      "detail": "上游模型服务返回 HTTP {{status}}。请检查 provider 设置或稍后重试。"
+    },
+    "missingField": {
+      "message": "操作参数不完整",
+      "detail": "缺少必要字段：{{field}}。请检查输入后重试。",
+      "fallbackField": "参数"
+    },
+    "badPayload": {
+      "message": "请求格式有误",
+      "detail": "内部通信数据格式异常，请刷新页面后重试。"
+    },
+    "windowControl": {
+      "message": "窗口操作不支持",
+      "detail": "该窗口操作在当前平台不可用。"
+    },
+    "workspaceNotFound": {
+      "message": "工作区未找到",
+      "detail": "该工作区可能已被移动或删除，请重新导入。"
+    },
+    "invalidPath": {
+      "message": "路径无效",
+      "detail": "请选择一个有效的文件夹作为教学工作区。"
+    },
+    "emptyMission": {
+      "message": "请输入学习使命",
+      "detail": "学习使命不能为空，请简要描述你想学习的内容。"
+    },
+    "emptyTask": {
+      "message": "请输入教学任务",
+      "detail": "请在上方输入框中描述你想生成的课程主题。"
+    },
+    "pathRestricted": {
+      "message": "路径访问受限",
+      "detail": "仅允许访问教学工作区内的文件。"
+    },
+    "fileNotFound": {
+      "message": "文件未找到",
+      "detail": "所选文件可能已被移动或删除。"
+    },
+    "accessDenied": {
+      "message": "文件访问被拒绝",
+      "detail": "没有权限访问该文件，请检查文件权限设置。"
+    },
+    "generic": {
+      "message": "操作未成功",
+      "detail": "请稍后重试。如果问题持续出现，请联系支持。",
+      "stackDetail": "应用遇到意外错误。如果问题持续出现，请重启应用。"
+    },
     "openPath": "无法打开路径。",
     "openExternal": "无法打开链接。",
     "openLog": "无法打开日志文件。",
@@ -684,11 +994,27 @@
     "confirmGenerate": "将根据当前任务生成 lesson、reference 和 learning record。继续吗？"
   },
   "notify": {
-    "imported": { "title": "工作区已导入", "body": "{{name}} 已加入 StudiumX。", "fallbackName": "教学工作区" },
-    "importFailed": { "title": "导入失败" },
-    "lessonGenerated": { "title": "课程已生成", "body": "{{title}} 已保存到 {{path}}{{suffix}}", "fallbackWithReason": "（本地回退：{{reason}}）", "fallbackNoReason": "（本地回退）" },
-    "generateFailed": { "title": "生成失败" },
-    "test": { "title": "StudiumX 通知测试", "body": "通知设置已正确连接。" }
+    "imported": {
+      "title": "工作区已导入",
+      "body": "{{name}} 已加入 StudiumX。",
+      "fallbackName": "教学工作区"
+    },
+    "importFailed": {
+      "title": "导入失败"
+    },
+    "lessonGenerated": {
+      "title": "课程已生成",
+      "body": "{{title}} 已保存到 {{path}}{{suffix}}",
+      "fallbackWithReason": "（本地回退：{{reason}}）",
+      "fallbackNoReason": "（本地回退）"
+    },
+    "generateFailed": {
+      "title": "生成失败"
+    },
+    "test": {
+      "title": "StudiumX 通知测试",
+      "body": "通知设置已正确连接。"
+    }
   },
   "preview": {
     "streamingHint": "正在接收模型输出，完成后会渲染为正式 lesson。",
