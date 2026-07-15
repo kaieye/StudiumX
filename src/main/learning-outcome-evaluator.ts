@@ -204,24 +204,31 @@ function isCanonicalLessonHtmlPath(relativePath: string): boolean {
   return (relativePath.startsWith('courses/') || relativePath.startsWith('lessons/')) && relativePath.endsWith('.html')
 }
 
+const MAX_CANONICAL_ARTIFACT_BYTES = 512 * 1024
+const MAX_CANONICAL_ARTIFACT_ELEMENTS = 4_096
+const MAX_CANONICAL_ARTIFACT_DEPTH = 512
+
 function parseCanonicalQuizzes(html: string): CanonicalQuiz[] | null {
-  const parseErrors: ParserError[] = []
-  let document: DefaultTreeAdapterTypes.Document
   try {
-    document = parse(html, {
+    if (Buffer.byteLength(html, 'utf8') > MAX_CANONICAL_ARTIFACT_BYTES) return null
+
+    const parseErrors: ParserError[] = []
+    const document = parse(html, {
       sourceCodeLocationInfo: true,
       onParseError: (error) => parseErrors.push(error)
     })
+    // Canonical lessons must be standards-mode so their selector semantics stay stable.
+    if (document.mode !== 'no-quirks') return null
+    if (!isStaticCanonicalLessonArtifact(document)) return null
+
+    const elements = documentOrderElements(document)
+    if (!elements) return null
+    const cards = elements.filter(isQuizCard)
+    if (cards.some((card) => !hasCompleteSourceLocation(card) || isNestedQuizCard(card))) return null
+    return cards.map((card, index) => parseQuizCard(`quiz-${index + 1}`, card, parseErrors))
   } catch {
     return null
   }
-  // Canonical lessons must be standards-mode so their selector semantics stay stable.
-  if (document.mode !== 'no-quirks') return null
-  if (!isStaticCanonicalLessonArtifact(document)) return null
-
-  const cards = documentOrderElements(document).filter(isQuizCard)
-  if (cards.some((card) => !hasCompleteSourceLocation(card) || isNestedQuizCard(card))) return null
-  return cards.map((card, index) => parseQuizCard(`quiz-${index + 1}`, card, parseErrors))
 }
 
 const ACTIVE_CANONICAL_ELEMENT_NAMES = new Set([
@@ -243,18 +250,44 @@ const ACTIVE_CANONICAL_ELEMENT_NAMES = new Set([
 ])
 
 function isStaticCanonicalLessonArtifact(document: DefaultTreeAdapterTypes.Document): boolean {
-  return artifactElements(document).every((element) => !hasActiveCanonicalContent(element))
+  const elements = artifactElements(document)
+  return elements !== null && elements.every((element) => !hasActiveCanonicalContent(element))
 }
 
-function artifactElements(parent: HtmlParentNode): HtmlElement[] {
+function artifactElements(parent: HtmlParentNode): HtmlElement[] | null {
+  return collectPreorderElements(parent, true)
+}
+
+function documentOrderElements(parent: HtmlParentNode): HtmlElement[] | null {
+  return collectPreorderElements(parent, false)
+}
+
+function collectPreorderElements(parent: HtmlParentNode, includeTemplateContent: boolean): HtmlElement[] | null {
   const elements: HtmlElement[] = []
-  for (const child of parent.childNodes) {
-    if (!isHtmlElement(child)) continue
-    elements.push(child)
-    elements.push(...artifactElements(child))
-    if (isTemplateElement(child)) elements.push(...artifactElements(child.content))
+  const stack: PendingElement[] = []
+  pushChildElements(stack, parent, 1)
+
+  while (stack.length > 0) {
+    const pending = stack.pop()
+    if (!pending) return null
+    if (pending.depth > MAX_CANONICAL_ARTIFACT_DEPTH || elements.length >= MAX_CANONICAL_ARTIFACT_ELEMENTS) return null
+
+    const element = pending.element
+    elements.push(element)
+    pushChildElements(stack, element, pending.depth + 1)
+    if (includeTemplateContent && isTemplateElement(element)) {
+      pushChildElements(stack, element.content, pending.depth + 1)
+    }
   }
+
   return elements
+}
+
+function pushChildElements(stack: PendingElement[], parent: HtmlParentNode, depth: number): void {
+  for (let index = parent.childNodes.length - 1; index >= 0; index -= 1) {
+    const child = parent.childNodes[index]
+    if (child && isHtmlElement(child)) stack.push({ element: child, depth })
+  }
 }
 
 function hasActiveCanonicalContent(element: HtmlElement): boolean {
@@ -333,8 +366,11 @@ function malformedQuiz(itemId: string): CanonicalQuiz {
 }
 
 function parseChoiceIds(card: HtmlElement): string[] | null {
+  const elements = documentOrderDescendantElements(card)
+  if (!elements) return null
+
   const ids: string[] = []
-  for (const element of documentOrderDescendantElements(card)) {
+  for (const element of elements) {
     if (element.tagName !== 'button') continue
     const choice = attributeValue(element, 'data-choice')
     if (choice === undefined) continue
@@ -344,17 +380,7 @@ function parseChoiceIds(card: HtmlElement): string[] | null {
   return ids.length > 0 ? ids : null
 }
 
-function documentOrderElements(parent: HtmlParentNode): HtmlElement[] {
-  const elements: HtmlElement[] = []
-  for (const child of parent.childNodes) {
-    if (!isHtmlElement(child)) continue
-    elements.push(child)
-    elements.push(...documentOrderElements(child))
-  }
-  return elements
-}
-
-function documentOrderDescendantElements(element: HtmlElement): HtmlElement[] {
+function documentOrderDescendantElements(element: HtmlElement): HtmlElement[] | null {
   return documentOrderElements(element)
 }
 
@@ -433,6 +459,7 @@ function hasRelevantParseError(card: HtmlElement, parseErrors: readonly ParserEr
 
 type HtmlElement = DefaultTreeAdapterTypes.Element
 type HtmlParentNode = DefaultTreeAdapterTypes.Document | DefaultTreeAdapterTypes.DocumentFragment | HtmlElement | DefaultTreeAdapterTypes.Template
+type PendingElement = { element: HtmlElement, depth: number }
 
 function parseAnswerIds(value: string | undefined): string[] | null {
   if (!value) return null

@@ -626,4 +626,23 @@ describe('LearningOutcomeEvaluator', () => {
     })
   })
 
+  it('fails closed without throwing for a 10,000-depth standards-mode static artifact', async () => {
+    const root = await workspace()
+    const relativePath = 'courses/foundations/lesson-1.html'
+    const depth = 10_000
+    const html = `<!doctype html>${'<div>'.repeat(depth)}<article class="quiz-card" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>${'</div>'.repeat(depth)}`
+    await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
+    await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
+
+    await expect(
+      evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html)) })
+    ).resolves.toMatchObject({
+      kind: 'not_evidenced',
+      mastery: false,
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
+    })
+  })
+
 })
