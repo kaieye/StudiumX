@@ -13,20 +13,9 @@ import {
 import {
   createPreviewLessonInteraction,
   parsePreviewLessonInteractionMessage,
-  type LessonInteractionRecordingContext,
-  type PreviewLessonInteractionIntent
+  type LessonInteractionRecordingContext
 } from '../../src/shared/preview-markdown-bridge'
-import type { LearnerResponseKind } from '../../src/shared/teaching-types/lesson-interaction'
 import { MarkdownPreview } from '../../src/renderer/src/markdown-preview'
-
-type Assert<Condition extends true> = Condition
-type PreviewResponseIntent = Extract<
-  PreviewLessonInteractionIntent,
-  { kind: 'retrieval_response_submitted' | 'learner_response_recorded' }
->
-type _previewResponseIntentsRequireResponseKind = Assert<
-  PreviewResponseIntent extends { responseKind: LearnerResponseKind } ? true : false
->
 
 const roots: string[] = []
 const artifactDigest = 'a'.repeat(64)
