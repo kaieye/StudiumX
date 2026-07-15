@@ -217,10 +217,89 @@ function parseCanonicalQuizzes(html: string): CanonicalQuiz[] | null {
   }
   // Canonical lessons must be standards-mode so their selector semantics stay stable.
   if (document.mode !== 'no-quirks') return null
+  if (!isStaticCanonicalLessonArtifact(document)) return null
 
   const cards = documentOrderElements(document).filter(isQuizCard)
   if (cards.some((card) => !hasCompleteSourceLocation(card) || isNestedQuizCard(card))) return null
   return cards.map((card, index) => parseQuizCard(`quiz-${index + 1}`, card, parseErrors))
+}
+
+const ACTIVE_CANONICAL_ELEMENT_NAMES = new Set([
+  'script',
+  'iframe',
+  'frame',
+  'frameset',
+  'fencedframe',
+  'object',
+  'embed',
+  'applet',
+  'portal',
+  'base',
+  'template',
+  'animate',
+  'animatemotion',
+  'animatetransform',
+  'set'
+])
+
+function isStaticCanonicalLessonArtifact(document: DefaultTreeAdapterTypes.Document): boolean {
+  return artifactElements(document).every((element) => !hasActiveCanonicalContent(element))
+}
+
+function artifactElements(parent: HtmlParentNode): HtmlElement[] {
+  const elements: HtmlElement[] = []
+  for (const child of parent.childNodes) {
+    if (!isHtmlElement(child)) continue
+    elements.push(child)
+    elements.push(...artifactElements(child))
+    if (isTemplateElement(child)) elements.push(...artifactElements(child.content))
+  }
+  return elements
+}
+
+function hasActiveCanonicalContent(element: HtmlElement): boolean {
+  const tagName = element.tagName.toLowerCase()
+  if (ACTIVE_CANONICAL_ELEMENT_NAMES.has(tagName) || tagName.includes('-')) return true
+  if (tagName === 'meta' && attributeValue(element, 'http-equiv') !== undefined) return true
+  return element.attrs.some((attribute) => isActiveCanonicalAttribute(attribute.name, attribute.value))
+}
+
+function isTemplateElement(element: HtmlElement): element is DefaultTreeAdapterTypes.Template {
+  return element.tagName === 'template' && 'content' in element
+}
+
+function isActiveCanonicalAttribute(name: string, value: string): boolean {
+  const normalizedName = name.toLowerCase()
+  return normalizedName.startsWith('on') ||
+    normalizedName === 'is' ||
+    (isPotentialUrlAttribute(normalizedName) && isJavaScriptUrl(value))
+}
+
+function isPotentialUrlAttribute(name: string): boolean {
+  return name === 'href' ||
+    name === 'src' ||
+    name === 'action' ||
+    name === 'formaction' ||
+    name === 'data' ||
+    name === 'background' ||
+    name === 'cite' ||
+    name === 'codebase' ||
+    name === 'manifest' ||
+    name === 'poster' ||
+    name === 'profile' ||
+    name === 'usemap' ||
+    name === 'longdesc' ||
+    name === 'archive' ||
+    name === 'classid'
+}
+
+function isJavaScriptUrl(value: string): boolean {
+  let normalized = ''
+  for (const character of value) {
+    if (character.charCodeAt(0) <= 32) continue
+    normalized += character
+  }
+  return normalized.toLowerCase().startsWith('javascript:')
 }
 
 function parseQuizCard(itemId: string, card: HtmlElement, parseErrors: readonly ParserError[]): CanonicalQuiz {

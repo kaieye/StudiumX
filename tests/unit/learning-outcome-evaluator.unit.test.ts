@@ -125,6 +125,82 @@ describe('LearningOutcomeEvaluator', () => {
     })
   })
 
+  it('rejects a standards-mode inline script that reorders canonical quiz cards before host binding', async () => {
+    const root = await workspace()
+    const relativePath = 'courses/foundations/lesson-1.html'
+    const html = '<!doctype html><article class="quiz-card" data-type="single" data-answer="a"><button data-choice="a">A</button><button data-choice="b">B</button></article><article class="quiz-card" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article><script>document.body.insertBefore(document.querySelectorAll(".quiz-card")[1], document.querySelectorAll(".quiz-card")[0])</script>'
+    await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
+    await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
+
+    const result = await evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html), ['a']) })
+
+    expect(result).toMatchObject({
+      kind: 'not_evidenced',
+      mastery: false,
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
+    })
+  })
+
+  it('rejects a standards-mode inline script that can forge a hosted selected-option event', async () => {
+    const root = await workspace()
+    const relativePath = 'courses/foundations/lesson-1.html'
+    const html = '<!doctype html><article class="quiz-card" data-type="single" data-answer="a"><button data-choice="a">A</button><button data-choice="b">B</button></article><script>window.parent.postMessage({ kind: "quiz_answered", itemId: "quiz-1", selectedOptionIds: ["a"] }, "*")</script>'
+    await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
+    await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
+
+    const result = await evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html), ['a']) })
+
+    expect(result).toMatchObject({
+      kind: 'not_evidenced',
+      mastery: false,
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
+    })
+  })
+
+  it('rejects a standards-mode event-handler attribute on a canonical quiz card', async () => {
+    const root = await workspace()
+    const relativePath = 'courses/foundations/lesson-1.html'
+    const html = '<!doctype html><article class="quiz-card" data-type="single" data-answer="a" onclick="window.parent.postMessage(1)"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
+    await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
+
+    const result = await evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html), ['a']) })
+
+    expect(result).toMatchObject({
+      kind: 'not_evidenced',
+      mastery: false,
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
+    })
+  })
+
+  it.each([
+    ['external script', '<!doctype html><script src="https://attacker.invalid/lesson.js"></script><article class="quiz-card" data-type="single" data-answer="a"><button data-choice="a">A</button></article>'],
+    ['entity and whitespace javascript URL', '<!doctype html><article class="quiz-card" data-type="single" data-answer="a"><a href="java&#x0A; script:window.parent.postMessage(1)">unsafe</a><button data-choice="a">A</button></article>'],
+    ['http-equiv refresh', '<!doctype html><meta http-equiv="refresh" content="0;url=https://attacker.invalid/"><article class="quiz-card" data-type="single" data-answer="a"><button data-choice="a">A</button></article>'],
+    ['embedded browsing context', '<!doctype html><iframe srcdoc="<script>parent.postMessage(1)</script>"></iframe><article class="quiz-card" data-type="single" data-answer="a"><button data-choice="a">A</button></article>']
+  ])('rejects a standards-mode artifact with %s', async (_label, html) => {
+    const root = await workspace()
+    const relativePath = 'courses/foundations/lesson-1.html'
+    await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
+    await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
+
+    const result = await evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html), ['a']) })
+
+    expect(result).toMatchObject({
+      kind: 'not_evidenced',
+      mastery: false,
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
+    })
+  })
+
   it('ignores malformed truefalse answer keys rather than treating matching forged selections as mastery', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1.html'
@@ -483,7 +559,7 @@ describe('LearningOutcomeEvaluator', () => {
     })
   })
 
-  it('does not number script or style raw-text bait as canonical quiz cards', async () => {
+  it('rejects script raw-text bait rather than assessing any canonical quiz evidence', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1.html'
     const html = `<!doctype html><script>const bait = '<article class="quiz-card" data-type="single" data-answer="a"><button data-choice="a">bait</button></article>'</script><style>.bait::before { content: '<article class="quiz-card" data-type="single" data-answer="a">'; }</style><article class="quiz-card" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>`
@@ -493,9 +569,11 @@ describe('LearningOutcomeEvaluator', () => {
     const result = await evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html), ['a']) })
 
     expect(result).toMatchObject({
-      kind: 'needs_practice',
+      kind: 'not_evidenced',
       mastery: false,
-      assessments: [{ itemId: 'quiz-1', disposition: 'verified_incorrect', reason: 'verified' }]
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
     })
   })
 
