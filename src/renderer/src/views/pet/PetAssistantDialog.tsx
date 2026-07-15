@@ -26,6 +26,7 @@ import {
   type AssistantDialogInteraction,
   type AssistantDialogResizeDirection
 } from './pet-interaction'
+import { projectPetAssistantConversation } from './pet-assistant-dialog-model'
 
 type PetAssistantDialogProps = {
   open: boolean
@@ -72,6 +73,8 @@ function persistDialogGeometry(geometry: DialogGeometry): void {
 export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialogProps) {
   const { t } = useTranslation()
   const activeWorkspace = useAppStore((state) => state.appState.activeWorkspace)
+  const temporaryConversations = useAppStore((state) => state.appState.temporaryConversations)
+  const activeConversationId = useAppStore((state) => state.activeConversationId)
   const agentTurns = useAppStore((state) => state.agentTurns)
   const agentChatBusy = useAppStore((state) => state.agentChatBusy)
   const agentStatus = useAppStore((state) => state.agentStatus)
@@ -99,10 +102,27 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const interactionRef = useRef<DialogPointerInteraction | null>(null)
-  const pendingStreamId = pendingConversation?.summary.id ?? null
-  const pendingTurns = pendingConversation?.turns ?? agentTurns
-  const pendingAsk = pendingStreamId ? selectPendingAsk(pendingTurns, pendingStreamId) : null
-  const pendingPermission = pendingStreamId ? selectPendingToolPermission(pendingTurns, pendingStreamId) : null
+  const activeConversationBelongsToWorkspace = Boolean(activeWorkspace && activeConversationId && (
+    activeWorkspace.conversations.some((conversation) => conversation.id === activeConversationId) ||
+    activeWorkspace.courses.some((course) => course.conversations.some((conversation) => conversation.id === activeConversationId)) ||
+    temporaryConversations.some((conversation) => (
+      conversation.id === activeConversationId && conversation.workspaceId === activeWorkspace.id
+    ))
+  ))
+  const conversation = projectPetAssistantConversation({
+    workspaceId: activeWorkspace?.id ?? null,
+    activeConversationId,
+    activeConversationBelongsToWorkspace,
+    agentTurns,
+    pendingConversation
+  })
+  const displayTurns = conversation.turns
+  const pendingAsk = conversation.runIdentity
+    ? selectPendingAsk(displayTurns, conversation.runIdentity)
+    : null
+  const pendingPermission = conversation.runIdentity
+    ? selectPendingToolPermission(displayTurns, conversation.runIdentity)
+    : null
   const hasInterruption = Boolean(pendingAsk || pendingPermission)
   const canSend = Boolean(activeWorkspace && input.trim() && !agentChatBusy && !hasInterruption)
   const suggestions = [
@@ -129,6 +149,10 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   }, [onClose, open])
 
   useEffect(() => {
+    setImportedTodoTurns(new Set())
+  }, [conversation.identity])
+
+  useEffect(() => {
     if (!open) return
     const thread = threadRef.current
     if (!thread) return
@@ -139,7 +163,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     } else {
       thread.scrollTop = thread.scrollHeight
     }
-  }, [agentStatus, agentTurns, open])
+  }, [agentStatus, displayTurns, open])
 
   useEffect(() => {
     const handleWindowResize = (): void => {
@@ -162,6 +186,13 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     rememberAgentInput(prompt)
     setInput('')
     void agentChat(AssistantTodoCapture.preparePrompt(prompt), { mode: 'temporary' })
+  }
+
+  const startNewConversation = (): void => {
+    setInput('')
+    setImportedTodoTurns(new Set())
+    clearAgentChat()
+    window.requestAnimationFrame(() => inputRef.current?.focus())
   }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -261,8 +292,8 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
         </span>
         <button
           type="button"
-          onClick={clearAgentChat}
-          disabled={agentChatBusy || agentTurns.length === 0}
+          onClick={startNewConversation}
+          disabled={agentChatBusy || displayTurns.length === 0}
           aria-label={t('resources.pets.assistant.actions.newConversation')}
           title={t('resources.pets.assistant.actions.newConversation')}
         >
@@ -274,7 +305,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
       </header>
 
       <div ref={threadRef} className="pet-assistant-thread" aria-live="polite">
-        {agentTurns.length === 0 ? (
+        {displayTurns.length === 0 ? (
           <div className="pet-assistant-empty">
             <MessageCircle size={22} />
             <strong>{t('resources.pets.assistant.emptyTitle')}</strong>
@@ -287,7 +318,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
             </div>
           </div>
         ) : (
-          agentTurns.map((turn) => {
+          displayTurns.map((turn) => {
             const todoInspection = turn.role === 'assistant'
               ? AssistantTodoCapture.inspectAssistantTurn(turn.content)
               : null
