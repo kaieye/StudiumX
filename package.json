@@ -120,6 +120,7 @@
     "markdown-it-mark": "^4.0.0",
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^11.16.0",
+    "parse5": "^8.0.1",
     "proxy-agent": "^6.5.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

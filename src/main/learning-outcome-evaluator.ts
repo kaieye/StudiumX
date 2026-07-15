@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
+import { ErrorCodes, parse, type DefaultTreeAdapterTypes, type ParserError } from 'parse5'
+
 import { readContainedRegularFile } from './path-access'
 import {
   lessonInteractionLedgerKind,
@@ -72,13 +74,6 @@ type CanonicalQuiz = {
 type VerifiedAttempt = LearningOutcomeEvidenceAssessment & {
   disposition: 'verified_correct' | 'verified_incorrect'
 }
-
-type ParsedAttributes = {
-  values: Record<string, string>
-  malformed: boolean
-}
-
-const SAFE_OPTION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 /**
  * Pure read-side P0 assessment. It has no ledger, IPC, catalog, or outcome-file
@@ -210,28 +205,33 @@ function isCanonicalLessonHtmlPath(relativePath: string): boolean {
 }
 
 function parseCanonicalQuizzes(html: string): CanonicalQuiz[] | null {
-  const cards: CanonicalQuiz[] = []
-  const openingTag = /<article\b([^>]*)>/gi
-  let match: RegExpExecArray | null
-  while ((match = openingTag.exec(html))) {
-    const attributes = parseAttributes(match[1]!)
-    if (!hasClass(attributes.values.class, 'quiz-card')) continue
-    const end = html.toLowerCase().indexOf('</article', openingTag.lastIndex)
-    if (end < 0) return null
-    const itemId = `quiz-${cards.length + 1}`
-    cards.push(parseQuizCard(itemId, attributes, html.slice(openingTag.lastIndex, end)))
+  const parseErrors: ParserError[] = []
+  let document: DefaultTreeAdapterTypes.Document
+  try {
+    document = parse(html, {
+      sourceCodeLocationInfo: true,
+      onParseError: (error) => parseErrors.push(error)
+    })
+  } catch {
+    return null
   }
-  return cards
+
+  const cards = documentOrderElements(document).filter(isQuizCard)
+  if (cards.some((card) => !hasCompleteSourceLocation(card) || isNestedQuizCard(card))) return null
+  return cards.map((card, index) => parseQuizCard(`quiz-${index + 1}`, card, parseErrors))
 }
 
-function parseQuizCard(itemId: string, attributes: ParsedAttributes, content: string): CanonicalQuiz {
-  if (attributes.malformed) return { itemId, type: null, answerIds: null, choiceIds: null }
-  const type = attributes.values['data-type']
-  const choiceIds = parseChoiceIds(content)
-  if (type === 'fill') return { itemId, type: 'fill', answerIds: null, choiceIds }
-  if (type !== 'single' && type !== 'multi' && type !== 'truefalse') return { itemId, type: null, answerIds: null, choiceIds }
+function parseQuizCard(itemId: string, card: HtmlElement, parseErrors: readonly ParserError[]): CanonicalQuiz {
+  if (hasRelevantParseError(card, parseErrors)) {
+    return malformedQuiz(itemId)
+  }
 
-  const answerIds = parseAnswerIds(attributes.values['data-answer'])
+  const type = attributeValue(card, 'data-type')
+  const choiceIds = parseChoiceIds(card)
+  if (type === 'fill') return { itemId, type: 'fill', answerIds: null, choiceIds }
+  if (type !== 'single' && type !== 'multi' && type !== 'truefalse') return malformedQuiz(itemId)
+
+  const answerIds = parseAnswerIds(attributeValue(card, 'data-answer'))
   if (
     !answerIds ||
     !choiceIds ||
@@ -243,56 +243,127 @@ function parseQuizCard(itemId: string, attributes: ParsedAttributes, content: st
       !choiceIds.includes('true') ||
       !choiceIds.includes('false')
     ))
-  ) return { itemId, type: null, answerIds: null, choiceIds: null }
+  ) return malformedQuiz(itemId)
   return { itemId, type, answerIds, choiceIds }
 }
 
-function parseChoiceIds(content: string): string[] | null {
+function malformedQuiz(itemId: string): CanonicalQuiz {
+  return { itemId, type: null, answerIds: null, choiceIds: null }
+}
+
+function parseChoiceIds(card: HtmlElement): string[] | null {
   const ids: string[] = []
-  const button = /<button\b([^>]*)>/gi
-  let match: RegExpExecArray | null
-  while ((match = button.exec(content))) {
-    const attributes = parseAttributes(match[1]!)
-    if (attributes.malformed) return null
-    const choice = attributes.values['data-choice']
+  for (const element of documentOrderDescendantElements(card)) {
+    if (element.tagName !== 'button') continue
+    const choice = attributeValue(element, 'data-choice')
     if (choice === undefined) continue
-    if (!SAFE_OPTION_ID.test(choice) || ids.includes(choice)) return null
+    if (!hasCompleteSourceLocation(element) || !isSafeOptionId(choice) || ids.includes(choice)) return null
     ids.push(choice)
   }
   return ids.length > 0 ? ids : null
 }
 
+function documentOrderElements(parent: HtmlParentNode): HtmlElement[] {
+  const elements: HtmlElement[] = []
+  for (const child of parent.childNodes) {
+    if (!isHtmlElement(child)) continue
+    elements.push(child)
+    elements.push(...documentOrderElements(child))
+  }
+  return elements
+}
+
+function documentOrderDescendantElements(element: HtmlElement): HtmlElement[] {
+  return documentOrderElements(element)
+}
+
+function isHtmlElement(node: DefaultTreeAdapterTypes.Node): node is HtmlElement {
+  return 'tagName' in node
+}
+
+function isQuizCard(element: HtmlElement): boolean {
+  return classTokens(attributeValue(element, 'class')).includes('quiz-card')
+}
+
+function isNestedQuizCard(card: HtmlElement): boolean {
+  let parent = card.parentNode
+  while (parent) {
+    if (isHtmlElement(parent) && isQuizCard(parent)) return true
+    parent = isHtmlElement(parent) ? parent.parentNode : null
+  }
+  return false
+}
+
+function attributeValue(element: HtmlElement, name: string): string | undefined {
+  return element.attrs.find((attribute) => attribute.name === name)?.value
+}
+
+function classTokens(value: string | undefined): string[] {
+  if (!value) return []
+  const tokens: string[] = []
+  let token = ''
+  for (const character of value) {
+    if (isHtmlWhitespace(character)) {
+      if (token) tokens.push(token)
+      token = ''
+      continue
+    }
+    token += character
+  }
+  if (token) tokens.push(token)
+  return tokens
+}
+
+function isHtmlWhitespace(character: string): boolean {
+  return character === ' ' || character === '\t' || character === '\n' || character === '\r' || character === '\f'
+}
+
+function isSafeOptionId(value: string): boolean {
+  if (!value || !isAsciiAlphaNumeric(value.charCodeAt(0))) return false
+  for (let index = 1; index < value.length; index += 1) {
+    const character = value.charCodeAt(index)
+    if (!isAsciiAlphaNumeric(character) && character !== 46 && character !== 45 && character !== 95) return false
+  }
+  return true
+}
+
+function isAsciiAlphaNumeric(character: number): boolean {
+  return (
+    (character >= 48 && character <= 57) ||
+    (character >= 65 && character <= 90) ||
+    (character >= 97 && character <= 122)
+  )
+}
+
+function hasCompleteSourceLocation(element: HtmlElement): boolean {
+  const location = element.sourceCodeLocation
+  return Boolean(location?.startTag && location.endTag)
+}
+
+function hasRelevantParseError(card: HtmlElement, parseErrors: readonly ParserError[]): boolean {
+  const location = card.sourceCodeLocation
+  if (!location) return true
+  return parseErrors.some((error) => (
+    error.code !== ErrorCodes.missingDoctype &&
+    error.startOffset >= location.startOffset &&
+    error.startOffset < location.endOffset
+  ))
+}
+
+type HtmlElement = DefaultTreeAdapterTypes.Element
+type HtmlParentNode = DefaultTreeAdapterTypes.Document | DefaultTreeAdapterTypes.DocumentFragment | HtmlElement | DefaultTreeAdapterTypes.Template
+
 function parseAnswerIds(value: string | undefined): string[] | null {
   if (!value) return null
   const ids = value.split(',')
-  if (ids.length === 0 || ids.some((id) => !SAFE_OPTION_ID.test(id)) || new Set(ids).size !== ids.length) return null
+  if (ids.length === 0 || ids.some((id) => !isSafeOptionId(id)) || new Set(ids).size !== ids.length) return null
   return ids
-}
-
-function parseAttributes(source: string): ParsedAttributes {
-  const values: Record<string, string> = {}
-  let malformed = false
-  const pattern = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
-  let match: RegExpExecArray | null
-  while ((match = pattern.exec(source))) {
-    const name = match[1]!.toLowerCase()
-    if (Object.hasOwn(values, name)) {
-      malformed = true
-      continue
-    }
-    values[name] = match[2] ?? match[3] ?? match[4] ?? ''
-  }
-  return { values, malformed }
-}
-
-function hasClass(value: string | undefined, expected: string): boolean {
-  return value?.split(/\s+/).includes(expected) ?? false
 }
 
 function isValidSelection(selected: string[], choices: string[], type: 'single' | 'multi' | 'truefalse'): boolean {
   if (!Array.isArray(selected) || selected.length === 0 || new Set(selected).size !== selected.length) return false
   if ((type === 'single' || type === 'truefalse') && selected.length !== 1) return false
-  return selected.every((value) => SAFE_OPTION_ID.test(value) && choices.includes(value))
+  return selected.every((value) => isSafeOptionId(value) && choices.includes(value))
 }
 
 function sameIds(left: string[], right: string[]): boolean {
