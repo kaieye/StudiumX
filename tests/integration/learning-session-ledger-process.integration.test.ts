@@ -129,7 +129,7 @@ describe('LearningSessionLedger cross-process writer', () => {
     expect(recovered?.events.map((value) => value.eventId).sort()).toEqual(expectedEventIds.sort())
   })
 
-  it('deduplicates identical cross-process retries and rejects conflicting content for the same event ID', async () => {
+  it('returns atomic append receipts for identical cross-process retries and rejects conflicting content', async () => {
     const workspaceRoot = await createWorkspace()
     const ledger = createLearningSessionLedger({ workspaceRoot })
     await ledger.open({
@@ -140,10 +140,19 @@ describe('LearningSessionLedger cross-process writer', () => {
 
     const identicalEvent = event('session-process-same-event', 'event-process-same', { answer: 'same' })
     const identical = await runHeldPair(workspaceRoot,
-      { operation: 'append', input: { sessionId: 'session-process-same-event', event: identicalEvent } },
-      { operation: 'append', input: { sessionId: 'session-process-same-event', event: identicalEvent } }
+      { operation: 'appendWithReceipt', input: { sessionId: 'session-process-same-event', event: identicalEvent } },
+      { operation: 'appendWithReceipt', input: { sessionId: 'session-process-same-event', event: identicalEvent } }
     )
     expect(identical.map((result) => result.ok)).toEqual([true, true])
+    const receipts = identical.map((result) => result.result as {
+      disposition: 'appended' | 'matching_existing'
+      snapshot: { events: unknown[] }
+      event: { eventId: string; sequence: number; recordedAt: string }
+    })
+    expect(receipts.map((receipt) => receipt.disposition).sort()).toEqual(['appended', 'matching_existing'])
+    expect(receipts[0].event).toEqual(receipts[1].event)
+    expect(receipts[0].snapshot.events).toContainEqual(receipts[0].event)
+    expect(receipts[1].snapshot.events).toContainEqual(receipts[1].event)
     await expect(ledger.load('session-process-same-event')).resolves.toMatchObject({ eventCount: 1 })
 
     const conflict = await runHeldPair(workspaceRoot,
@@ -407,7 +416,7 @@ function event(sessionId: string, eventId: string, payload: Record<string, unkno
 
 type WorkerRequest = {
   workspaceRoot: string
-  operation: 'append' | 'open' | 'complete' | 'load' | 'scan'
+  operation: 'append' | 'appendWithReceipt' | 'open' | 'complete' | 'load' | 'scan'
   input: Record<string, unknown>
   readyPath?: string
   releasePath?: string
