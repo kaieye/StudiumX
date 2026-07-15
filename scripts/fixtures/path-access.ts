@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -30,17 +30,21 @@ try {
   await mkdir(workspace)
   await mkdir(outside)
   const insideFile = join(workspace, 'inside.md')
-  const outsideFile = join(outside, 'secret.md')
+  const outsideDirectory = join(outside, 'escaped')
+  const outsideFile = join(outsideDirectory, 'secret.md')
+  await mkdir(outsideDirectory)
   await writeFile(insideFile, 'inside')
   await writeFile(outsideFile, 'secret')
 
-  const symlinkToOutside = join(workspace, 'linked-secret.md')
-  await symlink(outsideFile, symlinkToOutside)
+  const linkToOutside = join(workspace, 'linked-outside')
+  await symlink(outsideDirectory, linkToOutside, process.platform === 'win32' ? 'junction' : 'dir')
+  const escapedThroughLink = join(linkToOutside, 'secret.md')
 
+  assert.equal((await lstat(linkToOutside)).isSymbolicLink(), true)
   assert.equal(await isRealPathInsideRoot(workspace, insideFile), true)
-  assert.equal(await isRealPathInsideRoot(workspace, symlinkToOutside), false)
+  assert.equal(await isRealPathInsideRoot(workspace, escapedThroughLink), false)
   await assert.rejects(
-    () => assertRealPathInsideRoot(workspace, symlinkToOutside),
+    () => assertRealPathInsideRoot(workspace, escapedThroughLink),
     /Path escapes the configured root/
   )
 } finally {
