@@ -3,7 +3,7 @@ import katex from 'katex'
 import markdownItMark from 'markdown-it-mark'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { useEffect, useMemo, useRef } from 'react'
-import { PREVIEW_PROTOCOL } from '../../shared/preview-markdown-bridge'
+import { PREVIEW_PROTOCOL, parseMarkdownLessonInteractionHref, type PreviewLessonInteractionIntent } from '../../shared/preview-markdown-bridge'
 
 const COPY_DEFAULT_HTML = '<span class="markdown-copy-icon markdown-copy-icon--default">copy</span>'
 const COPY_DONE_HTML = '<span class="markdown-copy-icon markdown-copy-icon--done">copied</span>'
@@ -479,7 +479,8 @@ export function MarkdownPreview({
   emptyTitle,
   emptyHint,
   onOpenExternal,
-  onOpenWorkspaceMarkdown
+  onOpenWorkspaceMarkdown,
+  lessonInteraction
 }: {
   source: string
   workspaceId?: string | null
@@ -488,6 +489,7 @@ export function MarkdownPreview({
   emptyHint: string
   onOpenExternal: (href: string) => void
   onOpenWorkspaceMarkdown?: (relativePath: string) => void
+  lessonInteraction?: { onIntent: (intent: PreviewLessonInteractionIntent) => void }
 }) {
   const articleRef = useRef<HTMLElement | null>(null)
   const html = useMemo(() => renderMarkdownPreviewHtml(source), [source])
@@ -514,6 +516,14 @@ export function MarkdownPreview({
       if (!anchor) return
       const href = anchor.getAttribute('href')
       if (!href) return
+      if (lessonInteraction) {
+        const intent = parseMarkdownLessonInteractionHref(href)
+        if (intent) {
+          event.preventDefault()
+          lessonInteraction.onIntent(intent)
+          return
+        }
+      }
 
       if (href.startsWith('#')) {
         event.preventDefault()
@@ -538,7 +548,7 @@ export function MarkdownPreview({
 
     article.addEventListener('click', handleClick)
     return () => article.removeEventListener('click', handleClick)
-  }, [documentRelativePath, onOpenExternal, onOpenWorkspaceMarkdown])
+  }, [documentRelativePath, lessonInteraction, onOpenExternal, onOpenWorkspaceMarkdown])
 
   if (source.trim().length === 0) {
     return (

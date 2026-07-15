@@ -19,6 +19,11 @@ export {
   LESSON_MARKUP_SELECTORS
 } from './lesson-style-themes/contract'
 export { LESSON_FLASHCARD_CSS, LESSON_FLASHCARD_JS, LESSON_QUIZ_JS } from './lesson-style-themes/assets'
+export {
+  PREVIEW_LESSON_INTERACTION_MESSAGE,
+  PREVIEW_LESSON_INTERACTION_SOURCE,
+  type PreviewLessonInteractionIntent
+} from './preview-markdown-bridge'
 export { BLUEPRINT_CSS, BLUEPRINT_STYLE, BLUEPRINT_TOKENS } from './lesson-style-themes/blueprint'
 export { CHALKBOARD_CSS, CHALKBOARD_STYLE, CHALKBOARD_TOKENS } from './lesson-style-themes/chalkboard'
 export { CLASSIC_STYLE, CLASSIC_TOKENS } from './lesson-style-themes/classic'
