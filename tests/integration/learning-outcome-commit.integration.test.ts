@@ -8,6 +8,7 @@ import { createLearningSessionLedger } from '../../src/main/learning-session-led
 import { createLessonInteractionRecorder } from '../../src/main/lesson-interaction-recorder'
 import { publishLessonArtifacts } from '../../src/main/teaching-lesson-artifacts'
 import type { TeachingSettingsV1 } from '../../src/shared/teaching-types'
+import type { LearningOutcomeCommitResult } from '../../src/shared/teaching-types/learning-outcome'
 
 const roots: string[] = []
 
@@ -29,7 +30,7 @@ afterEach(async () => {
 })
 
 describe('LearningOutcomeCommitter durable integration', () => {
-  it('Golden: settles wrong-to-correct evidence as one provenance-preserving correction record', async () => {
+  it('publishes exactly one evaluator-approved record after correction with a serialization-safe result contract', async () => {
     const workspaceRoot = await workspace()
     const publication = await publishLessonArtifacts({
       workspace: { name: 'Foundations', rootPath: workspaceRoot },
@@ -60,19 +61,24 @@ describe('LearningOutcomeCommitter durable integration', () => {
     await record('evidence-wrong-1', 1, ['a'])
     const committer = createLearningOutcomeCommitter({ workspaceRoot, ledger, createId: () => 'outcome-commit-1' })
 
-    await expect(committer.commit({ sessionId: 'session-outcome-commit', operationId: 'outcome-wrong-1' })).resolves.toMatchObject({
-      disposition: 'committed', outcome: { kind: 'needs_practice' }, record: null
-    })
+    const practice = await committer.commit({ sessionId: 'session-outcome-commit', operationId: 'outcome-wrong-1' })
+    const learnerSafePractice: LearningOutcomeCommitResult = practice
+    expect(learnerSafePractice).toMatchObject({ status: 'committed', outcome: { kind: 'needs_practice' }, recordSaved: false })
+    expect(practice).toMatchObject({ record: null })
+    expect(JSON.parse(JSON.stringify(practice))).toEqual(practice)
     await expect(readdir(join(workspaceRoot, 'learning-records'))).rejects.toMatchObject({ code: 'ENOENT' })
 
     await record('evidence-correct-2', 2, ['b'])
     const correctionEvidence = ['evidence-correct-2', 'evidence-wrong-1']
     const correction = await committer.commit({ sessionId: 'session-outcome-commit', operationId: 'outcome-correct-2' })
+    const learnerSafeCorrection: LearningOutcomeCommitResult = correction
+    expect(learnerSafeCorrection).toMatchObject({ status: 'committed', outcome: { kind: 'misconception_corrected' }, recordSaved: true })
     expect(correction).toMatchObject({
-      disposition: 'committed',
+      status: 'committed',
       outcome: { kind: 'misconception_corrected', evidenceEventIds: correctionEvidence },
       record: { relativePath: 'learning-records/outcome-session-outcome-commit.md' }
     })
+    expect(JSON.parse(JSON.stringify(correction))).toEqual(correction)
     expect(correction.record).not.toBeNull()
 
     const recordPath = join(workspaceRoot, ...correction.record!.relativePath.split('/'))
@@ -97,11 +103,13 @@ describe('LearningOutcomeCommitter durable integration', () => {
       outcomeRef: { kind: 'misconception_corrected', evidenceEventIds: correctionEvidence }
     })
 
-    await expect(committer.commit({ sessionId: 'session-outcome-commit', operationId: 'outcome-correct-2' })).resolves.toMatchObject({
-      disposition: 'already_committed',
+    const replay = await committer.commit({ sessionId: 'session-outcome-commit', operationId: 'outcome-correct-2' })
+    expect(replay).toMatchObject({
+      status: 'already_committed', recordSaved: true,
       outcome: { kind: 'misconception_corrected', evidenceEventIds: correctionEvidence },
       record: { relativePath: correction.record!.relativePath }
     })
+    expect(JSON.parse(JSON.stringify(replay))).toEqual(replay)
     expect((await readdir(join(workspaceRoot, 'learning-records'))).filter((file) => file.endsWith('.md'))).toEqual([
       'outcome-session-outcome-commit.md'
     ])

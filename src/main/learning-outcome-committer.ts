@@ -10,11 +10,18 @@ import {
 import {
   createLearningSessionLedger,
   encodeCommittedLearningSessionOutcome,
+  LearningSessionLedgerError,
   type LearningSessionLedger
 } from './learning-session-ledger'
 import { readLearningAssetCatalog } from './teaching-workspace/learning-assets-catalog'
 import { requireLearningSessionId } from '../shared/teaching-placement'
 import type { LearningOutcomeKind, LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
+import type {
+  LearnerSafeLearningOutcome,
+  LearningOutcomeCommitRequest,
+  LearningOutcomeCommitResult as LearnerSafeLearningOutcomeCommitResult,
+  LearningOutcomeCommitSuccess as LearnerSafeLearningOutcomeCommitSuccess
+} from '../shared/teaching-types/learning-outcome'
 
 const OUTCOME_SETTLEMENT_FILE = 'outcome-settlement.json'
 const LEARNING_RECORDS_DIRECTORY = 'learning-records'
@@ -29,9 +36,7 @@ export type OutcomeEvaluationInput = {
   sessionId: string
 }
 
-export type OutcomeCommitInput = OutcomeEvaluationInput & {
-  operationId: string
-}
+export type OutcomeCommitInput = LearningOutcomeCommitRequest
 
 export type LearningOutcomeRecordRef = {
   recordId: string
@@ -50,12 +55,21 @@ export type OutcomeSettlementMarker = {
   record: LearningOutcomeRecordRef | null
 }
 
-export type OutcomeCommitResult = {
-  disposition: 'committed' | 'already_committed'
-  outcome: Pick<OutcomeSettlementMarker, 'outcomeId' | 'kind' | 'evidenceEventIds'>
+type MainLearningOutcomeCommitSuccessDetails = {
+  outcome: LearnerSafeLearningOutcome & Pick<OutcomeSettlementMarker, 'outcomeId' | 'evidenceEventIds'>
+  // This durable ref is intentionally main-process-only; the shared IPC contract
+  // projects only recordSaved and never exposes paths or content digests.
   record: LearningOutcomeRecordRef | null
   catalogRecordPresent: boolean
 }
+
+type MainLearningOutcomeCommitSuccess =
+  | (Extract<LearnerSafeLearningOutcomeCommitSuccess, { status: 'committed' }> & MainLearningOutcomeCommitSuccessDetails)
+  | (Extract<LearnerSafeLearningOutcomeCommitSuccess, { status: 'already_committed' }> & MainLearningOutcomeCommitSuccessDetails)
+
+export type OutcomeCommitResult =
+  | MainLearningOutcomeCommitSuccess
+  | Exclude<LearnerSafeLearningOutcomeCommitResult, LearnerSafeLearningOutcomeCommitSuccess>
 
 export type OutcomeReconciliation = {
   sessionId: string
@@ -117,58 +131,83 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
   }
 
   async commit(input: OutcomeCommitInput): Promise<OutcomeCommitResult> {
-    const sessionId = requireLearningSessionId(input.sessionId)
-    const operationId = requireOperationId(input.operationId)
-    const session = await this.loadCanonicalSession(sessionId)
-    const existing = await this.reconcile(sessionId)
-    if (existing.marker?.operationId === operationId && existing.state === 'settled') {
-      return committedResult('already_committed', existing.marker, existing.catalogRecordPresent)
-    }
-    if (session.status === 'completed') {
-      if (existing.marker) return committedResult('already_committed', existing.marker, existing.catalogRecordPresent)
-      throw new Error(`Completed Learning Session "${sessionId}" has no recoverable outcome settlement.`)
+    let sessionId: string
+    try {
+      sessionId = requireLearningSessionId(input.sessionId)
+    } catch {
+      return nonRetryableFailure('invalid_session')
     }
 
-    const evaluation = await this.evaluateDecision({ workspaceRoot: this.options.workspaceRoot, session })
-    assertEvaluationMatchesSession(evaluation, session)
-    const settlement = settlementFromEvaluation(session, operationId, evaluation, this.createId())
+    let operationId: string
+    try {
+      operationId = requireOperationId(input.operationId)
+    } catch {
+      return nonRetryableFailure('invalid_request')
+    }
 
-    if (!writesLearningRecord(settlement.marker.kind)) {
-      await durableAtomicReplace(
-        join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE),
-        serialize(settlement.marker)
-      )
+    let writeAttempted = false
+    try {
+      const session = await this.loadCanonicalSession(sessionId)
+      const existing = await this.reconcile(sessionId)
+      if (existing.state === 'review_required') return conflictResult()
+      if (existing.state === 'read_only') return nonRetryableFailure('read_only')
+      if (existing.state === 'not_found') return nonRetryableFailure('not_found')
+      if (existing.marker?.operationId === operationId && existing.state === 'settled') {
+        return committedResult('already_committed', existing.marker, existing.catalogRecordPresent)
+      }
+      if (session.status === 'completed') {
+        if (existing.marker && existing.state === 'settled') {
+          return committedResult('already_committed', existing.marker, existing.catalogRecordPresent)
+        }
+        return retryableFailure('reconciliation_required')
+      }
+
+      const evaluation = await this.evaluateDecision({ workspaceRoot: this.options.workspaceRoot, session })
+      assertEvaluationMatchesSession(evaluation, session)
+      if (evaluation.kind === 'not_evidenced') return insufficientEvidenceResult()
+      const settlement = settlementFromEvaluation(session, operationId, evaluation, this.createId())
+
+      if (!writesLearningRecord(settlement.marker.kind)) {
+        writeAttempted = true
+        await durableAtomicReplace(
+          join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE),
+          serialize(settlement.marker)
+        )
+        await this.inject('after_settlement_marker', sessionId, operationId)
+        await this.inject('before_catalog_reconcile', sessionId, operationId)
+        const catalogRecordPresent = await this.catalogHas(settlement.marker.record)
+        return committedResult('committed', settlement.marker, catalogRecordPresent)
+      }
+
+      const record = settlement.record!
+      const recordContent = renderLearningRecord(settlement.marker, session, evaluation)
+      const recordsDirectory = join(this.options.workspaceRoot, LEARNING_RECORDS_DIRECTORY)
+      const stagePath = join(recordsDirectory, STAGE_DIRECTORY, `${record.recordId}.${operationId}.md`)
+      const recordPath = join(this.options.workspaceRoot, ...record.relativePath.split('/'))
+
+      writeAttempted = true
+      await durableStage(stagePath, recordContent)
+      await this.inject('after_stage_flush', sessionId, operationId)
+      await publishImmutable(stagePath, recordPath, recordContent)
+      await this.inject('after_record_publish', sessionId, operationId)
+
+      const encoded = encodeCommittedLearningSessionOutcome({
+        sessionId,
+        outcomeId: settlement.marker.outcomeId,
+        kind: settlement.marker.kind,
+        evidenceEventIds: settlement.marker.evidenceEventIds
+      })
+      await durableAtomicReplace(join(this.sessionDirectory(sessionId), 'outcome.json'), encoded.content)
+      await this.inject('after_outcome_publish', sessionId, operationId)
+      await this.ledger.complete(sessionId, encoded.ref)
+      await durableAtomicReplace(join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE), serialize(settlement.marker))
       await this.inject('after_settlement_marker', sessionId, operationId)
       await this.inject('before_catalog_reconcile', sessionId, operationId)
-      const catalogRecordPresent = await this.catalogHas(settlement.marker.record)
-      return committedResult('committed', settlement.marker, catalogRecordPresent)
+
+      return committedResult('committed', settlement.marker, await this.catalogHas(record))
+    } catch (error) {
+      return resultFromCommitError(error, writeAttempted)
     }
-
-    const record = settlement.record!
-    const recordContent = renderLearningRecord(settlement.marker, session, evaluation)
-    const recordsDirectory = join(this.options.workspaceRoot, LEARNING_RECORDS_DIRECTORY)
-    const stagePath = join(recordsDirectory, STAGE_DIRECTORY, `${record.recordId}.${operationId}.md`)
-    const recordPath = join(this.options.workspaceRoot, ...record.relativePath.split('/'))
-
-    await durableStage(stagePath, recordContent)
-    await this.inject('after_stage_flush', sessionId, operationId)
-    await publishImmutable(stagePath, recordPath, recordContent)
-    await this.inject('after_record_publish', sessionId, operationId)
-
-    const encoded = encodeCommittedLearningSessionOutcome({
-      sessionId,
-      outcomeId: settlement.marker.outcomeId,
-      kind: settlement.marker.kind,
-      evidenceEventIds: settlement.marker.evidenceEventIds
-    })
-    await durableAtomicReplace(join(this.sessionDirectory(sessionId), 'outcome.json'), encoded.content)
-    await this.inject('after_outcome_publish', sessionId, operationId)
-    await this.ledger.complete(sessionId, encoded.ref)
-    await durableAtomicReplace(join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE), serialize(settlement.marker))
-    await this.inject('after_settlement_marker', sessionId, operationId)
-    await this.inject('before_catalog_reconcile', sessionId, operationId)
-
-    return committedResult('committed', settlement.marker, await this.catalogHas(record))
   }
 
   async reconcile(sessionId: string): Promise<OutcomeReconciliation> {
@@ -252,8 +291,8 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
   private async loadCanonicalSession(sessionId: string): Promise<Extract<LearningSessionSnapshot, { source: 'canonical' }>> {
     const safeSessionId = requireLearningSessionId(sessionId)
     const session = await this.ledger.load(safeSessionId)
-    if (!session) throw new Error(`Learning Session "${safeSessionId}" was not found.`)
-    if (session.readOnly || session.source !== 'canonical') throw new Error(`Learning Session "${safeSessionId}" is read-only.`)
+    if (!session) throw new OutcomeCommitterError('not_found')
+    if (session.readOnly || session.source !== 'canonical') throw new OutcomeCommitterError('read_only')
     return session
   }
 
@@ -285,7 +324,7 @@ function settlementFromEvaluation(
   const kind: LearningOutcomeKind = evaluation.kind
   const evidenceEventIds = unique(evaluation.evidenceEventIds)
   if (writesLearningRecord(kind) && (!evaluation.mastery || evaluation.artifact.status !== 'verified' || evidenceEventIds.length === 0)) {
-    throw new Error('Learning record publication requires verified mastery evidence.')
+    throw new OutcomeCommitterError('invalid_request')
   }
   const record = writesLearningRecord(kind)
     ? {
@@ -339,10 +378,10 @@ function markerFromRecord(record: ParsedRecord): OutcomeSettlementMarker | null 
 
 function assertEvaluationMatchesSession(evaluation: LearningOutcomeEvaluation, session: LearningSessionSnapshot): void {
   if (evaluation.schemaVersion !== 1 || evaluation.sessionId !== session.id) {
-    throw new Error('Outcome evaluation does not belong to the canonical Learning Session.')
+    throw new OutcomeCommitterError('invalid_request')
   }
   if (!['established', 'misconception_corrected', 'needs_practice', 'not_evidenced'].includes(evaluation.kind)) {
-    throw new Error('Outcome evaluation kind is unsupported.')
+    throw new OutcomeCommitterError('invalid_request')
   }
 }
 
@@ -351,15 +390,54 @@ function writesLearningRecord(kind: LearningOutcomeKind): boolean {
 }
 
 function committedResult(
-  disposition: OutcomeCommitResult['disposition'],
+  status: MainLearningOutcomeCommitSuccess['status'],
   marker: OutcomeSettlementMarker,
   catalogRecordPresent: boolean
-): OutcomeCommitResult {
+): MainLearningOutcomeCommitSuccess {
   return {
-    disposition,
-    outcome: { outcomeId: marker.outcomeId, kind: marker.kind, evidenceEventIds: marker.evidenceEventIds },
+    status,
+    outcome: { outcomeId: marker.outcomeId, kind: marker.kind as LearnerSafeLearningOutcome['kind'], evidenceEventIds: marker.evidenceEventIds },
+    recordSaved: marker.record !== null,
     record: marker.record,
     catalogRecordPresent
+  }
+}
+
+function insufficientEvidenceResult(): Extract<LearnerSafeLearningOutcomeCommitResult, { status: 'insufficient_evidence' }> {
+  return { status: 'insufficient_evidence', reason: 'not_evidenced' }
+}
+
+function conflictResult(): Extract<LearnerSafeLearningOutcomeCommitResult, { status: 'conflict' }> {
+  return { status: 'conflict', reason: 'review_required' }
+}
+
+function retryableFailure(
+  reason: Extract<LearnerSafeLearningOutcomeCommitResult, { status: 'retryable_failure' }>['reason']
+): Extract<LearnerSafeLearningOutcomeCommitResult, { status: 'retryable_failure' }> {
+  return { status: 'retryable_failure', reason }
+}
+
+function nonRetryableFailure(
+  reason: Extract<LearnerSafeLearningOutcomeCommitResult, { status: 'non_retryable_failure' }>['reason']
+): Extract<LearnerSafeLearningOutcomeCommitResult, { status: 'non_retryable_failure' }> {
+  return { status: 'non_retryable_failure', reason }
+}
+
+function resultFromCommitError(error: unknown, writeAttempted: boolean): OutcomeCommitResult {
+  if (error instanceof OutcomeCommitterError) return nonRetryableFailure(error.code)
+  if (error instanceof LearningSessionLedgerError) {
+    if (error.code === 'not_found') return nonRetryableFailure('not_found')
+    if (error.code === 'read_only') return nonRetryableFailure('read_only')
+    if (error.code === 'invalid_input') return nonRetryableFailure('invalid_request')
+    if (error.code === 'invalid_transition' || error.code === 'identity_conflict' || error.code === 'corrupt_session') return conflictResult()
+  }
+  return retryableFailure(writeAttempted ? 'reconciliation_required' : 'temporarily_unavailable')
+}
+
+class OutcomeCommitterError extends Error {
+  constructor(readonly code: 'not_found' | 'read_only' | 'invalid_request') {
+    super(code)
+    this.name = 'OutcomeCommitterError'
   }
 }
 
