@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -29,7 +29,7 @@ afterEach(async () => {
 })
 
 describe('LearningOutcomeCommitter durable integration', () => {
-  it('settles an incorrect verified attempt without a record, then publishes exactly one evaluator-approved record', async () => {
+  it('Golden: settles wrong-to-correct evidence as one provenance-preserving correction record', async () => {
     const workspaceRoot = await workspace()
     const publication = await publishLessonArtifacts({
       workspace: { name: 'Foundations', rootPath: workspaceRoot },
@@ -66,12 +66,41 @@ describe('LearningOutcomeCommitter durable integration', () => {
     await expect(readdir(join(workspaceRoot, 'learning-records'))).rejects.toMatchObject({ code: 'ENOENT' })
 
     await record('evidence-correct-2', 2, ['b'])
-    await expect(committer.commit({ sessionId: 'session-outcome-commit', operationId: 'outcome-correct-2' })).resolves.toMatchObject({
-      disposition: 'committed', outcome: { kind: 'established', evidenceEventIds: ['evidence-correct-2'] },
+    const correctionEvidence = ['evidence-correct-2', 'evidence-wrong-1']
+    const correction = await committer.commit({ sessionId: 'session-outcome-commit', operationId: 'outcome-correct-2' })
+    expect(correction).toMatchObject({
+      disposition: 'committed',
+      outcome: { kind: 'misconception_corrected', evidenceEventIds: correctionEvidence },
       record: { relativePath: 'learning-records/outcome-session-outcome-commit.md' }
     })
+    expect(correction.record).not.toBeNull()
+
+    const recordPath = join(workspaceRoot, ...correction.record!.relativePath.split('/'))
+    const recordContent = await readFile(recordPath, 'utf8')
+    const metadataMatch = recordContent.match(/^<!-- studiumx-learning-outcome (\{.+\}) -->$/m)
+    expect(metadataMatch?.[1]).toBeDefined()
+    const metadata = JSON.parse(metadataMatch![1]) as Record<string, unknown>
+    expect(metadata).toMatchObject({
+      sessionId: 'session-outcome-commit',
+      operationId: 'outcome-correct-2',
+      outcomeKind: 'misconception_corrected',
+      evidenceEventIds: correctionEvidence,
+      lessonId: publication.lesson.id,
+      assessment: {
+        relativePath: publication.assessment.relativePath,
+        contentSha256: publication.assessment.contentSha256
+      }
+    })
+    await expect(ledger.load('session-outcome-commit')).resolves.toMatchObject({
+      id: 'session-outcome-commit',
+      status: 'completed',
+      outcomeRef: { kind: 'misconception_corrected', evidenceEventIds: correctionEvidence }
+    })
+
     await expect(committer.commit({ sessionId: 'session-outcome-commit', operationId: 'outcome-correct-2' })).resolves.toMatchObject({
-      disposition: 'already_committed'
+      disposition: 'already_committed',
+      outcome: { kind: 'misconception_corrected', evidenceEventIds: correctionEvidence },
+      record: { relativePath: correction.record!.relativePath }
     })
     expect((await readdir(join(workspaceRoot, 'learning-records'))).filter((file) => file.endsWith('.md'))).toEqual([
       'outcome-session-outcome-commit.md'
