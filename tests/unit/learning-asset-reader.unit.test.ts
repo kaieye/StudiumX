@@ -119,8 +119,8 @@ describe('learning asset reader', () => {
     lessonRead.resolve({ html: '<h1>Lesson</h1>', url: 'file:///lesson.html' })
     await openingLesson
 
-    expect(htmlPreview.read).toHaveBeenCalledWith({ workspaceId: workspace.id, lessonPath: lesson.absolutePath })
-    expect(markdownDocumentAdapter.read).toHaveBeenCalledWith({ workspaceId: workspace.id, documentPath: resource.absolutePath })
+    expect(htmlPreview.read).toHaveBeenCalledWith({ workspaceId: workspace.id, lessonPath: lesson.relativePath })
+    expect(markdownDocumentAdapter.read).toHaveBeenCalledWith({ workspaceId: workspace.id, documentPath: resource.relativePath })
     expect(state.lessonReaderOpen).toBe(false)
     expect(state.selectedCoursePreviewFile).toBeNull()
     expect(state.selectedMarkdownDocument).toMatchObject({ absolutePath: resource.absolutePath, content: '# Resource notes' })

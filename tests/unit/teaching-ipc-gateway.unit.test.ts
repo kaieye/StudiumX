@@ -54,7 +54,7 @@ function registration(overrides: Record<string, unknown> = {}): TeachingIpcRegis
   } as TeachingIpcRegistration
 }
 
-const event = { sender: { isDestroyed: () => false, send: vi.fn() } }
+const event = { sender: { id: 41, isDestroyed: vi.fn(() => false), once: vi.fn(), send: vi.fn() } }
 
 function handler(channel: string) {
   const registered = electron.handlers.get(channel)
@@ -86,6 +86,59 @@ describe('Teaching IPC gateway', () => {
     await expect(handler(teachingInvokeChannels.createWorkspace)(event, { name: 'Course', prompt: 42 }))
       .rejects.toThrow('IPC payload field "prompt" must be a string.')
     expect(createWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('accepts only a narrow preview intent before dispatching sender-bound recording', async () => {
+    const recordPreviewLessonInteraction = vi.fn().mockResolvedValue({
+      eventId: 'preview-open-001', sessionId: 'session-1', sequence: 1, duplicate: false
+    })
+    registerTeachingIpcGateway(registration({ workspaceService: { recordPreviewLessonInteraction } }))
+
+    const intent = { eventId: 'preview-open-001', kind: 'lesson_opened', itemId: 'lesson-1' }
+    await expect(handler(teachingInvokeChannels.recordPreviewLessonInteraction)(event, intent)).resolves.toEqual({
+      eventId: 'preview-open-001', sessionId: 'session-1', sequence: 1, duplicate: false
+    })
+    expect(recordPreviewLessonInteraction).toHaveBeenCalledWith(41, intent)
+    expect(event.sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function))
+  })
+
+  it('clears a sender binding when Electron destroys the preview sender', async () => {
+    const clearPreviewLessonBinding = vi.fn()
+    const recordPreviewLessonInteraction = vi.fn().mockResolvedValue({
+      eventId: 'preview-destroy-001', sessionId: 'session-1', sequence: 1, duplicate: false
+    })
+    registerTeachingIpcGateway(registration({ workspaceService: { clearPreviewLessonBinding, recordPreviewLessonInteraction } }))
+
+    await handler(teachingInvokeChannels.recordPreviewLessonInteraction)(event, {
+      eventId: 'preview-destroy-001', kind: 'lesson_opened', itemId: 'lesson-1'
+    })
+    const destroyed = event.sender.once.mock.calls.find(([name]) => name === 'destroyed')?.[1] as (() => void) | undefined
+    expect(destroyed).toBeTypeOf('function')
+    destroyed?.()
+    expect(clearPreviewLessonBinding).toHaveBeenCalledWith(41)
+  })
+
+  it('fails closed with a typed error when the preview sender is already destroyed', async () => {
+    const recordPreviewLessonInteraction = vi.fn()
+    registerTeachingIpcGateway(registration({ workspaceService: { recordPreviewLessonInteraction } }))
+    event.sender.isDestroyed.mockReturnValueOnce(true)
+
+    await expect(handler(teachingInvokeChannels.recordPreviewLessonInteraction)(event, {
+      eventId: 'preview-destroyed-sender-001', kind: 'lesson_opened', itemId: 'lesson-1'
+    })).rejects.toMatchObject({ code: 'sender_unavailable', message: 'Preview lesson interaction sender is unavailable.' })
+    expect(recordPreviewLessonInteraction).not.toHaveBeenCalled()
+  })
+
+  it('rejects injected preview authority fields before recording and exposes no broad evidence channel', async () => {
+    const recordPreviewLessonInteraction = vi.fn()
+    registerTeachingIpcGateway(registration({ workspaceService: { recordPreviewLessonInteraction } }))
+
+    await expect(handler(teachingInvokeChannels.recordPreviewLessonInteraction)(event, {
+      eventId: 'preview-open-attack', kind: 'lesson_opened', itemId: 'lesson-1', workspaceId: 'forged-workspace'
+    })).rejects.toThrow('unsupported fields')
+    expect(recordPreviewLessonInteraction).not.toHaveBeenCalled()
+    expect(Object.keys(teachingInvokeChannels)).toContain('recordPreviewLessonInteraction')
+    expect(Object.keys(teachingInvokeChannels)).not.toContain('recordLessonInteraction')
   })
 
   it('invalidates conversation analytics after saving a conversation', async () => {

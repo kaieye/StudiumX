@@ -16,6 +16,7 @@ import {
   type LessonInteractionRecordingContext
 } from '../../src/shared/preview-markdown-bridge'
 import { MarkdownPreview } from '../../src/renderer/src/markdown-preview'
+import { previewLessonInteractionForCurrentIframe } from '../../src/renderer/src/App'
 
 const roots: string[] = []
 const artifactDigest = 'a'.repeat(64)
@@ -146,6 +147,22 @@ describe('LessonInteractionRecorder contracts', () => {
       legacy: { source: 'review_progress', questionDigest: expect.stringMatching(/^[a-f0-9]{64}$/) }
     })
     expect(JSON.stringify(projected)).not.toContain('What is a limit?')
+  })
+
+  it('accepts an interaction only from the current lesson iframe source', () => {
+    const lessonFrame = document.createElement('iframe')
+    const anotherFrame = document.createElement('iframe')
+    document.body.append(lessonFrame, anotherFrame)
+    const message = {
+      source: 'studiumx-lesson-evidence', type: 'studiumx:lesson-interaction',
+      interaction: { eventId: 'iframe-open-001', kind: 'lesson_opened', itemId: 'lesson-1' }
+    }
+
+    expect(previewLessonInteractionForCurrentIframe({ data: message, source: lessonFrame.contentWindow }, lessonFrame))
+      .toEqual({ eventId: 'iframe-open-001', kind: 'lesson_opened', itemId: 'lesson-1' })
+    expect(previewLessonInteractionForCurrentIframe({ data: message, source: anotherFrame.contentWindow }, lessonFrame)).toBeNull()
+    lessonFrame.remove()
+    anotherFrame.remove()
   })
 
   it('normalizes the iframe bridge and markdown-preview surface into the same trusted interaction shape', () => {
