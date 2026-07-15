@@ -206,5 +206,10 @@ describe('pet-interaction contract', () => {
       height: 320
     })
     expect(projectAssistantDialogInteraction(resize, 13, { x: 700, y: 800 }, desktop)).toBeNull()
+
+    expect(clampAssistantDialogGeometry(
+      { x: 900, y: 700, width: 800, height: 700 },
+      { width: 180, height: 160 }
+    )).toEqual({ x: 16, y: 16, width: 148, height: 128 })
   })
 })

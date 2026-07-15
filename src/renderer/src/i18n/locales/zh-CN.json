@@ -418,7 +418,8 @@
           "send": "发送消息",
           "addTodo": "加入今日清单 · {{count}} 项",
           "todoAdded": "已加入今日清单",
-          "openFullConversation": "打开完整对话"
+          "openFullConversation": "打开完整对话",
+          "resetWindow": "重置 Assistant 窗口位置和尺寸"
         },
         "emptyTitle": "现在想推进什么？",
         "suggestions": {

@@ -1,4 +1,4 @@
-import { ArrowUpRight, MessageCircle, Plus, SendHorizontal, Square, X } from 'lucide-react'
+import { ArrowUpRight, MessageCircle, Plus, RotateCcw, SendHorizontal, Square, X } from 'lucide-react'
 import {
   useEffect,
   useRef,
@@ -282,6 +282,17 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     setImportedTodoTurns((current) => new Set(current).add(turnId))
   }
 
+  const resetDialogGeometry = (): void => {
+    interactionRef.current = null
+    customizedGeometryRef.current = false
+    setGeometry(defaultAssistantDialogGeometry(viewport()))
+    try {
+      window.localStorage.removeItem(PET_ASSISTANT_GEOMETRY_STORAGE_KEY)
+    } catch {
+      // Reset still applies to the current session when storage is unavailable.
+    }
+  }
+
   const startInteraction = (
     event: ReactPointerEvent<HTMLElement>,
     mode: AssistantDialogInteraction['mode'],
@@ -363,6 +374,14 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
             ? t('resources.pets.assistant.status.thinking')
             : t('resources.pets.assistant.title')}</small>
         </span>
+        <button
+          type="button"
+          onClick={resetDialogGeometry}
+          aria-label={t('resources.pets.assistant.actions.resetWindow')}
+          title={t('resources.pets.assistant.actions.resetWindow')}
+        >
+          <RotateCcw size={14} />
+        </button>
         <button
           type="button"
           onClick={startNewConversation}

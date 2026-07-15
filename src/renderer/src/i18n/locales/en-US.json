@@ -418,7 +418,8 @@
           "send": "Send message",
           "addTodo": "Add to today's list · {{count}} items",
           "todoAdded": "Added to today's list",
-          "openFullConversation": "Open full conversation"
+          "openFullConversation": "Open full conversation",
+          "resetWindow": "Reset Assistant window size and position"
         },
         "emptyTitle": "What would you like to move forward now?",
         "suggestions": {
