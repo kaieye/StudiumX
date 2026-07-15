@@ -78,4 +78,55 @@ describe('LessonInteractionRecorder durable integration', () => {
     })
     expect(JSON.stringify(evidence)).not.toMatch(/chain[ -]?of[ -]?thought/i)
   })
+
+  it('uses the atomic ledger receipt when same-content event replays race after both identity loads', async () => {
+    const workspaceRoot = await workspace()
+    const ledger = await openSession(workspaceRoot)
+    let completedIdentityLoads = 0
+    let releaseIdentityLoads!: () => void
+    const bothIdentityLoadsCompleted = new Promise<void>((resolve) => {
+      releaseIdentityLoads = resolve
+    })
+    const synchronizedLedger = {
+      async load(sessionId: string) {
+        const snapshot = await ledger.load(sessionId)
+        completedIdentityLoads += 1
+        if (completedIdentityLoads === 2) releaseIdentityLoads()
+        await bothIdentityLoadsCompleted
+        return snapshot
+      },
+      appendWithReceipt(sessionId: string, event: Parameters<typeof ledger.appendWithReceipt>[1]) {
+        return ledger.appendWithReceipt(sessionId, event)
+      }
+    }
+    const recorder = createLessonInteractionRecorder({ ledger: synchronizedLedger })
+    const replay = {
+      schemaVersion: 1 as const,
+      eventId: 'racing-retrieval-001',
+      kind: 'retrieval_response_submitted' as const,
+      workspaceId: 'workspace-1',
+      courseId: 'course-1',
+      sessionId: 'session-evidence-integration',
+      lessonId: 'lesson-1',
+      itemId: 'retrieval-1',
+      attempt: 1,
+      observedAt: '2026-07-15T13:00:01.000Z',
+      artifactDigest: digest,
+      responseDigest: 'c'.repeat(64),
+      responseKind: 'short_answer' as const,
+      surface: 'lesson_preview' as const
+    }
+
+    const receipts = await Promise.all([recorder.record(replay), recorder.record({ ...replay })])
+
+    expect(completedIdentityLoads).toBe(2)
+    expect(receipts.filter((receipt) => !receipt.duplicate)).toHaveLength(1)
+    expect(receipts.filter((receipt) => receipt.duplicate)).toHaveLength(1)
+    expect(receipts[0].sequence).toBe(receipts[1].sequence)
+
+    const restarted = createLessonInteractionRecorder({ ledger: createLearningSessionLedger({ workspaceRoot }) })
+    const evidence = await restarted.list('session-evidence-integration')
+    expect(evidence).toHaveLength(1)
+    expect(evidence[0]).toMatchObject({ eventId: 'racing-retrieval-001', sequence: receipts[0].sequence })
+  })
 })

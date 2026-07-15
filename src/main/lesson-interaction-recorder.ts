@@ -21,7 +21,7 @@ export interface LessonInteractionRecorder {
 }
 
 export type LessonInteractionRecorderOptions = {
-  ledger: Pick<LearningSessionLedger, 'append' | 'load'>
+  ledger: Pick<LearningSessionLedger, 'appendWithReceipt' | 'load'>
 }
 
 export type LegacyReviewEvidenceBinding = {
@@ -42,7 +42,7 @@ export type LegacyReviewEvidenceProjectionInput = {
 }
 
 /**
- * The only durable write is LearningSessionLedger.append. This recorder does
+ * The only durable write is LearningSessionLedger.appendWithReceipt. This recorder does
  * not evaluate mastery, write outcome files, or update legacy review progress.
  */
 export function createLessonInteractionRecorder(options: LessonInteractionRecorderOptions): LessonInteractionRecorder {
@@ -85,7 +85,7 @@ export function projectLegacyReviewProgressToLessonInteractions(
 }
 
 class LedgerLessonInteractionRecorder implements LessonInteractionRecorder {
-  constructor(private readonly ledger: Pick<LearningSessionLedger, 'append' | 'load'>) {}
+  constructor(private readonly ledger: Pick<LearningSessionLedger, 'appendWithReceipt' | 'load'>) {}
 
   async record(event: LessonInteraction): Promise<EvidenceReceipt> {
     const evidence = normalizeLessonInteraction(event)
@@ -93,8 +93,7 @@ class LedgerLessonInteractionRecorder implements LessonInteractionRecorder {
     if (!before) throw new LessonInteractionValidationError(`Learning Session "${evidence.sessionId}" was not found.`)
     assertSessionIdentity(before, evidence)
 
-    const duplicate = before.events.some((candidate) => candidate.eventId === evidence.eventId)
-    const snapshot = await this.ledger.append(evidence.sessionId, {
+    const receipt = await this.ledger.appendWithReceipt(evidence.sessionId, {
       schemaVersion: 1,
       eventId: evidence.eventId,
       sessionId: evidence.sessionId,
@@ -103,15 +102,14 @@ class LedgerLessonInteractionRecorder implements LessonInteractionRecorder {
       ...(evidence.kind === 'conversation_evidence_recorded' ? { turnId: evidence.provenance.turnId } : {}),
       payload: { lessonInteraction: evidence }
     })
-    const persisted = snapshot.events.find((candidate) => candidate.eventId === evidence.eventId)
-    const persistedEvidence = persisted ? interactionFromLedgerEvent(persisted) : null
-    if (!persisted || !persistedEvidence) throw new LessonInteractionValidationError('Session ledger did not return the recorded lesson interaction.')
+    const persistedEvidence = interactionFromLedgerEvent(receipt.event)
+    if (!persistedEvidence) throw new LessonInteractionValidationError('Session ledger did not return the recorded lesson interaction.')
     return {
       eventId: evidence.eventId,
       sessionId: evidence.sessionId,
-      sequence: persisted.sequence,
-      duplicate,
-      evidence: { ...persistedEvidence, sequence: persisted.sequence, recordedAt: persisted.recordedAt }
+      sequence: receipt.event.sequence,
+      duplicate: receipt.disposition === 'matching_existing',
+      evidence: { ...persistedEvidence, sequence: receipt.event.sequence, recordedAt: receipt.event.recordedAt }
     }
   }
 
