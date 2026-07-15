@@ -131,11 +131,14 @@ try {
     conversationId: saved.conversation.id
   })
   assert.equal(loaded.relativePath, saved.conversation.relativePath)
+  assert.ok(loaded.branch, 'saved conversation should include branch metadata')
+  const expectedBranchRevision = loaded.branch.revision
 
   const continued = await service.saveAgentConversation({
     workspaceId: workspace.id,
     mode: 'teaching',
     conversationId: saved.conversation.id,
+    expectedBranchRevision,
     turns: [
       ...loaded.turns,
       {
@@ -155,6 +158,12 @@ try {
   assert.equal(continued.conversation.id, saved.conversation.id)
   assert.equal(continued.conversation.relativePath, saved.conversation.relativePath)
   assert.equal(continued.conversation.messageCount, 4)
+  assert.ok(continued.conversation.branch, 'continued conversation should include branch metadata')
+  assert.equal(
+    continued.conversation.branch.revision,
+    expectedBranchRevision + 1,
+    'continuing a conversation should increment its branch revision exactly once'
+  )
   const continuedMarkdown = await readFile(join(workspace.rootPath, continued.conversation.relativePath), 'utf8')
   assert.match(continuedMarkdown, /我是后端工程师，想用公司 Markdown 文档做 RAG 问答 demo。/)
 
