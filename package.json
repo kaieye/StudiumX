@@ -51,6 +51,7 @@
     "check:teaching-mode": "node scripts/check-overview-teaching-mode.mjs",
     "check:concept-overview": "node scripts/check-concept-overview-lesson.mjs",
     "check:lesson-generation-flow": "node scripts/check-lesson-generation-flow.mjs",
+    "check:lesson-record-cutover": "node scripts/check-lesson-record-cutover.mjs",
     "check:lesson-styles": "node scripts/check-lesson-styles.mjs",
     "check:skill-library": "node scripts/check-skill-library.mjs",
     "check:resource-dark-theme": "node scripts/check-resource-dark-theme.mjs",

@@ -424,12 +424,6 @@ export function SettingsView({
                   onChange={(generateReference) => void configuration.updateSetting('generator.generateReference', generateReference)}
                 />
               </SettingsRow>
-              <SettingsRow label={t('generation.learningRecord.label')} detail={t('generation.learningRecord.detail')}>
-                <ToggleSwitch
-                  checked={settings.generator.generateLearningRecord}
-                  onChange={(generateLearningRecord) => void configuration.updateSetting('generator.generateLearningRecord', generateLearningRecord)}
-                />
-              </SettingsRow>
               <SettingsRow label={t('generation.structured.label')} detail={t('generation.structured.detail')}>
                 <ToggleSwitch
                   checked={settings.generator.structuredOutput}

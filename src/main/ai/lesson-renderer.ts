@@ -57,13 +57,13 @@ export function renderLessonHtmlFromPlan(opts: {
   lesson: LessonSummary
   mission: { title: string; excerpt: string }
   workspaceName: string
-  recordRelativePath: string | null
+  recordRelativePath?: string | null
   referenceRelativePath: string | null
   lessons?: LessonSummary[]
   glossaryAvailable?: boolean
   generator: TeachingSettingsV1['generator']
 }): string {
-  const { plan, lesson, mission, workspaceName, recordRelativePath, referenceRelativePath, generator } = opts
+  const { plan, lesson, mission, workspaceName, recordRelativePath = null, referenceRelativePath, generator } = opts
   const sections = plan.sections
     .map((section) => `      <section>
         <h2>${escapeHtml(section.heading)}</h2>
@@ -179,32 +179,6 @@ ${plan.keyPoints.map((point) => `  <li>${escapeHtml(point)}</li>`).join('\n')}
     body: [notes, flow, keyPoints].filter(Boolean).join('\n      '),
     glossaryAvailable: opts.glossaryAvailable ?? false
   })
-}
-
-export function renderLearningRecordFromPlan(opts: {
-  plan: LessonPlan
-  lesson: LessonSummary
-  mission: { title: string; excerpt: string }
-}): string {
-  const { plan, lesson, mission } = opts
-  const note = (plan.learningRecordNote || '').trim()
-  const hasJudgment = /^##\s*判定/m.test(note)
-  const body = hasJudgment
-    ? note
-    : `## 判定\n\n${note || plan.objective}\n\n## 影响\n\n_暂未记录对本课程后续的影响；下次生成课程时由对话补充。_`
-  return `# ${plan.title}
-
-- 工作区：${mission.title}
-- 课程：Lesson ${lesson.id}（${plan.durationMinutes} 分钟）
-- 学习目标：${plan.objective}
-- 正文小节：${plan.sections.length}　检索练习：${plan.quiz.length} 题　复习卡片：${plan.flashcards.length} 张
-
-${body}
-
----
-
-_本记录由 StudiumX 在生成课程时自动落盘，供后续课程的 zone of proximal development 决策使用；对话中若展示了新的理解或纠正了误解，应另起一条 learning-record。_
-`
 }
 
 // Quiz markup remains byte-for-byte shaped for the shared assets/quiz.js

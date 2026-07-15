@@ -152,7 +152,6 @@ export type TeachingSettingsV1 = {
     lessonDurationMinutes: number
     includeRetrievalPractice: boolean
     generateReference: boolean
-    generateLearningRecord: boolean
     structuredOutput: boolean
     streaming: boolean
     reasoningEffort: ModelReasoningEffort

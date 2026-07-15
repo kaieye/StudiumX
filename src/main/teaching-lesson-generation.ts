@@ -96,7 +96,6 @@ export async function runLessonGenerationPipeline(options: {
       durationMinutes: settings.generator.lessonDurationMinutes,
       includeRetrievalPractice: settings.generator.includeRetrievalPractice,
       generateReference: settings.generator.generateReference,
-      generateLearningRecord: settings.generator.generateLearningRecord,
       memories: recalledMemories,
       generator: settings.generator,
       previewCapabilities: STATIC_LESSON_RENDERER_CAPABILITIES
@@ -127,8 +126,7 @@ export async function runLessonGenerationPipeline(options: {
     requestedCourseName,
     mission,
     generator: settings.generator,
-    includeReference: settings.generator.generateReference,
-    includeLearningRecord: settings.generator.generateLearningRecord
+    includeReference: settings.generator.generateReference
   })
 
   return {

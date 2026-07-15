@@ -54,7 +54,6 @@ describe('teaching settings schema', () => {
         lessonDurationMinutes: 'not-a-number',
         includeRetrievalPractice: false,
         generateReference: 'false',
-        generateLearningRecord: false,
         structuredOutput: false,
         streaming: true,
         reasoningEffort: 'impossible',
@@ -112,7 +111,6 @@ describe('teaching settings schema', () => {
         lessonDurationMinutes: 15,
         includeRetrievalPractice: false,
         generateReference: true,
-        generateLearningRecord: false,
         structuredOutput: false,
         streaming: true,
         reasoningEffort: 'auto',
@@ -154,6 +152,8 @@ describe('teaching settings schema', () => {
       appBehavior: { closeAction: 'tray', closeToTray: false },
       log: { retentionDays: 1 }
     })
+    expect(normalized.generator).not.toHaveProperty('generateLearningRecord')
+
     expect(custom).toMatchObject({
       name: 'Custom Provider',
       apiKey: '',

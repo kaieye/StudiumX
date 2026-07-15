@@ -2,7 +2,6 @@ import * as fs from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
-  renderLearningRecordFromPlan,
   renderLessonHtmlFromPlan,
   renderReferenceHtmlFromPlan
 } from './ai/lesson-renderer'
@@ -27,7 +26,6 @@ export type LessonArtifactPublicationFacts = {
   mission: { title: string; excerpt: string }
   generator: TeachingSettingsV1['generator']
   includeReference: boolean
-  includeLearningRecord: boolean
 }
 
 export type LessonArtifactPaths = {
@@ -43,8 +41,6 @@ export type LessonArtifactPaths = {
   lessonAbsolutePath: string
   referenceRelativePath: string | null
   referenceAbsolutePath: string | null
-  recordRelativePath: string | null
-  recordAbsolutePath: string | null
   reviewsRelativePath: string | null
   reviewsAbsolutePath: string | null
 }
@@ -99,7 +95,6 @@ export function deriveLessonArtifactPublication(facts: LessonArtifactPublication
     title: facts.title,
     requestedCourseName: facts.requestedCourseName,
     includeReference: facts.includeReference,
-    includeLearningRecord: facts.includeLearningRecord,
     includeReviews: facts.plan.flashcards.length > 0
   })
   const paths: LessonArtifactPaths = {
@@ -116,10 +111,6 @@ export function deriveLessonArtifactPublication(facts: LessonArtifactPublication
     referenceRelativePath: placement.referenceRelativePath,
     referenceAbsolutePath: placement.referenceRelativePath
       ? join(facts.workspace.rootPath, placement.referenceRelativePath)
-      : null,
-    recordRelativePath: placement.recordRelativePath,
-    recordAbsolutePath: placement.recordRelativePath
-      ? join(facts.workspace.rootPath, placement.recordRelativePath)
       : null,
     reviewsRelativePath: placement.reviewsRelativePath,
     reviewsAbsolutePath: placement.reviewsRelativePath
@@ -162,7 +153,6 @@ function renderLessonArtifacts(opts: {
       lesson,
       mission: facts.mission,
       workspaceName: facts.workspace.name,
-      recordRelativePath: paths.recordRelativePath,
       referenceRelativePath: paths.referenceRelativePath,
       generator: facts.generator
     })
@@ -178,13 +168,6 @@ function renderLessonArtifacts(opts: {
         mission: facts.mission,
         workspaceName: facts.workspace.name
       })
-    })
-  }
-  if (paths.recordAbsolutePath && paths.recordRelativePath) {
-    artifacts.push({
-      absolutePath: paths.recordAbsolutePath,
-      relativePath: paths.recordRelativePath,
-      bytes: renderLearningRecordFromPlan({ plan: facts.plan, lesson, mission: facts.mission })
     })
   }
   if (paths.reviewsAbsolutePath && paths.reviewsRelativePath) {

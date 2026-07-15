@@ -67,6 +67,7 @@ export const lessonPlanSchema = z.object({
   quiz: z.array(lessonQuizItemSchema).max(5).default([]),
   flashcards: z.array(lessonFlashcardSchema).max(20).default([]),
   referenceNotes: z.string().max(8000).default(''),
+  // Backward-compatible plan field for expected evidence/rubric only; it is never a committed learning record.
   learningRecordNote: z.string().max(4000).default(''),
   // --- Teach-skill-quality extensions (all optional, backward compatible) ---
   primarySource: lessonPrimarySourceSchema.nullable().optional(),

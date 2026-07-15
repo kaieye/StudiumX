@@ -29,7 +29,6 @@ export type LessonPlacement = CoursePlacement & {
 export type LessonArtifactPlacement = LessonPlacement & {
   lessonRelativePath: string
   referenceRelativePath: string | null
-  recordRelativePath: string | null
   reviewsRelativePath: string | null
 }
 
@@ -188,7 +187,6 @@ export function buildLessonArtifactPlacement(input: {
   title: string
   requestedCourseName?: string | null
   includeReference: boolean
-  includeLearningRecord: boolean
   includeReviews: boolean
 }): LessonArtifactPlacement {
   const course = describeCoursePlacement({
@@ -204,9 +202,6 @@ export function buildLessonArtifactPlacement(input: {
   const referenceRelativePath = input.includeReference
     ? joinTeachingRelativePath(lessonDirRelativePath, `${paddedSequence}-${fileSlug}-reference.html`)
     : null
-  const recordRelativePath = input.includeLearningRecord
-    ? joinTeachingRelativePath(lessonDirRelativePath, `${paddedSequence}-${fileSlug}.md`)
-    : null
   const reviewsRelativePath = input.includeReviews
     ? joinTeachingRelativePath(lessonDirRelativePath, `${paddedSequence}-${fileSlug}-flashcards.json`)
     : null
@@ -218,7 +213,6 @@ export function buildLessonArtifactPlacement(input: {
     sessionRelativePath: lessonDirRelativePath,
     lessonRelativePath,
     referenceRelativePath,
-    recordRelativePath,
     reviewsRelativePath
   }
 }

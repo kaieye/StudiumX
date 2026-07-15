@@ -86,7 +86,6 @@ export type TeachingWorkspaceSettingsPath =
   | 'generator.lessonDurationMinutes'
   | 'generator.includeRetrievalPractice'
   | 'generator.generateReference'
-  | 'generator.generateLearningRecord'
   | 'generator.structuredOutput'
   | 'generator.streaming'
   | 'generator.requestTimeoutMs'
@@ -149,7 +148,6 @@ export function buildTeachingWorkspaceSettingsPatch(
     case 'generator.lessonDurationMinutes':
     case 'generator.includeRetrievalPractice':
     case 'generator.generateReference':
-    case 'generator.generateLearningRecord':
     case 'generator.structuredOutput':
     case 'generator.streaming':
     case 'generator.requestTimeoutMs':

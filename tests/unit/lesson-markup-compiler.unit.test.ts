@@ -32,7 +32,6 @@ const generator: TeachingSettingsV1['generator'] = {
   lessonDurationMinutes: 20,
   includeRetrievalPractice: true,
   generateReference: true,
-  generateLearningRecord: true,
   structuredOutput: true,
   streaming: false,
   reasoningEffort: 'auto',

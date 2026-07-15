@@ -48,7 +48,6 @@ assert.deepEqual(
     title: 'Retriever Tuning',
     requestedCourseName: 'RAG Project',
     includeReference: true,
-    includeLearningRecord: true,
     includeReviews: true
   }),
   {
@@ -60,7 +59,6 @@ assert.deepEqual(
     sessionRelativePath: 'courses/rag-project/lesson',
     lessonRelativePath: 'courses/rag-project/lesson/0003-retriever-tuning.html',
     referenceRelativePath: 'courses/rag-project/lesson/0003-retriever-tuning-reference.html',
-    recordRelativePath: 'courses/rag-project/lesson/0003-retriever-tuning.md',
     reviewsRelativePath: 'courses/rag-project/lesson/0003-retriever-tuning-flashcards.json'
   }
 )

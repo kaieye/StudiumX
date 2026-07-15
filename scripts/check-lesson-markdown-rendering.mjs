@@ -20,8 +20,7 @@ await build({
 })
 const {
   renderLessonHtmlFromPlan,
-  renderReferenceHtmlFromPlan,
-  renderLearningRecordFromPlan
+  renderReferenceHtmlFromPlan
 } = await import(pathToFileURL(outfile).href)
 
 const markdownTable = `| 概念 | 写法 | 分数 |
@@ -309,17 +308,6 @@ assert.match(richHtml, /<section class="primary-source">/, 'primarySource should
 assert.match(richHtml, /target="_blank" rel="noreferrer noopener"/, 'external primary source link should open safely')
 assert.match(richHtml, /试着向同事解释/, 'followupPrompt should replace the generic footer')
 assert.doesNotMatch(richHtml, /<section class="mission-card">/, 'the big mission-card section should be gone from lessons')
-
-// Learning record now uses a judgment + impact structure (markdown headings),
-// not the old flat meta-description.
-const recordMd = renderLearningRecordFromPlan({
-  plan: richPlan,
-  lesson: richLesson,
-  mission: { title: '教学链路优化', excerpt: '记录应含判定与影响。' }
-})
-assert.match(recordMd, /## 判定/, 'learning record should carry a judgment heading')
-assert.match(recordMd, /## 影响/, 'learning record should carry an impact-on-future-lessons heading')
-assert.match(recordMd, /Lesson 003/, 'learning record should reference the lesson id')
 
 // Reference page should also render nav + flow.
 const referenceHtml2 = renderReferenceHtmlFromPlan({

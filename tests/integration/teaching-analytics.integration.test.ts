@@ -196,7 +196,7 @@ function settings(runtime: IsolatedTestRuntime): TeachingSettingsV1 {
     uiFontScale: 1,
     density: 'comfortable',
     provider: { activeProviderId: 'provider-1', providers: [{ id: 'provider-1', name: 'Fixture Provider', apiKey: 'fixture-secret', endpoint: 'https://fixture.invalid', model: 'fixture-model' } as never], proxy: { enabled: false, url: '' } },
-    generator: { providerId: 'provider-1', model: 'fixture-model', endpointFormat: 'openai_compatible', temperature: 0.2, maxOutputTokens: 100, lessonDurationMinutes: 30, includeRetrievalPractice: true, generateReference: true, generateLearningRecord: true, structuredOutput: true, streaming: true, reasoningEffort: 'low', requestTimeoutMs: 1000 },
+    generator: { providerId: 'provider-1', model: 'fixture-model', endpointFormat: 'openai_compatible', temperature: 0.2, maxOutputTokens: 100, lessonDurationMinutes: 30, includeRetrievalPractice: true, generateReference: true, structuredOutput: true, streaming: true, reasoningEffort: 'low', requestTimeoutMs: 1000 },
     workspace: { defaultRoot: runtime.workspaceDir, confirmBeforeGenerating: true, autoOpenGeneratedLesson: false, showAllCourseFiles: false, lessonStyleId: 'default' },
     worktree: { rootPath: runtime.workspaceDir },
     memory: { enabled: true, maxInjected: 10 },

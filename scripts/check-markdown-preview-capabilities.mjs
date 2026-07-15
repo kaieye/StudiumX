@@ -75,7 +75,6 @@ const answer = 42
     durationMinutes: 10,
     includeRetrievalPractice: false,
     generateReference: false,
-    generateLearningRecord: false,
     memories: [],
     generator: {
       providerId: 'test',

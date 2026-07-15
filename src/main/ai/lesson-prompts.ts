@@ -39,7 +39,6 @@ export function buildLessonSystemPrompt(opts: {
   durationMinutes: number
   includeRetrievalPractice: boolean
   generateReference: boolean
-  generateLearningRecord: boolean
   memories: TeachingMemoryRecord[]
   generator: TeachingSettingsV1['generator']
   priorLessons?: LessonPriorLesson[]
@@ -49,7 +48,6 @@ export function buildLessonSystemPrompt(opts: {
 }): string {
   const includeQuiz = opts.includeRetrievalPractice
   const includeReference = opts.generateReference
-  const includeRecord = opts.generateLearningRecord
   const previewCapabilities = opts.previewCapabilities ?? DEFAULT_LESSON_PREVIEW_CAPABILITIES
   const previewSyntaxContract = renderPreviewSyntaxContract(previewCapabilities)
   const previewCapabilityRules = renderPreviewCapabilityRules(previewCapabilities)
@@ -96,8 +94,8 @@ export function buildLessonSystemPrompt(opts: {
   "flashcards": [                        // 2~6 张间隔复习卡
     { "front": string, "back": string }
   ]${includeReference ? `,
-  "referenceNotes": string              // 速查材料，markdown，≤300字` : ''}${includeRecord ? `,
-  "learningRecordNote": string          // 学习记录，用两段 markdown：第一段以 \`## 判定\` 开头，写用户本课应掌握什么；第二段以 \`## 影响\` 开头，写对后续课程的影响（不再重讲的"地板结论"、下一步该教什么）` : ''},
+  "referenceNotes": string              // 速查材料，markdown，≤300字` : ''},
+  "learningRecordNote": string,         // 可选：本课的待验证证据或评分标准，描述学习者需要展示什么；不得声称已经掌握。该字段不会创建或更新 learning record。
   "primarySource": {                    // 可选但强烈建议填写：本课最该读的一个高可信来源
     "title": string,                    // 来源标题
     "url": string,                      // http(s) 链接；无则省略该字段
@@ -126,7 +124,7 @@ ${opts.memories.map((memory, index) => `- [${index + 1}] (${memory.scope}) ${mem
 - 如果长期记忆与本次课程相关，必须据此调整难度、例子、节奏、表达方式和练习形式，而不只是复述画像；同时保持术语、偏好和上下文连续。
 - 默认采用“激活已有知识 → 一个关键解释 → 一个贴近目标的示例 → 学习者亲自尝试 → 检索练习”的短链路；不要把课程写成连续长文。
 - 练习要检验本课最可能出现的误解或迁移能力，不要只考原句记忆。若已有课程或学习记录显示某项能力已建立，不要重新从零讲解。
-- 不得因为生成了课程就宣称学习者已经掌握；learningRecordNote 只能描述本课的待验证目标和它对后续教学的条件性影响。
+- 不得因为生成、打开或阅读课程就宣称学习者已经掌握；learningRecordNote 只能写待验证证据或评分标准，不能当作 learning record，也不会创建或更新它。
 - followupPrompt 应邀请学习者提交答案、解释思路或报告具体卡点，使下一轮对话能据此调节难度；避免“有问题随时问我”之类泛化收尾。
 - sections 的 body 用 markdown，不要输出 HTML。
 - 当内容涉及比较、分类、步骤矩阵、参数对照或取舍判断时，优先用 markdown 表格表达；表格必须包含表头和分隔行，例如两行：\`| 项 | 说明 |\` 和 \`| --- | --- |\`。
