@@ -25,6 +25,7 @@
     "check:lesson-interaction-recorder": "node scripts/check-lesson-interaction-recorder.mjs",
     "check:evidence-idempotency": "node scripts/check-evidence-idempotency.mjs",
     "check:teaching-evidence-events": "node scripts/check-teaching-evidence-events.mjs",
+    "check:learning-outcome-evaluator": "vitest run --project unit tests/unit/learning-outcome-evaluator.unit.test.ts && vitest run --project integration tests/integration/learning-outcome-evaluator.integration.test.ts",
     "check:teaching-evidence": "pnpm run check:learning-session-ledger && pnpm run check:lesson-interaction-recorder && pnpm run check:evidence-idempotency && pnpm run check:teaching-evidence-events",
     "check:course-conversations": "node scripts/check-course-conversations.mjs",
     "check:teaching-placement": "node scripts/check-teaching-placement.mjs",
