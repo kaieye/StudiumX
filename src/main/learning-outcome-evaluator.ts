@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
-import { ErrorCodes, parse, type DefaultTreeAdapterTypes, type ParserError } from 'parse5'
+import { parse, type DefaultTreeAdapterTypes } from 'parse5'
 
-import { readContainedRegularFile } from './path-access'
+import { readContainedRegularFileBounded } from './path-access'
 import {
   lessonInteractionLedgerKind,
   normalizeLessonInteraction,
@@ -100,7 +100,15 @@ export async function evaluateLearningSessionOutcome(
 
   let content: Buffer
   try {
-    content = await readContainedRegularFile(input.workspaceRoot, join(input.workspaceRoot, ...relativePath.split('/')))
+    const boundedRead = await readContainedRegularFileBounded(
+      input.workspaceRoot,
+      join(input.workspaceRoot, ...relativePath.split('/')),
+      MAX_CANONICAL_ARTIFACT_BYTES
+    )
+    if (boundedRead.status === 'over_limit') {
+      return base({ relativePath, sha256: null, status: 'unparseable' })
+    }
+    content = boundedRead.content
   } catch {
     return base({ relativePath, sha256: null, status: 'unreadable' })
   }
@@ -212,11 +220,14 @@ function parseCanonicalQuizzes(html: string): CanonicalQuiz[] | null {
   try {
     if (Buffer.byteLength(html, 'utf8') > MAX_CANONICAL_ARTIFACT_BYTES) return null
 
-    const parseErrors: ParserError[] = []
+    const parseErrors: true[] = []
     const document = parse(html, {
       sourceCodeLocationInfo: true,
-      onParseError: (error) => parseErrors.push(error)
+      onParseError: () => {
+        if (parseErrors.length === 0) parseErrors.push(true)
+      }
     })
+    if (parseErrors.length > 0) return null
     // Canonical lessons must be standards-mode so their selector semantics stay stable.
     if (document.mode !== 'no-quirks') return null
     if (!isStaticCanonicalLessonArtifact(document)) return null
@@ -225,7 +236,7 @@ function parseCanonicalQuizzes(html: string): CanonicalQuiz[] | null {
     if (!elements) return null
     const cards = elements.filter(isQuizCard)
     if (cards.some((card) => !hasCompleteSourceLocation(card) || isNestedQuizCard(card))) return null
-    return cards.map((card, index) => parseQuizCard(`quiz-${index + 1}`, card, parseErrors))
+    return cards.map((card, index) => parseQuizCard(`quiz-${index + 1}`, card))
   } catch {
     return null
   }
@@ -335,11 +346,7 @@ function isJavaScriptUrl(value: string): boolean {
   return normalized.toLowerCase().startsWith('javascript:')
 }
 
-function parseQuizCard(itemId: string, card: HtmlElement, parseErrors: readonly ParserError[]): CanonicalQuiz {
-  if (hasRelevantParseError(card, parseErrors)) {
-    return malformedQuiz(itemId)
-  }
-
+function parseQuizCard(itemId: string, card: HtmlElement): CanonicalQuiz {
   const type = attributeValue(card, 'data-type')
   const choiceIds = parseChoiceIds(card)
   if (type === 'fill') return { itemId, type: 'fill', answerIds: null, choiceIds }
@@ -445,16 +452,6 @@ function isAsciiAlphaNumeric(character: number): boolean {
 function hasCompleteSourceLocation(element: HtmlElement): boolean {
   const location = element.sourceCodeLocation
   return Boolean(location?.startTag && location.endTag)
-}
-
-function hasRelevantParseError(card: HtmlElement, parseErrors: readonly ParserError[]): boolean {
-  const location = card.sourceCodeLocation
-  if (!location) return true
-  return parseErrors.some((error) => (
-    error.code !== ErrorCodes.missingDoctype &&
-    error.startOffset >= location.startOffset &&
-    error.startOffset < location.endOffset
-  ))
 }
 
 type HtmlElement = DefaultTreeAdapterTypes.Element

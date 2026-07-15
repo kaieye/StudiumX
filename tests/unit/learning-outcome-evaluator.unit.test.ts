@@ -523,7 +523,7 @@ describe('LearningOutcomeEvaluator', () => {
 
 
 
-  it('ignores duplicate canonical answer attributes instead of choosing one value', async () => {
+  it('fails closed for duplicate canonical answer attributes instead of choosing one value', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1.html'
     const html = '<!doctype html><article class="quiz-card" data-type="single" data-answer="a" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
@@ -536,7 +536,8 @@ describe('LearningOutcomeEvaluator', () => {
       kind: 'not_evidenced',
       mastery: false,
       evidenceEventIds: [],
-      assessments: [{ disposition: 'ignored', reason: 'malformed_answer_or_choice' }]
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
     })
   })
 
@@ -637,6 +638,51 @@ describe('LearningOutcomeEvaluator', () => {
     await expect(
       evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html)) })
     ).resolves.toMatchObject({
+      kind: 'not_evidenced',
+      mastery: false,
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
+    })
+  })
+
+
+  it.each([
+    ['a 512 KiB + 1 artifact', 512 * 1024 + 1],
+    ['a clearly oversized artifact', 4 * 1024 * 1024]
+  ])('does not hash, parse, or establish mastery from %s', async (_label, byteLength) => {
+    const root = await workspace()
+    const relativePath = 'courses/foundations/lesson-1.html'
+    const canonicalQuiz = '<!doctype html><article class="quiz-card" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = canonicalQuiz.padEnd(byteLength, ' ')
+    await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
+    await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
+
+    await expect(
+      evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html)) })
+    ).resolves.toMatchObject({
+      kind: 'not_evidenced',
+      mastery: false,
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: null },
+      assessments: []
+    })
+  })
+
+  it.each([
+    ['a duplicate attribute outside the quiz card', '<!doctype html><div id="first" id="second"></div>'],
+    ['a malformed token after the quiz card', '<!doctype html>']
+  ])('fails closed for %s anywhere in the canonical artifact', async (_label, malformedHtml) => {
+    const root = await workspace()
+    const relativePath = 'courses/foundations/lesson-1.html'
+    const quiz = '<article class="quiz-card" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = malformedHtml === '<!doctype html>' ? `${malformedHtml}${quiz}<div` : `${malformedHtml}${quiz}`
+    await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
+    await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
+
+    const result = await evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html)) })
+
+    expect(result).toMatchObject({
       kind: 'not_evidenced',
       mastery: false,
       evidenceEventIds: [],

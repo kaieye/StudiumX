@@ -1,4 +1,4 @@
-import { Buffer } from 'node:buffer'
+import { Buffer, kMaxLength } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { lstat, mkdir, open, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -38,13 +38,50 @@ export async function assertRealPathInsideRoot(rootPath: string, targetPath: str
  * after its resolved path has been proven to remain under the configured root.
  */
 export async function readContainedRegularFile(rootPath: string, targetPath: string): Promise<Buffer> {
+  return readFile(await resolveContainedRegularFile(rootPath, targetPath))
+}
+
+export type BoundedContainedRegularFileRead =
+  | { status: 'ok', content: Buffer }
+  | { status: 'over_limit' }
+
+/**
+ * Reads at most maxBytes from an existing contained regular file. It proves
+ * containment before opening the resolved file and never calls readFile for a
+ * potentially oversized artifact.
+ */
+export async function readContainedRegularFileBounded(
+  rootPath: string,
+  targetPath: string,
+  maxBytes: number
+): Promise<BoundedContainedRegularFileRead> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes >= kMaxLength) {
+    throw new Error('Bounded file read limit must be a non-negative safe buffer length.')
+  }
+
+  const handle = await open(await resolveContainedRegularFile(rootPath, targetPath), 'r')
+  try {
+    const fileStats = await handle.stat()
+    if (!fileStats.isFile()) throw new Error('Final path must be a regular file.')
+    if (fileStats.size > maxBytes) return { status: 'over_limit' }
+
+    const content = Buffer.allocUnsafe(maxBytes + 1)
+    const { bytesRead } = await handle.read(content, 0, content.length, 0)
+    if (bytesRead > maxBytes) return { status: 'over_limit' }
+    return { status: 'ok', content: content.subarray(0, bytesRead) }
+  } finally {
+    await handle.close()
+  }
+}
+
+async function resolveContainedRegularFile(rootPath: string, targetPath: string): Promise<string> {
   assertLexicallyInsideRoot(rootPath, targetPath)
   await assertFinalRegularFile(targetPath)
   const [realRoot, realTarget] = await Promise.all([realpath(rootPath), realpath(targetPath)])
   if (!isPathInsideRoot(realRoot, realTarget)) {
     throw new Error('Path escapes the configured root after resolving symlinks.')
   }
-  return readFile(realTarget)
+  return realTarget
 }
 
 /**
