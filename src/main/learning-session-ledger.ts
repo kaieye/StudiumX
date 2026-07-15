@@ -113,9 +113,16 @@ export type LearningSessionLedgerOptions = {
   testingFaults?: LearningSessionLedgerFaultHooks
 }
 
+export type LearningSessionAppendReceipt = {
+  disposition: 'appended' | 'matching_existing'
+  snapshot: LearningSessionSnapshot
+  event: LearningSessionEvent
+}
+
 export interface LearningSessionLedger {
   open(input: OpenLearningSessionInput): Promise<LearningSessionSnapshot>
   append(sessionId: string, event: AppendLearningSessionEventInput): Promise<LearningSessionSnapshot>
+  appendWithReceipt(sessionId: string, event: AppendLearningSessionEventInput): Promise<LearningSessionAppendReceipt>
   complete(sessionId: string, outcomeRef: LearningOutcomeRef): Promise<LearningSessionSnapshot>
   load(sessionId: string): Promise<LearningSessionSnapshot | null>
   scan(input?: LearningSessionScanInput): Promise<LearningSessionScanResult>
@@ -353,6 +360,13 @@ class FileLearningSessionLedger implements LearningSessionLedger {
   }
 
   async append(sessionId: string, event: AppendLearningSessionEventInput): Promise<LearningSessionSnapshot> {
+    return (await this.appendWithReceipt(sessionId, event)).snapshot
+  }
+
+  async appendWithReceipt(
+    sessionId: string,
+    event: AppendLearningSessionEventInput
+  ): Promise<LearningSessionAppendReceipt> {
     const safeSessionId = requireSessionId(sessionId, 'Session ID')
     const normalizedInput = normalizeEventInput(event, safeSessionId)
     return this.withWriter('append', safeSessionId, async (workspaceRoot) => {
@@ -370,7 +384,11 @@ class FileLearningSessionLedger implements LearningSessionLedger {
         if (!sameEventInput(duplicate, normalizedInput)) {
           throw new LearningSessionLedgerError('identity_conflict', `Event ID "${normalizedInput.eventId}" already exists with different content.`)
         }
-        return current
+        return {
+          disposition: 'matching_existing',
+          snapshot: current,
+          event: duplicate
+        }
       }
 
       const sessionsRoot = await requireLearningSessionsRoot(workspaceRoot)
@@ -412,7 +430,11 @@ class FileLearningSessionLedger implements LearningSessionLedger {
         this.settlement,
         { operation: 'append', sessionId: safeSessionId }
       )
-      return { ...nextManifest, events: nextEvents }
+      return {
+        disposition: 'appended',
+        snapshot: { ...nextManifest, events: nextEvents },
+        event: persistedEvent
+      }
     })
   }
 

@@ -149,7 +149,7 @@ describe('LearningSessionLedger', () => {
     const restarted = createLearningSessionLedger({ workspaceRoot })
     await expect(restarted.load('session-with-event')).resolves.toEqual(appended)
   })
-  it('deduplicates concurrent retries by eventId and rejects conflicting replay content', async () => {
+  it('returns atomic append receipts for concurrent retries and rejects conflicting replay content', async () => {
     const workspaceRoot = await createWorkspace()
     const ledger = createLearningSessionLedger({
       workspaceRoot,
@@ -170,17 +170,21 @@ describe('LearningSessionLedger', () => {
     }
 
     const [first, replay] = await Promise.all([
-      ledger.append('session-idempotent', event),
-      ledger.append('session-idempotent', event)
+      ledger.appendWithReceipt('session-idempotent', event),
+      ledger.appendWithReceipt('session-idempotent', event)
     ])
 
-    expect(first.eventCount).toBe(1)
-    expect(replay).toEqual(first)
-    await expect(ledger.append('session-idempotent', {
-      ...event,
-      payload: { correct: false, promptId: 'retrieval-1' }
-    })).resolves.toEqual(first)
-    await expect(ledger.append('session-idempotent', {
+    expect([first.disposition, replay.disposition].sort()).toEqual(['appended', 'matching_existing'])
+    expect(first.snapshot.eventCount).toBe(1)
+    expect(replay.snapshot).toEqual(first.snapshot)
+    expect(replay.event).toEqual(first.event)
+    expect(first.event).toMatchObject({
+      eventId: 'attempt-1',
+      sequence: 1,
+      recordedAt: '2026-07-15T03:00:00.000Z'
+    })
+    await expect(ledger.append('session-idempotent', event)).resolves.toEqual(first.snapshot)
+    await expect(ledger.appendWithReceipt('session-idempotent', {
       ...event,
       payload: { promptId: 'retrieval-1', correct: true }
     })).rejects.toMatchObject({ code: 'identity_conflict' })

@@ -4,7 +4,7 @@ import { createLearningSessionLedger } from '../../src/main/learning-session-led
 
 type WorkerRequest = {
   workspaceRoot: string
-  operation: 'append' | 'open' | 'complete' | 'load' | 'scan'
+  operation: 'append' | 'appendWithReceipt' | 'open' | 'complete' | 'load' | 'scan'
   input: Record<string, unknown>
   readyPath?: string
   releasePath?: string
@@ -34,6 +34,8 @@ try {
   let result: unknown
   if (request.operation === 'append') {
     result = await ledger.append(String(request.input.sessionId), request.input.event as never)
+  } else if (request.operation === 'appendWithReceipt') {
+    result = await ledger.appendWithReceipt(String(request.input.sessionId), request.input.event as never)
   } else if (request.operation === 'open') {
     result = await ledger.open(request.input as never)
   } else if (request.operation === 'complete') {
