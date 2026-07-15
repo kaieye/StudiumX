@@ -14,19 +14,21 @@
 
 P0 的第一段基础链已经进入 `main`：**Session、Evidence，以及 Outcome 的“禁止 Lesson 生成自动写正式 Learning record”cutover** 都已完成并合入。它们不是待实现项，也不应被后续包重新设计或回退。
 
+**层级边界：** 本计划中的 P1 是在 P0 Golden E2E 与全量发布审计通过后才开始的后续加固阶段。当前 evaluator 分支中的未提交修复虽可能涉及安全加固性质，但在本计划中一律称为“当前轮 evaluator 安全基础修复”：它们是 P0-R1 前必须 review/integrate 的基础，不构成 P1 work package，也不得被写成 P0-R6 的独立最终门。
+
 但 **P0 教学事实闭环尚未完成**。截至本基线：
 
 - `main` 的 HEAD 为 `1710743`（`feat(lesson): cut over auto learning records`）。
 - `LearningSessionLedger`（Session）已在 `main`，源提交为 `20ae4e9`，并已包含随后恢复/并发/原子 receipt 加固。
 - `LessonInteractionRecorder`（Evidence）及 preview 到 canonical Session 的绑定已在 `main`，源提交为 `17343d3`，并已包含 evidence receipt/guard/preview lifecycle 加固。
 - 自动 Learning record 写入的 cutover 已在 `main`：Lesson 生成不再把 `learningRecordNote` 当作已被证实的学习事实。
-- `feat/sx-p0-outcome-evaluator` 上存在 **尚未进入 `main` 的 evaluator 预备工作**（从 `863d8ed` 到已推送的 `225ec0c`）。该分支的工作树当前还有未提交的 P1 修复；它必须先完成本分支的 P1 fixes、review 与受控集成，**不能被称作已完成的 Outcome committer**。
+- `feat/sx-p0-outcome-evaluator` 上存在 **尚未进入 `main` 的 evaluator 安全基础工作**（从 `863d8ed` 到已推送的 `225ec0c`）。该分支的工作树当前还有未提交的安全收敛修复；它必须先完成本轮修复、review 与受控集成，作为 P0-R1 的前置基础，**不能被称作已完成的 Outcome committer**。
 - `LearningOutcomeCommitter`、`NextTeachingStepPlanner`、`TeachingContextAssembler`/ResourceGrounder、`TeachingTurnPresentation` 和 P0 Golden E2E 均尚未完成。
 
 因此，后续工作的严格顺序是：
 
 ```text
-0. evaluator branch：完成 P1 fixes → review → integration（只交付 evaluator foundation）
+0. evaluator branch：完成当前轮安全收敛修复 → review → integration（只交付 evaluator foundation）
 1. Session/outcome 原子结算（LearningOutcomeCommitter）
 2. Outcome committer 的窄 IPC 接入
 3. Planner（NextTeachingStepPlanner）
@@ -59,17 +61,17 @@ P0 的第一段基础链已经进入 `main`：**Session、Evidence，以及 Outc
 
 ---
 
-## 3. evaluator 分支：P1 fixes、review 与集成门
+## 3. evaluator 分支：当前轮安全基础修复、review 与集成门
 
 ### 3.1 当前准确位置
 
-`feat/sx-p0-outcome-evaluator` 的已推送 tip 是 `225ec0c`（`feat(teaching): publish canonical assessment artifacts`）。该分支含 evaluator 与 publisher-owned assessment sidecar 的准备工作，但它**尚未合入 `main`**。其工作树中还有未提交的 P1 fixes，至少涉及 evaluator、path access 和 evaluator unit tests；这些改动不属于已完成事实。
+`feat/sx-p0-outcome-evaluator` 的已推送 tip 是 `225ec0c`（`feat(teaching): publish canonical assessment artifacts`）。该分支含 evaluator 与 publisher-owned assessment sidecar 的准备工作，但它**尚未合入 `main`**。其工作树中还有未提交的当前轮安全收敛修复，至少涉及 evaluator、path access 和 evaluator unit tests；这些改动不属于已完成事实。
 
 该分支可以交付的范围仅为：**安全地从已绑定、digest 校验、publisher-owned 的 assessment artifact 加载 typed evidence 并得到 outcome evaluation input/result。** 它不应抢先写 Learning record、planner 状态、renderer presentation 或 Golden glue。
 
-### 3.2 P1 fixes 的目标
+### 3.2 当前轮安全基础修复的目标
 
-在 review/integration 之前，evaluator owner 必须把未提交 P1 fixes 收敛为可审查的最小 patch，证明 evaluator 对 canonical assessment 的信任边界是保守的：
+在 review/integration 之前，evaluator owner 必须把未提交的当前轮安全收敛修复整理为可审查的最小 patch，证明 evaluator 对 canonical assessment 的信任边界是保守的：
 
 - 路径必须通过既有 safe-path/realpath 边界，拒绝 traversal、junction/symlink escape、非 assessment 文件和超限读取。
 - assessment 必须是 Session/Lesson binding 显式引用的 publisher-produced sidecar；必须做 SHA-256 digest 校验。
@@ -94,7 +96,7 @@ package.json（仅已有 evaluator check 的必要、最小变动）
 - 不写 `learning-outcome-committer.ts` 或任何 Learning record writer；
 - 不写 planner/context/presentation；
 - 不重写 `teaching-workspace.ts`、`teaching-ipc-gateway.ts`、`teaching-ipc-contract.ts` 等 hub；
-- 不把 P1 的通用 protocol、tool dispatcher、Agent state machine、config catalog、MCP、shell 或插件市场混入该分支；
+- 不把 **P0 Golden E2E 之后才考虑的 P1** 通用 protocol、tool dispatcher、Agent state machine、config catalog、MCP、shell 或插件市场混入该分支；
 - 不修改已有 Session/Evidence canonical schema 来绕开 evaluator 约束。
 
 ### 3.4 TDD 验收与 review gate
@@ -116,7 +118,7 @@ pnpm run typecheck
 git diff --check
 ```
 
-如果 P1 fixes 需要新增安全 helper，必须增加直接负例；不能只依赖 happy-path snapshot。review 必须逐项确认：trust root、path resolution、digest、HTML grammar、失败语义和无写入副作用。review 通过后以**追加 commit**提交并 push；禁止 rebase + force-push 已推送历史。
+如果当前轮安全收敛修复需要新增安全 helper，必须增加直接负例；不能只依赖 happy-path snapshot。review 必须逐项确认：trust root、path resolution、digest、HTML grammar、失败语义和无写入副作用。review 通过后以**追加 commit**提交并 push；禁止 rebase + force-push 已推送历史。
 
 ### 3.5 集成 gate
 
@@ -506,7 +508,6 @@ pnpm run check:agent-operation-idempotency
 pnpm run check:workspace-write-tool
 pnpm run check:web-fetch-safe-url
 pnpm run check:external-link-controls
-pnpm run check:learning-outcome-evaluator
 node scripts/check-workspace-catalog-reconciliation.mjs
 node scripts/check-teaching-learning-loop.mjs
 pnpm exec playwright test --project electron-e2e tests/e2e/teaching-learning-loop.e2e.spec.ts
@@ -556,7 +557,7 @@ P0 不得因某条拟新增命令尚不存在就声明完成；缺失命令/测�
 
 只有满足全部条件才能说 P0 完成：
 
-- evaluator P1 fixes 已 commit、push、review 并受控集成；
+- evaluator 当前轮安全基础修复已 commit、push、review 并受控集成，且只作为 P0-R1 的只读前置 foundation；
 - P0-R1 至 P0-R5 各自有已 push 的独立 commit、范围内 diff 和自动化证据；
 - 主 Golden E2E、两个 crash window、幂等重放、重启恢复、来源 grounding、a11y/redaction 均通过；
 - 在干净 checkout 的全量审计通过，Golden 至少 `--repeat-each=3` 无 flaky；
@@ -564,4 +565,4 @@ P0 不得因某条拟新增命令尚不存在就声明完成；缺失命令/测�
 - 没有自动 Lesson-generated record、重复 record、未确认写入重试、私密 payload 泄露或 P0 范围蔓延；
 - 每个集成/交接 hash、review 与风险记录可追溯。
 
-在此之前，准确表述应为：**Session、Evidence 与 Learning record 自动写入 cutover 已合入；evaluator 正在完成 P1 fixes/review/integration；Outcome committer、Planner、Context、Present 与 Golden E2E 仍待实施。**
+在此之前，准确表述应为：**Session、Evidence 与 Learning record 自动写入 cutover 已合入；evaluator 当前轮安全基础正在修复/review/integration，作为 P0-R1 前置；Outcome committer、Planner、Context、Present 与 Golden E2E 仍待实施。P1 只在 P0 Golden E2E 通过后开始。**
