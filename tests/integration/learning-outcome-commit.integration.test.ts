@@ -52,6 +52,22 @@ describe('LearningOutcomeCommitter durable integration', () => {
       lessonRef: { lessonId: publication.lesson.id, title: publication.lesson.title, relativePath: publication.lesson.relativePath, assessment: publication.assessment }
     })
     const recorder = createLessonInteractionRecorder({ ledger })
+    const committer = createLearningOutcomeCommitter({ workspaceRoot, ledger, createId: () => 'outcome-commit-1' })
+
+    const noEvidenceRequest = { sessionId: 'session-outcome-commit', operationId: 'outcome-no-evidence-0' }
+    const noEvidence = await committer.commit(noEvidenceRequest)
+    const learnerSafeNoEvidence: LearningOutcomeCommitResult = noEvidence
+    expect(learnerSafeNoEvidence).toEqual({ status: 'insufficient_evidence', reason: 'not_evidenced' })
+    const noEvidenceMarker = JSON.parse(await readFile(
+      join(workspaceRoot, 'learning-sessions', 'session-outcome-commit', 'outcome-settlement.json'),
+      'utf8'
+    )) as Record<string, unknown>
+    expect(noEvidenceMarker).toMatchObject({ operationId: 'outcome-no-evidence-0', kind: 'not_evidenced', record: null })
+    await expect(committer.commit(noEvidenceRequest)).resolves.toEqual(learnerSafeNoEvidence)
+    await expect(readFile(join(workspaceRoot, 'learning-sessions', 'session-outcome-commit', 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readdir(join(workspaceRoot, 'learning-records'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load('session-outcome-commit')).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+
     const record = (eventId: string, attempt: number, selectedOptionIds: string[]) => recorder.record({
       schemaVersion: 1, eventId, kind: 'quiz_answered', workspaceId: 'workspace-1', courseId: publication.lesson.courseId,
       sessionId: 'session-outcome-commit', lessonId: publication.lesson.id, itemId: 'quiz-1', attempt,
@@ -59,8 +75,6 @@ describe('LearningOutcomeCommitter durable integration', () => {
       surface: 'lesson_preview', selectedOptionIds, correct: false
     })
     await record('evidence-wrong-1', 1, ['a'])
-    const committer = createLearningOutcomeCommitter({ workspaceRoot, ledger, createId: () => 'outcome-commit-1' })
-
     const practice = await committer.commit({ sessionId: 'session-outcome-commit', operationId: 'outcome-wrong-1' })
     const learnerSafePractice: LearningOutcomeCommitResult = practice
     expect(learnerSafePractice).toMatchObject({ status: 'committed', outcome: { kind: 'needs_practice' }, recordSaved: false })

@@ -153,6 +153,7 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
       if (existing.state === 'read_only') return nonRetryableFailure('read_only')
       if (existing.state === 'not_found') return nonRetryableFailure('not_found')
       if (existing.marker?.operationId === operationId && existing.state === 'settled') {
+        if (existing.marker.kind === 'not_evidenced') return insufficientEvidenceResult()
         return committedResult('already_committed', existing.marker, existing.catalogRecordPresent)
       }
       if (session.status === 'completed') {
@@ -164,7 +165,6 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
 
       const evaluation = await this.evaluateDecision({ workspaceRoot: this.options.workspaceRoot, session })
       assertEvaluationMatchesSession(evaluation, session)
-      if (evaluation.kind === 'not_evidenced') return insufficientEvidenceResult()
       const settlement = settlementFromEvaluation(session, operationId, evaluation, this.createId())
 
       if (!writesLearningRecord(settlement.marker.kind)) {
@@ -175,6 +175,7 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
         )
         await this.inject('after_settlement_marker', sessionId, operationId)
         await this.inject('before_catalog_reconcile', sessionId, operationId)
+        if (settlement.marker.kind === 'not_evidenced') return insufficientEvidenceResult()
         const catalogRecordPresent = await this.catalogHas(settlement.marker.record)
         return committedResult('committed', settlement.marker, catalogRecordPresent)
       }

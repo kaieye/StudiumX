@@ -79,21 +79,34 @@ describe('LearningOutcomeCommitter', () => {
     await expect(readdir(join(workspaceRoot, 'learning-records'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('returns insufficient_evidence for not_evidenced without settling a record or completed Session', async () => {
+  it('durably settles not_evidenced recordlessly while returning typed insufficient_evidence on replay', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-not-evidenced-unit')
     const committer = createLearningOutcomeCommitter({
       workspaceRoot,
       ledger,
+      createId: () => 'outcome-not-evidenced-1',
       evaluate: async ({ session }) => decision(session.id, 'not_evidenced')
     })
+    const request = { sessionId: 'session-not-evidenced-unit', operationId: 'not-evidenced-1' }
+    const expected = { status: 'insufficient_evidence', reason: 'not_evidenced' }
 
-    await expect(committer.commit({ sessionId: 'session-not-evidenced-unit', operationId: 'not-evidenced-1' })).resolves.toEqual({
-      status: 'insufficient_evidence',
-      reason: 'not_evidenced'
+    await expect(committer.commit(request)).resolves.toEqual(expected)
+    const marker = JSON.parse(await readFile(
+      join(workspaceRoot, 'learning-sessions', 'session-not-evidenced-unit', 'outcome-settlement.json'),
+      'utf8'
+    )) as Record<string, unknown>
+    expect(marker).toMatchObject({
+      sessionId: 'session-not-evidenced-unit',
+      outcomeId: 'outcome-not-evidenced-1',
+      operationId: 'not-evidenced-1',
+      kind: 'not_evidenced',
+      record: null
     })
-    await expect(readFile(join(workspaceRoot, 'learning-sessions', 'session-not-evidenced-unit', 'outcome-settlement.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    await expect(ledger.load('session-not-evidenced-unit')).resolves.toMatchObject({ status: 'active' })
+    await expect(committer.commit(request)).resolves.toEqual(expected)
+    await expect(readFile(join(workspaceRoot, 'learning-sessions', 'session-not-evidenced-unit', 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readdir(join(workspaceRoot, 'learning-records'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load('session-not-evidenced-unit')).resolves.toMatchObject({ status: 'active', outcomeRef: null })
   })
 
   it('returns a non-retryable invalid_request instead of raw evaluator failure when record evidence is invalid', async () => {
