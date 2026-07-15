@@ -55,6 +55,15 @@ export type LessonArtifactPublication = {
   eventPaths: string[]
 }
 
+/**
+ * Publisher-owned commit hook. It binds immutable assessment facts only after
+ * all satellites are durable but before the normal Lesson becomes discoverable.
+ * A returned compensator is invoked if the final Lesson commit cannot finish.
+ */
+export type LessonArtifactPublicationOptions = {
+  bindCanonicalSession?: (publication: Pick<LessonArtifactPublication, 'lesson' | 'assessment'>) => Promise<void | (() => Promise<void>)>
+}
+
 type RenderedLessonArtifact = {
   absolutePath: string
   relativePath: string
@@ -70,25 +79,31 @@ type RenderedLessonArtifact = {
  * back every file this attempt made visible, leaving no incomplete lesson set.
  */
 export async function publishLessonArtifacts(
-  facts: LessonArtifactPublicationFacts
+  facts: LessonArtifactPublicationFacts,
+  options: LessonArtifactPublicationOptions = {}
 ): Promise<LessonArtifactPublication> {
   const { paths, lesson } = deriveLessonArtifactPublication(facts)
   const artifacts = renderLessonArtifacts({ facts, paths, lesson })
+  const assessmentArtifact = artifacts[1]
+  if (!assessmentArtifact) throw new Error('Assessment artifact was not rendered.')
+  const assessment = {
+    relativePath: paths.assessmentRelativePath,
+    contentSha256: createHash('sha256').update(Buffer.from(assessmentArtifact.bytes, 'utf8')).digest('hex')
+  }
 
   await stageAndPublishArtifacts({
     workspaceRoot: facts.workspace.rootPath,
     artifacts,
     artifactDirectory: dirname(lesson.absolutePath),
-    conversationDirectory: join(dirname(dirname(lesson.absolutePath)), 'conversation')
+    conversationDirectory: join(dirname(dirname(lesson.absolutePath)), 'conversation'),
+    bindCanonicalSession: options.bindCanonicalSession
+      ? () => options.bindCanonicalSession!({ lesson, assessment })
+      : undefined
   })
 
-  const assessment = artifacts[1]!
   return {
     lesson,
-    assessment: {
-      relativePath: paths.assessmentRelativePath,
-      contentSha256: createHash('sha256').update(Buffer.from(assessment.bytes, 'utf8')).digest('hex')
-    },
+    assessment,
     paths,
     eventPaths: artifacts.map((artifact) => artifact.relativePath)
   }
@@ -208,9 +223,11 @@ async function stageAndPublishArtifacts(opts: {
   artifacts: RenderedLessonArtifact[]
   artifactDirectory: string
   conversationDirectory: string
+  bindCanonicalSession?: () => Promise<void | (() => Promise<void>)>
 }): Promise<void> {
   const createdDirectories: string[] = []
   const publishedPaths: string[] = []
+  let bindingRollback: (() => Promise<void>) | undefined
   let stagingDirectory: string | null = null
 
   try {
@@ -237,16 +254,22 @@ async function stageAndPublishArtifacts(opts: {
     }
     // Publish satellite artifacts before the lesson HTML. The lesson is the
     // workspace's discoverable entry point, so its final atomic rename acts as
-    // the commit: it cannot become visible until every linked artifact exists.
-    const publishOrder = [...stagedArtifacts.slice(1), stagedArtifacts[0]!]
-    for (const artifact of publishOrder) {
+    // the commit: it cannot become visible until every linked artifact exists
+    // and its immutable Learning Session binding has succeeded.
+    for (const artifact of stagedArtifacts.slice(1)) {
       await fs.rename(artifact.stagedPath, artifact.absolutePath)
       publishedPaths.push(artifact.absolutePath)
     }
+    bindingRollback = await opts.bindCanonicalSession?.() ?? undefined
+    const lessonArtifact = stagedArtifacts[0]
+    if (!lessonArtifact) throw new Error('Lesson artifact was not staged.')
+    await fs.rename(lessonArtifact.stagedPath, lessonArtifact.absolutePath)
+    publishedPaths.push(lessonArtifact.absolutePath)
 
     await fs.rmdir(stagingDirectory)
     stagingDirectory = null
   } catch (error) {
+    await bindingRollback?.().catch(() => undefined)
     await Promise.all(publishedPaths.map((path) => fs.rm(path, { force: true }).catch(() => undefined)))
     if (stagingDirectory) await fs.rm(stagingDirectory, { recursive: true, force: true }).catch(() => undefined)
     await removeCreatedEmptyDirectories(createdDirectories)

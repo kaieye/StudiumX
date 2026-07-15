@@ -204,6 +204,7 @@ ${renderLessonQuizCards(opts.plan)}
 <html lang="zh-CN">
 <head>
   <title>${escapeHtml(opts.plan.title)} assessment</title>
+  <meta name="studiumx-artifact-kind" content="assessment-sidecar">
 </head>
 <body>
 ${quiz}

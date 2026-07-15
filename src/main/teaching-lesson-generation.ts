@@ -17,7 +17,7 @@ import type {
   TeachingMemoryRecord,
   TeachingSettingsV1
 } from '../shared/teaching-types'
-import { publishLessonArtifacts } from './teaching-lesson-artifacts'
+import { publishLessonArtifacts, type LessonArtifactPublication } from './teaching-lesson-artifacts'
 
 export { LessonGenerationError } from './lesson-plan-production'
 
@@ -62,6 +62,7 @@ export async function runLessonGenerationPipeline(options: {
   now: string
   retrieveMemories: LessonGenerationMemoryRetriever
   callbacks?: LessonGenerationCallbacks
+  bindCanonicalSession?: (publication: Pick<LessonArtifactPublication, 'lesson' | 'assessment'>) => Promise<void | (() => Promise<void>)>
 }): Promise<LessonGenerationResult> {
   const {
     workspace,
@@ -73,7 +74,8 @@ export async function runLessonGenerationPipeline(options: {
     messages,
     now,
     retrieveMemories,
-    callbacks
+    callbacks,
+    bindCanonicalSession
   } = options
   const mission = await readMissionSummary(workspace.rootPath, workspace.name)
   const lessonPrompt = brief
@@ -128,7 +130,7 @@ export async function runLessonGenerationPipeline(options: {
     mission,
     generator: settings.generator,
     includeReference: settings.generator.generateReference
-  })
+  }, { bindCanonicalSession })
 
   return {
     kind: 'lesson',

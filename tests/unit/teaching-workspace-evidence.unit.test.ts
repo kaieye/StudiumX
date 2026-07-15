@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
-import { readFile, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
+import { evaluateLearningSessionOutcome } from '../../src/main/learning-outcome-evaluator'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -65,7 +65,7 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
     const restartedLedger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
     const reloaded = await restartedLedger.load(lesson.sessionId)
     const recorded = reloaded?.events[0]?.payload.lessonInteraction as Record<string, unknown>
-    const digest = createHash('sha256').update(await readFile(lesson.absolutePath)).digest('hex')
+    const digest = (await ledger.load(lesson.sessionId))!.lessonRef!.assessment!.contentSha256
     expect(recorded).toMatchObject({
       eventId: 'preview-open-001',
       workspaceId: workspace.id,
@@ -77,6 +77,24 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
       surface: 'lesson_preview'
     })
     expect(receipt).not.toHaveProperty('evidence')
+
+    // The normal preview is scriptful, but host-owned preview evidence is
+    // bound to the immutable static assessment SHA. A real generated quiz can
+    // therefore establish only through that sidecar authority.
+    const quizReceipt = await service.recordPreviewLessonInteraction(101, {
+      eventId: 'preview-quiz-assessment-001', kind: 'quiz_answered', itemId: 'quiz-1', selectedOptionIds: ['b'], correct: false
+    })
+    expect(quizReceipt.sequence).toBe(2)
+    const evaluated = await evaluateLearningSessionOutcome({
+      workspaceRoot: workspace.rootPath,
+      session: (await ledger.load(lesson.sessionId))!
+    })
+    expect(evaluated.kind).toBe('established')
+    expect(evaluated.mastery).toBe(true)
+    expect(evaluated.evidenceEventIds).toEqual(['preview-quiz-assessment-001'])
+    expect(evaluated.assessments).toContainEqual(expect.objectContaining({
+      disposition: 'verified_correct', reason: 'verified'
+    }))
 
     await expect(service.recordPreviewLessonInteraction(202, {
       eventId: 'preview-open-other-sender', kind: 'lesson_opened', itemId: lesson.id
@@ -95,7 +113,7 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
     await expect(service.recordPreviewLessonInteraction(101, {
       eventId: 'preview-open-after-markdown', kind: 'lesson_opened', itemId: lesson.id
     })).rejects.toThrow('No trusted Lesson preview binding')
-    await expect((await restartedLedger.load(lesson.sessionId))?.events).toHaveLength(1)
+    await expect((await restartedLedger.load(lesson.sessionId))?.events).toHaveLength(2)
 
     const restartedService = await createService('preview-evidence-restart')
     await expect(restartedService.recordPreviewLessonInteraction(101, {
@@ -139,7 +157,7 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
           courseId: lesson.courseId,
           sessionId: lesson.sessionId,
           lessonId: lesson.id,
-          artifactDigest: createHash('sha256').update(await readFile(lesson.absolutePath)).digest('hex'),
+          artifactDigest: (await ledger.load(lesson.sessionId))!.lessonRef!.assessment!.contentSha256,
           attempt: 1,
           surface: 'lesson_preview'
         }

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { publishLessonArtifacts, type LessonArtifactPublicationFacts } from '../../src/main/teaching-lesson-artifacts'
 import { runLessonGenerationPipeline } from '../../src/main/teaching-lesson-generation'
+import { planLessonIndexReconciliation } from '../../src/main/teaching-workspace/catalog-reconciliation'
 import { normalizeTeachingSettings } from '../../src/shared/teaching-settings-schema'
 import type { TeachingSettingsV1 } from '../../src/shared/teaching-types'
 import { createIsolatedTestRuntime, type IsolatedTestRuntime } from '../helpers/runtime-isolation'
@@ -125,7 +126,8 @@ describe('Lesson artifact publisher integration', () => {
       published.lesson.absolutePath.replace(/\\/g, '/')
     ])
     expect(sidecar).toContain('<!doctype html>')
-    expect(sidecar).not.toMatch(/<(?:script|meta|iframe|template)\b/i)
+    expect(sidecar).not.toMatch(/<(?:script|iframe|template)\b/i)
+    expect(sidecar).toContain('<meta name="studiumx-artifact-kind" content="assessment-sidecar">')
     expect(sidecar).not.toContain('application/json')
     expect([...sidecar.matchAll(/data-item-id="([^"]+)"/g)].map((match) => match[1])).toEqual(['quiz-1', 'quiz-2'])
     expect([...normal.matchAll(/data-item-id="([^"]+)"/g)].map((match) => match[1])).toEqual(['quiz-1', 'quiz-2'])
@@ -245,4 +247,55 @@ describe('Lesson artifact publisher integration', () => {
     await expect(readFile(join(isolated.workspaceDir, 'lessons', '0001-atomic-publication-flashcards.json'))).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(readdir(isolated.workspaceDir)).resolves.not.toContain('lessons')
   })
+
+  it('keeps an actual published Assessment Lesson visible while excluding only its marked sidecar collision', async () => {
+    const isolated = await runtime('lesson-assessment-title-collision')
+    const base = publicationFacts(isolated)
+    const facts = {
+      ...base,
+      title: 'Assessment',
+      plan: { ...base.plan, title: 'Assessment' }
+    }
+
+    const published = await publishLessonArtifacts(facts)
+    expect(published.lesson.relativePath).toBe('lessons/0001-assessment.html')
+    expect(published.assessment.relativePath).toBe('lessons/0001-assessment-assessment.html')
+
+    const reconciliation = await planLessonIndexReconciliation({
+      rootPath: isolated.workspaceDir,
+      workspaceName: isolated.workspaceName,
+      lessons: []
+    })
+    expect(reconciliation.recoveredRelativePaths).toEqual([published.lesson.relativePath])
+    expect(reconciliation.lessons.map((lesson) => lesson.relativePath)).toEqual([published.lesson.relativePath])
+  })
+  it('does not publish any lesson artifact when the canonical session binding fails before the final Lesson rename', async () => {
+    const isolated = await runtime('lesson-binding-atomic-failure')
+    const facts = publicationFacts(isolated)
+
+    await expect(publishLessonArtifacts(facts, {
+      bindCanonicalSession: async () => { throw new Error('injected canonical ledger open failure') }
+    })).rejects.toThrow('injected canonical ledger open failure')
+
+    await expect(readFile(join(isolated.workspaceDir, 'lessons', '0001-atomic-publication.html'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(isolated.workspaceDir, 'lessons', '0001-atomic-publication-assessment.html'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readdir(isolated.workspaceDir)).resolves.not.toContain('lessons')
+  })
+
+  it('compensates a successful canonical session binding when the final Lesson rename fails', async () => {
+    const isolated = await runtime('lesson-binding-final-rename-failure')
+    const facts = publicationFacts(isolated)
+    const compensate = vi.fn(async () => undefined)
+    renameFailure.failOnPublishRename = 2
+
+    await expect(publishLessonArtifacts(facts, {
+      bindCanonicalSession: async () => compensate
+    })).rejects.toThrow('injected publish failure')
+
+    expect(compensate).toHaveBeenCalledTimes(1)
+    await expect(readFile(join(isolated.workspaceDir, 'lessons', '0001-atomic-publication.html'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(isolated.workspaceDir, 'lessons', '0001-atomic-publication-assessment.html'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readdir(isolated.workspaceDir)).resolves.not.toContain('lessons')
+  })
+
 })

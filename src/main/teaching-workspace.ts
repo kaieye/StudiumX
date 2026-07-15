@@ -5,7 +5,6 @@ import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
 import { createLearningSessionLedger } from './learning-session-ledger'
 import { createLessonInteractionRecorder } from './lesson-interaction-recorder'
-import { readContainedRegularFile } from './path-access'
 import { inspectGitWorkspace } from './teaching-git'
 import {
   buildCourseSummaries,
@@ -219,6 +218,9 @@ type ActivePreviewBinding = {
   lessonId: string
   lessonTitle: string
   lessonRelativePath: string
+  /** Immutable assessment sidecar path, not the previewed normal Lesson path. */
+  assessmentRelativePath: string
+  /** Immutable assessment sidecar SHA-256, never a renderer-provided Lesson hash. */
   artifactDigest: string
   /** Exact canonical protocol URL that alone may activate the pending child frame. */
   previewUrl: string
@@ -1286,10 +1288,9 @@ export class TeachingWorkspaceService {
       messages: options.messages,
       now,
       retrieveMemories: (query) => this.memoryStore.retrieve(query),
-      callbacks: options.callbacks
+      callbacks: options.callbacks,
+      bindCanonicalSession: async ({ lesson, assessment }) => this.openCanonicalLessonSession(workspace, lesson, assessment)
     })
-
-    await this.openCanonicalLessonSession(workspace, generation.lesson, generation.assessment)
 
     await this.saveWorkspaceIndex(workspace.rootPath, {
       ...index,
@@ -1385,7 +1386,8 @@ export class TeachingWorkspaceService {
     const session = await ledger.load(lesson.sessionId)
     if (!isCanonicalWritableLessonSession(session, workspace, lesson)) return result
 
-    const artifact = await readContainedRegularFile(workspace.rootPath, previewFile.absolutePath)
+    const assessment = session?.lessonRef?.assessment
+    if (!assessment) return result
     if (!this.isCurrentPreviewLessonRead(webContentsId, requestGeneration)) return result
     this.activePreviewBindings.set(webContentsId, {
       workspaceRoot: workspace.rootPath,
@@ -1397,7 +1399,8 @@ export class TeachingWorkspaceService {
       lessonId: lesson.id,
       lessonTitle: lesson.title,
       lessonRelativePath: lesson.relativePath,
-      artifactDigest: createHash('sha256').update(artifact).digest('hex'),
+      assessmentRelativePath: assessment.relativePath,
+      artifactDigest: assessment.contentSha256,
       previewUrl,
       navigationState: 'pending_initial_navigation',
       activeFrameProcessId: null,
@@ -1693,7 +1696,7 @@ export class TeachingWorkspaceService {
     workspace: RegistryWorkspace,
     lesson: LessonSummary,
     assessment: { relativePath: string; contentSha256: string }
-  ): Promise<void> {
+  ): Promise<(() => Promise<void>) | void> {
     const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
     const session = await ledger.open({
       sessionId: lesson.sessionId,
@@ -1712,6 +1715,14 @@ export class TeachingWorkspaceService {
     })
     if (!isCanonicalWritableLessonSession(session, workspace, lesson)) {
       throw new Error('Generated Lesson could not open its canonical writable Learning Session.')
+    }
+    // The generated session ID is scoped to this just-rendered Lesson. If the
+    // final Lesson commit fails, remove only that matching canonical root so a
+    // future retry can open the same immutable identity cleanly.
+    return async () => {
+      const current = await ledger.load(lesson.sessionId)
+      if (!isCanonicalWritableLessonSession(current, workspace, lesson)) return
+      await rm(join(workspace.rootPath, 'learning-sessions', lesson.sessionId), { recursive: true, force: true })
     }
   }
 
@@ -1838,7 +1849,9 @@ function isCanonicalWritablePreviewBinding(
     session.courseRef.relativePath === binding.courseRelativePath &&
     session.lessonRef?.lessonId === binding.lessonId &&
     session.lessonRef.title === binding.lessonTitle &&
-    session.lessonRef.relativePath === binding.lessonRelativePath
+    session.lessonRef.relativePath === binding.lessonRelativePath &&
+    session.lessonRef.assessment?.relativePath === binding.assessmentRelativePath &&
+    session.lessonRef.assessment?.contentSha256 === binding.artifactDigest
   )
 }
 

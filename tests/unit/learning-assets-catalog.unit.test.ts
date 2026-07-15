@@ -69,10 +69,13 @@ describe('learning asset catalog', () => {
       })
   })
 
-  it('does not recover canonical assessment sidecars as a second Lesson during catalog reconciliation', async () => {
+  it('excludes only publisher-marked assessment sidecars while retaining Assessment-suffixed and legacy Lesson files', async () => {
     const rootPath = await createWorkspace({
       'lessons/0001-testing-basics.html': '<!doctype html><title>Lesson</title>',
-      'lessons/0001-testing-basics-assessment.html': '<!doctype html><title>Assessment</title>'
+      'lessons/0001-testing-basics-assessment.html': '<!doctype html>\n<html lang="zh-CN">\n<head>\n  <title>Testing basics assessment</title>\n  <meta name="studiumx-artifact-kind" content="assessment-sidecar">\n</head>\n<body>\n</body>\n</html>\n',
+      'lessons/0002-assessment.html': '<!doctype html><title>Assessment</title>',
+      'lessons/0003-foo-assessment.html': '<!doctype html><title>Foo Assessment</title>',
+      'lessons/0004-legacy-assessment.html': '<!doctype html><title>Legacy normal Lesson</title>'
     })
     const plan = await planLessonIndexReconciliation({
       rootPath,
@@ -80,9 +83,14 @@ describe('learning asset catalog', () => {
       lessons: []
     })
 
-    expect(plan.recoveredRelativePaths).toEqual(['lessons/0001-testing-basics.html'])
-    expect(plan.lessons).toHaveLength(1)
-    expect(plan.lessons[0]?.relativePath).toBe('lessons/0001-testing-basics.html')
+    expect(plan.recoveredRelativePaths).toEqual([
+      'lessons/0001-testing-basics.html',
+      'lessons/0002-assessment.html',
+      'lessons/0003-foo-assessment.html',
+      'lessons/0004-legacy-assessment.html'
+    ])
+    expect(plan.lessons).toHaveLength(4)
+    expect(plan.lessons.map((lesson) => lesson.relativePath)).not.toContain('lessons/0001-testing-basics-assessment.html')
   })
 
   it('keeps the existing empty workspace fallbacks', async () => {

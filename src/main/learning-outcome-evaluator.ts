@@ -240,59 +240,187 @@ function parseCanonicalQuizzes(html: string): CanonicalQuiz[] | null {
       }
     })
     if (parseErrors.length > 0) return null
-    // Canonical lessons must be standards-mode so their selector semantics stay stable.
+    // Canonical assessments must be standards-mode so their DOM grammar is stable.
     if (document.mode !== 'no-quirks') return null
-    if (!isStaticCanonicalLessonArtifact(document)) return null
+    if (!documentOrderElements(document)) return null
 
-    const elements = documentOrderElements(document)
-    if (!elements) return null
-    const cards = elements.filter(isQuizCard)
-    if (cards.some((card) => !hasCompleteSourceLocation(card) || isNestedQuizCard(card))) return null
-    const quizzes: CanonicalQuiz[] = []
-    for (let index = 0; index < cards.length; index += 1) {
-      const card = cards[index]!
-      const itemId = attributeValue(card, 'data-item-id')
-      if (itemId !== `quiz-${index + 1}`) return null
-      quizzes.push(parseQuizCard(itemId, card))
-    }
-    return quizzes
+    return parseStaticAssessmentDocument(document)
   } catch {
     return null
   }
 }
 
-const ACTIVE_CANONICAL_ELEMENT_NAMES = new Set([
-  'script',
-  'iframe',
-  'frame',
-  'frameset',
-  'fencedframe',
-  'object',
-  'embed',
-  'applet',
-  'portal',
-  'base',
-  'template',
-  'animate',
-  'animatemotion',
-  'animatetransform',
-  'set'
-])
+/**
+ * Positive grammar for the publisher-owned assessment sidecar. The evaluator
+ * does not accept a general "safe HTML" subset: every element, attribute, and
+ * card layout must be one that renderAssessmentHtmlFromPlan emits.
+ */
+function parseStaticAssessmentDocument(document: DefaultTreeAdapterTypes.Document): CanonicalQuiz[] | null {
+  const documentNodes = document.childNodes.filter((node) => !isWhitespaceTextNode(node))
+  if (documentNodes.length !== 2 || !isHtmlDoctype(documentNodes[0]) || !isHtmlElement(documentNodes[1])) return null
 
-function isStaticCanonicalLessonArtifact(document: DefaultTreeAdapterTypes.Document): boolean {
-  const elements = artifactElements(document)
-  return elements !== null && elements.every((element) => !hasActiveCanonicalContent(element))
+  const html = documentNodes[1]
+  if (!hasCompleteSourceLocation(html) || html.tagName !== 'html' || !hasExactAttributes(html, { lang: 'zh-CN' })) return null
+  const htmlChildren = exactElementChildren(html)
+  if (!htmlChildren || htmlChildren.length !== 2 || htmlChildren[0]!.tagName !== 'head' || htmlChildren[1]!.tagName !== 'body') return null
+
+  const [head, body] = htmlChildren
+  if (!head || !body || !hasCompleteSourceLocation(head) || !hasCompleteSourceLocation(body)) return null
+  if (!hasExactAttributes(head, {}) || !hasExactAttributes(body, {})) return null
+
+  const headChildren = exactElementChildren(head)
+  if (!headChildren || headChildren.length !== 2 || headChildren[0]!.tagName !== 'title' || headChildren[1]!.tagName !== 'meta') return null
+  if (!isTextLeaf(headChildren[0]!, {})) return null
+  if (!isVoidElement(headChildren[1]!, 'meta', { name: 'studiumx-artifact-kind', content: 'assessment-sidecar' })) return null
+
+  const bodyChildren = exactElementChildren(body)
+  if (!bodyChildren || bodyChildren.length !== 1 || bodyChildren[0]!.tagName !== 'section') return null
+  const section = bodyChildren[0]
+  if (!section || !hasCompleteSourceLocation(section) || !hasExactAttributes(section, { class: 'practice' })) return null
+
+  const sectionChildren = exactElementChildren(section)
+  if (!sectionChildren || sectionChildren.length < 1 || sectionChildren[0]!.tagName !== 'h1') return null
+  if (!isTextLeaf(sectionChildren[0]!, {})) return null
+
+  const cards = sectionChildren.slice(1)
+  if (cards.length > 5 || cards.some((card) => card.tagName !== 'article')) return null
+  const quizzes: CanonicalQuiz[] = []
+  for (let index = 0; index < cards.length; index += 1) {
+    const card = cards[index]
+    if (!card) return null
+    const itemId = `quiz-${index + 1}`
+    if (!isStaticAssessmentCard(card, itemId)) return null
+    quizzes.push(parseQuizCard(itemId, card))
+  }
+  return quizzes
 }
 
-function artifactElements(parent: HtmlParentNode): HtmlElement[] | null {
-  return collectPreorderElements(parent, true)
+function isStaticAssessmentCard(card: HtmlElement, itemId: string): boolean {
+  if (!hasCompleteSourceLocation(card) || !hasExactAttributes(card, {
+    class: 'quiz-card',
+    'data-item-id': itemId,
+    'data-type': isAssessmentQuizType,
+    'data-answer': () => true
+  })) return false
+
+  const type = attributeValue(card, 'data-type')
+  const children = exactElementChildren(card)
+  if (!children || children.length !== 4) return false
+  const [question, response, output, explanation] = children
+  if (!question || !response || !output || !explanation) return false
+  if (!isTextLeaf(question, {}) || question.tagName !== 'p') return false
+  if (!isEmptyElement(output, 'output', { 'aria-live': 'polite' })) return false
+  if (!isTextLeaf(explanation, { class: 'quiz-explanation' }) || explanation.tagName !== 'p') return false
+
+  if (type === 'fill') return isStaticFillResponse(response)
+  return isStaticChoiceResponse(response, type)
+}
+
+function isStaticChoiceResponse(response: HtmlElement, type: string | undefined): boolean {
+  if (type !== 'single' && type !== 'multi' && type !== 'truefalse') return false
+  if (!hasCompleteSourceLocation(response) || response.tagName !== 'div' || !hasExactAttributes(response, { class: 'quiz-choices' })) return false
+
+  const choices = exactElementChildren(response)
+  if (!choices || choices.length === 0 || choices.length > 6) return false
+  if (type === 'truefalse' && choices.length !== 2) return false
+
+  for (let index = 0; index < choices.length; index += 1) {
+    const button = choices[index]
+    if (!button || !isTextLeaf(button, {
+      type: 'button',
+      'data-choice': type === 'truefalse'
+        ? (index === 0 ? 'true' : 'false')
+        : letterForChoice(index)
+    }) || button.tagName !== 'button') return false
+  }
+  return true
+}
+
+function isStaticFillResponse(response: HtmlElement): boolean {
+  if (!hasCompleteSourceLocation(response) || response.tagName !== 'div' || !hasExactAttributes(response, { class: 'quiz-fill' })) return false
+  const children = exactElementChildren(response)
+  if (!children || children.length !== 2) return false
+  const [input, button] = children
+  return Boolean(
+    input && button &&
+    isVoidElement(input, 'input', {
+      type: 'text',
+      placeholder: '输入你的答案',
+      'aria-label': '答案输入'
+    }) &&
+    isTextLeaf(button, { type: 'button', 'data-choice': 'submit' }) &&
+    button.tagName === 'button' &&
+    directText(button) === '提交'
+  )
+}
+
+function isAssessmentQuizType(value: string): boolean {
+  return value === 'single' || value === 'multi' || value === 'truefalse' || value === 'fill'
+}
+
+function letterForChoice(index: number): string {
+  return String.fromCharCode(97 + index)
+}
+
+type ExactAttributeValue = string | ((value: string) => boolean)
+
+function hasExactAttributes(element: HtmlElement, expected: Record<string, ExactAttributeValue>): boolean {
+  const entries = Object.entries(expected)
+  if (element.attrs.length !== entries.length) return false
+  return entries.every(([name, expectedValue]) => {
+    const value = attributeValue(element, name)
+    return value !== undefined && (typeof expectedValue === 'string' ? value === expectedValue : expectedValue(value))
+  })
+}
+
+function exactElementChildren(parent: HtmlParentNode): HtmlElement[] | null {
+  const elements: HtmlElement[] = []
+  for (const child of parent.childNodes) {
+    if (isHtmlElement(child)) {
+      elements.push(child)
+      continue
+    }
+    if (!isWhitespaceTextNode(child)) return null
+  }
+  return elements
+}
+
+function isTextLeaf(element: HtmlElement, expectedAttributes: Record<string, ExactAttributeValue>): boolean {
+  return hasCompleteSourceLocation(element) && hasExactAttributes(element, expectedAttributes) &&
+    element.childNodes.every((child) => isTextNode(child))
+}
+
+function isEmptyElement(element: HtmlElement, tagName: string, expectedAttributes: Record<string, ExactAttributeValue>): boolean {
+  return hasCompleteSourceLocation(element) && element.tagName === tagName &&
+    hasExactAttributes(element, expectedAttributes) && element.childNodes.length === 0
+}
+
+function isVoidElement(element: HtmlElement, tagName: string, expectedAttributes: Record<string, ExactAttributeValue>): boolean {
+  const location = element.sourceCodeLocation
+  return Boolean(location?.startTag) && !location?.endTag && element.tagName === tagName &&
+    hasExactAttributes(element, expectedAttributes) && element.childNodes.length === 0
+}
+
+function directText(element: HtmlElement): string {
+  return element.childNodes.map((child) => isTextNode(child) ? child.value : '').join('')
+}
+
+function isTextNode(node: DefaultTreeAdapterTypes.Node): node is DefaultTreeAdapterTypes.TextNode {
+  return node.nodeName === '#text'
+}
+
+function isWhitespaceTextNode(node: DefaultTreeAdapterTypes.Node): boolean {
+  return isTextNode(node) && /^\s*$/.test(node.value)
+}
+
+function isHtmlDoctype(node: DefaultTreeAdapterTypes.Node): boolean {
+  return node.nodeName === '#documentType' &&
+    'name' in node && node.name === 'html' &&
+    'publicId' in node && node.publicId === '' &&
+    'systemId' in node && node.systemId === ''
 }
 
 function documentOrderElements(parent: HtmlParentNode): HtmlElement[] | null {
-  return collectPreorderElements(parent, false)
-}
-
-function collectPreorderElements(parent: HtmlParentNode, includeTemplateContent: boolean): HtmlElement[] | null {
   const elements: HtmlElement[] = []
   const stack: PendingElement[] = []
   pushChildElements(stack, parent, 1)
@@ -305,9 +433,6 @@ function collectPreorderElements(parent: HtmlParentNode, includeTemplateContent:
     const element = pending.element
     elements.push(element)
     pushChildElements(stack, element, pending.depth + 1)
-    if (includeTemplateContent && isTemplateElement(element)) {
-      pushChildElements(stack, element.content, pending.depth + 1)
-    }
   }
 
   return elements
@@ -318,51 +443,6 @@ function pushChildElements(stack: PendingElement[], parent: HtmlParentNode, dept
     const child = parent.childNodes[index]
     if (child && isHtmlElement(child)) stack.push({ element: child, depth })
   }
-}
-
-function hasActiveCanonicalContent(element: HtmlElement): boolean {
-  const tagName = element.tagName.toLowerCase()
-  if (ACTIVE_CANONICAL_ELEMENT_NAMES.has(tagName) || tagName.includes('-')) return true
-  if (tagName === 'meta' && attributeValue(element, 'http-equiv') !== undefined) return true
-  return element.attrs.some((attribute) => isActiveCanonicalAttribute(attribute.name, attribute.value))
-}
-
-function isTemplateElement(element: HtmlElement): element is DefaultTreeAdapterTypes.Template {
-  return element.tagName === 'template' && 'content' in element
-}
-
-function isActiveCanonicalAttribute(name: string, value: string): boolean {
-  const normalizedName = name.toLowerCase()
-  return normalizedName.startsWith('on') ||
-    normalizedName === 'is' ||
-    (isPotentialUrlAttribute(normalizedName) && isJavaScriptUrl(value))
-}
-
-function isPotentialUrlAttribute(name: string): boolean {
-  return name === 'href' ||
-    name === 'src' ||
-    name === 'action' ||
-    name === 'formaction' ||
-    name === 'data' ||
-    name === 'background' ||
-    name === 'cite' ||
-    name === 'codebase' ||
-    name === 'manifest' ||
-    name === 'poster' ||
-    name === 'profile' ||
-    name === 'usemap' ||
-    name === 'longdesc' ||
-    name === 'archive' ||
-    name === 'classid'
-}
-
-function isJavaScriptUrl(value: string): boolean {
-  let normalized = ''
-  for (const character of value) {
-    if (character.charCodeAt(0) <= 32) continue
-    normalized += character
-  }
-  return normalized.toLowerCase().startsWith('javascript:')
 }
 
 function parseQuizCard(itemId: string, card: HtmlElement): CanonicalQuiz {
@@ -414,41 +494,8 @@ function isHtmlElement(node: DefaultTreeAdapterTypes.Node): node is HtmlElement 
   return 'tagName' in node
 }
 
-function isQuizCard(element: HtmlElement): boolean {
-  return classTokens(attributeValue(element, 'class')).includes('quiz-card')
-}
-
-function isNestedQuizCard(card: HtmlElement): boolean {
-  let parent = card.parentNode
-  while (parent) {
-    if (isHtmlElement(parent) && isQuizCard(parent)) return true
-    parent = isHtmlElement(parent) ? parent.parentNode : null
-  }
-  return false
-}
-
 function attributeValue(element: HtmlElement, name: string): string | undefined {
   return element.attrs.find((attribute) => attribute.name === name)?.value
-}
-
-function classTokens(value: string | undefined): string[] {
-  if (!value) return []
-  const tokens: string[] = []
-  let token = ''
-  for (const character of value) {
-    if (isHtmlWhitespace(character)) {
-      if (token) tokens.push(token)
-      token = ''
-      continue
-    }
-    token += character
-  }
-  if (token) tokens.push(token)
-  return tokens
-}
-
-function isHtmlWhitespace(character: string): boolean {
-  return character === ' ' || character === '\t' || character === '\n' || character === '\r' || character === '\f'
 }
 
 function isSafeOptionId(value: string): boolean {

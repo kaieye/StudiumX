@@ -19,6 +19,59 @@ function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex')
 }
 
+function staticAssessmentDocument(body: string): string {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <title>Evidence assessment</title>
+  <meta name="studiumx-artifact-kind" content="assessment-sidecar">
+</head>
+<body>
+  <section class="practice">
+    <h1>Evidence</h1>
+${body}
+  </section>
+</body>
+</html>
+`
+}
+
+function staticSingleQuizCard(): string {
+  return `    <article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b">
+      <p>Which answer is correct?</p>
+      <div class="quiz-choices">
+        <button type="button" data-choice="a">A</button>
+        <button type="button" data-choice="b">B</button>
+      </div>
+      <output aria-live="polite"></output>
+      <p class="quiz-explanation">B is correct.</p>
+    </article>`
+}
+
+function staticTrueFalseQuizCard(answer = 'true'): string {
+  return `    <article class="quiz-card" data-item-id="quiz-1" data-type="truefalse" data-answer="${answer}">
+      <p>True or false?</p>
+      <div class="quiz-choices">
+        <button type="button" data-choice="true">正确</button>
+        <button type="button" data-choice="false">错误</button>
+      </div>
+      <output aria-live="polite"></output>
+      <p class="quiz-explanation">Explanation.</p>
+    </article>`
+}
+
+function staticFillQuizCard(): string {
+  return `    <article class="quiz-card" data-item-id="quiz-1" data-type="fill" data-answer="answer">
+      <p>Fill the answer.</p>
+      <div class="quiz-fill">
+        <input type="text" placeholder="输入你的答案" aria-label="答案输入" />
+        <button type="button" data-choice="submit">提交</button>
+      </div>
+      <output aria-live="polite"></output>
+      <p class="quiz-explanation">Explanation.</p>
+    </article>`
+}
+
 function snapshot(digest: string, selectedOptionIds = ['b']): CanonicalLearningSessionSnapshot {
   return {
     schemaVersion: 1,
@@ -99,7 +152,7 @@ describe('LearningOutcomeEvaluator', () => {
     const normalPath = 'courses/foundations/lesson-1.html'
     const sidecarPath = 'courses/foundations/lesson-1-assessment.html'
     const normal = '<!doctype html><script>window.parent.postMessage({ selectedOptionIds: ["b"] }, "*")</script><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
-    const sidecar = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const sidecar = staticAssessmentDocument(staticSingleQuizCard())
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...normalPath.split('/')), normal, 'utf8')
     await writeFile(join(root, ...sidecarPath.split('/')), sidecar, 'utf8')
@@ -132,7 +185,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('fails closed when a bound assessment sidecar is substituted after session open', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const original = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const original = staticAssessmentDocument(staticSingleQuizCard())
     const replacement = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="a"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), replacement, 'utf8')
@@ -145,7 +198,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('verifies a canonical correct selection from durable evidence and the artifact answer key', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = staticAssessmentDocument(staticSingleQuizCard())
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
 
@@ -157,6 +210,27 @@ describe('LearningOutcomeEvaluator', () => {
       evidenceEventIds: ['quiz-event-1'],
       artifact: { status: 'verified', sha256: sha256(html) },
       assessments: [{ eventId: 'quiz-event-1', sequence: 1, disposition: 'verified_correct' }]
+    })
+  })
+
+  it.each([
+    ['a remote link', `${staticSingleQuizCard()}\n    <a href="https://attacker.example/assessment">remote</a>`],
+    ['a style import', `${staticSingleQuizCard()}\n    <style>@import url(https://attacker.example/assessment.css);</style>`],
+    ['a responsive resource URL', `${staticSingleQuizCard()}\n    <img srcset="https://attacker.example/assessment.png 1x" alt="bait">`],
+    ['a non-renderer quiz-card structure', `    <article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>`]
+  ])('fails closed for assessment sidecars containing %s', async (_label, body) => {
+    const root = await workspace()
+    const relativePath = 'courses/foundations/lesson-1-assessment.html'
+    const html = staticAssessmentDocument(body)
+    await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
+    await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
+
+    await expect(evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html)) })).resolves.toMatchObject({
+      kind: 'not_evidenced',
+      mastery: false,
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
     })
   })
 
@@ -275,7 +349,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('ignores malformed truefalse answer keys rather than treating matching forged selections as mastery', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="truefalse" data-answer="maybe"><button data-choice="maybe">Maybe</button></article>'
+    const html = staticAssessmentDocument(staticTrueFalseQuizCard('maybe'))
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
 
@@ -292,7 +366,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('recomputes wrong selections and ignores the renderer-provided correct claim', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = staticAssessmentDocument(staticSingleQuizCard())
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
     const session = snapshot(sha256(html), ['a'])
@@ -311,7 +385,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('does not accept otherwise-correct evidence whose digest differs from the canonical lesson bytes', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = staticAssessmentDocument(staticSingleQuizCard())
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
 
@@ -331,7 +405,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('does not turn fill or retrieval-only durable facts into mastery', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="fill" data-answer="answer"><input type="text"><button data-choice="submit">Submit</button></article>'
+    const html = staticAssessmentDocument(staticFillQuizCard())
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
     const session = snapshot(sha256(html), ['submit'])
@@ -378,7 +452,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('ignores unknown quiz item IDs even when their claimed result is correct', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = staticAssessmentDocument(staticSingleQuizCard())
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
     const session = snapshot(sha256(html))
@@ -397,7 +471,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('uses durable sequence rather than renderer timestamps when selecting the latest attempt per quiz', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = staticAssessmentDocument(staticSingleQuizCard())
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
     const first = snapshot(sha256(html)).events[0]!
@@ -498,7 +572,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('requires durable event IDs and all session bindings to agree with the persisted interaction', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = staticAssessmentDocument(staticSingleQuizCard())
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
     const session = snapshot(sha256(html))
@@ -519,7 +593,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('ignores quiz cards whose answer key or option IDs require normalization to become valid', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer=" b "><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = staticAssessmentDocument(staticSingleQuizCard().replace('data-answer="b"', 'data-answer=" b "'))
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
 
@@ -537,7 +611,7 @@ describe('LearningOutcomeEvaluator', () => {
   it('does not promote flashcard ratings or conversation response digests into mastery', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const html = staticAssessmentDocument(staticSingleQuizCard())
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
 
@@ -616,7 +690,7 @@ describe('LearningOutcomeEvaluator', () => {
 
 
 
-  it('uses DOM quiz order instead of comment bait when assessing the first canonical quiz', async () => {
+  it('rejects comment bait because comments are outside the assessment sidecar grammar', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
     const html = '<!doctype html><!-- <article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="a"><button data-choice="a">bait</button></article> --><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
@@ -626,10 +700,11 @@ describe('LearningOutcomeEvaluator', () => {
     const result = await evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html), ['a']) })
 
     expect(result).toMatchObject({
-      kind: 'needs_practice',
+      kind: 'not_evidenced',
       mastery: false,
-      evidenceEventIds: ['quiz-event-1'],
-      assessments: [{ disposition: 'verified_incorrect', reason: 'verified' }]
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
     })
   })
 
@@ -651,7 +726,7 @@ describe('LearningOutcomeEvaluator', () => {
     })
   })
 
-  it('does not let pseudo article text or a descendant attribute closing tag truncate a real quiz card', async () => {
+  it('rejects pseudo article text and unknown card attributes outside the sidecar grammar', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
     const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><p data-bait="</article><article class=quiz-card data-type=single data-answer=a>">&lt;article class="quiz-card"&gt;</p><button data-choice="a">A</button><button data-choice="b">B</button></article>'
@@ -661,16 +736,18 @@ describe('LearningOutcomeEvaluator', () => {
     const result = await evaluateLearningSessionOutcome({ workspaceRoot: root, session: snapshot(sha256(html), ['a']) })
 
     expect(result).toMatchObject({
-      kind: 'needs_practice',
+      kind: 'not_evidenced',
       mastery: false,
-      assessments: [{ itemId: 'quiz-1', disposition: 'verified_incorrect', reason: 'verified' }]
+      evidenceEventIds: [],
+      artifact: { status: 'unparseable', sha256: sha256(html) },
+      assessments: []
     })
   })
 
   it('uses decoded DOM attribute values for canonical answer and choice IDs', async () => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const html = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="&#98;"><button data-choice="&#97;">A</button><button data-choice="&#98;">B</button></article>'
+    const html = staticAssessmentDocument(staticSingleQuizCard().replace('data-answer="b"', 'data-answer="&#98;"').replace('data-choice="a"', 'data-choice="&#97;"').replace('data-choice="b"', 'data-choice="&#98;"'))
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')
 
@@ -726,7 +803,7 @@ describe('LearningOutcomeEvaluator', () => {
   ])('does not hash, parse, or establish mastery from %s', async (_label, byteLength) => {
     const root = await workspace()
     const relativePath = 'courses/foundations/lesson-1-assessment.html'
-    const canonicalQuiz = '<!doctype html><article class="quiz-card" data-item-id="quiz-1" data-type="single" data-answer="b"><button data-choice="a">A</button><button data-choice="b">B</button></article>'
+    const canonicalQuiz = staticAssessmentDocument(staticSingleQuizCard())
     const html = canonicalQuiz.padEnd(byteLength, ' ')
     await mkdir(join(root, 'courses', 'foundations'), { recursive: true })
     await writeFile(join(root, ...relativePath.split('/')), html, 'utf8')

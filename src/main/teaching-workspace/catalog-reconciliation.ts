@@ -1,4 +1,5 @@
 import { basename, resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
 
 import type { LessonSummary } from '../../shared/teaching-types'
 import { deriveLessonPlacementFromRelativePath } from '../../shared/teaching-placement'
@@ -36,9 +37,10 @@ export type LessonIndexReconciliationPlan = {
 export async function planLessonIndexReconciliation(
   input: LessonIndexReconciliationInput
 ): Promise<LessonIndexReconciliationPlan> {
-  const diskLessonPaths = await collectTeachingFiles(input.rootPath, isLessonHtmlFile)
+  const diskLessonPaths = await collectTeachingFiles(input.rootPath, (filePath) => filePath.toLowerCase().endsWith('.html'))
+  const visibleLessonPaths = await filterPublishedAssessmentSidecars(diskLessonPaths)
   const diskPathsByKey = new Map(
-    diskLessonPaths.map((absolutePath) => [canonicalPath(absolutePath), absolutePath])
+    visibleLessonPaths.map((absolutePath) => [canonicalPath(absolutePath), absolutePath])
   )
   const retainedKeys = new Set<string>()
   const reconciledLessons: LessonSummary[] = []
@@ -69,9 +71,32 @@ export async function planLessonIndexReconciliation(
   }
 }
 
-function isLessonHtmlFile(filePath: string): boolean {
-  const lower = filePath.toLowerCase()
-  return lower.endsWith('.html') && !lower.endsWith('-reference.html') && !lower.endsWith('-assessment.html')
+
+const ASSESSMENT_SIDECAR_HEAD_PREFIX = '<!doctype html>\n<html lang="zh-CN">\n<head>\n  <title>'
+const ASSESSMENT_SIDECAR_MARKER = '</title>\n  <meta name="studiumx-artifact-kind" content="assessment-sidecar">\n</head>\n<body>\n'
+
+/** Excludes only publisher-marked assessment sidecars; filename suffixes remain valid Lesson titles. */
+async function filterPublishedAssessmentSidecars(paths: string[]): Promise<string[]> {
+  const verdicts = await Promise.all(paths.map(async (filePath) => ({
+    filePath,
+    sidecar: await isPublishedAssessmentSidecar(filePath)
+  })))
+  return verdicts.filter((entry) => !entry.sidecar).map((entry) => entry.filePath)
+}
+
+async function isPublishedAssessmentSidecar(filePath: string): Promise<boolean> {
+  // Keep this intentionally narrower than generic HTML marker matching: only the
+  // deterministic publisher head layout is catalog-internal. A failed or
+  // non-matching read is never used to hide a potential legacy Lesson.
+  try {
+    const content = await readFile(filePath, 'utf8')
+    if (!content.startsWith(ASSESSMENT_SIDECAR_HEAD_PREFIX)) return false
+    const markerIndex = content.indexOf(ASSESSMENT_SIDECAR_MARKER, ASSESSMENT_SIDECAR_HEAD_PREFIX.length)
+    return markerIndex > ASSESSMENT_SIDECAR_HEAD_PREFIX.length &&
+      content.indexOf('<', ASSESSMENT_SIDECAR_HEAD_PREFIX.length) === markerIndex
+  } catch {
+    return false
+  }
 }
 
 function recoveredLessonSummary(rootPath: string, workspaceName: string, absolutePath: string): LessonSummary {
