@@ -494,6 +494,141 @@ describe('AppPet accessibility', () => {
     await waitFor(() => expect(liveRegion).not.toHaveTextContent(/有请求需要处理|Request needs your attention/i))
   })
 
+  it('applies notification preferences while keeping waiting and failed states discoverable', async () => {
+    useAppStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        pet: {
+          ...state.settings.pet,
+          notificationPreferences: {
+            actionableOnly: true,
+            showRunning: false,
+            showReview: false,
+            showWaving: false,
+            sources: { agent: false, lessonGeneration: false, onboarding: false },
+            quietUntil: Date.now() + 60_000
+          }
+        }
+      },
+      generating: true,
+      lessonGenerationRunId: 'workspace-1:lesson-run-1'
+    }))
+    const { container } = renderUi(<AppPet />)
+    await act(async () => {})
+
+    expect(container.querySelector('.app-pet')).toHaveAttribute('data-state', 'idle')
+    expect(useAppStore.getState().generating).toBe(true)
+
+    const { conversation } = pendingAskConversation()
+    act(() => useAppStore.setState({
+      agentChatBusy: true,
+      pendingAgentConversation: conversation
+    }))
+    await waitFor(() => expect(container.querySelector('.app-pet')).toHaveAttribute('data-state', 'waiting'))
+
+    act(() => useAppStore.setState({
+      agentChatBusy: false,
+      pendingAgentConversation: null,
+      petNotificationErrors: [{
+        id: 'lesson-generation:lesson-run-1:failed:1',
+        source: 'lesson-generation',
+        sourceId: 'lesson-run-1',
+        error: { message: 'Lesson failed safely', severity: 'error' },
+        createdAt: Date.now()
+      }]
+    }))
+    await waitFor(() => expect(container.querySelector('.app-pet')).toHaveAttribute('data-state', 'failed'))
+    expect(screen.getByText('Lesson failed safely')).toBeInTheDocument()
+  })
+
+  it('ends quiet mode without changing a real running lifecycle', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-15T08:00:00.000Z'))
+    try {
+      useAppStore.setState((state) => ({
+        settings: {
+          ...state.settings,
+          pet: {
+            ...state.settings.pet,
+            notificationPreferences: {
+              ...state.settings.pet.notificationPreferences,
+              quietUntil: Date.now() + 1_000
+            }
+          }
+        },
+        generating: true,
+        lessonGenerationRunId: 'workspace-1:lesson-run-1'
+      }))
+      const { container } = renderUi(<AppPet />)
+      await act(async () => {})
+
+      expect(container.querySelector('.app-pet')).toHaveAttribute('data-state', 'idle')
+      expect(useAppStore.getState().generating).toBe(true)
+
+      act(() => vi.advanceTimersByTime(1_002))
+      await act(async () => {})
+
+      expect(container.querySelector('.app-pet')).toHaveAttribute('data-state', 'running')
+      expect(container.querySelector('.app-pet-bubble strong')).toHaveTextContent(
+        /正在生成课程|Lesson generation is running/i
+      )
+      expect(useAppStore.getState().generating).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not replay a review that expires while quiet mode is active', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-15T08:00:00.000Z'))
+    try {
+      const { conversation } = pendingAskConversation()
+      const runningConversation = {
+        ...conversation,
+        turns: [],
+        status: '运行中',
+        summary: { ...conversation.summary, id: 'agent-run-quiet' }
+      }
+      useAppStore.setState((state) => ({
+        settings: {
+          ...state.settings,
+          pet: {
+            ...state.settings.pet,
+            notificationPreferences: {
+              ...state.settings.pet.notificationPreferences,
+              quietUntil: Date.now() + 10_000
+            }
+          }
+        },
+        agentChatBusy: true,
+        pendingAgentConversation: runningConversation
+      }))
+      const { container } = renderUi(<AppPet />)
+      await act(async () => {})
+
+      act(() => vi.advanceTimersByTime(1_000))
+      act(() => useAppStore.setState({
+        agentChatBusy: false,
+        pendingAgentConversation: null,
+        agentPetNotificationResult: {
+          runId: 'agent-run-quiet',
+          resultId: 'agent-result-quiet',
+          targetId: 'agent-run-quiet'
+        }
+      }))
+      await act(async () => {})
+      expect(container.querySelector('.app-pet')).toHaveAttribute('data-state', 'idle')
+
+      act(() => vi.advanceTimersByTime(9_002))
+      await act(async () => {})
+
+      expect(container.querySelector('.app-pet')).toHaveAttribute('data-state', 'idle')
+      expect(screen.queryByText(/Agent 结果已就绪|Agent result is ready/i)).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('moves focus by notification ID when a focused review automatically expires', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-15T08:00:00.000Z'))

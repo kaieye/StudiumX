@@ -44,6 +44,7 @@ import {
   createInitialPetNotificationProjectionState,
   dismissPetNotification,
   projectPetNotifications,
+  projectPetNotificationVisibility,
   pruneDismissedPetNotifications,
   retainedPetNotificationIds,
   selectPetNotifications,
@@ -265,13 +266,21 @@ export function AppPet() {
     () => retainedPetNotificationIds(notificationProjection.state, notificationSignals),
     [notificationProjection.state, notificationSignals]
   )
+  const presentableNotifications = useMemo(
+    () => projectPetNotificationVisibility(
+      notifications,
+      settings.notificationPreferences,
+      notificationProjection.now
+    ),
+    [notificationProjection.now, notifications, settings.notificationPreferences]
+  )
   const visibleNotifications = useMemo(
     () => selectPetNotifications(
-      notifications,
+      presentableNotifications,
       dismissedNotifications,
       notificationProjection.now
     ),
-    [dismissedNotifications, notificationProjection.now, notifications]
+    [dismissedNotifications, notificationProjection.now, presentableNotifications]
   )
   const notification = visibleNotifications[0] ?? null
   const activityNotifications = visibleNotifications.slice(0, 3)
@@ -332,7 +341,10 @@ export function AppPet() {
   }, [activityExpanded, canExpandActivity])
 
   useEffect(() => {
+    const now = Date.now()
     const expirations = notifications.flatMap((item) => item.expiresAt === undefined ? [] : [item.expiresAt])
+    const quietUntil = settings.notificationPreferences.quietUntil
+    if (quietUntil !== null && quietUntil > now) expirations.push(quietUntil)
     if (expirations.length === 0) return
     const nextExpiration = Math.min(...expirations)
     const timer = window.setTimeout(() => {
@@ -341,9 +353,9 @@ export function AppPet() {
         now,
         state: advancePetNotificationProjection(current.state, { ...baseNotificationSignals, now })
       }))
-    }, Math.max(0, nextExpiration - Date.now()) + 1)
+    }, Math.max(0, nextExpiration - now) + 1)
     return () => window.clearTimeout(timer)
-  }, [baseNotificationSignals, notifications])
+  }, [baseNotificationSignals, notifications, settings.notificationPreferences.quietUntil])
 
   useEffect(() => {
     if (settings.enabled) return
