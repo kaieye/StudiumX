@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -41,6 +41,14 @@ try {
   const escapedThroughLink = join(linkToOutside, 'secret.md')
 
   assert.equal((await lstat(linkToOutside)).isSymbolicLink(), true)
+  const [realWorkspace, realEscaped, realOutside] = await Promise.all([
+    realpath(workspace),
+    realpath(escapedThroughLink),
+    realpath(outsideFile)
+  ])
+  assert.equal(realEscaped, realOutside)
+  assert.equal(isPathInsideRoot(realWorkspace, realEscaped), false)
+
   assert.equal(await isRealPathInsideRoot(workspace, insideFile), true)
   assert.equal(await isRealPathInsideRoot(workspace, escapedThroughLink), false)
   await assert.rejects(
