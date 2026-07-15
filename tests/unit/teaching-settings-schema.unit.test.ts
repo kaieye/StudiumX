@@ -90,7 +90,7 @@ describe('teaching settings schema', () => {
         xaiModel: '  '
       },
       notifications: null,
-      pet: { appearance: 'robot', displayName: '  Legacy pet name that is much too long  ' },
+      pet: { appearance: 'robot', displayName: '  Legacy pet name that is much too long  ', size: 999 },
       privacy: { maskApiKeys: false },
       appBehavior: { closeAction: 'tray', closeToTray: 'yes' },
       log: { retentionDays: 0 }
@@ -148,7 +148,8 @@ describe('teaching settings schema', () => {
       },
       pet: {
         appearance: 'boba',
-        displayName: 'Legacy pet name that is '
+        displayName: 'Legacy pet name that is ',
+        size: 224
       },
       privacy: { maskApiKeys: false, allowExternalLinks: true },
       appBehavior: { closeAction: 'tray', closeToTray: false },

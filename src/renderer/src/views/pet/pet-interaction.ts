@@ -1,3 +1,5 @@
+import { DEFAULT_PET_SIZE, MAX_PET_SIZE, MIN_PET_SIZE } from '../../../../shared/teaching-types'
+
 /**
  * Pure interaction policy for the floating pet surfaces.
  *
@@ -31,7 +33,17 @@ export type AssistantDialogInteractionMode = 'drag' | 'resize'
 export type PetDragSession = {
   pointerId: number
   startPoint: PetPoint
+  lastPoint: PetPoint
   startPlacement: PetPlacement
+  direction: 'left' | 'right' | null
+  moved: boolean
+}
+
+export type PetResizeSession = {
+  pointerId: number
+  startX: number
+  startSize: number
+  size: number
   moved: boolean
 }
 
@@ -108,7 +120,14 @@ export function startPetDrag(
   startPoint: PetPoint,
   startPlacement: PetPlacement
 ): PetDragSession {
-  return { pointerId, startPoint, startPlacement, moved: false }
+  return {
+    pointerId,
+    startPoint,
+    lastPoint: startPoint,
+    startPlacement,
+    direction: null,
+    moved: false
+  }
 }
 
 export function movePetDrag(
@@ -122,8 +141,14 @@ export function movePetDrag(
 
   const dx = point.x - session.startPoint.x
   const dy = point.y - session.startPoint.y
+  const instantDx = point.x - session.lastPoint.x
   const moved = session.moved || Math.hypot(dx, dy) >= PET_DRAG_THRESHOLD
-  const nextSession = moved === session.moved ? session : { ...session, moved }
+  const direction = instantDx < 0
+    ? 'left'
+    : instantDx > 0
+      ? 'right'
+      : session.direction
+  const nextSession = { ...session, lastPoint: point, moved, direction }
   if (!moved) return { session: nextSession, placement: null, direction: null }
 
   return {
@@ -133,7 +158,7 @@ export function movePetDrag(
       viewport,
       size
     ),
-    direction: dx < 0 ? 'left' : 'right'
+    direction
   }
 }
 
@@ -143,6 +168,59 @@ export function finishPetDrag(
 ): 'ignore' | 'persist-placement' | 'activate-assistant' {
   if (session.pointerId !== pointerId) return 'ignore'
   return session.moved ? 'persist-placement' : 'activate-assistant'
+}
+
+export function cancelPetDrag(
+  session: PetDragSession,
+  pointerId: number
+): 'ignore' | 'persist-placement' | 'cancel-activation' {
+  if (session.pointerId !== pointerId) return 'ignore'
+  return session.moved ? 'persist-placement' : 'cancel-activation'
+}
+
+export function clampPetSize(size: number): number {
+  if (!Number.isFinite(size)) return DEFAULT_PET_SIZE
+  return Math.round(clamp(size, MIN_PET_SIZE, MAX_PET_SIZE))
+}
+
+export function petSurfaceSize(size: number): FloatingSurfaceSize {
+  const width = clampPetSize(size)
+  return {
+    width: width + 12,
+    height: Math.round((width * 208) / 192) + 12
+  }
+}
+
+export function startPetResize(pointerId: number, startX: number, startSize: number): PetResizeSession {
+  const size = clampPetSize(startSize)
+  return { pointerId, startX, startSize: size, size, moved: false }
+}
+
+export function movePetResize(
+  session: PetResizeSession,
+  pointerId: number,
+  currentX: number
+): { session: PetResizeSession; size: number | null } {
+  if (session.pointerId !== pointerId) return { session, size: null }
+  const delta = session.startX - currentX
+  const size = clampPetSize(session.startSize + delta)
+  const nextSession = {
+    ...session,
+    size,
+    moved: session.moved || Math.abs(delta) >= 1
+  }
+  return { session: nextSession, size }
+}
+
+export function finishPetResize(
+  session: PetResizeSession,
+  pointerId: number
+): { outcome: 'ignore' | 'no-change' | 'persist-size'; size: number } {
+  if (session.pointerId !== pointerId) return { outcome: 'ignore', size: session.size }
+  return {
+    outcome: session.moved && session.size !== session.startSize ? 'persist-size' : 'no-change',
+    size: session.size
+  }
 }
 
 export function derivePetAttention(input: {

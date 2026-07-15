@@ -707,6 +707,32 @@
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
+.pet-size-setting > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pet-size-setting output {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.pet-size-setting input[type='range'] {
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  accent-color: var(--accent);
+  cursor: ew-resize;
+}
+.pet-size-setting small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
 .pet-appearance-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -775,8 +801,8 @@
   z-index: 120;
   right: 18px;
   bottom: 12px;
-  width: 124px;
-  height: 133px;
+  width: calc(var(--pet-size, 112px) + 12px);
+  height: calc(var(--pet-height, 121px) + 12px);
   pointer-events: none;
   -webkit-app-region: no-drag;
 }
@@ -786,15 +812,15 @@
 }
 .app-pet.is-left-edge .app-pet-bubble {
   right: auto;
-  left: 82px;
+  left: var(--pet-bubble-offset-x, 82px);
   border-radius: 14px 14px 14px 4px;
 }
 .app-pet-mascot {
   position: absolute;
   right: 0;
   bottom: 0;
-  width: 112px;
-  height: 121px;
+  width: var(--pet-size, 112px);
+  height: var(--pet-height, 121px);
   pointer-events: auto;
   touch-action: none;
   user-select: none;
@@ -802,10 +828,45 @@
 .app-pet-mascot:active {
   cursor: grabbing;
 }
+.app-pet-resize-handle {
+  position: absolute;
+  z-index: 4;
+  bottom: 4px;
+  left: 0;
+  width: 16px;
+  height: 28px;
+  border-radius: 8px;
+  outline: 0;
+  opacity: 0;
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+  transition: opacity 120ms ease-out, background-color 120ms ease-out;
+  -webkit-app-region: no-drag;
+}
+.app-pet-resize-handle::before {
+  position: absolute;
+  bottom: 7px;
+  left: 5px;
+  width: 5px;
+  height: 12px;
+  border-left: 1px solid color-mix(in srgb, var(--text) 58%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--text) 35%, transparent);
+  content: '';
+}
+.app-pet:hover .app-pet-resize-handle,
+.app-pet:focus-within .app-pet-resize-handle,
+.app-pet-resize-handle:focus-visible {
+  opacity: 0.78;
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+}
+.app-pet-resize-handle:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 42%, transparent);
+}
 .app-pet-bubble {
   position: absolute;
-  right: 82px;
-  bottom: 100px;
+  right: var(--pet-bubble-offset-x, 82px);
+  bottom: var(--pet-bubble-offset-y, 100px);
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -890,7 +951,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pet-preview-mascot,
-  .app-pet-bubble {
+  .app-pet-bubble,
+  .app-pet-resize-handle {
     transition: none;
     animation: none;
   }

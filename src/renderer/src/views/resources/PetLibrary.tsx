@@ -2,6 +2,7 @@ import { ArrowLeft, Check, MousePointer2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { MAX_PET_SIZE, MIN_PET_SIZE } from '../../../../shared/teaching-types'
 import { useAppStore } from '../../app-shell/appStore'
 import {
   PET_CATALOG,
@@ -24,19 +25,33 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
   const settings = useAppStore((state) => state.settings.pet)
   const updateSettings = useAppStore((state) => state.updateSettings)
   const [displayName, setDisplayName] = useState(settings.displayName)
+  const [petSize, setPetSize] = useState(settings.size)
   const [previewState, setPreviewState] = useState<PetVisualState>('idle')
   const [dragOffset, setDragOffset] = useState(0)
   const [dragging, setDragging] = useState(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<PreviewDragSession | null>(null)
   const suppressClickRef = useRef(false)
+  const lastCommittedPetSizeRef = useRef(settings.size)
 
   useEffect(() => setDisplayName(settings.displayName), [settings.displayName])
+  useEffect(() => {
+    setPetSize(settings.size)
+    lastCommittedPetSizeRef.current = settings.size
+  }, [settings.size])
 
   const saveDisplayName = (): void => {
     const normalized = displayName.trim().slice(0, 24) || t('resources.pets.defaultName')
     setDisplayName(normalized)
     if (normalized !== settings.displayName) void updateSettings({ pet: { displayName: normalized } })
+  }
+
+  const savePetSize = (size: number): void => {
+    const normalized = Math.min(MAX_PET_SIZE, Math.max(MIN_PET_SIZE, Math.round(size)))
+    setPetSize(normalized)
+    if (normalized === settings.size || normalized === lastCommittedPetSizeRef.current) return
+    lastCommittedPetSizeRef.current = normalized
+    void updateSettings({ pet: { size: normalized } })
   }
 
   // Drag the mascot left/right: the pet follows the cursor while the running
@@ -203,6 +218,26 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
                 if (event.key === 'Enter') event.currentTarget.blur()
               }}
             />
+          </label>
+
+          <label className="pet-setting-field pet-size-setting">
+            <span>
+              <span>{t('resources.pets.sizeLabel')}</span>
+              <output>{petSize}px</output>
+            </span>
+            <input
+              type="range"
+              min={MIN_PET_SIZE}
+              max={MAX_PET_SIZE}
+              step={8}
+              value={petSize}
+              aria-label={t('resources.pets.sizeLabel')}
+              onChange={(event) => setPetSize(Number(event.currentTarget.value))}
+              onPointerUp={(event) => savePetSize(Number(event.currentTarget.value))}
+              onKeyUp={(event) => savePetSize(Number(event.currentTarget.value))}
+              onBlur={(event) => savePetSize(Number(event.currentTarget.value))}
+            />
+            <small>{t('resources.pets.sizeDetail')}</small>
           </label>
 
           <label className="pet-setting-row">

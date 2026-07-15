@@ -27,6 +27,9 @@ export type AppCloseAction = 'quit' | 'tray'
 export const PET_APPEARANCE_IDS = ['boba', 'lulu-capybara', 'shinchan', 'usagi'] as const
 export type PetAppearanceId = (typeof PET_APPEARANCE_IDS)[number]
 export const DEFAULT_PET_APPEARANCE_ID: PetAppearanceId = 'boba'
+export const MIN_PET_SIZE = 80
+export const MAX_PET_SIZE = 224
+export const DEFAULT_PET_SIZE = 112
 
 const LEGACY_PET_APPEARANCE_IDS: Record<string, PetAppearanceId> = {
   robot: 'boba',
@@ -213,6 +216,7 @@ export type TeachingSettingsV1 = {
     displayName: string
     showStatusBubble: boolean
     appearance: PetAppearanceId
+    size: number
   }
   privacy: {
     maskApiKeys: boolean

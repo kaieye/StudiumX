@@ -608,3 +608,137 @@ pet.json + spritesheet.png/webp
 ## 15. 结论摘要
 
 当前 Codex Pet 是一个与任务状态深度结合的 Electron 桌面浮层：React 负责 UI 与状态组合，CSS spritesheet 负责像素宠物动作，Electron 主进程负责透明窗口、位置、投掷和多显示器，macOS 原生 addon 负责 composition material 与多 surface 展示。自定义宠物本质上是遵守固定 atlas 尺寸和动作行协议的 manifest 加图片目录；Hatch Pet skill 负责生产素材，Dock Tile 插件则属于另一条完全独立的功能链路。
+
+---
+
+## 16. StudiumX 适配目标（实施于 2026-07-15）
+
+本文第 1–15 节记录的是对 Codex App Pet 的静态分析，不能直接等同于 StudiumX 的产品需求。本节开始定义 **StudiumX 的实际实现边界**：优先复用当前 Electron + React 应用的已有状态、设置和资源体系，而不是为追求逐项一致复制一套桌面级 overlay。
+
+StudiumX Pet 的定位是应用内的学习与 Agent 进度提示器：在 StudiumX 主窗口可见时，以 React 固定浮层显示；用户可查看当前状态、拖动位置、调整大小、打开 Pet 对话和关闭宠物。它不是跨应用、跨全屏空间或多显示器常驻的系统级助手。
+
+### 16.1 目标与非目标
+
+| 分类 | StudiumX 决策 | 原因 |
+|---|---|---|
+| 状态可见性 | 实现 | 当前前台/待恢复 Agent conversation 已能提供运行、等待、失败与完成信号。 |
+| 精灵动画 | 实现 | 复用已入库的 4 套 v1 spritesheet 与 9 行动作状态。 |
+| 位置与尺寸 | 实现 | 位置适合留在 renderer 的 `localStorage`；尺寸适合纳入已有 Teaching Settings。 |
+| Pet 对话入口 | 实现 | 已有 `PetAssistantDialog` 与 Agent 会话状态，无需另建会话系统。 |
+| 桌面透明 overlay | 不实现 | 需要独立 `BrowserWindow`、跨空间层级、生命周期和平台测试，超出当前应用内需求。 |
+| macOS native composition | 不实现 | 需要 native addon、surface 协调与 macOS 专项维护，当前无产品收益支撑。 |
+| 鼠标穿透 / 全屏 / 多显示器 | 不实现 | 这些仅对系统级 overlay 有意义；应用内浮层天然受主窗口边界约束。 |
+| 惯性投掷和 bounce | 不实现 | 增加运动模型和边界状态，学习任务场景中不如直接拖动可预测。 |
+| Cloud Task 多 session 聚合 | 不实现 | 当前 store 只建模前台 conversation 与 pending conversation，不应伪造全局聚合。 |
+| URL 安装或自定义目录 loader | 不实现 | 会扩大文件路径、图片校验与远程下载的安全面；先稳定内置素材契约。 |
+| v2 十六方向鼠标注视 | 不实现 | 当前四套内置素材均按 v1 九行 atlas 使用，没有可消费的 v2 注视行。 |
+
+### 16.2 与 Codex 的关系
+
+下列内容是保留的兼容核心，而非要求逐像素复刻 Codex：
+
+- sprite cell 保持 `192 × 208 px`，v1 atlas 为 `8 × 9`；
+- 保持九个动作行：`idle`、`running-right`、`running-left`、`waving`、`jumping`、`failed`、`waiting`、`running`、`review`；
+- 默认显示宽度 `112 px`，可调范围 `80–224 px`；
+- 按“等待优先、失败其次”的原则选择任务状态；
+- 拖动阈值保持约 `4 px`，但方向按最近一次横向移动即时更新，反向拖动不会等待越过起点；
+- 减少动态效果偏好下停在首帧，而不是继续播放动画。
+
+没有采用的桌面级能力应在需求真正出现时单独设计，不应通过向当前 Renderer 堆叠主进程或 native 逻辑来“补齐文档”。
+
+## 17. StudiumX 已落地能力与源码索引
+
+### 17.1 设置、素材与渲染
+
+| 能力 | 实现位置 | 说明 |
+|---|---|---|
+| Pet 设置类型及尺寸常量 | `src/shared/teaching-types/settings.ts` | `MIN_PET_SIZE = 80`、`MAX_PET_SIZE = 224`、`DEFAULT_PET_SIZE = 112`；`TeachingSettingsV1.pet.size` 为持久化字段。 |
+| 默认值与旧数据归一化 | `src/shared/teaching-settings-schema.ts` | 新设置默认 `112`；旧设置缺失尺寸时回退默认值，非法值 clamp 到 `80–224` 并取整。 |
+| 内置宠物与 atlas 契约 | `src/renderer/src/views/pet/pet-animation-catalog.ts` | 注册 Boba、Lulu、Shinchan、Usagi；按 v1 九行 atlas 选帧。 |
+| 精灵组件 | `src/renderer/src/views/pet/PetSprite.tsx` | CSS background atlas；监听 `prefers-reduced-motion`，开启时固定 frame 0。 |
+| 宠物资源页 | `src/renderer/src/views/resources/PetLibrary.tsx` | 预览、选择内置宠物、名称、状态气泡、尺寸 slider。 |
+| 中英文文案 | `src/renderer/src/i18n/locales/{zh-CN,en-US}.json` | Pet 尺寸说明及无障碍 resize 标签。 |
+
+尺寸的存储职责刻意分离：位置是 renderer 视口中的临时几何，存入 `localStorage`（`studiumx-pet-position-v1`）；尺寸是用户设置的一部分，随 Teaching Settings 写入。这避免把窗口坐标混入跨设备/跨配置设置，也避免把设置尺寸依赖单个 renderer storage 实现。
+
+### 17.2 悬浮 Pet 交互
+
+`src/renderer/src/views/pet/AppPet.tsx` 与 `pet-interaction.ts` 构成应用内浮层实现：
+
+- 宠物在启用时显示于主窗口右下角；拖动后转为固定 `left/top` 坐标并持久化。
+- Pointer 拖动使用 capture；移动距离未达到阈值时视为点击并打开 Pet Assistant。`pointercancel` 只取消点击，不会误打开 Assistant；已经移动的拖动仍保存最后位置。
+- 拖动方向使用相邻 pointer 点的 `instantDx`，所以向右移动后立刻向左移动会立即显示 `running-left`。
+- 左下 resize handle 既支持 pointer 拖拽，也以 `role="slider"` 支持键盘：箭头键步进 `8 px`，按住 Shift 步进 `16 px`，Home/End 跳到边界。
+- 变大后位置会重新 clamp，避免浮层落到主窗口外；pointer cancel 的 resize 会回退到已保存的设置尺寸。
+- 右键菜单仅保留“关闭宠物”这一安全、明确的当前操作；关闭更新 `pet.enabled`。
+
+### 17.3 状态与 Agent 会话衔接
+
+StudiumX 使用以下优先级，而不是尝试合并不存在的 Cloud Task 集合：
+
+```text
+waiting > failed > review > running > waving > idle
+```
+
+| 状态 | 当前判定 | 展示规则 |
+|---|---|---|
+| `waiting` | pending conversation 中存在 ask 或 tool permission | 最高优先级，显示状态气泡。 |
+| `failed` | app store 有 error | 紧随等待，显示状态气泡。 |
+| `review` | 一次 busy 结束且无 waiting/error | 保留 7 秒，提示可查看结果。 |
+| `running` | lesson generation 或 Agent chat 处于 busy | 持续到任务结束。 |
+| `waving` | Pet 首次启用或从关闭重新启用 | 欢迎态最多 8 秒。 |
+| `idle` | 无上述信号 | 静止；仅 idle 时 hover 改为 `jumping`。 |
+
+拖动是一项显式用户操作，临时覆盖视觉动作为 `running-left/right`；hover 只在 `idle` 时覆盖为 `jumping`，因此不会掩盖等待、失败、运行或可复核结果。
+
+`PetAssistantDialog` 读取 `pendingAgentConversation.turns`（存在 pending conversation 时）来判定 ask/permission，而不是错误地只读当前清空后的 `agentTurns`。用户从 Pet Assistant 打开完整对话时，会先调用 `restorePendingAgentConversation()`，再切换到聊天视图，保证待处理的确认/提问不丢失。
+
+## 18. 取舍矩阵与后续门槛
+
+| Codex 分析项 | StudiumX 当前结果 | 取舍依据 | 未来启用前提 |
+|---|---|---|---|
+| 透明独立窗口 | 应用内 React `position: fixed` 浮层 | 当前产品核心是 StudiumX 内学习任务，主窗口可见即足够。 | 明确提出跨应用常驻需求，并完成窗口层级、关闭、恢复测试。 |
+| Native material composition | 不采用 | 避免新增 `.node` 二进制、签名和 macOS 专项回归。 | 有经验证的视觉需求和 macOS CI/签名发布链路。 |
+| 多显示器 / Space 迁移 | 不采用 | App 内浮层不能也不需要越过主窗口。 | 架构改为独立 overlay 后设计每屏策略。 |
+| 鼠标穿透 | 不采用 | DOM 浮层天然只占用自身交互区域，复杂 hit-test 无收益。 | 独立窗口且需要非交互空白区穿透。 |
+| 投掷与边缘反弹 | 不采用 | 直接持久化位置更可预测，减少运动干扰。 | 可用性研究证明此类动效有正收益。 |
+| v2 注视 | 不采用 | 素材和当前 catalog 都是 v1 实际输入。 | 引入合规的 `8 × 11` v2 素材并增加视觉 QA。 |
+| 自定义 pet loader | 不采用 | 避免路径遍历、图片解码和 URL 下载的输入面。 | 单独定义安全的本地导入、校验、错误恢复与配额方案。 |
+| Cloud task 聚合 | 不采用 | 当前领域模型没有多个云任务的通用状态/未读语义。 | 先建立可测试的 session 聚合领域层。 |
+
+这张矩阵是当前实现的边界契约。任何未来“补齐 Codex 能力”的变更都应先更新领域模型与测试，再修改 Pet UI；不得仅凭本分析文档推断现有 StudiumX 已拥有对应运行时能力。
+
+## 19. 验证方式
+
+### 19.1 自动检查
+
+Pet 相关变更至少运行：
+
+```bash
+pnpm exec vitest run --project unit \
+  tests/unit/app-pet.unit.test.tsx \
+  tests/unit/pet-interaction.unit.test.ts \
+  tests/unit/pet-sprite.unit.test.tsx \
+  tests/unit/teaching-settings-schema.unit.test.ts
+pnpm run typecheck
+pnpm run check:pet-library
+pnpm run build
+```
+
+其中单元测试覆盖：键盘打开 Pet Assistant 与关闭后焦点恢复、拖动方向反转、pointer cancel、不合法/边界尺寸、resize 提交、surface 几何、设置归一化，以及 Reduced Motion 固定首帧。`check:pet-library` 还检查内置 atlas、共享 settings 契约、资源页 slider 和悬浮 Pet 的可访问 resize 接口。
+
+### 19.2 手动验收清单
+
+1. 在 Pet Library 将尺寸调到 `80`、`112`、`224`，重启应用后确认尺寸保持；旧 settings 没有 `pet.size` 时应落在 `112`。
+2. 拖动已定位宠物到窗口边缘后增大尺寸，确认其仍在可视区域内；右键菜单和点击都应可用。
+3. 点击但不移动宠物，应打开 Pet Assistant；使用 `Tab` 聚焦宠物后按 `Enter` 或 `Space` 也应打开，关闭对话后焦点应返回宠物；在 pointer 操作被浏览器取消时，不应打开 Assistant。
+4. 拖动时来回改变横向方向，确认动作立即切换；松开后位置保持。
+5. OS 开启“减少动态效果”后，Pet 应显示 atlas 首帧且不继续计时换帧。
+6. 启动 Agent、触发 ask/permission、制造失败、完成任务，分别确认优先级与气泡；从 Pet 对话进入完整聊天后确认 pending conversation 恢复。
+7. 关闭 Pet 后再在资源页开启，确认再次出现约 8 秒欢迎动作。
+
+## 20. StudiumX 实施结论
+
+StudiumX 采用“**可解释的应用内 Pet**”而非“完整桌面 overlay”的方案。它已保留 Codex Pet 最有产品价值的部分：标准化精灵状态、任务优先级、可拖动持久化位置、可调尺寸、无障碍调整、减少动态效果支持，以及与待恢复 Agent 对话的连通性。
+
+同时，透明窗口、native composition、多显示器/全屏、投掷、自定义 loader、Cloud 聚合和 v2 注视均明确留在边界外。这样可在不改变当前 StudiumX 领域模型和发布安全面的前提下完成 Pet 功能，并为将来有真实需求时保留可验证的扩展路径。

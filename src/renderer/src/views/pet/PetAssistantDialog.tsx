@@ -80,6 +80,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   const agentChat = useAppStore((state) => state.agentChat)
   const cancelAgentChat = useAppStore((state) => state.cancelAgentChat)
   const clearAgentChat = useAppStore((state) => state.clearAgentChat)
+  const restorePendingAgentConversation = useAppStore((state) => state.restorePendingAgentConversation)
   const rememberAgentInput = useAppStore((state) => state.rememberAgentInput)
   const openExternal = useAppStore((state) => state.openExternal)
   const setOverviewDialogMode = useAppStore((state) => state.setOverviewDialogMode)
@@ -96,8 +97,9 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   const threadRef = useRef<HTMLDivElement>(null)
   const interactionRef = useRef<DialogPointerInteraction | null>(null)
   const pendingStreamId = pendingConversation?.summary.id ?? null
-  const pendingAsk = pendingStreamId ? selectPendingAsk(agentTurns, pendingStreamId) : null
-  const pendingPermission = pendingStreamId ? selectPendingToolPermission(agentTurns, pendingStreamId) : null
+  const pendingTurns = pendingConversation?.turns ?? agentTurns
+  const pendingAsk = pendingStreamId ? selectPendingAsk(pendingTurns, pendingStreamId) : null
+  const pendingPermission = pendingStreamId ? selectPendingToolPermission(pendingTurns, pendingStreamId) : null
   const hasInterruption = Boolean(pendingAsk || pendingPermission)
   const canSend = Boolean(activeWorkspace && input.trim() && !agentChatBusy && !hasInterruption)
 
@@ -117,7 +119,13 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   useEffect(() => {
     if (!open) return
     const thread = threadRef.current
-    if (thread) thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' })
+    if (!thread) return
+
+    if (typeof thread.scrollTo === 'function') {
+      thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' })
+    } else {
+      thread.scrollTop = thread.scrollHeight
+    }
   }, [agentStatus, agentTurns, open])
 
   useEffect(() => {
@@ -155,6 +163,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   }
 
   const openFullConversation = (): void => {
+    if (pendingConversation) restorePendingAgentConversation()
     setOverviewDialogMode('chat')
     setView('agent')
     onClose()
@@ -214,6 +223,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
 
   return (
     <section
+      id="pet-assistant-dialog"
       className="pet-assistant-dialog"
       role="dialog"
       aria-label={`${petName} AI 对话`}

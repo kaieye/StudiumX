@@ -1,19 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import {
+  cancelPetDrag,
   clampAssistantDialogGeometry,
   clampPetContextMenuPlacement,
   clampPetPlacement,
+  clampPetSize,
   defaultAssistantDialogGeometry,
   derivePetAttention,
   finishPetDrag,
+  finishPetResize,
   movePetDrag,
+  movePetResize,
   parseStoredAssistantDialogGeometry,
   parseStoredPetPlacement,
+  petSurfaceSize,
   projectAssistantDialogInteraction,
   shouldDismissPetContextMenu,
   shouldRestorePetFocusAfterContextMenuDismissal,
   startAssistantDialogInteraction,
-  startPetDrag
+  startPetDrag,
+  startPetResize
 } from '../../src/renderer/src/views/pet/pet-interaction'
 
 const desktop = { width: 1_000, height: 800 }
@@ -60,6 +66,42 @@ describe('pet-interaction contract', () => {
     })
     expect(finishPetDrag(moving.session, 4)).toBe('persist-placement')
     expect(finishPetDrag(moving.session, 8)).toBe('ignore')
+  })
+
+  it('tracks instantaneous drag direction and never activates the assistant on pointer cancellation', () => {
+    const drag = startPetDrag(7, { x: 100, y: 100 }, { x: 200, y: 300 })
+    const movingRight = movePetDrag(drag, 7, { x: 130, y: 100 }, desktop, { width: 150, height: 130 })
+    expect(movingRight.direction).toBe('right')
+
+    const reversingBeforeTheStartPoint = movePetDrag(
+      movingRight.session,
+      7,
+      { x: 120, y: 100 },
+      desktop,
+      { width: 150, height: 130 }
+    )
+    expect(reversingBeforeTheStartPoint.direction).toBe('left')
+    expect(cancelPetDrag(reversingBeforeTheStartPoint.session, 7)).toBe('persist-placement')
+
+    const click = startPetDrag(8, { x: 10, y: 10 }, { x: 20, y: 20 })
+    expect(cancelPetDrag(click, 8)).toBe('cancel-activation')
+  })
+
+  it('clamps and persists pet resizing within the Codex sprite width contract', () => {
+    expect(clampPetSize(60)).toBe(80)
+    expect(clampPetSize(300)).toBe(224)
+    expect(clampPetSize(Number.NaN)).toBe(112)
+    expect(petSurfaceSize(112)).toEqual({ width: 124, height: 133 })
+
+    const resize = startPetResize(9, 200, 112)
+    const growing = movePetResize(resize, 9, 150)
+    expect(growing.size).toBe(162)
+    expect(finishPetResize(growing.session, 9)).toEqual({ outcome: 'persist-size', size: 162 })
+
+    const clamped = movePetResize(growing.session, 9, -100)
+    expect(clamped.size).toBe(224)
+    expect(movePetResize(clamped.session, 10, 0).size).toBeNull()
+    expect(finishPetResize(resize, 9)).toEqual({ outcome: 'no-change', size: 112 })
   })
 
   it('uses established attention precedence and limits hover animation to idle', () => {

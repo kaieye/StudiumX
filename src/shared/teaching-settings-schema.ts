@@ -1,5 +1,8 @@
 import {
   DEFAULT_PET_APPEARANCE_ID,
+  DEFAULT_PET_SIZE,
+  MAX_PET_SIZE,
+  MIN_PET_SIZE,
   MODEL_ENDPOINT_FORMATS,
   MODEL_REASONING_EFFORTS,
   PARALLEL_SEARCH_MODES,
@@ -118,7 +121,8 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
       enabled: true,
       displayName: 'Boba',
       showStatusBubble: true,
-      appearance: DEFAULT_PET_APPEARANCE_ID
+      appearance: DEFAULT_PET_APPEARANCE_ID,
+      size: DEFAULT_PET_SIZE
     },
     privacy: {
       maskApiKeys: true,
@@ -322,7 +326,8 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
       enabled: petInput.enabled !== false,
       displayName: normalizeString(petInput.displayName).slice(0, 24) || defaults.pet.displayName,
       showStatusBubble: petInput.showStatusBubble !== false,
-      appearance: normalizePetAppearanceId(petInput.appearance, defaults.pet.appearance)
+      appearance: normalizePetAppearanceId(petInput.appearance, defaults.pet.appearance),
+      size: Math.round(clampNumber(petInput.size, MIN_PET_SIZE, MAX_PET_SIZE, defaults.pet.size))
     },
     privacy: {
       maskApiKeys: privacyInput.maskApiKeys !== false,

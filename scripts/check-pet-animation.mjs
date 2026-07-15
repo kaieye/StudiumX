@@ -22,6 +22,9 @@ const child = spawn(electronPath, [`--remote-debugging-port=${port}`, 'out/main/
   env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' },
   stdio: 'ignore'
 })
+// Electron owns descendant helper processes. With ignored stdio, unref keeps a
+// successful verification from waiting on their shutdown after `child.kill()`.
+child.unref()
 
 try {
   const page = await waitForPage(port)
