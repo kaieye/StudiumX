@@ -14,10 +14,6 @@ assertLessonInteractionRecorderContract(recorder, types)
 
 console.log('check:lesson-interaction-recorder passed')
 
-function parse(fileName, source) {
-  return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-}
-
 function assertLessonInteractionRecorderContract(source, types) {
   assertRecorderInterface(source)
   assertExportedTypeAlias(types, 'EvidenceReceipt')
@@ -26,49 +22,7 @@ function assertLessonInteractionRecorderContract(source, types) {
     source.statements.some((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === 'projectLegacyReviewProgressToLessonInteractions'),
     'legacy review progress must remain an explicit projection into lesson interactions'
   )
-
-  const record = findRecordMethod(source)
-  const statements = record.body.statements
-  const ledgerCalls = collectExecutable(record.body, ts.isCallExpression)
-  const appendCalls = ledgerCalls.filter((call) => ledgerMethodName(call) === 'append')
-  const appendWithReceiptCalls = ledgerCalls.filter((call) => ledgerMethodName(call) === 'appendWithReceipt')
-  const loadDeclarations = collectExecutable(record.body, ts.isVariableDeclaration).filter((declaration) => {
-    return ts.isIdentifier(declaration.name) && isAwaitedLedgerCall(declaration.initializer, 'load')
-  })
-
-  assert.equal(appendCalls.length, 0, 'record must not use the non-atomic ledger.append path')
-  assert.equal(appendWithReceiptCalls.length, 1, 'record must issue exactly one atomic appendWithReceipt call')
-  assert.equal(loadDeclarations.length, 1, 'record must preload one session only for existence and identity validation')
-
-  const before = loadDeclarations[0]
-  const beforeName = before.name.text
-  const beforeIndex = statementIndex(statements, before)
-  assert(beforeIndex >= 0, 'record preload must be a top-level record statement')
-  assertPreloadIsValidationOnly(record.body, beforeName)
-
-  const receipt = findVariable(record.body, 'receipt')
-  assert(receipt, 'record must retain the atomic append receipt')
-  assert(isAwaitedLedgerCall(receipt.initializer, 'appendWithReceipt'), 'receipt must come directly from ledger.appendWithReceipt')
-  const receiptIndex = statementIndex(statements, receipt)
-  assert(receiptIndex > beforeIndex, 'record must append only after the preload identity validation')
-
-  const appendCall = receipt.initializer.expression
-  assert.equal(appendCall.arguments.length, 2, 'appendWithReceipt must receive the session id and the evidence event')
-  assertPropertyPath(appendCall.arguments[0], ['evidence', 'sessionId'], 'appendWithReceipt must use the normalized evidence session id')
-  assertEvidencePayload(appendCall.arguments[1])
-
-  const persistedEvidence = findVariable(record.body, 'persistedEvidence')
-  assert(persistedEvidence, 'record must derive evidence from the persisted receipt event')
-  assert(isPersistedEvidenceFromReceipt(persistedEvidence.initializer), 'persisted evidence must be decoded from receipt.event')
-  const persistedEvidenceIndex = statementIndex(statements, persistedEvidence)
-  assert(persistedEvidenceIndex > receiptIndex, 'record must decode the receipt event before it returns the receipt')
-
-  const returns = collectReturns(record.body)
-  assert.equal(returns.length, 1, 'record must have one authoritative receipt return path')
-  const receiptReturn = returns[0]
-  assert(ts.isObjectLiteralExpression(receiptReturn.expression), 'record must return an EvidenceReceipt object')
-  assert(statementIndex(statements, receiptReturn) > persistedEvidenceIndex, 'record must return only after receipt event validation')
-  assertReceiptReturn(receiptReturn.expression)
+  assertAtomicReceiptContract(source)
 }
 
 function assertRecorderInterface(source) {
@@ -93,6 +47,54 @@ function assertExportedTypeAlias(source, name) {
   assert(alias && alias.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword), `${name} must remain exported`)
 }
 
+function parse(fileName, source) {
+  return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+}
+
+function assertAtomicReceiptContract(source) {
+  const record = findRecordMethod(source)
+  const statements = [...record.body.statements]
+  const before = topLevelConstDeclaration(statements, 'before')
+  const receipt = topLevelConstDeclaration(statements, 'receipt')
+  const persistedEvidence = topLevelConstDeclaration(statements, 'persistedEvidence')
+  const returns = statements.filter(ts.isReturnStatement)
+
+  assert(isAwaitedLedgerCall(before.declaration.initializer, 'load'), 'top-level before must directly await this.ledger.load')
+  assert(isAwaitedLedgerCall(receipt.declaration.initializer, 'appendWithReceipt'), 'top-level receipt must directly await this.ledger.appendWithReceipt')
+  assert(isPersistedEvidenceFromReceipt(persistedEvidence.declaration.initializer, receipt.name), 'top-level persistedEvidence must decode the same receipt.event')
+  assert.equal(returns.length, 1, 'record must have one top-level authoritative receipt return path')
+
+  const receiptCall = receipt.declaration.initializer.expression
+  assert.equal(receiptCall.arguments.length, 2, 'appendWithReceipt must receive the session id and the evidence event')
+  assertPropertyPath(receiptCall.arguments[0], ['evidence', 'sessionId'], 'appendWithReceipt must use the normalized evidence session id')
+  assertEvidencePayload(receiptCall.arguments[1])
+
+  const missingGuardIndex = statements.findIndex((statement) => isMissingSessionGuard(statement, before.name))
+  const identityValidationIndex = statements.findIndex((statement) => isIdentityValidation(statement, before.name))
+  assert(
+    before.index < missingGuardIndex && missingGuardIndex < identityValidationIndex && identityValidationIndex < receipt.index,
+    'top-level success path must load before, reject a missing session, validate that same before binding, then append'
+  )
+  assert(
+    receipt.index < persistedEvidence.index && persistedEvidence.index < statements.indexOf(returns[0]),
+    'top-level success path must decode the same receipt event before returning'
+  )
+
+  const topLevelLedgerCalls = statements.flatMap((statement) => ledgerCallsInTopLevelStatement(statement))
+  assert.equal(topLevelLedgerCalls.filter((call) => ledgerMethodName(call) === 'load').length, 1, 'record must preload exactly one session on its top-level success path')
+  assert.equal(topLevelLedgerCalls.filter((call) => ledgerMethodName(call) === 'appendWithReceipt').length, 1, 'record must append exactly once on its top-level success path')
+  assert.equal(topLevelLedgerCalls.filter((call) => ledgerMethodName(call) === 'append').length, 0, 'record must not use this.ledger.append on its top-level success path')
+
+  const beforeEventReads = statements.flatMap((statement) => expressionNodesInTopLevelStatement(statement)).filter((node) => {
+    return ts.isPropertyAccessExpression(node) && propertyPath(node)?.[0] === before.name && propertyPath(node)?.includes('events')
+  })
+  assert.equal(beforeEventReads.length, 0, 'record must not read before.events on its top-level success path')
+
+  const receiptReturn = returns[0]
+  assert(ts.isObjectLiteralExpression(receiptReturn.expression), 'record must return an EvidenceReceipt object')
+  assertReceiptReturn(receiptReturn.expression, receipt.name, persistedEvidence.name)
+}
+
 function findRecordMethod(source) {
   const recorderClass = source.statements.find((statement) => {
     return ts.isClassDeclaration(statement) && statement.name?.text === 'LedgerLessonInteractionRecorder'
@@ -106,42 +108,37 @@ function findRecordMethod(source) {
   return record
 }
 
-function assertPreloadIsValidationOnly(body, beforeName) {
-  const references = collectNodes(body, ts.isIdentifier).filter((identifier) => {
-    return identifier.text === beforeName && !ts.isVariableDeclaration(identifier.parent)
+function topLevelConstDeclaration(statements, name) {
+  const matches = []
+  statements.forEach((statement, index) => {
+    if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) return
+    for (const declaration of statement.declarationList.declarations) {
+      if (isIdentifier(declaration.name, name)) matches.push({ declaration, index, name })
+    }
   })
-
-  assert.equal(references.length, 2, 'the preloaded session may only be used for existence and identity validation')
-  for (const reference of references) {
-    assert(
-      isExistenceCheck(reference) || isIdentityValidationArgument(reference),
-      'the preloaded session must not drive duplicate detection or other write decisions'
-    )
-  }
-
-  const eventReads = collectNodes(body, ts.isPropertyAccessExpression).filter((access) => {
-    const path = propertyPath(access)
-    return path?.[0] === beforeName && path.includes('events')
-  })
-  assert.equal(eventReads.length, 0, 'record must not scan preload.events to infer duplicate evidence')
+  assert.equal(matches.length, 1, `${name} must be declared exactly once as a top-level const binding`)
+  return matches[0]
 }
 
-function isExistenceCheck(identifier) {
-  const parent = identifier.parent
-  return ts.isPrefixUnaryExpression(parent) &&
-    parent.operator === ts.SyntaxKind.ExclamationToken &&
-    ts.isIfStatement(parent.parent) &&
-    parent.parent.expression === parent
+function isMissingSessionGuard(statement, beforeName) {
+  if (!ts.isIfStatement(statement) || !ts.isPrefixUnaryExpression(statement.expression)) return false
+  return statement.expression.operator === ts.SyntaxKind.ExclamationToken &&
+    isIdentifier(statement.expression.operand, beforeName) &&
+    isThrowStatement(statement.thenStatement)
 }
 
-function isIdentityValidationArgument(identifier) {
-  const parent = identifier.parent
-  return ts.isCallExpression(parent) &&
-    ts.isIdentifier(parent.expression) &&
-    parent.expression.text === 'assertSessionIdentity' &&
-    parent.arguments.length === 2 &&
-    parent.arguments[0] === identifier &&
-    isIdentifier(parent.arguments[1], 'evidence')
+function isThrowStatement(statement) {
+  if (ts.isThrowStatement(statement)) return true
+  return ts.isBlock(statement) && statement.statements.length === 1 && ts.isThrowStatement(statement.statements[0])
+}
+
+function isIdentityValidation(statement, beforeName) {
+  if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) return false
+  const call = statement.expression
+  return isIdentifier(call.expression, 'assertSessionIdentity') &&
+    call.arguments.length === 2 &&
+    isIdentifier(call.arguments[0], beforeName) &&
+    isIdentifier(call.arguments[1], 'evidence')
 }
 
 function assertEvidencePayload(event) {
@@ -155,24 +152,24 @@ function assertEvidencePayload(event) {
   )
 }
 
-function isPersistedEvidenceFromReceipt(initializer) {
+function isPersistedEvidenceFromReceipt(initializer, receiptName) {
   return ts.isCallExpression(initializer) &&
     isIdentifier(initializer.expression, 'interactionFromLedgerEvent') &&
     initializer.arguments.length === 1 &&
-    isPropertyPath(initializer.arguments[0], ['receipt', 'event'])
+    isPropertyPath(initializer.arguments[0], [receiptName, 'event'])
 }
 
-function assertReceiptReturn(receipt) {
+function assertReceiptReturn(receipt, receiptName, persistedEvidenceName) {
   const sequence = objectProperty(receipt, 'sequence')
   const duplicate = objectProperty(receipt, 'duplicate')
   const evidence = objectProperty(receipt, 'evidence')
 
   assert(sequence && ts.isPropertyAssignment(sequence), 'receipt must expose its persisted sequence')
-  assertPropertyPath(sequence.initializer, ['receipt', 'event', 'sequence'], 'returned sequence must come from receipt.event')
+  assertPropertyPath(sequence.initializer, [receiptName, 'event', 'sequence'], 'returned sequence must come from the top-level receipt binding')
 
   assert(duplicate && ts.isPropertyAssignment(duplicate) && ts.isBinaryExpression(duplicate.initializer), 'receipt must compute duplicate from its atomic disposition')
   assert.equal(duplicate.initializer.operatorToken.kind, ts.SyntaxKind.EqualsEqualsEqualsToken, 'duplicate must use strict receipt disposition equality')
-  assertPropertyPath(duplicate.initializer.left, ['receipt', 'disposition'], 'duplicate must read receipt.disposition')
+  assertPropertyPath(duplicate.initializer.left, [receiptName, 'disposition'], 'duplicate must read the top-level receipt binding')
   assert(
     ts.isStringLiteral(duplicate.initializer.right) && duplicate.initializer.right.text === 'matching_existing',
     'duplicate must mean receipt.disposition === matching_existing'
@@ -181,25 +178,46 @@ function assertReceiptReturn(receipt) {
   assert(evidence && ts.isPropertyAssignment(evidence) && ts.isObjectLiteralExpression(evidence.initializer), 'receipt must expose persisted evidence')
   const evidenceObject = evidence.initializer
   assert(
-    evidenceObject.properties.some((property) => ts.isSpreadAssignment(property) && isIdentifier(property.expression, 'persistedEvidence')),
-    'returned evidence must start with the interaction decoded from receipt.event'
+    evidenceObject.properties.some((property) => ts.isSpreadAssignment(property) && isIdentifier(property.expression, persistedEvidenceName)),
+    'returned evidence must start with the interaction decoded from the top-level receipt.event'
   )
   const evidenceSequence = objectProperty(evidenceObject, 'sequence')
   const recordedAt = objectProperty(evidenceObject, 'recordedAt')
   assert(evidenceSequence && ts.isPropertyAssignment(evidenceSequence), 'returned evidence must retain its persisted sequence')
-  assertPropertyPath(evidenceSequence.initializer, ['receipt', 'event', 'sequence'], 'evidence sequence must come from receipt.event')
+  assertPropertyPath(evidenceSequence.initializer, [receiptName, 'event', 'sequence'], 'evidence sequence must come from the top-level receipt binding')
   assert(recordedAt && ts.isPropertyAssignment(recordedAt), 'returned evidence must retain its persisted timestamp')
-  assertPropertyPath(recordedAt.initializer, ['receipt', 'event', 'recordedAt'], 'evidence recordedAt must come from receipt.event')
-}
-
-function findVariable(body, name) {
-  return collectExecutable(body, ts.isVariableDeclaration).find((declaration) => {
-    return ts.isIdentifier(declaration.name) && declaration.name.text === name
-  })
+  assertPropertyPath(recordedAt.initializer, [receiptName, 'event', 'recordedAt'], 'evidence recordedAt must come from the top-level receipt binding')
 }
 
 function isAwaitedLedgerCall(expression, method) {
   return ts.isAwaitExpression(expression) && ledgerMethodName(expression.expression) === method
+}
+
+function ledgerCallsInTopLevelStatement(statement) {
+  return expressionNodesInTopLevelStatement(statement).filter(ts.isCallExpression).filter((call) => ledgerMethodName(call) !== null)
+}
+
+function expressionNodesInTopLevelStatement(statement) {
+  const roots = []
+  if (ts.isVariableStatement(statement)) {
+    for (const declaration of statement.declarationList.declarations) if (declaration.initializer) roots.push(declaration.initializer)
+  } else if (ts.isExpressionStatement(statement) || ts.isReturnStatement(statement) || ts.isThrowStatement(statement)) {
+    if (statement.expression) roots.push(statement.expression)
+  } else if (ts.isIfStatement(statement)) {
+    roots.push(statement.expression)
+  }
+  return roots.flatMap((root) => collectExpressionNodes(root))
+}
+
+function collectExpressionNodes(root) {
+  const matches = []
+  const visit = (node) => {
+    matches.push(node)
+    if (node !== root && ts.isFunctionLike(node)) return
+    ts.forEachChild(node, visit)
+  }
+  visit(root)
+  return matches
 }
 
 function ledgerMethodName(call) {
@@ -252,32 +270,4 @@ function isPromiseOf(node, name) {
 function isPromiseOfArray(node, name) {
   return isTypeReference(node, 'Promise') && node.typeArguments?.length === 1 &&
     ts.isArrayTypeNode(node.typeArguments[0]) && isTypeReference(node.typeArguments[0].elementType, name)
-}
-
-function statementIndex(statements, node) {
-  return statements.findIndex((statement) => statement.pos <= node.pos && node.end <= statement.end)
-}
-
-function collectReturns(body) {
-  return collectExecutable(body, ts.isReturnStatement)
-}
-
-function collectNodes(rootNode, predicate) {
-  const matches = []
-  const visit = (node) => {
-    if (predicate(node)) matches.push(node)
-    ts.forEachChild(node, visit)
-  }
-  visit(rootNode)
-  return matches
-}
-function collectExecutable(rootNode, predicate) {
-  const matches = []
-  const visit = (node) => {
-    if (predicate(node)) matches.push(node)
-    if (node !== rootNode && ts.isFunctionLike(node)) return
-    ts.forEachChild(node, visit)
-  }
-  visit(rootNode)
-  return matches
 }
