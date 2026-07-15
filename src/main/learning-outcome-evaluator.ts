@@ -138,21 +138,40 @@ function finalize(
   artifact: LearningOutcomeEvaluation['artifact'],
   assessments: LearningOutcomeEvidenceAssessment[]
 ): LearningOutcomeEvaluation {
-  const latestByItem = new Map<string, VerifiedAttempt>()
-  for (const assessment of assessments) {
+  const verifiedByItem = new Map<string, VerifiedAttempt[]>()
+  for (const assessment of [...assessments].sort(compareAssessments)) {
     if (assessment.disposition === 'ignored') continue
     const verified: VerifiedAttempt = { ...assessment, disposition: assessment.disposition }
-    latestByItem.set(assessment.itemId, verified)
+    const attempts = verifiedByItem.get(verified.itemId) ?? []
+    attempts.push(verified)
+    verifiedByItem.set(verified.itemId, attempts)
   }
-  const trusted = [...latestByItem.values()].sort(compareAssessments)
+
+  const latest: VerifiedAttempt[] = []
+  const correctionOrigins: VerifiedAttempt[] = []
+  for (const attempts of verifiedByItem.values()) {
+    const latestAttempt = attempts.at(-1)!
+    latest.push(latestAttempt)
+    if (latestAttempt.disposition !== 'verified_correct') continue
+    const firstIncorrect = attempts.find((attempt) => attempt.disposition === 'verified_incorrect')
+    if (firstIncorrect) correctionOrigins.push(firstIncorrect)
+  }
+
+  const trusted = latest.sort(compareAssessments)
+  const correctionProvenance = [...new Map(
+    [...correctionOrigins, ...trusted].map((assessment) => [assessment.eventId, assessment])
+  ).values()].sort(compareAssessments)
   const hasIncorrect = trusted.some((assessment) => assessment.disposition === 'verified_incorrect')
+  const hasCorrectedMisconception = correctionOrigins.length > 0
   const mastery = artifact.status === 'verified' && trusted.length > 0 && !hasIncorrect
   return {
     schemaVersion: LEARNING_OUTCOME_EVALUATION_SCHEMA_VERSION,
     sessionId,
-    kind: mastery ? 'established' : hasIncorrect ? 'needs_practice' : 'not_evidenced',
+    kind: mastery
+      ? hasCorrectedMisconception ? 'misconception_corrected' : 'established'
+      : hasIncorrect ? 'needs_practice' : 'not_evidenced',
     mastery,
-    evidenceEventIds: trusted.map((assessment) => assessment.eventId),
+    evidenceEventIds: (hasCorrectedMisconception ? correctionProvenance : trusted).map((assessment) => assessment.eventId),
     artifact,
     assessments: [...assessments].sort(compareAssessments)
   }
