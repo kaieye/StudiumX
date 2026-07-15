@@ -1,3 +1,5 @@
+import type { PetNotificationPreferences } from '../../../../shared/teaching-types'
+
 export type PetNotificationState = 'waiting' | 'failed' | 'review' | 'running' | 'waving'
 
 export type PetNotificationSource = 'agent' | 'lesson-generation' | 'onboarding'
@@ -109,6 +111,11 @@ export type DismissedPetNotifications = Readonly<Record<string, number>>
 
 export const PET_REVIEW_DURATION_MS = 7_000
 export const PET_WAVING_DURATION_MS = 8_000
+
+export const PET_QUIET_MODE_DURATIONS_MS = {
+  thirtyMinutes: 30 * 60 * 1_000,
+  oneHour: 60 * 60 * 1_000
+} as const
 
 const PET_NOTIFICATION_PRIORITY: Record<PetNotificationState, number> = {
   waiting: 5,
@@ -354,6 +361,33 @@ export function projectPetNotifications(
   return notifications.filter((notification) =>
     notification.expiresAt === undefined || notification.expiresAt > signals.now
   )
+}
+
+export function projectPetNotificationVisibility(
+  notifications: readonly PetNotification[],
+  preferences: PetNotificationPreferences,
+  now: number
+): PetNotification[] {
+  const quietModeActive = preferences.quietUntil !== null && preferences.quietUntil > now
+
+  return notifications.filter((notification) => {
+    if (notification.expiresAt !== undefined && notification.expiresAt <= now) return false
+    if (notification.state === 'waiting' || notification.state === 'failed') return true
+    if (quietModeActive || preferences.actionableOnly) return false
+    if (!isPetNotificationSourceEnabled(notification.source, preferences)) return false
+    if (notification.state === 'running') return preferences.showRunning
+    if (notification.state === 'review') return preferences.showReview
+    return preferences.showWaving
+  })
+}
+
+function isPetNotificationSourceEnabled(
+  source: PetNotificationSource,
+  preferences: PetNotificationPreferences
+): boolean {
+  if (source === 'agent') return preferences.sources.agent
+  if (source === 'lesson-generation') return preferences.sources.lessonGeneration
+  return preferences.sources.onboarding
 }
 
 export function selectHighestPriorityPetNotification(

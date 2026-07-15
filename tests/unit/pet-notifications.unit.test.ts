@@ -4,6 +4,7 @@ import {
   createInitialPetNotificationProjectionState,
   dismissPetNotification,
   projectPetNotifications,
+  projectPetNotificationVisibility,
   pruneDismissedPetNotifications,
   retainedPetNotificationIds,
   selectHighestPriorityPetNotification,
@@ -23,6 +24,15 @@ const copy: PetNotificationCopy = {
   agentFailed: { title: 'Agent failed', actionLabel: 'View error' },
   lessonFailed: { title: 'Lesson failed', actionLabel: 'View error' },
   waving: { title: 'Hello', detail: 'Ready to help', actionLabel: 'Start a chat' }
+}
+
+const preferences = {
+  actionableOnly: false,
+  showRunning: true,
+  showReview: true,
+  showWaving: true,
+  sources: { agent: true, lessonGeneration: true, onboarding: true },
+  quietUntil: null
 }
 
 function signals(overrides: Partial<PetNotificationSignals> = {}): PetNotificationSignals {
@@ -56,6 +66,71 @@ function notification(state: PetNotification['state'], createdAt = 1): PetNotifi
 }
 
 describe('pet notification projection', () => {
+  it('filters noncritical states with a pure preference policy', () => {
+    const visible = projectPetNotificationVisibility([
+      notification('waiting'),
+      notification('failed'),
+      notification('running'),
+      notification('review'),
+      notification('waving')
+    ], {
+      ...preferences,
+      showRunning: false,
+      sources: { ...preferences.sources, onboarding: false }
+    }, 1)
+
+    expect(visible.map((item) => item.state)).toEqual(['waiting', 'failed', 'review'])
+  })
+
+  it('applies source preferences only to noncritical notifications', () => {
+    const agentReview = notification('review')
+    const lessonReview = {
+      ...notification('review', 2),
+      source: 'lesson-generation' as const
+    }
+
+    expect(projectPetNotificationVisibility(
+      [agentReview, lessonReview],
+      {
+        ...preferences,
+        sources: { ...preferences.sources, agent: false }
+      },
+      1
+    )).toEqual([lessonReview])
+  })
+
+  it('keeps waiting and failed discoverable in actionable-only and quiet modes', () => {
+    const visible = projectPetNotificationVisibility([
+      notification('waiting'),
+      notification('failed'),
+      notification('running'),
+      notification('review'),
+      notification('waving')
+    ], {
+      ...preferences,
+      actionableOnly: true,
+      quietUntil: 60_000,
+      sources: { agent: false, lessonGeneration: false, onboarding: false }
+    }, 1_000)
+
+    expect(visible.map((item) => item.state)).toEqual(['waiting', 'failed'])
+  })
+
+  it('does not replay a transient notification that expired during quiet mode', () => {
+    const review = { ...notification('review'), expiresAt: 2_000 }
+
+    expect(projectPetNotificationVisibility(
+      [review],
+      { ...preferences, quietUntil: 1_500 },
+      1_000
+    )).toEqual([])
+    expect(projectPetNotificationVisibility(
+      [review],
+      { ...preferences, quietUntil: 1_500 },
+      2_001
+    )).toEqual([])
+  })
+
   it('selects waiting over failed, review, running, and waving', () => {
     const notifications = [
       notification('waving'),

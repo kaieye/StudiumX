@@ -122,7 +122,19 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
       displayName: 'Boba',
       showStatusBubble: true,
       appearance: DEFAULT_PET_APPEARANCE_ID,
-      size: DEFAULT_PET_SIZE
+      size: DEFAULT_PET_SIZE,
+      notificationPreferences: {
+        actionableOnly: false,
+        showRunning: true,
+        showReview: true,
+        showWaving: true,
+        sources: {
+          agent: true,
+          lessonGeneration: true,
+          onboarding: true
+        },
+        quietUntil: null
+      }
     },
     privacy: {
       maskApiKeys: true,
@@ -192,7 +204,15 @@ export function mergeTeachingSettings(
     },
     pet: {
       ...current.pet,
-      ...(patch.pet ?? {})
+      ...(patch.pet ?? {}),
+      notificationPreferences: {
+        ...current.pet.notificationPreferences,
+        ...(patch.pet?.notificationPreferences ?? {}),
+        sources: {
+          ...current.pet.notificationPreferences.sources,
+          ...(patch.pet?.notificationPreferences?.sources ?? {})
+        }
+      }
     },
     privacy: {
       ...current.privacy,
@@ -239,6 +259,8 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
   const webSearchInput = recordOf(record.webSearch)
   const notificationsInput = recordOf(record.notifications)
   const petInput = recordOf(record.pet)
+  const petNotificationPreferencesInput = recordOf(petInput.notificationPreferences)
+  const petNotificationSourcesInput = recordOf(petNotificationPreferencesInput.sources)
   const privacyInput = recordOf(record.privacy)
   const appBehaviorInput = recordOf(record.appBehavior)
   const logInput = recordOf(record.log)
@@ -327,7 +349,19 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
       displayName: normalizeString(petInput.displayName).slice(0, 24) || defaults.pet.displayName,
       showStatusBubble: petInput.showStatusBubble !== false,
       appearance: normalizePetAppearanceId(petInput.appearance, defaults.pet.appearance),
-      size: Math.round(clampNumber(petInput.size, MIN_PET_SIZE, MAX_PET_SIZE, defaults.pet.size))
+      size: Math.round(clampNumber(petInput.size, MIN_PET_SIZE, MAX_PET_SIZE, defaults.pet.size)),
+      notificationPreferences: {
+        actionableOnly: petNotificationPreferencesInput.actionableOnly === true,
+        showRunning: petNotificationPreferencesInput.showRunning !== false,
+        showReview: petNotificationPreferencesInput.showReview !== false,
+        showWaving: petNotificationPreferencesInput.showWaving !== false,
+        sources: {
+          agent: petNotificationSourcesInput.agent !== false,
+          lessonGeneration: petNotificationSourcesInput.lessonGeneration !== false,
+          onboarding: petNotificationSourcesInput.onboarding !== false
+        },
+        quietUntil: normalizeOptionalTimestamp(petNotificationPreferencesInput.quietUntil)
+      }
     },
     privacy: {
       maskApiKeys: privacyInput.maskApiKeys !== false,
@@ -459,6 +493,12 @@ function normalizeProviderId(input: unknown): string {
 
 function normalizeString(input: unknown): string {
   return typeof input === 'string' ? input.trim() : ''
+}
+
+function normalizeOptionalTimestamp(input: unknown): number | null {
+  return typeof input === 'number' && Number.isFinite(input) && input > 0
+    ? Math.round(input)
+    : null
 }
 
 function clampNumber(input: unknown, min: number, max: number, fallback: number): number {
