@@ -217,7 +217,7 @@ export type StoreState = {
   setGitBranchesResult: (workspaceRoot: string, result: TeachingGitBranchesResult) => void
   loadAgentConversation: (conversationId: string, workspaceId?: string | null, scope?: AgentConversationLookupScope) => Promise<void>
   openAgentConversationBranch: (conversationId: string) => Promise<void>
-  forkAgentConversationBranch: (conversationId: string, sourceTurnId: string | undefined, expectedRevision: number) => Promise<void>
+  forkAgentConversationBranch: (conversationId: string, sourceTurnId: string | undefined, expectedRevision: number) => Promise<boolean>
   replayAgentConversationBranch: (conversationId?: string, sourceTurnId?: string) => Promise<AgentChatTurn[] | null>
   updateAgentConversationBranchStatus: (conversationId: string, status: AgentConversationBranchStatus, expectedRevision: number) => Promise<void>
   agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode; skillIds?: string[] }) => Promise<void>
@@ -1171,7 +1171,7 @@ export const useAppStore = create<StoreState>((set, get) => {
     const workspace = get().appState.activeWorkspace
     const sourceConversationId = conversationId
     const scope = get().activeConversationScope ?? 'workspace'
-    if (!api || !workspace || !sourceConversationId) return
+    if (!api || !workspace || !sourceConversationId) return false
     set({ error: null })
     try {
       const result = await api.forkAgentConversationBranch({
@@ -1181,7 +1181,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         sourceTurnId,
         expectedRevision
       })
-      if (get().appState.activeWorkspace?.id !== workspace.id) return
+      if (get().appState.activeWorkspace?.id !== workspace.id) return false
       set({
         appState: result.state,
         ...openAgentConversationContext({
@@ -1195,8 +1195,10 @@ export const useAppStore = create<StoreState>((set, get) => {
           ?? 0,
         activeSessionTree: result.tree
       })
+      return true
     } catch (error) {
       set({ error: toUserError(error) })
+      return false
     }
   },
   replayAgentConversationBranch: async (conversationId, sourceTurnId) => {

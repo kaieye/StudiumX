@@ -471,10 +471,8 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 .workspace-node-row.is-selected.is-markdown-file,
 .workspace-node-row.is-selected.is-conversation {
   color: #22324b;
-  background: rgba(79, 124, 245, 0.1);
-  box-shadow:
-    inset 0 0 0 1px rgba(79, 124, 245, 0.16),
-    0 8px 20px rgba(20, 47, 95, 0.055);
+  background: rgb(241, 243, 245);
+  box-shadow: none;
 }.workspace-node-row.is-workspace-folder,
 .workspace-node-row.is-course-folder {
   min-height: 32px;

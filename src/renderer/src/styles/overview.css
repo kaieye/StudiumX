@@ -75,6 +75,7 @@
   font-size: 13px;
   line-height: 1.7;
 }.overview-dialog-message {
+  position: relative;
   display: grid;
   gap: 4px;
   max-width: 92%;
@@ -295,12 +296,12 @@
   background: rgba(20, 47, 95, 0.055);
 }.workspace-conversation-row.is-selected {
   color: #22324b;
-  background: rgba(79, 124, 245, 0.1);
-  box-shadow:
-    inset 0 0 0 1px rgba(79, 124, 245, 0.16),
-    0 8px 20px rgba(20, 47, 95, 0.055);
+  background: rgb(241, 243, 245);
+  box-shadow: none;
 }.workspace-conversation-row.is-pending {
   color: #2e405d;
+}.workspace-conversation-row.is-fork .workspace-conversation-main svg {
+  color: #4f7cf5;
 }.workspace-conversation-main {
   display: inline-flex;
   align-items: center;

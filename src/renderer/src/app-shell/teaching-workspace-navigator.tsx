@@ -1,6 +1,6 @@
 import {
   AlertTriangle, Archive, ArrowUpRight, ChevronDown, ChevronRight, FileText,
-  Folder, FolderOpen, Loader2, MessageSquare, MoreHorizontal, Pin, PinOff,
+  Folder, FolderOpen, GitFork, Loader2, MessageSquare, MoreHorizontal, Pin, PinOff,
   Plus, Trash2, Upload, X
 } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
@@ -118,7 +118,7 @@ export function TeachingWorkspaceNavigator({
       <div className={`sidebar-disclosure${state.conversationsExpanded ? ' is-open' : ''}`} aria-hidden={!state.conversationsExpanded} inert={!state.conversationsExpanded ? true : undefined}>
         <div className="sidebar-disclosure-inner"><div className="workspace-conversation-list is-flat">
           {visibleTemporaryConversations.length === 0 ? <div className="workspace-conversation-empty">{t('sidebar.emptyConversations')}</div> : visibleTemporaryConversations.map((conversation) => <ConversationListRow
-            key={conversation.id} conversation={conversation} isActiveConversation={view === 'agent' && conversation.id === activeConversationId}
+            key={conversation.id} conversation={conversation} isActiveConversation={conversation.id === activeConversationId}
             onOpen={() => conversation.pending ? onRestorePendingAgentConversation() : void onLoadAgentConversation(conversation.id, conversation.workspaceId, 'temporary')}
             onSetWorkspaceItemMeta={onSetWorkspaceItemMeta} onRemoveWorkspaceItem={onRemoveWorkspaceItem}
           />)}
@@ -289,10 +289,16 @@ function ConversationListRow({ conversation, isActiveConversation, onOpen, onSet
     setRemoveDialogOpen(false)
     void onRemoveWorkspaceItem({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, kind: 'conversation', mode })
   }
-  return <div className={`workspace-conversation-row ${isActiveConversation ? 'is-selected' : ''}${conversation.pending ? ' is-pending' : ''}`} title={conversation.absolutePath}>
+  const isForkedBranch = Boolean(conversation.branch?.parentBranchId)
+  return <div className={`workspace-conversation-row ${isActiveConversation ? 'is-selected' : ''}${conversation.pending ? ' is-pending' : ''}${isForkedBranch ? ' is-fork' : ''}`} title={conversation.absolutePath}>
     <button type="button" className="workspace-conversation-main" onClick={onOpen}>
-      {conversation.pending ? <Loader2 className="spin" size={13} /> : conversation.pinned ? <Pin size={11} className="row-pin-indicator" /> : <MessageSquare size={13} />}
-      <span className="workspace-conversation-body"><span className="workspace-conversation-title">{conversation.title}</span>{conversation.pending ? <span className="workspace-conversation-meta">{t('sidebar.pendingConversation')}</span> : null}</span>
+      {conversation.pending ? <Loader2 className="spin" size={13} /> : isForkedBranch ? <GitFork size={13} /> : conversation.pinned ? <Pin size={11} className="row-pin-indicator" /> : <MessageSquare size={13} />}
+      <span className="workspace-conversation-body">
+        <span className="workspace-conversation-title">{conversation.title}</span>
+        {conversation.pending
+          ? <span className="workspace-conversation-meta">{t('sidebar.pendingConversation')}</span>
+          : null}
+      </span>
     </button>
     {!conversation.pending ? <RowContextMenu pinned={!!conversation.pinned} onTogglePin={() => updateMeta(!conversation.pinned)} onArchive={() => updateMeta(undefined, true)} onRemove={() => setRemoveDialogOpen(true)} /> : null}
     {removeDialogOpen ? <RemoveWorkspaceItemDialog itemName={conversation.title} itemKind="conversation" onClose={() => setRemoveDialogOpen(false)} onRemoveFromList={() => remove('list')} onRemoveFromDisk={() => remove('disk')} /> : null}
@@ -344,7 +350,8 @@ function WorkspaceFileNodeRow({
   })
   const itemKind: WorkspaceItemKind = conversation ? 'conversation' : isDirectory ? 'directory' : 'file'
   const itemLabel = conversation?.title ?? lesson?.title ?? node.name
-  const Icon = isDirectory ? (isExpanded ? FolderOpen : Folder) : conversation ? MessageSquare : FileText
+  const isForkedConversation = Boolean(conversation?.branch?.parentBranchId)
+  const Icon = isDirectory ? (isExpanded ? FolderOpen : Folder) : conversation ? (isForkedConversation ? GitFork : MessageSquare) : FileText
 
   const handleOpen = async (): Promise<void> => {
     if (treeRoot === 'courses') onSetOverviewDialogMode('teaching')

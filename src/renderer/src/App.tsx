@@ -98,8 +98,7 @@ import {
 } from './agent-conversation-state'
 import { buildAgentConversationPresentation } from './agent-conversation-presentation'
 import { AgentConversationReader } from './views/agent-conversation/AgentConversationReader'
-import { AgentArchivedHistoryPanel } from './views/agent-conversation/AgentArchivedHistoryPanel'
-import { AgentSessionTreePanel, AgentTurnProvenance } from './views/agent-conversation/AgentSessionTreePanel'
+import { AgentMessageActions, AgentMessageEditor } from './views/agent-conversation/AgentSessionTreePanel'
 import {
   LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE,
   LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE,
@@ -1982,13 +1981,33 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const activeSessionTree = useAppStore((s) => s.activeSessionTree)
   const openAgentConversationBranch = useAppStore((s) => s.openAgentConversationBranch)
   const forkAgentConversationBranch = useAppStore((s) => s.forkAgentConversationBranch)
-  const replayAgentConversationBranch = useAppStore((s) => s.replayAgentConversationBranch)
-  const updateAgentConversationBranchStatus = useAppStore((s) => s.updateAgentConversationBranchStatus)
+  const clearAgentChat = useAppStore((s) => s.clearAgentChat)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
+  const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
+  const [messageActionBusy, setMessageActionBusy] = useState(false)
   const viewingBusyPendingConversation = agentChatBusy && activeConversationId === pendingAgentConversation?.summary.id
   const canCancelAgentChat = agentChatBusy && Boolean(pendingAgentConversation)
   const activeBranchStatus = activeSessionTree?.branches.find((branch) => branch.conversationId === activeConversationId)?.status
   const activeBranchReadOnly = activeBranchStatus === 'archived' || activeBranchStatus === 'deleted'
+  const navigableConversationBranches = useMemo(
+    () => activeSessionTree?.branches.filter((branch) => branch.status !== 'deleted') ?? [],
+    [activeSessionTree]
+  )
+  const activeBranchIndex = navigableConversationBranches.findIndex((branch) => branch.conversationId === activeConversationId)
+  const branchNavigation = activeBranchIndex >= 0 && navigableConversationBranches.length > 1
+    ? {
+        current: activeBranchIndex + 1,
+        total: navigableConversationBranches.length,
+        onPrevious: () => {
+          const previous = navigableConversationBranches[activeBranchIndex - 1]
+          if (previous) void openAgentConversationBranch(previous.conversationId)
+        },
+        onNext: () => {
+          const next = navigableConversationBranches[activeBranchIndex + 1]
+          if (next) void openAgentConversationBranch(next.conversationId)
+        }
+      }
+    : undefined
   const canForkTurns = Boolean(activeConversationId && activeSessionTree && activeBranchStatus === 'active' && !agentChatBusy)
   const pendingAskStreamId = pendingAgentConversation?.summary.id ?? null
   const pendingAsk = pendingAskStreamId
@@ -2120,6 +2139,66 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     return true
   }
 
+  const canEditTurns = Boolean(!agentChatBusy && !messageActionBusy && !activeBranchReadOnly)
+
+  const forkFromTurn = async (turnId: string): Promise<void> => {
+    if (!activeConversationId || activeConversationRevision === null || messageActionBusy || agentChatBusy) return
+    setMessageActionBusy(true)
+    try {
+      const forked = await forkAgentConversationBranch(activeConversationId, turnId, activeConversationRevision)
+      if (forked) setEditingTurnId(null)
+    } finally {
+      setMessageActionBusy(false)
+    }
+  }
+
+  const copyTurnContent = async (content: string): Promise<void> => {
+    if (!content) return
+    try {
+      await navigator.clipboard.writeText(content)
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = content
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      try {
+        document.execCommand('copy')
+      } finally {
+        document.body.removeChild(textarea)
+      }
+    }
+  }
+
+  const resendEditedTurn = async (turn: AgentChatTurn, nextContent: string): Promise<void> => {
+    if (messageActionBusy || agentChatBusy || activeBranchReadOnly) return
+    const turnIndex = agentTurns.findIndex((item) => item.id === turn.id)
+    if (turnIndex < 0 || turn.role !== 'user') return
+    const content = nextContent.trim()
+    if (!content) return
+
+    setMessageActionBusy(true)
+    try {
+      const previousTurn = turnIndex > 0 ? agentTurns[turnIndex - 1] : null
+      if (previousTurn && activeConversationId && activeConversationRevision !== null) {
+        const forked = await forkAgentConversationBranch(activeConversationId, previousTurn.id, activeConversationRevision)
+        if (!forked) return
+      } else {
+        clearAgentChat()
+      }
+      setEditingTurnId(null)
+      const mode = isTeachingMode ? 'teaching' as const : 'temporary' as const
+      void agentChat(content, { mode })
+    } finally {
+      setMessageActionBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    setEditingTurnId(null)
+  }, [activeConversationId])
+
   useEffect(() => {
     const node = scrollRef.current
     if (!node) return
@@ -2133,36 +2212,40 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       {hasConversation && (
         <div ref={scrollRef} className="overview-dialog-thread">
           <div className="overview-dialog-thread-inner">
-          {activeConversationId && activeSessionTree ? (
-            <AgentSessionTreePanel
-              tree={activeSessionTree}
-              activeConversationId={activeConversationId}
-              onOpen={openAgentConversationBranch}
-              onFork={forkAgentConversationBranch}
-              onReplay={replayAgentConversationBranch}
-              onStatus={updateAgentConversationBranchStatus}
-            />
-          ) : null}
-          {active && activeConversationId ? (
-            <AgentArchivedHistoryPanel workspaceId={active.id} conversationId={activeConversationId} />
-          ) : null}
           {agentTurns.map((turn) => {
             const turnPresentation = conversationPresentation.turns.find((item) => item.turnId === turn.id)
             const isBusyTurn = activeAssistantTurnId === turn.id
             const hasProcess = Boolean(turnPresentation?.items.length)
             const content = turn.content || (turn.role === 'assistant' && isBusyTurn && !hasProcess ? '正在回复…' : '')
+            const isEditing = editingTurnId === turn.id
             return (
               <div
                 key={turn.id}
-                className={`overview-dialog-message ${turn.role === 'user' ? 'is-user' : 'is-assistant'}`}
+                className={`overview-dialog-message ${turn.role === 'user' ? 'is-user' : 'is-assistant'}${isEditing ? ' is-editing' : ''}`}
               >
-                <AgentTurnProvenance
-                  turn={turn}
-                  canFork={canForkTurns}
-                  onFork={(turnId) => { if (activeConversationId && activeConversationRevision !== null) void forkAgentConversationBranch(activeConversationId, turnId, activeConversationRevision) }}
-                />
-                {turn.role === 'assistant' ? <AgentConversationReader presentation={turnPresentation} compact /> : null}
-                {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
+                {isEditing ? (
+                  <AgentMessageEditor
+                    initialValue={turn.content}
+                    busy={messageActionBusy || agentChatBusy}
+                    onCancel={() => setEditingTurnId(null)}
+                    onSubmit={(value) => { void resendEditedTurn(turn, value) }}
+                  />
+                ) : (
+                  <>
+                    {turn.role === 'assistant' ? <AgentConversationReader presentation={turnPresentation} compact /> : null}
+                    {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
+                    <AgentMessageActions
+                      turn={turn}
+                      canFork={canForkTurns}
+                      canEdit={canEditTurns}
+                      disabled={messageActionBusy || agentChatBusy}
+                      onFork={(turnId) => { void forkFromTurn(turnId) }}
+                      onEdit={(editableTurn) => setEditingTurnId(editableTurn.id)}
+                      onCopy={copyTurnContent}
+                      branchNavigation={branchNavigation}
+                    />
+                  </>
+                )}
               </div>
             )
           })}
