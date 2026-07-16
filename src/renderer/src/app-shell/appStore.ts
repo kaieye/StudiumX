@@ -749,6 +749,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         activeConversationRevision: null,
         activeSessionTree: null
       })
+      void get().loadReviewCards()
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -773,6 +774,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         activeConversationRevision: null,
         activeSessionTree: null
       })
+      void get().loadReviewCards()
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -797,6 +799,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         activeConversationRevision: null,
         activeSessionTree: null
       })
+      void get().loadReviewCards()
       const settings = get().settings
       const feedback = operationFeedback({
         outcome: 'workspace-imported',
@@ -844,6 +847,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         activeConversationRevision: null,
         activeSessionTree: null
       })
+      void get().loadReviewCards()
       const settings = get().settings
       const feedback = operationFeedback({
         outcome: 'workspace-imported',

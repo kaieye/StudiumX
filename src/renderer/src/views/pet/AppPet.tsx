@@ -8,7 +8,7 @@ import type {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conversation-state'
-import { DEFAULT_PET_SIZE, MAX_PET_SIZE, MIN_PET_SIZE } from '../../../../shared/teaching-types'
+import { DEFAULT_PET_SIZE, MAX_PET_SIZE, MIN_PET_SIZE, type LessonSummary } from '../../../../shared/teaching-types'
 import { useAppStore } from '../../app-shell/appStore'
 import '../../styles/pet-context-menu.css'
 import { PetAssistantDialog } from './PetAssistantDialog'
@@ -39,6 +39,7 @@ import {
   type PetBubbleLayout
 } from './pet-interaction'
 import { PetSprite } from './PetSprite'
+import { computeDueLessonReviews } from './lesson-review-due'
 import {
   advancePetNotificationProjection,
   createInitialPetNotificationProjectionState,
@@ -53,6 +54,8 @@ import {
   type PetNotificationCopy,
   type PetNotificationSignals
 } from './pet-notifications'
+
+const EMPTY_LESSONS: LessonSummary[] = []
 
 type PetContextMenuPosition = PetPlacement
 type ContextMenuDismissalReason = 'escape' | 'outside-pointer' | 'scroll' | 'viewport-change' | 'window-blur'
@@ -116,6 +119,10 @@ export function AppPet() {
   const loadAgentConversation = useAppStore((state) => state.loadAgentConversation)
   const setOverviewDialogMode = useAppStore((state) => state.setOverviewDialogMode)
   const setView = useAppStore((state) => state.setView)
+  const reviewCards = useAppStore((state) => state.reviewCards)
+  const progress = useAppStore((state) => state.progress)
+  const lessons = useAppStore((state) => state.appState.activeWorkspace?.lessons ?? EMPTY_LESSONS)
+  const loadLesson = useAppStore((state) => state.loadLesson)
   const petRef = useRef<HTMLDivElement>(null)
   const mascotRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -205,6 +212,16 @@ export function AppPet() {
     }
   }), [settings.displayName, t])
 
+  const dueLessonReviews = useMemo(
+    () => computeDueLessonReviews({
+      lessons,
+      reviewCards,
+      progress: progress ?? { totalAnswered: 0, correct: 0, byLesson: {} },
+      now: Date.now()
+    }),
+    [lessons, reviewCards, progress]
+  )
+
   const baseNotificationSignals = useMemo<Omit<PetNotificationSignals, 'now'>>(() => ({
     enabled: settings.enabled,
     pendingRequest,
@@ -220,7 +237,7 @@ export function AppPet() {
       result: lessonGenerationPetNotificationResult ?? undefined
     },
     lessonReview: {
-      dueLessons: []
+      dueLessons: dueLessonReviews
     },
     errors: petNotificationErrors.map((item) => ({
       id: item.id,
@@ -234,6 +251,7 @@ export function AppPet() {
     activeConversationId,
     agentPetNotificationResult,
     agentChatBusy,
+    dueLessonReviews,
     generating,
     lessonGenerationRunId,
     lessonGenerationPetNotificationResult,
@@ -554,6 +572,15 @@ export function AppPet() {
       setContextMenu(null)
       setAssistantOpen(false)
       setView('lessons')
+      return
+    }
+    if (item.action === 'open-lesson') {
+      const lesson = lessons.find((entry) => entry.id === item.targetId)
+      if (lesson) {
+        setContextMenu(null)
+        setAssistantOpen(false)
+        void loadLesson(lesson)
+      }
       return
     }
     if (item.action === 'stop-run') {

@@ -3,7 +3,7 @@ import { emptySettings } from '../../src/renderer/src/workflows/settings'
 import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
 import { AppPet } from '../../src/renderer/src/views/pet/AppPet'
 import type { PendingAgentConversation } from '../../src/renderer/src/agent-conversation-state'
-import type { AgentChatTurn, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
+import type { AgentChatTurn, LessonSummary, ReviewCard, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 import { act, fireEvent, renderUi, screen, setupUser, waitFor, within } from '../helpers/render'
 
 const originalState = useAppStore.getState()
@@ -675,6 +675,50 @@ describe('AppPet accessibility', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('surfaces a due lesson review notification and opens the lesson on activate', async () => {
+    const lesson: LessonSummary = {
+      id: '0001',
+      title: 'Variables',
+      objective: '',
+      prompt: '',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      durationMinutes: 10,
+      courseId: 'course-1',
+      courseName: 'Course',
+      courseRelativePath: 'lessons/course',
+      courseAbsolutePath: '/workspace/lessons/course',
+      sessionId: 'session-1',
+      sessionName: 'Session',
+      sessionRelativePath: 'lessons/course/session',
+      sessionAbsolutePath: '/workspace/lessons/course/session',
+      relativePath: 'lessons/course/session/0001-lesson.html',
+      absolutePath: '/workspace/lessons/course/session/0001-lesson.html'
+    }
+    const reviewCards: ReviewCard[] = [{
+      id: 'card-0001',
+      lessonId: '0001',
+      lessonTitle: 'Variables',
+      front: 'front',
+      back: 'back',
+      provenance: { artifactPath: 'lessons/course/session/0001-flashcards.json', artifactCardIndex: 0 }
+    }]
+    const workspace = { ...activeWorkspace(), lessons: [lesson] }
+    const loadLesson = vi.fn(async () => {})
+    useAppStore.setState((state) => ({
+      appState: { ...state.appState, activeWorkspace: workspace, workspaces: [workspace] },
+      reviewCards,
+      progress: { totalAnswered: 0, correct: 0, byLesson: {} },
+      loadLesson
+    }))
+    const user = setupUser()
+    renderUi(<AppPet />)
+
+    const action = await screen.findByRole('button', { name: /开始复习|review now/i })
+    await user.click(action)
+
+    await waitFor(() => expect(loadLesson).toHaveBeenCalledWith(lesson))
   })
 
   it('keeps focus on the same notification ID when priority changes reorder the stack', async () => {

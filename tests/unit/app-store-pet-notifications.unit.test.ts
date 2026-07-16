@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { waitFor } from '@testing-library/react'
 import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
 import type {
   AgentChatTurn,
   LessonSummary,
+  ReviewCard,
   TeachingAppState,
   TeachingSystemApi,
   TeachingWorkspaceSummary
@@ -282,5 +284,29 @@ describe('appStore Pet operation error sources', () => {
     expect(first?.runId).not.toBe(second?.runId)
     expect(first?.resultId).toMatch(/:lesson-1$/)
     expect(second?.resultId).toMatch(/:lesson-2$/)
+  })
+
+  it('refreshes review cards and progress after selecting a workspace', async () => {
+    const cards: ReviewCard[] = [{
+      id: 'card-1',
+      lessonId: 'lesson-1',
+      lessonTitle: 'Lesson 1',
+      front: 'front',
+      back: 'back',
+      provenance: { artifactPath: 'lessons/lesson-1-flashcards.json', artifactCardIndex: 0 }
+    }]
+    installApi({
+      selectWorkspace: vi.fn(async () => appState()),
+      listReviewCards: vi.fn(async () => ({ cards })),
+      getProgress: vi.fn(async () => ({
+        workspaceId: 'workspace-1',
+        progress: { totalAnswered: 5, correct: 3, byLesson: { 'lesson-1': { answered: 5, correct: 3 } } }
+      }))
+    })
+
+    await useAppStore.getState().selectWorkspace('workspace-1')
+
+    expect(useAppStore.getState().reviewCards).toEqual(cards)
+    await waitFor(() => expect(useAppStore.getState().progress).toMatchObject({ totalAnswered: 5, correct: 3 }))
   })
 })
