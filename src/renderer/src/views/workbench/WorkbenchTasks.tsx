@@ -82,10 +82,6 @@ export function WorkbenchTasks({
             </div>
 
             <div className="workbench-task-progress" aria-label={`任务进度，已完成 ${completedTasks} 个，共 ${taskCount} 个`}>
-              <div className="workbench-task-progress-head">
-                <span>进度</span>
-                <strong>{completedTasks}/{taskCount}</strong>
-              </div>
               <div className="workbench-task-progress-track" aria-hidden="true">
                 <span style={{ width: `${completedRatio}%` }} />
               </div>
@@ -103,8 +99,8 @@ export function WorkbenchTasks({
                 aria-label="添加本轮目标"
                 maxLength={80}
               />
-              <button type="submit" disabled={!taskInput.trim()} aria-label="添加任务">
-                <Plus size={15} />
+              <button type="submit" disabled={!taskInput.trim()} aria-label="添加任务" title="添加任务">
+                <Plus size={17} aria-hidden="true" />
               </button>
             </form>
 

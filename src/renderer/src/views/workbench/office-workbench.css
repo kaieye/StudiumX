@@ -4996,3 +4996,63 @@
     display: none;
   }
 }
+
+/* Compact, icon-led study controls. */
+.office-workbench-stage .workbench-pomodoro-actions {
+  grid-template-columns: repeat(3, 42px);
+  justify-content: center;
+}
+
+.office-workbench-stage .workbench-pomodoro-start {
+  padding: 0;
+}
+
+.office-workbench-stage .workbench-task-form {
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 4px;
+}
+
+.office-workbench-stage .workbench-task-form input {
+  height: 30px;
+  padding-inline: 12px;
+  border-radius: 999px;
+}
+
+.office-workbench-stage .workbench-task-form button {
+  width: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  color: var(--accent);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (hover: hover) {
+  .office-workbench-stage .workbench-task-form button:not(:disabled):hover {
+    color: color-mix(in srgb, var(--accent) 78%, var(--text));
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-pomodoro-actions {
+    grid-template-columns: repeat(3, 36px);
+  }
+
+  .office-workbench-stage .workbench-task-form input {
+    height: 28px;
+  }
+
+  .office-workbench-stage .workbench-task-form button {
+    width: 28px;
+    min-width: 28px;
+    min-height: 28px;
+  }
+}

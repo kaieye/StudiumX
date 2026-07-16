@@ -27,6 +27,9 @@ export function WorkbenchPomodoro({
   const progressStyle = { '--timer-progress': `${timerProgress}%` } as CSSProperties
   const timerLabel = snapshot.timerMode === 'focus' ? '专注计时' : '休息计时'
   const remainingTime = formatStudyDuration(snapshot.remainingSeconds)
+  const timerActionLabel = snapshot.timerState === 'running'
+    ? '暂停'
+    : snapshot.timerState === 'paused' ? '继续' : '开始'
 
   return (
     <section
@@ -99,9 +102,16 @@ export function WorkbenchPomodoro({
               >
                 <RotateCcw size={16} />
               </button>
-              <button className="workbench-pomodoro-start" type="button" onClick={onToggleTimer}>
-                {snapshot.timerState === 'running' ? <Pause size={16} /> : <Play size={16} />}
-                {snapshot.timerState === 'running' ? '暂停' : snapshot.timerState === 'paused' ? '继续' : '开始'}
+              <button
+                className="workbench-pomodoro-start"
+                type="button"
+                onClick={onToggleTimer}
+                aria-label={timerActionLabel}
+                title={timerActionLabel}
+              >
+                {snapshot.timerState === 'running'
+                  ? <Pause size={16} aria-hidden="true" />
+                  : <Play size={16} aria-hidden="true" />}
               </button>
               <button
                 className={`workbench-pomodoro-ambient${snapshot.ambientEnabled ? ' is-active' : ''}`}
