@@ -333,6 +333,7 @@
           "detail": "Source controls apply to progress, completion, and greeting updates.",
           "agent": "Agent",
           "lessonGeneration": "Lesson generation",
+          "lessonReview": "Due lesson reviews",
           "onboarding": "Onboarding"
         },
         "quiet": {
@@ -417,6 +418,11 @@
           "title": "Lesson is ready",
           "detail": "The generated lesson is ready to review."
         },
+        "lessonReviewDue": {
+          "title": "Lesson ready to review",
+          "detail": "Pick up where you left off.",
+          "actionLabel": "Review now"
+        },
         "agentFailed": {
           "title": "Agent task failed"
         },
@@ -437,6 +443,7 @@
         "sources": {
           "agent": "Agent",
           "lesson-generation": "Lesson generation",
+          "lesson-review": "Lesson review",
           "onboarding": "Pet"
         }
       },

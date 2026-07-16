@@ -333,6 +333,7 @@
           "detail": "来源设置适用于进度、完成和问候动态。",
           "agent": "Agent",
           "lessonGeneration": "课程生成",
+          "lessonReview": "待复习课程",
           "onboarding": "新手引导"
         },
         "quiet": {
@@ -417,6 +418,11 @@
           "title": "课程已生成",
           "detail": "新课程已经准备好，可以查看结果。"
         },
+        "lessonReviewDue": {
+          "title": "课程可以复习了",
+          "detail": "继续上一次的学习。",
+          "actionLabel": "开始复习"
+        },
         "agentFailed": {
           "title": "Agent 任务失败"
         },
@@ -437,6 +443,7 @@
         "sources": {
           "agent": "Agent",
           "lesson-generation": "课程生成",
+          "lesson-review": "课程复习",
           "onboarding": "Pet"
         }
       },

@@ -33,7 +33,7 @@ describe('teaching settings schema', () => {
       showRunning: true,
       showReview: true,
       showWaving: true,
-      sources: { agent: true, lessonGeneration: true, onboarding: true },
+      sources: { agent: true, lessonGeneration: true, lessonReview: true, onboarding: true },
       quietUntil: null
     })
 
@@ -44,7 +44,7 @@ describe('teaching settings schema', () => {
           showRunning: false,
           showReview: 'false',
           showWaving: false,
-          sources: { agent: false, lessonGeneration: 'false', onboarding: false },
+          sources: { agent: false, lessonGeneration: 'false', lessonReview: false, onboarding: false },
           quietUntil: 12_345.6
         }
       }
@@ -53,7 +53,7 @@ describe('teaching settings schema', () => {
       showRunning: false,
       showReview: true,
       showWaving: false,
-      sources: { agent: false, lessonGeneration: true, onboarding: false },
+      sources: { agent: false, lessonGeneration: true, lessonReview: false, onboarding: false },
       quietUntil: 12_346
     })
 

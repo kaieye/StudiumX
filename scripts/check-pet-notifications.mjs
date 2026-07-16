@@ -42,6 +42,7 @@ const requiredCopyPaths = [
   'sources.detail',
   'sources.agent',
   'sources.lessonGeneration',
+  'sources.lessonReview',
   'sources.onboarding',
   'quiet.title',
   'quiet.detail',
@@ -73,13 +74,18 @@ assert.match(
 )
 assert.match(
   settingsTypesSource,
-  /sources: \{[\s\S]*agent: boolean[\s\S]*lessonGeneration: boolean[\s\S]*onboarding: boolean/,
+  /sources: \{[\s\S]*agent: boolean[\s\S]*lessonGeneration: boolean[\s\S]*lessonReview: boolean[\s\S]*onboarding: boolean/,
   'the preference contract should cover every real Pet notification source'
 )
 assert.match(
   settingsSchemaSource,
-  /notificationPreferences: \{[\s\S]*actionableOnly: false[\s\S]*showRunning: true[\s\S]*quietUntil: null/,
+  /notificationPreferences: \{[\s\S]*actionableOnly: false[\s\S]*showRunning: true[\s\S]*lessonReview: true[\s\S]*quietUntil: null/,
   'settings defaults should preserve the existing visible-notification behavior'
+)
+assert.match(
+  settingsSchemaSource,
+  /lessonReview: petNotificationSourcesInput\.lessonReview !== false/,
+  'the lesson-review source should be normalized from its input like the other sources'
 )
 assert.match(
   settingsSchemaSource,
@@ -142,6 +148,11 @@ assert.match(
   librarySource,
   /updateNotificationPreferences\(\{[\s\S]*sources: \{ agent: event\.currentTarget\.checked \}/,
   'Pet Library should persist source controls through the settings adapter'
+)
+assert.match(
+  librarySource,
+  /sources: \{[\s\S]*lessonReview: event\.currentTarget\.checked/,
+  'Pet Library should persist the lesson-review source control through the settings adapter'
 )
 
 assert.match(domainTestSource, /keeps waiting and failed discoverable/, 'domain tests should protect critical discoverability')

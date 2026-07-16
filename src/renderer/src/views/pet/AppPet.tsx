@@ -185,6 +185,11 @@ export function AppPet() {
       detail: t('resources.pets.notifications.lessonReview.detail'),
       actionLabel: t('resources.pets.actions.review')
     },
+    lessonReviewDue: {
+      title: t('resources.pets.notifications.lessonReviewDue.title'),
+      detail: t('resources.pets.notifications.lessonReviewDue.detail'),
+      actionLabel: t('resources.pets.notifications.lessonReviewDue.actionLabel')
+    },
     agentFailed: {
       title: t('resources.pets.notifications.agentFailed.title'),
       actionLabel: t('resources.pets.actions.failed')
@@ -213,6 +218,9 @@ export function AppPet() {
       busy: generating,
       runId: lessonGenerationRunId ?? undefined,
       result: lessonGenerationPetNotificationResult ?? undefined
+    },
+    lessonReview: {
+      dueLessons: []
     },
     errors: petNotificationErrors.map((item) => ({
       id: item.id,

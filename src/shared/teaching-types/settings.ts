@@ -140,6 +140,7 @@ export type PetNotificationPreferences = {
   sources: {
     agent: boolean
     lessonGeneration: boolean
+    lessonReview: boolean
     onboarding: boolean
   }
   quietUntil: number | null

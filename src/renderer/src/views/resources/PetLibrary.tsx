@@ -402,6 +402,16 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
               <label>
                 <input
                   type="checkbox"
+                  checked={notificationPreferences.sources.lessonReview}
+                  onChange={(event) => updateNotificationPreferences({
+                    sources: { lessonReview: event.currentTarget.checked }
+                  })}
+                />
+                <span>{t('resources.pets.notificationPreferences.sources.lessonReview')}</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
                   checked={notificationPreferences.sources.onboarding}
                   onChange={(event) => updateNotificationPreferences({
                     sources: { onboarding: event.currentTarget.checked }

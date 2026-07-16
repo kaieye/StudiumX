@@ -21,6 +21,7 @@ const copy: PetNotificationCopy = {
   lessonRunning: { title: 'Lesson running', detail: 'Lesson progress', actionLabel: 'View progress' },
   agentReview: { title: 'Agent complete', detail: 'Agent result', actionLabel: 'View result' },
   lessonReview: { title: 'Lesson complete', detail: 'Lesson result', actionLabel: 'View result' },
+  lessonReviewDue: { title: 'Lesson due', detail: 'Review due', actionLabel: 'Review now' },
   agentFailed: { title: 'Agent failed', actionLabel: 'View error' },
   lessonFailed: { title: 'Lesson failed', actionLabel: 'View error' },
   waving: { title: 'Hello', detail: 'Ready to help', actionLabel: 'Start a chat' }
@@ -31,7 +32,7 @@ const preferences = {
   showRunning: true,
   showReview: true,
   showWaving: true,
-  sources: { agent: true, lessonGeneration: true, onboarding: true },
+  sources: { agent: true, lessonGeneration: true, lessonReview: true, onboarding: true },
   quietUntil: null
 }
 
@@ -42,6 +43,7 @@ function signals(overrides: Partial<PetNotificationSignals> = {}): PetNotificati
     pendingRequest: null,
     agent: { busy: false },
     lessonGeneration: { busy: false },
+    lessonReview: { dueLessons: [] },
     errors: [],
     ...overrides
   }
@@ -435,5 +437,177 @@ describe('pet notification projection', () => {
       'waiting-live': 1,
       'failed-live': 2
     })
+  })
+
+  it('projects a due lesson review notification with a stable identity and open-lesson action', () => {
+    const due = signals({
+      now: 10_000,
+      lessonReview: {
+        dueLessons: [{
+          lessonId: '0001',
+          lessonTitle: 'Variables',
+          lessonRelativePath: 'lessons/course/session/0001-lesson.html',
+          reason: 'never-reviewed'
+        }]
+      }
+    })
+    const { state, notifications } = advance(due)
+
+    const review = notifications.find((item) => item.source === 'lesson-review')
+    expect(review).toMatchObject({
+      id: 'lesson-review:0001',
+      source: 'lesson-review',
+      sourceId: '0001',
+      targetId: '0001',
+      state: 'review',
+      action: 'open-lesson',
+      title: 'Lesson due',
+      detail: 'Review due',
+      actionLabel: 'Review now'
+    })
+    expect(review?.expiresAt).toBeUndefined()
+    expect(state.lessonReviews[0]?.lessonTitle).toBe('Variables')
+    expect(state.lessonReviews[0]?.reason).toBe('never-reviewed')
+  })
+
+  it('removes a lesson review when the lesson leaves the due set', () => {
+    const due = signals({
+      now: 10_000,
+      lessonReview: {
+        dueLessons: [{
+          lessonId: '0001',
+          lessonTitle: 'Variables',
+          lessonRelativePath: 'lessons/course/session/0001-lesson.html',
+          reason: 'never-reviewed'
+        }]
+      }
+    })
+    const state = advancePetNotificationProjection(createInitialPetNotificationProjectionState(), due)
+    expect(retainedPetNotificationIds(state, due)).toContain('lesson-review:0001')
+
+    const cleared = advancePetNotificationProjection(state, signals({ now: 11_000, lessonReview: { dueLessons: [] } }))
+    expect(cleared.lessonReviews).toEqual([])
+    expect(retainedPetNotificationIds(cleared, signals({ now: 11_000, lessonReview: { dueLessons: [] } })))
+      .not.toContain('lesson-review:0001')
+  })
+
+  it('preserves lesson review createdAt across signal refreshes for the same lesson', () => {
+    const due = signals({
+      now: 10_000,
+      lessonReview: {
+        dueLessons: [{
+          lessonId: '0001',
+          lessonTitle: 'Variables',
+          lessonRelativePath: 'lessons/course/session/0001-lesson.html',
+          reason: 'never-reviewed'
+        }]
+      }
+    })
+    const firstState = advancePetNotificationProjection(createInitialPetNotificationProjectionState(), due)
+    const originalCreatedAt = firstState.lessonReviews[0]?.createdAt
+    expect(originalCreatedAt).toBe(10_000)
+
+    const refreshed = advancePetNotificationProjection(firstState, signals({
+      now: 20_000,
+      lessonReview: {
+        dueLessons: [{
+          lessonId: '0001',
+          lessonTitle: 'Variables (renamed)',
+          lessonRelativePath: 'lessons/course/session/0001-lesson.html',
+          reason: 'stale'
+        }]
+      }
+    }))
+    expect(refreshed.lessonReviews[0]?.createdAt).toBe(originalCreatedAt)
+    expect(refreshed.lessonReviews[0]?.lessonTitle).toBe('Variables (renamed)')
+    expect(refreshed.lessonReviews[0]?.reason).toBe('stale')
+  })
+
+  it('respects showReview preference for lesson reviews', () => {
+    const due = signals({
+      now: 10_000,
+      lessonReview: {
+        dueLessons: [{
+          lessonId: '0001',
+          lessonTitle: 'Variables',
+          lessonRelativePath: 'lessons/course/session/0001-lesson.html',
+          reason: 'never-reviewed'
+        }]
+      }
+    })
+    const { notifications } = advance(due)
+    const withShowReview = { ...preferences, showReview: true }
+    const withoutShowReview = { ...preferences, showReview: false }
+
+    expect(projectPetNotificationVisibility(notifications, withShowReview, 10_000))
+      .toContainEqual(expect.objectContaining({ source: 'lesson-review' }))
+    expect(projectPetNotificationVisibility(notifications, withoutShowReview, 10_000))
+      .not.toContainEqual(expect.objectContaining({ source: 'lesson-review' }))
+  })
+
+  it('respects sources.lessonReview preference', () => {
+    const due = signals({
+      now: 10_000,
+      lessonReview: {
+        dueLessons: [{
+          lessonId: '0001',
+          lessonTitle: 'Variables',
+          lessonRelativePath: 'lessons/course/session/0001-lesson.html',
+          reason: 'never-reviewed'
+        }]
+      }
+    })
+    const { notifications } = advance(due)
+    const sourceOff = { ...preferences, sources: { ...preferences.sources, lessonReview: false } }
+
+    expect(projectPetNotificationVisibility(notifications, sourceOff, 10_000))
+      .not.toContainEqual(expect.objectContaining({ source: 'lesson-review' }))
+  })
+
+  it('hides lesson reviews under quiet mode because they are not waiting or failed', () => {
+    const due = signals({
+      now: 10_000,
+      lessonReview: {
+        dueLessons: [{
+          lessonId: '0001',
+          lessonTitle: 'Variables',
+          lessonRelativePath: 'lessons/course/session/0001-lesson.html',
+          reason: 'never-reviewed'
+        }]
+      }
+    })
+    const { notifications } = advance(due)
+    const quietPreferences = { ...preferences, quietUntil: 20_000 }
+
+    expect(projectPetNotificationVisibility(notifications, quietPreferences, 10_000))
+      .not.toContainEqual(expect.objectContaining({ source: 'lesson-review' }))
+  })
+
+  it('keeps waiting and failed discoverable alongside lesson reviews', () => {
+    const due = signals({
+      now: 10_000,
+      pendingRequest: { id: 'ask-1', conversationId: 'conv-1', kind: 'ask' },
+      lessonReview: {
+        dueLessons: [{
+          lessonId: '0001',
+          lessonTitle: 'Variables',
+          lessonRelativePath: 'lessons/course/session/0001-lesson.html',
+          reason: 'never-reviewed'
+        }]
+      },
+      errors: [{
+        id: 'agent:err-1',
+        source: 'agent',
+        detail: 'boom',
+        createdAt: 9_000
+      }]
+    })
+    const { notifications } = advance(due)
+    const quietPreferences = { ...preferences, quietUntil: 100_000, actionableOnly: true }
+
+    const visible = projectPetNotificationVisibility(notifications, quietPreferences, 10_000)
+    expect(visible).toContainEqual(expect.objectContaining({ state: 'waiting' }))
+    expect(visible).toContainEqual(expect.objectContaining({ state: 'failed' }))
+    expect(visible).not.toContainEqual(expect.objectContaining({ source: 'lesson-review' }))
   })
 })

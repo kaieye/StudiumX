@@ -1,10 +1,16 @@
+import type { DueLessonReview } from './lesson-review-due'
 import type { PetNotificationPreferences } from '../../../../shared/teaching-types'
 
 export type PetNotificationState = 'waiting' | 'failed' | 'review' | 'running' | 'waving'
 
-export type PetNotificationSource = 'agent' | 'lesson-generation' | 'onboarding'
+export type PetNotificationSource = 'agent' | 'lesson-generation' | 'lesson-review' | 'onboarding'
 
-export type PetNotificationAction = 'open-assistant' | 'open-conversation' | 'open-lessons' | 'stop-run'
+export type PetNotificationAction =
+  | 'open-assistant'
+  | 'open-conversation'
+  | 'open-lesson'
+  | 'open-lessons'
+  | 'stop-run'
 
 export type PetNotification = {
   id: string
@@ -53,6 +59,9 @@ export type PetNotificationSignals = {
   pendingRequest: PetPendingRequestSignal | null
   agent: PetNotificationRunSignal
   lessonGeneration: PetNotificationRunSignal
+  lessonReview: {
+    dueLessons: DueLessonReview[]
+  }
   errors: PetNotificationFailureSignal[]
 }
 
@@ -80,6 +89,15 @@ type PetWaitingLifecycle = {
   sourceId: string
 }
 
+export type PetLessonReviewLifecycle = {
+  id: string
+  lessonId: string
+  lessonTitle: string
+  lessonRelativePath: string
+  reason: DueLessonReview['reason']
+  createdAt: number
+}
+
 export type PetNotificationProjectionState = {
   enabled: boolean
   sequence: number
@@ -87,6 +105,7 @@ export type PetNotificationProjectionState = {
   lessonGenerationRun: PetRunLifecycle | null
   waiting: PetWaitingLifecycle | null
   reviews: PetReviewLifecycle[]
+  lessonReviews: PetLessonReviewLifecycle[]
   waving: PetWavingLifecycle | null
 }
 
@@ -102,6 +121,7 @@ export type PetNotificationCopy = {
   lessonRunning: PetNotificationCopyBlock
   agentReview: PetNotificationCopyBlock
   lessonReview: PetNotificationCopyBlock
+  lessonReviewDue: PetNotificationCopyBlock
   agentFailed: Omit<PetNotificationCopyBlock, 'detail'>
   lessonFailed: Omit<PetNotificationCopyBlock, 'detail'>
   waving: PetNotificationCopyBlock
@@ -133,6 +153,7 @@ export function createInitialPetNotificationProjectionState(): PetNotificationPr
     lessonGenerationRun: null,
     waiting: null,
     reviews: [],
+    lessonReviews: [],
     waving: null
   }
 }
@@ -155,6 +176,7 @@ export function advancePetNotificationProjection(
       lessonGenerationRun: null,
       waiting: null,
       reviews: [],
+      lessonReviews: [],
       waving: null
     }
   }
@@ -204,6 +226,8 @@ export function advancePetNotificationProjection(
       : null
   )
 
+  const lessonReviews = reconcileLessonReviews(previous.lessonReviews, signals.lessonReview.dueLessons, signals.now)
+
   return {
     enabled: true,
     sequence,
@@ -211,8 +235,31 @@ export function advancePetNotificationProjection(
     lessonGenerationRun: lesson.run,
     waiting,
     reviews,
+    lessonReviews,
     waving
   }
+}
+
+function reconcileLessonReviews(
+  previous: PetLessonReviewLifecycle[],
+  dueLessons: DueLessonReview[],
+  now: number
+): PetLessonReviewLifecycle[] {
+  if (dueLessons.length === 0) return []
+  const previousByLessonId = new Map(previous.map((entry) => [entry.lessonId, entry]))
+  const reconciled: PetLessonReviewLifecycle[] = []
+  for (const due of dueLessons) {
+    const existing = previousByLessonId.get(due.lessonId)
+    reconciled.push({
+      id: `lesson-review:${due.lessonId}`,
+      lessonId: due.lessonId,
+      lessonTitle: due.lessonTitle,
+      lessonRelativePath: due.lessonRelativePath,
+      reason: due.reason,
+      createdAt: existing?.createdAt ?? now
+    })
+  }
+  return reconciled
 }
 
 function waitingNotificationId(request: PetPendingRequestSignal): string {
@@ -337,6 +384,21 @@ export function projectPetNotifications(
     })
   }
 
+  for (const review of state.lessonReviews) {
+    notifications.push({
+      id: review.id,
+      source: 'lesson-review',
+      sourceId: review.lessonId,
+      targetId: review.lessonId,
+      state: 'review',
+      action: 'open-lesson',
+      title: copy.lessonReviewDue.title,
+      detail: copy.lessonReviewDue.detail,
+      actionLabel: copy.lessonReviewDue.actionLabel,
+      createdAt: review.createdAt
+    })
+  }
+
   for (const run of [state.agentRun, state.lessonGenerationRun]) {
     if (!run) continue
     const runningCopy = run.source === 'agent' ? copy.agentRunning : copy.lessonRunning
@@ -387,6 +449,7 @@ function isPetNotificationSourceEnabled(
 ): boolean {
   if (source === 'agent') return preferences.sources.agent
   if (source === 'lesson-generation') return preferences.sources.lessonGeneration
+  if (source === 'lesson-review') return preferences.sources.lessonReview
   return preferences.sources.onboarding
 }
 
@@ -444,6 +507,9 @@ export function retainedPetNotificationIds(
   if (state.lessonGenerationRun) ids.add(state.lessonGenerationRun.id)
   for (const review of state.reviews) {
     if (review.expiresAt > signals.now) ids.add(review.id)
+  }
+  for (const review of state.lessonReviews) {
+    ids.add(review.id)
   }
   if (state.waving?.expiresAt && state.waving.expiresAt > signals.now) ids.add(state.waving.id)
   for (const error of signals.errors) ids.add(error.id)

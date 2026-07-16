@@ -131,6 +131,7 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
         sources: {
           agent: true,
           lessonGeneration: true,
+          lessonReview: true,
           onboarding: true
         },
         quietUntil: null
@@ -358,6 +359,7 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
         sources: {
           agent: petNotificationSourcesInput.agent !== false,
           lessonGeneration: petNotificationSourcesInput.lessonGeneration !== false,
+          lessonReview: petNotificationSourcesInput.lessonReview !== false,
           onboarding: petNotificationSourcesInput.onboarding !== false
         },
         quietUntil: normalizeOptionalTimestamp(petNotificationPreferencesInput.quietUntil)
