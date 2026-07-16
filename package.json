@@ -88,6 +88,7 @@
     "check:external-link-controls": "node scripts/check-external-link-controls.mjs",
     "check:memory-capture": "node scripts/check-memory-capture.mjs",
     "check:teaching-personalization": "node scripts/check-teaching-personalization.mjs",
+    "check:teaching-learning-loop": "node scripts/check-teaching-learning-loop.mjs",
     "check:conversation-lesson-tool": "node scripts/check-conversation-lesson-tool.mjs",
     "check:workflow": "node scripts/check-teaching-workflow.mjs",
     "preview": "electron-vite preview",
