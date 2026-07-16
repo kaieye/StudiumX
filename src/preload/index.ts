@@ -44,6 +44,7 @@ const api: TeachingSystemApi = {
   generateLesson: (payload) => ipcRenderer.invoke(teachingInvokeChannels.generateLesson, payload),
   readLesson: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readLesson, payload),
   recordPreviewLessonInteraction: (intent) => ipcRenderer.invoke(teachingInvokeChannels.recordPreviewLessonInteraction, intent),
+  commitLearningOutcome: (request) => ipcRenderer.invoke(teachingInvokeChannels.commitLearningOutcome, request),
   readWorkspaceMarkdown: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readWorkspaceMarkdown, payload),
   saveWorkspaceMarkdown: (payload) => ipcRenderer.invoke(teachingInvokeChannels.saveWorkspaceMarkdown, payload),
   openPath: (path) => ipcRenderer.invoke(teachingInvokeChannels.openPath, path),

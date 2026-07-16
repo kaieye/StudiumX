@@ -3,7 +3,8 @@ import { mkdir, readFile, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
 import { TeachingMemoryStore } from './teaching-memory'
-import { createLearningSessionLedger } from './learning-session-ledger'
+import { createLearningSessionLedger, type LearningSessionLedger } from './learning-session-ledger'
+import { createLearningOutcomeCommitter, type LearningOutcomeCommitter } from './learning-outcome-committer'
 import { createLessonInteractionRecorder } from './lesson-interaction-recorder'
 import { inspectGitWorkspace } from './teaching-git'
 import {
@@ -76,6 +77,9 @@ import {
   type PreviewLessonInteractionReceipt
 } from '../shared/teaching-types/lesson-interaction'
 import type { LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
+import type { LearningOutcomeCommitResult } from '../shared/teaching-types/learning-outcome'
+import type { CommitLearningOutcomeRequest } from '../shared/teaching-types/system-api'
+import { isLearningSessionId } from '../shared/teaching-placement'
 import {
   agentConversationDirectoryRelativePath,
   agentConversationJsonRelativePathForMarkdown,
@@ -184,6 +188,14 @@ import type {
   UpdateMissionPayload
 } from '../shared/teaching-types'
 
+type LearningOutcomeLedger = Pick<LearningSessionLedger, 'load'>
+type LearningOutcomeCommitterPort = Pick<LearningOutcomeCommitter, 'commit'>
+type LearningOutcomeLedgerFactory = (workspaceRoot: string) => LearningOutcomeLedger
+type LearningOutcomeCommitterFactory = (
+  workspaceRoot: string,
+  ledger: LearningOutcomeLedger
+) => LearningOutcomeCommitterPort
+
 type ConversationIndex = {
   pathMeta?: Record<string, WorkspacePathMeta>
 }
@@ -255,6 +267,70 @@ type PendingAgentRunArchiveScope = {
   createdAt: number
 }
 
+const SAFE_OUTCOME_COMMIT_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?$/
+
+function isOutcomeCommitRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isSafeCommitLearningOutcomeRequest(value: unknown): value is CommitLearningOutcomeRequest {
+  if (!isOutcomeCommitRecord(value)) return false
+  return value.schemaVersion === 1 &&
+    value.type === 'commit' &&
+    isSafeOutcomeCommitId(value.workspaceId) &&
+    typeof value.sessionId === 'string' &&
+    isLearningSessionId(value.sessionId) &&
+    isSafeOutcomeCommitId(value.operationId)
+}
+
+function isSafeOutcomeCommitId(value: unknown): value is string {
+  return typeof value === 'string' && SAFE_OUTCOME_COMMIT_ID.test(value)
+}
+
+function projectLearningOutcomeCommitResult(result: unknown): LearningOutcomeCommitResult {
+  if (!isOutcomeCommitRecord(result)) return retryableOutcomeCommitFailure()
+  if (result.status === 'committed' || result.status === 'already_committed') {
+    const outcome = isOutcomeCommitRecord(result.outcome) ? result.outcome : null
+    const kind = outcome?.kind
+    if (
+      (kind === 'established' || kind === 'misconception_corrected' || kind === 'needs_practice') &&
+      typeof result.recordSaved === 'boolean'
+    ) {
+      return { status: result.status, outcome: { kind }, recordSaved: result.recordSaved }
+    }
+    return retryableOutcomeCommitFailure()
+  }
+  if (result.status === 'insufficient_evidence' && result.reason === 'not_evidenced') {
+    return { status: 'insufficient_evidence', reason: 'not_evidenced' }
+  }
+  if (result.status === 'conflict' && result.reason === 'review_required') {
+    return { status: 'conflict', reason: 'review_required' }
+  }
+  if (
+    result.status === 'retryable_failure' &&
+    (result.reason === 'reconciliation_required' || result.reason === 'temporarily_unavailable')
+  ) {
+    return { status: 'retryable_failure', reason: result.reason }
+  }
+  if (
+    result.status === 'non_retryable_failure' &&
+    (result.reason === 'invalid_session' || result.reason === 'invalid_request' || result.reason === 'read_only' || result.reason === 'not_found')
+  ) {
+    return { status: 'non_retryable_failure', reason: result.reason }
+  }
+  return retryableOutcomeCommitFailure()
+}
+
+function nonRetryableOutcomeCommitFailure(
+  reason: Extract<LearningOutcomeCommitResult, { status: 'non_retryable_failure' }>['reason']
+): Extract<LearningOutcomeCommitResult, { status: 'non_retryable_failure' }> {
+  return { status: 'non_retryable_failure', reason }
+}
+
+function retryableOutcomeCommitFailure(): Extract<LearningOutcomeCommitResult, { status: 'retryable_failure' }> {
+  return { status: 'retryable_failure', reason: 'temporarily_unavailable' }
+}
+
 const DEFAULT_RUNTIME: TeachingRuntimeState = {
   status: 'idle',
   currentStep: 'ready',
@@ -273,6 +349,8 @@ export class TeachingWorkspaceService {
   private readonly changeAudit: TeachingWorkspaceChangeAudit
   private readonly documents = new TeachingWorkspaceDocuments()
   private readonly activation: TeachingWorkspaceActivationLifecycle
+  private readonly learningOutcomeLedgerFactory: LearningOutcomeLedgerFactory
+  private readonly learningOutcomeCommitterFactory: LearningOutcomeCommitterFactory
   private readonly pendingAgentRunArchiveScopes = new Map<string, PendingAgentRunArchiveScope>()
   /** Per-renderer trusted preview authority; never stores a WebContents object. */
   private readonly activePreviewBindings = new Map<number, ActivePreviewBinding>()
@@ -285,12 +363,21 @@ export class TeachingWorkspaceService {
     defaultRoot: string
     settingsProvider?: () => Promise<TeachingSettingsV1>
     skillLibraryService?: SkillLibraryService
+    /** R2-only seams used to verify root/session authorization before commit delegation. */
+    learningOutcomeLedgerFactory?: LearningOutcomeLedgerFactory
+    learningOutcomeCommitterFactory?: LearningOutcomeCommitterFactory
   }) {
     this.registryPath = options.registryPath
     this.appDataRoot = dirname(this.registryPath)
     this.defaultRoot = options.defaultRoot
     this.settingsProvider = options.settingsProvider
     this.skillLibraryService = options.skillLibraryService
+    this.learningOutcomeLedgerFactory = options.learningOutcomeLedgerFactory ?? ((workspaceRoot) =>
+      createLearningSessionLedger({ workspaceRoot })
+    )
+    this.learningOutcomeCommitterFactory = options.learningOutcomeCommitterFactory ?? ((workspaceRoot, ledger) =>
+      createLearningOutcomeCommitter({ workspaceRoot, ledger: ledger as LearningSessionLedger })
+    )
     this.memoryStore = new TeachingMemoryStore({
       rootDir: join(this.appDataRoot, 'memory'),
       settingsProvider: () => this.loadSettings()
@@ -1337,6 +1424,47 @@ export class TeachingWorkspaceService {
       reason: generation.reason,
       registry: nextRegistry,
       changeSummary
+    }
+  }
+
+  /**
+   * Authorizes an outcome commit against the main-process workspace registry,
+   * then delegates the canonical request to the existing sole writer. No IPC
+   * path or outcome/evidence data participates in this decision.
+   */
+  async commitLearningOutcome(request: CommitLearningOutcomeRequest): Promise<LearningOutcomeCommitResult> {
+    if (!isSafeCommitLearningOutcomeRequest(request)) return nonRetryableOutcomeCommitFailure('invalid_request')
+
+    let registry: WorkspaceRegistry
+    try {
+      registry = await this.ensureRegistry()
+    } catch {
+      return retryableOutcomeCommitFailure()
+    }
+
+    const workspace = registry.workspaces.find((candidate) => candidate.id === request.workspaceId)
+    if (!workspace) return nonRetryableOutcomeCommitFailure('not_found')
+
+    let ledger: LearningOutcomeLedger
+    let session: LearningSessionSnapshot | null
+    try {
+      ledger = this.learningOutcomeLedgerFactory(workspace.rootPath)
+      session = await ledger.load(request.sessionId)
+    } catch {
+      return retryableOutcomeCommitFailure()
+    }
+    if (!session) return nonRetryableOutcomeCommitFailure('not_found')
+    if (session.source !== 'canonical' || session.readOnly) return nonRetryableOutcomeCommitFailure('read_only')
+    if (session.workspaceId !== workspace.id) return nonRetryableOutcomeCommitFailure('invalid_session')
+
+    try {
+      const result = await this.learningOutcomeCommitterFactory(workspace.rootPath, ledger).commit({
+        sessionId: request.sessionId,
+        operationId: request.operationId
+      })
+      return projectLearningOutcomeCommitResult(result)
+    } catch {
+      return retryableOutcomeCommitFailure()
     }
   }
 

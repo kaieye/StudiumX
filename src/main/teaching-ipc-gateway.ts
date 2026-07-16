@@ -12,7 +12,7 @@ import type { SkillLibraryService } from './skill-library'
 import { createAndSwitchGitBranchForWorkspace, getGitBranchesForWorkspace, listGitWorktreesForWorkspace, removeGitWorktreeForWorkspace, switchGitBranchForWorkspace } from './teaching-git'
 import {
   decodeToolAnswerPayload, optionalString, parseAgentChatStreamPayload, parseApplyLessonStylePayload,
-  parseCleanupAgentArtifactsPayload, parseCreateAgentConversationCheckpointPayload,
+  parseCleanupAgentArtifactsPayload, parseCommitLearningOutcomeRequest, parseCreateAgentConversationCheckpointPayload,
   parseForkAgentConversationBranchPayload, parseOpenAgentConversationBranchPayload,
   parseCreateMemoryPayload, parseCreateWorkspacePayload, parseGenerateLessonPayload, parseGitBranchPayload,
   parseListUpstreamModelsPayload, parseNotificationPayload, parseProbeProviderPayload,
@@ -349,6 +349,15 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       return service.readLesson(payload, senderId)
     }, reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.recordPreviewLessonInteraction, parser: (payload) => parsePreviewLessonInteractionIntent(payload), action: (event, intent) => service.recordPreviewLessonInteraction(previewBindingSenderId(context, event), intent), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({
+      channel: teachingInvokeChannels.commitLearningOutcome,
+      parser: (payload) => parseCommitLearningOutcomeRequest(payload),
+      action: (_event, request) => request
+        ? service.commitLearningOutcome(request)
+        : { status: 'non_retryable_failure' as const, reason: 'invalid_request' as const },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
     command({ channel: teachingInvokeChannels.readWorkspaceMarkdown, parser: (payload) => parseReadWorkspaceMarkdownPayload(payload), action: (event, payload) => {
       const senderId = previewBindingSenderId(context, event)
       return service.readWorkspaceMarkdown(payload, senderId)

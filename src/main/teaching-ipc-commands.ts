@@ -40,8 +40,10 @@ import type {
   UpdateMissionPayload,
   WindowControlAction
 } from '../shared/teaching-types'
+import type { CommitLearningOutcomeRequest } from '../shared/teaching-types/system-api'
 import { normalizePreviewLessonInteractionIntent, type PreviewLessonInteractionIntent } from '../shared/teaching-types/lesson-interaction'
 import { isLessonStyleId } from '../shared/lesson-styles'
+import { isLearningSessionId } from '../shared/teaching-placement'
 
 const MAX_SAVED_CONVERSATION_TURNS = 400
 const MAX_SAVED_CONVERSATION_BYTES = 8 * 1024 * 1024
@@ -49,6 +51,37 @@ const MAX_SAVED_TURN_CONTENT_BYTES = 1024 * 1024
 const SAFE_CONVERSATION_ID = /^[a-z0-9][a-z0-9-]{0,99}$/
 const SAFE_LINEAGE_ID = /^[A-Za-z0-9._:-]{1,160}$/
 const SAFE_TURN_ID = /^[A-Za-z0-9._:-]{1,240}$/
+const SAFE_OUTCOME_COMMIT_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?$/
+
+/**
+ * Narrow, versioned command envelope. This parser is intentionally exact: the
+ * renderer never sends file paths, evidence, outcome, evaluator, or provider
+ * data when requesting an outcome commit.
+ */
+export function parseCommitLearningOutcomeRequest(payload: unknown): CommitLearningOutcomeRequest | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const record = payload as Record<string, unknown>
+  const allowedKeys = ['schemaVersion', 'type', 'workspaceId', 'sessionId', 'operationId']
+  if (Object.keys(record).length !== allowedKeys.length || Object.keys(record).some((key) => !allowedKeys.includes(key))) {
+    return null
+  }
+  return isSafeCommitLearningOutcomeRequest(payload) ? payload : null
+}
+
+function isSafeCommitLearningOutcomeRequest(value: unknown): value is CommitLearningOutcomeRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  return record.schemaVersion === 1 &&
+    record.type === 'commit' &&
+    isSafeOutcomeCommitId(record.workspaceId) &&
+    typeof record.sessionId === 'string' &&
+    isLearningSessionId(record.sessionId) &&
+    isSafeOutcomeCommitId(record.operationId)
+}
+
+function isSafeOutcomeCommitId(value: unknown): value is string {
+  return typeof value === 'string' && SAFE_OUTCOME_COMMIT_ID.test(value)
+}
 
 export function parseCreateWorkspacePayload(payload: unknown): CreateWorkspacePayload {
   const record = requireRecord(payload)

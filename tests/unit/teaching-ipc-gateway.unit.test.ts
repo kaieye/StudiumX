@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -130,6 +131,83 @@ describe('Teaching IPC gateway', () => {
     await expect(handler(teachingInvokeChannels.createWorkspace)(event, { name: 'Course', prompt: 42 }))
       .rejects.toThrow('IPC payload field "prompt" must be a string.')
     expect(createWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('returns a typed invalid request without delegating malformed outcome commits', async () => {
+    const commitLearningOutcome = vi.fn()
+    registerTeachingIpcGateway(registration({ workspaceService: { commitLearningOutcome } }))
+
+    const valid = {
+      schemaVersion: 1,
+      type: 'commit',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      operationId: 'operation-1'
+    }
+    const invalidPayloads: unknown[] = [
+      null,
+      [],
+      {},
+      { ...valid, schemaVersion: 2 },
+      { ...valid, type: 'evaluate' },
+      { ...valid, workspaceId: '' },
+      { ...valid, workspaceId: '   ' },
+      { ...valid, workspaceId: '../escape' },
+      { ...valid, workspaceId: 'workspace path' },
+      { ...valid, sessionId: 42 },
+      { ...valid, sessionId: '../escape' },
+      { ...valid, operationId: null },
+      { ...valid, operationId: 'not valid' },
+      { ...valid, operationId: 'o'.repeat(129) },
+      {
+        ...valid,
+        path: 'C:/private',
+        paths: ['C:/private'],
+        evidence: ['private-evidence'],
+        outcome: { kind: 'established' },
+        record: { absolutePath: 'C:/private/record.md' },
+        artifact: { contentSha256: 'secret' },
+        evaluator: { diagnostics: ['secret'] },
+        provider: { apiKey: 'secret' }
+      }
+    ]
+
+    for (const payload of invalidPayloads) {
+      await expect(handler(teachingInvokeChannels.commitLearningOutcome)(event, payload)).resolves.toEqual({
+        status: 'non_retryable_failure', reason: 'invalid_request'
+      })
+    }
+    expect(commitLearningOutcome).not.toHaveBeenCalled()
+  })
+
+  it('delegates an exact versioned outcome command and declares only the named preload channel', async () => {
+    const commitLearningOutcome = vi.fn().mockResolvedValue({
+      status: 'committed', outcome: { kind: 'needs_practice' }, recordSaved: false
+    })
+    registerTeachingIpcGateway(registration({ workspaceService: { commitLearningOutcome } }))
+    const request = {
+      schemaVersion: 1 as const,
+      type: 'commit' as const,
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      operationId: 'operation-1'
+    }
+
+    await expect(handler(teachingInvokeChannels.commitLearningOutcome)(event, request)).resolves.toEqual({
+      status: 'committed', outcome: { kind: 'needs_practice' }, recordSaved: false
+    })
+    expect(commitLearningOutcome).toHaveBeenCalledTimes(1)
+    expect(commitLearningOutcome).toHaveBeenCalledWith(request)
+    expect(Object.keys(commitLearningOutcome.mock.calls[0]![0])).toEqual([
+      'schemaVersion', 'type', 'workspaceId', 'sessionId', 'operationId'
+    ])
+    expect(teachingInvokeChannels.commitLearningOutcome).toBe('teach:commit-learning-outcome')
+
+    const preloadSource = await readFile(join(process.cwd(), 'src', 'preload', 'index.ts'), 'utf8')
+    expect(preloadSource).toContain(
+      'commitLearningOutcome: (request) => ipcRenderer.invoke(teachingInvokeChannels.commitLearningOutcome, request)'
+    )
+    expect(preloadSource).not.toMatch(/\binvoke\s*:/)
   })
 
   it('accepts only a narrow preview intent before dispatching sender-bound recording', async () => {
