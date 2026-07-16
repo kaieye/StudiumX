@@ -226,6 +226,38 @@
   transition: transform 160ms ease;
 }.agent-process-reasoning-toggle svg.is-open {
   transform: rotate(180deg);
+}.agent-process-rollup-viewport {
+  position: relative;
+  display: block;
+  height: 16.675px;
+  margin-top: 2px;
+  overflow: hidden;
+}.agent-process-event-copy small.agent-process-rollup-line {
+  overflow: hidden;
+  margin-top: 2px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}.agent-process-rollup-viewport small.agent-process-rollup-line {
+  position: absolute;
+  inset: 0;
+  margin-top: 0;
+  will-change: transform, opacity;
+}.agent-process-rollup-line.is-leaving {
+  animation: agent-process-roll-out 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}.agent-process-rollup-line.is-entering {
+  animation: agent-process-roll-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}.agent-process-rollup-history {
+  display: grid;
+  max-height: 220px;
+  gap: 4px;
+  margin-top: 4px;
+  padding-left: 9px;
+  overflow-y: auto;
+  border-left: 2px solid #e8edf5;
+}.agent-process-rollup-history small {
+  margin-top: 0;
+}.agent-process-rollup-history small:last-child {
+  color: #52617a;
 }.agent-process-event-copy small {
   display: block;
   margin-top: 2px;
@@ -822,5 +854,20 @@
   .agent-archived-history__checkpoint {
     padding: 0 9px;
     font-size: 0;
+  }
+}
+
+@keyframes agent-process-roll-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(-110%); opacity: 0; }
+}
+@keyframes agent-process-roll-in {
+  from { transform: translateY(110%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-process-rollup-line.is-leaving,
+  .agent-process-rollup-line.is-entering {
+    animation-duration: 1ms;
   }
 }

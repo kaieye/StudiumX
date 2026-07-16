@@ -185,6 +185,10 @@
 }:root[data-resolved-theme="dark"] .agent-process-reasoning-toggle:hover {
   background: var(--surface-hover);
   color: var(--text);
+}:root[data-resolved-theme="dark"] .agent-process-rollup-history {
+  border-left-color: var(--line);
+}:root[data-resolved-theme="dark"] .agent-process-rollup-history small:last-child {
+  color: var(--text-muted);
 }:root[data-resolved-theme="dark"] .agent-process-tool-detail-trigger {
   border-color: var(--line);
   background: #252528;

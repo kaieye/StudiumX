@@ -85,10 +85,20 @@ function TeachingTurnReader({ presentation, onAction, compact }: {
   )
 }
 
+type AgentProcessDisplayRow =
+  | { id: string; type: 'single'; item: AgentConversationProvenanceItem }
+  | { id: string; type: 'rollup'; items: AgentConversationProvenanceItem[] }
+
+type ProcessRollTransition = {
+  from: AgentConversationProvenanceItem
+  to: AgentConversationProvenanceItem
+}
+
 function AgentProcessReader({ presentation, compact }: {
   presentation: AgentConversationTurnPresentation
   compact: boolean
 }) {
+  const rows = groupRepeatedProcessDescriptions(presentation.items)
   return (
     <section className={`agent-process-panel${compact ? ' is-compact' : ''}`} aria-label="AI 处理过程">
       <header className="agent-process-header">
@@ -97,10 +107,118 @@ function AgentProcessReader({ presentation, compact }: {
         <span>{presentation.active ? '进行中' : '已完成'}</span>
       </header>
       <div className="agent-process-list" aria-live="polite">
-        {presentation.items.map((item) => <AgentProcessRow key={item.id} item={item} />)}
+        {rows.map((row) => row.type === 'rollup'
+          ? <RepeatedProcessRow key={`${presentation.turnId}:${row.id}`} items={row.items} />
+          : <AgentProcessRow key={row.id} item={row.item} />)}
       </div>
     </section>
   )
+}
+
+function groupRepeatedProcessDescriptions(items: AgentConversationProvenanceItem[]): AgentProcessDisplayRow[] {
+  const rows: AgentProcessDisplayRow[] = []
+  const rollups = new Map<string, Extract<AgentProcessDisplayRow, { type: 'rollup' }>>()
+  for (const item of items) {
+    if (!isRollupDescription(item)) {
+      rows.push({ id: item.id, type: 'single', item })
+      continue
+    }
+    const rollupId = `rollup:${item.kind}:${item.label}`
+    const existing = rollups.get(rollupId)
+    if (existing) {
+      existing.items.push(item)
+      continue
+    }
+    const rollup: Extract<AgentProcessDisplayRow, { type: 'rollup' }> = {
+      id: rollupId,
+      type: 'rollup',
+      items: [item]
+    }
+    rollups.set(rollupId, rollup)
+    rows.push(rollup)
+  }
+  return rows
+}
+
+function isRollupDescription(item: AgentConversationProvenanceItem): boolean {
+  return Boolean(item.detail) && (item.kind === 'status' || item.kind === 'child_run' || item.kind === 'compaction')
+}
+
+function RepeatedProcessRow({ items }: { items: AgentConversationProvenanceItem[] }) {
+  const latest = items[items.length - 1]
+  const [expanded, setExpanded] = useState(false)
+  const hasHistory = items.length > 1
+  return (
+    <div className={`agent-process-event${latest.state === 'error' ? ' is-error' : ''}${latest.state === 'active' ? ' is-active' : ''}`}>
+      <span className="agent-process-event-icon"><ProcessIcon item={latest} /></span>
+      <div className="agent-process-event-copy">
+        <div className="agent-process-event-title">
+          <strong>{latest.label}</strong>
+          {hasHistory ? (
+            <button
+              type="button"
+              className="agent-process-reasoning-toggle"
+              aria-expanded={expanded}
+              aria-label={expanded ? `折叠${latest.label}历史` : `展开${latest.label}历史`}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              <ChevronDown className={expanded ? 'is-open' : undefined} size={14} />
+            </button>
+          ) : null}
+        </div>
+        {expanded ? (
+          <div className="agent-process-rollup-history" role="list" aria-label={`${latest.label}历史`}>
+            {items.map((item) => (
+              <small key={item.id} role="listitem">{processDescription(item)}</small>
+            ))}
+          </div>
+        ) : (
+          <RollingProcessDescription item={latest} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function RollingProcessDescription({ item }: { item: AgentConversationProvenanceItem }) {
+  const [displayed, setDisplayed] = useState(item)
+  const [transition, setTransition] = useState<ProcessRollTransition | null>(null)
+  useLayoutEffect(() => {
+    if (item.id === displayed.id) return
+    setTransition({ from: displayed, to: item })
+  }, [displayed, item])
+
+  const finishTransition = (target: AgentConversationProvenanceItem) => {
+    setDisplayed(target)
+    setTransition(null)
+  }
+
+  useEffect(() => {
+    if (!transition) return
+    const timeoutId = window.setTimeout(() => finishTransition(transition.to), 280)
+    return () => window.clearTimeout(timeoutId)
+  }, [transition])
+
+  if (!transition) {
+    return <small className="agent-process-rollup-line">{processDescription(displayed)}</small>
+  }
+  return (
+    <span className="agent-process-rollup-viewport">
+      <small className="agent-process-rollup-line is-leaving" aria-hidden="true">
+        {processDescription(transition.from)}
+      </small>
+      <small
+        className="agent-process-rollup-line is-entering"
+        onAnimationEnd={() => finishTransition(transition.to)}
+      >
+        {processDescription(transition.to)}
+      </small>
+    </span>
+  )
+}
+
+function processDescription(item: AgentConversationProvenanceItem): string {
+  return item.detail || item.label
 }
 
 function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
