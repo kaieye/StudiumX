@@ -34,6 +34,7 @@ export const teachingInvokeChannels = {
   generateLesson: 'teach:generate-lesson',
   readLesson: 'teach:read-lesson',
   recordPreviewLessonInteraction: 'teach:record-preview-lesson-interaction',
+  commitLearningOutcome: 'teach:commit-learning-outcome',
   readWorkspaceMarkdown: 'teach:read-workspace-markdown',
   saveWorkspaceMarkdown: 'teach:save-workspace-markdown',
   openPath: 'teach:open-path',

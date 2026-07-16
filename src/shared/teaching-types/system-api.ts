@@ -99,6 +99,17 @@ import type {
   LearningAnalyticsRequest
 } from './analytics'
 
+import type { LearningOutcomeCommitResult } from './learning-outcome'
+
+/** Versioned renderer command for committing a canonical Learning Session outcome. */
+export type CommitLearningOutcomeRequest = {
+  schemaVersion: 1
+  type: 'commit'
+  workspaceId: string
+  sessionId: string
+  operationId: string
+}
+
 export type TeachingSystemApi = {
   platform: NodeJS.Platform
   getState: () => Promise<TeachingAppState>
@@ -120,6 +131,7 @@ export type TeachingSystemApi = {
   generateLesson: (payload: GenerateLessonPayload) => Promise<GenerateLessonResult>
   readLesson: (payload: ReadLessonPayload) => Promise<ReadLessonResult>
   recordPreviewLessonInteraction: (intent: PreviewLessonInteractionIntent) => Promise<PreviewLessonInteractionReceipt>
+  commitLearningOutcome: (request: CommitLearningOutcomeRequest) => Promise<LearningOutcomeCommitResult>
   readWorkspaceMarkdown: (payload: ReadWorkspaceMarkdownPayload) => Promise<WorkspaceMarkdownDocument>
   saveWorkspaceMarkdown: (payload: SaveWorkspaceMarkdownPayload) => Promise<SaveWorkspaceMarkdownResult>
   openPath: (path: string) => Promise<OpenPathResult>
