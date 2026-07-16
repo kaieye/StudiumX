@@ -137,6 +137,34 @@ describe('TeachingWorkspaceService outcome commit façade', () => {
     expect(fixture.learningOutcomeCommitterFactory).not.toHaveBeenCalled()
   })
 
+  it('rejects malformed direct façade request IDs before registry-backed ledger or committer side effects', async () => {
+    let workspaceId = ''
+    const fixture = await createService(
+      'outcome-commit-invalid-request',
+      () => canonicalSession(workspaceId),
+      () => ({ status: 'committed', outcome: { kind: 'established' }, recordSaved: true })
+    )
+    workspaceId = fixture.workspace.id
+
+    const malformedRequests = [
+      { ...request, workspaceId: '../escape' },
+      { ...request, workspaceId: 'workspace path' },
+      { ...request, workspaceId: 'w'.repeat(129) },
+      { ...request, workspaceId, sessionId: '../escape' },
+      { ...request, workspaceId, operationId: 'not valid' }
+    ]
+
+    for (const malformedRequest of malformedRequests) {
+      await expect(fixture.service.commitLearningOutcome(malformedRequest)).resolves.toEqual({
+        status: 'non_retryable_failure', reason: 'invalid_request'
+      })
+    }
+    expect(fixture.learningOutcomeLedgerFactory).not.toHaveBeenCalled()
+    expect(fixture.ledger.load).not.toHaveBeenCalled()
+    expect(fixture.learningOutcomeCommitterFactory).not.toHaveBeenCalled()
+    expect(fixture.commit).not.toHaveBeenCalled()
+  })
+
   it('recursively projects every outcome result to the learner-safe union', async () => {
     let workspaceId = ''
     const responses = [

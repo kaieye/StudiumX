@@ -79,6 +79,7 @@ import {
 import type { LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
 import type { LearningOutcomeCommitResult } from '../shared/teaching-types/learning-outcome'
 import type { CommitLearningOutcomeRequest } from '../shared/teaching-types/system-api'
+import { isLearningSessionId } from '../shared/teaching-placement'
 import {
   agentConversationDirectoryRelativePath,
   agentConversationJsonRelativePathForMarkdown,
@@ -266,8 +267,24 @@ type PendingAgentRunArchiveScope = {
   createdAt: number
 }
 
+const SAFE_OUTCOME_COMMIT_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?$/
+
 function isOutcomeCommitRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isSafeCommitLearningOutcomeRequest(value: unknown): value is CommitLearningOutcomeRequest {
+  if (!isOutcomeCommitRecord(value)) return false
+  return value.schemaVersion === 1 &&
+    value.type === 'commit' &&
+    isSafeOutcomeCommitId(value.workspaceId) &&
+    typeof value.sessionId === 'string' &&
+    isLearningSessionId(value.sessionId) &&
+    isSafeOutcomeCommitId(value.operationId)
+}
+
+function isSafeOutcomeCommitId(value: unknown): value is string {
+  return typeof value === 'string' && SAFE_OUTCOME_COMMIT_ID.test(value)
 }
 
 function projectLearningOutcomeCommitResult(result: unknown): LearningOutcomeCommitResult {
@@ -1416,6 +1433,8 @@ export class TeachingWorkspaceService {
    * path or outcome/evidence data participates in this decision.
    */
   async commitLearningOutcome(request: CommitLearningOutcomeRequest): Promise<LearningOutcomeCommitResult> {
+    if (!isSafeCommitLearningOutcomeRequest(request)) return nonRetryableOutcomeCommitFailure('invalid_request')
+
     let registry: WorkspaceRegistry
     try {
       registry = await this.ensureRegistry()
