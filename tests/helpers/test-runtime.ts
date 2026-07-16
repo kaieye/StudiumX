@@ -1,4 +1,5 @@
-import { lstat, mkdir, mkdtemp, rm, unlink } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, realpath, rm, unlink } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
@@ -60,7 +61,7 @@ function projectEnvironment(paths: TestRuntimePaths, baseEnv: NodeJS.ProcessEnv)
 
 function isSafeRuntimeRoot(rootPath: string): boolean {
   const resolvedRoot = resolve(rootPath)
-  const resolvedSystemTemp = resolve(tmpdir())
+  const resolvedSystemTemp = realpathSync(resolve(tmpdir()))
   return (
     isPathInside(resolvedSystemTemp, resolvedRoot) &&
     dirname(resolvedRoot) === resolvedSystemTemp &&
@@ -91,7 +92,7 @@ export async function createTestRuntime(
   label = 'worker',
   { baseEnv = process.env }: CreateTestRuntimeOptions = {}
 ): Promise<TestRuntime> {
-  const root = await mkdtemp(join(resolve(tmpdir()), `${TEST_RUNTIME_PREFIX}${sanitizeLabel(label)}-`))
+  const root = await realpath(await mkdtemp(join(resolve(tmpdir()), `${TEST_RUNTIME_PREFIX}${sanitizeLabel(label)}-`)))
   const paths: TestRuntimePaths = {
     root,
     userData: join(root, 'user-data'),

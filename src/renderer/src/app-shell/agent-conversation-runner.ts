@@ -72,6 +72,7 @@ export type AgentConversationTurnRunnerDependencies<TError> = {
   getApi: () => AgentConversationTurnRunnerApi | undefined
   toUserError: (error: unknown) => TError
   onGeneratedLessons: (lessons: LessonSummary[]) => void
+  onCompletedTurn?: (result: { runId: string; conversationId: string }) => void
   now?: () => string
   nextIdSeed?: () => number
 }
@@ -372,6 +373,10 @@ export class AgentConversationTurnRunner<TError> {
         // the visible branch context, revision, and tree. Only merge the catalog.
         this.dependencies.setState({ appState: saved.state })
       }
+      this.dependencies.onCompletedTurn?.({
+        runId: pendingConversationId,
+        conversationId: saved.conversation.id
+      })
       if (treeError) this.dependencies.setState({ error: this.dependencies.toUserError(treeError) })
       if (done.generatedLessons?.length) this.dependencies.onGeneratedLessons(done.generatedLessons)
     } catch (error) {

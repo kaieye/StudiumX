@@ -3,7 +3,7 @@
   z-index: 150;
   display: grid;
   box-sizing: border-box;
-  width: 172px;
+  width: 196px;
   padding: 5px;
   color: var(--text);
   border: 1px solid var(--line-strong);
@@ -45,12 +45,23 @@
 
 .app-pet-context-menu button:hover,
 .app-pet-context-menu button:focus-visible {
-  color: var(--red);
-  background: color-mix(in srgb, var(--red) 9%, var(--surface-solid));
+  color: var(--text);
+  background: var(--surface-muted);
 }
 
 .app-pet-context-menu button:hover svg,
 .app-pet-context-menu button:focus-visible svg {
+  color: var(--accent);
+}
+
+.app-pet-context-menu button.is-destructive:hover,
+.app-pet-context-menu button.is-destructive:focus-visible {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 9%, var(--surface-solid));
+}
+
+.app-pet-context-menu button.is-destructive:hover svg,
+.app-pet-context-menu button.is-destructive:focus-visible svg {
   color: var(--red);
 }
 

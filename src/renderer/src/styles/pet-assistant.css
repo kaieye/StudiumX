@@ -21,7 +21,7 @@
 
 .pet-assistant-header {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 30px 30px;
+  grid-template-columns: 30px minmax(0, 1fr) 30px 30px 30px;
   align-items: center;
   gap: 8px;
   min-height: 54px;
@@ -327,6 +327,50 @@
   }
 }
 
+@media (max-width: 360px) {
+  .pet-assistant-header {
+    grid-template-columns: minmax(0, 1fr) repeat(3, 30px);
+    gap: 6px;
+    padding-inline: 6px;
+  }
+
+  .pet-assistant-title-icon { display: none; }
+}
+
+@media (max-height: 300px) {
+  .pet-assistant-header { min-height: 40px; }
+  .pet-assistant-thread { padding: 8px; }
+  .pet-assistant-interruption {
+    min-height: 30px;
+    padding-inline: 8px;
+  }
+  .pet-assistant-composer {
+    gap: 6px;
+    padding: 4px 6px;
+  }
+  .pet-assistant-composer textarea {
+    height: 36px;
+    max-height: 36px;
+    padding-block: 6px;
+  }
+  .pet-assistant-composer > button {
+    width: 36px;
+    height: 36px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pet-assistant-thread { scroll-behavior: auto; }
+}
+
+.pet-assistant-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

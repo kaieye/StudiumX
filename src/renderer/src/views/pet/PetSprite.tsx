@@ -28,6 +28,13 @@ export type {
   PetVisualState
 } from './pet-animation-catalog'
 
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  return window.matchMedia(REDUCED_MOTION_QUERY)?.matches === true
+}
+
 export function PetSprite({
   appearance = 'boba',
   className,
@@ -42,23 +49,45 @@ export function PetSprite({
   state: PetVisualState
 }) {
   const [frame, setFrame] = useState(0)
+  const [reducedMotion, setReducedMotion] = useState(prefersReducedMotion)
   const pet = getPetDefinition(appearance)
   const atlasStyle = getPetSpriteAtlasStyle(appearance, state, frame)
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const media = window.matchMedia(REDUCED_MOTION_QUERY)
+    if (!media) return
+    const handleChange = (event: MediaQueryListEvent): void => setReducedMotion(event.matches)
+    setReducedMotion(media.matches)
+    media.addEventListener?.('change', handleChange)
+    return () => media.removeEventListener?.('change', handleChange)
+  }, [])
 
   useEffect(() => {
     setFrame(0)
 
     const frames = getPetAnimationFrames(state)
+    if (reducedMotion) return
     let canceled = false
     let frameCursor = 0
+    let completedCycles = 0
     let timer = 0
+    const cycleLimit = state === 'idle' ? Number.POSITIVE_INFINITY : 3
 
     const scheduleNextFrame = (): void => {
       const current = frames[frameCursor] ?? frames[0]
       if (!current) return
       timer = window.setTimeout(() => {
         if (canceled) return
-        frameCursor = (frameCursor + 1) % frames.length
+        const nextFrameCursor = frameCursor + 1
+        if (nextFrameCursor >= frames.length) {
+          completedCycles += 1
+          frameCursor = 0
+          setFrame(frames[0]?.columnIndex ?? 0)
+          if (completedCycles >= cycleLimit) return
+        } else {
+          frameCursor = nextFrameCursor
+        }
         setFrame(frames[frameCursor]?.columnIndex ?? 0)
         scheduleNextFrame()
       }, current.frameDurationMs)
@@ -69,7 +98,7 @@ export function PetSprite({
       canceled = true
       window.clearTimeout(timer)
     }
-  }, [appearance, state])
+  }, [appearance, reducedMotion, state])
 
   return (
     <span

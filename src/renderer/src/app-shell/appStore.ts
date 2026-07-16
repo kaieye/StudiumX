@@ -97,6 +97,22 @@ import {
 
 export type UserError = OperationFeedbackError
 
+export type PetOperationError = {
+  id: string
+  source: 'agent' | 'lesson-generation'
+  sourceId?: string
+  targetId?: string
+  error: UserError
+  createdAt: number
+}
+
+export type PetOperationResult = {
+  runId: string
+  resultId: string
+  targetId: string
+  createdAt: number
+}
+
 export type { CoursePreviewFile, DialogMode, ResourcePreviewFile } from './contextTransitions'
 export { lessonToCoursePreviewFile } from './contextTransitions'
 
@@ -111,7 +127,11 @@ export type StoreState = {
   sidebarCollapsed: boolean
   loading: boolean
   generating: boolean
+  lessonGenerationRunId: string | null
+  agentPetNotificationResult: PetOperationResult | null
+  lessonGenerationPetNotificationResult: PetOperationResult | null
   error: UserError | null
+  petNotificationErrors: PetOperationError[]
   searchQuery: string
   taskPrompt: string
   overviewDialogMode: DialogMode
@@ -366,13 +386,81 @@ function lessonGeneratedNotificationBody(intent: LessonGenerationNotificationInt
   return i18n.t('notify.lessonGenerated.body', { title: intent.title, path: intent.path, suffix })
 }
 
+function clearPetOperationErrors(
+  errors: PetOperationError[],
+  source: PetOperationError['source']
+): PetOperationError[] {
+  return errors.filter((error) => error.source !== source)
+}
+
+function recordPetOperationError(
+  errors: PetOperationError[],
+  input: Omit<PetOperationError, 'id' | 'createdAt'>,
+  now = Date.now()
+): PetOperationError[] {
+  const sourceId = input.sourceId?.trim() || `lifecycle-${now}`
+  const next: PetOperationError = {
+    ...input,
+    sourceId,
+    id: `${input.source}:${sourceId}:failed:${now}`,
+    createdAt: now
+  }
+  return [...clearPetOperationErrors(errors, input.source), next]
+}
+
+let petOperationSequence = 0
+let agentRunSeed = 0
+
+function nextPetOperationSequence(): number {
+  petOperationSequence += 1
+  return petOperationSequence
+}
+
+function nextAgentRunSeed(now = Date.now()): number {
+  agentRunSeed = Math.max(agentRunSeed + 1, now)
+  return agentRunSeed
+}
+
+function lessonGenerationRunId(workspaceId: string, now = Date.now()): string {
+  return `${workspaceId}:${now}:${nextPetOperationSequence()}`
+}
+
 function createAgentConversationTurnRunner(
   get: () => StoreState,
   set: (patch: Partial<StoreState>) => void
 ): AgentConversationTurnRunner<UserError> {
   return new AgentConversationTurnRunner({
     getState: get,
-    setState: set,
+    setState: (patch) => {
+      const current = get()
+      const sourceId = patch.pendingAgentConversation?.summary.id
+        ?? current.pendingAgentConversation?.summary.id
+        ?? current.activeConversationId
+        ?? undefined
+      const targetId = current.pendingAgentConversation?.summary.id
+        ?? current.activeConversationId
+        ?? undefined
+      set({
+        ...patch,
+        ...(patch.agentChatBusy === true
+          ? {
+              error: null,
+              agentPetNotificationResult: null,
+              petNotificationErrors: clearPetOperationErrors(current.petNotificationErrors, 'agent')
+            }
+          : {}),
+        ...(patch.error
+          ? {
+              petNotificationErrors: recordPetOperationError(current.petNotificationErrors, {
+                source: 'agent',
+                sourceId,
+                targetId,
+                error: patch.error
+              })
+            }
+          : {})
+      })
+    },
     getApi: () => window.teachingSystem,
     toUserError,
     onGeneratedLessons: (lessons) => {
@@ -387,7 +475,18 @@ function createAgentConversationTurnRunner(
           lessonGeneratedNotificationBody(effects.lessonGeneratedNotification)
         )
       }
-    }
+    },
+    onCompletedTurn: ({ runId, conversationId }) => {
+      set({
+        agentPetNotificationResult: {
+          runId,
+          resultId: `${runId}:${conversationId}`,
+          targetId: conversationId,
+          createdAt: Date.now()
+        }
+      })
+    },
+    nextIdSeed: nextAgentRunSeed
   })
 }
 
@@ -428,7 +527,11 @@ export const useAppStore = create<StoreState>((set, get) => {
   sidebarCollapsed: false,
   loading: true,
   generating: false,
+  lessonGenerationRunId: null,
+  agentPetNotificationResult: null,
+  lessonGenerationPetNotificationResult: null,
   error: null,
+  petNotificationErrors: [],
   searchQuery: '',
   taskPrompt: defaultPrompt,
   overviewDialogMode: 'chat',
@@ -538,7 +641,7 @@ export const useAppStore = create<StoreState>((set, get) => {
   openSettings: (section = 'general') => set({ view: 'settings', settingsSection: section }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setTaskPrompt: (taskPrompt) => set({ taskPrompt }),
-  clearError: () => set({ error: null }),
+  clearError: () => set({ error: null, petNotificationErrors: [] }),
   initialize: async () => {
     set({ loading: true, error: null })
     const api = window.teachingSystem
@@ -646,6 +749,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         activeConversationRevision: null,
         activeSessionTree: null
       })
+      void get().loadReviewCards()
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -670,6 +774,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         activeConversationRevision: null,
         activeSessionTree: null
       })
+      void get().loadReviewCards()
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -694,6 +799,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         activeConversationRevision: null,
         activeSessionTree: null
       })
+      void get().loadReviewCards()
       const settings = get().settings
       const feedback = operationFeedback({
         outcome: 'workspace-imported',
@@ -741,6 +847,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         activeConversationRevision: null,
         activeSessionTree: null
       })
+      void get().loadReviewCards()
       const settings = get().settings
       const feedback = operationFeedback({
         outcome: 'workspace-imported',
@@ -826,7 +933,13 @@ export const useAppStore = create<StoreState>((set, get) => {
     ) {
       return
     }
-    set(beginLessonGeneration({ appState: get().appState, providerLabel: runtimeProviderLabel(settings) }))
+    const runId = lessonGenerationRunId(workspace.id)
+    set({
+      ...beginLessonGeneration({ appState: get().appState, providerLabel: runtimeProviderLabel(settings) }),
+      lessonGenerationRunId: runId,
+      lessonGenerationPetNotificationResult: null,
+      petNotificationErrors: clearPetOperationErrors(get().petNotificationErrors, 'lesson-generation')
+    })
     try {
       const result = await api.generateLesson({
         workspaceId: workspace.id,
@@ -834,7 +947,16 @@ export const useAppStore = create<StoreState>((set, get) => {
         courseName: suggestedCourseName(workspace, prompt),
         messages: lessonMessages
       })
-      set(directLessonDonePatch({ result, workspaceId: workspace.id, nextPrompt }))
+      set({
+        ...directLessonDonePatch({ result, workspaceId: workspace.id, nextPrompt }),
+        lessonGenerationRunId: null,
+        lessonGenerationPetNotificationResult: {
+          runId,
+          resultId: `${runId}:${result.lesson.id}`,
+          targetId: result.lesson.relativePath,
+          createdAt: Date.now()
+        }
+      })
       const effects = effectsForGeneratedLesson({
         lesson: result.lesson,
         source: result.source,
@@ -853,7 +975,16 @@ export const useAppStore = create<StoreState>((set, get) => {
         notifications: notificationSettings(settings),
         translate: operationFeedbackTranslate
       })
-      set(failLessonGeneration({ appState: get().appState, error: feedback.visibleError ?? toUserError(error) }))
+      const userError = feedback.visibleError ?? toUserError(error)
+      set({
+        ...failLessonGeneration({ appState: get().appState, error: userError }),
+        lessonGenerationRunId: null,
+        petNotificationErrors: recordPetOperationError(get().petNotificationErrors, {
+          source: 'lesson-generation',
+          sourceId: runId,
+          error: userError
+        })
+      })
       deliverOperationFeedback(feedback, get().showNotification)
     }
   },
@@ -880,7 +1011,13 @@ export const useAppStore = create<StoreState>((set, get) => {
     ) {
       return
     }
-    set(beginLessonGeneration({ appState: get().appState, providerLabel: runtimeProviderLabel(settings) }))
+    const runId = lessonGenerationRunId(workspace.id)
+    set({
+      ...beginLessonGeneration({ appState: get().appState, providerLabel: runtimeProviderLabel(settings) }),
+      lessonGenerationRunId: runId,
+      lessonGenerationPetNotificationResult: null,
+      petNotificationErrors: clearPetOperationErrors(get().petNotificationErrors, 'lesson-generation')
+    })
     let liveText = ''
     try {
       const done = await api.generateLessonStream(
@@ -915,13 +1052,33 @@ export const useAppStore = create<StoreState>((set, get) => {
           notifications: notificationSettings(settings),
           translate: operationFeedbackTranslate
         })
-        set(failStreamingLessonGeneration(feedback.visibleError ?? toUserError(new Error(done.message))))
+        const userError = feedback.visibleError ?? toUserError(new Error(done.message))
+        set({
+          ...failStreamingLessonGeneration(userError),
+          lessonGenerationRunId: null,
+          petNotificationErrors: recordPetOperationError(get().petNotificationErrors, {
+            source: 'lesson-generation',
+            sourceId: runId,
+            error: userError
+          })
+        })
         deliverOperationFeedback(feedback, get().showNotification)
         return
       }
       if (!('error' in done) && done.kind === 'lesson') {
         const patch = streamedLessonDonePatch({ done, workspaceId: workspace.id, nextPrompt })
-        if (patch) set(patch)
+        if (patch) {
+          set({
+            ...patch,
+            lessonGenerationRunId: null,
+            lessonGenerationPetNotificationResult: {
+              runId,
+              resultId: `${runId}:${done.lesson.id}`,
+              targetId: done.lesson.relativePath,
+              createdAt: Date.now()
+            }
+          })
+        }
         const effects = effectsForGeneratedLesson({
           lesson: done.lesson,
           source: done.source,
@@ -935,7 +1092,15 @@ export const useAppStore = create<StoreState>((set, get) => {
       }
     } catch (error) {
       const userError = toUserError(error)
-      set(failLessonGeneration({ appState: get().appState, error: userError }))
+      set({
+        ...failLessonGeneration({ appState: get().appState, error: userError }),
+        lessonGenerationRunId: null,
+        petNotificationErrors: recordPetOperationError(get().petNotificationErrors, {
+          source: 'lesson-generation',
+          sourceId: runId,
+          error: userError
+        })
+      })
     }
   },
   loadAgentConversation: async (conversationId, workspaceId, scope = 'workspace') => {

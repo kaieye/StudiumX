@@ -1,3 +1,5 @@
+import { DEFAULT_PET_SIZE, MAX_PET_SIZE, MIN_PET_SIZE } from '../../../../shared/teaching-types'
+
 /**
  * Pure interaction policy for the floating pet surfaces.
  *
@@ -12,8 +14,10 @@ const PET_DEFAULT_WIDTH = 150
 const PET_DEFAULT_HEIGHT = 130
 const PET_DRAG_THRESHOLD = 4
 const PET_CONTEXT_MENU_GAP = 8
-const PET_CONTEXT_MENU_WIDTH = 172
-const PET_CONTEXT_MENU_HEIGHT = 48
+const PET_CONTEXT_MENU_WIDTH = 196
+const PET_CONTEXT_MENU_HEIGHT = 192
+const PET_BUBBLE_VIEWPORT_GAP = 12
+const PET_BUBBLE_ANCHOR_GAP = 8
 const ASSISTANT_EDGE_GAP = 16
 const ASSISTANT_MIN_WIDTH = 300
 const ASSISTANT_MIN_HEIGHT = 320
@@ -24,6 +28,14 @@ export type PetPoint = { x: number; y: number }
 export type PetPlacement = PetPoint
 export type FloatingSurfaceSize = { width: number; height: number }
 export type InteractionViewport = { width: number; height: number }
+export type FloatingSurfaceRect = PetPlacement & FloatingSurfaceSize
+export type PetBubbleLayout = FloatingSurfaceRect & {
+  maxWidth: number
+  maxHeight: number
+  horizontal: 'start' | 'center' | 'end'
+  vertical: 'above' | 'below'
+}
+export type PetActivityNavigationKey = 'ArrowDown' | 'ArrowUp' | 'Home' | 'End'
 export type AssistantDialogGeometry = PetPlacement & FloatingSurfaceSize
 export type AssistantDialogResizeDirection = 'n' | 'e' | 's' | 'w' | 'ne' | 'se' | 'sw' | 'nw'
 export type AssistantDialogInteractionMode = 'drag' | 'resize'
@@ -31,7 +43,17 @@ export type AssistantDialogInteractionMode = 'drag' | 'resize'
 export type PetDragSession = {
   pointerId: number
   startPoint: PetPoint
+  lastPoint: PetPoint
   startPlacement: PetPlacement
+  direction: 'left' | 'right' | null
+  moved: boolean
+}
+
+export type PetResizeSession = {
+  pointerId: number
+  startX: number
+  startSize: number
+  size: number
   moved: boolean
 }
 
@@ -103,12 +125,88 @@ export function clampPetPlacement(
   }
 }
 
+export function resolvePetBubbleLayout(
+  anchor: FloatingSurfaceRect,
+  bubble: FloatingSurfaceSize,
+  viewport: InteractionViewport
+): PetBubbleLayout {
+  const maxWidth = Math.max(1, viewport.width - PET_BUBBLE_VIEWPORT_GAP * 2)
+  const maxHeight = Math.max(1, viewport.height - PET_BUBBLE_VIEWPORT_GAP * 2)
+  const width = Math.min(Math.max(1, bubble.width), maxWidth)
+  const height = Math.min(Math.max(1, bubble.height), maxHeight)
+  const preferredX = anchor.x + anchor.width / 2 - width / 2
+  const maximumX = Math.max(PET_BUBBLE_VIEWPORT_GAP, viewport.width - PET_BUBBLE_VIEWPORT_GAP - width)
+  const x = clamp(preferredX, PET_BUBBLE_VIEWPORT_GAP, maximumX)
+  const horizontal = preferredX < x
+    ? 'start'
+    : preferredX > x
+      ? 'end'
+      : 'center'
+  const aboveSpace = anchor.y - PET_BUBBLE_VIEWPORT_GAP - PET_BUBBLE_ANCHOR_GAP
+  const belowSpace = viewport.height - PET_BUBBLE_VIEWPORT_GAP - anchor.y - anchor.height - PET_BUBBLE_ANCHOR_GAP
+  const vertical = height <= aboveSpace
+    ? 'above'
+    : height <= belowSpace
+      ? 'below'
+      : aboveSpace >= belowSpace
+        ? 'above'
+        : 'below'
+  const preferredY = vertical === 'above'
+    ? anchor.y - PET_BUBBLE_ANCHOR_GAP - height
+    : anchor.y + anchor.height + PET_BUBBLE_ANCHOR_GAP
+  const maximumY = Math.max(PET_BUBBLE_VIEWPORT_GAP, viewport.height - PET_BUBBLE_VIEWPORT_GAP - height)
+
+  return {
+    x,
+    y: clamp(preferredY, PET_BUBBLE_VIEWPORT_GAP, maximumY),
+    width,
+    height,
+    maxWidth,
+    maxHeight,
+    horizontal,
+    vertical
+  }
+}
+
+export function resolvePetActivityNavigation(
+  notificationIds: readonly string[],
+  currentId: string | null,
+  key: PetActivityNavigationKey
+): string | null {
+  if (notificationIds.length === 0) return null
+  if (key === 'Home') return notificationIds[0]
+  if (key === 'End') return notificationIds[notificationIds.length - 1]
+  const currentIndex = currentId ? notificationIds.indexOf(currentId) : -1
+  if (currentIndex < 0) return key === 'ArrowDown' ? notificationIds[0] : notificationIds[notificationIds.length - 1]
+  const direction = key === 'ArrowDown' ? 1 : -1
+  return notificationIds[(currentIndex + direction + notificationIds.length) % notificationIds.length]
+}
+
+export function resolvePetActivityFocusAfterRemoval(
+  previousIds: readonly string[],
+  nextIds: readonly string[],
+  focusedId: string | null
+): string | null {
+  if (nextIds.length === 0) return null
+  if (focusedId && nextIds.includes(focusedId)) return focusedId
+  const previousIndex = focusedId ? previousIds.indexOf(focusedId) : -1
+  if (previousIndex < 0) return nextIds[0]
+  return nextIds[Math.min(previousIndex, nextIds.length - 1)]
+}
+
 export function startPetDrag(
   pointerId: number,
   startPoint: PetPoint,
   startPlacement: PetPlacement
 ): PetDragSession {
-  return { pointerId, startPoint, startPlacement, moved: false }
+  return {
+    pointerId,
+    startPoint,
+    lastPoint: startPoint,
+    startPlacement,
+    direction: null,
+    moved: false
+  }
 }
 
 export function movePetDrag(
@@ -122,8 +220,14 @@ export function movePetDrag(
 
   const dx = point.x - session.startPoint.x
   const dy = point.y - session.startPoint.y
+  const instantDx = point.x - session.lastPoint.x
   const moved = session.moved || Math.hypot(dx, dy) >= PET_DRAG_THRESHOLD
-  const nextSession = moved === session.moved ? session : { ...session, moved }
+  const direction = instantDx < 0
+    ? 'left'
+    : instantDx > 0
+      ? 'right'
+      : session.direction
+  const nextSession = { ...session, lastPoint: point, moved, direction }
   if (!moved) return { session: nextSession, placement: null, direction: null }
 
   return {
@@ -133,7 +237,7 @@ export function movePetDrag(
       viewport,
       size
     ),
-    direction: dx < 0 ? 'left' : 'right'
+    direction
   }
 }
 
@@ -145,27 +249,66 @@ export function finishPetDrag(
   return session.moved ? 'persist-placement' : 'activate-assistant'
 }
 
+export function cancelPetDrag(
+  session: PetDragSession,
+  pointerId: number
+): 'ignore' | 'persist-placement' | 'cancel-activation' {
+  if (session.pointerId !== pointerId) return 'ignore'
+  return session.moved ? 'persist-placement' : 'cancel-activation'
+}
+
+export function clampPetSize(size: number): number {
+  if (!Number.isFinite(size)) return DEFAULT_PET_SIZE
+  return Math.round(clamp(size, MIN_PET_SIZE, MAX_PET_SIZE))
+}
+
+export function petSurfaceSize(size: number): FloatingSurfaceSize {
+  const width = clampPetSize(size)
+  return {
+    width: width + 12,
+    height: Math.round((width * 208) / 192) + 12
+  }
+}
+
+export function startPetResize(pointerId: number, startX: number, startSize: number): PetResizeSession {
+  const size = clampPetSize(startSize)
+  return { pointerId, startX, startSize: size, size, moved: false }
+}
+
+export function movePetResize(
+  session: PetResizeSession,
+  pointerId: number,
+  currentX: number
+): { session: PetResizeSession; size: number | null } {
+  if (session.pointerId !== pointerId) return { session, size: null }
+  const delta = session.startX - currentX
+  const size = clampPetSize(session.startSize + delta)
+  const nextSession = {
+    ...session,
+    size,
+    moved: session.moved || Math.abs(delta) >= 1
+  }
+  return { session: nextSession, size }
+}
+
+export function finishPetResize(
+  session: PetResizeSession,
+  pointerId: number
+): { outcome: 'ignore' | 'no-change' | 'persist-size'; size: number } {
+  if (session.pointerId !== pointerId) return { outcome: 'ignore', size: session.size }
+  return {
+    outcome: session.moved && session.size !== session.startSize ? 'persist-size' : 'no-change',
+    size: session.size
+  }
+}
+
 export function derivePetAttention(input: {
-  waiting: boolean
-  failed: boolean
-  reviewVisible: boolean
-  busy: boolean
-  introVisible: boolean
+  notificationState: Exclude<PetAttentionState, 'idle' | 'running-right' | 'running-left' | 'jumping'> | null
   hovered: boolean
   dragDirection: 'left' | 'right' | null
   showStatusBubble: boolean
 }): { baseState: PetAttentionState; visualState: PetAttentionState; showBubble: boolean } {
-  const baseState: PetAttentionState = input.waiting
-    ? 'waiting'
-    : input.failed
-      ? 'failed'
-      : input.reviewVisible
-        ? 'review'
-        : input.busy
-          ? 'running'
-          : input.introVisible
-            ? 'waving'
-            : 'idle'
+  const baseState: PetAttentionState = input.notificationState ?? 'idle'
   const visualState: PetAttentionState = input.dragDirection
     ? `running-${input.dragDirection}`
     : input.hovered && baseState === 'idle'

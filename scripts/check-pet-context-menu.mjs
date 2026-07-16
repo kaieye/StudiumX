@@ -17,8 +17,12 @@ assert.match(
   'right-clicking the floating pet should open its custom context menu'
 )
 assert.match(petSource, /role="menu"/, 'the pet context menu should expose an accessible menu role')
-assert.match(petSource, /role="menuitem"/, 'the close action should expose an accessible menu item role')
-assert.match(petSource, /aria-haspopup="menu"/, 'the pet should announce that it opens a menu')
+assert.match(petSource, /role="menuitem"/, 'pet actions should expose accessible menu item roles')
+assert.match(petSource, /openAssistant/, 'the context menu should provide an assistant shortcut')
+assert.match(petSource, /resetPetPosition/, 'the context menu should provide a position reset')
+assert.match(petSource, /resetPetSize/, 'the context menu should provide a size reset')
+assert.match(petSource, /toggleStatusBubble/, 'the context menu should provide a status bubble toggle')
+assert.match(petSource, /dismissPetNotification/, 'status notifications should be dismissible without disabling the pet')
 assert.match(
   petSource,
   /updateSettings\(\{ pet: \{ enabled: false \} \}\)/,
@@ -39,7 +43,7 @@ assert.match(styleSource, /position:\s*fixed/, 'the context menu should be posit
 assert.match(styleSource, /pointer-events:\s*auto/, 'the context menu should remain interactive')
 assert.equal(zh.resources.pets.close, '关闭宠物', 'the Chinese menu item should say 关闭宠物')
 assert.equal(en.resources.pets.close, 'Close pet', 'the English menu item should say Close pet')
-assert.match(zh.resources.pets.overlayAria, /右键可关闭/, 'the Chinese accessible hint should explain the right-click action')
-assert.match(en.resources.pets.overlayAria, /right-click to close/, 'the English accessible hint should explain the right-click action')
+assert.match(zh.resources.pets.overlayAria, /右键可打开操作菜单/, 'the Chinese accessible hint should explain the right-click action')
+assert.match(en.resources.pets.overlayAria, /right-click for actions/, 'the English accessible hint should explain the right-click action')
 
 console.log('check:pet-context-menu passed')

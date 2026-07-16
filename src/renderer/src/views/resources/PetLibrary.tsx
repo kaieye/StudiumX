@@ -1,8 +1,14 @@
-import { ArrowLeft, Check, MousePointer2 } from 'lucide-react'
+import { ArrowLeft, BellRing, Check, MousePointer2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  MAX_PET_SIZE,
+  MIN_PET_SIZE,
+  type TeachingSettingsPatch
+} from '../../../../shared/teaching-types'
 import { useAppStore } from '../../app-shell/appStore'
+import { PET_QUIET_MODE_DURATIONS_MS } from '../pet/pet-notifications'
 import {
   PET_CATALOG,
   PET_VISUAL_STATES,
@@ -20,23 +26,46 @@ type PreviewDragSession = {
 }
 
 export function PetLibrary({ onBack }: { onBack: () => void }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const settings = useAppStore((state) => state.settings.pet)
   const updateSettings = useAppStore((state) => state.updateSettings)
   const [displayName, setDisplayName] = useState(settings.displayName)
+  const [petSize, setPetSize] = useState(settings.size)
   const [previewState, setPreviewState] = useState<PetVisualState>('idle')
   const [dragOffset, setDragOffset] = useState(0)
   const [dragging, setDragging] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const stageRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<PreviewDragSession | null>(null)
   const suppressClickRef = useRef(false)
+  const lastCommittedPetSizeRef = useRef(settings.size)
 
   useEffect(() => setDisplayName(settings.displayName), [settings.displayName])
+  useEffect(() => {
+    setPetSize(settings.size)
+    lastCommittedPetSizeRef.current = settings.size
+  }, [settings.size])
+
+  useEffect(() => {
+    const quietUntil = settings.notificationPreferences.quietUntil
+    setNow(Date.now())
+    if (quietUntil === null || quietUntil <= Date.now()) return
+    const timer = window.setTimeout(() => setNow(Date.now()), quietUntil - Date.now() + 50)
+    return () => window.clearTimeout(timer)
+  }, [settings.notificationPreferences.quietUntil])
 
   const saveDisplayName = (): void => {
     const normalized = displayName.trim().slice(0, 24) || t('resources.pets.defaultName')
     setDisplayName(normalized)
     if (normalized !== settings.displayName) void updateSettings({ pet: { displayName: normalized } })
+  }
+
+  const savePetSize = (size: number): void => {
+    const normalized = Math.min(MAX_PET_SIZE, Math.max(MIN_PET_SIZE, Math.round(size)))
+    setPetSize(normalized)
+    if (normalized === settings.size || normalized === lastCommittedPetSizeRef.current) return
+    lastCommittedPetSizeRef.current = normalized
+    void updateSettings({ pet: { size: normalized } })
   }
 
   // Drag the mascot left/right: the pet follows the cursor while the running
@@ -95,6 +124,27 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
     } else {
       setPreviewState('waving')
     }
+  }
+
+  const notificationPreferences = settings.notificationPreferences
+  const quietModeActive = notificationPreferences.quietUntil !== null
+    && notificationPreferences.quietUntil > now
+  const quietUntilLabel = quietModeActive
+    ? new Intl.DateTimeFormat(i18n.language, { hour: 'numeric', minute: '2-digit' }).format(
+      notificationPreferences.quietUntil!
+    )
+    : ''
+
+  const updateNotificationPreferences = (
+    patch: NonNullable<NonNullable<TeachingSettingsPatch['pet']>['notificationPreferences']>
+  ): void => {
+    void updateSettings({ pet: { notificationPreferences: patch } })
+  }
+
+  const startQuietMode = (durationMs: number): void => {
+    const quietUntil = Date.now() + durationMs
+    setNow(Date.now())
+    updateNotificationPreferences({ quietUntil })
   }
 
   const handleMascotClick = (): void => {
@@ -205,6 +255,26 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
             />
           </label>
 
+          <label className="pet-setting-field pet-size-setting">
+            <span>
+              <span>{t('resources.pets.sizeLabel')}</span>
+              <output>{petSize}px</output>
+            </span>
+            <input
+              type="range"
+              min={MIN_PET_SIZE}
+              max={MAX_PET_SIZE}
+              step={8}
+              value={petSize}
+              aria-label={t('resources.pets.sizeLabel')}
+              onChange={(event) => setPetSize(Number(event.currentTarget.value))}
+              onPointerUp={(event) => savePetSize(Number(event.currentTarget.value))}
+              onKeyUp={(event) => savePetSize(Number(event.currentTarget.value))}
+              onBlur={(event) => savePetSize(Number(event.currentTarget.value))}
+            />
+            <small>{t('resources.pets.sizeDetail')}</small>
+          </label>
+
           <label className="pet-setting-row">
             <span>
               <strong>{t('resources.pets.bubbleLabel')}</strong>
@@ -246,6 +316,150 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
                 </button>
               )
             })}
+          </div>
+        </section>
+
+        <section className="pet-settings-card pet-notification-settings-card">
+          <div className="pet-settings-card__head">
+            <div>
+              <h2>{t('resources.pets.notificationPreferences.title')}</h2>
+              <p>{t('resources.pets.notificationPreferences.detail')}</p>
+            </div>
+            <BellRing size={18} aria-hidden="true" />
+          </div>
+
+          <div className="pet-notification-settings">
+            <div className="pet-notification-settings__toggles">
+              <label className="pet-setting-row">
+                <span>
+                  <strong>{t('resources.pets.notificationPreferences.actionableOnly.label')}</strong>
+                  <small>{t('resources.pets.notificationPreferences.actionableOnly.detail')}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.actionableOnly}
+                  onChange={(event) => updateNotificationPreferences({ actionableOnly: event.currentTarget.checked })}
+                />
+              </label>
+              <label className="pet-setting-row">
+                <span>
+                  <strong>{t('resources.pets.notificationPreferences.showRunning.label')}</strong>
+                  <small>{t('resources.pets.notificationPreferences.showRunning.detail')}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.showRunning}
+                  onChange={(event) => updateNotificationPreferences({ showRunning: event.currentTarget.checked })}
+                />
+              </label>
+              <label className="pet-setting-row">
+                <span>
+                  <strong>{t('resources.pets.notificationPreferences.showReview.label')}</strong>
+                  <small>{t('resources.pets.notificationPreferences.showReview.detail')}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.showReview}
+                  onChange={(event) => updateNotificationPreferences({ showReview: event.currentTarget.checked })}
+                />
+              </label>
+              <label className="pet-setting-row">
+                <span>
+                  <strong>{t('resources.pets.notificationPreferences.showWaving.label')}</strong>
+                  <small>{t('resources.pets.notificationPreferences.showWaving.detail')}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.showWaving}
+                  onChange={(event) => updateNotificationPreferences({ showWaving: event.currentTarget.checked })}
+                />
+              </label>
+            </div>
+
+            <fieldset className="pet-notification-settings__sources">
+              <legend>{t('resources.pets.notificationPreferences.sources.title')}</legend>
+              <p>{t('resources.pets.notificationPreferences.sources.detail')}</p>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.sources.agent}
+                  onChange={(event) => updateNotificationPreferences({
+                    sources: { agent: event.currentTarget.checked }
+                  })}
+                />
+                <span>{t('resources.pets.notificationPreferences.sources.agent')}</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.sources.lessonGeneration}
+                  onChange={(event) => updateNotificationPreferences({
+                    sources: { lessonGeneration: event.currentTarget.checked }
+                  })}
+                />
+                <span>{t('resources.pets.notificationPreferences.sources.lessonGeneration')}</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.sources.lessonReview}
+                  onChange={(event) => updateNotificationPreferences({
+                    sources: { lessonReview: event.currentTarget.checked }
+                  })}
+                />
+                <span>{t('resources.pets.notificationPreferences.sources.lessonReview')}</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.sources.onboarding}
+                  onChange={(event) => updateNotificationPreferences({
+                    sources: { onboarding: event.currentTarget.checked }
+                  })}
+                />
+                <span>{t('resources.pets.notificationPreferences.sources.onboarding')}</span>
+              </label>
+            </fieldset>
+
+            <div className="pet-notification-settings__quiet">
+              <div>
+                <strong>{t('resources.pets.notificationPreferences.quiet.title')}</strong>
+                <small>
+                  {quietModeActive
+                    ? t('resources.pets.notificationPreferences.quiet.active', { time: quietUntilLabel })
+                    : t('resources.pets.notificationPreferences.quiet.detail')}
+                </small>
+              </div>
+              <div className="pet-notification-settings__quiet-actions">
+                {quietModeActive ? (
+                  <button
+                    type="button"
+                    onClick={() => updateNotificationPreferences({ quietUntil: null })}
+                  >
+                    {t('resources.pets.notificationPreferences.quiet.end')}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => startQuietMode(PET_QUIET_MODE_DURATIONS_MS.thirtyMinutes)}
+                    >
+                      {t('resources.pets.notificationPreferences.quiet.thirtyMinutes')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startQuietMode(PET_QUIET_MODE_DURATIONS_MS.oneHour)}
+                    >
+                      {t('resources.pets.notificationPreferences.quiet.oneHour')}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <p className="pet-notification-settings__critical-note">
+              {t('resources.pets.notificationPreferences.criticalNote')}
+            </p>
           </div>
         </section>
       </div>

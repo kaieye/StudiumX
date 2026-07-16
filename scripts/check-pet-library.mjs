@@ -18,6 +18,7 @@ const [
   rendererSettingsSource,
   workbenchSource,
   appSource,
+  appPetSource,
   ...manifestSources
 ] = await Promise.all([
   readFile('src/renderer/src/views/resources/PetLibrary.tsx', 'utf8'),
@@ -27,8 +28,9 @@ const [
   readFile('src/shared/teaching-settings-schema.ts', 'utf8'),
   readFile('src/main/teaching-settings.ts', 'utf8'),
   readFile('src/renderer/src/workflows/settings.ts', 'utf8'),
-  readFile('src/renderer/src/views/workbench/OfficeWorkbench.tsx', 'utf8'),
+  readFile('src/renderer/src/views/workbench/office-scene-runtime.ts', 'utf8'),
   readFile('src/renderer/src/App.tsx', 'utf8'),
+  readFile('src/renderer/src/views/pet/AppPet.tsx', 'utf8'),
   ...petAssets.map(({ folder }) => readFile(`src/renderer/src/assets/pets/${folder}/pet.json`, 'utf8'))
 ])
 
@@ -57,6 +59,26 @@ assert.match(
   /onPointerEnter=\{\(\) => setPreviewState\(state\)\}/,
   'preview state controls should react on pointer hover'
 )
+
+assert.match(
+  source,
+  /type="range"[\s\S]*min=\{MIN_PET_SIZE\}[\s\S]*max=\{MAX_PET_SIZE\}/,
+  'the library should expose the shared bounded pet-size slider'
+)
+assert.match(source, /updateSettings\(\{ pet: \{ size: normalized \} \}\)/, 'the size slider should persist its value')
+assert.match(sharedSettingsSource, /MIN_PET_SIZE = 80/, 'settings should define the minimum pet size')
+assert.match(sharedSettingsSource, /MAX_PET_SIZE = 224/, 'settings should define the maximum pet size')
+assert.match(sharedSettingsSource, /DEFAULT_PET_SIZE = 112/, 'settings should define the default pet size')
+assert.match(sharedSettingsSource, /size: number/, 'the pet settings contract should persist a size')
+assert.match(settingsSchemaSource, /size: DEFAULT_PET_SIZE/, 'settings defaults should include the pet size')
+assert.match(
+  settingsSchemaSource,
+  /size: Math\.round\(clampNumber\(petInput\.size, MIN_PET_SIZE, MAX_PET_SIZE, defaults\.pet\.size\)\)/,
+  'settings normalization should clamp stale pet sizes'
+)
+assert.match(appPetSource, /startPetResize/, 'the floating pet should support pointer resizing')
+assert.match(appPetSource, /onPointerCancel=\{cancelPointer\}/, 'cancelled pet presses must not open the assistant')
+assert.match(appPetSource, /role="slider"/, 'the floating resize handle should be keyboard accessible')
 
 for (const { folder } of petAssets) {
   assert.match(

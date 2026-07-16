@@ -27,6 +27,9 @@ export type AppCloseAction = 'quit' | 'tray'
 export const PET_APPEARANCE_IDS = ['boba', 'lulu-capybara', 'shinchan', 'usagi'] as const
 export type PetAppearanceId = (typeof PET_APPEARANCE_IDS)[number]
 export const DEFAULT_PET_APPEARANCE_ID: PetAppearanceId = 'boba'
+export const MIN_PET_SIZE = 80
+export const MAX_PET_SIZE = 224
+export const DEFAULT_PET_SIZE = 112
 
 const LEGACY_PET_APPEARANCE_IDS: Record<string, PetAppearanceId> = {
   robot: 'boba',
@@ -129,6 +132,20 @@ export type TeachingModelProviderProfile = TeachingModelProviderPreset & {
   apiKey: string
 }
 
+export type PetNotificationPreferences = {
+  actionableOnly: boolean
+  showRunning: boolean
+  showReview: boolean
+  showWaving: boolean
+  sources: {
+    agent: boolean
+    lessonGeneration: boolean
+    lessonReview: boolean
+    onboarding: boolean
+  }
+  quietUntil: number | null
+}
+
 export type TeachingSettingsV1 = {
   version: 1
   locale: LocalePreference
@@ -212,6 +229,8 @@ export type TeachingSettingsV1 = {
     displayName: string
     showStatusBubble: boolean
     appearance: PetAppearanceId
+    size: number
+    notificationPreferences: PetNotificationPreferences
   }
   privacy: {
     maskApiKeys: boolean
@@ -244,7 +263,11 @@ export type TeachingSettingsPatch = Partial<
   }
   webSearch?: Partial<TeachingSettingsV1['webSearch']>
   notifications?: Partial<TeachingSettingsV1['notifications']>
-  pet?: Partial<TeachingSettingsV1['pet']>
+  pet?: Partial<Omit<TeachingSettingsV1['pet'], 'notificationPreferences'>> & {
+    notificationPreferences?: Partial<Omit<PetNotificationPreferences, 'sources'>> & {
+      sources?: Partial<PetNotificationPreferences['sources']>
+    }
+  }
   privacy?: Partial<TeachingSettingsV1['privacy']>
   appBehavior?: Partial<TeachingSettingsV1['appBehavior']>
   log?: Partial<TeachingSettingsV1['log']>

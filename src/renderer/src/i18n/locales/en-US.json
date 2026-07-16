@@ -247,17 +247,50 @@
       "applyHint": "Applying updates assets/lesson.css in workspace \"{{workspace}}\", so existing and future lesson pages switch to this style immediately.",
       "applyHintNoWorkspace": "No active workspace: applying saves this as the default style for newly created workspaces.",
       "items": {
-        "manuscript": { "name": "Manuscript", "detail": "Composition-grid paper with vermilion teacher's marks, kaiti headings and a seal-style kicker." },
-        "chalkboard": { "name": "Chalkboard", "detail": "Deep-green board in a wooden rim, chalk handwriting and dashed chalk frames." },
-        "editorial": { "name": "Feature story", "detail": "Ink-blue and signal-orange magazine layout with serif display, drop caps and pull quotes." },
-        "blueprint": { "name": "Blueprint", "detail": "Prussian-blue drafting sheet with white linework and an engineer's title block." },
-        "poster": { "name": "Classroom poster", "detail": "Retro teaching chart: bold outlines, hard shadows, lake blue, mustard and tomato." },
-        "classic": { "name": "Crisp academic", "detail": "Light academic look with white cards and a deep blue hero." },
-        "nightfall": { "name": "Nightfall focus", "detail": "Low-glare dark theme that is easy on the eyes at night." },
-        "paper": { "name": "Paper journal", "detail": "Warm paper tones and serif type, like reading a printed book." },
-        "vivid": { "name": "Vivid gradient", "detail": "Bright gradients and large radii for a playful mood." },
-        "mono": { "name": "Minimal mono", "detail": "Black-and-white editorial layout with serif headings." },
-        "terminal": { "name": "Terminal hacker", "detail": "Monospace type and terminal green, built for programmers." }
+        "manuscript": {
+          "name": "Manuscript",
+          "detail": "Composition-grid paper with vermilion teacher's marks, kaiti headings and a seal-style kicker."
+        },
+        "chalkboard": {
+          "name": "Chalkboard",
+          "detail": "Deep-green board in a wooden rim, chalk handwriting and dashed chalk frames."
+        },
+        "editorial": {
+          "name": "Feature story",
+          "detail": "Ink-blue and signal-orange magazine layout with serif display, drop caps and pull quotes."
+        },
+        "blueprint": {
+          "name": "Blueprint",
+          "detail": "Prussian-blue drafting sheet with white linework and an engineer's title block."
+        },
+        "poster": {
+          "name": "Classroom poster",
+          "detail": "Retro teaching chart: bold outlines, hard shadows, lake blue, mustard and tomato."
+        },
+        "classic": {
+          "name": "Crisp academic",
+          "detail": "Light academic look with white cards and a deep blue hero."
+        },
+        "nightfall": {
+          "name": "Nightfall focus",
+          "detail": "Low-glare dark theme that is easy on the eyes at night."
+        },
+        "paper": {
+          "name": "Paper journal",
+          "detail": "Warm paper tones and serif type, like reading a printed book."
+        },
+        "vivid": {
+          "name": "Vivid gradient",
+          "detail": "Bright gradients and large radii for a playful mood."
+        },
+        "mono": {
+          "name": "Minimal mono",
+          "detail": "Black-and-white editorial layout with serif headings."
+        },
+        "terminal": {
+          "name": "Terminal hacker",
+          "detail": "Monospace type and terminal green, built for programmers."
+        }
       }
     },
     "pets": {
@@ -271,13 +304,70 @@
       "enableLabel": "Show floating pet",
       "enableDetail": "The pet starts in the lower-right corner and can be dragged elsewhere.",
       "nameLabel": "Pet name",
+      "sizeLabel": "Pet size",
+      "sizeDetail": "Choose a width from 80 to 224 pixels. You can also drag the handle beside the floating pet.",
+      "resizeAria": "Resize pet",
       "bubbleLabel": "Show status bubble",
       "bubbleDetail": "Show a short message while work is running, blocked, failed, or ready to review.",
+      "notificationPreferences": {
+        "title": "Pet notifications",
+        "detail": "Choose which real task updates the floating pet should surface.",
+        "actionableOnly": {
+          "label": "Only show items that need action",
+          "detail": "Hide progress, completion, and greeting updates. Waiting requests and failures stay visible."
+        },
+        "showRunning": {
+          "label": "Show running tasks",
+          "detail": "Show progress while Agent or lesson generation work is active."
+        },
+        "showReview": {
+          "label": "Show completed results briefly",
+          "detail": "Keep newly completed results visible for a short review window."
+        },
+        "showWaving": {
+          "label": "Show greeting animation",
+          "detail": "Let the pet wave briefly when it becomes available."
+        },
+        "sources": {
+          "title": "Notification sources",
+          "detail": "Source controls apply to progress, completion, and greeting updates.",
+          "agent": "Agent",
+          "lessonGeneration": "Lesson generation",
+          "lessonReview": "Due lesson reviews",
+          "onboarding": "Onboarding"
+        },
+        "quiet": {
+          "title": "Temporary quiet mode",
+          "detail": "Pause noncritical Pet updates without changing any running task.",
+          "active": "Noncritical updates are quiet until {{time}}.",
+          "thirtyMinutes": "Quiet for 30 minutes",
+          "oneHour": "Quiet for 1 hour",
+          "end": "End quiet mode"
+        },
+        "criticalNote": "Requests that need your answer or permission, and failed tasks, always remain discoverable."
+      },
       "appearanceTitle": "Current pet",
       "appearanceDetail": "Choose a pet to use its animations in the preview, floating companion, and study room.",
       "hide": "Hide pet",
       "close": "Close pet",
-      "overlayAria": "Pet {{name}}; drag to move, click to inspect status, or right-click to close",
+      "dismissNotification": "Dismiss this notification",
+      "openAssistant": "Open pet assistant",
+      "resetPosition": "Reset position",
+      "resetSize": "Reset size",
+      "hideBubble": "Hide status bubble",
+      "showBubble": "Show status bubble",
+      "overlayAria": "Pet {{name}}; drag to move, click to inspect status, or right-click for actions",
+      "actions": {
+        "idle": "Start a chat",
+        "running-right": "View status",
+        "running-left": "View status",
+        "waving": "Start a chat",
+        "jumping": "Start a chat",
+        "failed": "View error",
+        "waiting": "Handle request",
+        "running": "View progress",
+        "review": "View result"
+      },
       "stateLabels": {
         "idle": "Idle",
         "running-right": "Run right",
@@ -306,6 +396,97 @@
         "review": "Completed results remain visible briefly for review.",
         "running": "Active tasks keep the pet in its working animation.",
         "idle": "With nothing pending, the pet returns to a quiet idle state."
+      },
+      "notifications": {
+        "waiting": {
+          "title": "Request needs your attention",
+          "detail": "An Agent question or tool permission is waiting for you."
+        },
+        "agentRunning": {
+          "title": "Agent is working",
+          "detail": "Your conversation task is still running."
+        },
+        "lessonRunning": {
+          "title": "Lesson generation is running",
+          "detail": "StudiumX is preparing the next lesson."
+        },
+        "agentReview": {
+          "title": "Agent result is ready",
+          "detail": "The completed conversation result is ready to review."
+        },
+        "lessonReview": {
+          "title": "Lesson is ready",
+          "detail": "The generated lesson is ready to review."
+        },
+        "lessonReviewDue": {
+          "title": "Lesson ready to review",
+          "detail": "Pick up where you left off.",
+          "actionLabel": "Review now"
+        },
+        "agentFailed": {
+          "title": "Agent task failed"
+        },
+        "lessonFailed": {
+          "title": "Lesson generation failed"
+        },
+        "waving": {
+          "title": "Hi, I’m {{name}}",
+          "detail": "I’ll keep an eye on study tasks and requests for you."
+        }
+      },
+      "activity": {
+        "label": "Pet activities",
+        "expand": "Show {{count}} activities",
+        "collapse": "Collapse activities",
+        "dismiss": "Dismiss “{{title}}”",
+        "announcement": "{{state}}: {{title}}. {{detail}}",
+        "sources": {
+          "agent": "Agent",
+          "lesson-generation": "Lesson generation",
+          "lesson-review": "Lesson review",
+          "onboarding": "Pet"
+        }
+      },
+      "assistant": {
+        "title": "Study companion",
+        "status": {
+          "thinking": "Thinking",
+          "ready": "Ready",
+          "replying": "Replying…"
+        },
+        "actions": {
+          "newConversation": "New conversation",
+          "close": "Close conversation",
+          "stop": "Stop reply",
+          "send": "Send message",
+          "addTodo": "Add to today's list · {{count}} items",
+          "todoAdded": "Added to today's list",
+          "openFullConversation": "Open full conversation",
+          "resetWindow": "Reset Assistant window size and position"
+        },
+        "emptyTitle": "What would you like to move forward now?",
+        "suggestions": {
+          "todo": "Help me make today's to-do list and split it into actionable tasks by priority.",
+          "focus": "Plan a focused work session around my current goal.",
+          "breakdown": "Break a complex task into small steps I can start immediately."
+        },
+        "interruptions": {
+          "toolPermission": "Tool permission needs confirmation",
+          "question": "A question needs your answer"
+        },
+        "composer": {
+          "placeholder": "Type a message…",
+          "workspaceRequired": "Create or import a study workspace first",
+          "ariaLabel": "Send a message to AI"
+        },
+        "announcements": {
+          "started": "Assistant started replying.",
+          "question": "Assistant needs you to answer a question.",
+          "permission": "Assistant needs tool permission confirmation.",
+          "completed": "Assistant reply is complete.",
+          "failed": "Assistant reply failed.",
+          "canceled": "Assistant reply was canceled."
+        }
       }
     },
     "tutorials": {
@@ -392,31 +573,105 @@
     "navHeading": "Settings"
   },
   "settingsSection": {
-    "general": { "label": "General", "detail": "App behavior, logs" },
-    "appearance": { "label": "Appearance", "detail": "Theme, language, density, font" },
-    "model": { "label": "Model", "detail": "Provider & API keys" },
-    "generation": { "label": "Generation", "detail": "Lesson output strategy" },
-    "workspace": { "label": "Workspace", "detail": "Default folder & file behavior" },
-    "worktree": { "label": "Worktree", "detail": "Git worktree pool & cleanup" },
-    "memory": { "label": "Memory", "detail": "Long-term context injection" },
-    "notifications": { "label": "Notifications", "detail": "Desktop alerts" },
-    "privacy": { "label": "Privacy", "detail": "Links & key display" },
-    "tools": { "label": "Tools", "detail": "Workspace and web tools" },
-    "search": { "label": "Search", "detail": "Web search backends" },
-    "connectors": { "label": "Connectors", "detail": "Status and repair actions" },
-    "about": { "label": "About", "detail": "Version, logs, data folder" }
+    "general": {
+      "label": "General",
+      "detail": "App behavior, logs"
+    },
+    "appearance": {
+      "label": "Appearance",
+      "detail": "Theme, language, density, font"
+    },
+    "model": {
+      "label": "Model",
+      "detail": "Provider & API keys"
+    },
+    "generation": {
+      "label": "Generation",
+      "detail": "Lesson output strategy"
+    },
+    "workspace": {
+      "label": "Workspace",
+      "detail": "Default folder & file behavior"
+    },
+    "worktree": {
+      "label": "Worktree",
+      "detail": "Git worktree pool & cleanup"
+    },
+    "memory": {
+      "label": "Memory",
+      "detail": "Long-term context injection"
+    },
+    "notifications": {
+      "label": "Notifications",
+      "detail": "Desktop alerts"
+    },
+    "privacy": {
+      "label": "Privacy",
+      "detail": "Links & key display"
+    },
+    "tools": {
+      "label": "Tools",
+      "detail": "Workspace and web tools"
+    },
+    "search": {
+      "label": "Search",
+      "detail": "Web search backends"
+    },
+    "connectors": {
+      "label": "Connectors",
+      "detail": "Status and repair actions"
+    },
+    "about": {
+      "label": "About",
+      "detail": "Version, logs, data folder"
+    }
   },
   "general": {
     "title": "General",
     "subtitle": "Local preferences are saved to StudiumX's app data folder.",
-    "theme": { "label": "Theme", "detail": "Follow system, light, or dark.", "system": "System", "light": "Light", "dark": "Dark" },
-    "language": { "label": "Language", "detail": "Interface display language.", "zh": "中文", "en": "English" },
-    "density": { "label": "Density", "detail": "Compact mode reduces row height and panel spacing.", "comfortable": "Comfortable", "compact": "Compact" },
-    "fontScale": { "label": "Font scale" },
-    "closeAction": { "label": "Close behavior", "detailQuit": "Quit", "detailTray": "Close to tray", "quit": "Quit", "tray": "Tray" },
-    "openAtLogin": { "label": "Open at login", "detail": "Controlled by Electron login item settings." },
-    "startMinimized": { "label": "Start minimized", "detail": "Show only the tray icon when starting at login." },
-    "log": { "label": "Logs", "enabled": "Enabled", "disabled": "Disabled", "detail": "{{state}} · Retain {{days}} days" }
+    "theme": {
+      "label": "Theme",
+      "detail": "Follow system, light, or dark.",
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "language": {
+      "label": "Language",
+      "detail": "Interface display language.",
+      "zh": "中文",
+      "en": "English"
+    },
+    "density": {
+      "label": "Density",
+      "detail": "Compact mode reduces row height and panel spacing.",
+      "comfortable": "Comfortable",
+      "compact": "Compact"
+    },
+    "fontScale": {
+      "label": "Font scale"
+    },
+    "closeAction": {
+      "label": "Close behavior",
+      "detailQuit": "Quit",
+      "detailTray": "Close to tray",
+      "quit": "Quit",
+      "tray": "Tray"
+    },
+    "openAtLogin": {
+      "label": "Open at login",
+      "detail": "Controlled by Electron login item settings."
+    },
+    "startMinimized": {
+      "label": "Start minimized",
+      "detail": "Show only the tray icon when starting at login."
+    },
+    "log": {
+      "label": "Logs",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "detail": "{{state}} · Retain {{days}} days"
+    }
   },
   "appearance": {
     "title": "Appearance",
@@ -425,10 +680,26 @@
   "model": {
     "title": "Model",
     "subtitle": "Provider presets follow Kun's model-settings organization; fields are fully saved and read by the generation config.",
-    "apiKey": { "label": "API Key", "filled": "Filled", "empty": "Not filled", "placeholder": "sk-...", "show": "Show API key", "hide": "Hide API key" },
+    "apiKey": {
+      "label": "API Key",
+      "filled": "Filled",
+      "empty": "Not filled",
+      "placeholder": "sk-...",
+      "show": "Show API key",
+      "hide": "Hide API key"
+    },
     "baseUrl": "Base URL",
-    "models": { "label": "Default model" },
-    "actions": { "label": "Provider actions", "test": "Test", "pull": "Pull models", "docs": "Docs", "key": "Key", "reset": "Reset" },
+    "models": {
+      "label": "Default model"
+    },
+    "actions": {
+      "label": "Provider actions",
+      "test": "Test",
+      "pull": "Pull models",
+      "docs": "Docs",
+      "key": "Key",
+      "reset": "Reset"
+    },
     "statusConnecting": "Connecting to provider...",
     "statusOk": "Connected: {{latency}}ms, found {{count}} models.",
     "statusPulling": "Pulling model list...",
@@ -461,25 +732,69 @@
     "title": "Generation",
     "subtitle": "These settings directly affect subsequent lesson files and accompanying artifacts.",
     "provider": "Generation provider",
-    "model": { "label": "Model", "none": "Not selected" },
+    "model": {
+      "label": "Model",
+      "none": "Not selected"
+    },
     "temperature": "Temperature",
     "maxTokens": "Max output tokens",
-    "duration": { "label": "Lesson duration", "detail": "{{count}} min" },
-    "retrieval": { "label": "Retrieval practice", "detail": "Interactive exercises embedded in the lesson." },
-    "reference": { "label": "Reference HTML", "detail": "Generate reference/*.html cheat sheets." },
-    "learningRecord": { "label": "Learning record", "detail": "Generate learning-records/*.md study logs." },
-    "structured": { "label": "Structured JSON", "detail": "Embed structured metadata in the lesson HTML." },
-    "streaming": { "label": "Streaming", "detail": "Use SSE/streaming preview; falls back to non-streaming or a local plan on failure." },
-    "timeout": { "label": "Request timeout", "detail": "{{seconds}}s" }
+    "duration": {
+      "label": "Lesson duration",
+      "detail": "{{count}} min"
+    },
+    "retrieval": {
+      "label": "Retrieval practice",
+      "detail": "Interactive exercises embedded in the lesson."
+    },
+    "reference": {
+      "label": "Reference HTML",
+      "detail": "Generate reference/*.html cheat sheets."
+    },
+    "learningRecord": {
+      "label": "Learning record",
+      "detail": "Generate learning-records/*.md study logs."
+    },
+    "structured": {
+      "label": "Structured JSON",
+      "detail": "Embed structured metadata in the lesson HTML."
+    },
+    "streaming": {
+      "label": "Streaming",
+      "detail": "Use SSE/streaming preview; falls back to non-streaming or a local plan on failure."
+    },
+    "timeout": {
+      "label": "Request timeout",
+      "detail": "{{seconds}}s"
+    }
   },
   "workspace": {
     "title": "Workspace",
     "subtitle": "Creating, importing, and opening paths all go through the main process's controlled file access.",
-    "defaultRoot": { "label": "Default workspace root", "none": "Not set", "choose": "Choose", "open": "Open" },
-    "confirm": { "label": "Confirm before generating", "detail": "Require a second confirmation before sending a task." },
-    "autoOpen": { "label": "Open lesson after generating", "detail": "Open the HTML with the system default app after generation." },
-    "showAllCourseFiles": { "label": "Show all course files", "detail": "Show reference HTML, learning records, review data, and other companion files in the course tree." },
-    "current": { "label": "Current workspace", "none": "Not selected", "create": "New", "import": "Import", "open": "Open" }
+    "defaultRoot": {
+      "label": "Default workspace root",
+      "none": "Not set",
+      "choose": "Choose",
+      "open": "Open"
+    },
+    "confirm": {
+      "label": "Confirm before generating",
+      "detail": "Require a second confirmation before sending a task."
+    },
+    "autoOpen": {
+      "label": "Open lesson after generating",
+      "detail": "Open the HTML with the system default app after generation."
+    },
+    "showAllCourseFiles": {
+      "label": "Show all course files",
+      "detail": "Show reference HTML, learning records, review data, and other companion files in the course tree."
+    },
+    "current": {
+      "label": "Current workspace",
+      "none": "Not selected",
+      "create": "New",
+      "import": "Import",
+      "open": "Open"
+    }
   },
   "workspaceImport": {
     "title": "Add project",
@@ -494,8 +809,16 @@
   "worktree": {
     "title": "Worktree",
     "subtitle": "Inspect Git worktrees for the current teaching workspace repository and remove managed copies.",
-    "root": { "label": "Worktree pool root", "none": "Not set", "open": "Open" },
-    "current": { "label": "Current repository", "none": "Current workspace is not a Git repository", "notGit": "Non-Git workspace" },
+    "root": {
+      "label": "Worktree pool root",
+      "none": "Not set",
+      "open": "Open"
+    },
+    "current": {
+      "label": "Current repository",
+      "none": "Current workspace is not a Git repository",
+      "notGit": "Non-Git workspace"
+    },
     "refresh": "Refresh",
     "empty": "No worktrees to display.",
     "detached": "DETACHED",
@@ -506,9 +829,19 @@
   "memory": {
     "title": "Memory",
     "subtitle": "Persist reusable long-term context and inject it into lesson generation when relevant.",
-    "enable": { "label": "Enable long-term memory", "detail": "When disabled, no memory is injected into generation." },
-    "maxInjected": { "label": "Max injected records", "detail": "Inject up to {{count}} records per generation." },
-    "diagnostics": { "label": "Memory diagnostics", "detail": "{{active}} active, {{deleted}} deleted", "loading": "Loading diagnostics..." },
+    "enable": {
+      "label": "Enable long-term memory",
+      "detail": "When disabled, no memory is injected into generation."
+    },
+    "maxInjected": {
+      "label": "Max injected records",
+      "detail": "Inject up to {{count}} records per generation."
+    },
+    "diagnostics": {
+      "label": "Memory diagnostics",
+      "detail": "{{active}} active, {{deleted}} deleted",
+      "loading": "Loading diagnostics..."
+    },
     "refresh": "Refresh",
     "create": "New memory",
     "empty": "No memory records yet.",
@@ -538,18 +871,46 @@
   "notifications": {
     "title": "Notifications",
     "subtitle": "Notifications are sent via Electron's native Notification.",
-    "enabled": { "label": "Enable notifications", "on": "Enabled", "off": "Disabled" },
-    "lesson": { "label": "Lesson generated", "detail": "Notify when a lesson is saved successfully." },
-    "imported": { "label": "Workspace imported", "detail": "Notify after a successful import." },
-    "errors": { "label": "Error alerts", "detail": "Notify on generation or import failures." },
-    "test": { "label": "Test notification", "detail": "Send a local test notification.", "button": "Send test" }
+    "enabled": {
+      "label": "Enable notifications",
+      "on": "Enabled",
+      "off": "Disabled"
+    },
+    "lesson": {
+      "label": "Lesson generated",
+      "detail": "Notify when a lesson is saved successfully."
+    },
+    "imported": {
+      "label": "Workspace imported",
+      "detail": "Notify after a successful import."
+    },
+    "errors": {
+      "label": "Error alerts",
+      "detail": "Notify on generation or import failures."
+    },
+    "test": {
+      "label": "Test notification",
+      "detail": "Send a local test notification.",
+      "button": "Send test"
+    }
   },
   "privacy": {
     "title": "Privacy",
     "subtitle": "StudiumX is local-first by default; settings, the workspace index, and lesson files all stay on this machine.",
-    "maskKey": { "label": "Mask API key", "detail": "Show keys in a password field on the settings page." },
-    "externalLinks": { "label": "Allow external links", "detail": "Controls the provider docs and key-page buttons." },
-    "proxy": { "label": "Provider Proxy", "on": "Enabled", "off": "Disabled", "placeholder": "http://127.0.0.1:7890" }
+    "maskKey": {
+      "label": "Mask API key",
+      "detail": "Show keys in a password field on the settings page."
+    },
+    "externalLinks": {
+      "label": "Allow external links",
+      "detail": "Controls the provider docs and key-page buttons."
+    },
+    "proxy": {
+      "label": "Provider Proxy",
+      "on": "Enabled",
+      "off": "Disabled",
+      "placeholder": "http://127.0.0.1:7890"
+    }
   },
   "connectors": {
     "title": "Connector Status",
@@ -579,28 +940,93 @@
     "runtime": "Current runtime",
     "streaming": "Streaming",
     "oneShot": "One-shot",
-    "currentWorkspace": { "label": "Current workspace", "none": "No workspace selected", "open": "Open" },
-    "logFile": { "label": "Log file", "detail": "Retain {{days}} days", "open": "Open log" },
-    "appData": { "label": "App data folder", "detail": "Where settings, the workspace registry, and logs live.", "open": "Open folder" }
+    "currentWorkspace": {
+      "label": "Current workspace",
+      "none": "No workspace selected",
+      "open": "Open"
+    },
+    "logFile": {
+      "label": "Log file",
+      "detail": "Retain {{days}} days",
+      "open": "Open log"
+    },
+    "appData": {
+      "label": "App data folder",
+      "detail": "Where settings, the workspace registry, and logs live.",
+      "open": "Open folder"
+    }
   },
   "errors": {
-    "ipcHandlerMissing": { "message": "Restart required", "detail": "StudiumX is running an older main process than this window. Restart the app to load the latest handlers." },
-    "noApiKey": { "message": "API key required", "detail": "Open Model settings and add an API key before using chat." },
-    "providerInsufficientBalance": { "message": "Provider balance is insufficient", "detail": "The upstream model service returned 402 Payment Required. Add credits, switch provider, or use another available model." },
-    "providerAuth": { "message": "Provider authentication failed", "detail": "Check the current provider API key, base URL, and endpoint format." },
-    "providerRateLimit": { "message": "Provider rate limit reached", "detail": "The upstream model service is temporarily limiting requests. Try later or switch provider/model." },
-    "providerHttp": { "message": "Provider request failed", "detail": "The upstream model service returned HTTP {{status}}. Check provider settings or try again later." },
-    "missingField": { "message": "Incomplete parameters", "detail": "Missing required field: {{field}}. Please check your input and try again.", "fallbackField": "parameter" },
-    "badPayload": { "message": "Bad request format", "detail": "Internal communication data is malformed; refresh the page and try again." },
-    "windowControl": { "message": "Window action unsupported", "detail": "This window action is unavailable on the current platform." },
-    "workspaceNotFound": { "message": "Workspace not found", "detail": "This workspace may have been moved or deleted; please re-import it." },
-    "invalidPath": { "message": "Invalid path", "detail": "Please choose a valid folder as the teaching workspace." },
-    "emptyMission": { "message": "Please enter a learning mission", "detail": "The learning mission can't be empty; briefly describe what you want to learn." },
-    "emptyTask": { "message": "Please enter a teaching task", "detail": "Describe the lesson topic you want to generate in the input above." },
-    "pathRestricted": { "message": "Path access restricted", "detail": "Only files inside the teaching workspace are accessible." },
-    "fileNotFound": { "message": "File not found", "detail": "The selected file may have been moved or deleted." },
-    "accessDenied": { "message": "File access denied", "detail": "No permission to access this file; check the file permissions." },
-    "generic": { "message": "Operation failed", "detail": "Please try again shortly. If the problem persists, contact support.", "stackDetail": "The app hit an unexpected error. If it persists, restart the app." },
+    "ipcHandlerMissing": {
+      "message": "Restart required",
+      "detail": "StudiumX is running an older main process than this window. Restart the app to load the latest handlers."
+    },
+    "noApiKey": {
+      "message": "API key required",
+      "detail": "Open Model settings and add an API key before using chat."
+    },
+    "providerInsufficientBalance": {
+      "message": "Provider balance is insufficient",
+      "detail": "The upstream model service returned 402 Payment Required. Add credits, switch provider, or use another available model."
+    },
+    "providerAuth": {
+      "message": "Provider authentication failed",
+      "detail": "Check the current provider API key, base URL, and endpoint format."
+    },
+    "providerRateLimit": {
+      "message": "Provider rate limit reached",
+      "detail": "The upstream model service is temporarily limiting requests. Try later or switch provider/model."
+    },
+    "providerHttp": {
+      "message": "Provider request failed",
+      "detail": "The upstream model service returned HTTP {{status}}. Check provider settings or try again later."
+    },
+    "missingField": {
+      "message": "Incomplete parameters",
+      "detail": "Missing required field: {{field}}. Please check your input and try again.",
+      "fallbackField": "parameter"
+    },
+    "badPayload": {
+      "message": "Bad request format",
+      "detail": "Internal communication data is malformed; refresh the page and try again."
+    },
+    "windowControl": {
+      "message": "Window action unsupported",
+      "detail": "This window action is unavailable on the current platform."
+    },
+    "workspaceNotFound": {
+      "message": "Workspace not found",
+      "detail": "This workspace may have been moved or deleted; please re-import it."
+    },
+    "invalidPath": {
+      "message": "Invalid path",
+      "detail": "Please choose a valid folder as the teaching workspace."
+    },
+    "emptyMission": {
+      "message": "Please enter a learning mission",
+      "detail": "The learning mission can't be empty; briefly describe what you want to learn."
+    },
+    "emptyTask": {
+      "message": "Please enter a teaching task",
+      "detail": "Describe the lesson topic you want to generate in the input above."
+    },
+    "pathRestricted": {
+      "message": "Path access restricted",
+      "detail": "Only files inside the teaching workspace are accessible."
+    },
+    "fileNotFound": {
+      "message": "File not found",
+      "detail": "The selected file may have been moved or deleted."
+    },
+    "accessDenied": {
+      "message": "File access denied",
+      "detail": "No permission to access this file; check the file permissions."
+    },
+    "generic": {
+      "message": "Operation failed",
+      "detail": "Please try again shortly. If the problem persists, contact support.",
+      "stackDetail": "The app hit an unexpected error. If it persists, restart the app."
+    },
     "openPath": "Couldn't open the path.",
     "openExternal": "Couldn't open the link.",
     "openLog": "Couldn't open the log file.",
@@ -620,11 +1046,27 @@
     "confirmGenerate": "This will generate a lesson, reference, and learning record from the current task. Continue?"
   },
   "notify": {
-    "imported": { "title": "Workspace imported", "body": "{{name}} has been added to StudiumX.", "fallbackName": "Teaching workspace" },
-    "importFailed": { "title": "Import failed" },
-    "lessonGenerated": { "title": "Lesson generated", "body": "{{title}} saved to {{path}}{{suffix}}", "fallbackWithReason": "(local fallback: {{reason}})", "fallbackNoReason": "(local fallback)" },
-    "generateFailed": { "title": "Generation failed" },
-    "test": { "title": "StudiumX notification test", "body": "Notification settings are wired up correctly." }
+    "imported": {
+      "title": "Workspace imported",
+      "body": "{{name}} has been added to StudiumX.",
+      "fallbackName": "Teaching workspace"
+    },
+    "importFailed": {
+      "title": "Import failed"
+    },
+    "lessonGenerated": {
+      "title": "Lesson generated",
+      "body": "{{title}} saved to {{path}}{{suffix}}",
+      "fallbackWithReason": "(local fallback: {{reason}})",
+      "fallbackNoReason": "(local fallback)"
+    },
+    "generateFailed": {
+      "title": "Generation failed"
+    },
+    "test": {
+      "title": "StudiumX notification test",
+      "body": "Notification settings are wired up correctly."
+    }
   },
   "preview": {
     "streamingHint": "Receiving model output; it'll be rendered as a finished lesson once complete.",

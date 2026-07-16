@@ -21,6 +21,47 @@ describe('teaching settings schema', () => {
     })
   })
 
+  it('defaults, clamps, and rounds persisted pet sizes explicitly', () => {
+    expect(normalizeTeachingSettings({}, fallbackRoot).pet.size).toBe(112)
+    expect(normalizeTeachingSettings({ pet: { size: 12 } }, fallbackRoot).pet.size).toBe(80)
+    expect(normalizeTeachingSettings({ pet: { size: 111.6 } }, fallbackRoot).pet.size).toBe(112)
+  })
+
+  it('defaults and normalizes persisted pet notification preferences', () => {
+    expect(normalizeTeachingSettings({}, fallbackRoot).pet.notificationPreferences).toEqual({
+      actionableOnly: false,
+      showRunning: true,
+      showReview: true,
+      showWaving: true,
+      sources: { agent: true, lessonGeneration: true, lessonReview: true, onboarding: true },
+      quietUntil: null
+    })
+
+    expect(normalizeTeachingSettings({
+      pet: {
+        notificationPreferences: {
+          actionableOnly: true,
+          showRunning: false,
+          showReview: 'false',
+          showWaving: false,
+          sources: { agent: false, lessonGeneration: 'false', lessonReview: false, onboarding: false },
+          quietUntil: 12_345.6
+        }
+      }
+    }, fallbackRoot).pet.notificationPreferences).toEqual({
+      actionableOnly: true,
+      showRunning: false,
+      showReview: true,
+      showWaving: false,
+      sources: { agent: false, lessonGeneration: true, lessonReview: false, onboarding: false },
+      quietUntil: 12_346
+    })
+
+    expect(normalizeTeachingSettings({
+      pet: { notificationPreferences: { quietUntil: 'tomorrow' } }
+    }, fallbackRoot).pet.notificationPreferences.quietUntil).toBeNull()
+  })
+
   it('normalizes malformed persisted data, missing objects, and legacy values', () => {
     const normalized = normalizeTeachingSettings({
       version: 0,
@@ -89,7 +130,7 @@ describe('teaching settings schema', () => {
         xaiModel: '  '
       },
       notifications: null,
-      pet: { appearance: 'robot', displayName: '  Legacy pet name that is much too long  ' },
+      pet: { appearance: 'robot', displayName: '  Legacy pet name that is much too long  ', size: 999 },
       privacy: { maskApiKeys: false },
       appBehavior: { closeAction: 'tray', closeToTray: 'yes' },
       log: { retentionDays: 0 }
@@ -146,7 +187,8 @@ describe('teaching settings schema', () => {
       },
       pet: {
         appearance: 'boba',
-        displayName: 'Legacy pet name that is '
+        displayName: 'Legacy pet name that is ',
+        size: 224
       },
       privacy: { maskApiKeys: false, allowExternalLinks: true },
       appBehavior: { closeAction: 'tray', closeToTray: false },
@@ -190,6 +232,20 @@ describe('teaching settings schema', () => {
     expect(merged.workspace).toMatchObject({
       defaultRoot: fallbackRoot,
       showAllCourseFiles: true
+    })
+
+    const petMerged = mergeTeachingSettings(current, {
+      pet: {
+        notificationPreferences: {
+          showRunning: false,
+          sources: { agent: false }
+        }
+      }
+    })
+    expect(petMerged.pet.notificationPreferences).toEqual({
+      ...current.pet.notificationPreferences,
+      showRunning: false,
+      sources: { ...current.pet.notificationPreferences.sources, agent: false }
     })
   })
 })
