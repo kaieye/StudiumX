@@ -153,7 +153,10 @@ export class DelegationRuntime {
           signal: lifecycle.signal
         })),
         maxIterations: input.maxIterations,
-        maxIterationsBehavior: 'error',
+        // A bounded child that has already gathered evidence should spend one
+        // final provider call summarizing partial findings instead of failing
+        // and returning no usable research to its parent.
+        maxIterationsBehavior: 'force_final_answer',
         signal: lifecycle.signal,
         callbacks: {
           onEvent: (event) => {

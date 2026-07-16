@@ -10,7 +10,12 @@ import { AgentRunStore, emptyAgentRunUsage, normalizeAgentRunBudget } from './ai
 import type { ContextCompactionOptions } from './ai/context-compactor'
 import { deriveConversationTurnContext } from './teaching-conversation-turn-context'
 import { finalizeLearnerMemoryCapture, resolveDirectMemoryConsent } from './teaching-conversation-memory'
-import { createLessonToolLifecycle, MIN_DURABLE_LESSON_ITERATIONS } from './teaching-conversation-lesson-tool'
+import {
+  createLessonToolLifecycle,
+  lessonGenerationBudgetFallback,
+  lessonGenerationMaxIterations,
+  lessonGenerationRunBudget
+} from './teaching-conversation-lesson-tool'
 import { createConversationPermissionResolver } from './teaching-conversation-permissions'
 import { buildAgentChatSystemPrompt, type TemporaryChatContext } from './teaching-conversation-prompt'
 import { buildLearnerMemoryCandidate, planLearnerMemoryCapture } from '../shared/teaching-memory-capture'
@@ -305,8 +310,18 @@ async function runTeachingConversationTurnActive(
   ]
   const lessonGenerationRequested = lessonTool.isGenerationRequested(userInput)
   const maxIterations = lessonGenerationRequested
-    ? Math.max(settings.tools.maxIterations, MIN_DURABLE_LESSON_ITERATIONS)
+    ? lessonGenerationMaxIterations(settings.tools.maxIterations)
     : settings.tools.maxIterations
+  // Keep the longer ceiling available for every turn that can invoke the
+  // durable lesson pipeline. The model may legitimately call generate_lesson
+  // after a short confirmation such as “开始吧”, which is not always matched
+  // by the explicit generation-intent heuristic above.
+  const runBudget = lessonTool.enabled
+    ? lessonGenerationRunBudget(settings.tools.runBudget)
+    : settings.tools.runBudget
+  if (runBudget !== settings.tools.runBudget) {
+    await deps.runStore.update(stream.streamId, { budget: runBudget })
+  }
 
   const runEvents: AgentLoopEvent[] = []
   const result = await runAgentLoop({
@@ -320,9 +335,31 @@ async function runTeachingConversationTurnActive(
     shouldErrorOnMaxIterations: () =>
       lessonGenerationRequested && !lessonTool.hasAttemptedGeneration(),
     maxIterationsErrorMessage:
-      '工具调用上限已用完，generate_lesson 尚未执行，所以课程尚未生成。请重试，或在设置里提高工具调用上限。',
+      '本轮操作次数已达到上限，课程尚未生成。当前对话和规划内容已保留；请继续发送“生成课程”重试，或在设置中提高工具调用上限。',
+    ...(lessonGenerationRequested
+      ? (() => {
+          const generateLessonTool = registry.definitions().find(
+            (tool) => tool.function.name === 'generate_lesson'
+          )
+          return generateLessonTool
+            ? {
+                iterationLimitRecovery: {
+                  shouldAttempt: () => !lessonTool.hasAttemptedGeneration(),
+                  instruction:
+                    '常规规划轮次已经结束。现在只执行课程生成：立即根据已确认的对话内容调用 generate_lesson；不要调用其他工具，也不要继续提问。',
+                  tools: [generateLessonTool],
+                  toolChoice: { type: 'function' as const, function: { name: 'generate_lesson' } },
+                  maxAttempts: 2
+                }
+              }
+            : {}
+        })()
+      : {}),
     contextCompaction: buildContextCompactionOptions(payload.contextCompaction),
-    budget: settings.tools.runBudget,
+    budget: runBudget,
+    budgetExhaustionFallback: (reason) =>
+      lessonGenerationBudgetFallback(lessonTool.generatedLessons(), reason),
+    shouldFinalizeAfterToolExecution: () => lessonTool.generatedLessons().length > 0,
     signal: stream.signal,
     callbacks: {
       onEvent: (event) => {

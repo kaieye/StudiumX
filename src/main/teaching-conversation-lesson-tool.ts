@@ -1,9 +1,40 @@
 import { normalizeLessonBrief, type LessonBrief } from '../shared/teaching-workflow'
-import type { LessonSummary } from '../shared/teaching-types'
+import type { AgentRunBudget, LessonSummary } from '../shared/teaching-types'
 import type { ToolDefinition } from './ai/provider-adapter'
 import type { ToolEntry } from './ai/tools/registry'
 
 export const MIN_DURABLE_LESSON_ITERATIONS = 4
+export const MIN_LESSON_GENERATION_DURATION_MS = 10 * 60_000
+export const MIN_LESSON_GENERATION_PROVIDER_CALLS = 24
+export const MIN_LESSON_GENERATION_TOOL_CALLS = 48
+
+/**
+ * A lesson-generation turn may legitimately spend several iterations reading
+ * context and asking the learner before it can call generate_lesson. Keep the
+ * configured allowance, then reserve a few extra iterations for the durable
+ * generation call and its final confirmation instead of consuming the whole
+ * turn on planning work. A configured value of 0 remains unlimited; the
+ * independent duration/provider/tool/token budgets remain the hard safety boundary.
+ */
+export function lessonGenerationMaxIterations(configuredMaxIterations: number): number {
+  if (!Number.isFinite(configuredMaxIterations) || configuredMaxIterations <= 0) return 0
+  return Math.floor(configuredMaxIterations) + MIN_DURABLE_LESSON_ITERATIONS
+}
+
+/**
+ * Courseware generation performs a nested durable artifact pipeline and can
+ * legitimately outlive the short conversational planning budget. Keep all
+ * configured safety ceilings, but give generation turns a practical duration
+ * floor so a completed lesson is not reported as a failed conversation.
+ */
+export function lessonGenerationRunBudget(configured: AgentRunBudget): AgentRunBudget {
+  return {
+    ...configured,
+    maxDurationMs: Math.max(configured.maxDurationMs, MIN_LESSON_GENERATION_DURATION_MS),
+    maxProviderCalls: Math.max(configured.maxProviderCalls, MIN_LESSON_GENERATION_PROVIDER_CALLS),
+    maxToolCalls: Math.max(configured.maxToolCalls, MIN_LESSON_GENERATION_TOOL_CALLS)
+  }
+}
 
 export type LessonToolLifecycle = {
   readonly enabled: boolean
@@ -56,6 +87,11 @@ export function createLessonToolLifecycle(options: {
               `本轮对话已经尝试 generate_lesson 且失败：${failure}。不要继续重复调用 generate_lesson；请直接向用户说明失败原因、已确认的课程方向，以及下一步可重试的具体操作。`
             )
           }
+          if (attempted) {
+            throw new Error(
+              '本轮对话已经成功执行 generate_lesson。不要重复生成课程；请直接向用户总结已生成的课程和下一步。'
+            )
+          }
 
           attempted = true
           try {
@@ -80,8 +116,23 @@ export function createLessonToolLifecycle(options: {
     isGenerationRequested: (userInput) => enabled && isLessonGenerationRequest(userInput),
     hasAttemptedGeneration: () => attempted,
     generatedLessons: () => [...generatedLessons],
-    missingGenerationMessage: () => '课程尚未生成：本轮没有成功执行 generate_lesson。请重试；StudiumX 不会把“准备生成”当作已完成。'
+    missingGenerationMessage: () => '课程尚未生成：本轮未能完成正式生成。当前对话和规划内容已保留，请继续发送“生成课程”重试。'
   }
+}
+
+export function lessonGenerationBudgetFallback(lessons: readonly LessonSummary[], reason: string): string | null {
+  if (lessons.length === 0) return null
+  const generated = lessons
+    .map((lesson) => `《${lesson.title}》（${lesson.relativePath}）`)
+    .join('、')
+  const boundary = reason === 'provider_calls'
+    ? '模型调用预算'
+    : reason === 'tool_calls'
+      ? '工具调用预算'
+      : reason === 'duration'
+        ? '运行时长预算'
+        : 'token 预算'
+  return `课程已成功生成并保存：${generated}。后续整理因本轮${boundary}到达上限而停止，但不影响已生成课件。`
 }
 
 function isLessonGenerationRequest(input: string): boolean {

@@ -98,6 +98,7 @@ import {
 } from './agent-conversation-state'
 import { buildAgentConversationPresentation } from './agent-conversation-presentation'
 import { AgentConversationReader } from './views/agent-conversation/AgentConversationReader'
+import { ConversationInterruptionDock } from './views/agent-conversation/ConversationInterruptionDock'
 import { AgentMessageActions, AgentMessageEditor } from './views/agent-conversation/AgentSessionTreePanel'
 import {
   LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE,
@@ -1986,7 +1987,6 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
   const [messageActionBusy, setMessageActionBusy] = useState(false)
   const viewingBusyPendingConversation = agentChatBusy && activeConversationId === pendingAgentConversation?.summary.id
-  const canCancelAgentChat = agentChatBusy && Boolean(pendingAgentConversation)
   const activeBranchStatus = activeSessionTree?.branches.find((branch) => branch.conversationId === activeConversationId)?.status
   const activeBranchReadOnly = activeBranchStatus === 'archived' || activeBranchStatus === 'deleted'
   const navigableConversationBranches = useMemo(
@@ -2039,6 +2039,12 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           }
         : null
   }), [agentTurns, activeAssistantTurnId, pendingAsk, pendingPermission])
+  const activeTurnPresentation = activeAssistantTurnId
+    ? conversationPresentation.turns.find((turn) => turn.turnId === activeAssistantTurnId)
+    : undefined
+  const canCancelAgentChat = agentChatBusy && Boolean(pendingAgentConversation) && (
+    activeTurnPresentation?.active === true || hasPendingInterruption
+  )
   const blockedAsk = conversationPresentation.blocked?.kind === 'ask'
     ? conversationPresentation.blocked
     : null
@@ -2215,8 +2221,12 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           {agentTurns.map((turn) => {
             const turnPresentation = conversationPresentation.turns.find((item) => item.turnId === turn.id)
             const isBusyTurn = activeAssistantTurnId === turn.id
-            const hasProcess = Boolean(turnPresentation?.items.length)
-            const content = turn.content || (turn.role === 'assistant' && isBusyTurn && !hasProcess ? '正在回复…' : '')
+            // Assistant text emitted before a tool call is an internal planning
+            // preamble. The same work is already represented by the single
+            // “规划中” card; rendering it here creates duplicated, split prose.
+            const isInternalToolTurn = turn.role === 'assistant' && Boolean(turn.toolCalls?.length)
+            const visibleContent = isInternalToolTurn ? '' : turn.content
+            const content = visibleContent || (turn.role === 'assistant' && isBusyTurn && !turnPresentation?.items.length ? '正在准备回复…' : '')
             const isEditing = editingTurnId === turn.id
             return (
               <div
@@ -2253,37 +2263,34 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         </div>
       )}
 
-      <DialogModeSwitch />
-      {blockedAsk && (
-        <div className="overview-dialog-stack ask-stack">
+      <ConversationInterruptionDock
+        active={hasPendingInterruption}
+        interruption={blockedAsk ? (
           <AskCard
             questions={blockedAsk.questions}
             onSubmit={answerAsk}
             onDismiss={() => answerAsk([])}
             onCancel={() => void cancelAgentChat()}
           />
-        </div>
-      )}
-      {blockedPermission && (
-        <div className="overview-dialog-stack ask-stack">
+        ) : blockedPermission ? (
           <ToolPermissionCard
             request={blockedPermission.request}
             onAllowOnce={() => answerPermission('allow_once')}
             onAllowRun={() => answerPermission('allow_for_run')}
             onAllowDirectory={() => answerPermission('allow_for_directory')}
             onDeny={() => answerPermission('deny')}
-            onCancel={() => void cancelAgentChat()}
           />
-        </div>
-      )}
-      <form
-        className="overview-dialog-stack"
-        aria-label={t('overview.formAria')}
-        onSubmit={(event) => {
-          event.preventDefault()
-          submitCurrentMode()
-        }}
+        ) : null}
       >
+        <DialogModeSwitch />
+        <form
+          className="overview-dialog-stack"
+          aria-label={t('overview.formAria')}
+          onSubmit={(event) => {
+            event.preventDefault()
+            submitCurrentMode()
+          }}
+        >
         <div className="overview-dialog-card">
           {skillSlash.menu}
           <textarea
@@ -2344,7 +2351,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             {!isTeachingMode && agentStatus ? <span className="overview-dialog-status-text">{agentStatus}</span> : null}
           </div>
         </div>
-      </form>
+        </form>
+      </ConversationInterruptionDock>
     </section>
   )
 }
@@ -2396,15 +2404,13 @@ function ToolPermissionCard({
   onAllowOnce,
   onAllowRun,
   onAllowDirectory,
-  onDeny,
-  onCancel
+  onDeny
 }: {
   request: AgentToolPermissionRequest
   onAllowOnce: () => void
   onAllowRun: () => void
   onAllowDirectory: () => void
   onDeny: () => void
-  onCancel: () => void
 }) {
   const target = request.targetPath || request.toolName
   return (
@@ -2420,24 +2426,16 @@ function ToolPermissionCard({
       </div>
 
       {request.reason ? (
-        <div className="ask-qa-block">
-          <div className="ask-qa-block__body">
-            <div className="ask-qa-block__item">
-              <strong>原因</strong>
-              <p>{request.reason}</p>
-            </div>
-          </div>
+        <div className="tool-permission-card__reason">
+          <strong>原因</strong>
+          <p>{request.reason}</p>
         </div>
       ) : null}
 
-      <div className="ask-card__footer">
+      <div className="ask-card__footer tool-permission-card__actions">
         <button type="button" className="ask-card__ghost" onClick={onDeny}>
           <X size={12} />
           拒绝
-        </button>
-        <button type="button" className="ask-card__ghost ask-card__ghost--mute" onClick={onCancel}>
-          <Square size={12} />
-          中断
         </button>
         {request.directoryScopePath ? (
           <button type="button" className="ask-card__ghost" onClick={onAllowDirectory}>
