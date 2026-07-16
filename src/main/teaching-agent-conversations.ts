@@ -24,6 +24,7 @@ import {
   type AgentStagedChildTranscriptAllowance
 } from './agent-conversation-session-audit'
 import { saveAgentConversationArchive } from './agent-conversation-archive'
+import { sanitizeAgentConversationTurns, sanitizeAgentTurnContent } from '../shared/agent-conversation-turns'
 import type {
   AgentArtifactRef,
   AgentChildRunMetadata,
@@ -264,14 +265,14 @@ export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[]
     normalized.push({
       id: typeof record.id === 'string' && record.id ? record.id : `${role}-${index}`,
       role,
-      content: typeof record.content === 'string' ? record.content : '',
+      content: sanitizeAgentTurnContent(typeof record.content === 'string' ? record.content : ''),
       toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
       processEvents: processEvents && processEvents.length > 0 ? processEvents : undefined,
       metadata,
       createdAt: typeof record.createdAt === 'string' ? record.createdAt : now
     })
   }
-  return normalized
+  return sanitizeAgentConversationTurns(normalized)
 }
 
 function normalizeAgentProcessEventKind(value: unknown): AgentChatProcessEvent['kind'] {

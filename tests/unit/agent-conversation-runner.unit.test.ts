@@ -218,6 +218,7 @@ describe('AgentConversationTurnRunner', () => {
     }), expect.any(Function), expect.any(Function), expect.any(Function), expect.any(Function))
     expect(save).toHaveBeenCalledWith(expect.objectContaining({
       workspaceId: 'workspace-1',
+      runId: 'pending-42',
       mode: 'teaching',
       conversationId: null,
       selectedCourseRelativePath: 'courses/mechanics',
@@ -227,9 +228,12 @@ describe('AgentConversationTurnRunner', () => {
     expect(savedTurns[1]).toMatchObject({ content: 'Saved answer' })
     expect(savedTurns[1].processEvents?.map((event) => event.kind)).toEqual(expect.arrayContaining([
       'status',
-      'tool_call',
-      'tool_result'
+      'tool_call'
     ]))
+    expect(savedTurns[1].processEvents?.filter((event) => event.kind === 'tool_call')).toEqual([
+      expect.objectContaining({ status: 'tool_done' })
+    ])
+    expect(savedTurns[1].processEvents?.some((event) => event.kind === 'tool_result')).toBe(false)
     expect(harness.getState()).toMatchObject({
       appState: { previewHtml: 'saved-state' },
       taskPrompt: 'Explain momentum',
@@ -386,10 +390,53 @@ describe('AgentConversationTurnRunner', () => {
       activeConversationId: 'conversation-b',
       activeConversationRevision: 3,
       activeSessionTree: branchBTree,
-      agentTurns: [{ id: 'b-turn', content: 'Branch B' }]
+      agentTurns: [{ id: 'b-turn', content: 'Branch B' }],
+      pendingAgentConversation: null,
+      agentChatBusy: false
     })
   })
 
+  it('starts a fresh teaching conversation when switching from a temporary branch', async () => {
+    const stream = vi.fn(async () => completedTurn())
+    const save = vi.fn(async (payload) => ({
+      state: appState(),
+      conversation: {
+        id: 'conversation-teaching',
+        title: 'Teaching branch',
+        createdAt,
+        updatedAt: createdAt,
+        relativePath: 'conversations/conversation-teaching.md',
+        absolutePath: '/workspace/conversations/conversation-teaching.md',
+        messageCount: payload.turns.length
+      }
+    }))
+    const harness = makeHarness({
+      agentChatStream: stream,
+      saveAgentConversation: save,
+      cancelAgentChatStream: vi.fn()
+    }, {
+      overviewDialogMode: 'teaching',
+      activeConversationId: 'conversation-temporary',
+      activeConversationScope: 'temporary',
+      activeConversationRevision: 2,
+      activeSessionTree: sessionTree('conversation-temporary', 2),
+      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Temporary question', createdAt }]
+    })
+
+    await harness.runner.run({ inputOverride: 'Teach me momentum', mode: 'teaching' })
+
+    expect(stream).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: undefined,
+      expectedBranchRevision: undefined,
+      mode: 'teaching',
+      messages: []
+    }), expect.any(Function), expect.any(Function), expect.any(Function), expect.any(Function))
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: null,
+      expectedBranchRevision: undefined,
+      mode: 'teaching'
+    }))
+  })
   it('continues a temporary legacy branch with revision zero under CAS', async () => {
     const stream = vi.fn(async () => completedTurn())
     const save = vi.fn(async (payload) => ({
@@ -530,24 +577,177 @@ describe('AgentConversationTurnRunner', () => {
     expect(save).not.toHaveBeenCalled()
   })
 
-  it('removes the optimistic assistant turn and exposes a classified error when streaming fails', async () => {
+  it('keeps the visible conversation and streamed process when a run reaches the tool limit', async () => {
+    const toolLimitMessage = '工具调用上限已用完，generate_lesson 尚未执行，所以课程尚未生成。请重试，或在设置里提高工具调用上限。'
     const harness = makeHarness({
-      agentChatStream: vi.fn(async () => { throw new Error('provider unavailable') }),
+      agentChatStream: vi.fn(async (_payload, onChunk, onStatus, onTool) => {
+        onStatus({ streamId: 'pending-42', status: 'thinking', message: '正在规划课程' })
+        onChunk({ streamId: 'pending-42', channel: 'reasoning', delta: '先分析学习目标。' })
+        onTool({
+          streamId: 'pending-42',
+          toolCall: { id: 'tool-ask', name: 'ask', arguments: '{"questions":[]}' }
+        })
+        onTool({
+          streamId: 'pending-42',
+          toolCall: { id: 'tool-ask', name: 'ask', arguments: '{"questions":[]}' },
+          result: '{"answers":[]}'
+        })
+        return { streamId: 'pending-42', error: true, message: toolLimitMessage }
+      }),
       saveAgentConversation: vi.fn(),
       cancelAgentChatStream: vi.fn()
     })
 
-    await harness.runner.run({ inputOverride: 'Explain inertia' })
+    await harness.runner.run({ inputOverride: '为我生成课程' })
 
     expect(harness.getState()).toMatchObject({
-      error: 'user:provider unavailable',
+      error: `user:${toolLimitMessage}`,
       agentChatBusy: false,
-      pendingAgentConversation: null,
-      activeConversationId: null
+      activeConversationId: 'pending-42',
+      agentStatus: ''
+    })
+    expect(harness.getState().pendingAgentConversation).toMatchObject({
+      summary: { id: 'pending-42' },
+      status: toolLimitMessage
     })
     expect(harness.getState().agentTurns).toEqual([
-      expect.objectContaining({ id: 'u-42', role: 'user', content: 'Explain inertia' })
+      expect.objectContaining({ id: 'u-42', role: 'user', content: '为我生成课程' }),
+      expect.objectContaining({
+        id: 'a-42',
+        role: 'assistant',
+        processEvents: expect.arrayContaining([
+          expect.objectContaining({ kind: 'reasoning', detail: '先分析学习目标。' }),
+          expect.objectContaining({ kind: 'elicitation_resolved', toolCallId: 'tool-ask' }),
+          expect.objectContaining({ status: 'error', detail: toolLimitMessage })
+        ])
+      })
     ])
+  })
+
+
+  it('durably saves a failed lesson-generation turn so navigation cannot discard the conversation', async () => {
+    const toolLimitMessage = '课程尚未生成：本轮未能完成正式生成。当前对话和规划内容已保留，请继续发送“生成课程”重试。'
+    const save = vi.fn(async (payload) => ({
+      state: appState(workspace({
+        conversations: [{
+          id: 'conversation-failed',
+          title: 'AI 课程规划',
+          createdAt,
+          updatedAt: createdAt,
+          relativePath: '.agent-sessions/conversations/conversation-failed.json',
+          absolutePath: '/workspace/.agent-sessions/conversations/conversation-failed.json',
+          messageCount: payload.turns.length
+        }]
+      })),
+      conversation: {
+        id: 'conversation-failed',
+        title: 'AI 课程规划',
+        createdAt,
+        updatedAt: createdAt,
+        relativePath: '.agent-sessions/conversations/conversation-failed.json',
+        absolutePath: '/workspace/.agent-sessions/conversations/conversation-failed.json',
+        messageCount: payload.turns.length,
+        branch: {
+          sessionId: 'session-tree-1',
+          branchId: 'branch-conversation-failed',
+          revision: 1,
+          status: 'active' as const
+        }
+      }
+    }))
+    const harness = makeHarness({
+      agentChatStream: vi.fn(async (_payload, onChunk) => {
+        onChunk({ streamId: 'pending-42', channel: 'reasoning', delta: '已完成课程规划。' })
+        return { streamId: 'pending-42', error: true, message: toolLimitMessage }
+      }),
+      saveAgentConversation: save,
+      cancelAgentChatStream: vi.fn()
+    })
+
+    await harness.runner.run({ inputOverride: '生成课程' })
+
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: 'workspace-1',
+      mode: 'teaching',
+      conversationId: null,
+      turns: [
+        expect.objectContaining({ id: 'u-42', role: 'user', content: '生成课程' }),
+        expect.objectContaining({
+          id: 'a-42',
+          role: 'assistant',
+          processEvents: expect.arrayContaining([
+            expect.objectContaining({ kind: 'reasoning', detail: '已完成课程规划。' }),
+            expect.objectContaining({ status: 'error', detail: toolLimitMessage })
+          ])
+        })
+      ]
+    }))
+    expect(save.mock.calls[0][0]).not.toHaveProperty('runId')
+    expect(harness.getState()).toMatchObject({
+      error: `user:${toolLimitMessage}`,
+      agentChatBusy: false,
+      activeConversationId: 'conversation-failed',
+      activeConversationScope: 'workspace',
+      activeConversationRevision: 1,
+      pendingAgentConversation: null
+    })
+    expect(harness.getState().appState.activeWorkspace?.conversations).toEqual([
+      expect.objectContaining({ id: 'conversation-failed' })
+    ])
+  })
+
+  it('retries a failed pending turn on its original persisted conversation branch', async () => {
+    const originalConversation = {
+      id: 'conversation-7',
+      title: 'Mechanics',
+      createdAt,
+      updatedAt: createdAt,
+      relativePath: '.agent-sessions/conversations/conversation-7.json',
+      absolutePath: '/workspace/.agent-sessions/conversations/conversation-7.json',
+      messageCount: 2
+    }
+    const activeWorkspace = workspace({ conversations: [originalConversation] })
+    const stream = vi.fn()
+      .mockResolvedValueOnce({ streamId: 'pending-42', error: true, message: 'temporary failure' })
+      .mockResolvedValueOnce({ streamId: 'pending-42', error: true, message: 'second temporary failure' })
+    const harness = makeHarness({
+      agentChatStream: stream,
+      saveAgentConversation: vi.fn(),
+      cancelAgentChatStream: vi.fn()
+    }, {
+      appState: appState(activeWorkspace),
+      activeConversationId: 'conversation-7',
+      activeConversationScope: 'workspace',
+      activeConversationRevision: 3,
+      activeSessionTree: sessionTree('conversation-7', 3),
+      agentTurns: [
+        { id: 'u-prior', role: 'user', content: 'Prior question', createdAt },
+        { id: 'a-prior', role: 'assistant', content: 'Prior answer', createdAt }
+      ]
+    })
+
+    await harness.runner.run({ inputOverride: '生成课程' })
+    expect(harness.getState().activeConversationId).toBe('pending-42')
+
+    await harness.runner.run({ inputOverride: '重试生成课程' })
+
+    expect(stream).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        conversationId: 'conversation-7',
+        expectedBranchRevision: 3,
+        messages: [
+          { role: 'user', content: 'Prior question' },
+          { role: 'assistant', content: 'Prior answer' },
+          { role: 'user', content: '生成课程' }
+        ],
+        messageTurnIds: ['u-prior', 'a-prior', 'u-42']
+      }),
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function)
+    )
   })
 
   it('keeps the reconciled pending conversation recoverable when durable saving fails', async () => {

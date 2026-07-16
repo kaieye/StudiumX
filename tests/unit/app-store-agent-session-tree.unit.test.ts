@@ -125,6 +125,57 @@ afterEach(() => {
 })
 
 describe('appStore Agent session lifecycle', () => {
+  it('restores an in-progress teaching conversation after leaving and reopening teaching mode', () => {
+    const pending = {
+      workspaceId: 'workspace-1',
+      sourceConversationId: null,
+      sourceConversationRevision: null,
+      mode: 'teaching' as const,
+      summary: {
+        id: 'pending-teaching', title: 'Teaching', relativePath: 'courses/physics/conversations/pending.json',
+        createdAt, updatedAt: createdAt, messageCount: 2, mode: 'teaching' as const, pending: true as const
+      },
+      turns: [
+        { id: 'user-1', role: 'user' as const, content: 'Explain momentum', createdAt },
+        { id: 'assistant-1', role: 'assistant' as const, content: '', createdAt }
+      ],
+      status: '调用工具…',
+      toolsSupported: true
+    }
+    useAppStore.setState({
+      view: 'overview', overviewDialogMode: 'teaching', agentChatBusy: true,
+      pendingAgentConversation: pending, agentTurns: pending.turns,
+      activeConversationId: pending.summary.id, activeConversationScope: 'workspace'
+    })
+
+    useAppStore.getState().setOverviewDialogMode('chat')
+    useAppStore.getState().openWorkspaceTeachingMode()
+
+    expect(useAppStore.getState()).toMatchObject({
+      view: 'overview', overviewDialogMode: 'teaching', agentChatBusy: true,
+      activeConversationId: 'pending-teaching', activeConversationScope: 'workspace',
+      agentTurns: pending.turns, pendingAgentConversation: pending
+    })
+  })
+
+  it('keeps a teaching conversation visible when its response finishes while another mode is selected', () => {
+    const turns = [{ id: 'assistant-complete', role: 'assistant' as const, content: 'Completed answer', createdAt }]
+    useAppStore.setState({
+      view: 'overview', overviewDialogMode: 'chat', agentChatBusy: false,
+      pendingAgentConversation: null, agentTurns: turns,
+      activeConversationId: 'conversation-complete', activeConversationScope: 'workspace',
+      activeConversationRevision: 2
+    })
+
+    useAppStore.getState().openWorkspaceTeachingMode()
+
+    expect(useAppStore.getState()).toMatchObject({
+      view: 'overview', overviewDialogMode: 'teaching',
+      activeConversationId: 'conversation-complete', activeConversationScope: 'workspace',
+      activeConversationRevision: 2, agentTurns: turns
+    })
+  })
+
   it('recovers a temporary interrupted branch with an explicit storage scope', async () => {
     vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
     const recovered = record('root', 'active', 4)

@@ -232,7 +232,7 @@ const WORKSPACE_TREE_MAX_ENTRIES_PER_DIR = 80
 const WORKSPACE_TREE_IGNORED_DIRS = new Set([
   '.agent-sessions',
   '.git',
-  '.teachos',
+  '.studiumx',
   'node_modules',
   'out',
   'dist',

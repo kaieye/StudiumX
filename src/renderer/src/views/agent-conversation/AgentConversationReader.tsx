@@ -1,16 +1,32 @@
-import { useEffect, useRef, useState } from 'react'
-import type { AgentConversationTurnPresentation } from '../../agent-conversation-presentation'
+import {
+  AlertCircle,
+  Archive,
+  Bell,
+  BrainCircuit,
+  CheckCircle2,
+  ChevronDown,
+  Clock3,
+  FileText,
+  GitFork,
+  Loader2,
+  MessageSquare,
+  Search,
+  Sparkles,
+  Wrench
+} from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type {
+  AgentConversationProvenanceItem,
+  AgentConversationTurnPresentation
+} from '../../agent-conversation-presentation'
 import type {
   TeachingTurnAction,
   TeachingTurnPresentation
 } from '../../teaching-turn-presentation'
 
-/**
- * Renders only the learner-safe teaching projection. Process and diagnostic
- * metadata remain available to the application but are not part of the chat UI.
- */
+/** Renders the live agent process or the learner-facing teaching projection. */
 export function AgentConversationReader({
-  presentation: _presentation,
+  presentation,
   teachingPresentation,
   onTeachingAction,
   compact = false
@@ -23,14 +39,11 @@ export function AgentConversationReader({
   if (teachingPresentation) {
     return <TeachingTurnReader presentation={teachingPresentation} onAction={onTeachingAction} compact={compact} />
   }
-  return null
+  if (!presentation || (presentation.items.length === 0 && presentation.answeredAsks.length === 0)) return null
+  return <AgentProcessReader presentation={presentation} compact={compact} />
 }
 
-function TeachingTurnReader({
-  presentation,
-  onAction,
-  compact
-}: {
+function TeachingTurnReader({ presentation, onAction, compact }: {
   presentation: TeachingTurnPresentation
   onAction?: (action: TeachingTurnAction) => void
   compact: boolean
@@ -38,54 +51,131 @@ function TeachingTurnReader({
   const actionRef = useRef<HTMLButtonElement>(null)
   const announcedIds = useRef(new Set<string>())
   const [liveAnnouncement, setLiveAnnouncement] = useState<string | null>(null)
-
-  useEffect(() => {
-    actionRef.current?.focus()
-  }, [presentation.focusKey])
-
+  useEffect(() => { actionRef.current?.focus() }, [presentation.focusKey])
   useEffect(() => {
     const announcement = presentation.announcement
     if (!announcement || announcedIds.current.has(announcement.id)) return
     announcedIds.current.add(announcement.id)
     setLiveAnnouncement(announcement.message)
   }, [presentation.announcement])
-
   const activePhase = presentation.phases.find((phase) => phase.id === presentation.activePhaseId)
   return (
     <section className={`teaching-turn-panel${compact ? ' is-compact' : ''}`} aria-label="学习流程">
       <ol className="teaching-turn-panel__phases" aria-label="学习流程阶段">
         {presentation.phases.map((phase) => (
           <li key={phase.id} aria-current={phase.id === presentation.activePhaseId ? 'step' : undefined}>
-            <strong>{phase.title}</strong>
-            <span>{phase.statusText}</span>
+            <strong>{phase.title}</strong><span>{phase.statusText}</span>
           </li>
         ))}
       </ol>
-      {activePhase ? (
-        <p className="teaching-turn-panel__status" aria-label={`当前阶段：${activePhase.title}。${activePhase.statusText}`}>
-          当前阶段：{activePhase.title}。{activePhase.statusText}
-        </p>
-      ) : null}
+      {activePhase ? <p className="teaching-turn-panel__status">当前阶段：{activePhase.title}。{activePhase.statusText}</p> : null}
       {presentation.action ? (
-        <button
-          ref={actionRef}
-          type="button"
-          className="teaching-turn-panel__action"
-          onClick={() => onAction?.(presentation.action!)}
-          aria-label={presentation.action.label}
-        >
+        <button ref={actionRef} type="button" className="teaching-turn-panel__action"
+          onClick={() => onAction?.(presentation.action!)} aria-label={presentation.action.label}>
           {presentation.action.label}
         </button>
       ) : null}
       {presentation.sourceIds.length > 0 ? (
-        <details className="teaching-turn-panel__sources">
-          <summary>来源摘要</summary>
-          <ul aria-label="可信来源标识">
-            {presentation.sourceIds.map((sourceId) => <li key={sourceId}>来源 {sourceId}</li>)}
-          </ul>
-        </details>
+        <details className="teaching-turn-panel__sources"><summary>来源摘要</summary><ul>
+          {presentation.sourceIds.map((sourceId) => <li key={sourceId}>来源 {sourceId}</li>)}
+        </ul></details>
       ) : null}
       {liveAnnouncement ? <p className="sr-only" role="status" aria-live="polite">{liveAnnouncement}</p> : null}
     </section>
   )
+}
+
+function AgentProcessReader({ presentation, compact }: {
+  presentation: AgentConversationTurnPresentation
+  compact: boolean
+}) {
+  return (
+    <section className={`agent-process-panel${compact ? ' is-compact' : ''}`} aria-label="AI 处理过程">
+      <header className="agent-process-header">
+        <BrainCircuit size={compact ? 13 : 14} />
+        <strong>规划中</strong>
+        <span>{presentation.active ? '进行中' : '已完成'}</span>
+      </header>
+      <div className="agent-process-list" aria-live="polite">
+        {presentation.items.map((item) => <AgentProcessRow key={item.id} item={item} />)}
+      </div>
+    </section>
+  )
+}
+
+function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
+  if (item.kind === 'reasoning' && item.detail) return <ReasoningProcessRow item={item} />
+  return (
+    <div className={`agent-process-event${item.state === 'error' ? ' is-error' : ''}${item.state === 'active' ? ' is-active' : ''}`}>
+      <span className="agent-process-event-icon"><ProcessIcon item={item} /></span>
+      <div className="agent-process-event-copy">
+        <strong>{item.label}</strong>
+        {item.detail ? <small>{item.detail}</small> : null}
+      </div>
+    </div>
+  )
+}
+
+function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
+  const [expanded, setExpanded] = useState(false)
+  const [detailMaxHeight, setDetailMaxHeight] = useState<number | null>(null)
+  const [hasOverflow, setHasOverflow] = useState(false)
+  const detailRef = useRef<HTMLElement>(null)
+  const isActive = item.state === 'active'
+  const isCollapsed = !isActive && !expanded
+  useLayoutEffect(() => {
+    const node = detailRef.current
+    if (!node) return
+    const computedLineHeight = Number.parseFloat(window.getComputedStyle(node).lineHeight)
+    const lineHeight = Number.isFinite(computedLineHeight) ? computedLineHeight : 16.675
+    const collapsedHeight = lineHeight * 3
+    const fullHeight = Math.max(node.scrollHeight, collapsedHeight)
+    setHasOverflow(node.scrollHeight > collapsedHeight + 1)
+    setDetailMaxHeight(isCollapsed ? collapsedHeight : fullHeight)
+  }, [isCollapsed, item.detail])
+  return (
+    <div className={`agent-process-event${isActive ? ' is-active' : ''}`}>
+      <span className="agent-process-event-icon"><ProcessIcon item={item} /></span>
+      <div className="agent-process-event-copy">
+        <div className="agent-process-event-title">
+          <strong>{item.label}</strong>
+          {!isActive ? (
+            <button
+              type="button"
+              className="agent-process-reasoning-toggle"
+              aria-expanded={expanded}
+              aria-label={expanded ? '折叠思考过程' : '展开思考过程'}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              <ChevronDown className={expanded ? 'is-open' : undefined} size={14} />
+            </button>
+          ) : null}
+        </div>
+        <small
+          ref={detailRef}
+          className={`has-height-transition${isCollapsed ? ' is-collapsed' : ''}${hasOverflow ? ' has-overflow' : ''}`}
+          style={detailMaxHeight === null ? undefined : { maxHeight: `${detailMaxHeight}px` }}
+        >
+          {item.detail}
+        </small>
+      </div>
+    </div>
+  )
+}
+
+function ProcessIcon({ item }: { item: AgentConversationProvenanceItem }) {
+  if (item.state === 'error') return <AlertCircle size={13} />
+  if (item.state === 'active') return <Loader2 className="spin" size={13} />
+  if (item.kind === 'reasoning') return <BrainCircuit size={13} />
+  if (item.kind === 'permission_request') return <Bell size={13} />
+  if (item.kind === 'permission_resolved' || item.kind === 'elicitation_resolved' || item.kind === 'tool_result') return <CheckCircle2 size={13} />
+  if (item.kind === 'elicitation_request') return <MessageSquare size={13} />
+  if (item.kind === 'child_run') return <GitFork size={13} />
+  if (item.kind === 'compaction') return <Archive size={13} />
+  if (item.kind === 'source') return <FileText size={13} />
+  if (item.kind === 'tool_call') return <Search size={13} />
+  if (item.state === 'complete') return <CheckCircle2 size={13} />
+  if (item.kind === 'status') return <Sparkles size={13} />
+  if (item.state === 'pending') return <Wrench size={13} />
+  return <Clock3 size={13} />
 }

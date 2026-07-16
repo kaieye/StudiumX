@@ -160,4 +160,26 @@ describe('TeachingTurnPresentation', () => {
     expect(screen.getByText('来源摘要')).toBeVisible()
     expect(screen.queryByRole('log')).toBeNull()
   })
+
+  it('renders live reasoning, tool activity, and preparation status in the process panel', () => {
+    renderUi(createElement(AgentConversationReader, {
+      presentation: {
+        turnId: 'assistant-1', active: true, answeredAsks: [],
+        items: [
+          { id: 'reasoning', kind: 'reasoning', label: '思考过程', detail: '正在检查可信资料', state: 'active' },
+          { id: 'tool', kind: 'tool_call', label: '调用工具：search_notes', state: 'complete' },
+          { id: 'answering', kind: 'status', label: '正在准备回复', state: 'active' }
+        ]
+      }
+    }))
+
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toBeVisible()
+    expect(screen.getByText('规划中')).toBeVisible()
+    expect(screen.getByText('思考过程')).toBeVisible()
+    expect(screen.getByText('调用工具：search_notes')).toBeVisible()
+    expect(screen.getByText('正在准备回复')).toBeVisible()
+    expect(screen.queryByText('{"query":"momentum"}')).toBeNull()
+    expect(screen.queryByText('查看工具参数')).toBeNull()
+  })
+
 })

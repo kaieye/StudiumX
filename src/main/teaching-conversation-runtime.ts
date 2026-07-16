@@ -18,6 +18,7 @@ import {
 } from './teaching-conversation-lesson-tool'
 import { createConversationPermissionResolver } from './teaching-conversation-permissions'
 import { buildAgentChatSystemPrompt, type TemporaryChatContext } from './teaching-conversation-prompt'
+import { collapseConsecutiveAssistantTurns, sanitizeAgentTurnContent } from '../shared/agent-conversation-turns'
 import { buildLearnerMemoryCandidate, planLearnerMemoryCapture } from '../shared/teaching-memory-capture'
 import type { LessonBrief } from '../shared/teaching-workflow'
 import type {
@@ -453,13 +454,15 @@ function toAgentTurns(messages: ChatMessage[]): AgentChatTurn[] {
       turns.push({
         id: `t${counter++}`,
         role: 'assistant',
-        content: message.content ?? '',
+        content: sanitizeAgentTurnContent(message.content),
         toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
         createdAt
       })
     }
   }
-  return turns
+  // Provider tool loops emit many assistant messages per user prompt. Persist them as
+  // one coherent assistant turn so the completed UI does not re-split into plan cards.
+  return collapseConsecutiveAssistantTurns(turns)
 }
 
 function latestAssistantContent(messages: AgentChatMessage[]): string {
@@ -479,7 +482,7 @@ function directAgentTurns(messages: AgentChatMessage[], userInput: string, assis
   return [
     ...prior,
     { id: `t${prior.length}`, role: 'user', content: userInput, createdAt },
-    { id: `t${prior.length + 1}`, role: 'assistant', content: assistantText, createdAt }
+    { id: `t${prior.length + 1}`, role: 'assistant', content: sanitizeAgentTurnContent(assistantText), createdAt }
   ]
 }
 

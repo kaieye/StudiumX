@@ -1022,6 +1022,10 @@
       "message": "File access denied",
       "detail": "No permission to access this file; check the file permissions."
     },
+    "agentToolLimit": {
+      "message": "The lesson was not generated",
+      "detail": "The conversation and planning context have been preserved. Send “generate the lesson” to retry, or raise the tool-call limit in Settings."
+    },
     "generic": {
       "message": "Operation failed",
       "detail": "Please try again shortly. If the problem persists, contact support.",

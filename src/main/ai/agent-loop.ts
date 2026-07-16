@@ -29,6 +29,7 @@ import type {
 import type { AgentLoopStatus } from '../../shared/teaching-types'
 import { normalizeAgentRunBudget } from './agent-run-store'
 import { AgentLoopExecutionState } from './agent-loop-execution-state'
+import { stripDsmlToolCallBlocks } from './provider-adapter/dsml-tool-calls'
 
 export type AgentLoopStopReason = 'final_answer' | 'max_iterations' | 'budget_exhausted' | 'error' | 'degraded' | 'canceled'
 
@@ -239,11 +240,12 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       execution.maybeWarnBudget()
       if (execution.isCanceled) return canceledResult(false)
       if (execution.isDurationExhausted) return exhaustedResult(false, 'duration')
-      const assistantMsg: ChatMessage = { role: 'assistant', content: result.text }
+      const cleanedText = stripDsmlToolCallBlocks(result.text)
+      const assistantMsg: ChatMessage = { role: 'assistant', content: cleanedText }
       transcript.push(assistantMsg)
       emit({ type: 'assistant_message', message: assistantMsg })
       return execution.completed(transcript, {
-        finalText: result.text,
+        finalText: cleanedText,
         toolsSupported: false,
         degradedReason: 'unsupported_endpoint_format',
         stopReason: 'degraded'
@@ -301,11 +303,15 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
     degradedReason ??= result.degradedReason
 
-    const assistantMsg: ChatMessage = { role: 'assistant', content: result.text || null, tool_calls: result.toolCalls.length > 0 ? result.toolCalls : undefined }
+    const cleanedAssistantText = stripDsmlToolCallBlocks(result.text || '')
+    const assistantMsg: ChatMessage = { role: 'assistant', content: cleanedAssistantText || null, tool_calls: result.toolCalls.length > 0 ? result.toolCalls : undefined }
     transcript.push(assistantMsg)
     emit({ type: 'assistant_message', message: assistantMsg })
     if (result.toolCalls.length === 0) {
-      if (!result.text.trim()) {
+      // Prefer the assembled/stripped answer text. Raw buffered deltas may still
+      // contain DSML tool markup that only gets cleaned after the stream ends.
+      const answerText = cleanedAssistantText || stripDsmlToolCallBlocks(bufferedAnswerDeltas.join(''))
+      if (!answerText.trim()) {
         return execution.failed(transcript, true, degradedReason, '模型返回了空答复。')
       }
       // A model can prematurely produce prose even when the caller requires a
@@ -314,13 +320,9 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       // limit instead of presenting a successful answer followed by an error.
       if (opts.iterationLimitRecovery?.shouldAttempt() === true) break
       emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
-      if (bufferedAnswerDeltas.length > 0) {
-        for (const delta of bufferedAnswerDeltas) emit({ type: 'token', delta })
-      } else {
-        emit({ type: 'token', delta: result.text })
-      }
+      emit({ type: 'token', delta: answerText })
       return execution.completed(transcript, {
-        finalText: result.text,
+        finalText: answerText,
         toolsSupported: true,
         degradedReason,
         stopReason: 'final_answer'
@@ -514,14 +516,15 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     if (final.toolCalls.length > 0) {
       return execution.failed(transcript, true, degradedReason, '达到限制后，模型仍请求继续调用工具，未返回最终答复。')
     }
-    const assistantMsg: ChatMessage = { role: 'assistant', content: final.text || null }
+    const finalText = stripDsmlToolCallBlocks(final.text || '')
+    const assistantMsg: ChatMessage = { role: 'assistant', content: finalText || null }
     transcript.push(assistantMsg)
     emit({ type: 'assistant_message', message: assistantMsg })
-    if (!final.text.trim()) {
+    if (!finalText.trim()) {
       return execution.failed(transcript, true, degradedReason, '达到限制后，模型返回了空答复。')
     }
     return execution.completed(transcript, {
-      finalText: final.text,
+      finalText,
       toolsSupported: true,
       degradedReason,
       stopReason: exhausted ? 'budget_exhausted' : durableFinalizationRequested ? 'final_answer' : 'max_iterations'
@@ -555,3 +558,4 @@ function legacyRequestFromMessages(messages: ChatMessage[]): {
   const userPrompt = turns.length > 1 ? `${turns.slice(0, -1).join('\n\n')}\n\n最新用户消息：${lastUser}` : lastUser
   return { systemPrompt: system, userPrompt, jsonMode: false }
 }
+

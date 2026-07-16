@@ -132,6 +132,18 @@ function failureNotification(
 function classifyVisibleError(error: unknown, translate: OperationFeedbackTranslator): OperationFeedbackError {
   const raw = error instanceof Error ? error.message : String(error)
 
+  if (
+    raw.includes('generate_lesson 尚未执行') ||
+    raw.includes('本轮没有成功执行 generate_lesson') ||
+    (raw.includes('操作次数已达到上限') && raw.includes('课程尚未生成'))
+  ) {
+    return {
+      message: translate('errors.agentToolLimit.message'),
+      severity: 'warning',
+      detail: translate('errors.agentToolLimit.detail')
+    }
+  }
+
   if (raw.includes('No handler registered for')) {
     return {
       message: translate('errors.ipcHandlerMissing.message'),

@@ -136,6 +136,7 @@ export function selectCourseFolderContext(input: {
   selectedCourseRelativePath: string | null
   workspaceId?: string | null
   targetWorkspace: TeachingWorkspaceSummary | null
+  pendingAgentConversation?: PendingAgentConversation | null
 }): AppShellTransitionPatch {
   const { selectedCourseRelativePath, targetWorkspace } = input
   const selectedCourse = selectedCourseRelativePath
@@ -153,7 +154,10 @@ export function selectCourseFolderContext(input: {
     ...clearMarkdownDocumentContext(),
     selectedCourseRelativePath,
     selectedCourseWorkspaceId: selectedCourse ? targetWorkspace?.id ?? null : null,
-    ...(!hasCourseContent ? clearAgentConversationContext() : {})
+    // Selecting an empty course while a turn is still streaming must not
+    // discard the in-memory draft. The runner needs it to finish and persist
+    // the conversation after navigation.
+    ...(!hasCourseContent && !input.pendingAgentConversation ? clearAgentConversationContext() : {})
   }
 }
 

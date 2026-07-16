@@ -104,6 +104,7 @@ function persistPosition(position: PetPlacement): void {
 export function AppPet() {
   const { i18n, t } = useTranslation()
   const settings = useAppStore((state) => state.settings.pet)
+  const currentView = useAppStore((state) => state.view)
   const updateSettings = useAppStore((state) => state.updateSettings)
   const generating = useAppStore((state) => state.generating)
   const lessonGenerationRunId = useAppStore((state) => state.lessonGenerationRunId)
@@ -258,7 +259,8 @@ export function AppPet() {
     pendingConversation?.summary.id,
     pendingRequest,
     petNotificationErrors,
-    settings.enabled
+    settings.enabled,
+    currentView
   ])
   const [notificationProjection, setNotificationProjection] = useState(() => {
     const now = Date.now()
@@ -494,7 +496,9 @@ export function AppPet() {
     dragDirection,
     showStatusBubble: settings.showStatusBubble
   })
-  const showStatusBubble = attention.showBubble && notification !== null
+  // The conversation view already exposes the live process, approval and
+  // completion states inline. Do not repeat them as a floating pet message.
+  const showStatusBubble = currentView !== 'overview' && attention.showBubble && notification !== null
 
   useEffect(() => {
     if (!showStatusBubble || !notification) {

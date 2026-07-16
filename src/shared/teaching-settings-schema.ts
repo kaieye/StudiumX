@@ -92,7 +92,7 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
       workspaceWritePermission: 'ask_each_time',
       webSearch: true,
       webFetch: false,
-      maxIterations: 8,
+      maxIterations: 0,
       runBudget: { ...DEFAULT_TEACHING_AGENT_RUN_BUDGET }
     },
     webSearch: {
@@ -319,7 +319,7 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
       ),
       webSearch: toolsInput.webSearch !== false,
       webFetch: toolsInput.webFetch === true,
-      maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 1, 60, defaults.tools.maxIterations)),
+      maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 0, 64, defaults.tools.maxIterations)),
       runBudget: normalizeTeachingAgentRunBudget(runBudgetInput)
     },
     webSearch: {

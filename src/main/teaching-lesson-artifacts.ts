@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  renderAssessmentHtmlFromPlan,
+  renderAssessmentJsonFromPlan,
   renderLessonHtmlFromPlan,
   renderReferenceHtmlFromPlan
 } from './ai/lesson-renderer'
@@ -204,7 +204,7 @@ function renderLessonArtifacts(opts: {
   artifacts.push({
     absolutePath: paths.assessmentAbsolutePath,
     relativePath: paths.assessmentRelativePath,
-    bytes: renderAssessmentHtmlFromPlan({ plan: facts.plan })
+    bytes: renderAssessmentJsonFromPlan({ plan: facts.plan })
   })
 
   if (paths.referenceAbsolutePath && paths.referenceRelativePath) {
@@ -239,7 +239,7 @@ export type LessonArtifactPublicationRecovery = {
   isolatedRelativePaths: string[]
 }
 
-const LESSON_PUBLICATION_JOURNAL_DIRECTORY = '.teachos/lesson-publications'
+const LESSON_PUBLICATION_JOURNAL_DIRECTORY = '.studiumx/lesson-publications'
 const MAX_PUBLICATION_JOURNAL_BYTES = 128 * 1024
 const MAX_PUBLICATION_ARTIFACT_BYTES = 2 * 1024 * 1024
 

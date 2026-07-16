@@ -15,7 +15,7 @@ function assistantTurn(overrides: Partial<AgentChatTurn> = {}): AgentChatTurn {
 }
 
 describe('Agent conversation presentation', () => {
-  it('normalizes equivalent live and durable tool evidence into the same provenance ordering', () => {
+  it('presents a completed tool call as one completed row without arguments or result disclosure', () => {
     const toolCall = { id: 'search-1', name: 'search_notes', arguments: '{"query":"momentum"}', result: 'Found one note.' }
     const liveEvents: AgentChatProcessEvent[] = [
       {
@@ -23,12 +23,13 @@ describe('Agent conversation presentation', () => {
         kind: 'tool_call',
         title: '调用工具：search_notes',
         detail: '{"query":"momentum"}',
+        status: 'tool_done',
         toolCallId: toolCall.id,
         toolName: toolCall.name,
         createdAt
       },
       {
-        id: 'live-result',
+        id: 'legacy-result',
         kind: 'tool_result',
         title: '工具完成：search_notes',
         detail: 'Found one note.',
@@ -38,18 +39,20 @@ describe('Agent conversation presentation', () => {
       }
     ]
     const live = buildAgentConversationPresentation({
-      turns: [assistantTurn({ toolCalls: [toolCall], processEvents: liveEvents })]
+      turns: [assistantTurn({ toolCalls: [toolCall], processEvents: liveEvents })],
+      activeTurnId: 'assistant-1'
     })
     const durable = buildAgentConversationPresentation({
       turns: [assistantTurn({ toolCalls: [toolCall] })]
     })
 
-    const signature = (presentation: typeof live) => presentation.turns[0].items.map((item) => [item.kind, item.label])
-    expect(signature(live)).toEqual(signature(durable))
-    expect(signature(durable)).toEqual([
-      ['tool_call', '调用工具：search_notes'],
-      ['tool_result', '工具完成：search_notes']
-    ])
+    for (const presentation of [live, durable]) {
+      expect(presentation.turns[0].items).toEqual([
+        expect.objectContaining({ kind: 'tool_call', label: '调用工具：search_notes', state: 'complete' })
+      ])
+      expect(presentation.turns[0].items[0].detail).toBeUndefined()
+      expect(presentation.turns[0].items[0].disclosure).toBeUndefined()
+    }
   })
 
   it('exposes the correct blocked command for pending Ask and tool-permission interruptions', () => {
@@ -83,42 +86,33 @@ describe('Agent conversation presentation', () => {
     })
   })
 
-  it('makes archived, missing, and oversized tool results disclosure-only', () => {
+  it('keeps archived and oversized tool results out of the visible process presentation', () => {
     const archived = buildAgentConversationPresentation({
       turns: [assistantTurn({
         toolCalls: [{ id: 'archived-1', name: 'read_file', arguments: '{}', result: 'sensitive full result' }],
         metadata: {
           version: 1,
           toolResults: [{
-            toolCallId: 'archived-1',
-            toolName: 'read_file',
-            bytes: 20,
-            lines: 1,
+            toolCallId: 'archived-1', toolName: 'read_file', bytes: 20, lines: 1,
             archive: { kind: 'tool_result', relativePath: 'artifacts/tool-result.txt', sha256: 'abc', bytes: 20 }
           }]
         }
       })]
     })
-    const missing = buildAgentConversationPresentation({
-      turns: [assistantTurn({
-        toolCalls: [{ id: 'missing-1', name: 'read_file', arguments: '{}' }],
-        metadata: { version: 1, toolResults: [{ toolCallId: 'missing-1', toolName: 'read_file', bytes: 0, lines: 0 }] }
-      })]
-    })
     const oversized = buildAgentConversationPresentation({
       turns: [assistantTurn({
-        toolCalls: [{ id: 'large-1', name: 'read_file', arguments: '{}', result: 'x'.repeat(12_001) }]
+        toolCalls: [{ id: 'large-1', name: 'read_file', arguments: '{"path":"secret"}', result: 'x'.repeat(12_001) }]
       })]
     })
 
-    const resultDisclosure = (presentation: typeof archived) => presentation.turns[0].items.find((item) => item.kind === 'tool_result')?.disclosure
-    const resultItem = (presentation: typeof archived) => presentation.turns[0].items.find((item) => item.kind === 'tool_result')
-    expect(resultDisclosure(archived)).toMatchObject({ resultState: 'archived', result: undefined })
-    expect(resultDisclosure(archived)?.notice).toContain('未在对话中内嵌')
-    expect(resultDisclosure(missing)).toMatchObject({ resultState: 'missing', result: undefined })
-    expect(resultDisclosure(oversized)).toMatchObject({ resultState: 'oversized', result: undefined })
-    expect(resultItem(archived)?.detail).toBeUndefined()
-    expect(resultItem(oversized)?.detail).toBeUndefined()
+    for (const presentation of [archived, oversized]) {
+      expect(presentation.turns[0].items).toHaveLength(1)
+      expect(presentation.turns[0].items[0]).toMatchObject({ kind: 'tool_call', state: 'complete' })
+      expect(presentation.turns[0].items[0].detail).toBeUndefined()
+      expect(presentation.turns[0].items[0].disclosure).toBeUndefined()
+      expect(JSON.stringify(presentation)).not.toContain('sensitive full result')
+      expect(JSON.stringify(presentation)).not.toContain('secret')
+    }
   })
 
   it('turns unknown future events into stable generic cards', () => {
@@ -141,4 +135,67 @@ describe('Agent conversation presentation', () => {
       state: 'complete'
     })
   })
+  it('keeps only the latest process event active and preserves complete reasoning text', () => {
+    const reasoning = `第一行\n${'很长的思考内容'.repeat(40)}\n最后一行`
+    const processEvents: AgentChatProcessEvent[] = [
+      { id: 'reasoning-1', kind: 'reasoning', title: '思考过程', detail: reasoning, createdAt },
+      { id: 'tool-1', kind: 'tool_call', title: '调用工具：search_notes', status: 'tool_done', toolCallId: 'search-1', toolName: 'search_notes', createdAt },
+      { id: 'reasoning-2', kind: 'reasoning', title: '思考过程', detail: '继续整理答案', createdAt }
+    ]
+    const presentation = buildAgentConversationPresentation({
+      turns: [assistantTurn({
+        processEvents,
+        toolCalls: [{ id: 'search-1', name: 'search_notes', arguments: '{}', result: 'ok' }]
+      })],
+      activeTurnId: 'assistant-1'
+    }).turns[0]
+
+    expect(presentation.items.filter((item) => item.state === 'active')).toHaveLength(1)
+    expect(presentation.items.at(-1)).toMatchObject({ id: 'event:reasoning-2', state: 'active' })
+    expect(presentation.items.find((item) => item.id === 'event:reasoning-1')).toMatchObject({
+      state: 'complete', detail: reasoning
+    })
+  })
+
+  it('stops presenting a turn as active as soon as a terminal status arrives', () => {
+    const presentation = buildAgentConversationPresentation({
+      turns: [assistantTurn({ processEvents: [
+        { id: 'reasoning-1', kind: 'reasoning', title: '思考过程', detail: '完成分析', createdAt },
+        { id: 'done-1', kind: 'status', title: '处理完成', status: 'done', createdAt }
+      ] })],
+      activeTurnId: 'assistant-1'
+    }).turns[0]
+
+    expect(presentation.active).toBe(false)
+    expect(presentation.items.every((item) => item.state !== 'active')).toBe(true)
+  })
+
+
+  it('exposes web search sources as reply references instead of plan-card items', () => {
+    const presentation = buildAgentConversationPresentation({
+      turns: [assistantTurn({
+        content: '最终答复',
+        metadata: {
+          version: 1,
+          sources: [{
+            sourceId: 'src-1',
+            url: 'https://example.com/claude-code',
+            title: 'Claude Code Guide',
+            snippet: 'Skills and hooks',
+            provider: 'Tavily'
+          }]
+        }
+      })]
+    }).turns[0]
+
+    expect(presentation.items.some((item) => item.kind === 'source')).toBe(false)
+    expect(presentation.sources).toEqual([{
+      id: 'src-1',
+      title: 'Claude Code Guide',
+      url: 'https://example.com/claude-code',
+      snippet: 'Skills and hooks',
+      provider: 'Tavily'
+    }])
+  })
+
 })

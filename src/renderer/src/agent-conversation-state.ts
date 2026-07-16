@@ -3,6 +3,7 @@ import {
   isTemporaryAgentConversationPath,
   pendingAgentConversationRelativePath
 } from '../../shared/agent-conversation-catalog'
+import { collapseConsecutiveAssistantTurns, sanitizeAgentConversationTurns, sanitizeAgentTurnContent } from '../../shared/agent-conversation-turns'
 import type {
   AgentChatMessage,
   AgentChatMode,
@@ -210,6 +211,12 @@ export function applyAgentChatChunkToPending({
   const turns = pending.turns.map((turn) => {
     if (turn.id !== assistantId) return turn
     changed = true
+    if (chunk.channel === 'reasoning') {
+      return {
+        ...turn,
+        processEvents: appendAgentReasoningDelta(turn.processEvents, chunk.delta)
+      }
+    }
     return { ...turn, content: `${turn.content}${chunk.delta}` }
   })
   if (!changed) return null
@@ -251,7 +258,11 @@ export function applyAgentChatStatusToPending({
       turns: updateAgentAssistantTurn(pending.turns, assistantId, (turn) => ({
         ...turn,
         processEvents: appendAgentProcessEvent(
-          turn.processEvents,
+          settlePermissionProcessEvents(
+            turn.processEvents,
+            status.status === 'done' || status.status === 'error' || status.status === 'canceled',
+            status.status === 'error'
+          ),
           createAgentStatusProcessEvent(status.status, status.message)
         )
       }))
@@ -280,7 +291,12 @@ export function applyAgentChatToolEventToPending({
 
   const existing = turns[idx].toolCalls ?? []
   const toolCallId = event.toolCall.id
-  const existingIdx = existing.findIndex((toolCall) => toolCall.id === toolCallId)
+  // A permission request deliberately reuses the guarded tool call's id so
+  // the backend can resume that exact operation. Keep the two projections
+  // distinct by matching both id and tool name.
+  const existingIdx = existing.findIndex((toolCall) =>
+    toolCall.id === toolCallId && toolCall.name === event.toolCall.name
+  )
   if (existingIdx >= 0 && event.result !== undefined) {
     const updated = [...existing]
     updated[existingIdx] = {
@@ -307,12 +323,9 @@ export function applyAgentChatToolEventToPending({
 
   turns[idx] = {
     ...turns[idx],
-    processEvents: appendAgentProcessEvent(
-      turns[idx].processEvents,
-      event.result !== undefined
-        ? createAgentToolResultProcessEvent(event)
-        : createAgentToolCallProcessEvent(event)
-    )
+    processEvents: event.result !== undefined
+      ? resolveAgentToolProcessEvent(turns[idx].processEvents, event)
+      : appendAgentProcessEvent(turns[idx].processEvents, createAgentToolCallProcessEvent(event))
   }
 
   return syncPendingAgentConversation({
@@ -358,23 +371,40 @@ export function cancelPendingAgentConversation({
 export function failPendingAgentConversation({
   pending,
   activeConversationId,
-  assistantId
+  assistantId,
+  message
 }: {
   pending: PendingAgentConversation
   activeConversationId: string | null
   assistantId: string
+  message: string
 }): PendingConversationStorePatch {
-  const turns = pending.turns.filter((turn) => turn.id !== assistantId)
+  const turns = updateAgentAssistantTurn(pending.turns, assistantId, (turn) => ({
+    ...turn,
+    processEvents: appendAgentProcessEvent(
+      turn.processEvents,
+      createAgentStatusProcessEvent('error', message)
+    )
+  }))
+  const failedPending: PendingAgentConversation = {
+    ...pending,
+    turns,
+    status: message,
+    summary: {
+      ...pending.summary,
+      updatedAt: new Date().toISOString(),
+      messageCount: turns.length
+    }
+  }
   const isVisible = activeConversationId === pending.summary.id
   return {
     agentChatBusy: false,
-    pendingAgentConversation: null,
+    pendingAgentConversation: failedPending,
     ...(isVisible
       ? {
           agentTurns: turns,
-          activeConversationId: null,
           agentStatus: '',
-          agentToolsSupported: null
+          agentToolsSupported: pending.toolsSupported
         }
       : {})
   }
@@ -391,7 +421,7 @@ export function finishPendingAgentConversationSave({
   activeConversationId: string | null
   savedConversationId: string
   turns: AgentChatTurn[]
-  toolsSupported: boolean
+  toolsSupported: boolean | null
 }): PendingConversationStorePatch {
   return {
     pendingAgentConversation: null,
@@ -468,16 +498,20 @@ export function activeTeachingConversationSummary({
   return conversation && !isTemporaryConversation(conversation) ? conversation : null
 }
 
+function isAgentMessageTurn(turn: AgentChatTurn): turn is AgentChatTurn & { role: 'user' | 'assistant' } {
+  return turn.role === 'user' || (turn.role === 'assistant' && Boolean(turn.content.trim()))
+}
+
 export function agentTurnsToMessages(turns: AgentChatTurn[]): AgentChatMessage[] {
   return turns
-    .filter((turn) => turn.role === 'user' || turn.role === 'assistant')
+    .filter(isAgentMessageTurn)
     .map((turn) => ({ role: turn.role, content: turn.content }))
 }
 
 /** Turn IDs in the same order as `agentTurnsToMessages`; used only for audit lineage. */
 export function agentTurnsToMessageTurnIds(turns: AgentChatTurn[]): string[] {
   return turns
-    .filter((turn) => turn.role === 'user' || turn.role === 'assistant')
+    .filter(isAgentMessageTurn)
     .map((turn) => turn.id)
 }
 
@@ -512,17 +546,27 @@ export function reconcileAgentTurnsWithLocalProcess(
   serverTurns: AgentChatTurn[],
   localTurns: AgentChatTurn[]
 ): AgentChatTurn[] {
-  const localAssistantTurns = localTurns.filter((turn) => turn.role === 'assistant')
+  // Server transcripts can still arrive as multi-assistant tool-loop fragments.
+  // Collapse them first so local live process evidence maps 1:1 onto the final reply.
+  const collapsedServerTurns = sanitizeAgentConversationTurns(serverTurns)
+  const collapsedLocalTurns = collapseConsecutiveAssistantTurns(localTurns)
+  const localAssistantTurns = collapsedLocalTurns.filter((turn) => turn.role === 'assistant')
   let assistantIndex = 0
-  return serverTurns.map((turn) => {
+  return collapsedServerTurns.map((turn) => {
     if (turn.role !== 'assistant') return turn
     const localTurn = localAssistantTurns[assistantIndex]
     assistantIndex += 1
     const processEvents = localTurn?.processEvents?.length ? localTurn.processEvents : turn.processEvents
     const metadata = mergeAgentTurnMetadata(turn.metadata, localTurn?.metadata)
-    if (processEvents === turn.processEvents && metadata === turn.metadata) return turn
+    const content = sanitizeAgentTurnContent(turn.content || localTurn?.content || '')
+    if (
+      processEvents === turn.processEvents &&
+      metadata === turn.metadata &&
+      content === turn.content
+    ) return turn
     return {
       ...turn,
+      content,
       processEvents,
       metadata
     }
@@ -620,48 +664,96 @@ function createAgentToolCallProcessEvent(event: AgentChatStreamToolEvent): Agent
     id: createAgentProcessEventId('tool-call'),
     kind: 'tool_call',
     title: `调用工具：${name}`,
-    detail: compactText(prettyJson(event.toolCall.arguments), 180),
     toolCallId: event.toolCall.id,
     toolName: name,
     createdAt: new Date().toISOString()
   }
 }
 
-function createAgentToolResultProcessEvent(event: AgentChatStreamToolEvent): AgentChatProcessEvent {
-  const name = event.toolCall.name || 'tool'
-  if (name === TOOL_PERMISSION_NAME) {
-    return {
-      id: createAgentProcessEventId('permission-result'),
-      kind: 'permission_resolved',
-      title: event.isError ? '写入审批已拒绝' : '写入审批已允许',
-      detail: compactText(prettyJson(event.result ?? ''), 180),
-      toolCallId: event.toolCall.id,
-      toolName: name,
-      isError: event.isError,
-      createdAt: new Date().toISOString()
+function settlePermissionProcessEvents(
+  events: AgentChatProcessEvent[] | undefined,
+  shouldSettle: boolean,
+  isError: boolean
+): AgentChatProcessEvent[] {
+  const current = events ?? []
+  if (!shouldSettle) return current
+  return current.map((event) => event.kind === 'permission_resolved' && event.status === 'tool_running'
+    ? { ...event, status: 'tool_done', isError }
+    : event)
+}
+
+function resolveAgentToolProcessEvent(
+  events: AgentChatProcessEvent[] | undefined,
+  event: AgentChatStreamToolEvent
+): AgentChatProcessEvent[] {
+  const current = events ?? []
+  const index = current.findIndex((item) =>
+    item.toolCallId === event.toolCall.id &&
+    item.toolName === event.toolCall.name &&
+    (item.kind === 'tool_call' || item.kind === 'permission_request' || item.kind === 'elicitation_request')
+  )
+  if (index < 0) {
+    const call = createAgentToolCallProcessEvent(event)
+    return [...current, {
+      ...call,
+      status: 'tool_done',
+      isError: event.isError
+    }]
+  }
+
+  const next = [...current]
+  const existing = next[index]
+  const resolved = existing.kind === 'permission_request'
+    ? {
+        kind: 'permission_resolved' as const,
+        title: permissionResolutionTitle(event.result, event.isError),
+        detail: existing.detail
+      }
+    : existing.kind === 'elicitation_request'
+      ? {
+          kind: 'elicitation_resolved' as const,
+          title: event.isError ? '用户选择处理失败' : '用户选择已提交',
+          detail: existing.detail
+        }
+      : {}
+  const permissionAllowed = existing.kind === 'permission_request' && !event.isError && !permissionWasDenied(event.result)
+  next[index] = {
+    ...existing,
+    ...resolved,
+    // An approval is not the end of the operation: the guarded tool may still
+    // be running. Keep the row active until that tool returns.
+    status: permissionAllowed ? 'tool_running' : 'tool_done',
+    isError: event.isError
+  }
+
+  // Permission requests reuse the guarded tool call ID. When the real tool
+  // result arrives, settle the approval row too so the process card cannot end
+  // with a permanent "continuing" spinner after generation has completed.
+  if (existing.kind === 'tool_call') {
+    for (let itemIndex = 0; itemIndex < next.length; itemIndex += 1) {
+      const item = next[itemIndex]
+      if (item?.kind === 'permission_resolved' && item.status === 'tool_running' &&
+        (item.toolCallId === event.toolCall.id || event.result !== undefined)) {
+        next[itemIndex] = { ...item, status: 'tool_done', isError: event.isError }
+      }
     }
   }
-  if (name === 'ask') {
-    return {
-      id: createAgentProcessEventId('elicitation-result'),
-      kind: 'elicitation_resolved',
-      title: event.isError ? '用户选择处理失败' : '用户选择已提交',
-      detail: compactText(prettyJson(event.result ?? ''), 180),
-      toolCallId: event.toolCall.id,
-      toolName: name,
-      isError: event.isError,
-      createdAt: new Date().toISOString()
-    }
-  }
-  return {
-    id: createAgentProcessEventId('tool-result'),
-    kind: 'tool_result',
-    title: event.isError ? `工具失败：${name}` : `工具完成：${name}`,
-    detail: compactText(prettyJson(event.result ?? ''), 180),
-    toolCallId: event.toolCall.id,
-    toolName: name,
-    isError: event.isError,
-    createdAt: new Date().toISOString()
+  return next
+}
+
+function permissionResolutionTitle(result: string | undefined, isError: boolean | undefined): string {
+  if (isError) return '写入审批处理失败'
+  if (permissionWasDenied(result)) return '写入审批已拒绝'
+  return '写入审批已允许，继续执行'
+}
+
+function permissionWasDenied(result: string | undefined): boolean {
+  try {
+    const decision = JSON.parse(result ?? '{}') as { decision?: string }
+    return decision.decision === 'deny'
+  } catch {
+    // A successful non-JSON result still means the approval request was resolved.
+    return false
   }
 }
 
@@ -732,6 +824,32 @@ function agentProcessStatusCopy(
     if (status === 'error') return { title: agentProcessStatusTitle(status), detail: trimmed }
   }
   return { title: agentProcessStatusTitle(status), detail: trimmed }
+}
+
+function appendAgentReasoningDelta(
+  events: AgentChatProcessEvent[] | undefined,
+  delta: string
+): AgentChatProcessEvent[] {
+  const current = events ?? []
+  if (!delta) return current
+  const last = current[current.length - 1]
+  if (last?.kind === 'reasoning') {
+    return [
+      ...current.slice(0, -1),
+      { ...last, detail: `${last.detail ?? ''}${delta}` }
+    ]
+  }
+  return [
+    ...current,
+    {
+      id: createAgentProcessEventId('reasoning'),
+      kind: 'reasoning',
+      title: '思考过程',
+      detail: delta,
+      status: 'thinking',
+      createdAt: new Date().toISOString()
+    }
+  ]
 }
 
 function appendAgentProcessEvent(
@@ -838,14 +956,15 @@ export type PendingToolPermission = {
   request: AgentToolPermissionRequest
 }
 
-/** A single ask tool call's questions (pending or answered). Returns null
- *  if the turn has no `ask` tool call. Used both for the active AskCard
- *  (result===undefined) and the inline Q&A block (result defined). */
+/** The latest ask tool call's questions (pending or answered). Returns null
+ *  if the turn has no `ask` tool call. A single assistant turn can contain
+ *  multiple sequential ask calls, so selection must scan newest-first. */
 export function parseAskToolCall(
   turn: AgentChatTurn | undefined | null
 ): { toolCallId: string; questions: AskQuestion[]; result?: string; isError?: boolean } | null {
   if (!turn?.toolCalls) return null
-  for (const toolCall of turn.toolCalls) {
+  for (let index = turn.toolCalls.length - 1; index >= 0; index -= 1) {
+    const toolCall = turn.toolCalls[index]
     if (toolCall.name !== 'ask') continue
     const questions = parseAskArguments(toolCall.arguments)
     if (!questions) continue
@@ -880,7 +999,8 @@ export function parsePermissionToolCall(
   turn: AgentChatTurn | undefined | null
 ): { toolCallId: string; request: AgentToolPermissionRequest; result?: string; isError?: boolean } | null {
   if (!turn?.toolCalls) return null
-  for (const toolCall of turn.toolCalls) {
+  for (let index = turn.toolCalls.length - 1; index >= 0; index -= 1) {
+    const toolCall = turn.toolCalls[index]
     if (toolCall.name !== TOOL_PERMISSION_NAME) continue
     const request = parsePermissionArguments(toolCall.arguments)
     if (!request) continue

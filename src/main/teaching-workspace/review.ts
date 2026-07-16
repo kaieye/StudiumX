@@ -32,7 +32,7 @@ type LoadedReviewDeckState = LoadedReviewDeck & {
 
 /**
  * The durable review-deck seam. It adapts lesson flashcard artifacts and the
- * legacy `.teachos/progress.json` document behind two operations: load a deck
+ * legacy `.studiumx/progress.json` document behind two operations: load a deck
  * and record an attempt. Callers never need to discover, validate, identify,
  * or aggregate durable review records themselves.
  */
@@ -120,7 +120,7 @@ export class TeachingWorkspaceReviewDeck {
   }
 
   private progressPath(workspace: ReviewWorkspace): string {
-    return join(workspace.rootPath, '.teachos', 'progress.json')
+    return join(workspace.rootPath, '.studiumx', 'progress.json')
   }
 
   private async readProgressFile(progressPath: string): Promise<DurableReviewProgress> {

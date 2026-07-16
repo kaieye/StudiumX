@@ -622,13 +622,33 @@ export const useAppStore = create<StoreState>((set, get) => {
   openLessonLibrary: () => set(openLessonLibraryContext()),
   openTeachingConversationView: () => set(openTeachingConversation()),
   openWorkspaceTeachingMode: () => {
+    const current = get()
+    const pending = current.pendingAgentConversation
+    if (pending?.mode === 'teaching') {
+      set({
+        ...restorePendingConversationContext(pending, 'teaching'),
+        activeConversationScope: 'workspace',
+        activeConversationRevision: null,
+        activeSessionTree: null
+      })
+      return
+    }
+    if (current.activeConversationScope === 'workspace' && current.activeConversationId) {
+      set(openTeachingConversation())
+      return
+    }
     set({ ...openWorkspaceTeaching(), activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null })
   },
   selectCourseFolder: (selectedCourseRelativePath, workspaceId) => {
     const targetWorkspace = workspaceId
       ? get().appState.workspaces.find((workspace) => workspace.id === workspaceId) ?? null
       : get().appState.activeWorkspace
-    const patch = selectCourseFolderContext({ selectedCourseRelativePath, workspaceId, targetWorkspace })
+    const patch = selectCourseFolderContext({
+      selectedCourseRelativePath,
+      workspaceId,
+      targetWorkspace,
+      pendingAgentConversation: get().pendingAgentConversation
+    })
     set({
       ...patch,
       ...(patch.activeConversationId === null

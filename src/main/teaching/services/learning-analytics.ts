@@ -399,7 +399,7 @@ export class LearningAnalyticsService {
   }
 
   private async fingerprintReviewSources(header: ScanHeader): Promise<string> {
-    const paths = header.selected.flatMap((item) => [join(item.rootPath, '.teachos', 'progress.json'), join(item.rootPath, '.teachos', 'reviews'), join(item.rootPath, '.teachos', 'review')])
+    const paths = header.selected.flatMap((item) => [join(item.rootPath, '.studiumx', 'progress.json'), join(item.rootPath, '.studiumx', 'reviews'), join(item.rootPath, '.studiumx', 'review')])
     return digest(stableJson({ selected: sourceHeaderIdentity(header), mtimes: await collectPathVersions(paths) }))
   }
 

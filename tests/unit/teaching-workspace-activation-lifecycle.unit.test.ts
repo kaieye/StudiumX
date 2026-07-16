@@ -34,7 +34,7 @@ async function readRegistry(registryPath: string): Promise<RegistryFile> {
 }
 
 async function readSessionKinds(rootPath: string): Promise<string[]> {
-  const events = await readFile(join(rootPath, '.teachos', 'sessions.jsonl'), 'utf8')
+  const events = await readFile(join(rootPath, '.studiumx', 'sessions.jsonl'), 'utf8')
   return events.trim().split('\n').filter(Boolean).map((line) => (JSON.parse(line) as { kind: string }).kind)
 }
 
@@ -54,7 +54,8 @@ describe('Teaching workspace activation lifecycle', () => {
     await expect(readFile(join(workspace!.rootPath, 'MISSION.md'), 'utf8')).resolves.toContain('图论中的连通性')
     await expect(readFile(join(workspace!.rootPath, 'RESOURCES.md'), 'utf8')).resolves.toContain('图论中的连通性 Resources')
     await expect(readFile(join(workspace!.rootPath, 'assets', 'lesson.css'), 'utf8')).resolves.toContain('body')
-    await expect(readFile(join(workspace!.rootPath, '.teachos', 'index.json'), 'utf8')).resolves.toContain(workspace!.id)
+    await expect(readFile(join(workspace!.rootPath, '.studiumx', 'index.json'), 'utf8')).resolves.toContain(workspace!.id)
+    await expect(readFile(join(workspace!.rootPath, '.teachos', 'index.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(readSessionKinds(workspace!.rootPath)).resolves.toEqual(['workspace_created'])
 
     expect(await readRegistry(registryPath)).toMatchObject({

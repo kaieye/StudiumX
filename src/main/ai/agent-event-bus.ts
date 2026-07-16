@@ -54,7 +54,9 @@ export class AgentEventBus {
     if (event.type === 'status') {
       this.publishStatus(event.status, event.message)
     } else if (event.type === 'token') {
-      this.publishChunk(event.delta)
+      this.publishChunk(event.delta, 'answer')
+    } else if (event.type === 'reasoning') {
+      this.publishChunk(event.delta, 'reasoning')
     } else if (event.type === 'tool_call') {
       this.publishTool({
         toolCall: {
@@ -90,8 +92,10 @@ export class AgentEventBus {
     }
   }
 
-  publishChunk(delta: string): void {
-    const payload = { streamId: this.streamId, delta }
+  publishChunk(delta: string, channel: 'answer' | 'reasoning' = 'answer'): void {
+    const payload: AgentChatStreamChunk = channel === 'reasoning'
+      ? { streamId: this.streamId, delta, channel }
+      : { streamId: this.streamId, delta }
     this.record({ kind: 'chunk', payload })
     this.onChunk(payload)
   }

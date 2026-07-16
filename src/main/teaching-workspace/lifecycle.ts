@@ -79,7 +79,7 @@ export async function ensureWorkspaceStructure(
     ...Array.from(WORKSPACE_SCAFFOLD_DIRECTORIES)
       .filter((relativePath) => !isPathArchived(effectivePathMeta, relativePath))
       .map((relativePath) => mkdir(join(workspace.rootPath, relativePath), { recursive: true })),
-    mkdir(join(workspace.rootPath, '.teachos'), { recursive: true })
+    mkdir(join(workspace.rootPath, '.studiumx'), { recursive: true })
   ])
   const lessonStyleId = normalizeLessonStyleId(
     await options.loadSettings().then((settings) => settings.workspace.lessonStyleId).catch(() => undefined)
@@ -123,7 +123,9 @@ export function deriveWorkspaceTopic(prompt: string, fallback: string): string {
 }
 export async function loadWorkspaceIndex(workspace: RegistryWorkspace): Promise<WorkspaceIndex> {
   try {
-    const parsed = JSON.parse(await readFile(join(workspace.rootPath, '.teachos', 'index.json'), 'utf8')) as WorkspaceIndex
+    const indexPath = join(workspace.rootPath, '.studiumx', 'index.json')
+    const legacyIndexPath = join(workspace.rootPath, '.teachos', 'index.json')
+    const parsed = JSON.parse(await readFile(await fileExists(indexPath) ? indexPath : legacyIndexPath, 'utf8')) as WorkspaceIndex
     return {
       id: workspace.id,
       name: workspace.name,
@@ -150,12 +152,12 @@ export async function loadWorkspaceIndex(workspace: RegistryWorkspace): Promise<
 }
 
 export async function saveWorkspaceIndex(rootPath: string, index: WorkspaceIndex): Promise<void> {
-  await atomicWriteFile(join(rootPath, '.teachos', 'index.json'), `${JSON.stringify(index, null, 2)}\n`)
+  await atomicWriteFile(join(rootPath, '.studiumx', 'index.json'), `${JSON.stringify(index, null, 2)}\n`)
 }
 
 export async function appendWorkspaceLifecycleEvent(rootPath: string, event: WorkspaceLifecycleEvent): Promise<void> {
-  await mkdir(join(rootPath, '.teachos'), { recursive: true })
-  await appendFile(join(rootPath, '.teachos', 'sessions.jsonl'), `${JSON.stringify(event)}\n`, 'utf8')
+  await mkdir(join(rootPath, '.studiumx'), { recursive: true })
+  await appendFile(join(rootPath, '.studiumx', 'sessions.jsonl'), `${JSON.stringify(event)}\n`, 'utf8')
 }
 
 /** @deprecated Use appendWorkspaceLifecycleEvent. This log does not contain teaching Session evidence. */

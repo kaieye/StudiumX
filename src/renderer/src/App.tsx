@@ -110,6 +110,7 @@ import {
   PREVIEW_MARKDOWN_LINK_MESSAGE
 } from '../../shared/preview-markdown-bridge'
 import type { PreviewLessonInteractionIntent } from '../../shared/teaching-types/lesson-interaction'
+import { sanitizeAgentTurnContent } from '../../shared/agent-conversation-turns'
 import {
   type AgentChatTurn,
   type AgentToolPermissionRequest,
@@ -2224,9 +2225,14 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             // Assistant text emitted before a tool call is an internal planning
             // preamble. The same work is already represented by the single
             // “规划中” card; rendering it here creates duplicated, split prose.
-            const isInternalToolTurn = turn.role === 'assistant' && Boolean(turn.toolCalls?.length)
-            const visibleContent = isInternalToolTurn ? '' : turn.content
+            // Durable assistant turns keep toolCalls alongside the final reply after a run
+            // is collapsed. Hide only empty/internal content; never suppress the answer
+            // just because tools were used.
+            const visibleContent = turn.role === 'assistant'
+              ? sanitizeAgentTurnContent(turn.content)
+              : turn.content
             const content = visibleContent || (turn.role === 'assistant' && isBusyTurn && !turnPresentation?.items.length ? '正在准备回复…' : '')
+            const sourceReferences = turn.role === 'assistant' ? (turnPresentation?.sources ?? []) : []
             const isEditing = editingTurnId === turn.id
             return (
               <div
@@ -2244,6 +2250,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
                   <>
                     {turn.role === 'assistant' ? <AgentConversationReader presentation={turnPresentation} compact /> : null}
                     {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
+                    {sourceReferences.length > 0 ? (
+                      <AgentSourceReferences sources={sourceReferences} />
+                    ) : null}
                     <AgentMessageActions
                       turn={turn}
                       canFork={canForkTurns}
@@ -2353,6 +2362,42 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         </div>
         </form>
       </ConversationInterruptionDock>
+    </section>
+  )
+}
+
+function AgentSourceReferences({
+  sources
+}: {
+  sources: Array<{ id: string; title: string; url: string; snippet?: string; provider?: string }>
+}) {
+  const openExternal = useAppStore((state) => state.openExternal)
+  return (
+    <section className="agent-source-references" aria-label="参考链接">
+      <header className="agent-source-references__head">
+        <strong>参考链接</strong>
+        <span>{sources.length}</span>
+      </header>
+      <ol className="agent-source-references__list">
+        {sources.map((source, index) => (
+          <li key={source.id}>
+            <a
+              href={source.url}
+              rel="noreferrer"
+              target="_blank"
+              title={source.snippet || source.url}
+              onClick={(event) => {
+                event.preventDefault()
+                void openExternal(source.url)
+              }}
+            >
+              <span className="agent-source-references__index">{index + 1}</span>
+              <span className="agent-source-references__title">{source.title}</span>
+              {source.provider ? <small>{source.provider}</small> : null}
+            </a>
+          </li>
+        ))}
+      </ol>
     </section>
   )
 }

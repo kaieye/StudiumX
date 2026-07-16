@@ -190,7 +190,33 @@ export function renderLessonQuizCards(plan: LessonPlan): string {
   return plan.quiz.map((item, index) => renderQuizCard(item, `quiz-${index + 1}`)).join('\n')
 }
 
-/** Renders a standards-mode, inert assessment authority from the sanitized plan. */
+/**
+ * Renders the immutable assessment authority. It intentionally contains only
+ * normalized answer bindings; the learner-facing quiz UI remains in the one
+ * published lesson HTML document.
+ */
+export function renderAssessmentJsonFromPlan(opts: { plan: LessonPlan }): string {
+  const quizzes = opts.plan.quiz.map((item, index) => {
+    const itemId = `quiz-${index + 1}`
+    if (item.type === 'fill') {
+      return { itemId, type: 'fill', answerIds: null, choiceIds: null }
+    }
+    if (item.type === 'truefalse') {
+      const answer = String(item.answer).toLowerCase() === 'true' || String(item.answer) === '1' ? 'true' : 'false'
+      return { itemId, type: 'truefalse', answerIds: [answer], choiceIds: ['true', 'false'] }
+    }
+    const indices = Array.isArray(item.answer)
+      ? item.answer
+      : typeof item.answer === 'number'
+        ? [item.answer]
+        : String(item.answer).split(',').map((part) => Number.parseInt(part.trim(), 10)).filter(Number.isFinite)
+    const answerIds = indices.map(letterFor)
+    const choiceIds = item.choices.map((_choice, choiceIndex) => letterFor(choiceIndex))
+    return { itemId, type: item.type, answerIds, choiceIds }
+  })
+  return `${JSON.stringify({ schemaVersion: 1, kind: 'studiumx-assessment', quizzes }, null, 2)}\n`
+}
+
 export function renderAssessmentHtmlFromPlan(opts: { plan: LessonPlan }): string {
   const quiz = opts.plan.quiz.length
     ? `      <section class="${cls.practice}">
@@ -204,6 +230,7 @@ ${renderLessonQuizCards(opts.plan)}
 <html lang="zh-CN">
 <head>
   <title>${escapeHtml(opts.plan.title)} assessment</title>
+  <meta name="generator" content="StudiumX">
   <meta name="studiumx-artifact-kind" content="assessment-sidecar">
 </head>
 <body>

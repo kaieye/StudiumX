@@ -24,7 +24,7 @@ const SKIPPED_DIRS = new Set([
   '.git',
   '.hg',
   '.svn',
-  '.teachos',
+  '.studiumx',
   'node_modules',
   'dist',
   'out',

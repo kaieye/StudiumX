@@ -17,7 +17,7 @@ describe('teaching settings schema', () => {
       version: 1,
       workspace: { defaultRoot: fallbackRoot },
       worktree: { rootPath: 'C:\\StudiumX\\workspace\\.worktrees' },
-      tools: { runBudget: DEFAULT_TEACHING_AGENT_RUN_BUDGET }
+      tools: { maxIterations: 0, runBudget: DEFAULT_TEACHING_AGENT_RUN_BUDGET }
     })
   })
 
@@ -169,7 +169,7 @@ describe('teaching settings schema', () => {
         workspaceWritePermission: 'ask_each_time',
         webSearch: false,
         webFetch: true,
-        maxIterations: 1,
+        maxIterations: 0,
         runBudget: {
           maxDurationMs: 120_000,
           maxProviderCalls: 16,

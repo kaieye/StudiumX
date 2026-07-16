@@ -67,6 +67,7 @@ export type ChatAdapterResult = {
 
 export type ChatAdapterCallbacks = {
   onToken?: (delta: string) => void
+  onReasoning?: (delta: string) => void
   onToolCalls?: (calls: ToolCall[]) => void
   onStatus?: (step: AdapterStep) => void
 }
@@ -75,6 +76,7 @@ export type AdapterStep = 'calling' | 'streaming' | 'validating' | 'rendering'
 
 export type AdapterCallbacks = {
   onToken?: (delta: string) => void
+  onReasoning?: (delta: string) => void
   onStatus?: (step: AdapterStep) => void
 }
 

@@ -221,6 +221,7 @@ export type AgentChatProcessEvent = {
   id: string
   kind:
     | 'status'
+    | 'reasoning'
     | 'tool_call'
     | 'tool_result'
     | 'permission_request'
@@ -325,6 +326,7 @@ export type AgentParentTurnRecoveryEvidence = {
   sequence: number
   kind:
     | 'status'
+    | 'reasoning'
     | 'tool_call'
     | 'tool_result'
     | 'permission_wait'
@@ -373,6 +375,8 @@ export type AgentChatContextCompactionRequest = {
 export type AgentChatStreamChunk = {
   streamId: string
   delta: string
+  /** Answer is the default for backward-compatible replay payloads. */
+  channel?: 'answer' | 'reasoning'
 }
 
 export type AgentChatStreamStatus = {

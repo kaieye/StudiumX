@@ -103,9 +103,27 @@ export class AgentConversationTurnRunner<TError> {
     const input = (options.inputOverride ?? initialState.agentInput).trim()
     if (!workspace || !input || initialState.agentChatBusy) return
 
-    const activeBranch = initialState.activeConversationId
+    const activeConversationMode = initialState.activeConversationScope
+      ? initialState.activeConversationScope === 'temporary' ? 'temporary' : 'teaching'
+      : null
+    const hasPersistedConversation = Boolean(
+      initialState.activeConversationId && !initialState.activeConversationId.startsWith('pending-')
+    )
+    const mode = options.mode
+      ?? (hasPersistedConversation && activeConversationMode
+        ? activeConversationMode
+        : initialState.overviewDialogMode === 'teaching' ? 'teaching' : 'temporary')
+    // A conversation belongs to exactly one storage scope. Switching between
+    // temporary chat and teaching mode must start a fresh conversation rather
+    // than trying to continue the old id in the other scope.
+    const canContinueActiveConversation = Boolean(
+      initialState.activeConversationId &&
+      (!activeConversationMode || activeConversationMode === mode)
+    )
+    const activeConversationId = canContinueActiveConversation ? initialState.activeConversationId : null
+    const activeBranch = activeConversationId
       ? initialState.activeSessionTree?.branches.find(
-          (branch) => branch.conversationId === initialState.activeConversationId
+          (branch) => branch.conversationId === activeConversationId
         )
       : null
     if (activeBranch && activeBranch.status !== 'active') {
@@ -116,9 +134,11 @@ export class AgentConversationTurnRunner<TError> {
       })
       return
     }
-    const activeBranchRevision = initialState.activeConversationRevision ?? activeBranch?.revision ?? null
+    const activeBranchRevision = activeConversationId
+      ? initialState.activeConversationRevision ?? activeBranch?.revision ?? null
+      : null
     const continuingPersistedBranch = Boolean(
-      initialState.activeConversationId && !initialState.activeConversationId.startsWith('pending-')
+      activeConversationId && !activeConversationId.startsWith('pending-')
     )
     if (continuingPersistedBranch && (!Number.isSafeInteger(activeBranchRevision) || (activeBranchRevision ?? -1) < 0)) {
       this.dependencies.setState({
@@ -129,18 +149,20 @@ export class AgentConversationTurnRunner<TError> {
       return
     }
 
-    const mode = options.mode
-      ?? (continuingPersistedBranch && initialState.activeConversationScope
-        ? initialState.activeConversationScope === 'temporary' ? 'temporary' : 'teaching'
-        : initialState.overviewDialogMode === 'teaching' ? 'teaching' : 'temporary')
+    const activePending = activeConversationId?.startsWith('pending-')
+      && initialState.pendingAgentConversation?.summary.id === activeConversationId
+      ? initialState.pendingAgentConversation
+      : null
+    const sourceConversationId = activePending?.sourceConversationId ?? activeConversationId
+    const sourceConversationRevision = activePending?.sourceConversationRevision ?? activeBranchRevision
     const draft = createAgentConversationTurnDraft({
       state: initialState.appState,
       workspace,
       input,
       mode,
-      activeConversationId: initialState.activeConversationId,
-      activeConversationRevision: activeBranchRevision,
-      currentTurns: initialState.agentTurns,
+      activeConversationId: sourceConversationId,
+      activeConversationRevision: sourceConversationRevision,
+      currentTurns: canContinueActiveConversation ? initialState.agentTurns : [],
       selectedCourseRelativePath: initialState.selectedCourseRelativePath,
       currentSelectedLessonPath: initialState.appState.selectedLessonPath,
       createdAt: this.dependencies.now?.() ?? new Date().toISOString(),
@@ -193,7 +215,16 @@ export class AgentConversationTurnRunner<TError> {
       }
 
       if ('error' in done && done.error) {
-        this.fail(pendingConversationId, assistantId, new Error(done.message))
+        await this.failAndSave({
+          api,
+          workspaceId: workspace.id,
+          mode,
+          pendingConversationId,
+          assistantId,
+          selectedCourseRelativePath,
+          selectedLessonPath,
+          error: new Error(done.message)
+        })
         return
       }
 
@@ -209,7 +240,16 @@ export class AgentConversationTurnRunner<TError> {
         })
       }
     } catch (error) {
-      this.fail(pendingConversationId, assistantId, error)
+      await this.failAndSave({
+        api,
+        workspaceId: workspace.id,
+        mode,
+        pendingConversationId,
+        assistantId,
+        selectedCourseRelativePath,
+        selectedLessonPath,
+        error
+      })
     }
   }
 
@@ -276,18 +316,101 @@ export class AgentConversationTurnRunner<TError> {
     }))
   }
 
-  private fail(pendingConversationId: string, assistantId: string, error: unknown): void {
+  private async failAndSave({
+    api,
+    workspaceId,
+    mode,
+    pendingConversationId,
+    assistantId,
+    selectedCourseRelativePath,
+    selectedLessonPath,
+    error
+  }: {
+    api: AgentConversationTurnRunnerApi
+    workspaceId: string
+    mode: AgentChatMode
+    pendingConversationId: string
+    assistantId: string
+    selectedCourseRelativePath: string | null
+    selectedLessonPath: string | null
+    error: unknown
+  }): Promise<void> {
     const state = this.dependencies.getState()
     const pending = state.pendingAgentConversation
     if (!pending || pending.summary.id !== pendingConversationId) return
+    const message = error instanceof Error ? error.message : String(error)
     this.dependencies.setState({
       error: this.dependencies.toUserError(error),
       ...failPendingAgentConversation({
         pending,
         activeConversationId: state.activeConversationId,
-        assistantId
+        assistantId,
+        message
       })
     })
+
+    const failedState = this.dependencies.getState()
+    const failedPending = failedState.pendingAgentConversation
+    if (!failedPending || failedPending.summary.id !== pendingConversationId) return
+
+    try {
+      // Failed runs do not have a confirmed parent-turn stage, so they must be
+      // saved as an ordinary transcript rather than promoted with the run id.
+      const saved = await api.saveAgentConversation({
+        workspaceId,
+        mode,
+        conversationId: failedPending.sourceConversationId ?? null,
+        expectedBranchRevision: failedPending.sourceConversationRevision ?? undefined,
+        selectedLessonPath,
+        selectedCourseRelativePath,
+        turns: failedPending.turns
+      })
+      let sessionTree: AgentConversationSessionTree | null = null
+      try {
+        sessionTree = await api.readAgentConversationSessionTree({
+          workspaceId,
+          conversationId: saved.conversation.id,
+          scope: mode === 'temporary' ? 'temporary' : 'workspace'
+        })
+      } catch {
+        // The catalog and transcript are already durable. A tree refresh can be
+        // recovered the next time the conversation is opened.
+      }
+      const latestState = this.dependencies.getState()
+      const pendingIsVisible = latestState.activeConversationId === pendingConversationId
+        && latestState.pendingAgentConversation?.summary.id === pendingConversationId
+      this.dependencies.setState({
+        appState: saved.state,
+        ...(pendingIsVisible
+          ? {
+              activeConversationScope: mode === 'temporary' ? 'temporary' : 'workspace',
+              activeConversationRevision: saved.conversation.branch?.revision
+                ?? (failedPending.sourceConversationRevision === null
+                  ? 1
+                  : failedPending.sourceConversationRevision + 1),
+              activeSessionTree: sessionTree
+            }
+          : {}),
+        ...finishPendingAgentConversationSave({
+          pending: failedPending,
+          activeConversationId: latestState.activeConversationId,
+          savedConversationId: saved.conversation.id,
+          turns: failedPending.turns,
+          toolsSupported: failedPending.toolsSupported
+        })
+      })
+    } catch {
+      // Keep the failed transcript in memory when durable storage is itself
+      // unavailable. The original generation error remains the user-facing one.
+    } finally {
+      const latestState = this.dependencies.getState()
+      if (latestState.pendingAgentConversation?.summary.id === pendingConversationId) {
+        const visiblePatch = latestState.activeConversationId === pendingConversationId
+          ? { agentStatus: '' }
+          : {}
+        this.dependencies.setState({ agentChatBusy: false, ...visiblePatch })
+      }
+    }
   }
 
   private async saveCompletedTurn({
@@ -353,26 +476,26 @@ export class AgentConversationTurnRunner<TError> {
       const latestState = this.dependencies.getState()
       const pendingIsVisible = latestState.activeConversationId === pendingConversationId
         && latestState.pendingAgentConversation?.summary.id === pendingConversationId
-      if (pendingIsVisible) {
-        this.dependencies.setState({
-          appState: saved.state,
-          activeConversationScope: mode === 'temporary' ? 'temporary' : 'workspace',
-          activeConversationRevision: saved.conversation.branch?.revision
-            ?? (pending.sourceConversationRevision === null ? 1 : pending.sourceConversationRevision + 1),
-          activeSessionTree: sessionTree,
-          ...finishPendingAgentConversationSave({
-            pending,
-            activeConversationId: latestState.activeConversationId,
-            savedConversationId: saved.conversation.id,
-            turns: reconciledTurns,
-            toolsSupported: done.toolsSupported
-          })
+      this.dependencies.setState({
+        appState: saved.state,
+        ...(pendingIsVisible
+          ? {
+              activeConversationScope: mode === 'temporary' ? 'temporary' : 'workspace',
+              activeConversationRevision: saved.conversation.branch?.revision
+                ?? (pending.sourceConversationRevision === null ? 1 : pending.sourceConversationRevision + 1),
+              activeSessionTree: sessionTree
+            }
+          : {}),
+        // Navigation that happened while saving owns the visible branch context,
+        // but the now-durable pending draft must still be retired globally.
+        ...finishPendingAgentConversationSave({
+          pending,
+          activeConversationId: latestState.activeConversationId,
+          savedConversationId: saved.conversation.id,
+          turns: reconciledTurns,
+          toolsSupported: done.toolsSupported
         })
-      } else {
-        // Navigation that happened while the save/tree refresh was in flight owns
-        // the visible branch context, revision, and tree. Only merge the catalog.
-        this.dependencies.setState({ appState: saved.state })
-      }
+      })
       this.dependencies.onCompletedTurn?.({
         runId: pendingConversationId,
         conversationId: saved.conversation.id

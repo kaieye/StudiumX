@@ -43,6 +43,7 @@ export function renderLessonDocument(opts: LessonFrameBase & {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="generator" content="StudiumX" />
   <title>${escapeHtml(opts.title)} · ${escapeHtml(opts.workspaceName)}</title>
   <link rel="stylesheet" href="${assetBase}assets/lesson.css" />
   <link rel="stylesheet" href="${assetBase}assets/flashcards.css" />
@@ -90,6 +91,7 @@ export function renderReferenceDocument(opts: LessonFrameBase & {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="generator" content="StudiumX" />
   <title>${escapeHtml(opts.title)} Reference · ${escapeHtml(opts.workspaceName)}</title>
   <link rel="stylesheet" href="${assetBase}assets/lesson.css" />
 </head>

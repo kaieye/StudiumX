@@ -8,12 +8,12 @@ import type {
 import { buildAgentProcessTimeline } from './agent-process-timeline'
 
 const INLINE_RESULT_LIMIT = 12_000
-const INLINE_ARGUMENT_LIMIT = 8_000
 
 type AgentProcessToolCall = NonNullable<AgentChatTurn['toolCalls']>[number]
 
 type ProvenanceKind =
   | 'status'
+  | 'reasoning'
   | 'tool_call'
   | 'tool_result'
   | 'permission_request'
@@ -48,11 +48,20 @@ export type AgentConversationAnsweredAsk = {
   answer: string
 }
 
+export type AgentConversationSourceReference = {
+  id: string
+  title: string
+  url: string
+  snippet?: string
+  provider?: string
+}
+
 export type AgentConversationTurnPresentation = {
   turnId: string
   active: boolean
   items: AgentConversationProvenanceItem[]
   answeredAsks: AgentConversationAnsweredAsk[]
+  sources: AgentConversationSourceReference[]
 }
 
 export type AgentConversationCommandDescriptor =
@@ -122,24 +131,31 @@ export function buildAgentConversationPresentation({
 
 function presentTurn(turn: AgentChatTurn, active: boolean): AgentConversationTurnPresentation {
   if (turn.role !== 'assistant') {
-    return { turnId: turn.id, active: false, items: [], answeredAsks: [] }
+    return { turnId: turn.id, active: false, items: [], answeredAsks: [], sources: [] }
   }
 
+  const effectivelyActive = active && !hasTerminalStatus(turn.processEvents)
   const toolResultDiagnostics = new Map(
     (turn.metadata?.toolResults ?? []).map((diagnostic) => [diagnostic.toolCallId, diagnostic])
   )
   const items: AgentConversationProvenanceItem[] = []
   const answeredAsks: AgentConversationAnsweredAsk[] = []
 
+  const liveToolCallIds = new Set(
+    (turn.processEvents ?? [])
+      .filter((event) => event.kind === 'tool_call' && event.toolCallId)
+      .map((event) => event.toolCallId as string)
+  )
   for (const item of buildAgentProcessTimeline(turn)) {
     if (item.kind === 'event') {
-      items.push(presentProcessEvent(item.event, item.toolCall, toolResultDiagnostics, active))
+      if (item.event.kind === 'tool_result' && item.event.toolCallId && liveToolCallIds.has(item.event.toolCallId)) continue
+      items.push(presentProcessEvent(item.event, item.toolCall, toolResultDiagnostics, effectivelyActive))
       continue
     }
 
     const syntheticEvents = synthesizeToolCallEvents(item.toolCall, toolResultDiagnostics.get(item.toolCall.id))
     for (const event of syntheticEvents) {
-      items.push(presentProcessEvent(event, item.toolCall, toolResultDiagnostics, active))
+      items.push(presentProcessEvent(event, item.toolCall, toolResultDiagnostics, effectivelyActive))
     }
   }
 
@@ -155,7 +171,27 @@ function presentTurn(turn: AgentChatTurn, active: boolean): AgentConversationTur
   }
 
   appendMetadataEvidence(items, turn.metadata)
-  return { turnId: turn.id, active, items, answeredAsks }
+  keepOnlyLatestItemActive(items)
+  return {
+    turnId: turn.id,
+    active: effectivelyActive,
+    items,
+    answeredAsks,
+    sources: presentSourceReferences(turn.metadata)
+  }
+}
+
+function hasTerminalStatus(events: AgentChatProcessEvent[] | undefined): boolean {
+  return (events ?? []).some((event) =>
+    event.kind === 'status' && (event.status === 'done' || event.status === 'canceled' || event.status === 'error')
+  )
+}
+
+function keepOnlyLatestItemActive(items: AgentConversationProvenanceItem[]): void {
+  const latestIndex = items.length - 1
+  items.forEach((item, index) => {
+    if (item.state === 'active' && index !== latestIndex) item.state = 'complete'
+  })
 }
 
 function commandForInterruption(interruption: AgentConversationInterruption): AgentConversationCommandDescriptor {
@@ -205,34 +241,18 @@ function synthesizeToolCallEvents(
     : name === 'tool_permission'
       ? 'permission_request'
       : 'tool_call'
-  const resultKind = name === 'ask'
-    ? 'elicitation_resolved'
-    : name === 'tool_permission'
-      ? 'permission_resolved'
-      : 'tool_result'
-  const call: AgentChatProcessEvent = {
+  const completed = toolCall.result !== undefined || Boolean(diagnostic)
+  return [{
     id: `durable:${toolCall.id}:call`,
     kind: requestKind,
     title: requestTitleForTool(toolCall),
-    detail: compactText(toolCall.arguments, 180),
+    detail: requestKind === 'tool_call' ? undefined : compactText(toolCall.arguments, 180),
+    status: completed ? 'tool_done' : undefined,
     toolCallId: toolCall.id,
     toolName: name,
+    isError: completed ? toolCall.isError : undefined,
     createdAt: ''
-  }
-  if (toolCall.result === undefined && !diagnostic) return [call]
-  return [
-    call,
-    {
-      id: `durable:${toolCall.id}:result`,
-      kind: resultKind,
-      title: resultTitleForTool(toolCall),
-      detail: isDisclosureOnlyToolResult(toolCall, diagnostic) ? undefined : compactText(toolCall.result, 180),
-      toolCallId: toolCall.id,
-      toolName: name,
-      isError: toolCall.isError,
-      createdAt: ''
-    }
-  ]
+  }]
 }
 
 function presentProcessEvent(
@@ -243,22 +263,28 @@ function presentProcessEvent(
 ): AgentConversationProvenanceItem {
   const kind = normalizeKind(event.kind)
   const toolDiagnostic = event.toolCallId ? diagnostics.get(event.toolCallId) : undefined
-  const state = event.isError || event.status === 'error'
+  const toolCompleted = kind === 'tool_call' && Boolean(
+    event.status === 'tool_done' || toolCall?.result !== undefined || toolDiagnostic
+  )
+  const toolFailed = kind === 'tool_call' && toolCompleted && Boolean(event.isError || toolCall?.isError)
+  const state = event.isError || event.status === 'error' || toolFailed
     ? 'error'
     : event.status === 'canceled'
       ? 'canceled'
       : isPendingEvent(event)
         ? 'pending'
-        : active && event.status !== 'done' && event.status !== 'tool_done'
-          ? 'active'
-          : 'complete'
+        : toolCompleted
+          ? 'complete'
+          : active && event.status !== 'done' && event.status !== 'tool_done'
+            ? 'active'
+            : 'complete'
   const resultFocused = isResultEvidence(kind)
-  const disclosure = toolCall && isToolEvidence(kind)
-    ? disclosureForTool(toolCall, toolDiagnostic, resultFocused)
-    : undefined
-  const detail = resultFocused && toolCall && isDisclosureOnlyToolResult(toolCall, toolDiagnostic)
+  const disclosure = undefined
+  const detail = kind === 'tool_call'
     ? undefined
-    : compactText(event.detail, 180)
+    : resultFocused && toolCall && isDisclosureOnlyToolResult(toolCall, toolDiagnostic)
+      ? undefined
+      : kind === 'reasoning' ? preserveReasoningText(event.detail) : compactText(event.detail, 180)
 
   return {
     id: `event:${event.id}`,
@@ -267,30 +293,6 @@ function presentProcessEvent(
     detail,
     state,
     disclosure
-  }
-}
-
-function disclosureForTool(
-  toolCall: AgentProcessToolCall,
-  diagnostic: NonNullable<AgentTurnMetadata['toolResults']>[number] | undefined,
-  resultFocused: boolean
-): AgentConversationDisclosure | undefined {
-  const argumentsText = compactDisclosure(toolCall.arguments, INLINE_ARGUMENT_LIMIT)
-  const result = toolCall.result
-  const resultState = resultDisclosureState(toolCall, diagnostic)
-  const safeResult = resultState === 'available' ? compactDisclosure(result, INLINE_RESULT_LIMIT) : undefined
-  const hasArguments = Boolean(argumentsText)
-  const shouldDescribeResult = resultFocused || result !== undefined || Boolean(diagnostic)
-  const eligible = hasArguments || shouldDescribeResult
-  if (!eligible) return undefined
-
-  return {
-    eligible,
-    label: disclosureLabel(toolCall, resultFocused, resultState),
-    arguments: argumentsText,
-    result: safeResult,
-    resultState: shouldDescribeResult ? resultState : undefined,
-    notice: resultNotice(resultState, diagnostic)
   }
 }
 
@@ -314,17 +316,29 @@ function resultDisclosureState(
   return 'available'
 }
 
-function appendMetadataEvidence(items: AgentConversationProvenanceItem[], metadata: AgentTurnMetadata | undefined): void {
-  if (!metadata) return
-  for (const source of metadata.sources ?? []) {
-    items.push({
-      id: `source:${source.sourceId}`,
-      kind: 'source',
-      label: compactLabel(source.title || '引用来源', 72),
-      detail: compactText(source.snippet || source.provider || source.url, 180),
-      state: 'complete'
+function presentSourceReferences(metadata: AgentTurnMetadata | undefined): AgentConversationSourceReference[] {
+  if (!metadata?.sources?.length) return []
+  const seen = new Set<string>()
+  const sources: AgentConversationSourceReference[] = []
+  for (const source of metadata.sources) {
+    const url = source.url?.trim()
+    if (!url) continue
+    const key = source.sourceId || url
+    if (seen.has(key)) continue
+    seen.add(key)
+    sources.push({
+      id: key,
+      title: compactLabel(source.title || source.url || '引用来源', 96),
+      url,
+      snippet: source.snippet ? compactText(source.snippet, 180) : undefined,
+      provider: source.provider
     })
   }
+  return sources
+}
+
+function appendMetadataEvidence(items: AgentConversationProvenanceItem[], metadata: AgentTurnMetadata | undefined): void {
+  if (!metadata) return
   for (const child of metadata.childRuns ?? []) {
     const state = child.status === 'failed'
       ? 'error'
@@ -357,6 +371,7 @@ function appendMetadataEvidence(items: AgentConversationProvenanceItem[], metada
 function normalizeKind(kind: unknown): ProvenanceKind {
   switch (kind) {
     case 'status':
+    case 'reasoning':
     case 'tool_call':
     case 'tool_result':
     case 'permission_request':
@@ -378,15 +393,6 @@ function normalizeKind(kind: unknown): ProvenanceKind {
   }
 }
 
-function isToolEvidence(kind: ProvenanceKind): boolean {
-  return kind === 'tool_call' ||
-    kind === 'tool_result' ||
-    kind === 'permission_request' ||
-    kind === 'permission_resolved' ||
-    kind === 'elicitation_request' ||
-    kind === 'elicitation_resolved'
-}
-
 function isResultEvidence(kind: ProvenanceKind): boolean {
   return kind === 'tool_result' || kind === 'permission_resolved' || kind === 'elicitation_resolved'
 }
@@ -406,14 +412,8 @@ function requestTitleForTool(toolCall: AgentProcessToolCall): string {
   return `调用工具：${name}`
 }
 
-function resultTitleForTool(toolCall: AgentProcessToolCall): string {
-  const name = normalizedToolName(toolCall)
-  if (name === 'ask') return toolCall.isError ? '用户选择处理失败' : '用户选择已提交'
-  if (name === 'tool_permission') return toolCall.isError ? '写入审批已拒绝' : '写入审批已允许'
-  return toolCall.isError ? `工具失败：${name}` : `工具完成：${name}`
-}
-
 function fallbackLabel(kind: ProvenanceKind, status?: string, toolName?: string): string {
+  if (kind === 'reasoning') return '思考过程'
   if (kind === 'tool_call') return `调用工具：${toolName || 'tool'}`
   if (kind === 'tool_result') return `工具结果：${toolName || 'tool'}`
   if (kind === 'permission_request') return '等待写入审批'
@@ -426,38 +426,13 @@ function fallbackLabel(kind: ProvenanceKind, status?: string, toolName?: string)
   return 'Agent 活动'
 }
 
-function disclosureLabel(
-  toolCall: AgentProcessToolCall,
-  resultFocused: boolean,
-  resultState: AgentConversationDisclosure['resultState']
-): string {
-  if (toolCall.name === 'tool_permission') return resultFocused ? '查看审批结果' : '查看审批请求'
-  if (toolCall.name === 'ask') return resultFocused ? '查看用户回答' : '查看问题参数'
-  if (resultFocused || resultState === 'archived' || resultState === 'oversized') return '查看工具结果'
-  return '查看工具参数'
-}
-
-function resultNotice(
-  resultState: AgentConversationDisclosure['resultState'],
-  diagnostic: NonNullable<AgentTurnMetadata['toolResults']>[number] | undefined
-): string | undefined {
-  if (resultState === 'archived') {
-    const location = diagnostic?.archive?.relativePath
-    return location ? `结果已归档，未在对话中内嵌：${location}` : '结果已归档，未在对话中内嵌。'
-  }
-  if (resultState === 'oversized') return '结果过大，未在对话中内嵌。'
-  if (resultState === 'missing') return '结果不可用或未保存到此对话。'
-  return undefined
-}
-
-function compactDisclosure(value: string | undefined, limit: number): string | undefined {
-  if (!value || value.length > limit) return undefined
-  const formatted = prettyJson(value)
-  return formatted.length <= limit ? formatted : value
-}
-
 function compactLabel(value: string, limit: number): string {
   return compactText(value, limit) || 'Agent 活动'
+}
+
+function preserveReasoningText(value: string | undefined): string | undefined {
+  const text = value?.trim() ?? ''
+  return text || undefined
 }
 
 function compactText(value: string | undefined, limit: number): string | undefined {
@@ -466,10 +441,3 @@ function compactText(value: string | undefined, limit: number): string | undefin
   return compacted.length > limit ? `${compacted.slice(0, Math.max(0, limit - 1))}…` : compacted
 }
 
-function prettyJson(value: string): string {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2)
-  } catch {
-    return value
-  }
-}

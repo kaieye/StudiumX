@@ -487,10 +487,10 @@ export function SettingsView({
                   onChange={(webFetch) => void configuration.updateSetting('tools.webFetch', webFetch)}
                 />
               </SettingsRow>
-              <SettingsRow label="最大工具调用轮数" detail={`默认 ${8}，控制单次任务的最大工具往返（教学对话中生成课程也算一轮）`}>
+              <SettingsRow label="最大工具调用轮数" detail="默认 0（不限轮数），仍受时长、模型调用、工具调用和 Token 运行预算保护">
                 <NumberInput
-                  max={12}
-                  min={1}
+                  max={64}
+                  min={0}
                   step={1}
                   value={settings.tools.maxIterations}
                   onChange={(maxIterations) => void configuration.updateSetting('tools.maxIterations', maxIterations)}

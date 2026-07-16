@@ -98,7 +98,7 @@ export async function evaluateLearningSessionOutcome(
   } catch {
     return base({ relativePath: assessment.relativePath, sha256: null, status: 'unsafe_path' })
   }
-  if (!isCanonicalAssessmentHtmlPath(relativePath)) {
+  if (!isCanonicalAssessmentPath(relativePath)) {
     return base({ relativePath, sha256: null, status: 'not_html' })
   }
   if (!isSha256(assessment.contentSha256)) {
@@ -122,7 +122,7 @@ export async function evaluateLearningSessionOutcome(
 
   const sha256 = createHash('sha256').update(content).digest('hex')
   if (sha256 !== assessment.contentSha256) return base({ relativePath, sha256, status: 'digest_mismatch' })
-  const quizzes = parseCanonicalQuizzes(content.toString('utf8'))
+  const quizzes = parseCanonicalAssessment(content.toString('utf8'), relativePath)
   if (!quizzes) return base({ relativePath, sha256, status: 'unparseable' })
 
   const assessments = sortedEvents(input.session.events).flatMap((event) => {
@@ -235,8 +235,60 @@ function compareAssessments(left: LearningOutcomeEvidenceAssessment, right: Lear
   return left.sequence - right.sequence || left.eventId.localeCompare(right.eventId)
 }
 
-function isCanonicalAssessmentHtmlPath(relativePath: string): boolean {
-  return (relativePath.startsWith('courses/') || relativePath.startsWith('lessons/')) && relativePath.endsWith('-assessment.html')
+function isCanonicalAssessmentPath(relativePath: string): boolean {
+  return (relativePath.startsWith('courses/') || relativePath.startsWith('lessons/')) &&
+    (relativePath.endsWith('-assessment.json') || relativePath.endsWith('-assessment.html'))
+}
+
+function parseCanonicalAssessment(content: string, relativePath: string): CanonicalQuiz[] | null {
+  return relativePath.endsWith('-assessment.json')
+    ? parseCanonicalAssessmentJson(content)
+    : parseCanonicalQuizzes(content)
+}
+
+function parseCanonicalAssessmentJson(content: string): CanonicalQuiz[] | null {
+  try {
+    if (Buffer.byteLength(content, 'utf8') > MAX_CANONICAL_ARTIFACT_BYTES) return null
+    const value: unknown = JSON.parse(content)
+    if (!isRecord(value) || !hasOnlyKeys(value, ['schemaVersion', 'kind', 'quizzes']) || value.schemaVersion !== 1 || value.kind !== 'studiumx-assessment' || !Array.isArray(value.quizzes) || value.quizzes.length > 5) return null
+    const quizzes: CanonicalQuiz[] = []
+    for (let index = 0; index < value.quizzes.length; index += 1) {
+      const quiz = value.quizzes[index]
+      if (!isRecord(quiz) || !hasOnlyKeys(quiz, ['itemId', 'type', 'answerIds', 'choiceIds']) || quiz.itemId !== `quiz-${index + 1}`) return null
+      const type = quiz.type
+      if (type !== 'single' && type !== 'multi' && type !== 'truefalse' && type !== 'fill') return null
+      const answerIds = quiz.answerIds === null ? null : parseJsonIds(quiz.answerIds)
+      const choiceIds = quiz.choiceIds === null ? null : parseJsonIds(quiz.choiceIds)
+      if (quiz.answerIds !== null && !answerIds) return null
+      if (quiz.choiceIds !== null && !choiceIds) return null
+      if (type === 'fill') {
+        if (answerIds !== null || choiceIds !== null) return null
+      } else if (type === 'single' || type === 'multi' || type === 'truefalse') {
+        if (!answerIds || !choiceIds || answerIds.length === 0 || choiceIds.length === 0 ||
+          (type !== 'multi' && answerIds.length !== 1) ||
+          answerIds.some((answer) => !choiceIds.includes(answer)) ||
+          (type === 'truefalse' && (choiceIds.length !== 2 || !choiceIds.includes('true') || !choiceIds.includes('false') || !['true', 'false'].includes(answerIds[0]!)))) return null
+      }
+      quizzes.push({ itemId: quiz.itemId, type, answerIds, choiceIds })
+    }
+    return quizzes
+  } catch {
+    return null
+  }
+}
+
+function parseJsonIds(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 6 || value.some((id) => typeof id !== 'string' || !isSafeOptionId(id))) return null
+  return new Set(value).size === value.length ? value : null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  const actual = Object.keys(value)
+  return actual.length === keys.length && actual.every((key) => keys.includes(key))
 }
 
 function isSha256(value: string): boolean {

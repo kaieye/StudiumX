@@ -95,9 +95,21 @@ export async function streamTextInvocation(opts: InvocationBase & {
   }
 
   if (!response.ok || !response.body) throw await toHttpError(response)
+  if (response.headers.get('content-type')?.includes('application/json')) {
+    const parsed = await response.json()
+    const text = extractText(format, parsed)
+    if (!text) throw new ProviderAdapterError('parse', 'Provider 响应未包含可用的文本内容。')
+    emitStreamingText(opts.callbacks, text)
+    return { text, usage: extractUsage(format, parsed) }
+  }
   const body = response.body
   opts.callbacks.onStatus?.('streaming')
-  const text = await readSseStream(body, format, (delta) => opts.callbacks.onToken?.(delta))
+  const text = await readSseStream(
+    body,
+    format,
+    (delta) => opts.callbacks.onToken?.(delta),
+    (delta) => opts.callbacks.onReasoning?.(delta)
+  )
   if (!text) throw new ProviderAdapterError('parse', '流式响应未产生任何内容。')
   return { text }
 }
@@ -155,8 +167,30 @@ export async function streamChatInvocation(opts: InvocationBase & {
     throw error
   }
 
+  if (response.headers.get('content-type')?.includes('application/json')) {
+    const parsed = await response.json()
+    const text = extractText(format, parsed)
+    const toolCalls = extractToolCalls(format, parsed)
+    if (!text && toolCalls.length === 0) {
+      throw new ProviderAdapterError('parse', 'Provider 响应未包含可用的文本内容或工具调用。')
+    }
+    const result: ChatAdapterResult = {
+      text,
+      toolCalls,
+      toolsSupported,
+      usage: extractUsage(format, parsed)
+    }
+    emitStreamingChat(opts.callbacks, result)
+    return result
+  }
+
   opts.callbacks.onStatus?.('streaming')
-  const { text, toolCalls } = await readChatSseStream(response.body, format, (delta) => opts.callbacks.onToken?.(delta))
+  const { text, toolCalls } = await readChatSseStream(
+    response.body,
+    format,
+    (delta) => opts.callbacks.onToken?.(delta),
+    (delta) => opts.callbacks.onReasoning?.(delta)
+  )
   if (!text && toolCalls.length === 0) {
     throw new ProviderAdapterError('parse', '流式响应未产生任何内容或工具调用。')
   }

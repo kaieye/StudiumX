@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest'
+import { readChatSseStream, readSseStream } from '../../src/main/ai/provider-adapter/sse-parser'
+
+function sseBody(events: unknown[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  return new ReadableStream({
+    start(controller) {
+      for (const event of events) controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+      controller.close()
+    }
+  })
+}
+
+describe('provider SSE reasoning', () => {
+  it('streams OpenAI-compatible reasoning separately from answer text', async () => {
+    const answer: string[] = []
+    const reasoning: string[] = []
+    const result = await readChatSseStream(
+      sseBody([
+        { choices: [{ delta: { reasoning_content: '先分析' } }] },
+        { choices: [{ delta: { content: '最终答案' } }] }
+      ]),
+      'chat_completions',
+      (delta) => answer.push(delta),
+      (delta) => reasoning.push(delta)
+    )
+
+    expect(reasoning).toEqual(['先分析'])
+    expect(answer).toEqual(['最终答案'])
+    expect(result.text).toBe('最终答案')
+  })
+
+  it('streams Anthropic thinking deltas separately from answer text', async () => {
+    const answer: string[] = []
+    const reasoning: string[] = []
+    const text = await readSseStream(
+      sseBody([
+        { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '检查资料' } },
+        { type: 'content_block_delta', delta: { type: 'text_delta', text: '回答' } }
+      ]),
+      'messages',
+      (delta) => answer.push(delta),
+      (delta) => reasoning.push(delta)
+    )
+
+    expect(reasoning).toEqual(['检查资料'])
+    expect(answer).toEqual(['回答'])
+    expect(text).toBe('回答')
+  })
+})

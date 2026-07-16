@@ -36,14 +36,19 @@ const BRIEF_TEXT_LIMIT = 1500
 export function normalizeLessonBrief(raw: unknown): LessonBrief | null {
   if (!raw || typeof raw !== 'object') return null
   const record = raw as Record<string, unknown>
-  const topic = cleanBriefText(record.topic)
-  const firstLessonFocus = cleanBriefText(record.firstLessonFocus)
+  const topic = firstBriefText(record, ['topic'])
+  const firstLessonFocus = firstBriefText(record, [
+    'firstLessonFocus',
+    'first_lesson_focus',
+    'firstAction',
+    'first_action'
+  ])
   if (topic.length < 2 || firstLessonFocus.length < 4) return null
   const brief: LessonBrief = { topic, firstLessonFocus }
-  const learnerProfile = cleanBriefText(record.learnerProfile)
-  const goal = cleanBriefText(record.goal)
-  const constraints = cleanBriefText(record.constraints)
-  const extraNotes = cleanBriefText(record.extraNotes)
+  const learnerProfile = firstBriefText(record, ['learnerProfile', 'learner_profile', 'learner'])
+  const goal = firstBriefText(record, ['goal'])
+  const constraints = firstBriefText(record, ['constraints'])
+  const extraNotes = firstBriefText(record, ['extraNotes', 'extra_notes'])
   if (learnerProfile) brief.learnerProfile = learnerProfile
   if (goal) brief.goal = goal
   if (constraints) brief.constraints = constraints
@@ -80,6 +85,14 @@ export function buildLessonPromptWithConversation(
     .slice(-6)
   if (userLines.length === 0) return prompt
   return `${prompt}\n\n对话中用户的原话（供参考）：\n${userLines.map((line) => `- ${line}`).join('\n')}`
+}
+
+function firstBriefText(record: Record<string, unknown>, keys: readonly string[]): string {
+  for (const key of keys) {
+    const value = cleanBriefText(record[key])
+    if (value) return value
+  }
+  return ''
 }
 
 function cleanBriefText(value: unknown): string {

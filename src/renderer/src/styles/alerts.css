@@ -2,17 +2,29 @@
    Alert Banners
    ================================================================ */
 
-/* Inline alert (error/warning/info) */.inline-alert {
+/* Floating alert (error/warning/info). Kept outside document flow so
+   failures never push the current workspace or conversation downward. */.inline-alert {
+  position: fixed;
+  top: calc(var(--window-chrome-height, 48px) + 12px);
+  right: 20px;
+  z-index: 1000;
   display: flex;
-  align-items: center;
-  max-width: 1180px;
-  min-height: 40px;
+  align-items: flex-start;
+  width: min(440px, calc(100vw - 40px));
+  min-height: 44px;
   gap: 10px;
-  margin: 12px auto 0;
-  padding: 10px 14px;
-  border-radius: var(--radius-sm);
+  margin: 0;
+  padding: 11px 12px 11px 14px;
+  border-radius: 14px;
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.45;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.2);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  animation: floating-alert-in 180ms ease-out;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }.inline-alert[data-severity="error"] {
   color: #9c384e;
   border: 1px solid #ffd4de;
@@ -86,4 +98,39 @@
 }.error-boundary-card button:hover {
   background: #fff0f4;
   box-shadow: var(--shadow-card);
+}
+
+.inline-alert > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.inline-alert > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@keyframes floating-alert-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 640px) {
+  .inline-alert {
+    top: calc(var(--window-chrome-height, 48px) + 8px);
+    right: 12px;
+    width: calc(100vw - 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inline-alert {
+    animation: none;
+  }
 }

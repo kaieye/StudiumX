@@ -213,7 +213,7 @@ assert.equal(
   patch.agentTurns?.at(-1)?.toolCalls?.find((toolCall) => toolCall.id === 'tool-1')?.result,
   '{"ok":true}'
 )
-assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'tool_result')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'tool_call')
 pending = patch.pendingAgentConversation!
 
 patch = applyAgentChatToolEventToPending({

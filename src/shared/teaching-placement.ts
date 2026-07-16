@@ -200,7 +200,10 @@ export function buildLessonArtifactPlacement(input: {
   const lessonDirRelativePath = lessonFolderRelativePathForCourse(course.courseRelativePath)
   const fileSlug = slugifyPlacement(input.title, 'lesson')
   const lessonRelativePath = joinTeachingRelativePath(lessonDirRelativePath, `${paddedSequence}-${fileSlug}.html`)
-  const assessmentRelativePath = joinTeachingRelativePath(lessonDirRelativePath, `${paddedSequence}-${fileSlug}-assessment.html`)
+  // Assessment authority is data, not a second learner-facing document. Keep
+  // it beside the lesson as JSON so publishing a lesson produces exactly one
+  // HTML course document.
+  const assessmentRelativePath = joinTeachingRelativePath(lessonDirRelativePath, `${paddedSequence}-${fileSlug}-assessment.json`)
   const referenceRelativePath = input.includeReference
     ? joinTeachingRelativePath(lessonDirRelativePath, `${paddedSequence}-${fileSlug}-reference.html`)
     : null

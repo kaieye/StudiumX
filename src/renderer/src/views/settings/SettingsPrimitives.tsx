@@ -271,6 +271,12 @@ export function NumberInput({
   step: number
   onChange: (value: number) => void
 }) {
+  const [draft, setDraft] = useState(String(value))
+
+  useEffect(() => {
+    setDraft(String(value))
+  }, [value])
+
   return (
     <input
       className="settings-number"
@@ -278,8 +284,17 @@ export function NumberInput({
       min={min}
       step={step}
       type="number"
-      value={value}
-      onChange={(event) => onChange(Number(event.target.value))}
+      value={draft}
+      onChange={(event) => {
+        const next = event.target.value
+        setDraft(next)
+        if (next.trim() === '') return
+        const parsed = Number(next)
+        if (Number.isFinite(parsed)) onChange(parsed)
+      }}
+      onBlur={() => {
+        if (draft.trim() === '') setDraft(String(value))
+      }}
     />
   )
 }

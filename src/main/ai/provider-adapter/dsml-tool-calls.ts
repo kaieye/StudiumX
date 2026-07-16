@@ -7,9 +7,16 @@ export type DsmlToolCall = {
 const DSML_TOOL_CALLS_RE = /<｜｜DSML｜｜tool_calls>([\s\S]*?)<\/｜｜DSML｜｜tool_calls>/gi
 const DSML_INVOKE_RE = /<｜｜DSML｜｜invoke\s+([^>]*)>([\s\S]*?)<\/｜｜DSML｜｜invoke>/gi
 const DSML_PARAMETER_RE = /<｜｜DSML｜｜parameter\s+([^>]*)>([\s\S]*?)<\/｜｜DSML｜｜parameter>/gi
+const DSML_UNCLOSED_TOOL_CALLS_RE = /<｜｜DSML｜｜tool_calls>[\s\S]*$/i
+const DSML_TAG_RE = /<\/?｜｜DSML｜｜[^>\n]*>/g
 
 export function stripDsmlToolCallBlocks(text: string): string {
-  return text.replace(DSML_TOOL_CALLS_RE, '').trim()
+  if (!text || !text.includes('DSML')) return text ?? ''
+  return text
+    .replace(DSML_TOOL_CALLS_RE, '')
+    .replace(DSML_UNCLOSED_TOOL_CALLS_RE, '')
+    .replace(DSML_TAG_RE, '')
+    .trim()
 }
 
 export function parseDsmlToolCalls(text: string): DsmlToolCall[] {

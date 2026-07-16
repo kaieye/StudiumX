@@ -50,12 +50,12 @@ describe('TeachingWorkspaceService generation Session gate', () => {
       ledgerControl.failOpen = false
     }
 
-    const index = JSON.parse(await readFile(join(workspace.rootPath, '.teachos', 'index.json'), 'utf8')) as { lessons: unknown[] }
+    const index = JSON.parse(await readFile(join(workspace.rootPath, '.studiumx', 'index.json'), 'utf8')) as { lessons: unknown[] }
     expect(index.lessons).toEqual([])
     await expect(readFile(join(workspace.rootPath, 'lessons', '0001-explain-why-a-session-identity-must-be-canonical.html'))).rejects.toMatchObject({ code: 'ENOENT' })
-    await expect(readFile(join(workspace.rootPath, 'lessons', '0001-explain-why-a-session-identity-must-be-canonical-assessment.html'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(workspace.rootPath, 'lessons', '0001-explain-why-a-session-identity-must-be-canonical-assessment.json'))).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(readdir(join(workspace.rootPath, 'lessons'))).resolves.toEqual([])
-    const events = await readFile(join(workspace.rootPath, '.teachos', 'sessions.jsonl'), 'utf8')
+    const events = await readFile(join(workspace.rootPath, '.studiumx', 'sessions.jsonl'), 'utf8')
     expect(events).not.toContain('lesson_generated')
   })
 })

@@ -1247,8 +1247,12 @@ export class TeachingWorkspaceService {
       if (location) {
         const branch = inferAgentConversationBranchMetadata(location.record)
         const tree = await readAgentConversationSessionTreeAtRoot(location.rootPath, branch.sessionId)
-        if (location.record.branch || tree.branches.length > 1) {
-          await invalidateAgentHistoryIndex(location.rootPath)
+        await invalidateAgentHistoryIndex(location.rootPath)
+        // A multi-branch Session must keep a tombstone so its lineage remains
+        // valid. A single-branch Session has no surviving lineage to protect and
+        // must fall through to the workspace item lifecycle for physical removal;
+        // routing it through branch deletion violates the last-active-branch guard.
+        if (tree.branches.length > 1) {
           await updateAgentConversationBranchStatusAtRoot(
             { ...workspace, rootPath: location.rootPath },
             id,
@@ -1410,8 +1414,8 @@ export class TeachingWorkspaceService {
       before: beforeChanges,
       affectedPaths: [
         ...generation.eventPaths,
-        '.teachos/index.json',
-        '.teachos/sessions.jsonl'
+        '.studiumx/index.json',
+        '.studiumx/sessions.jsonl'
       ]
     })
 
