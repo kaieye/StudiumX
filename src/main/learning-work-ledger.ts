@@ -1,11 +1,11 @@
-import { mkdir, open, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 
 import type { AgentConversationRecord } from '../shared/teaching-types'
 import {
   buildLearningWorkEvidenceSnapshot,
   type LearningWorkLedgerSnapshot
 } from './learning-work-ledger/evidence-snapshot'
+import { appendDurableJsonlLine, readDurableJsonlLines } from './durable-jsonl'
 
 export const LEARNING_WORK_LEDGER_RELATIVE_PATH = '.studiumx/learning-work.jsonl'
 
@@ -15,7 +15,7 @@ export type LearningWorkLedgerSnapshotInput = {
   conversation: AgentConversationRecord
 }
 
-const pendingAppends = new Map<string, Promise<void>>()
+const pendingSnapshotAppends = new Map<string, Promise<void>>()
 
 /**
  * The single production seam for local learning-work snapshots. It owns the
@@ -57,33 +57,28 @@ export function buildLearningWorkLedgerEntry(
   return buildLearningWorkEvidenceSnapshot(workspace, record)
 }
 
+/** Reads all strict sealed segments followed by the active learning-work ledger. */
+export async function readLearningWorkLedgerLines(rootPath: string): Promise<string[]> {
+  return readDurableJsonlLines(join(rootPath, LEARNING_WORK_LEDGER_RELATIVE_PATH))
+}
+
 async function appendSnapshotOnce(ledgerPath: string, snapshot: LearningWorkLedgerSnapshot): Promise<void> {
-  const previous = pendingAppends.get(ledgerPath) ?? Promise.resolve()
+  const previous = pendingSnapshotAppends.get(ledgerPath) ?? Promise.resolve()
   const append = previous.catch(() => undefined).then(async () => {
-    await mkdir(dirname(ledgerPath), { recursive: true })
     if (await ledgerEntryExists(ledgerPath, snapshot.entryId)) return
-
-    const file = await open(ledgerPath, 'a', 0o600)
-    try {
-      await file.writeFile(`${JSON.stringify(snapshot)}\n`, 'utf8')
-      await file.sync()
-    } finally {
-      await file.close()
-    }
+    await appendDurableJsonlLine({ activePath: ledgerPath }, JSON.stringify(snapshot))
   })
-
-  pendingAppends.set(ledgerPath, append)
+  pendingSnapshotAppends.set(ledgerPath, append)
   try {
     await append
   } finally {
-    if (pendingAppends.get(ledgerPath) === append) pendingAppends.delete(ledgerPath)
+    if (pendingSnapshotAppends.get(ledgerPath) === append) pendingSnapshotAppends.delete(ledgerPath)
   }
 }
 
 async function ledgerEntryExists(path: string, entryId: string): Promise<boolean> {
-  const content = await readFile(path, 'utf8').catch(() => '')
-  return content.split(/\r?\n/).some((line) => {
-    if (!line.trim()) return false
+  const lines = await readDurableJsonlLines(path)
+  return lines.some((line) => {
     const parsed = safeParseJson(line)
     return Boolean(parsed && typeof parsed === 'object' && (parsed as { entryId?: unknown }).entryId === entryId)
   })

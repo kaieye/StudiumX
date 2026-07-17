@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
   LESSON_FLASHCARD_CSS,
@@ -21,6 +21,7 @@ import {
   type WorkspacePathMeta
 } from '../teaching-workspace-paths'
 import type { RegistryWorkspace } from './registry'
+import { appendDurableJsonlLine, readDurableJsonlLines } from '../durable-jsonl'
 
 export type WorkspaceIndex = {
   id: string
@@ -155,9 +156,30 @@ export async function saveWorkspaceIndex(rootPath: string, index: WorkspaceIndex
   await atomicWriteFile(join(rootPath, '.studiumx', 'index.json'), `${JSON.stringify(index, null, 2)}\n`)
 }
 
+export const WORKSPACE_LIFECYCLE_LEDGER_RELATIVE_PATH = '.studiumx/sessions.jsonl'
+
 export async function appendWorkspaceLifecycleEvent(rootPath: string, event: WorkspaceLifecycleEvent): Promise<void> {
-  await mkdir(join(rootPath, '.studiumx'), { recursive: true })
-  await appendFile(join(rootPath, '.studiumx', 'sessions.jsonl'), `${JSON.stringify(event)}\n`, 'utf8')
+  await appendDurableJsonlLine({
+    activePath: join(rootPath, WORKSPACE_LIFECYCLE_LEDGER_RELATIVE_PATH)
+  }, JSON.stringify(event))
+}
+
+/** Reads strict sealed lifecycle segments before the active lifecycle JSONL. */
+export async function readWorkspaceLifecycleEventLines(rootPath: string): Promise<string[]> {
+  return readDurableJsonlLines(join(rootPath, WORKSPACE_LIFECYCLE_LEDGER_RELATIVE_PATH))
+}
+
+/** Reads well-formed lifecycle events from all strict sealed and active segments. */
+export async function readWorkspaceLifecycleEvents(rootPath: string): Promise<WorkspaceLifecycleEvent[]> {
+  const lines = await readWorkspaceLifecycleEventLines(rootPath)
+  return lines.flatMap((line) => {
+    try {
+      const value = JSON.parse(line)
+      return isWorkspaceLifecycleEvent(value) ? [value] : []
+    } catch {
+      return []
+    }
+  })
 }
 
 /** @deprecated Use appendWorkspaceLifecycleEvent. This log does not contain teaching Session evidence. */
@@ -284,4 +306,13 @@ function isLessonSummary(value: unknown): value is LessonSummary {
     typeof record.relativePath === 'string' &&
     typeof record.absolutePath === 'string'
   )
+}
+
+function isWorkspaceLifecycleEvent(value: unknown): value is WorkspaceLifecycleEvent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const event = value as Record<string, unknown>
+  return typeof event.id === 'string' &&
+    typeof event.kind === 'string' &&
+    typeof event.timestamp === 'string' &&
+    typeof event.workspaceId === 'string'
 }

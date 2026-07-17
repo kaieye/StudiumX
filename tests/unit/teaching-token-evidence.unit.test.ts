@@ -1,12 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { afterEach, describe, expect, it } from 'vitest'
 import type { AgentConversationRecord, LearningAnalyticsQuery, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 import {
   createDurableConversationEvidenceAdapter,
   discoverTokenEvidence,
+  readLatestLedgerSnapshots,
   type LedgerSnapshot,
   type TokenEvidenceAdapters,
   type TokenEvidenceWorkspace
 } from '../../src/main/teaching/services/analytics/token-evidence'
+import { durableJsonlSealedSegmentFileName } from '../../src/main/durable-jsonl'
+import { LEARNING_WORK_LEDGER_RELATIVE_PATH } from '../../src/main/learning-work-ledger'
 
 const usage = (totalTokens: number, promptTokens = 60, completionTokens = 40) => ({
   totalTokens,
@@ -18,6 +25,12 @@ const usage = (totalTokens: number, promptTokens = 60, completionTokens = 40) =>
   iterations: 1,
   childRuns: 0,
   durationMs: 12
+})
+
+const roots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
 const query: LearningAnalyticsQuery = {
@@ -76,6 +89,34 @@ function snapshot(conversationId: string): LedgerSnapshot {
 }
 
 describe('Teaching token evidence discovery', () => {
+  it('reads latest ledger snapshots across strict sealed and active JSONL segments', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'studiumx-token-evidence-'))
+    roots.push(rootPath)
+    const ledgerDirectory = join(rootPath, '.studiumx')
+    await mkdir(ledgerDirectory, { recursive: true })
+    const row = (createdAt: string, updatedAt: string, totalTokens: number) => JSON.stringify({
+      version: 1,
+      type: 'conversation_snapshot',
+      createdAt,
+      conversation: { id: 'fallback', title: 'Fallback', updatedAt, messageCount: 1, courseRelativePath: 'courses/algebra' },
+      evidence: { runUsage: usage(totalTokens) }
+    })
+    await writeFile(
+      join(ledgerDirectory, durableJsonlSealedSegmentFileName('learning-work.jsonl', '2026-06', 1)),
+      `${row('2026-06-30T12:00:00.000Z', '2026-06-30T11:00:00.000Z', 20)}\n`,
+      'utf8'
+    )
+    await writeFile(
+      join(rootPath, LEARNING_WORK_LEDGER_RELATIVE_PATH),
+      `${row('2026-07-01T12:00:00.000Z', '2026-07-01T11:00:00.000Z', 80)}\n`,
+      'utf8'
+    )
+
+    const result = await readLatestLedgerSnapshots(rootPath)
+    expect(result).toMatchObject({ scanned: 2, invalid: 0, readError: false })
+    expect(result.latestByConversation.get('fallback')).toMatchObject({ usage: { totalTokens: 80 } })
+  })
+
   it('reconciles readable, unreadable, missing, duplicate, invalid, stale, and fallback evidence through explicit adapters', async () => {
     const durable = record('durable', [
       {

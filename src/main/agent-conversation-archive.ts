@@ -27,7 +27,8 @@ import { assertAgentConversationCheckpointPrefixesPreserved } from './agent-conv
 import {
   appendLearningWorkLedgerSnapshot,
   buildLearningWorkLedgerEntry,
-  LEARNING_WORK_LEDGER_RELATIVE_PATH
+  LEARNING_WORK_LEDGER_RELATIVE_PATH,
+  readLearningWorkLedgerLines
 } from './learning-work-ledger'
 import { normalizeWorkspaceRelativePath } from './teaching-workspace-paths'
 
@@ -181,11 +182,11 @@ async function verifyAgentConversationArchive(input: {
   canonicalJson: string
   canonicalMarkdown: string
 }): Promise<void> {
-  const [json, markdown, audit, ledger] = await Promise.all([
+  const [json, markdown, audit, ledgerLines] = await Promise.all([
     readFile(input.paths.json, 'utf8'),
     readFile(input.paths.markdown, 'utf8'),
     readFile(input.paths.audit, 'utf8'),
-    readFile(input.paths.ledger, 'utf8')
+    readLearningWorkLedgerLines(input.workspace.rootPath)
   ])
   if (json !== input.canonicalJson) throw new Error('Conversation archive JSON verification failed.')
   if (markdown !== input.canonicalMarkdown) throw new Error('Conversation archive Markdown verification failed.')
@@ -215,7 +216,7 @@ async function verifyAgentConversationArchive(input: {
   }
 
   const expectedLedgerEntry = buildLearningWorkLedgerEntry(input.workspace, input.record)
-  const hasLedgerEntry = ledger.split(/\r?\n/).some((line) => {
+  const hasLedgerEntry = ledgerLines.some((line) => {
     const entry = safeParseJson(line)
     if (!entry || typeof entry !== 'object') return false
     const candidate = entry as { entryId?: unknown; conversation?: { relativePath?: unknown; jsonRelativePath?: unknown; sessionAuditRelativePath?: unknown } }

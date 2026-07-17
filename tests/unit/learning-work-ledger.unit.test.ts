@@ -7,8 +7,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildLearningWorkLedgerEntry,
   LEARNING_WORK_LEDGER_RELATIVE_PATH,
-  LearningWorkLedger
+  LearningWorkLedger,
+  readLearningWorkLedgerLines
 } from '../../src/main/learning-work-ledger'
+import { durableJsonlSealedSegmentFileName } from '../../src/main/durable-jsonl'
 import type {
   AgentChatProcessEvent,
   AgentChatTurn,
@@ -171,6 +173,24 @@ describe('LearningWorkLedger', () => {
     ])
     expect(JSON.stringify(entry)).not.toContain('This full conversation text')
     expect(JSON.stringify(entry)).not.toContain('secret')
+  })
+
+  it('de-duplicates an entry that already exists in a strict sealed ledger segment', async () => {
+    const rootPath = await createTeachingWorkspace()
+    const item = conversation('sealed-duplicate', [turn({ processEvents: [event('done', { status: 'done' })] })])
+    const entry = buildLearningWorkLedgerEntry(workspace, item)
+    const ledgerDirectory = join(rootPath, '.studiumx')
+    await mkdir(ledgerDirectory, { recursive: true })
+    await writeFile(
+      join(ledgerDirectory, durableJsonlSealedSegmentFileName('learning-work.jsonl', '2026-06', 1)),
+      `${JSON.stringify(entry)}\n`,
+      'utf8'
+    )
+
+    await LearningWorkLedger.appendSnapshot({ rootPath, workspace, conversation: item })
+
+    await expect(readLearningWorkLedgerLines(rootPath)).resolves.toEqual([JSON.stringify(entry)])
+    await expect(readFile(join(rootPath, LEARNING_WORK_LEDGER_RELATIVE_PATH), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('constructs a stable snapshot id and appends a repeated snapshot only once', async () => {

@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import type {
   AgentConversationRecord,
   AgentConversationSummary,
@@ -13,7 +11,7 @@ import type {
   TokenUsageFact,
   TokenUsageNumbers
 } from '../../../../shared/teaching-types'
-import { LEARNING_WORK_LEDGER_RELATIVE_PATH } from '../../../learning-work-ledger'
+import { readLearningWorkLedgerLines } from '../../../learning-work-ledger'
 
 /** The workspace catalog fields required to discover durable token evidence. */
 export type TokenEvidenceWorkspace = {
@@ -654,16 +652,15 @@ export function aggregateTokenFacts(
 }
 
 export async function readLatestLedgerSnapshots(rootPath: string): Promise<{ latestByConversation: Map<string, LedgerSnapshot>; scanned: number; invalid: number; readError: boolean }> {
-  let content = ''
+  let lines: string[] = []
   let readError = false
   try {
-    content = await readFile(join(rootPath, LEARNING_WORK_LEDGER_RELATIVE_PATH), 'utf8')
-  } catch (error) {
-    const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: unknown }).code : undefined
-    readError = code !== 'ENOENT'
+    lines = await readLearningWorkLedgerLines(rootPath)
+  } catch {
+    readError = true
   }
   const latestByConversation = new Map<string, LedgerSnapshot>(); let scanned = 0, invalid = 0
-  for (const line of content.split(/\r?\n/)) { if (!line.trim()) continue; scanned++; const snapshot = parseLedgerSnapshot(line); if (!snapshot) { invalid++; continue }; const previous = latestByConversation.get(snapshot.conversationId); if (!previous || compareSnapshot(snapshot, previous) > 0) latestByConversation.set(snapshot.conversationId, snapshot) }
+  for (const line of lines) { scanned++; const snapshot = parseLedgerSnapshot(line); if (!snapshot) { invalid++; continue }; const previous = latestByConversation.get(snapshot.conversationId); if (!previous || compareSnapshot(snapshot, previous) > 0) latestByConversation.set(snapshot.conversationId, snapshot) }
   return { latestByConversation, scanned, invalid, readError }
 }
 function parseLedgerSnapshot(line: string): LedgerSnapshot | null {
