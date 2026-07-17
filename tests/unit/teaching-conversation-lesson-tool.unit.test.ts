@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { lessonGenerationBudgetFallback, lessonGenerationMaxIterations, lessonGenerationRunBudget } from '../../src/main/teaching-conversation-lesson-tool'
+import {
+  lessonGenerationBudgetFallback,
+  lessonGenerationMaxIterations,
+  lessonGenerationRunBudget,
+  lessonGenerationSuccessFallback
+} from '../../src/main/teaching-conversation-lesson-tool'
 
 describe('lessonGenerationMaxIterations', () => {
   it('reserves durable generation iterations beyond the configured planning allowance', () => {
@@ -25,26 +30,42 @@ describe('lessonGenerationRunBudget', () => {
   it('reserves duration, provider calls, and tool calls for courseware generation and finalization', () => {
     expect(lessonGenerationRunBudget(configured)).toEqual({
       ...configured,
-      maxDurationMs: 10 * 60_000,
-      maxProviderCalls: 24,
-      maxToolCalls: 48
+      maxDurationMs: 20 * 60_000,
+      maxProviderCalls: 64,
+      maxToolCalls: 128
     })
   })
 
   it('does not reduce deliberately larger safety ceilings', () => {
     expect(lessonGenerationRunBudget({
       ...configured,
-      maxDurationMs: 15 * 60_000,
-      maxProviderCalls: 30,
-      maxToolCalls: 60
+      maxDurationMs: 30 * 60_000,
+      maxProviderCalls: 80,
+      maxToolCalls: 160
     })).toMatchObject({
-      maxDurationMs: 15 * 60_000,
-      maxProviderCalls: 30,
-      maxToolCalls: 60
+      maxDurationMs: 30 * 60_000,
+      maxProviderCalls: 80,
+      maxToolCalls: 160
     })
   })
 })
 
+
+describe('lessonGenerationSuccessFallback', () => {
+  it('preserves a durable generated lesson when finalization is unusable', () => {
+    expect(lessonGenerationSuccessFallback([{
+      id: '0001',
+      title: 'Claude Code 记忆系统架构总览',
+      relativePath: 'lessons/0001-claude-code.html'
+    }])).toBe(
+      '课程已成功生成并保存：《Claude Code 记忆系统架构总览》（lessons/0001-claude-code.html）。最终答复阶段模型未返回可用文本，系统已保留生成结果。'
+    )
+  })
+
+  it('does not claim success before any lesson was generated', () => {
+    expect(lessonGenerationSuccessFallback([])).toBeNull()
+  })
+})
 
 describe('lessonGenerationBudgetFallback', () => {
   it('preserves a durable generated lesson as a successful degraded answer', () => {

@@ -68,7 +68,7 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     expect(result.usage).not.toHaveProperty('usageProvenance')
   })
 
-  it('streams reasoning, preparation status, and answer chunks in order', async () => {
+  it('streams reasoning, preparation status, and the buffered final answer in order', async () => {
     globalThis.fetch = (async () => sseResponse([
       { choices: [{ delta: { reasoning_content: '分析问题' } }] },
       { choices: [{ delta: { content: '第一段' } }] },
@@ -89,8 +89,7 @@ describe('runAgentLoop provider hooks end-to-end', () => {
       { type: 'status', status: 'thinking' },
       { type: 'reasoning', delta: '分析问题' },
       { type: 'status', status: 'answering' },
-      { type: 'token', delta: '第一段' },
-      { type: 'token', delta: '第二段' },
+      { type: 'token', delta: '第一段第二段' },
       { type: 'status', status: 'done' }
     ])
   })
@@ -322,6 +321,82 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     expect(requestBodies[0]).toHaveProperty('tools')
     expect(requestBodies[1]).not.toHaveProperty('tools')
     expect(requestBodies[1]).not.toHaveProperty('tool_choice')
+  })
+
+  it('ignores residual tool calls during durable finalization and keeps stripped prose', async () => {
+    const responses = [
+      sseResponse([{
+        choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-generate-residual', type: 'function', function: { name: 'generate_lesson', arguments: '{}' } }] } }]
+      }]),
+      sseResponse([{
+        choices: [{
+          delta: {
+            content: '课程已生成，可以开始学习。',
+            tool_calls: [{ index: 0, id: 'call-extra', type: 'function', function: { name: 'write_workspace_file', arguments: '{}' } }]
+          }
+        }]
+      }])
+    ]
+    globalThis.fetch = (async () => responses.shift()!) as typeof fetch
+    let generated = false
+
+    const result = await runAgentLoop({
+      settings: settings(),
+      provider: provider(),
+      messages: [{ role: 'user', content: '生成课程' }],
+      tools: [{ type: 'function', function: { name: 'generate_lesson', description: 'generate lesson', parameters: { type: 'object', properties: {} } } }],
+      toolHandlers: {
+        generate_lesson: async () => {
+          generated = true
+          return JSON.stringify({ ok: true })
+        }
+      },
+      shouldFinalizeAfterToolExecution: () => generated
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stopReason).toBe('final_answer')
+    expect(result.finalText).toBe('课程已生成，可以开始学习。')
+    expect(result.degradedReason).toBe('final_answer_ignored_tool_calls')
+    expect(result.usage.toolCalls).toBe(1)
+  })
+
+  it('uses durable success fallback when finalization only returns tool calls', async () => {
+    const responses = [
+      sseResponse([{
+        choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-generate-empty-final', type: 'function', function: { name: 'generate_lesson', arguments: '{}' } }] } }]
+      }]),
+      sseResponse([{
+        choices: [{
+          delta: {
+            tool_calls: [{ index: 0, id: 'call-extra-2', type: 'function', function: { name: 'write_workspace_file', arguments: '{}' } }]
+          }
+        }]
+      }])
+    ]
+    globalThis.fetch = (async () => responses.shift()!) as typeof fetch
+    let generated = false
+    const fallbackText = '课程已成功生成并保存：《Claude Code 记忆系统分层架构》（lessons/0001-claude-code.html）。最终答复阶段模型未返回可用文本，系统已保留生成结果。'
+
+    const result = await runAgentLoop({
+      settings: settings(),
+      provider: provider(),
+      messages: [{ role: 'user', content: '生成课程' }],
+      tools: [{ type: 'function', function: { name: 'generate_lesson', description: 'generate lesson', parameters: { type: 'object', properties: {} } } }],
+      toolHandlers: {
+        generate_lesson: async () => {
+          generated = true
+          return JSON.stringify({ ok: true })
+        }
+      },
+      shouldFinalizeAfterToolExecution: () => generated,
+      durableSuccessFallback: () => generated ? fallbackText : null
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stopReason).toBe('final_answer')
+    expect(result.finalText).toBe(fallbackText)
+    expect(result.degradedReason).toBe('final_answer_ignored_tool_calls')
   })
 
   it('uses a deterministic successful-operation fallback when provider budget is exhausted after a durable tool succeeds', async () => {

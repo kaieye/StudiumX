@@ -1,5 +1,5 @@
-import { ChartColumn } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { ChartColumn, ChevronDown, ChevronUp } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
 import {
   formatStudyDuration,
@@ -29,6 +29,9 @@ type DeskId = `desk-${number}`
 // OfficeSceneRuntime owns browser asset loading: new URL('../../../../../ref.png', import.meta.url).
 // Its canvas draw loop renders every desk with drawDeskImage(ctx, assets.deskImage, slot).
 const workbenchSeatCount = 12
+const immersiveVideoUrl = new URL('../../../../../video.mp4', import.meta.url).href
+const immersiveCloseFallbackDurationMs = 1_700
+type ImmersivePhase = 'closed' | 'open' | 'closing'
 
 function deskIdForSeatIndex(seatIndex: number): DeskId {
   return `desk-${seatIndex + 1}`
@@ -55,7 +58,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     resetTimer,
     switchTimerMode,
     toggleAmbientEnabled,
-    addTask,
     addScheduledTask,
     updateTask,
     toggleTask,
@@ -69,8 +71,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const runtimeRef = useRef<OfficeSceneRuntime | null>(null)
   const chooseSeatRef = useRef(chooseSeat)
   const analyticsFabRef = useRef<HTMLButtonElement | null>(null)
+  const immersiveVideoRef = useRef<HTMLVideoElement | null>(null)
+  const immersiveCloseTimerRef = useRef<number | null>(null)
   const restoreAnalyticsFabFocusRef = useRef(false)
   const [route, setRoute] = useState<WorkbenchRoute>(() => parseWorkbenchRoute(window.location.search))
+  const [immersivePhase, setImmersivePhase] = useState<ImmersivePhase>('closed')
+  const [openScheduleAddEditor, setOpenScheduleAddEditor] = useState(false)
   const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
   const occupantsByDeskId = new Map<DeskId, OfficeSceneSeatOccupant>()
 
@@ -127,12 +133,14 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     analyticsFabRef.current?.focus({ preventScroll: true })
   }, [route])
 
-  const openTaskSchedule = (): void => {
+  const openTaskSchedule = (openAddEditor = false): void => {
+    setOpenScheduleAddEditor(openAddEditor)
     navigateWorkbenchRoute('schedule')
     setRoute('schedule')
   }
 
   const closeTaskSchedule = (): void => {
+    setOpenScheduleAddEditor(false)
     navigateWorkbenchRoute('room', 'replace')
     setRoute('room')
   }
@@ -174,6 +182,67 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     runtimeRef.current?.update(seatState)
   }, [seatState])
 
+  const clearImmersiveCloseTimer = useCallback((): void => {
+    if (immersiveCloseTimerRef.current === null) return
+    window.clearTimeout(immersiveCloseTimerRef.current)
+    immersiveCloseTimerRef.current = null
+  }, [])
+
+  const openImmersive = useCallback((): void => {
+    clearImmersiveCloseTimer()
+    setImmersivePhase('open')
+  }, [clearImmersiveCloseTimer])
+
+  const finishImmersiveClose = useCallback((): void => {
+    clearImmersiveCloseTimer()
+    setImmersivePhase((currentPhase) =>
+      currentPhase === 'closing' ? 'closed' : currentPhase
+    )
+  }, [clearImmersiveCloseTimer])
+
+  const closeImmersive = useCallback((): void => {
+    clearImmersiveCloseTimer()
+    setImmersivePhase('closing')
+    immersiveCloseTimerRef.current = window.setTimeout(
+      finishImmersiveClose,
+      immersiveCloseFallbackDurationMs
+    )
+  }, [clearImmersiveCloseTimer, finishImmersiveClose])
+
+  const toggleImmersive = (): void => {
+    if (immersivePhase === 'closed') openImmersive()
+    else if (immersivePhase === 'open') closeImmersive()
+  }
+
+  useEffect(() => {
+    if (route !== 'room') {
+      clearImmersiveCloseTimer()
+      setImmersivePhase('closed')
+      return
+    }
+
+    const video = immersiveVideoRef.current
+    if (!video) return
+    if (immersivePhase !== 'closed') {
+      void video.play().catch(() => {})
+    } else {
+      video.pause()
+    }
+  }, [clearImmersiveCloseTimer, immersivePhase, route])
+
+  useEffect(() => {
+    if (immersivePhase !== 'open') return
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      closeImmersive()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [closeImmersive, immersivePhase])
+
+  useEffect(() => clearImmersiveCloseTimer, [clearImmersiveCloseTimer])
+
   if (route === 'analytics') {
     return (
       <section className="office-workbench-page workbench-analytics-route" aria-label="学习分析">
@@ -194,6 +263,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           onToggleTask={toggleTask}
           onRemoveTask={removeTask}
           onBack={closeTaskSchedule}
+          openAddEditorOnMount={openScheduleAddEditor}
         />
       </section>
     )
@@ -201,7 +271,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   return (
     <section className="office-workbench-page" aria-label="自习室">
-      <div ref={stageRef} className="office-workbench-stage">
+      <div ref={stageRef} className={`office-workbench-stage${immersivePhase !== 'closed' ? ' is-immersive' : ''}`}>
         <canvas
           ref={canvasRef}
           className="office-workbench-canvas"
@@ -247,12 +317,49 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             tasks={snapshot.tasks}
             openTasks={viewModel.openTasks}
             completedTasks={viewModel.completedTasks}
-            onAddTask={addTask}
             onToggleTask={toggleTask}
             onRemoveTask={removeTask}
             onOpenSchedule={openTaskSchedule}
           />
         </div>
+        <div
+          id="workbench-immersive-layer"
+          className={`workbench-immersive-layer${immersivePhase === 'open' ? ' is-open' : immersivePhase === 'closing' ? ' is-closing' : ''}`}
+          aria-hidden={immersivePhase === 'closed'}
+          onAnimationEnd={(event) => {
+            if (event.target === event.currentTarget && immersivePhase === 'closing') {
+              finishImmersiveClose()
+            }
+          }}
+        >
+          <div className="workbench-immersive-plane">
+            <video
+              ref={immersiveVideoRef}
+              className="workbench-immersive-video"
+              src={immersiveVideoUrl}
+              muted
+              loop
+              playsInline
+              preload="auto"
+            />
+            <div className="workbench-immersive-vignette" aria-hidden="true" />
+          </div>
+        </div>
+        <button
+          type="button"
+          className={`workbench-immersive-toggle${immersivePhase !== 'closed' ? ' is-open' : ''}`}
+          onClick={toggleImmersive}
+          aria-controls="workbench-immersive-layer"
+          aria-expanded={immersivePhase !== 'closed'}
+          aria-label={immersivePhase !== 'closed' ? '收起沉浸模式' : '展开沉浸模式'}
+          title={immersivePhase !== 'closed' ? '收起沉浸模式' : '展开沉浸模式'}
+        >
+          {immersivePhase !== 'closed' ? (
+            <ChevronDown size={48} strokeWidth={1.9} aria-hidden="true" />
+          ) : (
+            <ChevronUp size={48} strokeWidth={1.9} aria-hidden="true" />
+          )}
+        </button>
       </div>
     </section>
   )

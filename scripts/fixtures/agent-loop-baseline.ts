@@ -300,9 +300,10 @@ try {
   assert.ok(maxIterationsError.events.some((event) => event.type === 'status' && event.status === 'error'))
 
   const danglingFinalTool = await runScenario('max-iterations-tool-with-text', { maxIterations: 1 })
-  assert.equal(danglingFinalTool.result.stopReason, 'error')
-  assert.equal(danglingFinalTool.result.finalText, '')
-  assert.match(danglingFinalTool.result.error ?? '', /仍请求继续调用工具/)
+  assert.equal(danglingFinalTool.result.stopReason, 'max_iterations')
+  assert.equal(danglingFinalTool.result.finalText, 'I will keep reading before I answer.')
+  assert.equal(danglingFinalTool.result.error, undefined)
+  assert.equal(danglingFinalTool.result.degradedReason, 'final_answer_ignored_tool_calls')
   assert.equal(
     danglingFinalTool.result.messages.some(
       (message) => message.role === 'assistant' && message.tool_calls?.some((call) => call.id === 'call-dangling')

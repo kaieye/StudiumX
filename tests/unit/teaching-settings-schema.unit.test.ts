@@ -118,7 +118,7 @@ describe('teaching settings schema', () => {
           maxDurationMs: '6000',
           maxProviderCalls: 1.5,
           maxToolCalls: 12,
-          maxTotalTokens: 2_000_001,
+          maxTotalTokens: 5_000_001,
           warningThreshold: 0.96
         }
       },
@@ -171,10 +171,10 @@ describe('teaching settings schema', () => {
         webFetch: true,
         maxIterations: 0,
         runBudget: {
-          maxDurationMs: 120_000,
-          maxProviderCalls: 16,
+          maxDurationMs: 20 * 60_000,
+          maxProviderCalls: 64,
           maxToolCalls: 12,
-          maxTotalTokens: 200_000,
+          maxTotalTokens: 500_000,
           warningThreshold: 0.8
         }
       },

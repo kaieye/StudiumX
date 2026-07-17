@@ -177,19 +177,19 @@ export type AgentOperationRecord = {
 const SAFE_ID = /^[A-Za-z0-9._:-]{1,160}$/
 
 export const DEFAULT_AGENT_RUN_BUDGET: AgentRunBudget = {
-  maxDurationMs: 120_000,
-  maxProviderCalls: 16,
-  maxToolCalls: 32,
-  maxTotalTokens: 200_000,
+  maxDurationMs: 20 * 60_000,
+  maxProviderCalls: 64,
+  maxToolCalls: 128,
+  maxTotalTokens: 500_000,
   warningThreshold: 0.8
 }
 
 export function normalizeAgentRunBudget(input: Partial<AgentRunBudget> | null | undefined): AgentRunBudget {
   return {
-    maxDurationMs: boundedInteger(input?.maxDurationMs, 5_000, 30 * 60_000, DEFAULT_AGENT_RUN_BUDGET.maxDurationMs),
-    maxProviderCalls: boundedInteger(input?.maxProviderCalls, 1, 100, DEFAULT_AGENT_RUN_BUDGET.maxProviderCalls),
-    maxToolCalls: boundedInteger(input?.maxToolCalls, 1, 500, DEFAULT_AGENT_RUN_BUDGET.maxToolCalls),
-    maxTotalTokens: boundedInteger(input?.maxTotalTokens, 1_000, 2_000_000, DEFAULT_AGENT_RUN_BUDGET.maxTotalTokens),
+    maxDurationMs: boundedInteger(input?.maxDurationMs, 5_000, 60 * 60_000, DEFAULT_AGENT_RUN_BUDGET.maxDurationMs),
+    maxProviderCalls: boundedInteger(input?.maxProviderCalls, 1, 500, DEFAULT_AGENT_RUN_BUDGET.maxProviderCalls),
+    maxToolCalls: boundedInteger(input?.maxToolCalls, 1, 1_000, DEFAULT_AGENT_RUN_BUDGET.maxToolCalls),
+    maxTotalTokens: boundedInteger(input?.maxTotalTokens, 1_000, 4_000_000, DEFAULT_AGENT_RUN_BUDGET.maxTotalTokens),
     warningThreshold: boundedNumber(input?.warningThreshold, 0.5, 0.95, DEFAULT_AGENT_RUN_BUDGET.warningThreshold)
   }
 }

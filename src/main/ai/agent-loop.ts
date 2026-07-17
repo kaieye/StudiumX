@@ -86,6 +86,11 @@ export type RunAgentLoopOptions = {
    * the budget stop reason in usage.
    */
   budgetExhaustionFallback?: (reason: AgentRunBudgetStopReason, transcript: readonly ChatMessage[]) => string | null | undefined
+  /**
+   * Deterministic confirmation used when a durable operation succeeded but the
+   * provider ignored no-tool finalization or returned an empty final answer.
+   */
+  durableSuccessFallback?: (transcript: readonly ChatMessage[]) => string | null | undefined
   /** Stop offering tools once a caller-observed durable operation has succeeded. */
   shouldFinalizeAfterToolExecution?: () => boolean
   now?: () => number
@@ -513,16 +518,49 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     if (execution.isCanceled) return canceledResult(true)
     if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
     degradedReason ??= final.degradedReason
-    if (final.toolCalls.length > 0) {
-      return execution.failed(transcript, true, degradedReason, '达到限制后，模型仍请求继续调用工具，未返回最终答复。')
+    // Finalization already requested toolChoice:none with an empty tool list. Some
+    // providers still emit native/DSML tool calls here; recover any prose first and
+    // only fall back to a durable success summary when the model returns nothing usable.
+    let finalText = stripDsmlToolCallBlocks(final.text || '')
+    if (final.toolCalls.length > 0 && !finalText.trim()) {
+      const durableFallback = durableFinalizationRequested
+        ? safeFallbackText(opts.durableSuccessFallback, transcript)
+        : ''
+      if (durableFallback) {
+        finalText = durableFallback
+        degradedReason ??= 'final_answer_ignored_tool_calls'
+      } else if (durableFinalizationRequested) {
+        finalText = '核心操作已完成。最终答复阶段模型仍尝试继续调用工具，已停止并保留已完成结果。'
+        degradedReason ??= 'final_answer_ignored_tool_calls'
+      } else {
+        return execution.failed(transcript, true, degradedReason, '达到限制后，模型仍请求继续调用工具，未返回最终答复。')
+      }
+    } else if (final.toolCalls.length > 0) {
+      degradedReason ??= 'final_answer_ignored_tool_calls'
     }
-    const finalText = stripDsmlToolCallBlocks(final.text || '')
-    const assistantMsg: ChatMessage = { role: 'assistant', content: finalText || null }
+    if (!finalText.trim()) {
+      const exhaustedReason = exhausted
+      const budgetFallback = exhaustedReason
+        ? safeFallbackText((messages) => opts.budgetExhaustionFallback?.(exhaustedReason, messages), transcript)
+        : ''
+      const durableFallback = durableFinalizationRequested
+        ? safeFallbackText(opts.durableSuccessFallback, transcript)
+        : ''
+      if (budgetFallback || durableFallback) {
+        finalText = budgetFallback || durableFallback
+        degradedReason ??= budgetFallback
+          ? 'budget_exhausted_after_durable_success'
+          : 'empty_final_answer_after_durable_success'
+      } else if (durableFinalizationRequested) {
+        finalText = '核心操作已完成。'
+        degradedReason ??= 'empty_final_answer_after_durable_success'
+      } else {
+        return execution.failed(transcript, true, degradedReason, '达到限制后，模型返回了空答复。')
+      }
+    }
+    const assistantMsg: ChatMessage = { role: 'assistant', content: finalText }
     transcript.push(assistantMsg)
     emit({ type: 'assistant_message', message: assistantMsg })
-    if (!finalText.trim()) {
-      return execution.failed(transcript, true, degradedReason, '达到限制后，模型返回了空答复。')
-    }
     return execution.completed(transcript, {
       finalText,
       toolsSupported: true,
@@ -534,6 +572,18 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
     const message = error instanceof Error ? error.message : String(error)
     return execution.failed(transcript, true, degradedReason, message)
+  }
+}
+
+function safeFallbackText(
+  fallback: ((transcript: readonly ChatMessage[]) => string | null | undefined) | undefined,
+  transcript: readonly ChatMessage[]
+): string {
+  if (!fallback) return ''
+  try {
+    return fallback(transcript)?.trim() ?? ''
+  } catch {
+    return ''
   }
 }
 

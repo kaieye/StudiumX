@@ -2595,6 +2595,10 @@
   opacity: 0.36;
 }
 
+.workbench-task-actions .workbench-task-add-button {
+  color: var(--accent);
+}
+
 .workbench-task-actions .workbench-task-detail-button {
   grid-template-columns: 14px auto;
   gap: 5px;
@@ -2673,7 +2677,7 @@
 
 .workbench-task-toggle {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -2724,6 +2728,11 @@
   font-variant-numeric: tabular-nums;
   line-height: 1;
   white-space: nowrap;
+}
+
+.workbench-task-schedule {
+  justify-self: center;
+  text-align: center;
 }
 
 .workbench-task-row.is-done small {
@@ -5054,5 +5063,310 @@
     width: 28px;
     min-width: 28px;
     min-height: 28px;
+  }
+}
+
+/* Immersive study-room depth transition --------------------------------------
+   The video begins as a separate plane deep behind the current scene, then
+   travels toward the viewer until it becomes the new full-size surface. */
+.office-workbench-stage {
+  isolation: isolate;
+  perspective: 1500px;
+  perspective-origin: 50% 48%;
+}
+
+.workbench-immersive-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  transform: translate3d(0, 112%, 0);
+  transform-style: preserve-3d;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+  transition:
+    transform 760ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 320ms ease-in;
+}
+
+.workbench-immersive-layer.is-open {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+  pointer-events: auto;
+  animation: workbench-immersive-rise 840ms cubic-bezier(0.2, 0.72, 0.25, 1) both;
+}
+
+.workbench-immersive-layer.is-closing {
+  transform: translate3d(0, 112%, 0);
+  opacity: 0;
+  pointer-events: auto;
+  animation: workbench-immersive-rise-reverse 840ms cubic-bezier(0.2, 0.72, 0.25, 1) 750ms reverse both;
+}
+
+/* The video becomes the scene background; room controls remain available above it. */
+.office-workbench-stage.is-immersive .workbench-tools,
+.office-workbench-stage.is-immersive > .workbench-leaderboard {
+  z-index: 14;
+}
+
+.office-workbench-stage.is-immersive .workbench-immersive-toggle {
+  z-index: 15;
+}
+
+/* Keep the floating tools legible over the scene and immersive video. The
+   material remains glass through its rim, sheen and backdrop blur, while the
+   surface tint is now dense enough to keep the content's contrast independent
+   of a bright or dark frame behind it. */
+.office-workbench-stage {
+  --workbench-readable-glass-surface:
+    linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--surface-solid) 68%, transparent),
+      color-mix(in srgb, var(--surface-solid) 48%, transparent)
+    );
+  --workbench-readable-glass-line: color-mix(in srgb, var(--surface-solid) 38%, var(--liquid-glass-line));
+  --workbench-readable-glass-blur: blur(44px) saturate(140%) contrast(1.04);
+}
+
+.office-workbench-stage.is-immersive {
+  --workbench-readable-glass-surface:
+    linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--surface-solid) 76%, transparent),
+      color-mix(in srgb, var(--surface-solid) 58%, transparent)
+    );
+  --workbench-readable-glass-line: color-mix(in srgb, var(--surface-solid) 48%, var(--liquid-glass-line));
+  --workbench-readable-glass-blur: blur(52px) saturate(135%) contrast(1.06);
+}
+
+.office-workbench-stage .workbench-pomodoro-card,
+.office-workbench-stage .workbench-task-card,
+.office-workbench-stage > .workbench-leaderboard {
+  color: var(--text);
+  border-color: var(--workbench-readable-glass-line);
+  background: var(--workbench-readable-glass-surface);
+  backdrop-filter: var(--workbench-readable-glass-blur);
+  -webkit-backdrop-filter: var(--workbench-readable-glass-blur);
+}
+
+.office-workbench-stage .workbench-pomodoro-time strong,
+.office-workbench-stage .workbench-task-head strong,
+.office-workbench-stage .workbench-leaderboard-header > strong,
+.office-workbench-stage .workbench-leaderboard-row strong {
+  text-shadow: 0 1px 2px color-mix(in srgb, var(--surface-solid) 70%, transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .office-workbench-stage .workbench-pomodoro-card,
+  .office-workbench-stage .workbench-task-card,
+  .office-workbench-stage > .workbench-leaderboard {
+    background: var(--surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+.workbench-immersive-plane {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #07090e;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 34px;
+  transform: translate3d(0, 0, -1150px) scale(0.82) rotateX(4deg);
+  transform-origin: center center;
+  transform-style: preserve-3d;
+  filter: brightness(0.72) saturate(0.78) blur(1.4px);
+  box-shadow: 0 36px 90px rgba(3, 7, 15, 0.42);
+  backface-visibility: hidden;
+  will-change: transform, filter, border-radius, box-shadow;
+  transition:
+    transform 760ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-radius 720ms cubic-bezier(0.4, 0, 0.2, 1),
+    filter 720ms ease-in,
+    box-shadow 720ms ease-in;
+}
+
+.workbench-immersive-layer.is-open .workbench-immersive-plane {
+  border-color: transparent;
+  border-radius: 0;
+  transform: translate3d(0, 0, 0) scale(1) rotateX(0);
+  filter: brightness(1) saturate(1) blur(0);
+  box-shadow: 0 0 0 rgba(3, 7, 15, 0);
+  animation: workbench-immersive-approach 1040ms cubic-bezier(0.4, 0, 0.2, 1) 470ms both;
+}
+
+.workbench-immersive-layer.is-closing .workbench-immersive-plane {
+  border-color: rgba(255, 255, 255, 0.34);
+  border-radius: 34px;
+  transform: translate3d(0, 0, -1150px) scale(0.82) rotateX(4deg);
+  filter: brightness(0.72) saturate(0.78) blur(1.4px);
+  box-shadow: 0 36px 90px rgba(3, 7, 15, 0.42);
+  animation: workbench-immersive-approach-reverse 1040ms cubic-bezier(0.4, 0, 0.2, 1) 80ms reverse both;
+}
+
+@keyframes workbench-immersive-rise {
+  0% {
+    transform: translate3d(0, 112%, 0);
+    opacity: 0;
+  }
+
+  22% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+/* Separate names restart the timeline when switching from the filled opening animation. */
+@keyframes workbench-immersive-rise-reverse {
+  0% {
+    transform: translate3d(0, 112%, 0);
+    opacity: 0;
+  }
+
+  22% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes workbench-immersive-approach {
+  0% {
+    border-color: rgba(255, 255, 255, 0.34);
+    border-radius: 34px;
+    transform: translate3d(0, 0, -1150px) scale(0.82) rotateX(4deg);
+    filter: brightness(0.72) saturate(0.78) blur(1.4px);
+    box-shadow: 0 36px 90px rgba(3, 7, 15, 0.42);
+  }
+
+  100% {
+    border-color: transparent;
+    border-radius: 0;
+    transform: translate3d(0, 0, 0) scale(1) rotateX(0);
+    filter: brightness(1) saturate(1) blur(0);
+    box-shadow: 0 0 0 rgba(3, 7, 15, 0);
+  }
+}
+
+@keyframes workbench-immersive-approach-reverse {
+  0% {
+    border-color: rgba(255, 255, 255, 0.34);
+    border-radius: 34px;
+    transform: translate3d(0, 0, -1150px) scale(0.82) rotateX(4deg);
+    filter: brightness(0.72) saturate(0.78) blur(1.4px);
+    box-shadow: 0 36px 90px rgba(3, 7, 15, 0.42);
+  }
+
+  100% {
+    border-color: transparent;
+    border-radius: 0;
+    transform: translate3d(0, 0, 0) scale(1) rotateX(0);
+    filter: brightness(1) saturate(1) blur(0);
+    box-shadow: 0 0 0 rgba(3, 7, 15, 0);
+  }
+}
+
+.workbench-immersive-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+  background: #07090e;
+  transform: scale(1.1);
+  transition: transform 760ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.workbench-immersive-layer.is-open .workbench-immersive-video {
+  transform: scale(1);
+  animation: workbench-immersive-video-settle 1120ms cubic-bezier(0.4, 0, 0.2, 1) 470ms both;
+}
+
+.workbench-immersive-layer.is-closing .workbench-immersive-video {
+  transform: scale(1.1);
+  animation: workbench-immersive-video-settle-reverse 1120ms cubic-bezier(0.4, 0, 0.2, 1) reverse both;
+}
+
+@keyframes workbench-immersive-video-settle {
+  from { transform: scale(1.1); }
+  to { transform: scale(1); }
+}
+
+@keyframes workbench-immersive-video-settle-reverse {
+  from { transform: scale(1.1); }
+  to { transform: scale(1); }
+}
+
+.workbench-immersive-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(4, 7, 12, 0.08), transparent 24%, transparent 70%, rgba(4, 7, 12, 0.3)),
+    radial-gradient(circle at 50% 46%, transparent 44%, rgba(3, 5, 10, 0.22) 100%);
+}
+
+/* Keep button semantics and keyboard access, but present only the arrow icon. */
+.workbench-immersive-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  z-index: 13;
+  width: 72px;
+  height: 66px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: color-mix(in srgb, var(--text) 82%, #ffffff);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transform: translateX(-50%);
+  transition:
+    color 180ms ease,
+    transform 160ms ease-out,
+    filter 180ms ease;
+}
+
+.workbench-immersive-toggle svg {
+  filter: drop-shadow(0 3px 8px rgba(25, 35, 56, 0.24));
+}
+
+.workbench-immersive-toggle.is-open {
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.workbench-immersive-toggle:active {
+  transform: translateX(-50%) scale(0.86);
+}
+
+.workbench-immersive-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 64%, transparent);
+  outline-offset: -5px;
+  border-radius: 12px;
+}
+
+@media (hover: hover) {
+  .workbench-immersive-toggle:hover {
+    color: var(--accent);
+    filter: drop-shadow(0 5px 10px color-mix(in srgb, var(--accent) 26%, transparent));
+    transform: translateX(-50%) translateY(-3px);
+  }
+
+  .workbench-immersive-toggle.is-open:hover {
+    color: #ffffff;
   }
 }

@@ -26,10 +26,13 @@ const MIN_UI_FONT_SCALE = 0.8
 const MAX_UI_FONT_SCALE = 1.2
 
 export const DEFAULT_TEACHING_AGENT_RUN_BUDGET = {
-  maxDurationMs: 120_000,
-  maxProviderCalls: 16,
-  maxToolCalls: 32,
-  maxTotalTokens: 200_000,
+  // Conversational teaching turns (research + nested child runs + lesson generation)
+  // routinely exceed short chat budgets. Keep a hard safety ceiling, but default high
+  // enough that normal course creation is not cut mid-turn.
+  maxDurationMs: 20 * 60_000,
+  maxProviderCalls: 64,
+  maxToolCalls: 128,
+  maxTotalTokens: 500_000,
   warningThreshold: 0.8
 } as const satisfies TeachingSettingsV1['tools']['runBudget']
 
@@ -384,10 +387,10 @@ function normalizeTeachingAgentRunBudget(
   input: Record<string, unknown>
 ): TeachingSettingsV1['tools']['runBudget'] {
   return {
-    maxDurationMs: boundedInteger(input.maxDurationMs, 5_000, 30 * 60_000, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxDurationMs),
-    maxProviderCalls: boundedInteger(input.maxProviderCalls, 1, 100, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxProviderCalls),
-    maxToolCalls: boundedInteger(input.maxToolCalls, 1, 500, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxToolCalls),
-    maxTotalTokens: boundedInteger(input.maxTotalTokens, 1_000, 2_000_000, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxTotalTokens),
+    maxDurationMs: boundedInteger(input.maxDurationMs, 5_000, 60 * 60_000, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxDurationMs),
+    maxProviderCalls: boundedInteger(input.maxProviderCalls, 1, 500, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxProviderCalls),
+    maxToolCalls: boundedInteger(input.maxToolCalls, 1, 1_000, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxToolCalls),
+    maxTotalTokens: boundedInteger(input.maxTotalTokens, 1_000, 4_000_000, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxTotalTokens),
     warningThreshold: boundedNumber(input.warningThreshold, 0.5, 0.95, DEFAULT_TEACHING_AGENT_RUN_BUDGET.warningThreshold)
   }
 }

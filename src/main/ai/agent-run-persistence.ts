@@ -397,10 +397,10 @@ function validateChildUsage(value: unknown): NonNullable<AgentRunChildRecord['us
 function validateBudget(value: unknown): AgentRunBudget {
   const record = strictRecord(value, ['maxDurationMs', 'maxProviderCalls', 'maxToolCalls', 'maxTotalTokens', 'warningThreshold'])
   return {
-    maxDurationMs: integerInRange(record.maxDurationMs, 5_000, 30 * 60_000),
-    maxProviderCalls: integerInRange(record.maxProviderCalls, 1, 100),
-    maxToolCalls: integerInRange(record.maxToolCalls, 1, 500),
-    maxTotalTokens: integerInRange(record.maxTotalTokens, 1_000, 2_000_000),
+    maxDurationMs: integerInRange(record.maxDurationMs, 5_000, 60 * 60_000),
+    maxProviderCalls: integerInRange(record.maxProviderCalls, 1, 500),
+    maxToolCalls: integerInRange(record.maxToolCalls, 1, 1_000),
+    maxTotalTokens: integerInRange(record.maxTotalTokens, 1_000, 4_000_000),
     warningThreshold: numberInRange(record.warningThreshold, 0.5, 0.95)
   }
 }

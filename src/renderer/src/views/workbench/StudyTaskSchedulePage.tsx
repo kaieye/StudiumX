@@ -59,6 +59,7 @@ type StudyTaskSchedulePageProps = {
   onToggleTask: (taskId: string) => void
   onRemoveTask: (taskId: string) => void
   onBack: () => void
+  openAddEditorOnMount?: boolean
 }
 
 type TaskEditorState =
@@ -480,7 +481,8 @@ export function StudyTaskSchedulePage({
   onUpdateTask,
   onToggleTask,
   onRemoveTask,
-  onBack
+  onBack,
+  openAddEditorOnMount = false
 }: StudyTaskSchedulePageProps) {
   const titleId = useId()
   const editorTitleId = useId()
@@ -499,6 +501,7 @@ export function StudyTaskSchedulePage({
   const [customCategoryColor, setCustomCategoryColor] = useState<`#${string}`>(defaultCategoryDraftColor)
   const [customCategoryError, setCustomCategoryError] = useState('')
   const pendingTaskDragRef = useRef<PendingTaskDragState | null>(null)
+  const hasOpenedInitialAddEditorRef = useRef(false)
   const taskDragRef = useRef<TaskDragState | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
   const scheduledTasks = useMemo(() => tasks.filter(hasSchedule), [tasks])
@@ -622,6 +625,12 @@ export function StudyTaskSchedulePage({
     setCustomCategoryError('')
     setEditor({ mode: 'add', ...createScheduleTaskProposal(schedule) })
   }
+
+  useEffect(() => {
+    if (!openAddEditorOnMount || hasOpenedInitialAddEditorRef.current) return
+    hasOpenedInitialAddEditorRef.current = true
+    openAddEditor()
+  }, [openAddEditorOnMount])
 
   const openEditEditor = (task: ScheduledStudyTask): void => {
     setDraftTask(null)

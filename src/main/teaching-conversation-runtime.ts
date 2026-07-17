@@ -13,6 +13,7 @@ import { finalizeLearnerMemoryCapture, resolveDirectMemoryConsent } from './teac
 import {
   createLessonToolLifecycle,
   lessonGenerationBudgetFallback,
+  lessonGenerationSuccessFallback,
   lessonGenerationMaxIterations,
   lessonGenerationRunBudget
 } from './teaching-conversation-lesson-tool'
@@ -360,6 +361,8 @@ async function runTeachingConversationTurnActive(
     budget: runBudget,
     budgetExhaustionFallback: (reason) =>
       lessonGenerationBudgetFallback(lessonTool.generatedLessons(), reason),
+    durableSuccessFallback: () =>
+      lessonGenerationSuccessFallback(lessonTool.generatedLessons()),
     shouldFinalizeAfterToolExecution: () => lessonTool.generatedLessons().length > 0,
     signal: stream.signal,
     callbacks: {

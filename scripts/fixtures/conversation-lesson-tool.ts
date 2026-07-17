@@ -441,7 +441,7 @@ try {
 
   const lessonHtml = await readFile(join(workspace.rootPath, lesson.relativePath), 'utf8')
   assert.match(lessonHtml, /RAG/)
-  const indexRaw = JSON.parse(await readFile(join(workspace.rootPath, '.teachos', 'index.json'), 'utf8')) as {
+  const indexRaw = JSON.parse(await readFile(join(workspace.rootPath, '.studiumx', 'index.json'), 'utf8')) as {
     lessons?: Array<{ relativePath?: string }>
   }
   assert.equal(
@@ -479,7 +479,7 @@ try {
   assert.ok(pipelineRequests >= 2, 'validation failure should trigger exactly one repair round')
 
   const lessonFiles = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(lessonFiles.length, 3, 'only lesson 0001 (+ its reference and assessment pages) may exist — no fallback lesson on failure')
+  assert.equal(lessonFiles.length, 2, 'only lesson 0001 and its reference page may exist — no fallback lesson on failure')
   assert.equal(
     lessonFiles.every((name) => name.startsWith('0001-')),
     true,
@@ -510,7 +510,7 @@ try {
   assert.equal('error' in exhausted, true, 'loop exhaustion should surface a truthful manual-retry boundary')
   assert.equal(pipelineRequests, 0, 'loop exhaustion must not auto-run the lesson generation pipeline')
   const filesAfterExhaustion = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterExhaustion.length, 3, 'no new lesson, reference, or assessment page should be written')
+  assert.equal(filesAfterExhaustion.length, 2, 'no new lesson or reference page should be written')
   assert.equal(filesAfterExhaustion.some((name) => name.startsWith('0002-')), false)
 
   // --- Scenario 4: a new learner can enter with a broad topic, answer one

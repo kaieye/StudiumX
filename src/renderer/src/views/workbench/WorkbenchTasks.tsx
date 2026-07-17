@@ -1,5 +1,5 @@
 import { CalendarDays, Check, CheckCircle2, ChevronUp, Plus, Trash2 } from 'lucide-react'
-import { useState, type CSSProperties, type FormEvent } from 'react'
+import { type CSSProperties } from 'react'
 import type { StudyTask } from '../../study-space/types'
 import {
   getReadableCategoryInk,
@@ -12,10 +12,9 @@ type WorkbenchTasksProps = {
   tasks: StudyTask[]
   openTasks: number
   completedTasks: number
-  onAddTask: (title: string) => boolean
   onToggleTask: (taskId: string) => void
   onRemoveTask: (taskId: string) => void
-  onOpenSchedule: () => void
+  onOpenSchedule: (openAddEditor?: boolean) => void
 }
 
 function formatTaskMinutes(minutes: number): string {
@@ -36,21 +35,14 @@ export function WorkbenchTasks({
   tasks,
   openTasks,
   completedTasks,
-  onAddTask,
   onToggleTask,
   onRemoveTask,
   onOpenSchedule
 }: WorkbenchTasksProps) {
   const { open, isClosing, revealHeight, revealRef, revealInnerRef, toggle } = useWorkbenchDisclosureReveal()
-  const [taskInput, setTaskInput] = useState('')
   const categories = listStudyTaskCategories()
   const taskCount = openTasks + completedTasks
   const completedRatio = taskCount > 0 ? Math.round((completedTasks / taskCount) * 100) : 0
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault()
-    if (onAddTask(taskInput)) setTaskInput('')
-  }
 
   return (
     <section className={`workbench-disclosure-card workbench-task-card${open ? ' is-open' : ''}${isClosing ? ' is-closing' : ''}`} aria-label="今日清单">
@@ -70,8 +62,17 @@ export function WorkbenchTasks({
               <div className="workbench-task-actions">
                 <button
                   type="button"
+                  className="workbench-task-add-button"
+                  onClick={() => onOpenSchedule(true)}
+                  aria-label="添加任务"
+                  title="添加任务"
+                >
+                  <Plus size={16} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
                   className="workbench-task-detail-button"
-                  onClick={onOpenSchedule}
+                  onClick={() => onOpenSchedule()}
                   aria-label="查看任务详情"
                   title="任务详情"
                 >
@@ -90,19 +91,6 @@ export function WorkbenchTasks({
                 <span>{openTasks} 待完成</span>
               </div>
             </div>
-
-            <form className="workbench-task-form" onSubmit={handleSubmit}>
-              <input
-                value={taskInput}
-                onChange={(event) => setTaskInput(event.target.value)}
-                placeholder="添加本轮目标"
-                aria-label="添加本轮目标"
-                maxLength={80}
-              />
-              <button type="submit" disabled={!taskInput.trim()} aria-label="添加任务" title="添加任务">
-                <Plus size={17} aria-hidden="true" />
-              </button>
-            </form>
 
             <div className="workbench-task-list" aria-label="任务列表">
               {tasks.length === 0 ? (

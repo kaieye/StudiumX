@@ -4,9 +4,9 @@ import type { ToolDefinition } from './ai/provider-adapter'
 import type { ToolEntry } from './ai/tools/registry'
 
 export const MIN_DURABLE_LESSON_ITERATIONS = 4
-export const MIN_LESSON_GENERATION_DURATION_MS = 10 * 60_000
-export const MIN_LESSON_GENERATION_PROVIDER_CALLS = 24
-export const MIN_LESSON_GENERATION_TOOL_CALLS = 48
+export const MIN_LESSON_GENERATION_DURATION_MS = 20 * 60_000
+export const MIN_LESSON_GENERATION_PROVIDER_CALLS = 64
+export const MIN_LESSON_GENERATION_TOOL_CALLS = 128
 
 /**
  * A lesson-generation turn may legitimately spend several iterations reading
@@ -118,6 +118,14 @@ export function createLessonToolLifecycle(options: {
     generatedLessons: () => [...generatedLessons],
     missingGenerationMessage: () => '课程尚未生成：本轮未能完成正式生成。当前对话和规划内容已保留，请继续发送“生成课程”重试。'
   }
+}
+
+export function lessonGenerationSuccessFallback(lessons: readonly LessonSummary[]): string | null {
+  if (lessons.length === 0) return null
+  const generated = lessons
+    .map((lesson) => `《${lesson.title}》（${lesson.relativePath}）`)
+    .join('、')
+  return `课程已成功生成并保存：${generated}。最终答复阶段模型未返回可用文本，系统已保留生成结果。`
 }
 
 export function lessonGenerationBudgetFallback(lessons: readonly LessonSummary[], reason: string): string | null {

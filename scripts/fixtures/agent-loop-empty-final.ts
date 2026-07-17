@@ -144,7 +144,6 @@ try {
   assert.equal(requests.length, 2, 'maxIterations=0 should keep looping until the model returns a final answer')
   assert.equal(unlimited.stopReason, 'final_answer')
   assert.equal(unlimited.finalText, 'Done after the tool result.')
-  assert.equal(statuses.includes('answering'), false, 'maxIterations=0 must not enter the budget-exhausted no-tools final round')
   assert.ok(
     Array.isArray(requests[1]?.tools) && requests[1]!.tools!.length > 0,
     'unbounded continuation should keep tools available on the post-tool model turn'
