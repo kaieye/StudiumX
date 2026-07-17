@@ -5,6 +5,8 @@ import { TeachingSettingsService } from './teaching-settings'
 import { TeachingWorkspaceService } from './teaching-workspace'
 import { SkillLibraryService } from './skill-library'
 import { LearningAnalyticsService } from './teaching/services/learning-analytics'
+import { LocalDataIndex } from './local-data-index'
+import { TeachingMemoryCatalog } from './teaching-memory-catalog'
 import { registerTeachingIpcGateway } from './teaching-ipc-gateway'
 import { registerMusicIpcGateway } from './music/music-ipc-gateway'
 import { Logger } from './logger'
@@ -253,6 +255,18 @@ if (!hasSingleInstanceLock) {
       recover: async (services) => {
         await services.workspaceService.reconcileInterruptedAgentRuns()
 
+        const localDataIndex = new LocalDataIndex({
+          appDataRoot: userDataPath,
+          sources: {
+            listWorkspaces: () => services.workspaceService.listWorkspaceSummariesForAnalytics(),
+            listTemporaryConversations: () => services.workspaceService.listTemporaryConversationSummariesForAnalytics(),
+            // The index stores only metadata/tags; canonical memory files remain authoritative.
+            scanMemory: () => new TeachingMemoryCatalog(join(userDataPath, 'memory')).scanForLocalDataIndex()
+          }
+        })
+        if (!localDataIndex.open()) services.logger.warn(`Local analytics SQLite index unavailable; file scan fallback remains active: ${localDataIndex.reason ?? 'unknown error'}`)
+        else localDataIndex.scheduleRebuild()
+
         const learningAnalyticsService = new LearningAnalyticsService({
           appDataRoot: userDataPath,
           listWorkspaceSummaries: () => services.workspaceService.listWorkspaceSummariesForAnalytics(),
@@ -272,10 +286,11 @@ if (!hasSingleInstanceLock) {
           listSkills: () => services.skillLibraryService.listSkills(),
           loadSettings: () => services.settingsService.load(),
           getConnectorStatuses: () => services.workspaceService.getConnectorStatuses(),
-          listWorkspaceChanges: (workspaceId) => services.workspaceService.listWorkspaceChangesForAnalytics(workspaceId)
+          listWorkspaceChanges: (workspaceId) => services.workspaceService.listWorkspaceChangesForAnalytics(workspaceId),
+          localDataIndex
         })
 
-        return { ...services, learningAnalyticsService }
+        return { ...services, localDataIndex, learningAnalyticsService }
       },
       register: ({
         workspaceService,
@@ -309,7 +324,10 @@ if (!hasSingleInstanceLock) {
           createWindow(settingsService, tray, logger)
         }
       },
-      drain: ({ logger }) => logger.shutdown()
+      drain: ({ localDataIndex, logger }) => {
+        localDataIndex.close()
+        return logger.shutdown()
+      }
     })
 
     await runtime.start()

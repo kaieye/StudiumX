@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 import { join, resolve, win32 } from 'node:path'
 import type {
@@ -28,6 +29,17 @@ export type TeachingMemoryCatalogRecoveryIssue = {
   fileName: string
   filePath: string
   reason: 'invalid_json' | 'invalid_record' | 'file_name_mismatch'
+}
+
+/** Main-process-only durable scan used by disposable local projections. */
+export type TeachingMemoryCatalogIndexScan = {
+  records: TeachingMemoryRecord[]
+  recoveryIssues: TeachingMemoryCatalogRecoveryIssue[]
+  sourcePaths: string[]
+  /** SHA-256 values of the exact bytes used to parse each discovered source. */
+  sourceFingerprints: Array<{ path: string; fingerprint: string }>
+  /** Exact source digest for the record selected after canonical-file precedence. */
+  recordFingerprints: Array<{ memoryId: string; fingerprint: string }>
 }
 
 /**
@@ -97,6 +109,32 @@ export class TeachingMemoryCatalog {
 
   getRecoveryIssues(): readonly TeachingMemoryCatalogRecoveryIssue[] {
     return this.recoveryIssues.map((issue) => ({ ...issue }))
+  }
+
+  /** Returns all valid scopes and tombstones plus malformed-file recovery facts. */
+  async scanForLocalDataIndex(): Promise<TeachingMemoryCatalogIndexScan> {
+    this.resetRecoveryIssues()
+    const files = await listTeachingMemoryRecordFiles(this.rootDir)
+    const canonicalFirst = [...files].sort((left, right) => Number(isCanonicalTeachingMemoryRecordFileName(right)) - Number(isCanonicalTeachingMemoryRecordFileName(left)) || left.localeCompare(right))
+    const recordsById = new Map<string, { record: TeachingMemoryRecord; fingerprint: string }>()
+    const sources = await Promise.all(canonicalFirst.map(async (fileName) => {
+      const path = join(this.rootDir, fileName)
+      try {
+        const bytes = await readFile(path)
+        return { fileName, path, record: this.parseRecordFile(fileName, bytes.toString('utf8')), fingerprint: createHash('sha256').update(bytes).digest('hex') }
+      } catch {
+        this.report(fileName, 'invalid_json')
+        return { fileName, path, record: null, fingerprint: null }
+      }
+    }))
+    for (const source of sources) if (source.record && source.fingerprint && !recordsById.has(source.record.id)) recordsById.set(source.record.id, { record: source.record, fingerprint: source.fingerprint })
+    return {
+      records: [...recordsById.values()].map((source) => source.record),
+      recoveryIssues: [...this.getRecoveryIssues()],
+      sourcePaths: sources.map((source) => source.path).sort(),
+      sourceFingerprints: sources.flatMap((source) => source.fingerprint ? [{ path: source.path, fingerprint: source.fingerprint }] : []).sort((left, right) => left.path.localeCompare(right.path)),
+      recordFingerprints: [...recordsById.entries()].map(([memoryId, source]) => ({ memoryId, fingerprint: source.fingerprint })).sort((left, right) => left.memoryId.localeCompare(right.memoryId))
+    }
   }
 
   private async readById(id: string): Promise<TeachingMemoryRecord | null> {

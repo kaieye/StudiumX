@@ -126,17 +126,29 @@ export async function readRawAgentConversationRecord(
 export type PersistedAgentConversationRecord = {
   jsonRelativePath: string
   record: AgentConversationRecord
+  /** SHA-256 of the exact canonical JSON bytes that produced record. */
+  sourceFingerprint?: string
 }
 
 /** Enumerates canonical persisted records for rebuild-only consumers such as the history index. */
 export async function listPersistedAgentConversationRecords(
-  rootPath: string
+  rootPath: string,
+  options: { excludeDeleted?: boolean } = {}
 ): Promise<PersistedAgentConversationRecord[]> {
+  // Keep strict C-2B validation and duplicate detection in this canonical reader.
+  // Rebuild consumers must fail closed rather than silently indexing a weakened parse.
   const relativePaths = await collectAgentConversationJsonRelativePaths(rootPath)
-  return Promise.all(relativePaths.map(async (jsonRelativePath) => ({
-    jsonRelativePath,
-    record: await readAgentConversationRecordAt(rootPath, jsonRelativePath, { hydrateArtifacts: false })
-  })))
+  const records = await Promise.all(relativePaths.map(async (jsonRelativePath) => {
+    const source = await readFile(join(rootPath, jsonRelativePath))
+    return {
+      jsonRelativePath,
+      // Parse the same immutable Buffer whose digest the projection persists; never
+      // pair a record parsed from one read with a digest from a later read.
+      record: await readAgentConversationRecordSource(rootPath, jsonRelativePath, source.toString('utf8'), { hydrateArtifacts: false }),
+      sourceFingerprint: createHash('sha256').update(source).digest('hex')
+    }
+  }))
+  return options.excludeDeleted ? records.filter((item) => item.record.branch?.status !== 'deleted') : records
 }
 
 /**
@@ -371,12 +383,25 @@ async function readAgentConversationRecordAt(
   options: { hydrateArtifacts?: boolean } = {}
 ): Promise<AgentConversationRecord> {
   const normalizedJsonRelativePath = normalizeWorkspaceRelativePath(jsonRelativePath)
+  const jsonPath = join(rootPath, normalizedJsonRelativePath)
+  if (!isPathInsideRoot(rootPath, jsonPath)) throw new Error('Conversation path is outside the workspace.')
+  return readAgentConversationRecordSource(rootPath, normalizedJsonRelativePath, await readFile(jsonPath, 'utf8'), options)
+}
+
+/** Parses a previously captured canonical source read without touching the file again. */
+async function readAgentConversationRecordSource(
+  rootPath: string,
+  jsonRelativePath: string,
+  content: string,
+  options: { hydrateArtifacts?: boolean } = {}
+): Promise<AgentConversationRecord> {
+  const normalizedJsonRelativePath = normalizeWorkspaceRelativePath(jsonRelativePath)
   const jsonPathInfo = describeAgentConversationPath(normalizedJsonRelativePath)
   if (!jsonPathInfo || jsonPathInfo.format !== 'json') throw new Error('Conversation JSON path is invalid.')
   const id = requireCanonicalAgentConversationId(jsonPathInfo.id)
   const jsonPath = join(rootPath, normalizedJsonRelativePath)
   if (!isPathInsideRoot(rootPath, jsonPath)) throw new Error('Conversation path is outside the workspace.')
-  const parsed = safeJsonParse(await readFile(jsonPath, 'utf8'))
+  const parsed = safeJsonParse(content)
   if (!parsed || typeof parsed !== 'object') throw new Error('Conversation record is invalid.')
   const record = parsed as Record<string, unknown>
   if (record.id !== id) throw new Error('Conversation record id does not match its JSON basename.')

@@ -9,7 +9,8 @@ import {
   TeachingMemoryCatalog,
   normalizeTeachingMemoryRecord,
   normalizeTeachingMemoryScope,
-  type TeachingMemoryAccess
+  type TeachingMemoryAccess,
+  type TeachingMemoryCatalogIndexScan
 } from './teaching-memory-catalog'
 import { TeachingMemoryRecall, type TeachingMemoryRecallInput } from './teaching-memory-recall'
 
@@ -89,6 +90,11 @@ export class TeachingMemoryStore {
 
   async list(workspaceRoot?: string, includeDeleted = false): Promise<TeachingMemoryRecord[]> {
     return this.catalog.list(workspaceRoot, includeDeleted)
+  }
+
+  /** Main-process-only canonical scan for the disposable local SQLite projection. */
+  async scanForLocalDataIndex(): Promise<TeachingMemoryCatalogIndexScan> {
+    return this.catalog.scanForLocalDataIndex()
   }
 
   async retrieve(input: TeachingMemoryRecallInput): Promise<TeachingMemoryRecord[]> {

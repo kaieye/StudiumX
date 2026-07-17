@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -10,6 +10,7 @@ import {
   discoverDurableJsonlSegments,
   durableJsonlSealedSegmentFileName,
   readDurableJsonlLines,
+  readDurableJsonlSources,
   rotateDurableJsonl
 } from '../../src/main/durable-jsonl'
 
@@ -57,6 +58,28 @@ describe('durable JSONL', () => {
     expect(segments[0]).toMatchObject({ month: expect.stringMatching(/^\d{4}-\d{2}$/), sequence: 1 })
     await expect(readDurableJsonlLines(activePath)).resolves.toEqual(['{"id":1}', '{"id":2}'])
     await expect(readFile(activePath, 'utf8')).resolves.toBe('{"id":2}\n')
+  })
+
+  it('returns exact source buffers while excluding invalid, directory, and symlink segment candidates', async () => {
+    const activePath = await createActivePath()
+    const directory = dirname(activePath)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'ledger.sealed-2026-07-000001.jsonl'), '{"id":"sealed"}\n', 'utf8')
+    await writeFile(activePath, '{"id":"active"}\n', 'utf8')
+    await writeFile(join(directory, 'ledger.sealed-2026-13-000002.jsonl'), '{"id":"invalid-month"}\n', 'utf8')
+    await writeFile(join(directory, 'ledger.sealed-2026-07-000000.jsonl'), '{"id":"invalid-sequence"}\n', 'utf8')
+    await mkdir(join(directory, 'ledger.sealed-2026-07-000002.jsonl'))
+    const symlinkTarget = join(directory, 'outside.jsonl')
+    await writeFile(symlinkTarget, '{"id":"symlink"}\n', 'utf8')
+    await symlink(symlinkTarget, join(directory, 'ledger.sealed-2026-07-000003.jsonl'))
+
+    const sources = await readDurableJsonlSources(activePath)
+    expect(sources.map((source) => source.path)).toEqual([
+      join(directory, 'ledger.sealed-2026-07-000001.jsonl'),
+      activePath
+    ])
+    expect(sources.map((source) => source.bytes.toString('utf8'))).toEqual(['{"id":"sealed"}\n', '{"id":"active"}\n'])
+    expect(sources.flatMap((source) => source.lines)).toEqual(['{"id":"sealed"}', '{"id":"active"}'])
   })
 
   it('seals an old active file at the month boundary and assigns later explicit rotations a sequence', async () => {

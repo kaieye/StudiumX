@@ -1,4 +1,4 @@
-import { mkdir, open, readdir, rename, stat } from 'node:fs/promises'
+import { lstat, mkdir, open, readdir, rename } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
 /** The default maximum active JSONL size before its next append is sealed. */
@@ -29,6 +29,16 @@ export type DurableJsonlSegment = {
 }
 
 /**
+ * One canonical durable JSONL source read. `bytes` are the exact bytes consumed
+ * for `lines`, so derived stores can retain exact-byte provenance without
+ * independently discovering or rereading ledger segments.
+ */
+export type DurableJsonlSource = DurableJsonlSegment & {
+  bytes: Buffer
+  lines: string[]
+}
+
+/**
  * Appends one complete JSONL line. Appends and rotations for an active path are
  * serialized in-process; callers may safely issue concurrent writes.
  */
@@ -55,42 +65,43 @@ export async function rotateDurableJsonl(options: DurableJsonlOptions): Promise<
 export async function discoverDurableJsonlSegments(activePath: string): Promise<DurableJsonlSegment[]> {
   const directory = dirname(activePath)
   const activeName = basename(activePath)
-  const sealed = await readdir(directory, { withFileTypes: true }).then((entries) => entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => parseSealedSegmentName(activeName, entry.name))
-    .filter((segment): segment is { name: string; month: string; sequence: number } => segment !== null)
-    .sort((left, right) => left.month.localeCompare(right.month) || left.sequence - right.sequence)
-    .map((segment) => ({
-      path: join(directory, segment.name),
-      kind: 'sealed' as const,
-      month: segment.month,
-      sequence: segment.sequence
-    }))).catch((error: unknown) => {
-      if (errorCode(error) === 'ENOENT') return []
-      throw error
-    })
-
-  const activeExists = await stat(activePath).then((info) => info.isFile()).catch((error: unknown) => {
-    if (errorCode(error) === 'ENOENT') return false
+  const sealed = await readdir(directory, { withFileTypes: true }).then(async (entries) => {
+    const candidates = entries
+      // Dirent keeps symlinks out; lstat below repeats the regular-file check
+      // immediately before the candidate becomes a canonical source.
+      .filter((entry) => entry.isFile())
+      .map((entry) => parseSealedSegmentName(activeName, entry.name))
+      .filter((segment): segment is { name: string; month: string; sequence: number } => segment !== null)
+      .sort(compareSealedSegments)
+    const accepted: DurableJsonlSegment[] = []
+    for (const segment of candidates) {
+      const path = join(directory, segment.name)
+      if (await isRegularFile(path)) accepted.push({ path, kind: 'sealed', month: segment.month, sequence: segment.sequence })
+    }
+    return accepted
+  }).catch((error: unknown) => {
+    if (errorCode(error) === 'ENOENT') return []
     throw error
   })
-  return activeExists ? [...sealed, { path: activePath, kind: 'active' }] : sealed
+
+  return await isRegularFile(activePath) ? [...sealed, { path: activePath, kind: 'active' }] : sealed
+}
+
+/**
+ * Reads every strictly recognized sealed segment and then the active JSONL file.
+ * This is the canonical discovery-and-read seam for consumers needing exact
+ * source provenance in addition to parsed non-blank JSONL lines.
+ */
+export async function readDurableJsonlSources(activePath: string): Promise<DurableJsonlSource[]> {
+  const segments = await discoverDurableJsonlSegments(activePath)
+  const sources: DurableJsonlSource[] = []
+  for (const segment of segments) sources.push({ ...segment, ...await readRegularFile(segment.path) })
+  return sources
 }
 
 /** Reads every strictly recognized sealed segment and then the active JSONL file. */
 export async function readDurableJsonlLines(activePath: string): Promise<string[]> {
-  const segments = await discoverDurableJsonlSegments(activePath)
-  const lines: string[] = []
-  for (const segment of segments) {
-    const file = await open(segment.path, 'r')
-    try {
-      const content = await file.readFile('utf8')
-      lines.push(...content.split(/\r?\n/).filter((line) => line.trim()))
-    } finally {
-      await file.close()
-    }
-  }
-  return lines
+  return (await readDurableJsonlSources(activePath)).flatMap((source) => source.lines)
 }
 
 /** Builds the only accepted filename shape for a sealed sibling segment. */
@@ -115,7 +126,7 @@ async function appendLine(options: DurableJsonlOptions, line: string): Promise<v
   }
 
   await mkdir(dirname(activePath), { recursive: true })
-  const activeInfo = await stat(activePath).catch((error: unknown) => {
+  const activeInfo = await lstat(activePath).catch((error: unknown) => {
     if (errorCode(error) === 'ENOENT') return null
     throw error
   })
@@ -144,7 +155,7 @@ async function appendLine(options: DurableJsonlOptions, line: string): Promise<v
 
 async function rotateActiveFile(options: DurableJsonlOptions, knownMtime?: Date): Promise<string | null> {
   const activePath = options.activePath
-  const activeInfo = await stat(activePath).catch((error: unknown) => {
+  const activeInfo = await lstat(activePath).catch((error: unknown) => {
     if (errorCode(error) === 'ENOENT') return null
     throw error
   })
@@ -178,14 +189,40 @@ async function createSyncedEmptyActiveFile(activePath: string): Promise<void> {
 }
 
 async function nextSealedSegmentPath(directory: string, activeName: string, month: string): Promise<string> {
-  const existing = await readdir(directory, { withFileTypes: true }).then((entries) => entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => parseSealedSegmentName(activeName, entry.name))
-    .filter((segment): segment is { name: string; month: string; sequence: number } => segment !== null)
-    .filter((segment) => segment.month === month)
-    .map((segment) => segment.sequence))
+  const existing = (await discoverDurableJsonlSegments(join(directory, activeName)))
+    .filter((segment) => segment.kind === 'sealed' && segment.month === month)
+    .map((segment) => segment.sequence!)
   const sequence = existing.length === 0 ? 1 : Math.max(...existing) + 1
   return join(directory, durableJsonlSealedSegmentFileName(activeName, month, sequence))
+}
+
+async function isRegularFile(path: string): Promise<boolean> {
+  return lstat(path).then((info) => info.isFile()).catch((error: unknown) => {
+    if (errorCode(error) === 'ENOENT') return false
+    throw error
+  })
+}
+
+async function readRegularFile(path: string): Promise<{ bytes: Buffer; lines: string[] }> {
+  // lstat rejects symlinks. Retain device/inode identity through open so a
+  // replacement between discovery and read cannot silently redirect a source.
+  const before = await lstat(path)
+  if (!before.isFile()) throw new Error('Durable JSONL source path is not a regular file.')
+  const file = await open(path, 'r')
+  try {
+    const opened = await file.stat()
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+      throw new Error('Durable JSONL source changed while it was being opened.')
+    }
+    const bytes = await file.readFile()
+    return { bytes, lines: bytes.toString('utf8').split(/\r?\n/).filter((line) => line.trim()) }
+  } finally {
+    await file.close()
+  }
+}
+
+function compareSealedSegments(left: { month: string; sequence: number }, right: { month: string; sequence: number }): number {
+  return left.month < right.month ? -1 : left.month > right.month ? 1 : left.sequence - right.sequence
 }
 
 function parseSealedSegmentName(activeFileName: string, candidate: string): { name: string; month: string; sequence: number } | null {
