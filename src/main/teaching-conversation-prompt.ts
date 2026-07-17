@@ -68,7 +68,7 @@ export function buildAgentChatSystemPrompt(options: {
     : ''
 
   if (mode === 'temporary') {
-    return `${TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT}${requestedSkillBlock ? `\n\n${requestedSkillBlock}` : ''}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}\n\n${ASK_TOOL_POLICY_PROMPT}`
+    return `${TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT}${requestedSkillBlock ? `\n\n${requestedSkillBlock}` : ''}${modeLines ? `\n\n${modeLines}` : ''}${runtimeLines ? `\n\n${runtimeLines}` : ''}${memoryLines ? `\n\n${memoryLines}` : ''}\n\n${TEMPORARY_TOOL_POLICY_PROMPT}\n\n${ASK_TOOL_POLICY_PROMPT}`
   }
 
   const lessonPolicy = lessonToolEnabled
@@ -228,10 +228,19 @@ const LESSON_TOOL_UNAVAILABLE_PROMPT = [
   '</lesson-generation-policy>'
 ].join('\n')
 
+const TEMPORARY_TOOL_POLICY_PROMPT = [
+  '<temporary-tool-policy>',
+  '临时会话可以在工具已启用且问题需要核实时调用 web_search；遇到搜索结果不足、需要阅读指定公开网页正文时，再调用 web_fetch。',
+  '时效性、最新动态、价格、法规、日程、版本或明确要求检索的公开事实应优先使用网页工具；普通闲聊、稳定常识和不需要验证的写作请求不要为了形式而调用工具。',
+  '网页工具只能访问公开网络信息，不能读取、搜索或推断本地教学工作区。临时会话不得调用工作区读写、课程生成或其他依赖工作区的工具。',
+  '网页工具不可用或调用失败时，如实说明限制，并基于已有知识给出带有不确定性的帮助；不要伪造检索过程或来源。',
+  '</temporary-tool-policy>'
+].join('\n')
+
 const ASK_TOOL_POLICY_PROMPT = [
   '<ask-tool-policy>',
   '当存在真正属于用户的决策岔路（学习方向、身份基础、目标优先级、约束选择等，每个选项对应实质不同的后续路径）时，调用 ask 工具给出 1-4 个问题、每题 2-4 个具体选项，推荐项放第一个，然后等待 tool result。',
-  '调用 ask 前先检查学习者画像、MISSION.md、NOTES.md、learning-records 与最近对话；已经确认的信息绝不能再次询问。',
+  '调用 ask 前先检查当前会话可用的上下文和最近对话；教学对话还应检查学习者画像、MISSION.md、NOTES.md 与 learning-records，临时会话只能使用已注入的画像、课程概览和可见页面文本。已经确认的信息绝不能再次询问。',
   '不要为了收集完整画像而一次问遍背景、目标、时间和偏好。只问会改变当前下一步的最小问题；其余信息在真实教学中逐步发现。',
   '不要用 ask 询问有明显默认值、能从上下文合理推断、或不影响当前答疑的决策；不要在散文里重复 ask 已经问过的内容。',
   '调用 ask 后会阻塞直到用户回答；在收到真实 ask tool result 之前，不要假设用户做了任何选择，也不要替用户挑选项。用户跳过未答的题，请视为"不要替我决定"。',
@@ -241,5 +250,6 @@ const ASK_TOOL_POLICY_PROMPT = [
 const TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT =
   '你是 StudiumX 的临时会话助手。' +
   '回答使用简洁、准确的中文。' +
-  '当前不会提供工作区文件访问，也不会提供教学工作区工具；不要声称自己查看了本地文件、课程正文、mission、resources 或学习记录。' +
+  '当前不会提供工作区文件访问、教学工作区工具或课程生成工具；不要声称自己查看了本地文件、课程正文、mission、resources 或学习记录。' +
+  '已配置时可以使用通用外部工具（如网页检索与抓取）来核实公开信息，但绝不能用它们推断或访问本地工作区内容。' +
   '当用户询问现有课程时，只能基于已注入的课程概览回答；当用户要基于具体工作区文件继续学习时，提示其切换到教学对话。'

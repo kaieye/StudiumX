@@ -59,6 +59,8 @@ export type RunAgentLoopOptions = {
   messageTurnIds?: readonly (string | undefined)[]
   tools: ToolDefinition[]
   toolHandlers: ToolHandlerMap
+  /** Applied only to the first normal model request; subsequent turns return to automatic tool selection. */
+  initialToolChoice?: ToolChoice
   maxIterations?: number
   jsonMode?: boolean
   maxIterationsBehavior?: 'force_final_answer' | 'error'
@@ -286,7 +288,12 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       result = await streamChatProvider({
         settings: opts.settings,
         provider: opts.provider,
-        request: { messages, tools: opts.tools, toolChoice: 'auto', jsonMode: opts.jsonMode === true },
+        request: {
+          messages,
+          tools: opts.tools,
+          toolChoice: index === 0 ? (opts.initialToolChoice ?? 'auto') : 'auto',
+          jsonMode: opts.jsonMode === true
+        },
         callbacks: {
           onReasoning: (delta) => emit({ type: 'reasoning', delta }),
           // A provider may emit explanatory text before requesting a tool. Buffer the

@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, Plus, StickyNote, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, StickyNote, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
 import {
@@ -30,28 +30,78 @@ type DeskId = `desk-${number}`
 // OfficeSceneRuntime owns browser asset loading: new URL('../../../../../ref.png', import.meta.url).
 // Its canvas draw loop renders every desk with drawDeskImage(ctx, assets.deskImage, slot).
 const workbenchSeatCount = 12
-const immersiveSceneUrl = new URL('../../../../../video.mp4', import.meta.url).href
-
-type ScenePreset = {
-  id: string
-  name: string
-  description: string
-  src: string
-}
-
-const builtInScenePresets: readonly ScenePreset[] = [
-  {
-    id: 'night-ambience',
-    name: '夜间氛围',
-    description: '适合长时间沉浸专注',
-    src: immersiveSceneUrl
-  }
-]
 const immersiveCloseFallbackDurationMs = 1_200
+const clockRefreshIntervalMs = 60_000
 type ImmersivePhase = 'closed' | 'open' | 'closing'
 
 function deskIdForSeatIndex(seatIndex: number): DeskId {
   return `desk-${seatIndex + 1}`
+}
+
+function ClockFace({ className, value }: { className: string; value: string }) {
+  return (
+    <span className={`workbench-clock__face ${className}`} aria-hidden="true">
+      <span className="workbench-clock__face-value">{value}</span>
+    </span>
+  )
+}
+
+function ClockDigit({ value, previousValue, shouldFlip }: {
+  value: string
+  previousValue: string
+  shouldFlip: boolean
+}) {
+  return (
+    <span className={`workbench-clock__digit${shouldFlip ? ' is-flipping' : ''}`}>
+      <ClockFace className="workbench-clock__face--current-top" value={value} />
+      <ClockFace className="workbench-clock__face--current-bottom" value={value} />
+      {shouldFlip ? (
+        <>
+          <ClockFace className="workbench-clock__face--previous-top" value={previousValue} />
+          <ClockFace className="workbench-clock__face--previous-bottom" value={previousValue} />
+          <ClockFace className="workbench-clock__face--next-bottom" value={value} />
+        </>
+      ) : null}
+    </span>
+  )
+}
+
+function ClockDisplay({ time, previousTime }: { time: Date; previousTime: Date | null }) {
+  const hours = String(time.getHours()).padStart(2, '0')
+  const minutes = String(time.getMinutes()).padStart(2, '0')
+  const previousHours = String(previousTime?.getHours() ?? time.getHours()).padStart(2, '0')
+  const previousMinutes = String(previousTime?.getMinutes() ?? time.getMinutes()).padStart(2, '0')
+  const digits = [
+    { value: hours[0], previousValue: previousHours[0] },
+    { value: hours[1], previousValue: previousHours[1] },
+    { value: minutes[0], previousValue: previousMinutes[0] },
+    { value: minutes[1], previousValue: previousMinutes[1] }
+  ]
+
+  return (
+    <time className="workbench-clock__display" dateTime={time.toISOString()} aria-label={`当前时间 ${hours}:${minutes}`}>
+      <span className="workbench-clock__pair">
+        {digits.slice(0, 2).map((digit, index) => (
+          <ClockDigit
+            key={`hour-${index}-${digit.value}`}
+            value={digit.value}
+            previousValue={digit.previousValue}
+            shouldFlip={previousTime !== null && digit.value !== digit.previousValue}
+          />
+        ))}
+      </span>
+      <span className="workbench-clock__pair">
+        {digits.slice(2).map((digit, index) => (
+          <ClockDigit
+            key={`minute-${index}-${digit.value}`}
+            value={digit.value}
+            previousValue={digit.previousValue}
+            shouldFlip={previousTime !== null && digit.value !== digit.previousValue}
+          />
+        ))}
+      </span>
+    </time>
+  )
 }
 
 type OfficeWorkbenchProps = {
@@ -90,9 +140,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const runtimeRef = useRef<OfficeSceneRuntime | null>(null)
   const chooseSeatRef = useRef(chooseSeat)
   const analyticsButtonRef = useRef<HTMLButtonElement | null>(null)
-  const immersiveVideoRef = useRef<HTMLVideoElement | null>(null)
   const immersiveCloseTimerRef = useRef<number | null>(null)
-  const customSceneObjectUrlRef = useRef<string | null>(null)
   const restoreAnalyticsFocusRef = useRef(false)
   const [openTasksPanelForAnalytics, setOpenTasksPanelForAnalytics] = useState(false)
   const [route, setRoute] = useState<WorkbenchRoute>(() => parseWorkbenchRoute(window.location.search))
@@ -101,13 +149,15 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const [areRoomCardsHidden, setAreRoomCardsHidden] = useState(false)
   const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false)
   const [isScenePickerOpen, setIsScenePickerOpen] = useState(false)
-  const [selectedScene, setSelectedScene] = useState<Pick<ScenePreset, 'name' | 'src'>>({
-    name: builtInScenePresets[0].name,
-    src: builtInScenePresets[0].src
-  })
+  const [clockState, setClockState] = useState(() => ({
+    current: new Date(),
+    previous: null as Date | null
+  }))
   const [quickNote, setQuickNote] = useState('')
   const [isTaskAddEditorOpen, setIsTaskAddEditorOpen] = useState(false)
+  const [isImmersiveArcActive, setIsImmersiveArcActive] = useState(false)
   const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
+  const clockTime = clockState.current
   const occupantsByDeskId = new Map<DeskId, OfficeSceneSeatOccupant>()
 
   if (!viewModel.userSeatConflict && workbenchUserSeatIndex >= 0) {
@@ -141,6 +191,23 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   useEffect(() => {
     navigateWorkbenchRoute(route, 'replace')
+  }, [])
+
+  useEffect(() => {
+    const refreshClock = (): void => {
+      setClockState((clock) => ({ current: new Date(), previous: clock.current }))
+    }
+    const millisecondsUntilNextMinute = clockRefreshIntervalMs - (Date.now() % clockRefreshIntervalMs)
+    let intervalId: number | undefined
+    const timeoutId = window.setTimeout(() => {
+      refreshClock()
+      intervalId = window.setInterval(refreshClock, clockRefreshIntervalMs)
+    }, millisecondsUntilNextMinute)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      if (intervalId !== undefined) window.clearInterval(intervalId)
+    }
   }, [])
 
   useEffect(() => {
@@ -251,10 +318,28 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     )
   }, [clearImmersiveCloseTimer, finishImmersiveClose])
 
+  const openImmersiveArc = useCallback((): void => {
+    setIsImmersiveArcActive(true)
+  }, [])
+
+  const closeImmersiveArc = useCallback((): void => {
+    setIsImmersiveArcActive(false)
+  }, [])
+
   const toggleImmersive = (): void => {
-    if (immersivePhase === 'closed') openImmersive()
-    else if (immersivePhase === 'open') closeImmersive()
+    if (immersivePhase === 'closed') {
+      openImmersive()
+      // The opening click should reveal the shortcut icons immediately.
+      openImmersiveArc()
+    } else if (immersivePhase === 'open') {
+      closeImmersiveArc()
+      closeImmersive()
+    }
   }
+
+  useEffect(() => {
+    if (immersivePhase === 'closed') closeImmersiveArc()
+  }, [closeImmersiveArc, immersivePhase])
 
   const toggleFullscreen = useCallback(async (): Promise<void> => {
     try {
@@ -284,20 +369,11 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       setIsQuickNoteOpen(false)
       setIsScenePickerOpen(false)
       setImmersivePhase('closed')
-      return
     }
-
-    const video = immersiveVideoRef.current
-    if (!video) return
-    if (immersivePhase !== 'closed') {
-      void video.play().catch(() => {})
-    } else {
-      video.pause()
-    }
-  }, [clearImmersiveCloseTimer, immersivePhase, route, selectedScene.src])
+  }, [clearImmersiveCloseTimer, route])
 
   useEffect(() => {
-    if (immersivePhase !== 'open' && !isScenePickerOpen) return
+    if (immersivePhase !== 'open') return
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
       event.preventDefault()
@@ -317,27 +393,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   useEffect(() => clearImmersiveCloseTimer, [clearImmersiveCloseTimer])
 
-  useEffect(() => () => {
-    if (customSceneObjectUrlRef.current) URL.revokeObjectURL(customSceneObjectUrlRef.current)
-  }, [])
-
-  const selectBuiltInScene = (scene: ScenePreset): void => {
-    if (customSceneObjectUrlRef.current) {
-      URL.revokeObjectURL(customSceneObjectUrlRef.current)
-      customSceneObjectUrlRef.current = null
-    }
-    setSelectedScene({ name: scene.name, src: scene.src })
-    setIsScenePickerOpen(false)
-  }
-
-  const selectLocalScene = (file: File | undefined): void => {
-    if (!file) return
-    if (customSceneObjectUrlRef.current) URL.revokeObjectURL(customSceneObjectUrlRef.current)
-    const src = URL.createObjectURL(file)
-    customSceneObjectUrlRef.current = src
-    setSelectedScene({ name: `自定义场景 · ${file.name}`, src })
-    setIsScenePickerOpen(false)
-  }
 
   if (route === 'analytics') {
     return (
@@ -446,20 +501,28 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           }}
         >
           <div className="workbench-immersive-plane">
-            <video
-              ref={immersiveVideoRef}
-              className="workbench-immersive-video"
-              src={selectedScene.src}
-              muted
-              loop
-              playsInline
-              preload="auto"
-            />
+            <div className="workbench-immersive-clock-scene workbench-clock" aria-hidden="true">
+              <ClockDisplay time={clockTime} previousTime={clockState.previous} />
+            </div>
             <div className="workbench-immersive-vignette" aria-hidden="true" />
           </div>
         </div>
-        <div className={`workbench-immersive-controls${immersivePhase !== 'closed' ? ' is-open' : ''}`}>
-          <div className="workbench-immersive-arc-menu" role="group" aria-label="沉浸模式快捷操作">
+        <div
+          className={`workbench-immersive-controls${immersivePhase !== 'closed' ? ' is-open' : ''}`}
+          onPointerEnter={openImmersiveArc}
+          onPointerLeave={closeImmersiveArc}
+          onFocusCapture={openImmersiveArc}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              closeImmersiveArc()
+            }
+          }}
+        >
+          <div
+            className={`workbench-immersive-arc-menu${isImmersiveArcActive ? ' is-active' : ''}`}
+            role="group"
+            aria-label="沉浸模式快捷操作"
+          >
             <button
               type="button"
               className={`workbench-immersive-arc-action workbench-immersive-arc-action--hide${areRoomCardsHidden ? ' is-active' : ''}`}
@@ -473,6 +536,16 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               ) : (
                 <EyeOff size={20} strokeWidth={2} aria-hidden="true" />
               )}
+            </button>
+            <button
+              type="button"
+              className={`workbench-immersive-arc-action workbench-immersive-arc-action--scene${isScenePickerOpen ? ' is-active' : ''}`}
+              onClick={() => setIsScenePickerOpen(true)}
+              aria-pressed={isScenePickerOpen}
+              aria-label="选择场景"
+              title="选择场景"
+            >
+              <Image size={20} strokeWidth={2} aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -498,18 +571,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                 <Maximize2 size={20} strokeWidth={2} aria-hidden="true" />
               )}
             </button>
-            <button
-              type="button"
-              className={`workbench-immersive-arc-action workbench-immersive-arc-action--scene${isScenePickerOpen ? ' is-active' : ''}`}
-              onClick={() => setIsScenePickerOpen((open) => !open)}
-              aria-controls="workbench-scene-picker"
-              aria-expanded={isScenePickerOpen}
-              aria-pressed={isScenePickerOpen}
-              aria-label="选择场景"
-              title="选择场景"
-            >
-              <Image size={20} strokeWidth={2} aria-hidden="true" />
-            </button>
           </div>
           <button
             type="button"
@@ -528,26 +589,19 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           </button>
         </div>
         {isScenePickerOpen ? (
-          <div
-            className="workbench-scene-picker-backdrop"
-            onMouseDown={() => setIsScenePickerOpen(false)}
-          >
+          <div className="workbench-scene-picker-backdrop" role="presentation" onMouseDown={() => setIsScenePickerOpen(false)}>
             <section
-              id="workbench-scene-picker"
               className="workbench-scene-picker"
               role="dialog"
               aria-modal="true"
-              aria-labelledby="workbench-scene-picker-title"
+              aria-label="选择场景"
               onMouseDown={(event) => event.stopPropagation()}
             >
-              <div className="workbench-scene-picker__header">
+              <header className="workbench-scene-picker__header">
                 <div>
-                  <span className="workbench-scene-picker__eyebrow">
-                    <Image size={15} aria-hidden="true" />
-                    沉浸空间
-                  </span>
-                  <h2 id="workbench-scene-picker-title">选择场景</h2>
-                  <p>从预设中选择，或添加自己的专注视频。</p>
+                  <span className="workbench-scene-picker__eyebrow"><Image size={15} aria-hidden="true" /> 沉浸空间</span>
+                  <h2>选择场景</h2>
+                  <p>当前沉浸空间仅保留翻页时钟效果。</p>
                 </div>
                 <button
                   type="button"
@@ -558,51 +612,24 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                 >
                   <X size={18} aria-hidden="true" />
                 </button>
-              </div>
-              <p className="workbench-scene-picker__current">当前场景：{selectedScene.name}</p>
-              <div className="workbench-scene-picker__grid" aria-label="场景预设">
-                {builtInScenePresets.map((scene) => {
-                  const selected = selectedScene.src === scene.src
-                  return (
-                    <button
-                      key={scene.id}
-                      type="button"
-                      className={`workbench-scene-picker__preset${selected ? ' is-selected' : ''}`}
-                      onClick={() => selectBuiltInScene(scene)}
-                      aria-pressed={selected}
-                    >
-                      <video
-                        className="workbench-scene-picker__cover"
-                        src={scene.src}
-                        muted
-                        loop
-                        autoPlay
-                        playsInline
-                        preload="metadata"
-                        aria-hidden="true"
-                      />
-                      <span className="workbench-scene-picker__cover-shade" aria-hidden="true" />
-                      <span className="workbench-scene-picker__preset-copy">
-                        <strong>{scene.name}</strong>
-                        <small>{scene.description}</small>
-                      </span>
-                      {selected ? <span className="workbench-scene-picker__selected-mark">当前使用</span> : null}
-                    </button>
-                  )
-                })}
-                <label className="workbench-scene-picker__preset workbench-scene-picker__preset--custom">
-                  <span className="workbench-scene-picker__custom-icon"><Plus size={24} aria-hidden="true" /></span>
+              </header>
+              <p className="workbench-scene-picker__current">当前场景：翻页时钟</p>
+              <div className="workbench-scene-picker__grid">
+                <button
+                  type="button"
+                  className="workbench-scene-picker__preset workbench-scene-picker__preset--clock is-selected"
+                  onClick={() => setIsScenePickerOpen(false)}
+                  aria-pressed="true"
+                >
+                  <div className="workbench-scene-picker__clock-preview workbench-clock" aria-hidden="true">
+                    <ClockDisplay time={clockTime} previousTime={clockState.previous} />
+                  </div>
                   <span className="workbench-scene-picker__preset-copy">
-                    <strong>添加场景</strong>
-                    <small>从本地选择一个视频</small>
+                    <strong>翻页时钟</strong>
+                    <small>低资源占用的专注时钟</small>
                   </span>
-                  <input
-                    type="file"
-                    accept="video/*,.mp4,.webm,.mov,.m4v"
-                    aria-label="添加自定义场景"
-                    onChange={(event) => selectLocalScene(event.currentTarget.files?.[0])}
-                  />
-                </label>
+                  <span className="workbench-scene-picker__selected-mark">当前</span>
+                </button>
               </div>
             </section>
           </div>

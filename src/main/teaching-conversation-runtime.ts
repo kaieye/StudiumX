@@ -222,8 +222,15 @@ async function runTeachingConversationTurnActive(
       }
     })
   })
-  const registry = conversation.workspaceToolsEnabled
-    ? buildDefaultRegistry(settings, { workspaceRoot: conversation.workspaceRoot, workspaceWrite: true })
+  // Temporary chats stay isolated from workspace files and lesson generation,
+  // while retaining configured external tools such as web_search/web_fetch.
+  const registry = conversation.externalToolsEnabled
+    ? buildDefaultRegistry(
+        settings,
+        conversation.workspaceToolsEnabled
+          ? { workspaceRoot: conversation.workspaceRoot, workspaceWrite: true }
+          : {}
+      )
     : new ToolRegistry()
   // The `ask` tool is a pure conversational decision tool — registered
   // whenever tool calling is enabled (teaching or temporary mode) so the
@@ -275,6 +282,18 @@ async function runTeachingConversationTurnActive(
     : []
   const skillResourceTool = settings.tools.enabled ? createReadSkillResourceTool(skillReferences) : null
   if (skillResourceTool) registry.register(skillResourceTool)
+  const availableTools = registry.definitions()
+  const webSearchTool = availableTools.find((tool) => tool.function.name === 'web_search')
+  const requiresFreshWebSearch = shouldRequireFreshWebSearch(userInput, Boolean(webSearchTool))
+  let webSearchAttempted = false
+  const toolHandlers = registry.handlerMap(ctx)
+  if (requiresFreshWebSearch && toolHandlers.web_search) {
+    const executeWebSearch = toolHandlers.web_search
+    toolHandlers.web_search = async (args, callCtx) => {
+      webSearchAttempted = true
+      return executeWebSearch(args, callCtx)
+    }
+  }
   const capturePlan = settings.memory.enabled && conversation.memoryWorkspaceRoot && !directConsentOnly
     ? planLearnerMemoryCapture(buildLearnerMemoryCandidate(userInput), existingMemories)
     : ({ action: 'none', reason: 'no_candidate' } as const)
@@ -325,38 +344,49 @@ async function runTeachingConversationTurnActive(
     await deps.runStore.update(stream.streamId, { budget: runBudget })
   }
 
+  const lessonIterationRecovery = lessonGenerationRequested
+    ? (() => {
+        const generateLessonTool = availableTools.find((tool) => tool.function.name === 'generate_lesson')
+        return generateLessonTool
+          ? {
+              shouldAttempt: () => !lessonTool.hasAttemptedGeneration(),
+              instruction:
+                '常规规划轮次已经结束。现在只执行课程生成：立即根据已确认的对话内容调用 generate_lesson；不要调用其他工具，也不要继续提问。',
+              tools: [generateLessonTool],
+              toolChoice: { type: 'function' as const, function: { name: 'generate_lesson' } },
+              maxAttempts: 2
+            }
+          : undefined
+      })()
+    : undefined
+  const webSearchIterationRecovery = requiresFreshWebSearch && webSearchTool
+    ? {
+        shouldAttempt: () => !webSearchAttempted,
+        instruction:
+          '这个问题需要核实当前公开信息。现在只调用 web_search 搜索权威来源；不要直接凭记忆回答，也不要调用其他工具。',
+        tools: [webSearchTool],
+        toolChoice: { type: 'function' as const, function: { name: 'web_search' } },
+        maxAttempts: 1
+      }
+    : undefined
+
   const runEvents: AgentLoopEvent[] = []
   const result = await runAgentLoop({
     settings,
     provider,
     messages,
     messageTurnIds,
-    tools: registry.definitions(),
-    toolHandlers: registry.handlerMap(ctx),
+    tools: availableTools,
+    toolHandlers,
+    initialToolChoice: requiresFreshWebSearch
+      ? { type: 'function', function: { name: 'web_search' } }
+      : undefined,
     maxIterations,
     shouldErrorOnMaxIterations: () =>
       lessonGenerationRequested && !lessonTool.hasAttemptedGeneration(),
     maxIterationsErrorMessage:
       '本轮操作次数已达到上限，课程尚未生成。当前对话和规划内容已保留；请继续发送“生成课程”重试，或在设置中提高工具调用上限。',
-    ...(lessonGenerationRequested
-      ? (() => {
-          const generateLessonTool = registry.definitions().find(
-            (tool) => tool.function.name === 'generate_lesson'
-          )
-          return generateLessonTool
-            ? {
-                iterationLimitRecovery: {
-                  shouldAttempt: () => !lessonTool.hasAttemptedGeneration(),
-                  instruction:
-                    '常规规划轮次已经结束。现在只执行课程生成：立即根据已确认的对话内容调用 generate_lesson；不要调用其他工具，也不要继续提问。',
-                  tools: [generateLessonTool],
-                  toolChoice: { type: 'function' as const, function: { name: 'generate_lesson' } },
-                  maxAttempts: 2
-                }
-              }
-            : {}
-        })()
-      : {}),
+    iterationLimitRecovery: lessonIterationRecovery ?? webSearchIterationRecovery,
     contextCompaction: buildContextCompactionOptions(payload.contextCompaction),
     budget: runBudget,
     budgetExhaustionFallback: (reason) =>
@@ -512,4 +542,20 @@ function buildContextCompactionOptions(
     softThresholdTokens: request.softThresholdTokens,
     hardThresholdTokens: request.hardThresholdTokens
   }
+}
+
+function shouldRequireFreshWebSearch(userInput: string, webSearchAvailable: boolean): boolean {
+  if (!webSearchAvailable) return false
+  const input = userInput.trim()
+  if (!input) return false
+
+  // The user can explicitly opt out of network use even for a normally fresh fact.
+  if (/(?:不要|无需|不用|别).{0,8}(?:联网|上网|网络|网页|搜索|检索|查询)/u.test(input)) return false
+
+  const explicitSearchRequest = /(?:联网|上网|网络|网页|互联网|web).{0,12}(?:查|搜索|检索|查询)|(?:查|搜索|检索|查询).{0,12}(?:联网|上网|网络|网页|互联网|web)/iu
+  if (explicitSearchRequest.test(input)) return true
+
+  const freshnessCue = /今年|最新|今天|近期|当前|现在|何时|什么时候|几时|哪天|何日|何月|出分|公布|发布|开售|上线|更新/iu
+  const timeSensitiveFact = /(?:四|4)[六6]级|\bCET\b|成绩|考试|报名|录取|招生|政策|法规|价格|汇率|天气|新闻|比赛|赛程|股价|版本|发布会|日期|时间/iu
+  return freshnessCue.test(input) && timeSensitiveFact.test(input)
 }

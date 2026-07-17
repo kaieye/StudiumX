@@ -1,3 +1,4 @@
+import type { Locator, Page } from '@playwright/test'
 import { expect, test } from '../helpers/electron'
 
 async function openWorkbench(mainWindow: import('@playwright/test').Page): Promise<void> {
@@ -6,6 +7,34 @@ async function openWorkbench(mainWindow: import('@playwright/test').Page): Promi
     await mainWindow.getByRole('button', { name: '自习室' }).click()
   }
   await expect(immersiveToggle).toBeVisible()
+}
+
+async function hoverImmersiveArrow(mainWindow: Page, controls: Locator): Promise<void> {
+  const box = await controls.boundingBox()
+  if (!box) throw new Error('The immersive controls have no bounding box')
+  await mainWindow.mouse.move(box.x + box.width / 2, box.y + box.height - 28)
+}
+
+async function readShortcutScale(mainWindow: Page): Promise<number> {
+  return mainWindow.locator('.workbench-immersive-arc-action').first().evaluate((element) => {
+    const transform = getComputedStyle(element).transform
+    if (transform === 'none') return 1
+    return Number.parseFloat(transform.match(/^matrix\(([^,]+)/)?.[1] ?? '1')
+  })
+}
+
+async function waitForShortcutReveal(mainWindow: Page): Promise<void> {
+  const shortcutMenu = mainWindow.locator('.workbench-immersive-arc-menu')
+  await expect(shortcutMenu).toHaveClass(/is-active/)
+  await expect(shortcutMenu).toHaveCSS('visibility', 'visible')
+  await expect.poll(() => readShortcutScale(mainWindow)).toBeGreaterThanOrEqual(0.99)
+}
+
+async function waitForShortcutCollapse(mainWindow: Page): Promise<void> {
+  const shortcutMenu = mainWindow.locator('.workbench-immersive-arc-menu')
+  await expect(shortcutMenu).not.toHaveClass(/is-active/)
+  await expect.poll(() => readShortcutScale(mainWindow)).toBeLessThanOrEqual(0.51)
+  await expect(shortcutMenu).toHaveCSS('visibility', 'hidden')
 }
 
 test('music dock keeps its compact controls fixed while its panel expands', async ({ mainWindow }) => {
@@ -129,7 +158,8 @@ test('immersive room menu distributes icon controls and exposes quick notes', as
   const controls = mainWindow.locator('.workbench-immersive-controls')
   await expect(controls).toHaveClass(/is-open/)
 
-  await controls.hover()
+  await hoverImmersiveArrow(mainWindow, controls)
+  await waitForShortcutReveal(mainWindow)
   const toggleCards = mainWindow.getByRole('button', { name: '隐藏自习室卡片' })
   const musicDock = mainWindow.locator('.workbench-music-dock')
   await expect(toggleCards).toBeVisible()
@@ -190,52 +220,103 @@ test('immersive room menu distributes icon controls and exposes quick notes', as
   await expect(mainWindow.getByRole('textbox', { name: '快捷记事内容' })).toHaveValue('复习第 3 章的关键公式')
 
   await mainWindow.getByRole('button', { name: '收起沉浸模式' }).click()
-  const collapsedArrow = mainWindow.getByRole('button', { name: '进入沉浸模式' })
-  await expect(collapsedArrow).toBeVisible()
-  await controls.hover()
-  await expect(mainWindow.getByRole('button', { name: '隐藏自习室卡片' })).toBeVisible()
-  await expect(mainWindow.getByRole('button', { name: '快捷记事' })).toBeVisible()
+  await expect(mainWindow.getByRole('button', { name: '进入沉浸模式' })).toBeVisible()
+  await waitForShortcutCollapse(mainWindow)
 })
 
-test('scene picker uses fixed video previews and adapts its scene and note surfaces by theme', async ({ mainWindow }) => {
+test('immersive mode keeps the fixed flip clock while quick-note surfaces adapt to theme', async ({ mainWindow }) => {
+  await openWorkbench(mainWindow)
+
+  await mainWindow.getByRole('button', { name: '进入沉浸模式' }).click()
+  await expect(mainWindow.locator('.workbench-immersive-clock-scene')).toBeVisible()
+  await expect(mainWindow.locator('.workbench-clock__display')).toHaveCount(1)
+  await expect(mainWindow.locator('.workbench-immersive-video')).toHaveCount(0)
+
+  const controls = mainWindow.locator('.workbench-immersive-controls')
+  await hoverImmersiveArrow(mainWindow, controls)
+  await waitForShortcutReveal(mainWindow)
+  await mainWindow.getByRole('button', { name: '选择场景' }).click()
+  const scenePicker = mainWindow.getByRole('dialog', { name: '选择场景' })
+  await expect(scenePicker).toBeVisible()
+  await expect(scenePicker.getByText('当前场景：翻页时钟')).toBeVisible()
+  await expect(scenePicker.locator('video')).toHaveCount(0)
+  await scenePicker.getByRole('button', { name: /翻页时钟/ }).click()
+  await expect(scenePicker).toBeHidden()
+
+  await hoverImmersiveArrow(mainWindow, controls)
+  await waitForShortcutReveal(mainWindow)
+  await mainWindow.getByRole('button', { name: '快捷记事' }).click()
+  const quickNote = mainWindow.getByRole('complementary', { name: '快捷记事' })
+  await expect(quickNote).toBeVisible()
+  const lightNoteSurface = await quickNote.evaluate((element) =>
+    getComputedStyle(element).getPropertyValue('--workbench-quick-note-surface').trim()
+  )
+  await mainWindow.evaluate(() => { document.documentElement.dataset.resolvedTheme = 'dark' })
+  const darkNoteSurface = await quickNote.evaluate((element) =>
+    getComputedStyle(element).getPropertyValue('--workbench-quick-note-surface').trim()
+  )
+  expect(darkNoteSurface).not.toBe(lightNoteSurface)
+})
+
+test('immersive action ring collapses after the pointer leaves the arrow', async ({ mainWindow }) => {
   await openWorkbench(mainWindow)
 
   await mainWindow.getByRole('button', { name: '进入沉浸模式' }).click()
   const controls = mainWindow.locator('.workbench-immersive-controls')
-  await controls.hover()
+  const arcMenu = mainWindow.locator('.workbench-immersive-arc-menu')
+  const hideCards = mainWindow.getByRole('button', { name: '隐藏自习室卡片' })
 
-  await mainWindow.getByRole('button', { name: '选择场景' }).click()
-  const scenePicker = mainWindow.getByRole('dialog', { name: '选择场景' })
-  await expect(scenePicker).toBeVisible()
-  await expect(scenePicker.getByText('当前场景：夜间氛围')).toBeVisible()
-  await expect(scenePicker.getByLabel('添加自定义场景')).toBeAttached()
+  await hoverImmersiveArrow(mainWindow, controls)
+  await waitForShortcutReveal(mainWindow)
+  await expect(hideCards).toBeVisible()
+  await expect(arcMenu).toHaveCSS('visibility', 'visible')
 
-  const preset = scenePicker.getByRole('button', { name: /夜间氛围/ })
-  const presetBounds = await preset.boundingBox()
-  if (!presetBounds) throw new Error('The scene preset has no bounding box')
-  expect(presetBounds.width / presetBounds.height).toBeGreaterThan(1.7)
-  expect(presetBounds.width / presetBounds.height).toBeLessThan(1.9)
-  await expect(preset.locator('video')).toBeVisible()
+  await mainWindow.mouse.move(8, 8)
+  await waitForShortcutCollapse(mainWindow)
+  await expect(arcMenu).toHaveCSS('visibility', 'hidden')
+})
 
-  const lightSceneBackdrop = await scenePicker.evaluate((element) =>
-    getComputedStyle(element).getPropertyValue('--workbench-scene-picker-backdrop').trim()
-  )
-  await mainWindow.evaluate(() => { document.documentElement.dataset.resolvedTheme = 'dark' })
-  const darkSceneBackdrop = await scenePicker.evaluate((element) =>
-    getComputedStyle(element).getPropertyValue('--workbench-scene-picker-backdrop').trim()
-  )
-  expect(darkSceneBackdrop).not.toBe(lightSceneBackdrop)
+test('immersive shortcut icons grow in place instead of sweeping around the arrow', async ({ mainWindow }) => {
+  await openWorkbench(mainWindow)
 
-  await scenePicker.getByRole('button', { name: '关闭场景选择' }).click()
-  await mainWindow.getByRole('button', { name: '快捷记事' }).click()
-  const quickNote = mainWindow.getByRole('complementary', { name: '快捷记事' })
-  await expect(quickNote).toBeVisible()
-  const darkNoteSurface = await quickNote.evaluate((element) =>
-    getComputedStyle(element).getPropertyValue('--workbench-quick-note-surface').trim()
-  )
-  await mainWindow.evaluate(() => { document.documentElement.dataset.resolvedTheme = 'light' })
-  const lightNoteSurface = await quickNote.evaluate((element) =>
-    getComputedStyle(element).getPropertyValue('--workbench-quick-note-surface').trim()
-  )
-  expect(lightNoteSurface).not.toBe(darkNoteSurface)
+  await mainWindow.getByRole('button', { name: '进入沉浸模式' }).click()
+  const controls = mainWindow.locator('.workbench-immersive-controls')
+  const shortcutMenu = mainWindow.locator('.workbench-immersive-arc-menu')
+  const shortcut = mainWindow.locator('.workbench-immersive-arc-action').first()
+
+  await mainWindow.mouse.move(8, 8)
+  await waitForShortcutCollapse(mainWindow)
+  const collapsed = await shortcut.evaluate((element) => {
+    const box = element.getBoundingClientRect()
+    return {
+      centerX: box.x + box.width / 2,
+      centerY: box.y + box.height / 2,
+      transition: getComputedStyle(element).transition
+    }
+  })
+  expect(collapsed.transition).toContain('transform')
+  expect(await shortcutMenu.evaluate((element) => getComputedStyle(element).clipPath)).toBe('none')
+
+  await hoverImmersiveArrow(mainWindow, controls)
+  await mainWindow.waitForTimeout(120)
+  const enteringScale = await readShortcutScale(mainWindow)
+  expect(enteringScale).toBeGreaterThan(0.4)
+  expect(enteringScale).toBeLessThan(0.99)
+  await waitForShortcutReveal(mainWindow)
+  const expanded = await shortcut.evaluate((element) => {
+    const box = element.getBoundingClientRect()
+    return { centerX: box.x + box.width / 2, centerY: box.y + box.height / 2 }
+  })
+
+  expect(Math.abs(expanded.centerX - collapsed.centerX)).toBeLessThan(0.1)
+  expect(Math.abs(expanded.centerY - collapsed.centerY)).toBeLessThan(0.1)
+})
+
+test('immersive shortcut scale animation respects reduced motion', async ({ mainWindow }) => {
+  await mainWindow.emulateMedia({ reducedMotion: 'reduce' })
+  await openWorkbench(mainWindow)
+
+  await mainWindow.getByRole('button', { name: '进入沉浸模式' }).click()
+  await waitForShortcutReveal(mainWindow)
+  expect(await readShortcutScale(mainWindow)).toBeGreaterThanOrEqual(0.99)
 })

@@ -11,6 +11,8 @@ export type ConversationTurnContext = {
   workspaceRoot: string | undefined
   /** Learner memory remains scoped to the selected workspace in either mode. */
   memoryWorkspaceRoot: string | undefined
+  /** Non-workspace tools (web search/fetch, ask, and skill resources) are available in either mode. */
+  externalToolsEnabled: boolean
   workspaceToolsEnabled: boolean
   lessonToolEnabled: boolean
 }
@@ -30,7 +32,10 @@ export function deriveConversationTurnContext(options: {
   const mode: AgentChatMode = isTeachingConversation ? 'teaching' : 'temporary'
   const workspaceRoot = isTeachingConversation ? options.workspace?.rootPath : undefined
   const memoryWorkspaceRoot = options.workspace?.rootPath
-  const workspaceToolsEnabled = options.toolsEnabled && isTeachingConversation
+  // A temporary conversation is intentionally sandboxed from the teaching
+  // workspace, but it can still use configured external tools.
+  const externalToolsEnabled = options.toolsEnabled
+  const workspaceToolsEnabled = externalToolsEnabled && isTeachingConversation
   const lessonToolEnabled = workspaceToolsEnabled && Boolean(options.workspace) && options.hasLessonGenerator
 
   return {
@@ -38,6 +43,7 @@ export function deriveConversationTurnContext(options: {
     isTeachingConversation,
     workspaceRoot,
     memoryWorkspaceRoot,
+    externalToolsEnabled,
     workspaceToolsEnabled,
     lessonToolEnabled
   }

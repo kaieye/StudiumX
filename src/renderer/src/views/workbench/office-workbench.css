@@ -5104,8 +5104,8 @@
 }
 
 /* Immersive study-room depth transition --------------------------------------
-   The video begins as a separate plane deep behind the current scene, then
-   travels toward the viewer until it becomes the new full-size surface. */
+   The fixed flip-clock plane begins deep behind the room, then travels toward
+   the viewer until it becomes the full-size focus surface. */
 .office-workbench-stage {
   isolation: isolate;
   perspective: 1500px;
@@ -5140,7 +5140,7 @@
   animation: workbench-immersive-rise-reverse 580ms cubic-bezier(0.2, 0.72, 0.25, 1) 500ms reverse both;
 }
 
-/* The video becomes the scene background; room controls remain available above it. */
+/* The fixed clock scene sits below the room controls. */
 .office-workbench-stage.is-immersive .workbench-tools,
 .office-workbench-stage.is-immersive .workbench-music-dock,
 .office-workbench-stage.is-immersive > .workbench-leaderboard {
@@ -5151,7 +5151,7 @@
   z-index: 15;
 }
 
-/* Keep the floating tools legible over the scene and immersive video. The
+/* Keep the floating tools legible over the immersive clock. The
    material remains glass through its rim, sheen and backdrop blur, while the
    surface tint is now dense enough to keep the content's contrast independent
    of a bright or dark frame behind it. */
@@ -5314,39 +5314,6 @@
   }
 }
 
-.workbench-immersive-video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-  object-position: center;
-  background: #07090e;
-  transform: scale(1.1);
-  transition: transform 520ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.workbench-immersive-layer.is-open .workbench-immersive-video {
-  transform: scale(1);
-  animation: workbench-immersive-video-settle 780ms cubic-bezier(0.4, 0, 0.2, 1) 320ms both;
-}
-
-.workbench-immersive-layer.is-closing .workbench-immersive-video {
-  transform: scale(1.1);
-  animation: workbench-immersive-video-settle-reverse 780ms cubic-bezier(0.4, 0, 0.2, 1) reverse both;
-}
-
-@keyframes workbench-immersive-video-settle {
-  from { transform: scale(1.1); }
-  to { transform: scale(1); }
-}
-
-@keyframes workbench-immersive-video-settle-reverse {
-  from { transform: scale(1.1); }
-  to { transform: scale(1); }
-}
-
 .workbench-immersive-vignette {
   position: absolute;
   inset: 0;
@@ -5363,29 +5330,15 @@
   left: 50%;
   bottom: 2px;
   z-index: 13;
-  width: 72px;
-  height: 66px;
-  transform: translateX(-50%);
-}
-
-/* Invisible hit area: it bridges the arrow and the two radial actions so the
-   menu cannot disappear while the pointer travels through the semicircle. */
-.workbench-immersive-controls::before {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
   width: 196px;
-  height: 146px;
-  content: '';
-  border-radius: 98px 98px 0 0;
-  pointer-events: none;
+  height: 180px;
   transform: translateX(-50%);
 }
 
-.workbench-immersive-controls.is-open::before,
-.workbench-immersive-controls:hover::before,
-.workbench-immersive-controls:focus-within::before {
-  pointer-events: auto;
+/* The true hit box covers the arrow and the entire fan. Unlike a pseudo-element
+   enabled by :hover, it cannot keep the menu latched after the pointer leaves. */
+.workbench-immersive-controls::before {
+  display: none;
 }
 
 .workbench-immersive-toggle {
@@ -5424,11 +5377,197 @@
   transform: translateX(-50%) scale(0.86);
 }
 
+:root:not([data-resolved-theme='dark']) {
+  --workbench-clock-digit: #c1c1c1;
+  --workbench-clock-line: rgba(0, 0, 0, 0.94);
+  --workbench-quick-note-surface:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(243, 248, 255, 0.9));
+  --workbench-quick-note-line: rgba(186, 204, 232, 0.9);
+  --workbench-quick-note-shadow: 0 24px 62px rgba(36, 62, 106, 0.18);
+  --workbench-quick-note-input: rgba(248, 251, 255, 0.86);
+  --workbench-quick-note-input-line: rgba(187, 204, 231, 0.84);
+  --workbench-quick-note-placeholder: #8090a8;
+  --workbench-quick-note-close: rgba(79, 124, 245, 0.08);
+  --workbench-quick-note-close-hover: rgba(79, 124, 245, 0.15);
+  --workbench-immersive-action-shadow: 0 12px 30px rgba(36, 62, 106, 0.2);
+}
+
+:root[data-resolved-theme='dark'] {
+  --workbench-clock-digit: #c9c9c9;
+  --workbench-clock-line: rgba(0, 0, 0, 0.94);
+  --workbench-quick-note-surface:
+    linear-gradient(145deg, rgba(38, 45, 61, 0.94), rgba(19, 24, 34, 0.94));
+  --workbench-quick-note-line: rgba(176, 199, 255, 0.25);
+  --workbench-quick-note-shadow: 0 26px 70px rgba(0, 0, 0, 0.48);
+  --workbench-quick-note-input: rgba(8, 13, 23, 0.46);
+  --workbench-quick-note-input-line: rgba(193, 211, 255, 0.18);
+  --workbench-quick-note-placeholder: rgba(226, 234, 248, 0.56);
+  --workbench-quick-note-close: rgba(255, 255, 255, 0.08);
+  --workbench-quick-note-close-hover: rgba(255, 255, 255, 0.16);
+  --workbench-immersive-action-shadow: 0 12px 30px rgba(0, 0, 0, 0.34);
+}
+
 .workbench-immersive-toggle:focus-visible,
-.workbench-immersive-arc-action:focus-visible,
-.workbench-scene-picker :is(button, input):focus-visible {
+.workbench-immersive-arc-action:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 64%, #ffffff);
   outline-offset: 3px;
+}
+
+.workbench-clock {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--workbench-clock-digit);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.055), transparent 58%),
+    #030303;
+  isolation: isolate;
+}
+
+.workbench-clock__display {
+  width: min(100%, 520px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(28px, 5vw, 58px);
+  color: inherit;
+  font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif;
+  font-size: clamp(88px, 16vw, 144px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.18);
+  transform: scaleX(0.88);
+}
+
+.workbench-clock__pair {
+  display: flex;
+  align-items: center;
+  gap: clamp(9px, 1.3vw, 18px);
+}
+
+.workbench-clock__digit {
+  position: relative;
+  width: 0.68em;
+  height: 1.16em;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 2px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 14%, rgba(0, 0, 0, 0.22) 52%, rgba(255, 255, 255, 0.018) 100%),
+    #050505;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.84);
+  transform-style: preserve-3d;
+}
+
+.workbench-clock__digit::before {
+  position: absolute;
+  z-index: 8;
+  inset: calc(50% - 2px) 0 auto;
+  height: 4px;
+  background: var(--workbench-clock-line);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
+  content: '';
+  pointer-events: none;
+}
+
+.workbench-clock__face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: inherit;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  will-change: transform, filter, opacity;
+}
+
+.workbench-clock__face-value {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  line-height: 1;
+  text-align: center;
+  transform: translateY(0.025em);
+}
+
+.workbench-clock__face--current-top,
+.workbench-clock__face--previous-top {
+  clip-path: inset(0 0 50% 0);
+}
+
+.workbench-clock__face--current-bottom,
+.workbench-clock__face--previous-bottom,
+.workbench-clock__face--next-bottom {
+  clip-path: inset(50% 0 0 0);
+}
+
+.workbench-clock__face--current-top {
+  z-index: 1;
+}
+
+.workbench-clock__face--current-bottom {
+  z-index: 1;
+}
+
+.workbench-clock__face--previous-top {
+  z-index: 5;
+  transform-origin: 50% 50%;
+}
+
+.workbench-clock__face--previous-bottom {
+  z-index: 4;
+}
+
+.workbench-clock__face--next-bottom {
+  z-index: 6;
+  transform: perspective(760px) rotateX(90deg);
+  transform-origin: 50% 50%;
+}
+
+.workbench-clock__digit.is-flipping .workbench-clock__face--previous-top {
+  animation: workbench-clock-page-out 360ms cubic-bezier(0.55, 0.05, 0.67, 0.19) both;
+}
+
+.workbench-clock__digit.is-flipping .workbench-clock__face--previous-bottom {
+  animation: workbench-clock-previous-bottom 680ms steps(1, end) both;
+}
+
+.workbench-clock__digit.is-flipping .workbench-clock__face--next-bottom {
+  animation: workbench-clock-page-in 680ms cubic-bezier(0.18, 0.79, 0.25, 1) both;
+}
+
+.workbench-clock__digit.is-flipping .workbench-clock__face--current-bottom {
+  opacity: 0;
+  animation: workbench-clock-reveal-current 1ms linear 680ms both;
+}
+
+.workbench-immersive-clock-scene {
+  position: absolute;
+  inset: 0;
+  padding: clamp(22px, 6vh, 72px) clamp(18px, 7vw, 110px);
+  container-type: inline-size;
+}
+
+.workbench-immersive-clock-scene .workbench-clock__display {
+  width: min(100%, 1540px);
+  gap: clamp(32px, 5cqw, 76px);
+  font-size: clamp(150px, min(35cqw, 66vh), 500px);
+  transform: scaleX(0.88);
+}
+
+.workbench-immersive-clock-scene .workbench-clock__pair {
+  gap: clamp(10px, 1.4cqw, 22px);
+}
+
+.workbench-immersive-clock-scene .workbench-clock__digit::before {
+  inset: calc(50% - clamp(3px, 0.25vw, 5px)) 0 auto;
+  height: clamp(6px, 0.45vw, 9px);
 }
 
 .workbench-scene-picker-backdrop {
@@ -5438,38 +5577,32 @@
   display: grid;
   place-items: center;
   padding: 16px;
-  background: var(--workbench-scene-picker-backdrop);
-  backdrop-filter: blur(16px) saturate(145%);
-  -webkit-backdrop-filter: blur(16px) saturate(145%);
-  animation: workbench-scene-picker-backdrop-in 180ms ease both;
+  background: rgba(3, 7, 15, 0.46);
+  backdrop-filter: blur(16px) saturate(135%);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
 }
 
 .workbench-scene-picker {
   box-sizing: border-box;
-  width: min(680px, 100%);
-  max-height: min(610px, 100%);
+  width: min(580px, 100%);
   display: grid;
-  gap: 16px;
+  gap: 15px;
   padding: 18px;
-  overflow: auto;
   color: var(--text);
-  border: 1px solid var(--workbench-scene-picker-line);
+  border: 1px solid var(--workbench-quick-note-line);
   border-radius: 22px;
-  background: var(--workbench-scene-picker-surface);
+  background: var(--workbench-quick-note-surface);
   box-shadow:
-    var(--workbench-scene-picker-shadow),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent);
-  backdrop-filter: blur(36px) saturate(170%);
-  -webkit-backdrop-filter: blur(36px) saturate(170%);
+    var(--workbench-quick-note-shadow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
   animation: workbench-scene-picker-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .workbench-scene-picker__header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
 }
 
 .workbench-scene-picker__eyebrow {
@@ -5483,30 +5616,27 @@
 
 .workbench-scene-picker__header h2 {
   margin: 4px 0 0;
-  color: var(--text);
-  font-size: 18px;
+  font-size: 19px;
   line-height: 1.2;
 }
 
 .workbench-scene-picker__header p,
 .workbench-scene-picker__current {
   margin: 6px 0 0;
-  color: var(--workbench-scene-picker-muted);
+  color: var(--text-muted);
   font-size: 12px;
   line-height: 1.55;
 }
 
 .workbench-scene-picker__current {
-  margin: -4px 0 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin: -5px 0 0;
 }
 
 .workbench-scene-picker__close {
   width: 34px;
   height: 34px;
   display: inline-grid;
+  flex: 0 0 auto;
   place-items: center;
   padding: 0;
   color: var(--text-muted);
@@ -5514,94 +5644,81 @@
   border-radius: 10px;
   background: color-mix(in srgb, var(--surface-solid) 54%, transparent);
   cursor: pointer;
-  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
-}
-
-.workbench-scene-picker__close:hover {
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 11%, var(--surface-solid));
-  transform: translateY(-1px);
 }
 
 .workbench-scene-picker__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .workbench-scene-picker__preset {
   position: relative;
   aspect-ratio: 16 / 9;
-  min-width: 0;
   display: flex;
   align-items: flex-end;
   overflow: hidden;
   padding: 14px;
   color: #ffffff;
-  border: 1px solid var(--workbench-scene-picker-preview-line);
+  border: 1px solid color-mix(in srgb, var(--accent) 68%, #ffffff 32%);
   border-radius: 15px;
-  background: #1b2738;
-  box-shadow: var(--workbench-scene-picker-preview-shadow);
-  text-align: left;
+  background: #030303;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 23%, transparent);
   cursor: pointer;
   isolation: isolate;
-  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
-.workbench-scene-picker__preset:hover,
-.workbench-scene-picker__preset:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 68%, #ffffff 32%);
-  box-shadow: 0 16px 32px color-mix(in srgb, var(--accent) 20%, var(--workbench-scene-picker-preview-shadow));
-  transform: translateY(-2px);
-}
-
-.workbench-scene-picker__preset.is-selected {
-  border-color: var(--accent);
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--accent) 23%, transparent),
-    var(--workbench-scene-picker-preview-shadow);
-}
-
-.workbench-scene-picker__cover,
-.workbench-scene-picker__cover-shade {
+.workbench-scene-picker__preset::after {
   position: absolute;
+  z-index: 0;
   inset: 0;
+  background: linear-gradient(180deg, rgba(8, 14, 24, 0.02) 30%, rgba(7, 12, 22, 0.9) 100%);
+  content: '';
 }
 
-.workbench-scene-picker__cover {
-  z-index: -2;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  background: #111827;
-}
-
-.workbench-scene-picker__cover-shade {
+.workbench-scene-picker__clock-preview {
+  position: absolute;
   z-index: -1;
-  background: linear-gradient(180deg, rgba(8, 14, 24, 0.04) 30%, rgba(7, 12, 22, 0.84) 100%);
+  inset: 0;
+  padding: 12px 14px;
+}
+
+.workbench-scene-picker__clock-preview .workbench-clock__display {
+  width: 100%;
+  gap: clamp(16px, 2.6vw, 26px);
+  font-size: clamp(52px, 8vw, 86px);
+  transform: scaleX(0.88);
+}
+
+.workbench-scene-picker__clock-preview .workbench-clock__pair {
+  gap: clamp(6px, 0.9vw, 11px);
+}
+
+.workbench-scene-picker__clock-preview .workbench-clock__digit::before {
+  inset: calc(50% - 1px) 0 auto;
+  height: 2px;
+}
+
+.workbench-scene-picker__preset-copy,
+.workbench-scene-picker__selected-mark {
+  position: relative;
+  z-index: 1;
 }
 
 .workbench-scene-picker__preset-copy {
   display: grid;
   gap: 3px;
-  min-width: 0;
+  text-align: left;
 }
 
 .workbench-scene-picker__preset-copy strong {
-  overflow: hidden;
   font-size: 14px;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .workbench-scene-picker__preset-copy small {
-  overflow: hidden;
   color: rgba(255, 255, 255, 0.78);
   font-size: 11px;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .workbench-scene-picker__selected-mark {
@@ -5618,83 +5735,92 @@
   line-height: 1;
 }
 
-.workbench-scene-picker__preset--custom {
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 10px;
-  color: var(--text);
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--accent) 36%, var(--workbench-scene-picker-line));
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--accent) 11%, transparent), transparent 64%),
-    color-mix(in srgb, var(--surface-solid) 76%, transparent);
-  text-align: center;
-}
-
-.workbench-scene-picker__preset--custom .workbench-scene-picker__preset-copy small {
-  color: var(--workbench-scene-picker-muted);
-}
-
-.workbench-scene-picker__custom-icon {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  color: var(--accent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.workbench-scene-picker__preset--custom input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes workbench-scene-picker-backdrop-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 @keyframes workbench-scene-picker-in {
   from { opacity: 0; transform: translateY(8px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@media (max-width: 560px) {
-  .workbench-scene-picker-backdrop {
-    padding: 12px;
+@keyframes workbench-clock-page-out {
+  0% {
+    opacity: 1;
+    filter: brightness(1);
+    transform: perspective(760px) rotateX(0deg);
   }
 
-  .workbench-scene-picker {
-    gap: 14px;
-    padding: 14px;
-  }
-
-  .workbench-scene-picker__grid {
-    grid-template-columns: minmax(0, 1fr);
+  100% {
+    opacity: 0;
+    filter: brightness(0.32);
+    transform: perspective(760px) rotateX(-90deg);
   }
 }
 
+@keyframes workbench-clock-previous-bottom {
+  0%, 48% {
+    opacity: 1;
+  }
+
+  49%, 100% {
+    opacity: 0;
+  }
+}
+
+@keyframes workbench-clock-page-in {
+  0%, 43% {
+    filter: brightness(0.3);
+    transform: perspective(760px) rotateX(90deg);
+  }
+
+  100% {
+    filter: brightness(1);
+    transform: perspective(760px) rotateX(0deg);
+  }
+}
+
+@keyframes workbench-clock-reveal-current {
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-clock__digit.is-flipping .workbench-clock__face--previous-top,
+  .workbench-clock__digit.is-flipping .workbench-clock__face--previous-bottom,
+  .workbench-clock__digit.is-flipping .workbench-clock__face--next-bottom {
+    display: none;
+    animation: none;
+  }
+
+  .workbench-clock__digit.is-flipping .workbench-clock__face--current-bottom {
+    opacity: 1;
+    animation: none;
+  }
+}
+
+/* Shortcut icons remain at their final positions and scale into view together. */
 .workbench-immersive-arc-menu {
   position: absolute;
   left: 50%;
   bottom: 33px;
   z-index: 1;
-  width: 0;
-  height: 0;
+  width: 196px;
+  height: 146px;
+  visibility: hidden;
   pointer-events: none;
+  transform: translateX(-50%);
+  transition: visibility 0s linear 220ms;
+}
+
+.workbench-immersive-arc-menu.is-active {
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
 }
 
 .workbench-immersive-arc-action {
   --arc-x: 0px;
   --arc-y: -108px;
   position: absolute;
-  left: 0;
+  left: 50%;
   bottom: 0;
   width: 42px;
   height: 42px;
@@ -5712,22 +5838,47 @@
   -webkit-backdrop-filter: var(--workbench-readable-glass-blur);
   cursor: pointer;
   opacity: 0;
-  pointer-events: none;
   transform: translate(
       calc(-50% + var(--arc-x)),
-      calc(50% + var(--arc-y) + 16px)
-    ) scale(0.8);
+      calc(50% + var(--arc-y))
+    ) scale(0.5);
   transform-origin: center;
   transition:
-    opacity 150ms ease,
-    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 240ms ease-out,
+    transform 360ms cubic-bezier(0.2, 0.9, 0.3, 1),
     background 160ms ease,
     border-color 160ms ease,
-    box-shadow 160ms ease;
+    box-shadow 160ms ease,
+    color 160ms ease;
 }
 
-/* Four controls occupy equal 40-degree intervals on a shared arc centred
-   on the arrow, rather than clustering the two controls nearest the top. */
+.workbench-immersive-arc-menu.is-active > .workbench-immersive-arc-action {
+  opacity: 1;
+  transform: translate(
+      calc(-50% + var(--arc-x)),
+      calc(50% + var(--arc-y))
+    ) scale(1);
+  animation: workbench-immersive-arc-action-in 360ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+@keyframes workbench-immersive-arc-action-in {
+  from {
+    opacity: 0;
+    transform: translate(
+        calc(-50% + var(--arc-x)),
+        calc(50% + var(--arc-y))
+      ) scale(0.4);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(
+        calc(-50% + var(--arc-x)),
+        calc(50% + var(--arc-y))
+      ) scale(1);
+  }
+}
+
 .workbench-immersive-arc-action--hide {
   --arc-x: -61px;
   --arc-y: -35px;
@@ -5749,7 +5900,6 @@
 }
 
 .workbench-immersive-arc-action.is-active {
-  /* Opening a tool only changes its glyph colour; the glass button itself stays unchanged. */
   color: var(--accent);
 }
 
@@ -5857,6 +6007,12 @@
   }
 
   .workbench-immersive-arc-action--fullscreen {
+    --arc-x: -18px;
+    --arc-y: -58px;
+  }
+
+  .workbench-immersive-arc-action--scene {
+    --arc-x: 18px;
     --arc-y: -58px;
   }
 
@@ -5889,33 +6045,7 @@
     transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.workbench-immersive-controls:focus-within .workbench-immersive-arc-menu {
-  pointer-events: auto;
-}
-
-.workbench-immersive-controls:focus-within .workbench-immersive-arc-action {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translate(
-      calc(-50% + var(--arc-x)),
-      calc(50% + var(--arc-y))
-    ) scale(1);
-}
-
 @media (hover: hover) {
-  .workbench-immersive-controls:hover .workbench-immersive-arc-menu {
-    pointer-events: auto;
-  }
-
-  .workbench-immersive-controls:hover .workbench-immersive-arc-action {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translate(
-        calc(-50% + var(--arc-x)),
-        calc(50% + var(--arc-y))
-      ) scale(1);
-  }
-
   .workbench-immersive-controls.is-open .workbench-immersive-toggle:hover {
     color: #ffffff;
     filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.32));
@@ -5941,9 +6071,6 @@
 @media (prefers-reduced-motion: reduce) {
   .workbench-immersive-arc-action,
   .workbench-immersive-toggle,
-  .workbench-scene-picker-backdrop,
-  .workbench-scene-picker,
-  .workbench-scene-picker__preset,
   .workbench-quick-note,
   .workbench-quick-note__close,
   .office-workbench-stage.are-room-cards-hidden .workbench-pomodoro-card,
