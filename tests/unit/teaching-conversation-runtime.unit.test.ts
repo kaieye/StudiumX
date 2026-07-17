@@ -85,12 +85,18 @@ describe('temporary conversation runtime tool availability', () => {
     expect(result).toMatchObject({ finalText: '临时会话已完成。', toolsSupported: true })
     const tools = requests[0]?.tools as Array<{ function: { name: string } }> | undefined
     expect(tools?.map((tool) => tool.function.name)).toEqual(expect.arrayContaining(['web_search', 'web_fetch']))
-    expect(tools?.map((tool) => tool.function.name)).not.toEqual(expect.arrayContaining([
+    const toolNames = tools?.map((tool) => tool.function.name) ?? []
+    for (const forbiddenToolName of [
       'read_workspace_file',
       'list_workspace',
       'write_workspace_file',
-      'generate_lesson'
-    ]))
+      'generate_lesson',
+      'delegate_task',
+      'read_only_task',
+      'parallel_tasks'
+    ]) {
+      expect(toolNames).not.toContain(forbiddenToolName)
+    }
     expect(JSON.stringify(requests[0]?.messages?.[0])).toContain('web_search')
   })
 

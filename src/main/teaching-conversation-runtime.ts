@@ -222,12 +222,13 @@ async function runTeachingConversationTurnActive(
       }
     })
   })
-  // Temporary chats stay isolated from workspace files and lesson generation,
-  // while retaining configured external tools such as web_search/web_fetch.
-  const registry = conversation.externalToolsEnabled
+  // Register the established candidates first, then project the completed registry
+  // through the explicit turn policy below. The allow-list keeps new registrations
+  // fail-closed until they are intentionally assigned to a teaching capability.
+  const baseRegistry = settings.tools.enabled
     ? buildDefaultRegistry(
         settings,
-        conversation.workspaceToolsEnabled
+        conversation.capabilityPolicy.workspaceToolsEnabled
           ? { workspaceRoot: conversation.workspaceRoot, workspaceWrite: true }
           : {}
       )
@@ -237,7 +238,7 @@ async function runTeachingConversationTurnActive(
   // model can present clickable options at a real user-owned fork. It
   // respects the master `tools.enabled` switch like every other tool.
   if (settings.tools.enabled) {
-    registry.register(createAskToolEntry({
+    baseRegistry.register(createAskToolEntry({
       streamId: stream.streamId,
       signal: stream.signal,
       onWaiting: async (toolCallId) => {
@@ -254,23 +255,23 @@ async function runTeachingConversationTurnActive(
       }
     }))
   }
-  if (conversation.workspaceToolsEnabled) {
+  if (conversation.capabilityPolicy.delegationEnabled) {
     for (const tool of createDelegationToolEntries({
       provider,
       streamId: stream.streamId,
       signal: stream.signal,
       runStore: deps.runStore
     })) {
-      registry.register(tool)
+      baseRegistry.register(tool)
     }
   }
   // The lesson lifecycle stays inside this turn: it validates the brief,
   // prevents repeated failed calls, and exposes only successful lessons.
   const lessonTool = createLessonToolLifecycle({
-    enabled: conversation.lessonToolEnabled,
+    enabled: conversation.capabilityPolicy.lessonToolEnabled,
     generateLessonFromBrief: deps.generateLessonFromBrief
   })
-  lessonTool.registerInto(registry)
+  lessonTool.registerInto(baseRegistry)
 
   const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
   const requestedSkillIds = [...new Set((payload.skillIds ?? []).map((id) => id.trim()).filter(Boolean))]
@@ -281,7 +282,11 @@ async function runTeachingConversationTurnActive(
     ? await deps.loadSkillReferences(activeSkillIds, userInput)
     : []
   const skillResourceTool = settings.tools.enabled ? createReadSkillResourceTool(skillReferences) : null
-  if (skillResourceTool) registry.register(skillResourceTool)
+  if (skillResourceTool) baseRegistry.register(skillResourceTool)
+  const registry = baseRegistry.project({
+    allow: conversation.capabilityPolicy.allowedToolNames,
+    deny: conversation.capabilityPolicy.deniedToolNames
+  })
   const availableTools = registry.definitions()
   const webSearchTool = availableTools.find((tool) => tool.function.name === 'web_search')
   const requiresFreshWebSearch = shouldRequireFreshWebSearch(userInput, Boolean(webSearchTool))

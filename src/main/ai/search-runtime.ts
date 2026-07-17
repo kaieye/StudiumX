@@ -21,7 +21,12 @@ import {
   WECHAT_RESTRICTED_REASON
 } from './tools/wechat'
 
+export type ExternalContentProvenance = {
+  trust: 'external_untrusted'
+}
+
 export type SearchSource = SearchResult & {
+  provenance: ExternalContentProvenance
   sourceId: string
   retrievedAt: string
   provider: string
@@ -44,6 +49,7 @@ export type SearchAttempt = {
 }
 
 export type SearchResultEnvelope = {
+  provenance: ExternalContentProvenance
   query: string
   backend?: string
   provider?: string
@@ -80,6 +86,7 @@ export type FetchAttempt = {
 }
 
 export type FetchResultEnvelope = {
+  provenance: ExternalContentProvenance
   sourceId: string
   url: string
   finalUrl: string
@@ -283,6 +290,7 @@ export class SearchRuntime {
     const provider = opts.provider ?? opts.backend ?? 'unknown'
     const sources = opts.results.map((result) => toSearchSource(result, provider, retrievedAt))
     return {
+      provenance: externalUntrustedContentProvenance(),
       query: opts.query,
       backend: opts.backend,
       provider: opts.provider,
@@ -324,6 +332,7 @@ export class SearchRuntime {
       }
     ]
     return {
+      provenance: externalUntrustedContentProvenance(),
       query: originalQuery,
       backend: 'wechat_fallback',
       provider: 'WeChat fallback search',
@@ -404,6 +413,7 @@ export class SearchRuntime {
         const truncated = raw.truncated || body.length > this.maxFetchChars
         const text = body.slice(0, this.maxFetchChars)
         return {
+          provenance: externalUntrustedContentProvenance(),
           sourceId: sourceIdForUrl(current, 'fetch'),
           url: targetUrl,
           finalUrl: current,
@@ -434,6 +444,7 @@ export class SearchRuntime {
       if (articleText.length >= 120 && !isWeChatAccessRestricted(fetched.html, articleText)) {
         const text = articleText.slice(0, this.maxFetchChars)
         return {
+          provenance: externalUntrustedContentProvenance(),
           sourceId: sourceIdForUrl(fetched.url, 'wechat'),
           url: targetUrl,
           finalUrl: fetched.url,
@@ -477,6 +488,7 @@ export class SearchRuntime {
     const results = await this.searchMany(fallbackQueries, 5, ctx)
     const text = buildWeChatRestrictedText(metadata, results)
     return {
+      provenance: externalUntrustedContentProvenance(),
       sourceId: sourceIdForUrl(resolvedUrl, 'wechat'),
       url: targetUrl,
       finalUrl: resolvedUrl,
@@ -690,8 +702,13 @@ async function readResponseTextLimited(res: Response, maxBytes: number): Promise
   }
 }
 
+function externalUntrustedContentProvenance(): ExternalContentProvenance {
+  return { trust: 'external_untrusted' }
+}
+
 function toSearchSource(result: SearchResult, provider: string, retrievedAt: string): SearchSource {
   return {
+    provenance: externalUntrustedContentProvenance(),
     sourceId: sourceIdForUrl(result.url, provider),
     title: result.title,
     url: result.url,
