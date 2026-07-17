@@ -70,6 +70,52 @@ describe('agent artifact protection snapshot', () => {
     await expect(readFile(join(rootPath, artifact.relativePath), 'utf8')).resolves.toBe('audit referenced output')
   })
 
+  it('protects artifacts referenced from a UTC-partitioned conversation and its co-located audit', async () => {
+    const rootPath = await createRoot()
+    const conversationId = 'conversation-partitioned-artifact'
+    const conversationRelativePath = `conversations/2026/07/${conversationId}.md`
+    const artifact = await writeManagedArtifact(rootPath, conversationId, 'partitioned referenced output', conversationRelativePath)
+    await writeConversation(rootPath, conversationId, [{
+      id: 'turn-1',
+      role: 'assistant',
+      content: '[Tool result archived]',
+      createdAt: '2026-07-14T00:00:00.000Z',
+      metadata: {
+        version: 1,
+        toolResults: [{
+          toolCallId: 'tool-1',
+          toolName: 'read_file',
+          bytes: artifact.bytes,
+          lines: 1,
+          archive: artifact
+        }]
+      }
+    }], conversationRelativePath)
+    const auditPath = join(rootPath, agentConversationSessionAuditRelativePathForMarkdown(conversationRelativePath))
+    await mkdir(dirname(auditPath), { recursive: true })
+    await writeFile(auditPath, `${JSON.stringify({ type: 'tool_result', id: 'audit-1', archive: artifact })}
+`, 'utf8')
+
+    const snapshot = await collectAgentArtifactProtectionSnapshot(rootPath)
+    expect(snapshot.liveReferences).toContainEqual(expect.objectContaining({ relativePath: artifact.relativePath }))
+    const cleanup = await cleanupWithProtection(rootPath)
+    expect(cleanup.totals.deletedEntries).toBe(0)
+    await expect(readFile(join(rootPath, artifact.relativePath), 'utf8')).resolves.toBe('partitioned referenced output')
+  })
+
+  it('fails closed on duplicate ids across flat and UTC-partitioned layouts', async () => {
+    const rootPath = await createRoot()
+    await writeConversation(rootPath, 'conversation-duplicate-layout', [])
+    await writeConversation(
+      rootPath,
+      'conversation-duplicate-layout',
+      [],
+      'conversations/2026/07/conversation-duplicate-layout.md'
+    )
+
+    await expect(collectAgentArtifactProtectionSnapshot(rootPath)).rejects.toThrow('Duplicate conversation id')
+  })
+
   it('rejects oversized or symlinked canonical conversation records before parsing them', async () => {
     const oversizedRoot = await createRoot()
     const oversizedRecordPath = join(oversizedRoot, 'conversations', 'conversation-oversized-record.json')
@@ -141,9 +187,13 @@ async function cleanupWithProtection(rootPath: string) {
   })
 }
 
-async function writeConversation(rootPath: string, id: string, turns: unknown[]): Promise<string> {
-  const relativePath = `conversations/${id}.md`
-  const jsonPath = join(rootPath, 'conversations', `${id}.json`)
+async function writeConversation(
+  rootPath: string,
+  id: string,
+  turns: unknown[],
+  relativePath = `conversations/${id}.md`
+): Promise<string> {
+  const jsonPath = join(rootPath, relativePath.replace(/\.md$/i, '.json'))
   await mkdir(dirname(jsonPath), { recursive: true })
   await writeFile(jsonPath, `${JSON.stringify({
     schemaVersion: 1,
@@ -158,9 +208,15 @@ async function writeConversation(rootPath: string, id: string, turns: unknown[])
   return relativePath
 }
 
-async function writeManagedArtifact(rootPath: string, conversationId: string, content: string) {
+async function writeManagedArtifact(
+  rootPath: string,
+  conversationId: string,
+  content: string,
+  conversationRelativePath = `conversations/${conversationId}.md`
+) {
   const sha256 = createHash('sha256').update(content).digest('hex')
-  const relativePath = `conversations/.agent-sessions/${conversationId}/tool-results/${sha256}.txt`
+  const conversationDirectory = dirname(conversationRelativePath)
+  const relativePath = `${conversationDirectory}/.agent-sessions/${conversationId}/tool-results/${sha256}.txt`
   const targetPath = join(rootPath, relativePath)
   await mkdir(dirname(targetPath), { recursive: true })
   await writeFile(targetPath, content, 'utf8')

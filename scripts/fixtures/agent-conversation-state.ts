@@ -131,7 +131,7 @@ patch = applyAgentChatToolEventToPending({
   updatedAt: '2026-01-02T00:00:04.150Z'
 })
 assert.ok(patch)
-assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '写入审批已允许')
+assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.title, '写入审批已允许，继续执行')
 assert.equal(patch.agentTurns?.at(-1)?.processEvents?.at(-1)?.kind, 'permission_resolved')
 assert.equal(selectPendingToolPermission(patch.agentTurns!, draft.pendingConversationId), null)
 pending = patch.pendingAgentConversation!
@@ -330,14 +330,19 @@ assert.equal(canceled.activeConversationId, null)
 assert.equal(canceled.agentToolsSupported, true)
 assert.equal(canceled.agentTurns?.at(-1)?.processEvents?.at(-1)?.status, 'canceled')
 
+const failureMessage = '课程生成失败'
 const failed = failPendingAgentConversation({
   pending,
   activeConversationId: draft.pendingConversationId,
-  assistantId: draft.assistantId
+  assistantId: draft.assistantId,
+  message: failureMessage
 })
 assert.equal(failed.agentChatBusy, false)
-assert.equal(failed.pendingAgentConversation, null)
-assert.equal(failed.agentTurns?.some((turn) => turn.id === draft.assistantId), false)
+assert.equal(failed.pendingAgentConversation?.summary.id, draft.pendingConversationId)
+assert.equal(failed.pendingAgentConversation?.status, failureMessage)
+assert.equal(failed.agentTurns?.some((turn) => turn.id === draft.assistantId), true)
+assert.equal(failed.agentTurns?.at(-1)?.processEvents?.at(-1)?.status, 'error')
+assert.equal(failed.agentTurns?.at(-1)?.processEvents?.at(-1)?.detail, failureMessage)
 
 const saved = finishPendingAgentConversationSave({
   pending,

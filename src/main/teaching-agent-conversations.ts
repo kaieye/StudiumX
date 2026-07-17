@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { isPathInsideRoot } from './path-access'
 import {
@@ -11,6 +11,7 @@ import {
   workspaceRelativePath,
   type WorkspacePathMeta
 } from './teaching-workspace-paths'
+import { requireSafeTeachingRelativePath } from '../shared/teaching-placement'
 import {
   agentConversationCourseJsonScanDirectories,
   agentConversationJsonScanDirectories,
@@ -859,27 +860,87 @@ async function collectAgentConversationJsonRelativePaths(
   const includeCourses = options.includeCourses ?? true
   const result: string[] = []
   for (const directory of agentConversationJsonScanDirectories(options)) {
-    const entries = await readdir(join(rootPath, directory), { withFileTypes: true }).catch(() => [])
-    for (const entry of entries) {
-      if (entry.isFile() && isAgentConversationRecordFileName(entry.name)) {
-        result.push(workspaceRelativePath(directory, entry.name))
+    await collectAgentConversationJsonFilesInBaseDirectory(rootPath, directory, result)
+  }
+  if (includeCourses) {
+    const courseEntries = await readAgentConversationDirectoryEntries(rootPath, 'courses')
+    for (const courseEntry of courseEntries) {
+      // Dirent#isDirectory is false for symlinks. Do not follow a course root
+      // or recurse into an arbitrary entry name.
+      if (!courseEntry.isDirectory() || !isSafeAgentConversationDirectoryEntryName(courseEntry.name)) continue
+      for (const directory of agentConversationCourseJsonScanDirectories(courseEntry.name)) {
+        await collectAgentConversationJsonFilesInBaseDirectory(rootPath, directory, result)
       }
     }
   }
-  if (!includeCourses) return result
-  const courseEntries = await readdir(join(rootPath, 'courses'), { withFileTypes: true }).catch(() => [])
-  for (const courseEntry of courseEntries) {
-    if (!courseEntry.isDirectory()) continue
-    for (const directory of agentConversationCourseJsonScanDirectories(courseEntry.name)) {
-      const entries = await readdir(join(rootPath, directory), { withFileTypes: true }).catch(() => [])
-      for (const entry of entries) {
-        if (entry.isFile() && isAgentConversationRecordFileName(entry.name)) {
-          result.push(workspaceRelativePath(directory, entry.name))
+  return assertUniqueAgentConversationIds(result)
+}
+
+/** Scans one base at exactly depth 0 (legacy) and depth 2 (UTC YYYY/MM). */
+async function collectAgentConversationJsonFilesInBaseDirectory(
+  rootPath: string,
+  directory: string,
+  out: string[]
+): Promise<void> {
+  const entries = await readAgentConversationDirectoryEntries(rootPath, directory)
+  for (const entry of entries) {
+    if (entry.isFile() && isAgentConversationRecordFileName(entry.name)) {
+      out.push(workspaceRelativePath(directory, entry.name))
+      continue
+    }
+    if (!entry.isDirectory() || !isAgentConversationUtcYear(entry.name)) continue
+    const yearDirectory = workspaceRelativePath(directory, entry.name)
+    const monthEntries = await readAgentConversationDirectoryEntries(rootPath, yearDirectory)
+    for (const monthEntry of monthEntries) {
+      if (!monthEntry.isDirectory() || !isAgentConversationUtcMonth(monthEntry.name)) continue
+      const monthDirectory = workspaceRelativePath(yearDirectory, monthEntry.name)
+      const files = await readAgentConversationDirectoryEntries(rootPath, monthDirectory)
+      for (const file of files) {
+        if (file.isFile() && isAgentConversationRecordFileName(file.name)) {
+          out.push(workspaceRelativePath(monthDirectory, file.name))
         }
       }
     }
   }
-  return result
+}
+
+/** Never follow symlinked bases, partitions, or files while discovering records. */
+async function readAgentConversationDirectoryEntries(rootPath: string, relativePath: string) {
+  const targetPath = join(rootPath, relativePath)
+  if (!isPathInsideRoot(rootPath, targetPath)) return []
+  const metadata = await lstat(targetPath).catch(() => null)
+  if (!metadata || metadata.isSymbolicLink() || !metadata.isDirectory()) return []
+  return readdir(targetPath, { withFileTypes: true }).catch(() => [])
+}
+
+function assertUniqueAgentConversationIds(relativePaths: readonly string[]): string[] {
+  const pathsById = new Map<string, string>()
+  for (const relativePath of relativePaths) {
+    const info = describeAgentConversationPath(relativePath)
+    if (!info || info.format !== 'json') continue
+    const existing = pathsById.get(info.id)
+    if (existing && existing !== relativePath) {
+      throw new Error(`Duplicate conversation id "${info.id}" is present at "${existing}" and "${relativePath}".`)
+    }
+    pathsById.set(info.id, relativePath)
+  }
+  return [...relativePaths].sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true, sensitivity: 'variant' }))
+}
+
+function isAgentConversationUtcYear(value: string): boolean {
+  return /^\d{4}$/.test(value)
+}
+
+function isAgentConversationUtcMonth(value: string): boolean {
+  return /^(0[1-9]|1[0-2])$/.test(value)
+}
+
+function isSafeAgentConversationDirectoryEntryName(value: string): boolean {
+  try {
+    return requireSafeTeachingRelativePath(value, 'Course folder') === value
+  } catch {
+    return false
+  }
 }
 
 function isAgentConversationRecordFileName(fileName: string): boolean {

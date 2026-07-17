@@ -85,8 +85,7 @@ import {
   agentConversationJsonRelativePathForMarkdown,
   agentConversationMarkdownRelativePath,
   isRootAgentConversationMarkdownRelativePath,
-  isTemporaryAgentConversationPath,
-  normalizeAgentConversationDirectory
+  isTemporaryAgentConversationPath
 } from '../shared/agent-conversation-catalog'
 import {
   EMPTY_REGISTRY,
@@ -785,11 +784,11 @@ export class TeachingWorkspaceService {
           }
         })
     const parentTurnDigest = runId ? agentParentTurnDigest(turns) : null
-    const conversationDir = existing
-      ? normalizeAgentConversationDirectory(dirname(existing.relativePath).replace(/\\/g, '/'))
-      : isTemporaryConversation
-        ? 'conversations'
-      : agentConversationDirectoryRelativePath(payload)
+    const createdAt = existing?.createdAt ?? now
+    const newConversationDir = isTemporaryConversation
+      ? agentConversationDirectoryRelativePath({ ...payload, createdAt, mode: 'temporary' })
+      : agentConversationDirectoryRelativePath({ ...payload, createdAt })
+    const relativePath = existing?.relativePath ?? agentConversationMarkdownRelativePath(id, newConversationDir)
     if (!isTemporaryConversation) await ensureTeachingContentDirectories(workspace.rootPath)
     const stagedAllowances = collectStagedChildTranscriptAllowances(turns)
     const authorizedAllowances = stagedAllowances.length > 0
@@ -829,10 +828,11 @@ export class TeachingWorkspaceService {
       id,
       workspaceId: existing?.workspaceId ?? workspace.id,
       title,
-      createdAt: existing?.createdAt ?? now,
+      createdAt,
       updatedAt: now,
-      relativePath: agentConversationMarkdownRelativePath(id, conversationDir),
-      absolutePath: join(storageRoot, agentConversationMarkdownRelativePath(id, conversationDir)),
+      // Existing records retain their exact stored location; saving never migrates layouts.
+      relativePath,
+      absolutePath: join(storageRoot, relativePath),
       messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
       branch: existingBranch
         ? existingBranch

@@ -3,10 +3,22 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
+import {
+  listAgentConversations,
+  listPersistedAgentConversationRecords,
+  readAgentConversationRecord,
+  writeAgentConversationRecord
+} from '../../src/main/teaching-agent-conversations'
+import {
+  agentConversationJsonRelativePathForMarkdown,
+  agentConversationSessionArtifactDirectoryRelativePathForMarkdown,
+  agentConversationSessionAuditRelativePathForMarkdown
+} from '../../src/shared/agent-conversation-catalog'
+import { planTemporaryConversationDiskRemoval } from '../../src/main/teaching-workspace/item-lifecycle'
 import { TeachingWorkspaceItemLifecycleExecutor } from '../../src/main/teaching-workspace/item-lifecycle-executor'
 import type { WorkspaceIndex } from '../../src/main/teaching-workspace/lifecycle'
 import type { RegistryWorkspace } from '../../src/main/teaching-workspace/registry'
-import type { LessonSummary } from '../../src/shared/teaching-types'
+import type { AgentConversationRecord, LessonSummary } from '../../src/shared/teaching-types'
 import type { WorkspacePathMeta } from '../../src/main/teaching-workspace-paths'
 
 const createdRoots: string[] = []
@@ -251,6 +263,84 @@ describe('TeachingWorkspaceItemLifecycleExecutor', () => {
     ])
     expect(state.durableIndex.pathMeta).toEqual({})
     expect(events).toEqual(['save-durable', 'rebuild'])
+  })
+
+  it('removes a partitioned temporary conversation and its sidecars so catalog scanners no longer find it', async () => {
+    const root = await createRoot()
+    const appDataRoot = join(root, 'app-data')
+    const conversationId = 'chat-temporary-partitioned-executor'
+    const relativePath = `conversations/2026/07/${conversationId}.md`
+    const record: AgentConversationRecord = {
+      id: conversationId,
+      workspaceId: 'workspace-1',
+      title: 'Partitioned temporary conversation',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      relativePath,
+      absolutePath: join(appDataRoot, relativePath),
+      messageCount: 1,
+      turns: [{ id: 'turn-1', role: 'user', content: 'Temporary', createdAt: timestamp }]
+    }
+    await writeAgentConversationRecord({ id: 'workspace-1', name: 'Temporary', rootPath: appDataRoot }, record)
+
+    const jsonPath = join(appDataRoot, agentConversationJsonRelativePathForMarkdown(relativePath))
+    const markdownPath = join(appDataRoot, relativePath)
+    const auditPath = join(appDataRoot, agentConversationSessionAuditRelativePathForMarkdown(relativePath))
+    const artifactDirectory = join(appDataRoot, agentConversationSessionArtifactDirectoryRelativePathForMarkdown(relativePath))
+    const artifactPath = join(artifactDirectory, 'tool-results', 'result.json')
+    await mkdir(join(artifactDirectory, 'tool-results'), { recursive: true })
+    await writeFile(artifactPath, '{"result":"temporary"}\n', 'utf8')
+
+    await expect(listPersistedAgentConversationRecords(appDataRoot)).resolves.toHaveLength(1)
+    await expect(listAgentConversations(appDataRoot, {}, {
+      includeRoot: true,
+      includeRootConversation: false,
+      includeLegacyRootConversations: true,
+      includeLessons: false,
+      includeCourses: false
+    })).resolves.toMatchObject([{ id: conversationId, relativePath }])
+
+    const events: string[] = []
+    const { executor } = createExecutor({
+      appDataRoot,
+      workspaceIndex: indexFor(root, [], { [relativePath]: { pinned: true } }),
+      temporaryIndex: { pathMeta: { [relativePath]: { pinned: true } } },
+      hasTemporaryConversation: async (id) => readAgentConversationRecord(appDataRoot, id).then(() => true).catch(() => false),
+      events
+    })
+
+    const state = await executor.execute({
+      workspace: workspace(root),
+      target: { relativePath, kind: 'conversation' },
+      intent: { type: 'remove', mode: 'disk' }
+    })
+
+    await Promise.all([
+      expectMissing(jsonPath),
+      expectMissing(markdownPath),
+      expectMissing(auditPath),
+      expectMissing(artifactDirectory),
+      expectMissing(artifactPath)
+    ])
+    await expect(readAgentConversationRecord(appDataRoot, conversationId)).rejects.toThrow('Conversation not found.')
+    await expect(listPersistedAgentConversationRecords(appDataRoot)).resolves.toEqual([])
+    await expect(listAgentConversations(appDataRoot, {}, {
+      includeRoot: true,
+      includeRootConversation: false,
+      includeLegacyRootConversations: true,
+      includeLessons: false,
+      includeCourses: false
+    })).resolves.toEqual([])
+    expect(state.temporaryIndex.pathMeta).toEqual({})
+    expect(events).toEqual(['save-temporary', 'rebuild'])
+  })
+
+  it('rejects traversal paths before they can be used as a temporary deletion base', async () => {
+    const root = await createRoot()
+    expect(() => planTemporaryConversationDiskRemoval(
+      join(root, 'app-data'),
+      'conversations/2026/07/../../chat-traversal.md'
+    )).toThrow('Conversation path is outside a conversations directory.')
   })
 
   it('removes a temporary Agent conversation through its distinct app-data representation', async () => {

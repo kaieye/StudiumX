@@ -8,6 +8,7 @@ import {
   agentConversationMarkdownRelativePath,
   agentConversationSessionAuditRelativePathForMarkdown
 } from '../shared/agent-conversation-catalog'
+import { requireSafeTeachingRelativePath } from '../shared/teaching-placement'
 import type { AgentArtifactRef } from '../shared/teaching-types'
 import type { AgentArtifactProtectionSnapshot } from './agent-artifact-lifecycle'
 import { scanAgentConversationCheckpoints } from './agent-conversation-checkpoints'
@@ -83,7 +84,7 @@ async function collectConversationRecordPaths(storageRoot: string): Promise<stri
   const paths: string[] = []
 
   for (const directory of agentConversationJsonScanDirectories()) {
-    await collectConversationFilesInDirectory(storageRoot, rootRealPath, directory, paths)
+    await collectConversationFilesInBaseDirectory(storageRoot, rootRealPath, directory, paths)
   }
 
   const courseEntries = await readContainedDirectory(storageRoot, rootRealPath, 'courses')
@@ -91,16 +92,17 @@ async function collectConversationRecordPaths(storageRoot: string): Promise<stri
     if (entry.isSymbolicLink()) {
       throw new Error('Artifact protection course directory cannot be a symbolic link.')
     }
-    if (!entry.isDirectory()) continue
+    if (!entry.isDirectory() || !isSafeConversationDirectoryEntryName(entry.name)) continue
     for (const directory of agentConversationCourseJsonScanDirectories(entry.name)) {
-      await collectConversationFilesInDirectory(storageRoot, rootRealPath, directory, paths)
+      await collectConversationFilesInBaseDirectory(storageRoot, rootRealPath, directory, paths)
     }
   }
 
-  return [...new Set(paths)].sort((left, right) => left.localeCompare(right))
+  return assertUniqueConversationRecordIds(paths)
 }
 
-async function collectConversationFilesInDirectory(
+/** Scans only a flat legacy level and exact YYYY/MM partition levels. */
+async function collectConversationFilesInBaseDirectory(
   storageRoot: string,
   rootRealPath: string,
   directory: string,
@@ -108,12 +110,65 @@ async function collectConversationFilesInDirectory(
 ): Promise<void> {
   const entries = await readContainedDirectory(storageRoot, rootRealPath, directory)
   for (const entry of entries) {
-    if (!entry.name.endsWith('.json')) continue
-    if (!isConversationRecordFileName(entry.name)) continue
-    if (entry.isSymbolicLink() || !entry.isFile()) {
-      throw new Error('Canonical conversation JSON must be a regular file.')
+    if (entry.isSymbolicLink()) {
+      if (entry.name.endsWith('.json')) {
+        throw new Error('Canonical conversation JSON must be a regular file.')
+      }
+      continue
     }
-    out.push(`${directory.replace(/\\/g, '/')}/${entry.name}`)
+    if (entry.isFile() && isConversationRecordFileName(entry.name)) {
+      out.push(`${directory.replace(/\\/g, '/')}/${entry.name}`)
+      continue
+    }
+    if (!entry.isDirectory() || !isUtcYear(entry.name)) continue
+    const yearDirectory = `${directory}/${entry.name}`
+    const monthEntries = await readContainedDirectory(storageRoot, rootRealPath, yearDirectory)
+    for (const monthEntry of monthEntries) {
+      if (monthEntry.isSymbolicLink()) continue
+      if (!monthEntry.isDirectory() || !isUtcMonth(monthEntry.name)) continue
+      const monthDirectory = `${yearDirectory}/${monthEntry.name}`
+      const files = await readContainedDirectory(storageRoot, rootRealPath, monthDirectory)
+      for (const file of files) {
+        if (file.isSymbolicLink()) {
+          if (file.name.endsWith('.json')) {
+            throw new Error('Canonical conversation JSON must be a regular file.')
+          }
+          continue
+        }
+        if (file.isFile() && isConversationRecordFileName(file.name)) {
+          out.push(`${monthDirectory.replace(/\\/g, '/')}/${file.name}`)
+        }
+      }
+    }
+  }
+}
+
+function assertUniqueConversationRecordIds(paths: readonly string[]): string[] {
+  const pathById = new Map<string, string>()
+  for (const path of paths) {
+    const id = conversationIdFromJsonPath(path)
+    const existing = pathById.get(id)
+    if (existing && existing !== path) {
+      throw new Error(`Duplicate conversation id "${id}" is present at "${existing}" and "${path}".`)
+    }
+    pathById.set(id, path)
+  }
+  return [...paths].sort((left, right) => left.localeCompare(right))
+}
+
+function isUtcYear(value: string): boolean {
+  return /^\d{4}$/.test(value)
+}
+
+function isUtcMonth(value: string): boolean {
+  return /^(0[1-9]|1[0-2])$/.test(value)
+}
+
+function isSafeConversationDirectoryEntryName(value: string): boolean {
+  try {
+    return requireSafeTeachingRelativePath(value, 'Course folder') === value
+  } catch {
+    return false
   }
 }
 

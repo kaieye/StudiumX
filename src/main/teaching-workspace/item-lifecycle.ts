@@ -1,8 +1,7 @@
 import { basename, dirname, join, resolve } from 'node:path'
 import type { WorkspaceItemKind, WorkspaceItemRemoveMode } from '../../shared/teaching-types'
 import {
-  agentConversationJsonRelativePath,
-  agentConversationMarkdownRelativePath,
+  agentConversationJsonRelativePathForMarkdown,
   agentConversationSessionArtifactDirectoryRelativePathForMarkdown,
   agentConversationSessionAuditRelativePathForMarkdown
 } from '../../shared/agent-conversation-catalog'
@@ -12,7 +11,6 @@ import {
   pathRemovedByWorkspaceItem,
   prunePathMeta
 } from '../teaching-workspace-paths'
-import { requireSafeAgentConversationId } from '../teaching-agent-conversations'
 import { isWorkspaceScaffoldPath, type WorkspaceIndex } from './lifecycle'
 
 export type WorkspaceItemTarget = {
@@ -65,22 +63,17 @@ export function archiveWorkspaceItemPathMeta(
   return mergeWorkspaceItemPathMeta(pathMeta, relativePath, { archived: true })
 }
 
+/**
+ * Plans removal from a catalog-validated conversation markdown path. The shared
+ * path helpers strictly parse the path before deriving any sibling paths, so a
+ * malformed path (including one with traversal segments) cannot be used as a
+ * deletion base.
+ */
 export function planTemporaryConversationDiskRemoval(
   appDataRoot: string,
   relativePath: string
 ): WorkspaceItemDiskRemovalPlan {
-  const id = conversationIdFromMarkdownPath(relativePath)
-  const markdownRelativePath = agentConversationMarkdownRelativePath(id, 'conversations')
-  return {
-    files: [
-      join(appDataRoot, agentConversationJsonRelativePath(id, 'conversations')),
-      join(appDataRoot, markdownRelativePath),
-      join(appDataRoot, agentConversationSessionAuditRelativePathForMarkdown(markdownRelativePath))
-    ],
-    directories: [
-      join(appDataRoot, agentConversationSessionArtifactDirectoryRelativePathForMarkdown(markdownRelativePath))
-    ]
-  }
+  return planAgentConversationDiskRemoval(appDataRoot, relativePath)
 }
 
 export function planWorkspaceItemDiskRemoval(
@@ -96,19 +89,7 @@ export function planWorkspaceItemDiskRemoval(
   }
 
   if (target.kind === 'conversation') {
-    const id = conversationIdFromMarkdownPath(relativePath)
-    const conversationDir = dirname(relativePath).replace(/\\/g, '/')
-    const markdownRelativePath = agentConversationMarkdownRelativePath(id, conversationDir)
-    return {
-      files: [
-        join(rootPath, agentConversationJsonRelativePath(id, conversationDir)),
-        join(rootPath, markdownRelativePath),
-        join(rootPath, agentConversationSessionAuditRelativePathForMarkdown(markdownRelativePath))
-      ],
-      directories: [
-        join(rootPath, agentConversationSessionArtifactDirectoryRelativePathForMarkdown(markdownRelativePath))
-      ]
-    }
+    return planAgentConversationDiskRemoval(rootPath, relativePath)
   }
 
   const files = [absolutePath]
@@ -150,6 +131,19 @@ export function pruneWorkspacePathMetaForItemRemoval(
     : prunedMeta
 }
 
-function conversationIdFromMarkdownPath(relativePath: string): string {
-  return requireSafeAgentConversationId(basename(relativePath).replace(/\.md$/i, ''))
+function planAgentConversationDiskRemoval(
+  rootPath: string,
+  markdownRelativePath: string
+): WorkspaceItemDiskRemovalPlan {
+  const jsonRelativePath = agentConversationJsonRelativePathForMarkdown(markdownRelativePath)
+  const auditRelativePath = agentConversationSessionAuditRelativePathForMarkdown(markdownRelativePath)
+  const artifactDirectoryRelativePath = agentConversationSessionArtifactDirectoryRelativePathForMarkdown(markdownRelativePath)
+  return {
+    files: [
+      join(rootPath, jsonRelativePath),
+      join(rootPath, markdownRelativePath),
+      join(rootPath, auditRelativePath)
+    ],
+    directories: [join(rootPath, artifactDirectoryRelativePath)]
+  }
 }

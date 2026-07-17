@@ -19,7 +19,7 @@ vi.mock('../../src/main/teaching-agent-conversations', async () => {
   return {
     ...actual,
     listPersistedAgentConversationRecords: vi.fn(async () => [...persistence.records.values()].map((record) => ({
-      jsonRelativePath: `conversations/${record.id}.json`,
+      jsonRelativePath: record.relativePath.replace(/\.md$/i, '.json'),
       record: structuredClone(record)
     }))),
     readAgentConversationRecord: vi.fn(async (_rootPath: string, id: string) => {
@@ -143,6 +143,29 @@ describe('agent conversation durable session tree', () => {
       head: { turnCount: 2 },
       isOpen: false
     })
+  })
+
+  it('keeps forks in the source UTC partition directory', async () => {
+    const rootPath = await createRoot()
+    const parent = {
+      ...record('root-partitioned', [
+        turn('turn-1', 'user', 'Question', '2026-07-14T03:00:00.000Z'),
+        turn('turn-2', 'assistant', 'Answer', '2026-07-14T03:01:00.000Z')
+      ]),
+      relativePath: 'conversations/2026/07/root-partitioned.md',
+      absolutePath: 'C:/workspace/conversations/2026/07/root-partitioned.md'
+    }
+    persistence.records.set(parent.id, structuredClone(parent))
+
+    const child = await forkAgentConversationBranchAtRoot(workspace(rootPath), parent.id, {
+      expectedRevision: 0,
+      createConversationId: async () => 'child-partitioned',
+      replayId: 'replay-partitioned',
+      now: '2026-07-14T04:00:00.000Z'
+    })
+
+    expect(child.relativePath).toBe('conversations/2026/07/child-partitioned.md')
+    expect(persistence.records.get(child.id)?.relativePath).toBe(child.relativePath)
   })
 
   it('rejects damaged parent references and source digests during rebuild', () => {
