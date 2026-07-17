@@ -86,31 +86,38 @@ test('music dock footer stays stationary throughout both disclosure transitions'
   await openWorkbench(mainWindow)
 
   const musicCard = mainWindow.locator('.workbench-music-card')
-  const captureFooterPositions = async (buttonLabel: string): Promise<number[]> =>
+  const captureTransitionPositions = async (buttonLabel: string): Promise<{ footer: number[]; panel: number[] }> =>
     mainWindow.evaluate(async (label) => {
       const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
         (element) => element.getAttribute('aria-label') === label
       )
       const footer = document.querySelector<HTMLElement>('.workbench-music-footer')
-      if (!button || !footer) throw new Error('Music player controls are unavailable')
+      const panel = document.querySelector<HTMLElement>('.workbench-music-reveal-inner')
+      if (!button || !footer || !panel) throw new Error('Music player controls are unavailable')
 
       button.click()
-      const positions: number[] = []
+      const positions = { footer: [] as number[], panel: [] as number[] }
       for (let frame = 0; frame < 24; frame += 1) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-        positions.push(footer.getBoundingClientRect().y)
+        positions.footer.push(footer.getBoundingClientRect().y)
+        positions.panel.push(panel.getBoundingClientRect().y)
       }
       return positions
     }, buttonLabel)
 
-  const openingPositions = await captureFooterPositions('展开音乐面板')
+  const openingPositions = await captureTransitionPositions('展开音乐面板')
   await expect(musicCard).toHaveClass(/is-open/)
-  const closingPositions = await captureFooterPositions('收起音乐面板')
+  const closingPositions = await captureTransitionPositions('收起音乐面板')
   await expect(musicCard).not.toHaveClass(/is-open/)
 
   const positionRange = (positions: number[]): number => Math.max(...positions) - Math.min(...positions)
-  expect(positionRange(openingPositions)).toBeLessThan(1)
-  expect(positionRange(closingPositions)).toBeLessThan(1)
+  expect(positionRange(openingPositions.footer)).toBeLessThan(1)
+  expect(positionRange(closingPositions.footer)).toBeLessThan(1)
+  // Like the task disclosure, the panel's content must be laid out at its
+  // expanded position while the clipping viewport grows. It must not travel
+  // upward from the page edge during the opening animation.
+  expect(positionRange(openingPositions.panel)).toBeLessThan(1)
+  expect(positionRange(closingPositions.panel)).toBeLessThan(1)
 })
 
 test('immersive room menu distributes icon controls and exposes quick notes', async ({ mainWindow }) => {
