@@ -5593,8 +5593,8 @@
   position: absolute;
   left: 0;
   bottom: 0;
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -5623,25 +5623,26 @@
     box-shadow 160ms ease;
 }
 
-/* The controls sit on a semicircle whose centre is the arrow button. */
+/* Four controls occupy equal 40-degree intervals on a shared arc centred
+   on the arrow, rather than clustering the two controls nearest the top. */
 .workbench-immersive-arc-action--hide {
-  --arc-x: -60px;
-  --arc-y: -20px;
+  --arc-x: -61px;
+  --arc-y: -35px;
 }
 
 .workbench-immersive-arc-action--fullscreen {
   --arc-x: -24px;
-  --arc-y: -60px;
+  --arc-y: -66px;
 }
 
 .workbench-immersive-arc-action--video {
   --arc-x: 24px;
-  --arc-y: -60px;
+  --arc-y: -66px;
 }
 
 .workbench-immersive-arc-action--note {
-  --arc-x: 60px;
-  --arc-y: -20px;
+  --arc-x: 61px;
+  --arc-y: -35px;
 }
 
 .workbench-immersive-arc-action.is-active {

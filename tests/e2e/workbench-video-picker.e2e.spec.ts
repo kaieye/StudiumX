@@ -8,7 +8,7 @@ async function openWorkbench(mainWindow: import('@playwright/test').Page): Promi
   await expect(immersiveToggle).toBeVisible()
 }
 
-test('video picker next to the immersive arrow selects a local backdrop', async ({ mainWindow }) => {
+test('video picker in the immersive action ring selects a local backdrop', async ({ mainWindow }) => {
   await openWorkbench(mainWindow)
 
   const controls = mainWindow.locator('.workbench-immersive-controls')
@@ -16,6 +16,26 @@ test('video picker next to the immersive arrow selects a local backdrop', async 
   await controls.hover()
   await expect(videoButton).toBeVisible()
   await expect(videoButton).toHaveClass(/workbench-immersive-arc-action--video/)
+  await mainWindow.waitForTimeout(260)
+
+  const arrow = mainWindow.getByRole('button', { name: '进入沉浸模式' })
+  const arcButtons = await Promise.all([
+    mainWindow.getByRole('button', { name: '隐藏自习室卡片' }).boundingBox(),
+    mainWindow.getByRole('button', { name: '进入全屏' }).boundingBox(),
+    videoButton.boundingBox(),
+    mainWindow.getByRole('button', { name: '快捷记事' }).boundingBox()
+  ])
+  const arrowBounds = await arrow.boundingBox()
+  if (!arrowBounds || arcButtons.some((bounds) => !bounds)) {
+    throw new Error('The immersive action ring has no bounding boxes')
+  }
+  const arrowCenter = { x: arrowBounds.x + arrowBounds.width / 2, y: arrowBounds.y + arrowBounds.height / 2 }
+  const centers = arcButtons.map((bounds) => ({ x: bounds!.x + bounds!.width / 2, y: bounds!.y + bounds!.height / 2 }))
+  const radii = centers.map((center) => Math.hypot(center.x - arrowCenter.x, center.y - arrowCenter.y))
+  const gaps = centers.slice(1).map((center, index) => Math.hypot(center.x - centers[index].x, center.y - centers[index].y))
+  expect(Math.max(...radii) - Math.min(...radii)).toBeLessThan(2)
+  expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThan(2)
+
   await videoButton.click()
 
   const picker = mainWindow.getByRole('dialog', { name: '选择视频' })
