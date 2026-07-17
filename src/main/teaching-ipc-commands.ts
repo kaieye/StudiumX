@@ -22,6 +22,7 @@ import type {
   ProbeProviderPayload,
   ReadWorkspaceChangeDiffPayload,
   ReadAgentConversationPayload,
+  RenameAgentConversationPayload,
   ReadAgentConversationSessionTreePayload,
   ReplayAgentConversationBranchPayload,
   ReadLessonPayload,
@@ -252,6 +253,21 @@ export function parseSaveAgentConversationPayload(payload: unknown): SaveAgentCo
           : undefined,
     ...(courseName ? { courseName } : {}),
     turns: parseSavedAgentConversationTurns(record.turns)
+  }
+}
+
+export function parseRenameAgentConversationPayload(payload: unknown): RenameAgentConversationPayload {
+  const record = requireRecord(payload)
+  const title = requireString(record.title, 'title').trim()
+  if (!title || title.length > 160) {
+    throw new Error('IPC payload field \"title\" must contain 1 to 160 characters.')
+  }
+  const reference = parseAgentConversationBranchReference(record)
+  const expectedRevision = optionalNonNegativeInteger(record.expectedRevision, 'expectedRevision')
+  return {
+    ...reference,
+    title,
+    ...(expectedRevision !== undefined ? { expectedRevision } : {})
   }
 }
 

@@ -40,9 +40,18 @@
     "rowActions": "More actions",
     "pin": "Pin",
     "unpin": "Unpin",
+    "rename": "Rename",
     "archive": "Archive",
     "remove": "Delete",
     "confirmRemove": "Delete \"{{name}}\"?",
+    "renameDialog": {
+      "eyebrow": "Conversation",
+      "title": "Rename “{{name}}”",
+      "label": "Name",
+      "placeholder": "Enter a new name",
+      "confirm": "Rename",
+      "close": "Close rename dialog"
+    },
     "removeDialog": {
       "title": "Delete \"{{name}}\"",
       "detail": "Choose the removal scope. Removing from the list keeps local files; removing from disk deletes the matching file or folder.",

@@ -39,7 +39,7 @@ function renderNavigator(overrides: Partial<TeachingWorkspaceNavigatorProps> = {
     onLoadLesson: vi.fn(async () => {}), onLoadCourseHtmlFile: vi.fn(async () => {}), onLoadWorkspaceMarkdownFile: vi.fn(async () => {}),
     onLoadAgentConversation: vi.fn(async () => {}), onRestorePendingAgentConversation: vi.fn(), onOpenPath: vi.fn(async () => {}),
     onImportWorkspace: vi.fn(async () => true), onImportWorkspacePath: vi.fn(async () => true), onOpenImportLocation: vi.fn(async () => {}),
-    onSetWorkspaceItemMeta: vi.fn(async () => {}), onRemoveWorkspaceItem: vi.fn(async () => {}), onRemoveWorkspace: vi.fn(async () => {})
+    onSetWorkspaceItemMeta: vi.fn(async () => {}), onRenameAgentConversation: vi.fn(async () => {}), onRemoveWorkspaceItem: vi.fn(async () => {}), onRemoveWorkspace: vi.fn(async () => {})
   }
   render(<TeachingWorkspaceNavigator workspaces={[workspace]} activeWorkspace={workspace} temporaryConversations={[]} selectedLessonPath={null}
     view="overview" activeConversationId={null} pendingAgentConversation={null} showAllCourseFiles={false} defaultRoot="D:/math" loading={false} {...callbacks} {...overrides} />)
@@ -74,6 +74,29 @@ describe('TeachingWorkspaceNavigator', () => {
     await user.click(screen.getByRole('button', { name: 'Course conversation' }))
     expect(callbacks.onLoadAgentConversation).toHaveBeenCalledWith('durable-1', 'workspace-1', 'workspace')
     expect(callbacks.onSetOverviewDialogMode).toHaveBeenCalled()
+  })
+
+  it('renames a temporary conversation from its more-actions menu', async () => {
+    const user = userEvent.setup()
+    const conversation: AgentConversationSummary = {
+      id: 'temporary-rename', workspaceId: 'workspace-1', title: 'Original title', createdAt: '2026-07-17', updatedAt: '2026-07-17',
+      relativePath: 'conversations/temporary-rename.md', absolutePath: 'D:/app-data/conversations/temporary-rename.md', messageCount: 2,
+      branch: { schemaVersion: 1, sessionId: 'temporary-rename', branchId: 'temporary-rename', revision: 3, status: 'active' }
+    }
+    const callbacks = renderNavigator({ temporaryConversations: [conversation] })
+    const row = screen.getByText('Original title').closest('.workspace-conversation-row')!
+    await user.click(within(row).getByRole('button', { name: /更多操作|More actions/ }))
+    await user.click(screen.getByRole('menuitem', { name: /^(重命名|Rename)$/ }))
+
+    const dialog = screen.getByRole('dialog')
+    const input = within(dialog).getByRole('textbox')
+    await user.clear(input)
+    await user.type(input, 'Renamed title')
+    await user.click(within(dialog).getByRole('button', { name: /^(重命名|Rename)$/ }))
+
+    expect(callbacks.onRenameAgentConversation).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1', conversationId: 'temporary-rename', title: 'Renamed title', scope: 'temporary', expectedRevision: 3
+    })
   })
 
   it('keeps pending temporary conversations restorable and preserves menu/dialog keyboard behavior', async () => {

@@ -273,6 +273,7 @@ function Sidebar() {
   const importWorkspacePath = useAppStore((s) => s.importWorkspacePath)
   const openImportLocation = useAppStore((s) => s.openImportLocation)
   const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
+  const renameAgentConversation = useAppStore((s) => s.renameAgentConversation)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
   const removeWorkspace = useAppStore((s) => s.removeWorkspace)
 
@@ -330,6 +331,7 @@ function Sidebar() {
           onImportWorkspacePath={importWorkspacePath}
           onOpenImportLocation={openImportLocation}
           onSetWorkspaceItemMeta={setWorkspaceItemMeta}
+          onRenameAgentConversation={renameAgentConversation}
           onRemoveWorkspaceItem={removeWorkspaceItem}
           onRemoveWorkspace={removeWorkspace}
         />
@@ -1178,6 +1180,7 @@ function MainArea() {
     <main
       className="main-area"
       data-view={view}
+      data-resource-section={view === 'resources' && !readingResourceHtml ? resourcePageSection : undefined}
       data-reading-html={readingHtml ? 'true' : undefined}
       data-reading-markdown={readingMarkdown ? 'true' : undefined}
     >

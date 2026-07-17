@@ -27,6 +27,8 @@ import type {
   AskAnswer,
   ReadAgentConversationPayload,
   ReadAgentConversationSessionTreePayload,
+  RenameAgentConversationPayload,
+  RenameAgentConversationResult,
   ReplayAgentConversationBranchPayload,
   ReplayAgentConversationBranchResult,
   ReplayAgentChatEventsPayload,
@@ -167,6 +169,7 @@ export type TeachingSystemApi = {
   onAgentChatTool: (handler: (event: AgentChatStreamToolEvent) => void) => () => void
   onAgentChatEvent: (handler: (event: AgentRealtimeEvent) => void) => () => void
   saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>
+  renameAgentConversation: (payload: RenameAgentConversationPayload) => Promise<RenameAgentConversationResult>
   readAgentConversation: (payload: ReadAgentConversationPayload) => Promise<AgentConversationRecord>
   readAgentConversationSessionTree: (payload: ReadAgentConversationSessionTreePayload) => Promise<AgentConversationSessionTree>
   openAgentConversationBranch: (payload: OpenAgentConversationBranchPayload) => Promise<OpenAgentConversationBranchResult>

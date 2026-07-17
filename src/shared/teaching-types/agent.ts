@@ -526,6 +526,19 @@ export type SaveAgentConversationResult = {
   conversation: AgentConversationSummary
 }
 
+export type RenameAgentConversationPayload = {
+  workspaceId: string
+  conversationId: string
+  title: string
+  scope?: AgentConversationLookupScope
+  expectedRevision?: number
+}
+
+export type RenameAgentConversationResult = {
+  state: TeachingAppState
+  conversation: AgentConversationSummary
+}
+
 export type ReadAgentConversationPayload = {
   workspaceId: string
   conversationId: string

@@ -50,6 +50,7 @@ export const teachingInvokeChannels = {
   cancelAgentChatStream: 'teach:cancel-agent-chat-stream',
   answerAgentChatTool: 'teach:agent-chat-tool-answer',
   saveAgentConversation: 'teach:save-agent-conversation',
+  renameAgentConversation: 'teach:rename-agent-conversation',
   readAgentConversation: 'teach:read-agent-conversation',
   readAgentConversationSessionTree: 'teach:read-agent-conversation-session-tree',
   openAgentConversationBranch: 'teach:open-agent-conversation-branch',

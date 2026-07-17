@@ -16,7 +16,7 @@ import {
   parseForkAgentConversationBranchPayload, parseOpenAgentConversationBranchPayload,
   parseCreateMemoryPayload, parseCreateWorkspacePayload, parseGenerateLessonPayload, parseGitBranchPayload,
   parseListUpstreamModelsPayload, parseNotificationPayload, parseProbeProviderPayload,
-  parseQueryAgentArchivedHistoryPayload, parseReadAgentConversationPayload,
+  parseQueryAgentArchivedHistoryPayload, parseReadAgentConversationPayload, parseRenameAgentConversationPayload,
   parseReadAgentConversationSessionTreePayload, parseReadLessonPayload, parseReadWorkspaceChangeDiffPayload,
   parsePreviewLessonInteractionIntent,
   parseReplayAgentConversationBranchPayload,
@@ -318,6 +318,13 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       channel: teachingInvokeChannels.answerAgentChatTool, parser: (payload) => decodeToolAnswerPayload(payload),
       action: (_event, payload) => { if (!resolveAskPending(payload.streamId, payload.toolCallId, payload.answers)) resolveToolPermissionPending(payload.streamId, payload.toolCallId, payload.answers); return { ok: true } },
       reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.renameAgentConversation,
+      parser: (payload) => parseRenameAgentConversationPayload(payload),
+      action: async (_event, payload) => { const result = await service.renameAgentConversation(payload); analytics.invalidate(['conversation']); return result },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
     }),
     command({
       channel: teachingInvokeChannels.saveAgentConversation,

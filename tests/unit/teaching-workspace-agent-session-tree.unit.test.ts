@@ -8,6 +8,53 @@ import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 const runtimeScope = createVitestRuntimeScope()
 
 describe('TeachingWorkspaceService agent conversation branch lifecycle', () => {
+  it('renames a conversation title without changing its stable id or storage path', async () => {
+    const runtime = await runtimeScope.create('rename-conversation-title')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot)
+    })
+    const workspace = (await service.createWorkspace({ name: 'Rename session', prompt: 'Exercise title persistence.' })).activeWorkspace!
+    const saved = await service.saveAgentConversation({
+      workspaceId: workspace.id,
+      mode: 'teaching',
+      turns: [
+        { id: 'turn-1', role: 'user', content: 'Question', createdAt: '2026-07-17T09:00:00.000Z' },
+        { id: 'turn-2', role: 'assistant', content: 'Answer', createdAt: '2026-07-17T09:01:00.000Z' }
+      ]
+    })
+
+    const renamed = await service.renameAgentConversation({
+      workspaceId: workspace.id,
+      conversationId: saved.conversation.id,
+      title: 'Renamed conversation',
+      scope: 'workspace',
+      expectedRevision: saved.conversation.branch!.revision
+    })
+    const persisted = await service.readAgentConversation({
+      workspaceId: workspace.id,
+      conversationId: saved.conversation.id,
+      scope: 'workspace'
+    })
+
+    expect(renamed.conversation).toMatchObject({
+      id: saved.conversation.id,
+      title: 'Renamed conversation',
+      relativePath: saved.conversation.relativePath,
+      branch: { revision: saved.conversation.branch!.revision + 1 }
+    })
+    expect(persisted).toMatchObject({
+      id: saved.conversation.id,
+      title: 'Renamed conversation',
+      relativePath: saved.conversation.relativePath
+    })
+    expect(renamed.state.activeWorkspace?.conversations).toContainEqual(
+      expect.objectContaining({ id: saved.conversation.id, title: 'Renamed conversation' })
+    )
+  })
+
   it('removes a single-branch conversation session from the workspace catalog', async () => {
     const runtime = await runtimeScope.create('delete-single-branch-session')
     const managedRoot = join(runtime.paths.workspace, 'managed')

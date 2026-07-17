@@ -162,6 +162,8 @@ import type {
   AgentChatStreamPayload,
   AgentChatStreamResult,
   ReadAgentConversationPayload,
+  RenameAgentConversationPayload,
+  RenameAgentConversationResult,
   ReadAgentConversationSessionTreePayload,
   ReplayAgentConversationBranchPayload,
   ReplayAgentConversationBranchResult,
@@ -917,6 +919,31 @@ export class TeachingWorkspaceService {
       }
     }
     return scope.allowances
+  }
+
+  async renameAgentConversation(payload: RenameAgentConversationPayload): Promise<RenameAgentConversationResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const title = cleanText(payload.title)
+    if (!title || title.length > 160) throw new Error('Conversation title must contain 1 to 160 characters.')
+
+    const location = await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)
+    const persistedRecord = await saveAgentConversationBranchAtRoot(
+      { ...workspace, rootPath: location.rootPath },
+      { ...location.record, title, updatedAt: new Date().toISOString() },
+      { expectedRevision: payload.expectedRevision }
+    )
+    await invalidateAgentHistoryIndex(location.rootPath)
+
+    const nextRegistry = location.global
+      ? registry
+      : touchRegistryWorkspace(registry, workspace.id, persistedRecord.updatedAt)
+    if (!location.global) await this.saveRegistry(nextRegistry)
+
+    return {
+      state: await this.buildState(nextRegistry, workspace.id, null),
+      conversation: toAgentConversationSummary(persistedRecord, {}, workspace.id)
+    }
   }
 
   async readAgentConversation(payload: ReadAgentConversationPayload): Promise<AgentConversationRecord> {

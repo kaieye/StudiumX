@@ -40,9 +40,18 @@
     "rowActions": "更多操作",
     "pin": "置顶",
     "unpin": "取消置顶",
+    "rename": "重命名",
     "archive": "归档",
     "remove": "删除",
     "confirmRemove": "确定要删除“{{name}}”吗？",
+    "renameDialog": {
+      "eyebrow": "对话",
+      "title": "重命名“{{name}}”",
+      "label": "名称",
+      "placeholder": "输入新名称",
+      "confirm": "重命名",
+      "close": "关闭重命名"
+    },
     "removeDialog": {
       "title": "删除“{{name}}”",
       "detail": "选择这次删除的范围。仅从列表移除会保留本地文件；从磁盘移除会删除对应文件或文件夹。",

@@ -220,6 +220,7 @@ export type StoreState = {
   forkAgentConversationBranch: (conversationId: string, sourceTurnId: string | undefined, expectedRevision: number) => Promise<boolean>
   replayAgentConversationBranch: (conversationId?: string, sourceTurnId?: string) => Promise<AgentChatTurn[] | null>
   updateAgentConversationBranchStatus: (conversationId: string, status: AgentConversationBranchStatus, expectedRevision: number) => Promise<void>
+  renameAgentConversation: (payload: { workspaceId?: string | null; conversationId: string; title: string; scope: AgentConversationLookupScope; expectedRevision?: number }) => Promise<void>
   agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode; skillIds?: string[] }) => Promise<void>
   setWorkspaceItemMeta: (payload: { workspaceId?: string | null; relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
   removeWorkspaceItem: (payload: { workspaceId?: string | null; relativePath: string; kind: WorkspaceItemKind; mode?: WorkspaceItemRemoveMode }) => Promise<void>
@@ -1314,6 +1315,23 @@ export const useAppStore = create<StoreState>((set, get) => {
       mode: options?.mode,
       skillIds: options?.skillIds
     })
+  },
+  renameAgentConversation: async (payload) => {
+    const api = window.teachingSystem
+    const workspaceId = payload.workspaceId ?? get().appState.activeWorkspace?.id
+    if (!api || !workspaceId) return
+    try {
+      const result = await api.renameAgentConversation({
+        workspaceId,
+        conversationId: payload.conversationId,
+        title: payload.title,
+        scope: payload.scope,
+        ...(payload.expectedRevision === undefined ? {} : { expectedRevision: payload.expectedRevision })
+      })
+      set({ appState: result.state, error: null })
+    } catch (error) {
+      set({ error: toUserError(error) })
+    }
   },
   setWorkspaceItemMeta: async (payload) => {
     const api = window.teachingSystem

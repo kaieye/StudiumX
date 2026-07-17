@@ -701,7 +701,17 @@
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.45;
-}.remove-dialog-footer {
+}.rename-dialog {
+  gap: 18px;
+}.rename-dialog-icon {
+  color: var(--accent);
+  background: var(--accent-soft);
+}.rename-dialog-field {
+  margin-top: -2px;
+}.rename-dialog .remove-dialog-footer {
+  justify-content: flex-end;
+}
+.remove-dialog-footer {
   display: flex;
   justify-content: flex-end;
   margin-top: 14px;
