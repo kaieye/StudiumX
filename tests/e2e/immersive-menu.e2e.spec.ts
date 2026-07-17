@@ -224,7 +224,7 @@ test('immersive room menu distributes icon controls and exposes quick notes', as
   await waitForShortcutCollapse(mainWindow)
 })
 
-test('immersive mode keeps the fixed flip clock while quick-note surfaces adapt to theme', async ({ mainWindow }) => {
+test('immersive mode shows scene choices while quick-note surfaces adapt to theme', async ({ mainWindow }) => {
   await openWorkbench(mainWindow)
 
   await mainWindow.getByRole('button', { name: '进入沉浸模式' }).click()
@@ -239,7 +239,8 @@ test('immersive mode keeps the fixed flip clock while quick-note surfaces adapt 
   const scenePicker = mainWindow.getByRole('dialog', { name: '选择场景' })
   await expect(scenePicker).toBeVisible()
   await expect(scenePicker.getByText('当前场景：翻页时钟')).toBeVisible()
-  await expect(scenePicker.locator('video')).toHaveCount(0)
+  await expect(scenePicker.getByRole('button', { name: /女孩自习/ })).toBeVisible()
+  await expect(scenePicker.locator('video')).toHaveCount(1)
   await scenePicker.getByRole('button', { name: /翻页时钟/ }).click()
   await expect(scenePicker).toBeHidden()
 

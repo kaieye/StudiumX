@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, StickyNote, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
+import girlVideo from '../../../../../girl.mp4'
 import {
   formatStudyDuration,
   formatStudySeatLabel
@@ -33,6 +34,12 @@ const workbenchSeatCount = 12
 const immersiveCloseFallbackDurationMs = 1_200
 const clockRefreshIntervalMs = 60_000
 type ImmersivePhase = 'closed' | 'open' | 'closing'
+type ImmersiveScene = 'clock' | 'girl'
+
+const immersiveSceneLabels: Record<ImmersiveScene, string> = {
+  clock: '翻页时钟',
+  girl: '女孩自习'
+}
 
 function deskIdForSeatIndex(seatIndex: number): DeskId {
   return `desk-${seatIndex + 1}`
@@ -77,26 +84,30 @@ function ClockDisplay({ time, previousTime }: { time: Date; previousTime: Date |
     { value: minutes[0], previousValue: previousMinutes[0] },
     { value: minutes[1], previousValue: previousMinutes[1] }
   ]
+  // A real flip clock turns every card at the minute boundary—even the digits
+  // that retain the same value—so use the refreshed timestamp as the card key.
+  const turnKey = time.getTime()
+  const shouldFlip = previousTime !== null
 
   return (
     <time className="workbench-clock__display" dateTime={time.toISOString()} aria-label={`当前时间 ${hours}:${minutes}`}>
       <span className="workbench-clock__pair">
         {digits.slice(0, 2).map((digit, index) => (
           <ClockDigit
-            key={`hour-${index}-${digit.value}`}
+            key={`hour-${index}-${turnKey}`}
             value={digit.value}
             previousValue={digit.previousValue}
-            shouldFlip={previousTime !== null && digit.value !== digit.previousValue}
+            shouldFlip={shouldFlip}
           />
         ))}
       </span>
       <span className="workbench-clock__pair">
         {digits.slice(2).map((digit, index) => (
           <ClockDigit
-            key={`minute-${index}-${digit.value}`}
+            key={`minute-${index}-${turnKey}`}
             value={digit.value}
             previousValue={digit.previousValue}
-            shouldFlip={previousTime !== null && digit.value !== digit.previousValue}
+            shouldFlip={shouldFlip}
           />
         ))}
       </span>
@@ -149,6 +160,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const [areRoomCardsHidden, setAreRoomCardsHidden] = useState(false)
   const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false)
   const [isScenePickerOpen, setIsScenePickerOpen] = useState(false)
+  const [immersiveScene, setImmersiveScene] = useState<ImmersiveScene>('clock')
   const [clockState, setClockState] = useState(() => ({
     current: new Date(),
     previous: null as Date | null
@@ -501,9 +513,21 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           }}
         >
           <div className="workbench-immersive-plane">
-            <div className="workbench-immersive-clock-scene workbench-clock" aria-hidden="true">
-              <ClockDisplay time={clockTime} previousTime={clockState.previous} />
-            </div>
+            {immersiveScene === 'clock' ? (
+              <div className="workbench-immersive-clock-scene workbench-clock" aria-hidden="true">
+                <ClockDisplay time={clockTime} previousTime={clockState.previous} />
+              </div>
+            ) : (
+              <video
+                className="workbench-immersive-video"
+                src={girlVideo}
+                autoPlay
+                loop
+                muted
+                playsInline
+                aria-hidden="true"
+              />
+            )}
             <div className="workbench-immersive-vignette" aria-hidden="true" />
           </div>
         </div>
@@ -601,7 +625,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                 <div>
                   <span className="workbench-scene-picker__eyebrow"><Image size={15} aria-hidden="true" /> 沉浸空间</span>
                   <h2>选择场景</h2>
-                  <p>当前沉浸空间仅保留翻页时钟效果。</p>
+                  <p>选择一个沉浸场景，陪伴你专注学习。</p>
                 </div>
                 <button
                   type="button"
@@ -613,13 +637,16 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                   <X size={18} aria-hidden="true" />
                 </button>
               </header>
-              <p className="workbench-scene-picker__current">当前场景：翻页时钟</p>
+              <p className="workbench-scene-picker__current">当前场景：{immersiveSceneLabels[immersiveScene]}</p>
               <div className="workbench-scene-picker__grid">
                 <button
                   type="button"
-                  className="workbench-scene-picker__preset workbench-scene-picker__preset--clock is-selected"
-                  onClick={() => setIsScenePickerOpen(false)}
-                  aria-pressed="true"
+                  className={`workbench-scene-picker__preset workbench-scene-picker__preset--clock${immersiveScene === 'clock' ? ' is-selected' : ''}`}
+                  onClick={() => {
+                    setImmersiveScene('clock')
+                    setIsScenePickerOpen(false)
+                  }}
+                  aria-pressed={immersiveScene === 'clock'}
                 >
                   <div className="workbench-scene-picker__clock-preview workbench-clock" aria-hidden="true">
                     <ClockDisplay time={clockTime} previousTime={clockState.previous} />
@@ -628,7 +655,32 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                     <strong>翻页时钟</strong>
                     <small>低资源占用的专注时钟</small>
                   </span>
-                  <span className="workbench-scene-picker__selected-mark">当前</span>
+                  {immersiveScene === 'clock' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className={`workbench-scene-picker__preset workbench-scene-picker__preset--girl${immersiveScene === 'girl' ? ' is-selected' : ''}`}
+                  onClick={() => {
+                    setImmersiveScene('girl')
+                    setIsScenePickerOpen(false)
+                  }}
+                  aria-pressed={immersiveScene === 'girl'}
+                >
+                  <video
+                    className="workbench-scene-picker__video-preview"
+                    src={girlVideo}
+                    muted
+                    loop
+                    autoPlay
+                    playsInline
+                    preload="metadata"
+                    aria-hidden="true"
+                  />
+                  <span className="workbench-scene-picker__preset-copy">
+                    <strong>女孩自习</strong>
+                    <small>girl.mp4 · 沉浸式自习陪伴</small>
+                  </span>
+                  {immersiveScene === 'girl' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
                 </button>
               </div>
             </section>
