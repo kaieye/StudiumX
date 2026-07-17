@@ -1,5 +1,16 @@
 export type StudyTimerMode = 'focus' | 'break'
 export type StudyTimerState = 'idle' | 'running' | 'paused'
+
+export type StudyTimerPlan = {
+  id: string
+  name: string
+  focusMinutes: number
+  breakMinutes: number
+  simulationStartTime: string
+  simulationEndTime: string
+}
+
+export type StudyTimerPlanInput = Omit<StudyTimerPlan, 'id'>
 export type StudyRoomId = 'silent' | 'sprint' | 'deep' | 'exam'
 export type StudyModeId = 'free' | 'sync' | 'deepwork' | 'exam'
 export type StudyPresenceStatus = 'connecting' | 'online' | 'offline'
@@ -102,8 +113,6 @@ export type StudySnapshot = {
   modeId: StudyModeId
   contractText: string
   contractLocked: boolean
-  ambientEnabled: boolean
-  ambientVolume: number
   roomId: StudyRoomId
   seatIndex: number
   seatClaimedAt: number
@@ -111,6 +120,9 @@ export type StudySnapshot = {
   timerState: StudyTimerState
   focusMinutes: number
   breakMinutes: number
+  simulationStartTime: string
+  simulationEndTime: string
+  timerPlans: StudyTimerPlan[]
   remainingSeconds: number
   todayFocusSeconds: number
   todaySessions: number

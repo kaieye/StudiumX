@@ -7,9 +7,9 @@ import type {
   StudySnapshot,
   StudyTaskScheduleInput,
   StudyTaskUpdateInput,
-  StudyTimerMode
+  StudyTimerMode,
+  StudyTimerPlanInput
 } from '../types'
-import { useStudyAmbient } from '../useStudyAmbient'
 import { useStudyPresence } from '../useStudyPresence'
 import { createStudySpaceViewModel } from '../viewModel'
 import { STUDY_TASKS_CHANGED_EVENT } from '../assistantTodo'
@@ -26,18 +26,19 @@ import {
   removeDoneStudyTasks,
   removeStudyTask,
   resetStudyRelayUrl,
+  applyStudyTimerPlan,
+  removeStudyTimerPlan,
   resetStudyTimer,
   saveStudyNickname,
   saveStudyRelayUrl,
-  setStudyAmbientVolume,
   setStudySpaceCode,
   switchStudyTimerMode,
-  toggleStudyAmbient,
   toggleStudyContract,
   toggleStudyTask,
   updateStudyContractText,
   updateStudyTask,
-  updateStudyTimerPreset
+  updateStudyTimerPreset,
+  saveStudyTimerPlan
 } from './transitions'
 
 type StudyPresenceTarget = {
@@ -78,7 +79,6 @@ export function useStudySession({
   }))
   const [roomCycleNow, setRoomCycleNow] = useState(() => Date.now())
   const presence = useStudyPresence(snapshot)
-  useStudyAmbient(snapshot.ambientEnabled, snapshot.ambientVolume)
 
   const viewModel = createStudySpaceViewModel(snapshot, presence, roomCycleNow)
   const roomEventSenderRef = useRef(presence.sendEvent)
@@ -218,6 +218,25 @@ export function useStudySession({
 
   const updateTimerPreset = (focusMinutes: number, breakMinutes: number): void => {
     commitSnapshot(updateStudyTimerPreset(snapshotRef.current, focusMinutes, breakMinutes))
+  }
+
+  const makeTimerPlanId = (): string => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return `timer-plan-${crypto.randomUUID()}`
+    return `timer-plan-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+
+  const saveTimerPlan = (input: StudyTimerPlanInput): void => {
+    const plan = { ...input, id: makeTimerPlanId() }
+    commitSnapshot(saveStudyTimerPlan(snapshotRef.current, plan))
+  }
+
+  const applyTimerPlan = (planId: string): void => {
+    const plan = snapshotRef.current.timerPlans.find((item) => item.id === planId)
+    if (plan) commitSnapshot(applyStudyTimerPlan(snapshotRef.current, plan))
+  }
+
+  const removeTimerPlan = (planId: string): void => {
+    commitSnapshot(removeStudyTimerPlan(snapshotRef.current, planId))
   }
 
   const toggleContract = (): void => {
@@ -390,13 +409,6 @@ export function useStudySession({
     commitSnapshot(next)
   }
 
-  const toggleAmbientEnabled = (): void => {
-    commitSnapshot(toggleStudyAmbient(snapshotRef.current))
-  }
-
-  const setAmbientVolume = (ambientVolume: number): void => {
-    commitSnapshot(setStudyAmbientVolume(snapshotRef.current, ambientVolume))
-  }
 
   return {
     snapshot,
@@ -418,13 +430,14 @@ export function useStudySession({
     runHostAction,
     resetTimer,
     startTimerInMode,
+    saveTimerPlan,
+    applyTimerPlan,
+    removeTimerPlan,
     addTask,
     addScheduledTask,
     updateTask,
     toggleTask,
     removeTask,
-    removeDoneTasks,
-    toggleAmbientEnabled,
-    setAmbientVolume
+    removeDoneTasks
   }
 }

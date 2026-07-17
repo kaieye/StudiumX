@@ -8,7 +8,7 @@ import {
   todayKey
 } from '../domain'
 import { normalizeStudyTaskCategoryId } from '../taskCategories'
-import type { StudySignalId, StudySnapshot, StudyTaskScheduleInput, StudyTaskUpdateInput, StudyTimerMode } from '../types'
+import type { StudySignalId, StudySnapshot, StudyTaskScheduleInput, StudyTaskUpdateInput, StudyTimerMode, StudyTimerPlan } from '../types'
 
 type StudyRoom = typeof studyRooms[number]
 type StudyMode = typeof studyModes[number]
@@ -130,6 +130,27 @@ export function updateStudyTimerPreset(
   }
 }
 
+export function applyStudyTimerPlan(snapshot: StudySnapshot, plan: StudyTimerPlan): StudySnapshot {
+  const next = updateStudyTimerPreset(snapshot, plan.focusMinutes, plan.breakMinutes)
+  return {
+    ...next,
+    simulationStartTime: plan.simulationStartTime,
+    simulationEndTime: plan.simulationEndTime
+  }
+}
+
+export function saveStudyTimerPlan(snapshot: StudySnapshot, plan: StudyTimerPlan): StudySnapshot {
+  const timerPlans = [plan, ...snapshot.timerPlans.filter((item) => item.id !== plan.id && item.name !== plan.name)].slice(0, 12)
+  return {
+    ...applyStudyTimerPlan(snapshot, plan),
+    timerPlans
+  }
+}
+
+export function removeStudyTimerPlan(snapshot: StudySnapshot, planId: string): StudySnapshot {
+  return { ...snapshot, timerPlans: snapshot.timerPlans.filter((plan) => plan.id !== planId) }
+}
+
 export function selectStudyModeSnapshot(snapshot: StudySnapshot, mode: StudyMode): StudySnapshot {
   const roomChanged = snapshot.timerState !== 'running' && mode.roomId !== snapshot.roomId
   return {
@@ -143,8 +164,7 @@ export function selectStudyModeSnapshot(snapshot: StudySnapshot, mode: StudyMode
     focusMinutes: snapshot.timerState === 'running' ? snapshot.focusMinutes : mode.focusMinutes,
     breakMinutes: snapshot.timerState === 'running' ? snapshot.breakMinutes : mode.breakMinutes,
     remainingSeconds: snapshot.timerState === 'running' ? snapshot.remainingSeconds : mode.focusMinutes * 60,
-    timerMode: snapshot.timerState === 'running' ? snapshot.timerMode : 'focus',
-    ambientEnabled: mode.id === 'exam' ? false : snapshot.ambientEnabled
+    timerMode: snapshot.timerState === 'running' ? snapshot.timerMode : 'focus'
   }
 }
 
@@ -357,12 +377,4 @@ export function removeStudyTask(snapshot: StudySnapshot, taskId: string): StudyS
 
 export function selectStudySignal(snapshot: StudySnapshot, signalId: StudySignalId): StudySnapshot {
   return { ...snapshot, signalId }
-}
-
-export function toggleStudyAmbient(snapshot: StudySnapshot): StudySnapshot {
-  return { ...snapshot, ambientEnabled: !snapshot.ambientEnabled }
-}
-
-export function setStudyAmbientVolume(snapshot: StudySnapshot, ambientVolume: number): StudySnapshot {
-  return { ...snapshot, ambientVolume }
 }

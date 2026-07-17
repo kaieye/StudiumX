@@ -18,6 +18,7 @@ import type {
   StudyRoomId,
   StudySignalId,
   StudySnapshot,
+  StudyTimerPlan,
   StudyTask,
   StudyTaskSchedule,
   StudyTaskScheduleColorId
@@ -132,6 +133,29 @@ export function normalizeStudyTasks(input: unknown): StudyTask[] {
   return tasks.length > 0 ? tasks : defaultStudySnapshot.tasks
 }
 
+const studyTimerPlanLimit = 12
+const studyTimePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/
+
+function normalizeStudyTime(input: unknown, fallback: string): string {
+  return typeof input === 'string' && studyTimePattern.test(input) ? input : fallback
+}
+
+export function normalizeStudyTimerPlans(input: unknown): StudyTimerPlan[] {
+  if (!Array.isArray(input)) return []
+  return input
+    .filter((item): item is Partial<StudyTimerPlan> => Boolean(item) && typeof item === 'object')
+    .map((item, index) => ({
+      id: typeof item.id === 'string' && item.id.trim() ? item.id.trim().slice(0, 80) : `timer-plan-${index}`,
+      name: typeof item.name === 'string' ? item.name.trim().slice(0, 24) : '',
+      focusMinutes: Math.floor(clampNumber(item.focusMinutes, 5, 120, defaultStudySnapshot.focusMinutes)),
+      breakMinutes: Math.floor(clampNumber(item.breakMinutes, 1, 45, defaultStudySnapshot.breakMinutes)),
+      simulationStartTime: normalizeStudyTime(item.simulationStartTime, defaultStudySnapshot.simulationStartTime),
+      simulationEndTime: normalizeStudyTime(item.simulationEndTime, defaultStudySnapshot.simulationEndTime)
+    }))
+    .filter((plan) => plan.name)
+    .slice(0, studyTimerPlanLimit)
+}
+
 function localTodayKey(date = new Date()): string {
   return [
     String(date.getFullYear()).padStart(4, '0'),
@@ -153,8 +177,11 @@ export function normalizeStudySnapshot(input: unknown): StudySnapshot {
   const modeId = normalizeStudyModeId(raw.modeId)
   const roomId = normalizeStudyRoomId(raw.roomId)
   const timerMode = raw.timerMode === 'break' ? 'break' : 'focus'
-  const focusMinutes = clampNumber(raw.focusMinutes, 5, 120, defaultStudySnapshot.focusMinutes)
-  const breakMinutes = clampNumber(raw.breakMinutes, 1, 45, defaultStudySnapshot.breakMinutes)
+  const focusMinutes = Math.floor(clampNumber(raw.focusMinutes, 5, 120, defaultStudySnapshot.focusMinutes))
+  const breakMinutes = Math.floor(clampNumber(raw.breakMinutes, 1, 45, defaultStudySnapshot.breakMinutes))
+  const simulationStartTime = normalizeStudyTime(raw.simulationStartTime, defaultStudySnapshot.simulationStartTime)
+  const simulationEndTime = normalizeStudyTime(raw.simulationEndTime, defaultStudySnapshot.simulationEndTime)
+  const timerPlans = normalizeStudyTimerPlans(raw.timerPlans)
   const maxRemaining = (timerMode === 'focus' ? focusMinutes : breakMinutes) * 60
   const lastStudyDate = typeof raw.lastStudyDate === 'string' ? raw.lastStudyDate : ''
   const isToday = lastStudyDate === localTodayKey()
@@ -168,8 +195,6 @@ export function normalizeStudySnapshot(input: unknown): StudySnapshot {
     modeId,
     contractText: typeof raw.contractText === 'string' ? raw.contractText.trim().slice(0, 120) : '',
     contractLocked: Boolean(raw.contractLocked),
-    ambientEnabled: Boolean(raw.ambientEnabled),
-    ambientVolume: clampNumber(raw.ambientVolume, 0, 1, defaultStudySnapshot.ambientVolume),
     roomId,
     seatIndex,
     seatClaimedAt: normalizeStudySeatClaimedAt(raw.seatClaimedAt),
@@ -177,6 +202,9 @@ export function normalizeStudySnapshot(input: unknown): StudySnapshot {
     timerState: raw.timerState === 'running' || raw.timerState === 'paused' ? raw.timerState : 'idle',
     focusMinutes,
     breakMinutes,
+    simulationStartTime,
+    simulationEndTime,
+    timerPlans,
     remainingSeconds: clampNumber(raw.remainingSeconds, 1, maxRemaining, maxRemaining),
     todayFocusSeconds: isToday ? clampNumber(raw.todayFocusSeconds, 0, 24 * 60 * 60, 0) : 0,
     todaySessions: isToday ? clampNumber(raw.todaySessions, 0, 99, 0) : 0,

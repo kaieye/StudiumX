@@ -542,11 +542,6 @@
   opacity: 0.42;
 }
 
-.workbench-pomodoro-ambient.is-active {
-  color: var(--pomodoro-accent);
-  border-color: rgba(255, 255, 255, 0.48);
-  background: rgba(var(--pomodoro-accent-rgb), 0.09);
-}
 
 .workbench-task-head {
   display: grid;
@@ -813,7 +808,6 @@
 @media (hover: hover) {
   .workbench-pomodoro-actions button:hover,
   .workbench-pomodoro-presets button:not(:disabled):hover,
-  .workbench-pomodoro-ambient:hover,
   .workbench-task-head > button:not(:disabled):hover,
   .workbench-task-form button:not(:disabled):hover,
   .workbench-space-join button:hover,
@@ -971,7 +965,6 @@
 .workbench-pomodoro-time span,
 .workbench-pomodoro-actions button,
 .workbench-pomodoro-presets button,
-.workbench-pomodoro-ambient,
 .workbench-task-head span,
 .workbench-task-head > button,
 .workbench-task-summary span,
@@ -1018,11 +1011,6 @@
 }
 
 .workbench-pomodoro-presets button.is-active,
-.workbench-pomodoro-ambient.is-active {
-  color: var(--pomodoro-accent);
-  border-color: color-mix(in srgb, var(--pomodoro-accent) 22%, var(--line));
-  background: color-mix(in srgb, var(--pomodoro-accent) 12%, transparent);
-}
 
 .workbench-task-summary strong {
   color: var(--pomodoro-accent);
@@ -1067,7 +1055,6 @@
 @media (hover: hover) {
   .workbench-pomodoro-actions button:hover,
   .workbench-pomodoro-presets button:not(:disabled):hover,
-  .workbench-pomodoro-ambient:hover,
   .workbench-task-head > button:not(:disabled):hover,
   .workbench-task-form button:not(:disabled):hover,
   .workbench-space-join button:hover,
@@ -1340,7 +1327,6 @@
 .workbench-task-head span,
 .workbench-pomodoro-time span,
 .workbench-pomodoro-presets button,
-.workbench-pomodoro-ambient,
 .workbench-task-summary span,
 .workbench-task-empty {
   font-size: 0.625rem;
@@ -1533,17 +1519,7 @@
 }
 
 .workbench-pomodoro-presets button.is-active,
-.workbench-pomodoro-ambient.is-active {
-  color: var(--pomodoro-accent);
-  border-color: color-mix(in srgb, var(--pomodoro-accent) 30%, var(--line));
-  background: color-mix(in srgb, var(--pomodoro-accent) 12%, var(--surface-solid));
-}
 
-.workbench-pomodoro-ambient {
-  min-height: 32px;
-  margin-top: 10px;
-  border-radius: var(--workbench-control-radius);
-}
 
 .workbench-task-head {
   gap: 10px;
@@ -1644,7 +1620,6 @@
   .workbench-room-join button:not(:disabled):hover,
   .workbench-pomodoro-actions button:hover,
   .workbench-pomodoro-presets button:not(:disabled):hover,
-  .workbench-pomodoro-ambient:hover,
   .workbench-task-head > button:not(:disabled):hover,
   .workbench-task-form button:not(:disabled):hover,
   .workbench-space-join button:hover,
@@ -1819,7 +1794,6 @@
 .workbench-card-header button,
 .workbench-room-code button,
 .workbench-pomodoro-actions button:not(.is-primary),
-.workbench-pomodoro-ambient,
 .workbench-pomodoro-presets button {
   display: inline-grid;
   place-items: center;
@@ -1990,17 +1964,7 @@
   min-height: 42px;
 }
 
-.workbench-pomodoro-ambient {
-  width: auto;
-  margin-top: 0;
-  padding: 0;
-}
 
-.workbench-pomodoro-ambient.is-active {
-  color: var(--pomodoro-accent);
-  border-color: color-mix(in srgb, var(--pomodoro-accent) 32%, var(--line));
-  background: color-mix(in srgb, var(--pomodoro-accent) 13%, var(--surface-solid));
-}
 
 .workbench-pomodoro-presets {
   gap: 7px;
@@ -2351,7 +2315,6 @@
 }
 
 .workbench-pomodoro-presets button.is-active,
-.workbench-pomodoro-ambient.is-active,
 .workbench-leaderboard-row.is-me {
   background:
     linear-gradient(145deg, color-mix(in srgb, #ffffff 32%, transparent), transparent 50%),
@@ -6211,5 +6174,268 @@
 
   .office-workbench-stage .workbench-pomodoro-time strong {
     font-size: 2.4rem;
+  }
+}
+
+/* Timer-plan settings ---------------------------------------------------------
+   The editor is deliberately a sibling glass card so it feels like a second
+   floating surface beside (rather than inside) the compact timer module. */
+.office-workbench-stage .workbench-pomodoro-card.has-settings-open {
+  overflow: visible;
+  z-index: 8;
+}
+
+.workbench-pomodoro-settings-card {
+  position: absolute;
+  right: calc(100% + 14px);
+  top: 0;
+  z-index: 10;
+  box-sizing: border-box;
+  width: min(294px, calc(100vw - 34px));
+  max-height: min(610px, calc(100vh - 32px));
+  overflow: auto;
+  padding: 17px;
+  color: var(--text, #17202b);
+  border: 1px solid color-mix(in srgb, #ffffff 68%, transparent);
+  border-radius: 24px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--surface-solid, #fff) 78%, transparent), color-mix(in srgb, var(--surface-solid, #fff) 34%, transparent)),
+    color-mix(in srgb, var(--surface-muted, #eaf2ff) 42%, transparent);
+  box-shadow:
+    0 24px 64px color-mix(in srgb, #142a4a 20%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 82%, transparent);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+}
+
+.workbench-pomodoro-settings-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.workbench-pomodoro-settings-heading span,
+.workbench-pomodoro-settings-fields label > span,
+.workbench-pomodoro-saved-plans > span {
+  display: block;
+  color: var(--text-muted, #667085);
+  font-size: 0.66rem;
+  font-weight: 720;
+  letter-spacing: 0.02em;
+}
+
+.workbench-pomodoro-settings-heading strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text, #17202b);
+  font-size: 0.9rem;
+  font-weight: 780;
+}
+
+.workbench-pomodoro-settings-heading > button,
+.workbench-pomodoro-remove-plan {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted, #667085);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 76%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 46%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 58%, transparent);
+}
+
+.workbench-pomodoro-settings-fields {
+  display: grid;
+  gap: 11px;
+}
+
+.workbench-pomodoro-settings-fields label {
+  display: grid;
+  gap: 6px;
+}
+
+.workbench-pomodoro-settings-fields input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  color: var(--text, #17202b);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 86%, transparent);
+  border-radius: 10px;
+  outline: none;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 62%, transparent);
+  box-shadow: inset 0 1px 1px color-mix(in srgb, #142a4a 5%, transparent);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.workbench-pomodoro-settings-fields input:focus {
+  border-color: color-mix(in srgb, var(--accent, #007aff) 56%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #007aff) 14%, transparent);
+}
+
+.workbench-pomodoro-settings-durations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.workbench-pomodoro-number-input {
+  position: relative;
+}
+
+.workbench-pomodoro-number-input input {
+  padding-right: 42px;
+}
+
+.workbench-pomodoro-number-input em {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  color: var(--text-muted, #667085);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 680;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.workbench-pomodoro-time-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.workbench-pomodoro-time-range input {
+  padding-inline: 7px;
+  font-size: 0.7rem;
+}
+
+.workbench-pomodoro-time-range i {
+  color: var(--text-muted, #667085);
+  font-size: 0.68rem;
+  font-style: normal;
+}
+
+.workbench-pomodoro-save-plan {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 36px;
+  margin-top: 14px;
+  padding: 0 12px;
+  color: #fff;
+  border: 1px solid color-mix(in srgb, #007aff 64%, transparent);
+  border-radius: 11px;
+  background: linear-gradient(180deg, color-mix(in srgb, #3398ff 92%, #fff), #007aff);
+  box-shadow: 0 9px 18px color-mix(in srgb, #007aff 24%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
+.workbench-pomodoro-save-plan:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.workbench-pomodoro-settings-hint,
+.workbench-pomodoro-saved-plans > p {
+  margin: 8px 0 0;
+  color: var(--text-muted, #667085);
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
+
+.workbench-pomodoro-settings-hint {
+  color: #b45c34;
+}
+
+.workbench-pomodoro-saved-plans {
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid color-mix(in srgb, var(--line, #d6deeb) 76%, transparent);
+}
+
+.workbench-pomodoro-saved-plans ul {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workbench-pomodoro-saved-plans li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 7px;
+  align-items: center;
+}
+
+.workbench-pomodoro-saved-plan {
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--text, #17202b);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 76%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 45%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 52%, transparent);
+  text-align: left;
+}
+
+.workbench-pomodoro-saved-plan strong,
+.workbench-pomodoro-saved-plan small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-saved-plan strong {
+  font-size: 0.72rem;
+  font-weight: 760;
+}
+
+.workbench-pomodoro-saved-plan small {
+  margin-top: 3px;
+  color: var(--text-muted, #667085);
+  font-size: 0.6rem;
+  font-weight: 620;
+}
+
+.workbench-pomodoro-remove-plan:hover,
+.workbench-pomodoro-settings-heading > button:hover {
+  color: #c34f53;
+  border-color: color-mix(in srgb, #c34f53 36%, transparent);
+}
+
+.workbench-pomodoro-settings.is-active {
+  color: #007aff;
+  border-color: color-mix(in srgb, #007aff 36%, var(--line, #d6deeb));
+  background: color-mix(in srgb, #007aff 13%, transparent);
+}
+
+@media (max-width: 720px) {
+  .workbench-pomodoro-settings-card {
+    right: 0;
+    top: calc(100% + 10px);
+  }
+}
+
+@media (max-height: 760px) {
+  .workbench-pomodoro-settings-card {
+    max-height: calc(100vh - 20px);
+    padding: 13px;
   }
 }

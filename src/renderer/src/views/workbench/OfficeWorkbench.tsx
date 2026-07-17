@@ -58,7 +58,9 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     toggleTimer,
     resetTimer,
     startTimerInMode,
-    toggleAmbientEnabled,
+    saveTimerPlan,
+    applyTimerPlan,
+    removeTimerPlan,
     addScheduledTask,
     updateTask,
     toggleTask,
@@ -377,11 +379,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           <WorkbenchPomodoro
             snapshot={snapshot}
             timerProgress={viewModel.timerProgress}
-            ambientLabel={viewModel.activeRoom.ambient}
             onToggleTimer={toggleTimer}
             onResetTimer={resetTimer}
             onStartTimerInMode={startTimerInMode}
-            onToggleAmbientEnabled={toggleAmbientEnabled}
+            onSaveTimerPlan={saveTimerPlan}
+            onApplyTimerPlan={applyTimerPlan}
+            onRemoveTimerPlan={removeTimerPlan}
           />
           <WorkbenchTasks
             tasks={snapshot.tasks}
