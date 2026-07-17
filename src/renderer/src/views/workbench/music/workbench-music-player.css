@@ -46,8 +46,37 @@
   padding: 14px 10px 8px 12px;
 }
 
+/* The dock is bottom-anchored, so its clipping viewport grows upward. Keep
+   the panel at its final expanded position instead of letting it travel up
+   from the page edge with that viewport. This matches the stationary content
+   behavior of the 今日清单 disclosure. */
+.workbench-music-reveal {
+  position: relative;
+}
+
 .workbench-music-reveal-inner {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--workbench-music-reveal-height);
   padding-bottom: 10px;
+}
+
+/* The reveal itself must remain overflow-visible once open so the volume
+   popover can extend past the card. Clip only during the opening animation,
+   then remove that clip when the animation completes. */
+.workbench-music-card.is-open .workbench-music-reveal-inner {
+  animation: workbench-music-reveal-from-anchor 300ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+@keyframes workbench-music-reveal-from-anchor {
+  from {
+    clip-path: inset(100% 0 0);
+  }
+
+  to {
+    clip-path: inset(0);
+  }
 }
 
 .workbench-music-panel {
@@ -209,9 +238,9 @@
   line-height: 1.25;
 }
 
-/* The title only travels when it cannot fit and playback is active. Keeping the
-   copy in a continuous track makes the full song name readable without changing
-   the card geometry. */
+/* A long title travels from right to left within its own clipped viewport.
+   Duplicating the copy makes the full name readable continuously without
+   changing the compact card geometry. */
 .workbench-music-marquee {
   display: block;
   min-width: 0;
@@ -232,18 +261,16 @@
 }
 
 .workbench-music-marquee.is-scrolling .workbench-music-marquee-track {
-  animation: workbench-music-title-marquee 10s linear 800ms infinite;
+  animation: workbench-music-title-marquee 8s linear infinite;
   will-change: transform;
 }
 
 @keyframes workbench-music-title-marquee {
-  0%,
-  12% {
+  from {
     transform: translateX(0);
   }
 
-  88%,
-  100% {
+  to {
     transform: translateX(calc(-50% - 16px));
   }
 }
@@ -807,6 +834,7 @@
 .workbench-music-toggle-title {
   display: block;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   color: var(--text, #17202b);
   font-size: 0.8125rem;
@@ -972,18 +1000,15 @@
   padding: 14px 10px 0 12px;
 }
 
+/* Keep the title and controls in separate grid columns. The previous
+   full-width absolute toggle reserved a fixed amount of space, so a long title
+   could render beneath the transport buttons as their measured width changed. */
 .workbench-music-footer .workbench-music-toggle-card {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  min-height: 0;
-  padding: 8px 118px 8px 12px;
-}
-
-.workbench-music-footer .workbench-music-mini-transport,
-.workbench-music-footer .workbench-music-expand {
+  grid-column: 1;
   position: relative;
-  z-index: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0;
 }
 
 .workbench-music-footer .workbench-music-mini-transport {

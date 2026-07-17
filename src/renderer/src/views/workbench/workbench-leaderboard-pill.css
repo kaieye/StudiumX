@@ -1,4 +1,7 @@
-.office-workbench-stage > .workbench-leaderboard {
+/* Top-left leaderboard shares the same disclosure-card surface and motion as
+   the timer and task cards. It keeps a fixed width, while the glass card grows
+   vertically to reveal its own details. */
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   width: min(
@@ -9,89 +12,81 @@
     292px,
     calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset))
   );
-  /* At the compact 46px height, a 24px radius still renders as a pill. Keeping
-     this radius in both states prevents the card outline from snapping as the
-     detail area starts to reveal. */
-  border-radius: 24px;
+  overflow: hidden;
+  overflow-anchor: none;
+  border-radius: 999px;
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,
     filter 180ms ease;
 }
 
-.office-workbench-stage > .workbench-leaderboard.is-open {
-  display: grid;
-  width: min(
-    292px,
-    calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset))
-  );
-  max-width: min(
-    292px,
-    calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset))
-  );
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard::before {
+  /* Match the timer and task cards' glass sheen intensity. */
+  opacity: 0.76;
 }
 
-.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle,
-.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle:active {
-  min-height: 18px;
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard.is-open,
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard.is-closing {
+  border-radius: 24px;
+}
+
+/* The disclosure header owns the full compact surface. Match the other card
+   headers: no separate pressed scale or tint animation. */
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle,
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle:active {
+  min-height: 46px;
   cursor: pointer;
-  /* This header expands the card itself, so it deliberately has no pressed
-     transform, filter, or text transition. This also overrides generic
-     workbench button feedback if that styling is loaded later. */
   transform: none;
   filter: none;
   transition: none;
   -webkit-tap-highlight-color: transparent;
 }
 
-.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle:focus-visible {
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent) 44%, transparent);
   outline-offset: 5px;
   border-radius: 999px;
 }
 
-.workbench-leaderboard-reveal {
+/* Electron resolves hit testing from the deepest painted node. Keep all
+   visible header content in the same no-drag island as the button. */
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard .workbench-disclosure-toggle,
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard .workbench-disclosure-toggle *,
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard .workbench-disclosure-toggle:active {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+  touch-action: manipulation;
+}
+
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard .workbench-disclosure-reveal-inner {
   min-width: 0;
-  height: 0;
-  overflow: hidden;
-  opacity: 0;
-  visibility: hidden;
-  will-change: height, opacity;
-  transition:
-    height 300ms cubic-bezier(0.65, 0, 0.35, 1),
-    opacity 300ms cubic-bezier(0.65, 0, 0.35, 1),
-    visibility 0s linear 300ms;
 }
 
-.workbench-leaderboard-reveal-inner {
-  min-height: 0;
+/* The shared disclosure wrapper owns the symmetric 300ms height and opacity
+   transition. The detail contents use the timer card's subtle downward entry. */
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel {
+  transform: translateY(-9px);
+  transform-origin: top center;
+  transition: transform 300ms cubic-bezier(0.65, 0, 0.35, 1);
 }
 
-/* The reveal wrapper already animates this content into view. Moving the panel
-   at the same time made the rows visibly nudge after every toggle. */
-.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel {
-  transform: none;
-  transition: none;
+.office-workbench-page .office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-panel {
+  transform: translateY(0);
 }
 
-.office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-reveal {
-  opacity: 1;
-  visibility: visible;
-  transition:
-    height 300ms cubic-bezier(0.65, 0, 0.35, 1),
-    opacity 300ms cubic-bezier(0.65, 0, 0.35, 1),
-    visibility 0s linear 0s;
+@media (max-height: 760px) {
+  .office-workbench-page .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle,
+  .office-workbench-page .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle:active {
+    min-height: 34px;
+  }
 }
 
 @media (max-width: 720px) {
-  .office-workbench-stage > .workbench-leaderboard,
-  .office-workbench-stage > .workbench-leaderboard.is-open {
+  .office-workbench-page .office-workbench-stage > .workbench-leaderboard,
+  .office-workbench-page .office-workbench-stage > .workbench-leaderboard.is-open,
+  .office-workbench-page .office-workbench-stage > .workbench-leaderboard.is-closing {
     width: min(220px, calc(100% - 20px));
     max-width: min(220px, calc(100% - 20px));
   }
 }
-
-/* The leaderboard is an explicit disclosure control. Keep its 300ms height
-   transition available even when the host application's motion preference is
-   reduced: otherwise Electron can override the close to 1ms while this
-   interaction is still expected to visibly collapse. */

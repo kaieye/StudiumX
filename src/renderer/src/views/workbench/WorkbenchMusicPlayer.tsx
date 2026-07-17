@@ -102,7 +102,7 @@ function emptyAccount(provider: MusicProvider): MusicAccountStatus {
   return { provider, loggedIn: false, userId: null, nickname: '' }
 }
 
-function MusicTitleMarquee({ title, isPlaying }: { title: string; isPlaying: boolean }) {
+function MusicTitleMarquee({ title }: { title: string }) {
   const viewportRef = useRef<HTMLSpanElement>(null)
   const labelRef = useRef<HTMLSpanElement>(null)
   const [isOverflowing, setIsOverflowing] = useState(false)
@@ -113,7 +113,10 @@ function MusicTitleMarquee({ title, isPlaying }: { title: string; isPlaying: boo
     if (!viewport || !label) return
 
     const updateOverflow = () => {
-      setIsOverflowing(label.getBoundingClientRect().width > viewport.clientWidth + 1)
+      // Measure the actual clipped title viewport, not the label's unconstrained
+      // bounding box. Its scroll width naturally accounts for the artwork and
+      // transport controls that reduce the available title space.
+      setIsOverflowing(viewport.scrollWidth > viewport.clientWidth + 1)
     }
 
     updateOverflow()
@@ -123,7 +126,7 @@ function MusicTitleMarquee({ title, isPlaying }: { title: string; isPlaying: boo
     return () => observer.disconnect()
   }, [title])
 
-  const shouldScroll = isPlaying && isOverflowing
+  const shouldScroll = isOverflowing
 
   return (
     <span
@@ -256,6 +259,9 @@ export function WorkbenchMusicPlayer() {
 
   useEffect(() => {
     const audio = getMusicPlaybackAudio()
+    // Queue progression is handled by the ended event. Native looping would
+    // suppress that event and make sequence mode restart the final track.
+    audio.loop = false
     audio.volume = volume
     audioRef.current = audio
 
@@ -632,7 +638,10 @@ export function WorkbenchMusicPlayer() {
       <div
         ref={revealRef}
         className="workbench-disclosure-reveal workbench-music-reveal"
-        style={{ height: `${revealHeight}px` }}
+        style={{
+          height: `${revealHeight}px`,
+          '--workbench-music-reveal-height': `${WORKBENCH_MUSIC_REVEAL_HEIGHT}px`
+        } as CSSProperties}
         aria-hidden={!open}
         inert={!open}
       >
@@ -672,7 +681,7 @@ export function WorkbenchMusicPlayer() {
               <div className="workbench-music-now-meta">
                 <div className="workbench-music-now-title-row">
                   <strong>
-                    <MusicTitleMarquee title={currentSong?.name || '尚未播放'} isPlaying={isPlaying} />
+                    <MusicTitleMarquee title={currentSong?.name || '尚未播放'} />
                   </strong>
                   <div className="workbench-music-now-actions">
                     <button
@@ -988,7 +997,7 @@ export function WorkbenchMusicPlayer() {
             </span>
           </span>
           <strong className="workbench-music-toggle-title">
-            <MusicTitleMarquee title={collapsedMeta} isPlaying={isPlaying} />
+            <MusicTitleMarquee title={collapsedMeta} />
           </strong>
         </button>
         <div className="workbench-music-mini-transport" role="group" aria-label="播放控制">

@@ -86,7 +86,7 @@ test('music dock footer stays stationary throughout both disclosure transitions'
   await openWorkbench(mainWindow)
 
   const musicCard = mainWindow.locator('.workbench-music-card')
-  const captureTransitionPositions = async (buttonLabel: string): Promise<{ footer: number[]; panel: number[] }> =>
+  const captureTransitionPositions = async (buttonLabel: string): Promise<{ footer: number[]; panel: number[]; panelClips: string[] }> =>
     mainWindow.evaluate(async (label) => {
       const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
         (element) => element.getAttribute('aria-label') === label
@@ -96,11 +96,12 @@ test('music dock footer stays stationary throughout both disclosure transitions'
       if (!button || !footer || !panel) throw new Error('Music player controls are unavailable')
 
       button.click()
-      const positions = { footer: [] as number[], panel: [] as number[] }
+      const positions = { footer: [] as number[], panel: [] as number[], panelClips: [] as string[] }
       for (let frame = 0; frame < 24; frame += 1) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
         positions.footer.push(footer.getBoundingClientRect().y)
         positions.panel.push(panel.getBoundingClientRect().y)
+        positions.panelClips.push(getComputedStyle(panel).clipPath)
       }
       return positions
     }, buttonLabel)
@@ -118,6 +119,7 @@ test('music dock footer stays stationary throughout both disclosure transitions'
   // upward from the page edge during the opening animation.
   expect(positionRange(openingPositions.panel)).toBeLessThan(1)
   expect(positionRange(closingPositions.panel)).toBeLessThan(1)
+  expect(openingPositions.panelClips.some((clipPath) => clipPath !== 'none')).toBe(true)
 })
 
 test('immersive room menu distributes icon controls and exposes quick notes', async ({ mainWindow }) => {

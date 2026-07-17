@@ -23,6 +23,11 @@
   flex-direction: column;
   overflow: hidden;
   padding-bottom: 0;
+}.app-shell.platform-win32 .main-area[data-view='resources'][data-resource-section]:not([data-resource-section='home']) {
+  /* Only subpages reserve room for the overlaid Windows drag region. The page
+     surface extends into that space with an opaque color, not a frosted layer. */
+  margin-top: var(--window-chrome-height);
+  box-shadow: 0 calc(-1 * var(--window-chrome-height)) 0 0 var(--app-shell-main-bg);
 }.main-area[data-view='resources'][data-reading-html='true'] {
   display: flex;
   flex-direction: column;

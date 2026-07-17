@@ -105,10 +105,11 @@ async function applyAppBehavior(
 function buildDesktopWindowVisualOptions(): Electron.BrowserWindowConstructorOptions {
   if (process.platform === 'win32') {
     return {
-      backgroundColor: '#00000000',
+      // Keep the native drag strip opaque; acrylic remains visible through a transparent overlay.
+      backgroundColor: '#f7f9fe',
       titleBarStyle: 'hidden',
       titleBarOverlay: buildWindowsTitleBarOverlay(),
-      backgroundMaterial: 'acrylic'
+      backgroundMaterial: 'none'
     }
   }
 

@@ -253,6 +253,7 @@ export function WorkbenchPomodoro({
               className="workbench-pomodoro-mode"
               role="tablist"
               aria-label="计时模式"
+              data-active-mode={selectedMode}
             >
               {(['focus', 'break'] as const).map((mode) => (
                 <button
@@ -273,12 +274,12 @@ export function WorkbenchPomodoro({
             <div className="workbench-timer-face">
               <div className="workbench-timer-ring" style={timerRingStyle} aria-hidden="true">
                 <svg className="workbench-timer-ring__dial" viewBox="0 0 120 120" focusable="false">
-                  <circle className="workbench-timer-ring__track" cx="60" cy="60" r="52" pathLength="100" />
+                  <circle className="workbench-timer-ring__track" cx="60" cy="60" r="56" pathLength="100" />
                   <circle
                     className="workbench-timer-ring__progress"
                     cx="60"
                     cy="60"
-                    r="52"
+                    r="56"
                     pathLength="100"
                     transform="rotate(-90 60 60)"
                   />
