@@ -549,10 +549,61 @@
 }
 
 .workbench-task-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.workbench-task-head-title {
+  min-width: 0;
+  justify-self: start;
+}
+
+.workbench-task-head > .workbench-task-analytics-button {
+  display: inline-grid;
+  grid-template-columns: 14px auto;
+  place-items: center;
+  gap: 5px;
+  justify-self: center;
+  width: auto;
+  height: 30px;
+  min-width: 62px;
+  padding: 0 9px;
+  color: var(--accent);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.6875rem;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.workbench-task-head > .workbench-task-analytics-button span {
+  display: inline;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+}
+
+.workbench-task-head > .workbench-task-analytics-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 48%, transparent);
+  outline-offset: 2px;
+}
+
+/* Keep the analytics label stationary on pointer interaction; unlike a
+   prominent CTA, it is a utility action alongside "详情". */
+.workbench-task-head > .workbench-task-analytics-button:not(:disabled):hover,
+.workbench-task-head > .workbench-task-analytics-button:active {
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+  filter: none;
 }
 
 .workbench-task-head > div {
@@ -585,13 +636,13 @@
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 30px;
+  width: auto;
   height: 30px;
   color: rgba(47, 57, 69, 0.48);
-  border: 1px solid rgba(255, 255, 255, 0.58);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.34);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .workbench-task-head > button:disabled,
@@ -833,6 +884,7 @@
 .workbench-tools .workbench-leaderboard-toggle,
 .workbench-pomodoro-card,
 .workbench-task-card,
+.workbench-music-card,
 .workbench-leaderboard-panel {
   color: var(--text);
   border-color: var(--line);
@@ -861,6 +913,7 @@
 .workbench-leaderboard-toggle strong,
 .workbench-pomodoro-card,
 .workbench-task-card,
+.workbench-music-card,
 .workbench-task-head strong,
 .workbench-task-form input,
 .workbench-task-row {
@@ -942,7 +995,6 @@
 
 .workbench-pomodoro-mode button.is-active,
 .workbench-pomodoro-presets button,
-.workbench-task-head > button,
 .workbench-task-form input,
 .workbench-task-row {
   color: var(--text);
@@ -1365,7 +1417,6 @@
 
 .workbench-room-code button,
 .workbench-room-join button,
-.workbench-task-head > button,
 .workbench-task-form button,
 .workbench-pomodoro-actions button,
 .workbench-pomodoro-presets button {
@@ -1373,7 +1424,6 @@
 }
 
 .workbench-room-code button,
-.workbench-task-head > button,
 .workbench-pomodoro-actions button:not(.is-primary),
 .workbench-pomodoro-presets button,
 .workbench-task-row,
@@ -1510,7 +1560,7 @@
 }
 
 .workbench-task-head > button {
-  width: 30px;
+  width: auto;
   height: 30px;
 }
 
@@ -1545,9 +1595,17 @@
 
 .workbench-task-list {
   gap: 6px;
-  max-height: 156px;
+  max-height: 216px;
   margin-top: 10px;
   scrollbar-width: thin;
+}
+
+/* The global scrollbar track has a filled surface. Keep the task list's
+   track transparent so no dark tail/shadow appears beneath the thumb. */
+.workbench-task-list::-webkit-scrollbar-track,
+.workbench-task-list::-webkit-scrollbar-corner {
+  background: transparent;
+  box-shadow: none;
 }
 
 .workbench-task-row {
@@ -1694,6 +1752,7 @@
 .workbench-room-switcher,
 .workbench-pomodoro-card,
 .workbench-task-card,
+.workbench-music-card,
 .workbench-tools .workbench-leaderboard-toggle,
 .workbench-leaderboard-panel,
 .workbench-space-join {
@@ -1708,6 +1767,7 @@
 .workbench-room-switcher::before,
 .workbench-pomodoro-card::before,
 .workbench-task-card::before,
+.workbench-music-card::before,
 .workbench-tools .workbench-leaderboard-toggle::before,
 .workbench-leaderboard-panel::before,
 .workbench-space-join::before {
@@ -1748,7 +1808,6 @@
 }
 
 .workbench-card-header button,
-.workbench-task-head > button,
 .workbench-room-code button,
 .workbench-room-join button,
 .workbench-pomodoro-actions button,
@@ -1758,7 +1817,6 @@
 }
 
 .workbench-card-header button,
-.workbench-task-head > button,
 .workbench-room-code button,
 .workbench-pomodoro-actions button:not(.is-primary),
 .workbench-pomodoro-ambient,
@@ -2046,10 +2104,12 @@
 }
 
 .workbench-task-list {
+  --scrollbar-track: transparent;
   gap: 7px;
-  max-height: 168px;
+  max-height: 216px;
   margin-top: 10px;
   padding-right: 1px;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .workbench-task-row {
@@ -2128,6 +2188,7 @@
   .workbench-room-switcher,
   .workbench-pomodoro-card,
   .workbench-task-card,
+  .workbench-music-card,
   .workbench-tools .workbench-leaderboard-toggle,
   .workbench-leaderboard-panel,
   .workbench-space-join {
@@ -2176,6 +2237,7 @@
 .workbench-room-switcher,
 .workbench-pomodoro-card,
 .workbench-task-card,
+.workbench-music-card,
 .workbench-tools .workbench-leaderboard-toggle,
 .workbench-leaderboard-panel,
 .workbench-space-join {
@@ -2193,6 +2255,7 @@
 .workbench-room-switcher::before,
 .workbench-pomodoro-card::before,
 .workbench-task-card::before,
+.workbench-music-card::before,
 .workbench-tools .workbench-leaderboard-toggle::before,
 .workbench-leaderboard-panel::before,
 .workbench-space-join::before {
@@ -2209,6 +2272,7 @@
 .workbench-room-switcher > *,
 .workbench-pomodoro-card > *,
 .workbench-task-card > *,
+.workbench-music-card > *,
 .workbench-tools .workbench-leaderboard-toggle > *,
 .workbench-leaderboard-panel > *,
 .workbench-space-join > * {
@@ -2220,7 +2284,6 @@
    (stacking translucent surfaces collapses legibility). A faint fill +
    inset rim reads as carved recess, keeping text crisp. */
 .workbench-card-header button,
-.workbench-task-head > button,
 .workbench-room-code,
 .workbench-room-code button,
 .workbench-room-join input,
@@ -2345,6 +2408,7 @@
   .workbench-room-switcher,
   .workbench-pomodoro-card,
   .workbench-task-card,
+  .workbench-music-card,
   .workbench-tools .workbench-leaderboard-toggle,
   .workbench-leaderboard-panel,
   .workbench-space-join,
@@ -2357,6 +2421,7 @@
   .workbench-room-switcher::before,
   .workbench-pomodoro-card::before,
   .workbench-task-card::before,
+  .workbench-music-card::before,
   .workbench-tools .workbench-leaderboard-toggle::before,
   .workbench-leaderboard-panel::before,
   .workbench-space-join::before,
@@ -2415,6 +2480,19 @@
   /* Stage cards float via the specular rim + translucency alone; a drop shadow
      here would bleed across the inter-card gap and fail the separation check
      (gap midpoint must read as the pure stage background). */
+  box-shadow:
+    inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7)),
+    inset 0 -1px 0 rgba(20, 47, 95, 0.05);
+}
+
+/* Music dock mirrors task-card material on stage: inset rim only + shared readable glass. */
+.office-workbench-stage .workbench-music-dock {
+  transform: scale(var(--workbench-tools-scale));
+  transform-origin: left bottom;
+}
+
+.office-workbench-stage .workbench-music-dock .workbench-music-card {
+  isolation: isolate;
   box-shadow:
     inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7)),
     inset 0 -1px 0 rgba(20, 47, 95, 0.05);
@@ -2575,6 +2653,7 @@
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
+  justify-self: end;
   gap: 6px;
 }
 
@@ -2582,12 +2661,13 @@
   display: inline-grid;
   place-items: center;
   height: 30px;
+  padding: 0 2px;
   min-width: 30px;
   color: var(--text-muted);
-  border: 1px solid var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34));
-  border-radius: 10px;
-  background: var(--liquid-glass-control-fill, rgba(255, 255, 255, 0.2));
-  box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, rgba(255, 255, 255, 0.4));
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .workbench-task-actions > button:disabled {
@@ -2620,11 +2700,11 @@
   display: grid;
   gap: 7px;
   margin-top: 12px;
-  padding: 10px;
-  border: 1px solid var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34));
-  border-radius: var(--workbench-control-radius);
-  background: var(--liquid-glass-control-fill, rgba(255, 255, 255, 0.2));
-  box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, rgba(255, 255, 255, 0.4));
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .workbench-task-progress-head,
@@ -4447,7 +4527,7 @@
   .office-workbench-stage .workbench-task-progress {
     gap: 4px;
     margin-top: 6px;
-    padding: 6px;
+    padding: 0;
   }
 
   .office-workbench-stage .workbench-task-progress-track {
@@ -4461,7 +4541,7 @@
 
   .office-workbench-stage .workbench-task-list {
     gap: 4px;
-    max-height: 56px;
+    max-height: 84px;
   }
 
   .office-workbench-stage .workbench-task-row {
@@ -4477,27 +4557,19 @@
   grid-template-columns: minmax(0, 1fr);
   width: min(292px, calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset)));
   max-width: min(292px, calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset)));
-  border-radius: 999px;
-  /* Switch the container from pill to panel geometry immediately. Animating
-     999px corners while content is revealing clips the top edge into a large,
-     diagonal arc. The panel body below remains animated instead. */
+  /* A 24px radius remains a pill at the compact header height. Keeping it
+     constant removes the outline snap when the detail area opens or closes. */
+  border-radius: 24px;
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,
     filter 180ms ease;
 }
 
-.office-workbench-stage > .workbench-leaderboard.is-closing {
-  /* Keep the expanded geometry while the detail area collapses. Once the
-     reveal has finished, React restores the compact pill in a clean frame. */
-  border-radius: 24px;
-}
-
 .office-workbench-stage > .workbench-leaderboard.is-open {
   display: grid;
   width: min(292px, calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset)));
   max-width: min(292px, calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset)));
-  border-radius: 24px;
 }
 
 .office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-panel {
@@ -4968,6 +5040,7 @@
    on ::before. */
 .office-workbench-stage .workbench-pomodoro-card::after,
 .office-workbench-stage .workbench-task-card::after,
+.office-workbench-stage .workbench-music-card::after,
 .office-workbench-stage > .workbench-leaderboard::after {
   content: '';
   position: absolute;
@@ -5001,6 +5074,7 @@
 @media (prefers-reduced-transparency: reduce) {
   .office-workbench-stage .workbench-pomodoro-card::after,
   .office-workbench-stage .workbench-task-card::after,
+  .office-workbench-stage .workbench-music-card::after,
   .office-workbench-stage > .workbench-leaderboard::after {
     display: none;
   }
@@ -5085,26 +5159,27 @@
   pointer-events: none;
   will-change: transform, opacity;
   transition:
-    transform 760ms cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 320ms ease-in;
+    transform 520ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 220ms ease-in;
 }
 
 .workbench-immersive-layer.is-open {
   transform: translate3d(0, 0, 0);
   opacity: 1;
   pointer-events: auto;
-  animation: workbench-immersive-rise 840ms cubic-bezier(0.2, 0.72, 0.25, 1) both;
+  animation: workbench-immersive-rise 580ms cubic-bezier(0.2, 0.72, 0.25, 1) both;
 }
 
 .workbench-immersive-layer.is-closing {
   transform: translate3d(0, 112%, 0);
   opacity: 0;
   pointer-events: auto;
-  animation: workbench-immersive-rise-reverse 840ms cubic-bezier(0.2, 0.72, 0.25, 1) 750ms reverse both;
+  animation: workbench-immersive-rise-reverse 580ms cubic-bezier(0.2, 0.72, 0.25, 1) 500ms reverse both;
 }
 
 /* The video becomes the scene background; room controls remain available above it. */
 .office-workbench-stage.is-immersive .workbench-tools,
+.office-workbench-stage.is-immersive .workbench-music-dock,
 .office-workbench-stage.is-immersive > .workbench-leaderboard {
   z-index: 14;
 }
@@ -5141,6 +5216,7 @@
 
 .office-workbench-stage .workbench-pomodoro-card,
 .office-workbench-stage .workbench-task-card,
+.office-workbench-stage .workbench-music-card,
 .office-workbench-stage > .workbench-leaderboard {
   color: var(--text);
   border-color: var(--workbench-readable-glass-line);
@@ -5159,6 +5235,7 @@
 @media (prefers-reduced-transparency: reduce) {
   .office-workbench-stage .workbench-pomodoro-card,
   .office-workbench-stage .workbench-task-card,
+  .office-workbench-stage .workbench-music-card,
   .office-workbench-stage > .workbench-leaderboard {
     background: var(--surface-solid);
     backdrop-filter: none;
@@ -5181,10 +5258,10 @@
   backface-visibility: hidden;
   will-change: transform, filter, border-radius, box-shadow;
   transition:
-    transform 760ms cubic-bezier(0.4, 0, 0.2, 1),
-    border-radius 720ms cubic-bezier(0.4, 0, 0.2, 1),
-    filter 720ms ease-in,
-    box-shadow 720ms ease-in;
+    transform 520ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-radius 500ms cubic-bezier(0.4, 0, 0.2, 1),
+    filter 500ms ease-in,
+    box-shadow 500ms ease-in;
 }
 
 .workbench-immersive-layer.is-open .workbench-immersive-plane {
@@ -5193,7 +5270,7 @@
   transform: translate3d(0, 0, 0) scale(1) rotateX(0);
   filter: brightness(1) saturate(1) blur(0);
   box-shadow: 0 0 0 rgba(3, 7, 15, 0);
-  animation: workbench-immersive-approach 1040ms cubic-bezier(0.4, 0, 0.2, 1) 470ms both;
+  animation: workbench-immersive-approach 720ms cubic-bezier(0.4, 0, 0.2, 1) 320ms both;
 }
 
 .workbench-immersive-layer.is-closing .workbench-immersive-plane {
@@ -5202,7 +5279,7 @@
   transform: translate3d(0, 0, -1150px) scale(0.82) rotateX(4deg);
   filter: brightness(0.72) saturate(0.78) blur(1.4px);
   box-shadow: 0 36px 90px rgba(3, 7, 15, 0.42);
-  animation: workbench-immersive-approach-reverse 1040ms cubic-bezier(0.4, 0, 0.2, 1) 80ms reverse both;
+  animation: workbench-immersive-approach-reverse 720ms cubic-bezier(0.4, 0, 0.2, 1) 55ms reverse both;
 }
 
 @keyframes workbench-immersive-rise {
@@ -5284,17 +5361,17 @@
   object-position: center;
   background: #07090e;
   transform: scale(1.1);
-  transition: transform 760ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 520ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .workbench-immersive-layer.is-open .workbench-immersive-video {
   transform: scale(1);
-  animation: workbench-immersive-video-settle 1120ms cubic-bezier(0.4, 0, 0.2, 1) 470ms both;
+  animation: workbench-immersive-video-settle 780ms cubic-bezier(0.4, 0, 0.2, 1) 320ms both;
 }
 
 .workbench-immersive-layer.is-closing .workbench-immersive-video {
   transform: scale(1.1);
-  animation: workbench-immersive-video-settle-reverse 1120ms cubic-bezier(0.4, 0, 0.2, 1) reverse both;
+  animation: workbench-immersive-video-settle-reverse 780ms cubic-bezier(0.4, 0, 0.2, 1) reverse both;
 }
 
 @keyframes workbench-immersive-video-settle {
@@ -5316,12 +5393,43 @@
     radial-gradient(circle at 50% 46%, transparent 44%, rgba(3, 5, 10, 0.22) 100%);
 }
 
-/* Keep button semantics and keyboard access, but present only the arrow icon. */
-.workbench-immersive-toggle {
+/* The lower arrow is the anchor for contextual controls. In immersive mode,
+   hovering or keyboard-focusing it opens a compact arc without blocking the video. */
+.workbench-immersive-controls {
   position: absolute;
   left: 50%;
   bottom: 2px;
   z-index: 13;
+  width: 72px;
+  height: 66px;
+  transform: translateX(-50%);
+}
+
+/* Invisible hit area: it bridges the arrow and the two radial actions so the
+   menu cannot disappear while the pointer travels through the semicircle. */
+.workbench-immersive-controls::before {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 184px;
+  height: 146px;
+  content: '';
+  border-radius: 92px 92px 0 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.workbench-immersive-controls.is-open::before,
+.workbench-immersive-controls:hover::before,
+.workbench-immersive-controls:focus-within::before {
+  pointer-events: auto;
+}
+
+.workbench-immersive-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  z-index: 2;
   width: 72px;
   height: 66px;
   display: inline-grid;
@@ -5345,7 +5453,7 @@
   filter: drop-shadow(0 3px 8px rgba(25, 35, 56, 0.24));
 }
 
-.workbench-immersive-toggle.is-open {
+.workbench-immersive-controls.is-open .workbench-immersive-toggle {
   color: rgba(255, 255, 255, 0.96);
 }
 
@@ -5353,20 +5461,639 @@
   transform: translateX(-50%) scale(0.86);
 }
 
-.workbench-immersive-toggle:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 64%, transparent);
-  outline-offset: -5px;
-  border-radius: 12px;
+.workbench-immersive-toggle:focus-visible,
+.workbench-immersive-arc-action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 64%, #ffffff);
+  outline-offset: 3px;
+}
+
+.workbench-immersive-arc-menu {
+  position: absolute;
+  left: 50%;
+  bottom: 33px;
+  z-index: 1;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.workbench-immersive-arc-action {
+  --arc-x: 0px;
+  --arc-y: -108px;
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 46px;
+  height: 46px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: var(--text);
+  border: 1px solid var(--workbench-readable-glass-line);
+  border-radius: 50%;
+  background: var(--workbench-readable-glass-surface);
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 color-mix(in srgb, var(--surface-solid) 26%, transparent);
+  backdrop-filter: var(--workbench-readable-glass-blur);
+  -webkit-backdrop-filter: var(--workbench-readable-glass-blur);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(
+      calc(-50% + var(--arc-x)),
+      calc(50% + var(--arc-y) + 16px)
+    ) scale(0.8);
+  transform-origin: center;
+  transition:
+    opacity 150ms ease,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+/* The controls sit on a semicircle whose centre is the arrow button. */
+.workbench-immersive-arc-action--hide {
+  --arc-x: -58px;
+  --arc-y: -24px;
+}
+
+.workbench-immersive-arc-action--fullscreen {
+  --arc-x: 0px;
+  --arc-y: -68px;
+}
+
+.workbench-immersive-arc-action--note {
+  --arc-x: 58px;
+  --arc-y: -24px;
+}
+
+.workbench-immersive-arc-action.is-active {
+  /* Opening a tool only changes its glyph colour; the glass button itself stays unchanged. */
+  color: var(--accent);
+}
+
+.workbench-quick-note {
+  position: absolute;
+  left: 50%;
+  bottom: 142px;
+  z-index: 16;
+  width: min(390px, calc(100% - 32px));
+  min-height: 240px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px;
+  color: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 26px;
+  background:
+    linear-gradient(140deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.06)),
+    rgba(12, 18, 30, 0.58);
+  box-shadow:
+    0 26px 70px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  backdrop-filter: blur(28px) saturate(145%);
+  -webkit-backdrop-filter: blur(28px) saturate(145%);
+  transform: translateX(-50%);
+  animation: workbench-quick-note-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.workbench-quick-note__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workbench-quick-note__header > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workbench-quick-note__header strong {
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.workbench-quick-note__close {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.workbench-quick-note__close:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: scale(1.06);
+}
+
+.workbench-quick-note__close:focus-visible,
+.workbench-quick-note__input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 68%, #ffffff);
+  outline-offset: 2px;
+}
+
+.workbench-quick-note__input {
+  width: 100%;
+  min-height: 178px;
+  resize: vertical;
+  padding: 13px 14px;
+  color: inherit;
+  font: inherit;
+  line-height: 1.6;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 17px;
+  background: rgba(3, 8, 16, 0.2);
+  box-sizing: border-box;
+}
+
+.workbench-quick-note__input::placeholder {
+  color: rgba(255, 255, 255, 0.56);
+}
+
+@keyframes workbench-quick-note-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@media (max-width: 560px) {
+  .workbench-immersive-arc-action--hide {
+    --arc-x: -48px;
+    --arc-y: -20px;
+  }
+
+  .workbench-immersive-arc-action--fullscreen {
+    --arc-y: -58px;
+  }
+
+  .workbench-immersive-arc-action--note {
+    --arc-x: 48px;
+    --arc-y: -20px;
+  }
+
+  .workbench-quick-note {
+    bottom: 132px;
+    min-height: 210px;
+  }
+
+  .workbench-quick-note__input {
+    min-height: 145px;
+  }
+}
+
+.office-workbench-stage.are-room-cards-hidden .workbench-pomodoro-card,
+.office-workbench-stage.are-room-cards-hidden .workbench-task-card,
+.office-workbench-stage.are-room-cards-hidden .workbench-music-dock,
+.office-workbench-stage.are-room-cards-hidden > .workbench-leaderboard {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(12px) scale(0.97);
+  transition:
+    visibility 0s linear 200ms,
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.workbench-immersive-controls:focus-within .workbench-immersive-arc-menu {
+  pointer-events: auto;
+}
+
+.workbench-immersive-controls:focus-within .workbench-immersive-arc-action {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(
+      calc(-50% + var(--arc-x)),
+      calc(50% + var(--arc-y))
+    ) scale(1);
 }
 
 @media (hover: hover) {
-  .workbench-immersive-toggle:hover {
-    color: var(--accent);
-    filter: drop-shadow(0 5px 10px color-mix(in srgb, var(--accent) 26%, transparent));
+  .workbench-immersive-controls:hover .workbench-immersive-arc-menu {
+    pointer-events: auto;
+  }
+
+  .workbench-immersive-controls:hover .workbench-immersive-arc-action {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(
+        calc(-50% + var(--arc-x)),
+        calc(50% + var(--arc-y))
+      ) scale(1);
+  }
+
+  .workbench-immersive-controls.is-open .workbench-immersive-toggle:hover {
+    color: #ffffff;
+    filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.32));
     transform: translateX(-50%) translateY(-3px);
   }
 
-  .workbench-immersive-toggle.is-open:hover {
-    color: #ffffff;
+  .workbench-immersive-arc-action:hover {
+    color: var(--accent);
+    border-color: color-mix(in srgb, #ffffff 48%, var(--workbench-readable-glass-line));
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.08)),
+      var(--workbench-readable-glass-surface);
+    box-shadow:
+      0 16px 34px rgba(0, 0, 0, 0.26),
+      inset 0 1px 0 rgba(255, 255, 255, 0.36);
+    transform: translate(
+        calc(-50% + var(--arc-x)),
+        calc(50% + var(--arc-y) - 4px)
+      ) scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-immersive-arc-action,
+  .workbench-immersive-toggle,
+  .workbench-quick-note,
+  .workbench-quick-note__close,
+  .office-workbench-stage.are-room-cards-hidden .workbench-pomodoro-card,
+  .office-workbench-stage.are-room-cards-hidden .workbench-task-card,
+  .office-workbench-stage.are-room-cards-hidden .workbench-music-dock,
+  .office-workbench-stage.are-room-cards-hidden > .workbench-leaderboard {
+    transition-duration: 1ms;
+  }
+}
+
+
+/* Disclosure cards use their full compact surface as the activation target.
+   The former card padding sat outside each button, leaving only its text row
+   clickable. Keep the visual footprint unchanged while moving that padding
+   onto the actual controls. */
+.office-workbench-stage .workbench-tools > .workbench-pomodoro-card,
+.office-workbench-stage .workbench-tools > .workbench-task-card,
+.office-workbench-stage > .workbench-leaderboard {
+  --workbench-disclosure-toggle-padding: 14px;
+  padding: 0;
+}
+
+.workbench-pomodoro-toggle,
+.workbench-task-toggle-card,
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle {
+  min-height: 46px;
+  padding: 0 var(--workbench-disclosure-toggle-padding);
+}
+
+.workbench-pomodoro-reveal-inner {
+  padding: 10px var(--workbench-disclosure-toggle-padding) 0;
+}
+
+.workbench-task-reveal-inner {
+  padding: 0 var(--workbench-disclosure-toggle-padding) 10px;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-reveal-inner {
+  padding: 0 var(--workbench-disclosure-toggle-padding) var(--workbench-disclosure-toggle-padding);
+}
+
+/* The task card should retain its glass rim without a dark lower edge beside
+   the right-hand scrollbar. */
+.office-workbench-stage .workbench-tools > .workbench-task-card {
+  box-shadow: inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7));
+}
+
+/* Expanded task header: learning analytics now occupies the left-hand slot
+   formerly used by the redundant "清单管理" label. */
+.workbench-task-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.workbench-task-head > .workbench-task-analytics-button {
+  justify-self: start;
+}
+
+/* Flat text/icon actions: no glass pill chrome around header controls. */
+.workbench-task-head > .workbench-task-analytics-button,
+.workbench-task-actions > button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Add-task editor is displayed above the study room instead of navigating to
+   the task-details route. Keep this transient dialog compact and remove the
+   extra bottom shadow that read as a scrollbar shadow. */
+.office-workbench-task-add-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+}
+
+.office-workbench-task-add-overlay .study-schedule-editor-backdrop {
+  position: absolute;
+  padding: 16px;
+}
+
+.office-workbench-task-add-overlay .study-schedule-editor-panel {
+  width: min(500px, 100%);
+  max-height: min(560px, 100%);
+  gap: 10px;
+  padding: 14px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.office-workbench-task-add-overlay .study-schedule-editor-panel::-webkit-scrollbar-track {
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-tools > .workbench-pomodoro-card,
+  .office-workbench-stage .workbench-tools > .workbench-task-card,
+  .office-workbench-stage > .workbench-leaderboard {
+    --workbench-disclosure-toggle-padding: 8px;
+  }
+
+  .workbench-pomodoro-toggle,
+  .workbench-task-toggle-card,
+  .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle {
+    min-height: 34px;
+  }
+
+  .office-workbench-task-add-overlay .study-schedule-editor-panel {
+    max-height: min(520px, 100%);
+  }
+}
+
+/* Focus timer dial -----------------------------------------------------------
+   The original conic fill read as a heavy pie wedge. This replaces it with a
+   slim, precise SVG dial and keeps the timer value on a calm glass face. */
+.workbench-timer-face {
+  padding: 16px 0 12px;
+}
+
+.workbench-timer-ring {
+  display: grid;
+  place-items: center;
+  width: 192px;
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, #ffffff 52%, var(--line));
+  background:
+    radial-gradient(circle at 32% 21%, color-mix(in srgb, #ffffff 50%, transparent), transparent 28%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface-solid) 72%, transparent), color-mix(in srgb, var(--surface-solid) 38%, transparent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 72%, transparent),
+    inset 0 -16px 30px color-mix(in srgb, var(--pomodoro-accent) 7%, transparent),
+    0 16px 34px color-mix(in srgb, var(--pomodoro-accent) 13%, transparent);
+}
+
+.workbench-timer-ring::before {
+  inset: 12px;
+  z-index: 0;
+  border-color: color-mix(in srgb, #ffffff 58%, var(--line));
+  background:
+    radial-gradient(circle at 50% 43%, color-mix(in srgb, var(--surface-solid) 80%, transparent), color-mix(in srgb, var(--surface-solid) 43%, transparent)),
+    var(--liquid-glass-sheen, radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.6), transparent 56%));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 78%, transparent),
+    inset 0 -8px 18px color-mix(in srgb, var(--pomodoro-accent) 5%, transparent);
+}
+
+.workbench-timer-ring__dial {
+  position: absolute;
+  inset: 4px;
+  z-index: 1;
+  width: calc(100% - 8px);
+  height: calc(100% - 8px);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.workbench-timer-ring__track,
+.workbench-timer-ring__progress {
+  fill: none;
+  stroke-width: 4;
+}
+
+.workbench-timer-ring__track {
+  stroke: color-mix(in srgb, var(--text) 11%, transparent);
+}
+
+.workbench-timer-ring__progress {
+  stroke: var(--pomodoro-accent);
+  stroke-dasharray: 100;
+  stroke-dashoffset: var(--timer-ring-offset);
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--pomodoro-accent) 56%, transparent));
+  transition: stroke-dashoffset 320ms ease, stroke 180ms ease;
+}
+
+.workbench-pomodoro-time {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  margin: 0;
+  text-align: center;
+}
+
+.workbench-pomodoro-time__status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 17px;
+  padding: 0 7px;
+  color: color-mix(in srgb, var(--pomodoro-accent) 78%, var(--text));
+  border: 1px solid color-mix(in srgb, var(--pomodoro-accent) 23%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pomodoro-accent) 9%, transparent);
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.035em;
+  line-height: 1;
+}
+
+.workbench-pomodoro-time strong {
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 3.1rem;
+  font-weight: 740;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.055em;
+  line-height: 0.86;
+  text-shadow: 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+}
+
+.workbench-pomodoro-time__meta {
+  display: block;
+  margin-top: 10px;
+  color: color-mix(in srgb, var(--text-muted) 86%, transparent);
+  font-size: 0.59375rem;
+  font-weight: 690;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-actions {
+  grid-template-columns: 40px 52px 40px;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.workbench-pomodoro-actions button {
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.workbench-pomodoro-actions .workbench-pomodoro-start {
+  width: 52px;
+  min-height: 52px;
+  color: var(--workbench-accent-contrast, #ffffff);
+  border-color: color-mix(in srgb, var(--pomodoro-accent) 44%, #ffffff);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 30%, transparent), transparent 48%),
+    var(--pomodoro-accent);
+  box-shadow:
+    0 10px 22px color-mix(in srgb, var(--pomodoro-accent) 30%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 46%, transparent);
+}
+
+.workbench-pomodoro-actions .workbench-pomodoro-start svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (hover: hover) {
+  .workbench-pomodoro-actions .workbench-pomodoro-start:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-timer-face {
+    padding: 8px 0 6px;
+  }
+
+  .office-workbench-stage .workbench-timer-ring {
+    width: 138px;
+  }
+
+  .office-workbench-stage .workbench-timer-ring::before {
+    inset: 9px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time strong {
+    margin-top: 5px;
+    font-size: 2.35rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time__status {
+    min-height: 14px;
+    padding-inline: 5px;
+    font-size: 0.5rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time__meta {
+    margin-top: 6px;
+    font-size: 0.5rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions {
+    grid-template-columns: 34px 44px 34px;
+    gap: 10px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions button {
+    width: 34px;
+    min-height: 34px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions .workbench-pomodoro-start {
+    width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Typography follows the visual reference: only the time and the concise
+   focus/rest cadence remain inside the dial. */
+.workbench-pomodoro-time strong {
+  margin-top: 0;
+  font-size: 3.35rem;
+  font-weight: 710;
+  letter-spacing: -0.045em;
+  line-height: 0.92;
+}
+
+.workbench-pomodoro-time__status,
+.workbench-pomodoro-time__meta {
+  display: none;
+}
+
+.workbench-pomodoro-time__settings {
+  display: block;
+  margin-top: 10px;
+  color: color-mix(in srgb, var(--text-muted) 86%, transparent);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-pomodoro-time strong {
+    margin-top: 0;
+    font-size: 2.55rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time__settings {
+    margin-top: 7px;
+    font-size: 0.5625rem;
+  }
+}
+
+/* Keep a single visual dial: the SVG track carries both the neutral and the
+   active progress states, so the decorative outer glass perimeter is removed. */
+.workbench-timer-ring {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-timer-ring::before {
+  inset: 6px;
+  border: 0;
+  background:
+    radial-gradient(circle at 50% 43%, color-mix(in srgb, var(--surface-solid) 78%, transparent), color-mix(in srgb, var(--surface-solid) 38%, transparent)),
+    var(--liquid-glass-sheen, radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.6), transparent 56%));
+  box-shadow: inset 0 -8px 18px color-mix(in srgb, var(--pomodoro-accent) 4%, transparent);
+}
+
+.workbench-pomodoro-time strong {
+  font-size: 3.15rem;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-timer-ring::before {
+    inset: 5px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time strong {
+    font-size: 2.4rem;
   }
 }

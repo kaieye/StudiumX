@@ -38,7 +38,7 @@
   --accent-hover: #3f6ee8;
 
   /* ----- Scrollbars ----- */
-  --scrollbar-track: #eef3fb;
+  --scrollbar-track: transparent;
   --scrollbar-thumb: rgba(104, 119, 143, 0.38);
   --scrollbar-thumb-hover: rgba(104, 119, 143, 0.56);
 
@@ -102,7 +102,7 @@
   --accent-soft: rgba(80, 132, 255, 0.16);
   --accent-hover: #abc8ff;
 
-  --scrollbar-track: #101010;
+  --scrollbar-track: transparent;
   --scrollbar-thumb: rgba(180, 180, 185, 0.34);
   --scrollbar-thumb-hover: rgba(205, 205, 210, 0.52);
 

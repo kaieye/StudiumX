@@ -19,6 +19,7 @@ export const LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE = 'teachos:open-markdown'
 export const LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE = 'teachos:open-external'
 
 const BRIDGE_SCRIPT_ID = 'studiumx-markdown-link-bridge'
+export const PREVIEW_SCROLLBAR_STYLE_ID = 'studiumx-preview-scrollbar-style'
 
 export type PreviewMarkdownLink = {
   workspaceId: string
@@ -120,6 +121,40 @@ export function injectPreviewMarkdownLinkBridge(html: string): string {
   const script = markdownBridgeScript()
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${script}\n</body>`)
   return `${html}\n${script}`
+}
+
+/** Keep scrollbar tracks invisible inside untrusted HTML lesson iframes. */
+export function injectPreviewTransparentScrollbarStyle(html: string): string {
+  if (html.includes(`id="${PREVIEW_SCROLLBAR_STYLE_ID}"`)) return html
+  const style = `<style id="${PREVIEW_SCROLLBAR_STYLE_ID}">
+:root {
+  --studiumx-preview-scrollbar-thumb: rgba(104, 119, 143, 0.38);
+  --studiumx-preview-scrollbar-thumb-hover: rgba(104, 119, 143, 0.56);
+}
+* {
+  scrollbar-color: var(--studiumx-preview-scrollbar-thumb) transparent !important;
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent !important;
+  border-radius: 999px;
+  background: var(--studiumx-preview-scrollbar-thumb);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--studiumx-preview-scrollbar-thumb-hover);
+}
+</style>`
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${style}\n</body>`)
+  return `${html}\n${style}`
 }
 
 export function ensurePreviewBaseTag(html: string, baseHref: string): string {

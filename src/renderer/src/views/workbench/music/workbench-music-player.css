@@ -1,0 +1,1013 @@
+/* Workbench music player — layout only; glass material comes from shared
+   .workbench-task-card liquid-glass / stage readable-glass rules. */
+
+.workbench-music-dock {
+  position: absolute;
+  left: clamp(12px, 3vw, 32px);
+  bottom: clamp(12px, 3vh, 28px);
+  z-index: 5;
+  width: min(300px, calc(100% - 24px));
+  max-width: 300px;
+  pointer-events: none;
+  transition:
+    visibility 0s linear 0s,
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.workbench-music-dock > * {
+  pointer-events: auto;
+}
+
+/* Layout shell only — glass fill/blur/rim come from shared workbench rules
+   (liquid-glass + stage readable-glass). Do not re-paint background here. */
+.workbench-music-card {
+  --pomodoro-accent: #007aff;
+  --pomodoro-accent-rgb: 0, 122, 255;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 300px;
+  overflow: hidden;
+  padding: 14px;
+  transform-origin: left bottom;
+}
+
+.workbench-music-card:not(.is-open):not(.is-closing) {
+  border-radius: 999px;
+  padding: 8px 10px 8px 12px;
+}
+
+.workbench-music-card.is-open,
+.workbench-music-card.is-closing {
+  border-radius: 24px;
+  /* Keep the footer's bottom offset equal to the compact pill. The panel grows
+     upward from this anchored row instead of shifting the existing controls. */
+  padding: 14px 10px 8px 12px;
+}
+
+.workbench-music-reveal-inner {
+  padding-bottom: 10px;
+}
+
+.workbench-music-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  gap: 12px;
+  padding: 4px 2px 2px;
+}
+
+.workbench-music-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workbench-music-head > div:first-child span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: color-mix(in srgb, var(--text, #17202b) 72%, transparent);
+  font-size: 0.72rem;
+  font-weight: 740;
+  letter-spacing: 0.04em;
+}
+
+.workbench-music-provider-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 42%, transparent);
+  border: 1px solid color-mix(in srgb, #ffffff 55%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 55%, transparent);
+}
+
+.workbench-music-provider-switch button {
+  min-height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text, #17202b) 62%, transparent);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.workbench-music-provider-switch button.is-active {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(0, 122, 255, 0.88), #007aff);
+  box-shadow: 0 6px 14px rgba(0, 122, 255, 0.22);
+}
+
+.workbench-music-now {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.workbench-music-cover {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  color: rgba(0, 122, 255, 0.78);
+  background: color-mix(in srgb, var(--surface-solid, #fff) 55%, transparent);
+  border: 1px solid color-mix(in srgb, #ffffff 60%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent);
+}
+
+/* The disc itself owns the animation rather than its layout wrapper. This
+   keeps the rotation independent of the card's reveal transforms. */
+.workbench-music-cover-disc,
+.workbench-music-toggle-art-disc {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  animation: workbench-music-spin 2.8s linear infinite;
+  animation-play-state: paused;
+  transform: rotate(0deg);
+}
+
+.workbench-music-cover-disc img,
+.workbench-music-toggle-art-disc img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.workbench-music-cover-disc.is-playing,
+.workbench-music-toggle-art-disc.is-playing {
+  animation-play-state: running;
+  will-change: transform;
+}
+
+/* A small moving indicator makes the disc motion legible even for artwork with
+   a visually symmetrical cover image. */
+.workbench-music-cover-disc.is-playing::after,
+.workbench-music-toggle-art-disc.is-playing::after {
+  position: absolute;
+  top: 8%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  border-radius: 50%;
+  background: linear-gradient(135deg, #72c6ff 0 42%, #007aff 43% 100%);
+  box-shadow: 0 1px 4px rgba(0, 72, 152, 0.42);
+  content: '';
+  transform: translateX(-50%);
+}
+
+.workbench-music-toggle-art-disc.is-playing::after {
+  width: 3px;
+  height: 3px;
+  border-width: 0.5px;
+}
+
+.workbench-music-now-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workbench-music-now-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workbench-music-now-title-row > strong,
+.workbench-music-now-meta > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-music-now-title-row > strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text, #17202b);
+  font-size: 0.875rem;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+/* The title only travels when it cannot fit and playback is active. Keeping the
+   copy in a continuous track makes the full song name readable without changing
+   the card geometry. */
+.workbench-music-marquee {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.workbench-music-marquee-track {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.workbench-music-marquee-copy {
+  flex: 0 0 auto;
+}
+
+.workbench-music-marquee.is-scrolling .workbench-music-marquee-track {
+  animation: workbench-music-title-marquee 10s linear 800ms infinite;
+  will-change: transform;
+}
+
+@keyframes workbench-music-title-marquee {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+
+  88%,
+  100% {
+    transform: translateX(calc(-50% - 16px));
+  }
+}
+
+.workbench-music-now-meta > small {
+  color: color-mix(in srgb, var(--text, #17202b) 58%, transparent);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  font-weight: 550;
+}
+
+.workbench-music-now-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+}
+
+.workbench-music-now-action {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: color-mix(in srgb, var(--text, #17202b) 70%, transparent);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.workbench-music-now-action:hover,
+.workbench-music-now-action[aria-expanded='true'] {
+  color: #007aff;
+  background: color-mix(in srgb, #007aff 10%, transparent);
+}
+
+.workbench-music-now-action:focus-visible {
+  outline: 2px solid color-mix(in srgb, #007aff 68%, transparent);
+  outline-offset: 2px;
+}
+
+.workbench-music-volume-control {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+}
+
+/* This is intentionally out of normal flow: opening the volume control must
+   never resize the player card or move its persistent footer. */
+.workbench-music-volume-popover {
+  position: absolute;
+  z-index: 8;
+  top: 50%;
+  left: calc(100% + 8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  width: 50px;
+  padding: 10px 8px 9px;
+  border: 1px solid color-mix(in srgb, #ffffff 64%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 82%, transparent);
+  box-shadow:
+    0 10px 24px rgba(19, 35, 57, 0.16),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 75%, transparent);
+  backdrop-filter: blur(16px) saturate(1.15);
+  transform: translateY(-50%);
+}
+
+/* The control deliberately has no text label. The percentage is the only
+   persistent textual feedback, matching the compact reference UI. */
+.workbench-music-volume-slider {
+  --music-volume: 0%;
+  display: block;
+  width: 126px;
+  height: 14px;
+  margin: 56px -56px;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+  transform: rotate(-90deg);
+}
+
+.workbench-music-volume-slider::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    #007aff 0 var(--music-volume),
+    rgba(23, 32, 43, 0.11) var(--music-volume) 100%
+  );
+}
+
+.workbench-music-volume-slider::-webkit-slider-thumb {
+  width: 10px;
+  height: 10px;
+  margin-top: -3.5px;
+  appearance: none;
+  -webkit-appearance: none;
+  opacity: 1;
+  border: 0;
+  border-radius: 50%;
+  background: #007aff;
+  box-shadow: 0 1px 3px rgba(0, 78, 161, 0.2);
+  transform: scale(0.85);
+  transition: transform 120ms ease;
+}
+
+.workbench-music-volume-popover:hover .workbench-music-volume-slider::-webkit-slider-thumb,
+.workbench-music-volume-popover:focus-within .workbench-music-volume-slider::-webkit-slider-thumb {
+  transform: scale(1);
+}
+
+.workbench-music-volume-value {
+  display: block;
+  margin-top: 6px;
+  color: var(--text, #17202b);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.workbench-music-mute-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text, #17202b) 58%, transparent);
+  cursor: pointer;
+}
+
+.workbench-music-mute-button:hover,
+.workbench-music-mute-button:focus-visible {
+  color: #007aff;
+  background: color-mix(in srgb, #007aff 10%, transparent);
+  outline: none;
+}
+
+.workbench-music-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workbench-music-progress input[type='range'] {
+  --music-progress: 0%;
+  width: 100%;
+  height: 14px;
+  margin: -4px 0;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.workbench-music-progress input[type='range']::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    #007aff 0 var(--music-progress),
+    color-mix(in srgb, var(--text, #17202b) 14%, transparent) var(--music-progress) 100%
+  );
+}
+
+.workbench-music-progress input[type='range']::-webkit-slider-thumb {
+  width: 10px;
+  height: 10px;
+  margin-top: -3.5px;
+  appearance: none;
+  -webkit-appearance: none;
+  opacity: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 5px rgba(0, 78, 161, 0.34);
+  transform: scale(0.65);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.workbench-music-progress:hover input[type='range']::-webkit-slider-thumb,
+.workbench-music-progress:focus-within input[type='range']::-webkit-slider-thumb {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.workbench-music-time {
+  display: flex;
+  justify-content: space-between;
+  color: color-mix(in srgb, var(--text, #17202b) 48%, transparent);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* One continuous segmented rail: its two ends are rounded by the outer
+   surface while every tab touches the next one with no individual card shell.
+   The highlight is a single moving pill, so both of its ends stay round while
+   the selection glides between tabs. */
+.workbench-music-tabs {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, #ffffff 46%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 30%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 44%, transparent);
+}
+
+.workbench-music-tabs::before {
+  position: absolute;
+  z-index: 0;
+  inset-block: 0;
+  left: 0;
+  width: 25%;
+  border-radius: 999px;
+  background: color-mix(in srgb, #007aff 13%, transparent);
+  pointer-events: none;
+  content: '';
+  transform: translateX(0);
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 180ms ease;
+}
+
+.workbench-music-tabs[data-active-tab='search']::before {
+  transform: translateX(100%);
+}
+
+.workbench-music-tabs[data-active-tab='library']::before {
+  transform: translateX(200%);
+}
+
+.workbench-music-tabs[data-active-tab='account']::before {
+  transform: translateX(300%);
+}
+
+.workbench-music-tabs button {
+  position: relative;
+  z-index: 1;
+  min-height: 32px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--text, #17202b) 62%, transparent);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 720;
+  cursor: pointer;
+  transition: color 180ms ease;
+}
+
+.workbench-music-tabs button:hover,
+.workbench-music-tabs button.is-active {
+  color: #007aff;
+}
+
+.workbench-music-tabs button.is-active {
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-music-tabs button:focus-visible {
+  z-index: 1;
+  outline: 2px solid color-mix(in srgb, #007aff 66%, transparent);
+  outline-offset: -2px;
+}
+
+/* Compact one-line rows: track title and artist are kept on the same baseline. */
+.workbench-music-list {
+  --scrollbar-track: transparent;
+  max-height: 168px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 2px;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.workbench-music-list::-webkit-scrollbar-track,
+.workbench-music-list::-webkit-scrollbar-corner {
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-music-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  justify-items: stretch;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  margin: 0;
+  padding: 8px 11px;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, #ffffff 42%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 28%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 55%, transparent);
+  cursor: pointer;
+  overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.workbench-music-row-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.workbench-music-row-meta strong,
+.workbench-music-row-meta small {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-music-row-meta strong {
+  flex: 0 1 auto;
+  max-width: 66%;
+  color: var(--text, #17202b);
+  font-size: 0.8125rem;
+  font-weight: 740;
+  line-height: 1.25;
+}
+
+.workbench-music-row-meta small {
+  flex: 1 1 auto;
+  color: color-mix(in srgb, var(--text, #17202b) 55%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 560;
+  line-height: 1.25;
+}
+
+.workbench-music-row:hover,
+.workbench-music-row.is-current {
+  border-color: rgba(0, 122, 255, 0.22);
+  background: color-mix(in srgb, #007aff 10%, transparent);
+}
+
+.workbench-music-empty,
+.workbench-music-status,
+.workbench-music-account-hint,
+.workbench-music-section-title {
+  color: color-mix(in srgb, var(--text, #17202b) 58%, transparent);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.workbench-music-empty {
+  padding: 16px 8px;
+  text-align: center;
+}
+
+.workbench-music-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+}
+
+.workbench-music-search-form {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid color-mix(in srgb, #ffffff 55%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 42%, transparent);
+  color: color-mix(in srgb, var(--text, #17202b) 55%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 55%, transparent);
+}
+
+.workbench-music-search-form input {
+  min-width: 0;
+  height: 28px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text, #17202b);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.workbench-music-search-form button,
+.workbench-music-library-actions button,
+.workbench-music-account-card button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
+  color: #fff;
+  border: 1px solid rgba(0, 122, 255, 0.28);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(0, 122, 255, 0.84), #007aff);
+  box-shadow: 0 6px 14px rgba(0, 122, 255, 0.18);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.workbench-music-library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.workbench-music-library-actions button {
+  background: color-mix(in srgb, var(--surface-solid, #fff) 50%, transparent);
+  color: color-mix(in srgb, var(--text, #17202b) 78%, transparent);
+  border-color: color-mix(in srgb, #ffffff 55%, transparent);
+  box-shadow: none;
+}
+
+.workbench-music-section-title {
+  margin-bottom: 6px;
+  color: color-mix(in srgb, var(--text, #17202b) 72%, transparent);
+  font-weight: 740;
+}
+
+.workbench-music-account {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.workbench-music-account-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #ffffff 55%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 36%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 55%, transparent);
+}
+
+.workbench-music-account-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: rgba(0, 122, 255, 0.86);
+}
+
+.workbench-music-account-meta > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.workbench-music-account-meta strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text, #17202b);
+  font-size: 0.8125rem;
+  font-weight: 740;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-music-account-meta small {
+  display: block;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--text, #17202b) 55%, transparent);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Collapsed bar: circular art | title | prev/play/next | chevron — no "音乐" label */
+.workbench-music-footer {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workbench-music-toggle-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0;
+  color: inherit;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-music-toggle-art {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  color: color-mix(in srgb, var(--text, #17202b) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-solid, #fff) 48%, transparent);
+  border: 1px solid color-mix(in srgb, #ffffff 55%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent);
+}
+
+/* The rotating compact disc is nested inside the click target, so the
+   footer action can retain its stable transform and hit-area. */
+.workbench-music-toggle-art-disc {
+  border-radius: 50%;
+}
+
+.workbench-music-toggle-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text, #17202b);
+  font-size: 0.8125rem;
+  font-weight: 760;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-music-mini-transport {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.workbench-music-mini-skip,
+.workbench-music-mini-play,
+.workbench-music-expand {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: color-mix(in srgb, var(--text, #17202b) 72%, transparent);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.workbench-music-mini-skip:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.workbench-music-mini-play {
+  width: 32px;
+  height: 32px;
+  color: #fff;
+  border-radius: 50%;
+  background: linear-gradient(180deg, rgba(0, 122, 255, 0.88), #007aff);
+  box-shadow: 0 6px 14px rgba(0, 122, 255, 0.22);
+}
+
+.workbench-music-expand {
+  color: color-mix(in srgb, var(--text, #17202b) 55%, transparent);
+}
+
+.workbench-music-card .is-spinning {
+  animation: workbench-music-spin 0.9s linear infinite;
+}
+
+@keyframes workbench-music-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.workbench-music-card .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-head > div:first-child span,
+:root[data-resolved-theme='dark'] .workbench-music-now-meta small,
+:root[data-resolved-theme='dark'] .workbench-music-row small,
+:root[data-resolved-theme='dark'] .workbench-music-row-meta small,
+:root[data-resolved-theme='dark'] .workbench-music-empty,
+:root[data-resolved-theme='dark'] .workbench-music-status,
+:root[data-resolved-theme='dark'] .workbench-music-account-hint,
+:root[data-resolved-theme='dark'] .workbench-music-section-title,
+:root[data-resolved-theme='dark'] .workbench-music-time,
+:root[data-resolved-theme='dark'] .workbench-music-account-meta small,
+:root[data-resolved-theme='dark'] .workbench-music-mini-skip,
+:root[data-resolved-theme='dark'] .workbench-music-expand {
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-now-meta strong,
+:root[data-resolved-theme='dark'] .workbench-music-row strong,
+:root[data-resolved-theme='dark'] .workbench-music-row-meta strong,
+:root[data-resolved-theme='dark'] .workbench-music-toggle-title,
+:root[data-resolved-theme='dark'] .workbench-music-account-meta strong {
+  color: color-mix(in srgb, var(--text) 96%, #ffffff);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-provider-switch,
+:root[data-resolved-theme='dark'] .workbench-music-tabs,
+:root[data-resolved-theme='dark'] .workbench-music-row,
+:root[data-resolved-theme='dark'] .workbench-music-search-form,
+:root[data-resolved-theme='dark'] .workbench-music-account-card,
+:root[data-resolved-theme='dark'] .workbench-music-volume-popover,
+:root[data-resolved-theme='dark'] .workbench-music-toggle-art {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: color-mix(in srgb, var(--text) 88%, #ffffff);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-now-action {
+  color: color-mix(in srgb, var(--text) 82%, #ffffff);
+  background: transparent;
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-tabs::before {
+  background: rgba(0, 122, 255, 0.28);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-tabs button.is-active {
+  color: #68adff;
+  background: transparent;
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-library-actions button {
+  background: rgba(255, 255, 255, 0.08);
+  color: color-mix(in srgb, var(--text) 90%, #ffffff);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-search-form input {
+  color: color-mix(in srgb, var(--text) 96%, #ffffff);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-music-card .is-spinning {
+    animation: none;
+  }
+
+  .workbench-music-dock {
+    transition-duration: 1ms;
+  }
+}
+
+/* The compact music surface should expand from every non-transport pixel.
+   Keep playback controls above the full-card disclosure button so their
+   dedicated actions remain independent. */
+.workbench-music-card:not(.is-open):not(.is-closing) {
+  padding: 0;
+}
+
+.workbench-music-card:not(.is-open):not(.is-closing) .workbench-music-footer,
+.workbench-music-card.is-open .workbench-music-footer,
+.workbench-music-card.is-closing .workbench-music-footer {
+  min-height: 50px;
+  padding: 8px 10px 8px 12px;
+}
+
+/* The dock is bottom-anchored. Keep the footer's exact 50px footprint in all
+   disclosure states so opening the panel only grows upward. */
+.workbench-music-card.is-open,
+.workbench-music-card.is-closing {
+  padding: 14px 10px 0 12px;
+}
+
+.workbench-music-footer .workbench-music-toggle-card {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  min-height: 0;
+  padding: 8px 118px 8px 12px;
+}
+
+.workbench-music-footer .workbench-music-mini-transport,
+.workbench-music-footer .workbench-music-expand {
+  position: relative;
+  z-index: 1;
+}
+
+.workbench-music-footer .workbench-music-mini-transport {
+  grid-column: 2;
+}
+
+.workbench-music-footer .workbench-music-expand {
+  grid-column: 3;
+}
+
+/* Keep the disclosure shell geometry invariant. Panel spacing belongs to the
+   revealed content, not to the card itself, so neither transition can nudge
+   the compact footer before, during, or after the height animation. */
+.workbench-music-card,
+.workbench-music-card.is-open,
+.workbench-music-card.is-closing {
+  padding: 0;
+}
+
+.workbench-music-card.is-open,
+.workbench-music-card.is-open .workbench-music-reveal {
+  overflow: visible;
+}
+
+.workbench-music-reveal-inner {
+  padding: 14px 10px 10px 12px;
+}

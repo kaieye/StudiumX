@@ -10,7 +10,8 @@ import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import {
   LEGACY_PREVIEW_PROTOCOL,
   PREVIEW_EXTERNAL_LINK_MESSAGE,
-  PREVIEW_MARKDOWN_LINK_MESSAGE
+  PREVIEW_MARKDOWN_LINK_MESSAGE,
+  PREVIEW_SCROLLBAR_STYLE_ID
 } from '../../src/shared/preview-markdown-bridge'
 
 const runtimeScope = createVitestRuntimeScope()
@@ -70,6 +71,9 @@ describe('TeachingWorkspaceDocuments', () => {
     expect(lesson.html).toContain('<base href="studiumx-preview://workspace-documents/courses/course-a/lesson-a/index.html"')
     expect(lesson.html).toContain(PREVIEW_MARKDOWN_LINK_MESSAGE)
     expect(lesson.html).toContain(PREVIEW_EXTERNAL_LINK_MESSAGE)
+    expect(lesson.html).toContain(`id="${PREVIEW_SCROLLBAR_STYLE_ID}"`)
+    expect(lesson.html).toContain('scrollbar-color: var(--studiumx-preview-scrollbar-thumb) transparent !important;')
+    expect(lesson.html).toContain('background: transparent !important;')
 
     await expect(documents.resolvePreviewFile(workspace, 'assets/lesson.css')).resolves.toMatchObject({
       relativePath: 'assets/lesson.css',
@@ -89,6 +93,7 @@ describe('TeachingWorkspaceDocuments', () => {
     )
     expect(htmlPreview?.body.toString('utf8')).toContain(`<base href="${LEGACY_PREVIEW_PROTOCOL}://workspace-documents/courses/course-a/lesson-a/index.html"`)
     expect(htmlPreview?.body.toString('utf8')).toContain(PREVIEW_MARKDOWN_LINK_MESSAGE)
+    expect(htmlPreview?.body.toString('utf8')).toContain(`id="${PREVIEW_SCROLLBAR_STYLE_ID}"`)
 
     const binaryPreview = await documents.readPreview(workspace, 'assets/sample.bin', 'studiumx-preview://workspace-documents/assets/sample.bin')
     expect(binaryPreview?.mimeType).toBe('application/octet-stream')

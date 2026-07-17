@@ -3,11 +3,20 @@ import { test } from '../helpers/electron'
 import { expectNoAccessibilityViolations } from '../helpers/accessibility'
 
 async function openWorkbench(mainWindow: import('@playwright/test').Page): Promise<void> {
-  const fab = mainWindow.locator('.workbench-analytics-fab')
-  if (await fab.count() === 0) {
+  const taskToggle = mainWindow.locator('.workbench-task-toggle-card')
+  if (await taskToggle.count() === 0) {
     await mainWindow.getByRole('button', { name: '自习室' }).click()
   }
-  await expect(fab).toBeVisible()
+  await expect(taskToggle).toBeVisible()
+}
+
+async function openAnalyticsEntry(mainWindow: import('@playwright/test').Page): Promise<void> {
+  await openWorkbench(mainWindow)
+  const isExpanded = await mainWindow.locator('.workbench-task-toggle-card').getAttribute('aria-expanded')
+  if (isExpanded !== 'true') {
+    await mainWindow.locator('.workbench-task-toggle-card').click()
+  }
+  await expect(mainWindow.locator('.workbench-task-analytics-button')).toBeVisible()
 }
 
 async function openAnalytics(mainWindow: import('@playwright/test').Page): Promise<void> {
@@ -34,16 +43,17 @@ test('opens analytics from a deep link and exposes page landmarks and unavailabl
   await expectNoAccessibilityViolations(mainWindow, { include: '.study-analytics-page' })
 })
 
-test('FAB opens analytics and back restores the FAB focus', async ({ mainWindow }) => {
-  await openWorkbench(mainWindow)
-  await expect(mainWindow.locator('.workbench-analytics-fab')).toBeVisible()
-  await mainWindow.locator('.workbench-analytics-fab').click()
+test('task panel analytics button opens analytics and back restores focus', async ({ mainWindow }) => {
+  await openAnalyticsEntry(mainWindow)
+  const analyticsButton = mainWindow.locator('.workbench-task-analytics-button')
+  await expect(analyticsButton).toBeVisible()
+  await analyticsButton.click()
   await expect(mainWindow).toHaveURL(/workbench=analytics/)
   await expect(mainWindow.locator('.study-analytics-page')).toBeVisible()
 
   await mainWindow.getByRole('button', { name: /返回自习室|Back to study room/i }).click()
   await expect(mainWindow).toHaveURL(/workbench=1/)
-  await expect(mainWindow.locator('.workbench-analytics-fab')).toBeFocused()
+  await expect(mainWindow.locator('.workbench-task-analytics-button')).toBeFocused()
 })
 
 test('analytics renders the full multi-section dashboard', async ({ mainWindow }) => {

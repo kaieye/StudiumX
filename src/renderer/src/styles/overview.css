@@ -113,6 +113,8 @@
   padding: 24px 0 16px;
   overflow-y: auto;
   scroll-behavior: smooth;
+  --scrollbar-track: transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
   user-select: text;
   -webkit-user-select: text;
   app-region: no-drag;
@@ -126,6 +128,10 @@
   padding: 0 24px;
 }.overview-dialog-thread::-webkit-scrollbar {
   width: 8px;
+}.overview-dialog-thread::-webkit-scrollbar-track,
+.overview-dialog-thread::-webkit-scrollbar-corner {
+  background: transparent;
+  box-shadow: none;
 }.overview-dialog-thread::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: rgba(70, 70, 70, 0.16);

@@ -204,6 +204,8 @@ describe('learning asset reader', () => {
     const resource: ResourcePreviewFile = { id: 'style-1', title: 'Style preview', html: '<h1>Style</h1>' }
 
     reader.openResourcePreview(resource)
+    expect(state.selectedResourcePreviewFile?.html).toContain('id="studiumx-preview-scrollbar-style"')
+    expect(state.selectedResourcePreviewFile?.html).toContain('background: transparent !important;')
     state.selectedMarkdownDocument = markdownDocument(courseFile('leftover', 'md'), '# leftover')
     state.markdownDraft = '# leftover'
     state.markdownSaving = true

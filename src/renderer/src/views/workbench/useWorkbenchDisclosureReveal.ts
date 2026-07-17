@@ -11,8 +11,18 @@ type WorkbenchDisclosureReveal = {
   toggle: () => void
 }
 
-export function useWorkbenchDisclosureReveal(): WorkbenchDisclosureReveal {
-  const [open, setOpen] = useState(false)
+type UseWorkbenchDisclosureRevealOptions = {
+  defaultOpen?: boolean
+  /** Keeps a disclosure at a stable revealed height instead of measuring its contents. */
+  fixedHeight?: number
+}
+
+export function useWorkbenchDisclosureReveal(
+  options: UseWorkbenchDisclosureRevealOptions = {}
+): WorkbenchDisclosureReveal {
+  const fixedHeight =
+    typeof options.fixedHeight === 'number' ? Math.max(0, options.fixedHeight) : undefined
+  const [open, setOpen] = useState(Boolean(options.defaultOpen))
   const [isClosing, setIsClosing] = useState(false)
   const [revealHeight, setRevealHeight] = useState(0)
   const revealRef = useRef<HTMLDivElement>(null)
@@ -28,7 +38,16 @@ export function useWorkbenchDisclosureReveal(): WorkbenchDisclosureReveal {
   useEffect(() => clearCollapseTimer, [clearCollapseTimer])
 
   useLayoutEffect(() => {
-    if (!open || !revealInnerRef.current) return
+    if (!open) return
+
+    // Some disclosures are a self-contained viewport. Their content can change
+    // without changing the outer card geometry (for example, tab switches).
+    if (fixedHeight !== undefined) {
+      setRevealHeight(fixedHeight)
+      return
+    }
+
+    if (!revealInnerRef.current) return
 
     const revealInner = revealInnerRef.current
     const syncRevealHeight = (): void => {
@@ -42,7 +61,7 @@ export function useWorkbenchDisclosureReveal(): WorkbenchDisclosureReveal {
     const resizeObserver = new ResizeObserver(syncRevealHeight)
     resizeObserver.observe(revealInner)
     return () => resizeObserver.disconnect()
-  }, [open])
+  }, [fixedHeight, open])
 
   const toggle = useCallback((): void => {
     clearCollapseTimer()
@@ -59,9 +78,9 @@ export function useWorkbenchDisclosureReveal(): WorkbenchDisclosureReveal {
     }
 
     setIsClosing(false)
-    setRevealHeight(revealInnerRef.current?.scrollHeight ?? 0)
+    setRevealHeight(fixedHeight ?? revealInnerRef.current?.scrollHeight ?? 0)
     setOpen(true)
-  }, [clearCollapseTimer, open])
+  }, [clearCollapseTimer, fixedHeight, open])
 
   return {
     open,

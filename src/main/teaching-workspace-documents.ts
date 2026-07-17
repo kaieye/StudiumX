@@ -7,6 +7,7 @@ import type { ReadLessonResult, WorkspaceMarkdownDocument } from '../shared/teac
 import {
   ensurePreviewBaseTag,
   injectPreviewMarkdownLinkBridge,
+  injectPreviewTransparentScrollbarStyle,
   PREVIEW_PROTOCOL
 } from '../shared/preview-markdown-bridge'
 
@@ -264,7 +265,7 @@ export function previewUrlForDocument(workspaceId: string, relativePath: string)
 }
 
 export function bridgePreviewHtml(html: string, baseHref: string): string {
-  return injectPreviewMarkdownLinkBridge(ensurePreviewBaseTag(html, baseHref))
+  return injectPreviewMarkdownLinkBridge(injectPreviewTransparentScrollbarStyle(ensurePreviewBaseTag(html, baseHref)))
 }
 
 export function mimeTypeForDocument(relativePath: string): string {

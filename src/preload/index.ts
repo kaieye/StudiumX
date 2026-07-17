@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { TeachingSystemApi } from '../shared/teaching-types'
+import type { StudiumxMusicApi } from '../shared/music-types'
+import { musicInvokeChannels } from '../shared/music-ipc-contract'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
 import { createAgentRealtimeDelivery } from './agent-realtime-delivery'
 import type {
@@ -132,4 +134,17 @@ const api: TeachingSystemApi = {
   openAppDataDir: () => ipcRenderer.invoke(teachingInvokeChannels.openAppDataDir)
 }
 
+const musicApi: StudiumxMusicApi = {
+  getAccountStatus: (provider) => ipcRenderer.invoke(musicInvokeChannels.getAccountStatus, provider),
+  openLogin: (provider) => ipcRenderer.invoke(musicInvokeChannels.openLogin, provider),
+  logout: (provider) => ipcRenderer.invoke(musicInvokeChannels.logout, provider),
+  search: (payload) => ipcRenderer.invoke(musicInvokeChannels.search, payload),
+  getPlaybackUrl: (song) => ipcRenderer.invoke(musicInvokeChannels.getPlaybackUrl, song),
+  getUserPlaylists: (provider) => ipcRenderer.invoke(musicInvokeChannels.getUserPlaylists, provider),
+  getPlaylistTracks: (payload) => ipcRenderer.invoke(musicInvokeChannels.getPlaylistTracks, payload),
+  getDailyRecommend: (provider) => ipcRenderer.invoke(musicInvokeChannels.getDailyRecommend, provider),
+  getLikedSongs: (provider) => ipcRenderer.invoke(musicInvokeChannels.getLikedSongs, provider)
+}
+
 contextBridge.exposeInMainWorld('teachingSystem', api)
+contextBridge.exposeInMainWorld('studiumxMusic', musicApi)

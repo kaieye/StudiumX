@@ -60,6 +60,8 @@ type StudyTaskSchedulePageProps = {
   onRemoveTask: (taskId: string) => void
   onBack: () => void
   openAddEditorOnMount?: boolean
+  showAddEditorOnly?: boolean
+  onEditorDismiss?: () => void
 }
 
 type TaskEditorState =
@@ -482,7 +484,9 @@ export function StudyTaskSchedulePage({
   onToggleTask,
   onRemoveTask,
   onBack,
-  openAddEditorOnMount = false
+  openAddEditorOnMount = false,
+  showAddEditorOnly = false,
+  onEditorDismiss
 }: StudyTaskSchedulePageProps) {
   const titleId = useId()
   const editorTitleId = useId()
@@ -653,6 +657,7 @@ export function StudyTaskSchedulePage({
     setCategoryContextMenu(null)
     setEditorError('')
     setCustomCategoryError('')
+    if (showAddEditorOnly) onEditorDismiss?.()
   }
 
   const updateEditorSchedule = (patch: Partial<StudyTaskScheduleInput>): void => {
@@ -954,6 +959,185 @@ export function StudyTaskSchedulePage({
     setHover((current) => current?.dayIndex === dayIndex ? null : current)
   }
 
+  const editorDialog = editor ? (
+        <div
+          className="study-schedule-editor-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeEditor()
+          }}
+        >
+          <form
+            className="study-schedule-editor-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={editorTitleId}
+            onSubmit={handleEditorSubmit}
+          >
+            <div className="study-schedule-editor-head">
+              <div>
+                <span>{editor.mode === 'add' ? <Plus size={15} /> : <PencilLine size={15} />}{editor.mode === 'add' ? '添加任务' : '编辑任务'}</span>
+                <h2 id={editorTitleId}>{weekDays[editor.schedule.weekday]} {formatScheduleMinutes(editor.schedule.startMinutes)}-{formatScheduleMinutes(editor.schedule.endMinutes)}</h2>
+              </div>
+              <button type="button" className="study-schedule-editor-close" onClick={closeEditor} aria-label="关闭">
+                <X size={16} />
+              </button>
+            </div>
+
+            <label>
+              <span>任务</span>
+              <input
+                value={editor.title}
+                onChange={(event) => {
+                  setEditor((current) => current ? { ...current, title: event.target.value } : current)
+                  setEditorError('')
+                }}
+                placeholder="例如：复盘线性代数错题"
+                maxLength={80}
+                autoFocus
+              />
+            </label>
+            <div className="study-schedule-editor-grid">
+              <label>
+                <span>星期</span>
+                <select
+                  value={editor.schedule.weekday}
+                  onChange={(event) => updateEditorSchedule({ weekday: Number(event.target.value) })}
+                >
+                  {weekDays.map((day, index) => (
+                    <option key={day} value={index}>{day}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="study-schedule-editor-field">
+                <span>开始</span>
+                <TimeSelect
+                  value={editor.schedule.startMinutes}
+                  minMinutes={0}
+                  maxMinutes={MINUTES_PER_DAY - 1}
+                  ariaLabel="开始时间"
+                  onChange={(nextStart) => {
+                    updateEditorSchedule({
+                      startMinutes: nextStart,
+                      endMinutes: editor.schedule.endMinutes <= nextStart
+                        ? Math.min(MINUTES_PER_DAY, nextStart + 60)
+                        : editor.schedule.endMinutes
+                    })
+                  }}
+                />
+              </div>
+              <div className="study-schedule-editor-field">
+                <span>结束</span>
+                <TimeSelect
+                  value={editor.schedule.endMinutes}
+                  minMinutes={1}
+                  maxMinutes={MINUTES_PER_DAY}
+                  ariaLabel="结束时间"
+                  disabledOption={(minutes) => minutes <= editor.schedule.startMinutes}
+                  onChange={(endMinutes) => updateEditorSchedule({ endMinutes })}
+                />
+              </div>
+            </div>
+            <div className="study-schedule-editor-categories">
+              <span>类别</span>
+              <div className="study-schedule-category-swatches" aria-label="任务类别">
+                {taskCategories.map((category) => (
+                  <div
+                    key={category.id}
+                    className={`study-schedule-category-option${editor.categoryId === category.id ? ' is-selected' : ''}`}
+                    style={categoryBadgeStyle(category)}
+                  >
+                    <button
+                      type="button"
+                      className="study-schedule-category-select"
+                      aria-pressed={editor.categoryId === category.id}
+                      title={category.builtin ? category.name : `${category.name} · 右键删除`}
+                      onClick={() => updateEditorCategory(category.id)}
+                      onContextMenu={(event) => openCategoryContextMenu(event, category)}
+                    >
+                      <em>{category.name}</em>
+                    </button>
+                    <label
+                      className="study-schedule-category-color"
+                      title={`修改${category.name}颜色`}
+                    >
+                      <input
+                        type="color"
+                        value={category.color}
+                        aria-label={`修改${category.name}颜色`}
+                        onChange={(event) => updateCategoryColor(
+                          category.id,
+                          event.target.value.toLowerCase() as `#${string}`
+                        )}
+                      />
+                      <span aria-hidden="true" />
+                    </label>
+                  </div>
+                ))}
+              </div>
+              <div className="study-schedule-custom-category">
+                <input
+                  type="text"
+                  value={customCategoryName}
+                  maxLength={maxCategoryNameLength}
+                  placeholder="自定义类别名称"
+                  aria-label="自定义类别名称"
+                  onChange={(event) => {
+                    setCustomCategoryName(event.target.value)
+                    setCustomCategoryError('')
+                  }}
+                />
+                <input
+                  type="color"
+                  value={customCategoryColor}
+                  aria-label="自定义类别颜色"
+                  onChange={(event) => setCustomCategoryColor(event.target.value.toLowerCase() as `#${string}`)}
+                />
+                <button type="button" onClick={addCustomCategory}>
+                  <Plus size={14} />
+                  添加类别
+                </button>
+              </div>
+              {customCategoryError ? (
+                <div className="study-schedule-category-error" role="status">{customCategoryError}</div>
+              ) : null}
+            </div>
+            <div className="study-schedule-editor-status" role="status" aria-live="polite">
+              {editorError}
+            </div>
+            <div className="study-schedule-editor-footer">
+              {editor.mode === 'edit' ? (
+                <div className="study-schedule-editor-completion">
+                  <button
+                    type="button"
+                    className={editor.done ? 'is-complete' : ''}
+                    aria-pressed={editor.done}
+                    aria-label={editor.done ? '取消完成' : '标记为已完成'}
+                    onClick={() => {
+                      setEditor((current) => current && current.mode === 'edit'
+                        ? { ...current, done: !current.done }
+                        : current)
+                    }}
+                  >
+                    <Check size={17} />
+                  </button>
+                  <span>已完成</span>
+                </div>
+              ) : <span aria-hidden="true" />}
+              <div className="study-schedule-editor-actions">
+                <button type="button" className="study-schedule-secondary-button" onClick={closeEditor}>取消</button>
+                <button type="submit" className="study-schedule-primary-button">
+                  <Check size={15} />
+                  {editor.mode === 'add' ? '添加' : '保存'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+  ) : null
+
+  if (showAddEditorOnly) return editorDialog
+
   return (
     <div className="study-schedule-page" aria-labelledby={titleId}>
       <header className="study-schedule-header">
@@ -1250,182 +1434,7 @@ export function StudyTaskSchedulePage({
         </div>
       ) : null}
 
-      {editor ? (
-        <div
-          className="study-schedule-editor-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeEditor()
-          }}
-        >
-          <form
-            className="study-schedule-editor-panel"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={editorTitleId}
-            onSubmit={handleEditorSubmit}
-          >
-            <div className="study-schedule-editor-head">
-              <div>
-                <span>{editor.mode === 'add' ? <Plus size={15} /> : <PencilLine size={15} />}{editor.mode === 'add' ? '添加任务' : '编辑任务'}</span>
-                <h2 id={editorTitleId}>{weekDays[editor.schedule.weekday]} {formatScheduleMinutes(editor.schedule.startMinutes)}-{formatScheduleMinutes(editor.schedule.endMinutes)}</h2>
-              </div>
-              <button type="button" className="study-schedule-editor-close" onClick={closeEditor} aria-label="关闭">
-                <X size={16} />
-              </button>
-            </div>
-
-            <label>
-              <span>任务</span>
-              <input
-                value={editor.title}
-                onChange={(event) => {
-                  setEditor((current) => current ? { ...current, title: event.target.value } : current)
-                  setEditorError('')
-                }}
-                placeholder="例如：复盘线性代数错题"
-                maxLength={80}
-                autoFocus
-              />
-            </label>
-            <div className="study-schedule-editor-grid">
-              <label>
-                <span>星期</span>
-                <select
-                  value={editor.schedule.weekday}
-                  onChange={(event) => updateEditorSchedule({ weekday: Number(event.target.value) })}
-                >
-                  {weekDays.map((day, index) => (
-                    <option key={day} value={index}>{day}</option>
-                  ))}
-                </select>
-              </label>
-              <div className="study-schedule-editor-field">
-                <span>开始</span>
-                <TimeSelect
-                  value={editor.schedule.startMinutes}
-                  minMinutes={0}
-                  maxMinutes={MINUTES_PER_DAY - 1}
-                  ariaLabel="开始时间"
-                  onChange={(nextStart) => {
-                    updateEditorSchedule({
-                      startMinutes: nextStart,
-                      endMinutes: editor.schedule.endMinutes <= nextStart
-                        ? Math.min(MINUTES_PER_DAY, nextStart + 60)
-                        : editor.schedule.endMinutes
-                    })
-                  }}
-                />
-              </div>
-              <div className="study-schedule-editor-field">
-                <span>结束</span>
-                <TimeSelect
-                  value={editor.schedule.endMinutes}
-                  minMinutes={1}
-                  maxMinutes={MINUTES_PER_DAY}
-                  ariaLabel="结束时间"
-                  disabledOption={(minutes) => minutes <= editor.schedule.startMinutes}
-                  onChange={(endMinutes) => updateEditorSchedule({ endMinutes })}
-                />
-              </div>
-            </div>
-            <div className="study-schedule-editor-categories">
-              <span>类别</span>
-              <div className="study-schedule-category-swatches" aria-label="任务类别">
-                {taskCategories.map((category) => (
-                  <div
-                    key={category.id}
-                    className={`study-schedule-category-option${editor.categoryId === category.id ? ' is-selected' : ''}`}
-                    style={categoryBadgeStyle(category)}
-                  >
-                    <button
-                      type="button"
-                      className="study-schedule-category-select"
-                      aria-pressed={editor.categoryId === category.id}
-                      title={category.builtin ? category.name : `${category.name} · 右键删除`}
-                      onClick={() => updateEditorCategory(category.id)}
-                      onContextMenu={(event) => openCategoryContextMenu(event, category)}
-                    >
-                      <em>{category.name}</em>
-                    </button>
-                    <label
-                      className="study-schedule-category-color"
-                      title={`修改${category.name}颜色`}
-                    >
-                      <input
-                        type="color"
-                        value={category.color}
-                        aria-label={`修改${category.name}颜色`}
-                        onChange={(event) => updateCategoryColor(
-                          category.id,
-                          event.target.value.toLowerCase() as `#${string}`
-                        )}
-                      />
-                      <span aria-hidden="true" />
-                    </label>
-                  </div>
-                ))}
-              </div>
-              <div className="study-schedule-custom-category">
-                <input
-                  type="text"
-                  value={customCategoryName}
-                  maxLength={maxCategoryNameLength}
-                  placeholder="自定义类别名称"
-                  aria-label="自定义类别名称"
-                  onChange={(event) => {
-                    setCustomCategoryName(event.target.value)
-                    setCustomCategoryError('')
-                  }}
-                />
-                <input
-                  type="color"
-                  value={customCategoryColor}
-                  aria-label="自定义类别颜色"
-                  onChange={(event) => setCustomCategoryColor(event.target.value.toLowerCase() as `#${string}`)}
-                />
-                <button type="button" onClick={addCustomCategory}>
-                  <Plus size={14} />
-                  添加类别
-                </button>
-              </div>
-              {customCategoryError ? (
-                <div className="study-schedule-category-error" role="status">{customCategoryError}</div>
-              ) : null}
-            </div>
-            <div className="study-schedule-editor-status" role="status" aria-live="polite">
-              {editorError}
-            </div>
-            <div className="study-schedule-editor-footer">
-              {editor.mode === 'edit' ? (
-                <div className="study-schedule-editor-completion">
-                  <button
-                    type="button"
-                    className={editor.done ? 'is-complete' : ''}
-                    aria-pressed={editor.done}
-                    aria-label={editor.done ? '取消完成' : '标记为已完成'}
-                    onClick={() => {
-                      setEditor((current) => current && current.mode === 'edit'
-                        ? { ...current, done: !current.done }
-                        : current)
-                    }}
-                  >
-                    <Check size={17} />
-                  </button>
-                  <span>已完成</span>
-                </div>
-              ) : <span aria-hidden="true" />}
-              <div className="study-schedule-editor-actions">
-                <button type="button" className="study-schedule-secondary-button" onClick={closeEditor}>取消</button>
-                <button type="submit" className="study-schedule-primary-button">
-                  <Check size={15} />
-                  {editor.mode === 'add' ? '添加' : '保存'}
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      ) : null}
+      {editorDialog}
     </div>
   )
 }

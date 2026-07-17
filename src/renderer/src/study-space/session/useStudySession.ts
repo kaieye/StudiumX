@@ -305,10 +305,25 @@ export function useStudySession({
     commitSnapshot(resetStudyTimer({ ...finished.snapshot, timerState: 'idle' }))
   }
 
-  const switchTimerMode = (timerMode: StudyTimerMode): void => {
-    const finished = lifecycle.finish(snapshotRef.current, 'interrupted', { taskId: selectedTaskId, workspaceId })
+  const startTimerInMode = (timerMode: StudyTimerMode): void => {
+    const current = snapshotRef.current
+    if (current.timerMode === timerMode) {
+      toggleTimer()
+      return
+    }
+
+    // A mode tab is only a preview. Finalize the active session and reset the
+    // next mode when its explicit start button is pressed, not when the tab is selected.
+    const finished = lifecycle.finish(current, 'interrupted', { taskId: selectedTaskId, workspaceId })
     dispatchLifecycleIntents(finished.intents)
-    commitSnapshot(switchStudyTimerMode({ ...finished.snapshot, timerState: 'idle' }, timerMode))
+    const switched = switchStudyTimerMode({ ...finished.snapshot, timerState: 'idle' }, timerMode)
+    const started = lifecycle.toggle(switched, {
+      taskId: selectedTaskId ?? null,
+      workspaceId,
+      activeModeName: viewModel.activeMode.name
+    })
+    dispatchLifecycleIntents(started.intents)
+    commitSnapshot(started.snapshot)
   }
 
   const addTask = (titleInput: string): boolean => {
@@ -402,7 +417,7 @@ export function useStudySession({
     chooseSeat,
     runHostAction,
     resetTimer,
-    switchTimerMode,
+    startTimerInMode,
     addTask,
     addScheduledTask,
     updateTask,

@@ -6,6 +6,7 @@ import { TeachingWorkspaceService } from './teaching-workspace'
 import { SkillLibraryService } from './skill-library'
 import { LearningAnalyticsService } from './teaching/services/learning-analytics'
 import { registerTeachingIpcGateway } from './teaching-ipc-gateway'
+import { registerMusicIpcGateway } from './music/music-ipc-gateway'
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { createAppDataMigrationPlan } from './app-data-migration-plan'
@@ -292,7 +293,9 @@ if (!hasSingleInstanceLock) {
           logger,
           applyAppBehavior: (settings) => applyAppBehavior(settings, tray, logger)
         })
-      },
+
+        registerMusicIpcGateway()
+},
       open: ({ settingsService, initialSettings, tray, logger }) => {
         const startHidden = initialSettings.appBehavior.startMinimized || process.argv.includes('--hidden')
         createWindow(settingsService, tray, logger, startHidden)

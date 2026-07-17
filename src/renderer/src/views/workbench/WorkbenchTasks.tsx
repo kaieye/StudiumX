@@ -1,5 +1,5 @@
-import { CalendarDays, Check, CheckCircle2, ChevronUp, Plus, Trash2 } from 'lucide-react'
-import { type CSSProperties } from 'react'
+import { CalendarDays, ChartColumn, Check, CheckCircle2, ChevronUp, Plus, Trash2 } from 'lucide-react'
+import { type CSSProperties, type RefObject } from 'react'
 import type { StudyTask } from '../../study-space/types'
 import {
   getReadableCategoryInk,
@@ -14,7 +14,11 @@ type WorkbenchTasksProps = {
   completedTasks: number
   onToggleTask: (taskId: string) => void
   onRemoveTask: (taskId: string) => void
-  onOpenSchedule: (openAddEditor?: boolean) => void
+  onOpenSchedule: () => void
+  onOpenAddTask: () => void
+  onOpenAnalytics: () => void
+  analyticsButtonRef?: RefObject<HTMLButtonElement | null>
+  defaultOpen?: boolean
 }
 
 function formatTaskMinutes(minutes: number): string {
@@ -37,9 +41,15 @@ export function WorkbenchTasks({
   completedTasks,
   onToggleTask,
   onRemoveTask,
-  onOpenSchedule
+  onOpenSchedule,
+  onOpenAddTask,
+  onOpenAnalytics,
+  analyticsButtonRef,
+  defaultOpen = false
 }: WorkbenchTasksProps) {
-  const { open, isClosing, revealHeight, revealRef, revealInnerRef, toggle } = useWorkbenchDisclosureReveal()
+  const { open, isClosing, revealHeight, revealRef, revealInnerRef, toggle } = useWorkbenchDisclosureReveal({
+    defaultOpen
+  })
   const categories = listStudyTaskCategories()
   const taskCount = openTasks + completedTasks
   const completedRatio = taskCount > 0 ? Math.round((completedTasks / taskCount) * 100) : 0
@@ -56,14 +66,22 @@ export function WorkbenchTasks({
         <div ref={revealInnerRef} className="workbench-disclosure-reveal-inner workbench-task-reveal-inner">
           <div id="workbench-task-panel" className="workbench-disclosure-panel workbench-task-panel">
             <div className="workbench-task-head">
-              <div>
-                <span><CheckCircle2 size={13} /> 清单管理</span>
-              </div>
+              <button
+                ref={analyticsButtonRef}
+                type="button"
+                className="workbench-task-analytics-button"
+                onClick={onOpenAnalytics}
+                aria-label="打开学习分析"
+                title="学习分析"
+              >
+                <ChartColumn size={14} strokeWidth={2.1} aria-hidden="true" />
+                <span>学习分析</span>
+              </button>
               <div className="workbench-task-actions">
                 <button
                   type="button"
                   className="workbench-task-add-button"
-                  onClick={() => onOpenSchedule(true)}
+                  onClick={onOpenAddTask}
                   aria-label="添加任务"
                   title="添加任务"
                 >
@@ -72,7 +90,7 @@ export function WorkbenchTasks({
                 <button
                   type="button"
                   className="workbench-task-detail-button"
-                  onClick={() => onOpenSchedule()}
+                  onClick={onOpenSchedule}
                   aria-label="查看任务详情"
                   title="任务详情"
                 >

@@ -9,20 +9,14 @@
     292px,
     calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset))
   );
-  border-radius: 999px;
-  /* Switch the container from pill to panel geometry immediately. Animating
-     999px corners while content is revealing clips the top edge into a large,
-     diagonal arc. The panel body below remains animated instead. */
+  /* At the compact 46px height, a 24px radius still renders as a pill. Keeping
+     this radius in both states prevents the card outline from snapping as the
+     detail area starts to reveal. */
+  border-radius: 24px;
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,
     filter 180ms ease;
-}
-
-.office-workbench-stage > .workbench-leaderboard.is-closing {
-  /* Keep the expanded geometry while the detail area collapses. Once the
-     reveal has finished, React restores the compact pill in a clean frame. */
-  border-radius: 24px;
 }
 
 .office-workbench-stage > .workbench-leaderboard.is-open {
@@ -35,7 +29,6 @@
     292px,
     calc(100% - var(--workbench-leaderboard-inline-inset) - var(--workbench-leaderboard-inline-inset))
   );
-  border-radius: 24px;
 }
 
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle,
@@ -74,10 +67,11 @@
   min-height: 0;
 }
 
+/* The reveal wrapper already animates this content into view. Moving the panel
+   at the same time made the rows visibly nudge after every toggle. */
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel {
-  transform: translateY(-9px);
-  transform-origin: top center;
-  transition: transform 300ms cubic-bezier(0.65, 0, 0.35, 1);
+  transform: none;
+  transition: none;
 }
 
 .office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-reveal {
@@ -87,10 +81,6 @@
     height 300ms cubic-bezier(0.65, 0, 0.35, 1),
     opacity 300ms cubic-bezier(0.65, 0, 0.35, 1),
     visibility 0s linear 0s;
-}
-
-.office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-panel {
-  transform: translateY(0);
 }
 
 @media (max-width: 720px) {

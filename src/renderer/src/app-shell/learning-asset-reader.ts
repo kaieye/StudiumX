@@ -1,3 +1,4 @@
+import { injectPreviewTransparentScrollbarStyle } from '../../../shared/preview-markdown-bridge'
 import type {
   ReadLessonPayload,
   ReadLessonResult,
@@ -206,7 +207,10 @@ export function createLearningAssetReader<ErrorState>(input: {
 
     openResourcePreview: (file) => {
       beginSelection()
-      input.port.applyPatch(openResourceReaderContext(file))
+      input.port.applyPatch(openResourceReaderContext({
+        ...file,
+        html: injectPreviewTransparentScrollbarStyle(file.html)
+      }))
     },
 
     updateMarkdownDraft: (content) => {

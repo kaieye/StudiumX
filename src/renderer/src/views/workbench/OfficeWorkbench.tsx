@@ -1,4 +1,4 @@
-import { ChartColumn, ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Maximize2, Minimize2, StickyNote, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
 import {
@@ -15,6 +15,7 @@ import {
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { WorkbenchTasks } from './WorkbenchTasks'
+import { WorkbenchMusicPlayer } from './WorkbenchMusicPlayer'
 import { StudyTaskSchedulePage } from './StudyTaskSchedulePage'
 import { StudyAnalyticsPage, type StudyAnalyticsPageProps } from './analytics/StudyAnalyticsPage'
 import {
@@ -30,7 +31,7 @@ type DeskId = `desk-${number}`
 // Its canvas draw loop renders every desk with drawDeskImage(ctx, assets.deskImage, slot).
 const workbenchSeatCount = 12
 const immersiveVideoUrl = new URL('../../../../../video.mp4', import.meta.url).href
-const immersiveCloseFallbackDurationMs = 1_700
+const immersiveCloseFallbackDurationMs = 1_200
 type ImmersivePhase = 'closed' | 'open' | 'closing'
 
 function deskIdForSeatIndex(seatIndex: number): DeskId {
@@ -56,7 +57,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     chooseSeat,
     toggleTimer,
     resetTimer,
-    switchTimerMode,
+    startTimerInMode,
     toggleAmbientEnabled,
     addScheduledTask,
     updateTask,
@@ -70,13 +71,18 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<OfficeSceneRuntime | null>(null)
   const chooseSeatRef = useRef(chooseSeat)
-  const analyticsFabRef = useRef<HTMLButtonElement | null>(null)
+  const analyticsButtonRef = useRef<HTMLButtonElement | null>(null)
   const immersiveVideoRef = useRef<HTMLVideoElement | null>(null)
   const immersiveCloseTimerRef = useRef<number | null>(null)
-  const restoreAnalyticsFabFocusRef = useRef(false)
+  const restoreAnalyticsFocusRef = useRef(false)
+  const [openTasksPanelForAnalytics, setOpenTasksPanelForAnalytics] = useState(false)
   const [route, setRoute] = useState<WorkbenchRoute>(() => parseWorkbenchRoute(window.location.search))
   const [immersivePhase, setImmersivePhase] = useState<ImmersivePhase>('closed')
-  const [openScheduleAddEditor, setOpenScheduleAddEditor] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [areRoomCardsHidden, setAreRoomCardsHidden] = useState(false)
+  const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false)
+  const [quickNote, setQuickNote] = useState('')
+  const [isTaskAddEditorOpen, setIsTaskAddEditorOpen] = useState(false)
   const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
   const occupantsByDeskId = new Map<DeskId, OfficeSceneSeatOccupant>()
 
@@ -118,7 +124,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       const nextRoute = parseWorkbenchRoute(window.location.search)
       setRoute((currentRoute) => {
         if (currentRoute === 'analytics' && nextRoute === 'room') {
-          restoreAnalyticsFabFocusRef.current = true
+          restoreAnalyticsFocusRef.current = true
+          setOpenTasksPanelForAnalytics(true)
         }
         return nextRoute
       })
@@ -128,19 +135,26 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   }, [])
 
   useEffect(() => {
-    if (route !== 'room' || !restoreAnalyticsFabFocusRef.current) return
-    restoreAnalyticsFabFocusRef.current = false
-    analyticsFabRef.current?.focus({ preventScroll: true })
+    if (route !== 'room' || !restoreAnalyticsFocusRef.current) return
+    restoreAnalyticsFocusRef.current = false
+    analyticsButtonRef.current?.focus({ preventScroll: true })
+    setOpenTasksPanelForAnalytics(false)
   }, [route])
 
-  const openTaskSchedule = (openAddEditor = false): void => {
-    setOpenScheduleAddEditor(openAddEditor)
+  const openTaskSchedule = (): void => {
     navigateWorkbenchRoute('schedule')
     setRoute('schedule')
   }
 
+  const openTaskAddEditor = (): void => {
+    setIsTaskAddEditorOpen(true)
+  }
+
+  const closeTaskAddEditor = (): void => {
+    setIsTaskAddEditorOpen(false)
+  }
+
   const closeTaskSchedule = (): void => {
-    setOpenScheduleAddEditor(false)
     navigateWorkbenchRoute('room', 'replace')
     setRoute('room')
   }
@@ -151,7 +165,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   }
 
   const closeStudyAnalytics = (): void => {
-    restoreAnalyticsFabFocusRef.current = true
+    restoreAnalyticsFocusRef.current = true
+    setOpenTasksPanelForAnalytics(true)
     navigateWorkbenchRoute('room', 'replace')
     setRoute('room')
   }
@@ -202,6 +217,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   const closeImmersive = useCallback((): void => {
     clearImmersiveCloseTimer()
+    setAreRoomCardsHidden(false)
+    setIsQuickNoteOpen(false)
     setImmersivePhase('closing')
     immersiveCloseTimerRef.current = window.setTimeout(
       finishImmersiveClose,
@@ -214,9 +231,32 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     else if (immersivePhase === 'open') closeImmersive()
   }
 
+  const toggleFullscreen = useCallback(async (): Promise<void> => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+      } else {
+        await stageRef.current?.requestFullscreen()
+      }
+    } catch {
+      // Fullscreen is controlled by the browser/Electron host and may be unavailable.
+    }
+  }, [])
+
+  useEffect(() => {
+    const syncFullscreenState = (): void => {
+      setIsFullscreen(document.fullscreenElement === stageRef.current)
+    }
+    syncFullscreenState()
+    document.addEventListener('fullscreenchange', syncFullscreenState)
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState)
+  }, [])
+
   useEffect(() => {
     if (route !== 'room') {
       clearImmersiveCloseTimer()
+      setAreRoomCardsHidden(false)
+      setIsQuickNoteOpen(false)
       setImmersivePhase('closed')
       return
     }
@@ -235,11 +275,15 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
       event.preventDefault()
+      if (isQuickNoteOpen) {
+        setIsQuickNoteOpen(false)
+        return
+      }
       closeImmersive()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [closeImmersive, immersivePhase])
+  }, [closeImmersive, immersivePhase, isQuickNoteOpen])
 
   useEffect(() => clearImmersiveCloseTimer, [clearImmersiveCloseTimer])
 
@@ -263,7 +307,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           onToggleTask={toggleTask}
           onRemoveTask={removeTask}
           onBack={closeTaskSchedule}
-          openAddEditorOnMount={openScheduleAddEditor}
         />
       </section>
     )
@@ -271,7 +314,10 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   return (
     <section className="office-workbench-page" aria-label="自习室">
-      <div ref={stageRef} className={`office-workbench-stage${immersivePhase !== 'closed' ? ' is-immersive' : ''}`}>
+      <div
+        ref={stageRef}
+        className={`office-workbench-stage${immersivePhase !== 'closed' ? ' is-immersive' : ''}${areRoomCardsHidden ? ' are-room-cards-hidden' : ''}`}
+      >
         <canvas
           ref={canvasRef}
           className="office-workbench-canvas"
@@ -279,16 +325,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           aria-live="polite"
           tabIndex={0}
         />
-        <button
-          ref={analyticsFabRef}
-          type="button"
-          className="workbench-analytics-fab"
-          onClick={openStudyAnalytics}
-          aria-label="打开学习分析"
-        >
-          <ChartColumn size={19} strokeWidth={2.1} aria-hidden="true" />
-          <span>学习分析</span>
-        </button>
         <WorkbenchLeaderboard
           members={viewModel.roomMembers}
           presenceStatus={presence.status}
@@ -310,7 +346,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             ambientLabel={viewModel.activeRoom.ambient}
             onToggleTimer={toggleTimer}
             onResetTimer={resetTimer}
-            onSwitchTimerMode={switchTimerMode}
+            onStartTimerInMode={startTimerInMode}
             onToggleAmbientEnabled={toggleAmbientEnabled}
           />
           <WorkbenchTasks
@@ -320,7 +356,31 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             onToggleTask={toggleTask}
             onRemoveTask={removeTask}
             onOpenSchedule={openTaskSchedule}
+            onOpenAddTask={openTaskAddEditor}
+            onOpenAnalytics={openStudyAnalytics}
+            analyticsButtonRef={analyticsButtonRef}
+            defaultOpen={openTasksPanelForAnalytics}
           />
+        </div>
+        {isTaskAddEditorOpen ? (
+          <div className="office-workbench-task-add-overlay">
+            <StudyTaskSchedulePage
+              tasks={snapshot.tasks}
+              openTasks={viewModel.openTasks}
+              completedTasks={viewModel.completedTasks}
+              onAddScheduledTask={addScheduledTask}
+              onUpdateTask={updateTask}
+              onToggleTask={toggleTask}
+              onRemoveTask={removeTask}
+              onBack={closeTaskAddEditor}
+              openAddEditorOnMount
+              showAddEditorOnly
+              onEditorDismiss={closeTaskAddEditor}
+            />
+          </div>
+        ) : null}
+        <div className="workbench-music-dock">
+          <WorkbenchMusicPlayer />
         </div>
         <div
           id="workbench-immersive-layer"
@@ -345,21 +405,90 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             <div className="workbench-immersive-vignette" aria-hidden="true" />
           </div>
         </div>
-        <button
-          type="button"
-          className={`workbench-immersive-toggle${immersivePhase !== 'closed' ? ' is-open' : ''}`}
-          onClick={toggleImmersive}
-          aria-controls="workbench-immersive-layer"
-          aria-expanded={immersivePhase !== 'closed'}
-          aria-label={immersivePhase !== 'closed' ? '收起沉浸模式' : '展开沉浸模式'}
-          title={immersivePhase !== 'closed' ? '收起沉浸模式' : '展开沉浸模式'}
-        >
-          {immersivePhase !== 'closed' ? (
-            <ChevronDown size={48} strokeWidth={1.9} aria-hidden="true" />
-          ) : (
-            <ChevronUp size={48} strokeWidth={1.9} aria-hidden="true" />
-          )}
-        </button>
+        <div className={`workbench-immersive-controls${immersivePhase !== 'closed' ? ' is-open' : ''}`}>
+          <div className="workbench-immersive-arc-menu" role="group" aria-label="沉浸模式快捷操作">
+            <button
+              type="button"
+              className={`workbench-immersive-arc-action workbench-immersive-arc-action--hide${areRoomCardsHidden ? ' is-active' : ''}`}
+              onClick={() => setAreRoomCardsHidden((hidden) => !hidden)}
+              aria-pressed={areRoomCardsHidden}
+              aria-label={areRoomCardsHidden ? '显示自习室卡片' : '隐藏自习室卡片'}
+              title={areRoomCardsHidden ? '显示自习室卡片' : '隐藏自习室卡片'}
+            >
+              {areRoomCardsHidden ? (
+                <Eye size={20} strokeWidth={2} aria-hidden="true" />
+              ) : (
+                <EyeOff size={20} strokeWidth={2} aria-hidden="true" />
+              )}
+            </button>
+            <button
+              type="button"
+              className={`workbench-immersive-arc-action workbench-immersive-arc-action--note${isQuickNoteOpen ? ' is-active' : ''}`}
+              onClick={() => setIsQuickNoteOpen((open) => !open)}
+              aria-pressed={isQuickNoteOpen}
+              aria-label="快捷记事"
+              title="快捷记事"
+            >
+              <StickyNote size={20} strokeWidth={2} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="workbench-immersive-arc-action workbench-immersive-arc-action--fullscreen"
+              onClick={() => void toggleFullscreen()}
+              aria-pressed={isFullscreen}
+              aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
+              title={isFullscreen ? '退出全屏' : '进入全屏'}
+            >
+              {isFullscreen ? (
+                <Minimize2 size={20} strokeWidth={2} aria-hidden="true" />
+              ) : (
+                <Maximize2 size={20} strokeWidth={2} aria-hidden="true" />
+              )}
+            </button>
+          </div>
+          <button
+            type="button"
+            className="workbench-immersive-toggle"
+            onClick={toggleImmersive}
+            aria-controls="workbench-immersive-layer"
+            aria-expanded={immersivePhase !== 'closed'}
+            aria-label={immersivePhase !== 'closed' ? '收起沉浸模式' : '进入沉浸模式'}
+            title={immersivePhase !== 'closed' ? '收起沉浸模式' : '进入沉浸模式'}
+          >
+            {immersivePhase !== 'closed' ? (
+              <ChevronDown size={48} strokeWidth={1.9} aria-hidden="true" />
+            ) : (
+              <ChevronUp size={48} strokeWidth={1.9} aria-hidden="true" />
+            )}
+          </button>
+        </div>
+        {isQuickNoteOpen ? (
+          <aside className="workbench-quick-note" aria-label="快捷记事">
+            <div className="workbench-quick-note__header">
+              <div>
+                <StickyNote size={18} aria-hidden="true" />
+                <strong>快捷记事</strong>
+              </div>
+              <button
+                type="button"
+                className="workbench-quick-note__close"
+                onClick={() => setIsQuickNoteOpen(false)}
+                aria-label="关闭快捷记事"
+                title="关闭"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            <textarea
+              className="workbench-quick-note__input"
+              value={quickNote}
+              onChange={(event) => setQuickNote(event.target.value)}
+              placeholder="记录这一刻的想法…"
+              aria-label="快捷记事内容"
+              autoFocus
+            />
+          </aside>
+        ) : null}
       </div>
     </section>
   )
