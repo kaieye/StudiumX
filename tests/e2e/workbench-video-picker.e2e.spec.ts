@@ -11,8 +11,11 @@ async function openWorkbench(mainWindow: import('@playwright/test').Page): Promi
 test('video picker next to the immersive arrow selects a local backdrop', async ({ mainWindow }) => {
   await openWorkbench(mainWindow)
 
+  const controls = mainWindow.locator('.workbench-immersive-controls')
   const videoButton = mainWindow.getByRole('button', { name: '选择视频' })
+  await controls.hover()
   await expect(videoButton).toBeVisible()
+  await expect(videoButton).toHaveClass(/workbench-immersive-arc-action--video/)
   await videoButton.click()
 
   const picker = mainWindow.getByRole('dialog', { name: '选择视频' })
@@ -28,6 +31,7 @@ test('video picker next to the immersive arrow selects a local backdrop', async 
   })
 
   await expect(picker).toBeHidden()
+  await controls.hover()
   await videoButton.click()
   await expect(picker).toContainText('当前视频：focus-session.mp4')
   await expect(mainWindow.locator('.workbench-immersive-video')).toHaveAttribute('src', /^blob:/)

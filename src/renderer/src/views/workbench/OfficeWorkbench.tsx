@@ -479,18 +479,19 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                 <Maximize2 size={20} strokeWidth={2} aria-hidden="true" />
               )}
             </button>
+            <button
+              type="button"
+              className={`workbench-immersive-arc-action workbench-immersive-arc-action--video${isVideoPickerOpen ? ' is-active' : ''}`}
+              onClick={() => setIsVideoPickerOpen((open) => !open)}
+              aria-controls="workbench-video-picker"
+              aria-expanded={isVideoPickerOpen}
+              aria-pressed={isVideoPickerOpen}
+              aria-label="选择视频"
+              title="选择视频"
+            >
+              <Video size={20} strokeWidth={2} aria-hidden="true" />
+            </button>
           </div>
-          <button
-            type="button"
-            className={`workbench-video-picker-trigger${isVideoPickerOpen ? ' is-active' : ''}`}
-            onClick={() => setIsVideoPickerOpen((open) => !open)}
-            aria-controls="workbench-video-picker"
-            aria-expanded={isVideoPickerOpen}
-            aria-label="选择视频"
-            title="选择视频"
-          >
-            <Video size={20} strokeWidth={2} aria-hidden="true" />
-          </button>
           <button
             type="button"
             className="workbench-immersive-toggle"
