@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Eye, EyeOff, Maximize2, Minimize2, StickyNote, Video, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, Plus, StickyNote, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
 import {
@@ -30,7 +30,23 @@ type DeskId = `desk-${number}`
 // OfficeSceneRuntime owns browser asset loading: new URL('../../../../../ref.png', import.meta.url).
 // Its canvas draw loop renders every desk with drawDeskImage(ctx, assets.deskImage, slot).
 const workbenchSeatCount = 12
-const immersiveVideoUrl = new URL('../../../../../video.mp4', import.meta.url).href
+const immersiveSceneUrl = new URL('../../../../../video.mp4', import.meta.url).href
+
+type ScenePreset = {
+  id: string
+  name: string
+  description: string
+  src: string
+}
+
+const builtInScenePresets: readonly ScenePreset[] = [
+  {
+    id: 'night-ambience',
+    name: '夜间氛围',
+    description: '适合长时间沉浸专注',
+    src: immersiveSceneUrl
+  }
+]
 const immersiveCloseFallbackDurationMs = 1_200
 type ImmersivePhase = 'closed' | 'open' | 'closing'
 
@@ -76,7 +92,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const analyticsButtonRef = useRef<HTMLButtonElement | null>(null)
   const immersiveVideoRef = useRef<HTMLVideoElement | null>(null)
   const immersiveCloseTimerRef = useRef<number | null>(null)
-  const customVideoObjectUrlRef = useRef<string | null>(null)
+  const customSceneObjectUrlRef = useRef<string | null>(null)
   const restoreAnalyticsFocusRef = useRef(false)
   const [openTasksPanelForAnalytics, setOpenTasksPanelForAnalytics] = useState(false)
   const [route, setRoute] = useState<WorkbenchRoute>(() => parseWorkbenchRoute(window.location.search))
@@ -84,10 +100,10 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [areRoomCardsHidden, setAreRoomCardsHidden] = useState(false)
   const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false)
-  const [isVideoPickerOpen, setIsVideoPickerOpen] = useState(false)
-  const [selectedVideo, setSelectedVideo] = useState({
-    name: '内置氛围视频',
-    src: immersiveVideoUrl
+  const [isScenePickerOpen, setIsScenePickerOpen] = useState(false)
+  const [selectedScene, setSelectedScene] = useState<Pick<ScenePreset, 'name' | 'src'>>({
+    name: builtInScenePresets[0].name,
+    src: builtInScenePresets[0].src
   })
   const [quickNote, setQuickNote] = useState('')
   const [isTaskAddEditorOpen, setIsTaskAddEditorOpen] = useState(false)
@@ -227,7 +243,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     clearImmersiveCloseTimer()
     setAreRoomCardsHidden(false)
     setIsQuickNoteOpen(false)
-    setIsVideoPickerOpen(false)
+    setIsScenePickerOpen(false)
     setImmersivePhase('closing')
     immersiveCloseTimerRef.current = window.setTimeout(
       finishImmersiveClose,
@@ -266,7 +282,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       clearImmersiveCloseTimer()
       setAreRoomCardsHidden(false)
       setIsQuickNoteOpen(false)
-      setIsVideoPickerOpen(false)
+      setIsScenePickerOpen(false)
       setImmersivePhase('closed')
       return
     }
@@ -278,15 +294,15 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     } else {
       video.pause()
     }
-  }, [clearImmersiveCloseTimer, immersivePhase, route, selectedVideo.src])
+  }, [clearImmersiveCloseTimer, immersivePhase, route, selectedScene.src])
 
   useEffect(() => {
-    if (immersivePhase !== 'open' && !isVideoPickerOpen) return
+    if (immersivePhase !== 'open' && !isScenePickerOpen) return
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
       event.preventDefault()
-      if (isVideoPickerOpen) {
-        setIsVideoPickerOpen(false)
+      if (isScenePickerOpen) {
+        setIsScenePickerOpen(false)
         return
       }
       if (isQuickNoteOpen) {
@@ -297,30 +313,30 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [closeImmersive, immersivePhase, isQuickNoteOpen, isVideoPickerOpen])
+  }, [closeImmersive, immersivePhase, isQuickNoteOpen, isScenePickerOpen])
 
   useEffect(() => clearImmersiveCloseTimer, [clearImmersiveCloseTimer])
 
   useEffect(() => () => {
-    if (customVideoObjectUrlRef.current) URL.revokeObjectURL(customVideoObjectUrlRef.current)
+    if (customSceneObjectUrlRef.current) URL.revokeObjectURL(customSceneObjectUrlRef.current)
   }, [])
 
-  const selectBuiltInVideo = (): void => {
-    if (customVideoObjectUrlRef.current) {
-      URL.revokeObjectURL(customVideoObjectUrlRef.current)
-      customVideoObjectUrlRef.current = null
+  const selectBuiltInScene = (scene: ScenePreset): void => {
+    if (customSceneObjectUrlRef.current) {
+      URL.revokeObjectURL(customSceneObjectUrlRef.current)
+      customSceneObjectUrlRef.current = null
     }
-    setSelectedVideo({ name: '内置氛围视频', src: immersiveVideoUrl })
-    setIsVideoPickerOpen(false)
+    setSelectedScene({ name: scene.name, src: scene.src })
+    setIsScenePickerOpen(false)
   }
 
-  const selectLocalVideo = (file: File | undefined): void => {
+  const selectLocalScene = (file: File | undefined): void => {
     if (!file) return
-    if (customVideoObjectUrlRef.current) URL.revokeObjectURL(customVideoObjectUrlRef.current)
+    if (customSceneObjectUrlRef.current) URL.revokeObjectURL(customSceneObjectUrlRef.current)
     const src = URL.createObjectURL(file)
-    customVideoObjectUrlRef.current = src
-    setSelectedVideo({ name: file.name, src })
-    setIsVideoPickerOpen(false)
+    customSceneObjectUrlRef.current = src
+    setSelectedScene({ name: `自定义场景 · ${file.name}`, src })
+    setIsScenePickerOpen(false)
   }
 
   if (route === 'analytics') {
@@ -433,7 +449,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             <video
               ref={immersiveVideoRef}
               className="workbench-immersive-video"
-              src={selectedVideo.src}
+              src={selectedScene.src}
               muted
               loop
               playsInline
@@ -484,15 +500,15 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             </button>
             <button
               type="button"
-              className={`workbench-immersive-arc-action workbench-immersive-arc-action--video${isVideoPickerOpen ? ' is-active' : ''}`}
-              onClick={() => setIsVideoPickerOpen((open) => !open)}
-              aria-controls="workbench-video-picker"
-              aria-expanded={isVideoPickerOpen}
-              aria-pressed={isVideoPickerOpen}
-              aria-label="选择视频"
-              title="选择视频"
+              className={`workbench-immersive-arc-action workbench-immersive-arc-action--scene${isScenePickerOpen ? ' is-active' : ''}`}
+              onClick={() => setIsScenePickerOpen((open) => !open)}
+              aria-controls="workbench-scene-picker"
+              aria-expanded={isScenePickerOpen}
+              aria-pressed={isScenePickerOpen}
+              aria-label="选择场景"
+              title="选择场景"
             >
-              <Video size={20} strokeWidth={2} aria-hidden="true" />
+              <Image size={20} strokeWidth={2} aria-hidden="true" />
             </button>
           </div>
           <button
@@ -510,52 +526,87 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               <ChevronUp size={48} strokeWidth={1.9} aria-hidden="true" />
             )}
           </button>
-          {isVideoPickerOpen ? (
-            <aside
-              id="workbench-video-picker"
-              className="workbench-video-picker"
+        </div>
+        {isScenePickerOpen ? (
+          <div
+            className="workbench-scene-picker-backdrop"
+            onMouseDown={() => setIsScenePickerOpen(false)}
+          >
+            <section
+              id="workbench-scene-picker"
+              className="workbench-scene-picker"
               role="dialog"
-              aria-modal="false"
-              aria-labelledby="workbench-video-picker-title"
+              aria-modal="true"
+              aria-labelledby="workbench-scene-picker-title"
+              onMouseDown={(event) => event.stopPropagation()}
             >
-              <div className="workbench-video-picker__header">
+              <div className="workbench-scene-picker__header">
                 <div>
-                  <Video size={18} aria-hidden="true" />
-                  <h2 id="workbench-video-picker-title">选择视频</h2>
+                  <span className="workbench-scene-picker__eyebrow">
+                    <Image size={15} aria-hidden="true" />
+                    沉浸空间
+                  </span>
+                  <h2 id="workbench-scene-picker-title">选择场景</h2>
+                  <p>从预设中选择，或添加自己的专注视频。</p>
                 </div>
                 <button
                   type="button"
-                  className="workbench-video-picker__close"
-                  onClick={() => setIsVideoPickerOpen(false)}
-                  aria-label="关闭视频选择"
+                  className="workbench-scene-picker__close"
+                  onClick={() => setIsScenePickerOpen(false)}
+                  aria-label="关闭场景选择"
                   title="关闭"
                 >
                   <X size={18} aria-hidden="true" />
                 </button>
               </div>
-              <p className="workbench-video-picker__current">当前视频：{selectedVideo.name}</p>
-              <div className="workbench-video-picker__actions">
-                <button
-                  type="button"
-                  className="workbench-video-picker__option"
-                  onClick={selectBuiltInVideo}
-                  aria-pressed={selectedVideo.src === immersiveVideoUrl}
-                >
-                  使用内置氛围视频
-                </button>
-                <label className="workbench-video-picker__option workbench-video-picker__option--upload">
-                  从本地选择
+              <p className="workbench-scene-picker__current">当前场景：{selectedScene.name}</p>
+              <div className="workbench-scene-picker__grid" aria-label="场景预设">
+                {builtInScenePresets.map((scene) => {
+                  const selected = selectedScene.src === scene.src
+                  return (
+                    <button
+                      key={scene.id}
+                      type="button"
+                      className={`workbench-scene-picker__preset${selected ? ' is-selected' : ''}`}
+                      onClick={() => selectBuiltInScene(scene)}
+                      aria-pressed={selected}
+                    >
+                      <video
+                        className="workbench-scene-picker__cover"
+                        src={scene.src}
+                        muted
+                        loop
+                        autoPlay
+                        playsInline
+                        preload="metadata"
+                        aria-hidden="true"
+                      />
+                      <span className="workbench-scene-picker__cover-shade" aria-hidden="true" />
+                      <span className="workbench-scene-picker__preset-copy">
+                        <strong>{scene.name}</strong>
+                        <small>{scene.description}</small>
+                      </span>
+                      {selected ? <span className="workbench-scene-picker__selected-mark">当前使用</span> : null}
+                    </button>
+                  )
+                })}
+                <label className="workbench-scene-picker__preset workbench-scene-picker__preset--custom">
+                  <span className="workbench-scene-picker__custom-icon"><Plus size={24} aria-hidden="true" /></span>
+                  <span className="workbench-scene-picker__preset-copy">
+                    <strong>添加场景</strong>
+                    <small>从本地选择一个视频</small>
+                  </span>
                   <input
                     type="file"
                     accept="video/*,.mp4,.webm,.mov,.m4v"
-                    aria-label="从本地选择视频"
-                    onChange={(event) => selectLocalVideo(event.currentTarget.files?.[0])}
+                    aria-label="添加自定义场景"
+                    onChange={(event) => selectLocalScene(event.currentTarget.files?.[0])}
                   />
                 </label>
               </div>
-            </aside>
-          ) : null}
-        </div>
+            </section>
+          </div>
+        ) : null}
         {isQuickNoteOpen ? (
           <aside className="workbench-quick-note" aria-label="快捷记事">
             <div className="workbench-quick-note__header">

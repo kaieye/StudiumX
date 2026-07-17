@@ -196,3 +196,46 @@ test('immersive room menu distributes icon controls and exposes quick notes', as
   await expect(mainWindow.getByRole('button', { name: '隐藏自习室卡片' })).toBeVisible()
   await expect(mainWindow.getByRole('button', { name: '快捷记事' })).toBeVisible()
 })
+
+test('scene picker uses fixed video previews and adapts its scene and note surfaces by theme', async ({ mainWindow }) => {
+  await openWorkbench(mainWindow)
+
+  await mainWindow.getByRole('button', { name: '进入沉浸模式' }).click()
+  const controls = mainWindow.locator('.workbench-immersive-controls')
+  await controls.hover()
+
+  await mainWindow.getByRole('button', { name: '选择场景' }).click()
+  const scenePicker = mainWindow.getByRole('dialog', { name: '选择场景' })
+  await expect(scenePicker).toBeVisible()
+  await expect(scenePicker.getByText('当前场景：夜间氛围')).toBeVisible()
+  await expect(scenePicker.getByLabel('添加自定义场景')).toBeAttached()
+
+  const preset = scenePicker.getByRole('button', { name: /夜间氛围/ })
+  const presetBounds = await preset.boundingBox()
+  if (!presetBounds) throw new Error('The scene preset has no bounding box')
+  expect(presetBounds.width / presetBounds.height).toBeGreaterThan(1.7)
+  expect(presetBounds.width / presetBounds.height).toBeLessThan(1.9)
+  await expect(preset.locator('video')).toBeVisible()
+
+  const lightSceneBackdrop = await scenePicker.evaluate((element) =>
+    getComputedStyle(element).getPropertyValue('--workbench-scene-picker-backdrop').trim()
+  )
+  await mainWindow.evaluate(() => { document.documentElement.dataset.resolvedTheme = 'dark' })
+  const darkSceneBackdrop = await scenePicker.evaluate((element) =>
+    getComputedStyle(element).getPropertyValue('--workbench-scene-picker-backdrop').trim()
+  )
+  expect(darkSceneBackdrop).not.toBe(lightSceneBackdrop)
+
+  await scenePicker.getByRole('button', { name: '关闭场景选择' }).click()
+  await mainWindow.getByRole('button', { name: '快捷记事' }).click()
+  const quickNote = mainWindow.getByRole('complementary', { name: '快捷记事' })
+  await expect(quickNote).toBeVisible()
+  const darkNoteSurface = await quickNote.evaluate((element) =>
+    getComputedStyle(element).getPropertyValue('--workbench-quick-note-surface').trim()
+  )
+  await mainWindow.evaluate(() => { document.documentElement.dataset.resolvedTheme = 'light' })
+  const lightNoteSurface = await quickNote.evaluate((element) =>
+    getComputedStyle(element).getPropertyValue('--workbench-quick-note-surface').trim()
+  )
+  expect(lightNoteSurface).not.toBe(darkNoteSurface)
+})
