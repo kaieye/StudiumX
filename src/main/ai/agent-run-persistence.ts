@@ -21,38 +21,110 @@ const MAX_PARENT_TURN_PREVIEW_BYTES = 16 * 1024
 const MAX_PARENT_TURN_EVIDENCE = 32
 const CHILD_TRANSCRIPT_DIRECTORY = '.agent-sessions/child-transcripts'
 
-const WINDOWS_ATOMIC_RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
-const WINDOWS_ATOMIC_RENAME_RETRY_DELAYS_MS = [10, 20, 40, 80, 160, 320] as const
+/** Windows codes that commonly indicate a transient file lock / sharing violation. */
+const WINDOWS_TRANSIENT_FS_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+/** Bounded backoff schedule for transient Windows filesystem races (rename + temp open/fsync). */
+const WINDOWS_TRANSIENT_FS_RETRY_DELAYS_MS = [10, 20, 40, 80, 160, 320] as const
 
 type RenameFile = (from: string, to: string) => Promise<void>
+type SyncFile = (path: string) => Promise<void>
 type Wait = (delayMs: number) => Promise<void>
 
 export type AgentRunPersistenceOptions = Readonly<{
   platform?: NodeJS.Platform
   rename?: RenameFile
+  /** Injected open+fsync seam used by tests; production defaults to open(path,'r+') + handle.sync(). */
+  syncFile?: SyncFile
+  /** Shared bounded retry delays for Windows transient rename and temp-file sync failures. */
   renameRetryDelaysMs?: readonly number[]
   wait?: Wait
 }>
 
+function defineInternalDebugProperty(target: object, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: false,
+    configurable: false,
+    writable: false
+  })
+}
+
+function defineInternalCause(target: object, cause: unknown): void {
+  Object.defineProperty(target, 'cause', {
+    value: cause,
+    enumerable: false,
+    configurable: true,
+    writable: true
+  })
+}
+
+/**
+ * Typed publish failure for the atomic rename step.
+ *
+ * Absolute paths and the raw cause are retained only as non-enumerable debug fields so that
+ * message text, Object.keys / for..in enumeration, and JSON serialization stay path-safe.
+ */
 export class AgentRunAtomicRenameError extends Error {
   readonly name = 'AgentRunAtomicRenameError'
   readonly code = 'agent_run_atomic_rename_failed'
   readonly causeCode: string | undefined
+  readonly attempts: number
+  readonly retryable: boolean
+  /** @internal absolute source path for local debugging only; non-enumerable */
+  readonly sourcePath!: string
+  /** @internal absolute destination path for local debugging only; non-enumerable */
+  readonly destinationPath!: string
 
   constructor(
-    readonly sourcePath: string,
-    readonly destinationPath: string,
-    readonly attempts: number,
-    readonly retryable: boolean,
+    sourcePath: string,
+    destinationPath: string,
+    attempts: number,
+    retryable: boolean,
     cause: unknown
   ) {
     const causeCode = errnoCode(cause)
     super(
       `Atomic agent state rename failed after ${attempts} attempt${attempts === 1 ? '' : 's'}` +
-      `${causeCode ? ` (${causeCode})` : ''}.`,
-      { cause }
+      `${causeCode ? ` (${causeCode})` : ''}.`
     )
     this.causeCode = causeCode
+    this.attempts = attempts
+    this.retryable = retryable
+    defineInternalDebugProperty(this, 'sourcePath', sourcePath)
+    defineInternalDebugProperty(this, 'destinationPath', destinationPath)
+    defineInternalCause(this, cause)
+  }
+}
+
+/**
+ * Typed publish failure for the temp-file open/fsync step that precedes rename.
+ * Same non-enumerable path / cause policy as {@link AgentRunAtomicRenameError}.
+ */
+export class AgentRunAtomicSyncError extends Error {
+  readonly name = 'AgentRunAtomicSyncError'
+  readonly code = 'agent_run_atomic_sync_failed'
+  readonly causeCode: string | undefined
+  readonly attempts: number
+  readonly retryable: boolean
+  /** @internal absolute temp path for local debugging only; non-enumerable */
+  readonly path!: string
+
+  constructor(
+    path: string,
+    attempts: number,
+    retryable: boolean,
+    cause: unknown
+  ) {
+    const causeCode = errnoCode(cause)
+    super(
+      `Atomic agent state temp-file sync failed after ${attempts} attempt${attempts === 1 ? '' : 's'}` +
+      `${causeCode ? ` (${causeCode})` : ''}.`
+    )
+    this.causeCode = causeCode
+    this.attempts = attempts
+    this.retryable = retryable
+    defineInternalDebugProperty(this, 'path', path)
+    defineInternalCause(this, cause)
   }
 }
 
@@ -220,8 +292,19 @@ export class AgentRunPersistence {
       return validate(JSON.parse(await readFile(path, 'utf8')))
     } catch (error) {
       if (isNotFound(error)) throw error
-      await quarantine(path, this.now(), this.options)
-      throw new Error(`Agent state record is corrupt or unsupported: ${cleanDiagnostic(error)}`)
+      // Always surface the canonical corrupt/unsupported diagnostic. Quarantine is best-effort:
+      // bounded Windows rename retries may still fail, but that must not replace the original
+      // parse/validation failure semantics. Any quarantine failure is retained only as a
+      // non-enumerable internal cause (typed rename error already redacts absolute paths).
+      let quarantineFailure: unknown
+      try {
+        await quarantine(path, this.now(), this.options)
+      } catch (failed) {
+        quarantineFailure = failed
+      }
+      const diagnostic = new Error(`Agent state record is corrupt or unsupported: ${cleanDiagnostic(error)}`)
+      if (quarantineFailure !== undefined) defineInternalCause(diagnostic, quarantineFailure)
+      throw diagnostic
     }
   }
 
@@ -477,14 +560,18 @@ async function atomicPrivateJson(
   }
   const directory = dirname(path)
   await mkdir(directory, { recursive: true })
+  // Create-only protection is a pre-existence check plus the single-process serialize() queue
+  // invariant used by AgentRunPersistence callers. Rename itself is not create-only: a
+  // cross-process TOCTOU race remains a known limitation.
   if (!replace && await pathExists(path)) throw new Error('Agent state record already exists.')
   const temporary = `${path}.tmp-${process.pid}-${Date.now()}`
   try {
     await writeFile(temporary, serialized, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
     await chmod(temporary, 0o600)
-    // Publish only fully flushed content. Retrying the same-directory rename preserves atomic
-    // replacement; never deleting the destination also preserves create-only protection.
-    await syncFile(temporary)
+    // Publish only fully flushed content. Same-directory rename is the atomic publish step;
+    // temp open+fsync uses the same bounded Windows transient retry policy as rename.
+    // Temporary files are always unlinked in finally, including after sync/rename exhaustion.
+    await syncFileWithRetry(temporary, options)
     await renameAtomicallyWithRetry(temporary, path, options)
     await chmod(path, 0o600)
     await syncDirectory(directory, options.platform ?? process.platform)
@@ -493,33 +580,61 @@ async function atomicPrivateJson(
   }
 }
 
-async function renameAtomicallyWithRetry(
-  sourcePath: string,
-  destinationPath: string,
-  options: AgentRunPersistenceOptions
+async function withWindowsTransientRetry(
+  operation: () => Promise<void>,
+  options: AgentRunPersistenceOptions,
+  onFailure: (attempts: number, retryable: boolean, error: unknown) => never
 ): Promise<void> {
   const platform = options.platform ?? process.platform
-  const renameFile = options.rename ?? rename
-  const retryDelaysMs = options.renameRetryDelaysMs ?? WINDOWS_ATOMIC_RENAME_RETRY_DELAYS_MS
+  const retryDelaysMs = options.renameRetryDelaysMs ?? WINDOWS_TRANSIENT_FS_RETRY_DELAYS_MS
   const wait = options.wait ?? sleep
   let attempts = 0
   while (true) {
     attempts += 1
     try {
-      await renameFile(sourcePath, destinationPath)
+      await operation()
       return
     } catch (error) {
-      const retryable = platform === 'win32' && WINDOWS_ATOMIC_RENAME_RETRY_CODES.has(errnoCode(error) ?? '')
+      const retryable = platform === 'win32' && WINDOWS_TRANSIENT_FS_RETRY_CODES.has(errnoCode(error) ?? '')
       const retryDelay = retryDelaysMs[attempts - 1]
       if (!retryable || retryDelay === undefined) {
-        throw new AgentRunAtomicRenameError(sourcePath, destinationPath, attempts, retryable, error)
+        onFailure(attempts, retryable, error)
       }
       await wait(retryDelay)
     }
   }
 }
 
-async function syncFile(path: string): Promise<void> {
+async function renameAtomicallyWithRetry(
+  sourcePath: string,
+  destinationPath: string,
+  options: AgentRunPersistenceOptions
+): Promise<void> {
+  const renameFile = options.rename ?? rename
+  await withWindowsTransientRetry(
+    () => renameFile(sourcePath, destinationPath),
+    options,
+    (attempts, retryable, error) => {
+      throw new AgentRunAtomicRenameError(sourcePath, destinationPath, attempts, retryable, error)
+    }
+  )
+}
+
+async function syncFileWithRetry(
+  path: string,
+  options: AgentRunPersistenceOptions
+): Promise<void> {
+  const sync = options.syncFile ?? defaultSyncFile
+  await withWindowsTransientRetry(
+    () => sync(path),
+    options,
+    (attempts, retryable, error) => {
+      throw new AgentRunAtomicSyncError(path, attempts, retryable, error)
+    }
+  )
+}
+
+async function defaultSyncFile(path: string): Promise<void> {
   const handle = await open(path, 'r+')
   try {
     await handle.sync()
