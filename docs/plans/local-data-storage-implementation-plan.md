@@ -54,9 +54,9 @@ git diff --check
 为避免全量 suite 的不确定性掩盖目标错误，每个切片还必须运行其“验收门禁”中的定向 `vitest`/`check:*` 命令。原有流程已经提供 `check:agent-conversation-*`、`check:learning-work-reconcile`、`check:app-data-migration`、`check:security`、`check:analytics` 等门禁，应优先复用而不是复制另一套检查器。
 
 
-### 1.6 `database` 实施审计（2026-07-18；C-5G 功能代码 `1bbdf7c`、测试补充 `e63e051`）
+### 1.6 `database` 实施审计（2026-07-18；C-4P0 `5c0dd96`、C-4P1 `34c48f4`；C-5G 功能代码 `1bbdf7c`、测试补充 `e63e051`）
 
-原始顺序已完成最小切片：C-2A `d23b272`、C-2B `549f4f8`、C-1 `d9de382`、C-3/C-4 `ca73537`、C-2C `07dfbfb`、C-7 `a302814`、C-5 `55442ad`、C-6 `26eca18`；后续 C-5B Memory CRUD trace correlation 为 `7a1ca7e`，C-5C learning-session trace 为 `e849d51`，C-5D `saveAgentConversation()` lifecycle trace 为 `dee70d6`，C-5E conversation audit JSONL trace 为 `d6a94a1`，C-5F forked conversation trace 为 `426eb6e`，C-5G workspace activation lifecycle 功能代码为 `1bbdf7c`，测试补充为 `e63e051`。`1bbdf7c` 是本次记录的**功能代码提交**，`e63e051` 是其后的**测试补充提交**；两者均不是后续文档提交后的当前 HEAD。这不是“候选全部完成”的声明：各节仍定义边界；未实现的 FTS、物理 retention/删除、自动摘要调度、C-5 的其它 lifecycle producers 与其它 user actions（需设计），以及 C-6 controlled legacy 搬迁保持未实施。
+原始顺序已完成最小切片：C-2A `d23b272`、C-2B `549f4f8`、C-1 `d9de382`、C-3/C-4 `ca73537`、C-2C `07dfbfb`、C-7 `a302814`、C-5 `55442ad`、C-6 `26eca18`；后续 C-5B Memory CRUD trace correlation 为 `7a1ca7e`，C-5C learning-session trace 为 `e849d51`，C-5D `saveAgentConversation()` lifecycle trace 为 `dee70d6`，C-5E conversation audit JSONL trace 为 `d6a94a1`，C-5F forked conversation trace 为 `426eb6e`，C-5G workspace activation lifecycle 功能代码为 `1bbdf7c`，测试补充为 `e63e051`。`1bbdf7c` 是本次记录的**功能代码提交**，`e63e051` 是其后的**测试补充提交**；两者均不是后续文档提交后的当前 HEAD。C-4 的后续已迁移 consumer 是 review progress C-4P0 `5c0dd96` 与 conversation archive canonical JSON/Markdown C-4P1 `34c48f4`；这仍不是“所有 writer 已迁移”的声明。各节仍定义边界；未实现的 FTS、物理 retention/删除、自动摘要调度、C-5 的其它 lifecycle producers 与其它 user actions（需设计），以及 C-6 controlled legacy 搬迁保持未实施。
 
 已纳入代码/测试提交的具体证据：
 
@@ -64,7 +64,7 @@ git diff --check
 |---|---|---|
 | C-1 | `src/main/local-data-index/index.ts:61-170, 174-333`；`src/main/local-data-index/schema-migration.ts:38-57`；`src/main/index.ts:259-294` | `tests/unit/local-data-index.unit.test.ts:56-396`；`tests/integration/teaching-analytics.integration.test.ts:277-355` |
 | C-2A/B/C | `src/main/teaching-workspace.ts:781-807`；`src/main/teaching-agent-conversations.ts:944-967, 1042-1104`；`src/main/durable-jsonl.ts:45-205`；`src/main/agent-conversation-summary-projection.ts:46-179` | `tests/unit/teaching-agent-conversations.unit.test.ts:261-320`；`tests/unit/durable-jsonl.unit.test.ts:29-128`；`tests/unit/agent-conversation-summary-projection.unit.test.ts:69-302` |
-| C-3/C-4 | `src/main/persistence/durable-file.ts:81-312` | `tests/unit/durable-file.unit.test.ts:99-246`；`tests/unit/teaching-durable-state.unit.test.ts:37-215` |
+| C-3/C-4 | `src/main/persistence/durable-file.ts:81-312`；C-4P0 review：`src/main/teaching-workspace/review.ts:54-73`；C-4P1 archive：`src/main/agent-conversation-archive.ts:57-125` | `tests/unit/durable-file.unit.test.ts:99-246`；`tests/unit/teaching-durable-state.unit.test.ts:37-215`；`tests/unit/teaching-workspace-review-durable.unit.test.ts`；`tests/unit/agent-conversation-archive-durable.unit.test.ts` |
 | C-5 | conversation slice：`src/main/teaching-workspace.ts:751, 852, 891`；C-5B Memory CRUD：`src/main/teaching-workspace.ts:1771-1793`、`src/main/teaching-memory.ts:20-98`、`src/main/teaching-memory-catalog.ts:277-295`；C-5C `e849d51` learning-session trace：`src/main/teaching-workspace.ts:1685-1724, 1903-1928` → `src/main/lesson-interaction-recorder.ts:95-121` → `src/main/learning-session-ledger.ts:373-390, 851-860, 1059-1091, 2409-2415`；C-5D `dee70d6`：`saveAgentConversation()` 将已有 canonical archive `persistedRecord.traceId` 只透传到紧随其后的 `agent_conversation_recorded` lifecycle event；C-5E `d6a94a1`：`src/main/agent-conversation-session-audit.ts` 仅在新 header/entry 写入时 conditionally 持久化 normalized trace，不改 audit ID/hash/parent/dedupe 或 version `1`；**C-5F `426eb6e`**：`src/main/teaching-workspace.ts` 仅在 main service 为 fork child 新建 trace，`src/main/agent-conversation-session-tree.ts` 将 normalized trace 挂到 child canonical，normal fork 复用该 persisted child trace 到 learning-work/lifecycle；**C-5G 功能代码 `1bbdf7c`**：`src/main/teaching-workspace/activation-lifecycle.ts` 只在 main 的 explicit/bootstrap create 与 first import event-emitting seam 生成/透传 metadata-only trace，不改变 workspace 或 lifecycle identity；existing-root re-import 不追加 event/trace。 | conversation：`tests/integration/trace-propagation.integration.test.ts:16-127`；C-5B：`tests/integration/trace-propagation.integration.test.ts:92-134`、`tests/unit/trace-context.unit.test.ts:42-131`；C-5C：`tests/integration/trace-propagation.integration.test.ts:141-230`、`tests/unit/learning-session-ledger.unit.test.ts:385-503`、`tests/unit/teaching-workspace-evidence.unit.test.ts:130-193`、`tests/unit/logger.unit.test.ts:21-43`；C-5D writer normalization/secret non-leak/tolerant reader：`tests/unit/teaching-workspace-lifecycle-jsonl.unit.test.ts:56-95`；C-5E：`tests/unit/agent-conversation-session-audit.unit.test.ts`、`tests/integration/trace-propagation.integration.test.ts`；C-5F：`tests/unit/agent-conversation-session-tree.unit.test.ts`、`tests/unit/agent-conversation-legacy-nonmutating.unit.test.ts`、`tests/integration/trace-propagation.integration.test.ts`；C-5G 测试补充 `e63e051`：`tests/unit/teaching-workspace-activation-lifecycle.unit.test.ts`、`tests/unit/teaching-workspace-lifecycle-jsonl.unit.test.ts`、`tests/integration/trace-propagation.integration.test.ts`；其中 direct test 以 `service.getState()` → `ensureRegistry()` 触发默认 bootstrap，验证 canonical trace、唯一 event、默认 workspace identity/scaffold 和第二次 load 时 `sessions.jsonl` 原始 bytes 不变。 |
 | C-6 | `src/main/teaching-memory-catalog.ts:85-153`；`src/main/teaching-memory-catalog/record-file.ts:204-220`；`src/main/persistence/contained-durable-directory.ts:175-228` | `tests/unit/teaching-memory-catalog.unit.test.ts:58-262`；`tests/unit/contained-durable-directory.unit.test.ts:38-183` |
 | C-7 | `src/shared/agent-persisted-history.ts:65-131, 173-336` | `tests/unit/agent-persisted-history.unit.test.ts:42-277`；`tests/unit/agent-secret-redaction.unit.test.ts:32-219`；`tests/unit/agent-conversation-legacy-nonmutating.unit.test.ts:31-32` |
@@ -305,7 +305,7 @@ pnpm run check:security
 
 ### 目标与最小切片
 
-`ca73537` 已把 `learning-session-ledger.ts` 的 temp write → file fsync → rename → directory fsync 语义抽为窄共享原语，并按 consumer 接入关键状态。`5c0dd96`（C-4P0）将 review canonical `.studiumx/progress.json` 迁入该路径。C-4 只记录共享原语与已迁移 consumer，**不表示所有 writer 已迁移**；高频日志与 append-only JSONL 仍不强行改为逐条 directory fsync。
+`ca73537` 已把 `learning-session-ledger.ts` 的 temp write → file fsync → rename → directory fsync 语义抽为窄共享原语，并按 consumer 接入关键状态。`5c0dd96`（C-4P0）将 review canonical `.studiumx/progress.json` 迁入该路径；`34c48f4`（C-4P1）将 conversation archive 的 canonical JSON/Markdown publish 迁入同一路径。C-4 只记录共享原语与已迁移 consumer，**不表示所有 writer 已迁移**；高频日志仍不强行改为逐条 fsync；C-4P1 不改变 conversation audit 的既有普通 append 策略，也不改变 learning-work ledger 既有 durable JSONL append 的 file + directory fsync 策略。
 
 ### 文件定位
 
@@ -317,20 +317,22 @@ pnpm run check:security
 | Memory record 原子替换 | `src/main/teaching-memory-catalog/record-file.ts:56-77` | 改为共享原语但维持 legacy filename 清理、canonical naming 与 tombstone 语义。 |
 | registry/index consumers | `src/main/teaching-workspace/activation-lifecycle.ts:281-287`、`src/main/teaching-workspace/lifecycle.ts:124-155` | C-3 backup consumer 建在共享耐久原语上；不扩大到其它 writer。 |
 | review progress（C-4P0 `5c0dd96`） | `src/main/teaching-workspace/review.ts:54-73` | `.studiumx/progress.json` 用 shared replace publish，保持 schema/path/reader compatibility 与 legacy `0666 & umask` create mode。 |
-| 新模块与测试 | `src/main/persistence/durable-file.ts`、`tests/unit/durable-file.unit.test.ts`、`tests/unit/teaching-workspace-review-durable.unit.test.ts` | 以 injected fs adapter 覆盖失败、rename、directory sync 与 review publish 边界。 |
+| conversation archive（C-4P1 `34c48f4`） | `src/main/agent-conversation-archive.ts:57-125` | canonical JSON 与 Markdown 分别用 shared replace publish，保持 JSON/Markdown bytes/schema/path、archive return identity、collision preflight、trace/redaction/C-7 legacy 语义及 `0666 & umask` create mode。 |
+| 新模块与测试 | `src/main/persistence/durable-file.ts`、`tests/unit/durable-file.unit.test.ts`、`tests/unit/teaching-workspace-review-durable.unit.test.ts`、`tests/unit/agent-conversation-archive-durable.unit.test.ts` | 以 injected durable operations 覆盖失败、rename、directory sync、review publish，以及 archive 的 JSON → Markdown durable publish order 与 audit/ledger 成功、short-circuit 边界。 |
 
 ### 迁移与兼容方案
 
 1. `replaceDurably()` 以 same-directory temp → file fsync → close → rename → directory fsync/close 发布；未显式选择 mode 时仍为 private `0600`。它不是对所有 JSON/Markdown writer 的全局替换，也不让 JSONL 等高频路径暗中付出逐条 fsync 成本。
 2. **C-4 决策（目录 fsync 错误策略）：**共享原语仅当目录 fsync 失败码为 `EOPNOTSUPP`、`ENOTSUP`、`ENOSYS`、`EINVAL` 或 `EISDIR` 时才可视为 capability 缺失，记录一次脱敏 warn 并降级。`EACCES`、`EPERM`、`EIO`、close 失败和所有 unknown error 必须向调用方失败返回，绝不能报告耐久写入成功。
 3. **review C-4P0（`5c0dd96`）：**`.studiumx/progress.json` 保持既有 JSON schema、canonical path、tolerant reader 和 `writeFile` legacy 的 `0666 & umask` create-mode 契约。只有 file 与 directory durability steps 成功时 `recordAttempt()` 才返回更新后的 progress；write/file-sync/file-close/rename 失败保留旧 canonical 并清理 temp。rename 已完成后若 directory fsync 或 directory close 失败，canonical 已是完整的新 document，但调用失败、更新不被确认（complete-but-unacknowledged）；不进行危险的 post-rename 自动 rollback。
-4. 旧 `atomicWriteFile`（`src/main/teaching-workspace/lifecycle.ts:202-207`）继续保留给尚未迁移的 compatibility writer。conversation archive、`MISSION.md` 与 `lesson.css` 仍未接入；每个 consumer 必须另立切片并证明其 bytes、mode/permission、legacy cleanup 与错误语义。C-3 的 `replaceWithBackup` 继续建在共享原语上，不能复制两套 fsync/rename 代码。
+4. **conversation archive C-4P1（`34c48f4`）：**正常 archive 顺序严格为 **canonical JSON durable publish → canonical Markdown durable publish → audit append → existing learning-work ledger append**。两个 canonical file publish 不是 multi-file transaction，不自动 rollback：JSON 失败时 Markdown/audit/ledger 均不得执行；Markdown 失败时已完成 JSON 保留，audit/ledger 仍不得追加。每个新 canonical 文件保持 legacy `0666 & umask` create mode；不改 JSON/Markdown bytes/schema/path、archive return identity、trace collision preflight、trace/redaction 或 C-7 legacy nonmutating 语义。rename 后 directory fsync/close failure 仍不报告 archive success，完整已 publish 文件保留。C-4P1 不改变 conversation audit 的既有普通 append 策略，也不改变 learning-work ledger 既有 durable JSONL append 的 file + directory fsync 策略。
+5. 旧 `atomicWriteFile`（`src/main/teaching-workspace/lifecycle.ts:202-207`）继续保留给尚未迁移的 compatibility writer。`MISSION.md` 与 `lesson.css` 等仍未接入；每个 consumer 必须另立切片并证明其 bytes、mode/permission、legacy cleanup 与错误语义。C-3 的 `replaceWithBackup` 继续建在共享原语上，不能复制两套 fsync/rename 代码。
 
 ### 验收门禁
 
 - 已迁移 consumer 的成功路径必须清理临时文件、保持目标字节/reader compatibility，并以 injected adapter 证明 file fsync/close → rename → directory fsync/close 的顺序。
-- write/file-sync/file-close/rename 失败不得改写旧 canonical；directory sync/close 在 rename 后失败时不得报成功，且只允许既有 capability allowlist 降级。C-4P0 不承诺多文件事务或 post-rename rollback。
-- consumer 覆盖必须分别记录；不得以 settings、registry、Memory 或 review 的通过证明 conversation archive、`MISSION.md`、`lesson.css` 或其它 legacy writer 已迁移，也不得改变 learning-session ledger/native capability 边界。
+- write/file-sync/file-close/rename 失败不得改写旧 canonical；directory sync/close 在 rename 后失败时不得报成功，且只允许既有 capability allowlist 降级。C-4P0/C-4P1 都不承诺多文件事务或 post-rename rollback。C-4P1 另须证明 JSON failure 不触发 Markdown/audit/ledger，Markdown failure 保留 JSON 且不触发 audit/ledger。
+- consumer 覆盖必须分别记录；不得以 settings、registry、Memory、review 或 archive 的通过证明 `MISSION.md`、`lesson.css` 或其它 legacy writer 已迁移，也不得改变 learning-session ledger/native capability 边界。
 - C-4P0 实际验证：
 
 ```bash
@@ -342,9 +344,21 @@ git diff --check
 
 第一条经 package script 实际执行为 `vitest run --project unit -- <两个文件>`；额外的 `--` 被传给 Vitest，本次输出是 **108 files / 790 tests passed**，并非可简写为 direct targeted `pnpm exec vitest ...` 的结果。其余三项均 passed；未在此虚构任何 direct `pnpm exec vitest ...` 的结果。
 
+
+- C-4P1（`34c48f4`）实际验证：
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts tests/unit/agent-persisted-history.unit.test.ts tests/unit/agent-conversation-archive-ledger-segments.unit.test.ts tests/unit/trace-context.unit.test.ts tests/unit/durable-file.unit.test.ts --reporter=dot
+pnpm run typecheck
+pnpm run check:security
+git diff --check
+```
+
+第一条是 direct targeted Vitest 形式，实际输出 **5 files / 42 tests passed**；它不是 `pnpm run test:unit -- ...`，也不声称 full suite。其余三项均 passed。
+
 ### 回滚策略
 
-由于 API/文件格式保持不变，已迁移 consumer 只能逐一评估回退，不能把 C-4P0 或任一已迁移路径的回退泛化为全局恢复旧 `atomicWriteFile`。不得回滚 ledger 自己的已存在 durability/locking 机制；失败清理不得删除 canonical 文件。
+由于 API/文件格式保持不变，已迁移 consumer 只能逐一评估回退，不能把 C-4P0、C-4P1 或任一已迁移路径的回退泛化为全局恢复旧 `atomicWriteFile`。不得回滚 ledger 自己的已存在 durability/locking 机制；失败清理不得删除 canonical 文件。
 
 ---
 
