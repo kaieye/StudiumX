@@ -272,9 +272,34 @@ test('immersive action ring collapses after the pointer leaves the arrow', async
   await expect(hideCards).toBeVisible()
   await expect(arcMenu).toHaveCSS('visibility', 'visible')
 
+  await mainWindow.locator('.office-workbench-canvas').focus()
   await mainWindow.mouse.move(8, 8)
   await waitForShortcutCollapse(mainWindow)
   await expect(arcMenu).toHaveCSS('visibility', 'hidden')
+})
+
+test('immersive arc is keyboard reachable and stays open while focus moves through it', async ({ mainWindow }) => {
+  await openWorkbench(mainWindow)
+
+  await mainWindow.getByRole('button', { name: '进入沉浸模式' }).click()
+  const immersiveToggle = mainWindow.getByRole('button', { name: '收起沉浸模式' })
+  const firstAction = mainWindow.getByRole('button', { name: '进入全屏' })
+
+  await mainWindow.locator('.office-workbench-canvas').focus()
+  await mainWindow.mouse.move(8, 8)
+  await waitForShortcutCollapse(mainWindow)
+
+  await immersiveToggle.focus()
+  await waitForShortcutReveal(mainWindow)
+  await mainWindow.keyboard.press('Tab')
+  await expect(firstAction).toBeFocused()
+
+  await mainWindow.mouse.move(8, 8)
+  await waitForShortcutReveal(mainWindow)
+  await expect(firstAction).toBeFocused()
+
+  await mainWindow.locator('.office-workbench-canvas').focus()
+  await waitForShortcutCollapse(mainWindow)
 })
 
 test('immersive shortcut icons grow in place instead of sweeping around the arrow', async ({ mainWindow }) => {
@@ -285,6 +310,7 @@ test('immersive shortcut icons grow in place instead of sweeping around the arro
   const shortcutMenu = mainWindow.locator('.workbench-immersive-arc-menu')
   const shortcut = mainWindow.locator('.workbench-immersive-arc-action').first()
 
+  await mainWindow.locator('.office-workbench-canvas').focus()
   await mainWindow.mouse.move(8, 8)
   await waitForShortcutCollapse(mainWindow)
   const collapsed = await shortcut.evaluate((element) => {

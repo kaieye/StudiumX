@@ -151,7 +151,15 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const runtimeRef = useRef<OfficeSceneRuntime | null>(null)
   const chooseSeatRef = useRef(chooseSeat)
   const analyticsButtonRef = useRef<HTMLButtonElement | null>(null)
+  const immersiveToggleRef = useRef<HTMLButtonElement | null>(null)
+  const fullscreenButtonRef = useRef<HTMLButtonElement | null>(null)
   const immersiveCloseTimerRef = useRef<number | null>(null)
+  const immersivePhaseRef = useRef<ImmersivePhase>('closed')
+  const immersiveCloseRequestedRef = useRef(false)
+  const fullscreenWasActiveRef = useRef(false)
+  const fullscreenTransitionRef = useRef(false)
+  const fullscreenReturnFocusRef = useRef<HTMLElement | null>(null)
+  const suppressFullscreenFocusRestoreRef = useRef(false)
   const restoreAnalyticsFocusRef = useRef(false)
   const [openTasksPanelForAnalytics, setOpenTasksPanelForAnalytics] = useState(false)
   const [route, setRoute] = useState<WorkbenchRoute>(() => parseWorkbenchRoute(window.location.search))
@@ -167,7 +175,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   }))
   const [quickNote, setQuickNote] = useState('')
   const [isTaskAddEditorOpen, setIsTaskAddEditorOpen] = useState(false)
-  const [isImmersiveArcActive, setIsImmersiveArcActive] = useState(false)
+  const [isImmersiveArcPointerActive, setIsImmersiveArcPointerActive] = useState(false)
+  const [isImmersiveArcFocusActive, setIsImmersiveArcFocusActive] = useState(false)
   const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
   const clockTime = clockState.current
   const occupantsByDeskId = new Map<DeskId, OfficeSceneSeatOccupant>()
@@ -306,88 +315,157 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     immersiveCloseTimerRef.current = null
   }, [])
 
+  const focusImmersiveControl = useCallback((target: HTMLElement | null): void => {
+    window.requestAnimationFrame(() => {
+      if (!target?.isConnected) return
+      target.focus({ preventScroll: true })
+    })
+  }, [])
+
+  const resetImmersiveArc = useCallback((): void => {
+    setIsImmersiveArcPointerActive(false)
+    setIsImmersiveArcFocusActive(false)
+  }, [])
+
   const openImmersive = useCallback((): void => {
     clearImmersiveCloseTimer()
+    immersiveCloseRequestedRef.current = false
+    immersivePhaseRef.current = 'open'
     setImmersivePhase('open')
+    setIsImmersiveArcFocusActive(true)
   }, [clearImmersiveCloseTimer])
 
   const finishImmersiveClose = useCallback((): void => {
     clearImmersiveCloseTimer()
-    setImmersivePhase((currentPhase) =>
-      currentPhase === 'closing' ? 'closed' : currentPhase
-    )
-  }, [clearImmersiveCloseTimer])
+    if (immersivePhaseRef.current !== 'closing') return
+    immersivePhaseRef.current = 'closed'
+    setImmersivePhase('closed')
+    focusImmersiveControl(immersiveToggleRef.current)
+  }, [clearImmersiveCloseTimer, focusImmersiveControl])
 
-  const closeImmersive = useCallback((): void => {
+  const beginImmersiveClose = useCallback((): void => {
     clearImmersiveCloseTimer()
+    immersiveCloseRequestedRef.current = false
+    immersivePhaseRef.current = 'closing'
     setAreRoomCardsHidden(false)
     setIsQuickNoteOpen(false)
     setIsScenePickerOpen(false)
+    resetImmersiveArc()
     setImmersivePhase('closing')
     immersiveCloseTimerRef.current = window.setTimeout(
       finishImmersiveClose,
       immersiveCloseFallbackDurationMs
     )
-  }, [clearImmersiveCloseTimer, finishImmersiveClose])
+  }, [clearImmersiveCloseTimer, finishImmersiveClose, resetImmersiveArc])
 
-  const openImmersiveArc = useCallback((): void => {
-    setIsImmersiveArcActive(true)
-  }, [])
+  const closeImmersive = useCallback((): void => {
+    if (immersivePhaseRef.current !== 'open' || immersiveCloseRequestedRef.current) return
 
-  const closeImmersiveArc = useCallback((): void => {
-    setIsImmersiveArcActive(false)
-  }, [])
+    if (document.fullscreenElement === stageRef.current) {
+      immersiveCloseRequestedRef.current = true
+      suppressFullscreenFocusRestoreRef.current = true
+      void document.exitFullscreen().then(beginImmersiveClose).catch(() => {
+        immersiveCloseRequestedRef.current = false
+        suppressFullscreenFocusRestoreRef.current = false
+        setIsImmersiveArcFocusActive(true)
+        focusImmersiveControl(fullscreenButtonRef.current)
+      })
+      return
+    }
+
+    beginImmersiveClose()
+  }, [beginImmersiveClose, focusImmersiveControl])
 
   const toggleImmersive = (): void => {
     if (immersivePhase === 'closed') {
       openImmersive()
-      // The opening click should reveal the shortcut icons immediately.
-      openImmersiveArc()
     } else if (immersivePhase === 'open') {
-      closeImmersiveArc()
       closeImmersive()
     }
   }
 
-  useEffect(() => {
-    if (immersivePhase === 'closed') closeImmersiveArc()
-  }, [closeImmersiveArc, immersivePhase])
-
   const toggleFullscreen = useCallback(async (): Promise<void> => {
+    if (fullscreenTransitionRef.current) return
+    const stage = stageRef.current
+    if (!stage) return
+
+    fullscreenTransitionRef.current = true
     try {
-      if (document.fullscreenElement) {
+      if (document.fullscreenElement === stage) {
         await document.exitFullscreen()
       } else {
-        await stageRef.current?.requestFullscreen()
+        const activeElement = document.activeElement
+        fullscreenReturnFocusRef.current = activeElement instanceof HTMLElement
+          ? activeElement
+          : fullscreenButtonRef.current
+        suppressFullscreenFocusRestoreRef.current = false
+        await stage.requestFullscreen()
       }
     } catch {
+      fullscreenReturnFocusRef.current = null
       // Fullscreen is controlled by the browser/Electron host and may be unavailable.
+    } finally {
+      fullscreenTransitionRef.current = false
     }
   }, [])
 
   useEffect(() => {
     const syncFullscreenState = (): void => {
-      setIsFullscreen(document.fullscreenElement === stageRef.current)
+      const stageOwnsFullscreen = document.fullscreenElement === stageRef.current
+      const stagePreviouslyOwnedFullscreen = fullscreenWasActiveRef.current
+      fullscreenWasActiveRef.current = stageOwnsFullscreen
+      setIsFullscreen(stageOwnsFullscreen)
+
+      if (stageOwnsFullscreen) {
+        setIsImmersiveArcFocusActive(true)
+        focusImmersiveControl(fullscreenButtonRef.current)
+        return
+      }
+
+      if (!stagePreviouslyOwnedFullscreen) return
+      if (suppressFullscreenFocusRestoreRef.current) {
+        suppressFullscreenFocusRestoreRef.current = false
+        fullscreenReturnFocusRef.current = null
+        return
+      }
+
+      if (immersivePhaseRef.current === 'open') {
+        setIsImmersiveArcFocusActive(true)
+        const returnFocus = fullscreenReturnFocusRef.current
+        focusImmersiveControl(returnFocus?.isConnected ? returnFocus : fullscreenButtonRef.current)
+      }
+      fullscreenReturnFocusRef.current = null
     }
     syncFullscreenState()
     document.addEventListener('fullscreenchange', syncFullscreenState)
     return () => document.removeEventListener('fullscreenchange', syncFullscreenState)
-  }, [])
+  }, [focusImmersiveControl])
 
   useEffect(() => {
     if (route !== 'room') {
       clearImmersiveCloseTimer()
+      immersiveCloseRequestedRef.current = false
+      immersivePhaseRef.current = 'closed'
       setAreRoomCardsHidden(false)
       setIsQuickNoteOpen(false)
       setIsScenePickerOpen(false)
+      resetImmersiveArc()
       setImmersivePhase('closed')
+
+      if (document.fullscreenElement === stageRef.current) {
+        suppressFullscreenFocusRestoreRef.current = true
+        void document.exitFullscreen().catch(() => {
+          suppressFullscreenFocusRestoreRef.current = false
+        })
+      }
     }
-  }, [clearImmersiveCloseTimer, route])
+  }, [clearImmersiveCloseTimer, resetImmersiveArc, route])
 
   useEffect(() => {
     if (immersivePhase !== 'open') return
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      if (document.fullscreenElement === stageRef.current) return
       event.preventDefault()
       if (isScenePickerOpen) {
         setIsScenePickerOpen(false)
@@ -397,7 +475,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         setIsQuickNoteOpen(false)
         return
       }
-      if (immersivePhase === 'open') closeImmersive()
+      closeImmersive()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -405,6 +483,9 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   useEffect(() => clearImmersiveCloseTimer, [clearImmersiveCloseTimer])
 
+  const isImmersiveArcActive = immersivePhase === 'open' && (
+    isFullscreen || isImmersiveArcPointerActive || isImmersiveArcFocusActive
+  )
 
   if (route === 'analytics') {
     return (
@@ -532,21 +613,54 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           </div>
         </div>
         <div
-          className={`workbench-immersive-controls${immersivePhase !== 'closed' ? ' is-open' : ''}`}
-          onPointerEnter={openImmersiveArc}
-          onPointerLeave={closeImmersiveArc}
-          onFocusCapture={openImmersiveArc}
+          className={`workbench-immersive-controls${immersivePhase !== 'closed' ? ' is-open' : ''}${isFullscreen ? ' is-fullscreen' : ''}`}
+          onPointerEnter={() => setIsImmersiveArcPointerActive(true)}
+          onPointerLeave={() => setIsImmersiveArcPointerActive(false)}
+          onFocusCapture={() => setIsImmersiveArcFocusActive(true)}
           onBlurCapture={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-              closeImmersiveArc()
+              setIsImmersiveArcFocusActive(false)
             }
           }}
         >
+          <button
+            ref={immersiveToggleRef}
+            type="button"
+            className="workbench-immersive-toggle"
+            onClick={toggleImmersive}
+            aria-controls="workbench-immersive-layer"
+            aria-expanded={immersivePhase !== 'closed'}
+            aria-label={immersivePhase !== 'closed' ? '收起沉浸模式' : '进入沉浸模式'}
+            title={immersivePhase !== 'closed' ? '收起沉浸模式' : '进入沉浸模式'}
+          >
+            {immersivePhase !== 'closed' ? (
+              <ChevronDown size={48} strokeWidth={1.9} aria-hidden="true" />
+            ) : (
+              <ChevronUp size={48} strokeWidth={1.9} aria-hidden="true" />
+            )}
+          </button>
           <div
+            id="workbench-immersive-arc-menu"
             className={`workbench-immersive-arc-menu${isImmersiveArcActive ? ' is-active' : ''}`}
             role="group"
             aria-label="沉浸模式快捷操作"
+            aria-hidden={!isImmersiveArcActive}
           >
+            <button
+              ref={fullscreenButtonRef}
+              type="button"
+              className="workbench-immersive-arc-action workbench-immersive-arc-action--fullscreen"
+              onClick={() => void toggleFullscreen()}
+              aria-pressed={isFullscreen}
+              aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
+              title={isFullscreen ? '退出全屏' : '进入全屏'}
+            >
+              {isFullscreen ? (
+                <Minimize2 size={20} strokeWidth={2} aria-hidden="true" />
+              ) : (
+                <Maximize2 size={20} strokeWidth={2} aria-hidden="true" />
+              )}
+            </button>
             <button
               type="button"
               className={`workbench-immersive-arc-action workbench-immersive-arc-action--hide${areRoomCardsHidden ? ' is-active' : ''}`}
@@ -581,36 +695,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             >
               <StickyNote size={20} strokeWidth={2} aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              className="workbench-immersive-arc-action workbench-immersive-arc-action--fullscreen"
-              onClick={() => void toggleFullscreen()}
-              aria-pressed={isFullscreen}
-              aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
-              title={isFullscreen ? '退出全屏' : '进入全屏'}
-            >
-              {isFullscreen ? (
-                <Minimize2 size={20} strokeWidth={2} aria-hidden="true" />
-              ) : (
-                <Maximize2 size={20} strokeWidth={2} aria-hidden="true" />
-              )}
-            </button>
           </div>
-          <button
-            type="button"
-            className="workbench-immersive-toggle"
-            onClick={toggleImmersive}
-            aria-controls="workbench-immersive-layer"
-            aria-expanded={immersivePhase !== 'closed'}
-            aria-label={immersivePhase !== 'closed' ? '收起沉浸模式' : '进入沉浸模式'}
-            title={immersivePhase !== 'closed' ? '收起沉浸模式' : '进入沉浸模式'}
-          >
-            {immersivePhase !== 'closed' ? (
-              <ChevronDown size={48} strokeWidth={1.9} aria-hidden="true" />
-            ) : (
-              <ChevronUp size={48} strokeWidth={1.9} aria-hidden="true" />
-            )}
-          </button>
         </div>
         {isScenePickerOpen ? (
           <div className="workbench-scene-picker-backdrop" role="presentation" onMouseDown={() => setIsScenePickerOpen(false)}>
