@@ -3,7 +3,7 @@ import { AlertTriangle, RefreshCw } from 'lucide-react'
 import type { AnalyticsCopy } from '../analyticsCopy'
 import type { AnalyticsSectionResult } from '../types'
 
-export type AnalyticsFallbackState = 'loading' | 'unavailable' | 'error'
+export type AnalyticsFallbackState = 'loading' | 'api-unavailable' | 'request-error'
 
 type DataBearing<T> = Extract<AnalyticsSectionResult<T>, { state: 'available' | 'empty' | 'partial' }>
 
@@ -29,7 +29,7 @@ export type AnalyticsSectionProps<T> = {
 
 function stateLabel(copy: AnalyticsCopy, state: string): string {
   if (state === 'partial') return copy.section.partial
-  if (state === 'error') return copy.section.error
+  if (state === 'error' || state === 'request-error') return copy.section.error
   return ''
 }
 
@@ -60,18 +60,19 @@ export function AnalyticsSection<T>({
     : false
 
   const message = (() => {
-    if (result?.state === 'error') return result.error.message
+    if (result?.state === 'error') return copy.section.error
     if (result?.state === 'unavailable') return copy.states.unavailableReasons[result.reason]
     if (result?.state === 'empty') return copy.section.empty
     if (!result) {
       if (fallbackState === 'loading') return copy.section.loading
-      if (fallbackState === 'error') return fallbackMessage ?? copy.section.error
-      return fallbackMessage ?? copy.page.unavailableDetail
+      if (fallbackState === 'request-error') return fallbackMessage ?? copy.page.requestFailedDetail
+      return fallbackMessage ?? copy.page.apiUnavailableDetail
     }
     return copy.section.empty
   })()
 
-  const showRetry = state === 'error' || state === 'unavailable' || state === 'partial'
+  const isErrorState = state === 'error' || state === 'request-error'
+  const showRetry = isErrorState || state === 'unavailable' || state === 'partial'
   const chip = stateLabel(copy, state)
 
   return (
@@ -80,7 +81,7 @@ export function AnalyticsSection<T>({
       className={`analytics-section-card${wide ? ' analytics-section-card--wide' : ''}`}
       data-section-state={state}
       data-stale={isStale}
-      aria-busy={isRefreshing}
+      aria-busy={state === 'loading' || isRefreshing}
     >
       <header className="analytics-section-card-header">
         <div>
@@ -98,8 +99,8 @@ export function AnalyticsSection<T>({
       {hasBody && result ? (
         children(result as DataBearing<T>)
       ) : (
-        <div className="analytics-section-message" role={state === 'error' ? 'alert' : 'status'}>
-          {state === 'error' || state === 'partial' ? <AlertTriangle size={20} aria-hidden="true" /> : null}
+        <div className="analytics-section-message" role={isErrorState ? 'alert' : 'status'}>
+          {isErrorState || state === 'partial' ? <AlertTriangle size={20} aria-hidden="true" /> : null}
           <p>{message}</p>
           {showRetry ? (
             <button type="button" className="analytics-secondary-button" onClick={onRetry}>

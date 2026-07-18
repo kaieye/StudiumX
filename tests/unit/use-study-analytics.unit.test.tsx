@@ -187,7 +187,7 @@ describe('useStudyAnalytics', () => {
     expect(result.current.phase).toBe('ready')
     expect(result.current.bundle).toBe(initialBundle)
     expect(result.current.isStale).toBe(true)
-    expect(result.current.issue).toMatchObject({ kind: 'error', retryable: true })
+    expect(result.current.issue).toMatchObject({ kind: 'request_failed', retryable: true })
   })
 
   it('does not refetch when only the query object identity changes', async () => {
@@ -220,7 +220,7 @@ describe('useStudyAnalytics', () => {
     expect(requestCount).toBe(1)
   })
 
-  it('distinguishes an unavailable analytics API from a request failure', async () => {
+  it('classifies a missing analytics API as unavailable and non-retryable', async () => {
     const client: LearningAnalyticsClient = {
       getLearningAnalytics: async () => {
         throw new AnalyticsApiUnavailableError()
@@ -236,6 +236,29 @@ describe('useStudyAnalytics', () => {
 
     const { result } = renderHook(() => useStudyAnalytics({ query, client }))
     await waitFor(() => expect(result.current.phase).toBe('unavailable'))
-    expect(result.current.issue?.kind).toBe('unavailable')
+    expect(result.current.issue).toMatchObject({ kind: 'api_unavailable', retryable: false })
+  })
+
+  it('classifies an API invocation rejection as a retryable request failure', async () => {
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: async () => {
+        throw new Error('socket exploded')
+      }
+    }
+    const query = buildLearningAnalyticsQuery({
+      range: buildAnalyticsDateRange('week', '2026-07-13'),
+      localToday: '2026-07-13',
+      timeZone: 'Asia/Shanghai',
+      personalClientId: 'client-1',
+      teaching: { kind: 'none' }
+    })
+
+    const { result } = renderHook(() => useStudyAnalytics({ query, client }))
+    await waitFor(() => expect(result.current.phase).toBe('error'))
+    expect(result.current.issue).toMatchObject({
+      kind: 'request_failed',
+      message: 'socket exploded',
+      retryable: true
+    })
   })
 })

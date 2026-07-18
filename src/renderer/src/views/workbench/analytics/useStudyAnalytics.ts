@@ -59,8 +59,8 @@ export class AnalyticsApiUnavailableError extends Error {
 }
 
 export type AnalyticsRequestIssue =
-  | { kind: 'unavailable'; message: string; retryable: true }
-  | { kind: 'error'; message: string; retryable: boolean }
+  | { kind: 'api_unavailable'; message: string; retryable: false }
+  | { kind: 'request_failed'; message: string; retryable: true }
 
 export type UseStudyAnalyticsResult = {
   phase: 'loading' | 'ready' | 'unavailable' | 'error'
@@ -382,8 +382,8 @@ export function useStudyAnalytics({
         const unavailable = error instanceof AnalyticsApiUnavailableError
         setState((current) => {
           const issue: AnalyticsRequestIssue = unavailable
-            ? { kind: 'unavailable', message: requestErrorMessage(error), retryable: true }
-            : { kind: 'error', message: requestErrorMessage(error), retryable: true }
+            ? { kind: 'api_unavailable', message: requestErrorMessage(error), retryable: false }
+            : { kind: 'request_failed', message: requestErrorMessage(error), retryable: true }
           if (current.bundle) {
             return {
               phase: 'ready',

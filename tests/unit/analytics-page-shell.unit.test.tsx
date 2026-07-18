@@ -10,7 +10,10 @@ import type {
   LearningAnalyticsQuery,
   TokenAnalytics
 } from '@renderer/views/workbench/analytics/types'
-import type { LearningAnalyticsClient } from '@renderer/views/workbench/analytics/useStudyAnalytics'
+import {
+  AnalyticsApiUnavailableError,
+  type LearningAnalyticsClient
+} from '@renderer/views/workbench/analytics/useStudyAnalytics'
 import { renderUi, screen, setupUser, waitFor } from '../helpers/render'
 
 function coverage(query: LearningAnalyticsQuery): AnalyticsCoverage {
@@ -33,7 +36,9 @@ function addDays(value: string, days: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-function tokenResult(query: LearningAnalyticsQuery): AnalyticsSectionResult<TokenAnalytics> {
+function tokenResult(
+  query: LearningAnalyticsQuery
+): Extract<AnalyticsSectionResult<TokenAnalytics>, { state: 'available' }> {
   return {
     state: 'available',
     temporal: { kind: 'range', range: query.range },
@@ -85,6 +90,16 @@ function tokenResult(query: LearningAnalyticsQuery): AnalyticsSectionResult<Toke
   }
 }
 
+function emptyTokenResult(
+  query: LearningAnalyticsQuery
+): Extract<AnalyticsSectionResult<TokenAnalytics>, { state: 'empty' }> {
+  return {
+    ...tokenResult(query),
+    state: 'empty',
+    reason: 'no_activity'
+  }
+}
+
 function heroResult(query: LearningAnalyticsQuery): AnalyticsSectionResult<LearningAnalyticsHero> {
   return {
     state: 'available',
@@ -127,6 +142,33 @@ function bundle(query: LearningAnalyticsQuery): LearningAnalyticsBundle {
     presence: unavailable,
     insights: unavailable
   } as LearningAnalyticsBundle
+}
+
+function analyticsThemeVariable(css: string, selector: string, variable: string): string {
+  const selectorIndex = css.indexOf(selector)
+  if (selectorIndex < 0) throw new Error(`Missing selector: ${selector}`)
+  const blockStart = css.indexOf('{', selectorIndex)
+  const blockEnd = css.indexOf('}', blockStart)
+  const block = css.slice(blockStart, blockEnd)
+  const match = new RegExp(`--${variable}:\\s*(#[0-9a-f]{6})`, 'i').exec(block)
+  if (!match?.[1]) throw new Error(`Missing variable --${variable} in ${selector}`)
+  return match[1]
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const luminance = (hex: string) => {
+    const channels = hex.match(/[0-9a-f]{2}/gi)?.map((value) => Number.parseInt(value, 16))
+    if (!channels || channels.length !== 3) throw new Error(`Invalid color: ${hex}`)
+    const [red, green, blue] = channels.map((value) => {
+      const channel = value / 255
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+    })
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+  }
+  const foregroundLuminance = luminance(foreground)
+  const backgroundLuminance = luminance(background)
+  return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05)
+    / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05)
 }
 
 describe('StudyAnalyticsPage', () => {
@@ -197,6 +239,95 @@ describe('StudyAnalyticsPage', () => {
     await screen.findByRole('heading', { name: '概览' })
     await user.click(screen.getByRole('button', { name: '近 90 天' }))
     expect(screen.getByRole('button', { name: '近 90 天' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('renders a successful empty section as recorded zero activity, not a missing API', async () => {
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async (query) => ({
+        ...bundle(query),
+        tokens: emptyTokenResult(query)
+      }))
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client' }}
+      />
+    )
+
+    const tokenSection = screen.getByRole('heading', { name: 'Token 消耗' }).closest('section')
+    await waitFor(() => expect(tokenSection).toHaveAttribute('data-section-state', 'empty'))
+    expect(tokenSection).toHaveTextContent('当前范围内暂无学习记录。')
+    expect(tokenSection).not.toHaveTextContent('未提供学习分析 API')
+    expect(document.body).not.toHaveTextContent('尚未接入')
+  })
+
+  it('renders a missing API as a non-retryable unavailable state', async () => {
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async () => {
+        throw new AnalyticsApiUnavailableError()
+      })
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client' }}
+      />
+    )
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('[data-section-state="api-unavailable"]')).toHaveLength(5)
+    })
+    expect(screen.getAllByText('当前应用未提供学习分析 API。请更新应用或联系管理员。')).toHaveLength(5)
+    expect(screen.queryAllByRole('button', { name: '重试' })).toHaveLength(0)
+  })
+
+  it('renders an API invocation failure as a retryable request error', async () => {
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async () => {
+        throw new Error('socket exploded')
+      })
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client' }}
+      />
+    )
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('[data-section-state="request-error"]')).toHaveLength(5)
+    })
+    expect(document.querySelectorAll('.analytics-section-message[role="alert"]')).toHaveLength(5)
+    expect(screen.getAllByText('分析服务暂时无法响应。请稍后重试。')).toHaveLength(5)
+    expect(screen.getAllByRole('button', { name: '重试' })).toHaveLength(5)
+    expect(document.body).not.toHaveTextContent('socket exploded')
+  })
+
+  it('defines WCAG-safe text, focus, and control colors for light and dark themes', () => {
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/renderer/src/views/workbench/analytics/analytics-page.css'),
+      'utf8'
+    )
+    const themes = [
+      { selector: '.study-analytics-page {', background: '#fbfbfb' },
+      { selector: ":root[data-resolved-theme='dark'] .study-analytics-page {", background: '#18181b' }
+    ] as const
+
+    for (const theme of themes) {
+      expect(contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-text-muted'), theme.background)).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-text-soft'), theme.background)).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-focus-ring'), theme.background)).toBeGreaterThanOrEqual(3)
+      expect(contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-control-border'), theme.background)).toBeGreaterThanOrEqual(3)
+    }
+
+    expect(css).not.toMatch(/color:\s*var\(--text-(?:muted|soft)\)/)
   })
 
   it('retains the clipped page shell and container-query safeguards', () => {
