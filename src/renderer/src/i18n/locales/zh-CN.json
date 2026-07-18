@@ -849,6 +849,10 @@
     "diagnostics": {
       "label": "记忆诊断",
       "detail": "活跃 {{active}} 条，已删除 {{deleted}} 条",
+      "migrationPreflightLabel": "旧版迁移预检",
+      "migrationPreflight": "旧平铺可迁移 {{eligible}} 条，已分区 {{partitioned}} 条，重复阻塞 {{duplicates}} 项，恢复阻塞 {{recovery}} 项",
+      "migrationReady": "可供评估",
+      "migrationBlocked": "需要审查",
       "loading": "读取诊断中..."
     },
     "refresh": "刷新",

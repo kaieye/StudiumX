@@ -95,20 +95,36 @@ export function isRecognizedTeachingMemoryScopeDirectory(name: string): boolean 
   return name === GLOBAL_PARTITION || PARTITION_PATTERN.test(name)
 }
 
+/** Discovery normally creates the configured Memory root for legacy CRUD compatibility. */
+export type TeachingMemoryRecordFileDiscoveryOptions = {
+  /** Diagnostics opt out so a missing Memory root stays absent. */
+  createRoot?: boolean
+}
+
 /**
  * Discovers only root-flat JSON files plus canonical files one level below an
  * explicitly recognized partition. Native directory descriptors bind every
  * listing/read/write parent; no C-6 operation performs a post-check pathname
  * traversal or follows a symlink.
  */
-export async function discoverTeachingMemoryRecordFiles(rootDir: string): Promise<TeachingMemoryRecordFileDiscovery> {
+export async function discoverTeachingMemoryRecordFiles(
+  rootDir: string,
+  options: TeachingMemoryRecordFileDiscoveryOptions = {}
+): Promise<TeachingMemoryRecordFileDiscovery> {
   const rootPath = resolve(rootDir)
+  const createRoot = options.createRoot ?? true
   const issues: TeachingMemoryRecordFileDiscoveryIssue[] = []
   let rootDirectory: ContainedDurableDirectory
   try {
-    rootDirectory = openContainedRootDirectory(rootPath, true)
+    rootDirectory = openContainedRootDirectory(rootPath, createRoot)
   } catch (error) {
     if (isNativeContainedDurableReplaceUnavailable(error)) throw error
+    // `openContainedRootDirectory(..., false)` reaches the configured final
+    // root via native openat(O_NOFOLLOW). A missing root is an empty,
+    // descriptor-bound discovery result, not an unsafe recovery condition.
+    if (!createRoot && isMissingContainedRootDirectoryError(error)) {
+      return { sources: [], issues, partitionDirectories: [] }
+    }
     issues.push({ fileName: '', filePath: rootPath, reason: 'unsafe_path' })
     return { sources: [], issues, partitionDirectories: [] }
   }
@@ -153,6 +169,18 @@ export async function discoverTeachingMemoryRecordFiles(rootDir: string): Promis
     issues.push({ fileName: '', filePath: rootPath, reason: 'unsafe_path' })
     return { sources: [], issues, partitionDirectories: [] }
   }
+}
+
+/**
+ * The current native binding maps open failures to EIO except symlink loops.
+ * Keep this narrow to the native missing-final-root diagnostic so any other
+ * root-open failure stays fail-closed as an unsafe-path recovery issue.
+ */
+function isMissingContainedRootDirectoryError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  if ('code' in error && error.code === 'ENOENT') return true
+  return error instanceof Error
+    && error.message === 'Unable to open contained root directory without following a link: No such file or directory'
 }
 
 /** Closes every directory descriptor retained by one discovery result. */

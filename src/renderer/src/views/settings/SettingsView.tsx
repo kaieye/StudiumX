@@ -799,6 +799,19 @@ export function SettingsView({
                   {t('memory.refresh')}
                 </button>
               </SettingsRow>
+              {memoryDiagnostics && (
+                <SettingsRow
+                  label={t('memory.diagnostics.migrationPreflightLabel')}
+                  detail={t('memory.diagnostics.migrationPreflight', {
+                    eligible: memoryDiagnostics.legacyMigrationPreflight.legacyFlatEligibleCount,
+                    partitioned: memoryDiagnostics.legacyMigrationPreflight.alreadyPartitionedCount,
+                    duplicates: memoryDiagnostics.legacyMigrationPreflight.blockedDuplicateCount,
+                    recovery: memoryDiagnostics.legacyMigrationPreflight.blockedRecoveryIssueCount
+                  })}
+                >
+                  <span className="settings-status-badge">{memoryDiagnostics.legacyMigrationPreflight.migrationReady ? t('memory.diagnostics.migrationReady') : t('memory.diagnostics.migrationBlocked')}</span>
+                </SettingsRow>
+              )}
             </SettingsCard>
 
             <SettingsCard>

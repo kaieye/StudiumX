@@ -4,6 +4,7 @@ import { resolve, win32 } from 'node:path'
 import { normalizeTraceId } from '../shared/trace-context'
 import { closeContainedDurableDirectory, readRegularFileAtContainedDirectory, type ContainedDurableDirectory } from './persistence/contained-durable-directory'
 import type {
+  TeachingMemoryLegacyMigrationPreflight,
   TeachingMemoryRecord,
   TeachingMemoryScope
 } from '../shared/teaching-types'
@@ -49,6 +50,12 @@ export type TeachingMemoryCatalogIndexScan = {
   recordFingerprints: Array<{ memoryId: string; fingerprint: string }>
 }
 
+type ParsedRecordFileResult = {
+  record: TeachingMemoryRecord | null
+  /** A structurally valid record rejected by catalog recovery rules. */
+  mutationBlockingRecordId?: string
+}
+
 type ParsedSource = TeachingMemoryRecordFileSource & {
   bytes: Buffer
   fingerprint: string
@@ -60,6 +67,7 @@ type Discovery = {
   selected: Map<string, ParsedSource>
   conflictedIds: Set<string>
   acceptedSourceCounts: Map<string, number>
+  mutationBlockingRecordIds: Set<string>
   close: () => void
   rootDirectory?: ContainedDurableDirectory
 }
@@ -163,6 +171,30 @@ export class TeachingMemoryCatalog {
     return this.recoveryIssues.map((issue) => ({ ...issue }))
   }
 
+  /**
+   * Returns renderer-safe diagnostics assembled from one descriptor-bound
+   * discovery snapshot. This method only reads existing sources; it never
+   * creates, repairs, relocates, or rewrites Memory files.
+   */
+  async diagnosticsSnapshot(): Promise<{
+    activeCount: number
+    tombstoneCount: number
+    legacyMigrationPreflight: TeachingMemoryLegacyMigrationPreflight
+  }> {
+    this.resetRecoveryIssues()
+    const discovered = await this.discover({ createRoot: false })
+    try {
+      const records = [...discovered.selected.values()].map((source) => source.record)
+      return {
+        activeCount: records.filter((record) => !record.deletedAt && !record.disabledAt).length,
+        tombstoneCount: records.filter((record) => Boolean(record.deletedAt)).length,
+        legacyMigrationPreflight: summarizeLegacyMigrationPreflight(discovered, this.recoveryIssues)
+      }
+    } finally {
+      discovered.close()
+    }
+  }
+
   /** Returns all valid scopes/tombstones and recovery facts for the SQLite projection. */
   async scanForLocalDataIndex(): Promise<TeachingMemoryCatalogIndexScan> {
     this.resetRecoveryIssues()
@@ -180,20 +212,22 @@ export class TeachingMemoryCatalog {
     }
   }
 
-  private async discover(): Promise<Discovery> {
-    const listed = await discoverTeachingMemoryRecordFiles(this.rootDir)
+  private async discover(options: { createRoot?: boolean } = {}): Promise<Discovery> {
+    const listed = await discoverTeachingMemoryRecordFiles(this.rootDir, options)
     try {
       for (const issue of listed.issues) this.report(issue.fileName, issue.filePath, issue.reason)
 
       const sources: Discovery['sources'] = []
       const parsed: ParsedSource[] = []
+      const mutationBlockingRecordIds = new Set<string>()
       for (const source of listed.sources) {
         try {
           const bytes = readRegularFileAtContainedDirectory(source.directory, source.entryName)
           const fingerprint = createHash('sha256').update(bytes).digest('hex')
           sources.push({ ...source, bytes, fingerprint })
-          const record = this.parseRecordFile(source, bytes.toString('utf8'))
-          if (record) parsed.push({ ...source, bytes, fingerprint, record })
+          const parsedRecord = this.parseRecordFile(source, bytes.toString('utf8'))
+          if (parsedRecord.record) parsed.push({ ...source, bytes, fingerprint, record: parsedRecord.record })
+          if (parsedRecord.mutationBlockingRecordId) mutationBlockingRecordIds.add(parsedRecord.mutationBlockingRecordId)
         } catch {
           sources.push(source)
           this.report(source.fileName, source.filePath, 'unsafe_path')
@@ -218,6 +252,7 @@ export class TeachingMemoryCatalog {
         selected,
         conflictedIds,
         acceptedSourceCounts,
+        mutationBlockingRecordIds,
         rootDirectory: listed.rootDirectory,
         close: () => closeTeachingMemoryRecordFileDiscovery(listed)
       }
@@ -227,36 +262,36 @@ export class TeachingMemoryCatalog {
     }
   }
 
-  private parseRecordFile(source: TeachingMemoryRecordFileSource, content: string): TeachingMemoryRecord | null {
+  private parseRecordFile(source: TeachingMemoryRecordFileSource, content: string): ParsedRecordFileResult {
     let parsed: unknown
     try {
       parsed = JSON.parse(content) as unknown
     } catch {
       this.report(source.fileName, source.filePath, 'invalid_json')
-      return null
+      return { record: null }
     }
 
     const record = tryNormalizeTeachingMemoryRecord(parsed)
     if (!record) {
       this.report(source.fileName, source.filePath, 'invalid_record')
-      return null
+      return { record: null }
     }
     if (source.layout === 'flat' && !isTeachingMemoryRecordFileName(lastPathSegment(source.fileName), record.id)) {
       this.report(source.fileName, source.filePath, 'file_name_mismatch')
-      return null
+      return { record: null, mutationBlockingRecordId: record.id }
     }
     if (source.layout === 'scoped') {
       const fileName = lastPathSegment(source.fileName)
       if (!isCanonicalTeachingMemoryRecordFileName(fileName) || fileName !== teachingMemoryRecordFilePath('', record.id)) {
         this.report(source.fileName, source.filePath, 'file_name_mismatch')
-        return null
+        return { record: null, mutationBlockingRecordId: record.id }
       }
       if (source.partition !== teachingMemoryScopeDirectory(record)) {
         this.report(source.fileName, source.filePath, 'scope_mismatch')
-        return null
+        return { record: null, mutationBlockingRecordId: record.id }
       }
     }
-    return record
+    return { record }
   }
 
   private resetRecoveryIssues(): void {
@@ -328,6 +363,41 @@ export async function pathExists(path: string): Promise<boolean> {
 }
 
 export { teachingMemoryRecordFilePath, teachingMemoryScopeDirectory, teachingMemoryScopedRecordFilePath }
+
+function summarizeLegacyMigrationPreflight(
+  discovered: Discovery,
+  recoveryIssues: readonly TeachingMemoryCatalogRecoveryIssue[]
+): TeachingMemoryLegacyMigrationPreflight {
+  const duplicateIds = new Set<string>(discovered.conflictedIds)
+  for (const [id, count] of discovered.acceptedSourceCounts) {
+    if (count > 1) duplicateIds.add(id)
+  }
+
+  let legacyFlatEligibleCount = 0
+  let alreadyPartitionedCount = 0
+  for (const [id, source] of discovered.selected) {
+    if (source.layout === 'scoped') {
+      alreadyPartitionedCount += 1
+      continue
+    }
+    const acceptedSourceCount = discovered.acceptedSourceCounts.get(id) ?? 0
+    if (acceptedSourceCount === 1 && !duplicateIds.has(id) && !discovered.mutationBlockingRecordIds.has(id)) {
+      legacyFlatEligibleCount += 1
+    }
+  }
+
+  // Duplicate source states have their own aggregate. All other catalog
+  // recovery findings are migration blockers, but never leave this boundary.
+  const blockedRecoveryIssueCount = recoveryIssues.filter((issue) => issue.reason !== 'duplicate_conflict').length
+  const blockedDuplicateCount = duplicateIds.size
+  return {
+    legacyFlatEligibleCount,
+    alreadyPartitionedCount,
+    blockedDuplicateCount,
+    blockedRecoveryIssueCount,
+    migrationReady: legacyFlatEligibleCount > 0 && blockedDuplicateCount === 0 && blockedRecoveryIssueCount === 0
+  }
+}
 
 function normalizeListQuery(query: TeachingMemoryListQuery | string | undefined, includeDeleted: boolean): Required<Pick<TeachingMemoryListQuery, 'includeDeleted'>> & Pick<TeachingMemoryListQuery, 'access'> {
   if (typeof query === 'string') return { access: { workspaceRoot: query }, includeDeleted }

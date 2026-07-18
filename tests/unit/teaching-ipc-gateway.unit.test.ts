@@ -124,6 +124,45 @@ describe('Teaching IPC gateway', () => {
     expect(createWorkspace).toHaveBeenCalledWith({ name: 'Course', prompt: 'Teach algebra' })
   })
 
+  it('returns exact aggregate-only memory diagnostics through the registered handler', async () => {
+    const runtime = await runtimeScope.create('gateway-memory-diagnostics')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const sensitiveRoot = join(runtime.paths.appData, 'memory')
+    const sensitiveContent = 'Memory content must never cross IPC.'
+    const sensitiveHash = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot)
+    })
+    const memory = await service.createMemory({
+      content: `${sensitiveContent} ${sensitiveHash}`,
+      scope: 'user'
+    })
+    registerTeachingIpcGateway(registration({ workspaceService: service }))
+
+    const result = await handler(teachingInvokeChannels.getMemoryDiagnostics)(event)
+
+    expect(result).toEqual({
+      enabled: true,
+      activeCount: 1,
+      tombstoneCount: 0,
+      lastInjectedCount: 0,
+      legacyMigrationPreflight: {
+        legacyFlatEligibleCount: 0,
+        alreadyPartitionedCount: 1,
+        blockedDuplicateCount: 0,
+        blockedRecoveryIssueCount: 0,
+        migrationReady: false
+      }
+    })
+    const serialized = JSON.stringify(result)
+    expect(serialized).not.toContain(sensitiveRoot)
+    expect(serialized).not.toContain(memory.id)
+    expect(serialized).not.toContain(sensitiveContent)
+    expect(serialized).not.toContain(sensitiveHash)
+  })
+
   it('accepts memory scope roots only after registered-workspace resolution and strips renderer destination fields', async () => {
     const rootPath = '/registered/course'
     const createMemory = vi.fn().mockResolvedValue({ id: 'memory-1' })

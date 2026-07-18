@@ -224,7 +224,19 @@ function makeService(
   localDataIndex?: LocalDataIndex
 ) {
   const skills: SkillCatalogResult = { rootPath: runtime.rootDir, skills: [] }
-  const diagnostics: TeachingMemoryDiagnostics = { enabled: true, rootDir: runtime.rootDir, activeCount: 0, tombstoneCount: 0, lastInjectedIds: [] }
+  const diagnostics: TeachingMemoryDiagnostics = {
+    enabled: true,
+    activeCount: 0,
+    tombstoneCount: 0,
+    lastInjectedCount: 0,
+    legacyMigrationPreflight: {
+      legacyFlatEligibleCount: 0,
+      alreadyPartitionedCount: 0,
+      blockedDuplicateCount: 0,
+      blockedRecoveryIssueCount: 0,
+      migrationReady: false
+    }
+  }
   return new LearningAnalyticsService({
     appDataRoot: runtime.userDataDir,
     listWorkspaceSummaries: async () => scans,

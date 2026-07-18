@@ -319,3 +319,137 @@ describe('TeachingMemoryCatalog scope partitions', () => {
     expect(normalizeTeachingMemoryScopePath('c:/STUDY/course')).toBe('c:\\study\\course')
   })
 })
+
+async function snapshotMemoryTree(rootDir: string): Promise<Array<{ path: string; bytes: string; mtimeMs: number }>> {
+  const entries = await readdir(rootDir, { recursive: true, withFileTypes: true })
+  const files = entries.filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name)).sort()
+  return Promise.all(files.map(async (path) => ({
+    path: path.slice(rootDir.length),
+    bytes: (await readFile(path)).toString('base64'),
+    mtimeMs: (await stat(path)).mtimeMs
+  })))
+}
+
+describe('TeachingMemoryCatalog legacy migration preflight', () => {
+  it('returns an empty preflight without creating a missing Memory root or changing its parent', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'studiumx-teaching-memory-missing-root-parent-'))
+    temporaryRoots.push(parent)
+    const rootDir = join(parent, 'memory')
+    const catalog = new TeachingMemoryCatalog(rootDir)
+    const beforeEntries = await readdir(parent)
+    const beforeParent = await stat(parent)
+
+    await expect(catalog.diagnosticsSnapshot()).resolves.toEqual({
+      activeCount: 0,
+      tombstoneCount: 0,
+      legacyMigrationPreflight: {
+        legacyFlatEligibleCount: 0,
+        alreadyPartitionedCount: 0,
+        blockedDuplicateCount: 0,
+        blockedRecoveryIssueCount: 0,
+        migrationReady: false
+      }
+    })
+
+    await expect(stat(rootDir)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readdir(parent)).toEqual(beforeEntries)
+    expect((await stat(parent)).mtimeMs).toBe(beforeParent.mtimeMs)
+    expect(catalog.getRecoveryIssues()).toEqual([])
+  })
+
+  it('counts a single selected flat source as eligible and does not alter canonical bytes, mtimes, or layout', async () => {
+    const catalog = await createCatalog()
+    const legacy = record('legacy-flat')
+    await writeRawFlat(catalog.rootDir, legacy)
+    const before = await snapshotMemoryTree(catalog.rootDir)
+
+    await expect(catalog.diagnosticsSnapshot()).resolves.toMatchObject({
+      activeCount: 1,
+      tombstoneCount: 0,
+      legacyMigrationPreflight: {
+        legacyFlatEligibleCount: 1,
+        alreadyPartitionedCount: 0,
+        blockedDuplicateCount: 0,
+        blockedRecoveryIssueCount: 0,
+        migrationReady: true
+      }
+    })
+
+    expect(await snapshotMemoryTree(catalog.rootDir)).toEqual(before)
+  })
+
+  it('counts a selected scoped source as already partitioned rather than legacy eligible', async () => {
+    const catalog = await createCatalog()
+    await catalog.commit(record('scoped-only'))
+
+    await expect(catalog.diagnosticsSnapshot()).resolves.toMatchObject({
+      legacyMigrationPreflight: {
+        legacyFlatEligibleCount: 0,
+        alreadyPartitionedCount: 1,
+        blockedDuplicateCount: 0,
+        blockedRecoveryIssueCount: 0,
+        migrationReady: false
+      }
+    })
+  })
+
+  it('blocks same-ID flat and scoped duplicates even when their bytes are identical', async () => {
+    const catalog = await createCatalog()
+    const duplicate = record('flat-and-scoped-equal')
+    await catalog.commit(duplicate)
+    const scopedBytes = await readFile(teachingMemoryScopedRecordFilePath(catalog.rootDir, duplicate))
+    await writeFile(teachingMemoryRecordFilePath(catalog.rootDir, duplicate.id), scopedBytes, { mode: 0o600 })
+
+    await expect(catalog.diagnosticsSnapshot()).resolves.toMatchObject({
+      legacyMigrationPreflight: {
+        legacyFlatEligibleCount: 0,
+        alreadyPartitionedCount: 1,
+        blockedDuplicateCount: 1,
+        blockedRecoveryIssueCount: 0,
+        migrationReady: false
+      }
+    })
+  })
+
+  it('blocks same-ID conflicting bytes without selecting either source', async () => {
+    const catalog = await createCatalog()
+    const scoped = record('flat-and-scoped-conflict')
+    await catalog.commit(scoped)
+    await writeRawFlat(catalog.rootDir, { ...scoped, content: 'Conflicting legacy content' })
+
+    await expect(catalog.diagnosticsSnapshot()).resolves.toMatchObject({
+      activeCount: 0,
+      legacyMigrationPreflight: {
+        legacyFlatEligibleCount: 0,
+        alreadyPartitionedCount: 0,
+        blockedDuplicateCount: 1,
+        blockedRecoveryIssueCount: 0,
+        migrationReady: false
+      }
+    })
+  })
+
+  it('aggregates recovery and unsafe inputs without exposing them or treating a blocked flat record as eligible', async () => {
+    const catalog = await createCatalog()
+    const legacy = record('blocked-by-recovery', { scope: 'workspace', workspace: '/courses/alpha' })
+    await writeRawFlat(catalog.rootDir, legacy)
+    await writeRecord(join(catalog.rootDir, '_global', teachingMemoryRecordFilePath('', legacy.id)), legacy)
+    await writeFile(join(catalog.rootDir, 'invalid.json'), '{not json', { mode: 0o600 })
+    const external = await mkdtemp(join(tmpdir(), 'studiumx-teaching-memory-preflight-external-'))
+    temporaryRoots.push(external)
+    await symlink(external, join(catalog.rootDir, 'workspace-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.v1'))
+
+    const snapshot = await catalog.diagnosticsSnapshot()
+
+    expect(snapshot.legacyMigrationPreflight).toMatchObject({
+      legacyFlatEligibleCount: 0,
+      alreadyPartitionedCount: 0,
+      blockedDuplicateCount: 0,
+      migrationReady: false
+    })
+    expect(snapshot.legacyMigrationPreflight.blockedRecoveryIssueCount).toBeGreaterThanOrEqual(3)
+    expect(JSON.stringify(snapshot)).not.toContain(catalog.rootDir)
+    expect(JSON.stringify(snapshot)).not.toContain(legacy.id)
+    expect(JSON.stringify(snapshot)).not.toContain(legacy.content)
+  })
+})
