@@ -8,7 +8,9 @@ import {
   isTeachingTurnTerminalPayload,
   mapCommitStatusToTerminal,
   parseTeachingEvent,
+  parseTeachingTurnCommand,
   teachingEventPayloadTypes,
+  teachingTurnCommandTypes,
   TeachingEventParseError
 } from '../../src/shared/teaching-events'
 
@@ -324,3 +326,198 @@ function samplePayload(type: string) {
       throw new Error(`missing sample for ${type}`)
   }
 }
+
+describe('parseTeachingTurnCommand runtime coverage', () => {
+  const envelope = {
+    turnId: 'turn-1',
+    eventId: 'event-1',
+    operationId: 'op-1',
+    workspaceId: 'workspace-1'
+  }
+
+  const evidence = {
+    schemaVersion: 1,
+    eventId: 'evidence-1',
+    kind: 'quiz_answered' as const,
+    workspaceId: 'workspace-1',
+    courseId: 'course-1',
+    sessionId: 'session-1',
+    lessonId: 'lesson-1',
+    itemId: 'item-1',
+    attempt: 1,
+    observedAt: '2026-07-18T10:00:00.000Z',
+    artifactDigest: 'a'.repeat(64),
+    surface: 'lesson_preview' as const,
+    selectedOptionIds: ['a'],
+    correct: false
+  }
+
+  const facts = {
+    mission: { id: 'mission-1', nextGoal: 'available' as const },
+    course: { id: 'course-1' },
+    latestSession: { id: 'session-1', source: 'canonical' as const, readOnly: false },
+    durableOutcome: { status: 'absent' as const },
+    evidence: { status: 'not_evidenced' as const },
+    resources: { readiness: 'ready' as const, availableCount: 1, provenanceIds: ['r1'] }
+  }
+
+  it('parses all closed command variants successfully', () => {
+    const variants: unknown[] = [
+      {
+        type: 'open_session',
+        ...envelope,
+        open: {
+          workspaceId: 'workspace-1',
+          courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+        }
+      },
+      {
+        type: 'open_session',
+        ...envelope,
+        eventId: 'event-open-with-session',
+        operationId: 'op-open-with-session',
+        open: {
+          sessionId: 'session-1',
+          workspaceId: 'workspace-1',
+          courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+        }
+      },
+      { type: 'resume_session', ...envelope, eventId: 'event-resume', operationId: 'op-resume', sessionId: 'session-1' },
+      {
+        type: 'record_evidence',
+        ...envelope,
+        eventId: 'event-evidence',
+        operationId: 'op-evidence',
+        evidence
+      },
+      {
+        type: 'commit_outcome',
+        ...envelope,
+        eventId: 'event-commit',
+        operationId: 'op-commit',
+        request: { sessionId: 'session-1', operationId: 'op-commit' }
+      },
+      {
+        type: 'plan_next_step',
+        ...envelope,
+        eventId: 'event-plan',
+        operationId: 'op-plan',
+        sessionId: 'session-1',
+        facts
+      },
+      {
+        type: 'project_snapshot',
+        ...envelope,
+        eventId: 'event-snap',
+        operationId: 'op-snap',
+        factInput: {
+          mission: { id: 'mission-1', nextGoal: 'available' },
+          course: { id: 'course-1' },
+          resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['r1'] },
+          sessionId: 'session-1'
+        }
+      },
+      { type: 'recover_session', ...envelope, eventId: 'event-recover', operationId: 'op-recover', sessionId: 'session-1' },
+      {
+        type: 'cancel_turn',
+        ...envelope,
+        eventId: 'event-cancel',
+        operationId: 'op-cancel',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      }
+    ]
+
+    const types = teachingTurnCommandTypes()
+    expect(types).toEqual(
+      expect.arrayContaining([
+        'open_session',
+        'resume_session',
+        'record_evidence',
+        'commit_outcome',
+        'plan_next_step',
+        'project_snapshot',
+        'recover_session',
+        'cancel_turn'
+      ])
+    )
+    expect(types).toHaveLength(8)
+
+    for (const value of variants) {
+      const result = parseTeachingTurnCommand(value)
+      expect(result.ok, JSON.stringify(value)).toBe(true)
+      if (result.ok) {
+        expect(types).toContain(result.value.type)
+      }
+    }
+  })
+
+  it('fail-closes unknown type, envelope id gaps, nested identity mismatches, and free-form cancel reason', () => {
+    expect(parseTeachingTurnCommand(null).ok).toBe(false)
+    expect(parseTeachingTurnCommand([]).ok).toBe(false)
+    expect(parseTeachingTurnCommand({ type: 'not_a_command', ...envelope }).ok).toBe(false)
+    expect(parseTeachingTurnCommand({ type: 'resume_session', ...envelope, turnId: '' }).ok).toBe(false)
+    expect(parseTeachingTurnCommand({ type: 'resume_session', ...envelope, sessionId: 'session-1', eventId: 'bad id' }).ok).toBe(false)
+
+    expect(
+      parseTeachingTurnCommand({
+        type: 'open_session',
+        ...envelope,
+        open: {
+          workspaceId: 'workspace-OTHER',
+          courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+        }
+      }).ok
+    ).toBe(false)
+
+    expect(
+      parseTeachingTurnCommand({
+        type: 'record_evidence',
+        ...envelope,
+        evidence: { ...evidence, workspaceId: 'workspace-OTHER' }
+      }).ok
+    ).toBe(false)
+
+    expect(
+      parseTeachingTurnCommand({
+        type: 'commit_outcome',
+        ...envelope,
+        request: { sessionId: 'session-1', operationId: 'op-OTHER' }
+      }).ok
+    ).toBe(false)
+
+    expect(
+      parseTeachingTurnCommand({
+        type: 'plan_next_step',
+        ...envelope,
+        sessionId: 'session-1',
+        facts: {
+          ...facts,
+          latestSession: { ...facts.latestSession, id: 'session-OTHER' }
+        }
+      }).ok
+    ).toBe(false)
+
+    // project_snapshot must not accept missing sessionId (no course.id fallback)
+    expect(
+      parseTeachingTurnCommand({
+        type: 'project_snapshot',
+        ...envelope,
+        factInput: {
+          mission: { id: 'mission-1', nextGoal: 'available' },
+          course: { id: 'course-1' },
+          resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['r1'] }
+        }
+      }).ok
+    ).toBe(false)
+
+    expect(
+      parseTeachingTurnCommand({
+        type: 'cancel_turn',
+        ...envelope,
+        sessionId: 'session-1',
+        reasonCode: 'free_form_reason'
+      }).ok
+    ).toBe(false)
+  })
+})

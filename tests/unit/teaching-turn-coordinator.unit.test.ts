@@ -503,9 +503,8 @@ describe('TeachingTurnCoordinator', () => {
       workspaceId: 'workspace-1',
       request: {
         sessionId: 'session-1',
-        outcome: { kind: 'needs_practice' },
-        evidenceEventIds: ['evidence-1']
-      } as never
+        operationId: 'op-commit-lc'
+      }
     })
     expect(committed.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'completed' })
 
@@ -683,7 +682,8 @@ describe('TeachingTurnCoordinator', () => {
       }
     })
     expect(failed.terminal).toBeNull()
-    expect(failed.events.some((e) => e.payload.type === 'command_accepted')).toBe(true)
+    // H3: command_accepted only after preflight + port identity verification succeed.
+    expect(failed.events.some((e) => e.payload.type === 'command_accepted')).toBe(false)
     expect(failed.events.some((e) => e.payload.type === 'turn_terminal')).toBe(false)
     expect(failed.events.some((e) => e.payload.type === 'turn_progress' && (e.payload as { stage: string }).stage === 'port_failed')).toBe(true)
     // unsubscribed before bus attach => no live delivery
@@ -735,9 +735,8 @@ describe('TeachingTurnCoordinator', () => {
       workspaceId: 'workspace-1',
       request: {
         sessionId: 'session-1',
-        outcome: { kind: 'not_evidenced' },
-        evidenceEventIds: []
-      } as never
+        operationId: 'op-insuff'
+      }
     })
     const insuffEvent = insufficient.events.find((e) => e.payload.type === 'outcome_insufficient_evidence')
     expect(insuffEvent?.durability).toBe('ephemeral')
@@ -987,7 +986,10 @@ describe('TeachingTurnCoordinator', () => {
       eventId: 'ev-retry-1',
       operationId: 'op-retry-1',
       workspaceId: 'workspace-1',
-      request: { sessionId: 'session-1', operationId: 'op-retry-1' }
+      request: {
+        sessionId: 'session-1',
+        operationId: 'op-retry-1'
+      }
     })
     expect(first.terminal).toBeNull()
     const second = await coordinator.execute({
@@ -996,7 +998,10 @@ describe('TeachingTurnCoordinator', () => {
       eventId: 'ev-retry-2',
       operationId: 'op-retry-2',
       workspaceId: 'workspace-1',
-      request: { sessionId: 'session-1', operationId: 'op-retry-2' }
+      request: {
+        sessionId: 'session-1',
+        operationId: 'op-retry-2'
+      }
     })
     expect(second.acceptance).toBe('accepted')
     expect(second.terminal?.payload).toMatchObject({ outcome: 'completed', reasonCode: 'committed' })
@@ -1431,4 +1436,375 @@ describe('TeachingTurnCoordinator', () => {
     expect(again.terminal?.payload).toMatchObject({ outcome: 'canceled' })
   })
 
+  it('round5: concurrent same-op while reserved is operation_in_flight; after commit is duplicate', async () => {
+    let releaseOpen: (() => void) | undefined
+    const openGate = new Promise<void>((resolve) => {
+      releaseOpen = resolve
+    })
+    const open = vi.fn(async (input: { sessionId?: string; workspaceId?: string }) => {
+      await openGate
+      return sessionSnapshot({
+        id: input.sessionId ?? 'session-1',
+        workspaceId: input.workspaceId ?? 'workspace-1'
+      })
+    })
+    const coordinator = createTeachingTurnCoordinator(createPorts({ open }))
+    const command = {
+      type: 'open_session' as const,
+      turnId: 'turn-inflight',
+      eventId: 'ev-inflight',
+      operationId: 'op-inflight',
+      workspaceId: 'workspace-1',
+      open: {
+        sessionId: 'session-inflight',
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    }
+
+    const firstPromise = coordinator.execute(command)
+    await new Promise((r) => setTimeout(r, 20))
+    const inFlight = await coordinator.execute(command)
+    expect(inFlight.acceptance).toBe('rejected')
+    expect(inFlight.rejectReason).toBe('operation_in_flight')
+    expect(inFlight.events).toEqual([])
+    // Second concurrent must not start another port call while first is reserved.
+    expect(open).toHaveBeenCalledTimes(1)
+
+    releaseOpen?.()
+    const first = await firstPromise
+    expect(first.acceptance).toBe('accepted')
+    expect(first.events.some((e) => e.payload.type === 'command_accepted')).toBe(true)
+
+    const after = await coordinator.execute(command)
+    expect(after.acceptance).toBe('duplicate')
+    expect(open).toHaveBeenCalledTimes(1)
+  })
+
+  it('round5: bound turn session fail-closed for a different session without mutator', async () => {
+    const load = vi.fn(async (sessionId: string) =>
+      sessionSnapshot({ id: sessionId, workspaceId: 'workspace-1' })
+    )
+    const record = vi.fn(async () => {
+      throw new Error('record must not run for foreign session on bound turn')
+    })
+    const coordinator = createTeachingTurnCoordinator(createPorts({ load, record }))
+
+    const opened = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-bound-session',
+      eventId: 'ev-bound-open',
+      operationId: 'op-bound-open',
+      workspaceId: 'workspace-1',
+      open: {
+        sessionId: 'session-bound-a',
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+    expect(opened.acceptance).toBe('accepted')
+
+    const foreign = await coordinator.execute({
+      type: 'record_evidence',
+      turnId: 'turn-bound-session',
+      eventId: 'ev-bound-foreign',
+      operationId: 'op-bound-foreign',
+      workspaceId: 'workspace-1',
+      evidence: {
+        schemaVersion: 1,
+        eventId: 'evidence-foreign',
+        kind: 'quiz_answered',
+        workspaceId: 'workspace-1',
+        courseId: 'course-1',
+        sessionId: 'session-bound-b',
+        lessonId: 'lesson-1',
+        itemId: 'item-1',
+        attempt: 1,
+        observedAt: '2026-07-18T10:00:00.000Z',
+        artifactDigest: 'a'.repeat(64),
+        surface: 'lesson_preview',
+        selectedOptionIds: ['a'],
+        correct: false
+      }
+    })
+    expect(foreign.acceptance).toBe('rejected')
+    expect(foreign.rejectReason).toBe('payload_mismatch')
+    expect(foreign.events).toEqual([])
+    expect(record).not.toHaveBeenCalled()
+    // Bound-session check is before preflight load for the foreign session.
+    expect(load.mock.calls.every((call) => call[0] !== 'session-bound-b')).toBe(true)
+  })
+
+  it('round5: recover/commit/record load+workspace validate before mutator; zero accepted on mismatch', async () => {
+    const load = vi.fn(async (sessionId: string) =>
+      sessionSnapshot({ id: sessionId, workspaceId: 'workspace-OTHER' })
+    )
+    const record = vi.fn(async () => {
+      throw new Error('recorder mutator must not run')
+    })
+    const commit = vi.fn(async () => {
+      throw new Error('committer mutator must not run')
+    })
+    const reconcile = vi.fn(async () => {
+      throw new Error('reconcile mutator must not run')
+    })
+    const coordinator = createTeachingTurnCoordinator(
+      createPorts({ load, record, commit, reconcile })
+    )
+
+    const evidence = await coordinator.execute({
+      type: 'record_evidence',
+      turnId: 'turn-preflight-ev',
+      eventId: 'ev-preflight-ev',
+      operationId: 'op-preflight-ev',
+      workspaceId: 'workspace-1',
+      evidence: {
+        schemaVersion: 1,
+        eventId: 'evidence-preflight',
+        kind: 'quiz_answered',
+        workspaceId: 'workspace-1',
+        courseId: 'course-1',
+        sessionId: 'session-1',
+        lessonId: 'lesson-1',
+        itemId: 'item-1',
+        attempt: 1,
+        observedAt: '2026-07-18T10:00:00.000Z',
+        artifactDigest: 'a'.repeat(64),
+        surface: 'lesson_preview',
+        selectedOptionIds: ['a'],
+        correct: false
+      }
+    })
+    expect(evidence.acceptance).toBe('rejected')
+    expect(evidence.rejectReason).toBe('payload_mismatch')
+    expect(evidence.events.some((e) => e.payload.type === 'command_accepted')).toBe(false)
+    expect(load).toHaveBeenCalledWith('session-1')
+    expect(record).not.toHaveBeenCalled()
+
+    const committed = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-preflight-commit',
+      eventId: 'ev-preflight-commit',
+      operationId: 'op-preflight-commit',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-preflight-commit' }
+    })
+    expect(committed.acceptance).toBe('rejected')
+    expect(committed.rejectReason).toBe('payload_mismatch')
+    expect(committed.events.some((e) => e.payload.type === 'command_accepted')).toBe(false)
+    expect(commit).not.toHaveBeenCalled()
+
+    const recovered = await coordinator.execute({
+      type: 'recover_session',
+      turnId: 'turn-preflight-recover',
+      eventId: 'ev-preflight-recover',
+      operationId: 'op-preflight-recover',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1'
+    })
+    expect(recovered.acceptance).toBe('rejected')
+    expect(recovered.rejectReason).toBe('payload_mismatch')
+    expect(recovered.events.some((e) => e.payload.type === 'command_accepted')).toBe(false)
+    expect(reconcile).not.toHaveBeenCalled()
+  })
+
+  it('round5: commit request.operationId must bind command.operationId; port mismatch leaves no accepted', async () => {
+    const commit = vi.fn(async () => ({
+      status: 'committed' as const,
+      outcome: { kind: 'needs_practice' as const },
+      recordSaved: false,
+      catalogRecordPresent: false
+    }))
+    const coordinator = createTeachingTurnCoordinator(createPorts({ commit }))
+
+    const mismatched = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-op-bind',
+      eventId: 'ev-op-bind',
+      operationId: 'op-command',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-OTHER' }
+    })
+    expect(mismatched.acceptance).toBe('rejected')
+    expect(mismatched.rejectReason).toBe('payload_mismatch')
+    expect(mismatched.events).toEqual([])
+    expect(commit).not.toHaveBeenCalled()
+
+    const openWrong = vi.fn(async () =>
+      sessionSnapshot({ id: 'session-WRONG', workspaceId: 'workspace-1' })
+    )
+    const busSeen: string[] = []
+    const coordinatorPort = createTeachingTurnCoordinator(createPorts({ open: openWrong }))
+    const unsub = coordinatorPort.subscribe(
+      { workspaceId: 'workspace-1', turnId: 'turn-no-fake-accepted' },
+      (event) => {
+        busSeen.push(event.payload.type)
+      }
+    )
+    const portMismatch = await coordinatorPort.execute({
+      type: 'open_session',
+      turnId: 'turn-no-fake-accepted',
+      eventId: 'ev-no-fake-accepted',
+      operationId: 'op-no-fake-accepted',
+      workspaceId: 'workspace-1',
+      open: {
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+    unsub()
+    expect(portMismatch.acceptance).toBe('rejected')
+    expect(portMismatch.rejectReason).toBe('payload_mismatch')
+    expect(portMismatch.events.some((e) => e.payload.type === 'command_accepted')).toBe(false)
+    expect(busSeen).not.toContain('command_accepted')
+    expect(openWrong).toHaveBeenCalledTimes(1)
+
+    // Stable reject memory: replay same command does not re-invoke the port.
+    const again = await coordinatorPort.execute({
+      type: 'open_session',
+      turnId: 'turn-no-fake-accepted',
+      eventId: 'ev-no-fake-accepted',
+      operationId: 'op-no-fake-accepted',
+      workspaceId: 'workspace-1',
+      open: {
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+    expect(again.acceptance).toBe('duplicate')
+    expect(again.rejectReason).toBe('payload_mismatch')
+    expect(openWrong).toHaveBeenCalledTimes(1)
+  })
+
+  it('round5: execute(unknown) parses first; project_snapshot requires explicit real sessionId', async () => {
+    const coordinator = createTeachingTurnCoordinator(createPorts())
+
+    const garbage = await coordinator.execute('not-a-command')
+    expect(garbage.acceptance).toBe('rejected')
+    expect(garbage.rejectReason).toBe('payload_mismatch')
+    expect(garbage.events).toEqual([])
+
+    const unknownType = await coordinator.execute({
+      type: 'invented_command',
+      turnId: 'turn-unknown',
+      eventId: 'ev-unknown',
+      operationId: 'op-unknown',
+      workspaceId: 'workspace-1'
+    })
+    expect(unknownType.acceptance).toBe('rejected')
+    expect(unknownType.rejectReason).toBe('payload_mismatch')
+
+    const noSession = await coordinator.execute({
+      type: 'project_snapshot',
+      turnId: 'turn-snap-nosession',
+      eventId: 'ev-snap-nosession',
+      operationId: 'op-snap-nosession',
+      workspaceId: 'workspace-1',
+      factInput: {
+        mission: { id: 'mission-1', nextGoal: 'available' },
+        course: { id: 'course-1' },
+        resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['r1'] }
+        // intentionally omit sessionId — must not fall back to course.id
+      }
+    })
+    expect(noSession.acceptance).toBe('rejected')
+    expect(noSession.rejectReason).toBe('payload_mismatch')
+    expect(noSession.events).toEqual([])
+
+    const withSession = await coordinator.execute({
+      type: 'project_snapshot',
+      turnId: 'turn-snap-session',
+      eventId: 'ev-snap-session',
+      operationId: 'op-snap-session',
+      workspaceId: 'workspace-1',
+      factInput: {
+        mission: { id: 'mission-1', nextGoal: 'available' },
+        course: { id: 'course-1' },
+        resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['r1'] },
+        sessionId: 'session-1'
+      }
+    })
+    expect(withSession.acceptance).toBe('accepted')
+    expect(withSession.sessionId).toBe('session-1')
+    expect(withSession.events.some((e) => e.payload.type === 'command_accepted')).toBe(true)
+  })
+
+  it('round5: closed archive replay/gap is isomorphic with live bus retained-terminal semantics', async () => {
+    const coordinator = createTeachingTurnCoordinator({
+      ...createPorts(),
+      maxOperations: 32,
+      maxEventIds: 32,
+      maxBuses: 2
+    })
+
+    const canceled = await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-gap-iso',
+      eventId: 'ev-gap-iso',
+      operationId: 'op-gap-iso',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      reasonCode: 'user_cancel'
+    })
+    expect(canceled.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'canceled' })
+    const liveReplay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-gap-iso' }, 0)
+    expect(liveReplay).not.toBeNull()
+    expect(liveReplay?.available).toBe(true)
+    expect(liveReplay?.events.some((e) => e.payload.type === 'turn_terminal')).toBe(true)
+
+    // Live bus still has prefix events => afterSequence=0 has no gap from sequence 1.
+    // Force archive by filling bus capacity with another closed turn + a new active turn.
+    await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-gap-fill',
+      eventId: 'ev-gap-fill',
+      operationId: 'op-gap-fill',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      reasonCode: 'user_cancel'
+    })
+    const opened = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-gap-active',
+      eventId: 'ev-gap-active',
+      operationId: 'op-gap-active',
+      workspaceId: 'workspace-1',
+      open: {
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+    expect(opened.acceptance).toBe('accepted')
+
+    const archivedReplay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-gap-iso' }, 0)
+    expect(archivedReplay).not.toBeNull()
+    expect(archivedReplay?.available).toBe(true)
+    expect(archivedReplay?.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'canceled' })
+    expect(archivedReplay?.events).toHaveLength(1)
+    expect(archivedReplay?.events[0]?.payload.type).toBe('turn_terminal')
+
+    const terminalSeq =
+      typeof archivedReplay?.terminal?.sequence === 'number' ? archivedReplay!.terminal!.sequence! : 0
+    // Isomorphic formula with TeachingTurnEventBus.replayAfter:
+    // hasGap <=> requestedAfterSequence + 1 < retainedFromSequence
+    // Archive retains only sticky terminal => retainedFromSequence = terminalSeq.
+    expect(archivedReplay?.hasGap).toBe(0 + 1 < terminalSeq)
+    expect(archivedReplay?.fromSequence).toBe(Math.max(1, terminalSeq))
+    expect(archivedReplay?.nextSequence).toBe(terminalSeq + 1)
+    expect(archivedReplay?.requestedAfterSequence).toBe(0)
+
+    // After the terminal sequence, no events and no gap.
+    const afterTerminal = coordinator.replayAfter(
+      { workspaceId: 'workspace-1', turnId: 'turn-gap-iso' },
+      terminalSeq
+    )
+    expect(afterTerminal?.hasGap).toBe(false)
+    expect(afterTerminal?.events).toHaveLength(0)
+    expect(afterTerminal?.terminal?.payload).toMatchObject({ outcome: 'canceled' })
+  })
+
 })
+

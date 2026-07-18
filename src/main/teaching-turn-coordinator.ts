@@ -14,7 +14,7 @@
  * - retryable_failure is not sticky; the same turn may retry with a new command.
  * - Recoverable intermediate port failures emit progress and leave the turn open.
  * - After terminal, later commands are rejected (acceptance=rejected,
- *   rejectReason=already_terminal|payload_mismatch|capacity_exceeded). Sticky
+ *   rejectReason=already_terminal|payload_mismatch|capacity_exceeded|operation_in_flight). Sticky
  *   terminal is never rewritten; cancel after completed is NOT cancel success.
  * - Cooperative cancellation: no AbortSignal port; cancel is queued on the
  *   per-(workspace,turn) serialize gate (primary) with optional per-session
@@ -37,6 +37,17 @@
  *   handled failure, commit the reserved operation; only pure pre-effect rejects
  *   release the reservation.
  * - When capacity is exhausted, reject before any command side effects.
+ * - Post-port identity mismatch (H3/M3): port may already have run (cannot roll
+ *   back); bus must NOT emit command_accepted; reservation is committed to the
+ *   deterministic rejection so duplicate replay is stable and the port is not
+ *   re-invoked. Capacity slots stay occupied by that committed reject record.
+ * - Existing-session commands ledger.load and verify workspace/session identity
+ *   before any mutator port (record/commit/reconcile/planner/assembler).
+ *   Cross-workspace inputs yield zero mutator calls and zero command_accepted.
+ * - Bound turn session (M1): once a scoped turn binds a real session, later
+ *   different sessions fail-closed; open without sessionId binds after success.
+ * - command_accepted (H3): only after runtime parse/preflight AND port-return
+ *   identity verification succeed.
  * - Envelope workspaceId/sessionId/turnId/operationId are fail-closed bound to
  *   command payload fields and port-returned session/workspace identity.
  *
@@ -56,7 +67,6 @@ import { createTeachingContextAssembler, type TeachingContextAssembler } from '.
 import type { ResourceGrounder } from './resource-grounder'
 import {
   loadTeachingLoopFactSource,
-  type TeachingLoopFactSourceLoaderInput,
   type TeachingLoopFactSourcePorts
 } from './teaching-loop-fact-source'
 import {
@@ -66,113 +76,38 @@ import {
 import {
   isTeachingTurnTerminalReasonCode,
   mapCommitStatusToTerminal,
+  parseTeachingTurnCommand,
   type TeachingEventEnvelope,
+  type TeachingTurnCancelCommand,
+  type TeachingTurnCommand,
+  type TeachingTurnCommandType,
+  type TeachingTurnCommitOutcomeCommand,
+  type TeachingTurnOpenSessionCommand,
+  type TeachingTurnPlanNextStepCommand,
+  type TeachingTurnProjectSnapshotCommand,
+  type TeachingTurnRecordEvidenceCommand,
+  type TeachingTurnRecoverSessionCommand,
+  type TeachingTurnResumeSessionCommand,
   type TeachingTurnTerminalOutcome,
   type TeachingTurnTerminalReasonCode
 } from '../shared/teaching-events'
-import type { OpenLearningSessionInput } from '../shared/teaching-types/learning-session'
-import type { LessonInteraction } from '../shared/teaching-types/lesson-interaction'
-import type { LearningOutcomeCommitRequest } from '../shared/teaching-types/learning-outcome'
+import type { LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
 import type { TeachingLoopSnapshot } from '../shared/teaching-types/teaching-loop'
-import type { NextTeachingStepDecision, NextTeachingStepFacts } from '../shared/teaching-types/next-teaching-step'
+import type { NextTeachingStepDecision } from '../shared/teaching-types/next-teaching-step'
 import type { TeachingContextAssembly } from './teaching-context-assembler'
-import type { TrustedTeachingResourceDescriptor } from '../shared/teaching-types/grounding'
 
-export type TeachingTurnCommandType =
-  | 'open_session'
-  | 'resume_session'
-  | 'record_evidence'
-  | 'commit_outcome'
-  | 'plan_next_step'
-  | 'project_snapshot'
-  | 'recover_session'
-  | 'cancel_turn'
-
-export type TeachingTurnOpenSessionCommand = {
-  type: 'open_session'
-  turnId: string
-  eventId: string
-  operationId: string
-  workspaceId: string
-  open: OpenLearningSessionInput
-}
-
-export type TeachingTurnResumeSessionCommand = {
-  type: 'resume_session'
-  turnId: string
-  eventId: string
-  operationId: string
-  workspaceId: string
-  sessionId: string
-}
-
-export type TeachingTurnRecordEvidenceCommand = {
-  type: 'record_evidence'
-  turnId: string
-  eventId: string
-  operationId: string
-  workspaceId: string
-  evidence: LessonInteraction
-}
-
-export type TeachingTurnCommitOutcomeCommand = {
-  type: 'commit_outcome'
-  turnId: string
-  eventId: string
-  operationId: string
-  workspaceId: string
-  request: LearningOutcomeCommitRequest
-}
-
-export type TeachingTurnPlanNextStepCommand = {
-  type: 'plan_next_step'
-  turnId: string
-  eventId: string
-  operationId: string
-  workspaceId: string
-  sessionId: string
-  facts: NextTeachingStepFacts
-}
-
-export type TeachingTurnProjectSnapshotCommand = {
-  type: 'project_snapshot'
-  turnId: string
-  eventId: string
-  operationId: string
-  workspaceId: string
-  factInput: TeachingLoopFactSourceLoaderInput
-  /** Ready trusted resources passed through ResourceGrounder -> Assembler. */
-  readyResources?: readonly TrustedTeachingResourceDescriptor[]
-}
-
-export type TeachingTurnRecoverSessionCommand = {
-  type: 'recover_session'
-  turnId: string
-  eventId: string
-  operationId: string
-  workspaceId: string
-  sessionId: string
-}
-
-export type TeachingTurnCancelCommand = {
-  type: 'cancel_turn'
-  turnId: string
-  eventId: string
-  operationId: string
-  workspaceId: string
-  sessionId: string
-  reasonCode?: TeachingTurnTerminalReasonCode
-}
-
-export type TeachingTurnCommand =
-  | TeachingTurnOpenSessionCommand
-  | TeachingTurnResumeSessionCommand
-  | TeachingTurnRecordEvidenceCommand
-  | TeachingTurnCommitOutcomeCommand
-  | TeachingTurnPlanNextStepCommand
-  | TeachingTurnProjectSnapshotCommand
-  | TeachingTurnRecoverSessionCommand
-  | TeachingTurnCancelCommand
+export type {
+  TeachingTurnCancelCommand,
+  TeachingTurnCommand,
+  TeachingTurnCommandType,
+  TeachingTurnCommitOutcomeCommand,
+  TeachingTurnOpenSessionCommand,
+  TeachingTurnPlanNextStepCommand,
+  TeachingTurnProjectSnapshotCommand,
+  TeachingTurnRecordEvidenceCommand,
+  TeachingTurnRecoverSessionCommand,
+  TeachingTurnResumeSessionCommand
+} from '../shared/teaching-events'
 
 export type TeachingTurnCoordinatorPorts = {
   ledger: Pick<LearningSessionLedger, 'open' | 'load' | 'scan'>
@@ -195,6 +130,7 @@ export type TeachingTurnRejectReason =
   | 'already_terminal'
   | 'payload_mismatch'
   | 'capacity_exceeded'
+  | 'operation_in_flight'
 
 export type TeachingTurnScope = {
   workspaceId: string
@@ -215,7 +151,7 @@ export type TeachingTurnExecuteResult = {
 }
 
 export interface TeachingTurnCoordinator {
-  execute(command: TeachingTurnCommand): Promise<TeachingTurnExecuteResult>
+  execute(command: unknown): Promise<TeachingTurnExecuteResult>
   /** Subscribe to live turn events (ephemeral stream only). Scoped by workspace+turn. */
   subscribe(scope: TeachingTurnScope, listener: (event: TeachingEventEnvelope) => void): () => void
   replayAfter(
@@ -283,6 +219,8 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
    */
   private readonly closedTurnArchives = new Map<string, ClosedTurnArchive>()
   private readonly turnSubscriptions = new Map<string, Set<PendingSubscription>>()
+  /** M1: once a scoped turn binds a real session, different sessions fail-closed. */
+  private readonly turnBoundSessions = new Map<string, string>()
 
   constructor(private readonly ports: TeachingTurnCoordinatorPorts) {
     this.now = ports.now ?? (() => new Date().toISOString())
@@ -345,7 +283,25 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     return replayFromClosedArchive(archived, afterSequence)
   }
 
-  async execute(command: TeachingTurnCommand): Promise<TeachingTurnExecuteResult> {
+  async execute(commandInput: unknown): Promise<TeachingTurnExecuteResult> {
+    // H4: runtime parse unknown first — TS types are not a trust boundary.
+    const parsed = parseTeachingTurnCommand(commandInput)
+    if (!parsed.ok) {
+      const turnId =
+        isPlainObject(commandInput) && typeof commandInput.turnId === 'string'
+          ? commandInput.turnId
+          : 'invalid'
+      return {
+        turnId,
+        sessionId: guessSessionIdForReject(commandInput),
+        events: [],
+        terminal: null,
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
+    const command = parsed.value
+
     // Fail-closed identity binding before any queue or side effect.
     const identity = resolveCommandIdentity(command)
     if (!identity.ok) {
@@ -360,6 +316,28 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     }
 
     const sessionId = identity.sessionId
+    const operationKey = scopedOperationKey(command, sessionId)
+    const eventKey = scopedEventKey(command, sessionId)
+    const fingerprint = commandFingerprint(command)
+
+    // M2: observe in-flight reservation before join the serialize queue.
+    // Concurrent same-fingerprint while reserved => operation_in_flight (not wait-for-duplicate).
+    // Different fingerprint on same scoped key => payload_mismatch. No port side effects.
+    const peekOperation = this.operations.get(operationKey)
+    if (peekOperation?.status === 'reserved') {
+      if (peekOperation.fingerprint === fingerprint) {
+        return this.rejectResult(command, sessionId, 'operation_in_flight')
+      }
+      return this.rejectResult(command, sessionId, 'payload_mismatch')
+    }
+    const peekEvent = this.eventIdIndex.get(eventKey)
+    if (peekEvent?.status === 'reserved') {
+      if (peekEvent.fingerprint === fingerprint) {
+        return this.rejectResult(command, sessionId, 'operation_in_flight')
+      }
+      return this.rejectResult(command, sessionId, 'payload_mismatch')
+    }
+
     const turnGate = turnSerializeKey(command.workspaceId, command.turnId)
     const sessionGate = sessionSerializeKey(command.workspaceId, sessionId)
 
@@ -367,14 +345,16 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     // Secondary: workspace+session (cross-turn). Lock order prevents deadlock.
     return this.serialize(this.turnTails, turnGate, () =>
       this.serialize(this.sessionTails, sessionGate, async () => {
-        const operationKey = scopedOperationKey(command, sessionId)
-        const eventKey = scopedEventKey(command, sessionId)
-        const fingerprint = commandFingerprint(command)
         const turnKey = scopeKey(command.workspaceId, command.turnId)
 
+        // Re-check under lock: concurrent peer may have committed or reserved.
         const byOperation = this.operations.get(operationKey)
         if (byOperation) {
+          // M2: same fingerprint in-flight uses explicit operation_in_flight.
           if (byOperation.status === 'reserved') {
+            if (byOperation.fingerprint === fingerprint) {
+              return this.rejectResult(command, sessionId, 'operation_in_flight')
+            }
             return this.rejectResult(command, sessionId, 'payload_mismatch')
           }
           if (byOperation.fingerprint !== fingerprint) {
@@ -385,6 +365,9 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         const byEvent = this.eventIdIndex.get(eventKey)
         if (byEvent) {
           if (byEvent.status === 'reserved') {
+            if (byEvent.fingerprint === fingerprint) {
+              return this.rejectResult(command, sessionId, 'operation_in_flight')
+            }
             return this.rejectResult(command, sessionId, 'payload_mismatch')
           }
           if (byEvent.fingerprint !== fingerprint) {
@@ -396,6 +379,12 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         const remembered = this.closedTurnArchives.get(turnKey)
         if (remembered) {
           return this.rejectResult(command, sessionId, 'already_terminal', remembered.terminal)
+        }
+
+        // M1: once a scoped turn binds a real session, different session fail-closed.
+        const boundSession = this.turnBoundSessions.get(turnKey)
+        if (boundSession && !isPendingSessionId(sessionId) && boundSession !== sessionId) {
+          return this.rejectResult(command, sessionId, 'payload_mismatch')
         }
 
         // Admission reservation before any port/publish/event side effect.
@@ -463,25 +452,12 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
           const unsubscribe = bus.subscribe(collect)
 
           try {
-            this.emit(bus, {
-              durability: 'ephemeral',
-              occurredAt: this.now(),
-              workspaceId: command.workspaceId,
-              sessionId,
-              turnId: command.turnId,
-              eventId: `${command.eventId}:accepted`,
-              operationId: command.operationId,
-              payload: {
-                type: 'command_accepted',
-                commandType: command.type
-              }
-            })
-
+            // H3: do NOT emit command_accepted before port + identity verification.
             let result: TeachingTurnExecuteResult
             try {
               switch (command.type) {
                 case 'open_session':
-                  result = await this.openSession(command, bus, collected)
+                  result = await this.openSession(command, bus, collected, sessionId)
                   break
                 case 'resume_session':
                   result = await this.resumeSession(command, bus, collected)
@@ -509,17 +485,21 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
               result = this.handlePortFailure(command, bus, sessionId, collected, error)
             }
 
-            if (result.acceptance !== 'rejected') {
+            if (result.acceptance === 'accepted') {
               const portIdentity = validatePortResultIdentity(command, sessionId, result)
               if (!portIdentity.ok) {
+                // M3: deterministic reject; no accepted semantics; do not re-call port.
                 result = {
                   turnId: command.turnId,
                   sessionId,
-                  events: [...collected],
+                  events: collected.filter((e) => e.payload.type !== 'command_accepted'),
                   terminal: bus.terminal(),
                   acceptance: 'rejected',
                   rejectReason: 'payload_mismatch'
                 }
+              } else if (!isPendingSessionId(result.sessionId)) {
+                // M1: bind real session after successful accepted command.
+                this.turnBoundSessions.set(turnKey, result.sessionId)
               }
             }
 
@@ -528,11 +508,19 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
               this.tryArchiveClosedTurn(turnKey, command.workspaceId, command.turnId, terminalNow, bus)
             }
 
-            result = {
-              ...result,
-              acceptance: result.acceptance ?? 'accepted',
-              events: [...collected],
-              terminal: terminalNow
+            if (result.acceptance === 'rejected') {
+              result = {
+                ...result,
+                events: collected.filter((e) => e.payload.type !== 'command_accepted'),
+                terminal: terminalNow
+              }
+            } else {
+              result = {
+                ...result,
+                acceptance: result.acceptance ?? 'accepted',
+                events: [...collected],
+                terminal: terminalNow
+              }
             }
 
             reservation.status = 'committed'
@@ -567,22 +555,26 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
   private async openSession(
     command: TeachingTurnOpenSessionCommand,
     bus: TeachingTurnEventBus,
-    collected: TeachingEventEnvelope[]
+    collected: TeachingEventEnvelope[],
+    admittedSessionId: string
   ): Promise<TeachingTurnExecuteResult> {
     const snapshot = await this.ports.ledger.open(command.open)
+    // Port already called — cannot roll back. Must not announce command_accepted on mismatch (H3).
     if (
       snapshot.workspaceId !== command.workspaceId ||
       (command.open.sessionId && snapshot.id !== command.open.sessionId)
     ) {
       return {
         turnId: command.turnId,
-        sessionId: command.open.sessionId ?? `pending:${command.operationId}`,
+        sessionId: admittedSessionId,
         events: [...collected],
         terminal: bus.terminal(),
         acceptance: 'rejected',
         rejectReason: 'payload_mismatch'
       }
     }
+
+    this.emitAccepted(bus, command, snapshot.id)
     this.emit(bus, {
       durability: 'durable',
       occurredAt: this.now(),
@@ -614,8 +606,9 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     bus: TeachingTurnEventBus,
     collected: TeachingEventEnvelope[]
   ): Promise<TeachingTurnExecuteResult> {
-    const snapshot = await this.ports.ledger.load(command.sessionId)
-    if (!snapshot) {
+    const preflight = await this.preflightExistingSession(command.workspaceId, command.sessionId)
+    if (preflight.kind === 'not_found') {
+      this.emitAccepted(bus, command, command.sessionId)
       this.emitTerminal(bus, command, command.sessionId, 'failed', 'session_not_found')
       return {
         turnId: command.turnId,
@@ -625,7 +618,7 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         acceptance: 'accepted'
       }
     }
-    if (snapshot.id !== command.sessionId || snapshot.workspaceId !== command.workspaceId) {
+    if (preflight.kind === 'mismatch') {
       return {
         turnId: command.turnId,
         sessionId: command.sessionId,
@@ -635,6 +628,8 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         rejectReason: 'payload_mismatch'
       }
     }
+    const snapshot = preflight.snapshot
+    this.emitAccepted(bus, command, snapshot.id)
     this.emit(bus, {
       durability: 'durable',
       occurredAt: this.now(),
@@ -665,6 +660,19 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     bus: TeachingTurnEventBus,
     collected: TeachingEventEnvelope[]
   ): Promise<TeachingTurnExecuteResult> {
+    // M4: preflight loaded workspace before recorder mutator.
+    const preflight = await this.preflightExistingSession(command.workspaceId, command.evidence.sessionId)
+    if (preflight.kind === 'mismatch' || preflight.kind === 'not_found') {
+      return {
+        turnId: command.turnId,
+        sessionId: command.evidence.sessionId,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
+
     const receipt = await this.ports.recorder.record(command.evidence)
     if (receipt.sessionId !== command.evidence.sessionId) {
       return {
@@ -676,6 +684,7 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         rejectReason: 'payload_mismatch'
       }
     }
+    this.emitAccepted(bus, command, receipt.sessionId)
     this.emit(bus, {
       durability: 'durable',
       occurredAt: this.now(),
@@ -714,8 +723,32 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     bus: TeachingTurnEventBus,
     collected: TeachingEventEnvelope[]
   ): Promise<TeachingTurnExecuteResult> {
+    // H1/H2: request.operationId must match; load before commit mutator.
+    if (command.request.operationId !== command.operationId) {
+      return {
+        turnId: command.turnId,
+        sessionId: command.request.sessionId,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
+    const preflight = await this.preflightExistingSession(command.workspaceId, command.request.sessionId)
+    if (preflight.kind === 'mismatch' || preflight.kind === 'not_found') {
+      return {
+        turnId: command.turnId,
+        sessionId: command.request.sessionId,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
+
     const commitResult = await this.ports.committer.commit(command.request)
     const sessionId = command.request.sessionId
+    this.emitAccepted(bus, command, sessionId)
 
     if (commitResult.status === 'committed' || commitResult.status === 'already_committed') {
       this.emit(bus, {
@@ -734,7 +767,6 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         }
       })
     } else if (commitResult.status === 'insufficient_evidence') {
-      // Ephemeral unless a durable record was actually persisted.
       const durability = 'recordSaved' in commitResult && commitResult.recordSaved ? 'durable' : 'ephemeral'
       this.emit(bus, {
         durability,
@@ -754,7 +786,6 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
 
     const terminal = mapCommitStatusToTerminal(commitResult.status)
     this.emitProgress(bus, command, sessionId, 'outcome_settled', commitResult.status)
-    // retryable_failure is not sticky — same turn may retry commit.
     if (terminal !== null) {
       const reasonCode = isTeachingTurnTerminalReasonCode(commitResult.status)
         ? commitResult.status
@@ -777,7 +808,30 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     bus: TeachingTurnEventBus,
     collected: TeachingEventEnvelope[]
   ): Promise<TeachingTurnExecuteResult> {
+    const preflight = await this.preflightExistingSession(command.workspaceId, command.sessionId)
+    if (preflight.kind === 'mismatch' || preflight.kind === 'not_found') {
+      return {
+        turnId: command.turnId,
+        sessionId: command.sessionId,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
+    if (command.facts.latestSession.id !== command.sessionId) {
+      return {
+        turnId: command.turnId,
+        sessionId: command.sessionId,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
+
     if (!this.ports.planner) {
+      this.emitAccepted(bus, command, command.sessionId)
       this.emitTerminal(bus, command, command.sessionId, 'failed', 'planner_unavailable')
       return {
         turnId: command.turnId,
@@ -788,6 +842,7 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       }
     }
     const nextStep = this.ports.planner.plan(command.facts)
+    this.emitAccepted(bus, command, command.sessionId)
     this.emit(bus, {
       durability: 'ephemeral',
       occurredAt: this.now(),
@@ -818,16 +873,27 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     bus: TeachingTurnEventBus,
     collected: TeachingEventEnvelope[]
   ): Promise<TeachingTurnExecuteResult> {
+    // H4: explicit real sessionId required; never course.id fallback.
+    const sessionId = command.factInput.sessionId
+    const preflight = await this.preflightExistingSession(command.workspaceId, sessionId)
+    if (preflight.kind === 'mismatch' || preflight.kind === 'not_found') {
+      return {
+        turnId: command.turnId,
+        sessionId,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
+
     const factPorts = this.ports.factSource ?? {
       ledger: this.ports.ledger,
       committer: this.ports.committer
     }
     const loaded = await loadTeachingLoopFactSource(factPorts, command.factInput)
-    const sessionId =
-      loaded.snapshot.safeProjection.session?.id ??
-      command.factInput.sessionId ??
-      command.factInput.course.id
 
+    this.emitAccepted(bus, command, sessionId)
     this.emit(bus, {
       durability: 'ephemeral',
       occurredAt: this.now(),
@@ -863,6 +929,7 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       })
     }
 
+    // Bind latestSession.id to command.sessionId (factInput.sessionId) for planner-shaped decision.
     let nextStep: NextTeachingStepDecision | undefined
     if (loaded.snapshot.nextStep) {
       nextStep = {
@@ -872,17 +939,11 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         safeInputSummary: {
           missionId: loaded.snapshot.safeProjection.missionId,
           courseId: loaded.snapshot.safeProjection.courseId,
-          latestSession: loaded.snapshot.safeProjection.session
-            ? {
-                id: loaded.snapshot.safeProjection.session.id,
-                source: loaded.snapshot.safeProjection.session.source,
-                readOnly: loaded.snapshot.safeProjection.session.readOnly
-              }
-            : {
-                id: sessionId,
-                source: 'canonical',
-                readOnly: false
-              },
+          latestSession: {
+            id: sessionId,
+            source: loaded.snapshot.safeProjection.session?.source ?? 'canonical',
+            readOnly: loaded.snapshot.safeProjection.session?.readOnly ?? false
+          },
           durableOutcome: {
             status: loaded.snapshot.safeProjection.outcome.status,
             id: loaded.snapshot.safeProjection.outcome.id,
@@ -899,7 +960,6 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     const assembler =
       this.ports.assembler ??
       (this.ports.grounder ? createTeachingContextAssembler(this.ports.grounder) : undefined)
-    // Pass real ready resources/provenance — never an empty hardcoded stub when provided.
     const readyResources = command.readyResources ?? []
     if (assembler && nextStep && loaded.snapshot.safeProjection.session) {
       const outcome = loaded.snapshot.safeProjection.outcome
@@ -911,7 +971,7 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
           },
           course: { id: loaded.snapshot.safeProjection.courseId },
           currentSession: {
-            id: loaded.snapshot.safeProjection.session.id,
+            id: sessionId,
             source: loaded.snapshot.safeProjection.session.source,
             readOnly: loaded.snapshot.safeProjection.session.readOnly
           },
@@ -944,8 +1004,10 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     bus: TeachingTurnEventBus,
     collected: TeachingEventEnvelope[]
   ): Promise<TeachingTurnExecuteResult> {
-    const loaded = await this.ports.ledger.load(command.sessionId)
-    if (!loaded) {
+    // H1/H2: load + verify workspace before reconcile mutator.
+    const preflight = await this.preflightExistingSession(command.workspaceId, command.sessionId)
+    if (preflight.kind === 'not_found') {
+      this.emitAccepted(bus, command, command.sessionId)
       this.emitTerminal(bus, command, command.sessionId, 'failed', 'session_not_found')
       return {
         turnId: command.turnId,
@@ -955,10 +1017,20 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         acceptance: 'accepted'
       }
     }
+    if (preflight.kind === 'mismatch') {
+      return {
+        turnId: command.turnId,
+        sessionId: command.sessionId,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
 
     const reconciliation = await this.ports.committer.reconcile(command.sessionId)
-    // recover_reconciled is ephemeral unless a durable marker/record is present.
     const persisted = Boolean(reconciliation.marker || reconciliation.record)
+    this.emitAccepted(bus, command, command.sessionId)
     this.emit(bus, {
       durability: persisted ? 'durable' : 'ephemeral',
       occurredAt: this.now(),
@@ -988,7 +1060,18 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     bus: TeachingTurnEventBus,
     collected: TeachingEventEnvelope[]
   ): Promise<TeachingTurnExecuteResult> {
-    // Cooperative: cancel runs after any prior same-session command (serialize gate).
+    const preflight = await this.preflightExistingSession(command.workspaceId, command.sessionId)
+    if (preflight.kind === 'mismatch') {
+      return {
+        turnId: command.turnId,
+        sessionId: command.sessionId,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
+    this.emitAccepted(bus, command, command.sessionId)
     this.emitProgress(bus, command, command.sessionId, 'cancel_requested', command.reasonCode)
     this.emitTerminal(bus, command, command.sessionId, 'canceled', command.reasonCode ?? 'user_cancel')
     return {
@@ -998,6 +1081,26 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       terminal: bus.terminal(),
       acceptance: 'accepted'
     }
+  }
+
+  /**
+   * H1/H2/M4: load existing session and verify loaded.id + loaded.workspaceId
+   * before any reconcile/commit/record/planner/assembler mutator.
+   */
+  private async preflightExistingSession(
+    workspaceId: string,
+    sessionId: string
+  ): Promise<
+    | { kind: 'ok'; snapshot: LearningSessionSnapshot }
+    | { kind: 'not_found' }
+    | { kind: 'mismatch' }
+  > {
+    const loaded = await this.ports.ledger.load(sessionId)
+    if (!loaded) return { kind: 'not_found' }
+    if (loaded.id !== sessionId || loaded.workspaceId !== workspaceId) {
+      return { kind: 'mismatch' }
+    }
+    return { kind: 'ok', snapshot: loaded }
   }
 
   private handlePortFailure(
@@ -1063,7 +1166,8 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
 
   private duplicateResult(command: TeachingTurnCommand, existing: OperationRecord): TeachingTurnExecuteResult {
     if (existing.status !== 'committed' || !existing.result) {
-      return this.rejectResult(command, existing.sessionId, 'payload_mismatch')
+      // Reserved without result is operation_in_flight (M2), not payload_mismatch.
+      return this.rejectResult(command, existing.sessionId, 'operation_in_flight')
     }
     const key = scopeKey(command.workspaceId, command.turnId)
     const bus = this.buses.get(key)
@@ -1075,6 +1179,17 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         acceptance: 'duplicate',
         events: existing.result.events,
         terminal: bus?.terminal() ?? existing.result.terminal ?? archivedTerminal
+      }
+    }
+
+    // Duplicate rejected results: same rejection, no accepted/duplicate accepted semantics.
+    if (existing.result.acceptance === 'rejected') {
+      return {
+        ...existing.result,
+        turnId: command.turnId,
+        acceptance: 'duplicate',
+        events: existing.result.events,
+        terminal: bus.terminal() ?? existing.result.terminal
       }
     }
 
@@ -1182,6 +1297,26 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       }
       this.buses.delete(key)
     }
+  }
+
+  private emitAccepted(
+    bus: TeachingTurnEventBus,
+    command: TeachingTurnCommand,
+    sessionId: string
+  ): void {
+    this.emit(bus, {
+      durability: 'ephemeral',
+      occurredAt: this.now(),
+      workspaceId: command.workspaceId,
+      sessionId,
+      turnId: command.turnId,
+      eventId: `${command.eventId}:accepted`,
+      operationId: command.operationId,
+      payload: {
+        type: 'command_accepted',
+        commandType: command.type
+      }
+    })
   }
 
   private emit(
@@ -1316,14 +1451,17 @@ function resolveCommandIdentity(
       if (!isNonEmptyId(command.request.sessionId)) {
         return { ok: false, sessionId: 'invalid' }
       }
+      if (command.request.operationId !== command.operationId) {
+        return { ok: false, sessionId: command.request.sessionId }
+      }
       return { ok: true, sessionId: command.request.sessionId }
     }
     case 'project_snapshot': {
-      const sessionId = command.factInput.sessionId ?? command.factInput.course.id
-      if (!isNonEmptyId(sessionId)) {
+      // Explicit real sessionId only — never course.id fallback (H4).
+      if (!isNonEmptyId(command.factInput.sessionId)) {
         return { ok: false, sessionId: 'invalid' }
       }
-      return { ok: true, sessionId }
+      return { ok: true, sessionId: command.factInput.sessionId }
     }
   }
 }
@@ -1363,6 +1501,35 @@ function validatePortResultIdentity(
 
 function isNonEmptyId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 256
+}
+
+function isPendingSessionId(sessionId: string): boolean {
+  return sessionId.startsWith('pending:')
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function guessSessionIdForReject(commandInput: unknown): string {
+  if (!isPlainObject(commandInput)) return 'invalid'
+  if (typeof commandInput.sessionId === 'string' && commandInput.sessionId) return commandInput.sessionId
+  if (isPlainObject(commandInput.evidence) && typeof commandInput.evidence.sessionId === 'string') {
+    return commandInput.evidence.sessionId
+  }
+  if (isPlainObject(commandInput.request) && typeof commandInput.request.sessionId === 'string') {
+    return commandInput.request.sessionId
+  }
+  if (isPlainObject(commandInput.factInput) && typeof commandInput.factInput.sessionId === 'string') {
+    return commandInput.factInput.sessionId
+  }
+  if (isPlainObject(commandInput.open) && typeof commandInput.open.sessionId === 'string') {
+    return commandInput.open.sessionId
+  }
+  if (typeof commandInput.operationId === 'string' && commandInput.operationId) {
+    return `pending:${commandInput.operationId}`
+  }
+  return 'invalid'
 }
 
 function scopeKey(workspaceId: string, turnId: string): string {
@@ -1429,6 +1596,10 @@ function replayFromClosedArchive(
     typeof terminal.sequence === 'number' && terminal.sequence > 0
       ? terminal.sequence
       : archive.sequence
+  // M5: isomorphic with TeachingTurnEventBus.replayAfter —
+  // hasGap <=> requestedAfterSequence + 1 < retainedFromSequence.
+  // Archive retains only sticky terminal => retainedFromSequence = terminalSeq.
+  const retainedFromSequence = terminalSeq
   const events =
     terminalSeq > requestedAfterSequence
       ? [{ ...terminal, sequence: terminalSeq }]
@@ -1437,11 +1608,9 @@ function replayFromClosedArchive(
     turnId: archive.turnId,
     available: true,
     requestedAfterSequence,
-    fromSequence: events.length > 0 ? terminalSeq : terminalSeq + 1,
+    fromSequence: Math.max(requestedAfterSequence + 1, retainedFromSequence),
     nextSequence: terminalSeq + 1,
-    hasGap: requestedAfterSequence + 1 < terminalSeq && events.length > 0
-      ? requestedAfterSequence + 1 < terminalSeq
-      : requestedAfterSequence > 0 && requestedAfterSequence < terminalSeq,
+    hasGap: requestedAfterSequence + 1 < retainedFromSequence,
     droppedEvents: Math.max(0, terminalSeq - 1),
     droppedBytes: 0,
     events,
