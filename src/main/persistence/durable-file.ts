@@ -33,10 +33,11 @@ export type DurablePathReplaceOptions = {
   path: string
   content: string | Uint8Array
   /**
-   * Retained for call-site compatibility. All files created by these durable
-   * primitives (canonical files, backups, and temporary candidates) are
-   * deliberately normalized to private mode 0600; weaker historical modes
-   * are never preserved or relaxed.
+   * Explicit create mode for the `replaceDurably()` path variant only. It is
+   * applied to the same-directory temporary candidate before rename, so the
+   * process umask retains its usual effect. Absent an explicit mode,
+   * `replaceDurably()` remains private (0600). `replaceWithBackup()` always
+   * normalizes its canonical files, backups, and candidates to private 0600.
    */
   mode?: number
   operations?: DurableFileOperations
@@ -86,7 +87,7 @@ export async function replaceDurably(options: DurableReplaceOptions): Promise<vo
   await operations.mkdir(dirname(options.path), { recursive: true })
   const temporaryPath = temporaryPathFor(options.path)
   try {
-    await writePrivateSyncedFile(temporaryPath, options.content, operations)
+    await writeSyncedFile(temporaryPath, options.content, operations, options.mode ?? PRIVATE_FILE_MODE)
     await operations.rename(temporaryPath, options.path)
     await syncDirectory(dirname(options.path), operations, options.warn)
   } catch (error) {
@@ -216,7 +217,16 @@ async function writePrivateSyncedFile(
   content: string | Uint8Array,
   operations: DurableFileOperations
 ): Promise<void> {
-  const handle = await operations.open(path, 'wx', PRIVATE_FILE_MODE)
+  return writeSyncedFile(path, content, operations, PRIVATE_FILE_MODE)
+}
+
+async function writeSyncedFile(
+  path: string,
+  content: string | Uint8Array,
+  operations: DurableFileOperations,
+  mode: number
+): Promise<void> {
+  const handle = await operations.open(path, 'wx', mode)
   let writeFailure: unknown
   try {
     await handle.writeFile(content)

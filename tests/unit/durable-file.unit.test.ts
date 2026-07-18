@@ -108,6 +108,19 @@ describe('durable file replacement', () => {
     expect((await stat(`${path}.bak`)).mode & 0o777).toBe(0o600)
   })
 
+  it('honors an explicit direct-replacement create mode while retaining private defaults', async () => {
+    const path = '/state/state.json'
+    const compatibility = memoryOperations()
+    await replaceDurably({ path, content: 'state', mode: 0o666, operations: compatibility.operations })
+    const compatibilityTemp = compatibility.events.find((event) => event.startsWith('open:wx:'))!.slice('open:wx:'.length)
+    expect(compatibility.modes).toContainEqual({ path: compatibilityTemp, mode: 0o666 })
+
+    const privateDefault = memoryOperations()
+    await replaceDurably({ path, content: 'state', operations: privateDefault.operations })
+    const privateTemp = privateDefault.events.find((event) => event.startsWith('open:wx:'))!.slice('open:wx:'.length)
+    expect(privateDefault.modes).toContainEqual({ path: privateTemp, mode: 0o600 })
+  })
+
   it('orders candidate fsync/close, backup publication, and canonical directory fsync', async () => {
     const path = '/state/state.json'
     const fake = memoryOperations()
