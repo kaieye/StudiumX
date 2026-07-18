@@ -383,6 +383,17 @@ describe('agent conversation durable session tree', () => {
     expect(state?.sessions.some((entry) => entry.sessionId === 'session-044')).toBe(true)
   })
 
+  it('does not return a successful branch open when repairing the sidecar write fails', async () => {
+    const rootPath = await createRoot()
+    const parent = record('root-branch', [turn('turn-1', 'user', 'Q', '2026-07-14T08:00:00.000Z')])
+    persistence.records.set(parent.id, parent)
+    await mkdir(join(rootPath, AGENT_CONVERSATION_OPEN_STATE_RELATIVE_PATH))
+
+    await expect(openAgentConversationBranchAtRoot(rootPath, parent.id, {
+      now: '2026-07-14T08:01:00.000Z'
+    })).rejects.toMatchObject({ code: 'invalid_path' })
+  })
+
   it('rejects sidecar integrity/version/size corruption and repairs it audibly on open', async () => {
     const rootPath = await createRoot()
     const parent = record('root-branch', [turn('turn-1', 'user', 'Q', '2026-07-14T08:00:00.000Z')])

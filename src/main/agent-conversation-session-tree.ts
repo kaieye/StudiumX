@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, mkdir, open, readFile, realpath, rename, stat, unlink } from 'node:fs/promises'
+import { lstat, mkdir, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { agentConversationMarkdownRelativePath, describeAgentConversationPath } from '../shared/agent-conversation-catalog'
 import { sanitizePersistedAgentConversationRecord, sanitizePersistedConversationTitle } from '../shared/agent-persisted-history'
@@ -26,6 +26,7 @@ import {
   type PersistedAgentConversationRecord
 } from './teaching-agent-conversations'
 import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
+import { replaceDurably, type DurableFileOperations } from './persistence/durable-file'
 
 export const AGENT_CONVERSATION_OPEN_STATE_RELATIVE_PATH = '.agent-sessions/session-open-state.v1.json'
 export const AGENT_CONVERSATION_OPEN_STATE_MAX_BYTES = 64 * 1024
@@ -84,6 +85,12 @@ export type AgentConversationOpenState = {
     algorithm: 'sha256'
     digest: string
   }
+}
+
+/** Narrow main-internal seam for exercising shared durable-file faults. */
+export type AgentConversationOpenStateDurableOptions = {
+  durableFileOperations?: DurableFileOperations
+  durableWarn?: (message: string) => void
 }
 
 export type AgentConversationOpenIssue = {
@@ -645,9 +652,10 @@ export async function readAgentConversationOpenStateAtRoot(
 
 export async function writeAgentConversationOpenStateAtRoot(
   rootPath: string,
-  entries: readonly AgentConversationOpenStateEntry[]
+  entries: readonly AgentConversationOpenStateEntry[],
+  durableOptions: AgentConversationOpenStateDurableOptions = {}
 ): Promise<AgentConversationOpenState> {
-  return runAgentConversationRootExclusive(rootPath, () => writeAgentConversationOpenStateAtRootUnlocked(rootPath, entries))
+  return runAgentConversationRootExclusive(rootPath, () => writeAgentConversationOpenStateAtRootUnlocked(rootPath, entries, durableOptions))
 }
 
 async function readAgentConversationOpenStateAtRootUnlocked(
@@ -687,7 +695,8 @@ async function readAgentConversationOpenStateAtRootUnlocked(
 
 async function writeAgentConversationOpenStateAtRootUnlocked(
   rootPath: string,
-  entries: readonly AgentConversationOpenStateEntry[]
+  entries: readonly AgentConversationOpenStateEntry[],
+  durableOptions: AgentConversationOpenStateDurableOptions = {}
 ): Promise<AgentConversationOpenState> {
   const sessions = compactOpenStateEntries(entries)
   const payload = { schemaVersion: 1 as const, sessions }
@@ -709,23 +718,15 @@ async function writeAgentConversationOpenStateAtRootUnlocked(
   const directory = dirname(targetPath)
   await ensureContainedOpenStateDirectory(rootPath, directory)
   await assertReplaceableTargetContained(rootPath, targetPath)
-  const temporaryPath = join(directory, `.session-open-state.v1.${randomUUID()}.tmp`)
-  if (!isPathInsideRoot(rootPath, temporaryPath)) {
-    throw new AgentConversationOpenStateError('invalid_path', 'Conversation open-state temporary path escapes the workspace.')
-  }
-  let handle: Awaited<ReturnType<typeof open>> | null = null
-  try {
-    handle = await open(temporaryPath, 'wx', 0o600)
-    await handle.writeFile(serialized, 'utf8')
-    await handle.sync()
-    await handle.close()
-    handle = null
-    await rename(temporaryPath, targetPath)
-  } catch (error) {
-    if (handle) await handle.close().catch(() => undefined)
-    await unlink(temporaryPath).catch(() => undefined)
-    throw error
-  }
+  await replaceDurably({
+    path: targetPath,
+    content: serialized,
+    // The sidecar has always been private; keep that contract explicit rather
+    // than relying on the shared primitive's private default.
+    mode: 0o600,
+    operations: durableOptions.durableFileOperations,
+    warn: durableOptions.durableWarn
+  })
   return state
 }
 
