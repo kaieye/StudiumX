@@ -116,7 +116,7 @@ import { TeachingWorkspaceItemLifecycleExecutor } from './teaching-workspace/ite
 import { TeachingWorkspaceActivationLifecycle } from './teaching-workspace/activation-lifecycle'
 import { TeachingWorkspaceReviewDeck } from './teaching-workspace/review'
 import { TeachingWorkspaceChangeAudit } from './teaching-workspace-change-audit'
-import { replaceDurably } from './persistence/durable-file'
+import { replaceDurably, type DurableFileOperations } from './persistence/durable-file'
 import {
   TeachingWorkspaceDocuments,
   previewUrlForDocument,
@@ -347,6 +347,22 @@ const DEFAULT_RUNTIME: TeachingRuntimeState = {
   providerLabel: 'Local structured generator'
 }
 
+type TeachingWorkspaceServiceOptions = {
+  registryPath: string
+  defaultRoot: string
+  settingsProvider?: () => Promise<TeachingSettingsV1>
+  skillLibraryService?: SkillLibraryService
+  /** Main-process diagnostic sink; renderer payloads never supply trace context. */
+  logger?: Logger
+  /** R2-only seams used to verify root/session authorization before commit delegation. */
+  learningOutcomeLedgerFactory?: LearningOutcomeLedgerFactory
+  learningOutcomeCommitterFactory?: LearningOutcomeCommitterFactory
+  /** Narrow C-4 test seam for mission canonical durable publication. */
+  durableFileOperations?: DurableFileOperations
+  /** Receives only the shared primitive's generic directory-fsync warning. */
+  durableWarn?: (message: string) => void
+}
+
 export class TeachingWorkspaceService {
   private readonly registryPath: string
   private readonly appDataRoot: string
@@ -361,6 +377,8 @@ export class TeachingWorkspaceService {
   private readonly activation: TeachingWorkspaceActivationLifecycle
   private readonly learningOutcomeLedgerFactory: LearningOutcomeLedgerFactory
   private readonly learningOutcomeCommitterFactory: LearningOutcomeCommitterFactory
+  private readonly durableFileOperations?: DurableFileOperations
+  private readonly durableWarn?: (message: string) => void
   private readonly pendingAgentRunArchiveScopes = new Map<string, PendingAgentRunArchiveScope>()
   /** Per-renderer trusted preview authority; never stores a WebContents object. */
   private readonly activePreviewBindings = new Map<number, ActivePreviewBinding>()
@@ -368,23 +386,15 @@ export class TeachingWorkspaceService {
   private nextPreviewBindingAttempt = 1
   private readonly previewReadGenerations = new Map<number, number>()
 
-  constructor(options: {
-    registryPath: string
-    defaultRoot: string
-    settingsProvider?: () => Promise<TeachingSettingsV1>
-    skillLibraryService?: SkillLibraryService
-    /** Main-process diagnostic sink; renderer payloads never supply trace context. */
-    logger?: Logger
-    /** R2-only seams used to verify root/session authorization before commit delegation. */
-    learningOutcomeLedgerFactory?: LearningOutcomeLedgerFactory
-    learningOutcomeCommitterFactory?: LearningOutcomeCommitterFactory
-  }) {
+  constructor(options: TeachingWorkspaceServiceOptions) {
     this.registryPath = options.registryPath
     this.appDataRoot = dirname(this.registryPath)
     this.defaultRoot = options.defaultRoot
     this.settingsProvider = options.settingsProvider
     this.skillLibraryService = options.skillLibraryService
     this.logger = options.logger
+    this.durableFileOperations = options.durableFileOperations
+    this.durableWarn = options.durableWarn
     this.learningOutcomeLedgerFactory = options.learningOutcomeLedgerFactory ?? ((workspaceRoot) =>
       createLearningSessionLedger({ workspaceRoot })
     )
@@ -617,7 +627,15 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     const now = new Date().toISOString()
     const topic = deriveWorkspaceTopic(prompt, workspace.name)
-    await atomicWriteFile(join(workspace.rootPath, 'MISSION.md'), renderMission(topic, prompt))
+    await replaceDurably({
+      path: join(workspace.rootPath, 'MISSION.md'),
+      content: renderMission(topic, prompt),
+      // Keep the legacy writeFile create-mode contract (subject to umask) for
+      // this user-visible canonical artifact.
+      mode: 0o666,
+      operations: this.durableFileOperations,
+      warn: this.durableWarn
+    })
     await this.appendSessionEvent(workspace.rootPath, {
       id: randomUUID(),
       kind: 'mission_updated',
