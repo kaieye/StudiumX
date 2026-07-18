@@ -1274,8 +1274,12 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
   }
 
   /**
-   * Verify commit self-report against ledger + settlement authority (H3/B1/H-B).
+   * Verify commit self-report against ledger + settlement authority (H3/B1/H-B + Round-10).
    * Never returns true on empty authority for durable-success paths.
+   * Round-10:
+   * - H1: marker + outcomeRef full identity bind (kind/outcomeId/canonical evidenceEventIds)
+   * - H2: reconcile always strict-parsed; never trust raw recon object fields
+   * - C: recordSaved:true requires dual formal record proof (marker.record + recon.record)
    */
   private async verifyCommitAgainstAuthority(
     workspaceId: string,
@@ -1288,7 +1292,15 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     }
 
     if (commitResult.status === 'committed' || commitResult.status === 'already_committed') {
-      const recon = await this.ports.committer.reconcile(sessionId)
+      // Round-10 H2: never trust raw reconcile — fail closed on malformed/foreign/illegal shapes.
+      const recon = parseOutcomeReconciliation(await this.ports.committer.reconcile(sessionId))
+      if (!recon || recon.sessionId !== sessionId) {
+        return false
+      }
+      if (recon.marker && recon.marker.sessionId !== sessionId) {
+        return false
+      }
+
       const marker = recon.marker
       const outcomeRef = loaded.outcomeRef
 
@@ -1298,31 +1310,33 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         return false
       }
 
-      if (marker) {
-        if (marker.sessionId !== sessionId) return false
-        if (marker.kind !== commitResult.outcome.kind) return false
-      }
-      if (outcomeRef) {
-        if (outcomeRef.kind !== commitResult.outcome.kind) return false
-      }
-      // When both authorities exist they must agree with each other and self-report.
-      if (marker && outcomeRef && marker.kind !== outcomeRef.kind) {
+      // Round-10 H1: when both authorities exist, full identity must bind (not kind alone).
+      if (marker && outcomeRef && !markerOutcomeRefIdentitiesEqual(marker, outcomeRef)) {
         return false
       }
 
-      // Round-8: recordSaved:true requires marker.record and/or recon.record proof.
-      // outcomeRef alone is only outcome identity proof — never saved-record proof.
+      // Bind every verifiable commitResult.outcome field to authoritative identity.
+      if (marker) {
+        if (marker.sessionId !== sessionId) return false
+        if (!commitOutcomeMatchesAuthority(commitResult.outcome, marker)) return false
+      }
+      if (outcomeRef) {
+        if (!commitOutcomeMatchesAuthority(commitResult.outcome, outcomeRef)) return false
+      }
+
+      // Round-10 C: recordSaved:true requires dual formal record proof (recover-symmetric).
+      // outcomeRef alone is never saved-record proof; unilateral marker.record or recon.record is not durable.
+      // Kinds without formal records keep production semantics via recordSaved:false paths above.
       if (commitResult.recordSaved === true) {
-        const markerRecord = marker?.record ?? null
+        if (!marker || marker.sessionId !== sessionId) {
+          return false
+        }
+        const markerRecord = marker.record
         const reconRecord = recon.record
-        if (!markerRecord && !reconRecord) {
+        if (!markerRecord || !reconRecord) {
           return false
         }
-        if (markerRecord && reconRecord && !learningRecordRefsEqual(markerRecord, reconRecord)) {
-          return false
-        }
-        // Record identity must be consistent with the settled session/outcome kind already checked.
-        if (marker && marker.sessionId !== sessionId) {
+        if (!learningRecordRefsEqual(markerRecord, reconRecord)) {
           return false
         }
       }
@@ -1345,7 +1359,11 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       const claimsDurable =
         'recordSaved' in commitResult && (commitResult as { recordSaved?: boolean }).recordSaved === true
       if (claimsDurable) {
-        const recon = await this.ports.committer.reconcile(sessionId)
+        // Round-10 H2: strict parse; do not destructure raw recon for durability decisions.
+        const recon = parseOutcomeReconciliation(await this.ports.committer.reconcile(sessionId))
+        if (!recon || recon.sessionId !== sessionId) {
+          return false
+        }
         const marker = recon.marker
         if (!marker || marker.sessionId !== sessionId) {
           return false
@@ -1353,8 +1371,11 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         if (marker.kind !== 'not_evidenced') {
           return false
         }
-        const hasRecord = marker.record !== null || recon.record !== null
-        if (!hasRecord) {
+        // Round-10 C: dual formal record proof — unilateral record claim is not durable.
+        if (!marker.record || !recon.record) {
+          return false
+        }
+        if (!learningRecordRefsEqual(marker.record, recon.record)) {
           return false
         }
       }
@@ -1762,9 +1783,27 @@ function parseOutcomeCommitResult(value: unknown): OutcomeCommitResult | null {
       return null
     }
     if (typeof value.recordSaved !== 'boolean') return null
+    // Round-10: preserve optional full outcome identity when present so authority can bind it.
+    // Invalid optional identity fields fail closed (never strip and trust kind alone after spoof).
+    const outcome: { kind: string; outcomeId?: string; evidenceEventIds?: string[] } = {
+      kind: String(value.outcome.kind)
+    }
+    if (value.outcome.outcomeId !== undefined) {
+      if (!isNonEmptyId(value.outcome.outcomeId)) return null
+      outcome.outcomeId = value.outcome.outcomeId
+    }
+    if (value.outcome.evidenceEventIds !== undefined) {
+      if (
+        !Array.isArray(value.outcome.evidenceEventIds) ||
+        !value.outcome.evidenceEventIds.every((id) => isNonEmptyId(id))
+      ) {
+        return null
+      }
+      outcome.evidenceEventIds = value.outcome.evidenceEventIds as string[]
+    }
     const result = {
       status: value.status,
-      outcome: { kind: value.outcome.kind },
+      outcome,
       recordSaved: value.recordSaved,
       catalogRecordPresent: typeof value.catalogRecordPresent === 'boolean' ? value.catalogRecordPresent : false
     } as OutcomeCommitResult
@@ -1930,6 +1969,28 @@ const SETTLEMENT_OUTCOME_KINDS = new Set([
   'not_evidenced'
 ])
 
+const RECONCILIATION_KEYS = [
+  'sessionId',
+  'state',
+  'marker',
+  'record',
+  'catalogRecordPresent',
+  'diagnostics'
+] as const
+
+const SETTLEMENT_MARKER_KEYS = [
+  'schemaVersion',
+  'sessionId',
+  'outcomeId',
+  'operationId',
+  'kind',
+  'evidenceEventIds',
+  'evaluatorVersion',
+  'record'
+] as const
+
+const LEARNING_RECORD_REF_KEYS = ['recordId', 'relativePath', 'contentSha256'] as const
+
 /**
  * Round-9 recover authority:
  * - HIGH: any marker/outcomeRef kind (or full-identity) contradiction rejects before bus emit.
@@ -1994,10 +2055,33 @@ function canonicalEvidenceEventIdsEqual(left: string[], right: string[]): boolea
 }
 
 /**
+ * Round-10: bind commitResult.outcome verifiable fields to marker/outcomeRef authority.
+ * kind is always required; outcomeId / evidenceEventIds bind when present on commit self-report.
+ */
+function commitOutcomeMatchesAuthority(
+  commitOutcome: { kind: string; outcomeId?: string; evidenceEventIds?: string[] },
+  authority: { kind: string; outcomeId: string; evidenceEventIds: string[] }
+): boolean {
+  if (authority.kind !== commitOutcome.kind) return false
+  if (commitOutcome.outcomeId !== undefined && commitOutcome.outcomeId !== authority.outcomeId) {
+    return false
+  }
+  if (
+    commitOutcome.evidenceEventIds !== undefined &&
+    !canonicalEvidenceEventIdsEqual(commitOutcome.evidenceEventIds, authority.evidenceEventIds)
+  ) {
+    return false
+  }
+  return true
+}
+
+/**
  * Strict runtime parse of OutcomeReconciliation. Malformed spoof never reaches bus emit.
+ * Closed-schema: unknown/extra keys and wrong-type fields fail closed.
  */
 function parseOutcomeReconciliation(value: unknown): OutcomeReconciliation | null {
   if (!isPlainObject(value)) return null
+  if (!hasNoUnexpectedKeys(value, RECONCILIATION_KEYS)) return null
   if (!isNonEmptyId(value.sessionId)) return null
   if (typeof value.state !== 'string' || !RECONCILIATION_STATES.has(value.state)) return null
   if (typeof value.catalogRecordPresent !== 'boolean') return null
@@ -2037,6 +2121,7 @@ function parseOutcomeReconciliation(value: unknown): OutcomeReconciliation | nul
 
 function parseSettlementMarker(value: unknown): OutcomeSettlementMarker | null {
   if (!isPlainObject(value)) return null
+  if (!hasNoUnexpectedKeys(value, SETTLEMENT_MARKER_KEYS)) return null
   if (value.schemaVersion !== 1) return null
   if (!isNonEmptyId(value.sessionId) || !isNonEmptyId(value.outcomeId) || !isNonEmptyId(value.operationId)) {
     return null
@@ -2067,6 +2152,7 @@ function parseSettlementMarker(value: unknown): OutcomeSettlementMarker | null {
 
 function parseLearningRecordRef(value: unknown): LearningOutcomeRecordRef | null {
   if (!isPlainObject(value)) return null
+  if (!hasNoUnexpectedKeys(value, LEARNING_RECORD_REF_KEYS)) return null
   if (!isNonEmptyId(value.recordId)) return null
   if (typeof value.relativePath !== 'string' || value.relativePath.trim().length === 0) return null
   if (typeof value.contentSha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(value.contentSha256)) {
@@ -2097,6 +2183,15 @@ function isPendingSessionId(sessionId: string): boolean {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Closed-schema helper: reject unknown/extra keys (wrong-type handled by field checks). */
+function hasNoUnexpectedKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[]
+): boolean {
+  const allowedSet = new Set<string>(allowed)
+  return Object.keys(value).every((key) => allowedSet.has(key))
 }
 
 function guessSessionIdForReject(commandInput: unknown): string {

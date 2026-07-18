@@ -3405,4 +3405,755 @@ describe('TeachingTurnCoordinator', () => {
   })
 
 
+
+
+  // ---------------------------------------------------------------------------
+  // Round-10: commit_outcome authority (full identity / strict recon / dual record)
+  // Production coordinator paths only — live bus subscribe + replayAfter + archive reclaim.
+  // ---------------------------------------------------------------------------
+
+  it('round10 A/H1: commit same kind different outcomeId or evidenceEventIds never emits success', async () => {
+    const cases: Array<{
+      name: string
+      markerOutcomeId: string
+      markerEvidence: string[]
+      refOutcomeId: string
+      refEvidence: string[]
+      commitOutcomeId?: string
+      commitEvidence?: string[]
+    }> = [
+      {
+        name: 'different-outcomeId',
+        markerOutcomeId: 'outcome-marker',
+        markerEvidence: ['evidence-1'],
+        refOutcomeId: 'outcome-ref-OTHER',
+        refEvidence: ['evidence-1']
+      },
+      {
+        name: 'evidenceEventIds-mismatch',
+        markerOutcomeId: 'outcome-same',
+        markerEvidence: ['evidence-1', 'evidence-2'],
+        refOutcomeId: 'outcome-same',
+        refEvidence: ['evidence-1', 'evidence-OTHER']
+      },
+      {
+        name: 'commit-self-report-outcomeId-mismatch',
+        markerOutcomeId: 'outcome-bound',
+        markerEvidence: ['evidence-1'],
+        refOutcomeId: 'outcome-bound',
+        refEvidence: ['evidence-1'],
+        commitOutcomeId: 'outcome-SPOOF',
+        commitEvidence: ['evidence-1']
+      },
+      {
+        name: 'commit-self-report-evidence-mismatch',
+        markerOutcomeId: 'outcome-bound',
+        markerEvidence: ['evidence-1'],
+        refOutcomeId: 'outcome-bound',
+        refEvidence: ['evidence-1'],
+        commitOutcomeId: 'outcome-bound',
+        commitEvidence: ['evidence-SPOOF']
+      }
+    ]
+
+    for (const [index, item] of cases.entries()) {
+      const turnId = 'turn-r10-id-' + item.name
+      const recordRef = {
+        recordId: 'rec-r10-id',
+        relativePath: 'learning-records/outcome-session-1.md',
+        contentSha256: 'a'.repeat(64)
+      }
+      const load = vi.fn(async (sessionId: string) =>
+        sessionSnapshot({
+          id: sessionId,
+          workspaceId: 'workspace-1',
+          outcomeRef: {
+            outcomeId: item.refOutcomeId,
+            kind: 'established',
+            relativePath: 'learning-sessions/session-1/outcome.json',
+            evidenceEventIds: item.refEvidence,
+            contentSha256: 'f'.repeat(64)
+          }
+        })
+      )
+      const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+        status: 'committed',
+        outcome: {
+          kind: 'established',
+          ...(item.commitOutcomeId ? { outcomeId: item.commitOutcomeId } : {}),
+          ...(item.commitEvidence ? { evidenceEventIds: item.commitEvidence } : {})
+        },
+        recordSaved: true,
+        catalogRecordPresent: true
+      } as OutcomeCommitResult))
+      const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+        sessionId,
+        state: 'settled',
+        marker: {
+          schemaVersion: 1,
+          sessionId,
+          outcomeId: item.markerOutcomeId,
+          operationId: 'op-r10-id-' + index,
+          kind: 'established',
+          evidenceEventIds: item.markerEvidence,
+          evaluatorVersion: 1,
+          record: recordRef
+        },
+        record: recordRef,
+        catalogRecordPresent: true,
+        diagnostics: []
+      }))
+      const coordinator = createTeachingTurnCoordinator({
+        ...createPorts({ commit, reconcile, load }),
+        maxOperations: 8,
+        maxEventIds: 8,
+        maxBuses: 2
+      })
+      const busSeen: Array<{ type: string; durability?: string }> = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (e) => {
+        busSeen.push({ type: e.payload.type, durability: e.durability })
+      })
+      const result = await coordinator.execute({
+        type: 'commit_outcome',
+        turnId,
+        eventId: 'ev-r10-id-' + index,
+        operationId: 'op-r10-id-' + index,
+        workspaceId: 'workspace-1',
+        request: { sessionId: 'session-1', operationId: 'op-r10-id-' + index }
+      })
+      unsub()
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(result.rejectReason, item.name).toBe('payload_mismatch')
+      expect(busSeen.some((e) => e.type === 'command_accepted'), item.name).toBe(false)
+      expect(busSeen.some((e) => e.type === 'outcome_committed'), item.name).toBe(false)
+      expect(busSeen.some((e) => e.type === 'outcome_insufficient_evidence'), item.name).toBe(false)
+      expect(busSeen.some((e) => e.type === 'turn_terminal'), item.name).toBe(false)
+      expect(busSeen.some((e) => e.durability === 'durable'), item.name).toBe(false)
+      expect(result.terminal, item.name).toBeNull()
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.payload.type === 'outcome_committed'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.payload.type === 'turn_terminal'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.durability === 'durable'), item.name).toBeFalsy()
+
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-a',
+        eventId: 'ev-r10-id-' + item.name + '-fill-a',
+        operationId: 'op-r10-id-' + item.name + '-fill-a',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-b',
+        eventId: 'ev-r10-id-' + item.name + '-fill-b',
+        operationId: 'op-r10-id-' + item.name + '-fill-b',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      const afterReclaim = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'outcome_committed'), item.name).toBeFalsy()
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+    }
+  })
+
+  it('round10 B/H2: commit malformed raw reconcile never emits accepted/durable/terminal success', async () => {
+    const spoofs: Array<{ name: string; recon: unknown }> = [
+      {
+        name: 'malformed-state',
+        recon: {
+          sessionId: 'session-1',
+          state: 'not-a-real-state',
+          marker: {
+            schemaVersion: 1,
+            sessionId: 'session-1',
+            outcomeId: 'out-mal',
+            operationId: 'op-mal',
+            kind: 'established',
+            evidenceEventIds: ['e1'],
+            evaluatorVersion: 1,
+            record: { recordId: 'r1', relativePath: 'learning-records/r1.md', contentSha256: 'd'.repeat(64) }
+          },
+          record: { recordId: 'r1', relativePath: 'learning-records/r1.md', contentSha256: 'd'.repeat(64) },
+          catalogRecordPresent: true,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'malformed-marker-shape',
+        recon: {
+          sessionId: 'session-1',
+          state: 'settled',
+          marker: { sessionId: 'session-1', kind: 'established' },
+          record: null,
+          catalogRecordPresent: false,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'wrong-type-catalogRecordPresent',
+        recon: {
+          sessionId: 'session-1',
+          state: 'settled',
+          marker: null,
+          record: null,
+          catalogRecordPresent: 'yes',
+          diagnostics: []
+        }
+      },
+      {
+        name: 'null-root',
+        recon: null
+      },
+      {
+        name: 'array-root',
+        recon: []
+      }
+    ]
+
+    for (const [index, item] of spoofs.entries()) {
+      const turnId = 'turn-r10-mal-' + item.name
+      const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+        status: 'committed',
+        outcome: { kind: 'established' },
+        recordSaved: true,
+        catalogRecordPresent: true
+      } as OutcomeCommitResult))
+      const load = vi.fn(async (sessionId: string) =>
+        sessionSnapshot({
+          id: sessionId,
+          workspaceId: 'workspace-1',
+          outcomeRef: {
+            outcomeId: 'outcome-mal',
+            kind: 'established',
+            relativePath: 'learning-sessions/session-1/outcome.json',
+            evidenceEventIds: ['e1'],
+            contentSha256: 'c'.repeat(64)
+          }
+        })
+      )
+      const reconcile = vi.fn(async () => item.recon as OutcomeReconciliation)
+      const coordinator = createTeachingTurnCoordinator({
+        ...createPorts({ commit, reconcile, load }),
+        maxOperations: 8,
+        maxEventIds: 8,
+        maxBuses: 2
+      })
+      const busSeen: string[] = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (e) => {
+        busSeen.push(e.payload.type)
+      })
+      const result = await coordinator.execute({
+        type: 'commit_outcome',
+        turnId,
+        eventId: 'ev-r10-mal-' + index,
+        operationId: 'op-r10-mal-' + index,
+        workspaceId: 'workspace-1',
+        request: { sessionId: 'session-1', operationId: 'op-r10-mal-' + index }
+      })
+      unsub()
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(result.rejectReason, item.name).toBe('payload_mismatch')
+      expect(busSeen, item.name).not.toContain('command_accepted')
+      expect(busSeen, item.name).not.toContain('outcome_committed')
+      expect(busSeen, item.name).not.toContain('turn_terminal')
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.payload.type === 'outcome_committed'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.durability === 'durable'), item.name).toBeFalsy()
+
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-a',
+        eventId: 'ev-r10-mal-' + item.name + '-fill-a',
+        operationId: 'op-r10-mal-' + item.name + '-fill-a',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-b',
+        eventId: 'ev-r10-mal-' + item.name + '-fill-b',
+        operationId: 'op-r10-mal-' + item.name + '-fill-b',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      const afterReclaim = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'outcome_committed'), item.name).toBeFalsy()
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+    }
+  })
+
+  it('round10 C: marker.record / recon.record mismatch or unilateral record never emits durable commit', async () => {
+    const left = {
+      recordId: 'rec-left',
+      relativePath: 'learning-records/left.md',
+      contentSha256: 'a'.repeat(64)
+    }
+    const right = {
+      recordId: 'rec-right',
+      relativePath: 'learning-records/right.md',
+      contentSha256: 'b'.repeat(64)
+    }
+    const cases: Array<{ name: string; markerRecord: typeof left | null; reconRecord: typeof left | null }> = [
+      { name: 'mismatch', markerRecord: left, reconRecord: right },
+      { name: 'marker-only', markerRecord: left, reconRecord: null },
+      { name: 'recon-only-with-null-marker-record', markerRecord: null, reconRecord: left }
+    ]
+
+    for (const [index, item] of cases.entries()) {
+      const turnId = 'turn-r10-rec-' + item.name
+      const load = vi.fn(async (sessionId: string) =>
+        sessionSnapshot({
+          id: sessionId,
+          workspaceId: 'workspace-1',
+          outcomeRef: {
+            outcomeId: 'outcome-rec',
+            kind: 'established',
+            relativePath: 'learning-sessions/session-1/outcome.json',
+            evidenceEventIds: ['evidence-1'],
+            contentSha256: 'c'.repeat(64)
+          }
+        })
+      )
+      const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+        status: 'committed',
+        outcome: { kind: 'established' },
+        recordSaved: true,
+        catalogRecordPresent: true
+      } as OutcomeCommitResult))
+      const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+        sessionId,
+        state: 'settled',
+        marker: {
+          schemaVersion: 1,
+          sessionId,
+          outcomeId: 'outcome-rec',
+          operationId: 'op-r10-rec-' + index,
+          kind: 'established',
+          evidenceEventIds: ['evidence-1'],
+          evaluatorVersion: 1,
+          record: item.markerRecord
+        },
+        record: item.reconRecord,
+        catalogRecordPresent: Boolean(item.reconRecord),
+        diagnostics: []
+      }))
+      const coordinator = createTeachingTurnCoordinator({
+        ...createPorts({ commit, reconcile, load }),
+        maxOperations: 8,
+        maxEventIds: 8,
+        maxBuses: 2
+      })
+      const busSeen: Array<{ type: string; durability?: string }> = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (e) => {
+        busSeen.push({ type: e.payload.type, durability: e.durability })
+      })
+      const result = await coordinator.execute({
+        type: 'commit_outcome',
+        turnId,
+        eventId: 'ev-r10-rec-' + index,
+        operationId: 'op-r10-rec-' + index,
+        workspaceId: 'workspace-1',
+        request: { sessionId: 'session-1', operationId: 'op-r10-rec-' + index }
+      })
+      unsub()
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(result.rejectReason, item.name).toBe('payload_mismatch')
+      expect(busSeen.some((e) => e.type === 'command_accepted'), item.name).toBe(false)
+      expect(busSeen.some((e) => e.type === 'outcome_committed'), item.name).toBe(false)
+      expect(busSeen.some((e) => e.durability === 'durable'), item.name).toBe(false)
+      expect(result.terminal, item.name).toBeNull()
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events.some((e) => e.payload.type === 'outcome_committed'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.durability === 'durable'), item.name).toBeFalsy()
+
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-a',
+        eventId: 'ev-r10-rec-' + item.name + '-fill-a',
+        operationId: 'op-r10-rec-' + item.name + '-fill-a',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-b',
+        eventId: 'ev-r10-rec-' + item.name + '-fill-b',
+        operationId: 'op-r10-rec-' + item.name + '-fill-b',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      const afterReclaim = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'outcome_committed'), item.name).toBeFalsy()
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+    }
+  })
+
+  it('round10 B: insufficient_evidence malformed reconcile never emits durable success', async () => {
+    const spoofs: Array<{ name: string; recon: unknown }> = [
+      {
+        name: 'malformed-state',
+        recon: {
+          sessionId: 'session-1',
+          state: 'bogus',
+          marker: {
+            schemaVersion: 1,
+            sessionId: 'session-1',
+            outcomeId: 'out-ie',
+            operationId: 'op-ie',
+            kind: 'not_evidenced',
+            evidenceEventIds: [],
+            evaluatorVersion: 1,
+            record: { recordId: 'r-ie', relativePath: 'learning-records/ie.md', contentSha256: 'e'.repeat(64) }
+          },
+          record: { recordId: 'r-ie', relativePath: 'learning-records/ie.md', contentSha256: 'e'.repeat(64) },
+          catalogRecordPresent: true,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'foreign-marker-session',
+        recon: {
+          sessionId: 'session-1',
+          state: 'settled',
+          marker: {
+            schemaVersion: 1,
+            sessionId: 'session-FOREIGN',
+            outcomeId: 'out-ie',
+            operationId: 'op-ie',
+            kind: 'not_evidenced',
+            evidenceEventIds: [],
+            evaluatorVersion: 1,
+            record: { recordId: 'r-ie', relativePath: 'learning-records/ie.md', contentSha256: 'e'.repeat(64) }
+          },
+          record: { recordId: 'r-ie', relativePath: 'learning-records/ie.md', contentSha256: 'e'.repeat(64) },
+          catalogRecordPresent: true,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'unilateral-marker-record',
+        recon: {
+          sessionId: 'session-1',
+          state: 'settled',
+          marker: {
+            schemaVersion: 1,
+            sessionId: 'session-1',
+            outcomeId: 'out-ie',
+            operationId: 'op-ie',
+            kind: 'not_evidenced',
+            evidenceEventIds: [],
+            evaluatorVersion: 1,
+            record: { recordId: 'r-ie', relativePath: 'learning-records/ie.md', contentSha256: 'e'.repeat(64) }
+          },
+          record: null,
+          catalogRecordPresent: false,
+          diagnostics: []
+        }
+      }
+    ]
+
+    for (const [index, item] of spoofs.entries()) {
+      const turnId = 'turn-r10-ie-' + item.name
+      const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+        status: 'insufficient_evidence',
+        reason: 'not_evidenced',
+        recordSaved: true
+      } as OutcomeCommitResult))
+      const reconcile = vi.fn(async () => item.recon as OutcomeReconciliation)
+      const coordinator = createTeachingTurnCoordinator({
+        ...createPorts({ commit, reconcile }),
+        maxOperations: 8,
+        maxEventIds: 8,
+        maxBuses: 2
+      })
+      const busSeen: Array<{ type: string; durability?: string }> = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (e) => {
+        busSeen.push({ type: e.payload.type, durability: e.durability })
+      })
+      const result = await coordinator.execute({
+        type: 'commit_outcome',
+        turnId,
+        eventId: 'ev-r10-ie-' + index,
+        operationId: 'op-r10-ie-' + index,
+        workspaceId: 'workspace-1',
+        request: { sessionId: 'session-1', operationId: 'op-r10-ie-' + index }
+      })
+      unsub()
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(result.rejectReason, item.name).toBe('payload_mismatch')
+      expect(busSeen.some((e) => e.type === 'command_accepted'), item.name).toBe(false)
+      expect(busSeen.some((e) => e.type === 'outcome_insufficient_evidence'), item.name).toBe(false)
+      expect(busSeen.some((e) => e.type === 'outcome_committed'), item.name).toBe(false)
+      expect(busSeen.some((e) => e.type === 'turn_terminal'), item.name).toBe(false)
+      expect(busSeen.some((e) => e.durability === 'durable'), item.name).toBe(false)
+      expect(result.terminal, item.name).toBeNull()
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events.some((e) => e.payload.type === 'outcome_insufficient_evidence'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.durability === 'durable'), item.name).toBeFalsy()
+
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-a',
+        eventId: 'ev-r10-ie-' + item.name + '-fill-a',
+        operationId: 'op-r10-ie-' + item.name + '-fill-a',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-b',
+        eventId: 'ev-r10-ie-' + item.name + '-fill-b',
+        operationId: 'op-r10-ie-' + item.name + '-fill-b',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      const afterReclaim = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'outcome_insufficient_evidence'), item.name).toBeFalsy()
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+    }
+  })
+
+  it('round10 B case-table: foreign-session / illegal-kind / extra-key on commit path fail closed', async () => {
+    const recordRef = {
+      recordId: 'rec-r10-ct',
+      relativePath: 'learning-records/ct.md',
+      contentSha256: 'a'.repeat(64)
+    }
+    const goodMarker = (sessionId: string, overrides: Record<string, unknown> = {}) => ({
+      schemaVersion: 1,
+      sessionId,
+      outcomeId: 'outcome-ct',
+      operationId: 'op-ct',
+      kind: 'established',
+      evidenceEventIds: ['evidence-1'],
+      evaluatorVersion: 1,
+      record: recordRef,
+      ...overrides
+    })
+    const cases: Array<{ name: string; recon: unknown }> = [
+      {
+        name: 'foreign-session-root',
+        recon: {
+          sessionId: 'session-OTHER',
+          state: 'settled',
+          marker: goodMarker('session-OTHER'),
+          record: recordRef,
+          catalogRecordPresent: true,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'foreign-marker-session',
+        recon: {
+          sessionId: 'session-1',
+          state: 'settled',
+          marker: goodMarker('session-FOREIGN'),
+          record: recordRef,
+          catalogRecordPresent: true,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'illegal-kind',
+        recon: {
+          sessionId: 'session-1',
+          state: 'settled',
+          marker: goodMarker('session-1', { kind: 'totally_illegal_kind' }),
+          record: recordRef,
+          catalogRecordPresent: true,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'extra-key-on-recon',
+        recon: {
+          sessionId: 'session-1',
+          state: 'settled',
+          marker: goodMarker('session-1'),
+          record: recordRef,
+          catalogRecordPresent: true,
+          diagnostics: [],
+          spoofExtra: true
+        }
+      },
+      {
+        name: 'extra-key-on-marker',
+        recon: {
+          sessionId: 'session-1',
+          state: 'settled',
+          marker: goodMarker('session-1', { evil: 'payload' }),
+          record: recordRef,
+          catalogRecordPresent: true,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'extra-key-on-record',
+        recon: {
+          sessionId: 'session-1',
+          state: 'settled',
+          marker: goodMarker('session-1', {
+            record: { ...recordRef, extraField: 'nope' }
+          }),
+          record: { ...recordRef, extraField: 'nope' },
+          catalogRecordPresent: true,
+          diagnostics: []
+        }
+      }
+    ]
+
+    for (const [index, item] of cases.entries()) {
+      const turnId = 'turn-r10-ct-' + item.name
+      const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+        status: 'committed',
+        outcome: { kind: 'established' },
+        recordSaved: true,
+        catalogRecordPresent: true
+      } as OutcomeCommitResult))
+      const load = vi.fn(async (sessionId: string) =>
+        sessionSnapshot({
+          id: sessionId,
+          workspaceId: 'workspace-1',
+          outcomeRef: {
+            outcomeId: 'outcome-ct',
+            kind: 'established',
+            relativePath: 'learning-sessions/session-1/outcome.json',
+            evidenceEventIds: ['evidence-1'],
+            contentSha256: 'f'.repeat(64)
+          }
+        })
+      )
+      const reconcile = vi.fn(async () => item.recon as OutcomeReconciliation)
+      const coordinator = createTeachingTurnCoordinator({
+        ...createPorts({ commit, reconcile, load }),
+        maxOperations: 8,
+        maxEventIds: 8,
+        maxBuses: 2
+      })
+      const busSeen: string[] = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (e) => {
+        busSeen.push(e.payload.type)
+      })
+      const result = await coordinator.execute({
+        type: 'commit_outcome',
+        turnId,
+        eventId: 'ev-r10-ct-' + index,
+        operationId: 'op-r10-ct-' + index,
+        workspaceId: 'workspace-1',
+        request: { sessionId: 'session-1', operationId: 'op-r10-ct-' + index }
+      })
+      unsub()
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(result.rejectReason, item.name).toBe('payload_mismatch')
+      expect(busSeen, item.name).not.toContain('command_accepted')
+      expect(busSeen, item.name).not.toContain('outcome_committed')
+      expect(busSeen, item.name).not.toContain('turn_terminal')
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.payload.type === 'outcome_committed'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.durability === 'durable'), item.name).toBeFalsy()
+
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-a',
+        eventId: 'ev-r10-ct-' + item.name + '-fill-a',
+        operationId: 'op-r10-ct-' + item.name + '-fill-a',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-b',
+        eventId: 'ev-r10-ct-' + item.name + '-fill-b',
+        operationId: 'op-r10-ct-' + item.name + '-fill-b',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      const afterReclaim = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'outcome_committed'), item.name).toBeFalsy()
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+    }
+  })
+
+  it('round10 happy: matching full identity + dual record proof may accept commit', async () => {
+    const recordRef = {
+      recordId: 'rec-r10-ok',
+      relativePath: 'learning-records/ok.md',
+      contentSha256: 'a'.repeat(64)
+    }
+    const load = vi.fn(async (sessionId: string) =>
+      sessionSnapshot({
+        id: sessionId,
+        workspaceId: 'workspace-1',
+        outcomeRef: {
+          outcomeId: 'outcome-ok',
+          kind: 'established',
+          relativePath: 'learning-sessions/session-1/outcome.json',
+          evidenceEventIds: ['evidence-2', 'evidence-1'],
+          contentSha256: 'c'.repeat(64)
+        }
+      })
+    )
+    const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+      status: 'committed',
+      outcome: {
+        kind: 'established',
+        outcomeId: 'outcome-ok',
+        evidenceEventIds: ['evidence-1', 'evidence-2']
+      },
+      recordSaved: true,
+      catalogRecordPresent: true
+    } as OutcomeCommitResult))
+    const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'settled',
+      marker: {
+        schemaVersion: 1,
+        sessionId,
+        outcomeId: 'outcome-ok',
+        operationId: 'op-r10-ok',
+        kind: 'established',
+        evidenceEventIds: ['evidence-2', 'evidence-1'],
+        evaluatorVersion: 1,
+        record: recordRef
+      },
+      record: recordRef,
+      catalogRecordPresent: true,
+      diagnostics: []
+    }))
+    const coordinator = createTeachingTurnCoordinator(createPorts({ commit, reconcile, load }))
+    const busSeen: Array<{ type: string; durability?: string }> = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-r10-ok' }, (e) => {
+      busSeen.push({ type: e.payload.type, durability: e.durability })
+    })
+    const result = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-r10-ok',
+      eventId: 'ev-r10-ok',
+      operationId: 'op-r10-ok',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-r10-ok' }
+    })
+    unsub()
+    expect(result.acceptance).toBe('accepted')
+    expect(busSeen.some((e) => e.type === 'command_accepted')).toBe(true)
+    expect(busSeen.some((e) => e.type === 'outcome_committed' && e.durability === 'durable')).toBe(true)
+    expect(result.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'completed' })
+  })
+
+
 })
