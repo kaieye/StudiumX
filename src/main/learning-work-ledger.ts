@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 
+import { traceIdsMatchForIdempotency } from '../shared/trace-context'
 import type { AgentConversationRecord } from '../shared/teaching-types'
 import {
   buildLearningWorkEvidenceSnapshot,
@@ -38,12 +39,12 @@ export async function appendLearningWorkLedgerSnapshot(options: {
   rootPath: string
   workspace: { id?: string; name: string }
   record: AgentConversationRecord
+  /** Runs after identity collision checks and before the ledger append decision. */
+  beforeAppend?: () => Promise<void>
 }): Promise<void> {
-  await LearningWorkLedger.appendSnapshot({
-    rootPath: options.rootPath,
-    workspace: options.workspace,
-    conversation: options.record
-  })
+  const snapshot = buildLearningWorkEvidenceSnapshot(options.workspace, options.record)
+  const ledgerPath = join(options.rootPath, LEARNING_WORK_LEDGER_RELATIVE_PATH)
+  await appendSnapshotOnce(ledgerPath, snapshot, options.beforeAppend)
 }
 
 /**
@@ -62,11 +63,16 @@ export async function readLearningWorkLedgerLines(rootPath: string): Promise<str
   return readDurableJsonlLines(join(rootPath, LEARNING_WORK_LEDGER_RELATIVE_PATH))
 }
 
-async function appendSnapshotOnce(ledgerPath: string, snapshot: LearningWorkLedgerSnapshot): Promise<void> {
+async function appendSnapshotOnce(
+  ledgerPath: string,
+  snapshot: LearningWorkLedgerSnapshot,
+  beforeAppend?: () => Promise<void>
+): Promise<void> {
   const previous = pendingSnapshotAppends.get(ledgerPath) ?? Promise.resolve()
   const append = previous.catch(() => undefined).then(async () => {
-    if (await ledgerEntryExists(ledgerPath, snapshot.entryId)) return
-    await appendDurableJsonlLine({ activePath: ledgerPath }, JSON.stringify(snapshot))
+    const exists = await ledgerEntryExists(ledgerPath, snapshot)
+    await beforeAppend?.()
+    if (!exists) await appendDurableJsonlLine({ activePath: ledgerPath }, JSON.stringify(snapshot))
   })
   pendingSnapshotAppends.set(ledgerPath, append)
   try {
@@ -76,12 +82,20 @@ async function appendSnapshotOnce(ledgerPath: string, snapshot: LearningWorkLedg
   }
 }
 
-async function ledgerEntryExists(path: string, entryId: string): Promise<boolean> {
+async function ledgerEntryExists(path: string, expected: LearningWorkLedgerSnapshot): Promise<boolean> {
   const lines = await readDurableJsonlLines(path)
-  return lines.some((line) => {
+  let found = false
+  for (const line of lines) {
     const parsed = safeParseJson(line)
-    return Boolean(parsed && typeof parsed === 'object' && (parsed as { entryId?: unknown }).entryId === entryId)
-  })
+    if (!parsed || typeof parsed !== 'object') continue
+    const candidate = parsed as { entryId?: unknown; traceId?: unknown }
+    if (candidate.entryId !== expected.entryId) continue
+    found = true
+    if (!traceIdsMatchForIdempotency(candidate.traceId, expected.traceId)) {
+      throw new Error('Learning-work ledger snapshot identity is already bound to a different trace.')
+    }
+  }
+  return found
 }
 
 function safeParseJson(value: string): unknown | null {

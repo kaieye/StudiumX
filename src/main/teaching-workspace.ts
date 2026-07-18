@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
+import { Logger } from './logger'
 import { TeachingMemoryStore } from './teaching-memory'
 import { createLearningSessionLedger, type LearningSessionLedger } from './learning-session-ledger'
 import { createLearningOutcomeCommitter, type LearningOutcomeCommitter } from './learning-outcome-committer'
@@ -350,6 +351,7 @@ export class TeachingWorkspaceService {
   private readonly defaultRoot: string
   private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
   private readonly skillLibraryService?: SkillLibraryService
+  private readonly logger?: Logger
   private readonly memoryStore: TeachingMemoryStore
   private readonly reviewDeck = new TeachingWorkspaceReviewDeck()
   private readonly changeAudit: TeachingWorkspaceChangeAudit
@@ -369,6 +371,8 @@ export class TeachingWorkspaceService {
     defaultRoot: string
     settingsProvider?: () => Promise<TeachingSettingsV1>
     skillLibraryService?: SkillLibraryService
+    /** Main-process diagnostic sink; renderer payloads never supply trace context. */
+    logger?: Logger
     /** R2-only seams used to verify root/session authorization before commit delegation. */
     learningOutcomeLedgerFactory?: LearningOutcomeLedgerFactory
     learningOutcomeCommitterFactory?: LearningOutcomeCommitterFactory
@@ -378,6 +382,7 @@ export class TeachingWorkspaceService {
     this.defaultRoot = options.defaultRoot
     this.settingsProvider = options.settingsProvider
     this.skillLibraryService = options.skillLibraryService
+    this.logger = options.logger
     this.learningOutcomeLedgerFactory = options.learningOutcomeLedgerFactory ?? ((workspaceRoot) =>
       createLearningSessionLedger({ workspaceRoot })
     )
@@ -742,6 +747,8 @@ export class TeachingWorkspaceService {
   }
 
   async saveAgentConversation(payload: SaveAgentConversationPayload): Promise<SaveAgentConversationResult> {
+    // Generated only in the main process and used solely for diagnostic correlation.
+    const traceId = randomUUID()
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
     await this.ensureWorkspaceStructure(workspace)
@@ -842,6 +849,7 @@ export class TeachingWorkspaceService {
       relativePath,
       absolutePath: join(storageRoot, relativePath),
       messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
+      traceId,
       branch: existingBranch
         ? existingBranch
         : { schemaVersion: 1, sessionId: id, branchId: id, revision: 1, status: 'active' },
@@ -880,6 +888,7 @@ export class TeachingWorkspaceService {
       })
     }
     if (!persistedRecord) throw new Error('Conversation archive did not provide its canonical record.')
+    this.logger?.info('Conversation archive persisted.', { component: 'main', tag: 'agent-archive', traceId })
     if (!isTemporaryConversation) {
       await this.appendSessionEvent(workspace.rootPath, {
         id: randomUUID(),

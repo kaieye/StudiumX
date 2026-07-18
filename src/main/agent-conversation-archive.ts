@@ -32,6 +32,7 @@ import {
 } from './learning-work-ledger'
 import { normalizeWorkspaceRelativePath } from './teaching-workspace-paths'
 import { sanitizePersistedAgentConversationRecord } from '../shared/agent-persisted-history'
+import { normalizeTraceId, traceIdsMatchForIdempotency } from '../shared/trace-context'
 
 export type AgentConversationArchiveWorkspace = {
   id?: string
@@ -85,14 +86,21 @@ export async function saveAgentConversationArchive(input: {
   const canonicalJson = renderCanonicalConversationJson(input.workspace, persistedRecord)
   const canonicalMarkdown = renderAgentConversationMarkdown(input.workspace, persistedRecord)
 
-  await atomicWriteFile(paths.json, canonicalJson)
-  await atomicWriteFile(paths.markdown, canonicalMarkdown)
-  await appendAgentConversationSessionAuditLog({ rootPath: input.workspace.rootPath, record: persistedRecord })
-  if (!input.skipLearningWorkLedger) {
+  const persistCanonicalArchive = async (): Promise<void> => {
+    await atomicWriteFile(paths.json, canonicalJson)
+    await atomicWriteFile(paths.markdown, canonicalMarkdown)
+    await appendAgentConversationSessionAuditLog({ rootPath: input.workspace.rootPath, record: persistedRecord })
+  }
+  if (input.skipLearningWorkLedger) {
+    await persistCanonicalArchive()
+  } else {
+    // The ledger serializes identity verification with this callback. A trace
+    // collision therefore rejects before canonical files can be overwritten.
     await appendLearningWorkLedgerSnapshot({
       rootPath: input.workspace.rootPath,
       workspace: input.workspace,
-      record: persistedRecord
+      record: persistedRecord,
+      beforeAppend: persistCanonicalArchive
     })
   }
 
@@ -162,6 +170,7 @@ function renderCanonicalConversationJson(
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     relativePath: record.relativePath,
+    traceId: normalizeTraceId(record.traceId),
     branch: record.branch,
     turns: record.turns
   }, null, 2)}\n`
@@ -231,15 +240,27 @@ async function verifyAgentConversationArchive(input: {
 
   if (input.skipLearningWorkLedger) return
   const expectedLedgerEntry = buildLearningWorkLedgerEntry(input.workspace, input.record)
-  const hasLedgerEntry = ledgerLines.some((line) => {
+  let hasLedgerEntry = false
+  for (const line of ledgerLines) {
     const entry = safeParseJson(line)
-    if (!entry || typeof entry !== 'object') return false
-    const candidate = entry as { entryId?: unknown; conversation?: { relativePath?: unknown; jsonRelativePath?: unknown; sessionAuditRelativePath?: unknown } }
-    return candidate.entryId === expectedLedgerEntry.entryId &&
+    if (!entry || typeof entry !== 'object') continue
+    const candidate = entry as {
+      entryId?: unknown
+      traceId?: unknown
+      conversation?: { relativePath?: unknown; jsonRelativePath?: unknown; sessionAuditRelativePath?: unknown }
+    }
+    if (candidate.entryId !== expectedLedgerEntry.entryId) continue
+    if (!traceIdsMatchForIdempotency(candidate.traceId, expectedLedgerEntry.traceId)) {
+      throw new Error('Conversation archive learning-work ledger trace does not match its canonical record.')
+    }
+    if (
       candidate.conversation?.relativePath === input.paths.markdownRelativePath &&
       candidate.conversation?.jsonRelativePath === input.paths.jsonRelativePath &&
       candidate.conversation?.sessionAuditRelativePath === input.paths.auditRelativePath
-  })
+    ) {
+      hasLedgerEntry = true
+    }
+  }
   if (!hasLedgerEntry) throw new Error('Conversation archive learning-work ledger is incomplete.')
 }
 

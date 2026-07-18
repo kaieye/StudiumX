@@ -383,11 +383,23 @@ pnpm run dist:dir
 
 ---
 
-## 8. C-5：跨存储 traceId 与可解析结构化日志（后续增强）
+## 8. C-5：跨存储 traceId 与可解析结构化日志（第一垂直切片已实现）
 
 ### 目标与最小切片
 
 采用保持 grep 友好的 tagged text 格式，而不是立即切到 JSON 日志。为一次 main-process 用户动作/会话生成安全 opaque `traceId`，以固定字段写进日志与**新写入**的会话、learning-work snapshot、learning-session event/Memory metadata（仅在这些类型已有可选 metadata 容器时）。不回写历史 source。
+
+### 当前实现状态（2026-07-18；仅第一垂直切片）
+
+已实现并由测试覆盖的范围：
+
+1. `TeachingWorkspaceService.saveAgentConversation()` 每次调用只在 main 进程内生成一个 `randomUUID()`；IPC payload 没有 `traceId` 字段，且该值不用于授权或 scope 判定。
+2. 该值仅写入新/更新的 canonical conversation JSON 顶层 `traceId`，并经 archive 传入同一次 learning-work JSONL snapshot；snapshot 的 `entryId` 不包含 trace。相同 `entryId` 仅在 trace 相等（或双方均为缺失的 legacy trace）时可重试/去重；不同 trace 会在覆盖 canonical 文件前安全失败，避免错误关联。
+3. 所有 archive/learning-work durable writer seam 仅接受规范 UUID trace；缺失 legacy trace 仍可读取，而无效或秘密形态的 trace 会在写入前省略。
+4. archive 成功后以 `[main] [agent-archive] [trace=<uuid>]` 写入一条经过 redaction、单行化和长度限制的日志。Logger 保留旧的 `write/info/warn/error` 调用格式，并可解析 legacy 与 tagged 行。
+5. 历史 conversation JSON 与历史 learning-work JSONL 缺失 `traceId` 时仍按缺失字段读取；不扫描、迁移或重写旧文件。
+
+明确未包含在本切片：Memory、canonical learning-session ledger、workspace lifecycle event、conversation audit JSONL，以及其它用户动作。后续扩展必须复用本切片的 main-only 生成与安全日志边界。
 
 建议日志兼容格式：
 

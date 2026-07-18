@@ -7,6 +7,7 @@ import {
 } from '../../shared/agent-conversation-catalog'
 import { sanitizePersistedAgentConversationRecord } from '../../shared/agent-persisted-history'
 import { redactAgentSecretText } from '../../shared/agent-secret-redaction'
+import { normalizeTraceId } from '../../shared/trace-context'
 import type {
   AgentChatProcessEvent,
   AgentChatToolCallView,
@@ -31,6 +32,8 @@ export type LearningWorkStatus =
 export type LearningWorkLedgerSnapshot = {
   version: 1
   entryId: string
+  /** Optional main-process archive correlation id; excluded from entryId identity. */
+  traceId?: string
   type: 'conversation_snapshot'
   createdAt: string
   status: LearningWorkStatus
@@ -91,6 +94,7 @@ export function buildLearningWorkEvidenceSnapshot(
   return pruneUndefined({
     version: 1 as const,
     entryId: `learning-work:${persistedConversation.id}:${stableDigest(identity)}`,
+    traceId: normalizeTraceId(persistedConversation.traceId),
     type: 'conversation_snapshot' as const,
     createdAt: new Date().toISOString(),
     status,

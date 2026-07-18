@@ -12,6 +12,7 @@ import {
   type WorkspacePathMeta
 } from './teaching-workspace-paths'
 import { requireSafeTeachingRelativePath } from '../shared/teaching-placement'
+import { normalizeTraceId } from '../shared/trace-context'
 import {
   agentConversationCourseJsonScanDirectories,
   agentConversationJsonScanDirectories,
@@ -453,6 +454,7 @@ export async function parseAgentConversationRecordSource(
     throw new Error('Conversation record relativePath is not bound to its JSON basename.')
   }
   const relativePath = storedMarkdownRelativePath || agentConversationMarkdownRelativePath(id, conversationDir)
+  const traceId = normalizeTraceId(record.traceId)
   const conversationRecord: AgentConversationRecord = {
     id,
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
@@ -462,6 +464,7 @@ export async function parseAgentConversationRecordSource(
     relativePath,
     absolutePath: join(rootPath, relativePath),
     messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
+    traceId,
     branch: normalizeAgentConversationBranchMetadata(record.branch, id),
     turns
   }

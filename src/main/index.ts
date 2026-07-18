@@ -241,7 +241,8 @@ if (!hasSingleInstanceLock) {
           registryPath: appDataMigration.registryPath,
           defaultRoot,
           settingsProvider: () => settingsService.load(),
-          skillLibraryService
+          skillLibraryService,
+          logger
         })
         return {
           settingsService,

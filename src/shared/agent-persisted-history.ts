@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import { redactAgentSecretText } from './agent-secret-redaction'
+import { normalizeTraceId } from './trace-context'
 import type { AgentChatTurn, AgentConversationRecord, AgentTurnMetadata } from './teaching-types'
 
 /**
@@ -81,8 +82,11 @@ export function sanitizePersistedAgentConversationRecord(record: AgentConversati
   const sanitizedTurns = record.turns.map(sanitizePersistedConversationTurn)
   const turns = bindPersistedParentTurnProofs(sanitizedTurns)
   const title = sanitizePersistedConversationTitle(record.title)
+  const traceId = normalizeTraceId(record.traceId)
   const turnsChanged = turns.some((turn, index) => turn !== record.turns[index])
-  return turnsChanged || title !== record.title ? { ...record, title, turns } : record
+  return turnsChanged || title !== record.title || traceId !== record.traceId
+    ? { ...record, title, traceId, turns }
+    : record
 }
 
 /**

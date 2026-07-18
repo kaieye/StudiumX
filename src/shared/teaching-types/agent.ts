@@ -517,6 +517,8 @@ export type AgentChatStreamResult =
   | { error: true; message: string; usage?: AgentRunUsageAggregate }
 
 export type AgentConversationRecord = AgentConversationSummary & {
+  /** Main-process-generated opaque correlation id; never supplied by renderer payloads. */
+  traceId?: string
   turns: AgentChatTurn[]
 }
 
