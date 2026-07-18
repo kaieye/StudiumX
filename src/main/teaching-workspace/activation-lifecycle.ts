@@ -69,7 +69,8 @@ export class TeachingWorkspaceActivationLifecycle {
       rootPath: await this.nextWorkspacePath(name),
       prompt: normalizeWorkspacePrompt(payload.prompt, name),
       now,
-      eventKind: 'workspace_created'
+      eventKind: 'workspace_created',
+      traceId: randomUUID()
     })
     const nextRegistry = upsertRegistryWorkspace(await this.loadAvailableRegistry(), entry, entry.id)
     await this.writeRegistry(nextRegistry)
@@ -105,7 +106,8 @@ export class TeachingWorkspaceActivationLifecycle {
       rootPath: normalizedRoot,
       prompt: `继续整理 ${name} 教学工作区`,
       now,
-      eventKind: 'workspace_imported'
+      eventKind: 'workspace_imported',
+      traceId: randomUUID()
     })
     const nextRegistry = upsertRegistryWorkspace(registry, entry, entry.id)
     await this.writeRegistry(nextRegistry)
@@ -137,7 +139,8 @@ export class TeachingWorkspaceActivationLifecycle {
       rootPath: await this.nextWorkspacePath(name),
       prompt: '搭建个人化 AI 教学系统的第一版工作流',
       now,
-      eventKind: 'workspace_created'
+      eventKind: 'workspace_created',
+      traceId: randomUUID()
     })
     const nextRegistry = { activeWorkspaceId: entry.id, workspaces: [entry] }
     await this.writeRegistry(nextRegistry)
@@ -186,6 +189,8 @@ export class TeachingWorkspaceActivationLifecycle {
     prompt: string
     now: string
     eventKind?: SessionEvent['kind']
+    /** Internal activation trace; present only for event-emitting creation paths. */
+    traceId?: string
     createdAt?: string
     updatedAt?: string
     pinned?: boolean
@@ -221,6 +226,7 @@ export class TeachingWorkspaceActivationLifecycle {
         kind: options.eventKind,
         timestamp: options.now,
         workspaceId: entry.id,
+        traceId: options.traceId,
         prompt: options.prompt,
         paths: ['MISSION.md', 'RESOURCES.md', 'assets/lesson.css', 'assets/quiz.js']
       })

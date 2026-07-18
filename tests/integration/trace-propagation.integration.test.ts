@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -19,6 +19,7 @@ import type { AgentConversationRecord } from '../../src/shared/teaching-types'
 
 const runtimeScope = createVitestRuntimeScope()
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const LOWERCASE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 describe('C-5 archive trace propagation', () => {
   it('correlates concurrent saves across canonical JSON, learning-work JSONL, and safe tagged logs', async () => {
@@ -128,6 +129,48 @@ describe('C-5 archive trace propagation', () => {
     }
 
     await logger.shutdown()
+  })
+
+  it('traces workspace creation and first import without mutating an existing import lifecycle row', async () => {
+    const runtime = await runtimeScope.create('activation-lifecycle-trace-propagation')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot)
+    })
+
+    const created = (await service.createWorkspace({
+      name: 'Activation trace workspace',
+      prompt: 'Persist activation trace metadata.'
+    })).activeWorkspace!
+    const createEvents = (await readWorkspaceLifecycleEvents(created.rootPath))
+      .filter((event) => event.kind === 'workspace_created' && event.workspaceId === created.id)
+    expect(createEvents).toHaveLength(1)
+    expect(createEvents[0]).toEqual(expect.objectContaining({
+      kind: 'workspace_created',
+      workspaceId: created.id,
+      traceId: expect.stringMatching(LOWERCASE_UUID_RE)
+    }))
+
+    const importedRoot = join(runtime.paths.workspace, 'first-import')
+    await mkdir(importedRoot, { recursive: true })
+    const imported = (await service.importWorkspace(importedRoot)).activeWorkspace!
+    const initialImportEvents = (await readWorkspaceLifecycleEvents(imported.rootPath))
+      .filter((event) => event.kind === 'workspace_imported' && event.workspaceId === imported.id)
+    expect(initialImportEvents).toHaveLength(1)
+    const initialImportTrace = initialImportEvents[0]?.traceId
+    expect(initialImportTrace).toMatch(LOWERCASE_UUID_RE)
+    const sessionsPath = join(imported.rootPath, '.studiumx', 'sessions.jsonl')
+    const sessionsBeforeReimport = await readFile(sessionsPath, 'utf8')
+
+    const reimported = (await service.importWorkspace(importedRoot)).activeWorkspace!
+    expect(reimported).toMatchObject({ id: imported.id, rootPath: importedRoot })
+    const reimportEvents = (await readWorkspaceLifecycleEvents(reimported.rootPath))
+      .filter((event) => event.kind === 'workspace_imported' && event.workspaceId === imported.id)
+    expect(reimportEvents).toHaveLength(1)
+    expect(reimportEvents[0]?.traceId).toBe(initialImportTrace)
+    expect(await readFile(sessionsPath, 'utf8')).toBe(sessionsBeforeReimport)
   })
 
   it('correlates a normal managed fork child across canonical JSON, learning-work JSONL, and lifecycle events', async () => {

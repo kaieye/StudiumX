@@ -8,6 +8,7 @@ import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 
 const runtimeScope = createVitestRuntimeScope()
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 type RegistryFile = {
   activeWorkspaceId: string | null
@@ -33,9 +34,23 @@ async function readRegistry(registryPath: string): Promise<RegistryFile> {
   return JSON.parse(await readFile(registryPath, 'utf8')) as RegistryFile
 }
 
-async function readSessionKinds(rootPath: string): Promise<string[]> {
+type WorkspaceLifecycleEvent = {
+  id: string
+  kind: string
+  timestamp: string
+  workspaceId: string
+  traceId?: string
+  prompt?: string
+  paths?: string[]
+}
+
+async function readSessionEvents(rootPath: string): Promise<WorkspaceLifecycleEvent[]> {
   const events = await readFile(join(rootPath, '.studiumx', 'sessions.jsonl'), 'utf8')
-  return events.trim().split('\n').filter(Boolean).map((line) => (JSON.parse(line) as { kind: string }).kind)
+  return events.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as WorkspaceLifecycleEvent)
+}
+
+async function readSessionKinds(rootPath: string): Promise<string[]> {
+  return (await readSessionEvents(rootPath)).map((event) => event.kind)
 }
 
 describe('Teaching workspace activation lifecycle', () => {
@@ -57,6 +72,17 @@ describe('Teaching workspace activation lifecycle', () => {
     await expect(readFile(join(workspace!.rootPath, '.studiumx', 'index.json'), 'utf8')).resolves.toContain(workspace!.id)
     await expect(readFile(join(workspace!.rootPath, '.teachos', 'index.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(readSessionKinds(workspace!.rootPath)).resolves.toEqual(['workspace_created'])
+    expect(await readSessionEvents(workspace!.rootPath)).toEqual([
+      {
+        id: expect.stringMatching(UUID_RE),
+        kind: 'workspace_created',
+        timestamp: expect.any(String),
+        workspaceId: workspace!.id,
+        traceId: expect.stringMatching(UUID_RE),
+        prompt: '学习图论中的连通性',
+        paths: ['MISSION.md', 'RESOURCES.md', 'assets/lesson.css', 'assets/quiz.js']
+      }
+    ])
 
     expect(await readRegistry(registryPath)).toMatchObject({
       activeWorkspaceId: workspace!.id,
@@ -71,6 +97,14 @@ describe('Teaching workspace activation lifecycle', () => {
 
     const imported = await service.importWorkspace(importedRoot)
     const original = imported.activeWorkspace!
+    expect(await readSessionEvents(importedRoot)).toEqual([
+      expect.objectContaining({
+        kind: 'workspace_imported',
+        workspaceId: original.id,
+        traceId: expect.stringMatching(UUID_RE)
+      })
+    ])
+    const sessionJsonlBeforeReimport = await readFile(join(importedRoot, '.studiumx', 'sessions.jsonl'), 'utf8')
     const lessonPath = join(importedRoot, 'lessons', '0001-imported.html')
     await writeFile(lessonPath, '<!doctype html><html><body>Imported lesson</body></html>', 'utf8')
 
@@ -86,6 +120,7 @@ describe('Teaching workspace activation lifecycle', () => {
     ]))
     expect(reimported.selectedLessonPath).toBe(lessonPath)
     await expect(readSessionKinds(importedRoot)).resolves.toEqual(['workspace_imported'])
+    expect(await readFile(join(importedRoot, '.studiumx', 'sessions.jsonl'), 'utf8')).toBe(sessionJsonlBeforeReimport)
 
     const registry = await readRegistry(registryPath)
     expect(registry).toMatchObject({
