@@ -1,0 +1,799 @@
+/**
+ * Canonical Teaching Event Protocol (schemaVersion = 1).
+ *
+ * Domain events are a closed, versioned tagged union. Runtime parsers reject
+ * malformed or unrecognized new-author payloads without leaking raw input.
+ * Legacy/unknown agent stream shapes are only accepted through explicit adapters.
+ */
+
+export const TEACHING_EVENT_SCHEMA_VERSION = 1 as const
+
+export type TeachingEventSchemaVersion = typeof TEACHING_EVENT_SCHEMA_VERSION
+
+/** Durable events may be rebuilt from filesystem truth; ephemeral ones may not. */
+export type TeachingEventDurability = 'durable' | 'ephemeral'
+
+/**
+ * Learner-safe terminal outcomes for a teaching turn.
+ * These are presentation/coordination terminals, not durable mastery claims.
+ */
+export type TeachingTurnTerminalOutcome =
+  | 'completed'
+  | 'interrupted'
+  | 'failed'
+  | 'canceled'
+  | 'declined'
+  | 'conflict'
+
+export type TeachingEventPayloadType =
+  | 'session_opened'
+  | 'session_resumed'
+  | 'evidence_recorded'
+  | 'outcome_committed'
+  | 'outcome_already_committed'
+  | 'outcome_insufficient_evidence'
+  | 'loop_snapshot'
+  | 'next_step'
+  | 'turn_progress'
+  | 'turn_terminal'
+  | 'replay_gap'
+  | 'legacy_adapted'
+  | 'unknown_rejected'
+  | 'command_accepted'
+  | 'command_duplicate'
+  | 'recover_reconciled'
+
+const PAYLOAD_TYPES = new Set<TeachingEventPayloadType>([
+  'session_opened',
+  'session_resumed',
+  'evidence_recorded',
+  'outcome_committed',
+  'outcome_already_committed',
+  'outcome_insufficient_evidence',
+  'loop_snapshot',
+  'next_step',
+  'turn_progress',
+  'turn_terminal',
+  'replay_gap',
+  'legacy_adapted',
+  'unknown_rejected',
+  'command_accepted',
+  'command_duplicate',
+  'recover_reconciled'
+])
+
+const TERMINAL_OUTCOMES = new Set<TeachingTurnTerminalOutcome>([
+  'completed',
+  'interrupted',
+  'failed',
+  'canceled',
+  'declined',
+  'conflict'
+])
+
+const DURABILITIES = new Set<TeachingEventDurability>(['durable', 'ephemeral'])
+
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/
+
+export type TeachingEventIdentity = {
+  workspaceId: string
+  sessionId: string
+  turnId: string
+  eventId: string
+  itemId?: string
+  operationId?: string
+}
+
+export type TeachingSessionOpenedPayload = {
+  type: 'session_opened'
+  sessionId: string
+  courseId: string
+  status: 'active' | 'completed'
+  source: 'canonical' | 'legacy_lesson'
+}
+
+export type TeachingSessionResumedPayload = {
+  type: 'session_resumed'
+  sessionId: string
+  status: 'active' | 'completed' | 'legacy_read_only'
+  eventCount: number
+}
+
+export type TeachingEvidenceRecordedPayload = {
+  type: 'evidence_recorded'
+  sessionId: string
+  evidenceEventId: string
+  sequence: number
+  duplicate: boolean
+  kind: string
+}
+
+export type TeachingOutcomeCommittedPayload = {
+  type: 'outcome_committed'
+  sessionId: string
+  outcomeKind: string
+  recordSaved: boolean
+}
+
+export type TeachingOutcomeAlreadyCommittedPayload = {
+  type: 'outcome_already_committed'
+  sessionId: string
+  outcomeKind: string
+  recordSaved: boolean
+}
+
+export type TeachingOutcomeInsufficientEvidencePayload = {
+  type: 'outcome_insufficient_evidence'
+  sessionId: string
+  reason: 'not_evidenced'
+}
+
+export type TeachingLoopSnapshotPayload = {
+  type: 'loop_snapshot'
+  identity: string
+  displayState: string
+  sessionId: string | null
+  outcomeStatus: string
+  integrityCodes: readonly string[]
+}
+
+export type TeachingNextStepPayload = {
+  type: 'next_step'
+  action: string
+  reason: string
+}
+
+export type TeachingTurnProgressPayload = {
+  type: 'turn_progress'
+  stage: string
+  message?: string
+}
+
+export type TeachingTurnTerminalPayload = {
+  type: 'turn_terminal'
+  outcome: TeachingTurnTerminalOutcome
+  reasonCode?: string
+  message?: string
+}
+
+export type TeachingReplayGapPayload = {
+  type: 'replay_gap'
+  droppedEvents: number
+  retainedFromSequence: number
+}
+
+export type TeachingLegacyAdaptedPayload = {
+  type: 'legacy_adapted'
+  originalKind: string
+  summary: string
+}
+
+export type TeachingUnknownRejectedPayload = {
+  type: 'unknown_rejected'
+  reasonCode: TeachingEventParseErrorCode
+}
+
+export type TeachingCommandAcceptedPayload = {
+  type: 'command_accepted'
+  commandType: string
+}
+
+export type TeachingCommandDuplicatePayload = {
+  type: 'command_duplicate'
+  commandType: string
+  originalEventId: string
+}
+
+export type TeachingRecoverReconciledPayload = {
+  type: 'recover_reconciled'
+  sessionId: string
+  state: string
+}
+
+export type TeachingEventPayload =
+  | TeachingSessionOpenedPayload
+  | TeachingSessionResumedPayload
+  | TeachingEvidenceRecordedPayload
+  | TeachingOutcomeCommittedPayload
+  | TeachingOutcomeAlreadyCommittedPayload
+  | TeachingOutcomeInsufficientEvidencePayload
+  | TeachingLoopSnapshotPayload
+  | TeachingNextStepPayload
+  | TeachingTurnProgressPayload
+  | TeachingTurnTerminalPayload
+  | TeachingReplayGapPayload
+  | TeachingLegacyAdaptedPayload
+  | TeachingUnknownRejectedPayload
+  | TeachingCommandAcceptedPayload
+  | TeachingCommandDuplicatePayload
+  | TeachingRecoverReconciledPayload
+
+/**
+ * Canonical envelope. sequence is assigned by the turn event bus (ephemeral
+ * stream ordering) and is not a durable ledger authority.
+ */
+export type TeachingEventEnvelope = TeachingEventIdentity & {
+  schemaVersion: TeachingEventSchemaVersion
+  durability: TeachingEventDurability
+  occurredAt: string
+  payload: TeachingEventPayload
+  sequence?: number
+}
+
+export type TeachingEventParseErrorCode =
+  | 'not_object'
+  | 'unsupported_schema_version'
+  | 'missing_required_field'
+  | 'invalid_id'
+  | 'invalid_timestamp'
+  | 'invalid_durability'
+  | 'invalid_payload'
+  | 'unrecognized_payload_type'
+  | 'invalid_terminal_outcome'
+  | 'invalid_sequence'
+
+export class TeachingEventParseError extends Error {
+  readonly code: TeachingEventParseErrorCode
+  readonly field?: string
+
+  constructor(code: TeachingEventParseErrorCode, message: string, field?: string) {
+    super(message)
+    this.name = 'TeachingEventParseError'
+    this.code = code
+    this.field = field
+  }
+}
+
+export type TeachingEventParseFailure = {
+  ok: false
+  code: TeachingEventParseErrorCode
+  field?: string
+  /** Safe, non-leaking diagnostic only. Never includes raw payload bytes. */
+  message: string
+}
+
+export type TeachingEventParseSuccess = {
+  ok: true
+  event: TeachingEventEnvelope
+}
+
+export type TeachingEventParseResult = TeachingEventParseSuccess | TeachingEventParseFailure
+
+export type TeachingEventAuthoringInput = {
+  durability: TeachingEventDurability
+  occurredAt: string
+  workspaceId: string
+  sessionId: string
+  turnId: string
+  eventId: string
+  itemId?: string
+  operationId?: string
+  payload: TeachingEventPayload
+  sequence?: number
+}
+
+/** Build a validated envelope; throws TeachingEventParseError on invalid input. */
+export function createTeachingEvent(input: TeachingEventAuthoringInput): TeachingEventEnvelope {
+  const result = parseTeachingEvent({
+    schemaVersion: TEACHING_EVENT_SCHEMA_VERSION,
+    ...input
+  })
+  if (!result.ok) {
+    throw new TeachingEventParseError(result.code, result.message, result.field)
+  }
+  return result.event
+}
+
+/**
+ * Runtime parser for untrusted/new-author input. Rejects malformed or unknown
+ * shapes without echoing raw payload content.
+ */
+export function parseTeachingEvent(value: unknown): TeachingEventParseResult {
+  if (!isPlainObject(value)) {
+    return fail('not_object', 'Teaching event must be a plain object.')
+  }
+
+  if (value.schemaVersion !== TEACHING_EVENT_SCHEMA_VERSION) {
+    return fail('unsupported_schema_version', 'Unsupported teaching event schema version.', 'schemaVersion')
+  }
+
+  const durability = value.durability
+  if (typeof durability !== 'string' || !DURABILITIES.has(durability as TeachingEventDurability)) {
+    return fail('invalid_durability', 'Teaching event durability must be durable or ephemeral.', 'durability')
+  }
+
+  const occurredAt = requireIsoTimestamp(value.occurredAt, 'occurredAt')
+  if (!occurredAt.ok) return occurredAt
+
+  const workspaceId = requireId(value.workspaceId, 'workspaceId')
+  if (!workspaceId.ok) return workspaceId
+  const sessionId = requireId(value.sessionId, 'sessionId')
+  if (!sessionId.ok) return sessionId
+  const turnId = requireId(value.turnId, 'turnId')
+  if (!turnId.ok) return turnId
+  const eventId = requireId(value.eventId, 'eventId')
+  if (!eventId.ok) return eventId
+
+  let itemId: string | undefined
+  if (value.itemId !== undefined) {
+    const parsed = requireId(value.itemId, 'itemId')
+    if (!parsed.ok) return parsed
+    itemId = parsed.value
+  }
+
+  let operationId: string | undefined
+  if (value.operationId !== undefined) {
+    const parsed = requireId(value.operationId, 'operationId')
+    if (!parsed.ok) return parsed
+    operationId = parsed.value
+  }
+
+  let sequence: number | undefined
+  if (value.sequence !== undefined) {
+    if (!Number.isInteger(value.sequence) || (value.sequence as number) < 1) {
+      return fail('invalid_sequence', 'Teaching event sequence must be a positive integer.', 'sequence')
+    }
+    sequence = value.sequence as number
+  }
+
+  const payloadResult = parsePayload(value.payload)
+  if (!payloadResult.ok) return payloadResult
+
+  const event: TeachingEventEnvelope = {
+    schemaVersion: TEACHING_EVENT_SCHEMA_VERSION,
+    durability: durability as TeachingEventDurability,
+    occurredAt: occurredAt.value,
+    workspaceId: workspaceId.value,
+    sessionId: sessionId.value,
+    turnId: turnId.value,
+    eventId: eventId.value,
+    payload: payloadResult.value
+  }
+  if (itemId !== undefined) event.itemId = itemId
+  if (operationId !== undefined) event.operationId = operationId
+  if (sequence !== undefined) event.sequence = sequence
+  return { ok: true, event }
+}
+
+/**
+ * Map a durable commit/result status into a learner-safe turn terminal.
+ * Does not invent mastery; only maps coordination outcomes.
+ */
+export function mapCommitStatusToTerminal(
+  status:
+    | 'committed'
+    | 'already_committed'
+    | 'insufficient_evidence'
+    | 'conflict'
+    | 'retryable_failure'
+    | 'non_retryable_failure'
+    | 'canceled'
+    | 'declined'
+    | 'interrupted'
+): TeachingTurnTerminalOutcome {
+  switch (status) {
+    case 'committed':
+    case 'already_committed':
+      return 'completed'
+    case 'insufficient_evidence':
+      return 'declined'
+    case 'conflict':
+      return 'conflict'
+    case 'canceled':
+      return 'canceled'
+    case 'interrupted':
+      return 'interrupted'
+    case 'declined':
+      return 'declined'
+    case 'retryable_failure':
+    case 'non_retryable_failure':
+      return 'failed'
+  }
+}
+
+/**
+ * Explicit adapter for legacy/unknown agent stream kinds. Never accepts free-form
+ * payloads as first-class teaching events; emits a safe summary only.
+ */
+export function adaptLegacyAgentStreamEvent(input: {
+  kind: string
+  summary?: string
+  workspaceId: string
+  sessionId: string
+  turnId: string
+  eventId: string
+  occurredAt: string
+  operationId?: string
+}): TeachingEventEnvelope {
+  const kind = typeof input.kind === 'string' && input.kind.trim() ? input.kind.trim().slice(0, 64) : 'unknown'
+  const summary =
+    typeof input.summary === 'string' && input.summary.trim()
+      ? input.summary.trim().slice(0, 160)
+      : `legacy:${kind}`
+
+  return createTeachingEvent({
+    durability: 'ephemeral',
+    occurredAt: input.occurredAt,
+    workspaceId: input.workspaceId,
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    eventId: input.eventId,
+    operationId: input.operationId,
+    payload: {
+      type: 'legacy_adapted',
+      originalKind: kind,
+      summary
+    }
+  })
+}
+
+/**
+ * Build a safe rejection envelope when an untrusted author produces unknown input.
+ * The original raw value is intentionally discarded.
+ */
+export function createUnknownRejectedEvent(input: {
+  workspaceId: string
+  sessionId: string
+  turnId: string
+  eventId: string
+  occurredAt: string
+  reasonCode: TeachingEventParseErrorCode
+  operationId?: string
+}): TeachingEventEnvelope {
+  return createTeachingEvent({
+    durability: 'ephemeral',
+    occurredAt: input.occurredAt,
+    workspaceId: input.workspaceId,
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    eventId: input.eventId,
+    operationId: input.operationId,
+    payload: {
+      type: 'unknown_rejected',
+      reasonCode: input.reasonCode
+    }
+  })
+}
+
+export function isTeachingTurnTerminalPayload(
+  payload: TeachingEventPayload
+): payload is TeachingTurnTerminalPayload {
+  return payload.type === 'turn_terminal'
+}
+
+export function isDurableTeachingEvent(event: TeachingEventEnvelope): boolean {
+  return event.durability === 'durable'
+}
+
+export function teachingEventPayloadTypes(): readonly TeachingEventPayloadType[] {
+  return [...PAYLOAD_TYPES]
+}
+
+function parsePayload(value: unknown): { ok: true; value: TeachingEventPayload } | TeachingEventParseFailure {
+  if (!isPlainObject(value)) {
+    return fail('invalid_payload', 'Teaching event payload must be a plain object.', 'payload')
+  }
+  const type = value.type
+  if (typeof type !== 'string' || !PAYLOAD_TYPES.has(type as TeachingEventPayloadType)) {
+    return fail('unrecognized_payload_type', 'Unrecognized teaching event payload type.', 'payload.type')
+  }
+
+  switch (type as TeachingEventPayloadType) {
+    case 'session_opened': {
+      const sessionId = requireId(value.sessionId, 'payload.sessionId')
+      if (!sessionId.ok) return sessionId
+      const courseId = requireId(value.courseId, 'payload.courseId')
+      if (!courseId.ok) return courseId
+      if (value.status !== 'active' && value.status !== 'completed') {
+        return fail('invalid_payload', 'session_opened status is invalid.', 'payload.status')
+      }
+      if (value.source !== 'canonical' && value.source !== 'legacy_lesson') {
+        return fail('invalid_payload', 'session_opened source is invalid.', 'payload.source')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'session_opened',
+          sessionId: sessionId.value,
+          courseId: courseId.value,
+          status: value.status,
+          source: value.source
+        }
+      }
+    }
+    case 'session_resumed': {
+      const sessionId = requireId(value.sessionId, 'payload.sessionId')
+      if (!sessionId.ok) return sessionId
+      if (
+        value.status !== 'active' &&
+        value.status !== 'completed' &&
+        value.status !== 'legacy_read_only'
+      ) {
+        return fail('invalid_payload', 'session_resumed status is invalid.', 'payload.status')
+      }
+      if (!Number.isInteger(value.eventCount) || (value.eventCount as number) < 0) {
+        return fail('invalid_payload', 'session_resumed eventCount is invalid.', 'payload.eventCount')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'session_resumed',
+          sessionId: sessionId.value,
+          status: value.status,
+          eventCount: value.eventCount as number
+        }
+      }
+    }
+    case 'evidence_recorded': {
+      const sessionId = requireId(value.sessionId, 'payload.sessionId')
+      if (!sessionId.ok) return sessionId
+      const evidenceEventId = requireId(value.evidenceEventId, 'payload.evidenceEventId')
+      if (!evidenceEventId.ok) return evidenceEventId
+      if (!Number.isInteger(value.sequence) || (value.sequence as number) < 1) {
+        return fail('invalid_payload', 'evidence_recorded sequence is invalid.', 'payload.sequence')
+      }
+      if (typeof value.duplicate !== 'boolean') {
+        return fail('invalid_payload', 'evidence_recorded duplicate must be boolean.', 'payload.duplicate')
+      }
+      if (typeof value.kind !== 'string' || !value.kind.trim() || value.kind.length > 64) {
+        return fail('invalid_payload', 'evidence_recorded kind is invalid.', 'payload.kind')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'evidence_recorded',
+          sessionId: sessionId.value,
+          evidenceEventId: evidenceEventId.value,
+          sequence: value.sequence as number,
+          duplicate: value.duplicate,
+          kind: value.kind
+        }
+      }
+    }
+    case 'outcome_committed':
+    case 'outcome_already_committed': {
+      const sessionId = requireId(value.sessionId, 'payload.sessionId')
+      if (!sessionId.ok) return sessionId
+      if (typeof value.outcomeKind !== 'string' || !value.outcomeKind.trim() || value.outcomeKind.length > 64) {
+        return fail('invalid_payload', `${type} outcomeKind is invalid.`, 'payload.outcomeKind')
+      }
+      if (typeof value.recordSaved !== 'boolean') {
+        return fail('invalid_payload', `${type} recordSaved must be boolean.`, 'payload.recordSaved')
+      }
+      return {
+        ok: true,
+        value: {
+          type,
+          sessionId: sessionId.value,
+          outcomeKind: value.outcomeKind,
+          recordSaved: value.recordSaved
+        } as TeachingOutcomeCommittedPayload | TeachingOutcomeAlreadyCommittedPayload
+      }
+    }
+    case 'outcome_insufficient_evidence': {
+      const sessionId = requireId(value.sessionId, 'payload.sessionId')
+      if (!sessionId.ok) return sessionId
+      if (value.reason !== 'not_evidenced') {
+        return fail('invalid_payload', 'outcome_insufficient_evidence reason is invalid.', 'payload.reason')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'outcome_insufficient_evidence',
+          sessionId: sessionId.value,
+          reason: 'not_evidenced'
+        }
+      }
+    }
+    case 'loop_snapshot': {
+      if (typeof value.identity !== 'string' || !/^[a-f0-9]{64}$/.test(value.identity)) {
+        return fail('invalid_payload', 'loop_snapshot identity must be sha256 hex.', 'payload.identity')
+      }
+      if (typeof value.displayState !== 'string' || !value.displayState.trim() || value.displayState.length > 64) {
+        return fail('invalid_payload', 'loop_snapshot displayState is invalid.', 'payload.displayState')
+      }
+      if (value.sessionId !== null) {
+        const sessionId = requireId(value.sessionId, 'payload.sessionId')
+        if (!sessionId.ok) return sessionId
+      }
+      if (typeof value.outcomeStatus !== 'string' || !value.outcomeStatus.trim() || value.outcomeStatus.length > 64) {
+        return fail('invalid_payload', 'loop_snapshot outcomeStatus is invalid.', 'payload.outcomeStatus')
+      }
+      if (!Array.isArray(value.integrityCodes) || !value.integrityCodes.every((code) => typeof code === 'string' && code.length <= 64)) {
+        return fail('invalid_payload', 'loop_snapshot integrityCodes is invalid.', 'payload.integrityCodes')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'loop_snapshot',
+          identity: value.identity,
+          displayState: value.displayState,
+          sessionId: value.sessionId as string | null,
+          outcomeStatus: value.outcomeStatus,
+          integrityCodes: [...(value.integrityCodes as string[])]
+        }
+      }
+    }
+    case 'next_step': {
+      if (typeof value.action !== 'string' || !value.action.trim() || value.action.length > 64) {
+        return fail('invalid_payload', 'next_step action is invalid.', 'payload.action')
+      }
+      if (typeof value.reason !== 'string' || !value.reason.trim() || value.reason.length > 64) {
+        return fail('invalid_payload', 'next_step reason is invalid.', 'payload.reason')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'next_step',
+          action: value.action,
+          reason: value.reason
+        }
+      }
+    }
+    case 'turn_progress': {
+      if (typeof value.stage !== 'string' || !value.stage.trim() || value.stage.length > 64) {
+        return fail('invalid_payload', 'turn_progress stage is invalid.', 'payload.stage')
+      }
+      let message: string | undefined
+      if (value.message !== undefined) {
+        if (typeof value.message !== 'string' || value.message.length > 240) {
+          return fail('invalid_payload', 'turn_progress message is invalid.', 'payload.message')
+        }
+        message = value.message
+      }
+      return {
+        ok: true,
+        value: message === undefined
+          ? { type: 'turn_progress', stage: value.stage }
+          : { type: 'turn_progress', stage: value.stage, message }
+      }
+    }
+    case 'turn_terminal': {
+      if (typeof value.outcome !== 'string' || !TERMINAL_OUTCOMES.has(value.outcome as TeachingTurnTerminalOutcome)) {
+        return fail('invalid_terminal_outcome', 'turn_terminal outcome is not learner-safe.', 'payload.outcome')
+      }
+      let reasonCode: string | undefined
+      if (value.reasonCode !== undefined) {
+        if (typeof value.reasonCode !== 'string' || !value.reasonCode.trim() || value.reasonCode.length > 64) {
+          return fail('invalid_payload', 'turn_terminal reasonCode is invalid.', 'payload.reasonCode')
+        }
+        reasonCode = value.reasonCode
+      }
+      let message: string | undefined
+      if (value.message !== undefined) {
+        if (typeof value.message !== 'string' || value.message.length > 240) {
+          return fail('invalid_payload', 'turn_terminal message is invalid.', 'payload.message')
+        }
+        message = value.message
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'turn_terminal',
+          outcome: value.outcome as TeachingTurnTerminalOutcome,
+          ...(reasonCode !== undefined ? { reasonCode } : {}),
+          ...(message !== undefined ? { message } : {})
+        }
+      }
+    }
+    case 'replay_gap': {
+      if (!Number.isInteger(value.droppedEvents) || (value.droppedEvents as number) < 0) {
+        return fail('invalid_payload', 'replay_gap droppedEvents is invalid.', 'payload.droppedEvents')
+      }
+      if (!Number.isInteger(value.retainedFromSequence) || (value.retainedFromSequence as number) < 1) {
+        return fail('invalid_payload', 'replay_gap retainedFromSequence is invalid.', 'payload.retainedFromSequence')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'replay_gap',
+          droppedEvents: value.droppedEvents as number,
+          retainedFromSequence: value.retainedFromSequence as number
+        }
+      }
+    }
+    case 'legacy_adapted': {
+      if (typeof value.originalKind !== 'string' || !value.originalKind.trim() || value.originalKind.length > 64) {
+        return fail('invalid_payload', 'legacy_adapted originalKind is invalid.', 'payload.originalKind')
+      }
+      if (typeof value.summary !== 'string' || !value.summary.trim() || value.summary.length > 160) {
+        return fail('invalid_payload', 'legacy_adapted summary is invalid.', 'payload.summary')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'legacy_adapted',
+          originalKind: value.originalKind,
+          summary: value.summary
+        }
+      }
+    }
+    case 'unknown_rejected': {
+      if (typeof value.reasonCode !== 'string' || !value.reasonCode.trim() || value.reasonCode.length > 64) {
+        return fail('invalid_payload', 'unknown_rejected reasonCode is invalid.', 'payload.reasonCode')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'unknown_rejected',
+          reasonCode: value.reasonCode as TeachingEventParseErrorCode
+        }
+      }
+    }
+    case 'command_accepted': {
+      if (typeof value.commandType !== 'string' || !value.commandType.trim() || value.commandType.length > 64) {
+        return fail('invalid_payload', 'command_accepted commandType is invalid.', 'payload.commandType')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'command_accepted',
+          commandType: value.commandType
+        }
+      }
+    }
+    case 'command_duplicate': {
+      if (typeof value.commandType !== 'string' || !value.commandType.trim() || value.commandType.length > 64) {
+        return fail('invalid_payload', 'command_duplicate commandType is invalid.', 'payload.commandType')
+      }
+      const originalEventId = requireId(value.originalEventId, 'payload.originalEventId')
+      if (!originalEventId.ok) return originalEventId
+      return {
+        ok: true,
+        value: {
+          type: 'command_duplicate',
+          commandType: value.commandType,
+          originalEventId: originalEventId.value
+        }
+      }
+    }
+    case 'recover_reconciled': {
+      const sessionId = requireId(value.sessionId, 'payload.sessionId')
+      if (!sessionId.ok) return sessionId
+      if (typeof value.state !== 'string' || !value.state.trim() || value.state.length > 64) {
+        return fail('invalid_payload', 'recover_reconciled state is invalid.', 'payload.state')
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'recover_reconciled',
+          sessionId: sessionId.value,
+          state: value.state
+        }
+      }
+    }
+  }
+}
+
+function requireId(
+  value: unknown,
+  field: string
+): { ok: true; value: string } | TeachingEventParseFailure {
+  if (typeof value !== 'string' || !ID_PATTERN.test(value)) {
+    return fail(value === undefined || value === null ? 'missing_required_field' : 'invalid_id', `Invalid teaching event id at ${field}.`, field)
+  }
+  return { ok: true, value }
+}
+
+function requireIsoTimestamp(
+  value: unknown,
+  field: string
+): { ok: true; value: string } | TeachingEventParseFailure {
+  if (typeof value !== 'string' || !ISO_TIMESTAMP_PATTERN.test(value)) {
+    return fail(
+      value === undefined || value === null ? 'missing_required_field' : 'invalid_timestamp',
+      `Invalid teaching event timestamp at ${field}.`,
+      field
+    )
+  }
+  return { ok: true, value }
+}
+
+function fail(code: TeachingEventParseErrorCode, message: string, field?: string): TeachingEventParseFailure {
+  return field === undefined ? { ok: false, code, message } : { ok: false, code, field, message }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
