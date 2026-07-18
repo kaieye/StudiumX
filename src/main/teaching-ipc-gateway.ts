@@ -16,7 +16,7 @@ import {
   parseForkAgentConversationBranchPayload, parseOpenAgentConversationBranchPayload,
   parseCreateMemoryPayload, parseCreateWorkspacePayload, parseGenerateLessonPayload, parseGitBranchPayload,
   parseListUpstreamModelsPayload, parseNotificationPayload, parseProbeProviderPayload,
-  parseQueryAgentArchivedHistoryPayload, parseReadAgentConversationPayload, parseRenameAgentConversationPayload,
+  parseQueryAgentArchivedHistoryPayload, parseReadAgentConversationPayload, parseProjectAgentConversationSummariesPayload, parseRenameAgentConversationPayload,
   parseReadAgentConversationSessionTreePayload, parseReadLessonPayload, parseReadWorkspaceChangeDiffPayload,
   parsePreviewLessonInteractionIntent,
   parseReplayAgentConversationBranchPayload,
@@ -338,6 +338,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       streamCleanup: noStreamCleanup
     }),
     command({ channel: teachingInvokeChannels.readAgentConversation, parser: (payload) => parseReadAgentConversationPayload(payload), action: (_event, payload) => service.readAgentConversation(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.projectAgentConversationSummaries, parser: (payload) => parseProjectAgentConversationSummariesPayload(payload), action: (_event, payload) => service.projectAgentConversationSummaries(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.readAgentConversationSessionTree, parser: (payload) => parseReadAgentConversationSessionTreePayload(payload), action: (_event, payload) => service.readAgentConversationSessionTree(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.openAgentConversationBranch, parser: (payload) => parseOpenAgentConversationBranchPayload(payload), action: (_event, payload) => service.openAgentConversationBranch(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.forkAgentConversationBranch, parser: (payload) => parseForkAgentConversationBranchPayload(payload), action: async (_event, payload) => { const result = await service.forkAgentConversationBranch(payload); analytics.invalidate(['conversation']); return result }, reply: identityReply, streamCleanup: noStreamCleanup }),

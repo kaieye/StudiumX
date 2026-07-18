@@ -52,6 +52,7 @@ export const teachingInvokeChannels = {
   saveAgentConversation: 'teach:save-agent-conversation',
   renameAgentConversation: 'teach:rename-agent-conversation',
   readAgentConversation: 'teach:read-agent-conversation',
+  projectAgentConversationSummaries: 'teach:project-agent-conversation-summaries',
   readAgentConversationSessionTree: 'teach:read-agent-conversation-session-tree',
   openAgentConversationBranch: 'teach:open-agent-conversation-branch',
   forkAgentConversationBranch: 'teach:fork-agent-conversation-branch',

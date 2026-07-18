@@ -18,9 +18,10 @@ assert.match(pkg.packageManager ?? '', /^pnpm@11\.9\.0$/, 'package manager polic
 assert.ok(
   [
     'pnpm run build && electron-builder',
-    'pnpm run build && pnpm run rebuild:better-sqlite3:electron && electron-builder'
+    'pnpm run build && pnpm run rebuild:better-sqlite3:electron && electron-builder',
+    'node scripts/package-host-native.mjs'
   ].includes(pkg.scripts?.dist),
-  'dist script should use the pinned pnpm workflow and may rebuild better-sqlite3 for Electron before packaging'
+  'dist script should use the pinned pnpm workflow or the host-native packaging wrapper'
 )
 
 assert.equal(await exists('index.js'), false, 'Codex app bundle index.js must not live in repo root')

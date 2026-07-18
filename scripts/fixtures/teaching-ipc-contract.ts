@@ -15,6 +15,7 @@ assert.equal(invokeValues.length, new Set(invokeValues).size, 'invoke channels s
 assert.equal(eventValues.length, new Set(eventValues).size, 'event channels should be unique')
 assert.equal(teachingInvokeChannels.listUpstreamModels, 'teach:list-upstream-models')
 assert.equal(teachingInvokeChannels.applyLessonStyle, 'teach:apply-lesson-style')
+assert.equal(teachingInvokeChannels.projectAgentConversationSummaries, 'teach:project-agent-conversation-summaries')
 assert.equal(teachingEventChannels.lessonStreamChunk, 'teach:generate-lesson-chunk')
 assert.equal(teachingEventChannels.agentChatTool, 'teach:agent-chat-tool')
 assert.equal(teachingEventChannels.agentChatEvent, 'teach:agent-chat-event')
@@ -25,6 +26,7 @@ const requiredInvokeCapabilities: TeachingInvokeCapability[] = [
   'agentChatStream',
   'replayAgentChatEvents',
   'createAgentConversationCheckpoint',
+  'projectAgentConversationSummaries',
   'resolveAgentConversationCheckpoint',
   'queryAgentArchivedHistory',
   'rebuildAgentHistoryIndex',

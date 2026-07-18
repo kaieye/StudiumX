@@ -124,6 +124,29 @@ describe('Teaching IPC gateway', () => {
     expect(createWorkspace).toHaveBeenCalledWith({ name: 'Course', prompt: 'Teach algebra' })
   })
 
+  it('maps the narrow explicit per-id conversation projection command without renderer paths', async () => {
+    const projectAgentConversationSummaries = vi.fn().mockResolvedValue({
+      outcomes: [{ conversationId: 'chat-archived-1', status: 'generated' }]
+    })
+    registerTeachingIpcGateway(registration({ workspaceService: { projectAgentConversationSummaries } }))
+    const request = { workspaceId: 'workspace-1', conversationIds: ['chat-archived-1'] }
+
+    await expect(handler(teachingInvokeChannels.projectAgentConversationSummaries)(event, request)).resolves.toEqual({
+      outcomes: [{ conversationId: 'chat-archived-1', status: 'generated' }]
+    })
+    expect(projectAgentConversationSummaries).toHaveBeenCalledWith(request)
+    await expect(handler(teachingInvokeChannels.projectAgentConversationSummaries)(event, {
+      ...request,
+      rootPath: '/private/workspace'
+    })).rejects.toThrow('IPC projection payload may contain only "workspaceId" and "conversationIds".')
+    expect(projectAgentConversationSummaries).toHaveBeenCalledTimes(1)
+
+    const preloadSource = await readFile(join(process.cwd(), 'src', 'preload', 'index.ts'), 'utf8')
+    expect(preloadSource).toContain(
+      'projectAgentConversationSummaries: (payload) => ipcRenderer.invoke(teachingInvokeChannels.projectAgentConversationSummaries, payload)'
+    )
+  })
+
   it('rejects invalid input before its action can run', async () => {
     const createWorkspace = vi.fn()
     registerTeachingIpcGateway(registration({ workspaceService: { createWorkspace } }))

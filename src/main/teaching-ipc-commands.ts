@@ -22,6 +22,7 @@ import type {
   ProbeProviderPayload,
   ReadWorkspaceChangeDiffPayload,
   ReadAgentConversationPayload,
+  ProjectAgentConversationSummariesPayload,
   RenameAgentConversationPayload,
   ReadAgentConversationSessionTreePayload,
   ReplayAgentConversationBranchPayload,
@@ -274,6 +275,27 @@ export function parseRenameAgentConversationPayload(payload: unknown): RenameAge
 export function parseReadAgentConversationPayload(payload: unknown): ReadAgentConversationPayload {
   const record = requireRecord(payload)
   return parseAgentConversationBranchReference(record)
+}
+
+export function parseProjectAgentConversationSummariesPayload(
+  payload: unknown
+): ProjectAgentConversationSummariesPayload {
+  const record = requireRecord(payload)
+  if (Object.keys(record).length !== 2 || !Object.prototype.hasOwnProperty.call(record, 'workspaceId') || !Object.prototype.hasOwnProperty.call(record, 'conversationIds')) {
+    throw new Error('IPC projection payload may contain only "workspaceId" and "conversationIds".')
+  }
+  const ids = record.conversationIds
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100) {
+    throw new Error('IPC payload field "conversationIds" must contain 1 to 100 canonical conversation ids.')
+  }
+  const conversationIds = ids.map((value) => requireCanonicalConversationId(value))
+  if (new Set(conversationIds).size !== conversationIds.length) {
+    throw new Error('IPC payload field "conversationIds" must not contain duplicate ids.')
+  }
+  return {
+    workspaceId: requireSafeId(record.workspaceId, 'workspaceId'),
+    conversationIds
+  }
 }
 
 export function parseReadAgentConversationSessionTreePayload(

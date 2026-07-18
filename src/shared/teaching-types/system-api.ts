@@ -35,7 +35,9 @@ import type {
   SaveAgentConversationPayload,
   SaveAgentConversationResult,
   UpdateAgentConversationBranchStatusPayload,
-  UpdateAgentConversationBranchStatusResult
+  UpdateAgentConversationBranchStatusResult,
+  ProjectAgentConversationSummariesPayload,
+  ProjectAgentConversationSummariesResult
 } from './agent'
 import type {
   CreateTeachingMemoryPayload,
@@ -171,6 +173,7 @@ export type TeachingSystemApi = {
   saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>
   renameAgentConversation: (payload: RenameAgentConversationPayload) => Promise<RenameAgentConversationResult>
   readAgentConversation: (payload: ReadAgentConversationPayload) => Promise<AgentConversationRecord>
+  projectAgentConversationSummaries: (payload: ProjectAgentConversationSummariesPayload) => Promise<ProjectAgentConversationSummariesResult>
   readAgentConversationSessionTree: (payload: ReadAgentConversationSessionTreePayload) => Promise<AgentConversationSessionTree>
   openAgentConversationBranch: (payload: OpenAgentConversationBranchPayload) => Promise<OpenAgentConversationBranchResult>
   forkAgentConversationBranch: (payload: ForkAgentConversationBranchPayload) => Promise<ForkAgentConversationBranchResult>

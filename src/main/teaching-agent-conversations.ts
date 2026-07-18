@@ -144,7 +144,7 @@ export async function listPersistedAgentConversationRecords(
       jsonRelativePath,
       // Parse the same immutable Buffer whose digest the projection persists; never
       // pair a record parsed from one read with a digest from a later read.
-      record: await readAgentConversationRecordSource(rootPath, jsonRelativePath, source.toString('utf8'), { hydrateArtifacts: false }),
+      record: await parseAgentConversationRecordSource(rootPath, jsonRelativePath, source.toString('utf8'), { hydrateArtifacts: false }),
       sourceFingerprint: createHash('sha256').update(source).digest('hex')
     }
   }))
@@ -385,11 +385,11 @@ async function readAgentConversationRecordAt(
   const normalizedJsonRelativePath = normalizeWorkspaceRelativePath(jsonRelativePath)
   const jsonPath = join(rootPath, normalizedJsonRelativePath)
   if (!isPathInsideRoot(rootPath, jsonPath)) throw new Error('Conversation path is outside the workspace.')
-  return readAgentConversationRecordSource(rootPath, normalizedJsonRelativePath, await readFile(jsonPath, 'utf8'), options)
+  return parseAgentConversationRecordSource(rootPath, normalizedJsonRelativePath, await readFile(jsonPath, 'utf8'), options)
 }
 
 /** Parses a previously captured canonical source read without touching the file again. */
-async function readAgentConversationRecordSource(
+export async function parseAgentConversationRecordSource(
   rootPath: string,
   jsonRelativePath: string,
   content: string,
@@ -984,7 +984,7 @@ async function agentConversationIdExists(rootPath: string, id: string): Promise<
     .some((relativePath) => describeAgentConversationPath(relativePath)?.id === safeId)
 }
 
-async function findAgentConversationJsonRelativePath(rootPath: string, id: string): Promise<string> {
+export async function findAgentConversationJsonRelativePath(rootPath: string, id: string): Promise<string> {
   const safeId = requireCanonicalAgentConversationId(id)
   const matches = (await collectAgentConversationJsonRelativePaths(rootPath))
     .filter((relativePath) => describeAgentConversationPath(relativePath)?.id === safeId)
@@ -994,6 +994,73 @@ async function findAgentConversationJsonRelativePath(rootPath: string, id: strin
     throw new Error(`Conversation id "${safeId}" is ambiguous within this storage root.`)
   }
   return matches[0]
+}
+
+/**
+ * Resolves an explicitly requested C-2C id without invoking the canonical
+ * collection scanner. The only candidates are the fixed non-course bases and
+ * their flat location plus the UTC partition inferred from the canonical
+ * timestamp-bearing id (with adjacent months for local-vs-UTC boundaries).
+ *
+ * Canonical readers intentionally keep their full historical discovery and
+ * duplicate-detection semantics in `findAgentConversationJsonRelativePath`.
+ * C-2C is an explicit, bounded maintenance command: it never accepts a path
+ * from the renderer and returns not-found rather than broadening discovery.
+ */
+export async function findExplicitAgentConversationJsonRelativePath(
+  rootPath: string,
+  id: string,
+  options: { lstat?: typeof lstat } = {}
+): Promise<string> {
+  const safeId = requireCanonicalAgentConversationId(id)
+  const lstatFile = options.lstat ?? lstat
+  const matches: string[] = []
+  for (const relativePath of explicitAgentConversationJsonRelativePathCandidates(safeId)) {
+    const metadata = await lstatFile(join(rootPath, relativePath)).catch((error: unknown) => {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null
+      throw error
+    })
+    if (!metadata) continue
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      throw new Error('Explicit conversation source is not a regular file.')
+    }
+    matches.push(relativePath)
+  }
+  if (matches.length === 0) throw new Error('Conversation not found.')
+  if (matches.length > 1) {
+    throw new Error(`Conversation id "${safeId}" is ambiguous within bounded C-2C locations.`)
+  }
+  return matches[0]!
+}
+
+function explicitAgentConversationJsonRelativePathCandidates(id: string): string[] {
+  const bases = agentConversationJsonScanDirectories({ includeCourses: false })
+  const candidates = new Set(bases.map((directory) => workspaceRelativePath(directory, `${id}.json`)))
+  const partition = conversationPartitionFromCanonicalId(id)
+  if (partition) {
+    for (const directory of bases) {
+      for (const { year, month } of [partition, adjacentConversationPartition(partition, -1), adjacentConversationPartition(partition, 1)]) {
+        candidates.add(workspaceRelativePath(directory, year, month, `${id}.json`))
+      }
+    }
+  }
+  return [...candidates]
+}
+
+function conversationPartitionFromCanonicalId(id: string): { year: string; month: string } | null {
+  const match = /^chat-(\d{4})(\d{2})(\d{2})-\d{6}(?:-|$)/.exec(id)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null
+  return { year: match[1]!, month: match[2]! }
+}
+
+function adjacentConversationPartition(partition: { year: string; month: string }, delta: number): { year: string; month: string } {
+  const date = new Date(Date.UTC(Number(partition.year), Number(partition.month) - 1 + delta, 1))
+  return { year: String(date.getUTCFullYear()).padStart(4, '0'), month: String(date.getUTCMonth() + 1).padStart(2, '0') }
 }
 
 function formatConversationTimestamp(date: Date): string {

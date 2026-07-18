@@ -98,7 +98,7 @@
     "check:conversation-lesson-tool": "node scripts/check-conversation-lesson-tool.mjs",
     "check:workflow": "node scripts/check-teaching-workflow.mjs",
     "preview": "electron-vite preview",
-    "dist": "pnpm run build && pnpm run rebuild:better-sqlite3:electron && electron-builder",
+    "dist": "node scripts/package-host-native.mjs",
     "check:repository-hygiene": "node scripts/check-repository-hygiene.mjs",
     "check:security": "node scripts/check-security.mjs",
     "check:provider-privacy": "node scripts/check-provider-privacy.mjs",
@@ -111,7 +111,11 @@
     "test:visual": "pnpm run build && playwright test --project electron-visual --pass-with-no-tests",
     "test:a11y": "pnpm run build && playwright test --project electron-e2e --grep @a11y --pass-with-no-tests",
     "check:analytics": "node scripts/check-study-analytics-test-foundation.mjs",
-    "dist:dir": "pnpm run build && pnpm run rebuild:better-sqlite3:electron && electron-builder --dir"
+    "dist:dir": "node scripts/package-host-native.mjs --dir",
+    "build:contained-durable-replace": "node scripts/build-contained-durable-replace.mjs",
+    "prebuild": "pnpm run build:contained-durable-replace",
+    "predev": "pnpm run build:contained-durable-replace",
+    "pretest:unit": "pnpm run rebuild:better-sqlite3:node && pnpm run build:contained-durable-replace"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -160,6 +164,7 @@
     "electron-vite": "^5.0.0",
     "esbuild": "0.25.12",
     "jsdom": "^29.1.1",
+    "node-gyp": "12.4.0",
     "playwright": "1.61.1",
     "typescript": "^6.0.3",
     "vite": "7.3.6",
@@ -178,6 +183,10 @@
       {
         "from": "resources/builtin-skills",
         "to": "builtin-skills"
+      },
+      {
+        "from": "native/contained-durable-replace/build/Release/contained_durable_replace.node",
+        "to": "native/contained_durable_replace.node"
       }
     ],
     "asarUnpack": [

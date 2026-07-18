@@ -9,6 +9,7 @@ import {
   parseRebuildAgentHistoryIndexPayload,
   parseResolveAgentConversationCheckpointPayload,
   parseSaveAgentConversationPayload,
+  parseProjectAgentConversationSummariesPayload,
   parseStreamId,
   parseWorkspaceItemRemovePayload,
   requireHttpUrl,
@@ -91,6 +92,26 @@ assert.deepEqual(
 assert.throws(
   () => parseSaveAgentConversationPayload({ workspaceId: 'workspace-1', runId: '../bad', turns: [] }),
   /streamId/
+)
+
+assert.deepEqual(parseProjectAgentConversationSummariesPayload({
+  workspaceId: 'workspace-1',
+  conversationIds: ['chat-archived-1', 'chat-archived-2']
+}), {
+  workspaceId: 'workspace-1',
+  conversationIds: ['chat-archived-1', 'chat-archived-2']
+})
+assert.throws(
+  () => parseProjectAgentConversationSummariesPayload({ workspaceId: 'workspace-1', conversationIds: ['chat-1', 'chat-1'] }),
+  /duplicate/
+)
+assert.throws(
+  () => parseProjectAgentConversationSummariesPayload({ workspaceId: 'workspace-1', conversationIds: ['../escape'] }),
+  /canonical conversation id/
+)
+assert.throws(
+  () => parseProjectAgentConversationSummariesPayload({ workspaceId: 'workspace-1', conversationIds: ['chat-1'], rootPath: '/escape' }),
+  /only "workspaceId" and "conversationIds"/
 )
 
 assert.throws(

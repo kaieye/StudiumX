@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
+import {
+  closeContainedDurableDirectory,
+  getContainedDurableDirectoryCapability,
+  openContainedDurableDirectory,
+  replaceDurablyInContainedDirectory,
+  type ContainedDurableDirectory
+} from './contained-durable-directory'
 
 export type DurableFileValidator<T> = (value: unknown) => value is T
 
@@ -22,7 +29,7 @@ const defaultOperations: DurableFileOperations = { mkdir, open, readFile, rename
 const PRIVATE_FILE_MODE = 0o600
 const replaceWithBackupQueues = new Map<string, Promise<void>>()
 
-export type DurableReplaceOptions = {
+export type DurablePathReplaceOptions = {
   path: string
   content: string | Uint8Array
   /**
@@ -36,7 +43,19 @@ export type DurableReplaceOptions = {
   warn?: (message: string) => void
 }
 
-export type ReplaceWithBackupOptions<T> = DurableReplaceOptions & {
+export type DurableContainedReplaceOptions = {
+  /** A capability-bound C-2C output directory, never a re-traversed path. */
+  directory: ContainedDurableDirectory
+  filename: string
+  content: string | Uint8Array
+  mode?: number
+  onDirectoryBound?: () => void | Promise<void>
+  warn?: (message: string) => void
+}
+
+export type DurableReplaceOptions = DurablePathReplaceOptions | DurableContainedReplaceOptions
+
+export type ReplaceWithBackupOptions<T> = DurablePathReplaceOptions & {
   validate: DurableFileValidator<T>
 }
 
@@ -60,6 +79,9 @@ export type ReadValidatedWithBackupOptions<T> = {
  * synced after the rename. It intentionally has no backup behavior.
  */
 export async function replaceDurably(options: DurableReplaceOptions): Promise<void> {
+  if ('directory' in options) {
+    return replaceDurablyInContainedDirectory(options)
+  }
   const operations = options.operations ?? defaultOperations
   await operations.mkdir(dirname(options.path), { recursive: true })
   const temporaryPath = temporaryPathFor(options.path)
@@ -289,4 +311,20 @@ function isUnsupportedDirectoryFsync(error: unknown): boolean {
 
 function isErrno(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error
+}
+
+/** Opens the fixed C-2C output directory as a native descriptor capability. */
+export function openC2CProjectionOutputDirectory(rootPath: string): ContainedDurableDirectory {
+  return openContainedDurableDirectory(rootPath)
+}
+
+/** Releases a C-2C output directory capability after publication. */
+export function closeC2CProjectionOutputDirectory(directory: ContainedDurableDirectory): void {
+  closeContainedDurableDirectory(directory)
+}
+
+
+/** Returns the optional native C-2C publication capability without opening a directory. */
+export function getC2CProjectionOutputDirectoryCapability(): ReturnType<typeof getContainedDurableDirectoryCapability> {
+  return getContainedDurableDirectoryCapability()
 }

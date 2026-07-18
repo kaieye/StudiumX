@@ -61,6 +61,7 @@ import {
   rebuildAgentConversationHistoryIndex
 } from './agent-conversation-history'
 import { collectAgentArtifactProtectionSnapshot } from './agent-artifact-protection'
+import { projectAgentConversationSummaries } from './agent-conversation-summary-projection'
 import type { SkillLibraryService } from './skill-library'
 import type { LessonPlanSource } from '../shared/lesson-schema'
 import {
@@ -186,6 +187,8 @@ import type {
   WorkspaceRemovePayload,
   UpdateAgentConversationBranchStatusPayload,
   UpdateAgentConversationBranchStatusResult,
+  ProjectAgentConversationSummariesPayload,
+  ProjectAgentConversationSummariesResult,
   UpdateTeachingMemoryPayload,
   UpdateMissionPayload
 } from '../shared/teaching-types'
@@ -956,6 +959,21 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     const record = (await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)).record
     return { ...record, branch: inferAgentConversationBranchMetadata(record) }
+  }
+
+  async projectAgentConversationSummaries(
+    payload: ProjectAgentConversationSummariesPayload
+  ): Promise<ProjectAgentConversationSummariesResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    return {
+      // This deliberately targets the workspace root only. Temporary/app-data
+      // conversations are ineligible and never receive a projection.
+      outcomes: await projectAgentConversationSummaries({
+        rootPath: workspace.rootPath,
+        conversationIds: payload.conversationIds
+      })
+    }
   }
 
   async readAgentConversationSessionTree(

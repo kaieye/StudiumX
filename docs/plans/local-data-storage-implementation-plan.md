@@ -328,7 +328,17 @@ pnpm run check:learning-session-ledger
 <workspace>/.studiumx/conversation-projections/<conversation-id>.summary.json
 ```
 
-该文件应有 `projectionVersion`、source JSON/Markdown relative paths、两者 sha256、生成时间、`timeCompacting`/状态、结构化 counts、标题和经过脱敏/长度限制的摘要。第一版不接入自动 LLM 摘要，不从 UI 自动批量执行，不用摘要替换 reader 的 turn 数据。
+该文件应有 `projectionVersion`、source JSON/Markdown relative paths、两者 exact-byte SHA-256、`timeCompacting`（仅 metadata）、结构化 counts、标题和经过脱敏/长度限制的固定模板摘要。第一版不接入自动 LLM 摘要，不从 UI 自动批量执行，不用摘要替换 reader 的 turn 数据。
+
+**C-2C 已批准的收敛边界（实现必须逐条保持）：**
+
+1. C-2C **不是 audit rotation/retention**。绝不删除、rotate、truncate、gzip、compress 或重写 canonical conversation JSON、Markdown、audit JSONL 或任何 ledger；audit 也不是 summary 的 source provenance。
+2. writer 只接受调用方显式提供的 per-call canonical id 列表；不从 save/archive/startup 路径调用，不 backfill，不扫描后批量生成，也不做其它 bulk filesystem action。显式 command 本身代表用户确认。ID-only command 使用 main-process 的有界 canonical resolver：只检查固定 non-course bases 的 flat candidate，以及从 timestamp-bearing canonical id 推导的 UTC month（含相邻月边界）candidate；绝不接受 renderer path 或调用 collection scanner。无法由此受信规则定位的 legacy/course id 返回 not-found，而完整 canonical reader 仍保留既有 discovery/duplicate semantics，故 C-2C 不弱化 reader。
+3. 只有已 archived、非 deleted、非 temporary 的 canonical conversation 可生成。`timeCompacting` 仅是 derived metadata，永远不是删除 raw turns、Markdown、audit 或 ledger 的 authority。
+4. v1 recipe 严格且确定：从已验证 canonical JSON 仅导出**已脱敏且有界的 title**和 `{ total, user, assistant }` turn counts，使用固定 `conversation-summary-v1` 模板；不得持久化 turn body、tool args/results、source text、audit content、artifact payload 或任意 LLM output。所有 derived strings 均先 redaction 再 bound。
+5. JSON 与 Markdown 必须通过 identity-stable contained regular-file bounded read 读取 exact bytes，并在 allocation、parse 与 hash 之前应用明确 size limit；严格验证 canonical id、relative path、同目录 sibling 和 C-2B flat/UTC `YYYY/MM` layout；projection 持有两份 exact-byte SHA-256。`.studiumx` 与 `.studiumx/conversation-projections` 必须是 root-contained non-symlink directories，writer 才可经 same-directory durable atomic 0600 replacement 发布。native writer 必须以 `openat`/`mkdirat`/`renameat` 相对已持有 descriptor 工作：candidate file `fsync` 后 rename，再 `fsync` output directory；**首次创建**上述任一目录时，还必须 `fsync` 其 containing parent directory entry。所有 directory `fsync` 只允许项目既有的 downgrade-only unsupported-error policy（`EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR`）降级为 warning；其它错误必须失败，且 rename 成功后不得删除最终文件。candidate 与最终 projection 保持 private `0600`。projection 原始文档必须逐字节等于 v1 canonical serialization（因此 duplicate JSON key、whitespace/order 或任意 noncanonical edit 均 invalid）；source drift 才为 stale。projection 缺失、损坏、version/path/hash 不合法、被篡改或 source drift 时只返回 non-current，绝不阻碍 canonical reader；显式重新生成必须能够恢复。
+6. C-2C 不改 SQLite schema/index；`replaceDurably(..., mode: 0o600)` 是唯一 derived write。它是可选、可 rebuild 的 **host-built POSIX** native capability；当前不承诺 cross-arch/cross-target artifact。Windows 在安全的 handle-relative implementation 存在前明确不可用，command 必须返回 `rejected: unsupported_platform`（native addon 缺失/无法加载则 `rejected: native_unavailable`），绝不降级到 pathname traversal；canonical conversation 行为不受影响。
+7. 安全回归保留 source/static 的 descriptor-relative `openat`/`renameat` proof 与“绑定 output descriptor 后、创建 temp 前”父目录 symlink swap 测试。刻意**不**加入 rename-boundary production test hook：这会在敏感发布边界增加不必要的 production seam；descriptor-relative static proof 加上已有 deterministic pre-temp swap 已覆盖该设计不变量。
 
 ### 文件定位
 
@@ -356,11 +366,16 @@ pnpm run check:learning-session-ledger
 - 定向执行：
 
 ```bash
-pnpm exec vitest run --project unit tests/unit/agent-conversation-summary-projection.unit.test.ts tests/unit/teaching-agent-conversations.unit.test.ts
+pnpm run test:unit -- tests/unit/agent-conversation-summary-projection.unit.test.ts tests/unit/teaching-agent-conversations.unit.test.ts
 pnpm run check:agent-conversation-state
 pnpm run check:agent-conversation-audit-metadata
 pnpm run check:security
+pnpm run typecheck
+pnpm run build
+pnpm run dist:dir
 ```
+
+`test:unit` 的 pre-hook 会先恢复 Node host 的 `better-sqlite3`，再 build native addon；不要用 direct `pnpm exec vitest` 绕过它。`dist`/`dist:dir` 同样先 host-build addon，随后遵循既有 `better-sqlite3` Electron rebuild workflow。打包仅允许当前 host platform 与 architecture，显式跨目标/跨架构请求会失败而不会复制 stale host artifact。
 
 ### 回滚策略
 

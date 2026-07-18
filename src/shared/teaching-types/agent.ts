@@ -508,6 +508,44 @@ export type AgentConversationRecord = AgentConversationSummary & {
   turns: AgentChatTurn[]
 }
 
+/** A rebuildable, privacy-conservative overview derived from canonical conversation files. */
+export type AgentConversationSummaryProjection = {
+  projectionVersion: 1
+  conversationId: string
+  /** Metadata only; never authorizes deletion or modification of canonical files. */
+  timeCompacting: true
+  source: {
+    jsonRelativePath: string
+    markdownRelativePath: string
+    jsonSha256: string
+    markdownSha256: string
+  }
+  summary: {
+    template: 'conversation-summary-v1'
+    title: string
+    turnCounts: {
+      total: number
+      user: number
+      assistant: number
+    }
+  }
+}
+
+export type ProjectAgentConversationSummariesPayload = {
+  workspaceId: string
+  conversationIds: string[]
+}
+
+export type AgentConversationSummaryProjectionOutcome = {
+  conversationId: string
+  status: 'generated' | 'ineligible' | 'not_found' | 'rejected'
+  reason?: 'not_archived' | 'deleted' | 'temporary' | 'invalid_source' | 'source_drift' | 'write_failed' | 'unsupported_platform' | 'native_unavailable'
+}
+
+export type ProjectAgentConversationSummariesResult = {
+  outcomes: AgentConversationSummaryProjectionOutcome[]
+}
+
 export type SaveAgentConversationPayload = {
   workspaceId: string
   /** Main-process stream/run capability used only to promote staged child transcript artifacts. */

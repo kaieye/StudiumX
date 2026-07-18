@@ -103,6 +103,7 @@ const api: TeachingSystemApi = {
   saveAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.saveAgentConversation, payload),
   renameAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.renameAgentConversation, payload),
   readAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readAgentConversation, payload),
+  projectAgentConversationSummaries: (payload) => ipcRenderer.invoke(teachingInvokeChannels.projectAgentConversationSummaries, payload),
   readAgentConversationSessionTree: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readAgentConversationSessionTree, payload),
   openAgentConversationBranch: (payload) => ipcRenderer.invoke(teachingInvokeChannels.openAgentConversationBranch, payload),
   forkAgentConversationBranch: (payload) => ipcRenderer.invoke(teachingInvokeChannels.forkAgentConversationBranch, payload),
