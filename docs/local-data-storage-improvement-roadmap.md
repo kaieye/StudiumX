@@ -1,6 +1,6 @@
 # 本地数据存储对比与改进候选
 
-> 状态：待取舍（全部候选项为 `[ ]`，尚未决定是否实施）
+> 状态：分析记录；候选已在 `database` 分支获得最小实施切片时，仍保留其原始问题、取舍与边界，并在第 3 节标注已验证范围与未实施扩展。
 > 调研日期：2026-07-16
 > 调研方法：对本机 Zcode / Codex / Marvis 的本地存储目录做只读检查 + 对 StudiumX 主进程持久层做静态审查
 > 对比对象：`~/.zcode/`、`~/Library/Application Support/Zcode/`、`~/.codex/`、`~/Library/Application Support/com.tencent.mac.marvis/`
@@ -11,7 +11,7 @@
 
 ## 0. 如何使用这份文档
 
-候选项使用以下状态（与 `pet-next-stage-roadmap.md` 一致）：
+候选项使用以下选择状态（与 `pet-next-stage-roadmap.md` 一致）；它表示是否进入实施计划，**不等于候选的全部设想已经完成**。具体交付范围、提交和验证证据见第 3 节的“实施审计”。
 
 - `[ ]` 候选：尚未决定。
 - `[x]` 已选择：进入后续实施计划。
@@ -95,9 +95,35 @@
 
 ## 3. 改进候选
 
-> 短板集中在「读」这一侧：纯文件无索引、无集中 schema 迁移、JSONL/会话无留存、关键状态无备份。以下候选项均未决定，状态为 `[ ]`。
+> 原始短板集中在「读」这一侧：纯文件无索引、无集中 schema 迁移、JSONL/会话无分段/分区、关键状态无备份。以下候选的最小切片已在 `database` 分支实施；本节保留最初的问题和默认取舍，同时把“已经实现”与“尚未实施”分开记录。
 
-### `[ ]` C-1 引入 SQLite 作为可查询索引（学 Zcode/Codex） — **P0**
+### 3.0 `database` 分支实施审计（2026-07-18，HEAD `7a1ca7e`）
+
+审计范围是 `main..database` 的原有八个数据提交及后续 C-5B `7a1ca7e`；“已实施”只表示下表所述切片存在于当前 HEAD，并由列出的测试与本次定向验证覆盖，**不把候选中的可选/破坏性扩展误记为完成**。
+
+| 候选 | 当前已实施切片与提交 | 当前代码与测试证据 | 仍未实施或明确留给后续的扩展 |
+|---|---|---|---|
+| C-1 | `d9de382`：`studiumx-index.sqlite` 可再建 SQLite 投影、checksum migration、analytics 可选 adapter 与文件扫描回退。 | `src/main/local-data-index/index.ts:61-170, 174-333`；`src/main/local-data-index/schema-migration.ts:38-57`；启动/消费在 `src/main/index.ts:259-294`、`src/main/teaching/services/learning-analytics.ts:466-467`。`tests/unit/local-data-index.unit.test.ts:56-396` 覆盖迁移、损坏隔离、source drift 与不写入 canonical；`tests/integration/teaching-analytics.integration.test.ts:277-355` 覆盖回退。 | FTS5/全文检索没有进入切片；SQLite 仍不是事实来源，也没有以它替代详情读取。 |
+| C-2 | `d23b272`（C-2A UTC `YYYY/MM` 会话分区）、`549f4f8`（C-2B 50 MiB/月界无损 sealed JSONL）、`07dfbfb`（C-2C 显式摘要投影）。 | 分区读写/扫描：`src/main/teaching-workspace.ts:781-807`、`src/main/teaching-agent-conversations.ts:944-967, 1042-1104`；分段：`src/main/durable-jsonl.ts:4-118, 123-205`、`src/main/learning-work-ledger.ts:61-96`、`src/main/teaching-workspace/lifecycle.ts:158-168`；摘要：`src/main/agent-conversation-summary-projection.ts:46-179, 253-306`。测试：`tests/unit/teaching-agent-conversations.unit.test.ts:261-320`、`tests/unit/durable-jsonl.unit.test.ts:29-128`、`tests/unit/agent-conversation-summary-projection.unit.test.ts:69-302`。 | 物理 retention/删旧月、截断/删除 JSONL、自动摘要/压缩调度均未实施；原 JSON/Markdown/JSONL 继续是 canonical。 |
+| C-3 | `ca73537`：settings、workspace registry/index 的保留 `.bak` 与经验证读取恢复。 | `src/main/persistence/durable-file.ts:104-205`；consumer 在 `src/main/teaching-settings.ts`、`src/main/teaching-workspace/activation-lifecycle.ts`、`src/main/teaching-workspace/lifecycle.ts`。`tests/unit/durable-file.unit.test.ts:99-246` 与 `tests/unit/teaching-durable-state.unit.test.ts:37-215`。 | 不做 memory 目录整体备份；恢复不会自动重写健康/损坏 canonical。 |
+| C-4 | `ca73537`：共享 private durable replace（temp → file fsync → rename → directory fsync；仅窄 capability error 降级）。 | `src/main/persistence/durable-file.ts:81-103, 214-312`；Memory record writer 在 `src/main/teaching-memory-catalog/record-file.ts`。`tests/unit/durable-file.unit.test.ts:99-205` 覆盖调用顺序、失败清理与权限/I/O fail-closed。 | 高频日志/append-only JSONL 不被强制改成逐条 directory fsync；不支持平台仅按既定 capability 策略降级。 |
+| C-5 | `55442ad`：conversation save 的 main-only UUID trace 写入 canonical conversation、learning-work snapshot 与 tagged/redacted log。`7a1ca7e` 已完成 C-5B：Memory create/update/delete 各生成 main-only UUID，写入该 Memory record，并写 `memory-catalog` tagged log。 | 既有 conversation：`src/main/teaching-workspace.ts:751, 852, 891`、`src/main/agent-conversation-archive.ts:173, 249-257`、`src/main/learning-work-ledger.ts:91-98`；C-5B：`src/main/teaching-workspace.ts:1771-1793`、`src/main/teaching-memory.ts:20-98`、`src/main/teaching-memory-catalog.ts:277-295`、`src/main/logger.ts:8, 211-245`、`src/shared/teaching-types/memory.ts:15`。证据：`tests/integration/trace-propagation.integration.test.ts:92-134`、`tests/unit/trace-context.unit.test.ts:42-131`、`tests/unit/logger.unit.test.ts:21-43`。 | 尚未扩展到 canonical learning-session ledger、workspace lifecycle event、conversation audit JSONL 或其它用户动作；日志仍是 tagged text，不是 JSON。 |
+| C-6 | `26eca18`：Memory 新写入按 scope 的稳定 hash 分区；mixed scoped/flat legacy 读取、重复冲突处理和 descriptor-relative no-follow durable I/O。 | `src/main/teaching-memory-catalog.ts:85-153`、`src/main/teaching-memory-catalog/record-file.ts:204-220`、`src/main/persistence/contained-durable-directory.ts:175-228`。`tests/unit/teaching-memory-catalog.unit.test.ts:58-262` 与 `tests/unit/contained-durable-directory.unit.test.ts:38-183`。 | 首次启动不会搬迁 legacy flat files；受控 copy → checksum → 明确确认后的 legacy 清理仍未实施。 |
+| C-7 | `a302814`：所有新持久化 conversation/history projection 经 typed sanitizer；secret-only 内容省略、mixed prose 脱敏、sanitized parent proof，legacy source 不自动重写。 | `src/shared/agent-persisted-history.ts:65-131, 173-336`；archive/index consumers 在 `src/main/agent-conversation-archive.ts`、`src/main/agent-conversation-history.ts`、`src/main/local-data-index/index.ts`。`tests/unit/agent-persisted-history.unit.test.ts:42-277`、`tests/unit/agent-secret-redaction.unit.test.ts:32-219`、`tests/unit/agent-conversation-legacy-nonmutating.unit.test.ts:31-32`。 | 不新增独立 raw history JSONL；不自动扫描、删除或重写历史 raw artifacts。若将来需要历史敏感数据处置，必须单独走安全流程。 |
+
+本次审计重新执行的 committed-baseline acceptance evidence（C-5B 在该次运行后加入，现已提交为 `7a1ca7e`；其代码/测试位置已单列，未在此记录中虚报为已由本次命令重跑）：
+
+```bash
+# 19 unit files: 129 passed
+pnpm exec vitest run --project unit tests/unit/local-data-index.unit.test.ts tests/unit/teaching-agent-conversations.unit.test.ts tests/unit/teaching-workspace-agent-session-tree.unit.test.ts tests/unit/teaching-workspace-item-lifecycle-executor.unit.test.ts tests/unit/durable-jsonl.unit.test.ts tests/unit/agent-conversation-archive-ledger-segments.unit.test.ts tests/unit/learning-work-ledger.unit.test.ts tests/unit/teaching-workspace-lifecycle-jsonl.unit.test.ts tests/unit/durable-file.unit.test.ts tests/unit/teaching-durable-state.unit.test.ts tests/unit/agent-conversation-summary-projection.unit.test.ts tests/unit/contained-durable-directory.unit.test.ts tests/unit/teaching-memory-catalog.unit.test.ts tests/unit/trace-context.unit.test.ts tests/unit/logger.unit.test.ts tests/unit/agent-persisted-history.unit.test.ts tests/unit/agent-secret-redaction.unit.test.ts tests/unit/agent-conversation-history.unit.test.ts tests/unit/agent-conversation-legacy-nonmutating.unit.test.ts
+
+# 2 integration files: 18 passed
+pnpm exec vitest run --project integration tests/integration/teaching-analytics.integration.test.ts tests/integration/trace-propagation.integration.test.ts
+pnpm run check:learning-work-reconcile
+pnpm run check:security
+```
+
+### `[x]` C-1 引入 SQLite 作为可查询索引（学 Zcode/Codex） — **P0**
 
 **问题**：会话用「一个 JSON 文件 + `.index.json`」、记忆用「单 `memory/` 平铺目录 + 读时全扫过滤」（`inTeachingMemoryScope`）。列/筛/排序会话、按 tag 查记忆、做学习分析都要 O(n) 目录扫描 + 逐个 parse JSON。项目已有 `learning-analytics` 模块与 workbench 分析视图，正需要查询能力。
 
@@ -111,7 +137,7 @@
 
 **默认值取舍**：索引是否只读镜像（推荐，低风险）还是逐步迁移为事实来源（高风险，需双写）。
 
-### `[ ]` C-2 给无界 JSONL 与会话加留存/分区（学 Codex 日期分区 + Zcode 压缩） — **P0**
+### `[x]` C-2 给无界 JSONL 与会话加留存/分区（学 Codex 日期分区 + Zcode 压缩） — **P0**
 
 **问题**：`sessions.jsonl`、`learning-work.jsonl`、每会话 `.jsonl` 审计日志**无任何轮转/截断**；会话是 tombstone 不删文件。这正是 Codex `logs_2.sqlite` 涨到 1.9GB 的同类病。
 
@@ -122,7 +148,7 @@
 
 **默认值取舍**：分区粒度 `YYYY/MM`（推荐）还是 `YYYY/MM/DD`；JSONL 切分阈值（按大小如 50MB 还是按月）。
 
-### `[ ]` C-3 关键状态文件保留 `.bak`（学 Codex `.bak`） — **P1**
+### `[x]` C-3 关键状态文件保留 `.bak`（学 Codex `.bak`） — **P1**
 
 **问题**：`studiumx-workspaces.json`（工作区注册表）、记忆索引等无保留备份，损坏=丢失工作区地图。现仅 settings 在损坏时改名 `.invalid-<stamp>`，以及 history-index 替换时的瞬时 `.bak` 交换（不保留）。
 
@@ -130,7 +156,7 @@
 
 **默认值取舍**：保留几份（1 份推荐）；是否对 memory 目录也做整体 `.bak`（否，记录级 tombstone 已够）。
 
-### `[ ]` C-4 统一持久化写入原语（补 fsync 一致性） — **P2**
+### `[x]` C-4 统一持久化写入原语（补 fsync 一致性） — **P2**
 
 **问题**：最常用的 `atomicWriteFile`（`lifecycle.ts:166-170`）**无 fsync**，断电后 rename 完成、内核未落盘会丢文件。而 ledger 做对了（`durableAtomicReplaceFile` 带 fsync + 目录同步，`learning-session-ledger.ts:1646-1674`）。**同项目内持久性强弱不一致**是隐患。
 
@@ -138,7 +164,7 @@
 
 **默认值取舍**：是否对所有原子写都 fsync（推荐对关键状态文件开启，日志等高频可关）；是否做目录 fsync（推荐，平台拒绝时优雅降级，ledger 已有此降级逻辑）。
 
-### `[ ]` C-5 跨存储 traceId + 结构化日志（学 Zcode `trace_id` / 日志 tag） — **P2**
+### `[x]` C-5 跨存储 traceId + 结构化日志（学 Zcode `trace_id` / 日志 tag） — **P2**
 
 **问题**：会话有 `sessionId`/`branchId`，但日志行（`logger.ts:35` 纯文本）与各 ledger 之间无同一 trace 串起，无法复盘「这次用户操作横跨了哪些存储」。
 
@@ -148,7 +174,7 @@
 
 **默认值取舍**：日志格式 JSON（机器友好）还是带 tag 的纯文本（grep 友好，推荐先上 tag+traceId，JSON 留后续）。
 
-### `[ ]` C-6 记忆目录按 scope 分区（学 Marvis Knowledgebase / Codex memories） — **P2**
+### `[x]` C-6 记忆目录按 scope 分区（学 Marvis Knowledgebase / Codex memories） — **P2**
 
 **问题**：所有记忆记录平铺 `<userData>/memory/`，按 workspace/project 路径在内存里过滤。量大后扫描成本线性增长。
 
@@ -156,7 +182,7 @@
 
 **默认值取舍**：分区（推荐，与现有 workspaceRoot 模型一致）还是仅走 C-1 索引。
 
-### `[ ]` C-7 用户输入历史脱敏（学 Codex `history.jsonl` 反面教训） — **P2**
+### `[x]` C-7 用户输入历史脱敏（学 Codex `history.jsonl` 反面教训） — **P2**
 
 **问题**：Codex `history.jsonl` 实测内含明文 API key 残留。若 StudiumX 未来引入用户输入历史记录，需从设计阶段脱敏。
 
@@ -171,3 +197,12 @@
 3. **C-5/C-6/C-7** 为体验/可观测性增强，可在 C-1 落地后视 `learning-analytics` 需求排期。
 
 > 推进任一候选时，应另起执行计划文档（置于 `docs/plans/`），含 file:line 落点、迁移步骤、最小垂直切片与验收门禁。
+
+---
+
+## 5. 下一迭代队列（仅未实施工作）
+
+1. **C-5 trace 扩展**：Memory CRUD 已由 `7a1ca7e` 的 C-5B 覆盖；在复用现有 main-only UUID 与安全日志边界的前提下，决定是否覆盖 learning-session ledger、workspace lifecycle/audit；不要回写历史 source。
+2. **C-2 留存策略的独立安全设计**：如确有磁盘回收需求，先制定 retention、用户可见控制、恢复与审计方案；不得把现有无损分段/摘要投影当作已获准删除事实文件。
+3. **C-1 FTS5 或额外查询面**：仅在实际检索需求得到确认后，按可再建、安全 projection 的边界另立切片。
+4. **C-6 受控 legacy 搬迁工具**：仅可采用 copy → checksum verify → 用户/运维明确确认 → 删除 legacy 的流程；当前启动路径不搬迁。

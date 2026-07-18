@@ -6,7 +6,7 @@
 
 ## 1. 已决定的架构与不可违反的约束
 
-### 1.1 固定优先顺序
+### 1.1 原始实施顺序（保留为计划记录）
 
 ```text
 C-2A → C-2B → C-1 → C-3 / C-4 → C-2C → C-5 / C-6 / C-7
@@ -49,9 +49,27 @@ git diff --check
 
 为避免全量 suite 的不确定性掩盖目标错误，每个切片还必须运行其“验收门禁”中的定向 `vitest`/`check:*` 命令。原有流程已经提供 `check:agent-conversation-*`、`check:learning-work-reconcile`、`check:app-data-migration`、`check:security`、`check:analytics` 等门禁，应优先复用而不是复制另一套检查器。
 
+
+### 1.5 `database` 实施审计（2026-07-18，HEAD `7a1ca7e`）
+
+原始顺序已完成最小切片：C-2A `d23b272`、C-2B `549f4f8`、C-1 `d9de382`、C-3/C-4 `ca73537`、C-2C `07dfbfb`、C-7 `a302814`、C-5 `55442ad`、C-6 `26eca18`；后续 C-5B Memory CRUD trace correlation 已提交为 `7a1ca7e`。这不是“候选全部完成”的声明：各节仍定义边界；未实现的 FTS、物理 retention/删除、自动摘要调度、C-5 除 Memory 外的写域与 C-6 legacy 搬迁保持未实施。
+
+当前 HEAD 的具体证据：
+
+| 范围 | 当前代码 | 定向 acceptance test |
+|---|---|---|
+| C-1 | `src/main/local-data-index/index.ts:61-170, 174-333`；`src/main/local-data-index/schema-migration.ts:38-57`；`src/main/index.ts:259-294` | `tests/unit/local-data-index.unit.test.ts:56-396`；`tests/integration/teaching-analytics.integration.test.ts:277-355` |
+| C-2A/B/C | `src/main/teaching-workspace.ts:781-807`；`src/main/teaching-agent-conversations.ts:944-967, 1042-1104`；`src/main/durable-jsonl.ts:45-205`；`src/main/agent-conversation-summary-projection.ts:46-179` | `tests/unit/teaching-agent-conversations.unit.test.ts:261-320`；`tests/unit/durable-jsonl.unit.test.ts:29-128`；`tests/unit/agent-conversation-summary-projection.unit.test.ts:69-302` |
+| C-3/C-4 | `src/main/persistence/durable-file.ts:81-312` | `tests/unit/durable-file.unit.test.ts:99-246`；`tests/unit/teaching-durable-state.unit.test.ts:37-215` |
+| C-5 | committed conversation slice：`src/main/teaching-workspace.ts:751, 852, 891`；**`7a1ca7e` C-5B Memory CRUD**：`src/main/teaching-workspace.ts:1771-1793`、`src/main/teaching-memory.ts:20-98`、`src/main/teaching-memory-catalog.ts:277-295`、`src/main/logger.ts:8, 211-245` | committed slice：`tests/integration/trace-propagation.integration.test.ts:16-17`；C-5B：`tests/integration/trace-propagation.integration.test.ts:92-134`、`tests/unit/trace-context.unit.test.ts:42-131`、`tests/unit/logger.unit.test.ts:21-43` |
+| C-6 | `src/main/teaching-memory-catalog.ts:85-153`；`src/main/teaching-memory-catalog/record-file.ts:204-220`；`src/main/persistence/contained-durable-directory.ts:175-228` | `tests/unit/teaching-memory-catalog.unit.test.ts:58-262`；`tests/unit/contained-durable-directory.unit.test.ts:38-183` |
+| C-7 | `src/shared/agent-persisted-history.ts:65-131, 173-336` | `tests/unit/agent-persisted-history.unit.test.ts:42-277`；`tests/unit/agent-secret-redaction.unit.test.ts:32-219`；`tests/unit/agent-conversation-legacy-nonmutating.unit.test.ts:31-32` |
+
+本次审计已重新运行 committed baseline 的 19 个 unit 文件（129 passed）、2 个 integration 文件（18 passed）、`pnpm run check:learning-work-reconcile` 与 `pnpm run check:security`；C-5B 在上述命令运行后加入，现已提交为 `7a1ca7e`，因此不把它虚报为上述命令的结果。完整命令记录在路线图第 3.0 节。
+
 ---
 
-## 2. C-2A：会话目录日期分区（第一优先级）
+## 2. C-2A：会话目录日期分区（已实施的最小切片）
 
 ### 目标与最小切片
 
@@ -104,7 +122,7 @@ pnpm run check:analytics
 
 ---
 
-## 3. C-2B：JSONL 无损分段轮转（第二优先级）
+## 3. C-2B：JSONL 无损分段轮转（已实施的最小切片）
 
 ### 当前并行实现与目标
 
@@ -165,7 +183,7 @@ pnpm run rollback:learning-work-legacy -- <workspace-root>
 
 ---
 
-## 4. C-1：SQLite 可重建只读索引（第三优先级）
+## 4. C-1：SQLite 可重建只读索引（已实施的最小切片）
 
 ### 目标与最小切片
 
@@ -224,7 +242,7 @@ pnpm run build
 
 ---
 
-## 5. C-3：关键状态 `.bak`（与 C-4 同一优先级）
+## 5. C-3：关键状态 `.bak`（已实施的最小切片）
 
 ### 目标与最小切片
 
@@ -275,7 +293,7 @@ pnpm run check:security
 
 ---
 
-## 6. C-4：统一耐久原子写原语（与 C-3 同一优先级）
+## 6. C-4：统一耐久原子写原语（已实施的最小切片）
 
 ### 目标与最小切片
 
@@ -318,7 +336,7 @@ pnpm run check:learning-session-ledger
 
 ---
 
-## 7. C-2C：旧会话摘要/压缩投影（C-3/C-4 后）
+## 7. C-2C：旧会话摘要/压缩投影（已实施的显式投影切片）
 
 ### 目标与最小切片
 
@@ -398,8 +416,9 @@ pnpm run dist:dir
 3. 所有 archive/learning-work durable writer seam 仅接受规范 UUID trace；缺失 legacy trace 仍可读取，而无效或秘密形态的 trace 会在写入前省略。
 4. archive 成功后以 `[main] [agent-archive] [trace=<uuid>]` 写入一条经过 redaction、单行化和长度限制的日志。Logger 保留旧的 `write/info/warn/error` 调用格式，并可解析 legacy 与 tagged 行。
 5. 历史 conversation JSON 与历史 learning-work JSONL 缺失 `traceId` 时仍按缺失字段读取；不扫描、迁移或重写旧文件。
+6. **`7a1ca7e` C-5B** 已覆盖 Memory CRUD：`createMemory`、`updateMemory`、`deleteMemory` 各在 main 进程生成 UUID，只通过内部 Memory store mutation options 传递；record normalizer 只保留规范 UUID，logger 只接受 `memory-catalog` safe tag。renderer IPC payload 没有 trace 字段。`tests/integration/trace-propagation.integration.test.ts:92-134` 断言 CRUD record/log correlation、UUID 形态、每次 mutation 的不同 trace 与日志不含 Memory 内容。
 
-明确未包含在本切片：Memory、canonical learning-session ledger、workspace lifecycle event、conversation audit JSONL，以及其它用户动作。后续扩展必须复用本切片的 main-only 生成与安全日志边界。
+仍未包含：canonical learning-session ledger、workspace lifecycle event、conversation audit JSONL，以及其它用户动作。后续扩展必须复用既有的 main-only 生成与安全日志边界。
 
 建议日志兼容格式：
 
@@ -444,7 +463,7 @@ pnpm run check:security
 
 ---
 
-## 9. C-6：Memory 按 scope 分区（后续增强）
+## 9. C-6：Memory 按 scope 分区（已实施的最小切片）
 
 ### 目标与最小切片
 
@@ -495,7 +514,7 @@ pnpm run check:security
 
 ---
 
-## 10. C-7：用户输入历史脱敏（后续增强）
+## 10. C-7：用户输入历史脱敏（已实施的最小切片）
 
 ### 目标与最小切片
 
@@ -546,7 +565,7 @@ pnpm run check:provider-privacy
 
 ---
 
-## 11. 阶段交接清单
+## 11. 阶段交接清单（后续扩展适用）
 
 每个切片合入前，owner 必须在 PR 描述中回答以下问题：
 
