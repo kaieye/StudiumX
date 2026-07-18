@@ -1,0 +1,109 @@
+# C-4P9 Session-audit durable append：设计门（未实施、未批准）
+
+> **状态：仅 design gate。**本文只记录未来将 per-conversation session audit JSONL 的 ordinary append 迁入 durable append 所必须先获批准的边界。它**不实现、不批准，也不宣称 C-4P9 已完成**；不改 audit JSONL schema/version、reader、trace 规则、archive/ledger authority、IPC/UI 或任何 canonical bytes。本文没有代码迁移、没有测试变更，也**没有任何可计入 C-4P9 的测试结果**。
+
+C-4P1 `34c48f4` 只将 conversation archive 的 canonical JSON/Markdown publish 迁入 shared durable replace，并明确**不改变** conversation audit 的既有 ordinary append。只有本 design gate 的 contract、helper capability、I/O seam 和测试矩阵被逐项批准后，才可另立一个受限 implementation slice；不得以 C-4P1、C-5E trace、existing `appendFile()`、shared `replaceDurably()` 或其它 JSONL writer 的通过证明 audit append 已 durable。
+
+## 1. 固定 scope 与不变量
+
+未来 scope **仅**是一个已解析 conversation 的固定 session-audit 文件 append：
+
+```text
+<conversation>/.agent-sessions/<conversation-id>.jsonl
+```
+
+当前 writer 为 `appendAgentConversationSessionAuditLog()`（`src/main/agent-conversation-session-audit.ts`），archive save 由 `saveAgentConversationArchive()`（`src/main/agent-conversation-archive.ts`）调用。future implementation 只能替换这个固定 audit-path 的 append boundary；不授权迁移其它 JSONL、artifact、checkpoint、archive、ledger 或 workspace writer。
+
+必须保持以下不变量：
+
+- **单文件、non-rotating。**不得使用 `durable-jsonl` 的默认月度/size sealing 或任何 rotation。audit header、entry-ID dedupe、archive verification、history/artifact protection 与 deletion lifecycle 都以此固定文件及其历史 bytes 为前提；拆成 sealed segments 会改变这些语义。
+- audit JSONL version/schema、header/entry ID、`parentId`、排序、现有 raw bytes、tolerant parser 与 legacy read 行为保持不变；不回填、不规范化、不 rewrite 历史行。
+- C-5E 的 trace 是可选、write-once correlation metadata：新 header/entry 只写经既有 normalize 的安全值；trace 不进入 audit ID/hash/parent/dedupe；legacy trace-free 或 malformed rows 保持 tolerant read 且不改写。C-4P9 **不是** C-5 trace、action identity、receipt、idempotency-model 或 schema rewrite。
+- 不引入 actionId、transaction、多文件原子性、rotation、retention、migration、repair UI/IPC、历史扫描或 deletion policy change。
+
+## 2. Save 顺序、authority 与完成语义
+
+future implementation 必须保留 `saveAgentConversationArchive()` 的有序边界：
+
+1. canonical JSON durable replace；
+2. canonical Markdown durable replace；
+3. session audit durable append；
+4. learning-work ledger queue callback 内的 ledger append；
+5. final archive verify。
+
+这是有序 publish，**不是多文件 transaction**，不承诺跨 JSON、Markdown、audit 和 ledger 的共同原子性或 post-publish rollback。
+
+具体 authority/short-circuit 要求：
+
+- JSON durable failure：不得写 Markdown、audit 或 ledger。
+- Markdown durable failure：JSON 可以保留；不得写 audit 或 ledger。
+- audit append failure：JSON/Markdown 可以保留，但**不得**运行 ledger append；save 必须失败。
+- ledger append failure：JSON/Markdown/audit 都可留存，但 save 必须失败；不得把已存在 audit 当作此次 save 已确认成功。
+- retry 必须保持 archive 的 stable ledger-entry semantics：ledger 仍负责其既有 queue/identity verification/idempotency；audit repair 不能发明第二种 ledger identity、receipt 或 action protocol。
+- final verify 永远排在 ledger callback 成功之后；不得在 audit bytes 可读时跳过 ledger 或 final verification。
+
+## 3. Audit append contract
+
+future writer 必须引入 **per audit-path queue**。queue 覆盖同一路径的完整 read → validate → dedupe/conflict 判定 → append → file fsync/close → parent-directory sync/close 区间；不能只串行化最后一个 `appendFile()`。
+
+### 3.1 读取、legacy rows 与 dedupe
+
+- `ENOENT` 是唯一可视为“空 audit”的 read result；`EACCES`、I/O、unknown、directory/symlink/type error、close error 和其它 read failure 必须 reject/fail closed。
+- 必须在 queue 内读取并解析当前 bytes，再据同一 snapshot 建立 header/entry identity 与待追加 rows。
+- retry/continuation 若所有待追加 canonical rows 已存在且 canonical row identity/trace 均一致，可作为 no-op 成功；不得重写已有 bytes。
+- 同一 entry ID 或 header identity 但 canonical row/trace 不同，必须作为 conflict 失败；不得静默把它当作“已写成功”，不得覆盖、删除、合并或回填既有 row。
+- trace 比较必须沿用 C-5E 的 write-once/normalization 规则：legacy malformed/trace-free row 仍可 tolerant read，但不能被 durable migration rewrite 成新 trace，也不能借 dedupe 改写 row。
+
+### 3.2 Torn tail、non-newline 与 malformed legacy bytes
+
+future implementation 必须在获批前选择并测试一个**保守、无 rewrite**的策略：
+
+- 对最后一段 non-newline / torn tail、以及任何 malformed legacy row，不能把新 JSON 直接拼到末尾，使两段 bytes 变成一条不可解析的 row；
+- 不得为了“修复”而 truncate、补换行、重序、格式化、删除或 rewrite 历史 bytes；
+- 若无法在不改写现有 bytes 的前提下证明安全 append，必须 reject 并让 save fail closed；
+- 若批准一种可追加策略，必须精确定义它只接受哪些 tail 形态、如何保持原 bytes、如何使 parser/reader compatibility 不变，以及如何避免将 malformed row 误当作可 dedupe 的 canonical row。
+
+不能将当前 tolerant parser 的“读取时忽略 malformed line”误用为 append authorization。
+
+## 4. Durable publish 与失败边界
+
+C-4P9 需要 audit-specific durable append primitive 或获批准的 shared extension，最少顺序为：在已验证的 audit path 上 append complete newline-delimited batch → file fsync → file close → parent directory sync → parent directory close。
+
+- pre-append 的 write/file-sync/file-close failure：不得确认新的 audit row；不得运行 ledger append；旧 audit bytes 必须保留。任何临时/partial append 状态只能按批准的 append recovery contract 处理，不能虚报成功。
+- append 完成但 parent directory sync/close 失败：本次必须 reject/fail closed；新的 row **可能已存在**，但不得运行 ledger append，也不得 rollback、truncate、删除或覆盖 audit。该状态是 complete-but-unacknowledged 的 append 变体。
+- retry 必须重新进入同一路径 queue、读取当前 bytes、逐行验证 exact canonical rows；已经存在的完全相同 rows 不得重复追加，冲突 rows 必须失败。retry 不得仅凭内存 flag、旧 read snapshot 或“append 曾抛错”猜测结果。
+- 只有 shared directory-fsync capability allowlist 的五个 code 可允许明确降级：`EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR`。warning 必须通用，且不得含 path、content、entry/header ID、trace 或其它敏感/可关联数据。`EACCES`、`EPERM`、`EIO`、unknown 与任何 close failure 均 fatal。
+- 不承诺 rollback transaction。尤其不得在 post-directory failure 后删除已追加行，或为了让 ledger 重试“干净”而重写 audit。
+
+## 5. Concurrency、archive/ledger recovery 与 helper 边界
+
+- 同一 audit path 的 concurrent initial save、continuation、retry 必须由 per-path queue 线性化。不同 audit path 不获得不必要的全局 serialization。
+- queue 必须覆盖 audit dedupe 与 append，不得让两个 concurrent saves 用同一旧 snapshot 各自认为 header/entry 缺失。
+- archive/ledger recovery 必须遵守第 2 节顺序：audit 的 post-directory failure 后，下一次 retry 可以通过 exact-row no-op repair audit acknowledgement，但只能随后让既有 ledger queue 做其稳定 entry 判定；不得绕过 JSON/Markdown preconditions、ledger identity verification 或 final verify。
+- ledger 自身失败后的 retry 必须不重复 audit rows，也不得将 audit-only 结果误报为 archive save success。
+- artifact materialization/protection、history index protection、archive verification 和 deletion lifecycle 的既有固定-file assumptions 必须保持；不得以 rotation、segment discovery 或自动 cleanup 改变它们。
+
+`appendDurableJsonlLine()` **不得直接用于 C-4P9**，除非先有经批准的 non-rotation option、audit-specific path/row contract 与可注入 I/O seam。其现有 month/size sealing model 不构成 audit append 的安全替代；把 audit path 接入默认 rotation 即为破坏性语义变更。
+
+## 6. 批准后才可实施的测试矩阵
+
+代码获批前不新增实现测试，也不将现有 C-4P1/C-5E/audit tests 记为 C-4P9 通过证据。future implementation 至少需要 audit-specific injected I/O seam，并覆盖：
+
+| 测试类别 | 最低验证 |
+|---|---|
+| non-rotation compatibility | 固定 `.agent-sessions/<conversation-id>.jsonl` 继续单文件；不产生 sealed/month/size segment；header、entry IDs、archive verification、history/artifact protection 与 deletion lifecycle compatibility 不变。 |
+| C-4P1 save short-circuits | JSON failure 不触发 Markdown/audit/ledger；Markdown failure 不触发 audit/ledger；audit failure 不触发 ledger；ledger failure 可留 JSON/Markdown/audit 但 save reject；success 后才 final verify。 |
+| durable failpoints | append write、file fsync、file close、parent open/sync/close；pre failures 无新 acknowledged row/no ledger；post-directory failure reject、不 rollback、无 ledger。 |
+| post-directory retry | 第一次 append 后 directory failure；第二次在同一 per-path queue 内 read/dedupe，确认 exact rows 后不重复追加，再允许既有 ledger/final-verify 路径继续。 |
+| ledger-own failure retry | audit 成功、ledger 失败后 retry 不追加 duplicate audit rows；ledger 的 stable entry/idempotency/conflict 语义保持。 |
+| concurrency | concurrent same save、initial+continuation、同 ID retry；一个 header、无 duplicate entry、正确 parent chain；不同 canonical rows 共享 ID 时 conflict fail closed。 |
+| read/tail corruption | `ENOENT` 空文件；`EACCES` 与其它 read failure reject；malformed legacy row、torn tail、non-newline tail 不静默拼接/重写；批准策略外一律 fail closed。 |
+| trace/legacy compatibility | C-5E normalized write-once trace、legacy trace-free/malformed tolerant read、既有 raw bytes 不回填/不 rewrite；trace conflict 不得误作 dedupe success。 |
+| capability downgrade | 仅五-code allowlist 可降级，warning 无 path/content/ID/trace；permission/I/O/unknown/close failure fatal。 |
+| existing suites | `tests/unit/agent-conversation-session-audit.unit.test.ts`、`tests/unit/agent-conversation-archive-durable.unit.test.ts` 及相关 archive/ledger compatibility tests 继续通过；新增测试必须明确是 future C-4P9 implementation evidence，而非本 design gate 的结果。 |
+
+## 7. 批准前边界
+
+C-4P9 不授权代码迁移、调用 `appendDurableJsonlLine()`、改变 audit parser、重写/修复 existing JSONL、rotation、schema/version 变化、trace/action identity 改造、ledger authority 调整、artifact/history/deletion lifecycle 变化或新的 IPC/UI。
+
+只有在 non-rotation primitive design、per-path queue ownership、row/torn-tail conflict contract、post-directory failure/retry semantics、archive/ledger recovery boundary、I/O injection seam 与第 6 节测试矩阵都被明确批准后，才可创建一个独立 implementation slice。在此之前，路线图与 implementation plan 只能记录：**“C-4P9 session-audit durable append design gate recorded；未实施、未批准、无可计入的代码或测试结果。”**
