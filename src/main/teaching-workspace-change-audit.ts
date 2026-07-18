@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { isPathInsideRoot } from './path-access'
 import { TeachingWorkspaceChangeHistoryStore } from './teaching-workspace-change-history'
+import type { DurableFileOperations } from './persistence/durable-file'
 import {
   canonicalizeGitPath,
   classifyGitRepositoryFailure,
@@ -61,10 +62,14 @@ export class TeachingWorkspaceChangeAudit {
   constructor(options: {
     historyFilePath: string
     maxEntriesPerWorkspace?: number
+    durableFileOperations?: DurableFileOperations
+    durableWarn?: (message: string) => void
   }) {
     this.history = new TeachingWorkspaceChangeHistoryStore({
       filePath: options.historyFilePath,
-      maxEntriesPerWorkspace: options.maxEntriesPerWorkspace
+      maxEntriesPerWorkspace: options.maxEntriesPerWorkspace,
+      durableFileOperations: options.durableFileOperations,
+      durableWarn: options.durableWarn
     })
   }
 

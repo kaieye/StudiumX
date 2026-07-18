@@ -1,6 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { mkdir, open as openFile, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { describe, expect, it } from 'vitest'
@@ -9,6 +10,7 @@ import {
   releaseWorkspaceChangeCheckpoint,
   TeachingWorkspaceChangeAudit
 } from '../../src/main/teaching-workspace-change-audit'
+import type { DurableFileOperations } from '../../src/main/persistence/durable-file'
 import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 
 const execFile = promisify(execFileCallback)
@@ -33,6 +35,31 @@ async function createRepository(name: string): Promise<string> {
   await git(root, ['add', '.'])
   await git(root, ['commit', '-m', 'Baseline'])
   return root
+}
+
+function directorySyncFailingOperations(options: {
+  directoryPath: string
+  shouldFail: () => boolean
+}): DurableFileOperations {
+  return {
+    mkdir,
+    readFile,
+    rename,
+    rm,
+    open: async (path, flags, mode) => {
+      const handle = await openFile(path, flags, mode)
+      return {
+        writeFile: (content) => handle.writeFile(content),
+        sync: async () => {
+          if (path === options.directoryPath && options.shouldFail()) {
+            throw Object.assign(new Error('EIO'), { code: 'EIO' })
+          }
+          await handle.sync()
+        },
+        close: () => handle.close()
+      }
+    }
+  }
 }
 
 async function withGitUnavailable<T>(root: string, action: () => Promise<T>): Promise<T> {
@@ -137,6 +164,44 @@ describe('TeachingWorkspaceChangeAudit', () => {
     await expect(audit.readSelectedDiff({
       workspaceId: 'workspace-a', workspaceRoot: workspaceA, relativePath: 'added.md', changeId: third!.id
     })).resolves.toEqual({ ok: false, message: 'No diff is available for this file yet.' })
+  })
+
+  it('does not release an evicted checkpoint when durable history publication fails', async () => {
+    const workspace = await createRepository('checkpoint-release-after-history')
+    const historyFilePath = join(workspace, '.git', 'audit-history.json')
+    let failHistoryDirectorySync = false
+    const audit = new TeachingWorkspaceChangeAudit({
+      historyFilePath,
+      maxEntriesPerWorkspace: 1,
+      durableFileOperations: directorySyncFailingOperations({
+        directoryPath: dirname(historyFilePath),
+        shouldFail: () => failHistoryDirectorySync
+      })
+    })
+
+    const firstBefore = await audit.capturePreMutation(workspace)
+    await writeFile(join(workspace, 'modified.md'), '# First durable history\n')
+    const first = await audit.recordCompletedMutation({
+      workspaceId: 'workspace-a', workspaceRoot: workspace, timestamp: '2026-07-18T00:00:01.000Z',
+      trigger: { kind: 'workspace_markdown_save', label: 'Saved Markdown' }, before: firstBefore, affectedPaths: ['modified.md']
+    })
+    expect(first?.checkpoint).toBeDefined()
+    const firstCheckpointPrefix = `refs/studiumx/checkpoints/${createHash('sha256').update(first!.id).digest('hex').slice(0, 24)}`
+    await expect(git(workspace, ['rev-parse', '--verify', `${firstCheckpointPrefix}/before`])).resolves.toMatch(/^[0-9a-f]{40}$/)
+
+    failHistoryDirectorySync = true
+    const secondBefore = await audit.capturePreMutation(workspace)
+    await writeFile(join(workspace, 'modified.md'), '# Second history cannot be acknowledged\n')
+    await expect(audit.recordCompletedMutation({
+      workspaceId: 'workspace-a', workspaceRoot: workspace, timestamp: '2026-07-18T00:00:02.000Z',
+      trigger: { kind: 'workspace_markdown_save', label: 'Saved Markdown' }, before: secondBefore, affectedPaths: ['modified.md']
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    // The second append would evict `first` at the configured limit, but its
+    // directory sync was not acknowledged, so the retention checkpoint must
+    // not be released. The published history file may contain the second row.
+    await expect(git(workspace, ['rev-parse', '--verify', `${firstCheckpointPrefix}/before`])).resolves.toMatch(/^[0-9a-f]{40}$/)
+    await expect(git(workspace, ['rev-parse', '--verify', `${firstCheckpointPrefix}/after`])).resolves.toMatch(/^[0-9a-f]{40}$/)
   })
 
   it('keeps fallback summaries and error semantics when Git or history persistence is unavailable', async () => {
