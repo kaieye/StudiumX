@@ -477,45 +477,45 @@ function WorkspaceFileNodeRow({
         <span className="collapsible-label">{conversation?.title ?? lesson?.sessionName ?? node.name}</span>
         {isDirectory ? <span className="workspace-node-chevron" aria-hidden="true">{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span> : null}
       </button>
-      {isWorkspaceFolder ? <div className="workspace-trust-control" aria-busy={isTrustUpdatePending}>
-        <div className="workspace-trust-statuses">
-          <span className={`workspace-trust-badge is-${trust}`} aria-label={t(`sidebar.workspaceTrust.${trust}.aria`)}>
-            {t(`sidebar.workspaceTrust.${trust}.label`)}
-          </span>
-          <span className={`workspace-write-policy is-${workspaceWritePermission}`} aria-label={t(`sidebar.workspaceTrust.writePolicy.aria`, { permission: t(`sidebar.workspaceTrust.writePolicy.${workspaceWritePermission}`) })}>
-            {t(`sidebar.workspaceTrust.writePolicy.${workspaceWritePermission}`)}
-          </span>
-        </div>
-        <span className="workspace-trust-detail">
-          {t('sidebar.workspaceTrust.policyDetail', { permission: t(`sidebar.workspaceTrust.writePolicy.${workspaceWritePermission}`) })}
-        </span>
-        <button
-          type="button"
-          className="workspace-trust-action"
-          disabled={loading || isTrustUpdatePending}
-          aria-busy={isTrustUpdatePending}
-          aria-label={isTrustUpdatePending
-            ? t('sidebar.workspaceTrust.updatingAria', { name: workspace.name })
-            : t(`sidebar.workspaceTrust.${trust}.actionAria`, { name: workspace.name })}
-          title={t(`sidebar.workspaceTrust.${trust}.actionTitle`)}
-          onClick={(event) => {
-            event.stopPropagation()
-            void (async () => {
-              const updated = await onSetWorkspaceTrust(workspace.id, nextTrust)
-              if (updated) setTrustUpdateSuccess(nextTrust)
-            })()
-          }}
-        >
-          {isTrustUpdatePending ? t('sidebar.workspaceTrust.updating') : t(`sidebar.workspaceTrust.${trust}.action`)}
-        </button>
-        {trustUpdateSuccess ? <span className="workspace-trust-update" role="status" aria-live="polite">
-          {t('sidebar.workspaceTrust.updated', { status: t(`sidebar.workspaceTrust.${trustUpdateSuccess}.label`) })}
-        </span> : null}
-      </div> : null}
       {!isPendingConversation ? <RowContextMenu pinned={!!node.pinned} {...(conversation ? { onRename: () => setRenameDialogOpen(true) } : {})} onTogglePin={() => setMeta(!node.pinned)} onArchive={() => setMeta(undefined, true)} onRemove={() => setRemoveDialogOpen(true)} /> : null}
       {renameDialogOpen && conversation ? <RenameConversationDialog conversationName={conversation.title} onClose={() => setRenameDialogOpen(false)} onRename={rename} /> : null}
       {removeDialogOpen ? <RemoveWorkspaceItemDialog itemName={itemLabel} itemKind={itemKind} onClose={() => setRemoveDialogOpen(false)} onRemoveFromList={() => remove('list')} onRemoveFromDisk={() => remove('disk')} /> : null}
     </div>
+    {isWorkspaceFolder ? <div className="workspace-trust-control" aria-busy={isTrustUpdatePending}>
+      <div className="workspace-trust-statuses">
+        <span className={`workspace-trust-badge is-${trust}`} aria-label={t(`sidebar.workspaceTrust.${trust}.aria`)}>
+          {t(`sidebar.workspaceTrust.${trust}.label`)}
+        </span>
+        <span className={`workspace-write-policy is-${workspaceWritePermission}`} aria-label={t(`sidebar.workspaceTrust.writePolicy.aria`, { permission: t(`sidebar.workspaceTrust.writePolicy.${workspaceWritePermission}`) })}>
+          {t(`sidebar.workspaceTrust.writePolicy.${workspaceWritePermission}`)}
+        </span>
+      </div>
+      <span className="workspace-trust-detail">
+        {t('sidebar.workspaceTrust.policyDetail', { permission: t(`sidebar.workspaceTrust.writePolicy.${workspaceWritePermission}`) })}
+      </span>
+      <button
+        type="button"
+        className="workspace-trust-action"
+        disabled={loading || isTrustUpdatePending}
+        aria-busy={isTrustUpdatePending}
+        aria-label={isTrustUpdatePending
+          ? t('sidebar.workspaceTrust.updatingAria', { name: workspace.name })
+          : t(`sidebar.workspaceTrust.${trust}.actionAria`, { name: workspace.name })}
+        title={t(`sidebar.workspaceTrust.${trust}.actionTitle`)}
+        onClick={(event) => {
+          event.stopPropagation()
+          void (async () => {
+            const updated = await onSetWorkspaceTrust(workspace.id, nextTrust)
+            if (updated) setTrustUpdateSuccess(nextTrust)
+          })()
+        }}
+      >
+        {isTrustUpdatePending ? t('sidebar.workspaceTrust.updating') : t(`sidebar.workspaceTrust.${trust}.action`)}
+      </button>
+      {trustUpdateSuccess ? <span className="workspace-trust-update" role="status" aria-live="polite">
+        {t('sidebar.workspaceTrust.updated', { status: t(`sidebar.workspaceTrust.${trustUpdateSuccess}.label`) })}
+      </span> : null}
+    </div> : null}
     {isDirectory && node.children?.length ? <div className={`workspace-node-children${isExpanded ? ' is-open' : ''}${isWorkspaceFolder || isCourseFolder ? ' is-course-children' : ''}`} aria-hidden={!isExpanded} inert={!isExpanded ? true : undefined}>
       <div className="workspace-node-children-inner">{node.children.map((child) => <WorkspaceFileNodeRow
         key={workspaceNodeKey(workspace.id, child.relativePath)} node={child} workspace={workspace} level={level + 1} treeRoot={treeRoot}

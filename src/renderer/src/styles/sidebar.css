@@ -499,11 +499,12 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }.workspace-trust-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  flex: 0 1 235px;
   gap: 3px 6px;
-  min-width: 150px;
-  margin-right: 25px;
-  padding: 3px 0;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 2px 0 8px;
+  padding: 4px 30px 6px 4px;
 }.workspace-trust-statuses {
   display: flex;
   grid-column: 1 / -1;
