@@ -175,8 +175,87 @@ describe('TeachingTurnPresentation', () => {
     await user.click(sourceDisclosure)
     expect(screen.getByRole('list', { name: '可信来源标识' })).toHaveTextContent('来源 source-1')
     expect(screen.queryByRole('log')).toBeNull()
+
+    const diagnosticSummary = screen.getByText('技术诊断', { selector: 'summary' })
+    diagnosticSummary.focus()
+    expect(diagnosticSummary).toHaveFocus()
+    await user.click(diagnosticSummary)
+    expect((document.querySelector('.teaching-turn-panel__diagnostic') as HTMLDetailsElement).open).toBe(true)
   })
 
+
+  it('renders a collapsed-by-default technical diagnostic from the typed presentation adapter only', async () => {
+    const presentation = buildTeachingTurnPresentation(snapshot({
+      event: { id: 'retrieve', operationId: 'operation-1', revision: 1, kind: 'retrieval_practice_requested' }
+    }))
+    const user = setupUser()
+    renderUi(createElement(AgentConversationReader, {
+      presentation: undefined,
+      teachingPresentation: presentation
+    }))
+
+    const diagnostic = document.querySelector('.teaching-turn-panel__diagnostic') as HTMLDetailsElement
+    expect(diagnostic).toBeTruthy()
+    expect(diagnostic.open).toBe(false)
+    expect(diagnostic).not.toHaveAttribute('open')
+
+    const summary = screen.getByText('技术诊断', { selector: 'summary' })
+    expect(summary).toHaveAttribute('aria-label', `技术诊断：${presentation.technicalDiagnostic.label}`)
+
+    summary.focus()
+    expect(summary).toHaveFocus()
+    await user.click(summary)
+    expect(diagnostic.open).toBe(true)
+    expect(screen.getByText(presentation.technicalDiagnostic.label)).toBeVisible()
+    expect(diagnostic.querySelector('[data-diagnostic-state]')?.getAttribute('data-diagnostic-state')).toBe(presentation.technicalDiagnostic.state)
+  })
+
+  it('does not leak secrets, learner answers, absolute paths, or provider payloads through the diagnostic disclosure', async () => {
+    const presentation = buildTeachingTurnPresentation({
+      ...snapshot({
+        event: { id: 'retry', operationId: 'operation-1', revision: 1, kind: 'explanation_retry_requested' }
+      }),
+      sourceIds: ['source-1', 'secret-token-not-rendered', 'raw-private-answer', 'C:\\private\\answer-key.md', 'a'.repeat(64)]
+    })
+    const user = setupUser()
+    const { container } = renderUi(createElement(AgentConversationReader, {
+      presentation: undefined,
+      teachingPresentation: presentation
+    }))
+
+    const diagnostic = container.querySelector('.teaching-turn-panel__diagnostic') as HTMLDetailsElement
+    await user.click(diagnostic.querySelector('summary')!)
+    expect(diagnostic.open).toBe(true)
+
+    const rendered = container.textContent ?? ''
+    for (const forbidden of [
+      'secret-token-not-rendered',
+      'raw-private-answer',
+      'C:\\private\\answer-key.md',
+      'answer-key',
+      'a'.repeat(64),
+      'RAW-PROMPT',
+      'RAW-ANSWER',
+      'sk-secret'
+    ]) {
+      expect(rendered).not.toContain(forbidden)
+    }
+    expect(rendered).toContain(presentation.technicalDiagnostic.label)
+    expect(JSON.stringify(presentation)).not.toContain('secret-token-not-rendered')
+  })
+
+  it('keeps deterministic accessible names and diagnostic wording across replay', () => {
+    const input = snapshot({
+      event: { id: 'save', operationId: 'operation-1', revision: 3, kind: 'save_continue_requested' },
+      nextStep: decision('continue_next_session', 'misconception_corrected_with_next_goal'),
+      save: { canonicalStatus: 'record_saved', commit: { status: 'committed', outcome: { kind: 'misconception_corrected' }, recordSaved: true } }
+    })
+    const first = buildTeachingTurnPresentation(input)
+    const replay = buildTeachingTurnPresentation(structuredClone(input))
+    expect(replay.accessibleNames).toEqual(first.accessibleNames)
+    expect(replay.technicalDiagnostic).toEqual(first.technicalDiagnostic)
+    expect(replay.focusKey).toEqual(first.focusKey)
+  })
   it('renders live reasoning, tool activity, and preparation status in the process panel', () => {
     renderUi(createElement(AgentConversationReader, {
       presentation: {

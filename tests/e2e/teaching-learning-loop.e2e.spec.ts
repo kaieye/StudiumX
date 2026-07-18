@@ -173,5 +173,16 @@ test('runs the offline Golden teaching learner path in Electron with keyboard, s
 
   await expect(host).not.toContainText('secret-token-not-rendered')
   await expect(host).not.toContainText('raw-private-answer')
+
+  const diagnostic = panel.locator('.teaching-turn-panel__diagnostic')
+  await expect(diagnostic).not.toHaveAttribute('open')
+  await mainWindow.keyboard.press('Tab')
+  await expect(diagnostic.getByText('技术诊断', { exact: true })).toBeFocused()
+  await mainWindow.keyboard.press('Enter')
+  await expect(diagnostic).toHaveAttribute('open', '')
+  await expect(diagnostic.getByText('学习记录已由规范保存状态确认')).toBeVisible()
+  await expect(host).not.toContainText('secret-token-not-rendered')
+  await expect(host).not.toContainText('raw-private-answer')
+
   await expectNoAccessibilityViolations(mainWindow, { include: '#golden-teaching-loop-e2e-host' })
 })

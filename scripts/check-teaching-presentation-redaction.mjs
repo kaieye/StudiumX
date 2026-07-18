@@ -15,9 +15,26 @@ for (const forbiddenField of ['prompt', 'answer', 'reasoning', 'assessment', 'pr
 assert.match(presentation, /function safeSourceIds\(/, 'Source identifiers must be allow-listed.')
 assert.match(presentation, /secret\|token\|password\|answer\|prompt\|provider\|key/, 'Unsafe source identifiers must be rejected.')
 assert.ok(presentation.includes('[a-f0-9]{64}'), 'Hash-like source identifiers must be rejected.')
-assert.doesNotMatch(reader, /item\.detail|disclosure\.|answer\.split|tool-call-body/, 'Reader must not put raw technical or answer content in the DOM.')
+assert.match(presentation, /technicalDiagnostic:/, 'Teaching projection must expose a typed technical diagnostic.')
+assert.match(presentation, /export type TeachingTurnTechnicalDiagnostic = \{/, 'Technical diagnostic must be a typed adapter, not a parallel projector.')
+
+const teachingReader = reader.match(/function TeachingTurnReader\([\s\S]*?\nfunction /)?.[0] ?? ''
+assert.ok(teachingReader, 'TeachingTurnReader must remain the learner presentation seam.')
+assert.doesNotMatch(teachingReader, /item\.detail|disclosure\.|answer\.split|tool-call-body/, 'Teaching reader must not put raw technical or answer content in the DOM.')
+assert.match(teachingReader, /presentation\.technicalDiagnostic/, 'Teaching diagnostics must come from TeachingTurnPresentation only.')
+assert.match(reader, /<details className="teaching-turn-panel__diagnostic">/, 'Technical diagnostics must render inside a collapsed details adapter.')
 assert.doesNotMatch(reader, /processEvents|toolCalls|metadata\?\./, 'Reader must not inspect raw process payloads directly.')
-assert.match(reader, /safeDiagnosticLabel\(/, 'Technical diagnostics must use generic allow-listed labels.')
+assert.doesNotMatch(reader, /answer\.split|tool-call-body/, 'Reader must not reconstruct raw answer or tool payloads.')
+assert.match(reader, /function safeDiagnosticLabel\(/, 'Technical diagnostics must use generic allow-listed labels.')
+assert.match(reader, /function safeProcessSecondaryText\(/, 'Process secondary text must pass through a typed redaction adapter.')
+assert.match(reader, /redactAgentSecretText\(/, 'Process secondary text must redact secrets before DOM entry.')
+
+const outsideSanitizer = reader.replace(/function safeProcessSecondaryText\([\s\S]*?\n\}/, 'function safeProcessSecondaryText(){}')
+assert.doesNotMatch(outsideSanitizer, /item\.detail/, 'Raw item.detail may only be read inside the diagnostic sanitizer.')
+assert.doesNotMatch(reader, /\{item\.detail\}/, 'Raw item.detail must never be interpolated into the DOM.')
+
 assert.match(unit, /never projects raw teaching or technical payloads/, 'Unit coverage must retain redaction assertions.')
+assert.match(unit, /collapsed-by-default technical diagnostic|diagnostic disclosure stays collapsed/, 'Unit coverage must prove collapsed diagnostic defaults.')
+assert.match(unit, /does not leak secrets|no secret|secret\/answer\/path/, 'Unit coverage must prove secret/answer/path non-leakage in the reader.')
 
 console.log('teaching presentation redaction gate ok')

@@ -23,6 +23,7 @@ import type {
   TeachingTurnAction,
   TeachingTurnPresentation
 } from '../../teaching-turn-presentation'
+import { redactAgentSecretText } from '../../../../shared/agent-secret-redaction'
 
 /**
  * Older renderer fixtures and partial projections predate the structured status.
@@ -32,7 +33,11 @@ type AgentConversationReaderPresentation = Omit<AgentConversationTurnPresentatio
   status?: AgentConversationTurnPresentation['status'] | null
 }
 
-/** Renders the live agent process or the learner-facing teaching projection. */
+/**
+ * Renders either the learner-safe teaching projection or the agent process panel.
+ * Teaching technical diagnostics come only from TeachingTurnPresentation; process
+ * secondary text is allow-listed/redacted before it reaches the DOM.
+ */
 export function AgentConversationReader({
   presentation,
   teachingPresentation,
@@ -96,6 +101,10 @@ function TeachingTurnReader({ presentation, onAction, compact }: {
         </details>
       ) : null}
       {liveAnnouncement ? <p className="sr-only" role="status" aria-live="polite">{liveAnnouncement}</p> : null}
+      <details className="teaching-turn-panel__diagnostic">
+        <summary aria-label={`技术诊断：${presentation.technicalDiagnostic.label}`}>技术诊断</summary>
+        <p data-diagnostic-state={presentation.technicalDiagnostic.state}>{presentation.technicalDiagnostic.label}</p>
+      </details>
     </section>
   )
 }
@@ -172,7 +181,7 @@ function groupRepeatedProcessDescriptions(items: AgentConversationProvenanceItem
 }
 
 function isRollupDescription(item: AgentConversationProvenanceItem): boolean {
-  return Boolean(item.detail) && (item.kind === 'status' || item.kind === 'child_run' || item.kind === 'compaction')
+  return Boolean(safeProcessSecondaryText(item)) && (item.kind === 'status' || item.kind === 'child_run' || item.kind === 'compaction')
 }
 
 function RepeatedProcessRow({ items }: { items: AgentConversationProvenanceItem[] }) {
@@ -249,23 +258,29 @@ function RollingProcessDescription({ item }: { item: AgentConversationProvenance
 }
 
 function processDescription(item: AgentConversationProvenanceItem): string {
-  return item.detail || item.label
+  return safeProcessSecondaryText(item) || processPrimaryLabel(item)
+}
+
+function processPrimaryLabel(item: AgentConversationProvenanceItem): string {
+  const projected = item.label.trim()
+  return projected || safeDiagnosticLabel(item.kind)
 }
 
 function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
-  if (item.kind === 'reasoning' && item.detail) return <ReasoningProcessRow item={item} />
+  const secondary = safeProcessSecondaryText(item)
+  if (item.kind === 'reasoning' && secondary) return <ReasoningProcessRow item={item} secondary={secondary} />
   return (
     <div className={`agent-process-event${item.state === 'error' ? ' is-error' : ''}${item.state === 'active' ? ' is-active' : ''}`}>
       <span className="agent-process-event-icon"><ProcessIcon item={item} /></span>
       <div className="agent-process-event-copy">
-        <strong>{item.label}</strong>
-        {item.detail ? <small>{item.detail}</small> : null}
+        <strong>{processPrimaryLabel(item)}</strong>
+        {secondary ? <small>{secondary}</small> : null}
       </div>
     </div>
   )
 }
 
-function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
+function ReasoningProcessRow({ item, secondary }: { item: AgentConversationProvenanceItem; secondary: string }) {
   const [expanded, setExpanded] = useState(false)
   const [detailMaxHeight, setDetailMaxHeight] = useState<number | null>(null)
   const [hasOverflow, setHasOverflow] = useState(false)
@@ -281,13 +296,13 @@ function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }
     const fullHeight = Math.max(node.scrollHeight, collapsedHeight)
     setHasOverflow(node.scrollHeight > collapsedHeight + 1)
     setDetailMaxHeight(isCollapsed ? collapsedHeight : fullHeight)
-  }, [isCollapsed, item.detail])
+  }, [isCollapsed, secondary])
   return (
     <div className={`agent-process-event${isActive ? ' is-active' : ''}`}>
       <span className="agent-process-event-icon"><ProcessIcon item={item} /></span>
       <div className="agent-process-event-copy">
         <div className="agent-process-event-title">
-          <strong>{item.label}</strong>
+          <strong>{processPrimaryLabel(item)}</strong>
           {!isActive ? (
             <button
               type="button"
@@ -305,11 +320,72 @@ function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }
           className={`has-height-transition${isCollapsed ? ' is-collapsed' : ''}${hasOverflow ? ' has-overflow' : ''}`}
           style={detailMaxHeight === null ? undefined : { maxHeight: `${detailMaxHeight}px` }}
         >
-          {item.detail}
+          {secondary}
         </small>
       </div>
     </div>
   )
+}
+
+/**
+ * Typed diagnostic adapter for process secondary text. Raw provenance detail is
+ * read only here, then redacted and rejected when it looks like secrets, paths,
+ * learner answers, or provider/system payloads.
+ */
+function safeProcessSecondaryText(item: AgentConversationProvenanceItem): string | undefined {
+  const candidate = item.detail?.replace(/\s+/g, ' ').trim()
+  if (!candidate) return undefined
+  const redacted = redactAgentSecretText(candidate)
+  if (isUnsafeDiagnosticText(redacted)) return safeDiagnosticState(item.state)
+  return redacted
+}
+
+function isUnsafeDiagnosticText(value: string): boolean {
+  if (!value || value === '[redacted]') return true
+  if (/(?:secret|token|password|api[_-]?key|sk-[A-Za-z0-9]{8,}|BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY)/i.test(value)) return true
+  if (/(?:[A-Za-z]:\\(?:Users|Windows|private)|\/(?:Users|home|private|var\/secrets)\/)/.test(value)) return true
+  if (/(?:RAW-(?:ANSWER|PROMPT)|CHAIN-OF-THOUGHT|provider\s*payload|system\s*prompt)/i.test(value)) return true
+  if (/^\{[\s\S]*\}$/.test(value) && /"(?:prompt|answer|arguments|apiKey|token)"/.test(value)) return true
+  return false
+}
+
+/** Allow-listed kind labels for technical diagnostics when projected labels are absent. */
+function safeDiagnosticLabel(kind: AgentConversationProvenanceItem['kind']): string {
+  switch (kind) {
+    case 'permission_request':
+    case 'permission_resolved':
+      return '权限处理'
+    case 'elicitation_request':
+    case 'elicitation_resolved':
+      return '对话输入处理'
+    case 'tool_call':
+    case 'tool_result':
+      return '技术步骤'
+    case 'child_run':
+      return '辅助任务'
+    case 'compaction':
+      return '上下文整理'
+    case 'source':
+      return '来源处理'
+    case 'status':
+      return '处理状态'
+    case 'reasoning':
+      return '思考过程'
+    default:
+      return '技术活动'
+  }
+}
+
+function safeDiagnosticState(state: AgentConversationProvenanceItem['state']): string {
+  switch (state) {
+    case 'active': return '正在处理'
+    case 'complete': return '已完成'
+    case 'error': return '需要注意'
+    case 'canceled': return '已取消'
+    case 'pending': return '等待处理'
+    case 'interrupted': return '需确认'
+    default: return '已记录'
+  }
 }
 
 function ProcessIcon({ item }: { item: AgentConversationProvenanceItem }) {
