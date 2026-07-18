@@ -110,6 +110,12 @@ import {
   PREVIEW_MARKDOWN_LINK_MESSAGE
 } from '../../shared/preview-markdown-bridge'
 import type { PreviewLessonInteractionIntent } from '../../shared/teaching-types/lesson-interaction'
+import {
+  createLearningOutcomeCommitClient,
+  learnerSafeCommitStatusLabel,
+  recordPreviewLessonInteractionAndMaybeCommit,
+  type LearningOutcomeCommitUiStatus
+} from './teaching/learning-outcome-commit-client'
 import { sanitizeAgentTurnContent } from '../../shared/agent-conversation-turns'
 import {
   type AgentChatTurn,
@@ -1006,6 +1012,16 @@ export function previewLessonInteractionForCurrentIframe(
 function MainArea() {
   const { t } = useTranslation()
   const lessonFrameRef = useRef<HTMLIFrameElement | null>(null)
+  const [learningOutcomeCommitStatus, setLearningOutcomeCommitStatus] = useState<LearningOutcomeCommitUiStatus>({ kind: 'idle' })
+  const learningOutcomeCommitClientRef = useRef(createLearningOutcomeCommitClient({
+    commitLearningOutcome: (request) => {
+      const api = window.teachingSystem
+      if (!api) return Promise.reject(new Error('Teaching system API unavailable'))
+      // Production sole-writer path: formal IPC via preload TeachingSystemApi.
+      return api.commitLearningOutcome(request)
+    },
+    onStatusChange: setLearningOutcomeCommitStatus
+  }))
   const chrome = resolveWindowChromePolicy(window.teachingSystem?.platform ?? 'win32')
   const isWindows = chrome.adapter === 'windows'
   const showInlineSidebarToggle = chrome.sidebarTogglePlacement === 'inline-topbar'
@@ -1108,11 +1124,44 @@ function MainArea() {
       setChangeDiffLoadingPath(null)
     }
   }
+  const previewCommitWorkspaceId = selectedCourseWorkspaceId ?? active?.id ?? null
+  const previewCommitScopeKey = readingCourseHtml && selectedPreviewFile
+    ? `${previewCommitWorkspaceId ?? 'none'}:${selectedPreviewFile.relativePath}:${lessonFrameKey}`
+    : readingMarkdown && selectedMarkdownDocument
+      ? `${previewCommitWorkspaceId ?? 'none'}:md:${selectedMarkdownDocument.relativePath}`
+      : null
+
+  useEffect(() => {
+    learningOutcomeCommitClientRef.current.setLessonScope(previewCommitScopeKey)
+  }, [previewCommitScopeKey])
+
+  useEffect(() => {
+    const client = learningOutcomeCommitClientRef.current
+    return () => {
+      client.dispose()
+    }
+  }, [])
+
   const recordPreviewLessonInteraction = useCallback((intent: PreviewLessonInteractionIntent): void => {
     const api = window.teachingSystem
     if (!api) return
-    void api.recordPreviewLessonInteraction(intent).catch(() => undefined)
-  }, [])
+    const workspaceId = selectedCourseWorkspaceId ?? active?.id ?? null
+    const scopeAtStart = previewCommitScopeKey
+    const client = learningOutcomeCommitClientRef.current
+    void recordPreviewLessonInteractionAndMaybeCommit({
+      api,
+      intent,
+      workspaceId,
+      client,
+      isCurrent: () => {
+        // Drop late record+commit when workspace or visible lesson scope changed
+        // while the evidence write was in flight (client generation also guards
+        // commits that already started).
+        const currentWorkspaceId = selectedCourseWorkspaceId ?? active?.id ?? null
+        return currentWorkspaceId === workspaceId && previewCommitScopeKey === scopeAtStart
+      }
+    }).catch(() => undefined)
+  }, [active?.id, previewCommitScopeKey, selectedCourseWorkspaceId])
 
   const renderSidebarToggle = (className = 'icon-button') => (
     <button
@@ -1278,6 +1327,28 @@ function MainArea() {
           >
             {readingCourseHtml && selectedPreviewFile ? (
               <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
+                {learnerSafeCommitStatusLabel(learningOutcomeCommitStatus) ? (
+                  <div
+                    className="inline-alert"
+                    role="status"
+                    aria-live="polite"
+                    data-learning-outcome-commit={learningOutcomeCommitStatus.kind}
+                    data-severity={
+                      learningOutcomeCommitStatus.kind === 'retryable' || learningOutcomeCommitStatus.kind === 'blocked'
+                        ? 'warning'
+                        : learningOutcomeCommitStatus.kind === 'needs_practice'
+                          ? 'info'
+                          : 'info'
+                    }
+                  >
+                    {learningOutcomeCommitStatus.kind === 'retryable' || learningOutcomeCommitStatus.kind === 'blocked'
+                      ? <AlertTriangle size={16} />
+                      : <Info size={16} />}
+                    <div style={{ minWidth: 0 }}>
+                      <strong>{learnerSafeCommitStatusLabel(learningOutcomeCommitStatus)}</strong>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="lesson-reader-frame-wrap">
                   <iframe
                     ref={lessonFrameRef}
