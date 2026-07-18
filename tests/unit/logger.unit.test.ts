@@ -26,9 +26,10 @@ describe('Logger', () => {
     logger.info('legacy archive message')
     logger.child({ component: 'main', tag: 'agent-archive', traceId }).info('archive persisted')
     logger.child({ component: 'main', tag: 'memory-catalog', traceId }).info('Memory updated.')
+    logger.child({ component: 'main', tag: 'learning-session-ledger', traceId }).info('Learning Session event persisted.')
 
     const lines = (await logger.readTail()).trim().split('\n')
-    expect(lines).toHaveLength(3)
+    expect(lines).toHaveLength(4)
     expect(parseLoggerLine(lines[0]!)).toMatchObject({ level: 'info', message: 'legacy archive message' })
     expect(parseLoggerLine(lines[1]!)).toEqual(expect.objectContaining({
       level: 'info',
@@ -43,6 +44,13 @@ describe('Logger', () => {
       tag: 'memory-catalog',
       traceId,
       message: 'Memory updated.'
+    }))
+    expect(parseLoggerLine(lines[3]!)).toEqual(expect.objectContaining({
+      level: 'info',
+      component: 'main',
+      tag: 'learning-session-ledger',
+      traceId,
+      message: 'Learning Session event persisted.'
     }))
     expect(parseLoggerLine('2026-07-18T00:00:00.000Z [info] [main] [agent-archive] [trace=not-a-uuid] body'))
       .toMatchObject({ message: '[trace=not-a-uuid] body', component: 'main', tag: 'agent-archive' })

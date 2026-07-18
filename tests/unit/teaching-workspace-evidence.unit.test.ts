@@ -100,6 +100,12 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
       eventId: 'preview-open-other-sender', kind: 'lesson_opened', itemId: lesson.id
     })).rejects.toMatchObject({ code: 'binding_unavailable', message: 'No trusted Lesson preview binding is active.' })
     await expect(service.recordPreviewLessonInteraction(101, {
+      eventId: 'preview-trace-injection',
+      kind: 'lesson_opened',
+      itemId: lesson.id,
+      traceId: '123e4567-e89b-42d3-a456-426614174000'
+    } as never)).rejects.toThrow('unsupported fields: traceId')
+    await expect(service.recordPreviewLessonInteraction(101, {
       eventId: 'preview-open-forged', kind: 'lesson_opened', itemId: lesson.id, workspaceId: 'forged'
     } as never)).rejects.toThrow('unsupported fields')
 
@@ -163,8 +169,13 @@ describe('TeachingWorkspaceService preview lesson evidence', () => {
         }
       }
     })
+    const eventTrace = snapshot?.events[0]?.traceId
+    expect(eventTrace).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
     const recorded = snapshot?.events[0]?.payload.lessonInteraction as Record<string, unknown>
     expect(recorded.observedAt).toEqual(expect.any(String))
+    // A retry succeeds only when the trusted cache forwards the original trace;
+    // the ledger rejects a same event ID with a missing or mismatched trace.
+    expect((await ledger.load(lesson.sessionId))?.events[0]?.traceId).toBe(eventTrace)
 
     await expect(service.recordPreviewLessonInteraction(senderId, {
       eventId: intent.eventId, kind: 'lesson_completed', itemId: lesson.id

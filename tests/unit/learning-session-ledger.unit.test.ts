@@ -381,4 +381,126 @@ describe('LearningSessionLedger', () => {
     await expect(access(join(workspaceRoot, 'learning-sessions', 'session-oversized')))
       .rejects.toMatchObject({ code: 'ENOENT' })
   })
+
+  it('keeps optional event trace metadata backward-compatible, validated, and provenance-aware for idempotency', async () => {
+    const workspaceRoot = await createWorkspace()
+    const ledger = createLearningSessionLedger({
+      workspaceRoot,
+      now: () => '2026-07-18T03:00:00.000Z',
+      createId: () => 'session-event-trace'
+    })
+    await ledger.open({
+      workspaceId: 'workspace-1',
+      courseRef: { courseId: 'course-1', courseName: 'Foundations', relativePath: 'courses/foundations' }
+    })
+
+    const baseEvent = {
+      schemaVersion: 1 as const,
+      sessionId: 'session-event-trace',
+      kind: 'lesson_opened' as const,
+      occurredAt: '2026-07-18T03:00:00.000Z',
+      payload: { lessonId: 'lesson-1' }
+    }
+    const canonicalTrace = '123E4567-E89B-42D3-A456-426614174000'
+    const first = await ledger.appendWithReceipt('session-event-trace', {
+      ...baseEvent,
+      eventId: 'event-with-trace',
+      traceId: canonicalTrace
+    })
+    const retry = await ledger.appendWithReceipt('session-event-trace', {
+      ...baseEvent,
+      eventId: 'event-with-trace',
+      traceId: canonicalTrace.toLowerCase()
+    })
+    await expect(ledger.appendWithReceipt('session-event-trace', {
+      ...baseEvent,
+      eventId: 'event-with-trace',
+      traceId: '123e4567-e89b-42d3-a456-426614174001'
+    })).rejects.toMatchObject({ code: 'identity_conflict' })
+    await expect(ledger.appendWithReceipt('session-event-trace', {
+      ...baseEvent,
+      eventId: 'event-with-trace'
+    })).rejects.toMatchObject({ code: 'identity_conflict' })
+    await expect(ledger.appendWithReceipt('session-event-trace', {
+      ...baseEvent,
+      eventId: 'event-with-trace',
+      traceId: 'not-a-canonical-uuid'
+    })).rejects.toMatchObject({ code: 'identity_conflict' })
+    const legacyFirst = await ledger.appendWithReceipt('session-event-trace', {
+      ...baseEvent,
+      eventId: 'legacy-trace-free-event'
+    })
+    const legacyRetry = await ledger.appendWithReceipt('session-event-trace', {
+      ...baseEvent,
+      eventId: 'legacy-trace-free-event'
+    })
+    await ledger.append('session-event-trace', {
+      ...baseEvent,
+      eventId: 'invalid-trace-event',
+      traceId: 'Bearer renderer-controlled-secret'
+    })
+
+    expect(first).toMatchObject({ disposition: 'appended', event: { traceId: canonicalTrace.toLowerCase() } })
+    expect(retry).toMatchObject({ disposition: 'matching_existing', event: { traceId: canonicalTrace.toLowerCase() } })
+    expect(legacyFirst.disposition).toBe('appended')
+    expect(legacyRetry.disposition).toBe('matching_existing')
+    expect(legacyFirst.event).not.toHaveProperty('traceId')
+    expect(legacyRetry.event).not.toHaveProperty('traceId')
+
+    const reloaded = await createLearningSessionLedger({ workspaceRoot }).load('session-event-trace')
+    const tracesByEventId = new Map(reloaded!.events.map((event) => [event.eventId, event.traceId]))
+    expect(tracesByEventId).toEqual(new Map([
+      ['event-with-trace', canonicalTrace.toLowerCase()],
+      ['legacy-trace-free-event', undefined],
+      ['invalid-trace-event', undefined]
+    ]))
+
+    const eventFiles = await readdir(join(workspaceRoot, 'learning-sessions', 'session-event-trace', 'events'))
+    const persisted = await Promise.all(eventFiles.map((file) => readFile(
+      join(workspaceRoot, 'learning-sessions', 'session-event-trace', 'events', file),
+      'utf8'
+    )))
+    expect(persisted.join('\n')).not.toContain('Bearer renderer-controlled-secret')
+  })
+
+
+  it('rejects a persisted event with a malformed present trace as corrupt without rewriting it', async () => {
+    const workspaceRoot = await createWorkspace()
+    const ledger = createLearningSessionLedger({
+      workspaceRoot,
+      now: () => '2026-07-18T04:00:00.000Z',
+      createId: () => 'session-corrupt-trace'
+    })
+    await ledger.open({
+      workspaceId: 'workspace-1',
+      courseRef: { courseId: 'course-1', courseName: 'Foundations', relativePath: 'courses/foundations' }
+    })
+    await ledger.append('session-corrupt-trace', {
+      schemaVersion: 1,
+      eventId: 'event-corrupt-trace',
+      sessionId: 'session-corrupt-trace',
+      kind: 'lesson_opened',
+      occurredAt: '2026-07-18T04:00:00.000Z',
+      payload: { lessonId: 'lesson-1' }
+    })
+
+    const eventsRoot = join(workspaceRoot, 'learning-sessions', 'session-corrupt-trace', 'events')
+    const [eventFile] = await readdir(eventsRoot)
+    expect(eventFile).toBeDefined()
+    const eventPath = join(eventsRoot, eventFile!)
+    const persisted = JSON.parse(await readFile(eventPath, 'utf8')) as Record<string, unknown>
+    persisted.traceId = 'not-a-canonical-uuid'
+    const corruptBytes = `${JSON.stringify(persisted, null, 2)}\n`
+    await writeFile(eventPath, corruptBytes, 'utf8')
+
+    await expect(createLearningSessionLedger({ workspaceRoot }).load('session-corrupt-trace')).rejects.toMatchObject({
+      code: 'corrupt_session',
+      diagnostic: {
+        code: 'invalid_session_event',
+        sessionId: 'session-corrupt-trace'
+      }
+    })
+    await expect(readFile(eventPath, 'utf8')).resolves.toBe(corruptBytes)
+  })
+
 })

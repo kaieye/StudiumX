@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { agentConversationJsonRelativePathForMarkdown } from '../../src/shared/agent-conversation-catalog'
 import { Logger, parseLoggerLine } from '../../src/main/logger'
+import { createLearningSessionLedger } from '../../src/main/learning-session-ledger'
 import { buildLearningWorkLedgerEntry, readLearningWorkLedgerLines } from '../../src/main/learning-work-ledger'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
@@ -132,6 +133,103 @@ describe('C-5 archive trace propagation', () => {
     expect(byId.get(first.id)?.traceId).toBe(updated.traceId)
     expect(byId.get(second.id)?.traceId).toBe(memoryLogs.find((line) => line.message === 'Memory deleted.')?.traceId)
     expect((await logger.readTail(20_000))).not.toContain(memoryContent)
+
+    await logger.shutdown()
+  })
+
+
+  it('correlates independent trusted preview events, preserves retry provenance, and emits redacted logs', async () => {
+    const runtime = await runtimeScope.create('learning-session-trace-propagation')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const logger = new Logger({ userDataPath: runtime.paths.userData, enabled: true, retentionDays: 7 })
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot),
+      logger
+    })
+    const workspace = (await service.createWorkspace({
+      name: 'Learning session trace workspace',
+      prompt: 'Persist trace-safe lesson evidence.'
+    })).activeWorkspace!
+    // Create the Session before binding either preview. This avoids setup work
+    // invalidating an otherwise active preview authority.
+    const lesson = (await service.generateLesson({
+      workspaceId: workspace.id,
+      prompt: 'Traceable lesson',
+      messages: []
+    })).lesson
+    const firstPreview = await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, 701)
+    const secondPreview = await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, 702)
+    service.observePreviewLessonNavigation(701, {
+      url: firstPreview.url,
+      isMainFrame: false,
+      isSameDocument: false,
+      frameProcessId: 701,
+      frameRoutingId: 1701
+    })
+    service.observePreviewLessonNavigation(702, {
+      url: secondPreview.url,
+      isMainFrame: false,
+      isSameDocument: false,
+      frameProcessId: 702,
+      frameRoutingId: 1702
+    })
+
+    const [firstReceipt, secondReceipt] = await Promise.all([
+      service.recordPreviewLessonInteraction(701, {
+        eventId: 'trace-preview-first-001',
+        kind: 'lesson_opened',
+        itemId: lesson.id
+      }),
+      service.recordPreviewLessonInteraction(702, {
+        eventId: 'trace-preview-second-001',
+        kind: 'lesson_opened',
+        itemId: lesson.id
+      })
+    ])
+    expect(firstReceipt.duplicate).toBe(false)
+    expect(secondReceipt.duplicate).toBe(false)
+
+    const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
+    const beforeRetry = await ledger.load(lesson.sessionId)
+    const tracesByEventId = new Map((beforeRetry?.events ?? []).map((event) => [event.eventId, event.traceId]))
+    const firstTrace = tracesByEventId.get(firstReceipt.eventId)
+    const secondTrace = tracesByEventId.get(secondReceipt.eventId)
+    expect(firstTrace).toMatch(UUID_RE)
+    expect(secondTrace).toMatch(UUID_RE)
+    expect(firstTrace).not.toBe(secondTrace)
+
+    const retry = await service.recordPreviewLessonInteraction(701, {
+      eventId: 'trace-preview-first-001',
+      kind: 'lesson_opened',
+      itemId: lesson.id
+    })
+    expect(retry).toEqual({ ...firstReceipt, duplicate: true })
+    const afterRetry = await ledger.load(lesson.sessionId)
+    expect(afterRetry?.events).toHaveLength(2)
+    expect(afterRetry?.events.find((event) => event.eventId === firstReceipt.eventId)?.traceId).toBe(firstTrace)
+
+    const sessionLogs = (await logger.readTail(20_000)).split('\n')
+      .map(parseLoggerLine)
+      .filter((line): line is NonNullable<typeof line> => line?.tag === 'learning-session-ledger')
+    expect(sessionLogs).toHaveLength(2)
+    expect(sessionLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        component: 'main',
+        tag: 'learning-session-ledger',
+        message: 'Learning Session event persisted.',
+        traceId: firstTrace
+      }),
+      expect.objectContaining({
+        component: 'main',
+        tag: 'learning-session-ledger',
+        message: 'Learning Session event persisted.',
+        traceId: secondTrace
+      })
+    ]))
+    expect(sessionLogs.map((line) => line.traceId).sort()).toEqual([firstTrace, secondTrace].sort())
+    expect((await logger.readTail(20_000))).not.toContain('Traceable lesson')
 
     await logger.shutdown()
   })

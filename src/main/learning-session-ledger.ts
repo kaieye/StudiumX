@@ -36,6 +36,7 @@ import {
   windowsTeachingRelativePathKey
 } from '../shared/teaching-placement'
 import type { LearningSessionTeachingSummary, LessonSummary } from '../shared/teaching-types/workspace'
+import { normalizeTraceId, traceIdsMatchForIdempotency } from '../shared/trace-context'
 import { isPathInsideRoot } from './path-access'
 
 const LEARNING_SESSIONS_DIRECTORY = LEARNING_SESSIONS_ROOT_RELATIVE_PATH
@@ -850,7 +851,7 @@ async function readAndParseEvent(
 function parseEvent(value: unknown, sessionId: string, path: string): LearningSessionEvent {
   try {
     if (!isRecord(value)) throw new Error('Session event must contain an object.')
-    assertOnlyKeys(value, ['schemaVersion', 'eventId', 'sessionId', 'kind', 'occurredAt', 'turnId', 'payload', 'sequence', 'recordedAt'])
+    assertOnlyKeys(value, ['schemaVersion', 'eventId', 'sessionId', 'kind', 'occurredAt', 'turnId', 'traceId', 'payload', 'sequence', 'recordedAt'])
     const normalized = normalizeEventInput(value, sessionId, true)
     return {
       ...normalized,
@@ -1058,8 +1059,8 @@ function sameConversationRefs(
 function normalizeEventInput(value: unknown, expectedSessionId: string, persisted = false): AppendLearningSessionEventInput {
   if (!isRecord(value)) throw invalidInput('Session event must be an object.')
   const allowedKeys = persisted
-    ? ['schemaVersion', 'eventId', 'sessionId', 'kind', 'occurredAt', 'turnId', 'payload', 'sequence', 'recordedAt']
-    : ['schemaVersion', 'eventId', 'sessionId', 'kind', 'occurredAt', 'turnId', 'payload']
+    ? ['schemaVersion', 'eventId', 'sessionId', 'kind', 'occurredAt', 'turnId', 'traceId', 'payload', 'sequence', 'recordedAt']
+    : ['schemaVersion', 'eventId', 'sessionId', 'kind', 'occurredAt', 'turnId', 'traceId', 'payload']
   const unexpectedKeys = Object.keys(value).filter((key) => !allowedKeys.includes(key))
   if (unexpectedKeys.length > 0) throw invalidInput('Session event contains unknown fields: ' + unexpectedKeys.join(', ') + '.')
   if (value.schemaVersion !== LEARNING_SESSION_SCHEMA_VERSION) throw invalidInput('Session event schema version is unsupported.')
@@ -1071,6 +1072,13 @@ function normalizeEventInput(value: unknown, expectedSessionId: string, persiste
   if (!isRecord(value.payload)) throw invalidInput('Session event payload must be a JSON object.')
   const payload = cloneJsonObject(value.payload, 'Session event payload')
   const turnId = value.turnId === undefined ? undefined : requireStableId(value.turnId, 'Session event turnId')
+  const traceId = normalizeTraceId(value.traceId)
+  // New internal writes may defensively omit a malformed trace. Persisted
+  // events are different: a present malformed trace means damaged bytes and
+  // must never be reclassified as a legacy trace-free record.
+  if (persisted && value.traceId !== undefined && !traceId) {
+    throw invalidInput('Session event traceId must be a canonical UUID when present.')
+  }
   return {
     schemaVersion: LEARNING_SESSION_SCHEMA_VERSION,
     eventId: requireStableId(value.eventId, 'Session eventId'),
@@ -1078,6 +1086,7 @@ function normalizeEventInput(value: unknown, expectedSessionId: string, persiste
     kind: value.kind as LearningSessionEventKind,
     occurredAt: requireIsoTimestamp(value.occurredAt, 'Session event occurredAt'),
     ...(turnId ? { turnId } : {}),
+    ...(traceId ? { traceId } : {}),
     payload
   }
 }
@@ -2399,7 +2408,11 @@ async function sleep(ms: number): Promise<void> {
 
 function sameEventInput(event: LearningSessionEvent, input: AppendLearningSessionEventInput): boolean {
   const { sequence: _sequence, recordedAt: _recordedAt, ...persistedInput } = event
-  return stableJsonStringify(persistedInput) === stableJsonStringify(input)
+  // Trace provenance is immutable for a durable event. Both absent values keep
+  // legacy retries compatible; any present missing, malformed, or mismatched
+  // trace is an identity conflict rather than a silent deduplication.
+  return stableJsonStringify(persistedInput) === stableJsonStringify(input) &&
+    traceIdsMatchForIdempotency(event.traceId, input.traceId)
 }
 
 function eventFilename(eventId: string): string {

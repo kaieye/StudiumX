@@ -216,6 +216,8 @@ type AgentConversationLocation = {
 type BoundPreviewLessonInteraction = {
   intent: PreviewLessonInteractionIntent
   event: LessonInteraction
+  /** Generated only for a new trusted event ID and reused by retries. */
+  traceId: string
 }
 
 type PreviewLessonBindingState = 'pending_initial_navigation' | 'active'
@@ -1703,8 +1705,17 @@ export class TeachingWorkspaceService {
         )
       }
 
-      const event = this.previewInteractionEvent(binding, normalizedIntent)
-      const receipt = await createLessonInteractionRecorder({ ledger }).record(event)
+      const interaction = this.previewInteractionEvent(binding, normalizedIntent)
+      const receipt = await createLessonInteractionRecorder({ ledger }).record(interaction.event, {
+        traceId: interaction.traceId
+      })
+      if (!receipt.duplicate) {
+        this.logger?.info('Learning Session event persisted.', {
+          component: 'main',
+          tag: 'learning-session-ledger',
+          traceId: interaction.traceId
+        })
+      }
       return {
         eventId: receipt.eventId,
         sessionId: receipt.sessionId,
@@ -1892,7 +1903,7 @@ export class TeachingWorkspaceService {
   private previewInteractionEvent(
     binding: ActivePreviewBinding,
     intent: PreviewLessonInteractionIntent
-  ): LessonInteraction {
+  ): BoundPreviewLessonInteraction {
     const existing = binding.recordedInteractions.get(intent.eventId)
     if (existing) {
       if (!samePreviewLessonInteractionIntent(existing.intent, intent)) {
@@ -1901,17 +1912,20 @@ export class TeachingWorkspaceService {
           `Preview Lesson event ID "${intent.eventId}" is already bound to a different intent.`
         )
       }
-      return existing.event
+      return existing
     }
 
+    // Correlation provenance belongs to the trusted event identity cache. A
+    // retry of this exact event must reuse it instead of creating a new UUID.
     const event = createPreviewLessonInteraction({
       ...binding,
       observedAt: new Date().toISOString(),
       attempt: binding.attempt,
       surface: 'lesson_preview'
     }, intent)
-    binding.recordedInteractions.set(intent.eventId, { intent, event })
-    return event
+    const interaction = { intent, event, traceId: randomUUID() }
+    binding.recordedInteractions.set(intent.eventId, interaction)
+    return interaction
   }
 
   private advancePreviewReadGeneration(webContentsId: number): number {
