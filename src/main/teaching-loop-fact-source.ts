@@ -152,10 +152,15 @@ export async function readSettlementMarkerFromFilesystem(
     const record = value as Record<string, unknown>
     if (record.schemaVersion !== 1) return null
     if (record.sessionId !== safeSessionId) return null
-    if (typeof record.outcomeId !== 'string' || !record.outcomeId) return null
+    if (typeof record.outcomeId !== 'string' || !SETTLEMENT_ID_PATTERN.test(record.outcomeId)) return null
     if (!isLearningOutcomeKind(record.kind)) return null
     if (!Array.isArray(record.evidenceEventIds)) return null
-    const evidenceEventIds = record.evidenceEventIds.filter((id): id is string => typeof id === 'string')
+    const evidenceEventIds: string[] = []
+    for (const id of record.evidenceEventIds) {
+      // Reject the entire marker when any evidence id is missing or malformed.
+      if (typeof id !== 'string' || !SETTLEMENT_ID_PATTERN.test(id)) return null
+      evidenceEventIds.push(id)
+    }
     return {
       sessionId: safeSessionId,
       outcomeId: record.outcomeId,
@@ -192,6 +197,8 @@ async function resolveSettlement(
   return null
 }
 
+
+const SETTLEMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 
 const LEARNING_OUTCOME_KINDS = new Set<TeachingLoopSettlementInput['kind']>([
   'established',

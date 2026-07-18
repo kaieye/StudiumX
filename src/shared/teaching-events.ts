@@ -233,6 +233,26 @@ export type TeachingEventParseErrorCode =
   | 'invalid_terminal_outcome'
   | 'invalid_sequence'
 
+/** Closed set of parse error codes accepted on unknown_rejected payloads. */
+export const TEACHING_EVENT_PARSE_ERROR_CODES: readonly TeachingEventParseErrorCode[] = [
+  'not_object',
+  'unsupported_schema_version',
+  'missing_required_field',
+  'invalid_id',
+  'invalid_timestamp',
+  'invalid_durability',
+  'invalid_payload',
+  'unrecognized_payload_type',
+  'invalid_terminal_outcome',
+  'invalid_sequence'
+] as const
+
+const PARSE_ERROR_CODE_SET = new Set<string>(TEACHING_EVENT_PARSE_ERROR_CODES)
+
+export function isTeachingEventParseErrorCode(value: unknown): value is TeachingEventParseErrorCode {
+  return typeof value === 'string' && PARSE_ERROR_CODE_SET.has(value)
+}
+
 export class TeachingEventParseError extends Error {
   readonly code: TeachingEventParseErrorCode
   readonly field?: string
@@ -377,7 +397,7 @@ export function mapCommitStatusToTerminal(
     case 'already_committed':
       return 'completed'
     case 'insufficient_evidence':
-      return 'declined'
+      return 'failed'
     case 'conflict':
       return 'conflict'
     case 'canceled':
@@ -710,14 +730,18 @@ function parsePayload(value: unknown): { ok: true; value: TeachingEventPayload }
       }
     }
     case 'unknown_rejected': {
-      if (typeof value.reasonCode !== 'string' || !value.reasonCode.trim() || value.reasonCode.length > 64) {
-        return fail('invalid_payload', 'unknown_rejected reasonCode is invalid.', 'payload.reasonCode')
+      if (!isTeachingEventParseErrorCode(value.reasonCode)) {
+        return fail(
+          'invalid_payload',
+          'unknown_rejected reasonCode must be a closed TeachingEventParseErrorCode.',
+          'payload.reasonCode'
+        )
       }
       return {
         ok: true,
         value: {
           type: 'unknown_rejected',
-          reasonCode: value.reasonCode as TeachingEventParseErrorCode
+          reasonCode: value.reasonCode
         }
       }
     }

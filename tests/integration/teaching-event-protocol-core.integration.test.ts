@@ -77,8 +77,11 @@ describe('teaching-event-protocol-core filesystem integration', () => {
       }
     })
     expect(opened.sessionId).toBe('session-protocol-1')
+    expect(opened.acceptance).toBe('accepted')
     expect(opened.events.some((event) => event.payload.type === 'session_opened' && event.durability === 'durable')).toBe(true)
-    expect(opened.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'completed' })
+    // Intermediate commands stay nonterminal so one turn can span open/record/project/commit.
+    expect(opened.terminal).toBeNull()
+    expect(opened.events.some((event) => event.payload.type === 'turn_terminal')).toBe(false)
 
     const openedAgain = await coordinator.execute({
       type: 'open_session',
@@ -101,11 +104,12 @@ describe('teaching-event-protocol-core filesystem integration', () => {
         }
       }
     })
+    expect(openedAgain.acceptance).toBe('duplicate')
     expect(openedAgain.events.some((event) => event.payload.type === 'command_duplicate')).toBe(true)
 
     const evidence = await coordinator.execute({
       type: 'record_evidence',
-      turnId: 'turn-evidence',
+      turnId: 'turn-open',
       eventId: 'event-evidence-1',
       operationId: 'op-evidence-1',
       workspaceId: 'workspace-protocol',
@@ -124,6 +128,8 @@ describe('teaching-event-protocol-core filesystem integration', () => {
         surface: 'lesson_preview'
       }
     })
+    expect(evidence.acceptance).toBe('accepted')
+    expect(evidence.terminal).toBeNull()
     expect(evidence.events.some((event) => event.payload.type === 'evidence_recorded' && event.durability === 'durable')).toBe(true)
 
     const loaded = await loadTeachingLoopFactSource(
@@ -155,6 +161,8 @@ describe('teaching-event-protocol-core filesystem integration', () => {
         sessionId: 'session-protocol-1'
       }
     })
+    expect(projected.acceptance).toBe('accepted')
+    expect(projected.terminal).toBeNull()
     expect(projected.snapshot?.identity).toMatch(/^[a-f0-9]{64}$/)
     expect(projected.snapshot?.safeProjection.session?.id).toBe('session-protocol-1')
     expect(projected.events.some((event) => event.payload.type === 'loop_snapshot' && event.durability === 'ephemeral')).toBe(true)
@@ -162,6 +170,33 @@ describe('teaching-event-protocol-core filesystem integration', () => {
     const durableSession = await ledger.load('session-protocol-1')
     expect(durableSession).toMatchObject({ id: 'session-protocol-1', status: 'active' })
     expect(durableSession?.events.some((event) => event.eventId === 'evidence-protocol-1')).toBe(true)
+
+    const canceled = await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-open',
+      eventId: 'event-cancel-1',
+      operationId: 'op-cancel-1',
+      workspaceId: 'workspace-protocol',
+      sessionId: 'session-protocol-1',
+      reasonCode: 'user_cancel'
+    })
+    expect(canceled.acceptance).toBe('accepted')
+    expect(canceled.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'canceled' })
+    const afterTerminal = await coordinator.execute({
+      type: 'project_snapshot',
+      turnId: 'turn-open',
+      eventId: 'event-project-late',
+      operationId: 'op-project-late',
+      workspaceId: 'workspace-protocol',
+      factInput: {
+        mission: { id: 'mission-1', nextGoal: 'available' },
+        course: { id: 'course-protocol' },
+        resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['resource-1'] },
+        sessionId: 'session-protocol-1'
+      }
+    })
+    expect(afterTerminal.acceptance).toBe('rejected')
+    expect(afterTerminal.rejectReason).toBe('already_terminal')
   })
 })
 

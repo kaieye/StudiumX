@@ -132,7 +132,7 @@ describe('teaching-events schema and validation', () => {
   it('maps commit statuses to learner-safe terminal outcomes only', () => {
     expect(mapCommitStatusToTerminal('committed')).toBe('completed')
     expect(mapCommitStatusToTerminal('already_committed')).toBe('completed')
-    expect(mapCommitStatusToTerminal('insufficient_evidence')).toBe('declined')
+    expect(mapCommitStatusToTerminal('insufficient_evidence')).toBe('failed')
     expect(mapCommitStatusToTerminal('conflict')).toBe('conflict')
     expect(mapCommitStatusToTerminal('canceled')).toBe('canceled')
     expect(mapCommitStatusToTerminal('interrupted')).toBe('interrupted')
@@ -182,6 +182,37 @@ describe('teaching-events schema and validation', () => {
     })
     expect(isTeachingTurnTerminalPayload(event.payload)).toBe(true)
   })
+
+  it('closed-validates unknown_rejected reason codes and strips extra payload fields', () => {
+    const ok = parseTeachingEvent({
+      schemaVersion: 1,
+      ...baseFields(),
+      durability: 'ephemeral',
+      payload: {
+        type: 'unknown_rejected',
+        reasonCode: 'unrecognized_payload_type',
+        extraLeak: 'RAW_SHOULD_STRIP'
+      }
+    })
+    expect(ok.ok).toBe(true)
+    if (ok.ok) {
+      expect(ok.event.payload).toEqual({
+        type: 'unknown_rejected',
+        reasonCode: 'unrecognized_payload_type'
+      })
+      expect(JSON.stringify(ok.event)).not.toContain('RAW_SHOULD_STRIP')
+      expect(JSON.stringify(ok.event)).not.toContain('extraLeak')
+    }
+
+    const bad = parseTeachingEvent({
+      schemaVersion: 1,
+      ...baseFields(),
+      durability: 'ephemeral',
+      payload: { type: 'unknown_rejected', reasonCode: 'not_a_real_code' }
+    })
+    expect(bad).toMatchObject({ ok: false, code: 'invalid_payload', field: 'payload.reasonCode' })
+  })
+
 })
 
 function samplePayload(type: string) {

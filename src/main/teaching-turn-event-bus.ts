@@ -4,6 +4,11 @@
  * Architecture mirrors AgentEventBus (monotonic sequence, bounded replay, sticky
  * terminal) but is deliberately uncoupled: no agent stream state, no durable
  * authority claims, and no fork/agent-run semantics.
+ *
+ * Lifecycle:
+ * - One sticky terminal per turnId; after terminal, all further publishes are rejected.
+ * - Listener exceptions are isolated so one subscriber cannot break the stream.
+ * - Reentrant publish (publish from a listener) is rejected deterministically.
  */
 
 import { Buffer } from 'node:buffer'
@@ -37,6 +42,22 @@ export type TeachingTurnEventBusReplay = {
   terminal: TeachingEventEnvelope | null
 }
 
+export class TeachingTurnEventBusClosedError extends Error {
+  readonly code = 'turn_bus_closed' as const
+  constructor(message = 'Teaching turn event bus rejects publish after terminal.') {
+    super(message)
+    this.name = 'TeachingTurnEventBusClosedError'
+  }
+}
+
+export class TeachingTurnEventBusReentrancyError extends Error {
+  readonly code = 'turn_bus_reentrant' as const
+  constructor(message = 'Teaching turn event bus rejects reentrant publish.') {
+    super(message)
+    this.name = 'TeachingTurnEventBusReentrancyError'
+  }
+}
+
 const DEFAULT_MAX_REPLAY_BYTES = 64 * 1024
 
 export class TeachingTurnEventBus {
@@ -50,6 +71,7 @@ export class TeachingTurnEventBus {
   private droppedEvents = 0
   private droppedBytes = 0
   private terminalEvent: TeachingEventEnvelope | null = null
+  private publishing = false
 
   constructor(options: TeachingTurnEventBusOptions) {
     if (!options.turnId.trim()) throw new Error('Teaching turn event bus requires a turnId.')
@@ -68,41 +90,54 @@ export class TeachingTurnEventBus {
   /**
    * Publish a validated teaching event. Sequence is assigned here and is only a
    * turn-stream ordering token — never a durable ledger sequence authority.
-   * Sticky terminal: once a turn_terminal is recorded, further terminals are ignored.
+   *
+   * After a sticky turn_terminal is recorded, every subsequent publish is rejected
+   * (including additional terminals). Reentrant publish is rejected deterministically.
    */
   publish(input: Omit<TeachingEventAuthoringInput, 'sequence'> & { turnId?: string }): TeachingEventEnvelope {
+    if (this.publishing) {
+      throw new TeachingTurnEventBusReentrancyError()
+    }
+    if (this.terminalEvent) {
+      throw new TeachingTurnEventBusClosedError()
+    }
     if (input.turnId !== undefined && input.turnId !== this.turnId) {
       throw new Error('Teaching turn event bus rejects cross-turn publish.')
     }
 
-    const draft = createTeachingEvent({
-      ...input,
-      turnId: this.turnId,
-      occurredAt: input.occurredAt || this.now()
-    })
+    this.publishing = true
+    try {
+      const draft = createTeachingEvent({
+        ...input,
+        turnId: this.turnId,
+        occurredAt: input.occurredAt || this.now()
+      })
 
-    if (isTeachingTurnTerminalPayload(draft.payload) && this.terminalEvent) {
-      return { ...this.terminalEvent, payload: clonePayload(this.terminalEvent.payload) }
+      const stored: TeachingEventEnvelope = {
+        ...draft,
+        sequence: ++this.sequence
+      }
+
+      if (isTeachingTurnTerminalPayload(stored.payload)) {
+        this.terminalEvent = stored
+      }
+
+      this.events.push(stored)
+      this.replayBytes += eventByteSize(stored)
+      this.trimReplayWindow()
+
+      for (const listener of [...this.listeners]) {
+        try {
+          listener({ ...stored, payload: clonePayload(stored.payload) })
+        } catch {
+          // Isolate subscriber failures: one bad listener must not break the bus.
+        }
+      }
+
+      return { ...stored, payload: clonePayload(stored.payload) }
+    } finally {
+      this.publishing = false
     }
-
-    const stored: TeachingEventEnvelope = {
-      ...draft,
-      sequence: ++this.sequence
-    }
-
-    if (isTeachingTurnTerminalPayload(stored.payload)) {
-      this.terminalEvent = stored
-    }
-
-    this.events.push(stored)
-    this.replayBytes += eventByteSize(stored)
-    this.trimReplayWindow()
-
-    for (const listener of [...this.listeners]) {
-      listener({ ...stored, payload: clonePayload(stored.payload) })
-    }
-
-    return { ...stored, payload: clonePayload(stored.payload) }
   }
 
   publishTerminal(
@@ -162,13 +197,17 @@ export class TeachingTurnEventBus {
       : null
   }
 
+  isClosed(): boolean {
+    return this.terminalEvent !== null
+  }
+
   currentSequence(): number {
     return this.sequence
   }
 
   private trimReplayWindow(): void {
     while (this.replayBytes > this.maxReplayBytes && this.events.length > 1) {
-      // Keep sticky terminal if it is the only retained event when possible.
+      // Prefer keeping the sticky terminal when it would otherwise be the sole retained event.
       const dropIndex = this.events.length > 1 && this.events[0] === this.terminalEvent ? 1 : 0
       if (dropIndex >= this.events.length) break
       const [dropped] = this.events.splice(dropIndex, 1)

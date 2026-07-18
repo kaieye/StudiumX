@@ -186,4 +186,61 @@ describe('teaching-loop-fact-source adapters', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it('readSettlementMarkerFromFilesystem rejects malformed ids and mixed evidence arrays', async () => {
+    const { mkdtemp, mkdir, writeFile, rm } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const root = await mkdtemp(join(tmpdir(), 'tlfs-malformed-'))
+    try {
+      const sessionDir = join(root, 'learning-sessions', 'session-1')
+      await mkdir(sessionDir, { recursive: true })
+      const writeMarker = async (body: unknown) => {
+        await writeFile(join(sessionDir, 'outcome-settlement.json'), JSON.stringify(body), 'utf8')
+      }
+
+      await writeMarker({
+        schemaVersion: 1,
+        sessionId: 'session-1',
+        outcomeId: '../escape',
+        kind: 'established',
+        evidenceEventIds: ['e1']
+      })
+      await expect(readSettlementMarkerFromFilesystem(root, 'session-1')).resolves.toBeNull()
+
+      await writeMarker({
+        schemaVersion: 1,
+        sessionId: 'session-1',
+        outcomeId: 'outcome-1',
+        kind: 'established',
+        evidenceEventIds: ['ok-id', 42, 'also-ok']
+      })
+      await expect(readSettlementMarkerFromFilesystem(root, 'session-1')).resolves.toBeNull()
+
+      await writeMarker({
+        schemaVersion: 1,
+        sessionId: 'session-1',
+        outcomeId: 'outcome-1',
+        kind: 'established',
+        evidenceEventIds: ['ok-id', 'bad id with spaces']
+      })
+      await expect(readSettlementMarkerFromFilesystem(root, 'session-1')).resolves.toBeNull()
+
+      await writeMarker({
+        schemaVersion: 1,
+        sessionId: 'session-1',
+        outcomeId: 'outcome-1',
+        kind: 'established',
+        evidenceEventIds: ['evidence-1', 'evidence-2']
+      })
+      await expect(readSettlementMarkerFromFilesystem(root, 'session-1')).resolves.toEqual({
+        sessionId: 'session-1',
+        outcomeId: 'outcome-1',
+        kind: 'established',
+        evidenceEventIds: ['evidence-1', 'evidence-2']
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

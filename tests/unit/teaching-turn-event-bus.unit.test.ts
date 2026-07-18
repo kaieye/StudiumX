@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createTeachingTurnEventBus } from '../../src/main/teaching-turn-event-bus'
+import { createTeachingTurnEventBus, TeachingTurnEventBusClosedError, TeachingTurnEventBusReentrancyError } from '../../src/main/teaching-turn-event-bus'
 
 function publishMany(
   bus: ReturnType<typeof createTeachingTurnEventBus>,
@@ -75,7 +75,7 @@ describe('TeachingTurnEventBus', () => {
     expect(listener.mock.calls[0][0].eventId).toBe('e1')
   })
 
-  it('keeps sticky terminal exactly once and ignores subsequent terminals', () => {
+  it('keeps sticky terminal exactly once and rejects all subsequent publishes', () => {
     const bus = createTeachingTurnEventBus({ turnId: 'turn-1' })
     const first = bus.publishTerminal({
       occurredAt: '2026-07-18T10:00:00.000Z',
@@ -84,16 +84,27 @@ describe('TeachingTurnEventBus', () => {
       eventId: 'term-1',
       outcome: 'completed'
     })
-    const second = bus.publishTerminal({
-      occurredAt: '2026-07-18T10:00:01.000Z',
-      workspaceId: 'workspace-1',
-      sessionId: 'session-1',
-      eventId: 'term-2',
-      outcome: 'failed'
-    })
     expect(first.payload).toMatchObject({ type: 'turn_terminal', outcome: 'completed' })
-    expect(second.eventId).toBe('term-1')
-    expect(second.payload).toMatchObject({ outcome: 'completed' })
+    expect(bus.isClosed()).toBe(true)
+    expect(() =>
+      bus.publishTerminal({
+        occurredAt: '2026-07-18T10:00:01.000Z',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        eventId: 'term-2',
+        outcome: 'failed'
+      })
+    ).toThrow(/rejects publish after terminal/)
+    expect(() =>
+      bus.publish({
+        durability: 'ephemeral',
+        occurredAt: '2026-07-18T10:00:02.000Z',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        eventId: 'after-term',
+        payload: { type: 'turn_progress', stage: 'late' }
+      })
+    ).toThrow(/rejects publish after terminal/)
     expect(bus.terminal()?.eventId).toBe('term-1')
     expect(bus.currentSequence()).toBe(1)
   })
@@ -154,4 +165,93 @@ describe('TeachingTurnEventBus', () => {
     expect(event.sequence).toBe(1)
     expect(event.payload).toMatchObject({ type: 'evidence_recorded', sequence: 7 })
   })
+
+  it('isolates listener throws and rejects reentrant publish deterministically', () => {
+    const bus = createTeachingTurnEventBus({ turnId: 'turn-listen' })
+    const seen: string[] = []
+    bus.subscribe(() => {
+      seen.push('boom')
+      throw new Error('listener failure')
+    })
+    bus.subscribe((event) => {
+      seen.push(event.eventId)
+    })
+    const published = bus.publish({
+      durability: 'ephemeral',
+      occurredAt: '2026-07-18T10:00:00.000Z',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      eventId: 'evt-1',
+      payload: { type: 'turn_progress', stage: 'ok' }
+    })
+    expect(published.eventId).toBe('evt-1')
+    expect(seen).toEqual(['boom', 'evt-1'])
+
+    // Nested publish from a listener is rejected; isolation keeps outer publish alive.
+    let nestedError: unknown
+    bus.subscribe(() => {
+      try {
+        bus.publish({
+          durability: 'ephemeral',
+          occurredAt: '2026-07-18T10:00:01.000Z',
+          workspaceId: 'workspace-1',
+          sessionId: 'session-1',
+          eventId: 'reenter',
+          payload: { type: 'turn_progress', stage: 'nested' }
+        })
+      } catch (error) {
+        nestedError = error
+      }
+    })
+    const outer = bus.publish({
+      durability: 'ephemeral',
+      occurredAt: '2026-07-18T10:00:02.000Z',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      eventId: 'evt-2',
+      payload: { type: 'turn_progress', stage: 'outer' }
+    })
+    expect(outer.eventId).toBe('evt-2')
+    expect(nestedError).toBeInstanceOf(TeachingTurnEventBusReentrancyError)
+    expect(bus.currentSequence()).toBe(2)
+    expect(bus.recentReplay().events.some((event) => event.eventId === 'reenter')).toBe(false)
+
+    // Closed bus rejects with a typed error after terminal.
+    bus.publishTerminal({
+      occurredAt: '2026-07-18T10:00:03.000Z',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      eventId: 'term-close',
+      outcome: 'completed'
+    })
+    expect(() =>
+      bus.publish({
+        durability: 'ephemeral',
+        occurredAt: '2026-07-18T10:00:04.000Z',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        eventId: 'after-close',
+        payload: { type: 'turn_progress', stage: 'late' }
+      })
+    ).toThrow(TeachingTurnEventBusClosedError)
+  })
+
+  it('bounds replay cache by maxReplayBytes', () => {
+    const bus = createTeachingTurnEventBus({ turnId: 'turn-bound', maxReplayBytes: 1500 })
+    for (let i = 0; i < 40; i += 1) {
+      bus.publish({
+        durability: 'ephemeral',
+        occurredAt: '2026-07-18T10:00:00.000Z',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        eventId: `evt-${i}`,
+        payload: { type: 'turn_progress', stage: `s${i}`, message: 'x'.repeat(40) }
+      })
+    }
+    const replay = bus.recentReplay()
+    expect(replay.droppedEvents).toBeGreaterThan(0)
+    expect(replay.events.length).toBeLessThan(40)
+    expect(replay.hasGap).toBe(true)
+  })
+
 })
