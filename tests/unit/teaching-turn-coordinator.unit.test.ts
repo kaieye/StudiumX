@@ -57,62 +57,111 @@ function createPorts(overrides: {
   const snapshot = sessionSnapshot()
   const sessions = new Map<string, LearningSessionSnapshot>()
   sessions.set(snapshot.id, snapshot)
+  /** Authority markers written by default commit mock so H3 reload/verify can pass. */
+  const settlementBySession = new Map<string, NonNullable<OutcomeReconciliation['marker']>>()
   return {
     ledger: {
-      open:
-        overrides.open ??
-        vi.fn(async (input: { sessionId?: string; workspaceId?: string }) => {
-          const opened = sessionSnapshot({
-            id: input.sessionId ?? snapshot.id,
-            workspaceId: input.workspaceId ?? snapshot.workspaceId
-          })
-          sessions.set(opened.id, opened)
+      open: (() => {
+        const defaultOpen = vi.fn(
+          async (input: { sessionId?: string; workspaceId?: string; courseRef?: { courseId: string } }) => {
+            const opened = sessionSnapshot({
+              id: input.sessionId ?? snapshot.id,
+              workspaceId: input.workspaceId ?? snapshot.workspaceId,
+              ...(input.courseRef
+                ? {
+                    courseRef: {
+                      courseId: input.courseRef.courseId,
+                      courseName: 'Course',
+                      relativePath: 'courses/' + input.courseRef.courseId
+                    }
+                  }
+                : {})
+            })
+            sessions.set(opened.id, opened)
+            return opened
+          }
+        )
+        if (!overrides.open) return defaultOpen
+        // Register override open results so post-open authority load is not null by default.
+        return vi.fn(async (...args: unknown[]) => {
+          const opened = await overrides.open!(...args)
+          if (opened && typeof opened === 'object' && 'id' in opened && typeof (opened as { id: unknown }).id === 'string') {
+            sessions.set((opened as LearningSessionSnapshot).id, opened as LearningSessionSnapshot)
+          }
           return opened
-        }),
+        })
+      })(),
       load:
         overrides.load ??
         vi.fn(async (sessionId: string) => {
-          return sessions.get(sessionId) ?? sessionSnapshot({ id: sessionId, workspaceId: snapshot.workspaceId })
+          return sessions.get(sessionId) ?? null
         }),
-      scan: overrides.scan ?? vi.fn(async () => emptyScan(snapshot))
+      scan: overrides.scan ?? vi.fn(async () => emptyScan(sessions.get(snapshot.id) ?? snapshot))
     },
     recorder: {
-      record: overrides.record ?? vi.fn(async (): Promise<EvidenceReceipt> => ({
-        eventId: 'evidence-1',
-        sessionId: 'session-1',
-        sequence: 1,
-        duplicate: false,
-        evidence: {
-          schemaVersion: 1,
-          eventId: 'evidence-1',
-          kind: 'quiz_answered',
-          workspaceId: 'workspace-1',
-          courseId: 'course-1',
-          sessionId: 'session-1',
-          lessonId: 'lesson-1',
-          itemId: 'item-1',
-          attempt: 1,
-          observedAt: '2026-07-18T10:00:00.000Z',
-          artifactDigest: 'a'.repeat(64),
-          surface: 'lesson_preview',
-          selectedOptionIds: ['a'],
-          correct: false,
-          sequence: 1,
-          recordedAt: '2026-07-18T10:00:00.000Z'
+      record: overrides.record ?? vi.fn(async (evidence: { eventId: string; sessionId: string; workspaceId: string; kind: string }): Promise<EvidenceReceipt> => {
+        const existing = sessions.get(evidence.sessionId)
+        const sequence = (existing?.eventCount ?? 0) + 1
+        if (existing) {
+          sessions.set(evidence.sessionId, {
+            ...existing,
+            eventCount: sequence,
+            events: [
+              ...(existing.events ?? []),
+              { eventId: evidence.eventId, sequence } as never
+            ]
+          })
         }
-      }))
+        return {
+          eventId: evidence.eventId,
+          sessionId: evidence.sessionId,
+          sequence,
+          duplicate: false,
+          evidence: {
+            schemaVersion: 1,
+            eventId: evidence.eventId,
+            kind: 'quiz_answered',
+            workspaceId: evidence.workspaceId,
+            courseId: 'course-1',
+            sessionId: evidence.sessionId,
+            lessonId: 'lesson-1',
+            itemId: 'item-1',
+            attempt: 1,
+            observedAt: '2026-07-18T10:00:00.000Z',
+            artifactDigest: 'a'.repeat(64),
+            surface: 'lesson_preview',
+            selectedOptionIds: ['a'],
+            correct: false,
+            sequence,
+            recordedAt: '2026-07-18T10:00:00.000Z'
+          } as EvidenceReceipt['evidence']
+        }
+      })
     },
     committer: {
-      commit: overrides.commit ?? vi.fn(async (): Promise<OutcomeCommitResult> => ({
-        status: 'committed',
-        outcome: { kind: 'needs_practice' },
-        recordSaved: false,
-        catalogRecordPresent: false
-      } as OutcomeCommitResult)),
-      reconcile: overrides.reconcile ?? vi.fn(async (): Promise<OutcomeReconciliation> => ({
-        sessionId: 'session-1',
-        state: 'settled',
-        marker: null,
+      commit: overrides.commit ?? vi.fn(async (request: { sessionId: string }): Promise<OutcomeCommitResult> => {
+        const marker = {
+          schemaVersion: 1 as const,
+          sessionId: request.sessionId,
+          outcomeId: 'outcome-1',
+          operationId: 'op-default',
+          kind: 'needs_practice' as const,
+          evidenceEventIds: ['evidence-1'],
+          evaluatorVersion: 1,
+          record: null
+        }
+        settlementBySession.set(request.sessionId, marker)
+        return {
+          status: 'committed',
+          outcome: { kind: 'needs_practice' },
+          recordSaved: false,
+          catalogRecordPresent: false
+        } as OutcomeCommitResult
+      }),
+      reconcile: overrides.reconcile ?? vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+        sessionId,
+        state: settlementBySession.has(sessionId) ? 'settled' : 'pending',
+        marker: settlementBySession.get(sessionId) ?? null,
         record: null,
         catalogRecordPresent: false,
         diagnostics: []
@@ -272,7 +321,36 @@ describe('TeachingTurnCoordinator', () => {
         }
         return { status: item.status, reason: 'invalid_request' } as OutcomeCommitResult
       })
-      const coordinator = createTeachingTurnCoordinator(createPorts({ commit }))
+      const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => {
+        if (item.status === 'committed' || item.status === 'already_committed') {
+          return {
+            sessionId,
+            state: 'settled',
+            marker: {
+              schemaVersion: 1,
+              sessionId,
+              outcomeId: 'outcome-established',
+              operationId: 'op-commit',
+              kind: 'established',
+              evidenceEventIds: ['evidence-1'],
+              evaluatorVersion: 1,
+              record: { recordId: 'rec-1', relativePath: 'learning-records/rec-1.md', contentSha256: 'a'.repeat(64) }
+            },
+            record: { recordId: 'rec-1', relativePath: 'learning-records/rec-1.md', contentSha256: 'a'.repeat(64) },
+            catalogRecordPresent: true,
+            diagnostics: []
+          }
+        }
+        return {
+          sessionId,
+          state: 'pending',
+          marker: null,
+          record: null,
+          catalogRecordPresent: false,
+          diagnostics: []
+        }
+      })
+      const coordinator = createTeachingTurnCoordinator(createPorts({ commit, reconcile }))
       const result = await coordinator.execute({
         type: 'commit_outcome',
         turnId: `turn-commit-${index}`,
@@ -967,11 +1045,13 @@ describe('TeachingTurnCoordinator', () => {
 
   it('allows same-turn retry after retryable_failure without sticky terminal', async () => {
     let calls = 0
-    const commit = vi.fn(async (): Promise<OutcomeCommitResult> => {
+    let settled = false
+    const commit = vi.fn(async (request: { sessionId: string }): Promise<OutcomeCommitResult> => {
       calls += 1
       if (calls === 1) {
         return { status: 'retryable_failure', reason: 'temporarily_unavailable' } as OutcomeCommitResult
       }
+      settled = true
       return {
         status: 'committed',
         outcome: { kind: 'established' },
@@ -979,7 +1059,26 @@ describe('TeachingTurnCoordinator', () => {
         catalogRecordPresent: true
       } as OutcomeCommitResult
     })
-    const coordinator = createTeachingTurnCoordinator(createPorts({ commit }))
+    const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: settled ? 'settled' : 'pending',
+      marker: settled
+        ? {
+            schemaVersion: 1,
+            sessionId,
+            outcomeId: 'outcome-retry',
+            operationId: 'op-retry-2',
+            kind: 'established',
+            evidenceEventIds: ['evidence-1'],
+            evaluatorVersion: 1,
+            record: null
+          }
+        : null,
+      record: null,
+      catalogRecordPresent: settled,
+      diagnostics: []
+    }))
+    const coordinator = createTeachingTurnCoordinator(createPorts({ commit, reconcile }))
     const first = await coordinator.execute({
       type: 'commit_outcome',
       turnId: 'turn-retry',
@@ -1267,9 +1366,9 @@ describe('TeachingTurnCoordinator', () => {
       order.push('open-exit')
       return sessionSnapshot({ id: 'session-promoted' })
     })
+    // open_session authority-reloads after open; resume also loads. Labels share 'load'.
     const load = vi.fn(async () => {
-      order.push('resume-enter')
-      order.push('resume-exit')
+      order.push('load')
       return sessionSnapshot({ id: 'session-promoted' })
     })
     const coordinator = createTeachingTurnCoordinator(createPorts({ open, load }))
@@ -1298,7 +1397,8 @@ describe('TeachingTurnCoordinator', () => {
     expect(order).toEqual(['open-enter'])
     releaseOpen()
     await Promise.all([pOpen, pResume])
-    expect(order).toEqual(['open-enter', 'open-exit', 'resume-enter', 'resume-exit'])
+    // open port + open authority load complete before resume's load (turn serialization).
+    expect(order).toEqual(['open-enter', 'open-exit', 'load', 'load'])
   })
 
   it('rejects payload workspace/session mismatch and wrong port session identity fail-closed', async () => {
@@ -1806,5 +1906,260 @@ describe('TeachingTurnCoordinator', () => {
     expect(afterTerminal?.terminal?.payload).toMatchObject({ outcome: 'canceled' })
   })
 
-})
 
+  it('round6: H3 mocked-port commit spoof never emits accepted/durable on bus subscribe/replay', async () => {
+    const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+      status: 'committed',
+      outcome: { kind: 'established' },
+      recordSaved: true,
+      catalogRecordPresent: true
+    } as OutcomeCommitResult))
+    // Authority contradicts self-report (no marker / outcome).
+    const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'pending',
+      marker: null,
+      record: null,
+      catalogRecordPresent: false,
+      diagnostics: []
+    }))
+    const ports = createPorts({ commit, reconcile })
+    const coordinator = createTeachingTurnCoordinator(ports)
+    const busSeen: string[] = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-h3-spoof' }, (event) => {
+      busSeen.push(event.payload.type)
+    })
+
+    const result = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-h3-spoof',
+      eventId: 'ev-h3-spoof',
+      operationId: 'op-h3-spoof',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-h3-spoof' }
+    })
+    unsub()
+
+    expect(result.acceptance).toBe('rejected')
+    expect(result.rejectReason).toBe('payload_mismatch')
+    expect(result.events.some((e) => e.payload.type === 'command_accepted')).toBe(false)
+    expect(result.events.some((e) => e.payload.type === 'outcome_committed')).toBe(false)
+    // Bus itself must not carry false accepted/durable events (not only result.events filter).
+    expect(busSeen).not.toContain('command_accepted')
+    expect(busSeen).not.toContain('outcome_committed')
+    const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-h3-spoof' }, 0)
+    expect(replay?.events.some((e) => e.payload.type === 'command_accepted')).toBeFalsy()
+    expect(replay?.events.some((e) => e.payload.type === 'outcome_committed')).toBeFalsy()
+  })
+
+  it('round6: H3 open without client sessionId binds only ledger-proven workspace session', async () => {
+    const open = vi.fn(async () =>
+      sessionSnapshot({ id: 'foreign-session', workspaceId: 'workspace-1', courseRef: {
+        courseId: 'course-OTHER',
+        courseName: 'Other',
+        relativePath: 'courses/other'
+      } })
+    )
+    const load = vi.fn(async (sessionId: string) => {
+      if (sessionId === 'foreign-session') {
+        return sessionSnapshot({
+          id: 'foreign-session',
+          workspaceId: 'workspace-1',
+          courseRef: { courseId: 'course-OTHER', courseName: 'Other', relativePath: 'courses/other' }
+        })
+      }
+      return null
+    })
+    const coordinator = createTeachingTurnCoordinator(createPorts({ open, load }))
+    const busSeen: string[] = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-h3-open' }, (e) => {
+      busSeen.push(e.payload.type)
+    })
+    const result = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-h3-open',
+      eventId: 'ev-h3-open',
+      operationId: 'op-h3-open',
+      workspaceId: 'workspace-1',
+      open: {
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+    unsub()
+    expect(result.acceptance).toBe('rejected')
+    expect(result.rejectReason).toBe('payload_mismatch')
+    expect(busSeen).not.toContain('command_accepted')
+    expect(busSeen).not.toContain('session_opened')
+  })
+
+  it('round6: H3 malformed record receipt never emits accepted/durable on bus', async () => {
+    const record = vi.fn(async () => ({
+      eventId: 'spoofed-event',
+      sessionId: 'session-1',
+      sequence: 1,
+      duplicate: false,
+      evidence: {
+        schemaVersion: 1,
+        eventId: 'evidence-1',
+        kind: 'quiz_answered',
+        workspaceId: 'workspace-1',
+        courseId: 'course-1',
+        sessionId: 'session-1',
+        lessonId: 'lesson-1',
+        itemId: 'item-1',
+        attempt: 1,
+        observedAt: '2026-07-18T10:00:00.000Z',
+        artifactDigest: 'a'.repeat(64),
+        surface: 'lesson_preview',
+        selectedOptionIds: ['a'],
+        correct: false,
+        sequence: 1,
+        recordedAt: '2026-07-18T10:00:00.000Z'
+      }
+    }))
+    const coordinator = createTeachingTurnCoordinator(createPorts({ record }))
+    const busSeen: string[] = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-h3-rec' }, (e) => {
+      busSeen.push(e.payload.type)
+    })
+    const result = await coordinator.execute({
+      type: 'record_evidence',
+      turnId: 'turn-h3-rec',
+      eventId: 'ev-h3-rec',
+      operationId: 'op-h3-rec',
+      workspaceId: 'workspace-1',
+      evidence: {
+        schemaVersion: 1,
+        eventId: 'evidence-1',
+        kind: 'quiz_answered',
+        workspaceId: 'workspace-1',
+        courseId: 'course-1',
+        sessionId: 'session-1',
+        lessonId: 'lesson-1',
+        itemId: 'item-1',
+        attempt: 1,
+        observedAt: '2026-07-18T10:00:00.000Z',
+        artifactDigest: 'a'.repeat(64),
+        surface: 'lesson_preview',
+        selectedOptionIds: ['a'],
+        correct: false
+      }
+    })
+    unsub()
+    expect(result.acceptance).toBe('rejected')
+    expect(busSeen).not.toContain('command_accepted')
+    expect(busSeen).not.toContain('evidence_recorded')
+  })
+
+  it('round6: cancel not_found is payload_mismatch without accepted terminal', async () => {
+    const load = vi.fn(async () => null)
+    const coordinator = createTeachingTurnCoordinator(createPorts({ load }))
+    const busSeen: string[] = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-cancel-nf' }, (e) => {
+      busSeen.push(e.payload.type)
+    })
+    const result = await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-cancel-nf',
+      eventId: 'ev-cancel-nf',
+      operationId: 'op-cancel-nf',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-missing',
+      reasonCode: 'user_cancel'
+    })
+    unsub()
+    expect(result.acceptance).toBe('rejected')
+    expect(result.rejectReason).toBe('payload_mismatch')
+    expect(busSeen).not.toContain('command_accepted')
+    expect(busSeen).not.toContain('turn_terminal')
+  })
+
+  it('round6: closed live late subscribe delivers terminal isomorphic with archive', async () => {
+    const coordinator = createTeachingTurnCoordinator({
+      ...createPorts(),
+      maxOperations: 32,
+      maxEventIds: 32,
+      maxBuses: 2
+    })
+    await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-late-live',
+      eventId: 'ev-late-live',
+      operationId: 'op-late-live',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      reasonCode: 'user_cancel'
+    })
+    // Fill capacity to force reclaim of closed live bus into archive path coverage.
+    await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-late-fill',
+      eventId: 'ev-late-fill',
+      operationId: 'op-late-fill',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      reasonCode: 'user_cancel'
+    })
+    await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-late-active',
+      eventId: 'ev-late-active',
+      operationId: 'op-late-active',
+      workspaceId: 'workspace-1',
+      open: {
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+
+    const lateSeen: string[] = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-late-live' }, (e) => {
+      lateSeen.push(e.payload.type)
+    })
+    await new Promise((r) => setTimeout(r, 20))
+    unsub()
+    expect(lateSeen).toContain('turn_terminal')
+  })
+
+  it('round6: operation_in_flight is observable and settles to duplicate after commit', async () => {
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const open = vi.fn(async (input: { sessionId?: string; workspaceId?: string }) => {
+      await gate
+      return sessionSnapshot({
+        id: input.sessionId ?? 'session-1',
+        workspaceId: input.workspaceId ?? 'workspace-1'
+      })
+    })
+    const load = vi.fn(async (sessionId: string) =>
+      sessionSnapshot({ id: sessionId, workspaceId: 'workspace-1' })
+    )
+    const coordinator = createTeachingTurnCoordinator(createPorts({ open, load }))
+    const command = {
+      type: 'open_session' as const,
+      turnId: 'turn-inflight',
+      eventId: 'ev-inflight',
+      operationId: 'op-inflight',
+      workspaceId: 'workspace-1',
+      open: {
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    }
+    const firstPromise = coordinator.execute(command)
+    await new Promise((r) => setTimeout(r, 15))
+    const inFlight = await coordinator.execute(command)
+    expect(inFlight.acceptance).toBe('rejected')
+    expect(inFlight.rejectReason).toBe('operation_in_flight')
+    release?.()
+    const first = await firstPromise
+    expect(first.acceptance).toBe('accepted')
+    const after = await coordinator.execute(command)
+    expect(after.acceptance).toBe('duplicate')
+  })
+})

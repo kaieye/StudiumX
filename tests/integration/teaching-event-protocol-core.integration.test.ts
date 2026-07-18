@@ -198,5 +198,195 @@ describe('teaching-event-protocol-core filesystem integration', () => {
     expect(afterTerminal.acceptance).toBe('rejected')
     expect(afterTerminal.rejectReason).toBe('already_terminal')
   })
-})
 
+  it('round6 multi-session: project_snapshot for older A is not polluted by newer B', async () => {
+    const workspaceRoot = await createWorkspace()
+    let clock = 0
+    const now = () => {
+      clock += 1
+      return new Date(Date.UTC(2026, 6, 18, 12, 0, clock)).toISOString().replace(/\.\d{3}Z$/, '.000Z')
+    }
+    let idSeq = 0
+    const createId = () => {
+      idSeq += 1
+      return idSeq === 1 ? 'session-a-old' : 'session-b-new'
+    }
+
+    const ledger = createLearningSessionLedger({ workspaceRoot, now, createId })
+    const recorder = createLessonInteractionRecorder({ ledger })
+    const committer = createLearningOutcomeCommitter({ workspaceRoot, ledger, now })
+    const planner = createNextTeachingStepPlanner()
+    const coordinator = createTeachingTurnCoordinator({
+      ledger,
+      recorder,
+      committer,
+      planner,
+      factSource: { ledger, workspaceRoot, committer },
+      now
+    })
+
+    const openA = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-a',
+      eventId: 'ev-open-a',
+      operationId: 'op-open-a',
+      workspaceId: 'workspace-protocol',
+      open: {
+        sessionId: 'session-a-old',
+        workspaceId: 'workspace-protocol',
+        courseRef: {
+          courseId: 'course-protocol',
+          courseName: 'Protocol Course',
+          relativePath: 'courses/protocol'
+        },
+        lessonRef: {
+          lessonId: 'lesson-a',
+          title: 'Lesson A',
+          relativePath: 'courses/protocol/lesson-a.html'
+        }
+      }
+    })
+    expect(openA.acceptance).toBe('accepted')
+    expect(openA.sessionId).toBe('session-a-old')
+
+    await coordinator.execute({
+      type: 'record_evidence',
+      turnId: 'turn-a',
+      eventId: 'ev-evidence-a',
+      operationId: 'op-evidence-a',
+      workspaceId: 'workspace-protocol',
+      evidence: {
+        schemaVersion: 1,
+        eventId: 'evidence-A-1',
+        kind: 'lesson_opened',
+        workspaceId: 'workspace-protocol',
+        courseId: 'course-protocol',
+        sessionId: 'session-a-old',
+        lessonId: 'lesson-a',
+        itemId: 'item-a',
+        attempt: 1,
+        observedAt: '2026-07-18T12:00:10.000Z',
+        artifactDigest: 'a'.repeat(64),
+        surface: 'lesson_preview'
+      }
+    })
+
+    const openB = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-b',
+      eventId: 'ev-open-b',
+      operationId: 'op-open-b',
+      workspaceId: 'workspace-protocol',
+      open: {
+        sessionId: 'session-b-new',
+        workspaceId: 'workspace-protocol',
+        courseRef: {
+          courseId: 'course-protocol',
+          courseName: 'Protocol Course',
+          relativePath: 'courses/protocol'
+        },
+        lessonRef: {
+          lessonId: 'lesson-b',
+          title: 'Lesson B',
+          relativePath: 'courses/protocol/lesson-b.html'
+        }
+      }
+    })
+    expect(openB.acceptance).toBe('accepted')
+    expect(openB.sessionId).toBe('session-b-new')
+
+    // Record more activity on B so it is clearly the scan-latest session.
+    await coordinator.execute({
+      type: 'record_evidence',
+      turnId: 'turn-b',
+      eventId: 'ev-evidence-b1',
+      operationId: 'op-evidence-b1',
+      workspaceId: 'workspace-protocol',
+      evidence: {
+        schemaVersion: 1,
+        eventId: 'evidence-B-1',
+        kind: 'lesson_opened',
+        workspaceId: 'workspace-protocol',
+        courseId: 'course-protocol',
+        sessionId: 'session-b-new',
+        lessonId: 'lesson-b',
+        itemId: 'item-b1',
+        attempt: 1,
+        observedAt: '2026-07-18T12:00:20.000Z',
+        artifactDigest: 'b'.repeat(64),
+        surface: 'lesson_preview'
+      }
+    })
+    await coordinator.execute({
+      type: 'record_evidence',
+      turnId: 'turn-b',
+      eventId: 'ev-evidence-b2',
+      operationId: 'op-evidence-b2',
+      workspaceId: 'workspace-protocol',
+      evidence: {
+        schemaVersion: 1,
+        eventId: 'evidence-B-2',
+        kind: 'quiz_answered',
+        workspaceId: 'workspace-protocol',
+        courseId: 'course-protocol',
+        sessionId: 'session-b-new',
+        lessonId: 'lesson-b',
+        itemId: 'item-b2',
+        attempt: 1,
+        observedAt: '2026-07-18T12:00:21.000Z',
+        artifactDigest: 'c'.repeat(64),
+        surface: 'lesson_preview',
+        selectedOptionIds: ['x'],
+        correct: false
+      }
+    })
+
+    const loadedLatest = await loadTeachingLoopFactSource(
+      { ledger, workspaceRoot, committer },
+      {
+        mission: { id: 'mission-1', nextGoal: 'available' },
+        course: { id: 'course-protocol' },
+        resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['resource-1'] }
+      }
+    )
+    expect(loadedLatest.facts.latestSession?.id).toBe('session-b-new')
+
+    const projectA = await coordinator.execute({
+      type: 'project_snapshot',
+      turnId: 'turn-project-a',
+      eventId: 'ev-project-a',
+      operationId: 'op-project-a',
+      workspaceId: 'workspace-protocol',
+      factInput: {
+        mission: { id: 'mission-1', nextGoal: 'available' },
+        course: { id: 'course-protocol' },
+        resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['resource-1'] },
+        sessionId: 'session-a-old'
+      }
+    })
+    expect(projectA.acceptance).toBe('accepted')
+    expect(projectA.sessionId).toBe('session-a-old')
+    // H1: facts, safeProjection, planner inputs, and envelopes all pin A (not scan-latest B).
+    expect(projectA.facts?.latestSession?.id).toBe('session-a-old')
+    expect(projectA.facts?.latestSession?.eventCount).toBe(1)
+    expect(loadedLatest.facts.latestSession?.eventCount).toBeGreaterThan(
+      projectA.facts?.latestSession?.eventCount ?? 0
+    )
+    expect(projectA.snapshot?.safeProjection.session?.id).toBe('session-a-old')
+    expect(projectA.snapshot?.safeProjection.session?.id).not.toBe('session-b-new')
+    expect(projectA.snapshot?.safeProjection.courseId).toBe('course-protocol')
+    const loopA = projectA.events.find((e) => e.payload.type === 'loop_snapshot')
+    expect(loopA?.payload).toMatchObject({ type: 'loop_snapshot', sessionId: 'session-a-old' })
+    expect(loopA?.sessionId).toBe('session-a-old')
+    expect(projectA.nextStep).toBeDefined()
+    expect(projectA.nextStep?.safeInputSummary.latestSession.id).toBe('session-a-old')
+    expect(projectA.nextStep?.action).toEqual(expect.any(String))
+    expect(projectA.nextStep?.reason).toEqual(expect.any(String))
+    // Envelope identity must stay on A — never B.
+    for (const event of projectA.events) {
+      expect(event.sessionId).toBe('session-a-old')
+      expect(event.sessionId).not.toBe('session-b-new')
+    }
+  })
+
+})

@@ -38,9 +38,15 @@
  *   release the reservation.
  * - When capacity is exhausted, reject before any command side effects.
  * - Post-port identity mismatch (H3/M3): port may already have run (cannot roll
- *   back); bus must NOT emit command_accepted; reservation is committed to the
- *   deterministic rejection so duplicate replay is stable and the port is not
- *   re-invoked. Capacity slots stay occupied by that committed reject record.
+ *   back side effects safely); bus must NOT emit command_accepted or durable
+ *   domain events; reservation is committed to the deterministic rejection so
+ *   duplicate replay is stable and the port is not re-invoked. Capacity slots
+ *   stay occupied by that committed reject record (no silent reservation release
+ *   after mutator ports — concurrent capacity remains correct under replay).
+ * - operation_in_flight (M2): concurrent same fingerprint while reserved rejects
+ *   with rejectReason=operation_in_flight (no wait-for-duplicate). Client should
+ *   retry after the in-flight command settles; settled matching fingerprint then
+ *   returns acceptance=duplicate with the committed result.
  * - Existing-session commands ledger.load and verify workspace/session identity
  *   before any mutator port (record/commit/reconcile/planner/assembler).
  *   Cross-workspace inputs yield zero mutator calls and zero command_accepted.
@@ -92,7 +98,7 @@ import {
   type TeachingTurnTerminalReasonCode
 } from '../shared/teaching-events'
 import type { LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
-import type { TeachingLoopSnapshot } from '../shared/teaching-types/teaching-loop'
+import type { TeachingLoopFacts, TeachingLoopSnapshot } from '../shared/teaching-types/teaching-loop'
 import type { NextTeachingStepDecision } from '../shared/teaching-types/next-teaching-step'
 import type { TeachingContextAssembly } from './teaching-context-assembler'
 
@@ -145,6 +151,8 @@ export type TeachingTurnExecuteResult = {
   acceptance: TeachingTurnAcceptance
   rejectReason?: TeachingTurnRejectReason
   snapshot?: TeachingLoopSnapshot
+  /** Pure loop facts for project_snapshot (command-scoped session pin). */
+  facts?: TeachingLoopFacts
   nextStep?: NextTeachingStepDecision
   context?: TeachingContextAssembly
   commitResult?: OutcomeCommitResult
@@ -233,25 +241,21 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     const key = scopeKey(scope.workspaceId, scope.turnId)
     const existingBus = this.buses.get(key)
     if (existingBus) {
+      // M5: closed live bus late-subscribe is isomorphic with closed archive —
+      // deliver sticky terminal immediately; do not reopen or wait for future events.
+      if (existingBus.isClosed()) {
+        const terminal = existingBus.terminal()
+        if (terminal) {
+          return deliverLateClosedTerminal(listener, terminal)
+        }
+      }
       return existingBus.subscribe(listener)
     }
 
     // Closed archive: deliver sticky terminal immediately without reopening a live bus.
     const archived = this.closedTurnArchives.get(key)
     if (archived) {
-      let active = true
-      const terminal = cloneEnvelope(archived.terminal)
-      queueMicrotask(() => {
-        if (!active) return
-        try {
-          listener(terminal)
-        } catch {
-          // Isolate subscriber failures.
-        }
-      })
-      return () => {
-        active = false
-      }
+      return deliverLateClosedTerminal(listener, archived.terminal)
     }
 
     const pending: PendingSubscription = { listener, attachedUnsub: null }
@@ -558,43 +562,55 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     collected: TeachingEventEnvelope[],
     admittedSessionId: string
   ): Promise<TeachingTurnExecuteResult> {
-    const snapshot = await this.ports.ledger.open(command.open)
-    // Port already called — cannot roll back. Must not announce command_accepted on mismatch (H3).
-    if (
-      snapshot.workspaceId !== command.workspaceId ||
-      (command.open.sessionId && snapshot.id !== command.open.sessionId)
-    ) {
-      return {
-        turnId: command.turnId,
-        sessionId: admittedSessionId,
-        events: [...collected],
-        terminal: bus.terminal(),
-        acceptance: 'rejected',
-        rejectReason: 'payload_mismatch'
-      }
+    const opened = await this.ports.ledger.open(command.open)
+    // Port already called — cannot roll back. Never announce command_accepted on mismatch (H3).
+    // Authority: re-load from ledger; do not bind port self-report alone (esp. no client sessionId).
+    if (!opened || typeof opened !== 'object') {
+      return this.portIdentityReject(command, bus, collected, admittedSessionId)
+    }
+    if (!isNonEmptyId(opened.id) || opened.workspaceId !== command.workspaceId) {
+      return this.portIdentityReject(command, bus, collected, admittedSessionId)
+    }
+    if (command.open.sessionId && opened.id !== command.open.sessionId) {
+      return this.portIdentityReject(command, bus, collected, admittedSessionId)
     }
 
-    this.emitAccepted(bus, command, snapshot.id)
+    const loaded = await this.ports.ledger.load(opened.id)
+    if (
+      !loaded ||
+      loaded.id !== opened.id ||
+      loaded.workspaceId !== command.workspaceId ||
+      (command.open.sessionId && loaded.id !== command.open.sessionId)
+    ) {
+      return this.portIdentityReject(command, bus, collected, admittedSessionId)
+    }
+    // Creation-semantics bind: open courseRef must match authoritative session course.
+    if (loaded.courseRef?.courseId !== command.open.courseRef.courseId) {
+      return this.portIdentityReject(command, bus, collected, admittedSessionId)
+    }
+
+    const sessionId = loaded.id
+    this.emitAccepted(bus, command, sessionId)
     this.emit(bus, {
       durability: 'durable',
       occurredAt: this.now(),
       workspaceId: command.workspaceId,
-      sessionId: snapshot.id,
+      sessionId,
       turnId: command.turnId,
       eventId: command.eventId,
       operationId: command.operationId,
       payload: {
         type: 'session_opened',
-        sessionId: snapshot.id,
-        courseId: snapshot.courseRef.courseId,
-        status: snapshot.status === 'completed' ? 'completed' : 'active',
-        source: snapshot.source
+        sessionId,
+        courseId: loaded.courseRef.courseId,
+        status: loaded.status === 'completed' ? 'completed' : 'active',
+        source: loaded.source
       }
     })
-    this.emitProgress(bus, command, snapshot.id, 'session_opened')
+    this.emitProgress(bus, command, sessionId, 'session_opened')
     return {
       turnId: command.turnId,
-      sessionId: snapshot.id,
+      sessionId,
       events: [...collected],
       terminal: bus.terminal(),
       acceptance: 'accepted'
@@ -673,17 +689,40 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       }
     }
 
-    const receipt = await this.ports.recorder.record(command.evidence)
-    if (receipt.sessionId !== command.evidence.sessionId) {
-      return {
-        turnId: command.turnId,
-        sessionId: command.evidence.sessionId,
-        events: [...collected],
-        terminal: bus.terminal(),
-        acceptance: 'rejected',
-        rejectReason: 'payload_mismatch'
-      }
+    const receiptRaw = await this.ports.recorder.record(command.evidence)
+    const receipt = parseEvidenceReceipt(receiptRaw)
+    if (!receipt) {
+      return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
     }
+    // Full receipt identity vs request/evidence and authoritative session state (H3).
+    if (
+      receipt.sessionId !== command.evidence.sessionId ||
+      receipt.evidence.sessionId !== command.evidence.sessionId ||
+      receipt.evidence.workspaceId !== command.workspaceId ||
+      receipt.evidence.eventId !== command.evidence.eventId ||
+      receipt.eventId !== command.evidence.eventId ||
+      typeof receipt.sequence !== 'number' ||
+      !Number.isInteger(receipt.sequence) ||
+      receipt.sequence < 1 ||
+      typeof receipt.duplicate !== 'boolean'
+    ) {
+      return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
+    }
+
+    const authoritative = await this.ports.ledger.load(command.evidence.sessionId)
+    if (
+      !authoritative ||
+      authoritative.id !== command.evidence.sessionId ||
+      authoritative.workspaceId !== command.workspaceId
+    ) {
+      return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
+    }
+    // Prefer durable ledger sequence when the event is visible; fail-closed on conflict.
+    const ledgerEvent = authoritative.events?.find((event) => event.eventId === receipt.eventId)
+    if (ledgerEvent && typeof ledgerEvent.sequence === 'number' && ledgerEvent.sequence !== receipt.sequence) {
+      return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
+    }
+
     this.emitAccepted(bus, command, receipt.sessionId)
     this.emit(bus, {
       durability: 'durable',
@@ -746,8 +785,18 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       }
     }
 
-    const commitResult = await this.ports.committer.commit(command.request)
     const sessionId = command.request.sessionId
+    const commitRaw = await this.ports.committer.commit(command.request)
+    // H3: never trust self-report alone — strict parse then authority reload/verify.
+    const commitResult = parseOutcomeCommitResult(commitRaw)
+    if (!commitResult) {
+      return this.portIdentityReject(command, bus, collected, sessionId)
+    }
+    const authorityOk = await this.verifyCommitAgainstAuthority(command.workspaceId, sessionId, commitResult)
+    if (!authorityOk) {
+      return this.portIdentityReject(command, bus, collected, sessionId)
+    }
+
     this.emitAccepted(bus, command, sessionId)
 
     if (commitResult.status === 'committed' || commitResult.status === 'already_committed') {
@@ -767,7 +816,8 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         }
       })
     } else if (commitResult.status === 'insufficient_evidence') {
-      const durability = 'recordSaved' in commitResult && commitResult.recordSaved ? 'durable' : 'ephemeral'
+      const durability =
+        'recordSaved' in commitResult && commitResult.recordSaved === true ? 'durable' : 'ephemeral'
       this.emit(bus, {
         durability,
         occurredAt: this.now(),
@@ -891,7 +941,24 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       ledger: this.ports.ledger,
       committer: this.ports.committer
     }
+    // factInput.sessionId selects command-scoped projection (not scan-latest).
     const loaded = await loadTeachingLoopFactSource(factPorts, command.factInput)
+
+    // H1: projection/settlement/planner/safeProjection must bind the explicit session.
+    // No cosmetic post-hoc id rewrite — reject when authority projection diverges.
+    const projectedSessionId = loaded.snapshot.safeProjection.session?.id ?? null
+    if (projectedSessionId !== sessionId) {
+      return this.portIdentityReject(command, bus, collected, sessionId)
+    }
+    if (loaded.facts.latestSession?.id !== sessionId) {
+      return this.portIdentityReject(command, bus, collected, sessionId)
+    }
+    if (loaded.source.selectedSessionId !== sessionId) {
+      return this.portIdentityReject(command, bus, collected, sessionId)
+    }
+    if (loaded.source.settlement && loaded.source.settlement.sessionId !== sessionId) {
+      return this.portIdentityReject(command, bus, collected, sessionId)
+    }
 
     this.emitAccepted(bus, command, sessionId)
     this.emit(bus, {
@@ -906,7 +973,7 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         type: 'loop_snapshot',
         identity: loaded.snapshot.identity,
         displayState: loaded.snapshot.displayState,
-        sessionId: loaded.snapshot.safeProjection.session?.id ?? null,
+        sessionId,
         outcomeStatus: loaded.snapshot.safeProjection.outcome.status,
         integrityCodes: loaded.snapshot.safeProjection.integrityCodes
       }
@@ -929,9 +996,8 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       })
     }
 
-    // Bind latestSession.id to command.sessionId (factInput.sessionId) for planner-shaped decision.
     let nextStep: NextTeachingStepDecision | undefined
-    if (loaded.snapshot.nextStep) {
+    if (loaded.snapshot.nextStep && loaded.snapshot.safeProjection.session) {
       nextStep = {
         schemaVersion: 1,
         action: loaded.snapshot.nextStep.action,
@@ -940,9 +1006,9 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
           missionId: loaded.snapshot.safeProjection.missionId,
           courseId: loaded.snapshot.safeProjection.courseId,
           latestSession: {
-            id: sessionId,
-            source: loaded.snapshot.safeProjection.session?.source ?? 'canonical',
-            readOnly: loaded.snapshot.safeProjection.session?.readOnly ?? false
+            id: loaded.snapshot.safeProjection.session.id,
+            source: loaded.snapshot.safeProjection.session.source,
+            readOnly: loaded.snapshot.safeProjection.session.readOnly
           },
           durableOutcome: {
             status: loaded.snapshot.safeProjection.outcome.status,
@@ -971,7 +1037,7 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
           },
           course: { id: loaded.snapshot.safeProjection.courseId },
           currentSession: {
-            id: sessionId,
+            id: loaded.snapshot.safeProjection.session.id,
             source: loaded.snapshot.safeProjection.session.source,
             readOnly: loaded.snapshot.safeProjection.session.readOnly
           },
@@ -994,6 +1060,7 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       terminal: bus.terminal(),
       acceptance: 'accepted',
       snapshot: loaded.snapshot,
+      facts: loaded.facts,
       nextStep,
       context
     }
@@ -1060,8 +1127,10 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     bus: TeachingTurnEventBus,
     collected: TeachingEventEnvelope[]
   ): Promise<TeachingTurnExecuteResult> {
+    // Medium: cancel requires workspace/session identity (not_found and mismatch both fail-closed).
+    // Cancel must not invent accepted/canceled for a foreign or unknown session identity.
     const preflight = await this.preflightExistingSession(command.workspaceId, command.sessionId)
-    if (preflight.kind === 'mismatch') {
+    if (preflight.kind === 'mismatch' || preflight.kind === 'not_found') {
       return {
         turnId: command.turnId,
         sessionId: command.sessionId,
@@ -1114,7 +1183,11 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     const reasonCode: TeachingTurnTerminalReasonCode = interrupt ? 'port_interrupted' : 'port_failed'
     const stage = interrupt ? 'port_interrupted' : 'port_failed'
 
-    // Intermediate recoverable failures must not sticky-close the multi-command turn.
+    // Port-failure acceptance semantics (Medium):
+    // - Intermediate commands: accepted progress without sticky terminal and without
+    //   command_accepted (port never completed successfully). Caller may retry.
+    // - Finalization (commit/cancel): accepted with sticky terminal failed/interrupted.
+    //   No command_accepted; reservation commits so duplicate fingerprint is stable.
     if (!FINALIZATION_COMMANDS.has(command.type) && !bus.terminal()) {
       this.emitProgress(bus, command, sessionId, stage, reasonCode)
       return {
@@ -1142,6 +1215,92 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       terminal: bus.terminal(),
       acceptance: 'accepted'
     }
+  }
+
+  /**
+   * H3 helper: port/identity verification failed after a port may have run.
+   * Never emits command_accepted or durable domain events. Reservation is
+   * committed by the outer execute path (cannot safely roll back side effects).
+   */
+  private portIdentityReject(
+    command: TeachingTurnCommand,
+    bus: TeachingTurnEventBus,
+    collected: TeachingEventEnvelope[],
+    sessionId: string
+  ): TeachingTurnExecuteResult {
+    return {
+      turnId: command.turnId,
+      sessionId,
+      events: [...collected],
+      terminal: bus.terminal(),
+      acceptance: 'rejected',
+      rejectReason: 'payload_mismatch'
+    }
+  }
+
+  /**
+   * Verify commit self-report against ledger + settlement authority (H3).
+   */
+  private async verifyCommitAgainstAuthority(
+    workspaceId: string,
+    sessionId: string,
+    commitResult: OutcomeCommitResult
+  ): Promise<boolean> {
+    const loaded = await this.ports.ledger.load(sessionId)
+    if (!loaded || loaded.id !== sessionId || loaded.workspaceId !== workspaceId) {
+      return false
+    }
+
+    if (commitResult.status === 'committed' || commitResult.status === 'already_committed') {
+      const recon = await this.ports.committer.reconcile(sessionId)
+      const marker = recon.marker
+      const outcomeRef = loaded.outcomeRef
+
+      if (marker) {
+        if (marker.sessionId !== sessionId) return false
+        if (marker.kind !== commitResult.outcome.kind) return false
+      }
+      if (outcomeRef) {
+        if (outcomeRef.kind !== commitResult.outcome.kind) return false
+      }
+
+      // recordSaved claims a durable record; require marker or outcomeRef authority.
+      if (commitResult.recordSaved === true && !marker && !outcomeRef) {
+        return false
+      }
+
+      // Terminal established/misconception_corrected should appear on ledger or marker.
+      if (
+        (commitResult.outcome.kind === 'established' ||
+          commitResult.outcome.kind === 'misconception_corrected') &&
+        !marker &&
+        !outcomeRef
+      ) {
+        return false
+      }
+
+      // already_committed without any authority is not trustworthy.
+      if (commitResult.status === 'already_committed' && !marker && !outcomeRef) {
+        return false
+      }
+
+      return true
+    }
+
+    if (commitResult.status === 'insufficient_evidence') {
+      // Must not claim a trusted terminal outcome on ledger for this path.
+      if (
+        loaded.outcomeRef &&
+        (loaded.outcomeRef.kind === 'established' ||
+          loaded.outcomeRef.kind === 'misconception_corrected')
+      ) {
+        return false
+      }
+      return true
+    }
+
+    // conflict / retryable / non_retryable: structural parse is enough; no durable success emit.
+    return true
   }
 
   private rejectResult(
@@ -1497,6 +1656,121 @@ function validatePortResultIdentity(
     }
   }
   return { ok: true }
+}
+
+function deliverLateClosedTerminal(
+  listener: (event: TeachingEventEnvelope) => void,
+  terminal: TeachingEventEnvelope
+): () => void {
+  let active = true
+  const cloned = cloneEnvelope(terminal)
+  queueMicrotask(() => {
+    if (!active) return
+    try {
+      listener(cloned)
+    } catch {
+      // Isolate subscriber failures.
+    }
+  })
+  return () => {
+    active = false
+  }
+}
+
+const COMMIT_STATUSES = new Set([
+  'committed',
+  'already_committed',
+  'insufficient_evidence',
+  'conflict',
+  'retryable_failure',
+  'non_retryable_failure'
+])
+
+const TRUSTED_COMMIT_KINDS = new Set(['established', 'misconception_corrected', 'needs_practice'])
+
+/**
+ * Strict runtime parse of OutcomeCommitResult. Unknown shapes never reach bus emit.
+ */
+function parseOutcomeCommitResult(value: unknown): OutcomeCommitResult | null {
+  if (!isPlainObject(value) || typeof value.status !== 'string' || !COMMIT_STATUSES.has(value.status)) {
+    return null
+  }
+  if (value.status === 'committed' || value.status === 'already_committed') {
+    if (!isPlainObject(value.outcome) || !TRUSTED_COMMIT_KINDS.has(String(value.outcome.kind))) {
+      return null
+    }
+    if (typeof value.recordSaved !== 'boolean') return null
+    const result = {
+      status: value.status,
+      outcome: { kind: value.outcome.kind },
+      recordSaved: value.recordSaved,
+      catalogRecordPresent: typeof value.catalogRecordPresent === 'boolean' ? value.catalogRecordPresent : false
+    } as OutcomeCommitResult
+    return result
+  }
+  if (value.status === 'insufficient_evidence') {
+    if (value.reason !== undefined && value.reason !== 'not_evidenced') return null
+    return {
+      status: 'insufficient_evidence',
+      reason: 'not_evidenced',
+      ...(typeof value.recordSaved === 'boolean' ? { recordSaved: value.recordSaved } : {})
+    } as OutcomeCommitResult
+  }
+  if (value.status === 'conflict') {
+    return { status: 'conflict', reason: 'review_required' }
+  }
+  if (value.status === 'retryable_failure') {
+    if (value.reason !== 'reconciliation_required' && value.reason !== 'temporarily_unavailable') {
+      return null
+    }
+    return { status: 'retryable_failure', reason: value.reason }
+  }
+  if (value.status === 'non_retryable_failure') {
+    if (
+      value.reason !== 'invalid_session' &&
+      value.reason !== 'invalid_request' &&
+      value.reason !== 'read_only' &&
+      value.reason !== 'not_found'
+    ) {
+      return null
+    }
+    return { status: 'non_retryable_failure', reason: value.reason }
+  }
+  return null
+}
+
+function parseEvidenceReceipt(value: unknown): {
+  eventId: string
+  sessionId: string
+  sequence: number
+  duplicate: boolean
+  evidence: { eventId: string; sessionId: string; workspaceId: string }
+} | null {
+  if (!isPlainObject(value)) return null
+  if (!isNonEmptyId(value.eventId) || !isNonEmptyId(value.sessionId)) return null
+  if (typeof value.sequence !== 'number' || !Number.isInteger(value.sequence) || value.sequence < 1) {
+    return null
+  }
+  if (typeof value.duplicate !== 'boolean') return null
+  if (!isPlainObject(value.evidence)) return null
+  if (
+    !isNonEmptyId(value.evidence.eventId) ||
+    !isNonEmptyId(value.evidence.sessionId) ||
+    !isNonEmptyId(value.evidence.workspaceId)
+  ) {
+    return null
+  }
+  return {
+    eventId: value.eventId,
+    sessionId: value.sessionId,
+    sequence: value.sequence,
+    duplicate: value.duplicate,
+    evidence: {
+      eventId: value.evidence.eventId,
+      sessionId: value.evidence.sessionId,
+      workspaceId: value.evidence.workspaceId
+    }
+  }
 }
 
 function isNonEmptyId(value: unknown): value is string {

@@ -50,22 +50,33 @@ export type TeachingLoopFactSource = {
   sessions: LearningSessionScanResult
   resources: TeachingLoopResourceInput
   /**
-   * Settlement for the selected latest session only, when callers already read
+   * Settlement for the selected session only, when callers already read
    * outcome-settlement.json. Unknown/invalid markers must be omitted by the caller
    * and reported via integrity instead.
    */
   settlement?: TeachingLoopSettlementInput | null
+  /**
+   * When set, project facts for this session only (command-scoped / explicit
+   * sessionId). When omitted, prefer most recently updated canonical session
+   * (scan-latest). Settlement must target the same selected session.
+   */
+  selectedSessionId?: string
 }
 
 /**
  * Projects durable ledger/scan facts into the pure TeachingLoopFacts shape.
- * Latest session selection is deterministic: prefer the most recently updated
- * canonical session, then fall back to id order for ties; legacy is used only
- * when no canonical session exists.
+ *
+ * Session selection:
+ * - selectedSessionId present: bind that exact session from the scan (fail-closed
+ *   to null when absent — never silently fall back to scan-latest).
+ * - selectedSessionId absent: prefer most recently updated canonical session,
+ *   then fall back to id order for ties; legacy only when no canonical exists.
  */
 export function buildTeachingLoopFacts(source: TeachingLoopFactSource): TeachingLoopFacts {
   const integrityCodes = integrityFromScan(source.sessions)
-  const latestSession = selectLatestSession(source.sessions)
+  const latestSession = source.selectedSessionId
+    ? selectScopedSession(source.sessions, source.selectedSessionId)
+    : selectLatestSession(source.sessions)
   const { durableOutcome, evidence, outcomeIntegrity } = projectOutcome(latestSession, source.settlement ?? null)
 
   return {
@@ -96,6 +107,18 @@ export function buildTeachingLoopFacts(source: TeachingLoopFactSource): Teaching
       codes: stableCodes([...integrityCodes, ...outcomeIntegrity])
     }
   }
+}
+
+function selectScopedSession(
+  scan: LearningSessionScanResult,
+  sessionId: string
+): LearningSessionSnapshot | null {
+  const canonical = scan.canonicalSessions.find((session) => session.id === sessionId)
+  if (canonical) return canonical
+  const legacy = scan.legacySessions.find((session) => session.id === sessionId)
+  if (legacy) return legacy
+  // Prefer typed partitions; fall back to full sessions list for partial scans.
+  return scan.sessions.find((session) => session.id === sessionId) ?? null
 }
 
 function selectLatestSession(scan: LearningSessionScanResult): LearningSessionSnapshot | null {

@@ -148,6 +148,21 @@ const DURABILITIES = new Set<TeachingEventDurability>(['durable', 'ephemeral'])
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/
+const CONTENT_SHA256_PATTERN = /^[a-f0-9]{64}$/
+const LEARNING_OUTCOME_KINDS = new Set<LearningOutcomeKind>([
+  'established',
+  'misconception_corrected',
+  'needs_practice',
+  'not_evidenced'
+])
+const EVIDENCE_STATUS_SET = new Set([
+  'verified',
+  'not_evidenced',
+  'review_required',
+  'unknown_schema',
+  'unavailable'
+] as const)
+const RESOURCE_PRIORITY_SET = new Set(['required', 'recommended', 'supplemental'] as const)
 
 export type TeachingEventIdentity = {
   workspaceId: string
@@ -1455,14 +1470,12 @@ function parseProjectSnapshotCommand(
     }
     readyResources = []
     for (let i = 0; i < value.readyResources.length; i += 1) {
-      const item = value.readyResources[i]
-      if (!isPlainObject(item)) {
-        return failCommand('invalid_payload', 'readyResources entry must be an object.', `readyResources[${i}]`)
-      }
-      const sourceId = requireId(item.sourceId, `readyResources[${i}].sourceId`)
-      if (!sourceId.ok) return toCommandFailure(sourceId)
-      // Structural identity only — grounder validates full descriptor at use time.
-      readyResources.push(item as unknown as TrustedTeachingResourceDescriptor)
+      const parsedResource = parseTrustedTeachingResourceDescriptor(
+        value.readyResources[i],
+        `readyResources[${i}]`
+      )
+      if (!parsedResource.ok) return parsedResource
+      readyResources.push(parsedResource.value)
     }
   }
 
@@ -1523,7 +1536,7 @@ function parseNextTeachingStepFacts(
   if (outcomeStatus === 'trusted') {
     const id = requireId(value.durableOutcome.id, 'facts.durableOutcome.id')
     if (!id.ok) return toCommandFailure(id)
-    if (typeof value.durableOutcome.kind !== 'string' || !value.durableOutcome.kind.trim()) {
+    if (!isLearningOutcomeKind(value.durableOutcome.kind)) {
       return failCommand('invalid_payload', 'facts.durableOutcome.kind is invalid.', 'facts.durableOutcome.kind')
     }
     if (!Array.isArray(value.durableOutcome.evidenceEventIds)) {
@@ -1533,11 +1546,20 @@ function parseNextTeachingStepFacts(
         'facts.durableOutcome.evidenceEventIds'
       )
     }
+    const evidenceEventIds: string[] = []
+    for (let i = 0; i < value.durableOutcome.evidenceEventIds.length; i += 1) {
+      const evidenceId = requireId(
+        value.durableOutcome.evidenceEventIds[i],
+        `facts.durableOutcome.evidenceEventIds[${i}]`
+      )
+      if (!evidenceId.ok) return toCommandFailure(evidenceId)
+      evidenceEventIds.push(evidenceId.value)
+    }
     durableOutcome = {
       status: 'trusted',
       id: id.value,
-      kind: value.durableOutcome.kind as LearningOutcomeKind,
-      evidenceEventIds: value.durableOutcome.evidenceEventIds as readonly string[]
+      kind: value.durableOutcome.kind,
+      evidenceEventIds
     }
   } else if (
     outcomeStatus === 'absent' ||
@@ -1551,6 +1573,9 @@ function parseNextTeachingStepFacts(
 
   if (!isPlainObject(value.evidence) || typeof value.evidence.status !== 'string') {
     return failCommand('invalid_payload', 'facts.evidence is invalid.', 'facts.evidence')
+  }
+  if (!isNextTeachingStepEvidenceStatus(value.evidence.status)) {
+    return failCommand('invalid_payload', 'facts.evidence.status is invalid.', 'facts.evidence.status')
   }
   if (!isPlainObject(value.resources)) {
     return failCommand('invalid_payload', 'facts.resources must be a plain object.', 'facts.resources')
@@ -1569,6 +1594,12 @@ function parseNextTeachingStepFacts(
   if (!Array.isArray(value.resources.provenanceIds)) {
     return failCommand('invalid_payload', 'facts.resources.provenanceIds must be an array.', 'facts.resources.provenanceIds')
   }
+  const provenanceIds: string[] = []
+  for (let i = 0; i < value.resources.provenanceIds.length; i += 1) {
+    const provenanceId = requireId(value.resources.provenanceIds[i], `facts.resources.provenanceIds[${i}]`)
+    if (!provenanceId.ok) return toCommandFailure(provenanceId)
+    provenanceIds.push(provenanceId.value)
+  }
 
   return {
     ok: true,
@@ -1581,11 +1612,123 @@ function parseNextTeachingStepFacts(
         readOnly: value.latestSession.readOnly
       },
       durableOutcome,
-      evidence: { status: value.evidence.status as NextTeachingStepFacts['evidence']['status'] },
+      evidence: { status: value.evidence.status },
       resources: {
         readiness,
         availableCount: value.resources.availableCount,
-        provenanceIds: value.resources.provenanceIds as readonly string[]
+        provenanceIds
+      }
+    }
+  }
+}
+
+function isLearningOutcomeKind(value: unknown): value is LearningOutcomeKind {
+  return typeof value === 'string' && LEARNING_OUTCOME_KINDS.has(value as LearningOutcomeKind)
+}
+
+function isNextTeachingStepEvidenceStatus(
+  value: unknown
+): value is NextTeachingStepFacts['evidence']['status'] {
+  return typeof value === 'string' && (EVIDENCE_STATUS_SET as Set<string>).has(value)
+}
+
+/**
+ * Fail-closed runtime parser for TrustedTeachingResourceDescriptor.
+ * Cast-through is forbidden: every identity/enum/path/digest field is validated.
+ */
+function parseTrustedTeachingResourceDescriptor(
+  value: unknown,
+  fieldPrefix: string
+): { ok: true; value: TrustedTeachingResourceDescriptor } | TeachingTurnCommandParseFailure {
+  if (!isPlainObject(value)) {
+    return failCommand('invalid_payload', `${fieldPrefix} must be a plain object.`, fieldPrefix)
+  }
+  if (value.schemaVersion !== 1) {
+    return failCommand(
+      'invalid_payload',
+      `${fieldPrefix}.schemaVersion must be 1.`,
+      `${fieldPrefix}.schemaVersion`
+    )
+  }
+  const sourceId = requireId(value.sourceId, `${fieldPrefix}.sourceId`)
+  if (!sourceId.ok) return toCommandFailure(sourceId)
+  if (typeof value.relativePath !== 'string' || !value.relativePath.trim()) {
+    return failCommand(
+      'invalid_payload',
+      `${fieldPrefix}.relativePath is invalid.`,
+      `${fieldPrefix}.relativePath`
+    )
+  }
+  const relativePath = value.relativePath.replace(/\\/g, '/')
+  if (
+    relativePath.startsWith('/') ||
+    relativePath.startsWith('//') ||
+    relativePath.includes('..') ||
+    relativePath.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    return failCommand(
+      'invalid_payload',
+      `${fieldPrefix}.relativePath must be a safe workspace-relative path.`,
+      `${fieldPrefix}.relativePath`
+    )
+  }
+  if (typeof value.contentSha256 !== 'string' || !CONTENT_SHA256_PATTERN.test(value.contentSha256)) {
+    return failCommand(
+      'invalid_payload',
+      `${fieldPrefix}.contentSha256 must be lowercase sha256 hex.`,
+      `${fieldPrefix}.contentSha256`
+    )
+  }
+  if (typeof value.priority !== 'string' || !(RESOURCE_PRIORITY_SET as Set<string>).has(value.priority)) {
+    return failCommand('invalid_payload', `${fieldPrefix}.priority is invalid.`, `${fieldPrefix}.priority`)
+  }
+  if (!isPlainObject(value.authority)) {
+    return failCommand('invalid_payload', `${fieldPrefix}.authority must be a plain object.`, `${fieldPrefix}.authority`)
+  }
+  if (value.authority.kind !== 'trusted_teaching_resource') {
+    return failCommand(
+      'invalid_payload',
+      `${fieldPrefix}.authority.kind is invalid.`,
+      `${fieldPrefix}.authority.kind`
+    )
+  }
+  const authorityId = requireId(value.authority.authorityId, `${fieldPrefix}.authority.authorityId`)
+  if (!authorityId.ok) return toCommandFailure(authorityId)
+  if (!isPlainObject(value.provenance)) {
+    return failCommand(
+      'invalid_payload',
+      `${fieldPrefix}.provenance must be a plain object.`,
+      `${fieldPrefix}.provenance`
+    )
+  }
+  if (value.provenance.kind !== 'workspace_resource') {
+    return failCommand(
+      'invalid_payload',
+      `${fieldPrefix}.provenance.kind is invalid.`,
+      `${fieldPrefix}.provenance.kind`
+    )
+  }
+  const resourceId = requireId(value.provenance.resourceId, `${fieldPrefix}.provenance.resourceId`)
+  if (!resourceId.ok) return toCommandFailure(resourceId)
+  const revisionId = requireId(value.provenance.revisionId, `${fieldPrefix}.provenance.revisionId`)
+  if (!revisionId.ok) return toCommandFailure(revisionId)
+
+  return {
+    ok: true,
+    value: {
+      schemaVersion: 1,
+      sourceId: sourceId.value,
+      relativePath,
+      contentSha256: value.contentSha256,
+      priority: value.priority as TrustedTeachingResourceDescriptor['priority'],
+      authority: {
+        kind: 'trusted_teaching_resource',
+        authorityId: authorityId.value
+      },
+      provenance: {
+        kind: 'workspace_resource',
+        resourceId: resourceId.value,
+        revisionId: revisionId.value
       }
     }
   }

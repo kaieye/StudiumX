@@ -243,4 +243,55 @@ describe('teaching-loop-fact-source adapters', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it('binds explicit sessionId projection and settlement (not scan-latest)', async () => {
+    const older = canonical({
+      id: 'session-A',
+      updatedAt: '2026-07-16T00:30:00.000Z',
+      eventCount: 1
+    })
+    const newer = canonical({
+      id: 'session-B',
+      updatedAt: '2026-07-16T04:00:00.000Z',
+      eventCount: 5
+    })
+    const scan = emptyScan({
+      sessions: [older, newer],
+      canonicalSessions: [older, newer]
+    })
+    const ledger = { scan: vi.fn(async () => scan) }
+    const loadSettlement = vi.fn(async (sessionId: string) =>
+      sessionId === 'session-A'
+        ? {
+            sessionId: 'session-A',
+            outcomeId: 'out-a',
+            kind: 'needs_practice' as const,
+            evidenceEventIds: ['ev-a']
+          }
+        : {
+            sessionId: 'session-B',
+            outcomeId: 'out-b',
+            kind: 'established' as const,
+            evidenceEventIds: ['ev-b']
+          }
+    )
+
+    const loaded = await loadTeachingLoopFactSource(
+      { ledger, loadSettlement },
+      {
+        mission: { id: 'mission-1', nextGoal: 'available' },
+        course: { id: 'course-1' },
+        resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['r1'] },
+        sessionId: 'session-A'
+      }
+    )
+
+    expect(loadSettlement).toHaveBeenCalledWith('session-A')
+    expect(loaded.source.selectedSessionId).toBe('session-A')
+    expect(loaded.facts.latestSession?.id).toBe('session-A')
+    expect(loaded.snapshot.safeProjection.session?.id).toBe('session-A')
+    expect(loaded.facts.durableOutcome).toMatchObject({ status: 'trusted', id: 'out-a', kind: 'needs_practice' })
+    expect(loaded.snapshot.nextStep?.action).toBeDefined()
+  })
+
 })

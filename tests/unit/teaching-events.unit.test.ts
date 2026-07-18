@@ -521,3 +521,183 @@ describe('parseTeachingTurnCommand runtime coverage', () => {
     ).toBe(false)
   })
 })
+
+
+describe('round6: H2 closed-set runtime schema adversarial parse', () => {
+  const envelope = {
+    turnId: 'turn-1',
+    eventId: 'event-1',
+    operationId: 'op-1',
+    workspaceId: 'workspace-1'
+  }
+
+  it('rejects invalid LearningOutcomeKind and evidenceEventIds item IDs', () => {
+    const baseFacts = {
+      mission: { id: 'mission-1', nextGoal: 'available' },
+      course: { id: 'course-1' },
+      latestSession: { id: 'session-1', source: 'canonical', readOnly: false },
+      durableOutcome: {
+        status: 'trusted',
+        id: 'outcome-1',
+        kind: 'established',
+        evidenceEventIds: ['ev-1']
+      },
+      evidence: { status: 'verified' },
+      resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['r1'] }
+    }
+
+    expect(
+      parseTeachingTurnCommand({
+        type: 'plan_next_step',
+        ...envelope,
+        sessionId: 'session-1',
+        facts: {
+          ...baseFacts,
+          durableOutcome: { ...baseFacts.durableOutcome, kind: 'mastered_magic' }
+        }
+      }).ok
+    ).toBe(false)
+
+    expect(
+      parseTeachingTurnCommand({
+        type: 'plan_next_step',
+        ...envelope,
+        sessionId: 'session-1',
+        facts: {
+          ...baseFacts,
+          durableOutcome: {
+            ...baseFacts.durableOutcome,
+            evidenceEventIds: ['good-id', '../evil', 'also-good']
+          }
+        }
+      }).ok
+    ).toBe(false)
+
+    expect(
+      parseTeachingTurnCommand({
+        type: 'plan_next_step',
+        ...envelope,
+        sessionId: 'session-1',
+        facts: {
+          ...baseFacts,
+          evidence: { status: 'totally_invalid' }
+        }
+      }).ok
+    ).toBe(false)
+
+    expect(
+      parseTeachingTurnCommand({
+        type: 'plan_next_step',
+        ...envelope,
+        sessionId: 'session-1',
+        facts: {
+          ...baseFacts,
+          resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['ok', 'bad id with space'] }
+        }
+      }).ok
+    ).toBe(false)
+  })
+
+  it('rejects incomplete or cast-through readyResources descriptors fail-closed', () => {
+    const factInput = {
+      mission: { id: 'mission-1', nextGoal: 'available' },
+      course: { id: 'course-1' },
+      resources: { readiness: 'ready', availableCount: 1, provenanceIds: ['r1'] },
+      sessionId: 'session-1'
+    }
+
+    // sourceId only — prior cast-through hole
+    expect(
+      parseTeachingTurnCommand({
+        type: 'project_snapshot',
+        ...envelope,
+        factInput,
+        readyResources: [{ sourceId: 'src-1' }]
+      }).ok
+    ).toBe(false)
+
+    // Missing authority/provenance enums
+    expect(
+      parseTeachingTurnCommand({
+        type: 'project_snapshot',
+        ...envelope,
+        factInput,
+        readyResources: [
+          {
+            schemaVersion: 1,
+            sourceId: 'src-1',
+            relativePath: 'resources/a.md',
+            contentSha256: 'c'.repeat(64),
+            priority: 'required',
+            authority: { kind: 'untrusted', authorityId: 'auth-1' },
+            provenance: { kind: 'workspace_resource', resourceId: 'r1', revisionId: 'rev-1' }
+          }
+        ]
+      }).ok
+    ).toBe(false)
+
+    // Path traversal
+    expect(
+      parseTeachingTurnCommand({
+        type: 'project_snapshot',
+        ...envelope,
+        factInput,
+        readyResources: [
+          {
+            schemaVersion: 1,
+            sourceId: 'src-1',
+            relativePath: '../secrets/a.md',
+            contentSha256: 'c'.repeat(64),
+            priority: 'required',
+            authority: { kind: 'trusted_teaching_resource', authorityId: 'auth-1' },
+            provenance: { kind: 'workspace_resource', resourceId: 'r1', revisionId: 'rev-1' }
+          }
+        ]
+      }).ok
+    ).toBe(false)
+
+    // Bad digest
+    expect(
+      parseTeachingTurnCommand({
+        type: 'project_snapshot',
+        ...envelope,
+        factInput,
+        readyResources: [
+          {
+            schemaVersion: 1,
+            sourceId: 'src-1',
+            relativePath: 'resources/a.md',
+            contentSha256: 'NOT-A-DIGEST',
+            priority: 'required',
+            authority: { kind: 'trusted_teaching_resource', authorityId: 'auth-1' },
+            provenance: { kind: 'workspace_resource', resourceId: 'r1', revisionId: 'rev-1' }
+          }
+        ]
+      }).ok
+    ).toBe(false)
+
+    // Valid full descriptor accepted
+    const ok = parseTeachingTurnCommand({
+      type: 'project_snapshot',
+      ...envelope,
+      factInput,
+      readyResources: [
+        {
+          schemaVersion: 1,
+          sourceId: 'src-1',
+          relativePath: 'resources/a.md',
+          contentSha256: 'c'.repeat(64),
+          priority: 'recommended',
+          authority: { kind: 'trusted_teaching_resource', authorityId: 'auth-1' },
+          provenance: { kind: 'workspace_resource', resourceId: 'r1', revisionId: 'rev-1' }
+        }
+      ]
+    })
+    expect(ok.ok).toBe(true)
+    if (ok.ok) {
+      expect(ok.value.type).toBe('project_snapshot')
+      expect(ok.value.readyResources?.[0]?.priority).toBe('recommended')
+    }
+  })
+})
+

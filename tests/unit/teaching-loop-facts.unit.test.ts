@@ -371,4 +371,81 @@ describe('buildTeachingLoopFacts', () => {
       JSON.stringify(buildTeachingLoopFacts(source))
     )
   })
+
+  it('selectedSessionId binds explicit session even when a newer session exists', () => {
+    const older = canonical({
+      id: 'session-A',
+      updatedAt: '2026-07-16T00:30:00.000Z',
+      eventCount: 2,
+      status: 'completed',
+      outcomeRef: {
+        outcomeId: 'out-a',
+        kind: 'needs_practice',
+        relativePath: 'outcomes/a.json',
+        evidenceEventIds: ['ev-a'],
+        contentSha256: 'a'.repeat(64)
+      }
+    })
+    const newer = canonical({
+      id: 'session-B',
+      updatedAt: '2026-07-16T03:00:00.000Z',
+      eventCount: 9,
+      status: 'active'
+    })
+    const factsLatest = buildTeachingLoopFacts({
+      mission: { id: 'mission-1', nextGoal: 'available' },
+      course: { id: 'course-1' },
+      sessions: emptyScan({
+        sessions: [older, newer],
+        canonicalSessions: [older, newer]
+      }),
+      resources: {
+        readiness: 'ready' as const,
+        availableCount: 0,
+        provenanceIds: [] as string[]
+      }
+    })
+    expect(factsLatest.latestSession?.id).toBe('session-B')
+
+    const factsScoped = buildTeachingLoopFacts({
+      mission: { id: 'mission-1', nextGoal: 'available' },
+      course: { id: 'course-1' },
+      sessions: emptyScan({
+        sessions: [older, newer],
+        canonicalSessions: [older, newer]
+      }),
+      resources: {
+        readiness: 'ready' as const,
+        availableCount: 1,
+        provenanceIds: ['resource-a']
+      },
+      selectedSessionId: 'session-A',
+      settlement: {
+        sessionId: 'session-A',
+        outcomeId: 'out-a',
+        kind: 'needs_practice',
+        evidenceEventIds: ['ev-a']
+      }
+    })
+    expect(factsScoped.latestSession?.id).toBe('session-A')
+    expect(factsScoped.latestSession?.eventCount).toBe(2)
+    expect(factsScoped.durableOutcome).toMatchObject({ status: 'trusted', kind: 'needs_practice', id: 'out-a' })
+
+    const missing = buildTeachingLoopFacts({
+      mission: { id: 'mission-1', nextGoal: 'available' },
+      course: { id: 'course-1' },
+      sessions: emptyScan({
+        sessions: [newer],
+        canonicalSessions: [newer]
+      }),
+      resources: {
+        readiness: 'ready' as const,
+        availableCount: 0,
+        provenanceIds: [] as string[]
+      },
+      selectedSessionId: 'session-A'
+    })
+    expect(missing.latestSession).toBeNull()
+  })
+
 })

@@ -35,8 +35,9 @@ export type TeachingLoopFactSourceLoaderInput = {
   course: TeachingLoopCourseInput
   resources: TeachingLoopResourceInput
   /**
-   * Prefer loading settlement for this session. When omitted, settlement is loaded
-   * for the selected latest canonical session after scan (if any).
+   * Prefer loading settlement for this session and bind projection to it.
+   * When omitted, settlement is loaded for the selected latest canonical session
+   * after scan (if any) and projection uses scan-latest selection.
    */
   sessionId?: string
 }
@@ -66,14 +67,18 @@ export type LoadedTeachingLoopFactSource = {
 /**
  * Load a TeachingLoopFactSource from real durable modules, then project pure
  * facts + resolver snapshot. Pure projection only — no writes.
+ *
+ * When input.sessionId is provided, settlement + projection bind to that session
+ * only (command-scoped). When omitted, scan-latest selection applies.
  */
 export async function loadTeachingLoopFactSource(
   ports: TeachingLoopFactSourcePorts,
   input: TeachingLoopFactSourceLoaderInput
 ): Promise<LoadedTeachingLoopFactSource> {
   const sessions = await ports.ledger.scan({})
+  const selectedSessionId = input.sessionId
   const settlementSessionId =
-    input.sessionId ??
+    selectedSessionId ??
     selectPreferredSessionId(sessions.canonicalSessions.map((session) => ({
       id: session.id,
       updatedAt: session.updatedAt
@@ -93,7 +98,8 @@ export async function loadTeachingLoopFactSource(
       availableCount: input.resources.availableCount,
       provenanceIds: [...input.resources.provenanceIds]
     },
-    settlement
+    settlement,
+    ...(selectedSessionId !== undefined ? { selectedSessionId } : {})
   }
 
   const facts = buildTeachingLoopFacts(source)
