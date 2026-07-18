@@ -233,7 +233,33 @@ describe('TeachingTurnCoordinator', () => {
   })
 
   it('records evidence with durable receipt and progress without sticky terminal', async () => {
+    const load = vi.fn(async (sessionId: string) =>
+      sessionSnapshot({
+        id: sessionId,
+        eventCount: 1,
+        events: [
+          {
+            schemaVersion: 1,
+            eventId: 'evidence-1',
+            sessionId,
+            kind: 'quiz_attempted',
+            occurredAt: '2026-07-18T10:00:00.000Z',
+            sequence: 1,
+            recordedAt: '2026-07-18T10:00:00.000Z',
+            payload: {
+              lessonInteraction: {
+                eventId: 'evidence-1',
+                sessionId,
+                workspaceId: 'workspace-1',
+                kind: 'quiz_answered'
+              }
+            }
+          } as never
+        ]
+      })
+    )
     const ports = createPorts({
+      load,
       record: vi.fn(async (): Promise<EvidenceReceipt> => ({
         eventId: 'evidence-1',
         sessionId: 'session-1',
@@ -1071,10 +1097,12 @@ describe('TeachingTurnCoordinator', () => {
             kind: 'established',
             evidenceEventIds: ['evidence-1'],
             evaluatorVersion: 1,
-            record: null
+            record: { recordId: 'rec-retry', relativePath: 'learning-records/rec-retry.md', contentSha256: 'b'.repeat(64) }
           }
         : null,
-      record: null,
+      record: settled
+        ? { recordId: 'rec-retry', relativePath: 'learning-records/rec-retry.md', contentSha256: 'b'.repeat(64) }
+        : null,
       catalogRecordPresent: settled,
       diagnostics: []
     }))
@@ -1906,6 +1934,172 @@ describe('TeachingTurnCoordinator', () => {
     expect(afterTerminal?.terminal?.payload).toMatchObject({ outcome: 'canceled' })
   })
 
+
+
+  it('round7 H3-B1: needs_practice committed without marker/outcomeRef never emits accepted/durable on bus', async () => {
+    const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+      status: 'committed',
+      outcome: { kind: 'needs_practice' },
+      recordSaved: false,
+      catalogRecordPresent: false
+    } as OutcomeCommitResult))
+    const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'pending',
+      marker: null,
+      record: null,
+      catalogRecordPresent: false,
+      diagnostics: []
+    }))
+    const ports = createPorts({ commit, reconcile })
+    const coordinator = createTeachingTurnCoordinator(ports)
+    const busSeen: Array<{ type: string; durability?: string }> = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-h3-b1' }, (event) => {
+      busSeen.push({ type: event.payload.type, durability: event.durability })
+    })
+
+    const result = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-h3-b1',
+      eventId: 'ev-h3-b1',
+      operationId: 'op-h3-b1',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-h3-b1' }
+    })
+    unsub()
+
+    expect(result.acceptance).toBe('rejected')
+    expect(result.rejectReason).toBe('payload_mismatch')
+    expect(result.events.some((e) => e.payload.type === 'command_accepted')).toBe(false)
+    expect(result.events.some((e) => e.payload.type === 'outcome_committed')).toBe(false)
+    expect(result.terminal).toBeNull()
+    expect(busSeen.some((e) => e.type === 'command_accepted')).toBe(false)
+    expect(busSeen.some((e) => e.type === 'outcome_committed')).toBe(false)
+    expect(busSeen.some((e) => e.type === 'turn_terminal')).toBe(false)
+    const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-h3-b1' }, 0)
+    expect(replay?.events.some((e) => e.payload.type === 'command_accepted')).toBeFalsy()
+    expect(replay?.events.some((e) => e.payload.type === 'outcome_committed')).toBeFalsy()
+    expect(replay?.terminal).toBeNull()
+  })
+
+  it('round7 H3-A: record receipt absent from authoritative ledger never emits accepted/durable on bus', async () => {
+    // Port self-reports a valid receipt, but ledger reload has no matching event.
+    const record = vi.fn(async (evidence: {
+      eventId: string
+      sessionId: string
+      workspaceId: string
+      kind: string
+    }): Promise<EvidenceReceipt> => ({
+      eventId: evidence.eventId,
+      sessionId: evidence.sessionId,
+      sequence: 7,
+      duplicate: false,
+      evidence: {
+        schemaVersion: 1,
+        eventId: evidence.eventId,
+        kind: 'quiz_answered',
+        workspaceId: evidence.workspaceId,
+        courseId: 'course-1',
+        sessionId: evidence.sessionId,
+        lessonId: 'lesson-1',
+        itemId: 'item-1',
+        attempt: 1,
+        observedAt: '2026-07-18T10:00:00.000Z',
+        artifactDigest: 'a'.repeat(64),
+        surface: 'lesson_preview',
+        selectedOptionIds: ['a'],
+        correct: false,
+        sequence: 7,
+        recordedAt: '2026-07-18T10:00:00.000Z'
+      } as EvidenceReceipt['evidence']
+    }))
+    const ports = createPorts({ record })
+    const coordinator = createTeachingTurnCoordinator(ports)
+    const busSeen: string[] = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-h3-ha' }, (event) => {
+      busSeen.push(event.payload.type)
+    })
+
+    const result = await coordinator.execute({
+      type: 'record_evidence',
+      turnId: 'turn-h3-ha',
+      eventId: 'ev-h3-ha',
+      operationId: 'op-h3-ha',
+      workspaceId: 'workspace-1',
+      evidence: {
+        schemaVersion: 1,
+        eventId: 'evidence-missing-from-ledger',
+        kind: 'quiz_answered',
+        workspaceId: 'workspace-1',
+        courseId: 'course-1',
+        sessionId: 'session-1',
+        lessonId: 'lesson-1',
+        itemId: 'item-1',
+        attempt: 1,
+        observedAt: '2026-07-18T10:00:00.000Z',
+        artifactDigest: 'a'.repeat(64),
+        surface: 'lesson_preview',
+        selectedOptionIds: ['a'],
+        correct: false
+      }
+    })
+    unsub()
+
+    expect(result.acceptance).toBe('rejected')
+    expect(result.rejectReason).toBe('payload_mismatch')
+    expect(result.events.some((e) => e.payload.type === 'command_accepted')).toBe(false)
+    expect(result.events.some((e) => e.payload.type === 'evidence_recorded')).toBe(false)
+    expect(busSeen).not.toContain('command_accepted')
+    expect(busSeen).not.toContain('evidence_recorded')
+    const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-h3-ha' }, 0)
+    expect(replay?.events.some((e) => e.payload.type === 'command_accepted')).toBeFalsy()
+    expect(replay?.events.some((e) => e.payload.type === 'evidence_recorded')).toBeFalsy()
+  })
+
+  it('round7 H3-B: insufficient_evidence recordSaved:true without authority never emits durable on bus', async () => {
+    const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+      status: 'insufficient_evidence',
+      reason: 'not_evidenced',
+      recordSaved: true,
+      catalogRecordPresent: true
+    } as OutcomeCommitResult))
+    const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'pending',
+      marker: null,
+      record: null,
+      catalogRecordPresent: false,
+      diagnostics: []
+    }))
+    const ports = createPorts({ commit, reconcile })
+    const coordinator = createTeachingTurnCoordinator(ports)
+    const busSeen: Array<{ type: string; durability?: string }> = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-h3-hb' }, (event) => {
+      busSeen.push({ type: event.payload.type, durability: event.durability })
+    })
+
+    const result = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-h3-hb',
+      eventId: 'ev-h3-hb',
+      operationId: 'op-h3-hb',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-h3-hb' }
+    })
+    unsub()
+
+    expect(result.acceptance).toBe('rejected')
+    expect(result.rejectReason).toBe('payload_mismatch')
+    expect(result.events.some((e) => e.payload.type === 'command_accepted')).toBe(false)
+    expect(result.events.some((e) => e.payload.type === 'outcome_insufficient_evidence')).toBe(false)
+    expect(busSeen.some((e) => e.type === 'command_accepted')).toBe(false)
+    expect(busSeen.some((e) => e.type === 'outcome_insufficient_evidence')).toBe(false)
+    expect(busSeen.some((e) => e.durability === 'durable')).toBe(false)
+    const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-h3-hb' }, 0)
+    expect(replay?.events.some((e) => e.payload.type === 'command_accepted')).toBeFalsy()
+    expect(replay?.events.some((e) => e.payload.type === 'outcome_insufficient_evidence')).toBeFalsy()
+    expect(replay?.events.some((e) => e.durability === 'durable')).toBeFalsy()
+  })
 
   it('round6: H3 mocked-port commit spoof never emits accepted/durable on bus subscribe/replay', async () => {
     const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({

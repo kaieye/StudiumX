@@ -717,12 +717,36 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     ) {
       return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
     }
-    // Prefer durable ledger sequence when the event is visible; fail-closed on conflict.
-    const ledgerEvent = authoritative.events?.find((event) => event.eventId === receipt.eventId)
-    if (ledgerEvent && typeof ledgerEvent.sequence === 'number' && ledgerEvent.sequence !== receipt.sequence) {
+    // H-A: require matching ledger event presence before any accepted/durable emit.
+    // Self-reported receipt alone is never authority; missing event must fail closed.
+    const ledgerEvent = (authoritative.events ?? []).find((event) => event.eventId === receipt.eventId)
+    if (!ledgerEvent) {
       return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
     }
+    if (typeof ledgerEvent.sequence !== 'number' || ledgerEvent.sequence !== receipt.sequence) {
+      return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
+    }
+    if (typeof ledgerEvent.sessionId === 'string' && ledgerEvent.sessionId !== receipt.sessionId) {
+      return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
+    }
+    // Consistency as available: payload.lessonInteraction identity/kind must match request.
+    if (isPlainObject(ledgerEvent.payload) && isPlainObject(ledgerEvent.payload.lessonInteraction)) {
+      const li = ledgerEvent.payload.lessonInteraction
+      if (typeof li.eventId === 'string' && li.eventId !== receipt.eventId) {
+        return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
+      }
+      if (typeof li.sessionId === 'string' && li.sessionId !== receipt.sessionId) {
+        return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
+      }
+      if (typeof li.workspaceId === 'string' && li.workspaceId !== command.workspaceId) {
+        return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
+      }
+      if (typeof li.kind === 'string' && typeof command.evidence.kind === 'string' && li.kind !== command.evidence.kind) {
+        return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
+      }
+    }
 
+    // M1/H3: all local + authority identity checks complete before any bus emit.
     this.emitAccepted(bus, command, receipt.sessionId)
     this.emit(bus, {
       durability: 'durable',
@@ -787,7 +811,8 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
 
     const sessionId = command.request.sessionId
     const commitRaw = await this.ports.committer.commit(command.request)
-    // H3: never trust self-report alone — strict parse then authority reload/verify.
+    // H3/B1/H-B: never trust self-report alone — strict parse then authority reload/verify.
+    // M1: no accepted/durable emit until local identity + authority checks all pass.
     const commitResult = parseOutcomeCommitResult(commitRaw)
     if (!commitResult) {
       return this.portIdentityReject(command, bus, collected, sessionId)
@@ -1239,7 +1264,8 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
   }
 
   /**
-   * Verify commit self-report against ledger + settlement authority (H3).
+   * Verify commit self-report against ledger + settlement authority (H3/B1/H-B).
+   * Never returns true on empty authority for durable-success paths.
    */
   private async verifyCommitAgainstAuthority(
     workspaceId: string,
@@ -1256,6 +1282,12 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       const marker = recon.marker
       const outcomeRef = loaded.outcomeRef
 
+      // B1: every durable success (including needs_practice + recordSaved:false)
+      // fails closed unless ledger/settlement proves matching durable state.
+      if (!marker && !outcomeRef) {
+        return false
+      }
+
       if (marker) {
         if (marker.sessionId !== sessionId) return false
         if (marker.kind !== commitResult.outcome.kind) return false
@@ -1263,25 +1295,18 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       if (outcomeRef) {
         if (outcomeRef.kind !== commitResult.outcome.kind) return false
       }
-
-      // recordSaved claims a durable record; require marker or outcomeRef authority.
-      if (commitResult.recordSaved === true && !marker && !outcomeRef) {
+      // When both authorities exist they must agree with each other and self-report.
+      if (marker && outcomeRef && marker.kind !== outcomeRef.kind) {
         return false
       }
 
-      // Terminal established/misconception_corrected should appear on ledger or marker.
-      if (
-        (commitResult.outcome.kind === 'established' ||
-          commitResult.outcome.kind === 'misconception_corrected') &&
-        !marker &&
-        !outcomeRef
-      ) {
-        return false
-      }
-
-      // already_committed without any authority is not trustworthy.
-      if (commitResult.status === 'already_committed' && !marker && !outcomeRef) {
-        return false
+      // recordSaved claims a durable learning record — require record proof, not empty marker.
+      if (commitResult.recordSaved === true) {
+        const hasRecord =
+          (marker !== null && marker.record !== null) || recon.record !== null || outcomeRef !== null
+        if (!hasRecord) {
+          return false
+        }
       }
 
       return true
@@ -1295,6 +1320,25 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
           loaded.outcomeRef.kind === 'misconception_corrected')
       ) {
         return false
+      }
+
+      // H-B: durability claim (recordSaved:true) must be proven by settlement authority.
+      // Prefer fail closed — never emit durable from self-report alone.
+      const claimsDurable =
+        'recordSaved' in commitResult && (commitResult as { recordSaved?: boolean }).recordSaved === true
+      if (claimsDurable) {
+        const recon = await this.ports.committer.reconcile(sessionId)
+        const marker = recon.marker
+        if (!marker || marker.sessionId !== sessionId) {
+          return false
+        }
+        if (marker.kind !== 'not_evidenced') {
+          return false
+        }
+        const hasRecord = marker.record !== null || recon.record !== null
+        if (!hasRecord) {
+          return false
+        }
       }
       return true
     }
