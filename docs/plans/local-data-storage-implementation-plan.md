@@ -411,14 +411,14 @@ C-5D 不扩大这一语义：workspace lifecycle 的 trace 只是 optional corre
 
 ### 当前实现状态（2026-07-18；代码提交 `1bbdf7c` 纳入 C-5G）
 
-`1bbdf7c` 是本节记录的 C-5G **代码提交**，不是本文档修改后的当前 HEAD。
+`1bbdf7c` 是本节记录的 C-5G **代码提交**，不是本文档修改后的当前 HEAD。C-5H 的 [workspace user-mutation correlation 设计门槛](local-data-workspace-user-mutation-correlation-design.md)仅记录 mission/style 的未批准 action correlation 设计：本轮没有业务代码/测试变更或测试结果，不能把它解释为 `mission_updated`/`lesson_style_applied` trace 已实现，也不能据此声称 C-5 完成。
 
 已实现并有代码/测试证据的范围：
 
 1. **Conversation（55442ad）**：TeachingWorkspaceService.saveAgentConversation() 每次调用只在 main 进程内生成一个 randomUUID()；trace 写入新/更新 canonical conversation JSON，并传入同次 learning-work JSONL snapshot。相同 entryId 的重试只有 trace 相等（或双方都缺失 legacy trace）时可去重；不同 trace 在覆盖 canonical 文件前失败。
 2. **Memory CRUD（7a1ca7e）**：createMemory、updateMemory、deleteMemory 各在 main 进程生成 UUID，只通过内部 Memory store mutation options 传递；record normalizer 只保留规范 UUID，logger 使用固定 memory-catalog safe tag。renderer IPC payload 没有 trace 字段。
 3. **Learning-session（e849d51，C-5C）**：受信 preview Lesson interaction 在 main 的 TeachingWorkspaceService.previewInteractionEvent() 中才生成 randomUUID()，并按 **Teaching Workspace → LessonInteractionRecorder → LearningSessionLedger.appendWithReceipt() → canonical event file** 传递。renderer intent 不能提交 traceId。两个不同可信 preview event 获得不同 trace。
-4. **C-5D conversation lifecycle（dee70d6）**：只在 saveAgentConversation() 将已有、main-generated canonical conversation archive 的 persistedRecord.traceId 透传至紧随其后的 agent_conversation_recorded workspace lifecycle JSONL event。不会新建 trace，也不会使 trace 参与 lifecycle identity/dedupe/query/filter。C-5F 已另行覆盖 fork；其它 lifecycle producers 仍在后续队列。
+4. **C-5D conversation lifecycle（dee70d6）**：只在 saveAgentConversation() 将已有、main-generated canonical conversation archive 的 persistedRecord.traceId 透传至紧随其后的 agent_conversation_recorded workspace lifecycle JSONL event。不会新建 trace，也不会使 trace 参与 lifecycle identity/dedupe/query/filter。C-5F 已另行覆盖 fork；其它 lifecycle producers 仍在后续队列。**其中 `mission_updated`、`lesson_style_applied`、`lesson_generated` 与其它 user actions 仍未实现；C-5H 仅为 design gate，见上述链接。**
 5. **C-5D writer/reader boundary**：appendWorkspaceLifecycleEvent() 先从输入 event 剥离 raw trace，再调用 normalizeTraceId，仅在结果为合法 UUID 时条件性写回；持久化 UUID 一律 lowercase。malformed 或 secret-like value 不写入 JSONL。reader 不收紧：legacy trace-free row 与历史 malformed-trace lifecycle row 均继续 tolerant read；不做迁移、扫描回写或历史修复。
 6. **精确重试与 trace-aware idempotency（C-5C）**：trusted binding 的 recordedInteractions 以 eventId 缓存完整 intent、event 和 trace；同一 trusted eventId 的完全相同重试复用原 trace，而变更 intent 被拒绝。ledger duplicate 比较除 event 内容外还要求 trace 匹配：对已有 canonical traced event，same eventId 的 missing、malformed 或不同 trace 都不能静默去重；新 append 输入的 malformed trace 会先归一化为省略，所以 legacy trace-free event（包括归一化后 trace-free 的 exact retry）仍保持兼容。
 7. **日志时机与内容（C-5C）**：LessonInteractionRecorder 的唯一 durable write 是 appendWithReceipt。只有它成功返回、且 receipt 不为 duplicate 时，Teaching Workspace 才以 fixed safe context [main] [learning-session-ledger] [trace=<uuid>] 调用 logger，固定文案为 **Learning Session event persisted.**；不记录 lesson 内容。C-5D 不新增 lifecycle logger tag 或日志行。
