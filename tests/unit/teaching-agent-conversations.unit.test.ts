@@ -157,7 +157,7 @@ describe('Teaching Agent conversation catalog', () => {
       turns: replay.turns
     }
 
-    await writeAgentConversationRecord(workspace, rootRecord)
+    await expect(writeAgentConversationRecord(workspace, rootRecord)).resolves.toBeUndefined()
     await writeAgentConversationRecord(workspace, childRecord)
 
     const storedJson = JSON.parse(await readFile(join(root, 'conversations/chat-child.json'), 'utf8')) as {

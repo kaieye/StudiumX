@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { redactAgentSecretText } from '../shared/agent-secret-redaction'
+import { sanitizePersistedConversationTitle } from '../shared/agent-persisted-history'
 import {
   describeAgentConversationPath,
   isTemporaryAgentConversationPath
@@ -275,7 +276,9 @@ function projectionMetadataFromExactJson(jsonBytes: Buffer): { title: string; ma
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Conversation projection metadata is invalid.')
   const record = value as Record<string, unknown>
   if (typeof record.relativePath !== 'string') throw new Error('Conversation projection requires an explicit Markdown relativePath.')
-  const title = typeof record.title === 'string' ? boundedProjectionString(record.title, MAX_PROJECTION_TITLE_LENGTH) : ''
+  const title = typeof record.title === 'string' && record.title.trim()
+    ? boundedProjectionString(sanitizePersistedConversationTitle(record.title), MAX_PROJECTION_TITLE_LENGTH)
+    : ''
   return { title: title || UNTITLED_ARCHIVED_CONVERSATION_TITLE, markdownRelativePath: record.relativePath }
 }
 

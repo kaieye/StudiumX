@@ -8,6 +8,7 @@ import {
   agentConversationSessionAuditRelativePathForMarkdown
 } from '../shared/agent-conversation-catalog'
 import { redactAgentSecretText } from '../shared/agent-secret-redaction'
+import { sanitizePersistedAgentConversationRecord } from '../shared/agent-persisted-history'
 import { agentRunChildTranscriptRelativePath } from './ai/agent-run-persistence'
 import {
   isPathInsideRoot,
@@ -31,7 +32,7 @@ import type {
 export const AGENT_CONVERSATION_SESSION_AUDIT_VERSION = 1
 const TOOL_RESULT_ARCHIVE_MIN_BYTES = 2048
 const TOOL_RESULT_ARCHIVE_MIN_LINES = 40
-const TOOL_RESULT_PREVIEW_LENGTH = 1200
+const TOOL_RESULT_PREVIEW_LENGTH = 500
 const MAX_TOOL_RESULT_DIAGNOSTICS = 20
 
 export type AgentStagedChildTranscriptAllowance = {
@@ -150,10 +151,11 @@ export async function archiveAgentConversationArtifacts(input: {
   now?: string
   allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
 }): Promise<AgentConversationRecord> {
-  let changed = false
+  const record = sanitizePersistedAgentConversationRecord(input.record)
+  let changed = record !== input.record
   const now = input.now ?? new Date().toISOString()
   const turns: AgentChatTurn[] = []
-  for (const turn of input.record.turns) {
+  for (const turn of record.turns) {
     let nextTurn = redactAgentTurnPersistenceText(turn)
     if (nextTurn !== turn) changed = true
     const toolCalls: AgentChatToolCallView[] = []
@@ -166,7 +168,7 @@ export async function archiveAgentConversationArtifacts(input: {
       const result = tool.result ?? ''
       const artifact = await writeToolResultArtifact({
         rootPath: input.rootPath,
-        conversationRelativePath: input.record.relativePath,
+        conversationRelativePath: record.relativePath,
         turnId: turn.id,
         toolCallId: tool.id,
         toolName: tool.name,
@@ -187,7 +189,7 @@ export async function archiveAgentConversationArtifacts(input: {
 
     const childTranscriptResult = await archiveChildRunTranscripts({
       rootPath: input.rootPath,
-      conversationRelativePath: input.record.relativePath,
+      conversationRelativePath: record.relativePath,
       turn: nextTurn,
       now,
       allowedStagedChildTranscripts: input.allowedStagedChildTranscripts
@@ -198,7 +200,10 @@ export async function archiveAgentConversationArtifacts(input: {
     }
     turns.push(nextTurn)
   }
-  return changed ? { ...input.record, turns } : input.record
+  // Promotion replaces inline values with durable placeholders/references. Rebind
+  // parent-turn proofs only after those substitutions so the proof covers the
+  // exact canonical record that will be serialized, without self-recursion.
+  return sanitizePersistedAgentConversationRecord(changed ? { ...record, turns } : record)
 }
 
 async function archiveChildRunTranscripts(input: {
@@ -314,7 +319,8 @@ export async function appendAgentConversationSessionAuditLog(input: {
   rootPath: string
   record: AgentConversationRecord
 }): Promise<string> {
-  const relativePath = agentConversationSessionAuditRelativePathForMarkdown(input.record.relativePath)
+  const record = sanitizePersistedAgentConversationRecord(input.record)
+  const relativePath = agentConversationSessionAuditRelativePathForMarkdown(record.relativePath)
   const absolutePath = join(input.rootPath, relativePath)
   const existing = parseAgentConversationSessionAuditLines(
     await readFile(absolutePath, 'utf8').catch(() => '')
@@ -326,8 +332,8 @@ export async function appendAgentConversationSessionAuditLog(input: {
   )
   const hasHeader = existing.some((line) => line.type === 'session')
   const nextLines: AgentConversationSessionAuditLine[] = []
-  if (!hasHeader) nextLines.push(agentConversationSessionAuditHeader(input.record))
-  for (const entry of buildAgentConversationSessionAuditEntries(input.record)) {
+  if (!hasHeader) nextLines.push(agentConversationSessionAuditHeader(record))
+  for (const entry of buildAgentConversationSessionAuditEntries(record)) {
     if (existingIds.has(entry.id)) continue
     existingIds.add(entry.id)
     nextLines.push(entry)
@@ -342,6 +348,10 @@ export async function appendAgentConversationSessionAuditLog(input: {
 export function buildAgentConversationSessionAuditEntries(
   record: AgentConversationRecord
 ): AgentConversationSessionAuditEntry[] {
+  record = sanitizePersistedAgentConversationRecord(record)
+  // This public builder is also used independently of the archive write path.
+  // Apply the same derived-text redaction before forming JSONL previews.
+  record = redactAgentConversationPersistenceText(record)
   const entries: AgentConversationSessionAuditEntry[] = []
   let previousTurnEntryId: string | null = null
   for (const turn of record.turns) {
@@ -483,6 +493,7 @@ function appendMetadataEntries(
 }
 
 function agentConversationSessionAuditHeader(record: AgentConversationRecord): AgentConversationSessionAuditHeader {
+  record = sanitizePersistedAgentConversationRecord(record)
   return pruneUndefined({
     type: 'session' as const,
     version: AGENT_CONVERSATION_SESSION_AUDIT_VERSION,
@@ -641,7 +652,13 @@ async function readStagedChildTranscript(
   return content
 }
 
+function redactAgentConversationPersistenceText(record: AgentConversationRecord): AgentConversationRecord {
+  const turns = record.turns.map(redactAgentTurnPersistenceText)
+  return turns.some((turn, index) => turn !== record.turns[index]) ? { ...record, turns } : record
+}
+
 function redactAgentTurnPersistenceText(turn: AgentChatTurn): AgentChatTurn {
+  const content = redactAgentSecretText(turn.content)
   const toolCalls = turn.toolCalls?.map(redactToolCall)
   const processEvents = turn.processEvents?.map((event) => {
     const title = redactAgentSecretText(event.title)
@@ -655,9 +672,10 @@ function redactAgentTurnPersistenceText(turn: AgentChatTurn): AgentChatTurn {
   const metadata = redactTurnMetadata(turn.metadata)
   const toolCallsChanged = Boolean(toolCalls?.some((tool, index) => tool !== turn.toolCalls?.[index]))
   const processEventsChanged = Boolean(processEvents?.some((event, index) => event !== turn.processEvents?.[index]))
-  if (!toolCallsChanged && !processEventsChanged && metadata === turn.metadata) return turn
+  if (content === turn.content && !toolCallsChanged && !processEventsChanged && metadata === turn.metadata) return turn
   return {
     ...turn,
+    content,
     ...(toolCalls === undefined ? {} : { toolCalls }),
     ...(processEvents === undefined ? {} : { processEvents }),
     ...(metadata === undefined ? {} : { metadata })

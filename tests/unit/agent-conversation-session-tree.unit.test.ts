@@ -32,7 +32,12 @@ vi.mock('../../src/main/teaching-agent-conversations', async () => {
       if (!record) throw new Error('Conversation not found.')
       return structuredClone(record)
     }),
-    writeAgentConversationRecord: vi.fn(async (_workspace: unknown, record: AgentConversationRecord) => {
+    writeAgentConversationRecord: vi.fn(async (
+      _workspace: unknown,
+      record: AgentConversationRecord,
+      options?: { beforeCanonicalSave?: (canonicalRecord: AgentConversationRecord) => Promise<void> }
+    ) => {
+      await options?.beforeCanonicalSave?.(record)
       persistence.records.set(record.id, structuredClone(record))
     }),
     nextAgentConversationId: vi.fn(async () => 'allocated-branch')
@@ -116,16 +121,9 @@ describe('agent conversation durable session tree', () => {
       now: '2026-07-14T05:00:00.000Z'
     })
 
-    expect(persistence.records.get(parent.id)).toEqual({
-      ...before,
-      branch: {
-        schemaVersion: 1,
-        sessionId: parent.id,
-        branchId: parent.id,
-        revision: 0,
-        status: 'active'
-      }
-    })
+    // Forking a legacy root is intentionally non-mutating: inferred branch
+    // metadata exists only in memory while the source record remains byte-safe.
+    expect(persistence.records.get(parent.id)).toEqual(before)
     expect(child.turns).toHaveLength(2)
     expect(child.branch).toMatchObject({ parentBranchId: parent.id, revision: 1, status: 'active' })
     expect(nested.branch).toMatchObject({ parentBranchId: child.id, sessionId: parent.id })
@@ -234,7 +232,7 @@ describe('agent conversation durable session tree', () => {
 
     await expect(updateAgentConversationBranchStatusAtRoot(
       workspace(rootPath), parent.id, 'archived', { expectedRevision: 0 }
-    )).rejects.toThrow('last active conversation branch')
+    )).rejects.toThrow('Legacy conversation branches cannot change status')
     expect(persistence.records.get(parent.id)?.branch).toBeUndefined()
 
     const child = await forkAgentConversationBranchAtRoot(workspace(rootPath), parent.id, {

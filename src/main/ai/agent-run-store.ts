@@ -73,17 +73,17 @@ export class AgentRunStore {
   prepareParentTurnSave(
     runId: string,
     targetConversationId: string,
-    expectedTurnDigest: string
+    expectedParentTurnProof: string
   ): Promise<AgentParentTurnStage | null> {
-    return this.lifecycle.prepareParentTurnSave(runId, targetConversationId, expectedTurnDigest)
+    return this.lifecycle.prepareParentTurnSave(runId, targetConversationId, expectedParentTurnProof)
   }
 
   settleParentTurn(
     runId: string,
     targetConversationId: string,
-    expectedTurnDigest: string
+    expectedParentTurnProof: string
   ): Promise<AgentParentTurnStage | null> {
-    return this.lifecycle.settleParentTurn(runId, targetConversationId, expectedTurnDigest)
+    return this.lifecycle.settleParentTurn(runId, targetConversationId, expectedParentTurnProof)
   }
 
   markParentTurnTerminal(

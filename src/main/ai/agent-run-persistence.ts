@@ -223,7 +223,7 @@ function validateParentTurnStage(value: unknown): AgentParentTurnStage {
   const record = strictRecord(value, [
     'schemaVersion', 'runId', 'streamId', 'workspaceId', 'conversationId', 'targetConversationId',
     'status', 'previousStatus', 'boundary', 'userInput', 'confirmedAssistant', 'lastDurableSequence',
-    'unrecoverableAssistantDeltaBytes', 'unrecoverableAssistantDeltaCount', 'evidence', 'expectedTurnDigest',
+    'unrecoverableAssistantDeltaBytes', 'unrecoverableAssistantDeltaCount', 'evidence', 'expectedParentTurnProof',
     'createdAt', 'updatedAt', 'interruptedAt', 'settledAt', 'failureReason', 'recoveryReason'
   ])
   if (record.schemaVersion !== 1) throw new Error('Unsupported parent turn staging schema version.')
@@ -247,7 +247,7 @@ function validateParentTurnStage(value: unknown): AgentParentTurnStage {
     unrecoverableAssistantDeltaBytes: nonNegativeInteger(record.unrecoverableAssistantDeltaBytes),
     unrecoverableAssistantDeltaCount: nonNegativeInteger(record.unrecoverableAssistantDeltaCount),
     evidence,
-    ...(record.expectedTurnDigest !== undefined ? { expectedTurnDigest: hashValue(record.expectedTurnDigest) } : {}),
+    ...(record.expectedParentTurnProof !== undefined ? { expectedParentTurnProof: hashValue(record.expectedParentTurnProof) } : {}),
     createdAt: isoString(record.createdAt),
     updatedAt: isoString(record.updatedAt),
     ...(record.interruptedAt !== undefined ? { interruptedAt: isoString(record.interruptedAt) } : {}),
@@ -255,13 +255,13 @@ function validateParentTurnStage(value: unknown): AgentParentTurnStage {
     ...(record.failureReason !== undefined ? { failureReason: redactedShortText(record.failureReason) } : {}),
     ...(record.recoveryReason !== undefined ? { recoveryReason: redactedShortText(record.recoveryReason) } : {})
   }
-  if (Boolean(stage.targetConversationId) !== Boolean(stage.expectedTurnDigest)) {
-    throw new Error('Parent turn staging commit target and digest must be persisted together.')
+  if (Boolean(stage.targetConversationId) !== Boolean(stage.expectedParentTurnProof)) {
+    throw new Error('Parent turn staging commit target and proof must be persisted together.')
   }
   if (stage.status === 'awaiting_conversation_save' && !stage.confirmedAssistant) {
     throw new Error('Awaiting parent turn staging requires a confirmed assistant answer.')
   }
-  if (stage.status === 'settled' && (!stage.confirmedAssistant || !stage.targetConversationId || !stage.expectedTurnDigest || !stage.settledAt)) {
+  if (stage.status === 'settled' && (!stage.confirmedAssistant || !stage.targetConversationId || !stage.expectedParentTurnProof || !stage.settledAt)) {
     throw new Error('Settled parent turn staging is incomplete.')
   }
   if (stage.status === 'interrupted' && (!stage.previousStatus || !stage.interruptedAt)) {

@@ -905,7 +905,7 @@ function mergeAgentTurnMetadata(
     toolResults: mergeMetadataItems(server.toolResults, local.toolResults, (tool) => `${tool.toolCallId}:${tool.toolName}`),
     runUsage: server.runUsage ?? local.runUsage,
     runId: server.runId ?? local.runId,
-    parentTurnDigest: server.parentTurnDigest ?? local.parentTurnDigest,
+    parentTurnProof: server.parentTurnProof ?? local.parentTurnProof,
     provenance: server.provenance ?? local.provenance
   }
 }

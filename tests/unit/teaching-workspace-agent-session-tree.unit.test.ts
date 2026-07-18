@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -60,6 +61,31 @@ describe('TeachingWorkspaceService agent conversation branch lifecycle', () => {
     expect(renamed.state.activeWorkspace?.conversations).toContainEqual(
       expect.objectContaining({ id: saved.conversation.id, title: 'Renamed conversation' })
     )
+  })
+
+  it('redacts unknown mixed-prose credentials from the workspace session-event sink', async () => {
+    const runtime = await runtimeScope.create('workspace-session-event-redaction')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot)
+    })
+    const workspace = (await service.createWorkspace({ name: 'Event session', prompt: 'Exercise event redaction.' })).activeWorkspace!
+    const secret = 'C7aQ9vL2xM8kR4pT7nW3yH6dF1sJ5bG0zX9uK2e'
+
+    await service.saveAgentConversation({
+      workspaceId: workspace.id,
+      mode: 'teaching',
+      turns: [
+        { id: 'turn-1', role: 'user', content: `OAuth question with credential ${secret}`, createdAt: '2026-07-18T09:00:00.000Z' },
+        { id: 'turn-2', role: 'assistant', content: `Never persist ${secret}.`, createdAt: '2026-07-18T09:01:00.000Z' }
+      ]
+    })
+
+    const eventLog = await readFile(join(workspace.rootPath, '.studiumx', 'sessions.jsonl'), 'utf8')
+    expect(eventLog).not.toContain(secret)
+    expect(eventLog).toContain('[redacted]')
   })
 
   it('writes new temporary conversations into their createdAt UTC partition', async () => {

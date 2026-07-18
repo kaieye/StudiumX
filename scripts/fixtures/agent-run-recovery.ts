@@ -13,7 +13,7 @@ import { defaultSettings, normalizeSettings } from '../../src/main/teaching-sett
 
 const root = await mkdtemp(join(tmpdir(), 'studiumx-agent-run-recovery-'))
 let tick = 0
-const now = (): string => `2026-07-12T00:00:${String(tick++).padStart(2, '0')}.000Z`
+const now = (): string => `2026-07-12T00:${String(Math.floor(tick / 60)).padStart(2, '0')}:${String(tick++ % 60).padStart(2, '0')}.000Z`
 
 try {
   const store = new AgentRunStore(root, now)

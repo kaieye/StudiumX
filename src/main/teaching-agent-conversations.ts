@@ -26,6 +26,11 @@ import {
 } from './agent-conversation-session-audit'
 import { saveAgentConversationArchive } from './agent-conversation-archive'
 import { sanitizeAgentConversationTurns, sanitizeAgentTurnContent } from '../shared/agent-conversation-turns'
+import {
+  hasPersistedAgentParentTurnProof,
+  sanitizePersistedConversationTitle,
+  sanitizePersistedUserHistory
+} from '../shared/agent-persisted-history'
 import type {
   AgentArtifactRef,
   AgentChildRunMetadata,
@@ -94,7 +99,8 @@ export async function nextAgentConversationId(
   title: string,
   timestamp: string
 ): Promise<string> {
-  const base = `chat-${formatConversationTimestamp(new Date(timestamp))}-${slugify(title, 'conversation')}`.slice(0, 96)
+  const safeTitle = sanitizePersistedConversationTitle(title)
+  const base = `chat-${formatConversationTimestamp(new Date(timestamp))}-${slugify(safeTitle, 'conversation')}`.slice(0, 96)
   let id = requireSafeAgentConversationId(base)
   let suffix = 2
   while (await agentConversationIdExists(rootPath, id)) {
@@ -181,58 +187,73 @@ export async function readAgentConversationChildTranscript(
 export async function writeAgentConversationRecord(
   workspace: AgentConversationWorkspace,
   record: AgentConversationRecord,
-  options: { allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[] } = {}
+  options: {
+    allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
+    skipLearningWorkLedger?: boolean
+    beforeCanonicalSave?: (record: AgentConversationRecord) => Promise<void>
+  } = {}
 ): Promise<void> {
   await saveAgentConversationArchive({
     workspace,
     record,
-    allowedStagedChildTranscripts: options.allowedStagedChildTranscripts
+    allowedStagedChildTranscripts: options.allowedStagedChildTranscripts,
+    skipLearningWorkLedger: options.skipLearningWorkLedger,
+    beforeCanonicalSave: options.beforeCanonicalSave
   })
 }
 
-export function agentParentTurnDigest(turns: readonly AgentChatTurn[]): string {
-  const assistantIndex = turns.findLastIndex((turn) => turn.role === 'assistant')
-  const assistant = assistantIndex >= 0 ? turns[assistantIndex] : null
-  const user = assistantIndex >= 0
-    ? turns.slice(0, assistantIndex).findLast((turn) => turn.role === 'user')
-    : null
-  if (!user || !assistant) throw new Error('A parent turn digest requires a user turn followed by an assistant turn.')
-  const projection = {
-    user: { id: user.id, content: user.content, createdAt: user.createdAt },
-    assistant: { id: assistant.id, content: assistant.content, createdAt: assistant.createdAt }
-  }
-  return createHash('sha256').update(JSON.stringify(projection)).digest('hex')
+const LEGACY_PARENT_TURN_DIGEST_DISABLED = 'legacy-parent-turn-digest-disabled'
+
+/**
+ * @deprecated Kept only so older consumers still compile. It no longer hashes
+ * raw turns and always returns a fixed non-secret sentinel; do not use it for
+ * persistence, recovery, or equality checks. Use the archive's
+ * `beforeCanonicalSave` callback and the canonical parent-turn proof instead.
+ */
+export function agentParentTurnDigest(_turns: readonly AgentChatTurn[]): string {
+  return LEGACY_PARENT_TURN_DIGEST_DISABLED
 }
 
+/**
+ * The optional third argument is accepted for source compatibility with the
+ * legacy raw-digest API, but is deliberately ignored. New durable records
+ * never persist it; the archive binds a sanitized canonical proof instead.
+ */
 export function attachAgentParentTurnCommit(
   turns: readonly AgentChatTurn[],
   runId: string,
-  digest: string
+  _legacyDigest?: string
 ): AgentChatTurn[] {
   const assistantIndex = turns.findLastIndex((turn) => turn.role === 'assistant')
   if (assistantIndex < 0) throw new Error('A saved parent turn requires an assistant turn.')
-  return turns.map((turn, index) => index === assistantIndex
-    ? {
-        ...turn,
-        metadata: {
-          ...(turn.metadata ?? { version: 1 as const }),
-          version: 1,
-          runId,
-          parentTurnDigest: digest
-        }
+  return turns.map((turn, index) => {
+    if (index !== assistantIndex) return turn
+    const { parentTurnDigest: _previousLegacyDigest, ...metadata } = turn.metadata ?? { version: 1 as const }
+    return {
+      ...turn,
+      metadata: {
+        ...metadata,
+        version: 1,
+        runId,
+        // The durable archive boundary binds the final canonical sanitized
+        // representation to a non-secret proof after artifact promotion.
+        parentTurnProof: undefined
       }
-    : turn)
+    }
+  })
 }
 
+/**
+ * Settles a recovered run only when the durable safe proof exactly matches the
+ * canonical sanitized parent-turn prefix. Legacy raw digests deliberately do
+ * not receive a marker-based fallback.
+ */
 export function hasAgentParentTurnCommit(
   turns: readonly AgentChatTurn[],
   runId: string,
-  digest: string
+  proofDigest: string
 ): boolean {
-  return turns.some((turn, index) => turn.role === 'assistant' &&
-    turn.metadata?.runId === runId &&
-    turn.metadata.parentTurnDigest === digest &&
-    agentParentTurnDigest(turns.slice(0, index + 1)) === digest)
+  return hasPersistedAgentParentTurnProof(turns, runId, proofDigest)
 }
 
 export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[] {
@@ -312,8 +333,15 @@ function normalizeAgentProcessEventKind(value: unknown): AgentChatProcessEvent['
 
 export function deriveConversationTitle(turns: AgentChatTurn[], timestamp: string): string {
   const firstUserContent = cleanText(turns.find((turn) => turn.role === 'user')?.content)
-  if (firstUserContent) return firstUserContent.length > 48 ? `${firstUserContent.slice(0, 48)}...` : firstUserContent
-  return `Conversation ${formatDate(new Date(timestamp))}`
+  // Redact before truncating. Truncating first can leave a 31-character
+  // prefix of an unknown credential that no longer satisfies token detection,
+  // then leak through a title, generated filename, or workspace event.
+  const sanitized = firstUserContent ? sanitizePersistedUserHistory(firstUserContent) : null
+  const safeUserContent = sanitized?.kind === 'redacted' ? sanitized.text : ''
+  const candidate = safeUserContent
+    ? (safeUserContent.length > 48 ? `${safeUserContent.slice(0, 48)}...` : safeUserContent)
+    : `Conversation ${formatDate(new Date(timestamp))}`
+  return sanitizePersistedConversationTitle(candidate)
 }
 
 export async function ensureTeachingContentDirectories(rootPath: string): Promise<void> {
@@ -585,9 +613,10 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
   const toolResults = normalizeToolResults(record.toolResults)
   const runUsage = normalizeRunUsage(record.runUsage)
   const runId = typeof record.runId === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(record.runId) ? record.runId : undefined
-  const parentTurnDigest = typeof record.parentTurnDigest === 'string' && /^[a-f0-9]{64}$/.test(record.parentTurnDigest)
-    ? record.parentTurnDigest
-    : undefined
+  // Legacy raw parent-turn digests are intentionally discarded while
+  // normalizing durable input: they allow offline equality checks against a
+  // candidate secret. Recovery requires the non-secret safe proof instead.
+  const parentTurnProof = normalizePersistedParentTurnProof(record.parentTurnProof)
   const provenance = normalizeAgentTurnProvenance(record.provenance)
   const metadata: AgentTurnMetadata = {
     version: 1,
@@ -599,7 +628,7 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     toolResults: toolResults.length > 0 ? toolResults : undefined,
     runUsage,
     runId,
-    parentTurnDigest,
+    parentTurnProof,
     provenance
   }
   return metadata.sources ||
@@ -610,10 +639,18 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     metadata.toolResults ||
     metadata.runUsage ||
     metadata.runId ||
-    metadata.parentTurnDigest ||
+    metadata.parentTurnProof ||
     metadata.provenance
     ? metadata
     : undefined
+}
+
+function normalizePersistedParentTurnProof(value: unknown): AgentTurnMetadata['parentTurnProof'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (record.schemaVersion !== 1 || record.algorithm !== 'sha256' ||
+    typeof record.digest !== 'string' || !/^[a-f0-9]{64}$/.test(record.digest)) return undefined
+  return { schemaVersion: 1, algorithm: 'sha256', digest: record.digest }
 }
 
 function normalizeSources(value: unknown): AgentSourceMetadata[] {

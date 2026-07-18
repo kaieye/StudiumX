@@ -370,7 +370,7 @@ function mergeAgentTurnMetadata(
     toolResults: nonEmpty(mergeBy(existing.toolResults, incoming.toolResults, (tool) => `${tool.toolCallId}:${tool.toolName}`).slice(-MAX_TOOL_DIAGNOSTICS)),
     runUsage: incoming.runUsage ?? existing.runUsage,
     runId: incoming.runId ?? existing.runId,
-    parentTurnDigest: incoming.parentTurnDigest ?? existing.parentTurnDigest
+    parentTurnProof: incoming.parentTurnProof ?? existing.parentTurnProof
   })
 }
 
@@ -395,7 +395,7 @@ function hasAgentTurnMetadataContent(metadata: AgentTurnMetadata): boolean {
     metadata.toolResults?.length ||
     metadata.runUsage ||
     metadata.runId ||
-    metadata.parentTurnDigest
+    metadata.parentTurnProof
   )
 }
 

@@ -8,7 +8,7 @@ import { defaultSettings } from '../../src/main/teaching-settings'
 import { parseAgentChatStreamPayload } from '../../src/main/teaching-ipc-commands'
 import { SkillLibraryService } from '../../src/main/skill-library'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
-import { hasAgentParentTurnCommit } from '../../src/main/teaching-agent-conversations'
+import { hasAgentParentTurnCommit, readRawAgentConversationRecord } from '../../src/main/teaching-agent-conversations'
 import { agentConversationJsonRelativePathForMarkdown } from '../../src/shared/agent-conversation-catalog'
 
 const MODEL_REPLY = 'MODEL_REPLY_FROM_PROVIDER'
@@ -177,7 +177,7 @@ try {
   assert.ok(!('error' in result), 'agent chat should return the provider response')
   assert.equal(result.finalText, MODEL_REPLY)
   assert.equal(chunks.join(''), MODEL_REPLY)
-  assert.deepEqual(statuses, ['thinking', 'done'])
+  assert.deepEqual(statuses, ['thinking', 'answering', 'done'])
 
   const sentMessages = requests[0]?.body.messages ?? []
   assert.equal(sentMessages[0]?.role, 'system')
@@ -252,7 +252,7 @@ try {
   assert.ok(!('error' in identityResult), 'model identity response should return the provider response')
   assert.equal(identityResult.finalText, MODEL_REPLY)
   assert.equal(identityChunks.join(''), MODEL_REPLY)
-  assert.deepEqual(identityStatuses, ['thinking', 'done'])
+  assert.deepEqual(identityStatuses, ['thinking', 'answering', 'done'])
 
   const identityMessages = requests[1]?.body.messages ?? []
   assert.equal(identityMessages[0]?.role, 'system')
@@ -487,14 +487,15 @@ try {
     .find((child) => child.childRunId === stagedChild.childRunId)
     ?.archive
   assert.ok(promotedArchive, 'saved conversation should retain the promoted child transcript reference')
-  const savedParentTurnMarker = loadedDelegation.turns
+  const rawCanonicalDelegation = await readRawAgentConversationRecord(workspace.rootPath, savedDelegation.conversation.id)
+  const savedParentTurnMarker = rawCanonicalDelegation.turns
     .findLast((turn) => turn.role === 'assistant' && turn.metadata?.runId === delegationRunId)
-    ?.metadata?.parentTurnDigest
+    ?.metadata?.parentTurnProof?.digest
   assert.ok(savedParentTurnMarker, 'saved conversation should retain the parent-turn commit marker')
   assert.equal(
-    hasAgentParentTurnCommit(loadedDelegation.turns, delegationRunId, savedParentTurnMarker),
+    hasAgentParentTurnCommit(rawCanonicalDelegation.turns, delegationRunId, savedParentTurnMarker),
     true,
-    'the persisted parent-turn digest must survive archive promotion and normalization'
+    'restart verification must use the unhydrated final promoted canonical record'
   )
   assert.notEqual(promotedArchive.relativePath, stagedArchive.relativePath)
   assert.equal(promotedArchive.relativePath.startsWith('.agent-sessions/child-transcripts/'), false)

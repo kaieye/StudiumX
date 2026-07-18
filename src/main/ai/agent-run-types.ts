@@ -101,7 +101,7 @@ export type AgentParentTurnStage = {
   unrecoverableAssistantDeltaBytes: number
   unrecoverableAssistantDeltaCount: number
   evidence: AgentParentTurnStageEvidence[]
-  expectedTurnDigest?: string
+  expectedParentTurnProof?: string
   createdAt: string
   updatedAt: string
   interruptedAt?: string

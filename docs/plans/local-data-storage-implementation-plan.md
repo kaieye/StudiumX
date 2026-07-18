@@ -504,12 +504,20 @@ pnpm run check:security
 3. 不自动重写历史会话/ledger/Markdown，因为那会改变事实与审计证据。启动时可做仅报告的风险扫描（只记录路径、类别、hash，不记录命中 secret）；历史发现的处理需单独的安全事件/用户确认流程。
 4. 新独立 `history.jsonl` 或等价功能在有该 seam、测试和 review 前不得添加；如果未来添加，默认私有权限、append 前 redaction、无 raw secret 回退。
 
+### C-7 实施决策（2026-07-18）
+
+- `src/shared/agent-persisted-history.ts` 是唯一 typed boundary。它没有 `alreadyRedacted` 或 caller bypass：mixed text 保留上下文并替换 credential；`redactAgentSecretText` 还会在任意 prose 中识别 JWT 与未知的 32+ 高熵 credential-like value。redactor 异常、非字符串结果和不确定的独立高风险 token 均 fail-closed。
+- secret-only user turn 保留原 turn `id`、role、timestamp、排序和 `messageCount`，但 content 固定为 `[sensitive user input omitted]`。这保持 session/analytics 的结构性不变量，同时不留下可检索的原 credential。secret-only title 统一为 `Conversation`；title 必须先脱敏再截断/slugify，因此新 conversation id、路径及 workspace session event 不会留下 token 前缀。
+- provider confirmation 可以在 save 前对**原始 transient turns**做校验，但该 raw digest 不得写入 canonical record、stage 或任何 durable metadata。持久化 recovery 只接受 `parentTurnProof`：它是 SHA-256 over canonical JSON of the **sanitized** prefix（turn order、id、role、content、timestamp、tool/process fields 以及除 proof 自身外的 parent-relevant metadata）。proof 的 preimage 不含 raw credential；legacy `parentTurnDigest`-only marker 永不结算，必须安全重试/显式处理。
+- archive JSON/Markdown、audit JSONL/artifacts、learning-work ledger/evidence、history index、SQLite projection、child transcript、tool/process event 和 safe diagnostics 均只写安全 projection。SQLite/history rebuild 可读取 legacy raw archive 以重建派生文件，但绝不改写源 archive bytes，也不执行自动历史扫描、删除或 rewrite。
+- Legacy branch policy：fork 可从内存中的 sanitized projection 创建新 child，但 source JSON、Markdown、per-conversation audit 与既有 shared ledger 均不改写；为保持 ledger bytes，legacy fork child 不会追加 shared learning-work ledger。legacy same-status repair 是 no-op；实际 status transition 明确失败并要求显式 migration。正常 C-7 branch 继续使用完整 archive/audit/ledger lifecycle。
+
 ### 验收门禁
 
-- 使用 API key、Bearer token、典型 provider credential 和混合普通文本的 fixture：所有新生成的 conversation JSON、Markdown、audit、learning-work projection、日志、SQLite row 均不含原始 secret。
+- 使用 API key、Bearer token、典型 provider credential、JWT 和未知 32+ 高熵 mixed-prose token 的 fixture：所有新生成的 conversation JSON、Markdown、audit、learning-work projection、workspace session event、child/tool artifact、日志、SQLite row 均不含原始 secret。
 - secret-only input 不生成可检索 history；普通输入仍保留可用会话语义和 analytics counts。
 - redactor 异常/未知高风险模式采取 fail-closed（omit history + 安全诊断），不能把原文写盘。
-- 旧文件保持字节不变；仅报告扫描不会将原 secret 再写到日志或 issue 文件。
+- legacy fork/status/repair 的 source JSON、Markdown、audit 与 ledger 保持字节不变；仅报告扫描不会将原 secret 再写到日志或 issue 文件。
 - 定向执行：
 
 ```bash

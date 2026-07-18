@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -79,6 +79,35 @@ describe('local data SQLite availability', () => {
 })
 
 describe('local data SQLite projections', () => {
+  it('rebuilds a safe SQLite title from a legacy raw archive without modifying its bytes', async () => {
+    const secret = 'C7aQ9vL2xM8kR4pT7nW3yH6dF1sJ5bG0zX9uK2e'
+    const value = record('legacy-private-title')
+    value.title = `Legacy title credential ${secret}`
+    value.turns = [{ id: 'legacy-turn', role: 'user', content: `OAuth review credential ${secret}`, createdAt: instant }]
+    const relativeJson = 'conversation/legacy-private-title.json'
+    await writeConversation(relativeJson, value)
+    const sourcePath = join(runtime.workspaceDir, relativeJson)
+    const sourceBytes = await readFile(sourcePath, 'utf8')
+    const catalogSummary = {
+      ...value,
+      workspaceId: 'ws-1',
+      relativePath: 'conversation/legacy-private-title.md',
+      absolutePath: join(runtime.workspaceDir, 'conversation/legacy-private-title.md')
+    }
+
+    const index = makeIndex({ conversations: [catalogSummary] })
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+    index.close()
+
+    expect(await readFile(sourcePath, 'utf8')).toBe(sourceBytes)
+    const db = new Database(index.path, { readonly: true })
+    try {
+      const row = db.prepare('SELECT title, turn_projection_json FROM conversation_projection WHERE conversation_id = ?').get(value.id) as { title: string; turn_projection_json: string }
+      expect(row.title).toBe('Legacy title credential [redacted]')
+      expect(JSON.stringify(row)).not.toContain(secret)
+    } finally { db.close() }
+  })
   it('indexes flat and UTC-partitioned conversations, sealed+active ledgers, and memory metadata without memory content', async () => {
     const flat = record('flat')
     const partitioned = record('partitioned')

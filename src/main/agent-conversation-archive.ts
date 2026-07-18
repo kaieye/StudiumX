@@ -31,6 +31,7 @@ import {
   readLearningWorkLedgerLines
 } from './learning-work-ledger'
 import { normalizeWorkspaceRelativePath } from './teaching-workspace-paths'
+import { sanitizePersistedAgentConversationRecord } from '../shared/agent-persisted-history'
 
 export type AgentConversationArchiveWorkspace = {
   id?: string
@@ -55,16 +56,24 @@ export async function saveAgentConversationArchive(input: {
   workspace: AgentConversationArchiveWorkspace
   record: AgentConversationRecord
   allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
+  /** Legacy-fork compatibility: do not mutate a shared source ledger. */
+  skipLearningWorkLedger?: boolean
+  /** Runs after artifact promotion/proof rebinding and before canonical JSON is written. */
+  beforeCanonicalSave?: (record: AgentConversationRecord) => Promise<void>
 }): Promise<void> {
-  const paths = resolveArchivePaths(input.workspace.rootPath, input.record.relativePath, input.record.id)
-  assertArtifactKindsMatchMetadataPlacement(input.record)
+  // This is the durable boundary. Callers retain their raw record for run
+  // confirmation; every archive sink below
+  // receives only this sanitized projection.
+  const record = sanitizePersistedAgentConversationRecord(input.record)
+  const paths = resolveArchivePaths(input.workspace.rootPath, record.relativePath, record.id)
+  assertArtifactKindsMatchMetadataPlacement(record)
   await assertAgentConversationCheckpointPrefixesPreserved({
     rootPath: input.workspace.rootPath,
-    record: input.record
+    record
   })
   const persistedRecord = await archiveAgentConversationArtifacts({
     rootPath: input.workspace.rootPath,
-    record: input.record,
+    record,
     allowedStagedChildTranscripts: input.allowedStagedChildTranscripts
   })
   await preflightAgentConversationArchive({
@@ -72,24 +81,28 @@ export async function saveAgentConversationArchive(input: {
     record: persistedRecord,
     paths
   })
+  await input.beforeCanonicalSave?.(persistedRecord)
   const canonicalJson = renderCanonicalConversationJson(input.workspace, persistedRecord)
   const canonicalMarkdown = renderAgentConversationMarkdown(input.workspace, persistedRecord)
 
   await atomicWriteFile(paths.json, canonicalJson)
   await atomicWriteFile(paths.markdown, canonicalMarkdown)
   await appendAgentConversationSessionAuditLog({ rootPath: input.workspace.rootPath, record: persistedRecord })
-  await appendLearningWorkLedgerSnapshot({
-    rootPath: input.workspace.rootPath,
-    workspace: input.workspace,
-    record: persistedRecord
-  })
+  if (!input.skipLearningWorkLedger) {
+    await appendLearningWorkLedgerSnapshot({
+      rootPath: input.workspace.rootPath,
+      workspace: input.workspace,
+      record: persistedRecord
+    })
+  }
 
   await verifyAgentConversationArchive({
     workspace: input.workspace,
     record: persistedRecord,
     paths,
     canonicalJson,
-    canonicalMarkdown
+    canonicalMarkdown,
+    skipLearningWorkLedger: input.skipLearningWorkLedger
   })
 }
 
@@ -181,6 +194,7 @@ async function verifyAgentConversationArchive(input: {
   paths: ArchivePaths
   canonicalJson: string
   canonicalMarkdown: string
+  skipLearningWorkLedger?: boolean
 }): Promise<void> {
   const [json, markdown, audit, ledgerLines] = await Promise.all([
     readFile(input.paths.json, 'utf8'),
@@ -215,6 +229,7 @@ async function verifyAgentConversationArchive(input: {
     if (!auditIds.has(entry.id)) throw new Error('Conversation archive session audit is incomplete.')
   }
 
+  if (input.skipLearningWorkLedger) return
   const expectedLedgerEntry = buildLearningWorkLedgerEntry(input.workspace, input.record)
   const hasLedgerEntry = ledgerLines.some((line) => {
     const entry = safeParseJson(line)

@@ -195,6 +195,12 @@ export type AgentToolResultDiagnostic = {
   archive?: AgentArtifactRef
 }
 
+export type AgentPersistedParentTurnProof = {
+  schemaVersion: 1
+  algorithm: 'sha256'
+  digest: string
+}
+
 export type AgentTurnMetadata = {
   version: 1
   sources?: AgentSourceMetadata[]
@@ -206,8 +212,14 @@ export type AgentTurnMetadata = {
   runUsage?: AgentRunUsageAggregate
   /** Durable run marker used to settle a pending parent turn without duplicating it after restart. */
   runId?: string
-  /** Digest of the saved parent-turn projection associated with `runId`. */
+  /**
+   * Legacy raw parent digest. New durable records must omit this because it is
+   * an offline candidate-secret oracle. It is retained only to read and reject
+   * old records safely.
+   */
   parentTurnDigest?: string
+  /** Non-secret canonical proof of the sanitized parent-turn sequence. */
+  parentTurnProof?: AgentPersistedParentTurnProof
   provenance?: {
     kind: 'original' | 'replayed' | 'recovery_notice'
     sourceConversationId?: string

@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
@@ -20,7 +20,6 @@ import {
   type WorkspacePathMeta
 } from './teaching-workspace-paths'
 import {
-  agentParentTurnDigest,
   attachAgentParentTurnCommit,
   deriveConversationTitle,
   hasAgentParentTurnCommit,
@@ -44,6 +43,7 @@ import {
   type TemporaryChatContext
 } from './teaching-conversation-runtime'
 import { AgentRunStore } from './ai/agent-run-store'
+import { parentTurnStageSafeTextDigest } from './ai/agent-parent-turn-staging'
 import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
 import { createAgentConversationCheckpoint, resolveAgentConversationCheckpoint } from './agent-conversation-checkpoints'
 import {
@@ -81,6 +81,7 @@ import type { LearningSessionSnapshot } from '../shared/teaching-types/learning-
 import type { LearningOutcomeCommitResult } from '../shared/teaching-types/learning-outcome'
 import type { CommitLearningOutcomeRequest } from '../shared/teaching-types/system-api'
 import { isLearningSessionId } from '../shared/teaching-placement'
+import { persistedAgentParentTurnProof, sanitizePersistedConversationTitle } from '../shared/agent-persisted-history'
 import {
   agentConversationDirectoryRelativePath,
   agentConversationJsonRelativePathForMarkdown,
@@ -567,9 +568,9 @@ export class TeachingWorkspaceService {
   async reconcileInterruptedAgentRuns(): Promise<InterruptedAgentRun[]> {
     const stores = await this.agentRunStores()
     return (await Promise.all(stores.map((store) => store.reconcileInterrupted(async (stage) => {
-      if (!stage.targetConversationId || !stage.expectedTurnDigest) return false
-      const record = await readAgentConversationRecord(store.storageRoot, stage.targetConversationId).catch(() => null)
-      return Boolean(record && hasAgentParentTurnCommit(record.turns, stage.runId, stage.expectedTurnDigest))
+      if (!stage.targetConversationId || !stage.expectedParentTurnProof) return false
+      const record = await readRawAgentConversationRecord(store.storageRoot, stage.targetConversationId).catch(() => null)
+      return Boolean(record && hasAgentParentTurnCommit(record.turns, stage.runId, stage.expectedParentTurnProof))
     }).catch(() => [])))).flat()
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
@@ -770,7 +771,7 @@ export class TeachingWorkspaceService {
     const stagedParentTurn = runStore && runId
       ? await runStore.readParentTurnStage(runId).catch(() => null)
       : null
-    const title = existing?.title ?? deriveConversationTitle(turns, now)
+    const title = sanitizePersistedConversationTitle(existing?.title ?? deriveConversationTitle(turns, now))
     const id = existing?.id ?? stagedParentTurn?.targetConversationId ?? await nextAgentConversationId(storageRoot, title, now)
     const existingBranch = existing ? inferAgentConversationBranchMetadata(existing) : null
     if (existingBranch?.status === 'deleted') throw new Error('Deleted conversation branches cannot be updated.')
@@ -791,7 +792,7 @@ export class TeachingWorkspaceService {
             provenance: { kind: 'original' as const }
           }
         })
-    const parentTurnDigest = runId ? agentParentTurnDigest(turns) : null
+    let persistedParentTurnProof: string | null = null
     const createdAt = existing?.createdAt ?? now
     const newConversationDir = isTemporaryConversation
       ? agentConversationDirectoryRelativePath({ ...payload, createdAt, mode: 'temporary' })
@@ -807,7 +808,7 @@ export class TeachingWorkspaceService {
           allowances: stagedAllowances
         })
       : []
-    if (runStore && runId && parentTurnDigest) {
+    if (runStore && runId) {
       if (!stagedParentTurn) {
         throw new Error('Parent turn staging is unavailable; refusing an unverified conversation save.')
       }
@@ -817,10 +818,10 @@ export class TeachingWorkspaceService {
         ? turns.slice(0, finalAssistantIndex).findLast((turn) => turn.role === 'user')
         : null
       const confirmedSha256 = finalAssistant
-        ? createHash('sha256').update(finalAssistant.content).digest('hex')
+        ? parentTurnStageSafeTextDigest(finalAssistant.content)
         : null
       const userInputSha256 = finalUser
-        ? createHash('sha256').update(finalUser.content.trim()).digest('hex')
+        ? parentTurnStageSafeTextDigest(finalUser.content)
         : null
       if (!stagedParentTurn.confirmedAssistant || confirmedSha256 !== stagedParentTurn.confirmedAssistant.sha256) {
         throw new Error('Conversation final answer does not match the explicitly confirmed parent turn.')
@@ -828,8 +829,7 @@ export class TeachingWorkspaceService {
       if (userInputSha256 !== stagedParentTurn.userInput.sha256) {
         throw new Error('Conversation user input does not match the staged parent turn.')
       }
-      await runStore.prepareParentTurnSave(runId, id, parentTurnDigest)
-      turns = attachAgentParentTurnCommit(turns, runId, parentTurnDigest)
+      turns = attachAgentParentTurnCommit(turns, runId)
     }
 
     const record: AgentConversationRecord = {
@@ -848,15 +848,38 @@ export class TeachingWorkspaceService {
       turns
     }
 
+    const stageFinalCanonicalSave = runStore && runId && stagedParentTurn
+      ? async (canonicalRecord: AgentConversationRecord): Promise<void> => {
+          // Archive promotion has now replaced large inline results and staged child
+          // references with their final stored placeholders. Bind the stage to that
+          // exact unhydrated canonical prefix before JSON becomes durable.
+          persistedParentTurnProof = persistedAgentParentTurnProof(canonicalRecord.turns).digest
+          await runStore.prepareParentTurnSave(runId, id, persistedParentTurnProof)
+        }
+      : undefined
+
     await invalidateAgentHistoryIndex(storageRoot)
-    const persistedRecord = existing
-      ? await saveAgentConversationBranchAtRoot({ ...workspace, rootPath: storageRoot }, record, {
-          expectedRevision: payload.expectedBranchRevision,
-          allowedStagedChildTranscripts: authorizedAllowances
-        })
-      : (await writeAgentConversationRecord({ ...workspace, rootPath: storageRoot }, record, {
-          allowedStagedChildTranscripts: authorizedAllowances
-        }), record)
+    let persistedRecord: AgentConversationRecord | undefined
+    const captureFinalCanonicalSave = async (canonicalRecord: AgentConversationRecord): Promise<void> => {
+      // The public archive/write APIs intentionally resolve void. The final
+      // post-promotion projection needed for workspace staging and summaries
+      // crosses this private callback seam instead.
+      persistedRecord = canonicalRecord
+      await stageFinalCanonicalSave?.(canonicalRecord)
+    }
+    if (existing) {
+      persistedRecord = await saveAgentConversationBranchAtRoot({ ...workspace, rootPath: storageRoot }, record, {
+        expectedRevision: payload.expectedBranchRevision,
+        allowedStagedChildTranscripts: authorizedAllowances,
+        beforeCanonicalSave: captureFinalCanonicalSave
+      })
+    } else {
+      await writeAgentConversationRecord({ ...workspace, rootPath: storageRoot }, record, {
+        allowedStagedChildTranscripts: authorizedAllowances,
+        beforeCanonicalSave: captureFinalCanonicalSave
+      })
+    }
+    if (!persistedRecord) throw new Error('Conversation archive did not provide its canonical record.')
     if (!isTemporaryConversation) {
       await this.appendSessionEvent(workspace.rootPath, {
         id: randomUUID(),
@@ -870,8 +893,8 @@ export class TeachingWorkspaceService {
 
     const nextRegistry = isTemporaryConversation ? registry : touchRegistryWorkspace(registry, workspace.id, now)
     if (!isTemporaryConversation) await this.saveRegistry(nextRegistry)
-    if (runStore && runId && parentTurnDigest && stagedParentTurn) {
-      await runStore.settleParentTurn(runId, id, parentTurnDigest)
+    if (runStore && runId && persistedParentTurnProof && stagedParentTurn) {
+      await runStore.settleParentTurn(runId, id, persistedParentTurnProof)
     }
     const result = {
       state: await this.buildState(nextRegistry, workspace.id, payload.selectedLessonPath ?? null),
@@ -932,9 +955,10 @@ export class TeachingWorkspaceService {
   async renameAgentConversation(payload: RenameAgentConversationPayload): Promise<RenameAgentConversationResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    const title = cleanText(payload.title)
-    if (!title || title.length > 160) throw new Error('Conversation title must contain 1 to 160 characters.')
+    const requestedTitle = cleanText(payload.title)
+    if (!requestedTitle || requestedTitle.length > 160) throw new Error('Conversation title must contain 1 to 160 characters.')
 
+    const title = sanitizePersistedConversationTitle(requestedTitle)
     const location = await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)
     const persistedRecord = await saveAgentConversationBranchAtRoot(
       { ...workspace, rootPath: location.rootPath },
