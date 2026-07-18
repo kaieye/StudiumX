@@ -521,7 +521,7 @@ C-5D 不扩大这一语义：workspace lifecycle 的 trace 只是 optional corre
 
 ### 当前实现状态（2026-07-18；代码提交 `1bbdf7c` 纳入 C-5G）
 
-`1bbdf7c` 是本节记录的 C-5G **代码提交**，不是本文档修改后的当前 HEAD。C-5H 的 [workspace user-mutation correlation 设计门槛](local-data-workspace-user-mutation-correlation-design.md)仅记录 mission-first 的未批准 action correlation 设计，明确不覆盖 style：本轮没有业务代码/测试变更或测试结果，不能把它解释为 `mission_updated` trace 已实现，也不能据此声称 C-5 完成。lesson-style correlation、settings transaction、retry/actionId/receipt 属于独立、未批准的 future style design。
+`1bbdf7c` 是本节记录的 C-5G **代码提交**，不是本文档修改后的当前 HEAD。C-5H 的 [workspace user-mutation correlation 设计门槛](local-data-workspace-user-mutation-correlation-design.md)仅记录 mission-first 的未批准 action correlation 设计，明确不覆盖 style：本轮没有业务代码/测试变更或测试结果，不能把它解释为 `mission_updated` trace 已实现，也不能据此声称 C-5 完成。C-5I 的 [direct-UI lesson generation lifecycle / user-action correlation 设计门槛](local-data-lesson-generation-user-action-correlation-design.md)同样仅记录 direct UI `generateLesson` / stream 的未批准 action-id/receipt/recovery 设计；它不覆盖 agent `generate_lesson`、generic workspace writer、style 或全局 transaction/UI redesign，也不记录任何 C-5I code/test completion。lesson-style correlation、settings transaction、retry/actionId/receipt 属于独立、未批准的 future style design。
 
 已实现并有代码/测试证据的范围：
 
