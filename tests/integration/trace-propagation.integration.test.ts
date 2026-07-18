@@ -2,8 +2,12 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { agentConversationJsonRelativePathForMarkdown } from '../../src/shared/agent-conversation-catalog'
+import {
+  agentConversationJsonRelativePathForMarkdown,
+  agentConversationSessionAuditRelativePathForMarkdown
+} from '../../src/shared/agent-conversation-catalog'
 import { Logger, parseLoggerLine } from '../../src/main/logger'
+import { parseAgentConversationSessionAuditLines } from '../../src/main/agent-conversation-session-audit'
 import { createLearningSessionLedger } from '../../src/main/learning-session-ledger'
 import { buildLearningWorkLedgerEntry, readLearningWorkLedgerLines } from '../../src/main/learning-work-ledger'
 import { defaultSettings } from '../../src/main/teaching-settings'
@@ -124,6 +128,96 @@ describe('C-5 archive trace propagation', () => {
     }
 
     await logger.shutdown()
+  })
+
+  it('keeps audit header and durable rows trace-stable across an agent conversation continuation', async () => {
+    const runtime = await runtimeScope.create('agent-conversation-audit-trace-continuation')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot)
+    })
+    const workspace = (await service.createWorkspace({
+      name: 'Audit trace continuation workspace',
+      prompt: 'Persist audit trace continuity.'
+    })).activeWorkspace!
+    const initialTurns = [
+      { id: 'audit-user-1', role: 'user' as const, content: 'Initial audit question', createdAt: '2026-07-18T04:00:00.000Z' },
+      { id: 'audit-assistant-1', role: 'assistant' as const, content: 'Initial audit answer', createdAt: '2026-07-18T04:01:00.000Z' }
+    ]
+    const initialSave = await service.saveAgentConversation({
+      workspaceId: workspace.id,
+      mode: 'teaching',
+      turns: initialTurns
+    })
+    const jsonPath = join(
+      workspace.rootPath,
+      agentConversationJsonRelativePathForMarkdown(initialSave.conversation.relativePath)
+    )
+    const auditPath = join(
+      workspace.rootPath,
+      agentConversationSessionAuditRelativePathForMarkdown(initialSave.conversation.relativePath)
+    )
+    const initialCanonical = JSON.parse(await readFile(jsonPath, 'utf8')) as Omit<AgentConversationRecord, 'absolutePath' | 'messageCount'>
+    const initialTrace = initialCanonical.traceId
+    expect(initialTrace).toMatch(UUID_RE)
+    const initialAudit = parseAgentConversationSessionAuditLines(await readFile(auditPath, 'utf8'))
+    const initialAuditEntries = initialAudit.filter((line) => line.type !== 'session')
+    expect(initialAudit.find((line) => line.type === 'session')?.traceId).toBe(initialTrace)
+    expect(initialAuditEntries.every((entry) => entry.traceId === initialTrace)).toBe(true)
+
+    const continuationSave = await service.saveAgentConversation({
+      workspaceId: workspace.id,
+      mode: 'teaching',
+      conversationId: initialSave.conversation.id,
+      expectedBranchRevision: initialSave.conversation.branch!.revision,
+      turns: [
+        ...initialTurns,
+        { id: 'audit-user-2', role: 'user', content: 'Continuation audit question', createdAt: '2026-07-18T04:02:00.000Z' },
+        { id: 'audit-assistant-2', role: 'assistant', content: 'Continuation audit answer', createdAt: '2026-07-18T04:03:00.000Z' }
+      ]
+    })
+    const continuedCanonical = JSON.parse(await readFile(jsonPath, 'utf8')) as Omit<AgentConversationRecord, 'absolutePath' | 'messageCount'>
+    const continuedTrace = continuedCanonical.traceId
+    expect(continuedTrace).toMatch(UUID_RE)
+    expect(continuedTrace).not.toBe(initialTrace)
+
+    const continuedAudit = parseAgentConversationSessionAuditLines(await readFile(auditPath, 'utf8'))
+    const continuedAuditEntries = continuedAudit.filter((line) => line.type !== 'session')
+    const continuedAuditById = new Map(continuedAuditEntries.map((entry) => [entry.id, entry]))
+    expect(continuedAudit.find((line) => line.type === 'session')?.traceId).toBe(initialTrace)
+    expect(initialAuditEntries.every((entry) => continuedAuditById.get(entry.id)?.traceId === initialTrace)).toBe(true)
+    const newAuditEntries = continuedAuditEntries.filter((entry) => !initialAuditEntries.some((initialEntry) => initialEntry.id === entry.id))
+    expect(newAuditEntries.map((entry) => entry.id).sort()).toEqual(['turn:audit-assistant-2', 'turn:audit-user-2'])
+    expect(newAuditEntries.every((entry) => entry.traceId === continuedTrace)).toBe(true)
+
+    const initialLedgerRecord: AgentConversationRecord = {
+      ...initialCanonical,
+      absolutePath: jsonPath,
+      messageCount: initialCanonical.turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length
+    }
+    const continuedLedgerRecord: AgentConversationRecord = {
+      ...continuedCanonical,
+      absolutePath: jsonPath,
+      messageCount: continuedCanonical.turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length
+    }
+    const expectedLedgerTraceByEntryId = new Map([
+      [buildLearningWorkLedgerEntry(workspace, initialLedgerRecord).entryId, initialTrace],
+      [buildLearningWorkLedgerEntry(workspace, continuedLedgerRecord).entryId, continuedTrace]
+    ])
+    const ledgerTraceByEntryId = new Map((await readLearningWorkLedgerLines(workspace.rootPath))
+      .map((line) => JSON.parse(line) as { entryId: string; traceId?: string })
+      .map((entry) => [entry.entryId, entry.traceId]))
+    expect(ledgerTraceByEntryId).toEqual(expectedLedgerTraceByEntryId)
+
+    const lifecycleTraces = (await readWorkspaceLifecycleEvents(workspace.rootPath))
+      .filter((event) => event.kind === 'agent_conversation_recorded')
+      .filter((event) => event.paths?.includes(initialSave.conversation.relativePath))
+      .map((event) => event.traceId)
+    expect(new Set(lifecycleTraces)).toEqual(new Set([initialTrace, continuedTrace]))
+    expect(lifecycleTraces).toHaveLength(2)
+    expect(continuationSave.conversation.id).toBe(initialSave.conversation.id)
   })
 
   it('assigns distinct main-generated traces to concurrent Memory CRUD mutations and emits redacted tagged logs', async () => {

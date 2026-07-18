@@ -9,6 +9,7 @@ import {
 } from '../shared/agent-conversation-catalog'
 import { redactAgentSecretText } from '../shared/agent-secret-redaction'
 import { sanitizePersistedAgentConversationRecord } from '../shared/agent-persisted-history'
+import { normalizeTraceId } from '../shared/trace-context'
 import { agentRunChildTranscriptRelativePath } from './ai/agent-run-persistence'
 import {
   isPathInsideRoot,
@@ -56,6 +57,7 @@ export type AgentConversationSessionAuditHeader = {
   title: string
   createdAt: string
   conversationRelativePath: string
+  traceId?: string
 }
 
 export type AgentConversationSessionAuditEntryBase = {
@@ -64,6 +66,7 @@ export type AgentConversationSessionAuditEntryBase = {
   parentId: string | null
   timestamp: string
   turnId?: string
+  traceId?: string
 }
 
 export type AgentConversationSessionTurnEntry = AgentConversationSessionAuditEntryBase & {
@@ -320,6 +323,10 @@ export async function appendAgentConversationSessionAuditLog(input: {
   record: AgentConversationRecord
 }): Promise<string> {
   const record = sanitizePersistedAgentConversationRecord(input.record)
+  // Audit trace metadata is correlation-only. Normalize once at this durable
+  // append boundary so every newly written line for this save shares the same
+  // safe value, while invalid input is omitted rather than persisted.
+  const traceId = normalizeTraceId(record.traceId)
   const relativePath = agentConversationSessionAuditRelativePathForMarkdown(record.relativePath)
   const absolutePath = join(input.rootPath, relativePath)
   const existing = parseAgentConversationSessionAuditLines(
@@ -332,8 +339,8 @@ export async function appendAgentConversationSessionAuditLog(input: {
   )
   const hasHeader = existing.some((line) => line.type === 'session')
   const nextLines: AgentConversationSessionAuditLine[] = []
-  if (!hasHeader) nextLines.push(agentConversationSessionAuditHeader(record))
-  for (const entry of buildAgentConversationSessionAuditEntries(record)) {
+  if (!hasHeader) nextLines.push(agentConversationSessionAuditHeader(record, traceId))
+  for (const entry of buildAgentConversationSessionAuditEntriesWithTrace(record, traceId)) {
     if (existingIds.has(entry.id)) continue
     existingIds.add(entry.id)
     nextLines.push(entry)
@@ -348,6 +355,13 @@ export async function appendAgentConversationSessionAuditLog(input: {
 export function buildAgentConversationSessionAuditEntries(
   record: AgentConversationRecord
 ): AgentConversationSessionAuditEntry[] {
+  return buildAgentConversationSessionAuditEntriesWithTrace(record, normalizeTraceId(record.traceId))
+}
+
+function buildAgentConversationSessionAuditEntriesWithTrace(
+  record: AgentConversationRecord,
+  traceId: string | undefined
+): AgentConversationSessionAuditEntry[] {
   record = sanitizePersistedAgentConversationRecord(record)
   // This public builder is also used independently of the archive write path.
   // Apply the same derived-text redaction before forming JSONL previews.
@@ -358,6 +372,7 @@ export function buildAgentConversationSessionAuditEntries(
     const turnEntryId = auditEntryId('turn', turn.id)
     entries.push({
       type: 'turn',
+      traceId,
       id: turnEntryId,
       parentId: previousTurnEntryId,
       timestamp: timestampValue(turn.createdAt, record.updatedAt),
@@ -373,6 +388,7 @@ export function buildAgentConversationSessionAuditEntries(
       const result = tool.result
       entries.push(pruneUndefined({
         type: 'tool_call' as const,
+        traceId,
         id: auditEntryId('tool', turn.id, tool.id),
         parentId: turnEntryId,
         timestamp: timestampValue(turn.createdAt, record.updatedAt),
@@ -385,7 +401,7 @@ export function buildAgentConversationSessionAuditEntries(
         isError: tool.isError === true ? true : undefined
       }))
     }
-    appendMetadataEntries(entries, turnEntryId, turn, record.updatedAt)
+    appendMetadataEntries(entries, turnEntryId, turn, record.updatedAt, traceId)
     previousTurnEntryId = turnEntryId
   }
   return entries
@@ -413,7 +429,8 @@ function appendMetadataEntries(
   entries: AgentConversationSessionAuditEntry[],
   turnEntryId: string,
   turn: AgentChatTurn,
-  fallbackTimestamp: string
+  fallbackTimestamp: string,
+  traceId: string | undefined
 ): void {
   const timestamp = timestampValue(turn.createdAt, fallbackTimestamp)
   const metadata = turn.metadata
@@ -422,6 +439,7 @@ function appendMetadataEntries(
     const redactedSource = redactSourceMetadata(source)
     entries.push({
       type: 'source',
+      traceId,
       id: auditEntryId('source', turn.id, redactedSource.sourceId || hashText(redactedSource.url)),
       parentId: turnEntryId,
       timestamp,
@@ -433,6 +451,7 @@ function appendMetadataEntries(
     const redactedChildRun = childRunForAudit(childRun as AgentChildRunWithArchive)
     entries.push({
       type: 'child_run',
+      traceId,
       id: auditEntryId('child', turn.id, redactedChildRun.childRunId),
       parentId: turnEntryId,
       timestamp: timestampValue(redactedChildRun.completedAt ?? redactedChildRun.startedAt, timestamp),
@@ -443,6 +462,7 @@ function appendMetadataEntries(
   metadata.compactions?.forEach((compaction) => {
     entries.push({
       type: 'compaction',
+      traceId,
       id: auditEntryId('compaction', turn.id, compaction.id || compaction.sourceDigest),
       parentId: turnEntryId,
       timestamp,
@@ -453,6 +473,7 @@ function appendMetadataEntries(
   metadata.contextHygiene?.forEach((contextHygiene, index) => {
     entries.push({
       type: 'context_hygiene',
+      traceId,
       id: auditEntryId('hygiene', turn.id, String(index), hashText(JSON.stringify(contextHygiene))),
       parentId: turnEntryId,
       timestamp,
@@ -463,6 +484,7 @@ function appendMetadataEntries(
   if (metadata.contextEstimate) {
     entries.push({
       type: 'context_estimate',
+      traceId,
       id: auditEntryId('context-estimate', turn.id, hashText(JSON.stringify(metadata.contextEstimate))),
       parentId: turnEntryId,
       timestamp,
@@ -473,6 +495,7 @@ function appendMetadataEntries(
   if (metadata.runUsage) {
     entries.push({
       type: 'run_usage',
+      traceId,
       id: auditEntryId('run-usage', turn.id, hashText(JSON.stringify(metadata.runUsage))),
       parentId: turnEntryId,
       timestamp,
@@ -483,6 +506,7 @@ function appendMetadataEntries(
   for (const diagnostic of metadata.toolResults ?? []) {
     entries.push({
       type: 'tool_result_diagnostic',
+      traceId,
       id: auditEntryId('tool-result', turn.id, diagnostic.toolCallId, diagnostic.toolName),
       parentId: turnEntryId,
       timestamp,
@@ -492,7 +516,10 @@ function appendMetadataEntries(
   }
 }
 
-function agentConversationSessionAuditHeader(record: AgentConversationRecord): AgentConversationSessionAuditHeader {
+function agentConversationSessionAuditHeader(
+  record: AgentConversationRecord,
+  traceId: string | undefined
+): AgentConversationSessionAuditHeader {
   record = sanitizePersistedAgentConversationRecord(record)
   return pruneUndefined({
     type: 'session' as const,
@@ -501,7 +528,8 @@ function agentConversationSessionAuditHeader(record: AgentConversationRecord): A
     workspaceId: record.workspaceId,
     title: redactAgentSecretText(record.title),
     createdAt: record.createdAt,
-    conversationRelativePath: record.relativePath
+    conversationRelativePath: record.relativePath,
+    traceId
   })
 }
 
