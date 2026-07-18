@@ -97,9 +97,9 @@
 
 > 原始短板集中在「读」这一侧：纯文件无索引、无集中 schema 迁移、JSONL/会话无分段/分区、关键状态无备份。以下候选的最小切片已在 `database` 分支实施；本节保留最初的问题和默认取舍，同时把“已经实现”与“尚未实施”分开记录。
 
-### 3.0 `database` 分支实施审计（2026-07-18，HEAD `e849d51`）
+### 3.0 `database` 分支实施审计（2026-07-18，HEAD `dee70d6`）
 
-审计范围是 `main..database` 的原有八个数据提交及后续 C-5B `7a1ca7e`、C-5C `e849d51`；“已实施”只表示下表所述切片存在于当前 HEAD，并由列出的测试与本次定向验证覆盖，**不把候选中的可选/破坏性扩展误记为完成**。
+审计范围是 `main..database` 的原有八个数据提交及后续 C-5B `7a1ca7e`、C-5C `e849d51`、C-5D `dee70d6`；“已实施”只表示下表所述切片存在于当前 HEAD，并由列出的测试与本次定向验证覆盖，**不把候选中的可选/破坏性扩展误记为完成**。
 
 | 候选 | 当前已实施切片与提交 | 当前代码与测试证据 | 仍未实施或明确留给后续的扩展 |
 |---|---|---|---|
@@ -107,11 +107,11 @@
 | C-2 | `d23b272`（C-2A UTC `YYYY/MM` 会话分区）、`549f4f8`（C-2B 50 MiB/月界无损 sealed JSONL）、`07dfbfb`（C-2C 显式摘要投影）。 | 分区读写/扫描：`src/main/teaching-workspace.ts:781-807`、`src/main/teaching-agent-conversations.ts:944-967, 1042-1104`；分段：`src/main/durable-jsonl.ts:4-118, 123-205`、`src/main/learning-work-ledger.ts:61-96`、`src/main/teaching-workspace/lifecycle.ts:158-168`；摘要：`src/main/agent-conversation-summary-projection.ts:46-179, 253-306`。测试：`tests/unit/teaching-agent-conversations.unit.test.ts:261-320`、`tests/unit/durable-jsonl.unit.test.ts:29-128`、`tests/unit/agent-conversation-summary-projection.unit.test.ts:69-302`。 | 物理 retention/删旧月、截断/删除 JSONL、自动摘要/压缩调度均未实施；原 JSON/Markdown/JSONL 继续是 canonical。 |
 | C-3 | `ca73537`：settings、workspace registry/index 的保留 `.bak` 与经验证读取恢复。 | `src/main/persistence/durable-file.ts:104-205`；consumer 在 `src/main/teaching-settings.ts`、`src/main/teaching-workspace/activation-lifecycle.ts`、`src/main/teaching-workspace/lifecycle.ts`。`tests/unit/durable-file.unit.test.ts:99-246` 与 `tests/unit/teaching-durable-state.unit.test.ts:37-215`。 | 不做 memory 目录整体备份；恢复不会自动重写健康/损坏 canonical。 |
 | C-4 | `ca73537`：共享 private durable replace（temp → file fsync → rename → directory fsync；仅窄 capability error 降级）。 | `src/main/persistence/durable-file.ts:81-103, 214-312`；Memory record writer 在 `src/main/teaching-memory-catalog/record-file.ts`。`tests/unit/durable-file.unit.test.ts:99-205` 覆盖调用顺序、失败清理与权限/I/O fail-closed。 | 高频日志/append-only JSONL 不被强制改成逐条 directory fsync；不支持平台仅按既定 capability 策略降级。 |
-| C-5 | `55442ad`：conversation save trace；`7a1ca7e`：C-5B Memory CRUD trace；**`e849d51`：C-5C learning-session trace**。受信 preview Lesson interaction 只在 main 的 `TeachingWorkspaceService` 以 `randomUUID()` 生成 trace，沿 `teaching workspace → interaction recorder → canonical learning-session ledger event` 写入；同一 trusted `eventId` 的完全相同重试复用缓存 trace。 | C-5C：`src/main/teaching-workspace.ts:1685-1724, 1903-1928`、`src/main/lesson-interaction-recorder.ts:95-121`、`src/main/learning-session-ledger.ts:373-390, 851-860, 1059-1091, 2409-2415`、`src/shared/teaching-types/learning-session.ts:74-84`、`src/main/logger.ts:8-28, 55-100`。ledger 以 trace 参与 idempotency：已有 canonical traced event 的同 eventId replay 只有 trace 一致才可 duplicate，missing/malformed/mismatched trace 均不去重；新 append 输入的 malformed trace 会归一化为省略，因此 legacy trace-free event（包括归一化后 trace-free 的 exact retry）仍可读取/精确重试；已持久化但 present malformed 的 trace 作为 corrupt event 拒绝而不改写。只有 durable append 成功且 receipt 非 duplicate，才用固定 safe tag `[main] [learning-session-ledger] [trace=<uuid>]` 写入固定文案 `Learning Session event persisted.`。测试：`tests/integration/trace-propagation.integration.test.ts:141-230`、`tests/unit/learning-session-ledger.unit.test.ts:385-503`、`tests/unit/teaching-workspace-evidence.unit.test.ts:130-193`、`tests/unit/logger.unit.test.ts:21-43`。 | **learning-session ledger 已从 C-5 remaining queue 移除。**仍未覆盖 workspace lifecycle event、conversation audit JSONL 或其它 user actions；这些写域需另行设计。日志仍是 tagged text，不是 JSON。 |
+| C-5 | `55442ad`：conversation save trace；`7a1ca7e`：C-5B Memory CRUD trace；`e849d51`：C-5C learning-session trace；**`dee70d6`：C-5D conversation lifecycle trace**。C-5D 不创建第二个 UUID：只在 `saveAgentConversation()` 中将既有、由 main 生成的 canonical conversation archive `persistedRecord.traceId` 透传给紧随其后的 `agent_conversation_recorded` workspace lifecycle JSONL event。该 trace 是 optional correlation metadata，不是 lifecycle identity、dedupe、query 或 filter key；不新增 renderer/IPC 字段，也不新增 lifecycle logger tag。 | C-5D：`src/main/teaching-workspace.ts:897-903`；`src/main/teaching-workspace/lifecycle.ts:40-46, 158-172`。lifecycle writer 先剥离 raw trace，再只条件性放回 normalized UUID（合法 UUID lowercase）；malformed 或 secret-like 值不写入。reader 不收紧：legacy trace-free 与历史 malformed-trace lifecycle row 均 tolerant read；不迁移、不回写。仅覆盖 `saveAgentConversation()` 的 `agent_conversation_recorded`；fork 和其它 lifecycle producers 仍未覆盖。integration 以 conversation identity/path 关联 canonical conversation、learning-work ledger、agent-archive log 与 lifecycle event，验证同 trace 及并发不串线：`tests/integration/trace-propagation.integration.test.ts:77-127`。unit 验证 lowercase、secret 不泄漏与 tolerant reader：`tests/unit/teaching-workspace-lifecycle-jsonl.unit.test.ts:56-95`。C-5C 的 learning-session 证据仍为 `src/main/teaching-workspace.ts:1685-1724, 1903-1928`、`src/main/lesson-interaction-recorder.ts:95-121`、`src/main/learning-session-ledger.ts:373-390, 851-860, 1059-1091, 2409-2415`、`src/shared/teaching-types/learning-session.ts:74-84`、`src/main/logger.ts:8-28, 55-100`。 | **learning-session ledger 和 saveAgentConversation lifecycle subcase 已从 C-5 remaining queue 移除。**仍未覆盖 fork/其它 lifecycle producers、conversation audit JSONL 或其它 user actions；这些写域需另行设计。日志仍是 tagged text，不是 JSON。 |
 | C-6 | `26eca18`：Memory 新写入按 scope 的稳定 hash 分区；mixed scoped/flat legacy 读取、重复冲突处理和 descriptor-relative no-follow durable I/O。 | `src/main/teaching-memory-catalog.ts:85-153`、`src/main/teaching-memory-catalog/record-file.ts:204-220`、`src/main/persistence/contained-durable-directory.ts:175-228`。`tests/unit/teaching-memory-catalog.unit.test.ts:58-262` 与 `tests/unit/contained-durable-directory.unit.test.ts:38-183`。 | 首次启动不会搬迁 legacy flat files；受控 copy → checksum → 明确确认后的 legacy 清理仍未实施。 |
 | C-7 | `a302814`：所有新持久化 conversation/history projection 经 typed sanitizer；secret-only 内容省略、mixed prose 脱敏、sanitized parent proof，legacy source 不自动重写。 | `src/shared/agent-persisted-history.ts:65-131, 173-336`；archive/index consumers 在 `src/main/agent-conversation-archive.ts`、`src/main/agent-conversation-history.ts`、`src/main/local-data-index/index.ts`。`tests/unit/agent-persisted-history.unit.test.ts:42-277`、`tests/unit/agent-secret-redaction.unit.test.ts:32-219`、`tests/unit/agent-conversation-legacy-nonmutating.unit.test.ts:31-32`。 | 不新增独立 raw history JSONL；不自动扫描、删除或重写历史 raw artifacts。若将来需要历史敏感数据处置，必须单独走安全流程。 |
 
-本次审计重新执行的 committed-baseline acceptance evidence（C-5B 在该次运行后加入，现已提交为 `7a1ca7e`；其代码/测试位置已单列，未在此记录中虚报为已由本次命令重跑）：
+此前 committed-baseline acceptance evidence（C-5B 在该次运行后加入，现已提交为 `7a1ca7e`；其代码/测试位置已单列，未在该 baseline 中虚报为已由本次命令重跑）：
 
 ```bash
 # 19 unit files: 129 passed
@@ -121,6 +121,20 @@ pnpm exec vitest run --project unit tests/unit/local-data-index.unit.test.ts tes
 pnpm exec vitest run --project integration tests/integration/teaching-analytics.integration.test.ts tests/integration/trace-propagation.integration.test.ts
 pnpm run check:learning-work-reconcile
 pnpm run check:security
+```
+
+C-5D (`dee70d6`) 的验证证据另行记录如下；这些结果只证明已覆盖的 conversation lifecycle 子例，不把 C-1、C-2、C-6 的未完成扩展写成完成：
+
+```bash
+# 105 unit files / 761 tests
+pnpm run test:unit -- tests/unit/teaching-workspace-lifecycle-jsonl.unit.test.ts
+
+# 1 integration file / 3 tests
+pnpm exec vitest run --project integration tests/integration/trace-propagation.integration.test.ts
+
+pnpm run typecheck
+pnpm run check:security
+git diff --check -- docs/local-data-storage-improvement-roadmap.md docs/plans/local-data-storage-implementation-plan.md
 ```
 
 ### `[x]` C-1 引入 SQLite 作为可查询索引（学 Zcode/Codex） — **P0**
@@ -202,7 +216,7 @@ pnpm run check:security
 
 ## 5. 下一迭代队列（仅未实施工作）
 
-1. **C-5 trace 后续设计**：conversation、Memory CRUD 与 learning-session ledger 已分别由 `55442ad`、`7a1ca7e`、`e849d51` 覆盖。仍需为 workspace lifecycle event、conversation audit JSONL 与其它 user actions 另行设计写域、trusted identity、retry/idempotency 和安全日志边界；不要回写历史 source。
+1. **C-5 trace 后续设计**：conversation、Memory CRUD、learning-session ledger 与 `saveAgentConversation()` 的 `agent_conversation_recorded` workspace lifecycle 子例已分别由 `55442ad`、`7a1ca7e`、`e849d51`、`dee70d6` 覆盖。仍需为 **fork 和其它 lifecycle producers**、conversation audit JSONL 与其它 user actions（需设计）另行定义写域、trusted identity、retry/idempotency 和安全日志边界；不要回写历史 source。
 2. **C-2 留存策略的独立安全设计**：如确有磁盘回收需求，先制定 retention、用户可见控制、恢复与审计方案；不得把现有无损分段/摘要投影当作已获准删除事实文件。
 3. **C-1 FTS5 或额外查询面**：仅在实际检索需求得到确认后，按可再建、安全 projection 的边界另立切片。
 4. **C-6 受控 legacy 搬迁工具**：仅可采用 copy → checksum verify → 用户/运维明确确认 → 删除 legacy 的流程；当前启动路径不搬迁。
