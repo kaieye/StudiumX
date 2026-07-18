@@ -3,6 +3,7 @@ import { lstat, mkdir, open, readFile, realpath, rename, stat, unlink } from 'no
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { agentConversationMarkdownRelativePath, describeAgentConversationPath } from '../shared/agent-conversation-catalog'
 import { sanitizePersistedAgentConversationRecord, sanitizePersistedConversationTitle } from '../shared/agent-persisted-history'
+import { normalizeTraceId } from '../shared/trace-context'
 import type {
   AgentChatTurn,
   AgentConversationBranchMetadata,
@@ -452,6 +453,7 @@ export async function forkAgentConversationBranchAtRoot(
     expectedRevision?: number
     createConversationId?: (rootPath: string, title: string, timestamp: string) => string | Promise<string>
     replayId?: string
+    traceId?: string
   } = {}
 ): Promise<AgentConversationRecord> {
   return runAgentConversationRootExclusive(workspace.rootPath, async () => {
@@ -471,6 +473,7 @@ export async function forkAgentConversationBranchAtRoot(
       throw new Error(`Conversation branch "${newId}" already exists.`)
     }
     const replayId = requireLineageId(options.replayId ?? `replay-${randomUUID()}`, 'replay id')
+    const traceId = normalizeTraceId(options.traceId)
     const projection = projectAgentConversationReplay({
       source,
       sourceTurnId: options.sourceTurnId,
@@ -498,6 +501,7 @@ export async function forkAgentConversationBranchAtRoot(
       relativePath,
       absolutePath: join(workspace.rootPath, relativePath),
       messageCount: projection.turns.length,
+      ...(traceId ? { traceId } : {}),
       branch: {
         schemaVersion: 1,
         sessionId: sourceMetadata.sessionId,

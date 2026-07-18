@@ -75,15 +75,20 @@ describe('legacy conversation fork/status compatibility', () => {
     await writeFile(sourcePaths[3]!, `${await readFile(sourcePaths[3]!, 'utf8')}legacy ledger ${secret}\n`, 'utf8')
     const before = await Promise.all(sourcePaths.map((path) => readFile(path)))
 
+    const childTrace = 'A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D'
     const child = await forkAgentConversationBranchAtRoot(workspace, record.id, {
       sourceTurnId: 'legacy-assistant',
       expectedRevision: 0,
       createConversationId: async () => 'legacy-child',
       replayId: 'legacy-replay',
+      traceId: childTrace,
       now: '2026-07-14T10:02:00.000Z'
     })
 
-    expect(child.branch).toMatchObject({ sessionId: record.id, parentBranchId: record.id, status: 'active' })
+    expect(child).toMatchObject({
+      traceId: childTrace.toLowerCase(),
+      branch: { sessionId: record.id, parentBranchId: record.id, status: 'active' }
+    })
     const afterFork = await Promise.all(sourcePaths.map((path) => readFile(path)))
     afterFork.forEach((bytes, index) => expect(bytes.equals(before[index]!)).toBe(true))
 
@@ -97,6 +102,7 @@ describe('legacy conversation fork/status compatibility', () => {
     afterStatus.forEach((bytes, index) => expect(bytes.equals(before[index]!)).toBe(true))
 
     const persistedChild = await readRawAgentConversationRecord(rootPath, child.id)
+    expect(persistedChild.traceId).toBe(childTrace.toLowerCase())
     expect(JSON.stringify(persistedChild)).not.toContain(secret)
   })
 })

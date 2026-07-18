@@ -130,6 +130,88 @@ describe('C-5 archive trace propagation', () => {
     await logger.shutdown()
   })
 
+  it('correlates a normal managed fork child across canonical JSON, learning-work JSONL, and lifecycle events', async () => {
+    const runtime = await runtimeScope.create('fork-child-trace-propagation')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot)
+    })
+    const workspace = (await service.createWorkspace({
+      name: 'Fork child trace workspace',
+      prompt: 'Persist child fork correlations.'
+    })).activeWorkspace!
+    const parentSave = await service.saveAgentConversation({
+      workspaceId: workspace.id,
+      mode: 'teaching',
+      turns: [
+        { id: 'fork-parent-user', role: 'user', content: 'Parent question', createdAt: '2026-07-18T05:00:00.000Z' },
+        { id: 'fork-parent-assistant', role: 'assistant', content: 'Parent answer', createdAt: '2026-07-18T05:01:00.000Z' }
+      ]
+    })
+    const parentJsonPath = join(
+      workspace.rootPath,
+      agentConversationJsonRelativePathForMarkdown(parentSave.conversation.relativePath)
+    )
+    const parentCanonical = JSON.parse(await readFile(parentJsonPath, 'utf8')) as Omit<AgentConversationRecord, 'absolutePath' | 'messageCount'>
+    expect(parentCanonical.traceId).toMatch(UUID_RE)
+
+    const fork = await service.forkAgentConversationBranch({
+      workspaceId: workspace.id,
+      conversationId: parentSave.conversation.id,
+      sourceTurnId: 'fork-parent-assistant',
+      expectedRevision: parentSave.conversation.branch!.revision
+    })
+    const childJsonPath = join(
+      workspace.rootPath,
+      agentConversationJsonRelativePathForMarkdown(fork.conversation.relativePath)
+    )
+    const childCanonical = JSON.parse(await readFile(childJsonPath, 'utf8')) as Omit<AgentConversationRecord, 'absolutePath' | 'messageCount'>
+    expect(childCanonical.traceId).toMatch(UUID_RE)
+    expect(childCanonical.traceId).not.toBe(parentCanonical.traceId)
+    expect(childCanonical.branch).toMatchObject({
+      parentBranchId: parentSave.conversation.id,
+      branchId: fork.conversation.id
+    })
+
+    const canonicalByConversationId = new Map([
+      [parentCanonical.id, { ...parentCanonical, absolutePath: parentJsonPath }],
+      [childCanonical.id, { ...childCanonical, absolutePath: childJsonPath }]
+    ].map(([conversationId, canonical]) => [conversationId, {
+      ...canonical,
+      messageCount: canonical.turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length
+    }] as const))
+    const expectedLedgerTraceByEntryId = new Map([...canonicalByConversationId.values()].map((canonical) => [
+      buildLearningWorkLedgerEntry(workspace, canonical).entryId,
+      canonical.traceId
+    ]))
+    const ledgerTraceByEntryId = new Map((await readLearningWorkLedgerLines(workspace.rootPath))
+      .map((line) => JSON.parse(line) as { entryId: string; traceId?: string })
+      .map((entry) => [entry.entryId, entry.traceId]))
+    expect(ledgerTraceByEntryId).toEqual(expectedLedgerTraceByEntryId)
+
+    // Lifecycle JSONL is append-only. Associate each event through its archive
+    // paths rather than its line position or the order of the service calls.
+    const conversationIdByArchivePath = new Map([...canonicalByConversationId.values()].flatMap((canonical) => [
+      [canonical.relativePath, canonical.id] as const,
+      [agentConversationJsonRelativePathForMarkdown(canonical.relativePath), canonical.id] as const
+    ]))
+    const lifecycleByConversationId = new Map<string, Array<string | undefined>>()
+    for (const event of (await readWorkspaceLifecycleEvents(workspace.rootPath))
+      .filter((event) => event.kind === 'agent_conversation_recorded')) {
+      const conversationId = event.paths
+        ?.map((path) => conversationIdByArchivePath.get(path))
+        .find((candidate): candidate is string => candidate !== undefined)
+      if (!conversationId) continue
+      const traces = lifecycleByConversationId.get(conversationId) ?? []
+      traces.push(event.traceId)
+      lifecycleByConversationId.set(conversationId, traces)
+    }
+    expect(lifecycleByConversationId.get(parentCanonical.id)).toEqual([parentCanonical.traceId])
+    expect(lifecycleByConversationId.get(childCanonical.id)).toEqual([childCanonical.traceId])
+  })
+
   it('keeps audit header and durable rows trace-stable across an agent conversation continuation', async () => {
     const runtime = await runtimeScope.create('agent-conversation-audit-trace-continuation')
     const managedRoot = join(runtime.paths.workspace, 'managed')

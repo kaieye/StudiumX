@@ -1057,11 +1057,15 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     const location = await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)
     const storageWorkspace = { ...workspace, rootPath: location.rootPath }
+    // Generated only in the main process; each fork child has its own archive
+    // correlation trace and never inherits its parent or replay identity.
+    const traceId = randomUUID()
     await invalidateAgentHistoryIndex(location.rootPath)
     const record = await forkAgentConversationBranchAtRoot(storageWorkspace, location.record.id, {
       sourceTurnId: payload.sourceTurnId,
       title: payload.title,
-      expectedRevision: payload.expectedRevision
+      expectedRevision: payload.expectedRevision,
+      traceId
     })
     const branch = inferAgentConversationBranchMetadata(record)
     const opened = await openAgentConversationBranchAtRoot(location.rootPath, branch.sessionId, {
@@ -1074,6 +1078,7 @@ export class TeachingWorkspaceService {
         kind: 'agent_conversation_recorded',
         timestamp: record.updatedAt,
         workspaceId: workspace.id,
+        traceId: record.traceId,
         prompt: record.title,
         paths: [record.relativePath, agentConversationJsonRelativePathForMarkdown(record.relativePath)]
       })

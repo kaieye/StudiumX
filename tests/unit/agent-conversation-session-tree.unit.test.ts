@@ -98,11 +98,16 @@ describe('agent conversation durable session tree', () => {
 
   it('forks any existing turn without changing the parent and rebuilds nested shared tree shape', async () => {
     const rootPath = await createRoot()
-    const parent = record('root-branch', [
-      turn('turn-1', 'user', 'Q1', '2026-07-14T03:00:00.000Z'),
-      turn('turn-2', 'assistant', 'A1', '2026-07-14T03:01:00.000Z'),
-      turn('turn-3', 'user', 'Q2', '2026-07-14T03:02:00.000Z')
-    ])
+    const parentTrace = '11111111-2222-4333-8444-555555555555'
+    const childTrace = 'A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D'
+    const parent = {
+      ...record('root-branch', [
+        turn('turn-1', 'user', 'Q1', '2026-07-14T03:00:00.000Z'),
+        turn('turn-2', 'assistant', 'A1', '2026-07-14T03:01:00.000Z'),
+        turn('turn-3', 'user', 'Q2', '2026-07-14T03:02:00.000Z')
+      ]),
+      traceId: parentTrace
+    }
     persistence.records.set(parent.id, structuredClone(parent))
     const before = structuredClone(parent)
 
@@ -111,6 +116,7 @@ describe('agent conversation durable session tree', () => {
       expectedRevision: 0,
       createConversationId: async () => 'child-branch',
       replayId: 'replay-child',
+      traceId: childTrace,
       now: '2026-07-14T04:00:00.000Z'
     })
     const nested = await forkAgentConversationBranchAtRoot(workspace(rootPath), child.id, {
@@ -124,8 +130,33 @@ describe('agent conversation durable session tree', () => {
     // Forking a legacy root is intentionally non-mutating: inferred branch
     // metadata exists only in memory while the source record remains byte-safe.
     expect(persistence.records.get(parent.id)).toEqual(before)
+    expect(child).toMatchObject({
+      id: 'child-branch',
+      traceId: childTrace.toLowerCase(),
+      branch: {
+        sessionId: parent.id,
+        branchId: 'child-branch',
+        parentBranchId: parent.id,
+        revision: 1,
+        status: 'active',
+        forkPoint: {
+          sourceConversationId: parent.id,
+          sourceBranchId: parent.id,
+          sourceTurnId: 'turn-2'
+        },
+        replaySource: {
+          replayId: 'replay-child',
+          sourceConversationId: parent.id,
+          sourceBranchId: parent.id
+        }
+      }
+    })
+    expect(child.traceId).not.toBe(parentTrace)
     expect(child.turns).toHaveLength(2)
-    expect(child.branch).toMatchObject({ parentBranchId: parent.id, revision: 1, status: 'active' })
+    expect(child.turns.map((turn) => turn.metadata?.provenance)).toEqual([
+      expect.objectContaining({ kind: 'replayed', replayId: 'replay-child', sourceConversationId: parent.id, sourceBranchId: parent.id, sourceTurnId: 'turn-1' }),
+      expect.objectContaining({ kind: 'replayed', replayId: 'replay-child', sourceConversationId: parent.id, sourceBranchId: parent.id, sourceTurnId: 'turn-2' })
+    ])
     expect(nested.branch).toMatchObject({ parentBranchId: child.id, sessionId: parent.id })
 
     const tree = await readAgentConversationSessionTreeAtRoot(rootPath, parent.id)
