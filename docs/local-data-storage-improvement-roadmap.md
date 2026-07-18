@@ -80,7 +80,7 @@
 | Workspace 生命周期 | `<workspaceRoot>/.teachos/sessions.jsonl` | append-only JSONL | **裸 appendFile，无锁无 fsync** | `src/main/teaching-workspace/lifecycle.ts:156-159` |
 | Agent run state | `<root>/.agent-sessions/{runs,...}` | JSON，**内容寻址 checkpoint** | `atomicPrivateJson`(wx+0o600)，损坏隔离 `.corrupt-<stamp>` | `src/main/ai/agent-run-persistence.ts:428-449` |
 | Artifact 留存 | tool-results/child-transcripts/... | — | **90 天/512MB/24h 宽限+审计 jsonl**（按需触发） | `src/main/agent-artifact-lifecycle.ts:20-22, 884-918` |
-| 通用原子写原语 | — | — | `atomicWriteFile`：`writeFile`+`rename`，**无 fsync** | `src/main/teaching-workspace/lifecycle.ts:166-171` |
+| 通用原子写原语 | — | — | `atomicWriteFile`：`writeFile`+`rename`，**无 fsync** | `src/main/teaching-workspace/lifecycle.ts:202-207` |
 
 ### 2.3 StudiumX 已有的优势（勿误改）
 
@@ -97,19 +97,31 @@
 
 > 原始短板集中在「读」这一侧：纯文件无索引、无集中 schema 迁移、JSONL/会话无分段/分区、关键状态无备份。以下候选的最小切片已在 `database` 分支实施；本节保留最初的问题和默认取舍，同时把“已经实现”与“尚未实施”分开记录。
 
-### 3.0 `database` 分支实施审计（2026-07-18；C-5G 代码 `1bbdf7c`、测试补充 `e63e051`；C-6A `5803176`）
+### 3.0 `database` 分支实施审计（2026-07-18；C-4P0 `5c0dd96`；C-5G 代码 `1bbdf7c`、测试补充 `e63e051`；C-6A `5803176`）
 
-审计范围是 `main..database` 的原有八个数据提交及后续 C-5B `7a1ca7e`、C-5C `e849d51`、C-5D `dee70d6`、C-5E `d6a94a1`、C-5F `426eb6e`、C-5G 功能代码 `1bbdf7c` 与测试补充 `e63e051`，以及 C-6A `5803176`；`1bbdf7c` 是本次记录的**功能代码提交**，`e63e051` 是其后的**测试补充提交**，两者均不是后续文档提交后的当前 HEAD。“已实施”只表示下表所述切片已由相应代码提交实现，并由列出的测试与本次定向验证覆盖，**不把候选中的可选/破坏性扩展误记为完成**。
+审计范围是 `main..database` 的原有八个数据提交及后续 C-5B `7a1ca7e`、C-5C `e849d51`、C-5D `dee70d6`、C-5E `d6a94a1`、C-5F `426eb6e`、C-5G 功能代码 `1bbdf7c` 与测试补充 `e63e051`，以及 C-4P0 `5c0dd96` 与 C-6A `5803176`；`1bbdf7c` 是本次记录的**功能代码提交**，`e63e051` 是其后的**测试补充提交**，两者均不是后续文档提交后的当前 HEAD。“已实施”只表示下表所述切片已由相应代码提交实现，并由列出的测试与本次定向验证覆盖，**不把候选中的可选/破坏性扩展误记为完成**。
 
 | 候选 | 当前已实施切片与提交 | 当前代码与测试证据 | 仍未实施或明确留给后续的扩展 |
 |---|---|---|---|
 | C-1 | `d9de382`：`studiumx-index.sqlite` 可再建 SQLite 投影、checksum migration、analytics 可选 adapter 与文件扫描回退。 | `src/main/local-data-index/index.ts:61-170, 174-333`；`src/main/local-data-index/schema-migration.ts:38-57`；启动/消费在 `src/main/index.ts:259-294`、`src/main/teaching/services/learning-analytics.ts:466-467`。`tests/unit/local-data-index.unit.test.ts:56-396` 覆盖迁移、损坏隔离、source drift 与不写入 canonical；`tests/integration/teaching-analytics.integration.test.ts:277-355` 覆盖回退。 | FTS5/全文检索没有进入切片；SQLite 仍不是事实来源，也没有以它替代详情读取。 |
 | C-2 | `d23b272`（C-2A UTC `YYYY/MM` 会话分区）、`549f4f8`（C-2B 50 MiB/月界无损 sealed JSONL）、`07dfbfb`（C-2C 显式摘要投影）。 | 分区读写/扫描：`src/main/teaching-workspace.ts:781-807`、`src/main/teaching-agent-conversations.ts:944-967, 1042-1104`；分段：`src/main/durable-jsonl.ts:4-118, 123-205`、`src/main/learning-work-ledger.ts:61-96`、`src/main/teaching-workspace/lifecycle.ts:158-168`；摘要：`src/main/agent-conversation-summary-projection.ts:46-179, 253-306`。测试：`tests/unit/teaching-agent-conversations.unit.test.ts:261-320`、`tests/unit/durable-jsonl.unit.test.ts:29-128`、`tests/unit/agent-conversation-summary-projection.unit.test.ts:69-302`。 | 物理 retention/删旧月、截断/删除 JSONL、自动摘要/压缩调度均未实施；原 JSON/Markdown/JSONL 继续是 canonical。 |
 | C-3 | `ca73537`：settings、workspace registry/index 的保留 `.bak` 与经验证读取恢复。 | `src/main/persistence/durable-file.ts:104-205`；consumer 在 `src/main/teaching-settings.ts`、`src/main/teaching-workspace/activation-lifecycle.ts`、`src/main/teaching-workspace/lifecycle.ts`。`tests/unit/durable-file.unit.test.ts:99-246` 与 `tests/unit/teaching-durable-state.unit.test.ts:37-215`。 | 不做 memory 目录整体备份；恢复不会自动重写健康/损坏 canonical。 |
-| C-4 | `ca73537`：共享 private durable replace（temp → file fsync → rename → directory fsync；仅窄 capability error 降级）。 | `src/main/persistence/durable-file.ts:81-103, 214-312`；Memory record writer 在 `src/main/teaching-memory-catalog/record-file.ts`。`tests/unit/durable-file.unit.test.ts:99-205` 覆盖调用顺序、失败清理与权限/I/O fail-closed。 | 高频日志/append-only JSONL 不被强制改成逐条 directory fsync；不支持平台仅按既定 capability 策略降级。 |
+| C-4 | `ca73537`：共享 durable replace；`5c0dd96`（C-4P0）：review canonical `.studiumx/progress.json` 接入该原语。已迁移的是共享原语的关键 consumer，**不是所有 writer**。 | `src/main/persistence/durable-file.ts:81-103, 214-312`；Memory record writer 在 `src/main/teaching-memory-catalog/record-file.ts`；review publish 在 `src/main/teaching-workspace/review.ts:54-73`。`tests/unit/durable-file.unit.test.ts` 与 `tests/unit/teaching-workspace-review-durable.unit.test.ts` 覆盖调用顺序、失败清理、权限/I/O fail-closed、review schema/path/mode 与 directory-fsync 降级边界。 | conversation archive、`MISSION.md`、`lesson.css` 等 legacy compatibility writer 仍未迁移，须各自另立切片；高频日志/append-only JSONL 不被强制改成逐条 directory fsync；不支持平台仍仅按既定 capability 策略降级。 |
 | C-5 | `55442ad`：conversation save trace；`7a1ca7e`：C-5B Memory CRUD trace；`e849d51`：C-5C learning-session trace；`dee70d6`：C-5D conversation lifecycle trace；`d6a94a1`：C-5E conversation audit JSONL trace；`426eb6e`：C-5F forked conversation trace；**C-5G 功能代码 `1bbdf7c`、测试补充 `e63e051`：workspace activation lifecycle trace**。C-5G 为 explicit create、activation bootstrap create 的 `workspace_created`，以及此前未注册 root 的首次 import 的 `workspace_imported` lifecycle JSONL event，在 main 内生成 UUID trace；不从 IPC、renderer 或 shared payload 接收。 | C-5E 新写 header/entry 只条件性写入 normalized lowercase UUID，malformed/secret-like 值不落盘；legacy no-trace/malformed header/entry tolerant read 且不改写，trace 不进入 audit ID/hash/parent/dedupe，version 保持 `1`。C-5F：returned persisted child record 的同一 trace 写入 child canonical、normal fork 的 learning-work snapshot 和 managed workspace lifecycle。C-5G：`src/main/teaching-workspace/activation-lifecycle.ts` 只在已有 event-emitting activation seam 透传 trace；它是 main-only、metadata-only 的 correlation metadata，不参与 workspace ID、root path、registry/index、目录命名、event ID/kind、dedupe、query/filter；material provision 与 workspace index 成功后才 append lifecycle。既有 root re-import 维持幂等：不追加 event、不产生新 trace，既有 JSONL bytes/trace 不变。沿用 lifecycle writer 的 normalize/安全持久化；不扫描、回填、迁移或重写历史 trace-free/malformed rows、registry/index 或用户可见文件。测试：`tests/unit/teaching-workspace-activation-lifecycle.unit.test.ts`、`tests/unit/teaching-workspace-lifecycle-jsonl.unit.test.ts`、`tests/integration/trace-propagation.integration.test.ts`；其中 direct test 以 `service.getState()` → `ensureRegistry()` 触发默认 bootstrap，直接验证 canonical trace、唯一 event、默认 workspace identity/scaffold，且第二次 load 的 `sessions.jsonl` 原始 bytes 不变。 | **learning-session ledger、saveAgentConversation lifecycle 子例、conversation audit JSONL、fork lifecycle trace，以及 workspace activation 的 create/import 子例已从 C-5 remaining queue 移除。**legacy source fork 继续跳过 shared learning-work ledger；source canonical JSON/Markdown/audit/shared ledger 不迁移、不回填、不重写，保持 bytes；global fork 仍不写 workspace lifecycle。仍未覆盖 `mission_updated`、`lesson_style_applied`、`lesson_generated` 等其它 lifecycle producers，及其它 user actions；这些写域需另行设计。**C-5H 只记录 mission/style action correlation 的[设计门槛](plans/local-data-workspace-user-mutation-correlation-design.md)，没有实现 mission/style trace 或 receipt，不能作为 C-5 completion 证据。** 本轮仅做 design discovery，没有业务代码/测试变更或测试结果。C-5E 不解决既有 audit read+append concurrency，日志仍是 tagged text，不是 JSON。 |
 | C-6 | `26eca18`：Memory 新写入按 scope 的稳定 hash 分区；mixed scoped/flat legacy 读取、重复冲突处理和 descriptor-relative no-follow durable I/O。`5803176`（**C-6A，不代表 C-6 或真实迁移完成**）：strictly read-only legacy migration preflight；仅从同一次 catalog descriptor-bound discovery snapshot 汇总 eligible、already partitioned、duplicate/recovery blockers 与 ready 状态。 | C-6A：`src/main/teaching-memory-catalog.ts`、`src/main/teaching-memory-catalog/record-file.ts`、`src/main/teaching-memory-recall.ts`、`src/shared/teaching-types/memory.ts`、Settings diagnostics。`tests/unit/teaching-memory-catalog.unit.test.ts` 覆盖 flat/scoped、same-id equal/different bytes、recovery/unsafe、existing-root bytes/mtime/layout 与 missing-root parent entries/mtime；`tests/unit/teaching-memory-recall.unit.test.ts`、`tests/unit/teaching-ipc-gateway.unit.test.ts`、`tests/integration/teaching-analytics.integration.test.ts` 覆盖 aggregate-only diagnostics/IPC fixture。 | C-6A 不 copy/move/delete/create/repair/rewrite Memory；不在启动时迁移；没有 migration button、新 IPC command 或 renderer path input。真实 controlled migration 的 copy → checksum verify → explicit confirmation → delete legacy 仍未实施。 |
 | C-7 | `a302814`：所有新持久化 conversation/history projection 经 typed sanitizer；secret-only 内容省略、mixed prose 脱敏、sanitized parent proof，legacy source 不自动重写。 | `src/shared/agent-persisted-history.ts:65-131, 173-336`；archive/index consumers 在 `src/main/agent-conversation-archive.ts`、`src/main/agent-conversation-history.ts`、`src/main/local-data-index/index.ts`。`tests/unit/agent-persisted-history.unit.test.ts:42-277`、`tests/unit/agent-secret-redaction.unit.test.ts:32-219`、`tests/unit/agent-conversation-legacy-nonmutating.unit.test.ts:31-32`。 | 不新增独立 raw history JSONL；不自动扫描、删除或重写历史 raw artifacts。若将来需要历史敏感数据处置，必须单独走安全流程。 |
+
+
+**C-4P0 验证（`5c0dd96`）**：
+
+```bash
+pnpm run test:unit -- tests/unit/durable-file.unit.test.ts tests/unit/teaching-workspace-review-durable.unit.test.ts
+pnpm run typecheck
+pnpm run check:security
+git diff --check
+```
+
+第一条是 package script 形式：它实际执行 `vitest run --project unit -- <两个文件>`；这个额外的 `--` 使 Vitest 本次输出为 **108 files / 790 tests passed**，不得把它简写或解释为 direct targeted `pnpm exec vitest ...` 运行。后面三项检查均 passed；此处未记录任何不同 direct `pnpm exec vitest ...` 形式的结果。
 
 此前 committed-baseline acceptance evidence（C-5B 在该次运行后加入，现已提交为 `7a1ca7e`；其代码/测试位置已单列，未在该 baseline 中虚报为已由本次命令重跑）：
 
@@ -238,13 +250,13 @@ git diff --check
 
 **默认值取舍**：保留几份（1 份推荐）；是否对 memory 目录也做整体 `.bak`（否，记录级 tombstone 已够）。
 
-### `[x]` C-4 统一持久化写入原语（补 fsync 一致性） — **P2**
+### `[x]` C-4 共享持久化写入原语（共享原语与部分关键 consumer 已迁移） — **P2**
 
-**问题**：最常用的 `atomicWriteFile`（`lifecycle.ts:166-170`）**无 fsync**，断电后 rename 完成、内核未落盘会丢文件。而 ledger 做对了（`durableAtomicReplaceFile` 带 fsync + 目录同步，`learning-session-ledger.ts:1646-1674`）。**同项目内持久性强弱不一致**是隐患。
+**问题**：legacy `atomicWriteFile`（`lifecycle.ts:202-207`）仍是 `writeFile` + `rename`、**无 fsync**；断电时 rename 已完成但内核尚未落盘会留下 durability gap。ledger 的 fsync + 目录同步语义不能自动覆盖其它 writer。
 
-**建议方案**：把 `durableAtomicReplaceFile` 抽成共享原语，替换 `lifecycle.ts` 与 `teaching-settings.ts:260-265` 的写入调用。一处改，全局提升。
+**已实施的粒度**：`ca73537` 提供共享 `replaceDurably()`；settings/registry/index 的关键状态路径与 Memory record writer 已按各自切片接入。`5c0dd96` 再将 review 的 canonical `.studiumx/progress.json` 接入：保持 JSON schema、canonical path 和 legacy `0666 & umask` create-mode 契约；只有 temp write → file fsync → close → rename → directory fsync/close 完成后才向调用方返回更新后的 progress。仅既有 directory-fsync capability allowlist 可带通用 warning 降级；权限、`EIO`、unknown 与 close error 都不报成功。若 rename 后 directory fsync 失败，canonical 是完整的新 bytes，但调用仍失败、该更新为未确认（complete-but-unacknowledged），不做危险的自动回滚。
 
-**默认值取舍**：是否对所有原子写都 fsync（推荐对关键状态文件开启，日志等高频可关）；是否做目录 fsync（推荐，平台拒绝时优雅降级，ledger 已有此降级逻辑）。
+**仍未实施**：这不是“一处改、全局提升”。conversation archive、`MISSION.md`、`lesson.css` 等 legacy compatibility writer 尚未迁移，必须逐 consumer 另立切片；append-only JSONL 也不因此强制逐条 fsync。
 
 ### `[x]` C-5 跨存储 traceId + 结构化日志（学 Zcode `trace_id` / 日志 tag） — **P2**
 

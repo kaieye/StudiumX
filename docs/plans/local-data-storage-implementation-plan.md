@@ -301,46 +301,50 @@ pnpm run check:security
 
 ---
 
-## 6. C-4：统一耐久原子写原语（已实施的最小切片）
+## 6. C-4：共享耐久原子写原语与已迁移 consumer（已实施的最小切片，非全量 writer 完成）
 
 ### 目标与最小切片
 
-把 `learning-session-ledger.ts` 已验证的 temp write → file fsync → rename → directory fsync（平台不支持时优雅降级）抽到一个窄共享原语。先替换关键小 JSON 的 `atomicWriteFile`，再替换 settings/Memory record writer；高频日志与 append-only JSONL 不强行改为逐条 directory fsync。
+`ca73537` 已把 `learning-session-ledger.ts` 的 temp write → file fsync → rename → directory fsync 语义抽为窄共享原语，并按 consumer 接入关键状态。`5c0dd96`（C-4P0）将 review canonical `.studiumx/progress.json` 迁入该路径。C-4 只记录共享原语与已迁移 consumer，**不表示所有 writer 已迁移**；高频日志与 append-only JSONL 仍不强行改为逐条 directory fsync。
 
 ### 文件定位
 
 | 落点 | 当前位置 | 实施职责 |
 |---|---|---|
-| 现有无 fsync 原子写 | `src/main/teaching-workspace/lifecycle.ts:154-171` | 保留 `atomicWriteFile` API 或改为 thin wrapper，调用新的关键状态模式。 |
+| 现有无 fsync 原子写 | `src/main/teaching-workspace/lifecycle.ts:202-207` | 保留无 fsync 的 `atomicWriteFile` compatibility helper；未迁移 consumer 不得被静默改成 durable。 |
 | 已有耐久实现 | `src/main/learning-session-ledger.ts:1646-1674`（及相邻 fsync/目录同步代码） | 提取经过测试的语义，ledger 的锁、owner/recovery 逻辑仍留在 ledger 模块。 |
 | settings 写入 | `src/main/teaching-settings.ts:260-265` | 采用 private durable replace，保留现有 `.invalid` 行为。 |
 | Memory record 原子替换 | `src/main/teaching-memory-catalog/record-file.ts:56-77` | 改为共享原语但维持 legacy filename 清理、canonical naming 与 tombstone 语义。 |
-| registry/index consumers | `src/main/teaching-workspace/activation-lifecycle.ts:270-272`、`src/main/teaching-workspace/lifecycle.ts:154-171` | 使用 `durable: true`/关键状态 wrapper。 |
-| 新模块与测试 | `src/main/persistence/durable-file.ts`、`tests/unit/durable-file.unit.test.ts` | 注入 fs adapter 来模拟失败、rename、directory sync。 |
+| registry/index consumers | `src/main/teaching-workspace/activation-lifecycle.ts:281-287`、`src/main/teaching-workspace/lifecycle.ts:124-155` | C-3 backup consumer 建在共享耐久原语上；不扩大到其它 writer。 |
+| review progress（C-4P0 `5c0dd96`） | `src/main/teaching-workspace/review.ts:54-73` | `.studiumx/progress.json` 用 shared replace publish，保持 schema/path/reader compatibility 与 legacy `0666 & umask` create mode。 |
+| 新模块与测试 | `src/main/persistence/durable-file.ts`、`tests/unit/durable-file.unit.test.ts`、`tests/unit/teaching-workspace-review-durable.unit.test.ts` | 以 injected fs adapter 覆盖失败、rename、directory sync 与 review publish 边界。 |
 
 ### 迁移与兼容方案
 
-1. API 以明确 options 区分 `durable` 与 `bestEffort`，默认不悄悄让日志等高频路径付出 fsync 成本；关键状态默认 `durable: true`。所有临时文件维持私有 mode、随机名、同目录创建，保证 rename 不跨文件系统。
-2. **C-4 决策（目录 fsync 错误策略）：**共享原语刻意采用 durable JSONL 已建立的窄 capability-error 策略，而不是要求复用 ledger 的“精确 errno 列表”。仅当目录 fsync 失败码为 `EOPNOTSUPP`、`ENOTSUP`、`ENOSYS`、`EINVAL` 或 `EISDIR` 时，才可视为平台/文件系统不具备该能力，降级并记录一次脱敏 warn。`EACCES`、`EPERM`、`EIO`、close 失败和所有未知错误都必须向调用方失败返回，绝不能报告耐久写入成功。这样替换此前宽泛的“按 ledger 的现有 allowlist”表述是安全的：settings、registry 和 index 都是关键状态，权限失败尤其不能被误报为已耐久落盘。
-3. 先保留旧 `atomicWriteFile` 导出以避免大面积并行改动；每个 consumer 单独迁移并在测试中证明字节、权限、legacy cleanup 与错误语义未变。
-4. C-3 的 `replaceWithBackup` 建在该原语之上，不能复制两套 fsync/rename 代码。
+1. `replaceDurably()` 以 same-directory temp → file fsync → close → rename → directory fsync/close 发布；未显式选择 mode 时仍为 private `0600`。它不是对所有 JSON/Markdown writer 的全局替换，也不让 JSONL 等高频路径暗中付出逐条 fsync 成本。
+2. **C-4 决策（目录 fsync 错误策略）：**共享原语仅当目录 fsync 失败码为 `EOPNOTSUPP`、`ENOTSUP`、`ENOSYS`、`EINVAL` 或 `EISDIR` 时才可视为 capability 缺失，记录一次脱敏 warn 并降级。`EACCES`、`EPERM`、`EIO`、close 失败和所有 unknown error 必须向调用方失败返回，绝不能报告耐久写入成功。
+3. **review C-4P0（`5c0dd96`）：**`.studiumx/progress.json` 保持既有 JSON schema、canonical path、tolerant reader 和 `writeFile` legacy 的 `0666 & umask` create-mode 契约。只有 file 与 directory durability steps 成功时 `recordAttempt()` 才返回更新后的 progress；write/file-sync/file-close/rename 失败保留旧 canonical 并清理 temp。rename 已完成后若 directory fsync 或 directory close 失败，canonical 已是完整的新 document，但调用失败、更新不被确认（complete-but-unacknowledged）；不进行危险的 post-rename 自动 rollback。
+4. 旧 `atomicWriteFile`（`src/main/teaching-workspace/lifecycle.ts:202-207`）继续保留给尚未迁移的 compatibility writer。conversation archive、`MISSION.md` 与 `lesson.css` 仍未接入；每个 consumer 必须另立切片并证明其 bytes、mode/permission、legacy cleanup 与错误语义。C-3 的 `replaceWithBackup` 继续建在共享原语上，不能复制两套 fsync/rename 代码。
 
 ### 验收门禁
 
-- 成功路径的临时文件被清理、目标字节正确、目标目录已同步（可由注入 adapter 断言调用顺序）。
-- write/fsync/rename/dir-sync 的失败路径无临时文件泄漏；不支持 directory sync 仅在 allowlist 场景降级。
-- lifecycle index、settings、registry、Memory record 的现有测试和 legacy-file cleanup 全部通过；learning-session ledger 的锁恢复与 durability tests 无回归。
-- 定向执行：
+- 已迁移 consumer 的成功路径必须清理临时文件、保持目标字节/reader compatibility，并以 injected adapter 证明 file fsync/close → rename → directory fsync/close 的顺序。
+- write/file-sync/file-close/rename 失败不得改写旧 canonical；directory sync/close 在 rename 后失败时不得报成功，且只允许既有 capability allowlist 降级。C-4P0 不承诺多文件事务或 post-rename rollback。
+- consumer 覆盖必须分别记录；不得以 settings、registry、Memory 或 review 的通过证明 conversation archive、`MISSION.md`、`lesson.css` 或其它 legacy writer 已迁移，也不得改变 learning-session ledger/native capability 边界。
+- C-4P0 实际验证：
 
 ```bash
-pnpm exec vitest run --project unit tests/unit/durable-file.unit.test.ts tests/unit/teaching-memory-catalog.unit.test.ts tests/unit/teaching-workspace-activation-lifecycle.unit.test.ts
-pnpm exec vitest run --project integration tests/integration/learning-session-ledger.integration.test.ts tests/integration/learning-session-ledger-process.integration.test.ts
-pnpm run check:learning-session-ledger
+pnpm run test:unit -- tests/unit/durable-file.unit.test.ts tests/unit/teaching-workspace-review-durable.unit.test.ts
+pnpm run typecheck
+pnpm run check:security
+git diff --check
 ```
+
+第一条经 package script 实际执行为 `vitest run --project unit -- <两个文件>`；额外的 `--` 被传给 Vitest，本次输出是 **108 files / 790 tests passed**，并非可简写为 direct targeted `pnpm exec vitest ...` 的结果。其余三项均 passed；未在此虚构任何 direct `pnpm exec vitest ...` 的结果。
 
 ### 回滚策略
 
-由于 API/文件格式保持不变，可逐 consumer 恢复到旧 `atomicWriteFile`（只在确认需要时）。不得回滚 ledger 自己的已存在 durability/locking 机制；任何残留 temp 文件由启动恢复清理，不删除 canonical 文件。
+由于 API/文件格式保持不变，已迁移 consumer 只能逐一评估回退，不能把 C-4P0 或任一已迁移路径的回退泛化为全局恢复旧 `atomicWriteFile`。不得回滚 ledger 自己的已存在 durability/locking 机制；失败清理不得删除 canonical 文件。
 
 ---
 
