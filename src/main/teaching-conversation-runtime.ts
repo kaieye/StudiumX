@@ -46,6 +46,8 @@ export type TeachingConversationRuntimeWorkspace = {
   updatedAt: string
   pinned?: boolean
   archived?: boolean
+  /** Explicit grant from the domain service; missing values deny file-tool access. */
+  workspaceToolAccessGranted: boolean
 }
 
 export type { TemporaryChatContext } from './teaching-conversation-prompt'

@@ -20,7 +20,10 @@ export type TeachingCapabilityPolicy = Readonly<{
 export type TeachingCapabilityPolicyInput = {
   mode: AgentChatMode | undefined
   toolsEnabled: boolean
-  hasWorkspace: boolean
+  /** A valid selected teaching workspace, independent of file-tool trust. */
+  hasTeachingWorkspace: boolean
+  /** Explicit grant for workspace file tools. Omitted values fail closed. */
+  workspaceToolAccessGranted: boolean | undefined
   hasLessonGenerator: boolean
 }
 
@@ -51,7 +54,9 @@ const ALL_KNOWN_TOOL_NAMES = [
  * The policy is deliberately an explicit allow-list. Runtime registration may
  * add a new tool later, but it is unavailable until this module deliberately
  * assigns it to a policy. This keeps temporary chats fail-closed for workspace,
- * lesson, delegation, and future tool capabilities.
+ * lesson, delegation, and future tool capabilities. A valid teaching workspace
+ * and its file-tool grant stay distinct so trust can fail closed without
+ * removing workspace-scoped teaching capabilities such as lesson generation.
  */
 export function resolveTeachingCapabilityPolicy(
   input: TeachingCapabilityPolicyInput
@@ -59,7 +64,7 @@ export function resolveTeachingCapabilityPolicy(
   const isTeachingConversation = (input.mode ?? 'teaching') === 'teaching'
   const id: TeachingCapabilityPolicyId = !isTeachingConversation
     ? 'temporary_chat'
-    : input.hasWorkspace
+    : input.hasTeachingWorkspace
       ? 'teaching_workspace'
       : 'teaching_readonly'
 
@@ -69,10 +74,12 @@ export function resolveTeachingCapabilityPolicy(
     ...EXTERNAL_TOOL_NAMES,
     ...CONVERSATION_TOOL_NAMES,
     ...(isTeachingConversation ? DELEGATION_TOOL_NAMES : []),
-    ...(id === 'teaching_workspace'
+    ...(isTeachingConversation && input.workspaceToolAccessGranted === true
       ? [...WORKSPACE_READ_TOOL_NAMES, ...WORKSPACE_WRITE_TOOL_NAMES]
       : []),
-    ...(id === 'teaching_workspace' && input.hasLessonGenerator ? LESSON_TOOL_NAMES : [])
+    ...(isTeachingConversation && input.hasTeachingWorkspace && input.hasLessonGenerator
+      ? LESSON_TOOL_NAMES
+      : [])
   ]
 
   return createPolicy(id, allowedToolNames)
@@ -87,7 +94,7 @@ function createPolicy(
     id,
     allowedToolNames: [...allowed],
     deniedToolNames: ALL_KNOWN_TOOL_NAMES.filter((toolName) => !allowed.has(toolName)),
-    workspaceToolsEnabled: id === 'teaching_workspace' && allowed.has('read_workspace_file'),
+    workspaceToolsEnabled: allowed.has('read_workspace_file'),
     delegationEnabled: allowed.has('delegate_task'),
     lessonToolEnabled: allowed.has('generate_lesson'),
     allowsTool: (toolName) => allowed.has(toolName)

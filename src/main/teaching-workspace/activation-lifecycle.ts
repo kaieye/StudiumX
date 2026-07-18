@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import type {
   CreateWorkspacePayload,
@@ -16,6 +16,7 @@ import {
   EMPTY_REGISTRY,
   findWorkspace,
   isRegistryWorkspace,
+  normalizeRegistryWorkspace,
   orderRegistryWorkspaces,
   samePath,
   sameRegistryWorkspaceOrder,
@@ -84,6 +85,7 @@ export class TeachingWorkspaceActivationLifecycle {
     if (existing) {
       const entry = await this.provisionWorkspace({
         ...existing,
+        existing,
         rootPath: normalizedRoot,
         prompt: `继续整理 ${existing.name} 教学工作区`,
         now,
@@ -190,15 +192,20 @@ export class TeachingWorkspaceActivationLifecycle {
     updatedAt?: string
     pinned?: boolean
     archived?: boolean
+    agentWorkspaceTrust?: 'trusted'
+    /** Existing application-data metadata survives an idempotent re-import. */
+    existing?: RegistryWorkspace
   }): Promise<RegistryWorkspace> {
     const entry: RegistryWorkspace = {
+      ...(options.existing ?? {}),
       id: options.id,
       name: normalizeWorkspaceName(options.name),
       rootPath: resolve(options.rootPath),
       createdAt: options.createdAt ?? options.now,
       updatedAt: options.updatedAt ?? options.now,
       ...(options.pinned === true ? { pinned: true } : {}),
-      ...(options.archived === true ? { archived: true } : {})
+      ...(options.archived === true ? { archived: true } : {}),
+      ...(options.agentWorkspaceTrust === 'trusted' ? { agentWorkspaceTrust: 'trusted' as const } : {})
     }
     const existingIndex = await loadWorkspaceIndex(entry)
     await provisionWorkspaceMaterial(entry, {
@@ -207,6 +214,9 @@ export class TeachingWorkspaceActivationLifecycle {
       prompt: options.prompt,
       pathMeta: existingIndex.pathMeta
     })
+    // Provisioning may create a directory through a symlink/junction. Persist
+    // the physical root so subsequent imports compare one canonical identity.
+    entry.rootPath = await canonicalizeWorkspaceRoot(entry.rootPath)
     await saveWorkspaceIndex(entry.rootPath, {
       ...existingIndex,
       id: entry.id,
@@ -229,7 +239,7 @@ export class TeachingWorkspaceActivationLifecycle {
   }
 
   private async loadAvailableRegistry(): Promise<WorkspaceRegistry> {
-    const registry = await this.readRegistry()
+    const { registry, wasNormalized } = await this.readRegistry()
     const workspaces = orderRegistryWorkspaces(await this.pruneUnavailableRoots(registry.workspaces))
     const visible = visibleRegistryWorkspaces(workspaces)
     const activeWorkspaceId = visible.some((workspace) => workspace.id === registry.activeWorkspaceId)
@@ -237,33 +247,50 @@ export class TeachingWorkspaceActivationLifecycle {
       : visible[0]?.id ?? null
     const nextRegistry = { activeWorkspaceId, workspaces }
     if (
+      wasNormalized ||
       nextRegistry.workspaces.length !== registry.workspaces.length ||
       nextRegistry.activeWorkspaceId !== registry.activeWorkspaceId ||
-      !sameRegistryWorkspaceOrder(nextRegistry.workspaces, registry.workspaces)
+      !sameRegistryWorkspaceOrder(nextRegistry.workspaces, registry.workspaces) ||
+      nextRegistry.workspaces.some((workspace, index) => workspace.rootPath !== registry.workspaces[index]?.rootPath)
     ) {
       await this.writeRegistry(nextRegistry)
     }
     return nextRegistry
   }
 
-  private async readRegistry(): Promise<WorkspaceRegistry> {
+  private async readRegistry(): Promise<{ registry: WorkspaceRegistry; wasNormalized: boolean }> {
     try {
       const { readFile } = await import('node:fs/promises')
       const parsed = JSON.parse(await readFile(this.options.registryPath, 'utf8')) as unknown
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as WorkspaceRegistry).workspaces)) return EMPTY_REGISTRY
+      if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as WorkspaceRegistry).workspaces)) {
+        return { registry: EMPTY_REGISTRY, wasNormalized: false }
+      }
+      const rawRegistry = parsed as WorkspaceRegistry
+      const rawWorkspaces = rawRegistry.workspaces
+      let wasNormalized = false
+      const workspaces = rawWorkspaces
+        .filter((workspace) => {
+          const valid = isRegistryWorkspace(workspace)
+          if (!valid) wasNormalized = true
+          return valid
+        })
+        .map((workspace) => {
+          const normalized = normalizeRegistryWorkspace(workspace)
+          if (JSON.stringify(normalized) !== JSON.stringify(workspace)) wasNormalized = true
+          return normalized
+        })
+      if (typeof rawRegistry.activeWorkspaceId !== 'string' && rawRegistry.activeWorkspaceId !== null) {
+        wasNormalized = true
+      }
       return {
-        activeWorkspaceId: typeof (parsed as WorkspaceRegistry).activeWorkspaceId === 'string'
-          ? (parsed as WorkspaceRegistry).activeWorkspaceId
-          : null,
-        workspaces: (parsed as WorkspaceRegistry).workspaces
-          .filter(isRegistryWorkspace)
-          .map((workspace) => ({
-            ...workspace,
-            rootPath: resolve(workspace.rootPath)
-          }))
+        registry: {
+          activeWorkspaceId: typeof rawRegistry.activeWorkspaceId === 'string' ? rawRegistry.activeWorkspaceId : null,
+          workspaces
+        },
+        wasNormalized
       }
     } catch {
-      return EMPTY_REGISTRY
+      return { registry: EMPTY_REGISTRY, wasNormalized: false }
     }
   }
 
@@ -275,11 +302,13 @@ export class TeachingWorkspaceActivationLifecycle {
     const existing: RegistryWorkspace[] = []
     const seen = new Set<string>()
     for (const workspace of workspaces) {
-      const rootPath = resolve(workspace.rootPath)
-      const key = rootPath.toLowerCase()
-      if (seen.has(key) || !(await directoryExists(rootPath))) continue
+      const requestedRoot = resolve(workspace.rootPath)
+      if (!(await directoryExists(requestedRoot))) continue
+      const rootPath = await canonicalizeWorkspaceRoot(requestedRoot).catch(() => null)
+      if (!rootPath) continue
+      if (seen.has(rootPath)) continue
       existing.push({ ...workspace, rootPath })
-      seen.add(key)
+      seen.add(rootPath)
     }
     return existing
   }
@@ -319,7 +348,11 @@ async function validateWorkspaceRoot(rootPath: string): Promise<string> {
   const normalizedRoot = resolve(rootPath)
   const info = await stat(normalizedRoot)
   if (!info.isDirectory()) throw new Error('Selected path is not a directory.')
-  return normalizedRoot
+  return canonicalizeWorkspaceRoot(normalizedRoot)
+}
+
+async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
+  return realpath(resolve(rootPath))
 }
 
 async function selectCatalogLesson(

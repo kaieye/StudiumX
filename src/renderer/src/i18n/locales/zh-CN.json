@@ -63,6 +63,34 @@
       "listDetail": "隐藏这项内容，磁盘文件保持不变。",
       "diskTitle": "从磁盘中移除",
       "diskDetail": "删除本地文件，无法从 StudiumX 内撤销。"
+    },
+    "workspaceTrust": {
+      "trusted": {
+        "label": "Agent 文件工具：已信任",
+        "aria": "Agent 已获工作区文件工具访问权限",
+        "detail": "信任会允许 Agent 使用该工作区的文件工具。撤销仅影响后续 Agent 轮次，不会中断已经运行中的轮次。工作区写入仍由“设置 > 工作区”单独控制。",
+        "action": "撤销",
+        "actionTitle": "撤销 Agent 后续轮次的文件访问权限",
+        "actionAria": "撤销 Agent 对 {{name}} 后续轮次的文件访问权限"
+      },
+      "untrusted": {
+        "label": "Agent 文件工具：未信任",
+        "aria": "Agent 未获工作区文件工具访问权限",
+        "detail": "在信任前，Agent 无法使用该工作区的文件工具。信任变更会应用于后续 Agent 轮次。工作区写入仍由“设置 > 工作区”单独控制。",
+        "action": "信任",
+        "actionTitle": "允许 Agent 使用工作区文件工具",
+        "actionAria": "信任 {{name}}，允许 Agent 使用工作区文件工具"
+      },
+      "writePolicy": {
+        "aria": "工作区写入权限：{{permission}}",
+        "allow_for_conversation": "写入：本次对话允许",
+        "ask_each_time": "写入：每次询问",
+        "read_only": "写入：只读"
+      },
+      "policyDetail": "信任控制 Agent 能否使用工作区文件工具。写入仍受“设置 > 工作区”中的写入权限（{{permission}}）约束。信任变更应用于后续 Agent 轮次；撤销不会中断已经运行中的轮次。",
+      "updating": "正在更新…",
+      "updatingAria": "正在更新 {{name}} 的 Agent 文件访问权限",
+      "updated": "Agent 文件访问权限已为后续 Agent 轮次更新：{{status}}。"
     }
   },
   "sidebarResizer": {

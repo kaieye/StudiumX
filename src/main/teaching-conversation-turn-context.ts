@@ -6,12 +6,18 @@ import {
 
 export type ConversationWorkspaceAccess = {
   rootPath: string
+  /** Explicitly granted by the domain service only for trusted workspaces. */
+  workspaceToolAccessGranted: boolean
 }
 
 export type ConversationTurnContext = {
   mode: AgentChatMode
   isTeachingConversation: boolean
-  /** Workspace tools are deliberately unavailable in temporary conversations. */
+  /**
+   * Root exposed to workspace file tools only. It is deliberately absent for
+   * temporary conversations and for teaching workspaces without an explicit
+   * trust grant.
+   */
   workspaceRoot: string | undefined
   /** Learner memory remains scoped to the selected workspace in either mode. */
   memoryWorkspaceRoot: string | undefined
@@ -41,12 +47,16 @@ export function deriveConversationTurnContext(options: {
 }): ConversationTurnContext {
   const isTeachingConversation = (options.mode ?? 'teaching') === 'teaching'
   const mode: AgentChatMode = isTeachingConversation ? 'teaching' : 'temporary'
-  const workspaceRoot = isTeachingConversation ? options.workspace?.rootPath : undefined
+  const hasTeachingWorkspace = Boolean(options.workspace)
+  const workspaceToolAccessGranted =
+    isTeachingConversation && options.workspace?.workspaceToolAccessGranted === true
+  const workspaceRoot = workspaceToolAccessGranted ? options.workspace?.rootPath : undefined
   const memoryWorkspaceRoot = options.workspace?.rootPath
   const capabilityPolicy = resolveTeachingCapabilityPolicy({
     mode,
     toolsEnabled: options.toolsEnabled,
-    hasWorkspace: Boolean(options.workspace),
+    hasTeachingWorkspace,
+    workspaceToolAccessGranted,
     hasLessonGenerator: options.hasLessonGenerator
   })
 

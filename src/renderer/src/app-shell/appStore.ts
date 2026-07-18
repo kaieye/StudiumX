@@ -48,6 +48,7 @@ import {
 } from './operationFeedback'
 import {
   type AgentChatMessage,
+  type AgentWorkspaceTrustState,
   type AgentChatMode,
   type AgentChatTurn,
   type AgentConversationBranchStatus,
@@ -131,6 +132,7 @@ export type StoreState = {
   agentPetNotificationResult: PetOperationResult | null
   lessonGenerationPetNotificationResult: PetOperationResult | null
   error: UserError | null
+  pendingWorkspaceTrustIds: Set<string>
   petNotificationErrors: PetOperationError[]
   searchQuery: string
   taskPrompt: string
@@ -165,6 +167,7 @@ export type StoreState = {
   importWorkspace: () => Promise<boolean>
   importWorkspacePath: (rootPath: string) => Promise<boolean>
   updateMission: () => Promise<void>
+  setWorkspaceTrust: (workspaceId: string, trust: AgentWorkspaceTrustState) => Promise<boolean>
   applyLessonStyle: (styleId: LessonStyleId) => Promise<void>
   generateLesson: (options?: LessonGenerationOptions) => Promise<void>
   generateLessonStream: (options?: LessonGenerationOptions) => Promise<void>
@@ -532,6 +535,7 @@ export const useAppStore = create<StoreState>((set, get) => {
   agentPetNotificationResult: null,
   lessonGenerationPetNotificationResult: null,
   error: null,
+  pendingWorkspaceTrustIds: new Set(),
   petNotificationErrors: [],
   searchQuery: '',
   taskPrompt: defaultPrompt,
@@ -915,6 +919,30 @@ export const useAppStore = create<StoreState>((set, get) => {
       set({ appState: state, loading: false })
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
+    }
+  },
+  setWorkspaceTrust: async (workspaceId, trust) => {
+    const api = window.teachingSystem
+    if (!api) return false
+    if (!get().appState.workspaces.some((workspace) => workspace.id === workspaceId)) return false
+    if (get().pendingWorkspaceTrustIds.has(workspaceId)) return false
+
+    const pendingWorkspaceTrustIds = new Set(get().pendingWorkspaceTrustIds)
+    pendingWorkspaceTrustIds.add(workspaceId)
+    set({ pendingWorkspaceTrustIds })
+    try {
+      // Keep the renderer request deliberately capability-narrow: no root path.
+      const state = await api.setWorkspaceTrust({ workspaceId, trust })
+      const completedWorkspaceTrustIds = new Set(get().pendingWorkspaceTrustIds)
+      completedWorkspaceTrustIds.delete(workspaceId)
+      set({ appState: state, pendingWorkspaceTrustIds: completedWorkspaceTrustIds })
+      return true
+    } catch (error) {
+      const completedWorkspaceTrustIds = new Set(get().pendingWorkspaceTrustIds)
+      completedWorkspaceTrustIds.delete(workspaceId)
+      // Trust-operation failures remain visible through the existing global alert surface.
+      set({ pendingWorkspaceTrustIds: completedWorkspaceTrustIds, error: toUserError(error) })
+      return false
     }
   },
   applyLessonStyle: async (styleId) => {

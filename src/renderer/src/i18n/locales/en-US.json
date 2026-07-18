@@ -63,6 +63,34 @@
       "listDetail": "Hide this item while keeping files on disk.",
       "diskTitle": "Remove from disk",
       "diskDetail": "Delete local files. This cannot be undone in StudiumX."
+    },
+    "workspaceTrust": {
+      "trusted": {
+        "label": "Agent file tools: Trusted",
+        "aria": "Agent workspace file tools are trusted",
+        "detail": "Trust lets the Agent use this workspace’s file tools. Revoking applies to subsequent Agent turns and does not interrupt a turn already running. Workspace writes are controlled separately by Settings > Workspace.",
+        "action": "Revoke",
+        "actionTitle": "Revoke Agent file access for subsequent Agent turns",
+        "actionAria": "Revoke Agent file access for subsequent Agent turns in {{name}}"
+      },
+      "untrusted": {
+        "label": "Agent file tools: Untrusted",
+        "aria": "Agent workspace file tools are untrusted",
+        "detail": "The Agent cannot use this workspace’s file tools until it is trusted. Trust changes apply to subsequent Agent turns. Workspace writes are controlled separately by Settings > Workspace.",
+        "action": "Trust",
+        "actionTitle": "Allow the Agent to use workspace file tools",
+        "actionAria": "Trust {{name}} for Agent workspace file tools"
+      },
+      "writePolicy": {
+        "aria": "Workspace write permission: {{permission}}",
+        "allow_for_conversation": "Writes: Allowed for this conversation",
+        "ask_each_time": "Writes: Ask every time",
+        "read_only": "Writes: Read-only"
+      },
+      "policyDetail": "Trust gates Agent workspace file tools. Writes remain subject to Settings > Workspace ({{permission}}). Trust changes apply to subsequent Agent turns; revoking does not interrupt an Agent turn already running.",
+      "updating": "Updating…",
+      "updatingAria": "Updating Agent file access for {{name}}",
+      "updated": "Agent file access updated for subsequent Agent turns: {{status}}."
     }
   },
   "sidebarResizer": {

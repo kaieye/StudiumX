@@ -35,6 +35,7 @@ import type {
   RecordProgressPayload,
   SaveAgentConversationPayload,
   SaveWorkspaceMarkdownPayload,
+  SetWorkspaceTrustPayload,
   TeachingSettingsPatch,
   UpdateAgentConversationBranchStatusPayload,
   UpdateTeachingMemoryPayload,
@@ -98,6 +99,28 @@ export function parseUpdateMissionPayload(payload: unknown): UpdateMissionPayloa
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     prompt: requireString(record.prompt, 'prompt')
   }
+}
+
+/**
+ * Exact, path-free workspace trust command. The renderer may identify a
+ * registered workspace and choose the binary grant, but cannot supply a root
+ * path or any broader capability data.
+ */
+export function parseSetWorkspaceTrustPayload(payload: unknown): SetWorkspaceTrustPayload {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('IPC payload must be an object.')
+  }
+  const record = payload as Record<string, unknown>
+  const allowedKeys = ['workspaceId', 'trust']
+  const keys = Object.keys(record)
+  if (keys.length !== allowedKeys.length || keys.some((key) => !allowedKeys.includes(key))) {
+    throw new Error('IPC workspace trust payload must contain only "workspaceId" and "trust".')
+  }
+  const trust = record.trust
+  if (trust !== 'trusted' && trust !== 'untrusted') {
+    throw new Error('IPC payload field "trust" must be one of: trusted, untrusted.')
+  }
+  return { workspaceId: requireString(record.workspaceId, 'workspaceId'), trust }
 }
 
 export function parseApplyLessonStylePayload(payload: unknown): ApplyLessonStylePayload {

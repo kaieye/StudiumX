@@ -10,7 +10,7 @@ import type { CoursePreviewFile } from './contextTransitions'
 import type { PendingAgentConversation } from '../agent-conversation-state'
 import { isPendingConversationSummary } from '../agent-conversation-state'
 import type {
-  AgentConversationLookupScope, AgentConversationSummary, LessonSummary, TeachingWorkspaceSummary,
+  AgentConversationLookupScope, AgentConversationSummary, AgentWorkspaceTrustState, LessonSummary, TeachingWorkspaceSummary, WorkspaceWritePermissionPolicy,
   WorkspaceFileNode, WorkspaceItemKind, WorkspaceView
 } from '../../../shared/teaching-types'
 import {
@@ -31,6 +31,8 @@ export type TeachingWorkspaceNavigatorProps = {
   showAllCourseFiles: boolean
   defaultRoot: string
   loading: boolean
+  workspaceWritePermission: WorkspaceWritePermissionPolicy
+  pendingWorkspaceTrustIds: ReadonlySet<string>
   onSelectWorkspace: (workspaceId: string) => Promise<void>
   onSetOverviewDialogMode: (mode: 'teaching') => void
   onOpenWorkspaceTeachingMode: () => void
@@ -45,6 +47,7 @@ export type TeachingWorkspaceNavigatorProps = {
   onImportWorkspacePath: (path: string) => Promise<boolean>
   onOpenImportLocation: (path?: string) => Promise<void>
   onSetWorkspaceItemMeta: (payload: { workspaceId: string | null | undefined; relativePath: string; pinned?: boolean; archived?: boolean }) => Promise<void>
+  onSetWorkspaceTrust: (workspaceId: string, trust: AgentWorkspaceTrustState) => Promise<boolean>
   onRenameAgentConversation: (payload: { workspaceId: string | null | undefined; conversationId: string; title: string; scope: AgentConversationLookupScope; expectedRevision?: number }) => Promise<void>
   onRemoveWorkspaceItem: (payload: { workspaceId: string | null | undefined; relativePath: string; kind: WorkspaceItemKind; mode: 'list' | 'disk' }) => Promise<void>
   onRemoveWorkspace: (payload: { workspaceId: string; mode: 'list' | 'disk' }) => Promise<void>
@@ -54,11 +57,11 @@ export type TeachingWorkspaceNavigatorProps = {
 export function TeachingWorkspaceNavigator({
   workspaces, activeWorkspace, temporaryConversations, selectedLessonPath, view,
   activeConversationId, pendingAgentConversation, showAllCourseFiles, defaultRoot,
-  loading, onSelectWorkspace, onSetOverviewDialogMode, onOpenWorkspaceTeachingMode,
+  loading, workspaceWritePermission, pendingWorkspaceTrustIds, onSelectWorkspace, onSetOverviewDialogMode, onOpenWorkspaceTeachingMode,
   onSelectCourseFolder, onLoadLesson, onLoadCourseHtmlFile, onLoadWorkspaceMarkdownFile,
   onLoadAgentConversation, onRestorePendingAgentConversation, onOpenPath,
   onImportWorkspace, onImportWorkspacePath, onOpenImportLocation,
-  onSetWorkspaceItemMeta, onRenameAgentConversation, onRemoveWorkspaceItem, onRemoveWorkspace
+  onSetWorkspaceItemMeta, onSetWorkspaceTrust, onRenameAgentConversation, onRemoveWorkspaceItem, onRemoveWorkspace
 }: TeachingWorkspaceNavigatorProps) {
   const { t } = useTranslation()
   const [state, dispatch] = useReducer(teachingWorkspaceNavigatorReducer, initialTeachingWorkspaceNavigatorState)
@@ -90,7 +93,8 @@ export function TeachingWorkspaceNavigator({
             {workspaceFolders.map(({ workspace, node }) => <WorkspaceFileNodeRow
               key={workspaceNodeKey(workspace.id, node.relativePath)} node={node} workspace={workspace} level={0} treeRoot="courses"
               expandedPaths={state.expandedPaths} selectedLessonPath={selectedLessonPath}
-              activeConversationId={view === 'agent' ? activeConversationId : null}
+              activeConversationId={view === 'agent' ? activeConversationId : null} loading={loading}
+              workspaceWritePermission={workspaceWritePermission} pendingWorkspaceTrustIds={pendingWorkspaceTrustIds}
               onToggle={(workspaceId, relativePath) => dispatch({ type: 'toggle-path', workspaceId, relativePath })}
               onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
               onSetOverviewDialogMode={onSetOverviewDialogMode} onOpenWorkspaceTeachingMode={onOpenWorkspaceTeachingMode}
@@ -99,7 +103,7 @@ export function TeachingWorkspaceNavigator({
               onOpenCourse={onSelectCourseFolder} onOpenLesson={onLoadLesson}
               onOpenConversation={(conversationId) => onLoadAgentConversation(conversationId, workspace.id, 'workspace')}
               onRestorePendingConversation={onRestorePendingAgentConversation}
-              onSetWorkspaceItemMeta={onSetWorkspaceItemMeta} onRenameAgentConversation={onRenameAgentConversation} onRemoveWorkspaceItem={onRemoveWorkspaceItem} onRemoveWorkspace={onRemoveWorkspace}
+              onSetWorkspaceItemMeta={onSetWorkspaceItemMeta} onSetWorkspaceTrust={onSetWorkspaceTrust} onRenameAgentConversation={onRenameAgentConversation} onRemoveWorkspaceItem={onRemoveWorkspaceItem} onRemoveWorkspace={onRemoveWorkspace}
             />)}
           </div> : <div className="workspace-conversation-empty">{t('sidebar.emptyCourses')}</div>}
         </div>
@@ -344,10 +348,10 @@ function ConversationListRow({ conversation, isActiveConversation, onOpen, onSet
 }
 
 function WorkspaceFileNodeRow({
-  node, workspace, level, treeRoot, expandedPaths, selectedLessonPath, activeConversationId,
+  node, workspace, level, treeRoot, expandedPaths, selectedLessonPath, activeConversationId, loading, workspaceWritePermission, pendingWorkspaceTrustIds,
   onToggle, onEnsureWorkspaceSelected, onSetOverviewDialogMode, onOpenWorkspaceTeachingMode,
   onOpenPath, onOpenHtmlFile, onOpenMarkdownFile, onOpenCourse, onOpenLesson, onOpenConversation,
-  onRestorePendingConversation, onSetWorkspaceItemMeta, onRenameAgentConversation, onRemoveWorkspaceItem, onRemoveWorkspace
+  onRestorePendingConversation, onSetWorkspaceItemMeta, onSetWorkspaceTrust, onRenameAgentConversation, onRemoveWorkspaceItem, onRemoveWorkspace
 }: {
   node: WorkspaceFileNode
   workspace: TeachingWorkspaceSummary
@@ -356,6 +360,9 @@ function WorkspaceFileNodeRow({
   expandedPaths: Set<string>
   selectedLessonPath: string | null
   activeConversationId: string | null
+  loading: boolean
+  workspaceWritePermission: WorkspaceWritePermissionPolicy
+  pendingWorkspaceTrustIds: ReadonlySet<string>
   onToggle: (workspaceId: string, relativePath: string) => void
   onEnsureWorkspaceSelected: () => Promise<void>
   onSetOverviewDialogMode: (mode: 'teaching') => void
@@ -368,12 +375,15 @@ function WorkspaceFileNodeRow({
   onOpenConversation: (conversationId: string) => Promise<void>
   onRestorePendingConversation: () => void
   onSetWorkspaceItemMeta: TeachingWorkspaceNavigatorProps['onSetWorkspaceItemMeta']
+  onSetWorkspaceTrust: TeachingWorkspaceNavigatorProps['onSetWorkspaceTrust']
   onRenameAgentConversation: TeachingWorkspaceNavigatorProps['onRenameAgentConversation']
   onRemoveWorkspaceItem: TeachingWorkspaceNavigatorProps['onRemoveWorkspaceItem']
   onRemoveWorkspace: TeachingWorkspaceNavigatorProps['onRemoveWorkspace']
 }) {
+  const { t } = useTranslation()
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
+  const [trustUpdateSuccess, setTrustUpdateSuccess] = useState<AgentWorkspaceTrustState | null>(null)
   const isDirectory = node.kind === 'directory'
   const isExpanded = expandedPaths.has(workspaceNodeKey(workspace.id, node.relativePath))
   const lesson = workspace.lessons.find((item) => sameRelativePath(item.relativePath, node.relativePath))
@@ -392,6 +402,9 @@ function WorkspaceFileNodeRow({
   const itemLabel = conversation?.title ?? lesson?.title ?? node.name
   const isForkedConversation = Boolean(conversation?.branch?.parentBranchId)
   const Icon = isDirectory ? (isExpanded ? FolderOpen : Folder) : conversation ? (isForkedConversation ? GitFork : MessageSquare) : FileText
+  const trust = workspace.agentWorkspaceTrust
+  const nextTrust: AgentWorkspaceTrustState = trust === 'trusted' ? 'untrusted' : 'trusted'
+  const isTrustUpdatePending = pendingWorkspaceTrustIds.has(workspace.id)
 
   const handleOpen = async (): Promise<void> => {
     if (treeRoot === 'courses') onSetOverviewDialogMode('teaching')
@@ -464,6 +477,41 @@ function WorkspaceFileNodeRow({
         <span className="collapsible-label">{conversation?.title ?? lesson?.sessionName ?? node.name}</span>
         {isDirectory ? <span className="workspace-node-chevron" aria-hidden="true">{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span> : null}
       </button>
+      {isWorkspaceFolder ? <div className="workspace-trust-control" aria-busy={isTrustUpdatePending}>
+        <div className="workspace-trust-statuses">
+          <span className={`workspace-trust-badge is-${trust}`} aria-label={t(`sidebar.workspaceTrust.${trust}.aria`)}>
+            {t(`sidebar.workspaceTrust.${trust}.label`)}
+          </span>
+          <span className={`workspace-write-policy is-${workspaceWritePermission}`} aria-label={t(`sidebar.workspaceTrust.writePolicy.aria`, { permission: t(`sidebar.workspaceTrust.writePolicy.${workspaceWritePermission}`) })}>
+            {t(`sidebar.workspaceTrust.writePolicy.${workspaceWritePermission}`)}
+          </span>
+        </div>
+        <span className="workspace-trust-detail">
+          {t('sidebar.workspaceTrust.policyDetail', { permission: t(`sidebar.workspaceTrust.writePolicy.${workspaceWritePermission}`) })}
+        </span>
+        <button
+          type="button"
+          className="workspace-trust-action"
+          disabled={loading || isTrustUpdatePending}
+          aria-busy={isTrustUpdatePending}
+          aria-label={isTrustUpdatePending
+            ? t('sidebar.workspaceTrust.updatingAria', { name: workspace.name })
+            : t(`sidebar.workspaceTrust.${trust}.actionAria`, { name: workspace.name })}
+          title={t(`sidebar.workspaceTrust.${trust}.actionTitle`)}
+          onClick={(event) => {
+            event.stopPropagation()
+            void (async () => {
+              const updated = await onSetWorkspaceTrust(workspace.id, nextTrust)
+              if (updated) setTrustUpdateSuccess(nextTrust)
+            })()
+          }}
+        >
+          {isTrustUpdatePending ? t('sidebar.workspaceTrust.updating') : t(`sidebar.workspaceTrust.${trust}.action`)}
+        </button>
+        {trustUpdateSuccess ? <span className="workspace-trust-update" role="status" aria-live="polite">
+          {t('sidebar.workspaceTrust.updated', { status: t(`sidebar.workspaceTrust.${trustUpdateSuccess}.label`) })}
+        </span> : null}
+      </div> : null}
       {!isPendingConversation ? <RowContextMenu pinned={!!node.pinned} {...(conversation ? { onRename: () => setRenameDialogOpen(true) } : {})} onTogglePin={() => setMeta(!node.pinned)} onArchive={() => setMeta(undefined, true)} onRemove={() => setRemoveDialogOpen(true)} /> : null}
       {renameDialogOpen && conversation ? <RenameConversationDialog conversationName={conversation.title} onClose={() => setRenameDialogOpen(false)} onRename={rename} /> : null}
       {removeDialogOpen ? <RemoveWorkspaceItemDialog itemName={itemLabel} itemKind={itemKind} onClose={() => setRemoveDialogOpen(false)} onRemoveFromList={() => remove('list')} onRemoveFromDisk={() => remove('disk')} /> : null}
@@ -471,12 +519,13 @@ function WorkspaceFileNodeRow({
     {isDirectory && node.children?.length ? <div className={`workspace-node-children${isExpanded ? ' is-open' : ''}${isWorkspaceFolder || isCourseFolder ? ' is-course-children' : ''}`} aria-hidden={!isExpanded} inert={!isExpanded ? true : undefined}>
       <div className="workspace-node-children-inner">{node.children.map((child) => <WorkspaceFileNodeRow
         key={workspaceNodeKey(workspace.id, child.relativePath)} node={child} workspace={workspace} level={level + 1} treeRoot={treeRoot}
-        expandedPaths={expandedPaths} selectedLessonPath={selectedLessonPath} activeConversationId={activeConversationId}
+        expandedPaths={expandedPaths} selectedLessonPath={selectedLessonPath} activeConversationId={activeConversationId} loading={loading}
+         workspaceWritePermission={workspaceWritePermission} pendingWorkspaceTrustIds={pendingWorkspaceTrustIds}
         onToggle={onToggle} onEnsureWorkspaceSelected={onEnsureWorkspaceSelected} onSetOverviewDialogMode={onSetOverviewDialogMode}
         onOpenWorkspaceTeachingMode={onOpenWorkspaceTeachingMode} onOpenPath={onOpenPath} onOpenHtmlFile={onOpenHtmlFile}
         onOpenMarkdownFile={onOpenMarkdownFile} onOpenCourse={onOpenCourse} onOpenLesson={onOpenLesson}
         onOpenConversation={onOpenConversation} onRestorePendingConversation={onRestorePendingConversation}
-        onSetWorkspaceItemMeta={onSetWorkspaceItemMeta} onRenameAgentConversation={onRenameAgentConversation} onRemoveWorkspaceItem={onRemoveWorkspaceItem} onRemoveWorkspace={onRemoveWorkspace}
+        onSetWorkspaceItemMeta={onSetWorkspaceItemMeta} onSetWorkspaceTrust={onSetWorkspaceTrust} onRenameAgentConversation={onRenameAgentConversation} onRemoveWorkspaceItem={onRemoveWorkspaceItem} onRemoveWorkspace={onRemoveWorkspace}
       />)}</div>
     </div> : null}
   </div>

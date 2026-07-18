@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -11,7 +11,14 @@ const runtimeScope = createVitestRuntimeScope()
 
 type RegistryFile = {
   activeWorkspaceId: string | null
-  workspaces: Array<{ id: string; rootPath: string; archived?: boolean }>
+  workspaces: Array<{
+    id: string
+    rootPath: string
+    pinned?: boolean
+    archived?: boolean
+    agentWorkspaceTrust?: unknown
+    [key: string]: unknown
+  }>
 }
 
 async function createService(label: string) {
@@ -49,7 +56,11 @@ describe('Teaching workspace activation lifecycle', () => {
     const workspace = state.activeWorkspace
 
     expect(workspace).not.toBeNull()
-    expect(workspace).toMatchObject({ name: 'Graph Theory', rootPath: join(managedRoot, 'graph-theory') })
+    expect(workspace).toMatchObject({
+      name: 'Graph Theory',
+      rootPath: join(managedRoot, 'graph-theory'),
+      agentWorkspaceTrust: 'untrusted'
+    })
     expect(state.selectedLessonPath).toBeNull()
     await expect(readFile(join(workspace!.rootPath, 'MISSION.md'), 'utf8')).resolves.toContain('图论中的连通性')
     await expect(readFile(join(workspace!.rootPath, 'RESOURCES.md'), 'utf8')).resolves.toContain('图论中的连通性 Resources')
@@ -62,6 +73,127 @@ describe('Teaching workspace activation lifecycle', () => {
       activeWorkspaceId: workspace!.id,
       workspaces: [{ id: workspace!.id, rootPath: workspace!.rootPath }]
     })
+  })
+
+  it('defaults created and imported workspaces to untrusted and fails closed for malformed persisted trust', async () => {
+    const { runtime, service, registryPath } = await createService('activation-trust-default')
+    const created = (await service.createWorkspace({ name: 'Created', prompt: 'Create safely.' })).activeWorkspace!
+    const importedRoot = join(runtime.paths.workspace, 'untrusted-import')
+    await mkdir(importedRoot, { recursive: true })
+    const imported = (await service.importWorkspace(importedRoot)).activeWorkspace!
+
+    let registry = await readRegistry(registryPath)
+    expect(registry.workspaces.find((workspace) => workspace.id === created.id)).not.toHaveProperty('agentWorkspaceTrust')
+    expect(registry.workspaces.find((workspace) => workspace.id === imported.id)).not.toHaveProperty('agentWorkspaceTrust')
+    await expect(readFile(join(imported.rootPath, '.studiumx', 'index.json'), 'utf8')).resolves.not.toContain('agentWorkspaceTrust')
+
+    const importedRecord = registry.workspaces.find((workspace) => workspace.id === imported.id)!
+    importedRecord.agentWorkspaceTrust = 'trusted-by-typo'
+    await writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`, 'utf8')
+
+    await service.getState()
+    registry = await readRegistry(registryPath)
+    expect(registry.workspaces.find((workspace) => workspace.id === imported.id)).not.toHaveProperty('agentWorkspaceTrust')
+    await expect(service.setWorkspaceTrust(imported.id, 'invalid' as never)).rejects.toThrow(
+      'Workspace trust must be trusted or untrusted.'
+    )
+  })
+
+  it('persists explicit trust in application data and preserves it when the exact canonical root is re-imported', async () => {
+    const { runtime, service, registryPath } = await createService('activation-trust-reimport')
+    const importedRoot = join(runtime.paths.workspace, 'trusted-import')
+    await mkdir(importedRoot, { recursive: true })
+    const imported = (await service.importWorkspace(importedRoot)).activeWorkspace!
+
+    const registryBeforeTrust = await readRegistry(registryPath)
+    const recordBeforeTrust = registryBeforeTrust.workspaces.find((workspace) => workspace.id === imported.id)!
+    recordBeforeTrust.pinned = true
+    recordBeforeTrust.workspaceWriteEnabled = true
+    recordBeforeTrust.permissionGrants = { workspace_write: ['notes'] }
+    await writeFile(registryPath, `${JSON.stringify(registryBeforeTrust, null, 2)}\n`, 'utf8')
+
+    const trustedState = await service.setWorkspaceTrust(imported.id, 'trusted')
+    expect(trustedState.activeWorkspace?.agentWorkspaceTrust).toBe('trusted')
+    let registry = await readRegistry(registryPath)
+    expect(registry.workspaces.find((workspace) => workspace.id === imported.id)).toMatchObject({
+      agentWorkspaceTrust: 'trusted',
+      pinned: true,
+      workspaceWriteEnabled: true,
+      permissionGrants: { workspace_write: ['notes'] }
+    })
+    await expect(readFile(join(imported.rootPath, '.studiumx', 'index.json'), 'utf8')).resolves.not.toContain('agentWorkspaceTrust')
+
+    registry.activeWorkspaceId = null
+    registry.workspaces.find((workspace) => workspace.id === imported.id)!.archived = true
+    await writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`, 'utf8')
+
+    const reimported = await service.importWorkspace(importedRoot)
+    expect(reimported.activeWorkspace).toMatchObject({ id: imported.id, rootPath: await realpath(importedRoot) })
+    registry = await readRegistry(registryPath)
+    expect(registry.workspaces.find((workspace) => workspace.id === imported.id)).toMatchObject({
+      agentWorkspaceTrust: 'trusted',
+      pinned: true,
+      archived: false,
+      workspaceWriteEnabled: true,
+      permissionGrants: { workspace_write: ['notes'] }
+    })
+  })
+
+  it('keeps case-distinct canonical roots separate so trust cannot transfer between them', async () => {
+    const { runtime, service, registryPath } = await createService('activation-case-distinct-roots')
+    const trustedRoot = join(runtime.paths.workspace, 'Trusted')
+    const untrustedRoot = join(runtime.paths.workspace, 'trusted')
+    await mkdir(trustedRoot, { recursive: true })
+    const canCreateCaseDistinctRoot = await mkdir(untrustedRoot)
+      .then(() => true)
+      .catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'EEXIST') return false
+        throw error
+      })
+    // Case-insensitive hosts cannot represent the two security principals this
+    // regression covers, so only conditionally exercise the assertion there.
+    if (!canCreateCaseDistinctRoot) return
+
+    const trustedCanonicalRoot = await realpath(trustedRoot)
+    const untrustedCanonicalRoot = await realpath(untrustedRoot)
+    if (trustedCanonicalRoot === untrustedCanonicalRoot) return
+
+    const trusted = (await service.importWorkspace(trustedRoot)).activeWorkspace!
+    await service.setWorkspaceTrust(trusted.id, 'trusted')
+    const untrusted = (await service.importWorkspace(untrustedRoot)).activeWorkspace!
+
+    expect(untrusted.id).not.toBe(trusted.id)
+    expect(untrusted.agentWorkspaceTrust).toBe('untrusted')
+    const registry = await readRegistry(registryPath)
+    expect(registry.workspaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: trusted.id, rootPath: trustedCanonicalRoot, agentWorkspaceTrust: 'trusted' }),
+      expect.objectContaining({ id: untrusted.id, rootPath: untrustedCanonicalRoot })
+    ]))
+  })
+
+  it('canonicalizes junction/symlink imports so the physical root re-imports as the same workspace', async () => {
+    const { runtime, service, registryPath } = await createService('activation-canonical-root')
+    const physicalRoot = join(runtime.paths.workspace, 'physical-workspace')
+    const importedAlias = join(runtime.paths.workspace, 'workspace-alias')
+    await mkdir(physicalRoot, { recursive: true })
+    await symlink(physicalRoot, importedAlias, process.platform === 'win32' ? 'junction' : 'dir')
+
+    const fromAlias = (await service.importWorkspace(importedAlias)).activeWorkspace!
+    const canonicalRoot = await realpath(physicalRoot)
+    expect(fromAlias.rootPath).toBe(canonicalRoot)
+    expect((await readRegistry(registryPath)).workspaces.find((workspace) => workspace.id === fromAlias.id)?.rootPath)
+      .toBe(canonicalRoot)
+
+    const nonCanonicalRegistry = await readRegistry(registryPath)
+    nonCanonicalRegistry.workspaces.find((workspace) => workspace.id === fromAlias.id)!.rootPath = importedAlias
+    await writeFile(registryPath, `${JSON.stringify(nonCanonicalRegistry, null, 2)}\n`, 'utf8')
+    await service.getState()
+    expect((await readRegistry(registryPath)).workspaces.find((workspace) => workspace.id === fromAlias.id)?.rootPath)
+      .toBe(canonicalRoot)
+
+    const fromPhysicalRoot = (await service.importWorkspace(physicalRoot)).activeWorkspace!
+    expect(fromPhysicalRoot.id).toBe(fromAlias.id)
+    expect((await readRegistry(registryPath)).workspaces.filter((workspace) => workspace.rootPath === canonicalRoot)).toHaveLength(1)
   })
 
   it('re-imports an archived root idempotently, reselects it, and preserves its catalog material without a second initialization event', async () => {
@@ -92,6 +224,23 @@ describe('Teaching workspace activation lifecycle', () => {
       activeWorkspaceId: original.id,
       workspaces: [{ id: original.id, rootPath: importedRoot, archived: false }]
     })
+  })
+
+  it('rejects direct agent requests for archived workspace IDs before the conversation runtime can run', async () => {
+    const { service } = await createService('activation-archived-agent-request')
+    const workspace = (await service.createWorkspace({ name: 'Archived', prompt: 'Archive the workspace.' })).activeWorkspace!
+    await service.setWorkspaceItemMeta({ workspaceId: workspace.id, relativePath: '', archived: true })
+
+    await expect(service.agentChatStream({
+      workspaceId: workspace.id,
+      messages: [],
+      userInput: 'This must not reach the agent runtime.'
+    }, {
+      streamId: 'archived-workspace-stream',
+      onChunk: () => undefined,
+      onStatus: () => undefined,
+      onTool: () => undefined
+    })).rejects.toThrow('Workspace not found.')
   })
 
   it('rejects invalid and unavailable selections while leaving a valid active registry selection intact', async () => {

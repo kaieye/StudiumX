@@ -258,6 +258,7 @@ function Sidebar() {
   const lessonReaderOpen = useAppStore((s) => s.lessonReaderOpen)
   const selectedMarkdownDocument = useAppStore((s) => s.selectedMarkdownDocument)
   const loading = useAppStore((s) => s.loading)
+  const pendingWorkspaceTrustIds = useAppStore((s) => s.pendingWorkspaceTrustIds)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
   const selectWorkspace = useAppStore((s) => s.selectWorkspace)
@@ -273,6 +274,7 @@ function Sidebar() {
   const importWorkspacePath = useAppStore((s) => s.importWorkspacePath)
   const openImportLocation = useAppStore((s) => s.openImportLocation)
   const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
+  const setWorkspaceTrust = useAppStore((s) => s.setWorkspaceTrust)
   const renameAgentConversation = useAppStore((s) => s.renameAgentConversation)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
   const removeWorkspace = useAppStore((s) => s.removeWorkspace)
@@ -317,6 +319,8 @@ function Sidebar() {
           showAllCourseFiles={settings.workspace.showAllCourseFiles}
           defaultRoot={settings.workspace.defaultRoot}
           loading={loading}
+          workspaceWritePermission={settings.tools.workspaceWritePermission}
+          pendingWorkspaceTrustIds={pendingWorkspaceTrustIds}
           onSelectWorkspace={selectWorkspace}
           onSetOverviewDialogMode={setOverviewDialogMode}
           onOpenWorkspaceTeachingMode={openWorkspaceTeachingMode}
@@ -331,6 +335,7 @@ function Sidebar() {
           onImportWorkspacePath={importWorkspacePath}
           onOpenImportLocation={openImportLocation}
           onSetWorkspaceItemMeta={setWorkspaceItemMeta}
+          onSetWorkspaceTrust={setWorkspaceTrust}
           onRenameAgentConversation={renameAgentConversation}
           onRemoveWorkspaceItem={removeWorkspaceItem}
           onRemoveWorkspace={removeWorkspace}

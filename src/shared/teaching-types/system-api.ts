@@ -81,6 +81,7 @@ import type {
   ReadWorkspaceMarkdownPayload,
   SaveWorkspaceMarkdownPayload,
   SaveWorkspaceMarkdownResult,
+  SetWorkspaceTrustPayload,
   TeachingAppState,
   UpdateMissionPayload,
   WorkspaceMarkdownDocument,
@@ -127,6 +128,7 @@ export type TeachingSystemApi = {
   pickDirectory: (defaultPath?: string) => Promise<PickDirectoryResult>
   openImportLocation: (path?: string) => Promise<OpenPathResult>
   updateMission: (payload: UpdateMissionPayload) => Promise<TeachingAppState>
+  setWorkspaceTrust: (payload: SetWorkspaceTrustPayload) => Promise<TeachingAppState>
   applyLessonStyle: (payload: ApplyLessonStylePayload) => Promise<TeachingAppState>
   listSkills: () => Promise<SkillCatalogResult>
   installSkill: (skillId: string) => Promise<SkillSummary>

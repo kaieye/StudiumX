@@ -18,7 +18,11 @@ import { parseLessonPlan, type LessonPlanParseDiagnostic } from './lesson-plan-p
 const MIN_LESSON_PLAN_OUTPUT_TOKENS = 8192
 
 export type PreparedLessonPlanRequest = {
-  workspace: { rootPath: string }
+  workspace: {
+    rootPath: string
+    /** Explicit server-derived grant; absence is intentionally untrusted. */
+    workspaceToolAccessGranted?: boolean
+  }
   mission: { title: string; excerpt: string }
   prompt: string
   sequence: number
@@ -63,7 +67,13 @@ export async function produce(prepared: PreparedLessonPlanRequest): Promise<Less
   let rawOutput = ''
   let diagnostic: LessonPlanParseDiagnostic | null = null
 
-  const registry = buildDefaultRegistry(productionSettings, { workspaceRoot: workspace.rootPath })
+  // `generate_lesson` remains available for untrusted workspaces, but its
+  // nested production agent must not regain generic workspace-file access.
+  // This explicit server-derived grant is fail-closed when absent.
+  const workspaceToolOptions = workspace.workspaceToolAccessGranted === true
+    ? { workspaceRoot: workspace.rootPath }
+    : {}
+  const registry = buildDefaultRegistry(productionSettings, workspaceToolOptions)
   const toolDefinitions = registry.definitions()
   const useTools = productionSettings.tools.enabled &&
     toolsSupportedForFormat(productionSettings.generator.endpointFormat) &&
@@ -79,7 +89,7 @@ export async function produce(prepared: PreparedLessonPlanRequest): Promise<Less
           { role: 'user', content: userPrompt }
         ],
         tools: toolDefinitions,
-        toolHandlers: registry.handlerMap(buildToolContext(productionSettings, { workspaceRoot: workspace.rootPath })),
+        toolHandlers: registry.handlerMap(buildToolContext(productionSettings, workspaceToolOptions)),
         jsonMode: true,
         maxIterations: productionSettings.tools.maxIterations,
         callbacks: {

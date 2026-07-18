@@ -50,21 +50,23 @@ function stubTool(name: string): ToolEntry {
 const temporary = resolveTeachingCapabilityPolicy({
   mode: 'temporary',
   toolsEnabled: true,
-  hasWorkspace: true,
+  hasTeachingWorkspace: true,
+  workspaceToolAccessGranted: true,
   hasLessonGenerator: true
 })
 assert.equal(temporary.id, 'temporary_chat')
 assert.deepEqual(toolNames(temporary), ['web_search', 'web_fetch', 'ask', 'read_skill_resource'])
 assert.equal(temporary.allowsTool('future_tool'), false, 'unassigned future tools must remain fail-closed')
 
-const teachingReadOnly = resolveTeachingCapabilityPolicy({
+const teachingWithoutWorkspace = resolveTeachingCapabilityPolicy({
   mode: 'teaching',
   toolsEnabled: true,
-  hasWorkspace: false,
+  hasTeachingWorkspace: false,
+  workspaceToolAccessGranted: false,
   hasLessonGenerator: true
 })
-assert.equal(teachingReadOnly.id, 'teaching_readonly')
-assert.deepEqual(toolNames(teachingReadOnly), [
+assert.equal(teachingWithoutWorkspace.id, 'teaching_readonly')
+assert.deepEqual(toolNames(teachingWithoutWorkspace), [
   'web_search',
   'web_fetch',
   'ask',
@@ -73,15 +75,52 @@ assert.deepEqual(toolNames(teachingReadOnly), [
   'read_only_task',
   'parallel_tasks'
 ])
+assert.equal(teachingWithoutWorkspace.lessonToolEnabled, false)
+assert.equal(teachingWithoutWorkspace.workspaceToolsEnabled, false)
 
-const teachingWorkspace = resolveTeachingCapabilityPolicy({
+const teachingUntrustedWorkspace = resolveTeachingCapabilityPolicy({
   mode: 'teaching',
   toolsEnabled: true,
-  hasWorkspace: true,
+  hasTeachingWorkspace: true,
+  workspaceToolAccessGranted: false,
   hasLessonGenerator: true
 })
-assert.equal(teachingWorkspace.id, 'teaching_workspace')
-assert.deepEqual(toolNames(teachingWorkspace), [
+assert.equal(teachingUntrustedWorkspace.id, 'teaching_workspace')
+assert.deepEqual(toolNames(teachingUntrustedWorkspace), [
+  'web_search',
+  'web_fetch',
+  'ask',
+  'read_skill_resource',
+  'delegate_task',
+  'read_only_task',
+  'parallel_tasks',
+  'generate_lesson'
+])
+assert.equal(teachingUntrustedWorkspace.lessonToolEnabled, true)
+assert.equal(teachingUntrustedWorkspace.workspaceToolsEnabled, false)
+for (const workspaceToolName of [
+  'list_workspace',
+  'read_workspace_file',
+  'search_workspace',
+  'glob_workspace',
+  'write_workspace_file'
+]) {
+  assert.equal(
+    teachingUntrustedWorkspace.allowsTool(workspaceToolName),
+    false,
+    `untrusted workspace must deny ${workspaceToolName}`
+  )
+}
+
+const teachingTrustedWorkspace = resolveTeachingCapabilityPolicy({
+  mode: 'teaching',
+  toolsEnabled: true,
+  hasTeachingWorkspace: true,
+  workspaceToolAccessGranted: true,
+  hasLessonGenerator: true
+})
+assert.equal(teachingTrustedWorkspace.id, 'teaching_workspace')
+assert.deepEqual(toolNames(teachingTrustedWorkspace), [
   'web_search',
   'web_fetch',
   'ask',
@@ -96,6 +135,8 @@ assert.deepEqual(toolNames(teachingWorkspace), [
   'parallel_tasks',
   'generate_lesson'
 ])
+assert.equal(teachingTrustedWorkspace.lessonToolEnabled, true)
+assert.equal(teachingTrustedWorkspace.workspaceToolsEnabled, true)
 
 const root = await mkdtemp(join(tmpdir(), 'studiumx-capability-policy-'))
 try {
@@ -105,8 +146,8 @@ try {
   settings.tools.workspaceWritePermission = 'read_only'
   const registry = buildDefaultRegistry(settings, { workspaceRoot: root, workspaceWrite: true })
     .project({
-      allow: teachingWorkspace.allowedToolNames,
-      deny: teachingWorkspace.deniedToolNames
+      allow: teachingTrustedWorkspace.allowedToolNames,
+      deny: teachingTrustedWorkspace.deniedToolNames
     })
   const handler = registry.handlerMap(buildToolContext(settings, { workspaceRoot: root })).write_workspace_file
   assert.ok(handler, 'workspace policy must retain the established write tool')

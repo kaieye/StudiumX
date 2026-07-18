@@ -124,6 +124,20 @@ describe('Teaching IPC gateway', () => {
     expect(createWorkspace).toHaveBeenCalledWith({ name: 'Course', prompt: 'Teach algebra' })
   })
 
+  it('routes the path-free workspace trust command through its exact parser', async () => {
+    const setWorkspaceTrust = vi.fn().mockResolvedValue({ id: 'workspace-1', agentWorkspaceTrust: 'trusted' })
+    registerTeachingIpcGateway(registration({ workspaceService: { setWorkspaceTrust } }))
+
+    await expect(handler(teachingInvokeChannels.setWorkspaceTrust)(event, { workspaceId: 'workspace-1', trust: 'trusted' }))
+      .resolves.toEqual({ id: 'workspace-1', agentWorkspaceTrust: 'trusted' })
+    expect(setWorkspaceTrust).toHaveBeenCalledWith('workspace-1', 'trusted')
+
+    await expect(handler(teachingInvokeChannels.setWorkspaceTrust)(event, {
+      workspaceId: 'workspace-1', trust: 'trusted', rootPath: 'D:/must-not-cross-ipc'
+    })).rejects.toThrow('IPC workspace trust payload must contain only "workspaceId" and "trust".')
+    expect(setWorkspaceTrust).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects invalid input before its action can run', async () => {
     const createWorkspace = vi.fn()
     registerTeachingIpcGateway(registration({ workspaceService: { createWorkspace } }))

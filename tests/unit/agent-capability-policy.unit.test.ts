@@ -7,7 +7,8 @@ describe('teaching capability policy', () => {
     const policy = resolveTeachingCapabilityPolicy({
       mode: 'temporary',
       toolsEnabled: true,
-      hasWorkspace: true,
+      hasTeachingWorkspace: true,
+      workspaceToolAccessGranted: true,
       hasLessonGenerator: true
     })
 
@@ -32,7 +33,8 @@ describe('teaching capability policy', () => {
     const policy = resolveTeachingCapabilityPolicy({
       mode: 'teaching',
       toolsEnabled: true,
-      hasWorkspace: false,
+      hasTeachingWorkspace: false,
+      workspaceToolAccessGranted: false,
       hasLessonGenerator: true
     })
 
@@ -51,17 +53,19 @@ describe('teaching capability policy', () => {
     expect(policy.allowsTool('write_workspace_file')).toBe(false)
   })
 
-  it('enables the established teaching workspace toolset and makes lesson generation conditional', () => {
+  it('enables the established trusted workspace toolset and makes lesson generation conditional', () => {
     const withGenerator = resolveTeachingCapabilityPolicy({
       mode: 'teaching',
       toolsEnabled: true,
-      hasWorkspace: true,
+      hasTeachingWorkspace: true,
+      workspaceToolAccessGranted: true,
       hasLessonGenerator: true
     })
     const withoutGenerator = resolveTeachingCapabilityPolicy({
       mode: 'teaching',
       toolsEnabled: true,
-      hasWorkspace: true,
+      hasTeachingWorkspace: true,
+      workspaceToolAccessGranted: true,
       hasLessonGenerator: false
     })
 
@@ -82,11 +86,51 @@ describe('teaching capability policy', () => {
     expect(withoutGenerator.allowsTool('generate_lesson')).toBe(false)
   })
 
+
+  it('keeps lesson generation for an untrusted teaching workspace while withholding every workspace file tool', () => {
+    const policy = resolveTeachingCapabilityPolicy({
+      mode: 'teaching',
+      toolsEnabled: true,
+      hasTeachingWorkspace: true,
+      workspaceToolAccessGranted: false,
+      hasLessonGenerator: true
+    })
+
+    expect(policy.id).toBe('teaching_workspace')
+    expect(policy.workspaceToolsEnabled).toBe(false)
+    expect(policy.lessonToolEnabled).toBe(true)
+    expect(policy.allowedToolNames).toEqual(expect.arrayContaining([
+      'generate_lesson',
+      'delegate_task',
+      'web_search'
+    ]))
+    for (const workspaceToolName of [
+      'list_workspace',
+      'read_workspace_file',
+      'search_workspace',
+      'glob_workspace',
+      'write_workspace_file'
+    ]) {
+      expect(policy.allowsTool(workspaceToolName)).toBe(false)
+    }
+
+    const missingGrant = resolveTeachingCapabilityPolicy({
+      mode: 'teaching',
+      toolsEnabled: true,
+      hasTeachingWorkspace: true,
+      workspaceToolAccessGranted: undefined,
+      hasLessonGenerator: true
+    })
+    expect(missingGrant.workspaceToolsEnabled).toBe(false)
+    expect(missingGrant.lessonToolEnabled).toBe(true)
+  })
+
   it('closes every capability when the master tool setting is disabled', () => {
     const policy = resolveTeachingCapabilityPolicy({
       mode: 'teaching',
       toolsEnabled: false,
-      hasWorkspace: true,
+      hasTeachingWorkspace: true,
+      workspaceToolAccessGranted: true,
       hasLessonGenerator: true
     })
 
@@ -98,5 +142,8 @@ describe('teaching capability policy', () => {
       'delegate_task',
       'generate_lesson'
     ]))
+    expect(policy.workspaceToolsEnabled).toBe(false)
+    expect(policy.lessonToolEnabled).toBe(false)
+    expect(policy.delegationEnabled).toBe(false)
   })
 })

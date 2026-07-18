@@ -40,6 +40,7 @@ const api: TeachingSystemApi = {
   pickDirectory: (defaultPath) => ipcRenderer.invoke(teachingInvokeChannels.pickDirectory, defaultPath),
   openImportLocation: (path) => ipcRenderer.invoke(teachingInvokeChannels.openImportLocation, path),
   updateMission: (payload) => ipcRenderer.invoke(teachingInvokeChannels.updateMission, payload),
+  setWorkspaceTrust: (payload) => ipcRenderer.invoke(teachingInvokeChannels.setWorkspaceTrust, payload),
   applyLessonStyle: (payload) => ipcRenderer.invoke(teachingInvokeChannels.applyLessonStyle, payload),
   listSkills: () => ipcRenderer.invoke(teachingInvokeChannels.listSkills),
   installSkill: (skillId) => ipcRenderer.invoke(teachingInvokeChannels.installSkill, skillId),

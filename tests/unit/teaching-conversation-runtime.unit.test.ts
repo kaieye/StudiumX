@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { AgentRunStore } from '../../src/main/ai/agent-run-store'
+import { ToolRegistry, type ToolContext } from '../../src/main/ai/tools/registry'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { runTeachingConversationTurn } from '../../src/main/teaching-conversation-runtime'
-import type { TeachingSettingsV1 } from '../../src/shared/teaching-types'
+import type { LessonSummary, TeachingSettingsV1 } from '../../src/shared/teaching-types'
 
 const originalFetch = globalThis.fetch
 const createdRoots: string[] = []
@@ -70,7 +71,8 @@ describe('temporary conversation runtime tool availability', () => {
         name: 'Fixture workspace',
         rootPath: root,
         createdAt: '2026-07-17T00:00:00.000Z',
-        updatedAt: '2026-07-17T00:00:00.000Z'
+        updatedAt: '2026-07-17T00:00:00.000Z',
+        workspaceToolAccessGranted: true
       },
       {
         loadSettings: async () => settings,
@@ -156,7 +158,8 @@ describe('temporary conversation runtime tool availability', () => {
         name: 'Fixture workspace',
         rootPath: root,
         createdAt: '2026-07-17T00:00:00.000Z',
-        updatedAt: '2026-07-17T00:00:00.000Z'
+        updatedAt: '2026-07-17T00:00:00.000Z',
+        workspaceToolAccessGranted: true
       },
       {
         loadSettings: async () => settings,
@@ -248,7 +251,8 @@ describe('temporary conversation runtime tool availability', () => {
         name: 'Fixture workspace',
         rootPath: root,
         createdAt: '2026-07-17T00:00:00.000Z',
-        updatedAt: '2026-07-17T00:00:00.000Z'
+        updatedAt: '2026-07-17T00:00:00.000Z',
+        workspaceToolAccessGranted: true
       },
       {
         loadSettings: async () => settings,
@@ -270,4 +274,206 @@ describe('temporary conversation runtime tool availability', () => {
     ]))
   })
 
+})
+
+
+const workspaceFileToolNames = [
+  'list_workspace',
+  'read_workspace_file',
+  'search_workspace',
+  'glob_workspace',
+  'write_workspace_file'
+]
+
+function workspaceToolNames(request: Record<string, unknown> | undefined): string[] {
+  return ((request?.tools as Array<{ function: { name: string } }> | undefined) ?? [])
+    .map((tool) => tool.function.name)
+}
+
+function fixtureWorkspace(root: string, workspaceToolAccessGranted: boolean) {
+  return {
+    id: 'workspace-1',
+    name: 'Fixture workspace',
+    rootPath: root,
+    createdAt: '2026-07-17T00:00:00.000Z',
+    updatedAt: '2026-07-17T00:00:00.000Z',
+    workspaceToolAccessGranted
+  }
+}
+
+function fixtureLesson(root: string): LessonSummary {
+  return {
+    id: 'lesson-1',
+    title: 'Fixture lesson',
+    objective: 'Verify lesson tool availability.',
+    prompt: 'Fixture lesson prompt',
+    createdAt: '2026-07-17T00:00:00.000Z',
+    durationMinutes: 30,
+    courseId: 'course-1',
+    courseName: 'Fixture course',
+    courseRelativePath: 'courses/fixture',
+    courseAbsolutePath: root,
+    sessionId: 'session-1',
+    sessionName: 'Fixture session',
+    sessionRelativePath: 'learning-sessions/session-1',
+    sessionAbsolutePath: root,
+    relativePath: 'lessons/fixture.md',
+    absolutePath: root
+  }
+}
+
+describe('teaching workspace trust runtime boundary', () => {
+  it('fails closed for untrusted workspace file tool definitions, handlers, and ToolContext while retaining lessons and memory scope', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-untrusted-workspace-tools-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    const requests: Array<Record<string, unknown>> = []
+    const handlerNames: string[][] = []
+    const handlerContexts: ToolContext[] = []
+    const listMemories = vi.fn(async () => [])
+    const originalHandlerMap = ToolRegistry.prototype.handlerMap
+    const handlerMapSpy = vi.spyOn(ToolRegistry.prototype, 'handlerMap').mockImplementation(
+      function (this: ToolRegistry, ctx: ToolContext) {
+        handlerNames.push(this.names())
+        handlerContexts.push(ctx)
+        return originalHandlerMap.call(this, ctx)
+      }
+    )
+    let providerCalls = 0
+    globalThis.fetch = (async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      providerCalls += 1
+      if (providerCalls === 1) {
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: null,
+              tool_calls: [{
+                id: 'untrusted-read-call',
+                type: 'function',
+                function: { name: 'read_workspace_file', arguments: '{"path":"secret.txt"}' }
+              }]
+            }
+          }]
+        })
+      }
+      return jsonResponse({ choices: [{ message: { content: '已在受限工作区中继续教学。' } }] })
+    }) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'untrusted-workspace-tools-run',
+        workspaceId: 'workspace-1',
+        conversationId: 'teaching-conversation-untrusted',
+        mode: 'teaching',
+        messages: [],
+        userInput: '请简要总结当前课程目标。'
+      },
+      {
+        streamId: 'untrusted-workspace-tools-run',
+        onChunk: vi.fn(),
+        onStatus: vi.fn(),
+        onTool: vi.fn()
+      },
+      fixtureWorkspace(root, false),
+      {
+        loadSettings: async () => settings,
+        listMemories,
+        createMemory: async () => { throw new Error('memory should not be created') },
+        loadSkillReferences: async () => [],
+        generateLessonFromBrief: async () => fixtureLesson(root),
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+    handlerMapSpy.mockRestore()
+
+    expect(result).toMatchObject({ finalText: '已在受限工作区中继续教学。', toolsSupported: true })
+    expect(listMemories).toHaveBeenCalledWith(root)
+    expect(workspaceToolNames(requests[0])).toContain('generate_lesson')
+    for (const name of workspaceFileToolNames) {
+      expect(workspaceToolNames(requests[0])).not.toContain(name)
+      expect(handlerNames[0]).not.toContain(name)
+    }
+    expect(handlerContexts[0]?.workspaceRoot).toBeUndefined()
+    const toolMessages = (requests[1]?.messages as Array<{ role: string; content?: string }> | undefined) ?? []
+    expect(toolMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'tool', content: expect.stringContaining('未知工具：read_workspace_file') })
+    ]))
+  })
+
+  it('keeps trusted teaching workspace file tool definitions, handlers, and ToolContext root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-trusted-workspace-tools-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    const requests: Array<Record<string, unknown>> = []
+    const handlerNames: string[][] = []
+    const handlerContexts: ToolContext[] = []
+    const originalHandlerMap = ToolRegistry.prototype.handlerMap
+    const handlerMapSpy = vi.spyOn(ToolRegistry.prototype, 'handlerMap').mockImplementation(
+      function (this: ToolRegistry, ctx: ToolContext) {
+        handlerNames.push(this.names())
+        handlerContexts.push(ctx)
+        return originalHandlerMap.call(this, ctx)
+      }
+    )
+    let providerCalls = 0
+    globalThis.fetch = (async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      providerCalls += 1
+      if (providerCalls === 1) {
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: null,
+              tool_calls: [{
+                id: 'trusted-list-call',
+                type: 'function',
+                function: { name: 'list_workspace', arguments: '{"path":"."}' }
+              }]
+            }
+          }]
+        })
+      }
+      return jsonResponse({ choices: [{ message: { content: '已查看可信工作区。' } }] })
+    }) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'trusted-workspace-tools-run',
+        workspaceId: 'workspace-1',
+        conversationId: 'teaching-conversation-trusted',
+        mode: 'teaching',
+        messages: [],
+        userInput: '列出工作区内容。'
+      },
+      {
+        streamId: 'trusted-workspace-tools-run',
+        onChunk: vi.fn(),
+        onStatus: vi.fn(),
+        onTool: vi.fn()
+      },
+      fixtureWorkspace(root, true),
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => { throw new Error('memory should not be created') },
+        loadSkillReferences: async () => [],
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+    handlerMapSpy.mockRestore()
+
+    expect(result).toMatchObject({ finalText: '已查看可信工作区。', toolsSupported: true })
+    expect(workspaceToolNames(requests[0])).toEqual(expect.arrayContaining(workspaceFileToolNames))
+    expect(handlerNames[0]).toEqual(expect.arrayContaining(workspaceFileToolNames))
+    expect(handlerContexts[0]?.workspaceRoot).toBe(root)
+    const toolMessages = (requests[1]?.messages as Array<{ role: string; content?: string }> | undefined) ?? []
+    expect(toolMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'tool', content: expect.stringContaining('"root": "."') })
+    ]))
+  })
 })
