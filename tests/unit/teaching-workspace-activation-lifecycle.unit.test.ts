@@ -54,6 +54,44 @@ async function readSessionKinds(rootPath: string): Promise<string[]> {
 }
 
 describe('Teaching workspace activation lifecycle', () => {
+  it('bootstraps the default workspace through first load with one traced workspace_created event', async () => {
+    const { service, managedRoot, registryPath } = await createService('activation-bootstrap')
+
+    const initial = await service.getState()
+    const workspace = initial.activeWorkspace
+
+    expect(workspace).not.toBeNull()
+    expect(workspace).toMatchObject({ name: 'learn', rootPath: join(managedRoot, 'learn') })
+    expect(initial.selectedLessonPath).toBeNull()
+    await expect(readFile(join(workspace!.rootPath, 'MISSION.md'), 'utf8')).resolves.toContain('AI 教学系统')
+    await expect(readFile(join(workspace!.rootPath, '.studiumx', 'index.json'), 'utf8')).resolves.toContain(workspace!.id)
+
+    const initialEvents = await readSessionEvents(workspace!.rootPath)
+    const createdEvents = initialEvents.filter((event) => (
+      event.kind === 'workspace_created' && event.workspaceId === workspace!.id
+    ))
+    expect(initialEvents).toHaveLength(1)
+    expect(createdEvents).toHaveLength(1)
+    expect(createdEvents[0]).toMatchObject({
+      id: expect.stringMatching(UUID_RE),
+      kind: 'workspace_created',
+      timestamp: expect.any(String),
+      workspaceId: workspace!.id,
+      traceId: expect.stringMatching(UUID_RE),
+      paths: ['MISSION.md', 'RESOURCES.md', 'assets/lesson.css', 'assets/quiz.js']
+    })
+
+    expect(await readRegistry(registryPath)).toMatchObject({
+      activeWorkspaceId: workspace!.id,
+      workspaces: [{ id: workspace!.id, rootPath: workspace!.rootPath }]
+    })
+
+    const sessionJsonlBeforeReload = await readFile(join(workspace!.rootPath, '.studiumx', 'sessions.jsonl'), 'utf8')
+    const reloaded = await service.getState()
+    expect(reloaded.activeWorkspace?.id).toBe(workspace!.id)
+    expect(await readFile(join(workspace!.rootPath, '.studiumx', 'sessions.jsonl'), 'utf8')).toBe(sessionJsonlBeforeReload)
+  })
+
   it('creates a default-targeted workspace with initial material, structure, registry selection, and session event', async () => {
     const { service, managedRoot, registryPath } = await createService('activation-create')
 
