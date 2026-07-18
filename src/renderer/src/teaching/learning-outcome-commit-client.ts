@@ -345,12 +345,13 @@ export function createLearningOutcomeCommitClient(
       options.onStatusChange?.(status)
     },
     dispose() {
+      // Invalidate in-flight work without notifying React. Callers dispose on
+      // unmount; publishing idle here would setState on an unmounted tree.
       generation += 1
       lessonScopeKey = null
       lastRetryable = null
       emittedAnnouncementIds.clear()
       status = { kind: 'idle' }
-      options.onStatusChange?.(status)
     },
     getStatus: () => status,
     getEmittedAnnouncementIds: () => [...emittedAnnouncementIds],
@@ -438,3 +439,36 @@ export function learnerSafeCommitStatusLabel(status: LearningOutcomeCommitUiStat
   }
 }
 
+
+export function learnerSafeCommitStatusSeverity(
+  status: LearningOutcomeCommitUiStatus
+): 'info' | 'warning' | null {
+  switch (status.kind) {
+    case 'retryable':
+    case 'blocked':
+      return 'warning'
+    case 'committing':
+    case 'needs_practice':
+    case 'saved':
+    case 'already_committed':
+      return 'info'
+    default:
+      return null
+  }
+}
+
+/**
+ * Compare the record-start scope/workspace against live current refs so a
+ * delayed evidence write cannot commit into a switched lesson or workspace.
+ */
+export function isPreviewCommitScopeCurrent(input: {
+  scopeAtStart: string | null
+  workspaceIdAtStart: string | null | undefined
+  currentScopeKey: string | null
+  currentWorkspaceId: string | null | undefined
+}): boolean {
+  return (
+    (input.currentWorkspaceId ?? null) === (input.workspaceIdAtStart ?? null) &&
+    input.currentScopeKey === input.scopeAtStart
+  )
+}

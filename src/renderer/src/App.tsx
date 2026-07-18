@@ -112,10 +112,11 @@ import {
 import type { PreviewLessonInteractionIntent } from '../../shared/teaching-types/lesson-interaction'
 import {
   createLearningOutcomeCommitClient,
-  learnerSafeCommitStatusLabel,
+  isPreviewCommitScopeCurrent,
   recordPreviewLessonInteractionAndMaybeCommit,
   type LearningOutcomeCommitUiStatus
 } from './teaching/learning-outcome-commit-client'
+import { LearningOutcomeCommitStatusBanner } from './teaching/learning-outcome-commit-status-banner'
 import { sanitizeAgentTurnContent } from '../../shared/agent-conversation-turns'
 import {
   type AgentChatTurn,
@@ -1012,7 +1013,9 @@ export function previewLessonInteractionForCurrentIframe(
 function MainArea() {
   const { t } = useTranslation()
   const lessonFrameRef = useRef<HTMLIFrameElement | null>(null)
+  const learningOutcomeMountedRef = useRef(true)
   const [learningOutcomeCommitStatus, setLearningOutcomeCommitStatus] = useState<LearningOutcomeCommitUiStatus>({ kind: 'idle' })
+  const [learningOutcomeRetryPending, setLearningOutcomeRetryPending] = useState(false)
   const learningOutcomeCommitClientRef = useRef(createLearningOutcomeCommitClient({
     commitLearningOutcome: (request) => {
       const api = window.teachingSystem
@@ -1020,7 +1023,12 @@ function MainArea() {
       // Production sole-writer path: formal IPC via preload TeachingSystemApi.
       return api.commitLearningOutcome(request)
     },
-    onStatusChange: setLearningOutcomeCommitStatus
+    onStatusChange: (status) => {
+      // Never setState after MainArea unmount (dispose also suppresses notify).
+      if (!learningOutcomeMountedRef.current) return
+      setLearningOutcomeCommitStatus(status)
+      if (status.kind !== 'committing') setLearningOutcomeRetryPending(false)
+    }
   }))
   const chrome = resolveWindowChromePolicy(window.teachingSystem?.platform ?? 'win32')
   const isWindows = chrome.adapter === 'windows'
@@ -1131,37 +1139,56 @@ function MainArea() {
       ? `${previewCommitWorkspaceId ?? 'none'}:md:${selectedMarkdownDocument.relativePath}`
       : null
 
+  const previewCommitScopeKeyRef = useRef(previewCommitScopeKey)
+  const previewCommitWorkspaceIdRef = useRef(previewCommitWorkspaceId)
+  previewCommitScopeKeyRef.current = previewCommitScopeKey
+  previewCommitWorkspaceIdRef.current = previewCommitWorkspaceId
+
   useEffect(() => {
     learningOutcomeCommitClientRef.current.setLessonScope(previewCommitScopeKey)
   }, [previewCommitScopeKey])
 
   useEffect(() => {
+    learningOutcomeMountedRef.current = true
     const client = learningOutcomeCommitClientRef.current
     return () => {
+      learningOutcomeMountedRef.current = false
       client.dispose()
     }
+  }, [])
+
+  const retryLearningOutcomeCommit = useCallback((): void => {
+    const client = learningOutcomeCommitClientRef.current
+    const status = client.getStatus()
+    if (status.kind !== 'retryable' || !status.canRetry) return
+    if (!learningOutcomeMountedRef.current) return
+    setLearningOutcomeRetryPending(true)
+    void client.retry().catch(() => undefined).finally(() => {
+      if (learningOutcomeMountedRef.current) setLearningOutcomeRetryPending(false)
+    })
   }, [])
 
   const recordPreviewLessonInteraction = useCallback((intent: PreviewLessonInteractionIntent): void => {
     const api = window.teachingSystem
     if (!api) return
-    const workspaceId = selectedCourseWorkspaceId ?? active?.id ?? null
-    const scopeAtStart = previewCommitScopeKey
+    // Capture scope at record start; isCurrent reads live refs so a late resolve
+    // after workspace/lesson switch never commits or paints the new lesson banner.
+    const workspaceId = previewCommitWorkspaceIdRef.current
+    const scopeAtStart = previewCommitScopeKeyRef.current
     const client = learningOutcomeCommitClientRef.current
     void recordPreviewLessonInteractionAndMaybeCommit({
       api,
       intent,
       workspaceId,
       client,
-      isCurrent: () => {
-        // Drop late record+commit when workspace or visible lesson scope changed
-        // while the evidence write was in flight (client generation also guards
-        // commits that already started).
-        const currentWorkspaceId = selectedCourseWorkspaceId ?? active?.id ?? null
-        return currentWorkspaceId === workspaceId && previewCommitScopeKey === scopeAtStart
-      }
+      isCurrent: () => isPreviewCommitScopeCurrent({
+        scopeAtStart,
+        workspaceIdAtStart: workspaceId,
+        currentScopeKey: previewCommitScopeKeyRef.current,
+        currentWorkspaceId: previewCommitWorkspaceIdRef.current
+      })
     }).catch(() => undefined)
-  }, [active?.id, previewCommitScopeKey, selectedCourseWorkspaceId])
+  }, [])
 
   const renderSidebarToggle = (className = 'icon-button') => (
     <button
@@ -1325,64 +1352,53 @@ function MainArea() {
             data-reading-html={readingCourseHtml ? 'true' : undefined}
             data-reading-markdown={readingMarkdown ? 'true' : undefined}
           >
-            {readingCourseHtml && selectedPreviewFile ? (
-              <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
-                {learnerSafeCommitStatusLabel(learningOutcomeCommitStatus) ? (
-                  <div
-                    className="inline-alert"
-                    role="status"
-                    aria-live="polite"
-                    data-learning-outcome-commit={learningOutcomeCommitStatus.kind}
-                    data-severity={
-                      learningOutcomeCommitStatus.kind === 'retryable' || learningOutcomeCommitStatus.kind === 'blocked'
-                        ? 'warning'
-                        : learningOutcomeCommitStatus.kind === 'needs_practice'
-                          ? 'info'
-                          : 'info'
-                    }
-                  >
-                    {learningOutcomeCommitStatus.kind === 'retryable' || learningOutcomeCommitStatus.kind === 'blocked'
-                      ? <AlertTriangle size={16} />
-                      : <Info size={16} />}
-                    <div style={{ minWidth: 0 }}>
-                      <strong>{learnerSafeCommitStatusLabel(learningOutcomeCommitStatus)}</strong>
-                    </div>
+            {(readingCourseHtml && selectedPreviewFile) || (readingMarkdown && selectedMarkdownDocument) ? (
+              <section
+                className={readingCourseHtml && selectedPreviewFile ? 'lesson-reader-panel' : 'lesson-reader-panel lesson-reader-panel--markdown'}
+                aria-label={t('lessons.previewAria')}
+                data-reading-surface={readingCourseHtml && selectedPreviewFile ? 'html' : 'markdown'}
+              >
+                <LearningOutcomeCommitStatusBanner
+                  status={learningOutcomeCommitStatus}
+                  onRetry={retryLearningOutcomeCommit}
+                  retryPending={learningOutcomeRetryPending}
+                />
+                {readingCourseHtml && selectedPreviewFile ? (
+                  <div className="lesson-reader-frame-wrap">
+                    <iframe
+                      ref={lessonFrameRef}
+                      key={lessonFrameKey}
+                      className="lesson-reader-frame"
+                      title={selectedPreviewFile.title}
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                      src={appState.previewUrl || undefined}
+                      srcDoc={appState.previewUrl ? undefined : appState.previewHtml || undefined}
+                    />
                   </div>
-                ) : null}
-                <div className="lesson-reader-frame-wrap">
-                  <iframe
-                    ref={lessonFrameRef}
-                    key={lessonFrameKey}
-                    className="lesson-reader-frame"
-                    title={selectedPreviewFile.title}
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                    src={appState.previewUrl || undefined}
-                    srcDoc={appState.previewUrl ? undefined : appState.previewHtml || undefined}
+                ) : selectedMarkdownDocument ? (
+                  <MarkdownDocumentPanel
+                    document={selectedMarkdownDocument}
+                    draft={markdownDraft}
+                    saving={markdownSaving}
+                    workspaceId={selectedCourseWorkspaceId}
+                    onDraftChange={setMarkdownDraft}
+                    onSave={() => void saveMarkdownDocument()}
+                    onOpenExternal={(href) => void openExternal(href)}
+                    onPreviewLessonInteraction={recordPreviewLessonInteraction}
+                    onOpenWorkspaceMarkdown={(relativePath) => {
+                      if (!selectedCourseWorkspaceId) return
+                      void loadWorkspaceMarkdownFile(
+                        {
+                          title: titleFromFileName(relativePath),
+                          relativePath,
+                          absolutePath: relativePath
+                        },
+                        selectedCourseWorkspaceId
+                      )
+                    }}
                   />
-                </div>
+                ) : null}
               </section>
-            ) : readingMarkdown && selectedMarkdownDocument ? (
-              <MarkdownDocumentPanel
-                document={selectedMarkdownDocument}
-                draft={markdownDraft}
-                saving={markdownSaving}
-                workspaceId={selectedCourseWorkspaceId}
-                onDraftChange={setMarkdownDraft}
-                onSave={() => void saveMarkdownDocument()}
-                onOpenExternal={(href) => void openExternal(href)}
-                onPreviewLessonInteraction={recordPreviewLessonInteraction}
-                onOpenWorkspaceMarkdown={(relativePath) => {
-                  if (!selectedCourseWorkspaceId) return
-                  void loadWorkspaceMarkdownFile(
-                    {
-                      title: titleFromFileName(relativePath),
-                      relativePath,
-                      absolutePath: relativePath
-                    },
-                    selectedCourseWorkspaceId
-                  )
-                }}
-              />
             ) : (
               <section className="lesson-course-library" aria-label={t('lessons.libraryTitle')}>
                 <div className="lesson-library-header">

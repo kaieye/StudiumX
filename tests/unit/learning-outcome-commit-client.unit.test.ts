@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { LearningOutcomeCommitResult } from '../../src/shared/teaching-types/learning-outcome'
+import type { LearningOutcomeCommitUiStatus } from '../../src/renderer/src/teaching/learning-outcome-commit-client'
 import {
   buildCommitLearningOutcomeRequest,
   buildLearningOutcomeCommitOperationId,
   createLearningOutcomeCommitClient,
   isCommitEligiblePreviewIntentKind,
+  isPreviewCommitScopeCurrent,
   learnerSafeCommitStatusLabel,
+  learnerSafeCommitStatusSeverity,
   projectLearnerSafeCommitStatus,
   recordPreviewLessonInteractionAndMaybeCommit
 } from '../../src/renderer/src/teaching/learning-outcome-commit-client'
@@ -346,5 +349,174 @@ describe('learning-outcome-commit-client', () => {
     await pending
     expect(client.getStatus()).toEqual({ kind: 'idle' })
   })
-})
 
+  it('dispose invalidates work without notifying React (no setState after unmount)', async () => {
+    let resolveCommit: ((value: LearningOutcomeCommitResult) => void) | null = null
+    const commitLearningOutcome = vi.fn(
+      () =>
+        new Promise<LearningOutcomeCommitResult>((resolve) => {
+          resolveCommit = resolve
+        })
+    )
+    const onStatusChange = vi.fn()
+    const client = createLearningOutcomeCommitClient({ commitLearningOutcome, onStatusChange })
+    const pending = client.commitAfterEvidence({
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      evidenceSequence: 1,
+      eventId: 'evidence-1',
+      intentKind: 'quiz_answered'
+    })
+    expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({ kind: 'committing' }))
+    onStatusChange.mockClear()
+    client.dispose()
+    expect(onStatusChange).not.toHaveBeenCalled()
+    resolveCommit?.({
+      status: 'committed',
+      outcome: { kind: 'established' },
+      recordSaved: true
+    })
+    await pending
+    expect(client.getStatus()).toEqual({ kind: 'idle' })
+    expect(onStatusChange).not.toHaveBeenCalled()
+  })
+
+  it('delayed record does not commit after scope leaves isCurrent (stale record window)', async () => {
+    let resolveRecord: ((value: {
+      eventId: string
+      sessionId: string
+      sequence: number
+      duplicate: boolean
+    }) => void) | null = null
+    const recordPreviewLessonInteraction = vi.fn(
+      () =>
+        new Promise<{
+          eventId: string
+          sessionId: string
+          sequence: number
+          duplicate: boolean
+        }>((resolve) => {
+          resolveRecord = resolve
+        })
+    )
+    const commitLearningOutcome = vi.fn(async () => ({
+      status: 'committed' as const,
+      outcome: { kind: 'misconception_corrected' as const },
+      recordSaved: true as const
+    }))
+    const statuses: LearningOutcomeCommitUiStatus[] = []
+    const client = createLearningOutcomeCommitClient({
+      commitLearningOutcome,
+      onStatusChange: (status) => statuses.push(status)
+    })
+    client.setLessonScope('lesson-a')
+
+    let scopeCurrent = true
+    const pending = recordPreviewLessonInteractionAndMaybeCommit({
+      api: { recordPreviewLessonInteraction, commitLearningOutcome },
+      intent: {
+        eventId: 'quiz-stale-1',
+        kind: 'quiz_answered',
+        itemId: 'quiz-1',
+        selectedOptionIds: ['a'],
+        correct: false
+      },
+      workspaceId: 'workspace-1',
+      client,
+      isCurrent: () => scopeCurrent
+    })
+
+    // Switch lesson/workspace while evidence write is still in flight.
+    scopeCurrent = false
+    client.setLessonScope('lesson-b')
+    expect(client.getStatus()).toEqual({ kind: 'idle' })
+
+    resolveRecord?.({
+      eventId: 'quiz-stale-1',
+      sessionId: 'session-old',
+      sequence: 2,
+      duplicate: false
+    })
+    const result = await pending
+    expect(commitLearningOutcome).toHaveBeenCalledTimes(0)
+    expect(result.commitStatus).toEqual({ kind: 'idle' })
+    expect(client.getStatus()).toEqual({ kind: 'idle' })
+    expect(statuses.filter((status) => status.kind === 'saved' || status.kind === 'committing')).toEqual([])
+  })
+
+  it('isPreviewCommitScopeCurrent compares live scope against captured start tokens', () => {
+    expect(
+      isPreviewCommitScopeCurrent({
+        scopeAtStart: 'ws:lesson-a',
+        workspaceIdAtStart: 'ws',
+        currentScopeKey: 'ws:lesson-a',
+        currentWorkspaceId: 'ws'
+      })
+    ).toBe(true)
+    expect(
+      isPreviewCommitScopeCurrent({
+        scopeAtStart: 'ws:lesson-a',
+        workspaceIdAtStart: 'ws',
+        currentScopeKey: 'ws:lesson-b',
+        currentWorkspaceId: 'ws'
+      })
+    ).toBe(false)
+    expect(
+      isPreviewCommitScopeCurrent({
+        scopeAtStart: 'ws:lesson-a',
+        workspaceIdAtStart: 'ws',
+        currentScopeKey: 'ws:lesson-a',
+        currentWorkspaceId: 'other'
+      })
+    ).toBe(false)
+  })
+
+  it('maps severity without dead branches for status kinds', () => {
+    expect(learnerSafeCommitStatusSeverity({ kind: 'idle' })).toBeNull()
+    expect(
+      learnerSafeCommitStatusSeverity({
+        kind: 'retryable',
+        sessionId: 's',
+        operationId: 'o',
+        reason: 'api_reject',
+        canRetry: true,
+        announcement: null
+      })
+    ).toBe('warning')
+    expect(
+      learnerSafeCommitStatusSeverity({
+        kind: 'blocked',
+        sessionId: 's',
+        operationId: 'o',
+        reason: 'conflict',
+        announcement: null
+      })
+    ).toBe('warning')
+    expect(
+      learnerSafeCommitStatusSeverity({
+        kind: 'needs_practice',
+        sessionId: 's',
+        operationId: 'o',
+        recordSaved: false,
+        announcement: null
+      })
+    ).toBe('info')
+    expect(
+      learnerSafeCommitStatusSeverity({
+        kind: 'saved',
+        sessionId: 's',
+        operationId: 'o',
+        outcomeKind: 'established',
+        recordSaved: true,
+        announcement: null
+      })
+    ).toBe('info')
+    expect(
+      learnerSafeCommitStatusSeverity({
+        kind: 'committing',
+        sessionId: 's',
+        operationId: 'o'
+      })
+    ).toBe('info')
+  })
+})
