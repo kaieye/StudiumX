@@ -1769,17 +1769,28 @@ export class TeachingWorkspaceService {
   }
 
   async createMemory(payload: CreateTeachingMemoryPayload): Promise<TeachingMemoryRecord> {
-    return this.memoryStore.create(payload)
+    // Generated only in the main process and used solely for diagnostic correlation.
+    const traceId = randomUUID()
+    const memory = await this.memoryStore.create(payload, { traceId })
+    this.logger?.info('Memory created.', { component: 'main', tag: 'memory-catalog', traceId })
+    return memory
   }
 
   async updateMemory(memoryId: string, patch: UpdateTeachingMemoryPayload): Promise<TeachingMemoryRecord> {
-    return this.memoryStore.update(memoryId, patch, {
+    // Generated only in the main process and used solely for diagnostic correlation.
+    const traceId = randomUUID()
+    const memory = await this.memoryStore.update(memoryId, patch, {
       workspaceRoot: patch.workspaceRoot
-    })
+    }, { traceId })
+    this.logger?.info('Memory updated.', { component: 'main', tag: 'memory-catalog', traceId })
+    return memory
   }
 
   async deleteMemory(memoryId: string, workspaceRoot?: string): Promise<void> {
-    await this.memoryStore.delete(memoryId, { workspaceRoot })
+    // Generated only in the main process and used solely for diagnostic correlation.
+    const traceId = randomUUID()
+    await this.memoryStore.delete(memoryId, { workspaceRoot }, { traceId })
+    this.logger?.info('Memory deleted.', { component: 'main', tag: 'memory-catalog', traceId })
   }
 
   private async ensureRegistry(): Promise<WorkspaceRegistry> {

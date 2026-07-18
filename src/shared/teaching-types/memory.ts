@@ -11,6 +11,8 @@ export type TeachingMemoryRecord = {
   confidence: number
   createdAt: string
   updatedAt: string
+  /** Main-process-only opaque mutation correlation metadata. */
+  traceId?: string
   disabledAt?: string
   deletedAt?: string
 }

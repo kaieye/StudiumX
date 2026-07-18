@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { resolve, win32 } from 'node:path'
+import { normalizeTraceId } from '../shared/trace-context'
 import { closeContainedDurableDirectory, readRegularFileAtContainedDirectory, type ContainedDurableDirectory } from './persistence/contained-durable-directory'
 import type {
   TeachingMemoryRecord,
@@ -276,6 +277,9 @@ export function normalizeTeachingMemoryRecord(
   const scope = normalizeTeachingMemoryScope(input.scope)
   const workspace = scope === 'user' ? undefined : normalizeTeachingMemoryScopePath(input.workspace)
   const project = scope === 'project' ? normalizeTeachingMemoryScopePath(input.project ?? input.workspace) : undefined
+  // Trace metadata is strictly opaque UUID correlation data. Invalid values are
+  // intentionally omitted so durable records cannot carry diagnostic text.
+  const traceId = normalizeTraceId(input.traceId)
   return {
     id,
     content: String(input.content ?? '').trim(),
@@ -287,6 +291,7 @@ export function normalizeTeachingMemoryRecord(
     confidence: clampNumber(input.confidence, 0, 1, 1),
     createdAt,
     updatedAt,
+    ...(traceId ? { traceId } : {}),
     ...(typeof input.disabledAt === 'string' ? { disabledAt: input.disabledAt } : {}),
     ...(typeof input.deletedAt === 'string' ? { deletedAt: input.deletedAt } : {})
   }

@@ -7,6 +7,7 @@ import { Logger, parseLoggerLine } from '../../src/main/logger'
 import { buildLearningWorkLedgerEntry, readLearningWorkLedgerLines } from '../../src/main/learning-work-ledger'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
+import { TeachingMemoryCatalog } from '../../src/main/teaching-memory-catalog'
 import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 import type { AgentConversationRecord } from '../../src/shared/teaching-types'
 
@@ -90,4 +91,49 @@ describe('C-5 archive trace propagation', () => {
 
     await logger.shutdown()
   })
+
+  it('assigns distinct main-generated traces to concurrent Memory CRUD mutations and emits redacted tagged logs', async () => {
+    const runtime = await runtimeScope.create('memory-trace-propagation')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const logger = new Logger({ userDataPath: runtime.paths.userData, enabled: true, retentionDays: 7 })
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot),
+      logger
+    })
+    const memoryContent = 'Sensitive memory content must not be logged.'
+    const [first, second] = await Promise.all([
+      service.createMemory({ content: memoryContent, scope: 'user' }),
+      service.createMemory({ content: 'A distinct concurrent memory.', scope: 'user' })
+    ])
+    const updated = await service.updateMemory(first.id, { content: 'Updated sensitive Memory content.' })
+    await service.deleteMemory(second.id)
+
+    const catalog = new TeachingMemoryCatalog(join(runtime.paths.appData, 'memory'))
+    const records = await catalog.list({ includeDeleted: true })
+    const byId = new Map(records.map((record) => [record.id, record]))
+    expect(byId.get(first.id)).toMatchObject({ traceId: updated.traceId })
+    expect(byId.get(first.id)?.deletedAt).toBeUndefined()
+    expect(byId.get(second.id)).toMatchObject({ deletedAt: expect.any(String) })
+
+    const memoryLogs = (await logger.readTail(20_000)).split('\n')
+      .map(parseLoggerLine)
+      .filter((line): line is NonNullable<typeof line> => line?.tag === 'memory-catalog')
+    expect(memoryLogs).toHaveLength(4)
+    expect(memoryLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ component: 'main', tag: 'memory-catalog', message: 'Memory created.' }),
+      expect.objectContaining({ component: 'main', tag: 'memory-catalog', message: 'Memory updated.', traceId: updated.traceId }),
+      expect.objectContaining({ component: 'main', tag: 'memory-catalog', message: 'Memory deleted.', traceId: byId.get(second.id)?.traceId })
+    ]))
+    const mutationTraceIds = memoryLogs.map((line) => line.traceId)
+    expect(mutationTraceIds.every((traceId) => typeof traceId === 'string' && UUID_RE.test(traceId))).toBe(true)
+    expect(new Set(mutationTraceIds).size).toBe(4)
+    expect(byId.get(first.id)?.traceId).toBe(updated.traceId)
+    expect(byId.get(second.id)?.traceId).toBe(memoryLogs.find((line) => line.message === 'Memory deleted.')?.traceId)
+    expect((await logger.readTail(20_000))).not.toContain(memoryContent)
+
+    await logger.shutdown()
+  })
+
 })

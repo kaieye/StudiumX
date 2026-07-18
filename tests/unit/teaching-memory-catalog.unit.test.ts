@@ -259,6 +259,61 @@ describe('TeachingMemoryCatalog scope partitions', () => {
     ]))
   })
 
+  it('persists canonical trace provenance for create, update, and delete tombstones without changing scope partition', async () => {
+    const catalog = await createCatalog()
+    const store = new TeachingMemoryStore({
+      rootDir: catalog.rootDir,
+      settingsProvider: async () => defaultSettings(catalog.rootDir),
+      idGenerator: () => 'trace-provenance',
+      nowIso: () => '2026-07-18T00:01:00.000Z'
+    })
+    const createTrace = '123E4567-E89B-42D3-A456-426614174000'
+    const updateTrace = '223e4567-e89b-42d3-a456-426614174000'
+    const deleteTrace = '323e4567-e89b-42d3-a456-426614174000'
+    const created = await store.create({
+      content: 'Trace provenance',
+      scope: 'workspace',
+      workspaceRoot: '/courses/trace'
+    }, { traceId: createTrace })
+    const recordPath = teachingMemoryScopedRecordFilePath(catalog.rootDir, created)
+    const updated = await store.update(created.id, { content: 'Updated provenance' }, {
+      workspaceRoot: '/courses/trace'
+    }, { traceId: updateTrace })
+    await store.delete(created.id, { workspaceRoot: '/courses/trace' }, { traceId: deleteTrace })
+
+    expect(created.traceId).toBe(createTrace.toLowerCase())
+    expect(updated.traceId).toBe(updateTrace)
+    const [tombstone] = await catalog.list({ workspaceRoot: '/courses/trace', includeDeleted: true })
+    expect(tombstone).toMatchObject({
+      id: created.id,
+      scope: 'workspace',
+      workspace: '/courses/trace',
+      createdAt: created.createdAt,
+      deletedAt: '2026-07-18T00:01:00.000Z',
+      traceId: deleteTrace
+    })
+    expect(teachingMemoryScopedRecordFilePath(catalog.rootDir, tombstone!)).toBe(recordPath)
+    expect(JSON.parse(await readFile(recordPath, 'utf8'))).toMatchObject({ traceId: deleteTrace })
+  })
+
+  it('keeps legacy trace-free records readable and omits malformed trace text from canonical Memory JSON', async () => {
+    const catalog = await createCatalog()
+    const legacy = record('legacy-no-trace')
+    const malformedTrace = 'Authorization: Bearer sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz012345'
+    const unsafe = record('unsafe-trace', { traceId: malformedTrace })
+
+    await catalog.commit(legacy)
+    await catalog.commit(unsafe)
+
+    const storedLegacy = await catalog.find(legacy.id)
+    expect(storedLegacy).toMatchObject({ id: legacy.id })
+    expect(storedLegacy.traceId).toBeUndefined()
+    const storedUnsafe = await catalog.find(unsafe.id)
+    expect(storedUnsafe.traceId).toBeUndefined()
+    const unsafeBytes = await readFile(teachingMemoryScopedRecordFilePath(catalog.rootDir, unsafe), 'utf8')
+    expect(unsafeBytes).not.toContain(malformedTrace)
+  })
+
   it('canonicalizes Windows scope paths independently of the host platform', () => {
     expect(normalizeTeachingMemoryScopePath('C:\\Study\\Course\\..\\Course\\')).toBe('c:\\study\\course')
     expect(normalizeTeachingMemoryScopePath('c:/STUDY/course')).toBe('c:\\study\\course')

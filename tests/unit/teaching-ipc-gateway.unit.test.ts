@@ -136,6 +136,7 @@ describe('Teaching IPC gateway', () => {
       workspaceRoot: '/registered/course/lessons/..',
       tags: ['trusted'],
       confidence: 0.8,
+      traceId: 'renderer-controlled-trace',
       destinationPath: '/private/renderer-controlled-memory',
       partitionKey: 'renderer-controlled'
     })).resolves.toEqual({ id: 'memory-1' })
