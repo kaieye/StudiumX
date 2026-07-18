@@ -219,7 +219,7 @@ git diff --check
 
 **默认值取舍**：索引是否只读镜像（推荐，低风险）还是逐步迁移为事实来源（高风险，需双写）。
 
-### `[x]` C-2 给无界 JSONL 与会话加留存/分区（学 Codex 日期分区 + Zcode 压缩） — **P0**
+### C-2 给无界 JSONL 与会话加分区/无损分段/摘要投影（已实施；physical retention 未实施；学 Codex 日期分区 + Zcode 压缩） — **P0**
 
 **问题**：`sessions.jsonl`、`learning-work.jsonl`、每会话 `.jsonl` 审计日志**无任何轮转/截断**；会话是 tombstone 不删文件。这正是 Codex `logs_2.sqlite` 涨到 1.9GB 的同类病。
 
@@ -289,6 +289,6 @@ git diff --check
 ## 5. 下一迭代队列（仅未实施工作）
 
 1. **C-5 trace 后续设计**：conversation、Memory CRUD、learning-session ledger、`saveAgentConversation()` 的 `agent_conversation_recorded` workspace lifecycle 子例、conversation audit JSONL、forked conversation，以及 workspace activation 的 explicit/bootstrap create 与首次 import 子例已分别由 `55442ad`、`7a1ca7e`、`e849d51`、`dee70d6`、`d6a94a1`、`426eb6e`、`1bbdf7c` 覆盖。C-5H 已在[workspace user-mutation correlation 设计门槛](plans/local-data-workspace-user-mutation-correlation-design.md)中记录 mission-first 的候选 action-id/receipt contract，**仅为 design discovery，尚未获批或实现**。仍需为 **其它 lifecycle producers（包括 `mission_updated`、`lesson_style_applied`、`lesson_generated`）与其它 user actions**（需设计）另行定义写域、trusted identity、retry/idempotency 和安全日志边界；不要回写历史 source，也不得因此声称全量 trace 覆盖。
-2. **C-2 留存策略的独立安全设计**：如确有磁盘回收需求，先制定 retention、用户可见控制、恢复与审计方案；不得把现有无损分段/摘要投影当作已获准删除事实文件。
+2. **C-2 retention control/recovery design gate recorded**：见 [local-data-retention-control-recovery-design.md](plans/local-data-retention-control-recovery-design.md)。该文仅完成 design discovery；完整 remaining queue 不变，physical retention、quarantine/hold、delete/truncate 及任何启动/后台删除仍未实施。如确有磁盘回收需求，仍须先获批 retention、用户可见控制、恢复与审计方案；不得把现有无损分段/摘要投影当作已获准删除事实文件。
 3. **C-1 FTS5 或额外查询面**：仅在实际检索需求得到确认后，按可再建、安全 projection 的边界另立切片。
 4. **C-6 受控 legacy 搬迁工具**：`5803176` 已实现的 C-6A 仅提供严格只读、aggregate-only 的 eligibility / blockers preflight，不能执行迁移。真实工具仍只可采用 copy → checksum verify → 用户/运维明确确认 → 删除 legacy 的流程；当前启动路径不搬迁。

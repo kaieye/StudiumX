@@ -134,7 +134,7 @@ pnpm run check:analytics
 
 **该实现是 C-2B 的最小垂直切片，应在不推翻该并行改动的前提下完成。** 这里的 canonical JSONL ledger 定义为“所有严格识别的 sealed segments 加当前 active 文件的有序串联”。sealed segment 是原始 JSONL 的无损、字节级 rename 分段，仍是**事实来源**，不是可随意删除的 projection。其目的只是给增长中的 append-only source 提供受控文件边界。
 
-C-2B 不实施任何破坏性 retention：不得删除、截断、重新序列化、gzip 压缩或按窗口清理 active/sealed JSONL。若后续需要摘要、统计或压缩，只能产生带 provenance 的独立 projection，且属于 C-2C/后续工作。
+C-2B 不实施任何破坏性 retention：不得删除、截断、重新序列化、gzip 压缩或按窗口清理 active/sealed JSONL。若后续需要摘要、统计或压缩，只能产生带 provenance 的独立 projection，且属于 C-2C/后续工作。physical retention 的产品、恢复、授权、审计和故障门槛仅在 [local-data-retention-control-recovery-design.md](local-data-retention-control-recovery-design.md) 中作为 **C-2 design gate recorded**；该文不是实现批准，完整 remaining queue 与真实 retention 未实施状态不变。
 
 ### 文件定位
 
