@@ -683,9 +683,13 @@ export const useAppStore = create<StoreState>((set, get) => {
       ])
       const settings = normalizeRendererSettings(rawSettings)
       applySettingsSideEffects(settings)
-      const interrupted = state.activeWorkspace
-        ? interruptedRuns.find((run) => run.workspaceId === state.activeWorkspace?.id)
-        : interruptedRuns.find((run) => !run.workspaceId)
+      const interruptedRunsInCurrentWorkspace = interruptedRuns
+        .filter((run) => state.activeWorkspace
+          ? run.workspaceId === state.activeWorkspace.id
+          : !run.workspaceId)
+        .sort((left, right) => right.interruptedAt.localeCompare(left.interruptedAt))
+      // Open only the newest run; its notice retains the full workspace count so older runs are not hidden.
+      const interrupted = interruptedRunsInCurrentWorkspace[0]
       let recoveryConversation: AgentConversationRecord | null = null
       let recoveryConversationScope: AgentConversationLookupScope | null = null
       let recoverySessionTree: AgentConversationSessionTree | null = null
@@ -715,7 +719,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         }
       }
       const recoveryTurns = interrupted
-        ? [...(recoveryConversation?.turns ?? []), interruptedAgentRunNotice(interrupted)]
+        ? [...(recoveryConversation?.turns ?? []), interruptedAgentRunNotice(interrupted, interruptedRunsInCurrentWorkspace.length)]
         : []
       set({
         appState: state,
@@ -727,7 +731,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         activeConversationScope: recoveryConversationScope,
         activeConversationRevision: recoveryConversation?.branch?.revision ?? (recoveryConversation ? 0 : null),
         activeSessionTree: recoverySessionTree,
-        agentStatus: interrupted ? '上次运行已中断，等待你明确继续或重新发送。' : '',
+        agentStatus: interrupted ? '上次运行已中断，需要人工确认；不会自动继续或重做。' : '',
         agentChatBusy: false,
         pendingAgentConversation: null
       })
@@ -1672,7 +1676,7 @@ export const useAppStore = create<StoreState>((set, get) => {
   })
 })
 
-function interruptedAgentRunNotice(run: InterruptedAgentRun): AgentChatTurn {
+function interruptedAgentRunNotice(run: InterruptedAgentRun, currentWorkspaceRunCount: number): AgentChatTurn {
   const waiting = run.previousStatus === 'waiting_for_permission'
     ? '退出时正在等待写入审批；旧审批已失效。'
     : run.previousStatus === 'waiting_for_elicitation'
@@ -1680,8 +1684,11 @@ function interruptedAgentRunNotice(run: InterruptedAgentRun): AgentChatTurn {
       : run.previousStatus === 'awaiting_conversation_save'
         ? '回答已经确认，但最终 conversation 尚未完成结算。'
         : '退出时该运行仍在进行。'
+  const pendingRuns = currentWorkspaceRunCount > 1
+    ? `当前工作区共有 ${currentWorkspaceRunCount} 个中断运行需要人工确认。已自动打开最新一项；其余 ${currentWorkspaceRunCount - 1} 项仍需要检查。`
+    : '当前工作区共有 1 个中断运行需要人工确认。'
   const review = run.operationReviewCount > 0
-    ? ` 有 ${run.operationReviewCount} 个已开始但完成状态不明的写入需要人工检查，应用不会自动重做。`
+    ? ` 请先检查可能已执行的 ${run.operationReviewCount} 个写入；它们已开始但完成状态不明。`
     : ''
   const inputEvidence = run.userInputPreview
     ? `\n\n**本轮输入（已脱敏）**\n${run.userInputPreview}`
@@ -1695,7 +1702,7 @@ function interruptedAgentRunNotice(run: InterruptedAgentRun): AgentChatTurn {
   const boundaryEvidence = run.evidence?.length
     ? `\n\n**已持久化边界**\n${run.evidence.slice(-6).map((item) => `- ${item.title}${item.detail ? `：${item.detail}` : ''}`).join('\n')}`
     : ''
-  const content = `上次 Agent 运行被中断。${waiting}${review}${inputEvidence}${confirmedEvidence}${partialEvidence}${boundaryEvidence}\n\n请检查已有结果和可能的副作用后，明确输入“继续”或重新发送请求。`
+  const content = `上次 Agent 运行被中断，需要人工确认。${pendingRuns}${waiting}${review} 应用不会自动继续或重做此运行。${inputEvidence}${confirmedEvidence}${partialEvidence}${boundaryEvidence}\n\n请检查已有结果和可能的副作用后，明确输入“继续”或重新发送请求。`
   return {
     id: `interrupted-${run.runId}`,
     role: 'assistant',
@@ -1706,8 +1713,6 @@ function interruptedAgentRunNotice(run: InterruptedAgentRun): AgentChatTurn {
       kind: 'status',
       title: '运行中断',
       detail: run.reason,
-      status: 'error',
-      isError: true,
       createdAt: run.interruptedAt
     }],
     metadata: {

@@ -498,8 +498,14 @@ export function activeTeachingConversationSummary({
   return conversation && !isTemporaryConversation(conversation) ? conversation : null
 }
 
+/**
+ * Recovery notices are renderer-only safety boundaries. They may be displayed
+ * alongside a durable conversation but must never become model context or
+ * compaction lineage for a later user request.
+ */
 function isAgentMessageTurn(turn: AgentChatTurn): turn is AgentChatTurn & { role: 'user' | 'assistant' } {
-  return turn.role === 'user' || (turn.role === 'assistant' && Boolean(turn.content.trim()))
+  return turn.metadata?.provenance?.kind !== 'recovery_notice'
+    && (turn.role === 'user' || (turn.role === 'assistant' && Boolean(turn.content.trim())))
 }
 
 export function agentTurnsToMessages(turns: AgentChatTurn[]): AgentChatMessage[] {

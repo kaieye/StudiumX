@@ -34,12 +34,20 @@ export type AgentConversationDisclosure = {
   notice?: string
 }
 
+export type AgentConversationProvenanceState =
+  | 'active'
+  | 'complete'
+  | 'error'
+  | 'canceled'
+  | 'pending'
+  | 'interrupted'
+
 export type AgentConversationProvenanceItem = {
   id: string
   kind: ProvenanceKind
   label: string
   detail?: string
-  state: 'active' | 'complete' | 'error' | 'canceled' | 'pending'
+  state: AgentConversationProvenanceState
   disclosure?: AgentConversationDisclosure
 }
 
@@ -56,9 +64,22 @@ export type AgentConversationSourceReference = {
   provider?: string
 }
 
+/**
+ * Renderer-only process outcome. `interrupted` is a durable recovery boundary,
+ * not a failed run and not a completed answer.
+ */
+export type AgentConversationTurnStatus =
+  | { kind: 'active' }
+  | { kind: 'completed' }
+  | { kind: 'failed' }
+  | { kind: 'canceled' }
+  | { kind: 'interrupted' }
+
 export type AgentConversationTurnPresentation = {
   turnId: string
+  /** Retained for existing consumers; prefer the discriminated `status`. */
   active: boolean
+  status: AgentConversationTurnStatus
   items: AgentConversationProvenanceItem[]
   answeredAsks: AgentConversationAnsweredAsk[]
   sources: AgentConversationSourceReference[]
@@ -131,10 +152,18 @@ export function buildAgentConversationPresentation({
 
 function presentTurn(turn: AgentChatTurn, active: boolean): AgentConversationTurnPresentation {
   if (turn.role !== 'assistant') {
-    return { turnId: turn.id, active: false, items: [], answeredAsks: [], sources: [] }
+    return {
+      turnId: turn.id,
+      active: false,
+      status: { kind: 'completed' },
+      items: [],
+      answeredAsks: [],
+      sources: []
+    }
   }
 
-  const effectivelyActive = active && !hasTerminalStatus(turn.processEvents)
+  const status = statusForTurn(turn, active)
+  const effectivelyActive = status.kind === 'active'
   const toolResultDiagnostics = new Map(
     (turn.metadata?.toolResults ?? []).map((diagnostic) => [diagnostic.toolCallId, diagnostic])
   )
@@ -149,13 +178,13 @@ function presentTurn(turn: AgentChatTurn, active: boolean): AgentConversationTur
   for (const item of buildAgentProcessTimeline(turn)) {
     if (item.kind === 'event') {
       if (item.event.kind === 'tool_result' && item.event.toolCallId && liveToolCallIds.has(item.event.toolCallId)) continue
-      items.push(presentProcessEvent(item.event, item.toolCall, toolResultDiagnostics, effectivelyActive))
+      items.push(presentProcessEvent(item.event, item.toolCall, toolResultDiagnostics, effectivelyActive, status))
       continue
     }
 
     const syntheticEvents = synthesizeToolCallEvents(item.toolCall, toolResultDiagnostics.get(item.toolCall.id))
     for (const event of syntheticEvents) {
-      items.push(presentProcessEvent(event, item.toolCall, toolResultDiagnostics, effectivelyActive))
+      items.push(presentProcessEvent(event, item.toolCall, toolResultDiagnostics, effectivelyActive, status))
     }
   }
 
@@ -175,16 +204,23 @@ function presentTurn(turn: AgentChatTurn, active: boolean): AgentConversationTur
   return {
     turnId: turn.id,
     active: effectivelyActive,
+    status,
     items,
     answeredAsks,
     sources: presentSourceReferences(turn.metadata)
   }
 }
 
-function hasTerminalStatus(events: AgentChatProcessEvent[] | undefined): boolean {
-  return (events ?? []).some((event) =>
+function statusForTurn(turn: AgentChatTurn, active: boolean): AgentConversationTurnStatus {
+  if (turn.metadata?.provenance?.kind === 'recovery_notice') return { kind: 'interrupted' }
+
+  const terminalStatus = [...(turn.processEvents ?? [])].reverse().find((event) =>
     event.kind === 'status' && (event.status === 'done' || event.status === 'canceled' || event.status === 'error')
-  )
+  )?.status
+  if (terminalStatus === 'error') return { kind: 'failed' }
+  if (terminalStatus === 'canceled') return { kind: 'canceled' }
+  if (terminalStatus === 'done') return { kind: 'completed' }
+  return active ? { kind: 'active' } : { kind: 'completed' }
 }
 
 function keepOnlyLatestItemActive(items: AgentConversationProvenanceItem[]): void {
@@ -259,7 +295,8 @@ function presentProcessEvent(
   event: AgentChatProcessEvent,
   toolCall: AgentProcessToolCall | undefined,
   diagnostics: Map<string, NonNullable<AgentTurnMetadata['toolResults']>[number]>,
-  active: boolean
+  active: boolean,
+  turnStatus: AgentConversationTurnStatus
 ): AgentConversationProvenanceItem {
   const kind = normalizeKind(event.kind)
   const toolDiagnostic = event.toolCallId ? diagnostics.get(event.toolCallId) : undefined
@@ -267,17 +304,19 @@ function presentProcessEvent(
     event.status === 'tool_done' || toolCall?.result !== undefined || toolDiagnostic
   )
   const toolFailed = kind === 'tool_call' && toolCompleted && Boolean(event.isError || toolCall?.isError)
-  const state = event.isError || event.status === 'error' || toolFailed
-    ? 'error'
-    : event.status === 'canceled'
-      ? 'canceled'
-      : isPendingEvent(event)
-        ? 'pending'
-        : toolCompleted
-          ? 'complete'
-          : active && event.status !== 'done' && event.status !== 'tool_done'
-            ? 'active'
-            : 'complete'
+  const state: AgentConversationProvenanceState = turnStatus.kind === 'interrupted' && event.kind === 'status'
+    ? 'interrupted'
+    : event.isError || event.status === 'error' || toolFailed
+      ? 'error'
+      : event.status === 'canceled'
+        ? 'canceled'
+        : isPendingEvent(event)
+          ? 'pending'
+          : toolCompleted
+            ? 'complete'
+            : active && event.status !== 'done' && event.status !== 'tool_done'
+              ? 'active'
+              : 'complete'
   const resultFocused = isResultEvidence(kind)
   const disclosure = undefined
   const detail = kind === 'tool_call'

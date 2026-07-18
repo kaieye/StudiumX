@@ -24,6 +24,14 @@ import type {
   TeachingTurnPresentation
 } from '../../teaching-turn-presentation'
 
+/**
+ * Older renderer fixtures and partial projections predate the structured status.
+ * Their `active` flag remains the compatibility source of truth when it is absent.
+ */
+type AgentConversationReaderPresentation = Omit<AgentConversationTurnPresentation, 'status'> & {
+  status?: AgentConversationTurnPresentation['status'] | null
+}
+
 /** Renders the live agent process or the learner-facing teaching projection. */
 export function AgentConversationReader({
   presentation,
@@ -31,7 +39,7 @@ export function AgentConversationReader({
   onTeachingAction,
   compact = false
 }: {
-  presentation: AgentConversationTurnPresentation | undefined
+  presentation: AgentConversationReaderPresentation | undefined
   teachingPresentation?: TeachingTurnPresentation | undefined
   onTeachingAction?: (action: TeachingTurnAction) => void
   compact?: boolean
@@ -95,16 +103,17 @@ type ProcessRollTransition = {
 }
 
 function AgentProcessReader({ presentation, compact }: {
-  presentation: AgentConversationTurnPresentation
+  presentation: AgentConversationReaderPresentation
   compact: boolean
 }) {
   const rows = groupRepeatedProcessDescriptions(presentation.items)
+  const header = processHeaderFor(presentation.status?.kind, presentation.active)
   return (
     <section className={`agent-process-panel${compact ? ' is-compact' : ''}`} aria-label="AI 处理过程">
       <header className="agent-process-header">
-        <BrainCircuit size={compact ? 13 : 14} />
-        <strong>规划中</strong>
-        <span>{presentation.active ? '进行中' : '已完成'}</span>
+        {header.icon === 'attention' ? <Bell size={compact ? 13 : 14} /> : <BrainCircuit size={compact ? 13 : 14} />}
+        <strong>{header.title}</strong>
+        <span>{header.label}</span>
       </header>
       <div className="agent-process-list" aria-live="polite">
         {rows.map((row) => row.type === 'rollup'
@@ -113,6 +122,21 @@ function AgentProcessReader({ presentation, compact }: {
       </div>
     </section>
   )
+}
+
+function processHeaderFor(status: unknown, active: boolean): {
+  title: string
+  label: string
+  icon?: 'attention'
+} {
+  switch (status) {
+    case 'active': return { title: '规划中', label: '进行中' }
+    case 'completed': return { title: '规划中', label: '已完成' }
+    case 'failed': return { title: '处理失败', label: '发生错误' }
+    case 'canceled': return { title: '处理已取消', label: '已取消' }
+    case 'interrupted': return { title: '运行中断', label: '需确认', icon: 'attention' }
+    default: return { title: '规划中', label: active ? '进行中' : '已完成' }
+  }
 }
 
 function groupRepeatedProcessDescriptions(items: AgentConversationProvenanceItem[]): AgentProcessDisplayRow[] {
@@ -282,6 +306,7 @@ function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }
 }
 
 function ProcessIcon({ item }: { item: AgentConversationProvenanceItem }) {
+  if (item.state === 'interrupted') return <Bell size={13} />
   if (item.state === 'error') return <AlertCircle size={13} />
   if (item.state === 'active') return <Loader2 className="spin" size={13} />
   if (item.kind === 'reasoning') return <BrainCircuit size={13} />

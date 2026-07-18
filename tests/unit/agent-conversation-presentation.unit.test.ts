@@ -157,6 +157,62 @@ describe('Agent conversation presentation', () => {
     })
   })
 
+  it('projects durable recovery notices as interrupted attention instead of errors or completion', () => {
+    const presentation = buildAgentConversationPresentation({
+      turns: [assistantTurn({
+        processEvents: [{
+          id: 'interrupted-1',
+          kind: 'status',
+          title: 'process ended unexpectedly',
+          detail: 'The app exited while the run was still active.',
+          status: 'error',
+          isError: true,
+          createdAt
+        }],
+        metadata: {
+          version: 1,
+          provenance: { kind: 'recovery_notice' }
+        }
+      })],
+      activeTurnId: 'assistant-1'
+    }).turns[0]
+
+    expect(presentation).toMatchObject({ active: false, status: { kind: 'interrupted' } })
+    expect(presentation.items).toEqual([
+      expect.objectContaining({ id: 'event:interrupted-1', state: 'interrupted' })
+    ])
+  })
+
+  it('keeps real failed, canceled, and completed terminal states distinct', () => {
+    const terminal = (status: 'error' | 'canceled' | 'done') => buildAgentConversationPresentation({
+      turns: [assistantTurn({ processEvents: [{
+        id: `terminal-${status}`,
+        kind: 'status',
+        title: `terminal-${status}`,
+        status,
+        isError: status === 'error',
+        createdAt
+      }] })],
+      activeTurnId: 'assistant-1'
+    }).turns[0]
+
+    expect(terminal('error')).toMatchObject({
+      active: false,
+      status: { kind: 'failed' },
+      items: [expect.objectContaining({ state: 'error' })]
+    })
+    expect(terminal('canceled')).toMatchObject({
+      active: false,
+      status: { kind: 'canceled' },
+      items: [expect.objectContaining({ state: 'canceled' })]
+    })
+    expect(terminal('done')).toMatchObject({
+      active: false,
+      status: { kind: 'completed' },
+      items: [expect.objectContaining({ state: 'complete' })]
+    })
+  })
+
   it('stops presenting a turn as active as soon as a terminal status arrives', () => {
     const presentation = buildAgentConversationPresentation({
       turns: [assistantTurn({ processEvents: [

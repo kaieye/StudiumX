@@ -175,6 +175,7 @@ describe('TeachingTurnPresentation', () => {
 
     expect(screen.getByRole('region', { name: 'AI 处理过程' })).toBeVisible()
     expect(screen.getByText('规划中')).toBeVisible()
+    expect(screen.getByText('进行中')).toBeVisible()
     expect(screen.getByText('思考过程')).toBeVisible()
     expect(screen.getByText('调用工具：search_notes')).toBeVisible()
     expect(screen.getByText('正在准备回复')).toBeVisible()

@@ -223,6 +223,70 @@ describe('appStore Agent session lifecycle', () => {
       activeConversationRevision: 4,
       activeSessionTree: { openBranchId: 'branch-root' }
     })
+    const recoveryNotice = useAppStore.getState().agentTurns.at(-1)
+    expect(recoveryNotice?.content).toContain('当前工作区共有 1 个中断运行需要人工确认')
+    expect(recoveryNotice?.content).not.toContain('其余')
+    expect(recoveryNotice?.metadata?.provenance).toEqual({ kind: 'recovery_notice' })
+    expect(recoveryNotice?.processEvents?.[0]).toMatchObject({ kind: 'status', title: '运行中断' })
+    expect(recoveryNotice?.processEvents?.[0]?.status).toBeUndefined()
+    expect(recoveryNotice?.processEvents?.[0]?.isError).toBeUndefined()
+  })
+
+  it('opens only the newest current-workspace interruption and keeps all current-workspace runs visible for review', async () => {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+    const recovered = record('newest', 'active', 5)
+    const recoveredTree = tree('newest', { newest: { status: 'active', revision: 5 } })
+    const readConversation = vi.fn(async (payload: { conversationId: string; scope?: string }) => {
+      if (payload.conversationId === 'newest' && payload.scope === 'workspace') return recovered
+      throw new Error('Conversation not found.')
+    })
+    const readTree = vi.fn(async () => recoveredTree)
+    installApi({
+      getState: vi.fn(async () => appState()),
+      getSettings: vi.fn(async () => originalState.settings),
+      listInterruptedAgentRuns: vi.fn(async () => [{
+        runId: 'older-current', streamId: 'stream-older', workspaceId: 'workspace-1', conversationId: 'older',
+        status: 'interrupted', previousStatus: 'running', lastDurableSequence: 1,
+        updatedAt: '2026-07-14T09:00:00.000Z', interruptedAt: '2026-07-14T09:00:00.000Z',
+        reason: 'restart', operationReviewCount: 0, usage: {}
+      }, {
+        runId: 'newest-current', streamId: 'stream-newest', workspaceId: 'workspace-1', conversationId: 'newest',
+        status: 'interrupted', previousStatus: 'waiting_for_permission', lastDurableSequence: 2,
+        updatedAt: '2026-07-14T11:00:00.000Z', interruptedAt: '2026-07-14T11:00:00.000Z',
+        reason: 'restart', operationReviewCount: 2, usage: {}
+      }, {
+        runId: 'other-workspace', streamId: 'stream-other', workspaceId: 'workspace-2', conversationId: 'other',
+        status: 'interrupted', previousStatus: 'running', lastDurableSequence: 3,
+        updatedAt: '2026-07-14T12:00:00.000Z', interruptedAt: '2026-07-14T12:00:00.000Z',
+        reason: 'restart', operationReviewCount: 0, usage: {}
+      }] as never),
+      readAgentConversation: readConversation as TeachingSystemApi['readAgentConversation'],
+      readAgentConversationSessionTree: readTree
+    })
+
+    await useAppStore.getState().initialize()
+
+    expect(readConversation).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1', conversationId: 'newest', scope: 'workspace'
+    })
+    expect(readConversation).not.toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'older' }))
+    expect(readConversation).not.toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'other' }))
+    expect(useAppStore.getState()).toMatchObject({
+      activeConversationId: 'newest',
+      activeConversationScope: 'workspace',
+      activeConversationRevision: 5
+    })
+    const recoveryNotice = useAppStore.getState().agentTurns.at(-1)
+    expect(recoveryNotice?.content).toContain('当前工作区共有 2 个中断运行需要人工确认')
+    expect(recoveryNotice?.content).toContain('已自动打开最新一项；其余 1 项仍需要检查')
+    expect(recoveryNotice?.content).not.toContain('共有 3 个中断运行')
+    expect(recoveryNotice?.content).toContain('退出时正在等待写入审批；旧审批已失效。')
+    expect(recoveryNotice?.content).toContain('请先检查可能已执行的 2 个写入')
+    expect(recoveryNotice?.content).toContain('应用不会自动继续或重做此运行。')
+    expect(recoveryNotice?.metadata?.provenance).toEqual({ kind: 'recovery_notice' })
+    expect(recoveryNotice?.processEvents?.[0]).toMatchObject({ kind: 'status', title: '运行中断' })
+    expect(recoveryNotice?.processEvents?.[0]?.status).toBeUndefined()
+    expect(recoveryNotice?.processEvents?.[0]?.isError).toBeUndefined()
   })
 
   it('durably opens an active branch loaded from the catalog', async () => {

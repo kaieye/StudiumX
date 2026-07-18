@@ -7,6 +7,7 @@ function presentation(state: 'active' | 'complete'): AgentConversationTurnPresen
   return {
     turnId: 'assistant-1',
     active: state === 'active',
+    status: { kind: state === 'active' ? 'active' : 'completed' },
     answeredAsks: [],
     sources: [],
     items: [{
@@ -42,6 +43,7 @@ function childProgressPresentation(details: string[]): AgentConversationTurnPres
   return {
     turnId: 'assistant-child-progress',
     active: true,
+    status: { kind: 'active' },
     answeredAsks: [],
     sources: [],
     items: details.map((detail, index) => ({
@@ -97,5 +99,78 @@ describe('AgentConversationReader repeated process descriptions', () => {
     expect(screen.getByRole('list', { name: '子任务进度历史' })).toHaveTextContent('child-1：thinking')
     expect(screen.getByRole('list', { name: '子任务进度历史' })).toHaveTextContent('child-1：tool_done')
     expect(screen.getByRole('list', { name: '子任务进度历史' })).toHaveTextContent('child-1：thinking again')
+  })
+})
+
+
+describe('AgentConversationReader process outcomes', () => {
+  it('falls back to legacy active/completed semantics when status is missing or unknown', () => {
+    const legacy = (active: boolean, status?: unknown) => ({
+      turnId: `legacy-${active}-${String(status)}`,
+      active,
+      ...(status === undefined ? {} : { status }),
+      answeredAsks: [],
+      sources: [],
+      items: [{ id: 'legacy-status', kind: 'status' as const, label: '旧投影', state: active ? 'active' as const : 'complete' as const }]
+    })
+
+    const { rerender } = renderUi(<AgentConversationReader presentation={legacy(true)} />)
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('规划中进行中')
+
+    rerender(<AgentConversationReader presentation={legacy(false, { kind: 'future_status' })} />)
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).toHaveTextContent('规划中已完成')
+    expect(panel).not.toHaveTextContent('运行中断')
+    expect(panel).not.toHaveTextContent('发生错误')
+  })
+
+  it('renders durable interrupted recovery as attention that needs confirmation, not completion or error', () => {
+    const interrupted: AgentConversationTurnPresentation = {
+      turnId: 'interrupted-1',
+      active: false,
+      status: { kind: 'interrupted' },
+      answeredAsks: [],
+      sources: [],
+      items: [{
+        id: 'interrupted-status',
+        kind: 'status',
+        label: '运行中断',
+        detail: '请检查已有结果后再明确继续。',
+        state: 'interrupted'
+      }]
+    }
+
+    renderUi(<AgentConversationReader presentation={interrupted} />)
+
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).toHaveTextContent('运行中断')
+    expect(panel).toHaveTextContent('需确认')
+    expect(panel).not.toHaveTextContent('已完成')
+    expect(panel.querySelector('.agent-process-event')).not.toHaveClass('is-error')
+  })
+
+  it('retains failed, canceled, and completed header semantics', () => {
+    const makePresentation = (kind: 'failed' | 'canceled' | 'completed'): AgentConversationTurnPresentation => ({
+      turnId: kind,
+      active: false,
+      status: { kind },
+      answeredAsks: [],
+      sources: [],
+      items: [{
+        id: `${kind}-status`,
+        kind: 'status',
+        label: kind,
+        state: kind === 'failed' ? 'error' : kind === 'canceled' ? 'canceled' : 'complete'
+      }]
+    })
+
+    const { rerender } = renderUi(<AgentConversationReader presentation={makePresentation('failed')} />)
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('处理失败发生错误')
+
+    rerender(<AgentConversationReader presentation={makePresentation('canceled')} />)
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('处理已取消已取消')
+
+    rerender(<AgentConversationReader presentation={makePresentation('completed')} />)
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('规划中已完成')
   })
 })
