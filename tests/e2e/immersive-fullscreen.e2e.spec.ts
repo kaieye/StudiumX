@@ -40,6 +40,10 @@ test('fullscreen exit stays reachable after pointer and focus leave the immersiv
 
   const exitFullscreen = mainWindow.getByRole('button', { name: '退出全屏' })
   await expect(exitFullscreen).toBeVisible()
+  // Only the exit control stays pinned; hide/scene/note must not remain hover-hit targets.
+  await expect(mainWindow.getByRole('button', { name: '隐藏自习室卡片' })).toHaveCount(0)
+  await expect(mainWindow.getByRole('button', { name: '选择场景' })).toHaveCount(0)
+  await expect(mainWindow.getByRole('button', { name: '快捷记事' })).toHaveCount(0)
   await exitFullscreen.click()
   await expectStageFullscreen(mainWindow, false)
   await expect(mainWindow.getByRole('button', { name: '进入全屏' })).toBeVisible()

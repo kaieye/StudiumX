@@ -5849,12 +5849,19 @@
 
 /* Fullscreen exit is a persistent control, not a hover affordance. The native
    :fullscreen selector keeps it reachable even before React processes the
-   fullscreenchange event; the state class carries the same guarantee afterward. */
+   fullscreenchange event; the state class carries the same guarantee afterward.
+   Only the exit action receives pointer events so hide/scene/note cannot be
+   hit while the fan is collapsed. */
 .workbench-immersive-controls.is-fullscreen .workbench-immersive-arc-menu,
 .office-workbench-stage:fullscreen .workbench-immersive-arc-menu {
   visibility: visible;
-  pointer-events: auto;
+  pointer-events: none;
   transition-delay: 0s;
+}
+
+.workbench-immersive-controls.is-fullscreen .workbench-immersive-arc-menu.is-active,
+.office-workbench-stage:fullscreen .workbench-immersive-arc-menu.is-active {
+  pointer-events: auto;
 }
 
 .workbench-immersive-arc-action {
@@ -5902,17 +5909,14 @@
   animation: workbench-immersive-arc-action-in 360ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
 }
 
-.workbench-immersive-controls.is-fullscreen .workbench-immersive-arc-action,
-.office-workbench-stage:fullscreen .workbench-immersive-arc-action {
+.workbench-immersive-controls.is-fullscreen .workbench-immersive-arc-action--fullscreen,
+.office-workbench-stage:fullscreen .workbench-immersive-arc-action--fullscreen {
   opacity: 1;
+  pointer-events: auto;
   transform: translate(
       calc(-50% + var(--arc-x)),
       calc(50% + var(--arc-y))
     ) scale(1);
-}
-
-.workbench-immersive-controls.is-fullscreen .workbench-immersive-arc-action--fullscreen,
-.office-workbench-stage:fullscreen .workbench-immersive-arc-action--fullscreen {
   color: #ffffff;
   border-color: color-mix(in srgb, var(--accent) 64%, #ffffff);
   background: color-mix(in srgb, var(--accent) 68%, var(--surface-solid));
