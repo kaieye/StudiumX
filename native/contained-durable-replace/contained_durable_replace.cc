@@ -7,6 +7,7 @@
 #include <vector>
 
 #if !defined(_WIN32)
+#include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -81,8 +82,16 @@ bool GetString(napi_env env, napi_value value, std::string* output) {
   return true;
 }
 
+bool ContainsEmbeddedNul(const std::string& value) {
+  return value.find('\0') != std::string::npos;
+}
+
 bool IsSafeName(const std::string& value) {
-  return !value.empty() && value.find('/') == std::string::npos && value.find('\\') == std::string::npos && value != "." && value != "..";
+  return !value.empty() && !ContainsEmbeddedNul(value) && value.find('/') == std::string::npos && value.find('\\') == std::string::npos && value != "." && value != "..";
+}
+
+bool IsSafeRootPath(const std::string& value) {
+  return !value.empty() && !ContainsEmbeddedNul(value);
 }
 
 void CloseFileDescriptor(int* fd) {
@@ -110,6 +119,42 @@ void CleanupReplaceWork(ReplaceWork* work) {
   CloseFileDescriptor(&work->directory_fd);
 }
 
+
+bool GetBoolean(napi_env env, napi_value value, bool* output) {
+  return napi_get_value_bool(env, value, output) == napi_ok;
+}
+
+bool GetDirectoryCapability(napi_env env, napi_value value, DirectoryCapability** output, const char* operation) {
+  DirectoryCapability* capability = nullptr;
+  if (!ThrowNapiError(env, napi_get_value_external(env, value, reinterpret_cast<void**>(&capability)), operation)) return false;
+  if (capability == nullptr || capability->fd < 0) {
+    napi_throw_error(env, nullptr, "Contained directory capability is closed or invalid.");
+    return false;
+  }
+  *output = capability;
+  return true;
+}
+
+napi_value MakeDirectoryCapability(napi_env env, int fd, bool directory_sync_unsupported) {
+  DirectoryCapability* capability = nullptr;
+  try {
+    capability = new DirectoryCapability();
+  } catch (const std::exception&) {
+    CloseFileDescriptor(&fd);
+    napi_throw_error(env, nullptr, "Unable to allocate contained directory capability.");
+    return nullptr;
+  }
+  capability->fd = fd;
+  capability->directory_sync_unsupported = directory_sync_unsupported;
+
+  napi_value external = nullptr;
+  if (!ThrowNapiError(env, napi_create_external(env, capability, CloseCapability, nullptr, &external), "Unable to create contained directory capability")) {
+    CloseCapability(env, capability, nullptr);
+    return nullptr;
+  }
+  return external;
+}
+
 #if !defined(_WIN32)
 
 // Keeps a candidate descriptor closed if a string/vector allocation throws
@@ -128,6 +173,10 @@ class ScopedFileDescriptor {
     fd_ = -1;
     return result;
   }
+  void reset(int fd) {
+    CloseFileDescriptor(&fd_);
+    fd_ = fd;
+  }
 
  private:
   int fd_;
@@ -137,15 +186,32 @@ bool IsUnsupportedDirectorySync(int error) {
   return error == EINVAL || error == ENOSYS || error == ENOTSUP || error == EOPNOTSUPP || error == EISDIR;
 }
 
-bool SyncDirectoryEntry(int parent_fd, bool* directory_sync_unsupported, std::string* error) {
+bool SyncDirectoryEntry(int parent_fd, bool* directory_sync_unsupported, const char* created_kind, std::string* error) {
   if (fsync(parent_fd) == 0) return true;
   const int sync_error = errno;
   if (IsUnsupportedDirectorySync(sync_error)) {
     *directory_sync_unsupported = true;
     return true;
   }
-  *error = std::string("Unable to sync containing directory after creating contained output directory: ") + std::strerror(sync_error);
+  *error = std::string("Unable to sync containing directory after creating ") + created_kind + ": " + std::strerror(sync_error);
   return false;
+}
+
+bool DuplicateFileDescriptorCloseOnExec(int source_fd, int* result, std::string* error) {
+#if defined(F_DUPFD_CLOEXEC)
+  const int cloexec_fd = fcntl(source_fd, F_DUPFD_CLOEXEC, 0);
+  if (cloexec_fd >= 0) {
+    *result = cloexec_fd;
+    return true;
+  }
+  *error = std::string("Unable to duplicate contained directory capability atomically with close-on-exec: ") + std::strerror(errno);
+  return false;
+#else
+  (void)source_fd;
+  (void)result;
+  *error = "Unable to duplicate contained directory capability atomically with close-on-exec: F_DUPFD_CLOEXEC is unavailable.";
+  return false;
+#endif
 }
 
 bool OpenDirectoryComponent(
@@ -170,11 +236,55 @@ bool OpenDirectoryComponent(
     if (mkdirat(parent_fd, name, 0700) == 0) {
       // A first write changes the parent directory entry too. Apply the same
       // documented downgrade-only directory-fsync policy before proceeding.
-      if (!SyncDirectoryEntry(parent_fd, directory_sync_unsupported, error)) return false;
+      if (!SyncDirectoryEntry(parent_fd, directory_sync_unsupported, "contained output directory", error)) return false;
       continue;
     }
     if (errno == EEXIST) continue;
     *error = std::string("Unable to create contained output directory component '") + name + "': " + std::strerror(errno);
+    return false;
+  }
+}
+
+// The configured memory-root parent is canonicalized by the trusted main-process
+// wrapper before it reaches native code. This intentionally permits OS-managed
+// intermediate symlinks (for example macOS /var -> /private/var) only above
+// that configuration boundary. The final root itself is still opened relative
+// to the retained parent descriptor with O_NOFOLLOW, and every child/file
+// operation remains descriptor-relative below that root.
+bool OpenConfiguredRootDirectory(
+  const std::string& physical_parent,
+  const std::string& root_name,
+  bool create_if_missing,
+  int* result,
+  bool* directory_sync_unsupported,
+  std::string* error
+) {
+  ScopedFileDescriptor parent_fd(open(physical_parent.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+  if (parent_fd.get() < 0) {
+    *error = std::string("Unable to open canonical configured root parent directory: ") + std::strerror(errno);
+    return false;
+  }
+
+  for (;;) {
+    const int root_fd = openat(parent_fd.get(), root_name.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (root_fd >= 0) {
+      *result = root_fd;
+      return true;
+    }
+    const int open_error = errno;
+    if (open_error != ENOENT || !create_if_missing) {
+      *error = std::string("Unable to open contained root directory without following a link: ") + std::strerror(open_error);
+      return false;
+    }
+    if (mkdirat(parent_fd.get(), root_name.c_str(), 0700) == 0) {
+      // The first creation of a configured memory root is not durable until
+      // its already-bound parent directory entry is synced under the same
+      // narrow downgrade policy used for contained child directories.
+      if (!SyncDirectoryEntry(parent_fd.get(), directory_sync_unsupported, "contained root directory", error)) return false;
+      continue;
+    }
+    if (errno == EEXIST) continue;
+    *error = std::string("Unable to create contained root directory: ") + std::strerror(errno);
     return false;
   }
 }
@@ -196,65 +306,208 @@ bool WriteAll(int fd, const std::vector<uint8_t>& content, std::string* error) {
 
 #endif
 
-napi_value OpenContainedDirectory(napi_env env, napi_callback_info info) {
+napi_value OpenContainedRootDirectory(napi_env env, napi_callback_info info) {
   size_t argc = 3;
   napi_value argv[3] = {nullptr, nullptr, nullptr};
-  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read openContainedDirectory arguments")) return nullptr;
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read openContainedRootDirectory arguments")) return nullptr;
   if (argc != 3) {
-    napi_throw_error(env, nullptr, "openContainedDirectory requires root path and exactly two directory components.");
+    napi_throw_error(env, nullptr, "openContainedRootDirectory requires a canonical parent path, root name, and create-if-missing flag.");
     return nullptr;
   }
 
-  std::string root;
-  std::string first;
-  std::string second;
-  if (!GetString(env, argv[0], &root) || !GetString(env, argv[1], &first) || !GetString(env, argv[2], &second) || !IsSafeName(first) || !IsSafeName(second)) {
-    napi_throw_error(env, nullptr, "Contained output directory arguments are invalid.");
+  std::string physical_parent;
+  std::string root_name;
+  bool create_if_missing = false;
+  if (!GetString(env, argv[0], &physical_parent) || !GetString(env, argv[1], &root_name) ||
+      !IsSafeRootPath(physical_parent) || physical_parent.front() != '/' || !IsSafeName(root_name) ||
+      !GetBoolean(env, argv[2], &create_if_missing)) {
+    napi_throw_error(env, nullptr, "Contained root directory arguments are invalid.");
     return nullptr;
   }
 
 #if defined(_WIN32)
-  ThrowNativeError(env, "Stable descriptor-relative C-2C publication is not implemented on Windows; refusing to publish rather than falling back to pathname traversal.", "ENOTSUP");
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
   return nullptr;
 #else
-  int root_fd = open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-  if (root_fd < 0) {
-    const int open_error = errno;
-    ThrowNativeError(env, std::string("Unable to open workspace root without following a link: ") + std::strerror(open_error), open_error == ELOOP ? "ELOOP" : "EIO");
-    return nullptr;
-  }
-
-  int first_fd = -1;
-  int output_fd = -1;
-  bool directory_sync_unsupported = false;
+  int root_fd = -1;
   std::string error;
-  const bool opened = OpenDirectoryComponent(root_fd, first.c_str(), &first_fd, &directory_sync_unsupported, &error) &&
-    OpenDirectoryComponent(first_fd, second.c_str(), &output_fd, &directory_sync_unsupported, &error);
-  CloseFileDescriptor(&root_fd);
-  CloseFileDescriptor(&first_fd);
-  if (!opened) {
-    CloseFileDescriptor(&output_fd);
-    ThrowNativeError(env, error);
+  bool directory_sync_unsupported = false;
+  if (!OpenConfiguredRootDirectory(physical_parent, root_name, create_if_missing, &root_fd, &directory_sync_unsupported, &error)) {
+    ThrowNativeError(env, error, errno == ELOOP ? "ELOOP" : "EIO");
+    return nullptr;
+  }
+  return MakeDirectoryCapability(env, root_fd, directory_sync_unsupported);
+#endif
+}
+
+napi_value OpenContainedDirectoryChild(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value argv[3] = {nullptr, nullptr, nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read openContainedDirectoryChild arguments")) return nullptr;
+  if (argc != 3) {
+    napi_throw_error(env, nullptr, "openContainedDirectoryChild requires a parent capability, child name, and create-if-missing flag.");
     return nullptr;
   }
 
+  DirectoryCapability* parent = nullptr;
+  std::string name;
+  bool create_if_missing = false;
+  if (!GetDirectoryCapability(env, argv[0], &parent, "Unable to read contained parent directory capability") ||
+      !GetString(env, argv[1], &name) || !IsSafeName(name) || !GetBoolean(env, argv[2], &create_if_missing)) {
+    napi_throw_error(env, nullptr, "Contained child directory arguments are invalid.");
+    return nullptr;
+  }
+
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  int child_fd = -1;
+  bool directory_sync_unsupported = parent->directory_sync_unsupported;
+  std::string error;
+  if (create_if_missing) {
+    if (!OpenDirectoryComponent(parent->fd, name.c_str(), &child_fd, &directory_sync_unsupported, &error)) {
+      ThrowNativeError(env, error, errno == ELOOP ? "ELOOP" : "EIO");
+      return nullptr;
+    }
+  } else {
+    child_fd = openat(parent->fd, name.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (child_fd < 0) {
+      const int open_error = errno;
+      ThrowNativeError(env, std::string("Unable to open contained child directory without following a link: ") + std::strerror(open_error), open_error == ELOOP ? "ELOOP" : (open_error == ENOENT ? "ENOENT" : "EIO"));
+      return nullptr;
+    }
+  }
+  return MakeDirectoryCapability(env, child_fd, directory_sync_unsupported);
+#endif
+}
+
+napi_value ListContainedDirectory(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read listContainedDirectory arguments")) return nullptr;
+  if (argc != 1) {
+    napi_throw_error(env, nullptr, "listContainedDirectory requires a directory capability.");
+    return nullptr;
+  }
   DirectoryCapability* capability = nullptr;
-  try {
-    capability = new DirectoryCapability();
-  } catch (const std::exception&) {
-    CloseFileDescriptor(&output_fd);
-    napi_throw_error(env, nullptr, "Unable to allocate contained output directory capability.");
-    return nullptr;
-  }
-  capability->fd = output_fd;
-  capability->directory_sync_unsupported = directory_sync_unsupported;
+  if (!GetDirectoryCapability(env, argv[0], &capability, "Unable to read contained directory capability")) return nullptr;
 
-  napi_value external = nullptr;
-  if (!ThrowNapiError(env, napi_create_external(env, capability, CloseCapability, nullptr, &external), "Unable to create contained output directory capability")) {
-    CloseCapability(env, capability, nullptr);
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  int listing_fd = -1;
+  std::string duplicate_error;
+  if (!DuplicateFileDescriptorCloseOnExec(capability->fd, &listing_fd, &duplicate_error)) {
+    ThrowNativeError(env, duplicate_error);
     return nullptr;
   }
-  return external;
+  DIR* directory = fdopendir(listing_fd);
+  if (directory == nullptr) {
+    const int open_error = errno;
+    CloseFileDescriptor(&listing_fd);
+    ThrowNativeError(env, std::string("Unable to list contained directory: ") + std::strerror(open_error));
+    return nullptr;
+  }
+
+  struct Entry { std::string name; const char* type; };
+  std::vector<Entry> entries;
+  errno = 0;
+  while (dirent* entry = readdir(directory)) {
+    const std::string name(entry->d_name);
+    if (name == "." || name == "..") continue;
+    struct stat entry_stats {};
+    const char* type = "other";
+    if (fstatat(capability->fd, name.c_str(), &entry_stats, AT_SYMLINK_NOFOLLOW) == 0) {
+      if (S_ISLNK(entry_stats.st_mode)) type = "symlink";
+      else if (S_ISREG(entry_stats.st_mode)) type = "file";
+      else if (S_ISDIR(entry_stats.st_mode)) type = "directory";
+    }
+    try {
+      entries.push_back({name, type});
+    } catch (const std::exception&) {
+      closedir(directory);
+      napi_throw_error(env, nullptr, "Unable to allocate contained directory listing.");
+      return nullptr;
+    }
+  }
+  const int read_error = errno;
+  closedir(directory);
+  if (read_error != 0) {
+    ThrowNativeError(env, std::string("Unable to finish listing contained directory: ") + std::strerror(read_error));
+    return nullptr;
+  }
+
+  napi_value result = nullptr;
+  if (!ThrowNapiError(env, napi_create_array_with_length(env, entries.size(), &result), "Unable to allocate contained directory listing result")) return nullptr;
+  for (size_t index = 0; index < entries.size(); index += 1) {
+    napi_value item = nullptr;
+    napi_value name = nullptr;
+    napi_value type = nullptr;
+    if (!ThrowNapiError(env, napi_create_object(env, &item), "Unable to allocate contained directory listing entry") ||
+        !ThrowNapiError(env, napi_create_string_utf8(env, entries[index].name.c_str(), entries[index].name.size(), &name), "Unable to create contained directory entry name") ||
+        !ThrowNapiError(env, napi_create_string_utf8(env, entries[index].type, NAPI_AUTO_LENGTH, &type), "Unable to create contained directory entry type") ||
+        !ThrowNapiError(env, napi_set_named_property(env, item, "name", name), "Unable to set contained directory entry name") ||
+        !ThrowNapiError(env, napi_set_named_property(env, item, "type", type), "Unable to set contained directory entry type") ||
+        !ThrowNapiError(env, napi_set_element(env, result, index, item), "Unable to append contained directory entry")) return nullptr;
+  }
+  return result;
+#endif
+}
+
+napi_value ReadRegularFileAtContainedDirectory(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2] = {nullptr, nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read readRegularFileAtContainedDirectory arguments")) return nullptr;
+  if (argc != 2) {
+    napi_throw_error(env, nullptr, "readRegularFileAtContainedDirectory requires a directory capability and filename.");
+    return nullptr;
+  }
+  DirectoryCapability* capability = nullptr;
+  std::string name;
+  if (!GetDirectoryCapability(env, argv[0], &capability, "Unable to read contained directory capability") || !GetString(env, argv[1], &name) || !IsSafeName(name)) {
+    napi_throw_error(env, nullptr, "Contained regular file arguments are invalid.");
+    return nullptr;
+  }
+
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  ScopedFileDescriptor file_fd(openat(capability->fd, name.c_str(), O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC));
+  if (file_fd.get() < 0) {
+    const int open_error = errno;
+    ThrowNativeError(env, std::string("Unable to open contained regular file without following a link: ") + std::strerror(open_error), open_error == ELOOP ? "ELOOP" : (open_error == ENOENT ? "ENOENT" : "EIO"));
+    return nullptr;
+  }
+  struct stat file_stats {};
+  if (fstat(file_fd.get(), &file_stats) != 0 || !S_ISREG(file_stats.st_mode)) {
+    ThrowNativeError(env, "Contained file is not a regular file.", "EINVAL");
+    return nullptr;
+  }
+  std::vector<uint8_t> content;
+  try {
+    if (file_stats.st_size > 0) content.reserve(static_cast<size_t>(file_stats.st_size));
+    uint8_t chunk[65536];
+    for (;;) {
+      const ssize_t count = read(file_fd.get(), chunk, sizeof(chunk));
+      if (count > 0) {
+        content.insert(content.end(), chunk, chunk + count);
+        continue;
+      }
+      if (count == 0) break;
+      if (errno == EINTR) continue;
+      ThrowNativeError(env, std::string("Unable to read contained regular file: ") + std::strerror(errno));
+      return nullptr;
+    }
+  } catch (const std::exception&) {
+    napi_throw_error(env, nullptr, "Unable to allocate contained regular file content.");
+    return nullptr;
+  }
+  napi_value result = nullptr;
+  if (!ThrowNapiError(env, napi_create_buffer_copy(env, content.size(), content.empty() ? nullptr : content.data(), nullptr, &result), "Unable to return contained regular file content")) return nullptr;
+  return result;
 #endif
 }
 
@@ -418,11 +671,10 @@ napi_value ReplaceAtContainedDirectory(napi_env env, napi_callback_info info) {
   }
 
 #if !defined(_WIN32)
-  work->directory_fd = dup(capability->fd);
-  if (work->directory_fd < 0) {
-    const int duplicate_error = errno;
+  std::string duplicate_error;
+  if (!DuplicateFileDescriptorCloseOnExec(capability->fd, &work->directory_fd, &duplicate_error)) {
     delete work;
-    ThrowNativeError(env, std::string("Unable to retain output directory capability: ") + std::strerror(duplicate_error));
+    ThrowNativeError(env, duplicate_error);
     return nullptr;
   }
 #endif
@@ -482,11 +734,14 @@ napi_value CloseContainedDirectory(napi_env env, napi_callback_info info) {
 
 napi_value Init(napi_env env, napi_value exports) {
   napi_property_descriptor properties[] = {
-    {"openContainedDirectory", nullptr, OpenContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"openContainedRootDirectory", nullptr, OpenContainedRootDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"openContainedDirectoryChild", nullptr, OpenContainedDirectoryChild, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"listContainedDirectory", nullptr, ListContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"readRegularFileAtContainedDirectory", nullptr, ReadRegularFileAtContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"replaceAtContainedDirectory", nullptr, ReplaceAtContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"closeContainedDirectory", nullptr, CloseContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr}
   };
-  if (!ThrowNapiError(env, napi_define_properties(env, exports, 3, properties), "Unable to define contained durable replacement exports")) return nullptr;
+  if (!ThrowNapiError(env, napi_define_properties(env, exports, 6, properties), "Unable to define contained durable replacement exports")) return nullptr;
   return exports;
 }
 

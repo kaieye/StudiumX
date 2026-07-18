@@ -124,6 +124,35 @@ describe('Teaching IPC gateway', () => {
     expect(createWorkspace).toHaveBeenCalledWith({ name: 'Course', prompt: 'Teach algebra' })
   })
 
+  it('accepts memory scope roots only after registered-workspace resolution and strips renderer destination fields', async () => {
+    const rootPath = '/registered/course'
+    const createMemory = vi.fn().mockResolvedValue({ id: 'memory-1' })
+    const getState = vi.fn().mockResolvedValue({ workspaces: [{ rootPath }] })
+    registerTeachingIpcGateway(registration({ workspaceService: { getState, createMemory } }))
+
+    await expect(handler(teachingInvokeChannels.createMemory)(event, {
+      content: 'Remember this',
+      scope: 'workspace',
+      workspaceRoot: '/registered/course/lessons/..',
+      tags: ['trusted'],
+      confidence: 0.8,
+      destinationPath: '/private/renderer-controlled-memory',
+      partitionKey: 'renderer-controlled'
+    })).resolves.toEqual({ id: 'memory-1' })
+    expect(createMemory).toHaveBeenCalledWith({
+      content: 'Remember this',
+      scope: 'workspace',
+      workspaceRoot: rootPath,
+      tags: ['trusted'],
+      confidence: 0.8
+    })
+
+    await expect(handler(teachingInvokeChannels.createMemory)(event, {
+      content: 'Not authorized', scope: 'workspace', workspaceRoot: '/unregistered/course'
+    })).rejects.toThrow('limited to registered teaching workspaces')
+    expect(createMemory).toHaveBeenCalledTimes(1)
+  })
+
   it('maps the narrow explicit per-id conversation projection command without renderer paths', async () => {
     const projectAgentConversationSummaries = vi.fn().mockResolvedValue({
       outcomes: [{ conversationId: 'chat-archived-1', status: 'generated' }]

@@ -473,6 +473,8 @@ pnpm run check:security
 2. `get(id)` 先按新计算路径读取，再 fallback flat legacy；`list` 枚举 flat 和已知 scope directories 后按 id 去重。若同 id 两处内容 hash 不同，报告 recovery issue 并拒绝歧义，而不是挑一个覆盖另一个。
 3. 不在首次启动移动旧文件。可选的后续维护命令必须 copy → checksum verify → 显式确认后才删除 legacy；该删除步骤不在 C-6 最小切片。
 4. C-1 index 仅可优化“候选文件在哪里”，权限/scope 判断仍由 catalog 对事实 record 执行。
+5. C-6 的 scan、read 和 durable write 必须通过已绑定的目录 descriptor 进行：POSIX 使用 `openat`/`O_NOFOLLOW` 与 descriptor-relative rename；Windows 或 native capability 缺失时 catalog 必须 fail closed，不能退回 pathname preflight + `readFile`/replace。
+6. 配置的 memory-root pathname 是仅由 main process 持有的可信 application-configuration boundary，绝不接受 renderer 路径。main wrapper 必须只对其**已存在的 parent** 做一次 `realpath` canonicalization，并把 physical absolute parent 与安全的 final root basename 交给 native；canonicalization 失败必须 fail closed，绝不 fallback 到 logical pathname。故允许该可信 parent 之上的 OS intermediate symlink（例如 macOS `/var -> /private/var`）在 capability binding 前被解析；但 final root、scope partition 和 record file 仍必须全程以 descriptor-relative `O_NOFOLLOW` 操作，保持 no-follow 与 pathname-swap resistance。首次 `mkdirat` final root 后仍须 `fsync` 已绑定 parent。
 
 ### 验收门禁
 
