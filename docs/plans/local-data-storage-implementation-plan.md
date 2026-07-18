@@ -50,18 +50,18 @@ git diff --check
 为避免全量 suite 的不确定性掩盖目标错误，每个切片还必须运行其“验收门禁”中的定向 `vitest`/`check:*` 命令。原有流程已经提供 `check:agent-conversation-*`、`check:learning-work-reconcile`、`check:app-data-migration`、`check:security`、`check:analytics` 等门禁，应优先复用而不是复制另一套检查器。
 
 
-### 1.5 `database` 实施审计（2026-07-18，HEAD `dee70d6`）
+### 1.5 `database` 实施审计（2026-07-18；纳入代码提交 `d6a94a1`）
 
-原始顺序已完成最小切片：C-2A `d23b272`、C-2B `549f4f8`、C-1 `d9de382`、C-3/C-4 `ca73537`、C-2C `07dfbfb`、C-7 `a302814`、C-5 `55442ad`、C-6 `26eca18`；后续 C-5B Memory CRUD trace correlation 为 `7a1ca7e`，C-5C learning-session trace 为 `e849d51`，C-5D `saveAgentConversation()` lifecycle trace 为 `dee70d6`。这不是“候选全部完成”的声明：各节仍定义边界；未实现的 FTS、物理 retention/删除、自动摘要调度、C-5 的 fork/其它 lifecycle producers、conversation audit JSONL 与其它 user actions（需设计），以及 C-6 controlled legacy 搬迁保持未实施。
+原始顺序已完成最小切片：C-2A `d23b272`、C-2B `549f4f8`、C-1 `d9de382`、C-3/C-4 `ca73537`、C-2C `07dfbfb`、C-7 `a302814`、C-5 `55442ad`、C-6 `26eca18`；后续 C-5B Memory CRUD trace correlation 为 `7a1ca7e`，C-5C learning-session trace 为 `e849d51`，C-5D `saveAgentConversation()` lifecycle trace 为 `dee70d6`，C-5E conversation audit JSONL trace 为 `d6a94a1`。`d6a94a1` 是本次记录的**代码提交**，不是本文档修改后的当前 HEAD。这不是“候选全部完成”的声明：各节仍定义边界；未实现的 FTS、物理 retention/删除、自动摘要调度、C-5 的 fork/其它 lifecycle producers 与其它 user actions（需设计），以及 C-6 controlled legacy 搬迁保持未实施。
 
-当前 HEAD 的具体证据：
+已纳入代码提交的具体证据：
 
 | 范围 | 当前代码 | 定向 acceptance test |
 |---|---|---|
 | C-1 | `src/main/local-data-index/index.ts:61-170, 174-333`；`src/main/local-data-index/schema-migration.ts:38-57`；`src/main/index.ts:259-294` | `tests/unit/local-data-index.unit.test.ts:56-396`；`tests/integration/teaching-analytics.integration.test.ts:277-355` |
 | C-2A/B/C | `src/main/teaching-workspace.ts:781-807`；`src/main/teaching-agent-conversations.ts:944-967, 1042-1104`；`src/main/durable-jsonl.ts:45-205`；`src/main/agent-conversation-summary-projection.ts:46-179` | `tests/unit/teaching-agent-conversations.unit.test.ts:261-320`；`tests/unit/durable-jsonl.unit.test.ts:29-128`；`tests/unit/agent-conversation-summary-projection.unit.test.ts:69-302` |
 | C-3/C-4 | `src/main/persistence/durable-file.ts:81-312` | `tests/unit/durable-file.unit.test.ts:99-246`；`tests/unit/teaching-durable-state.unit.test.ts:37-215` |
-| C-5 | conversation slice：`src/main/teaching-workspace.ts:751, 852, 891`；C-5B Memory CRUD：`src/main/teaching-workspace.ts:1771-1793`、`src/main/teaching-memory.ts:20-98`、`src/main/teaching-memory-catalog.ts:277-295`；C-5C `e849d51` learning-session trace：`src/main/teaching-workspace.ts:1685-1724, 1903-1928` → `src/main/lesson-interaction-recorder.ts:95-121` → `src/main/learning-session-ledger.ts:373-390, 851-860, 1059-1091, 2409-2415`；**C-5D `dee70d6`**：`saveAgentConversation()` 将已有 canonical archive `persistedRecord.traceId` 只透传到紧随其后的 `agent_conversation_recorded` lifecycle event（`src/main/teaching-workspace.ts:897-903`），lifecycle writer 在 `src/main/teaching-workspace/lifecycle.ts:40-46, 158-172` 剥离 raw trace 后仅条件性写回 normalized lowercase UUID。 | conversation：`tests/integration/trace-propagation.integration.test.ts:16-127`；C-5B：`tests/integration/trace-propagation.integration.test.ts:92-134`、`tests/unit/trace-context.unit.test.ts:42-131`；C-5C：`tests/integration/trace-propagation.integration.test.ts:141-230`、`tests/unit/learning-session-ledger.unit.test.ts:385-503`、`tests/unit/teaching-workspace-evidence.unit.test.ts:130-193`、`tests/unit/logger.unit.test.ts:21-43`；C-5D writer normalization/secret non-leak/tolerant reader：`tests/unit/teaching-workspace-lifecycle-jsonl.unit.test.ts:56-95` |
+| C-5 | conversation slice：`src/main/teaching-workspace.ts:751, 852, 891`；C-5B Memory CRUD：`src/main/teaching-workspace.ts:1771-1793`、`src/main/teaching-memory.ts:20-98`、`src/main/teaching-memory-catalog.ts:277-295`；C-5C `e849d51` learning-session trace：`src/main/teaching-workspace.ts:1685-1724, 1903-1928` → `src/main/lesson-interaction-recorder.ts:95-121` → `src/main/learning-session-ledger.ts:373-390, 851-860, 1059-1091, 2409-2415`；C-5D `dee70d6`：`saveAgentConversation()` 将已有 canonical archive `persistedRecord.traceId` 只透传到紧随其后的 `agent_conversation_recorded` lifecycle event；**C-5E `d6a94a1`**：`src/main/agent-conversation-session-audit.ts` 仅在新 header/entry 写入时 conditionally 持久化 normalized trace，不改 audit ID/hash/parent/dedupe 或 version `1`。 | conversation：`tests/integration/trace-propagation.integration.test.ts:16-127`；C-5B：`tests/integration/trace-propagation.integration.test.ts:92-134`、`tests/unit/trace-context.unit.test.ts:42-131`；C-5C：`tests/integration/trace-propagation.integration.test.ts:141-230`、`tests/unit/learning-session-ledger.unit.test.ts:385-503`、`tests/unit/teaching-workspace-evidence.unit.test.ts:130-193`、`tests/unit/logger.unit.test.ts:21-43`；C-5D writer normalization/secret non-leak/tolerant reader：`tests/unit/teaching-workspace-lifecycle-jsonl.unit.test.ts:56-95`；C-5E：`tests/unit/agent-conversation-session-audit.unit.test.ts`、`tests/integration/trace-propagation.integration.test.ts` |
 | C-6 | `src/main/teaching-memory-catalog.ts:85-153`；`src/main/teaching-memory-catalog/record-file.ts:204-220`；`src/main/persistence/contained-durable-directory.ts:175-228` | `tests/unit/teaching-memory-catalog.unit.test.ts:58-262`；`tests/unit/contained-durable-directory.unit.test.ts:38-183` |
 | C-7 | `src/shared/agent-persisted-history.ts:65-131, 173-336` | `tests/unit/agent-persisted-history.unit.test.ts:42-277`；`tests/unit/agent-secret-redaction.unit.test.ts:32-219`；`tests/unit/agent-conversation-legacy-nonmutating.unit.test.ts:31-32` |
 
@@ -401,7 +401,7 @@ pnpm run dist:dir
 
 ---
 
-## 8. C-5：跨存储 traceId 与可解析结构化日志（conversation、Memory、learning-session 与一个 conversation lifecycle 子例已有切片）
+## 8. C-5：跨存储 traceId 与可解析结构化日志（conversation、Memory、learning-session、conversation lifecycle 与 conversation audit JSONL 已有切片）
 
 ### 目标与最小切片
 
@@ -409,8 +409,9 @@ pnpm run dist:dir
 
 C-5D 不扩大这一语义：workspace lifecycle 的 trace 只是 optional correlation metadata，**不是** lifecycle identity、dedupe、query 或 filter key。它不新建第二个 UUID，不新增 renderer/IPC 字段，也不新增 lifecycle logger tag。
 
-### 当前实现状态（2026-07-18；
-dee70d6 纳入 C-5D）
+### 当前实现状态（2026-07-18；代码提交 `d6a94a1` 纳入 C-5E）
+
+`d6a94a1` 是本节记录的 C-5E **代码提交**，不是本文档修改后的当前 HEAD。
 
 已实现并有代码/测试证据的范围：
 
@@ -421,8 +422,9 @@ dee70d6 纳入 C-5D）
 5. **C-5D writer/reader boundary**：appendWorkspaceLifecycleEvent() 先从输入 event 剥离 raw trace，再调用 normalizeTraceId，仅在结果为合法 UUID 时条件性写回；持久化 UUID 一律 lowercase。malformed 或 secret-like value 不写入 JSONL。reader 不收紧：legacy trace-free row 与历史 malformed-trace lifecycle row 均继续 tolerant read；不做迁移、扫描回写或历史修复。
 6. **精确重试与 trace-aware idempotency（C-5C）**：trusted binding 的 recordedInteractions 以 eventId 缓存完整 intent、event 和 trace；同一 trusted eventId 的完全相同重试复用原 trace，而变更 intent 被拒绝。ledger duplicate 比较除 event 内容外还要求 trace 匹配：对已有 canonical traced event，same eventId 的 missing、malformed 或不同 trace 都不能静默去重；新 append 输入的 malformed trace 会先归一化为省略，所以 legacy trace-free event（包括归一化后 trace-free 的 exact retry）仍保持兼容。
 7. **日志时机与内容（C-5C）**：LessonInteractionRecorder 的唯一 durable write 是 appendWithReceipt。只有它成功返回、且 receipt 不为 duplicate 时，Teaching Workspace 才以 fixed safe context [main] [learning-session-ledger] [trace=<uuid>] 调用 logger，固定文案为 **Learning Session event persisted.**；不记录 lesson 内容。C-5D 不新增 lifecycle logger tag 或日志行。
+8. **C-5E conversation audit JSONL（d6a94a1）**：`AgentConversationSessionAuditHeader.traceId` 是 audit sidecar **首次初始化 archive-save trace**，仅在首次写 header 时写入，因而 write-once；后续 continuation 或 exact retry 不覆盖、不回填。legacy no-trace header 与历史 malformed header 继续原样保留，不修复。每个新 audit entry 的 `traceId` 是该 entry **首次 durable append**时的 main-generated archive-save trace：continuation 的新增 rows 使用本次新 trace，既有 rows 保持既有 trace（包括无 trace 或历史 malformed trace）。新写入只接受 normalized lowercase UUID；malformed/secret-like trace 不落盘。trace 不参与 audit ID、hash、parent 或 dedupe；audit version 仍为 `1`，reader/parser 继续 tolerant。此切片不解决既有 audit read+append concurrency。
 
-仍未包含：**fork 和其它 lifecycle producers、conversation audit JSONL 与其它 user actions（需设计）**。这些不是把现有 trace helper 接到 callsite 即可完成的工作；必须另行设计 trusted identity、写入边界、精确 retry/idempotency、legacy compatibility 和安全日志语义。C-5 的 remaining queue 已移除 learning-session ledger 与 saveAgentConversation() lifecycle 子例。
+仍未包含：**fork、其它 lifecycle producers 与其它 user actions（需设计）**。这些不是把现有 trace helper 接到 callsite 即可完成的工作；必须另行设计 trusted identity、写入边界、精确 retry/idempotency、legacy compatibility 和安全日志语义。C-5 的 remaining queue 已移除 learning-session ledger、saveAgentConversation() lifecycle 子例与 conversation audit JSONL。
 
 建议日志兼容格式：
 
@@ -441,14 +443,15 @@ dee70d6 纳入 C-5D）
 | interaction recorder（C-5C） | src/main/lesson-interaction-recorder.ts:18-24, 95-121：只从 main mutation options 接 trace，封装进 appendWithReceipt 的 canonical event。 | 上述 integration test 验证 workspace → recorder → ledger；workspace evidence unit test 验证 serial retry。 |
 | canonical learning-session ledger/type（C-5C） | src/shared/teaching-types/learning-session.ts:74-84；src/main/learning-session-ledger.ts:373-390, 851-860, 1059-1091, 2409-2415：optional canonical UUID field、legacy read、persisted malformed rejection 和 trace-aware duplicate comparison。 | tests/unit/learning-session-ledger.unit.test.ts:385-503。 |
 | safe tagged logger（C-5C） | src/main/logger.ts:8-28, 55-100, 203-280：fixed tag vocabulary、UUID normalization、redaction/single-line/bound 和 legacy/tagged parser。 | tests/unit/logger.unit.test.ts:21-43；C-5C integration 断言 two non-duplicate events only have two fixed tagged lines。 |
+| conversation audit JSONL（C-5E） | `src/main/agent-conversation-session-audit.ts`：header 仅在 sidecar 首次创建时 conditionally 写入 normalized trace；每轮 append 只给新 entry 写入本轮 normalized trace，不重写历史 header/rows。trace 不改变 audit ID/hash/parent/dedupe，version 保持 `1`，parser 保持 tolerant。 | `tests/unit/agent-conversation-session-audit.unit.test.ts` 覆盖 initial/retry/continuation、legacy/malformed 原字节不回填与 secret-like 拒绝；`tests/integration/trace-propagation.integration.test.ts` 按 conversation identity/path（非 JSONL 行序）关联 audit 与其它 sink。 |
 
 ### 迁移与兼容方案
 
 1. traceId 必须为 main 生成的 UUID/随机 opaque id；不得使用 workspace path、用户内容、provider request id 或 secret 派生。Learning-session renderer intent 不接受此字段；C-5D 也不新增 renderer/IPC 字段。
 2. 新字段是 optional：legacy conversation、learning-work、Memory、learning-session event 与 workspace lifecycle event 缺 trace 时继续读取；不扫描、迁移或重写历史 JSON/JSONL/event 文件。
 3. C-5D lifecycle writer 绝不把 raw trace 直接 spread 回 durable JSONL：先剥离，再只 conditionally reinstate normalized UUID；合法 UUID lowercase，malformed/secret-like 值省略。历史已持久化 malformed lifecycle trace 仍按 tolerant reader 返回，而不是因新 writer contract 改为拒绝或回写。
-4. C-5D trace 不改变 lifecycle identity、dedupe、query 或 filter 语义；仅 saveAgentConversation() 的 agent_conversation_recorded 已覆盖。fork、其它 lifecycle producers、conversation audit JSONL 和其它 user actions 仍须单独设计。
-5. new-write seam 只持久化规范 UUID。对于 C-5C persisted learning-session event，存在但 malformed 的 trace 是损坏而非“当作缺失的 legacy 字段”，必须 fail closed，且不改写原字节。
+4. C-5D trace 不改变 lifecycle identity、dedupe、query 或 filter 语义；仅 saveAgentConversation() 的 agent_conversation_recorded 已覆盖。C-5E audit trace 同样不参与 audit ID/hash/parent/dedupe；仅 fork、其它 lifecycle producers 和其它 user actions 仍须单独设计。
+5. new-write seam 只持久化规范 UUID。C-5E audit header/entry 只在 normalizeTraceId 返回 lowercase UUID 时条件性写入；历史 no-trace/malformed header 或 entry 继续 tolerant read 且永不迁移、修复、回填或重写。对于 C-5C persisted learning-session event，存在但 malformed 的 trace 是损坏而非“当作缺失的 legacy 字段”，必须 fail closed，且不改写原字节。
 6. message、tag、error 和 metadata 进入日志前走 fixed safe vocabulary、UUID normalization、redactAgentSecretText、单行化和长度上限。日志保持 tagged text，JSON logging 仍是未来单独决策；C-5D 不新增 lifecycle logger tag。
 
 ### 验收门禁
@@ -469,13 +472,36 @@ pnpm run check:security
 git diff --check -- docs/local-data-storage-improvement-roadmap.md docs/plans/local-data-storage-implementation-plan.md
 ```
 
+- C-5E (`d6a94a1`，代码提交) 验证证据：
+
+```bash
+# 106 files / 766 tests
+pnpm run test:unit -- tests/unit/agent-conversation-session-audit.unit.test.ts
+
+# passed
+pnpm run check:agent-conversation-audit-metadata
+
+# 1 file / 4 tests
+pnpm exec vitest run --project integration tests/integration/trace-propagation.integration.test.ts
+
+# passed
+pnpm run typecheck
+
+# 11 checks passed
+pnpm run check:security
+
+# passed
+git diff --check
+```
+
+- C-5E acceptance：初次 archive-save 的 header 和 initial entries 共享该次 trace；改变当前 trace 的 exact retry 不新增/重写行；continuation 仅给新 rows 写入新 trace，header 与旧 rows 保持原值。测试以 ID/identity 映射，不依赖 JSONL 行序。
 - C-5C acceptance 保持：独立受信 preview event 生成不同 main-only UUID，并能在 canonical learning-session event 和 [main] [learning-session-ledger] tagged log 中对应；日志不含 lesson 内容。
 - 同一 trusted eventId 的并发/串行 exact retry 只留下一个 durable event、复用同一 trace，并返回 duplicate；不额外写固定成功日志。改变 intent 不得静默去重；对已有 canonical traced event，missing/mismatched/malformed trace 的 replay 不得静默去重；新 append 输入归一化为 trace-free 后的 legacy exact retry 继续兼容。
 - legacy trace-free learning-session event 继续可读/精确 retry；persisted malformed learning-session trace 加载时以 corrupt event 拒绝且不重写。
 
 ### 回滚策略
 
-停止将 persistedRecord.traceId 传入新的 saveAgentConversation() lifecycle event，停止在其他新写域创建/传递 trace，并停止对应 C-5C tagged log；旧 lifecycle reader 与其它 reader 忽略 optional trace 的存在，不得删除日志、重写 JSONL，或为了移除 trace 修改既有 canonical event。已持久化 malformed lifecycle trace 继续 tolerant read；已持久化 malformed C-5C learning-session trace 仍按 corrupt data 处理而不是静默降级为 legacy。
+停止将 persistedRecord.traceId 传入新的 saveAgentConversation() lifecycle event，停止在其他新写域创建/传递 trace，并停止对应 C-5C tagged log；C-5E 回滚只停止对新 audit header/entry 写入 trace，绝不删除、回填、修复或重写既有 audit JSONL。旧 lifecycle/audit reader 与其它 reader 忽略 optional trace 的存在，不得删除日志、重写 JSONL，或为了移除 trace 修改既有 canonical event。已持久化 malformed lifecycle trace 继续 tolerant read；已持久化 malformed C-5C learning-session trace 仍按 corrupt data 处理而不是静默降级为 legacy。
 
 ---
 
