@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import { isPathInsideRoot } from './path-access'
+import { replaceDurably, type DurableFileOperations } from './persistence/durable-file'
 import type { ReadLessonResult, WorkspaceMarkdownDocument } from '../shared/teaching-types'
 import {
   ensurePreviewBaseTag,
@@ -27,6 +27,12 @@ export type WorkspacePreviewFile = {
 export type WorkspacePreviewResponse = {
   body: Buffer
   mimeType: string
+}
+
+/** Narrow main-internal seam for shared Markdown durable-publication faults. */
+export type TeachingWorkspaceDocumentDurableOptions = {
+  durableFileOperations?: DurableFileOperations
+  durableWarn?: (message: string) => void
 }
 
 type ResolvedWorkspaceDocument = {
@@ -80,11 +86,12 @@ export class TeachingWorkspaceDocuments {
   async saveMarkdown(
     workspace: ResolvedTeachingWorkspace,
     documentPath: string,
-    content: string
+    content: string,
+    durableOptions: TeachingWorkspaceDocumentDurableOptions = {}
   ): Promise<WorkspaceMarkdownDocument> {
     if (typeof content !== 'string') throw new Error('Markdown content must be text.')
     const document = this.resolveMarkdown(workspace, documentPath)
-    await this.atomicWriteUtf8File(workspace, document.absolutePath, content)
+    await this.atomicWriteUtf8File(workspace, document.absolutePath, content, durableOptions)
     return this.loadMarkdownMetadata(workspace, document)
   }
 
@@ -211,22 +218,28 @@ export class TeachingWorkspaceDocuments {
     }
   }
 
-  /** Atomic replacement prevents partial Markdown saves and never follows an existing file symlink. */
+  /**
+   * The preflight validates every parent path component before the shared
+   * publisher creates its same-directory candidate. A final target symlink is
+   * still replaced by rename rather than followed.
+   */
   private async atomicWriteUtf8File(
     workspace: ResolvedTeachingWorkspace,
     absolutePath: string,
-    content: string
+    content: string,
+    durableOptions: TeachingWorkspaceDocumentDurableOptions
   ): Promise<void> {
     const parent = dirname(absolutePath)
     await this.ensureSafeParentDirectory(workspace, parent)
-
-    const temporaryPath = join(parent, `.${basename(absolutePath)}.${randomUUID()}.tmp`)
-    try {
-      await writeFile(temporaryPath, content, 'utf8')
-      await rename(temporaryPath, absolutePath)
-    } finally {
-      await rm(temporaryPath, { force: true }).catch(() => undefined)
-    }
+    await replaceDurably({
+      path: absolutePath,
+      content,
+      // Preserve writeFile's legacy user-readable create mode (subject to
+      // umask) rather than using the private durable-file default.
+      mode: 0o666,
+      operations: durableOptions.durableFileOperations,
+      warn: durableOptions.durableWarn
+    })
   }
 
   /** Create a nested parent one level at a time so an existing symlink is detected before descent. */

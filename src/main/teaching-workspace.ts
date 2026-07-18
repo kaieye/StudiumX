@@ -356,7 +356,7 @@ type TeachingWorkspaceServiceOptions = {
   /** R2-only seams used to verify root/session authorization before commit delegation. */
   learningOutcomeLedgerFactory?: LearningOutcomeLedgerFactory
   learningOutcomeCommitterFactory?: LearningOutcomeCommitterFactory
-  /** Narrow C-4 test seam for mission canonical durable publication. */
+  /** Narrow C-4 test seam for canonical durable publication. */
   durableFileOperations?: DurableFileOperations
   /** Receives only the shared primitive's generic directory-fsync warning. */
   durableWarn?: (message: string) => void
@@ -1770,7 +1770,10 @@ export class TeachingWorkspaceService {
   async saveWorkspaceMarkdown(payload: SaveWorkspaceMarkdownPayload): Promise<SaveWorkspaceMarkdownResult> {
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
-    const document = await this.documents.saveMarkdown(workspace, payload.documentPath, payload.content)
+    const document = await this.documents.saveMarkdown(workspace, payload.documentPath, payload.content, {
+      durableFileOperations: this.durableFileOperations,
+      durableWarn: this.durableWarn
+    })
     // A failed document write must not make the workspace appear newer in the registry.
     const now = new Date().toISOString()
     const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
