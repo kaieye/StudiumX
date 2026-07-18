@@ -59,10 +59,18 @@ describe('teaching-events schema and validation', () => {
 
     for (const type of types) {
       const payload = samplePayload(type)
+      const durability =
+        type === 'session_opened' ||
+        type === 'session_resumed' ||
+        type === 'evidence_recorded' ||
+        type === 'outcome_committed' ||
+        type === 'outcome_already_committed'
+          ? 'durable'
+          : 'ephemeral'
       const result = parseTeachingEvent({
         schemaVersion: 1,
         ...baseFields(),
-        durability: type === 'turn_terminal' || type === 'loop_snapshot' ? 'ephemeral' : 'durable',
+        durability,
         payload
       })
       expect(result.ok, type).toBe(true)
@@ -136,8 +144,32 @@ describe('teaching-events schema and validation', () => {
     expect(mapCommitStatusToTerminal('conflict')).toBe('conflict')
     expect(mapCommitStatusToTerminal('canceled')).toBe('canceled')
     expect(mapCommitStatusToTerminal('interrupted')).toBe('interrupted')
-    expect(mapCommitStatusToTerminal('retryable_failure')).toBe('failed')
+    expect(mapCommitStatusToTerminal('retryable_failure')).toBeNull()
     expect(mapCommitStatusToTerminal('non_retryable_failure')).toBe('failed')
+  })
+
+
+  it('rejects free-form terminal reasonCode and durability policy violations', () => {
+    expect(parseTeachingEvent({
+      schemaVersion: 1,
+      ...baseFields(),
+      durability: 'ephemeral',
+      payload: { type: 'turn_terminal', outcome: 'failed', reasonCode: 'not_a_real_reason' }
+    })).toMatchObject({ ok: false, code: 'invalid_terminal_reason' })
+
+    expect(parseTeachingEvent({
+      schemaVersion: 1,
+      ...baseFields(),
+      durability: 'ephemeral',
+      payload: samplePayload('session_opened')
+    })).toMatchObject({ ok: false, code: 'invalid_durability' })
+
+    expect(parseTeachingEvent({
+      schemaVersion: 1,
+      ...baseFields(),
+      durability: 'durable',
+      payload: samplePayload('turn_progress')
+    })).toMatchObject({ ok: false, code: 'invalid_durability' })
   })
 
   it('adapts legacy/unknown agent stream kinds through an explicit adapter only', () => {

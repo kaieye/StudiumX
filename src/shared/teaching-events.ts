@@ -25,6 +25,25 @@ export type TeachingTurnTerminalOutcome =
   | 'declined'
   | 'conflict'
 
+/**
+ * Closed set of terminal reason codes. Free-form strings are rejected by the parser.
+ * These are coordination diagnostics, not durable mastery claims.
+ */
+export type TeachingTurnTerminalReasonCode =
+  | 'committed'
+  | 'already_committed'
+  | 'insufficient_evidence'
+  | 'conflict'
+  | 'non_retryable_failure'
+  | 'canceled'
+  | 'declined'
+  | 'interrupted'
+  | 'session_not_found'
+  | 'planner_unavailable'
+  | 'port_failed'
+  | 'port_interrupted'
+  | 'user_cancel'
+
 export type TeachingEventPayloadType =
   | 'session_opened'
   | 'session_resumed'
@@ -69,6 +88,52 @@ const TERMINAL_OUTCOMES = new Set<TeachingTurnTerminalOutcome>([
   'canceled',
   'declined',
   'conflict'
+])
+
+export const TEACHING_TURN_TERMINAL_REASON_CODES: readonly TeachingTurnTerminalReasonCode[] = [
+  'committed',
+  'already_committed',
+  'insufficient_evidence',
+  'conflict',
+  'non_retryable_failure',
+  'canceled',
+  'declined',
+  'interrupted',
+  'session_not_found',
+  'planner_unavailable',
+  'port_failed',
+  'port_interrupted',
+  'user_cancel'
+] as const
+
+const TERMINAL_REASON_CODES = new Set<string>(TEACHING_TURN_TERMINAL_REASON_CODES)
+
+/** Payload types that must always be durable. */
+const DURABILITY_MUST_DURABLE = new Set<TeachingEventPayloadType>([
+  'session_opened',
+  'session_resumed',
+  'evidence_recorded',
+  'outcome_committed',
+  'outcome_already_committed'
+])
+
+/** Payload types that must always be ephemeral. */
+const DURABILITY_MUST_EPHEMERAL = new Set<TeachingEventPayloadType>([
+  'loop_snapshot',
+  'next_step',
+  'turn_progress',
+  'turn_terminal',
+  'replay_gap',
+  'legacy_adapted',
+  'unknown_rejected',
+  'command_accepted',
+  'command_duplicate'
+])
+
+/** Payload types that may be either durable or ephemeral depending on persistence. */
+const DURABILITY_EITHER = new Set<TeachingEventPayloadType>([
+  'outcome_insufficient_evidence',
+  'recover_reconciled'
 ])
 
 const DURABILITIES = new Set<TeachingEventDurability>(['durable', 'ephemeral'])
@@ -153,7 +218,7 @@ export type TeachingTurnProgressPayload = {
 export type TeachingTurnTerminalPayload = {
   type: 'turn_terminal'
   outcome: TeachingTurnTerminalOutcome
-  reasonCode?: string
+  reasonCode?: TeachingTurnTerminalReasonCode
   message?: string
 }
 
@@ -231,6 +296,7 @@ export type TeachingEventParseErrorCode =
   | 'invalid_payload'
   | 'unrecognized_payload_type'
   | 'invalid_terminal_outcome'
+  | 'invalid_terminal_reason'
   | 'invalid_sequence'
 
 /** Closed set of parse error codes accepted on unknown_rejected payloads. */
@@ -244,6 +310,7 @@ export const TEACHING_EVENT_PARSE_ERROR_CODES: readonly TeachingEventParseErrorC
   'invalid_payload',
   'unrecognized_payload_type',
   'invalid_terminal_outcome',
+  'invalid_terminal_reason',
   'invalid_sequence'
 ] as const
 
@@ -360,6 +427,12 @@ export function parseTeachingEvent(value: unknown): TeachingEventParseResult {
   const payloadResult = parsePayload(value.payload)
   if (!payloadResult.ok) return payloadResult
 
+  const durabilityCheck = validateDurabilityPolicy(
+    durability as TeachingEventDurability,
+    payloadResult.value.type
+  )
+  if (!durabilityCheck.ok) return durabilityCheck
+
   const event: TeachingEventEnvelope = {
     schemaVersion: TEACHING_EVENT_SCHEMA_VERSION,
     durability: durability as TeachingEventDurability,
@@ -379,6 +452,9 @@ export function parseTeachingEvent(value: unknown): TeachingEventParseResult {
 /**
  * Map a durable commit/result status into a learner-safe turn terminal.
  * Does not invent mastery; only maps coordination outcomes.
+ *
+ * Returns null for retryable_failure so the turn stays open for same-turn retry.
+ * Only truly unrecoverable / final statuses produce a sticky terminal outcome.
  */
 export function mapCommitStatusToTerminal(
   status:
@@ -391,7 +467,7 @@ export function mapCommitStatusToTerminal(
     | 'canceled'
     | 'declined'
     | 'interrupted'
-): TeachingTurnTerminalOutcome {
+): TeachingTurnTerminalOutcome | null {
   switch (status) {
     case 'committed':
     case 'already_committed':
@@ -406,10 +482,43 @@ export function mapCommitStatusToTerminal(
       return 'interrupted'
     case 'declined':
       return 'declined'
-    case 'retryable_failure':
     case 'non_retryable_failure':
       return 'failed'
+    case 'retryable_failure':
+      return null
   }
+}
+
+/** True when a commit status must sticky-close the turn. */
+export function isTerminalCommitStatus(
+  status: Parameters<typeof mapCommitStatusToTerminal>[0]
+): boolean {
+  return mapCommitStatusToTerminal(status) !== null
+}
+
+export function isTeachingTurnTerminalReasonCode(
+  value: unknown
+): value is TeachingTurnTerminalReasonCode {
+  return typeof value === 'string' && TERMINAL_REASON_CODES.has(value)
+}
+
+export function teachingTurnTerminalReasonCodes(): readonly TeachingTurnTerminalReasonCode[] {
+  return [...TEACHING_TURN_TERMINAL_REASON_CODES]
+}
+
+/**
+ * Schema durability policy for a payload type.
+ * - durable: must use durability='durable'
+ * - ephemeral: must use durability='ephemeral'
+ * - either: may be durable or ephemeral based on whether a durable receipt exists
+ */
+export function teachingEventDurabilityPolicy(
+  payloadType: TeachingEventPayloadType
+): 'durable' | 'ephemeral' | 'either' {
+  if (DURABILITY_MUST_DURABLE.has(payloadType)) return 'durable'
+  if (DURABILITY_MUST_EPHEMERAL.has(payloadType)) return 'ephemeral'
+  if (DURABILITY_EITHER.has(payloadType)) return 'either'
+  return 'ephemeral'
 }
 
 /**
@@ -673,10 +782,14 @@ function parsePayload(value: unknown): { ok: true; value: TeachingEventPayload }
       if (typeof value.outcome !== 'string' || !TERMINAL_OUTCOMES.has(value.outcome as TeachingTurnTerminalOutcome)) {
         return fail('invalid_terminal_outcome', 'turn_terminal outcome is not learner-safe.', 'payload.outcome')
       }
-      let reasonCode: string | undefined
+      let reasonCode: TeachingTurnTerminalReasonCode | undefined
       if (value.reasonCode !== undefined) {
-        if (typeof value.reasonCode !== 'string' || !value.reasonCode.trim() || value.reasonCode.length > 64) {
-          return fail('invalid_payload', 'turn_terminal reasonCode is invalid.', 'payload.reasonCode')
+        if (!isTeachingTurnTerminalReasonCode(value.reasonCode)) {
+          return fail(
+            'invalid_terminal_reason',
+            'turn_terminal reasonCode is not in the closed reason set.',
+            'payload.reasonCode'
+          )
         }
         reasonCode = value.reasonCode
       }
@@ -812,6 +925,28 @@ function requireIsoTimestamp(
     )
   }
   return { ok: true, value }
+}
+
+function validateDurabilityPolicy(
+  durability: TeachingEventDurability,
+  payloadType: TeachingEventPayloadType
+): { ok: true } | TeachingEventParseFailure {
+  const policy = teachingEventDurabilityPolicy(payloadType)
+  if (policy === 'durable' && durability !== 'durable') {
+    return fail(
+      'invalid_durability',
+      `Payload type ${payloadType} requires durable durability.`,
+      'durability'
+    )
+  }
+  if (policy === 'ephemeral' && durability !== 'ephemeral') {
+    return fail(
+      'invalid_durability',
+      `Payload type ${payloadType} requires ephemeral durability.`,
+      'durability'
+    )
+  }
+  return { ok: true }
 }
 
 function fail(code: TeachingEventParseErrorCode, message: string, field?: string): TeachingEventParseFailure {

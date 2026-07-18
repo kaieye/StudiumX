@@ -10,16 +10,31 @@
  * - Intermediate open/resume/record/plan/project/recover emit progress only
  *   (no sticky terminal on healthy paths).
  * - Only finalization emits one terminal: commit outcome, cancel, or
- *   unrecoverable failure (including port throws -> failed/interrupted).
+ *   unrecoverable finalization failure (commit/cancel port throws).
+ * - retryable_failure is not sticky; the same turn may retry with a new command.
+ * - Recoverable intermediate port failures emit progress and leave the turn open.
  * - After terminal, later commands are rejected (acceptance=rejected,
- *   rejectReason=already_terminal|payload_mismatch). Sticky terminal is never
- *   rewritten; cancel after completed is NOT cancel success.
+ *   rejectReason=already_terminal|payload_mismatch|capacity_exceeded). Sticky
+ *   terminal is never rewritten; cancel after completed is NOT cancel success.
  * - Cooperative cancellation: no AbortSignal port; cancel is queued on the
- *   per-session serialize gate and runs after any in-flight command.
+ *   per-(workspace,session) serialize gate and runs after any in-flight command.
  *
- * Idempotency is scoped by (workspaceId, sessionId, commandType, operationId).
- * Event ids are scoped by (workspaceId, sessionId, eventId). Same key with a
- * different payload fingerprint is rejected (payload_mismatch).
+ * Scope keys:
+ * - Buses / closed terminals / subscriptions: (workspaceId, turnId)
+ * - Idempotency operations: (workspaceId, sessionId, turnId, commandType, operationId)
+ * - Event ids: (workspaceId, sessionId, turnId, eventId)
+ * - Operation fingerprint includes turnId (full command body).
+ *
+ * Capacity policy (fail-closed, no silent eviction of identities):
+ * - Active buses, closed-terminal identities, and idempotency records are retained.
+ * - Bounded cleanup may reclaim only closed live buses after their terminal is
+ *   already retained in the closed map (or can be retained without overflow).
+ * - When capacity is exhausted, reject before any command side effects.
+ *
+ * Authority:
+ * - Process-local only: buses, subscriptions, idempotency, and closed terminals
+ *   do not survive process restart.
+ * - Restart durable authority remains ledger / recorder / committer filesystem truth.
  */
 
 import { createHash } from 'node:crypto'
@@ -40,9 +55,11 @@ import {
   type TeachingTurnEventBus
 } from './teaching-turn-event-bus'
 import {
+  isTeachingTurnTerminalReasonCode,
   mapCommitStatusToTerminal,
   type TeachingEventEnvelope,
-  type TeachingTurnTerminalOutcome
+  type TeachingTurnTerminalOutcome,
+  type TeachingTurnTerminalReasonCode
 } from '../shared/teaching-events'
 import type { OpenLearningSessionInput } from '../shared/teaching-types/learning-session'
 import type { LessonInteraction } from '../shared/teaching-types/lesson-interaction'
@@ -135,7 +152,7 @@ export type TeachingTurnCancelCommand = {
   operationId: string
   workspaceId: string
   sessionId: string
-  reasonCode?: string
+  reasonCode?: TeachingTurnTerminalReasonCode
 }
 
 export type TeachingTurnCommand =
@@ -167,9 +184,13 @@ export type TeachingTurnAcceptance = 'accepted' | 'duplicate' | 'rejected'
 
 export type TeachingTurnRejectReason =
   | 'already_terminal'
-  | 'command_conflict'
   | 'payload_mismatch'
-  | 'turn_closed'
+  | 'capacity_exceeded'
+
+export type TeachingTurnScope = {
+  workspaceId: string
+  turnId: string
+}
 
 export type TeachingTurnExecuteResult = {
   turnId: string
@@ -186,9 +207,12 @@ export type TeachingTurnExecuteResult = {
 
 export interface TeachingTurnCoordinator {
   execute(command: TeachingTurnCommand): Promise<TeachingTurnExecuteResult>
-  /** Subscribe to live turn events (ephemeral stream only). */
-  subscribe(turnId: string, listener: (event: TeachingEventEnvelope) => void): () => void
-  replayAfter(turnId: string, afterSequence?: number): ReturnType<TeachingTurnEventBus['replayAfter']> | null
+  /** Subscribe to live turn events (ephemeral stream only). Scoped by workspace+turn. */
+  subscribe(scope: TeachingTurnScope, listener: (event: TeachingEventEnvelope) => void): () => void
+  replayAfter(
+    scope: TeachingTurnScope,
+    afterSequence?: number
+  ): ReturnType<TeachingTurnEventBus['replayAfter']> | null
 }
 
 type OperationRecord = {
@@ -197,11 +221,14 @@ type OperationRecord = {
   operationId: string
   eventId: string
   turnId: string
+  workspaceId: string
   sessionId: string
   commandType: TeachingTurnCommandType
   fingerprint: string
   result: TeachingTurnExecuteResult
 }
+
+const FINALIZATION_COMMANDS = new Set<TeachingTurnCommandType>(['commit_outcome', 'cancel_turn'])
 
 type PendingSubscription = {
   listener: (event: TeachingEventEnvelope) => void
@@ -221,11 +248,14 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
   private readonly maxOperations: number
   private readonly maxEventIds: number
   private readonly maxBuses: number
+  /** Process-local serialize tails keyed by workspaceId+sessionId. */
   private readonly sessionTails = new Map<string, Promise<void>>()
+  /** Process-local idempotency records; not durable across restart. */
   private readonly operations = new Map<string, OperationRecord>()
   private readonly eventIdIndex = new Map<string, OperationRecord>()
+  /** Process-local live buses keyed by workspaceId+turnId. */
   private readonly buses = new Map<string, TeachingTurnEventBus>()
-  /** Sticky terminals retained after closed buses are trimmed from the live map. */
+  /** Sticky terminals retained after closed buses are reclaimed from the live map. */
   private readonly closedTurnTerminals = new Map<string, TeachingEventEnvelope>()
   private readonly turnSubscriptions = new Map<string, Set<PendingSubscription>>()
 
@@ -236,17 +266,18 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     this.maxBuses = Math.max(4, Math.floor(ports.maxBuses ?? DEFAULT_MAX_BUSES))
   }
 
-  subscribe(turnId: string, listener: (event: TeachingEventEnvelope) => void): () => void {
-    const existingBus = this.buses.get(turnId)
+  subscribe(scope: TeachingTurnScope, listener: (event: TeachingEventEnvelope) => void): () => void {
+    const key = scopeKey(scope.workspaceId, scope.turnId)
+    const existingBus = this.buses.get(key)
     if (existingBus) {
       return existingBus.subscribe(listener)
     }
 
     const pending: PendingSubscription = { listener, attachedUnsub: null }
-    let set = this.turnSubscriptions.get(turnId)
+    let set = this.turnSubscriptions.get(key)
     if (!set) {
       set = new Set()
-      this.turnSubscriptions.set(turnId, set)
+      this.turnSubscriptions.set(key, set)
     }
     set.add(pending)
 
@@ -254,20 +285,22 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       set!.delete(pending)
       pending.attachedUnsub?.()
       pending.attachedUnsub = null
-      if (set!.size === 0) this.turnSubscriptions.delete(turnId)
+      if (set!.size === 0) this.turnSubscriptions.delete(key)
     }
   }
 
-  replayAfter(turnId: string, afterSequence = 0) {
-    return this.buses.get(turnId)?.replayAfter(afterSequence) ?? null
+  replayAfter(scope: TeachingTurnScope, afterSequence = 0) {
+    return this.buses.get(scopeKey(scope.workspaceId, scope.turnId))?.replayAfter(afterSequence) ?? null
   }
 
   async execute(command: TeachingTurnCommand): Promise<TeachingTurnExecuteResult> {
     const sessionId = sessionIdOf(command)
-    return this.serialize(sessionId, async () => {
+    const serializeId = `${command.workspaceId}\u0000${sessionId}`
+    return this.serialize(serializeId, async () => {
       const operationKey = scopedOperationKey(command, sessionId)
       const eventKey = scopedEventKey(command, sessionId)
       const fingerprint = commandFingerprint(command)
+      const turnKey = scopeKey(command.workspaceId, command.turnId)
 
       const byOperation = this.operations.get(operationKey)
       if (byOperation) {
@@ -284,15 +317,29 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         return this.duplicateResult(command, byEvent)
       }
 
-      const rememberedTerminal = this.closedTurnTerminals.get(command.turnId)
+      // Fail-closed capacity checks before any side effects.
+      if (this.operations.size >= this.maxOperations || this.eventIdIndex.size >= this.maxEventIds) {
+        return this.rejectResult(command, sessionId, 'capacity_exceeded')
+      }
+
+      const rememberedTerminal = this.closedTurnTerminals.get(turnKey)
       if (rememberedTerminal) {
         return this.rejectResult(command, sessionId, 'already_terminal', rememberedTerminal)
       }
 
-      const bus = this.ensureBus(command.turnId)
+      const busOrNull = this.ensureBus(command.workspaceId, command.turnId)
+      if (!busOrNull) {
+        return this.rejectResult(command, sessionId, 'capacity_exceeded')
+      }
+      const bus = busOrNull
+
+      if (bus.getWorkspaceId() !== command.workspaceId || bus.getTurnId() !== command.turnId) {
+        return this.rejectResult(command, sessionId, 'payload_mismatch')
+      }
+
       const sticky = bus.terminal()
       if (sticky) {
-        this.rememberClosedTurn(command.turnId, sticky)
+        this.tryRememberClosedTurn(turnKey, sticky)
         return this.rejectResult(command, sessionId, 'already_terminal', sticky)
       }
 
@@ -346,29 +393,12 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
               break
           }
         } catch (error) {
-          if (!bus.terminal()) {
-            const outcome: TeachingTurnTerminalOutcome =
-              isInterruptLike(error) ? 'interrupted' : 'failed'
-            this.emitTerminal(
-              bus,
-              command,
-              sessionId,
-              outcome,
-              isInterruptLike(error) ? 'port_interrupted' : 'port_failed'
-            )
-          }
-          result = {
-            turnId: command.turnId,
-            sessionId,
-            events: [...collected],
-            terminal: bus.terminal(),
-            acceptance: 'accepted'
-          }
+          result = this.handlePortFailure(command, bus, sessionId, collected, error)
         }
 
         const terminalNow = bus.terminal()
         if (terminalNow) {
-          this.rememberClosedTurn(command.turnId, terminalNow)
+          this.tryRememberClosedTurn(turnKey, terminalNow)
         }
 
         result = {
@@ -378,12 +408,28 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
           terminal: terminalNow
         }
 
+        if (
+          (this.operations.size >= this.maxOperations || this.eventIdIndex.size >= this.maxEventIds) &&
+          !this.operations.has(operationKey) &&
+          !this.eventIdIndex.has(eventKey)
+        ) {
+          return {
+            turnId: command.turnId,
+            sessionId,
+            events: [...collected],
+            terminal: terminalNow,
+            acceptance: 'rejected',
+            rejectReason: 'capacity_exceeded'
+          }
+        }
+
         const record: OperationRecord = {
           operationKey,
           eventKey,
           operationId: command.operationId,
           eventId: command.eventId,
           turnId: command.turnId,
+          workspaceId: command.workspaceId,
           sessionId,
           commandType: command.type,
           fingerprint,
@@ -554,7 +600,13 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
 
     const terminal = mapCommitStatusToTerminal(commitResult.status)
     this.emitProgress(bus, command, sessionId, 'outcome_settled', commitResult.status)
-    this.emitTerminal(bus, command, sessionId, terminal, commitResult.status)
+    // retryable_failure is not sticky — same turn may retry commit.
+    if (terminal !== null) {
+      const reasonCode = isTeachingTurnTerminalReasonCode(commitResult.status)
+        ? commitResult.status
+        : 'non_retryable_failure'
+      this.emitTerminal(bus, command, sessionId, terminal, reasonCode)
+    }
 
     return {
       turnId: command.turnId,
@@ -784,10 +836,51 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
   ): Promise<TeachingTurnExecuteResult> {
     // Cooperative: cancel runs after any prior same-session command (serialize gate).
     this.emitProgress(bus, command, command.sessionId, 'cancel_requested', command.reasonCode)
-    this.emitTerminal(bus, command, command.sessionId, 'canceled', command.reasonCode ?? 'canceled')
+    this.emitTerminal(bus, command, command.sessionId, 'canceled', command.reasonCode ?? 'user_cancel')
     return {
       turnId: command.turnId,
       sessionId: command.sessionId,
+      events: [...collected],
+      terminal: bus.terminal(),
+      acceptance: 'accepted'
+    }
+  }
+
+  private handlePortFailure(
+    command: TeachingTurnCommand,
+    bus: TeachingTurnEventBus,
+    sessionId: string,
+    collected: TeachingEventEnvelope[],
+    error: unknown
+  ): TeachingTurnExecuteResult {
+    const interrupt = isInterruptLike(error)
+    const reasonCode: TeachingTurnTerminalReasonCode = interrupt ? 'port_interrupted' : 'port_failed'
+    const stage = interrupt ? 'port_interrupted' : 'port_failed'
+
+    // Intermediate recoverable failures must not sticky-close the multi-command turn.
+    if (!FINALIZATION_COMMANDS.has(command.type) && !bus.terminal()) {
+      this.emitProgress(bus, command, sessionId, stage, reasonCode)
+      return {
+        turnId: command.turnId,
+        sessionId,
+        events: [...collected],
+        terminal: null,
+        acceptance: 'accepted'
+      }
+    }
+
+    if (!bus.terminal()) {
+      this.emitTerminal(
+        bus,
+        command,
+        sessionId,
+        interrupt ? 'interrupted' : 'failed',
+        reasonCode
+      )
+    }
+    return {
+      turnId: command.turnId,
+      sessionId,
       events: [...collected],
       terminal: bus.terminal(),
       acceptance: 'accepted'
@@ -800,8 +893,10 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     reason: TeachingTurnRejectReason,
     sticky: TeachingEventEnvelope | null = null
   ): TeachingTurnExecuteResult {
-    const bus = this.buses.get(command.turnId)
-    const terminal = sticky ?? bus?.terminal() ?? null
+    const key = scopeKey(command.workspaceId, command.turnId)
+    const bus = this.buses.get(key)
+    const terminal =
+      sticky ?? bus?.terminal() ?? this.closedTurnTerminals.get(key) ?? null
     return {
       turnId: command.turnId,
       sessionId,
@@ -813,15 +908,15 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
   }
 
   private duplicateResult(command: TeachingTurnCommand, existing: OperationRecord): TeachingTurnExecuteResult {
-    const bus = this.buses.get(command.turnId) ?? this.ensureBus(command.turnId)
-    // Do not publish onto a closed bus; return a synthetic duplicate view.
-    if (bus.isClosed()) {
+    const key = scopeKey(command.workspaceId, command.turnId)
+    const bus = this.buses.get(key)
+    if (!bus || bus.isClosed()) {
       return {
         ...existing.result,
         turnId: command.turnId,
         acceptance: 'duplicate',
         events: existing.result.events,
-        terminal: bus.terminal() ?? existing.result.terminal
+        terminal: bus?.terminal() ?? existing.result.terminal ?? this.closedTurnTerminals.get(key) ?? null
       }
     }
 
@@ -849,76 +944,66 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     }
   }
 
-  private ensureBus(turnId: string): TeachingTurnEventBus {
-    let bus = this.buses.get(turnId)
-    if (!bus) {
-      this.trimBuses()
-      bus = createTeachingTurnEventBus({ turnId, now: this.now })
-      this.buses.set(turnId, bus)
-      const pending = this.turnSubscriptions.get(turnId)
-      if (pending) {
-        for (const entry of pending) {
-          entry.attachedUnsub = bus.subscribe(entry.listener)
-        }
+  /**
+   * Ensure a workspace+turn scoped bus exists.
+   * Returns null when capacity is exhausted (fail-closed, no silent eviction of active buses).
+   */
+  private ensureBus(workspaceId: string, turnId: string): TeachingTurnEventBus | null {
+    const key = scopeKey(workspaceId, turnId)
+    let bus = this.buses.get(key)
+    if (bus) return bus
+
+    this.reclaimClosedBuses()
+    if (this.buses.size >= this.maxBuses) {
+      return null
+    }
+
+    bus = createTeachingTurnEventBus({ workspaceId, turnId, now: this.now })
+    this.buses.set(key, bus)
+    const pending = this.turnSubscriptions.get(key)
+    if (pending) {
+      for (const entry of pending) {
+        entry.attachedUnsub = bus.subscribe(entry.listener)
       }
     }
     return bus
   }
 
+  /** Insert-only identity retention — never silently evicts other operation records. */
   private rememberOperation(record: OperationRecord): void {
     this.operations.set(record.operationKey, record)
     this.eventIdIndex.set(record.eventKey, record)
-    while (this.operations.size > this.maxOperations) {
-      const oldest = this.operations.keys().next().value
-      if (oldest === undefined) break
-      const evicted = this.operations.get(oldest)
-      this.operations.delete(oldest)
-      if (evicted && this.eventIdIndex.get(evicted.eventKey) === evicted) {
-        this.eventIdIndex.delete(evicted.eventKey)
-      }
-    }
-    while (this.eventIdIndex.size > this.maxEventIds) {
-      const oldest = this.eventIdIndex.keys().next().value
-      if (oldest === undefined) break
-      const evicted = this.eventIdIndex.get(oldest)
-      this.eventIdIndex.delete(oldest)
-      if (evicted && this.operations.get(evicted.operationKey) === evicted) {
-        this.operations.delete(evicted.operationKey)
-      }
-    }
   }
 
-  private rememberClosedTurn(turnId: string, terminal: TeachingEventEnvelope): void {
-    this.closedTurnTerminals.set(turnId, terminal)
-    while (this.closedTurnTerminals.size > this.maxBuses) {
-      const oldest = this.closedTurnTerminals.keys().next().value
-      if (oldest === undefined) break
-      this.closedTurnTerminals.delete(oldest)
+  /** Retain closed terminal identity without silent eviction. Returns false if full. */
+  private tryRememberClosedTurn(turnKey: string, terminal: TeachingEventEnvelope): boolean {
+    if (this.closedTurnTerminals.has(turnKey)) {
+      return true
     }
+    if (this.closedTurnTerminals.size >= this.maxBuses) {
+      return false
+    }
+    this.closedTurnTerminals.set(turnKey, terminal)
+    return true
   }
 
-  private forgetBus(turnId: string, bus: TeachingTurnEventBus): void {
-    const terminal = bus.terminal()
-    if (terminal) {
-      this.rememberClosedTurn(turnId, terminal)
-    }
-    this.buses.delete(turnId)
-  }
-
-  private trimBuses(): void {
-    if (this.buses.size < this.maxBuses) return
-    for (const [turnId, bus] of [...this.buses]) {
-      if (bus.isClosed()) {
-        this.forgetBus(turnId, bus)
-        if (this.buses.size < this.maxBuses) return
+  /**
+   * Bounded cleanup: reclaim only closed live buses whose terminal identity is already
+   * retained (or can be retained) in closedTurnTerminals. Never drops active buses or
+   * closed identities.
+   */
+  private reclaimClosedBuses(): void {
+    for (const [key, bus] of [...this.buses]) {
+      if (!bus.isClosed()) continue
+      const terminal = bus.terminal()
+      if (!terminal) {
+        this.buses.delete(key)
+        continue
       }
-    }
-    while (this.buses.size >= this.maxBuses) {
-      const oldest = this.buses.keys().next().value
-      if (oldest === undefined) break
-      const bus = this.buses.get(oldest)
-      if (bus) this.forgetBus(oldest, bus)
-      else this.buses.delete(oldest)
+      if (!this.tryRememberClosedTurn(key, terminal)) {
+        continue
+      }
+      this.buses.delete(key)
     }
   }
 
@@ -957,7 +1042,7 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     command: TeachingTurnCommand,
     sessionId: string,
     outcome: TeachingTurnTerminalOutcome,
-    reasonCode?: string
+    reasonCode?: TeachingTurnTerminalReasonCode
   ): void {
     bus.publishTerminal({
       occurredAt: this.now(),
@@ -971,22 +1056,22 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     })
   }
 
-  private async serialize<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
-    const previous = this.sessionTails.get(sessionId) ?? Promise.resolve()
+  private async serialize<T>(gateKey: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.sessionTails.get(gateKey) ?? Promise.resolve()
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
     const tail = previous.catch(() => undefined).then(() => gate)
-    this.sessionTails.set(sessionId, tail)
+    this.sessionTails.set(gateKey, tail)
 
     await previous.catch(() => undefined)
     try {
       return await work()
     } finally {
       release()
-      if (this.sessionTails.get(sessionId) === tail) {
-        this.sessionTails.delete(sessionId)
+      if (this.sessionTails.get(gateKey) === tail) {
+        this.sessionTails.delete(gateKey)
       }
     }
   }
@@ -1010,20 +1095,23 @@ function sessionIdOf(command: TeachingTurnCommand): string {
   }
 }
 
-/** Scoped idempotency: (workspaceId, sessionId, commandType, operationId). */
+function scopeKey(workspaceId: string, turnId: string): string {
+  return `${workspaceId}\u0000${turnId}`
+}
+
+/** Scoped idempotency: (workspaceId, sessionId, turnId, commandType, operationId). */
 function scopedOperationKey(command: TeachingTurnCommand, sessionId: string): string {
-  return `${command.workspaceId}\u0000${sessionId}\u0000${command.type}\u0000${command.operationId}`
+  return `${command.workspaceId}\u0000${sessionId}\u0000${command.turnId}\u0000${command.type}\u0000${command.operationId}`
 }
 
-/** Scoped event identity: (workspaceId, sessionId, eventId). */
+/** Scoped event identity: (workspaceId, sessionId, turnId, eventId). */
 function scopedEventKey(command: TeachingTurnCommand, sessionId: string): string {
-  return `${command.workspaceId}\u0000${sessionId}\u0000${command.eventId}`
+  return `${command.workspaceId}\u0000${sessionId}\u0000${command.turnId}\u0000${command.eventId}`
 }
 
+/** Fingerprint includes turnId (full command body). */
 function commandFingerprint(command: TeachingTurnCommand): string {
-  const { turnId: _turnId, ...rest } = command
-  void _turnId
-  return createHash('sha256').update(stableStringify(rest)).digest('hex')
+  return createHash('sha256').update(stableStringify(command)).digest('hex')
 }
 
 function stableStringify(value: unknown): string {

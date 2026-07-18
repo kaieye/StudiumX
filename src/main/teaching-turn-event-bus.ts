@@ -18,12 +18,15 @@ import {
   isTeachingTurnTerminalPayload,
   type TeachingEventEnvelope,
   type TeachingEventAuthoringInput,
-  type TeachingTurnTerminalPayload
+  type TeachingTurnTerminalPayload,
+  type TeachingTurnTerminalReasonCode
 } from '../shared/teaching-events'
 
 export type TeachingTurnEventListener = (event: TeachingEventEnvelope) => void
 
 export type TeachingTurnEventBusOptions = {
+  /** Workspace scope — buses must never mix workspaces for the same turnId. */
+  workspaceId: string
   turnId: string
   maxReplayBytes?: number
   now?: () => string
@@ -61,6 +64,7 @@ export class TeachingTurnEventBusReentrancyError extends Error {
 const DEFAULT_MAX_REPLAY_BYTES = 64 * 1024
 
 export class TeachingTurnEventBus {
+  private readonly workspaceId: string
   private readonly turnId: string
   private readonly maxReplayBytes: number
   private readonly now: () => string
@@ -74,10 +78,22 @@ export class TeachingTurnEventBus {
   private publishing = false
 
   constructor(options: TeachingTurnEventBusOptions) {
+    if (typeof options.workspaceId !== 'string' || !options.workspaceId.trim()) {
+      throw new Error('Teaching turn event bus requires a workspaceId.')
+    }
     if (!options.turnId.trim()) throw new Error('Teaching turn event bus requires a turnId.')
+    this.workspaceId = options.workspaceId
     this.turnId = options.turnId
     this.maxReplayBytes = Math.max(1024, Math.floor(options.maxReplayBytes ?? DEFAULT_MAX_REPLAY_BYTES))
     this.now = options.now ?? (() => new Date().toISOString())
+  }
+
+  getWorkspaceId(): string {
+    return this.workspaceId
+  }
+
+  getTurnId(): string {
+    return this.turnId
   }
 
   subscribe(listener: TeachingTurnEventListener): () => void {
@@ -104,11 +120,15 @@ export class TeachingTurnEventBus {
     if (input.turnId !== undefined && input.turnId !== this.turnId) {
       throw new Error('Teaching turn event bus rejects cross-turn publish.')
     }
+    if (input.workspaceId !== this.workspaceId) {
+      throw new Error('Teaching turn event bus rejects cross-workspace publish.')
+    }
 
     this.publishing = true
     try {
       const draft = createTeachingEvent({
         ...input,
+        workspaceId: this.workspaceId,
         turnId: this.turnId,
         occurredAt: input.occurredAt || this.now()
       })
@@ -144,14 +164,14 @@ export class TeachingTurnEventBus {
     input: Omit<TeachingEventAuthoringInput, 'sequence' | 'payload' | 'durability'> & {
       durability?: TeachingEventAuthoringInput['durability']
       outcome: TeachingTurnTerminalPayload['outcome']
-      reasonCode?: string
+      reasonCode?: TeachingTurnTerminalReasonCode
       message?: string
     }
   ): TeachingEventEnvelope {
     return this.publish({
       durability: input.durability ?? 'ephemeral',
       occurredAt: input.occurredAt,
-      workspaceId: input.workspaceId,
+      workspaceId: this.workspaceId,
       sessionId: input.sessionId,
       turnId: this.turnId,
       eventId: input.eventId,

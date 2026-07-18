@@ -227,12 +227,12 @@ describe('TeachingTurnCoordinator', () => {
   })
 
   it('maps commit outcomes to learner-safe terminals', async () => {
-    const cases: Array<{ status: OutcomeCommitResult['status']; terminal: string }> = [
+    const cases: Array<{ status: OutcomeCommitResult['status']; terminal: string | null }> = [
       { status: 'committed', terminal: 'completed' },
       { status: 'already_committed', terminal: 'completed' },
       { status: 'insufficient_evidence', terminal: 'failed' },
       { status: 'conflict', terminal: 'conflict' },
-      { status: 'retryable_failure', terminal: 'failed' },
+      { status: 'retryable_failure', terminal: null },
       { status: 'non_retryable_failure', terminal: 'failed' }
     ]
 
@@ -266,10 +266,15 @@ describe('TeachingTurnCoordinator', () => {
         workspaceId: 'workspace-1',
         request: { sessionId: 'session-1', operationId: `op-commit-${index}` }
       })
-      expect(result.terminal?.payload).toMatchObject({
-        type: 'turn_terminal',
-        outcome: item.terminal
-      })
+      if (item.terminal === null) {
+        expect(result.terminal).toBeNull()
+        expect(result.events.some((e) => e.payload.type === 'turn_terminal')).toBe(false)
+      } else {
+        expect(result.terminal?.payload).toMatchObject({
+          type: 'turn_terminal',
+          outcome: item.terminal
+        })
+      }
     }
   })
 
@@ -637,7 +642,7 @@ describe('TeachingTurnCoordinator', () => {
     expect(payloadMismatch2.rejectReason).toBe('payload_mismatch')
   })
 
-  it('tears down subscribe-before-bus listeners and isolates port throws to learner-safe terminals', async () => {
+  it('tears down subscribe-before-bus listeners and keeps intermediate port failures non-terminal', async () => {
     const ports = createPorts({
       open: vi.fn(async () => {
         throw new Error('ledger boom')
@@ -645,7 +650,7 @@ describe('TeachingTurnCoordinator', () => {
     })
     const coordinator = createTeachingTurnCoordinator(ports)
     const seen: string[] = []
-    const unsub = coordinator.subscribe('turn-pending', (event) => {
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-pending' }, (event) => {
       seen.push(event.payload.type)
     })
     unsub()
@@ -662,14 +667,15 @@ describe('TeachingTurnCoordinator', () => {
         courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
       }
     })
-    expect(failed.terminal?.payload).toMatchObject({ outcome: 'failed', reasonCode: 'port_failed' })
+    expect(failed.terminal).toBeNull()
     expect(failed.events.some((e) => e.payload.type === 'command_accepted')).toBe(true)
-    expect(failed.events.some((e) => e.payload.type === 'turn_terminal')).toBe(true)
+    expect(failed.events.some((e) => e.payload.type === 'turn_terminal')).toBe(false)
+    expect(failed.events.some((e) => e.payload.type === 'turn_progress' && (e.payload as { stage: string }).stage === 'port_failed')).toBe(true)
     // unsubscribed before bus attach => no live delivery
     expect(seen).toEqual([])
   })
 
-  it('maps interrupt-like port throws to interrupted terminal', async () => {
+  it('maps interrupt-like intermediate port throws to progress without sticky terminal', async () => {
     const abortError = new Error('operation aborted by user')
     abortError.name = 'AbortError'
     const ports = createPorts({
@@ -690,11 +696,9 @@ describe('TeachingTurnCoordinator', () => {
         courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
       }
     })
-    expect(interrupted.terminal?.payload).toMatchObject({
-      outcome: 'interrupted',
-      reasonCode: 'port_interrupted'
-    })
+    expect(interrupted.terminal).toBeNull()
     expect(interrupted.acceptance).toBe('accepted')
+    expect(interrupted.events.some((e) => e.payload.type === 'turn_progress' && (e.payload as { stage: string }).stage === 'port_interrupted')).toBe(true)
   })
 
   it('marks insufficient_evidence and recover_reconciled ephemeral unless persisted', async () => {
@@ -782,59 +786,40 @@ describe('TeachingTurnCoordinator', () => {
     expect(assemble).toHaveBeenCalledTimes(1)
     expect(assemble.mock.calls[0][0].resources).toEqual(readyResources)
 
-    for (let i = 0; i < 12; i += 1) {
-      await coordinator.execute({
+    // Fill idempotency capacity fail-closed (maxOperations=8 includes prior project op).
+    // Keep one turnId so bus capacity is not exhausted while testing operation identity retention.
+    for (let i = 0; i < 7; i += 1) {
+      const r = await coordinator.execute({
         type: 'resume_session',
-        turnId: `turn-bound-${i}`,
+        turnId: 'turn-bound-cap',
         eventId: `ev-bound-${i}`,
         operationId: `op-bound-${i}`,
         workspaceId: 'workspace-1',
         sessionId: 'session-1'
       })
+      expect(r.acceptance).toBe('accepted')
     }
-    // Cache bounded: earliest ops forgotten => re-execution is accepted again
+    const overCap = await coordinator.execute({
+      type: 'resume_session',
+      turnId: 'turn-bound-cap',
+      eventId: 'ev-bound-over',
+      operationId: 'op-bound-over',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1'
+    })
+    expect(overCap.acceptance).toBe('rejected')
+    expect(overCap.rejectReason).toBe('capacity_exceeded')
+
+    // Earliest op identity retained (not silently evicted) => duplicate still works.
     const earlyReplay = await coordinator.execute({
       type: 'resume_session',
-      turnId: 'turn-bound-0',
+      turnId: 'turn-bound-cap',
       eventId: 'ev-bound-0',
       operationId: 'op-bound-0',
       workspaceId: 'workspace-1',
       sessionId: 'session-1'
     })
-    expect(['accepted', 'duplicate']).toContain(earlyReplay.acceptance)
-
-    // Closed terminals survive bus cache eviction.
-    const terminalTurn = await coordinator.execute({
-      type: 'cancel_turn',
-      turnId: 'turn-closed-retain',
-      eventId: 'ev-closed-retain',
-      operationId: 'op-closed-retain',
-      workspaceId: 'workspace-1',
-      sessionId: 'session-1',
-      reasonCode: 'user_cancel'
-    })
-    expect(terminalTurn.terminal?.payload).toMatchObject({ outcome: 'canceled' })
-    for (let i = 0; i < 8; i += 1) {
-      await coordinator.execute({
-        type: 'resume_session',
-        turnId: `turn-evict-${i}`,
-        eventId: `ev-evict-${i}`,
-        operationId: `op-evict-${i}`,
-        workspaceId: 'workspace-1',
-        sessionId: 'session-1'
-      })
-    }
-    const afterEvict = await coordinator.execute({
-      type: 'resume_session',
-      turnId: 'turn-closed-retain',
-      eventId: 'ev-after-evict',
-      operationId: 'op-after-evict',
-      workspaceId: 'workspace-1',
-      sessionId: 'session-1'
-    })
-    expect(afterEvict.acceptance).toBe('rejected')
-    expect(afterEvict.rejectReason).toBe('already_terminal')
-    expect(afterEvict.terminal?.payload).toMatchObject({ outcome: 'canceled' })
+    expect(earlyReplay.acceptance).toBe('duplicate')
   })
 
   it('queues cooperative cancel after in-flight command without abort port', async () => {
@@ -878,5 +863,295 @@ describe('TeachingTurnCoordinator', () => {
     expect(opened.terminal).toBeNull()
     expect(canceled.terminal?.payload).toMatchObject({ outcome: 'canceled' })
   })
+
+  it('positive pre-subscribe receives live events for workspace+turn scope', async () => {
+    const coordinator = createTeachingTurnCoordinator(createPorts())
+    const seen: string[] = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-presub' }, (event) => {
+      seen.push(event.payload.type)
+    })
+    await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-presub',
+      eventId: 'ev-presub',
+      operationId: 'op-presub',
+      workspaceId: 'workspace-1',
+      open: {
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+    unsub()
+    expect(seen).toContain('command_accepted')
+    expect(seen).toContain('session_opened')
+    expect(seen).toContain('turn_progress')
+  })
+
+  it('isolates same turnId across workspaces and keeps independent buses', async () => {
+    const coordinator = createTeachingTurnCoordinator(createPorts())
+    const a = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-shared',
+      eventId: 'ev-a',
+      operationId: 'op-a',
+      workspaceId: 'workspace-a',
+      open: {
+        sessionId: 'session-a',
+        workspaceId: 'workspace-a',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+    const b = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-shared',
+      eventId: 'ev-b',
+      operationId: 'op-b',
+      workspaceId: 'workspace-b',
+      open: {
+        sessionId: 'session-b',
+        workspaceId: 'workspace-b',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+    expect(a.acceptance).toBe('accepted')
+    expect(b.acceptance).toBe('accepted')
+    expect(a.terminal).toBeNull()
+    expect(b.terminal).toBeNull()
+
+    await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-shared',
+      eventId: 'ev-cancel-a',
+      operationId: 'op-cancel-a',
+      workspaceId: 'workspace-a',
+      sessionId: 'session-a',
+      reasonCode: 'user_cancel'
+    })
+    const stillOpenB = await coordinator.execute({
+      type: 'resume_session',
+      turnId: 'turn-shared',
+      eventId: 'ev-resume-b',
+      operationId: 'op-resume-b',
+      workspaceId: 'workspace-b',
+      sessionId: 'session-b'
+    })
+    expect(stillOpenB.acceptance).toBe('accepted')
+    expect(stillOpenB.terminal).toBeNull()
+
+    const closedA = await coordinator.execute({
+      type: 'resume_session',
+      turnId: 'turn-shared',
+      eventId: 'ev-resume-a',
+      operationId: 'op-resume-a',
+      workspaceId: 'workspace-a',
+      sessionId: 'session-a'
+    })
+    expect(closedA.acceptance).toBe('rejected')
+    expect(closedA.rejectReason).toBe('already_terminal')
+  })
+
+  it('allows same-turn retry after retryable_failure without sticky terminal', async () => {
+    let calls = 0
+    const commit = vi.fn(async (): Promise<OutcomeCommitResult> => {
+      calls += 1
+      if (calls === 1) {
+        return { status: 'retryable_failure', reason: 'temporarily_unavailable' } as OutcomeCommitResult
+      }
+      return {
+        status: 'committed',
+        outcome: { kind: 'established' },
+        recordSaved: true,
+        catalogRecordPresent: true
+      } as OutcomeCommitResult
+    })
+    const coordinator = createTeachingTurnCoordinator(createPorts({ commit }))
+    const first = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-retry',
+      eventId: 'ev-retry-1',
+      operationId: 'op-retry-1',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-retry-1' }
+    })
+    expect(first.terminal).toBeNull()
+    const second = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-retry',
+      eventId: 'ev-retry-2',
+      operationId: 'op-retry-2',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-retry-2' }
+    })
+    expect(second.acceptance).toBe('accepted')
+    expect(second.terminal?.payload).toMatchObject({ outcome: 'completed', reasonCode: 'committed' })
+  })
+
+  it('treats same operationId on different turns as independent (fingerprint includes turnId)', async () => {
+    const ports = createPorts()
+    const coordinator = createTeachingTurnCoordinator(ports)
+    const baseOpen = {
+      sessionId: 'session-1',
+      workspaceId: 'workspace-1',
+      courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+    }
+    const first = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-x',
+      eventId: 'ev-shared-op',
+      operationId: 'op-shared',
+      workspaceId: 'workspace-1',
+      open: baseOpen
+    })
+    const second = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-y',
+      eventId: 'ev-shared-op-2',
+      operationId: 'op-shared',
+      workspaceId: 'workspace-1',
+      open: baseOpen
+    })
+    expect(first.acceptance).toBe('accepted')
+    expect(second.acceptance).toBe('accepted')
+    expect(ports.ledger.open).toHaveBeenCalledTimes(2)
+  })
+
+  it('fail-closes when active bus capacity is exhausted without silent active eviction', async () => {
+    const coordinator = createTeachingTurnCoordinator({
+      ...createPorts(),
+      maxOperations: 64,
+      maxEventIds: 64,
+      maxBuses: 4
+    })
+    for (let i = 0; i < 4; i += 1) {
+      const r = await coordinator.execute({
+        type: 'open_session',
+        turnId: `turn-active-${i}`,
+        eventId: `ev-active-${i}`,
+        operationId: `op-active-${i}`,
+        workspaceId: 'workspace-1',
+        open: {
+          sessionId: `session-active-${i}`,
+          workspaceId: 'workspace-1',
+          courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+        }
+      })
+      expect(r.acceptance).toBe('accepted')
+      expect(r.terminal).toBeNull()
+    }
+    const blocked = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-active-blocked',
+      eventId: 'ev-active-blocked',
+      operationId: 'op-active-blocked',
+      workspaceId: 'workspace-1',
+      open: {
+        sessionId: 'session-active-blocked',
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+    expect(blocked.acceptance).toBe('rejected')
+    expect(blocked.rejectReason).toBe('capacity_exceeded')
+
+    // Existing active turn still works
+    const still = await coordinator.execute({
+      type: 'resume_session',
+      turnId: 'turn-active-0',
+      eventId: 'ev-active-0-resume',
+      operationId: 'op-active-0-resume',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-active-0'
+    })
+    expect(still.acceptance).toBe('accepted')
+  })
+
+  it('reclaims closed buses under pressure while retaining closed terminal identity', async () => {
+    const coordinator = createTeachingTurnCoordinator({
+      ...createPorts(),
+      maxOperations: 64,
+      maxEventIds: 64,
+      maxBuses: 4
+    })
+    for (let i = 0; i < 4; i += 1) {
+      const canceled = await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: `turn-closed-${i}`,
+        eventId: `ev-closed-${i}`,
+        operationId: `op-closed-${i}`,
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      expect(canceled.terminal?.payload).toMatchObject({ outcome: 'canceled' })
+    }
+    // New active turn can be created after closed reclaim
+    const opened = await coordinator.execute({
+      type: 'open_session',
+      turnId: 'turn-after-reclaim',
+      eventId: 'ev-after-reclaim',
+      operationId: 'op-after-reclaim',
+      workspaceId: 'workspace-1',
+      open: {
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+        courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+      }
+    })
+    expect(opened.acceptance).toBe('accepted')
+
+    const stillClosed = await coordinator.execute({
+      type: 'resume_session',
+      turnId: 'turn-closed-0',
+      eventId: 'ev-still-closed',
+      operationId: 'op-still-closed',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1'
+    })
+    expect(stillClosed.acceptance).toBe('rejected')
+    expect(stillClosed.rejectReason).toBe('already_terminal')
+    expect(stillClosed.terminal?.payload).toMatchObject({ outcome: 'canceled' })
+  })
+
+  it('serializes concurrent commands for the same scoped turn/session', async () => {
+    let active = 0
+    let maxActive = 0
+    const open = vi.fn(async () => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await new Promise((resolve) => setTimeout(resolve, 15))
+      active -= 1
+      return sessionSnapshot({ id: 'session-serial' })
+    })
+    const coordinator = createTeachingTurnCoordinator(createPorts({ open }))
+    await Promise.all([
+      coordinator.execute({
+        type: 'open_session',
+        turnId: 'turn-serial-1',
+        eventId: 'ev-s1',
+        operationId: 'op-s1',
+        workspaceId: 'workspace-1',
+        open: {
+          sessionId: 'session-serial',
+          workspaceId: 'workspace-1',
+          courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+        }
+      }),
+      coordinator.execute({
+        type: 'open_session',
+        turnId: 'turn-serial-2',
+        eventId: 'ev-s2',
+        operationId: 'op-s2',
+        workspaceId: 'workspace-1',
+        open: {
+          sessionId: 'session-serial',
+          workspaceId: 'workspace-1',
+          courseRef: { courseId: 'course-1', courseName: 'Course', relativePath: 'courses/course-1' }
+        }
+      })
+    ])
+    expect(maxActive).toBe(1)
+  })
+
 
 })

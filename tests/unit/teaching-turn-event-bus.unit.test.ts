@@ -28,7 +28,7 @@ function publishMany(
 
 describe('TeachingTurnEventBus', () => {
   it('assigns per-turn monotonic sequences starting at 1', () => {
-    const bus = createTeachingTurnEventBus({ turnId: 'turn-1', now: () => '2026-07-18T10:00:00.000Z' })
+    const bus = createTeachingTurnEventBus({ workspaceId: 'workspace-1', turnId: 'turn-1', now: () => '2026-07-18T10:00:00.000Z' })
     const first = bus.publish({
       durability: 'ephemeral',
       occurredAt: '2026-07-18T10:00:00.000Z',
@@ -51,7 +51,7 @@ describe('TeachingTurnEventBus', () => {
   })
 
   it('supports subscribe/unsubscribe and does not deliver after unsubscribe', () => {
-    const bus = createTeachingTurnEventBus({ turnId: 'turn-1' })
+    const bus = createTeachingTurnEventBus({ workspaceId: 'workspace-1', turnId: 'turn-1' })
     const listener = vi.fn()
     const unsubscribe = bus.subscribe(listener)
     bus.publish({
@@ -76,7 +76,7 @@ describe('TeachingTurnEventBus', () => {
   })
 
   it('keeps sticky terminal exactly once and rejects all subsequent publishes', () => {
-    const bus = createTeachingTurnEventBus({ turnId: 'turn-1' })
+    const bus = createTeachingTurnEventBus({ workspaceId: 'workspace-1', turnId: 'turn-1' })
     const first = bus.publishTerminal({
       occurredAt: '2026-07-18T10:00:00.000Z',
       workspaceId: 'workspace-1',
@@ -110,8 +110,7 @@ describe('TeachingTurnEventBus', () => {
   })
 
   it('signals replay gaps after bounded truncation', () => {
-    const bus = createTeachingTurnEventBus({
-      turnId: 'turn-1',
+    const bus = createTeachingTurnEventBus({ workspaceId: 'workspace-1', turnId: 'turn-1',
       maxReplayBytes: 1800
     })
     publishMany(bus, 12)
@@ -123,7 +122,7 @@ describe('TeachingTurnEventBus', () => {
   })
 
   it('replayAfter returns only events after the requested sequence and exposes nextSequence', () => {
-    const bus = createTeachingTurnEventBus({ turnId: 'turn-1' })
+    const bus = createTeachingTurnEventBus({ workspaceId: 'workspace-1', turnId: 'turn-1' })
     publishMany(bus, 3, 'keep')
     const replay = bus.replayAfter(1)
     expect(replay.requestedAfterSequence).toBe(1)
@@ -133,7 +132,7 @@ describe('TeachingTurnEventBus', () => {
   })
 
   it('rejects cross-turn publishes and does not claim durable authority', () => {
-    const bus = createTeachingTurnEventBus({ turnId: 'turn-1' })
+    const bus = createTeachingTurnEventBus({ workspaceId: 'workspace-1', turnId: 'turn-1' })
     expect(() =>
       bus.publish({
         durability: 'durable',
@@ -167,7 +166,7 @@ describe('TeachingTurnEventBus', () => {
   })
 
   it('isolates listener throws and rejects reentrant publish deterministically', () => {
-    const bus = createTeachingTurnEventBus({ turnId: 'turn-listen' })
+    const bus = createTeachingTurnEventBus({ workspaceId: 'workspace-1', turnId: 'turn-listen' })
     const seen: string[] = []
     bus.subscribe(() => {
       seen.push('boom')
@@ -237,7 +236,7 @@ describe('TeachingTurnEventBus', () => {
   })
 
   it('bounds replay cache by maxReplayBytes', () => {
-    const bus = createTeachingTurnEventBus({ turnId: 'turn-bound', maxReplayBytes: 1500 })
+    const bus = createTeachingTurnEventBus({ workspaceId: 'workspace-1', turnId: 'turn-bound', maxReplayBytes: 1500 })
     for (let i = 0; i < 40; i += 1) {
       bus.publish({
         durability: 'ephemeral',
@@ -252,6 +251,23 @@ describe('TeachingTurnEventBus', () => {
     expect(replay.droppedEvents).toBeGreaterThan(0)
     expect(replay.events.length).toBeLessThan(40)
     expect(replay.hasGap).toBe(true)
+  })
+
+  it('rejects cross-workspace publish and requires workspaceId', () => {
+    expect(() => createTeachingTurnEventBus({ turnId: 'turn-1' } as never)).toThrow(/workspaceId/)
+    const bus = createTeachingTurnEventBus({ workspaceId: 'workspace-1', turnId: 'turn-1' })
+    expect(bus.getWorkspaceId()).toBe('workspace-1')
+    expect(bus.getTurnId()).toBe('turn-1')
+    expect(() =>
+      bus.publish({
+        durability: 'ephemeral',
+        occurredAt: '2026-07-18T10:00:00.000Z',
+        workspaceId: 'workspace-other',
+        sessionId: 'session-1',
+        eventId: 'e-x',
+        payload: { type: 'turn_progress', stage: 'x' }
+      })
+    ).toThrow(/cross-workspace/)
   })
 
 })
