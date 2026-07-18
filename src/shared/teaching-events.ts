@@ -433,6 +433,10 @@ export function parseTeachingEvent(value: unknown): TeachingEventParseResult {
   )
   if (!durabilityCheck.ok) return durabilityCheck
 
+  // Fail-closed: payload-embedded session identity must match envelope sessionId.
+  const identityCheck = validatePayloadIdentityBinding(sessionId.value, payloadResult.value)
+  if (!identityCheck.ok) return identityCheck
+
   const event: TeachingEventEnvelope = {
     schemaVersion: TEACHING_EVENT_SCHEMA_VERSION,
     durability: durability as TeachingEventDurability,
@@ -597,6 +601,44 @@ export function isDurableTeachingEvent(event: TeachingEventEnvelope): boolean {
 
 export function teachingEventPayloadTypes(): readonly TeachingEventPayloadType[] {
   return [...PAYLOAD_TYPES]
+}
+
+/**
+ * Envelope sessionId is authoritative. When a payload embeds sessionId, it must
+ * match (null snapshot session is allowed only for loop_snapshot empty projection).
+ */
+function validatePayloadIdentityBinding(
+  envelopeSessionId: string,
+  payload: TeachingEventPayload
+): TeachingEventParseResult | { ok: true } {
+  const embedded = payloadSessionId(payload)
+  if (embedded === undefined) return { ok: true }
+  if (embedded === null) return { ok: true }
+  if (embedded !== envelopeSessionId) {
+    return fail(
+      'invalid_payload',
+      'Payload sessionId must match envelope sessionId.',
+      'payload.sessionId'
+    )
+  }
+  return { ok: true }
+}
+
+function payloadSessionId(payload: TeachingEventPayload): string | null | undefined {
+  switch (payload.type) {
+    case 'session_opened':
+    case 'session_resumed':
+    case 'evidence_recorded':
+    case 'outcome_committed':
+    case 'outcome_already_committed':
+    case 'outcome_insufficient_evidence':
+    case 'recover_reconciled':
+      return payload.sessionId
+    case 'loop_snapshot':
+      return payload.sessionId
+    default:
+      return undefined
+  }
 }
 
 function parsePayload(value: unknown): { ok: true; value: TeachingEventPayload } | TeachingEventParseFailure {

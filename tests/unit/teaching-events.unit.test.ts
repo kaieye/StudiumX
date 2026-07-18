@@ -245,8 +245,28 @@ describe('teaching-events schema and validation', () => {
     expect(bad).toMatchObject({ ok: false, code: 'invalid_payload', field: 'payload.reasonCode' })
   })
 
-})
+  it('rejects payload sessionId mismatch with envelope', () => {
+    const result = parseTeachingEvent({
+      schemaVersion: 1,
+      ...baseFields(),
+      sessionId: 'session-envelope',
+      durability: 'durable',
+      payload: {
+        type: 'session_opened',
+        sessionId: 'session-OTHER',
+        courseId: 'course-1',
+        status: 'active',
+        source: 'canonical'
+      }
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.code).toBe('invalid_payload')
+      expect(result.field).toBe('payload.sessionId')
+    }
+  })
 
+})
 function samplePayload(type: string) {
   switch (type) {
     case 'session_opened':

@@ -17,19 +17,28 @@
  *   rejectReason=already_terminal|payload_mismatch|capacity_exceeded). Sticky
  *   terminal is never rewritten; cancel after completed is NOT cancel success.
  * - Cooperative cancellation: no AbortSignal port; cancel is queued on the
- *   per-(workspace,session) serialize gate and runs after any in-flight command.
+ *   per-(workspace,turn) serialize gate (primary) with optional per-session
+ *   secondary lock, and runs after any in-flight command for that scope.
  *
  * Scope keys:
  * - Buses / closed terminals / subscriptions: (workspaceId, turnId)
  * - Idempotency operations: (workspaceId, sessionId, turnId, commandType, operationId)
  * - Event ids: (workspaceId, sessionId, turnId, eventId)
  * - Operation fingerprint includes turnId (full command body).
+ * - Serialize primary: (workspaceId, turnId); secondary: (workspaceId, sessionId).
  *
  * Capacity policy (fail-closed, no silent eviction of identities):
  * - Active buses, closed-terminal identities, and idempotency records are retained.
  * - Bounded cleanup may reclaim only closed live buses after their terminal is
- *   already retained in the closed map (or can be retained without overflow).
+ *   already retained in the closed archive (or can be retained without overflow).
+ * - Admission reservation: reserve operation + event-id slots (and bus slot when
+ *   creating) atomically before any port call, publish, or durable/ephemeral
+ *   event side effect. Failed admission => zero side effects. On completion or
+ *   handled failure, commit the reserved operation; only pure pre-effect rejects
+ *   release the reservation.
  * - When capacity is exhausted, reject before any command side effects.
+ * - Envelope workspaceId/sessionId/turnId/operationId are fail-closed bound to
+ *   command payload fields and port-returned session/workspace identity.
  *
  * Authority:
  * - Process-local only: buses, subscriptions, idempotency, and closed terminals
@@ -225,7 +234,17 @@ type OperationRecord = {
   sessionId: string
   commandType: TeachingTurnCommandType
   fingerprint: string
-  result: TeachingTurnExecuteResult
+  /** reserved = capacity held before side effects; committed = terminal result remembered */
+  status: 'reserved' | 'committed'
+  result: TeachingTurnExecuteResult | null
+}
+
+type ClosedTurnArchive = {
+  workspaceId: string
+  turnId: string
+  terminal: TeachingEventEnvelope
+  /** Highest sequence known when archived (terminal sequence). */
+  sequence: number
 }
 
 const FINALIZATION_COMMANDS = new Set<TeachingTurnCommandType>(['commit_outcome', 'cancel_turn'])
@@ -248,15 +267,21 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
   private readonly maxOperations: number
   private readonly maxEventIds: number
   private readonly maxBuses: number
-  /** Process-local serialize tails keyed by workspaceId+sessionId. */
+  /** Primary serialize tails keyed by workspaceId+turnId (stable across session/pending changes). */
+  private readonly turnTails = new Map<string, Promise<void>>()
+  /** Secondary serialize tails keyed by workspaceId+sessionId (cross-turn session safety). */
   private readonly sessionTails = new Map<string, Promise<void>>()
   /** Process-local idempotency records; not durable across restart. */
   private readonly operations = new Map<string, OperationRecord>()
   private readonly eventIdIndex = new Map<string, OperationRecord>()
   /** Process-local live buses keyed by workspaceId+turnId. */
   private readonly buses = new Map<string, TeachingTurnEventBus>()
-  /** Sticky terminals retained after closed buses are reclaimed from the live map. */
-  private readonly closedTurnTerminals = new Map<string, TeachingEventEnvelope>()
+  /**
+   * Closed-turn archive: sticky terminal visibility after live bus reclaim.
+   * Supports scoped replayAfter/subscribe without reopening the bus.
+   * Bounded by maxBuses; fail-closed (no silent forget of retained identities).
+   */
+  private readonly closedTurnArchives = new Map<string, ClosedTurnArchive>()
   private readonly turnSubscriptions = new Map<string, Set<PendingSubscription>>()
 
   constructor(private readonly ports: TeachingTurnCoordinatorPorts) {
@@ -271,6 +296,24 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     const existingBus = this.buses.get(key)
     if (existingBus) {
       return existingBus.subscribe(listener)
+    }
+
+    // Closed archive: deliver sticky terminal immediately without reopening a live bus.
+    const archived = this.closedTurnArchives.get(key)
+    if (archived) {
+      let active = true
+      const terminal = cloneEnvelope(archived.terminal)
+      queueMicrotask(() => {
+        if (!active) return
+        try {
+          listener(terminal)
+        } catch {
+          // Isolate subscriber failures.
+        }
+      })
+      return () => {
+        active = false
+      }
     }
 
     const pending: PendingSubscription = { listener, attachedUnsub: null }
@@ -290,140 +333,85 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
   }
 
   replayAfter(scope: TeachingTurnScope, afterSequence = 0) {
-    return this.buses.get(scopeKey(scope.workspaceId, scope.turnId))?.replayAfter(afterSequence) ?? null
+    const key = scopeKey(scope.workspaceId, scope.turnId)
+    const live = this.buses.get(key)
+    if (live) {
+      return live.replayAfter(afterSequence)
+    }
+    const archived = this.closedTurnArchives.get(key)
+    if (!archived) {
+      return null
+    }
+    return replayFromClosedArchive(archived, afterSequence)
   }
 
   async execute(command: TeachingTurnCommand): Promise<TeachingTurnExecuteResult> {
-    const sessionId = sessionIdOf(command)
-    const serializeId = `${command.workspaceId}\u0000${sessionId}`
-    return this.serialize(serializeId, async () => {
-      const operationKey = scopedOperationKey(command, sessionId)
-      const eventKey = scopedEventKey(command, sessionId)
-      const fingerprint = commandFingerprint(command)
-      const turnKey = scopeKey(command.workspaceId, command.turnId)
-
-      const byOperation = this.operations.get(operationKey)
-      if (byOperation) {
-        if (byOperation.fingerprint !== fingerprint) {
-          return this.rejectResult(command, sessionId, 'payload_mismatch')
-        }
-        return this.duplicateResult(command, byOperation)
+    // Fail-closed identity binding before any queue or side effect.
+    const identity = resolveCommandIdentity(command)
+    if (!identity.ok) {
+      return {
+        turnId: command.turnId,
+        sessionId: identity.sessionId,
+        events: [],
+        terminal: null,
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
       }
-      const byEvent = this.eventIdIndex.get(eventKey)
-      if (byEvent) {
-        if (byEvent.fingerprint !== fingerprint) {
-          return this.rejectResult(command, sessionId, 'payload_mismatch')
-        }
-        return this.duplicateResult(command, byEvent)
-      }
+    }
 
-      // Fail-closed capacity checks before any side effects.
-      if (this.operations.size >= this.maxOperations || this.eventIdIndex.size >= this.maxEventIds) {
-        return this.rejectResult(command, sessionId, 'capacity_exceeded')
-      }
+    const sessionId = identity.sessionId
+    const turnGate = turnSerializeKey(command.workspaceId, command.turnId)
+    const sessionGate = sessionSerializeKey(command.workspaceId, sessionId)
 
-      const rememberedTerminal = this.closedTurnTerminals.get(turnKey)
-      if (rememberedTerminal) {
-        return this.rejectResult(command, sessionId, 'already_terminal', rememberedTerminal)
-      }
+    // Primary: workspace+turn (stable across pending/session key changes).
+    // Secondary: workspace+session (cross-turn). Lock order prevents deadlock.
+    return this.serialize(this.turnTails, turnGate, () =>
+      this.serialize(this.sessionTails, sessionGate, async () => {
+        const operationKey = scopedOperationKey(command, sessionId)
+        const eventKey = scopedEventKey(command, sessionId)
+        const fingerprint = commandFingerprint(command)
+        const turnKey = scopeKey(command.workspaceId, command.turnId)
 
-      const busOrNull = this.ensureBus(command.workspaceId, command.turnId)
-      if (!busOrNull) {
-        return this.rejectResult(command, sessionId, 'capacity_exceeded')
-      }
-      const bus = busOrNull
-
-      if (bus.getWorkspaceId() !== command.workspaceId || bus.getTurnId() !== command.turnId) {
-        return this.rejectResult(command, sessionId, 'payload_mismatch')
-      }
-
-      const sticky = bus.terminal()
-      if (sticky) {
-        this.tryRememberClosedTurn(turnKey, sticky)
-        return this.rejectResult(command, sessionId, 'already_terminal', sticky)
-      }
-
-      const collected: TeachingEventEnvelope[] = []
-      const collect = (event: TeachingEventEnvelope) => {
-        collected.push(event)
-      }
-      const unsubscribe = bus.subscribe(collect)
-
-      try {
-        this.emit(bus, {
-          durability: 'ephemeral',
-          occurredAt: this.now(),
-          workspaceId: command.workspaceId,
-          sessionId,
-          turnId: command.turnId,
-          eventId: `${command.eventId}:accepted`,
-          operationId: command.operationId,
-          payload: {
-            type: 'command_accepted',
-            commandType: command.type
+        const byOperation = this.operations.get(operationKey)
+        if (byOperation) {
+          if (byOperation.status === 'reserved') {
+            return this.rejectResult(command, sessionId, 'payload_mismatch')
           }
-        })
-
-        let result: TeachingTurnExecuteResult
-        try {
-          switch (command.type) {
-            case 'open_session':
-              result = await this.openSession(command, bus, collected)
-              break
-            case 'resume_session':
-              result = await this.resumeSession(command, bus, collected)
-              break
-            case 'record_evidence':
-              result = await this.recordEvidence(command, bus, collected)
-              break
-            case 'commit_outcome':
-              result = await this.commitOutcome(command, bus, collected)
-              break
-            case 'plan_next_step':
-              result = await this.planNextStep(command, bus, collected)
-              break
-            case 'project_snapshot':
-              result = await this.projectSnapshot(command, bus, collected)
-              break
-            case 'recover_session':
-              result = await this.recoverSession(command, bus, collected)
-              break
-            case 'cancel_turn':
-              result = await this.cancelTurn(command, bus, collected)
-              break
+          if (byOperation.fingerprint !== fingerprint) {
+            return this.rejectResult(command, sessionId, 'payload_mismatch')
           }
-        } catch (error) {
-          result = this.handlePortFailure(command, bus, sessionId, collected, error)
+          return this.duplicateResult(command, byOperation)
+        }
+        const byEvent = this.eventIdIndex.get(eventKey)
+        if (byEvent) {
+          if (byEvent.status === 'reserved') {
+            return this.rejectResult(command, sessionId, 'payload_mismatch')
+          }
+          if (byEvent.fingerprint !== fingerprint) {
+            return this.rejectResult(command, sessionId, 'payload_mismatch')
+          }
+          return this.duplicateResult(command, byEvent)
         }
 
-        const terminalNow = bus.terminal()
-        if (terminalNow) {
-          this.tryRememberClosedTurn(turnKey, terminalNow)
+        const remembered = this.closedTurnArchives.get(turnKey)
+        if (remembered) {
+          return this.rejectResult(command, sessionId, 'already_terminal', remembered.terminal)
         }
 
-        result = {
-          ...result,
-          acceptance: result.acceptance ?? 'accepted',
-          events: [...collected],
-          terminal: terminalNow
+        // Admission reservation before any port/publish/event side effect.
+        if (this.operations.size >= this.maxOperations || this.eventIdIndex.size >= this.maxEventIds) {
+          return this.rejectResult(command, sessionId, 'capacity_exceeded')
         }
 
-        if (
-          (this.operations.size >= this.maxOperations || this.eventIdIndex.size >= this.maxEventIds) &&
-          !this.operations.has(operationKey) &&
-          !this.eventIdIndex.has(eventKey)
-        ) {
-          return {
-            turnId: command.turnId,
-            sessionId,
-            events: [...collected],
-            terminal: terminalNow,
-            acceptance: 'rejected',
-            rejectReason: 'capacity_exceeded'
+        let bus = this.buses.get(turnKey) ?? null
+        if (!bus) {
+          this.reclaimClosedBuses()
+          if (this.buses.size >= this.maxBuses) {
+            return this.rejectResult(command, sessionId, 'capacity_exceeded')
           }
         }
 
-        const record: OperationRecord = {
+        const reservation: OperationRecord = {
           operationKey,
           eventKey,
           operationId: command.operationId,
@@ -433,14 +421,147 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
           sessionId,
           commandType: command.type,
           fingerprint,
-          result
+          status: 'reserved',
+          result: null
         }
-        this.rememberOperation(record)
-        return result
-      } finally {
-        unsubscribe()
-      }
-    })
+        this.operations.set(operationKey, reservation)
+        this.eventIdIndex.set(eventKey, reservation)
+
+        const releaseReservation = () => {
+          const current = this.operations.get(operationKey)
+          if (current?.status === 'reserved') {
+            this.operations.delete(operationKey)
+            this.eventIdIndex.delete(eventKey)
+          }
+        }
+
+        try {
+          if (!bus) {
+            bus = this.createBus(command.workspaceId, command.turnId)
+            if (!bus) {
+              releaseReservation()
+              return this.rejectResult(command, sessionId, 'capacity_exceeded')
+            }
+          }
+
+          if (bus.getWorkspaceId() !== command.workspaceId || bus.getTurnId() !== command.turnId) {
+            releaseReservation()
+            return this.rejectResult(command, sessionId, 'payload_mismatch')
+          }
+
+          const sticky = bus.terminal()
+          if (sticky) {
+            this.tryArchiveClosedTurn(turnKey, command.workspaceId, command.turnId, sticky, bus)
+            releaseReservation()
+            return this.rejectResult(command, sessionId, 'already_terminal', sticky)
+          }
+
+          const collected: TeachingEventEnvelope[] = []
+          const collect = (event: TeachingEventEnvelope) => {
+            collected.push(event)
+          }
+          const unsubscribe = bus.subscribe(collect)
+
+          try {
+            this.emit(bus, {
+              durability: 'ephemeral',
+              occurredAt: this.now(),
+              workspaceId: command.workspaceId,
+              sessionId,
+              turnId: command.turnId,
+              eventId: `${command.eventId}:accepted`,
+              operationId: command.operationId,
+              payload: {
+                type: 'command_accepted',
+                commandType: command.type
+              }
+            })
+
+            let result: TeachingTurnExecuteResult
+            try {
+              switch (command.type) {
+                case 'open_session':
+                  result = await this.openSession(command, bus, collected)
+                  break
+                case 'resume_session':
+                  result = await this.resumeSession(command, bus, collected)
+                  break
+                case 'record_evidence':
+                  result = await this.recordEvidence(command, bus, collected)
+                  break
+                case 'commit_outcome':
+                  result = await this.commitOutcome(command, bus, collected)
+                  break
+                case 'plan_next_step':
+                  result = await this.planNextStep(command, bus, collected)
+                  break
+                case 'project_snapshot':
+                  result = await this.projectSnapshot(command, bus, collected)
+                  break
+                case 'recover_session':
+                  result = await this.recoverSession(command, bus, collected)
+                  break
+                case 'cancel_turn':
+                  result = await this.cancelTurn(command, bus, collected)
+                  break
+              }
+            } catch (error) {
+              result = this.handlePortFailure(command, bus, sessionId, collected, error)
+            }
+
+            if (result.acceptance !== 'rejected') {
+              const portIdentity = validatePortResultIdentity(command, sessionId, result)
+              if (!portIdentity.ok) {
+                result = {
+                  turnId: command.turnId,
+                  sessionId,
+                  events: [...collected],
+                  terminal: bus.terminal(),
+                  acceptance: 'rejected',
+                  rejectReason: 'payload_mismatch'
+                }
+              }
+            }
+
+            const terminalNow = bus.terminal()
+            if (terminalNow) {
+              this.tryArchiveClosedTurn(turnKey, command.workspaceId, command.turnId, terminalNow, bus)
+            }
+
+            result = {
+              ...result,
+              acceptance: result.acceptance ?? 'accepted',
+              events: [...collected],
+              terminal: terminalNow
+            }
+
+            reservation.status = 'committed'
+            reservation.result = result
+            this.operations.set(operationKey, reservation)
+            this.eventIdIndex.set(eventKey, reservation)
+            return result
+          } finally {
+            unsubscribe()
+          }
+        } catch (error) {
+          const busNow = this.buses.get(turnKey)
+          const failureResult: TeachingTurnExecuteResult = {
+            turnId: command.turnId,
+            sessionId,
+            events: [],
+            terminal: busNow?.terminal() ?? this.closedTurnArchives.get(turnKey)?.terminal ?? null,
+            acceptance: 'rejected',
+            rejectReason: 'payload_mismatch'
+          }
+          reservation.status = 'committed'
+          reservation.result = failureResult
+          this.operations.set(operationKey, reservation)
+          this.eventIdIndex.set(eventKey, reservation)
+          void error
+          return failureResult
+        }
+      })
+    )
   }
 
   private async openSession(
@@ -449,6 +570,19 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     collected: TeachingEventEnvelope[]
   ): Promise<TeachingTurnExecuteResult> {
     const snapshot = await this.ports.ledger.open(command.open)
+    if (
+      snapshot.workspaceId !== command.workspaceId ||
+      (command.open.sessionId && snapshot.id !== command.open.sessionId)
+    ) {
+      return {
+        turnId: command.turnId,
+        sessionId: command.open.sessionId ?? `pending:${command.operationId}`,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
     this.emit(bus, {
       durability: 'durable',
       occurredAt: this.now(),
@@ -491,6 +625,16 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         acceptance: 'accepted'
       }
     }
+    if (snapshot.id !== command.sessionId || snapshot.workspaceId !== command.workspaceId) {
+      return {
+        turnId: command.turnId,
+        sessionId: command.sessionId,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
     this.emit(bus, {
       durability: 'durable',
       occurredAt: this.now(),
@@ -522,6 +666,16 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     collected: TeachingEventEnvelope[]
   ): Promise<TeachingTurnExecuteResult> {
     const receipt = await this.ports.recorder.record(command.evidence)
+    if (receipt.sessionId !== command.evidence.sessionId) {
+      return {
+        turnId: command.turnId,
+        sessionId: command.evidence.sessionId,
+        events: [...collected],
+        terminal: bus.terminal(),
+        acceptance: 'rejected',
+        rejectReason: 'payload_mismatch'
+      }
+    }
     this.emit(bus, {
       durability: 'durable',
       occurredAt: this.now(),
@@ -896,7 +1050,7 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     const key = scopeKey(command.workspaceId, command.turnId)
     const bus = this.buses.get(key)
     const terminal =
-      sticky ?? bus?.terminal() ?? this.closedTurnTerminals.get(key) ?? null
+      sticky ?? bus?.terminal() ?? this.closedTurnArchives.get(key)?.terminal ?? null
     return {
       turnId: command.turnId,
       sessionId,
@@ -908,15 +1062,19 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
   }
 
   private duplicateResult(command: TeachingTurnCommand, existing: OperationRecord): TeachingTurnExecuteResult {
+    if (existing.status !== 'committed' || !existing.result) {
+      return this.rejectResult(command, existing.sessionId, 'payload_mismatch')
+    }
     const key = scopeKey(command.workspaceId, command.turnId)
     const bus = this.buses.get(key)
+    const archivedTerminal = this.closedTurnArchives.get(key)?.terminal ?? null
     if (!bus || bus.isClosed()) {
       return {
         ...existing.result,
         turnId: command.turnId,
         acceptance: 'duplicate',
         events: existing.result.events,
-        terminal: bus?.terminal() ?? existing.result.terminal ?? this.closedTurnTerminals.get(key) ?? null
+        terminal: bus?.terminal() ?? existing.result.terminal ?? archivedTerminal
       }
     }
 
@@ -945,20 +1103,19 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
   }
 
   /**
-   * Ensure a workspace+turn scoped bus exists.
+   * Create a workspace+turn scoped bus (caller already checked capacity / reclaimed).
    * Returns null when capacity is exhausted (fail-closed, no silent eviction of active buses).
    */
-  private ensureBus(workspaceId: string, turnId: string): TeachingTurnEventBus | null {
+  private createBus(workspaceId: string, turnId: string): TeachingTurnEventBus | null {
     const key = scopeKey(workspaceId, turnId)
-    let bus = this.buses.get(key)
-    if (bus) return bus
+    const existing = this.buses.get(key)
+    if (existing) return existing
 
-    this.reclaimClosedBuses()
     if (this.buses.size >= this.maxBuses) {
       return null
     }
 
-    bus = createTeachingTurnEventBus({ workspaceId, turnId, now: this.now })
+    const bus = createTeachingTurnEventBus({ workspaceId, turnId, now: this.now })
     this.buses.set(key, bus)
     const pending = this.turnSubscriptions.get(key)
     if (pending) {
@@ -969,28 +1126,40 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     return bus
   }
 
-  /** Insert-only identity retention — never silently evicts other operation records. */
-  private rememberOperation(record: OperationRecord): void {
-    this.operations.set(record.operationKey, record)
-    this.eventIdIndex.set(record.eventKey, record)
-  }
-
-  /** Retain closed terminal identity without silent eviction. Returns false if full. */
-  private tryRememberClosedTurn(turnKey: string, terminal: TeachingEventEnvelope): boolean {
-    if (this.closedTurnTerminals.has(turnKey)) {
+  /**
+   * Archive sticky terminal for closed-turn visibility after live bus reclaim.
+   * Fail-closed: never silently forget an existing archive; refuse when full.
+   */
+  private tryArchiveClosedTurn(
+    turnKey: string,
+    workspaceId: string,
+    turnId: string,
+    terminal: TeachingEventEnvelope,
+    bus?: TeachingTurnEventBus | null
+  ): boolean {
+    if (this.closedTurnArchives.has(turnKey)) {
       return true
     }
-    if (this.closedTurnTerminals.size >= this.maxBuses) {
+    if (this.closedTurnArchives.size >= this.maxBuses) {
       return false
     }
-    this.closedTurnTerminals.set(turnKey, terminal)
+    const sequence =
+      typeof terminal.sequence === 'number' && terminal.sequence > 0
+        ? terminal.sequence
+        : bus?.currentSequence() ?? 1
+    this.closedTurnArchives.set(turnKey, {
+      workspaceId,
+      turnId,
+      terminal: cloneEnvelope(terminal),
+      sequence
+    })
     return true
   }
 
   /**
    * Bounded cleanup: reclaim only closed live buses whose terminal identity is already
-   * retained (or can be retained) in closedTurnTerminals. Never drops active buses or
-   * closed identities.
+   * retained (or can be retained) in closedTurnArchives. Never drops active buses or
+   * closed identities. Archived terminals remain replayable via replayAfter/subscribe.
    */
   private reclaimClosedBuses(): void {
     for (const [key, bus] of [...this.buses]) {
@@ -1000,7 +1169,15 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         this.buses.delete(key)
         continue
       }
-      if (!this.tryRememberClosedTurn(key, terminal)) {
+      if (
+        !this.tryArchiveClosedTurn(
+          key,
+          bus.getWorkspaceId(),
+          bus.getTurnId(),
+          terminal,
+          bus
+        )
+      ) {
         continue
       }
       this.buses.delete(key)
@@ -1056,43 +1233,136 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     })
   }
 
-  private async serialize<T>(gateKey: string, work: () => Promise<T>): Promise<T> {
-    const previous = this.sessionTails.get(gateKey) ?? Promise.resolve()
+  /**
+   * Promise-chain serialize gate. Separate Maps for turn vs session keep lock
+   * domains independent; callers always acquire turn then session (no deadlock).
+   */
+  private async serialize<T>(
+    tails: Map<string, Promise<void>>,
+    gateKey: string,
+    work: () => Promise<T>
+  ): Promise<T> {
+    const previous = tails.get(gateKey) ?? Promise.resolve()
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
     const tail = previous.catch(() => undefined).then(() => gate)
-    this.sessionTails.set(gateKey, tail)
+    tails.set(gateKey, tail)
 
     await previous.catch(() => undefined)
     try {
       return await work()
     } finally {
       release()
-      if (this.sessionTails.get(gateKey) === tail) {
-        this.sessionTails.delete(gateKey)
+      if (tails.get(gateKey) === tail) {
+        tails.delete(gateKey)
       }
     }
   }
 }
 
-function sessionIdOf(command: TeachingTurnCommand): string {
+function turnSerializeKey(workspaceId: string, turnId: string): string {
+  return `turn\u0000${workspaceId}\u0000${turnId}`
+}
+
+function sessionSerializeKey(workspaceId: string, sessionId: string): string {
+  return `session\u0000${workspaceId}\u0000${sessionId}`
+}
+
+/**
+ * Resolve command session identity and fail-closed when envelope ids disagree
+ * with nested payload workspace/session fields.
+ */
+function resolveCommandIdentity(
+  command: TeachingTurnCommand
+): { ok: true; sessionId: string } | { ok: false; sessionId: string } {
+  if (!isNonEmptyId(command.workspaceId) || !isNonEmptyId(command.turnId) || !isNonEmptyId(command.operationId) || !isNonEmptyId(command.eventId)) {
+    return { ok: false, sessionId: 'invalid' }
+  }
+
   switch (command.type) {
-    case 'open_session':
-      return command.open.sessionId ?? `pending:${command.operationId}`
+    case 'open_session': {
+      if (command.open.workspaceId !== command.workspaceId) {
+        return { ok: false, sessionId: command.open.sessionId ?? `pending:${command.operationId}` }
+      }
+      if (command.open.sessionId !== undefined && command.open.sessionId !== null && command.open.sessionId !== '') {
+        if (!isNonEmptyId(command.open.sessionId)) {
+          return { ok: false, sessionId: 'invalid' }
+        }
+        return { ok: true, sessionId: command.open.sessionId }
+      }
+      return { ok: true, sessionId: `pending:${command.operationId}` }
+    }
     case 'resume_session':
     case 'recover_session':
     case 'cancel_turn':
-    case 'plan_next_step':
-      return command.sessionId
-    case 'record_evidence':
-      return command.evidence.sessionId
-    case 'commit_outcome':
-      return command.request.sessionId
-    case 'project_snapshot':
-      return command.factInput.sessionId ?? command.factInput.course.id
+    case 'plan_next_step': {
+      if (!isNonEmptyId(command.sessionId)) {
+        return { ok: false, sessionId: 'invalid' }
+      }
+      return { ok: true, sessionId: command.sessionId }
+    }
+    case 'record_evidence': {
+      if (command.evidence.workspaceId !== command.workspaceId) {
+        return { ok: false, sessionId: command.evidence.sessionId || 'invalid' }
+      }
+      if (!isNonEmptyId(command.evidence.sessionId)) {
+        return { ok: false, sessionId: 'invalid' }
+      }
+      return { ok: true, sessionId: command.evidence.sessionId }
+    }
+    case 'commit_outcome': {
+      if (!isNonEmptyId(command.request.sessionId)) {
+        return { ok: false, sessionId: 'invalid' }
+      }
+      return { ok: true, sessionId: command.request.sessionId }
+    }
+    case 'project_snapshot': {
+      const sessionId = command.factInput.sessionId ?? command.factInput.course.id
+      if (!isNonEmptyId(sessionId)) {
+        return { ok: false, sessionId: 'invalid' }
+      }
+      return { ok: true, sessionId }
+    }
   }
+}
+
+/**
+ * Validate port-returned session/workspace identity against the admitted command scope.
+ */
+function validatePortResultIdentity(
+  command: TeachingTurnCommand,
+  admittedSessionId: string,
+  result: TeachingTurnExecuteResult
+): { ok: true } | { ok: false } {
+  if (result.sessionId && result.sessionId !== admittedSessionId) {
+    // open_session may promote pending:* to a real ledger session id.
+    if (command.type === 'open_session' && admittedSessionId.startsWith('pending:')) {
+      if (!isNonEmptyId(result.sessionId)) return { ok: false }
+    } else if (result.sessionId !== admittedSessionId) {
+      return { ok: false }
+    }
+  }
+
+  const snapshot = result.snapshot
+  if (snapshot && 'workspaceId' in snapshot && snapshot.workspaceId != null) {
+    if (snapshot.workspaceId !== command.workspaceId) {
+      return { ok: false }
+    }
+  }
+  if (snapshot && 'id' in snapshot && typeof snapshot.id === 'string') {
+    if (command.type !== 'open_session' && command.type !== 'project_snapshot') {
+      if (snapshot.id !== admittedSessionId && snapshot.id !== result.sessionId) {
+        return { ok: false }
+      }
+    }
+  }
+  return { ok: true }
+}
+
+function isNonEmptyId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 256
 }
 
 function scopeKey(workspaceId: string, turnId: string): string {
@@ -1142,3 +1412,39 @@ function isInterruptLike(error: unknown): boolean {
   )
 }
 
+function cloneEnvelope(event: TeachingEventEnvelope): TeachingEventEnvelope {
+  return {
+    ...event,
+    payload: JSON.parse(JSON.stringify(event.payload)) as TeachingEventEnvelope['payload']
+  }
+}
+
+function replayFromClosedArchive(
+  archive: ClosedTurnArchive,
+  afterSequence = 0
+): ReturnType<TeachingTurnEventBus['replayAfter']> {
+  const requestedAfterSequence = Math.max(0, Math.floor(afterSequence))
+  const terminal = cloneEnvelope(archive.terminal)
+  const terminalSeq =
+    typeof terminal.sequence === 'number' && terminal.sequence > 0
+      ? terminal.sequence
+      : archive.sequence
+  const events =
+    terminalSeq > requestedAfterSequence
+      ? [{ ...terminal, sequence: terminalSeq }]
+      : []
+  return {
+    turnId: archive.turnId,
+    available: true,
+    requestedAfterSequence,
+    fromSequence: events.length > 0 ? terminalSeq : terminalSeq + 1,
+    nextSequence: terminalSeq + 1,
+    hasGap: requestedAfterSequence + 1 < terminalSeq && events.length > 0
+      ? requestedAfterSequence + 1 < terminalSeq
+      : requestedAfterSequence > 0 && requestedAfterSequence < terminalSeq,
+    droppedEvents: Math.max(0, terminalSeq - 1),
+    droppedBytes: 0,
+    events,
+    terminal
+  }
+}
