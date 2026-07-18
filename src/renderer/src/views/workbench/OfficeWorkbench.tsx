@@ -367,7 +367,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       void document.exitFullscreen().then(beginImmersiveClose).catch(() => {
         immersiveCloseRequestedRef.current = false
         suppressFullscreenFocusRestoreRef.current = false
-        setIsImmersiveArcFocusActive(true)
+        fullscreenTransitionRef.current = false
         focusImmersiveControl(fullscreenButtonRef.current)
       })
       return
@@ -404,25 +404,34 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     } catch {
       fullscreenReturnFocusRef.current = null
       // Fullscreen is controlled by the browser/Electron host and may be unavailable.
+      // Keep immersive mode intact and leave the exit control reachable for retry.
+      if (document.fullscreenElement === stageRef.current) {
+        focusImmersiveControl(fullscreenButtonRef.current)
+      }
     } finally {
       fullscreenTransitionRef.current = false
     }
-  }, [])
+  }, [focusImmersiveControl])
 
   useEffect(() => {
     const syncFullscreenState = (): void => {
       const stageOwnsFullscreen = document.fullscreenElement === stageRef.current
       const stagePreviouslyOwnedFullscreen = fullscreenWasActiveRef.current
+      // Ignore duplicate fullscreenchange events that do not change ownership.
+      if (stageOwnsFullscreen === stagePreviouslyOwnedFullscreen) return
+
       fullscreenWasActiveRef.current = stageOwnsFullscreen
       setIsFullscreen(stageOwnsFullscreen)
 
       if (stageOwnsFullscreen) {
-        setIsImmersiveArcFocusActive(true)
+        // Pin only the exit control. Clear hover/focus expand state so hide/scene/note
+        // do not remain interactive just because focus stayed inside the control group.
+        setIsImmersiveArcPointerActive(false)
+        setIsImmersiveArcFocusActive(false)
         focusImmersiveControl(fullscreenButtonRef.current)
         return
       }
 
-      if (!stagePreviouslyOwnedFullscreen) return
       if (suppressFullscreenFocusRestoreRef.current) {
         suppressFullscreenFocusRestoreRef.current = false
         fullscreenReturnFocusRef.current = null
@@ -452,10 +461,20 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       resetImmersiveArc()
       setImmersivePhase('closed')
 
-      if (document.fullscreenElement === stageRef.current) {
+      // The room stage may already be unmounted when the route flips, so fall
+      // back to the last known ownership bit instead of only stageRef.
+      const fullscreenElement = document.fullscreenElement
+      const ownedFullscreen = (
+        fullscreenElement != null && (
+          fullscreenElement === stageRef.current || fullscreenWasActiveRef.current
+        )
+      )
+      if (ownedFullscreen) {
         suppressFullscreenFocusRestoreRef.current = true
         void document.exitFullscreen().catch(() => {
           suppressFullscreenFocusRestoreRef.current = false
+          fullscreenTransitionRef.current = false
+          immersiveCloseRequestedRef.current = false
         })
       }
     }
@@ -483,9 +502,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   useEffect(() => clearImmersiveCloseTimer, [clearImmersiveCloseTimer])
 
+  // Fullscreen only pins the exit control; hide/scene/note stay hover/focus gated
+  // so the bottom of the stage does not become a large accidental hit target.
   const isImmersiveArcActive = immersivePhase === 'open' && (
-    isFullscreen || isImmersiveArcPointerActive || isImmersiveArcFocusActive
+    isImmersiveArcPointerActive || isImmersiveArcFocusActive
   )
+  const isImmersiveExitControlActive = isFullscreen || isImmersiveArcActive
 
   if (route === 'analytics') {
     return (
@@ -616,7 +638,18 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           className={`workbench-immersive-controls${immersivePhase !== 'closed' ? ' is-open' : ''}${isFullscreen ? ' is-fullscreen' : ''}`}
           onPointerEnter={() => setIsImmersiveArcPointerActive(true)}
           onPointerLeave={() => setIsImmersiveArcPointerActive(false)}
-          onFocusCapture={() => setIsImmersiveArcFocusActive(true)}
+          onFocusCapture={(event) => {
+            // Fullscreen pins only the exit control. Focusing that control alone
+            // must not reveal hide/scene/note and create an invisible hit fan.
+            const target = event.target as Node | null
+            if (
+              document.fullscreenElement === stageRef.current &&
+              target === fullscreenButtonRef.current
+            ) {
+              return
+            }
+            setIsImmersiveArcFocusActive(true)
+          }}
           onBlurCapture={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
               setIsImmersiveArcFocusActive(false)
@@ -644,7 +677,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             className={`workbench-immersive-arc-menu${isImmersiveArcActive ? ' is-active' : ''}`}
             role="group"
             aria-label="沉浸模式快捷操作"
-            aria-hidden={!isImmersiveArcActive}
+            aria-hidden={!isImmersiveExitControlActive}
           >
             <button
               ref={fullscreenButtonRef}
@@ -654,6 +687,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               aria-pressed={isFullscreen}
               aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
               title={isFullscreen ? '退出全屏' : '进入全屏'}
+              tabIndex={isImmersiveExitControlActive ? 0 : -1}
             >
               {isFullscreen ? (
                 <Minimize2 size={20} strokeWidth={2} aria-hidden="true" />
@@ -666,6 +700,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               className={`workbench-immersive-arc-action workbench-immersive-arc-action--hide${areRoomCardsHidden ? ' is-active' : ''}`}
               onClick={() => setAreRoomCardsHidden((hidden) => !hidden)}
               aria-pressed={areRoomCardsHidden}
+              aria-hidden={!isImmersiveArcActive}
+              tabIndex={isImmersiveArcActive ? 0 : -1}
               aria-label={areRoomCardsHidden ? '显示自习室卡片' : '隐藏自习室卡片'}
               title={areRoomCardsHidden ? '显示自习室卡片' : '隐藏自习室卡片'}
             >
@@ -680,6 +716,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               className={`workbench-immersive-arc-action workbench-immersive-arc-action--scene${isScenePickerOpen ? ' is-active' : ''}`}
               onClick={() => setIsScenePickerOpen(true)}
               aria-pressed={isScenePickerOpen}
+              aria-hidden={!isImmersiveArcActive}
+              tabIndex={isImmersiveArcActive ? 0 : -1}
               aria-label="选择场景"
               title="选择场景"
             >
@@ -690,6 +728,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               className={`workbench-immersive-arc-action workbench-immersive-arc-action--note${isQuickNoteOpen ? ' is-active' : ''}`}
               onClick={() => setIsQuickNoteOpen((open) => !open)}
               aria-pressed={isQuickNoteOpen}
+              aria-hidden={!isImmersiveArcActive}
+              tabIndex={isImmersiveArcActive ? 0 : -1}
               aria-label="快捷记事"
               title="快捷记事"
             >
