@@ -557,7 +557,7 @@ git diff --check
 
 ---
 
-## 9. C-6：Memory 按 scope 分区（已实施的最小切片）
+## 9. C-6：Memory 按 scope 分区（已实施分区与 C-6A 只读 preflight；真实迁移未实施）
 
 ### 目标与最小切片
 
@@ -569,6 +569,8 @@ git diff --check
 ```
 
 目录名必须由内部 scope key 编码生成，不能直接拼接 workspace path/name。最小切片只让新 record 选择分区路径，读取同时支持 flat legacy 与分区布局；不自动搬迁/删除 legacy record。
+
+**C-6A 已实施（`5803176`，严格只读 preflight vertical slice）**：它不是 C-6 整体完成，更不是真实 migration。它只使用 catalog 的同一次 descriptor-bound discover snapshot，向现有 diagnostics / IPC / Settings 暴露非敏感 aggregate：legacy flat eligible、already partitioned、duplicate blockers、recovery blockers 和 ready boolean。它不以 SQLite 决定资格。
 
 ### 文件定位
 
@@ -588,18 +590,31 @@ git diff --check
 4. C-1 index 仅可优化“候选文件在哪里”，权限/scope 判断仍由 catalog 对事实 record 执行。
 5. C-6 的 scan、read 和 durable write 必须通过已绑定的目录 descriptor 进行：POSIX 使用 `openat`/`O_NOFOLLOW` 与 descriptor-relative rename；Windows 或 native capability 缺失时 catalog 必须 fail closed，不能退回 pathname preflight + `readFile`/replace。
 6. 配置的 memory-root pathname 是仅由 main process 持有的可信 application-configuration boundary，绝不接受 renderer 路径。main wrapper 必须只对其**已存在的 parent** 做一次 `realpath` canonicalization，并把 physical absolute parent 与安全的 final root basename 交给 native；canonicalization 失败必须 fail closed，绝不 fallback 到 logical pathname。故允许该可信 parent 之上的 OS intermediate symlink（例如 macOS `/var -> /private/var`）在 capability binding 前被解析；但 final root、scope partition 和 record file 仍必须全程以 descriptor-relative `O_NOFOLLOW` 操作，保持 no-follow 与 pathname-swap resistance。首次 `mkdirat` final root 后仍须 `fsync` 已绑定 parent。
+7. C-6A diagnostics 对已存在 root 只复用上述 descriptor-bound/no-follow discovery；对缺失 root 调用 non-creating root open，安全地返回空 aggregate。不得用 pathname `readdir`/`readFile` fallback scanner，且 diagnostics 前后 root 仍缺失、其 parent 的 entries 和 mtime 不变。
+8. C-6A 是严格只读：不 copy/move/delete/create/repair/rewrite Memory 文件或目录，不触发 commit/durable replace，也不在启动时迁移。same-ID 多 source、byte-identical duplicate、byte-conflicting duplicate，以及任何 mutation-blocking/recovery state 都不是 eligible；selected scoped source 仅计为 already partitioned。
+9. UI/IPC 是 aggregate-only privacy boundary：沿用既有 diagnostics command，不新增 IPC command；不接收 renderer path，不返回 path、record ID、Memory 内容、hash/checksum 或 scope root；Settings 只显示 aggregate，不能添加 migration button。
+10. 真实 controlled migration 仍未实现。后续必须另立切片并严格采用 **copy → checksum verify → explicit confirmation → delete legacy**，不能把 preflight 当成迁移执行或删除授权。
 
 ### 验收门禁
 
 - 新 global/workspace Memory 均写到正确分区；跨 scope recall 不能因目录结构泄漏内容。
 - flat legacy、分区新记录、混合目录和重复 id fixture 的 get/list/delete/tombstone 语义保持正确。
 - 扫描不会跟随 symlink 或任意深层目录，且不会越过 `<userData>/memory`。
-- 定向执行：
+- C-6A（`5803176`）验收：flat-only、scoped-only、same-ID flat+scoped equal/different bytes、invalid JSON/scope mismatch/unsafe path/unknown partition/deep directory/symlink 等 recovery blockers 都只影响 aggregate；diagnostics 返回 exact aggregate-only shape。existing root 的 canonical bytes、mtime、目录布局不变；missing root 不被创建，parent entries/mtime 不变。真实 registered `teach:get-memory-diagnostics` handler 不泄露 root、ID、内容或 hash fixture。
+- C-6A 实际验证（`5803176`）：
 
 ```bash
-pnpm exec vitest run --project unit tests/unit/teaching-memory-catalog.unit.test.ts tests/unit/durable-file.unit.test.ts
+# 定向 unit：3 files / 41 tests passed
+pnpm run test:unit -- tests/unit/teaching-memory-catalog.unit.test.ts tests/unit/teaching-memory-recall.unit.test.ts tests/unit/teaching-ipc-gateway.unit.test.ts
+
+# 1 file / 17 tests passed
+pnpm exec vitest run --project integration tests/integration/teaching-analytics.integration.test.ts
+
+# passed
+pnpm run typecheck
 pnpm run check:memory-capture
 pnpm run check:security
+git diff --check
 ```
 
 ### 回滚策略
