@@ -295,7 +295,7 @@ pnpm run check:security
 ### 迁移与兼容方案
 
 1. API 以明确 options 区分 `durable` 与 `bestEffort`，默认不悄悄让日志等高频路径付出 fsync 成本；关键状态默认 `durable: true`。所有临时文件维持私有 mode、随机名、同目录创建，保证 rename 不跨文件系统。
-2. 文件 fsync 成功而目录 fsync 因 Windows/文件系统不支持失败时，按 ledger 的现有 allowlist 降级并记录一次脱敏 warn；其他错误必须失败给调用方，不能吞掉。
+2. **C-4 决策（目录 fsync 错误策略）：**共享原语刻意采用 durable JSONL 已建立的窄 capability-error 策略，而不是要求复用 ledger 的“精确 errno 列表”。仅当目录 fsync 失败码为 `EOPNOTSUPP`、`ENOTSUP`、`ENOSYS`、`EINVAL` 或 `EISDIR` 时，才可视为平台/文件系统不具备该能力，降级并记录一次脱敏 warn。`EACCES`、`EPERM`、`EIO`、close 失败和所有未知错误都必须向调用方失败返回，绝不能报告耐久写入成功。这样替换此前宽泛的“按 ledger 的现有 allowlist”表述是安全的：settings、registry 和 index 都是关键状态，权限失败尤其不能被误报为已耐久落盘。
 3. 先保留旧 `atomicWriteFile` 导出以避免大面积并行改动；每个 consumer 单独迁移并在测试中证明字节、权限、legacy cleanup 与错误语义未变。
 4. C-3 的 `replaceWithBackup` 建在该原语之上，不能复制两套 fsync/rename 代码。
 

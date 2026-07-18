@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { replaceDurably } from '../persistence/durable-file'
 
 const RECORD_FILE_PREFIX = 'memory-'
 const RECORD_FILE_SUFFIX = '.json'
@@ -36,6 +36,7 @@ export async function listTeachingMemoryRecordFiles(rootDir: string): Promise<st
   return (await readdir(rootDir)).filter((fileName) => fileName.endsWith(RECORD_FILE_SUFFIX))
 }
 
+/** Canonical names take precedence; legacy names remain a final compatibility path. */
 export async function readTeachingMemoryRecordFile(rootDir: string, id: string): Promise<{ fileName: string; content: string } | null> {
   const canonicalFileName = teachingMemoryRecordFileName(id)
   const canonical = await readFile(join(rootDir, canonicalFileName), 'utf8').catch((error: unknown) => {
@@ -53,20 +54,16 @@ export async function readTeachingMemoryRecordFile(rootDir: string, id: string):
   return legacy === null ? null : { fileName: legacyFileName, content: legacy }
 }
 
-/** Writes the replacement before atomically publishing it at the canonical path. */
+/** Writes and fsyncs a replacement before atomically publishing it at the canonical path. */
 export async function replaceTeachingMemoryRecordFile(rootDir: string, id: string, record: unknown): Promise<void> {
   await mkdir(rootDir, { recursive: true })
   const fileName = teachingMemoryRecordFileName(id)
   const targetPath = join(rootDir, fileName)
-  const temporaryPath = join(rootDir, `.${fileName}.${process.pid}.${randomUUID()}.tmp`)
-
-  try {
-    await writeFile(temporaryPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-    await rename(temporaryPath, targetPath)
-  } catch (error) {
-    await rm(temporaryPath, { force: true }).catch(() => undefined)
-    throw error
-  }
+  await replaceDurably({
+    path: targetPath,
+    content: `${JSON.stringify(record, null, 2)}\n`,
+    mode: 0o600
+  })
 
   const legacyFileName = legacyTeachingMemoryRecordFileName(id)
   if (legacyFileName && legacyFileName !== fileName) {

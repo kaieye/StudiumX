@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
+import { readValidatedWithBackup, replaceWithBackup } from '../persistence/durable-file'
 import type {
   CreateWorkspacePayload,
   TeachingAppState,
@@ -26,7 +27,6 @@ import {
 } from './registry'
 import {
   appendSessionEvent,
-  atomicWriteFile,
   deriveWorkspaceTopic,
   loadWorkspaceIndex,
   provisionWorkspaceMaterial,
@@ -229,7 +229,8 @@ export class TeachingWorkspaceActivationLifecycle {
   }
 
   private async loadAvailableRegistry(): Promise<WorkspaceRegistry> {
-    const registry = await this.readRegistry()
+    const read = await this.readRegistry()
+    const registry = read.registry
     const workspaces = orderRegistryWorkspaces(await this.pruneUnavailableRoots(registry.workspaces))
     const visible = visibleRegistryWorkspaces(workspaces)
     const activeWorkspaceId = visible.some((workspace) => workspace.id === registry.activeWorkspaceId)
@@ -241,34 +242,43 @@ export class TeachingWorkspaceActivationLifecycle {
       nextRegistry.activeWorkspaceId !== registry.activeWorkspaceId ||
       !sameRegistryWorkspaceOrder(nextRegistry.workspaces, registry.workspaces)
     ) {
-      await this.writeRegistry(nextRegistry)
+      // Reading a backup is recovery, not restoration. Keep the recovered
+      // document untouched until an explicit registry mutation needs saving.
+      if (read.source !== 'backup') await this.writeRegistry(nextRegistry)
     }
     return nextRegistry
   }
 
-  private async readRegistry(): Promise<WorkspaceRegistry> {
-    try {
-      const { readFile } = await import('node:fs/promises')
-      const parsed = JSON.parse(await readFile(this.options.registryPath, 'utf8')) as unknown
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as WorkspaceRegistry).workspaces)) return EMPTY_REGISTRY
-      return {
-        activeWorkspaceId: typeof (parsed as WorkspaceRegistry).activeWorkspaceId === 'string'
-          ? (parsed as WorkspaceRegistry).activeWorkspaceId
+  private async readRegistry(): Promise<{ registry: WorkspaceRegistry; source: 'canonical' | 'backup' | null }> {
+    const recovered = await readValidatedWithBackup({
+      path: this.options.registryPath,
+      validate: isWorkspaceRegistryDocument
+    })
+    const parsed = recovered.value
+    if (!parsed) return { registry: EMPTY_REGISTRY, source: null }
+    return {
+      source: recovered.source,
+      registry: {
+        activeWorkspaceId: typeof parsed.activeWorkspaceId === 'string'
+          ? parsed.activeWorkspaceId
           : null,
-        workspaces: (parsed as WorkspaceRegistry).workspaces
+        workspaces: parsed.workspaces
           .filter(isRegistryWorkspace)
           .map((workspace) => ({
             ...workspace,
             rootPath: resolve(workspace.rootPath)
           }))
       }
-    } catch {
-      return EMPTY_REGISTRY
     }
   }
 
   private async writeRegistry(registry: WorkspaceRegistry): Promise<void> {
-    await atomicWriteFile(this.options.registryPath, `${JSON.stringify(registry, null, 2)}\n`)
+    await replaceWithBackup({
+      path: this.options.registryPath,
+      content: `${JSON.stringify(registry, null, 2)}\n`,
+      validate: isWorkspaceRegistryDocument,
+      mode: 0o600
+    })
   }
 
   private async pruneUnavailableRoots(workspaces: RegistryWorkspace[]): Promise<RegistryWorkspace[]> {
@@ -332,4 +342,11 @@ async function selectCatalogLesson(
     if (isPathInsideRoot(workspace.rootPath, absolutePath) && await fileExists(absolutePath)) return absolutePath
   }
   return workspace.lessons[0]?.absolutePath ?? null
+}
+
+function isWorkspaceRegistryDocument(value: unknown): value is WorkspaceRegistry {
+  // Keep the historical tolerant reader: individual workspace entries are
+  // filtered below, while a registry needs only an object and workspaces array
+  // to be a safe durable backup candidate.
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && Array.isArray((value as WorkspaceRegistry).workspaces)
 }

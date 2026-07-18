@@ -22,6 +22,7 @@ import {
 } from '../teaching-workspace-paths'
 import type { RegistryWorkspace } from './registry'
 import { appendDurableJsonlLine, readDurableJsonlLines } from '../durable-jsonl'
+import { readValidatedWithBackup, replaceWithBackup } from '../persistence/durable-file'
 
 export type WorkspaceIndex = {
   id: string
@@ -123,37 +124,32 @@ export function deriveWorkspaceTopic(prompt: string, fallback: string): string {
   return topic || cleanText(fallback) || '学习任务'
 }
 export async function loadWorkspaceIndex(workspace: RegistryWorkspace): Promise<WorkspaceIndex> {
+  const indexPath = join(workspace.rootPath, '.studiumx', 'index.json')
+  const recovered = await readValidatedWithBackup({
+    path: indexPath,
+    validate: isWorkspaceIndexDocument
+  })
+  if (recovered.value) return normalizeWorkspaceIndex(workspace, recovered.value)
+
+  const legacyIndexPath = join(workspace.rootPath, '.teachos', 'index.json')
   try {
-    const indexPath = join(workspace.rootPath, '.studiumx', 'index.json')
-    const legacyIndexPath = join(workspace.rootPath, '.teachos', 'index.json')
-    const parsed = JSON.parse(await readFile(await fileExists(indexPath) ? indexPath : legacyIndexPath, 'utf8')) as WorkspaceIndex
-    return {
-      id: workspace.id,
-      name: workspace.name,
-      rootPath: workspace.rootPath,
-      createdAt: parsed.createdAt ?? workspace.createdAt,
-      updatedAt: parsed.updatedAt ?? workspace.updatedAt,
-      lessons: Array.isArray(parsed.lessons)
-        ? parsed.lessons
-            .filter(isLessonSummary)
-            .map((lesson) => normalizeLessonSummary(workspace.rootPath, workspace.name, lesson))
-        : [],
-      pathMeta: normalizePathMeta(parsed.pathMeta)
-    }
-  } catch {
-    return {
-      id: workspace.id,
-      name: workspace.name,
-      rootPath: workspace.rootPath,
-      createdAt: workspace.createdAt,
-      updatedAt: workspace.updatedAt,
-      lessons: []
-    }
+    const parsed = JSON.parse(await readFile(legacyIndexPath, 'utf8')) as unknown
+    return isWorkspaceIndexDocument(parsed)
+      ? normalizeWorkspaceIndex(workspace, parsed)
+      : emptyWorkspaceIndex(workspace)
+  } catch (error) {
+    if (isMissingFile(error) || error instanceof SyntaxError) return emptyWorkspaceIndex(workspace)
+    throw error
   }
 }
 
 export async function saveWorkspaceIndex(rootPath: string, index: WorkspaceIndex): Promise<void> {
-  await atomicWriteFile(join(rootPath, '.studiumx', 'index.json'), `${JSON.stringify(index, null, 2)}\n`)
+  await replaceWithBackup({
+    path: join(rootPath, '.studiumx', 'index.json'),
+    content: `${JSON.stringify(index, null, 2)}\n`,
+    validate: isWorkspaceIndexDocument,
+    mode: 0o600
+  })
 }
 
 export const WORKSPACE_LIFECYCLE_LEDGER_RELATIVE_PATH = '.studiumx/sessions.jsonl'
@@ -187,6 +183,11 @@ export async function appendSessionEvent(rootPath: string, event: SessionEvent):
   await appendWorkspaceLifecycleEvent(rootPath, event)
 }
 
+/**
+ * Best-effort compatibility helper for high-frequency/scaffold callers. It
+ * uses temp-and-rename but intentionally does not fsync the file or directory;
+ * durable state must call replaceDurably or replaceWithBackup explicitly.
+ */
 export async function atomicWriteFile(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`
@@ -291,6 +292,43 @@ async function writeWorkspaceScaffoldFileIfMissing(
 ): Promise<void> {
   if (isPathArchived(pathMeta, relativePath)) return
   await writeIfMissing(join(rootPath, relativePath), content)
+}
+
+function normalizeWorkspaceIndex(workspace: RegistryWorkspace, parsed: WorkspaceIndex): WorkspaceIndex {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    rootPath: workspace.rootPath,
+    createdAt: parsed.createdAt ?? workspace.createdAt,
+    updatedAt: parsed.updatedAt ?? workspace.updatedAt,
+    lessons: Array.isArray(parsed.lessons)
+      ? parsed.lessons
+          .filter(isLessonSummary)
+          .map((lesson) => normalizeLessonSummary(workspace.rootPath, workspace.name, lesson))
+      : [],
+    pathMeta: normalizePathMeta(parsed.pathMeta)
+  }
+}
+
+function emptyWorkspaceIndex(workspace: RegistryWorkspace): WorkspaceIndex {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    rootPath: workspace.rootPath,
+    createdAt: workspace.createdAt,
+    updatedAt: workspace.updatedAt,
+    lessons: []
+  }
+}
+
+function isWorkspaceIndexDocument(value: unknown): value is WorkspaceIndex {
+  // Existing indexes are intentionally normalized tolerantly, but only a
+  // top-level object is eligible to become a retained modern backup.
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }
 
 function isLessonSummary(value: unknown): value is LessonSummary {

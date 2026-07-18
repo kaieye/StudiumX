@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -93,6 +93,8 @@ describe('TeachingMemoryCatalog', () => {
     await expect(catalog.find('atomic')).resolves.toMatchObject({ content: 'replacement version' })
     await expect(readFile(teachingMemoryRecordFilePath(catalog.rootDir, 'atomic'), 'utf8')).resolves.toContain('replacement version')
     await expect(readdir(catalog.rootDir)).resolves.toEqual([teachingMemoryRecordFilePath('', 'atomic')])
+    await expect(readFile(`${teachingMemoryRecordFilePath(catalog.rootDir, 'atomic')}.bak`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await stat(teachingMemoryRecordFilePath(catalog.rootDir, 'atomic'))).mode & 0o777).toBe(0o600)
   })
 
   it('filters tombstones from list and direct-ID find unless explicitly included in a list query', async () => {

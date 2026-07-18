@@ -113,6 +113,7 @@ import { TeachingWorkspaceItemLifecycleExecutor } from './teaching-workspace/ite
 import { TeachingWorkspaceActivationLifecycle } from './teaching-workspace/activation-lifecycle'
 import { TeachingWorkspaceReviewDeck } from './teaching-workspace/review'
 import { TeachingWorkspaceChangeAudit } from './teaching-workspace-change-audit'
+import { replaceDurably } from './persistence/durable-file'
 import {
   TeachingWorkspaceDocuments,
   previewUrlForDocument,
@@ -426,7 +427,11 @@ export class TeachingWorkspaceService {
 
   private async saveTemporaryConversationIndex(index: ConversationIndex): Promise<void> {
     await this.ensureTemporaryConversationStructure()
-    await atomicWriteFile(join(this.appDataRoot, 'conversations', '.index.json'), `${JSON.stringify(index, null, 2)}\n`)
+    await replaceDurably({
+      path: join(this.appDataRoot, 'conversations', '.index.json'),
+      content: `${JSON.stringify(index, null, 2)}\n`,
+      mode: 0o600
+    })
   }
 
   private async listTemporaryConversations(registry: WorkspaceRegistry): Promise<AgentConversationSummary[]> {
