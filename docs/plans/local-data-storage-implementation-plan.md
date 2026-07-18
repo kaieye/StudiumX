@@ -219,6 +219,10 @@ pnpm run rollback:learning-work-legacy -- <workspace-root>
 5. 原 JSON、JSONL、Markdown schema 和路径都不因 C-1 改动。SQLite 损坏、旧版 schema、native module 无法加载时，把 `studiumx-index.sqlite{,-wal,-shm}` 隔离到带时间戳目录或删除后重建，保留所有 source files。
 6. 先做 query parity（索引结果与现有 scanner 结果比较）并仅用于 analytics 的非破坏性汇总；稳定后再扩展其他查询。FTS5、原文检索、把 SQLite 作为 source of truth、任何双写事务均明确不在本切片。
 
+### C-1 FTS/query design gate（仅 design discovery）
+
+[C-1 FTS/query 隐私、授权与可重建设计门槛](local-data-query-fts-privacy-design.md)已记录。它只界定未来 query/FTS 的产品、隐私、scope、freshness、fallback 和验证前置条件；**C-1 FTS/query design gate recorded** 不代表批准或实现 FTS、用户可见搜索、新 query API/IPC 或 canonical 文件改动。现有 SQLite 仍是可重建 projection，analytics 继续在 index 不可用或不 current 时回退 canonical readers。
+
 ### 验收门禁
 
 - 空 app data、含 legacy 会话/Memory/JSONL 的 app data、含一条损坏 source 的 app data 均可启动；损坏 source 只生成 issue，不阻止其它 source 入索引。
