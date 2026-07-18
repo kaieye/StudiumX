@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   agentConversationChildTranscriptDirectoryRelativePathForMarkdown,
   agentConversationJsonRelativePathForMarkdown,
@@ -33,6 +33,7 @@ import {
 import { normalizeWorkspaceRelativePath } from './teaching-workspace-paths'
 import { sanitizePersistedAgentConversationRecord } from '../shared/agent-persisted-history'
 import { normalizeTraceId, traceIdsMatchForIdempotency } from '../shared/trace-context'
+import { replaceDurably, type DurableFileOperations } from './persistence/durable-file'
 
 export type AgentConversationArchiveWorkspace = {
   id?: string
@@ -61,6 +62,10 @@ export async function saveAgentConversationArchive(input: {
   skipLearningWorkLedger?: boolean
   /** Runs after artifact promotion/proof rebinding and before canonical JSON is written. */
   beforeCanonicalSave?: (record: AgentConversationRecord) => Promise<void>
+  /** Narrow main-internal test seam for the shared canonical file publisher. */
+  durableFileOperations?: DurableFileOperations
+  /** Receives only the shared primitive's generic directory-fsync warning. */
+  durableWarn?: (message: string) => void
 }): Promise<void> {
   // This is the durable boundary. Callers retain their raw record for run
   // confirmation; every archive sink below
@@ -87,8 +92,24 @@ export async function saveAgentConversationArchive(input: {
   const canonicalMarkdown = renderAgentConversationMarkdown(input.workspace, persistedRecord)
 
   const persistCanonicalArchive = async (): Promise<void> => {
-    await atomicWriteFile(paths.json, canonicalJson)
-    await atomicWriteFile(paths.markdown, canonicalMarkdown)
+    // Preserve the legacy writeFile create-mode contract (0666 subject to the
+    // process umask) while publishing each canonical projection through the
+    // shared file-and-directory durable-replace boundary. This remains two
+    // ordered publishes, not a multi-file transaction.
+    await replaceDurably({
+      path: paths.json,
+      content: canonicalJson,
+      mode: 0o666,
+      operations: input.durableFileOperations,
+      warn: input.durableWarn
+    })
+    await replaceDurably({
+      path: paths.markdown,
+      content: canonicalMarkdown,
+      mode: 0o666,
+      operations: input.durableFileOperations,
+      warn: input.durableWarn
+    })
     await appendAgentConversationSessionAuditLog({ rootPath: input.workspace.rootPath, record: persistedRecord })
   }
   if (input.skipLearningWorkLedger) {
@@ -460,11 +481,4 @@ function safeParseJson(text: string): unknown {
   } catch {
     return null
   }
-}
-
-async function atomicWriteFile(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
-  await writeFile(tempPath, content, 'utf8')
-  await rename(tempPath, path)
 }
