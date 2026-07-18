@@ -35,7 +35,11 @@ C-2A → C-2B → C-1 → C-3 / C-4 → C-2C → C-5 / C-6 / C-7
 4. 上线前对临时 workspace 和至少一个 legacy 布局 workspace 跑迁移演练；任何不认识的数据、重复 id 或 source hash 不一致都应隔离/报错，不能“猜测后修复”。
 5. 回滚只允许：停用新 writer/reader、移走或删除**可再建投影**、从 `.bak` 做显式恢复。不得用回滚脚本删除或降级 JSON/JSONL/Markdown 事实来源。
 
-### 1.4 推荐的验证命令基线
+### 1.4 C-6 controlled legacy Memory migration design gate（仅 design discovery）
+
+[C-6 controlled legacy Memory 搬迁设计门槛](local-data-memory-controlled-migration-design.md)已记录。`5803176` 的 C-6A 继续只提供同一次 descriptor-bound、no-follow discovery 的 aggregate-only preflight；它不授予迁移授权、不暴露 candidate/path/identifier/content/hash，也不创建缺失 Memory root。**C-6 controlled migration design gate recorded** 仅定义未来可信 main identity/scope、copy→内部 checksum verify→explicit confirmation→delete、durability/recovery 与审计的前置条件；未批准或实现 copy/delete、迁移 UI/IPC、启动/后台迁移或自动 resume。legacy tolerant read 与现有 CRUD 语义保持不变。
+
+### 1.5 推荐的验证命令基线
 
 所有切片至少运行：
 
@@ -50,7 +54,7 @@ git diff --check
 为避免全量 suite 的不确定性掩盖目标错误，每个切片还必须运行其“验收门禁”中的定向 `vitest`/`check:*` 命令。原有流程已经提供 `check:agent-conversation-*`、`check:learning-work-reconcile`、`check:app-data-migration`、`check:security`、`check:analytics` 等门禁，应优先复用而不是复制另一套检查器。
 
 
-### 1.5 `database` 实施审计（2026-07-18；C-5G 功能代码 `1bbdf7c`、测试补充 `e63e051`）
+### 1.6 `database` 实施审计（2026-07-18；C-5G 功能代码 `1bbdf7c`、测试补充 `e63e051`）
 
 原始顺序已完成最小切片：C-2A `d23b272`、C-2B `549f4f8`、C-1 `d9de382`、C-3/C-4 `ca73537`、C-2C `07dfbfb`、C-7 `a302814`、C-5 `55442ad`、C-6 `26eca18`；后续 C-5B Memory CRUD trace correlation 为 `7a1ca7e`，C-5C learning-session trace 为 `e849d51`，C-5D `saveAgentConversation()` lifecycle trace 为 `dee70d6`，C-5E conversation audit JSONL trace 为 `d6a94a1`，C-5F forked conversation trace 为 `426eb6e`，C-5G workspace activation lifecycle 功能代码为 `1bbdf7c`，测试补充为 `e63e051`。`1bbdf7c` 是本次记录的**功能代码提交**，`e63e051` 是其后的**测试补充提交**；两者均不是后续文档提交后的当前 HEAD。这不是“候选全部完成”的声明：各节仍定义边界；未实现的 FTS、物理 retention/删除、自动摘要调度、C-5 的其它 lifecycle producers 与其它 user actions（需设计），以及 C-6 controlled legacy 搬迁保持未实施。
 

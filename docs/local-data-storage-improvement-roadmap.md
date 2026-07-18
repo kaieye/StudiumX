@@ -266,7 +266,9 @@ git diff --check
 
 **已实施的 C-6A 严格只读 preflight（`5803176`）**：这只是为未来 controlled migration 提供的 aggregate eligibility / blockers 评估切片。它复用 catalog 的同一次 descriptor-bound、no-follow discovery snapshot；renderer/既有 diagnostics IPC 只得到计数和 boolean，不得到 Memory path、record ID、内容、hash/checksum 或 scope root。缺失 Memory root 的 diagnostics 通过 non-creating descriptor open 返回空 aggregate，不能创建 root，且父目录 entries/mtime 保持不变。此切片不 copy/move/delete/create/repair/rewrite，不启动时迁移；没有 migration button、新 IPC command 或 renderer 路径输入。
 
-真实迁移仍是后续工作：只能在独立设计和用户/运维显式确认下执行 **copy → checksum verify → explicit confirmation → delete legacy**；不得把 C-6A 标记为该迁移已完成。
+**C-6 controlled migration design gate recorded**：见 [local-data-memory-controlled-migration-design.md](plans/local-data-memory-controlled-migration-design.md)。该文仅完成 design discovery，记录 trusted main identity/scope、descriptor-bound copy、durable hold/publish、内部 checksum verify、explicit confirmation、delete、crash/partial failure 与非泄露审计的前置门槛；它不批准 copy/delete，也不改变 C-6A 的 aggregate-only UI/IPC 边界。
+
+真实迁移仍是后续工作：只能在独立设计门槛获批和用户/运维显式确认下执行 **copy → checksum verify → explicit confirmation → delete legacy**；不得把 C-6A 或本 design gate 标记为该迁移已完成。
 
 ### `[x]` C-7 用户输入历史脱敏（学 Codex `history.jsonl` 反面教训） — **P2**
 
@@ -291,4 +293,4 @@ git diff --check
 1. **C-5 trace 后续设计**：conversation、Memory CRUD、learning-session ledger、`saveAgentConversation()` 的 `agent_conversation_recorded` workspace lifecycle 子例、conversation audit JSONL、forked conversation，以及 workspace activation 的 explicit/bootstrap create 与首次 import 子例已分别由 `55442ad`、`7a1ca7e`、`e849d51`、`dee70d6`、`d6a94a1`、`426eb6e`、`1bbdf7c` 覆盖。C-5H 已在[workspace user-mutation correlation 设计门槛](plans/local-data-workspace-user-mutation-correlation-design.md)中记录 mission-first 的候选 action-id/receipt contract，**仅为 design discovery，尚未获批或实现**。仍需为 **其它 lifecycle producers（包括 `mission_updated`、`lesson_style_applied`、`lesson_generated`）与其它 user actions**（需设计）另行定义写域、trusted identity、retry/idempotency 和安全日志边界；不要回写历史 source，也不得因此声称全量 trace 覆盖。
 2. **C-2 retention control/recovery design gate recorded**：见 [local-data-retention-control-recovery-design.md](plans/local-data-retention-control-recovery-design.md)。该文仅完成 design discovery；完整 remaining queue 不变，physical retention、quarantine/hold、delete/truncate 及任何启动/后台删除仍未实施。如确有磁盘回收需求，仍须先获批 retention、用户可见控制、恢复与审计方案；不得把现有无损分段/摘要投影当作已获准删除事实文件。
 3. **C-1 FTS/query design gate recorded**：见 [local-data-query-fts-privacy-design.md](plans/local-data-query-fts-privacy-design.md)。该文仅完成 design discovery，记录真实检索需求、隐私、授权、source drift/corrupt-index fallback 与可重建 projection 的前置门槛；没有批准或实现 FTS、用户可见搜索、跨域检索或新的 query API/IPC。真实 FTS/用户搜索仍 pending，SQLite 不能取代 canonical source、详情读取或授权裁决。
-4. **C-6 受控 legacy 搬迁工具**：`5803176` 已实现的 C-6A 仅提供严格只读、aggregate-only 的 eligibility / blockers preflight，不能执行迁移。真实工具仍只可采用 copy → checksum verify → 用户/运维明确确认 → 删除 legacy 的流程；当前启动路径不搬迁。
+4. **C-6 controlled migration design gate recorded**：见 [local-data-memory-controlled-migration-design.md](plans/local-data-memory-controlled-migration-design.md)。`5803176` 的 C-6A 仍仅提供严格只读、aggregate-only 的 eligibility / blockers preflight，不是 migration authorization；设计文档没有批准或实现 copy、hold、publish、checksum verify、delete、迁移 UI/IPC 或自动 resume。真实工具仍只可在获批后采用 copy → internal checksum verify → 用户/运维明确确认 → 删除 legacy 的流程；当前启动路径不搬迁。
