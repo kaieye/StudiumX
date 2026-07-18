@@ -1324,9 +1324,18 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         if (!commitOutcomeMatchesAuthority(commitResult.outcome, outcomeRef)) return false
       }
 
+      // Preserve FileLearningOutcomeCommitter production semantics: mastery kinds
+      // always carry a formal record; needs_practice never does. A self-report that
+      // contradicts those semantics cannot publish a durable success.
+      const formalRecordKind =
+        commitResult.outcome.kind === 'established' ||
+        commitResult.outcome.kind === 'misconception_corrected'
+      if (formalRecordKind !== commitResult.recordSaved) {
+        return false
+      }
+
       // Round-10 C: recordSaved:true requires dual formal record proof (recover-symmetric).
       // outcomeRef alone is never saved-record proof; unilateral marker.record or recon.record is not durable.
-      // Kinds without formal records keep production semantics via recordSaved:false paths above.
       if (commitResult.recordSaved === true) {
         if (!marker || marker.sessionId !== sessionId) {
           return false
@@ -1339,47 +1348,50 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         if (!learningRecordRefsEqual(markerRecord, reconRecord)) {
           return false
         }
+      } else if (marker?.record || recon.record) {
+        return false
       }
 
       return true
     }
 
     if (commitResult.status === 'insufficient_evidence') {
-      // Must not claim a trusted terminal outcome on ledger for this path.
-      if (
-        loaded.outcomeRef &&
-        (loaded.outcomeRef.kind === 'established' ||
-          loaded.outcomeRef.kind === 'misconception_corrected')
-      ) {
+      // Round-11 Medium: strict reconciliation is mandatory before publishing even
+      // ephemeral insufficient-evidence/sticky failure. Ledger and settlement are
+      // both authorities; any established durable outcome contradicts this result.
+      if (loaded.outcomeRef) {
+        return false
+      }
+      const recon = parseOutcomeReconciliation(await this.ports.committer.reconcile(sessionId))
+      if (!recon || recon.sessionId !== sessionId) {
         return false
       }
 
-      // H-B: durability claim (recordSaved:true) must be proven by settlement authority.
-      // Prefer fail closed — never emit durable from self-report alone.
+      // Production insufficient_evidence is a no-formal-record result. Legacy/mock
+      // recordSaved:false or absent is tolerated, but a durable record claim is not.
       const claimsDurable =
         'recordSaved' in commitResult && (commitResult as { recordSaved?: boolean }).recordSaved === true
       if (claimsDurable) {
-        // Round-10 H2: strict parse; do not destructure raw recon for durability decisions.
-        const recon = parseOutcomeReconciliation(await this.ports.committer.reconcile(sessionId))
-        if (!recon || recon.sessionId !== sessionId) {
-          return false
-        }
-        const marker = recon.marker
-        if (!marker || marker.sessionId !== sessionId) {
-          return false
-        }
-        if (marker.kind !== 'not_evidenced') {
-          return false
-        }
-        // Round-10 C: dual formal record proof — unilateral record claim is not durable.
-        if (!marker.record || !recon.record) {
-          return false
-        }
-        if (!learningRecordRefsEqual(marker.record, recon.record)) {
-          return false
-        }
+        return false
       }
-      return true
+
+      if (recon.state === 'pending') {
+        // Legitimate no-authority/no-record review path: ephemeral insufficient result.
+        return recon.marker === null && recon.record === null && !recon.catalogRecordPresent
+      }
+      if (recon.state !== 'settled') {
+        return false
+      }
+
+      const marker = recon.marker
+      return (
+        marker !== null &&
+        marker.sessionId === sessionId &&
+        marker.kind === 'not_evidenced' &&
+        marker.record === null &&
+        recon.record === null &&
+        !recon.catalogRecordPresent
+      )
     }
 
     // conflict / retryable / non_retryable: structural parse is enough; no durable success emit.
@@ -1770,54 +1782,66 @@ const COMMIT_STATUSES = new Set([
 ])
 
 const TRUSTED_COMMIT_KINDS = new Set(['established', 'misconception_corrected', 'needs_practice'])
+const COMMIT_SUCCESS_KEYS = ['status', 'outcome', 'recordSaved', 'record', 'catalogRecordPresent'] as const
+const COMMIT_OUTCOME_IDENTITY_KEYS = ['kind', 'outcomeId', 'evidenceEventIds'] as const
+const INSUFFICIENT_EVIDENCE_RESULT_KEYS = ['status', 'reason', 'recordSaved'] as const
+const FAILURE_RESULT_KEYS = ['status', 'reason'] as const
+const AUTHORITY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 
 /**
  * Strict runtime parse of OutcomeCommitResult. Unknown shapes never reach bus emit.
+ * Round-11: successful commit identity is mandatory and closed-schema; kind-only or
+ * partial self-reports cannot be upgraded by otherwise-consistent authority.
  */
 function parseOutcomeCommitResult(value: unknown): OutcomeCommitResult | null {
   if (!isPlainObject(value) || typeof value.status !== 'string' || !COMMIT_STATUSES.has(value.status)) {
     return null
   }
   if (value.status === 'committed' || value.status === 'already_committed') {
-    if (!isPlainObject(value.outcome) || !TRUSTED_COMMIT_KINDS.has(String(value.outcome.kind))) {
+    if (!hasNoUnexpectedKeys(value, COMMIT_SUCCESS_KEYS)) return null
+    if (
+      !isPlainObject(value.outcome) ||
+      !hasExactKeys(value.outcome, COMMIT_OUTCOME_IDENTITY_KEYS) ||
+      !TRUSTED_COMMIT_KINDS.has(String(value.outcome.kind)) ||
+      !isNormalizedAuthorityId(value.outcome.outcomeId)
+    ) {
       return null
     }
-    if (typeof value.recordSaved !== 'boolean') return null
-    // Round-10: preserve optional full outcome identity when present so authority can bind it.
-    // Invalid optional identity fields fail closed (never strip and trust kind alone after spoof).
-    const outcome: { kind: string; outcomeId?: string; evidenceEventIds?: string[] } = {
-      kind: String(value.outcome.kind)
+    const evidenceEventIds = parseAuthorityEvidenceEventIds(value.outcome.evidenceEventIds)
+    if (!evidenceEventIds || typeof value.recordSaved !== 'boolean') return null
+    if (value.catalogRecordPresent !== undefined && typeof value.catalogRecordPresent !== 'boolean') return null
+
+    let record: LearningOutcomeRecordRef | null = null
+    if (value.record !== undefined && value.record !== null) {
+      record = parseLearningRecordRef(value.record)
+      if (!record) return null
     }
-    if (value.outcome.outcomeId !== undefined) {
-      if (!isNonEmptyId(value.outcome.outcomeId)) return null
-      outcome.outcomeId = value.outcome.outcomeId
-    }
-    if (value.outcome.evidenceEventIds !== undefined) {
-      if (
-        !Array.isArray(value.outcome.evidenceEventIds) ||
-        !value.outcome.evidenceEventIds.every((id) => isNonEmptyId(id))
-      ) {
-        return null
-      }
-      outcome.evidenceEventIds = value.outcome.evidenceEventIds as string[]
-    }
-    const result = {
+
+    return {
       status: value.status,
-      outcome,
+      outcome: {
+        kind: value.outcome.kind as 'established' | 'misconception_corrected' | 'needs_practice',
+        outcomeId: value.outcome.outcomeId,
+        evidenceEventIds
+      },
       recordSaved: value.recordSaved,
-      catalogRecordPresent: typeof value.catalogRecordPresent === 'boolean' ? value.catalogRecordPresent : false
+      record,
+      catalogRecordPresent: value.catalogRecordPresent ?? false
     } as OutcomeCommitResult
-    return result
   }
   if (value.status === 'insufficient_evidence') {
-    if (value.reason !== undefined && value.reason !== 'not_evidenced') return null
+    if (!hasNoUnexpectedKeys(value, INSUFFICIENT_EVIDENCE_RESULT_KEYS)) return null
+    if (value.reason !== 'not_evidenced') return null
+    if (value.recordSaved !== undefined && typeof value.recordSaved !== 'boolean') return null
     return {
       status: 'insufficient_evidence',
       reason: 'not_evidenced',
       ...(typeof value.recordSaved === 'boolean' ? { recordSaved: value.recordSaved } : {})
     } as OutcomeCommitResult
   }
+  if (!hasNoUnexpectedKeys(value, FAILURE_RESULT_KEYS)) return null
   if (value.status === 'conflict') {
+    if (value.reason !== 'review_required') return null
     return { status: 'conflict', reason: 'review_required' }
   }
   if (value.status === 'retryable_failure') {
@@ -1962,6 +1986,13 @@ const RECONCILIATION_STATES = new Set([
   'read_only'
 ])
 
+const RECONCILIATION_DIAGNOSTICS = new Set([
+  'legacy_generated',
+  'invalid_settlement_marker',
+  'conflicting_outcome',
+  'missing_record'
+])
+
 const SETTLEMENT_OUTCOME_KINDS = new Set([
   'established',
   'misconception_corrected',
@@ -2047,32 +2078,25 @@ function markerOutcomeRefIdentitiesEqual(
 }
 
 function canonicalEvidenceEventIdsEqual(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false
-  const a = [...left].map((id) => id.trim()).filter((id) => id.length > 0).sort((x, y) => x.localeCompare(y))
-  const b = [...right].map((id) => id.trim()).filter((id) => id.length > 0).sort((x, y) => x.localeCompare(y))
-  if (a.length !== left.length || b.length !== right.length) return false
-  return stableJsonEqual(a, b)
+  const a = parseAuthorityEvidenceEventIds(left)
+  const b = parseAuthorityEvidenceEventIds(right)
+  if (!a || !b || a.length !== b.length) return false
+  return stableJsonEqual(
+    [...a].sort((x, y) => x.localeCompare(y)),
+    [...b].sort((x, y) => x.localeCompare(y))
+  )
 }
 
-/**
- * Round-10: bind commitResult.outcome verifiable fields to marker/outcomeRef authority.
- * kind is always required; outcomeId / evidenceEventIds bind when present on commit self-report.
- */
+/** Round-11: successful commit self-report must fully and exactly bind authority. */
 function commitOutcomeMatchesAuthority(
-  commitOutcome: { kind: string; outcomeId?: string; evidenceEventIds?: string[] },
+  commitOutcome: { kind: string; outcomeId: string; evidenceEventIds: string[] },
   authority: { kind: string; outcomeId: string; evidenceEventIds: string[] }
 ): boolean {
-  if (authority.kind !== commitOutcome.kind) return false
-  if (commitOutcome.outcomeId !== undefined && commitOutcome.outcomeId !== authority.outcomeId) {
-    return false
-  }
-  if (
-    commitOutcome.evidenceEventIds !== undefined &&
-    !canonicalEvidenceEventIdsEqual(commitOutcome.evidenceEventIds, authority.evidenceEventIds)
-  ) {
-    return false
-  }
-  return true
+  return (
+    authority.kind === commitOutcome.kind &&
+    authority.outcomeId === commitOutcome.outcomeId &&
+    canonicalEvidenceEventIdsEqual(commitOutcome.evidenceEventIds, authority.evidenceEventIds)
+  )
 }
 
 /**
@@ -2081,19 +2105,26 @@ function commitOutcomeMatchesAuthority(
  */
 function parseOutcomeReconciliation(value: unknown): OutcomeReconciliation | null {
   if (!isPlainObject(value)) return null
-  if (!hasNoUnexpectedKeys(value, RECONCILIATION_KEYS)) return null
+  if (!hasExactKeys(value, RECONCILIATION_KEYS)) return null
   if (!isNonEmptyId(value.sessionId)) return null
   if (typeof value.state !== 'string' || !RECONCILIATION_STATES.has(value.state)) return null
   if (typeof value.catalogRecordPresent !== 'boolean') return null
-  if (!Array.isArray(value.diagnostics)) return null
+  if (
+    !Array.isArray(value.diagnostics) ||
+    !value.diagnostics.every(
+      (diagnostic) => typeof diagnostic === 'string' && RECONCILIATION_DIAGNOSTICS.has(diagnostic)
+    )
+  ) {
+    return null
+  }
 
   let marker: OutcomeSettlementMarker | null = null
-  if (value.marker !== null && value.marker !== undefined) {
+  if (value.marker !== null) {
     marker = parseSettlementMarker(value.marker)
     if (!marker) return null
   }
   let record: LearningOutcomeRecordRef | null = null
-  if (value.record !== null && value.record !== undefined) {
+  if (value.record !== null) {
     record = parseLearningRecordRef(value.record)
     if (!record) return null
   }
@@ -2108,6 +2139,28 @@ function parseOutcomeReconciliation(value: unknown): OutcomeReconciliation | nul
   if (marker && marker.sessionId !== value.sessionId) {
     return null
   }
+  if (value.catalogRecordPresent && !record) {
+    return null
+  }
+
+  // Round-11: state and authority shape are one closed contract. In particular,
+  // pending/not-found/read-only cannot carry settlement authority, while settled
+  // and repaired cannot omit their required marker proof.
+  if (
+    (value.state === 'not_found' || value.state === 'pending' || value.state === 'read_only') &&
+    (marker !== null || record !== null || value.catalogRecordPresent)
+  ) {
+    return null
+  }
+  if (value.state === 'settled') {
+    if (!marker) return null
+    if (marker.record ? !record : record !== null) return null
+  }
+  if (value.state === 'repaired') {
+    // Recover keeps the historical record-only repair path ephemeral; durable
+    // repaired authority still requires the marker/record pair.
+    if (marker && (!marker.record || !record)) return null
+  }
 
   return {
     sessionId: value.sessionId,
@@ -2115,21 +2168,20 @@ function parseOutcomeReconciliation(value: unknown): OutcomeReconciliation | nul
     marker,
     record,
     catalogRecordPresent: value.catalogRecordPresent,
-    diagnostics: []
+    diagnostics: value.diagnostics as OutcomeReconciliation['diagnostics']
   }
 }
 
 function parseSettlementMarker(value: unknown): OutcomeSettlementMarker | null {
   if (!isPlainObject(value)) return null
-  if (!hasNoUnexpectedKeys(value, SETTLEMENT_MARKER_KEYS)) return null
+  if (!hasExactKeys(value, SETTLEMENT_MARKER_KEYS)) return null
   if (value.schemaVersion !== 1) return null
-  if (!isNonEmptyId(value.sessionId) || !isNonEmptyId(value.outcomeId) || !isNonEmptyId(value.operationId)) {
+  if (!isNonEmptyId(value.sessionId) || !isNormalizedAuthorityId(value.outcomeId) || !isNonEmptyId(value.operationId)) {
     return null
   }
   if (typeof value.kind !== 'string' || !SETTLEMENT_OUTCOME_KINDS.has(value.kind)) return null
-  if (!Array.isArray(value.evidenceEventIds) || !value.evidenceEventIds.every((id) => isNonEmptyId(id))) {
-    return null
-  }
+  const evidenceEventIds = parseAuthorityEvidenceEventIds(value.evidenceEventIds)
+  if (!evidenceEventIds) return null
   if (typeof value.evaluatorVersion !== 'number' || !Number.isInteger(value.evaluatorVersion)) {
     return null
   }
@@ -2144,7 +2196,7 @@ function parseSettlementMarker(value: unknown): OutcomeSettlementMarker | null {
     outcomeId: value.outcomeId,
     operationId: value.operationId,
     kind: value.kind as OutcomeSettlementMarker['kind'],
-    evidenceEventIds: value.evidenceEventIds as string[],
+    evidenceEventIds,
     evaluatorVersion: value.evaluatorVersion,
     record
   }
@@ -2152,7 +2204,7 @@ function parseSettlementMarker(value: unknown): OutcomeSettlementMarker | null {
 
 function parseLearningRecordRef(value: unknown): LearningOutcomeRecordRef | null {
   if (!isPlainObject(value)) return null
-  if (!hasNoUnexpectedKeys(value, LEARNING_RECORD_REF_KEYS)) return null
+  if (!hasExactKeys(value, LEARNING_RECORD_REF_KEYS)) return null
   if (!isNonEmptyId(value.recordId)) return null
   if (typeof value.relativePath !== 'string' || value.relativePath.trim().length === 0) return null
   if (typeof value.contentSha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(value.contentSha256)) {
@@ -2177,6 +2229,17 @@ function isNonEmptyId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 256
 }
 
+function isNormalizedAuthorityId(value: unknown): value is string {
+  return typeof value === 'string' && AUTHORITY_ID_PATTERN.test(value)
+}
+
+function parseAuthorityEvidenceEventIds(value: unknown): string[] | null {
+  if (!Array.isArray(value) || !value.every((id) => isNormalizedAuthorityId(id))) return null
+  const ids = value as string[]
+  if (new Set(ids).size !== ids.length) return null
+  return [...ids]
+}
+
 function isPendingSessionId(sessionId: string): boolean {
   return sessionId.startsWith('pending:')
 }
@@ -2192,6 +2255,10 @@ function hasNoUnexpectedKeys(
 ): boolean {
   const allowedSet = new Set<string>(allowed)
   return Object.keys(value).every((key) => allowedSet.has(key))
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  return Object.keys(value).length === expected.length && hasNoUnexpectedKeys(value, expected)
 }
 
 function guessSessionIdForReject(commandInput: unknown): string {

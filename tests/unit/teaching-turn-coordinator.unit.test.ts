@@ -192,7 +192,7 @@ function createPorts(overrides: {
         settlementBySession.set(request.sessionId, marker)
         return {
           status: 'committed',
-          outcome: { kind: 'needs_practice' },
+          outcome: { kind: 'needs_practice', outcomeId: 'outcome-1', evidenceEventIds: ['evidence-1'] },
           recordSaved: false,
           catalogRecordPresent: false
         } as OutcomeCommitResult
@@ -368,7 +368,7 @@ describe('TeachingTurnCoordinator', () => {
         if (item.status === 'committed' || item.status === 'already_committed') {
           return {
             status: item.status,
-            outcome: { kind: 'established' },
+            outcome: { kind: 'established', outcomeId: 'outcome-established', evidenceEventIds: ['evidence-1'] },
             recordSaved: true,
             catalogRecordPresent: true
           } as OutcomeCommitResult
@@ -861,9 +861,8 @@ describe('TeachingTurnCoordinator', () => {
     const ports = createPorts({
       commit: vi.fn(async (): Promise<OutcomeCommitResult> => ({
         status: 'insufficient_evidence',
-        outcome: { kind: 'not_evidenced' },
-        recordSaved: false,
-        catalogRecordPresent: false
+        reason: 'not_evidenced',
+        recordSaved: false
       } as OutcomeCommitResult))
     })
     const coordinator = createTeachingTurnCoordinator(ports)
@@ -1117,7 +1116,7 @@ describe('TeachingTurnCoordinator', () => {
       settled = true
       return {
         status: 'committed',
-        outcome: { kind: 'established' },
+        outcome: { kind: 'established', outcomeId: 'outcome-retry', evidenceEventIds: ['evidence-1'] },
         recordSaved: true,
         catalogRecordPresent: true
       } as OutcomeCommitResult
@@ -1776,7 +1775,7 @@ describe('TeachingTurnCoordinator', () => {
   it('round5: commit request.operationId must bind command.operationId; port mismatch leaves no accepted', async () => {
     const commit = vi.fn(async () => ({
       status: 'committed' as const,
-      outcome: { kind: 'needs_practice' as const },
+      outcome: { kind: 'needs_practice', outcomeId: 'outcome-1', evidenceEventIds: ['evidence-1'] } as const,
       recordSaved: false,
       catalogRecordPresent: false
     }))
@@ -1976,7 +1975,7 @@ describe('TeachingTurnCoordinator', () => {
   it('round7 H3-B1: needs_practice committed without marker/outcomeRef never emits accepted/durable on bus', async () => {
     const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
       status: 'committed',
-      outcome: { kind: 'needs_practice' },
+      outcome: { kind: 'needs_practice', outcomeId: 'outcome-1', evidenceEventIds: ['evidence-1'] },
       recordSaved: false,
       catalogRecordPresent: false
     } as OutcomeCommitResult))
@@ -2097,8 +2096,7 @@ describe('TeachingTurnCoordinator', () => {
     const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
       status: 'insufficient_evidence',
       reason: 'not_evidenced',
-      recordSaved: true,
-      catalogRecordPresent: true
+      recordSaved: true
     } as OutcomeCommitResult))
     const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
       sessionId,
@@ -2141,7 +2139,7 @@ describe('TeachingTurnCoordinator', () => {
   it('round6: H3 mocked-port commit spoof never emits accepted/durable on bus subscribe/replay', async () => {
     const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
       status: 'committed',
-      outcome: { kind: 'established' },
+      outcome: { kind: 'established', outcomeId: 'outcome-1', evidenceEventIds: ['evidence-1'] },
       recordSaved: true,
       catalogRecordPresent: true
     } as OutcomeCommitResult))
@@ -2750,7 +2748,7 @@ describe('TeachingTurnCoordinator', () => {
   it('round8: recordSaved:true with only outcomeRef never emits accepted/durable on bus', async () => {
     const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
       status: 'committed',
-      outcome: { kind: 'established' },
+      outcome: { kind: 'established', outcomeId: 'outcome-only', evidenceEventIds: ['evidence-1'] },
       recordSaved: true,
       catalogRecordPresent: false
     } as OutcomeCommitResult))
@@ -3480,8 +3478,8 @@ describe('TeachingTurnCoordinator', () => {
         status: 'committed',
         outcome: {
           kind: 'established',
-          ...(item.commitOutcomeId ? { outcomeId: item.commitOutcomeId } : {}),
-          ...(item.commitEvidence ? { evidenceEventIds: item.commitEvidence } : {})
+          outcomeId: item.commitOutcomeId ?? item.markerOutcomeId,
+          evidenceEventIds: item.commitEvidence ?? item.markerEvidence
         },
         recordSaved: true,
         catalogRecordPresent: true
@@ -3618,7 +3616,7 @@ describe('TeachingTurnCoordinator', () => {
       const turnId = 'turn-r10-mal-' + item.name
       const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
         status: 'committed',
-        outcome: { kind: 'established' },
+        outcome: { kind: 'established', outcomeId: 'outcome-mal', evidenceEventIds: ['evidence-1'] },
         recordSaved: true,
         catalogRecordPresent: true
       } as OutcomeCommitResult))
@@ -3723,7 +3721,7 @@ describe('TeachingTurnCoordinator', () => {
       )
       const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
         status: 'committed',
-        outcome: { kind: 'established' },
+        outcome: { kind: 'established', outcomeId: 'outcome-rec', evidenceEventIds: ['evidence-1'] },
         recordSaved: true,
         catalogRecordPresent: true
       } as OutcomeCommitResult))
@@ -3866,7 +3864,7 @@ describe('TeachingTurnCoordinator', () => {
       const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
         status: 'insufficient_evidence',
         reason: 'not_evidenced',
-        recordSaved: true
+        recordSaved: false
       } as OutcomeCommitResult))
       const reconcile = vi.fn(async () => item.recon as OutcomeReconciliation)
       const coordinator = createTeachingTurnCoordinator({
@@ -4018,7 +4016,7 @@ describe('TeachingTurnCoordinator', () => {
       const turnId = 'turn-r10-ct-' + item.name
       const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
         status: 'committed',
-        outcome: { kind: 'established' },
+        outcome: { kind: 'established', outcomeId: 'outcome-ct', evidenceEventIds: ['evidence-1'] },
         recordSaved: true,
         catalogRecordPresent: true
       } as OutcomeCommitResult))
@@ -4155,5 +4153,622 @@ describe('TeachingTurnCoordinator', () => {
     expect(result.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'completed' })
   })
 
+
+
+  // ---------------------------------------------------------------------------
+  // Round-11: mandatory runtime commit identity + insufficient authority closure.
+  // ---------------------------------------------------------------------------
+
+  it('round11 High: omitted, partial, wrong-type, non-normalized, or extra commit identity fails before every success surface', async () => {
+    const recordRef = {
+      recordId: 'rec-r11-identity',
+      relativePath: 'learning-records/r11-identity.md',
+      contentSha256: '1'.repeat(64)
+    }
+    const authorityOutcome = {
+      outcomeId: 'outcome-r11-authority',
+      kind: 'established' as const,
+      evidenceEventIds: ['evidence-r11-a', 'evidence-r11-b']
+    }
+    const cases: Array<{
+      name: string
+      status?: 'committed' | 'already_committed'
+      outcome: unknown
+      resultExtra?: Record<string, unknown>
+    }> = [
+      {
+        name: 'omit-outcomeId',
+        outcome: { kind: 'established', evidenceEventIds: authorityOutcome.evidenceEventIds }
+      },
+      {
+        name: 'omit-evidenceEventIds-already',
+        status: 'already_committed',
+        outcome: { kind: 'established', outcomeId: authorityOutcome.outcomeId }
+      },
+      {
+        name: 'partial-only-outcomeId',
+        outcome: { outcomeId: authorityOutcome.outcomeId }
+      },
+      {
+        name: 'partial-only-evidenceEventIds',
+        outcome: { evidenceEventIds: authorityOutcome.evidenceEventIds }
+      },
+      {
+        name: 'wrong-type-outcomeId',
+        outcome: { ...authorityOutcome, outcomeId: 17 }
+      },
+      {
+        name: 'empty-outcomeId',
+        outcome: { ...authorityOutcome, outcomeId: '' }
+      },
+      {
+        name: 'non-normalized-outcomeId',
+        outcome: { ...authorityOutcome, outcomeId: ' outcome-r11-authority ' }
+      },
+      {
+        name: 'wrong-type-evidenceEventIds',
+        outcome: { ...authorityOutcome, evidenceEventIds: 'evidence-r11-a' }
+      },
+      {
+        name: 'invalid-evidence-member',
+        outcome: { ...authorityOutcome, evidenceEventIds: ['evidence-r11-a', '../foreign'] }
+      },
+      {
+        name: 'wrong-type-evidence-member',
+        outcome: { ...authorityOutcome, evidenceEventIds: ['evidence-r11-a', 17] }
+      },
+      {
+        name: 'illegal-success-kind',
+        outcome: { ...authorityOutcome, kind: 'not_evidenced' }
+      },
+      {
+        name: 'duplicate-evidence-member',
+        outcome: { ...authorityOutcome, evidenceEventIds: ['evidence-r11-a', 'evidence-r11-a'] }
+      },
+      {
+        name: 'extra-identity-key',
+        outcome: { ...authorityOutcome, foreignIdentity: 'spoof' }
+      },
+      {
+        name: 'extra-result-key',
+        outcome: authorityOutcome,
+        resultExtra: { foreignResult: 'spoof' }
+      }
+    ]
+
+    for (const [index, item] of cases.entries()) {
+      const turnId = `turn-r11-identity-${item.name}`
+      const commit = vi.fn(async () => ({
+        status: item.status ?? 'committed',
+        outcome: item.outcome,
+        recordSaved: true,
+        record: recordRef,
+        catalogRecordPresent: true,
+        ...item.resultExtra
+      }) as unknown as OutcomeCommitResult)
+      const load = vi.fn(async (sessionId: string) =>
+        sessionSnapshot({
+          id: sessionId,
+          workspaceId: 'workspace-1',
+          outcomeRef: {
+            ...authorityOutcome,
+            relativePath: 'learning-sessions/session-1/outcome.json',
+            contentSha256: '2'.repeat(64)
+          }
+        })
+      )
+      const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+        sessionId,
+        state: 'settled',
+        marker: {
+          schemaVersion: 1,
+          sessionId,
+          ...authorityOutcome,
+          operationId: `op-r11-identity-${index}`,
+          evaluatorVersion: 1,
+          record: recordRef
+        },
+        record: recordRef,
+        catalogRecordPresent: true,
+        diagnostics: []
+      }))
+      const coordinator = createTeachingTurnCoordinator({
+        ...createPorts({ commit, load, reconcile }),
+        maxOperations: 8,
+        maxEventIds: 8,
+        maxBuses: 2
+      })
+      const live: Array<{ type: string; outcome?: string }> = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (event) => {
+        live.push({
+          type: event.payload.type,
+          outcome: event.payload.type === 'turn_terminal' ? event.payload.outcome : undefined
+        })
+      })
+
+      const result = await coordinator.execute({
+        type: 'commit_outcome',
+        turnId,
+        eventId: `ev-r11-identity-${index}`,
+        operationId: `op-r11-identity-${index}`,
+        workspaceId: 'workspace-1',
+        request: { sessionId: 'session-1', operationId: `op-r11-identity-${index}` }
+      })
+      unsub()
+
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(result.rejectReason, item.name).toBe('payload_mismatch')
+      expect(result.terminal, item.name).toBeNull()
+      for (const forbidden of [
+        'command_accepted',
+        'outcome_committed',
+        'outcome_already_committed',
+        'outcome_insufficient_evidence',
+        'turn_terminal'
+      ]) {
+        expect(live.some((event) => event.type === forbidden), `${item.name}:${forbidden}:live`).toBe(false)
+      }
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events, item.name).toEqual([])
+      expect(replay?.terminal, item.name).toBeNull()
+
+      // Close the rejected turn explicitly, then force real closed-bus reclaim.
+      const canceled = await coordinator.execute({
+        type: 'cancel_turn',
+        turnId,
+        eventId: `ev-r11-identity-cancel-${index}`,
+        operationId: `op-r11-identity-cancel-${index}`,
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      expect(canceled.terminal?.payload, item.name).toMatchObject({ type: 'turn_terminal', outcome: 'canceled' })
+      for (const suffix of ['fill-a', 'fill-b']) {
+        await coordinator.execute({
+          type: 'cancel_turn',
+          turnId: `${turnId}-${suffix}`,
+          eventId: `ev-r11-identity-${index}-${suffix}`,
+          operationId: `op-r11-identity-${index}-${suffix}`,
+          workspaceId: 'workspace-1',
+          sessionId: 'session-1',
+          reasonCode: 'user_cancel'
+        })
+      }
+      const archived = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(archived?.available, item.name).toBe(true)
+      expect(archived?.terminal?.payload, item.name).toMatchObject({ type: 'turn_terminal', outcome: 'canceled' })
+      expect(archived?.events.map((event) => event.payload.type), item.name).toEqual(['turn_terminal'])
+      expect(
+        archived?.events.some((event) =>
+          ['outcome_committed', 'outcome_already_committed', 'outcome_insufficient_evidence'].includes(event.payload.type)
+        ),
+        item.name
+      ).toBe(false)
+    }
+  })
+
+
+  it('round11 High happy: production no-record needs_practice may carry an explicit empty evidence identity array', async () => {
+    const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+      status: 'committed',
+      outcome: { kind: 'needs_practice', outcomeId: 'outcome-r11-empty-evidence', evidenceEventIds: [] },
+      recordSaved: false,
+      record: null,
+      catalogRecordPresent: false
+    }))
+    const load = vi.fn(async (sessionId: string) =>
+      sessionSnapshot({
+        id: sessionId,
+        outcomeRef: {
+          outcomeId: 'outcome-r11-empty-evidence',
+          kind: 'needs_practice',
+          relativePath: 'learning-sessions/session-1/outcome.json',
+          evidenceEventIds: [],
+          contentSha256: '4'.repeat(64)
+        }
+      })
+    )
+    const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'settled',
+      marker: {
+        schemaVersion: 1,
+        sessionId,
+        outcomeId: 'outcome-r11-empty-evidence',
+        operationId: 'op-r11-empty-evidence',
+        kind: 'needs_practice',
+        evidenceEventIds: [],
+        evaluatorVersion: 1,
+        record: null
+      },
+      record: null,
+      catalogRecordPresent: false,
+      diagnostics: []
+    }))
+    const coordinator = createTeachingTurnCoordinator(createPorts({ commit, load, reconcile }))
+    const live: string[] = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-r11-empty-evidence' }, (event) => {
+      live.push(event.payload.type)
+    })
+    const result = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-r11-empty-evidence',
+      eventId: 'ev-r11-empty-evidence',
+      operationId: 'op-r11-empty-evidence',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-r11-empty-evidence' }
+    })
+    unsub()
+
+    expect(result.acceptance).toBe('accepted')
+    expect(live).toContain('command_accepted')
+    expect(live).toContain('outcome_committed')
+    expect(result.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'completed' })
+  })
+
+  it('round11 Medium: ledger-null insufficient_evidence rejects settled mastery marker for recordSaved false or absent', async () => {
+    const recordRef = {
+      recordId: 'rec-r11-insufficient-conflict',
+      relativePath: 'learning-records/r11-insufficient-conflict.md',
+      contentSha256: '3'.repeat(64)
+    }
+    for (const [index, recordSaved] of [false, undefined].entries()) {
+      const turnId = `turn-r11-insufficient-conflict-${index}`
+      const commit = vi.fn(async () => ({
+        status: 'insufficient_evidence',
+        reason: 'not_evidenced',
+        ...(recordSaved === false ? { recordSaved: false } : {})
+      }) as OutcomeCommitResult)
+      const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+        sessionId,
+        state: 'settled',
+        marker: {
+          schemaVersion: 1,
+          sessionId,
+          outcomeId: 'outcome-r11-established',
+          operationId: `op-r11-insufficient-conflict-${index}`,
+          kind: 'established',
+          evidenceEventIds: ['evidence-r11-established'],
+          evaluatorVersion: 1,
+          record: recordRef
+        },
+        record: recordRef,
+        catalogRecordPresent: true,
+        diagnostics: []
+      }))
+      const coordinator = createTeachingTurnCoordinator({
+        ...createPorts({ commit, reconcile }),
+        maxOperations: 8,
+        maxEventIds: 8,
+        maxBuses: 2
+      })
+      const live: string[] = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (event) => {
+        live.push(event.payload.type)
+      })
+      const result = await coordinator.execute({
+        type: 'commit_outcome',
+        turnId,
+        eventId: `ev-r11-insufficient-conflict-${index}`,
+        operationId: `op-r11-insufficient-conflict-${index}`,
+        workspaceId: 'workspace-1',
+        request: { sessionId: 'session-1', operationId: `op-r11-insufficient-conflict-${index}` }
+      })
+      unsub()
+
+      expect(result.acceptance).toBe('rejected')
+      expect(result.rejectReason).toBe('payload_mismatch')
+      expect(result.terminal).toBeNull()
+      expect(live).not.toContain('command_accepted')
+      expect(live).not.toContain('outcome_insufficient_evidence')
+      expect(live).not.toContain('turn_terminal')
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events).toEqual([])
+      expect(replay?.terminal).toBeNull()
+
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId,
+        eventId: `ev-r11-insufficient-conflict-cancel-${index}`,
+        operationId: `op-r11-insufficient-conflict-cancel-${index}`,
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      for (const suffix of ['fill-a', 'fill-b']) {
+        await coordinator.execute({
+          type: 'cancel_turn',
+          turnId: `${turnId}-${suffix}`,
+          eventId: `ev-r11-insufficient-conflict-${index}-${suffix}`,
+          operationId: `op-r11-insufficient-conflict-${index}-${suffix}`,
+          workspaceId: 'workspace-1',
+          sessionId: 'session-1',
+          reasonCode: 'user_cancel'
+        })
+      }
+      const archived = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(archived?.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'canceled' })
+      expect(archived?.events.some((event) => event.payload.type === 'outcome_insufficient_evidence')).toBe(false)
+      expect(archived?.events.some((event) =>
+        event.payload.type === 'turn_terminal' && event.payload.outcome === 'failed'
+      )).toBe(false)
+    }
+  })
+
+  it('round11 Medium happy: settled not_evidenced no-record authority preserves legitimate insufficient path', async () => {
+    const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+      status: 'insufficient_evidence',
+      reason: 'not_evidenced'
+    }))
+    const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'settled',
+      marker: {
+        schemaVersion: 1,
+        sessionId,
+        outcomeId: 'outcome-r11-not-evidenced',
+        operationId: 'op-r11-insufficient-happy',
+        kind: 'not_evidenced',
+        evidenceEventIds: [],
+        evaluatorVersion: 1,
+        record: null
+      },
+      record: null,
+      catalogRecordPresent: false,
+      diagnostics: []
+    }))
+    const coordinator = createTeachingTurnCoordinator({
+      ...createPorts({ commit, reconcile }),
+      maxOperations: 8,
+      maxEventIds: 8,
+      maxBuses: 2
+    })
+    const live: Array<{ type: string; durability: string; outcome?: string }> = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-r11-insufficient-happy' }, (event) => {
+      live.push({
+        type: event.payload.type,
+        durability: event.durability,
+        outcome: event.payload.type === 'turn_terminal' ? event.payload.outcome : undefined
+      })
+    })
+    const result = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-r11-insufficient-happy',
+      eventId: 'ev-r11-insufficient-happy',
+      operationId: 'op-r11-insufficient-happy',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-r11-insufficient-happy' }
+    })
+    unsub()
+
+    expect(result.acceptance).toBe('accepted')
+    expect(live.some((event) => event.type === 'command_accepted')).toBe(true)
+    expect(live.some((event) => event.type === 'outcome_insufficient_evidence' && event.durability === 'ephemeral')).toBe(true)
+    expect(result.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'failed' })
+    const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-r11-insufficient-happy' }, 0)
+    expect(replay?.events.some((event) => event.payload.type === 'outcome_committed')).toBe(false)
+    expect(replay?.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'failed' })
+
+    for (const suffix of ['fill-a', 'fill-b']) {
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: `turn-r11-insufficient-happy-${suffix}`,
+        eventId: `ev-r11-insufficient-happy-${suffix}`,
+        operationId: `op-r11-insufficient-happy-${suffix}`,
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+    }
+    const archived = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-r11-insufficient-happy' }, 0)
+    expect(archived?.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'failed' })
+    expect(archived?.events.map((event) => event.payload.type)).toEqual(['turn_terminal'])
+  })
+
+
+  it('round11 Medium happy: production-shaped recordSaved:false insufficient still settles failed via pending no-authority path', async () => {
+    const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+      status: 'insufficient_evidence',
+      reason: 'not_evidenced',
+      recordSaved: false
+    } as OutcomeCommitResult))
+    const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'pending',
+      marker: null,
+      record: null,
+      catalogRecordPresent: false,
+      diagnostics: []
+    }))
+    const coordinator = createTeachingTurnCoordinator({
+      ...createPorts({ commit, reconcile }),
+      maxOperations: 8,
+      maxEventIds: 8,
+      maxBuses: 2
+    })
+    const live: Array<{ type: string; durability: string; outcome?: string }> = []
+    const unsub = coordinator.subscribe(
+      { workspaceId: 'workspace-1', turnId: 'turn-r11-insufficient-record-false' },
+      (event) => {
+        live.push({
+          type: event.payload.type,
+          durability: event.durability,
+          outcome: event.payload.type === 'turn_terminal' ? event.payload.outcome : undefined
+        })
+      }
+    )
+    const result = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-r11-insufficient-record-false',
+      eventId: 'ev-r11-insufficient-record-false',
+      operationId: 'op-r11-insufficient-record-false',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-r11-insufficient-record-false' }
+    })
+    unsub()
+
+    expect(result.acceptance).toBe('accepted')
+    expect(live.some((event) => event.type === 'command_accepted')).toBe(true)
+    expect(live.some((event) => event.type === 'outcome_insufficient_evidence' && event.durability === 'ephemeral')).toBe(true)
+    expect(result.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'failed' })
+    const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-r11-insufficient-record-false' }, 0)
+    expect(replay?.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'failed' })
+    expect(replay?.events.some((event) => event.payload.type === 'outcome_committed')).toBe(false)
+
+    for (const suffix of ['fill-a', 'fill-b']) {
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: `turn-r11-insufficient-record-false-${suffix}`,
+        eventId: `ev-r11-insufficient-record-false-${suffix}`,
+        operationId: `op-r11-insufficient-record-false-${suffix}`,
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+    }
+    const archived = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-r11-insufficient-record-false' }, 0)
+    expect(archived?.terminal?.payload).toMatchObject({ type: 'turn_terminal', outcome: 'failed' })
+    expect(archived?.events.some((event) => event.payload.type === 'outcome_insufficient_evidence')).toBe(false)
+  })
+
+  it('round11 Medium: repaired mastery or malformed/self-contradictory recon fail closed before insufficient sticky success', async () => {
+    const recordRef = {
+      recordId: 'rec-r11-recon-conflict',
+      relativePath: 'learning-records/r11-recon-conflict.md',
+      contentSha256: '5'.repeat(64)
+    }
+    const cases: Array<{ name: string; reconcile: (sessionId: string) => unknown }> = [
+      {
+        name: 'repaired-established',
+        reconcile: (sessionId) => ({
+          sessionId,
+          state: 'repaired',
+          marker: {
+            schemaVersion: 1,
+            sessionId,
+            outcomeId: 'outcome-r11-repaired',
+            operationId: 'op-r11-repaired',
+            kind: 'established',
+            evidenceEventIds: ['evidence-r11-repaired'],
+            evaluatorVersion: 1,
+            record: recordRef
+          },
+          record: recordRef,
+          catalogRecordPresent: true,
+          diagnostics: []
+        })
+      },
+      {
+        name: 'settled-self-contradictory-no-marker',
+        reconcile: (sessionId) => ({
+          sessionId,
+          state: 'settled',
+          marker: null,
+          record: null,
+          catalogRecordPresent: false,
+          diagnostics: []
+        })
+      },
+      {
+        name: 'pending-with-foreign-extra-key',
+        reconcile: (sessionId) => ({
+          sessionId,
+          state: 'pending',
+          marker: null,
+          record: null,
+          catalogRecordPresent: false,
+          diagnostics: [],
+          foreignAuthority: 'spoof'
+        })
+      },
+      {
+        name: 'pending-with-marker-authority',
+        reconcile: (sessionId) => ({
+          sessionId,
+          state: 'pending',
+          marker: {
+            schemaVersion: 1,
+            sessionId,
+            outcomeId: 'outcome-r11-pending-marker',
+            operationId: 'op-r11-pending-marker',
+            kind: 'needs_practice',
+            evidenceEventIds: [],
+            evaluatorVersion: 1,
+            record: null
+          },
+          record: null,
+          catalogRecordPresent: false,
+          diagnostics: []
+        })
+      }
+    ]
+
+    for (const [index, item] of cases.entries()) {
+      const turnId = `turn-r11-recon-conflict-${item.name}`
+      const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+        status: 'insufficient_evidence',
+        reason: 'not_evidenced',
+        recordSaved: false
+      } as OutcomeCommitResult))
+      const reconcile = vi.fn(async (sessionId: string) => item.reconcile(sessionId) as OutcomeReconciliation)
+      const coordinator = createTeachingTurnCoordinator({
+        ...createPorts({ commit, reconcile }),
+        maxOperations: 8,
+        maxEventIds: 8,
+        maxBuses: 2
+      })
+      const live: string[] = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (event) => {
+        live.push(event.payload.type)
+      })
+      const result = await coordinator.execute({
+        type: 'commit_outcome',
+        turnId,
+        eventId: `ev-r11-recon-conflict-${index}`,
+        operationId: `op-r11-recon-conflict-${index}`,
+        workspaceId: 'workspace-1',
+        request: { sessionId: 'session-1', operationId: `op-r11-recon-conflict-${index}` }
+      })
+      unsub()
+
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(result.rejectReason, item.name).toBe('payload_mismatch')
+      expect(result.terminal, item.name).toBeNull()
+      expect(live, item.name).not.toContain('command_accepted')
+      expect(live, item.name).not.toContain('outcome_insufficient_evidence')
+      expect(live, item.name).not.toContain('turn_terminal')
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events, item.name).toEqual([])
+      expect(replay?.terminal, item.name).toBeNull()
+
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId,
+        eventId: `ev-r11-recon-conflict-cancel-${index}`,
+        operationId: `op-r11-recon-conflict-cancel-${index}`,
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      for (const suffix of ['fill-a', 'fill-b']) {
+        await coordinator.execute({
+          type: 'cancel_turn',
+          turnId: `${turnId}-${suffix}`,
+          eventId: `ev-r11-recon-conflict-${index}-${suffix}`,
+          operationId: `op-r11-recon-conflict-${index}-${suffix}`,
+          workspaceId: 'workspace-1',
+          sessionId: 'session-1',
+          reasonCode: 'user_cancel'
+        })
+      }
+      const archived = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(archived?.terminal?.payload, item.name).toMatchObject({ type: 'turn_terminal', outcome: 'canceled' })
+      expect(archived?.events.some((event) => event.payload.type === 'outcome_insufficient_evidence'), item.name).toBe(false)
+      expect(
+        archived?.events.some((event) => event.payload.type === 'turn_terminal' && event.payload.outcome === 'failed'),
+        item.name
+      ).toBe(false)
+    }
+  })
 
 })
