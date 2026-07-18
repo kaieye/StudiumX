@@ -103,7 +103,6 @@ import {
 } from './teaching-workspace/registry'
 import {
   appendSessionEvent as appendWorkspaceSessionEvent,
-  atomicWriteFile,
   deriveWorkspaceTopic,
   ensureWorkspaceStructure as ensureWorkspaceLifecycleStructure,
   loadWorkspaceIndex as loadWorkspaceLifecycleIndex,
@@ -662,7 +661,15 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     const styleId = normalizeLessonStyleId(payload.styleId)
     const now = new Date().toISOString()
-    await atomicWriteFile(join(workspace.rootPath, 'assets', 'lesson.css'), lessonStyleCss(styleId))
+    await replaceDurably({
+      path: join(workspace.rootPath, 'assets', 'lesson.css'),
+      content: lessonStyleCss(styleId),
+      // Preserve writeFile's legacy create-mode contract (subject to umask)
+      // for this user-visible canonical stylesheet.
+      mode: 0o666,
+      operations: this.durableFileOperations,
+      warn: this.durableWarn
+    })
     await this.appendSessionEvent(workspace.rootPath, {
       id: randomUUID(),
       kind: 'lesson_style_applied',
