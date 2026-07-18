@@ -288,6 +288,43 @@ describe('OfficeWorkbench immersive fullscreen lifecycle', () => {
     await waitFor(() => expect(document.fullscreenElement).toBeNull())
   })
 
+  it('clears fullscreen state after leave-while-fullscreen and allows re-entry', async () => {
+    const user = userEvent.setup()
+    renderWorkbench()
+
+    await user.click(screen.getByRole('button', { name: '进入沉浸模式' }))
+    await user.click(screen.getByRole('button', { name: '进入全屏' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '退出全屏' })).toBeVisible()
+    })
+    expect(document.querySelector('.workbench-immersive-controls')).toHaveClass('is-fullscreen')
+
+    await user.click(screen.getByRole('button', { name: '打开学习分析' }))
+    await waitFor(() => {
+      expect(screen.getByTestId('analytics')).toBeInTheDocument()
+    })
+    await waitFor(() => expect(document.fullscreenElement).toBeNull())
+
+    await user.click(screen.getByRole('button', { name: '返回自习室' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '进入沉浸模式' })).toBeVisible()
+    })
+
+    // Returning to room must show a clean enter-fullscreen affordance.
+    await user.click(screen.getByRole('button', { name: '进入沉浸模式' }))
+    const enterFullscreen = screen.getByRole('button', { name: '进入全屏' })
+    expect(enterFullscreen).toBeVisible()
+    expect(document.querySelector('.workbench-immersive-controls')).not.toHaveClass('is-fullscreen')
+    expect(enterFullscreen).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(enterFullscreen)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '退出全屏' })).toBeVisible()
+    })
+    expect(document.fullscreenElement).not.toBeNull()
+    expect(document.querySelector('.workbench-immersive-controls')).toHaveClass('is-fullscreen')
+  })
+
   it('clears request flags when route-leave exitFullscreen rejects', async () => {
     const user = userEvent.setup()
     renderWorkbench()
@@ -313,6 +350,17 @@ describe('OfficeWorkbench immersive fullscreen lifecycle', () => {
     })
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '进入沉浸模式' })).toBeVisible()
+    })
+
+    await user.click(screen.getByRole('button', { name: '进入沉浸模式' }))
+    const enterFullscreen = screen.getByRole('button', { name: '进入全屏' })
+    expect(enterFullscreen).toBeVisible()
+    expect(document.querySelector('.workbench-immersive-controls')).not.toHaveClass('is-fullscreen')
+    expect(enterFullscreen).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(enterFullscreen)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '退出全屏' })).toBeVisible()
     })
   })
 

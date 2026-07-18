@@ -161,6 +161,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const fullscreenReturnFocusRef = useRef<HTMLElement | null>(null)
   const suppressFullscreenFocusRestoreRef = useRef(false)
   const restoreAnalyticsFocusRef = useRef(false)
+  const routeRef = useRef<WorkbenchRoute>(parseWorkbenchRoute(window.location.search))
+  const isWorkbenchMountedRef = useRef(true)
   const [openTasksPanelForAnalytics, setOpenTasksPanelForAnalytics] = useState(false)
   const [route, setRoute] = useState<WorkbenchRoute>(() => parseWorkbenchRoute(window.location.search))
   const [immersivePhase, setImmersivePhase] = useState<ImmersivePhase>('closed')
@@ -209,6 +211,15 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     occupantsByDeskId
   }
   chooseSeatRef.current = chooseSeat
+
+  routeRef.current = route
+
+  useEffect(() => {
+    isWorkbenchMountedRef.current = true
+    return () => {
+      isWorkbenchMountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     navigateWorkbenchRoute(route, 'replace')
@@ -337,13 +348,26 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   const finishImmersiveClose = useCallback((): void => {
     clearImmersiveCloseTimer()
+    if (!isWorkbenchMountedRef.current || routeRef.current !== 'room') return
     if (immersivePhaseRef.current !== 'closing') return
     immersivePhaseRef.current = 'closed'
     setImmersivePhase('closed')
     focusImmersiveControl(immersiveToggleRef.current)
   }, [clearImmersiveCloseTimer, focusImmersiveControl])
 
+  const clearFullscreenSession = useCallback((options?: { suppressFocusRestore?: boolean }): void => {
+    fullscreenWasActiveRef.current = false
+    fullscreenTransitionRef.current = false
+    fullscreenReturnFocusRef.current = null
+    suppressFullscreenFocusRestoreRef.current = options?.suppressFocusRestore ?? false
+    setIsFullscreen(false)
+  }, [])
+
   const beginImmersiveClose = useCallback((): void => {
+    // Ignore late async completions after route leave / unmount.
+    if (!isWorkbenchMountedRef.current || routeRef.current !== 'room') return
+    if (immersivePhaseRef.current === 'closed') return
+
     clearImmersiveCloseTimer()
     immersiveCloseRequestedRef.current = false
     immersivePhaseRef.current = 'closing'
@@ -361,15 +385,31 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const closeImmersive = useCallback((): void => {
     if (immersivePhaseRef.current !== 'open' || immersiveCloseRequestedRef.current) return
 
-    if (document.fullscreenElement === stageRef.current) {
+    const stage = stageRef.current
+    const ownsFullscreen = (
+      document.fullscreenElement != null &&
+      stage != null &&
+      document.fullscreenElement === stage
+    )
+
+    if (ownsFullscreen) {
+      // Share the transition lock with toggleFullscreen so enter/exit cannot race.
+      if (fullscreenTransitionRef.current) return
       immersiveCloseRequestedRef.current = true
       suppressFullscreenFocusRestoreRef.current = true
-      void document.exitFullscreen().then(beginImmersiveClose).catch(() => {
-        immersiveCloseRequestedRef.current = false
-        suppressFullscreenFocusRestoreRef.current = false
-        fullscreenTransitionRef.current = false
-        focusImmersiveControl(fullscreenButtonRef.current)
-      })
+      fullscreenTransitionRef.current = true
+      void document.exitFullscreen()
+        .then(() => {
+          fullscreenTransitionRef.current = false
+          beginImmersiveClose()
+        })
+        .catch(() => {
+          immersiveCloseRequestedRef.current = false
+          suppressFullscreenFocusRestoreRef.current = false
+          fullscreenTransitionRef.current = false
+          if (!isWorkbenchMountedRef.current || routeRef.current !== 'room') return
+          focusImmersiveControl(fullscreenButtonRef.current)
+        })
       return
     }
 
@@ -387,11 +427,11 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const toggleFullscreen = useCallback(async (): Promise<void> => {
     if (fullscreenTransitionRef.current) return
     const stage = stageRef.current
-    if (!stage) return
+    if (!stage || routeRef.current !== 'room') return
 
     fullscreenTransitionRef.current = true
     try {
-      if (document.fullscreenElement === stage) {
+      if (document.fullscreenElement != null && document.fullscreenElement === stage) {
         await document.exitFullscreen()
       } else {
         const activeElement = document.activeElement
@@ -405,7 +445,10 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       fullscreenReturnFocusRef.current = null
       // Fullscreen is controlled by the browser/Electron host and may be unavailable.
       // Keep immersive mode intact and leave the exit control reachable for retry.
-      if (document.fullscreenElement === stageRef.current) {
+      if (
+        document.fullscreenElement != null &&
+        document.fullscreenElement === stageRef.current
+      ) {
         focusImmersiveControl(fullscreenButtonRef.current)
       }
     } finally {
@@ -415,7 +458,15 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   useEffect(() => {
     const syncFullscreenState = (): void => {
-      const stageOwnsFullscreen = document.fullscreenElement === stageRef.current
+      const fullscreenElement = document.fullscreenElement
+      const stage = stageRef.current
+      // Ownership requires a real fullscreen element. Never treat null === null
+      // (common after stage unmount / route leave) as still owning fullscreen.
+      const stageOwnsFullscreen = (
+        fullscreenElement != null &&
+        stage != null &&
+        fullscreenElement === stage
+      )
       const stagePreviouslyOwnedFullscreen = fullscreenWasActiveRef.current
       // Ignore duplicate fullscreenchange events that do not change ownership.
       if (stageOwnsFullscreen === stagePreviouslyOwnedFullscreen) return
@@ -438,7 +489,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         return
       }
 
-      if (immersivePhaseRef.current === 'open') {
+      if (immersivePhaseRef.current === 'open' && routeRef.current === 'room') {
         setIsImmersiveArcFocusActive(true)
         const returnFocus = fullscreenReturnFocusRef.current
         focusImmersiveControl(returnFocus?.isConnected ? returnFocus : fullscreenButtonRef.current)
@@ -452,6 +503,15 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   useEffect(() => {
     if (route !== 'room') {
+      // Capture ownership before clearing local flags so exit still runs after unmount.
+      const fullscreenElement = document.fullscreenElement
+      const ownedFullscreen = (
+        fullscreenElement != null && (
+          (stageRef.current != null && fullscreenElement === stageRef.current) ||
+          fullscreenWasActiveRef.current
+        )
+      )
+
       clearImmersiveCloseTimer()
       immersiveCloseRequestedRef.current = false
       immersivePhaseRef.current = 'closed'
@@ -460,31 +520,32 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       setIsScenePickerOpen(false)
       resetImmersiveArc()
       setImmersivePhase('closed')
+      // Always clear React fullscreen state/refs on leave (success, auto-exit, or reject).
+      clearFullscreenSession({ suppressFocusRestore: ownedFullscreen })
 
-      // The room stage may already be unmounted when the route flips, so fall
-      // back to the last known ownership bit instead of only stageRef.
-      const fullscreenElement = document.fullscreenElement
-      const ownedFullscreen = (
-        fullscreenElement != null && (
-          fullscreenElement === stageRef.current || fullscreenWasActiveRef.current
-        )
-      )
       if (ownedFullscreen) {
-        suppressFullscreenFocusRestoreRef.current = true
-        void document.exitFullscreen().catch(() => {
-          suppressFullscreenFocusRestoreRef.current = false
-          fullscreenTransitionRef.current = false
-          immersiveCloseRequestedRef.current = false
-        })
+        void document.exitFullscreen()
+          .then(() => {
+            clearFullscreenSession()
+          })
+          .catch(() => {
+            // Keep the local session clean even when the host rejects exit.
+            clearFullscreenSession()
+            immersiveCloseRequestedRef.current = false
+          })
       }
     }
-  }, [clearImmersiveCloseTimer, resetImmersiveArc, route])
+  }, [clearFullscreenSession, clearImmersiveCloseTimer, resetImmersiveArc, route])
 
   useEffect(() => {
     if (immersivePhase !== 'open') return
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
-      if (document.fullscreenElement === stageRef.current) return
+      if (
+        document.fullscreenElement != null &&
+        stageRef.current != null &&
+        document.fullscreenElement === stageRef.current
+      ) return
       event.preventDefault()
       if (isScenePickerOpen) {
         setIsScenePickerOpen(false)
@@ -643,6 +704,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             // must not reveal hide/scene/note and create an invisible hit fan.
             const target = event.target as Node | null
             if (
+              document.fullscreenElement != null &&
+              stageRef.current != null &&
               document.fullscreenElement === stageRef.current &&
               target === fullscreenButtonRef.current
             ) {

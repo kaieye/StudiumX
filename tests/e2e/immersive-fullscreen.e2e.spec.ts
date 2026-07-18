@@ -88,3 +88,47 @@ test('fullscreen controls survive repeated enter and exit cycles', async ({ main
     await expect.poll(() => activeElementLabel(mainWindow)).toBe('进入全屏')
   }
 })
+
+test('leaving fullscreen room for analytics and returning restores a clean enter cycle', async ({ mainWindow }) => {
+  await openWorkbench(mainWindow)
+
+  // Expand tasks first so analytics remains reachable after immersive + fullscreen.
+  const taskToggle = mainWindow.locator('.workbench-task-toggle-card')
+  if ((await taskToggle.getAttribute('aria-expanded')) !== 'true') {
+    await taskToggle.click()
+  }
+  await expect(mainWindow.locator('.workbench-task-analytics-button')).toBeVisible()
+
+  await mainWindow.getByRole('button', { name: '进入沉浸模式' }).click()
+  await expect(mainWindow.getByRole('button', { name: '收起沉浸模式' })).toBeVisible()
+
+  await mainWindow.getByRole('button', { name: '进入全屏' }).click()
+  await expectStageFullscreen(mainWindow, true)
+  await expect(mainWindow.getByRole('button', { name: '退出全屏' })).toBeVisible()
+  await expect(mainWindow.locator('.workbench-immersive-controls')).toHaveClass(/is-fullscreen/)
+
+  // Leave the room while still in fullscreen.
+  await mainWindow.getByRole('button', { name: '打开学习分析' }).click()
+  await expect(mainWindow).toHaveURL(/workbench=analytics/)
+  await expect(mainWindow.locator('.study-analytics-page')).toBeVisible()
+  await expectStageFullscreen(mainWindow, false)
+
+  await mainWindow.getByRole('button', { name: /返回自习室|Back to study room/i }).click()
+  await expect(mainWindow).toHaveURL(/workbench=1/)
+
+  const immersiveToggle = mainWindow.getByRole('button', { name: '进入沉浸模式' })
+  await expect(immersiveToggle).toBeVisible()
+  await immersiveToggle.click()
+
+  const enterFullscreen = mainWindow.getByRole('button', { name: '进入全屏' })
+  await expect(enterFullscreen).toBeVisible()
+  await expect(mainWindow.locator('.workbench-immersive-controls')).not.toHaveClass(/is-fullscreen/)
+  await expect(enterFullscreen).toHaveAttribute('aria-pressed', 'false')
+
+  await enterFullscreen.click()
+  await expectStageFullscreen(mainWindow, true)
+  const exitFullscreen = mainWindow.getByRole('button', { name: '退出全屏' })
+  await expect(exitFullscreen).toBeVisible()
+  await expect(mainWindow.locator('.workbench-immersive-controls')).toHaveClass(/is-fullscreen/)
+  await expect.poll(() => activeElementLabel(mainWindow)).toBe('退出全屏')
+})
