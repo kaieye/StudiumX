@@ -244,7 +244,8 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
       cotLabel,
       'CHAIN-OF-THOUGHT',
       'provider payload',
-      'system prompt'
+      'system prompt',
+      '[redacted'
     ]) {
       expect(rendered).not.toContain(forbidden)
     }
@@ -255,6 +256,119 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     expect(rendered).toContain('辅助任务')
     expect(rendered).toContain('思考过程')
     expect(rendered).toContain('上下文整理')
+  })
+
+  it('fail-closed rejects absolute Windows/UNC/Unix/home paths without Users/Windows/private keywords', () => {
+    const driveBackslash = 'opened D:\\project\\StudiumX\\notes.md'
+    const driveSlash = 'reading C:/data/workspace/lesson.bin'
+    const uncPath = '\\\\fileserver\\share\\cohort\\keys.txt'
+    const unixPath = 'loading /var/log/agent/session.json'
+    const homeTilde = 'using ~/Library/Application Support/secrets'
+    const homeEnv = 'from $HOME/opt/cache/token.db'
+
+    const { container } = renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([
+          { id: 'drive-bs', kind: 'source', label: driveBackslash, state: 'complete' },
+          { id: 'drive-slash', kind: 'tool_call', label: driveSlash, state: 'complete' },
+          { id: 'unc', kind: 'tool_result', label: uncPath, state: 'complete' },
+          { id: 'unix', kind: 'status', label: unixPath, state: 'complete' },
+          { id: 'home-tilde', kind: 'child_run', label: homeTilde, state: 'complete' },
+          { id: 'home-env', kind: 'compaction', label: homeEnv, state: 'complete' }
+        ])}
+      />
+    )
+
+    const rendered = container.textContent ?? ''
+    for (const forbidden of [
+      driveBackslash,
+      'D:\\project\\StudiumX',
+      driveSlash,
+      'C:/data/workspace',
+      uncPath,
+      'fileserver\\share',
+      unixPath,
+      '/var/log/agent',
+      homeTilde,
+      '~/Library',
+      homeEnv,
+      '$HOME/opt'
+    ]) {
+      expect(rendered).not.toContain(forbidden)
+    }
+
+    expect(rendered).toContain('来源处理')
+    expect(rendered).toContain('技术步骤')
+    expect(rendered).toContain('处理状态')
+    expect(rendered).toContain('辅助任务')
+    expect(rendered).toContain('上下文整理')
+  })
+
+  it('fail-closed falls back on redactor-owned secrets and never surfaces [redacted remnants', () => {
+    const ghp = `ghp_${'a'.repeat(36)}`
+    const githubPat = `github_pat_${'b'.repeat(30)}_${'c'.repeat(20)}`
+    const bearer = 'Authorization: Bearer bearer-secret-value-xyz'
+    const pem = [
+      '-----BEGIN PRIVATE KEY-----',
+      'sensitive-private-key-material',
+      '-----END PRIVATE KEY-----'
+    ].join(' ')
+    const sk = 'provider key sk-abcdefghijklmnopqrstuv'
+
+    const { container } = renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([
+          { id: 'ghp', kind: 'tool_call', label: `token ${ghp}`, state: 'complete' },
+          { id: 'pat', kind: 'tool_result', label: githubPat, state: 'complete' },
+          { id: 'bearer', kind: 'status', label: bearer, state: 'complete' },
+          { id: 'pem', kind: 'source', label: pem, state: 'complete' },
+          { id: 'sk', kind: 'child_run', label: sk, state: 'complete' }
+        ])}
+      />
+    )
+
+    const rendered = container.textContent ?? ''
+    for (const forbidden of [
+      ghp,
+      githubPat,
+      bearer,
+      'bearer-secret-value-xyz',
+      'sensitive-private-key-material',
+      'BEGIN PRIVATE KEY',
+      sk,
+      'sk-abcdefghijklmnopqrstuv',
+      '[redacted',
+      'redacted private key'
+    ]) {
+      expect(rendered).not.toContain(forbidden)
+    }
+
+    expect(rendered).toContain('技术步骤')
+    expect(rendered).toContain('处理状态')
+    expect(rendered).toContain('来源处理')
+    expect(rendered).toContain('辅助任务')
+  })
+
+  it('does not misclassify safe learner-visible labels as absolute paths or secrets', () => {
+    const { container } = renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([
+          { id: 'rel-path', kind: 'tool_call', label: '读取 notes/lesson-guide.md', state: 'complete' },
+          { id: 'tool-name', kind: 'tool_result', label: '调用工具：search_notes', state: 'complete' },
+          { id: 'status-copy', kind: 'status', label: '正在准备回复', state: 'complete' },
+          { id: 'reasoning-copy', kind: 'reasoning', label: '思考过程', state: 'complete' }
+        ])}
+      />
+    )
+
+    const rendered = container.textContent ?? ''
+    expect(rendered).toContain('读取 notes/lesson-guide.md')
+    expect(rendered).toContain('调用工具：search_notes')
+    expect(rendered).toContain('正在准备回复')
+    expect(rendered).toContain('思考过程')
+    expect(rendered).not.toContain('[redacted')
+    // Unmarked ordinary answer sentences without typed markers are out of scope
+    // for this projector; they remain an upstream typed-title contract follow-up.
   })
 
   it('keeps rollup a11y names on projected labels and never falls back to raw malicious labels', async () => {

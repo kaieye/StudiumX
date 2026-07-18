@@ -268,13 +268,25 @@ function processDescription(item: AgentConversationProvenanceItem): string {
  * they look like secrets, paths, learner answers, or provider/system payloads.
  * Safe learner-visible copy is preserved; unsafe labels fall back to a stable
  * kind-based diagnostic label without echoing the original.
+ *
+ * Secret contract: if redactAgentSecretText mutates the label or the result
+ * contains a `[redacted` remnant (PEM/JWT/Bearer/ghp/sk and other formats
+ * owned by the shared redactor), always fall back to the kind label — never
+ * surface redaction remnants in DOM, rollup ids, or aria names.
+ * Absolute path contract: any Windows drive / UNC / Unix absolute / home path
+ * fails closed, not only Users/Windows/private keyword hits.
+ * Unmarked ordinary answer sentences without typed markers are intentionally
+ * not guessed here; that remains an upstream typed-title contract follow-up.
  */
 function processPrimaryLabel(item: AgentConversationProvenanceItem): string {
   const candidate = item.label.replace(/\s+/g, ' ').trim()
   if (!candidate) return safeDiagnosticLabel(item.kind)
   const redacted = redactAgentSecretText(candidate)
-  if (isUnsafeDiagnosticText(redacted)) return safeDiagnosticLabel(item.kind)
-  return redacted
+  if (redacted !== candidate || containsRedactionRemnant(redacted)) {
+    return safeDiagnosticLabel(item.kind)
+  }
+  if (isUnsafeDiagnosticText(candidate)) return safeDiagnosticLabel(item.kind)
+  return candidate
 }
 
 function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
@@ -341,22 +353,48 @@ function ReasoningProcessRow({ item, secondary }: { item: AgentConversationProve
 /**
  * Typed diagnostic adapter for process secondary text. Raw provenance detail is
  * read only here, then redacted and rejected when it looks like secrets, paths,
- * learner answers, or provider/system payloads.
+ * learner answers, or provider/system payloads. Secret mutations and redaction
+ * remnants fail closed the same way as primary labels.
  */
 function safeProcessSecondaryText(item: AgentConversationProvenanceItem): string | undefined {
   const candidate = item.detail?.replace(/\s+/g, ' ').trim()
   if (!candidate) return undefined
   const redacted = redactAgentSecretText(candidate)
-  if (isUnsafeDiagnosticText(redacted)) return safeDiagnosticState(item.state)
-  return redacted
+  if (redacted !== candidate || containsRedactionRemnant(redacted) || isUnsafeDiagnosticText(candidate)) {
+    return safeDiagnosticState(item.state)
+  }
+  return candidate
+}
+
+function containsRedactionRemnant(value: string): boolean {
+  return /\[redacted/i.test(value)
 }
 
 function isUnsafeDiagnosticText(value: string): boolean {
-  if (!value || value === '[redacted]') return true
+  if (!value || containsRedactionRemnant(value)) return true
   if (/(?:secret|token|password|api[_-]?key|sk-[A-Za-z0-9]{8,}|BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY)/i.test(value)) return true
-  if (/(?:[A-Za-z]:\\(?:Users|Windows|private)|\/(?:Users|home|private|var\/secrets)\/)/.test(value)) return true
+  if (containsAbsoluteOrHomePath(value)) return true
   if (/(?:RAW-(?:ANSWER|PROMPT)|CHAIN-OF-THOUGHT|provider\s*payload|system\s*prompt)/i.test(value)) return true
   if (/^\{[\s\S]*\}$/.test(value) && /"(?:prompt|answer|arguments|apiKey|token)"/.test(value)) return true
+  return false
+}
+
+/**
+ * Absolute / home filesystem path detector for learner-facing diagnostics.
+ * Intentionally keyword-agnostic: any Windows drive root, UNC share, Unix
+ * absolute path, or home prefix fails closed — not only Users/Windows/private.
+ */
+function containsAbsoluteOrHomePath(value: string): boolean {
+  // Windows drive absolute: D:\project\x or C:/data/x
+  if (/(?:^|[^A-Za-z0-9_])[A-Za-z]:(?:\\|\/)\S/.test(value)) return true
+  // UNC: \\server\share\... (and //server/share/...)
+  if (/(?:^|[\s"'`(=])(?:\\\\[^\s\\/]+\\[^\s"'`]+|\/\/[A-Za-z0-9._$-]+\/[^\s"'`]+)/.test(value)) return true
+  if (/\\\\[A-Za-z0-9._$-]+\\[A-Za-z0-9._$\\\/-]+/.test(value)) return true
+  // Unix absolute with one or more path segments after the root slash
+  if (/(?:^|[\s"'`(=])\/(?:[A-Za-z0-9._+-]+\/)+[A-Za-z0-9._+-]+/.test(value)) return true
+  if (/(?:^|[\s"'`(=])\/[A-Za-z0-9._+-]{2,}(?=[\s"'`)]|$)/.test(value)) return true
+  // Home prefixes: ~/... and $HOME/...
+  if (/(?:^|[\s"'`(=])(?:~|\$HOME)(?:\/[^\s"'`]*)?(?=[\s"'`)]|$)/.test(value)) return true
   return false
 }
 
