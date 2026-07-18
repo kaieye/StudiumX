@@ -9,6 +9,7 @@ import {
   normalizeLessonStyleId
 } from '../../shared/lesson-styles'
 import type { LessonPlanSource } from '../../shared/lesson-schema'
+import { normalizeTraceId } from '../../shared/trace-context'
 import { LEARNING_SESSIONS_ROOT_RELATIVE_PATH } from '../../shared/teaching-placement'
 import type { LessonSummary, TeachingSettingsV1, WorkspaceItemKind } from '../../shared/teaching-types'
 import { normalizeLessonSummary } from '../teaching-workspace-catalog'
@@ -39,6 +40,8 @@ export type WorkspaceLifecycleEvent = {
   kind: 'workspace_created' | 'workspace_imported' | 'mission_updated' | 'lesson_generated' | 'lesson_style_applied' | 'agent_conversation_recorded'
   timestamp: string
   workspaceId: string
+  /** Opaque diagnostic correlation metadata; never participates in lifecycle identity or filtering. */
+  traceId?: string
   prompt?: string
   paths?: string[]
   meta?: { source?: LessonPlanSource; reason?: string; model?: string; styleId?: string }
@@ -155,9 +158,17 @@ export async function saveWorkspaceIndex(rootPath: string, index: WorkspaceIndex
 export const WORKSPACE_LIFECYCLE_LEDGER_RELATIVE_PATH = '.studiumx/sessions.jsonl'
 
 export async function appendWorkspaceLifecycleEvent(rootPath: string, event: WorkspaceLifecycleEvent): Promise<void> {
+  // Never spread the raw trace back into durable JSONL: it is diagnostic
+  // metadata and may otherwise carry malformed or secret-like input.
+  const { traceId: rawTraceId, ...eventWithoutTrace } = event
+  const traceId = normalizeTraceId(rawTraceId)
+  const persistedEvent: WorkspaceLifecycleEvent = {
+    ...eventWithoutTrace,
+    ...(traceId ? { traceId } : {})
+  }
   await appendDurableJsonlLine({
     activePath: join(rootPath, WORKSPACE_LIFECYCLE_LEDGER_RELATIVE_PATH)
-  }, JSON.stringify(event))
+  }, JSON.stringify(persistedEvent))
 }
 
 /** Reads strict sealed lifecycle segments before the active lifecycle JSONL. */

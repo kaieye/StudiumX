@@ -897,6 +897,7 @@ export class TeachingWorkspaceService {
         kind: 'agent_conversation_recorded',
         timestamp: persistedRecord.updatedAt,
         workspaceId: workspace.id,
+        traceId: persistedRecord.traceId,
         prompt: title,
         paths: [persistedRecord.relativePath, agentConversationJsonRelativePathForMarkdown(persistedRecord.relativePath)]
       })

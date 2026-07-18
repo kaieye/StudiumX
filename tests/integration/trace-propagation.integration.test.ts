@@ -8,6 +8,7 @@ import { createLearningSessionLedger } from '../../src/main/learning-session-led
 import { buildLearningWorkLedgerEntry, readLearningWorkLedgerLines } from '../../src/main/learning-work-ledger'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
+import { readWorkspaceLifecycleEvents } from '../../src/main/teaching-workspace/lifecycle'
 import { TeachingMemoryCatalog } from '../../src/main/teaching-memory-catalog'
 import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 import type { AgentConversationRecord } from '../../src/shared/teaching-types'
@@ -76,6 +77,26 @@ describe('C-5 archive trace propagation', () => {
     expect([...ledgerTraceByEntryId.keys()].sort()).toEqual([...expectedLedgerTraceByEntryId.keys()].sort())
     expect(ledgerTraceByEntryId).toEqual(expectedLedgerTraceByEntryId)
 
+    // Lifecycle rows are append-only and concurrent saves can race, so resolve
+    // each row through its archived conversation paths rather than JSONL order.
+    const conversationIdByArchivePath = new Map(persisted.flatMap((record) => [
+      [record.relativePath, record.id] as const,
+      [agentConversationJsonRelativePathForMarkdown(record.relativePath), record.id] as const
+    ]))
+    const lifecycleTraceByConversation = new Map<string, string | undefined>()
+    const lifecycleEvents = (await readWorkspaceLifecycleEvents(workspace.rootPath))
+      .filter((event) => event.kind === 'agent_conversation_recorded')
+    expect(lifecycleEvents).toHaveLength(2)
+    for (const event of lifecycleEvents) {
+      const conversationId = event.paths
+        ?.map((path) => conversationIdByArchivePath.get(path))
+        .find((candidate): candidate is string => candidate !== undefined)
+      expect(conversationId).toBeDefined()
+      if (conversationId) lifecycleTraceByConversation.set(conversationId, event.traceId)
+    }
+    expect([...lifecycleTraceByConversation.keys()].sort()).toEqual(expectedConversationIds)
+    expect(lifecycleTraceByConversation).toEqual(canonicalTraceByConversation)
+
     const archiveLogs = (await logger.readTail(20_000)).split('\n')
       .map(parseLoggerLine)
       .filter((line): line is NonNullable<typeof line> => line?.tag === 'agent-archive')
@@ -89,6 +110,18 @@ describe('C-5 archive trace propagation', () => {
       traceId,
       message: 'Conversation archive persisted.'
     }))))
+    for (const [conversationId, canonicalTraceId] of canonicalTraceByConversation) {
+      const conversation = canonicalConversationsById.get(conversationId)!
+      const ledgerEntryId = buildLearningWorkLedgerEntry(workspace, conversation).entryId
+      expect(lifecycleTraceByConversation.get(conversationId)).toBe(canonicalTraceId)
+      expect(ledgerTraceByEntryId.get(ledgerEntryId)).toBe(canonicalTraceId)
+      expect(archiveLogs).toContainEqual(expect.objectContaining({
+        component: 'main',
+        tag: 'agent-archive',
+        traceId: canonicalTraceId,
+        message: 'Conversation archive persisted.'
+      }))
+    }
 
     await logger.shutdown()
   })
