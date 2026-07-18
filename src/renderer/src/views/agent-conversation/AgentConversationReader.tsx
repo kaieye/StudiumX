@@ -36,7 +36,7 @@ type AgentConversationReaderPresentation = Omit<AgentConversationTurnPresentatio
 /**
  * Renders either the learner-safe teaching projection or the agent process panel.
  * Teaching technical diagnostics come only from TeachingTurnPresentation; process
- * secondary text is allow-listed/redacted before it reaches the DOM.
+ * secondary text and primary labels are allow-listed/redacted before they reach the DOM.
  */
 export function AgentConversationReader({
   presentation,
@@ -163,7 +163,7 @@ function groupRepeatedProcessDescriptions(items: AgentConversationProvenanceItem
       rows.push({ id: item.id, type: 'single', item })
       continue
     }
-    const rollupId = `rollup:${item.kind}:${item.label}`
+    const rollupId = `rollup:${item.kind}:${processPrimaryLabel(item)}`
     const existing = rollups.get(rollupId)
     if (existing) {
       existing.items.push(item)
@@ -186,6 +186,7 @@ function isRollupDescription(item: AgentConversationProvenanceItem): boolean {
 
 function RepeatedProcessRow({ items }: { items: AgentConversationProvenanceItem[] }) {
   const latest = items[items.length - 1]
+  const primaryLabel = processPrimaryLabel(latest)
   const [expanded, setExpanded] = useState(false)
   const hasHistory = items.length > 1
   return (
@@ -193,13 +194,13 @@ function RepeatedProcessRow({ items }: { items: AgentConversationProvenanceItem[
       <span className="agent-process-event-icon"><ProcessIcon item={latest} /></span>
       <div className="agent-process-event-copy">
         <div className="agent-process-event-title">
-          <strong>{latest.label}</strong>
+          <strong>{primaryLabel}</strong>
           {hasHistory ? (
             <button
               type="button"
               className="agent-process-reasoning-toggle"
               aria-expanded={expanded}
-              aria-label={expanded ? `折叠${latest.label}历史` : `展开${latest.label}历史`}
+              aria-label={expanded ? `折叠${primaryLabel}历史` : `展开${primaryLabel}历史`}
               onClick={() => setExpanded((value) => !value)}
             >
               <ChevronDown className={expanded ? 'is-open' : undefined} size={14} />
@@ -207,7 +208,7 @@ function RepeatedProcessRow({ items }: { items: AgentConversationProvenanceItem[
           ) : null}
         </div>
         {expanded ? (
-          <div className="agent-process-rollup-history" role="list" aria-label={`${latest.label}历史`}>
+          <div className="agent-process-rollup-history" role="list" aria-label={`${primaryLabel}历史`}>
             {items.map((item) => (
               <small key={item.id} role="listitem">{processDescription(item)}</small>
             ))}
@@ -261,9 +262,19 @@ function processDescription(item: AgentConversationProvenanceItem): string {
   return safeProcessSecondaryText(item) || processPrimaryLabel(item)
 }
 
+/**
+ * Single learner-safe primary-label projector for process rows.
+ * Raw provenance labels are read only here, then redacted and rejected when
+ * they look like secrets, paths, learner answers, or provider/system payloads.
+ * Safe learner-visible copy is preserved; unsafe labels fall back to a stable
+ * kind-based diagnostic label without echoing the original.
+ */
 function processPrimaryLabel(item: AgentConversationProvenanceItem): string {
-  const projected = item.label.trim()
-  return projected || safeDiagnosticLabel(item.kind)
+  const candidate = item.label.replace(/\s+/g, ' ').trim()
+  if (!candidate) return safeDiagnosticLabel(item.kind)
+  const redacted = redactAgentSecretText(candidate)
+  if (isUnsafeDiagnosticText(redacted)) return safeDiagnosticLabel(item.kind)
+  return redacted
 }
 
 function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
@@ -405,3 +416,4 @@ function ProcessIcon({ item }: { item: AgentConversationProvenanceItem }) {
   if (item.state === 'pending') return <Wrench size={13} />
   return <Clock3 size={13} />
 }
+

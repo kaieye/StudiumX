@@ -174,3 +174,126 @@ describe('AgentConversationReader process outcomes', () => {
     expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('规划中已完成')
   })
 })
+
+describe('AgentConversationReader learner-safe process primary labels', () => {
+  const basePresentation = (
+    items: AgentConversationTurnPresentation['items']
+  ): AgentConversationTurnPresentation => ({
+    turnId: 'label-redaction',
+    active: false,
+    status: { kind: 'completed' },
+    answeredAsks: [],
+    sources: [],
+    items
+  })
+
+  it('preserves safe learner-visible process primary labels', () => {
+    renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([
+          { id: 'safe-reasoning', kind: 'reasoning', label: '思考过程', state: 'complete' },
+          { id: 'safe-tool', kind: 'tool_call', label: '调用工具：search_notes', state: 'complete' },
+          { id: 'safe-status', kind: 'status', label: '正在准备回复', state: 'complete' }
+        ])}
+      />
+    )
+
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).toHaveTextContent('思考过程')
+    expect(panel).toHaveTextContent('调用工具：search_notes')
+    expect(panel).toHaveTextContent('正在准备回复')
+  })
+
+  it('fail-closed redacts secret, answer, path, and provider payload primary labels without echoing originals', () => {
+    const secretLabel = 'api_key=sk-secret-do-not-show-xyz'
+    const answerLabel = 'RAW-ANSWER-DO-NOT-SHOW: momentum is conserved'
+    const pathLabel = 'C:\\Users\\learner\\private\\answer-key.md'
+    const providerLabel = '{"prompt":"leak","answer":"42","apiKey":"tok_abc","token":"x"}'
+    const passwordLabel = 'password=super-secret-value'
+    const cotLabel = 'CHAIN-OF-THOUGHT provider payload system prompt'
+
+    const { container } = renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([
+          { id: 'secret', kind: 'tool_call', label: secretLabel, state: 'complete' },
+          { id: 'answer', kind: 'status', label: answerLabel, state: 'complete' },
+          { id: 'path', kind: 'source', label: pathLabel, state: 'complete' },
+          { id: 'provider', kind: 'tool_result', label: providerLabel, state: 'error' },
+          { id: 'password', kind: 'child_run', label: passwordLabel, state: 'complete' },
+          { id: 'cot', kind: 'reasoning', label: cotLabel, state: 'complete' },
+          { id: 'blank', kind: 'compaction', label: '   ', state: 'complete' }
+        ])}
+      />
+    )
+
+    const rendered = container.textContent ?? ''
+    for (const forbidden of [
+      secretLabel,
+      'sk-secret-do-not-show-xyz',
+      answerLabel,
+      'RAW-ANSWER-DO-NOT-SHOW',
+      'momentum is conserved',
+      pathLabel,
+      'answer-key.md',
+      'C:\\Users\\learner',
+      providerLabel,
+      '"apiKey"',
+      'tok_abc',
+      passwordLabel,
+      'super-secret-value',
+      cotLabel,
+      'CHAIN-OF-THOUGHT',
+      'provider payload',
+      'system prompt'
+    ]) {
+      expect(rendered).not.toContain(forbidden)
+    }
+
+    expect(rendered).toContain('技术步骤')
+    expect(rendered).toContain('处理状态')
+    expect(rendered).toContain('来源处理')
+    expect(rendered).toContain('辅助任务')
+    expect(rendered).toContain('思考过程')
+    expect(rendered).toContain('上下文整理')
+  })
+
+  it('keeps rollup a11y names on projected labels and never falls back to raw malicious labels', async () => {
+    const maliciousLabel = 'token=sk-malicious-history-label'
+    const user = setupUser()
+    renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([
+          {
+            id: 'child-1',
+            kind: 'child_run',
+            label: maliciousLabel,
+            detail: 'child-1：thinking',
+            state: 'complete'
+          },
+          {
+            id: 'child-2',
+            kind: 'child_run',
+            label: maliciousLabel,
+            detail: 'child-1：tool_done',
+            state: 'active'
+          }
+        ])}
+      />
+    )
+
+    const expand = screen.getByRole('button', { name: '展开辅助任务历史' })
+    expect(expand).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: new RegExp(maliciousLabel) })).toBeNull()
+    expect(screen.queryByLabelText(new RegExp(maliciousLabel))).toBeNull()
+
+    await user.click(expand)
+    const collapse = screen.getByRole('button', { name: '折叠辅助任务历史' })
+    expect(collapse).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('list', { name: '辅助任务历史' })).toBeVisible()
+
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).toHaveTextContent('辅助任务')
+    expect(panel).not.toHaveTextContent(maliciousLabel)
+    expect(panel).not.toHaveTextContent('sk-malicious-history-label')
+  })
+})
