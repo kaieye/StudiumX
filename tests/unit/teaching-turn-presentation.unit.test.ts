@@ -53,6 +53,20 @@ describe('TeachingTurnPresentation', () => {
     }
   })
 
+  it('publishes stable accessible names for the learner region, active status, and trusted source list', () => {
+    const presentation = buildTeachingTurnPresentation(snapshot({
+      nextStep: decision('contrast_and_retry', 'needs_practice'),
+      session: { id: 'session-1', source: 'canonical', readOnly: false, status: 'active', outcome: { kind: 'needs_practice' } }
+    }))
+
+    expect(presentation.accessibleNames).toEqual({
+      region: '学习流程',
+      phaseList: '学习流程阶段',
+      currentPhase: '当前阶段：讲解并重试。需要再练习一次',
+      sourceList: '可信来源标识'
+    })
+  })
+
   it('keeps needs_practice in retry and gates corrected success on canonical record confirmation', () => {
     const retry = buildTeachingTurnPresentation(snapshot({
       nextStep: decision('contrast_and_retry', 'needs_practice'),
@@ -156,8 +170,10 @@ describe('TeachingTurnPresentation', () => {
     await waitFor(() => expect(action).toHaveFocus())
     await user.keyboard('{Enter}')
     expect(calls).toEqual(['begin_retrieval_practice'])
-    await user.tab()
-    expect(screen.getByText('来源摘要')).toBeVisible()
+    expect(screen.getByRole('note', { name: '当前阶段：完成检索练习。轮到你完成检索练习' })).toBeVisible()
+    const sourceDisclosure = screen.getByText('来源摘要')
+    await user.click(sourceDisclosure)
+    expect(screen.getByRole('list', { name: '可信来源标识' })).toHaveTextContent('来源 source-1')
     expect(screen.queryByRole('log')).toBeNull()
   })
 

@@ -92,11 +92,20 @@ export type TeachingTurnTechnicalDiagnostic = {
   label: string
 }
 
+/** Accessible names are projected with the visible learner state so they cannot drift in the reader. */
+export type TeachingTurnAccessibleNames = {
+  region: string
+  phaseList: string
+  currentPhase: string
+  sourceList: string
+}
+
 export type TeachingTurnPresentation = {
   phases: readonly TeachingTurnPhase[]
   activePhaseId: TeachingTurnPhaseId
   action: TeachingTurnAction | null
   sourceIds: readonly string[]
+  accessibleNames: TeachingTurnAccessibleNames
   announcement: TeachingTurnAnnouncement | null
   /** A collapsed, generic status adapter; never carries raw process data. */
   technicalDiagnostic: TeachingTurnTechnicalDiagnostic
@@ -116,6 +125,12 @@ const PHASES: ReadonlyArray<Pick<TeachingTurnPhase, 'id' | 'title'>> = [
   { id: 'save_continue', title: '保存并继续' }
 ]
 
+const STATIC_ACCESSIBLE_NAMES = {
+  region: '学习流程',
+  phaseList: '学习流程阶段',
+  sourceList: '可信来源标识'
+} as const
+
 /**
  * Pure, deterministic learner-facing projection. It accepts only compact typed
  * snapshots/events and never reads domain state, creates records, or evaluates
@@ -124,6 +139,12 @@ const PHASES: ReadonlyArray<Pick<TeachingTurnPhase, 'id' | 'title'>> = [
 export function buildTeachingTurnPresentation(snapshot: TeachingTurnSnapshot): TeachingTurnPresentation {
   const selection = selectPhase(snapshot)
   const sourceIds = safeSourceIds(snapshot.sourceIds)
+  const phases: TeachingTurnPhase[] = PHASES.map((phase) => ({
+    ...phase,
+    state: phase.id === selection.phaseId ? selection.state : 'upcoming',
+    statusText: phase.id === selection.phaseId ? selection.statusText : '尚未开始'
+  }))
+  const activePhase = phases.find((phase) => phase.id === selection.phaseId)!
   const focusKey = opaqueKey(snapshot.operation.id, snapshot.operation.revision, selection.phaseId, selection.state)
   const savedAnnouncement = selection.saved
     ? {
@@ -134,14 +155,14 @@ export function buildTeachingTurnPresentation(snapshot: TeachingTurnSnapshot): T
     : null
 
   return {
-    phases: PHASES.map((phase) => ({
-      ...phase,
-      state: phase.id === selection.phaseId ? selection.state : 'upcoming',
-      statusText: phase.id === selection.phaseId ? selection.statusText : '尚未开始'
-    })),
+    phases,
     activePhaseId: selection.phaseId,
     action: selection.action,
     sourceIds,
+    accessibleNames: {
+      ...STATIC_ACCESSIBLE_NAMES,
+      currentPhase: formatCurrentPhaseAccessibleName(activePhase.title, activePhase.statusText)
+    },
     announcement: savedAnnouncement,
     technicalDiagnostic: selection.diagnostic,
     focusKey
@@ -308,6 +329,10 @@ function saveStatusText(status: TeachingTurnCanonicalSaveStatus): string {
     default:
       return '等待学习进展保存'
   }
+}
+
+function formatCurrentPhaseAccessibleName(title: string, statusText: string): string {
+  return `当前阶段：${title}。${statusText}`
 }
 
 function safeSourceIds(ids: readonly string[]): readonly string[] {

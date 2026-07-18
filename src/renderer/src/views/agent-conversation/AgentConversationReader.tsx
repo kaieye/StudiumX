@@ -68,15 +68,19 @@ function TeachingTurnReader({ presentation, onAction, compact }: {
   }, [presentation.announcement])
   const activePhase = presentation.phases.find((phase) => phase.id === presentation.activePhaseId)
   return (
-    <section className={`teaching-turn-panel${compact ? ' is-compact' : ''}`} aria-label="学习流程">
-      <ol className="teaching-turn-panel__phases" aria-label="学习流程阶段">
+    <section className={`teaching-turn-panel${compact ? ' is-compact' : ''}`} aria-label={presentation.accessibleNames.region}>
+      <ol className="teaching-turn-panel__phases" aria-label={presentation.accessibleNames.phaseList}>
         {presentation.phases.map((phase) => (
           <li key={phase.id} aria-current={phase.id === presentation.activePhaseId ? 'step' : undefined}>
             <strong>{phase.title}</strong><span>{phase.statusText}</span>
           </li>
         ))}
       </ol>
-      {activePhase ? <p className="teaching-turn-panel__status">当前阶段：{activePhase.title}。{activePhase.statusText}</p> : null}
+      {activePhase ? (
+        <p className="teaching-turn-panel__status" role="note" aria-label={presentation.accessibleNames.currentPhase}>
+          {presentation.accessibleNames.currentPhase}
+        </p>
+      ) : null}
       {presentation.action ? (
         <button ref={actionRef} type="button" className="teaching-turn-panel__action"
           onClick={() => onAction?.(presentation.action!)} aria-label={presentation.action.label}>
@@ -84,9 +88,12 @@ function TeachingTurnReader({ presentation, onAction, compact }: {
         </button>
       ) : null}
       {presentation.sourceIds.length > 0 ? (
-        <details className="teaching-turn-panel__sources"><summary>来源摘要</summary><ul>
-          {presentation.sourceIds.map((sourceId) => <li key={sourceId}>来源 {sourceId}</li>)}
-        </ul></details>
+        <details className="teaching-turn-panel__sources">
+          <summary>来源摘要</summary>
+          <ul aria-label={presentation.accessibleNames.sourceList}>
+            {presentation.sourceIds.map((sourceId) => <li key={sourceId}>来源 {sourceId}</li>)}
+          </ul>
+        </details>
       ) : null}
       {liveAnnouncement ? <p className="sr-only" role="status" aria-live="polite">{liveAnnouncement}</p> : null}
     </section>
