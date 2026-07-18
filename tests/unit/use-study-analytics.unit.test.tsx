@@ -1,10 +1,18 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { LearningAnalyticsBundle, LearningAnalyticsQuery } from '@shared/teaching-types/analytics'
+import type {
+  AnalyticsCoverage,
+  AnalyticsSectionResult,
+  LearningAnalyticsBundle,
+  LearningAnalyticsQuery
+} from '@shared/teaching-types/analytics'
 import {
   AnalyticsApiUnavailableError,
+  AnalyticsBundleContractError,
+  assertAnalyticsBundle,
   buildAnalyticsDateRange,
   buildLearningAnalyticsQuery,
+  REQUIRED_ANALYTICS_BUNDLE_SECTIONS,
   teachingSystemAnalyticsClient,
   useStudyAnalytics,
   validateCustomAnalyticsRange,
@@ -21,8 +29,48 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+function coverage(query: LearningAnalyticsQuery): AnalyticsCoverage {
+  return {
+    rangeApplied: true,
+    requestedRange: query.range,
+    effectiveRange: query.range,
+    trackingStartedOn: query.range.from,
+    dataStartDate: query.range.from,
+    dataEndDate: query.range.to,
+    retention: { policy: 'rolling_local_days', days: 400, includesToday: true, cutoffDate: query.range.from },
+    complete: true,
+    sources: []
+  }
+}
+
+function unavailableSection(query: LearningAnalyticsQuery): AnalyticsSectionResult<never> {
+  return {
+    state: 'unavailable',
+    temporal: { kind: 'range', range: query.range },
+    coverage: coverage(query),
+    warnings: [],
+    reason: 'not_applicable'
+  }
+}
+
+/** Minimal ready bundle that satisfies the runtime section contract. */
 function bundleFor(query: LearningAnalyticsQuery, generatedAt: string): LearningAnalyticsBundle {
-  return { contractVersion: 1, generatedAt, query } as LearningAnalyticsBundle
+  const unavailable = unavailableSection(query)
+  return {
+    contractVersion: 1,
+    generatedAt,
+    query,
+    hero: unavailable,
+    focus: unavailable,
+    tasks: unavailable,
+    tokens: unavailable,
+    workspaceAssets: unavailable,
+    review: unavailable,
+    memory: unavailable,
+    platform: unavailable,
+    presence: unavailable,
+    insights: unavailable
+  }
 }
 
 describe('analytics query construction', () => {
@@ -79,6 +127,142 @@ describe('analytics query construction', () => {
   })
 })
 
+describe('analytics bundle runtime contract', () => {
+  it('accepts a ready bundle that includes every required section envelope', () => {
+    const query = buildLearningAnalyticsQuery({
+      range: buildAnalyticsDateRange('week', '2026-07-13'),
+      localToday: '2026-07-13',
+      timeZone: 'Asia/Shanghai',
+      personalClientId: 'client-1',
+      teaching: { kind: 'none' }
+    })
+    expect(() => assertAnalyticsBundle(bundleFor(query, '2026-07-13T10:00:00.000Z'))).not.toThrow()
+    expect(REQUIRED_ANALYTICS_BUNDLE_SECTIONS).toEqual([
+      'hero',
+      'focus',
+      'tasks',
+      'tokens',
+      'workspaceAssets',
+      'review',
+      'memory',
+      'platform',
+      'presence',
+      'insights'
+    ])
+  })
+
+  it('rejects partial and malformed ready bundles without leaking the payload', () => {
+    const query = buildLearningAnalyticsQuery({
+      range: buildAnalyticsDateRange('week', '2026-07-13'),
+      localToday: '2026-07-13',
+      timeZone: 'Asia/Shanghai',
+      personalClientId: 'client-1',
+      teaching: { kind: 'none' }
+    })
+    const secret = 'SECRET_PAYLOAD_TOKEN_xyz_should_not_leak'
+    const cases: unknown[] = [
+      null,
+      undefined,
+      { contractVersion: 2, generatedAt: 'x', query, hero: { state: 'empty' } },
+      { contractVersion: 1, generatedAt: 'x', query, secret },
+      {
+        contractVersion: 1,
+        generatedAt: 'x',
+        query,
+        hero: { state: 'available' },
+        // missing the rest of the required sections
+        focus: null,
+        secret
+      },
+      {
+        ...bundleFor(query, '2026-07-13T10:00:00.000Z'),
+        tokens: null,
+        secret
+      },
+      {
+        ...bundleFor(query, '2026-07-13T10:00:00.000Z'),
+        tokens: { temporal: {}, coverage: {}, warnings: [] },
+        secret
+      }
+    ]
+
+    for (const value of cases) {
+      expect(() => assertAnalyticsBundle(value)).toThrow(AnalyticsBundleContractError)
+      try {
+        assertAnalyticsBundle(value)
+      } catch (error) {
+        expect(error).toBeInstanceOf(AnalyticsBundleContractError)
+        expect((error as Error).message).not.toContain(secret)
+        expect((error as Error).message).not.toMatch(/hero|tokens|workspaceAssets/i)
+        expect((error as AnalyticsBundleContractError).retryable).toBe(true)
+      }
+    }
+  })
+
+  it('turns a partial ready bundle into a retryable request failure instead of a ready shell with null sections', async () => {
+    const query = buildLearningAnalyticsQuery({
+      range: buildAnalyticsDateRange('week', '2026-07-13'),
+      localToday: '2026-07-13',
+      timeZone: 'Asia/Shanghai',
+      personalClientId: 'client-1',
+      teaching: { kind: 'none' }
+    })
+    const secret = 'leaky-raw-section-blob'
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: async () => ({
+        contractVersion: 1,
+        generatedAt: '2026-07-13T10:00:00.000Z',
+        query,
+        hero: unavailableSection(query),
+        secret
+      }) as unknown as LearningAnalyticsBundle
+    }
+
+    const { result } = renderHook(() => useStudyAnalytics({ query, client }))
+    await waitFor(() => expect(result.current.phase).toBe('error'))
+    expect(result.current.bundle).toBeNull()
+    expect(result.current.issue).toMatchObject({
+      kind: 'request_failed',
+      retryable: true
+    })
+    expect(result.current.issue?.message).not.toContain(secret)
+    expect(result.current.issue?.kind).not.toBe('api_unavailable')
+  })
+
+  it('keeps a previous complete bundle and marks it stale when a later partial bundle fails the contract', async () => {
+    const query = buildLearningAnalyticsQuery({
+      range: buildAnalyticsDateRange('week', '2026-07-13'),
+      localToday: '2026-07-13',
+      timeZone: 'Asia/Shanghai',
+      personalClientId: 'client-1',
+      teaching: { kind: 'none' }
+    })
+    const initial = bundleFor(query, '2026-07-13T10:00:00.000Z')
+    let requestCount = 0
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: async () => {
+        requestCount += 1
+        if (requestCount === 1) return initial
+        return {
+          contractVersion: 1,
+          generatedAt: '2026-07-13T11:00:00.000Z',
+          query,
+          hero: unavailableSection(query)
+        } as unknown as LearningAnalyticsBundle
+      }
+    }
+
+    const { result } = renderHook(() => useStudyAnalytics({ query, client }))
+    await waitFor(() => expect(result.current.phase).toBe('ready'))
+    act(() => result.current.refresh())
+    await waitFor(() => expect(result.current.isRefreshing).toBe(false))
+    expect(result.current.phase).toBe('ready')
+    expect(result.current.bundle).toBe(initial)
+    expect(result.current.isStale).toBe(true)
+    expect(result.current.issue).toMatchObject({ kind: 'request_failed', retryable: true })
+  })
+})
+
 describe('useStudyAnalytics', () => {
   it('requests every analytics section from Main for the full Learning Analytics page', async () => {
     const query = buildLearningAnalyticsQuery({
@@ -103,6 +287,40 @@ describe('useStudyAnalytics', () => {
         sectionIds: ['hero', 'focus', 'tasks', 'tokens', 'workspace_assets', 'review', 'memory', 'platform', 'presence', 'insights']
       }))
       expect(getLearningAnalytics.mock.calls[0]?.[0]).not.toHaveProperty('refreshSectionIds')
+    } finally {
+      Object.defineProperty(window, 'teachingSystem', {
+        configurable: true,
+        writable: true,
+        value: originalSystem
+      })
+    }
+  })
+
+  it('rejects a teachingSystem response that is missing required sections', async () => {
+    const query = buildLearningAnalyticsQuery({
+      range: buildAnalyticsDateRange('week', '2026-07-13'),
+      localToday: '2026-07-13',
+      timeZone: 'Asia/Shanghai',
+      personalClientId: 'client-1',
+      teaching: { kind: 'none' }
+    })
+    const getLearningAnalytics = vi.fn(async () => ({
+      contractVersion: 1,
+      generatedAt: '2026-07-13T10:00:00.000Z',
+      query,
+      hero: unavailableSection(query)
+    }))
+    const originalSystem = window.teachingSystem
+    Object.defineProperty(window, 'teachingSystem', {
+      configurable: true,
+      writable: true,
+      value: { getLearningAnalytics }
+    })
+
+    try {
+      await expect(
+        teachingSystemAnalyticsClient.getLearningAnalytics(query, new AbortController().signal)
+      ).rejects.toBeInstanceOf(AnalyticsBundleContractError)
     } finally {
       Object.defineProperty(window, 'teachingSystem', {
         configurable: true,

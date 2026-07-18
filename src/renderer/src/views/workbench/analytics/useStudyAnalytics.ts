@@ -58,6 +58,20 @@ export class AnalyticsApiUnavailableError extends Error {
   }
 }
 
+/**
+ * Ready-bundle contract failure. Safe for UI surfaces: message never includes the raw payload.
+ * Treated as a retryable request failure, not API unavailability.
+ */
+export class AnalyticsBundleContractError extends Error {
+  readonly code = 'analytics_bundle_contract'
+  readonly retryable = true as const
+
+  constructor(message = 'Learning Analytics returned an incomplete response.') {
+    super(message)
+    this.name = 'AnalyticsBundleContractError'
+  }
+}
+
 export type AnalyticsRequestIssue =
   | { kind: 'api_unavailable'; message: string; retryable: false }
   | { kind: 'request_failed'; message: string; retryable: true }
@@ -156,45 +170,37 @@ export function buildAnalyticsDateRange(
   custom?: AnalyticsCustomRangeDraft
 ): AnalyticsDateRange {
   const today = parseLocalDate(localToday)
-  if (!today) throw new RangeError(`Invalid local today: ${localToday}`)
+  if (!today) throw new RangeError(`Invalid localToday: ${localToday}`)
 
   if (preset === 'custom') {
-    const validation = validateCustomAnalyticsRange(custom ?? { from: '', to: '' }, localToday)
-    if (!validation.valid || !custom?.from || !custom.to) {
-      throw new RangeError(`Invalid custom analytics range: ${validation.valid ? 'required' : validation.code}`)
+    const draft = custom ?? { from: '', to: '' }
+    const validation = validateCustomAnalyticsRange(draft, localToday)
+    if (!validation.valid || !draft.from || !draft.to) {
+      throw new RangeError('Invalid custom analytics range.')
     }
-    return makeRange('custom', custom.from, custom.to)
+    return makeRange('custom', draft.from, draft.to)
   }
-  if (preset === 'all') return makeRange('all', '0001-01-01', localToday)
+
   if (preset === 'today') return makeRange('today', localToday, localToday)
   if (preset === 'month') {
-    const monthStart = new Date(today)
-    monthStart.setDate(1)
-    return makeRange('month', localDateKey(monthStart), localToday)
+    const from = `${localToday.slice(0, 8)}01` as AnalyticsLocalDate
+    return makeRange('month', from, localToday)
   }
   if (preset === '90d') return makeRange('90d', addLocalDays(localToday, -89), localToday)
 
-  const mondayOffset = (today.getDay() + 6) % 7
-  return makeRange('week', addLocalDays(localToday, -mondayOffset), localToday)
+  // week: Monday-start inclusive through localToday
+  const weekday = (today.getDay() + 6) % 7
+  const from = addLocalDays(localToday, -weekday)
+  return makeRange('week', from, localToday)
 }
 
-export function buildLearningAnalyticsQuery({
-  range,
-  localToday,
-  timeZone,
-  personalClientId,
-  teaching,
-  presenceSpaceCode
-}: BuildLearningAnalyticsQueryInput): LearningAnalyticsQuery {
-  const normalizedTeaching: TeachingAnalyticsScope = teaching.kind === 'all_workspaces'
-    ? { ...teaching, workspaceIds: [...new Set(teaching.workspaceIds)].sort() }
-    : teaching
-
+export function buildLearningAnalyticsQuery(input: BuildLearningAnalyticsQueryInput): LearningAnalyticsQuery {
+  const { range, localToday, timeZone, personalClientId, teaching, presenceSpaceCode } = input
   return {
     range,
     scope: {
       personalFocus: { kind: 'personal', clientId: personalClientId },
-      teaching: normalizedTeaching,
+      teaching,
       presence: presenceSpaceCode
         ? { kind: 'live_space', spaceCode: presenceSpaceCode }
         : { kind: 'none' }
@@ -211,9 +217,45 @@ export function analyticsQueryKey(query: LearningAnalyticsQuery): string {
   return JSON.stringify(query)
 }
 
-function assertAnalyticsBundle(value: unknown): asserts value is LearningAnalyticsBundle {
-  if (!value || typeof value !== 'object' || (value as { contractVersion?: unknown }).contractVersion !== 1) {
-    throw new Error('Learning Analytics returned an unsupported response.')
+/** Bundle fields that must be present on every ready Learning Analytics response. */
+export const REQUIRED_ANALYTICS_BUNDLE_SECTIONS = [
+  'hero',
+  'focus',
+  'tasks',
+  'tokens',
+  'workspaceAssets',
+  'review',
+  'memory',
+  'platform',
+  'presence',
+  'insights'
+] as const
+
+export type RequiredAnalyticsBundleSection = (typeof REQUIRED_ANALYTICS_BUNDLE_SECTIONS)[number]
+
+/**
+ * Runtime contract for a ready analytics bundle.
+ * Missing required sections fail the whole request instead of being silently
+ * treated as per-section nulls in the page shell.
+ * Never includes the raw payload in the error message.
+ */
+export function assertAnalyticsBundle(value: unknown): asserts value is LearningAnalyticsBundle {
+  if (!value || typeof value !== 'object') {
+    throw new AnalyticsBundleContractError()
+  }
+  const bundle = value as Record<string, unknown>
+  if (bundle.contractVersion !== 1) {
+    throw new AnalyticsBundleContractError()
+  }
+  for (const section of REQUIRED_ANALYTICS_BUNDLE_SECTIONS) {
+    const result = bundle[section]
+    if (!result || typeof result !== 'object') {
+      throw new AnalyticsBundleContractError()
+    }
+    const state = (result as { state?: unknown }).state
+    if (typeof state !== 'string' || state.length === 0) {
+      throw new AnalyticsBundleContractError()
+    }
   }
 }
 
@@ -302,8 +344,17 @@ async function requestAnalyticsBundle(query: LearningAnalyticsQuery, signal: Abo
 }
 
 function requestErrorMessage(error: unknown): string {
+  if (error instanceof AnalyticsBundleContractError) return error.message
+  if (error instanceof AnalyticsApiUnavailableError) return error.message
   if (error instanceof Error && error.message.trim()) return error.message
   return 'Learning Analytics request failed.'
+}
+
+function toRequestIssue(error: unknown): AnalyticsRequestIssue {
+  if (error instanceof AnalyticsApiUnavailableError) {
+    return { kind: 'api_unavailable', message: requestErrorMessage(error), retryable: false }
+  }
+  return { kind: 'request_failed', message: requestErrorMessage(error), retryable: true }
 }
 
 export function useStudyAnalytics({
@@ -366,9 +417,41 @@ export function useStudyAnalytics({
     const request = sectionId && client.refreshLearningAnalyticsSections
       ? client.refreshLearningAnalyticsSections(queryRef.current, [sectionId], controller.signal)
       : client.getLearningAnalytics(queryRef.current, controller.signal)
+
+    const applyFailure = (error: unknown) => {
+      if (controller.signal.aborted || sequence !== requestSequence.current) return
+      const issue = toRequestIssue(error)
+      const unavailable = issue.kind === 'api_unavailable'
+      setState((current) => {
+        if (current.bundle) {
+          return {
+            phase: 'ready',
+            bundle: current.bundle,
+            isRefreshing: false,
+            isStale: true,
+            issue
+          }
+        }
+        return {
+          phase: unavailable ? 'unavailable' : 'error',
+          bundle: null,
+          isRefreshing: false,
+          isStale: false,
+          issue
+        }
+      })
+    }
+
     void request.then(
       (bundle) => {
         if (controller.signal.aborted || sequence !== requestSequence.current) return
+        try {
+          // Enforce the ready-bundle contract for every client, not only the teachingSystem transport.
+          assertAnalyticsBundle(bundle)
+        } catch (error) {
+          applyFailure(error)
+          return
+        }
         setState({
           phase: 'ready',
           bundle,
@@ -378,29 +461,7 @@ export function useStudyAnalytics({
         })
       },
       (error: unknown) => {
-        if (controller.signal.aborted || sequence !== requestSequence.current) return
-        const unavailable = error instanceof AnalyticsApiUnavailableError
-        setState((current) => {
-          const issue: AnalyticsRequestIssue = unavailable
-            ? { kind: 'api_unavailable', message: requestErrorMessage(error), retryable: false }
-            : { kind: 'request_failed', message: requestErrorMessage(error), retryable: true }
-          if (current.bundle) {
-            return {
-              phase: 'ready',
-              bundle: current.bundle,
-              isRefreshing: false,
-              isStale: true,
-              issue
-            }
-          }
-          return {
-            phase: unavailable ? 'unavailable' : 'error',
-            bundle: null,
-            isRefreshing: false,
-            isStale: false,
-            issue
-          }
-        })
+        applyFailure(error)
       }
     )
 

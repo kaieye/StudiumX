@@ -2,6 +2,11 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { StudyAnalyticsPage } from '@renderer/views/workbench/analytics/StudyAnalyticsPage'
+import { getAnalyticsCopy } from '@renderer/views/workbench/analytics/analyticsCopy'
+import {
+  shouldShowSectionRetry,
+  type AnalyticsFallbackState
+} from '@renderer/views/workbench/analytics/components/AnalyticsSection'
 import type {
   AnalyticsCoverage,
   AnalyticsSectionResult,
@@ -119,13 +124,19 @@ function heroResult(query: LearningAnalyticsQuery): AnalyticsSectionResult<Learn
   }
 }
 
+function sectionBase(query: LearningAnalyticsQuery) {
+  return {
+    temporal: { kind: 'range' as const, range: query.range },
+    coverage: coverage(query),
+    warnings: [] as const
+  }
+}
+
 function bundle(query: LearningAnalyticsQuery): LearningAnalyticsBundle {
   const unavailable = {
-    state: 'unavailable',
-    temporal: { kind: 'range', range: query.range },
-    coverage: coverage(query),
-    warnings: [],
-    reason: 'not_applicable'
+    ...sectionBase(query),
+    state: 'unavailable' as const,
+    reason: 'not_applicable' as const
   }
   return {
     contractVersion: 1,
@@ -141,7 +152,24 @@ function bundle(query: LearningAnalyticsQuery): LearningAnalyticsBundle {
     platform: unavailable,
     presence: unavailable,
     insights: unavailable
-  } as LearningAnalyticsBundle
+  }
+}
+
+function designTokenHex(css: string, selector: string, variable: string): string {
+  const selectorIndex = css.indexOf(selector)
+  if (selectorIndex < 0) throw new Error(`Missing selector: ${selector}`)
+  const blockStart = css.indexOf('{', selectorIndex)
+  const blockEnd = css.indexOf('}', blockStart)
+  const block = css.slice(blockStart, blockEnd)
+  const hex = new RegExp(`--${variable}:\\s*(#[0-9a-f]{3,8})`, 'i').exec(block)
+  if (hex?.[1]) {
+    const value = hex[1]
+    if (value.length === 4) {
+      return `#${value[1]}${value[1]}${value[2]}${value[2]}${value[3]}${value[3]}`.toLowerCase()
+    }
+    return value.toLowerCase()
+  }
+  throw new Error(`Missing hex token --${variable} in ${selector}`)
 }
 
 function analyticsThemeVariable(css: string, selector: string, variable: string): string {
@@ -150,14 +178,22 @@ function analyticsThemeVariable(css: string, selector: string, variable: string)
   const blockStart = css.indexOf('{', selectorIndex)
   const blockEnd = css.indexOf('}', blockStart)
   const block = css.slice(blockStart, blockEnd)
-  const match = new RegExp(`--${variable}:\\s*(#[0-9a-f]{6})`, 'i').exec(block)
-  if (!match?.[1]) throw new Error(`Missing variable --${variable} in ${selector}`)
-  return match[1]
+  const hex = new RegExp(`--${variable}:\\s*(#[0-9a-f]{6})`, 'i').exec(block)
+  if (hex?.[1]) return hex[1].toLowerCase()
+  const rgb = new RegExp(`--${variable}:\\s*rgb\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\)`, 'i').exec(block)
+  if (rgb) {
+    const channels = rgb.slice(1, 4).map((value) => Number(value).toString(16).padStart(2, '0'))
+    return `#${channels.join('')}`
+  }
+  throw new Error(`Missing solid color --${variable} in ${selector}`)
 }
 
 function contrastRatio(foreground: string, background: string): number {
   const luminance = (hex: string) => {
-    const channels = hex.match(/[0-9a-f]{2}/gi)?.map((value) => Number.parseInt(value, 16))
+    const normalized = hex.length === 4
+      ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+      : hex
+    const channels = normalized.match(/[0-9a-f]{2}/gi)?.map((value) => Number.parseInt(value, 16))
     if (!channels || channels.length !== 3) throw new Error(`Invalid color: ${hex}`)
     const [red, green, blue] = channels.map((value) => {
       const channel = value / 255
@@ -170,6 +206,73 @@ function contrastRatio(foreground: string, background: string): number {
   return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05)
     / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05)
 }
+
+describe('section retry semantics', () => {
+  const base = {
+    temporal: { kind: 'range' as const, range: {
+      preset: 'week' as const,
+      from: '2026-07-13',
+      to: '2026-07-13',
+      fromInclusive: true,
+      toInclusive: true,
+      calendar: 'local_gregorian' as const,
+      weekStartsOn: 1 as const
+    } },
+    coverage: {
+      rangeApplied: true,
+      requestedRange: {
+        preset: 'week' as const,
+        from: '2026-07-13',
+        to: '2026-07-13',
+        fromInclusive: true,
+        toInclusive: true,
+        calendar: 'local_gregorian' as const,
+        weekStartsOn: 1 as const
+      },
+      effectiveRange: {
+        preset: 'week' as const,
+        from: '2026-07-13',
+        to: '2026-07-13',
+        fromInclusive: true,
+        toInclusive: true,
+        calendar: 'local_gregorian' as const,
+        weekStartsOn: 1 as const
+      },
+      trackingStartedOn: '2026-07-13',
+      dataStartDate: '2026-07-13',
+      dataEndDate: '2026-07-13',
+      retention: { policy: 'rolling_local_days' as const, days: 400, includesToday: true, cutoffDate: '2026-07-13' },
+      complete: true,
+      sources: []
+    },
+    warnings: []
+  }
+
+  it('uses typed error.retryable and keeps section unavailable distinct from API unavailable', () => {
+    expect(shouldShowSectionRetry({
+      ...base,
+      state: 'error',
+      error: { code: 'x', message: 'failed', retryable: true }
+    }, 'loading')).toBe(true)
+    expect(shouldShowSectionRetry({
+      ...base,
+      state: 'error',
+      error: { code: 'x', message: 'failed', retryable: false }
+    }, 'loading')).toBe(false)
+
+    // Shared contract has reason only (no retryable) on section unavailable — keep Retry.
+    expect(shouldShowSectionRetry({
+      ...base,
+      state: 'unavailable',
+      reason: 'not_configured'
+    }, 'loading')).toBe(true)
+
+    // Page-level API unavailability must not be confused with section-level unavailable.
+    expect(shouldShowSectionRetry(null, 'api-unavailable')).toBe(false)
+    expect(shouldShowSectionRetry(null, 'request-error')).toBe(true)
+    expect(shouldShowSectionRetry(null, 'loading' as AnalyticsFallbackState)).toBe(false)
+  })
+})
 
 describe('StudyAnalyticsPage', () => {
   it('renders a multi-section dashboard from the analytics bundle', async () => {
@@ -264,6 +367,71 @@ describe('StudyAnalyticsPage', () => {
     expect(document.body).not.toHaveTextContent('尚未接入')
   })
 
+  it('renders section-level unavailable with reason copy and retry, never as API unavailable', async () => {
+    const copy = getAnalyticsCopy('zh')
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async (query) => ({
+        ...bundle(query),
+        focus: {
+          ...sectionBase(query),
+          state: 'unavailable',
+          reason: 'not_configured'
+        }
+      }))
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client' }}
+      />
+    )
+
+    const focusSection = (await screen.findByRole('heading', { name: '专注分析' })).closest('section')
+    expect(focusSection).toHaveAttribute('data-section-state', 'unavailable')
+    expect(focusSection).toHaveTextContent(copy.states.unavailableReasons.not_configured)
+    expect(focusSection).not.toHaveTextContent(copy.page.apiUnavailableDetail)
+    expect(focusSection?.querySelector('button')).toHaveTextContent(copy.section.retry)
+    expect(document.querySelectorAll('[data-section-state="api-unavailable"]')).toHaveLength(0)
+  })
+
+  it('honors section error.retryable when deciding whether Retry is shown', async () => {
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async (query) => ({
+        ...bundle(query),
+        tokens: {
+          ...sectionBase(query),
+          state: 'error',
+          error: { code: 'tokens_failed', message: 'raw boom path C:\\\\secret', retryable: false }
+        },
+        tasks: {
+          ...sectionBase(query),
+          state: 'error',
+          error: { code: 'tasks_failed', message: 'raw boom path C:\\\\secret', retryable: true }
+        }
+      }))
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client' }}
+      />
+    )
+
+    const tokens = (await screen.findByRole('heading', { name: 'Token 消耗' })).closest('section')
+    const tasks = screen.getByRole('heading', { name: '任务分析' }).closest('section')
+    expect(tokens).toHaveAttribute('data-section-state', 'error')
+    expect(tasks).toHaveAttribute('data-section-state', 'error')
+    expect(tokens?.querySelectorAll('button')).toHaveLength(0)
+    expect(tasks?.querySelector('button')).toHaveTextContent('重试')
+    // Section error UI must use sanitized copy, never the raw error message.
+    expect(document.body).not.toHaveTextContent('raw boom path')
+    expect(document.body).not.toHaveTextContent('C:\\secret')
+  })
+
   it('renders a missing API as a non-retryable unavailable state', async () => {
     const client: LearningAnalyticsClient = {
       getLearningAnalytics: vi.fn(async () => {
@@ -310,21 +478,88 @@ describe('StudyAnalyticsPage', () => {
     expect(document.body).not.toHaveTextContent('socket exploded')
   })
 
-  it('defines WCAG-safe text, focus, and control colors for light and dark themes', () => {
+  it('renders a partial ready bundle as a page-level request failure instead of null sections', async () => {
+    const secret = 'PARTIAL_BUNDLE_SECRET_SHOULD_NOT_RENDER'
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async (query) => ({
+        contractVersion: 1,
+        generatedAt: '2026-07-13T12:00:00.000Z',
+        query,
+        hero: heroResult(query),
+        secret
+      }) as unknown as LearningAnalyticsBundle)
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client' }}
+      />
+    )
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('[data-section-state="request-error"]')).toHaveLength(5)
+    })
+    expect(screen.getAllByText('分析服务暂时无法响应。请稍后重试。')).toHaveLength(5)
+    expect(screen.getAllByRole('button', { name: '重试' })).toHaveLength(5)
+    expect(document.body).not.toHaveTextContent(secret)
+    expect(document.querySelectorAll('[data-section-state="api-unavailable"]')).toHaveLength(0)
+  })
+
+  it('defines WCAG-safe text, focus, and control colors against real page/surface and card tokens', () => {
+    const tokensCss = readFileSync(
+      resolve(process.cwd(), 'src/renderer/src/styles/tokens.css'),
+      'utf8'
+    )
     const css = readFileSync(
       resolve(process.cwd(), 'src/renderer/src/views/workbench/analytics/analytics-page.css'),
       'utf8'
     )
+
+    // Bind to the actual design-system surface tokens rather than approximate page paints.
+    const lightSurface = designTokenHex(tokensCss, ':root {', 'surface-solid')
+    const darkSurface = designTokenHex(tokensCss, ':root[data-resolved-theme="dark"] {', 'surface-solid')
+    expect(lightSurface).toBe('#ffffff')
+    expect(darkSurface).toBe('#18181b')
+
+    // Page shell uses var(--surface-solid); light analytics card is an explicit solid paint.
+    const lightCard = analyticsThemeVariable(css, '.study-analytics-page {', 'analytics-card')
+    expect(lightCard).toBe('#fbfbfb')
+
     const themes = [
-      { selector: '.study-analytics-page {', background: '#fbfbfb' },
-      { selector: ":root[data-resolved-theme='dark'] .study-analytics-page {", background: '#18181b' }
+      {
+        name: 'light-page-surface',
+        selector: '.study-analytics-page {',
+        backgrounds: [lightSurface]
+      },
+      {
+        name: 'light-card',
+        selector: '.study-analytics-page {',
+        backgrounds: [lightCard]
+      },
+      {
+        name: 'dark-page-surface',
+        selector: ":root[data-resolved-theme='dark'] .study-analytics-page {",
+        backgrounds: [darkSurface]
+      }
     ] as const
 
     for (const theme of themes) {
-      expect(contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-text-muted'), theme.background)).toBeGreaterThanOrEqual(4.5)
-      expect(contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-text-soft'), theme.background)).toBeGreaterThanOrEqual(4.5)
-      expect(contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-focus-ring'), theme.background)).toBeGreaterThanOrEqual(3)
-      expect(contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-control-border'), theme.background)).toBeGreaterThanOrEqual(3)
+      for (const background of theme.backgrounds) {
+        expect(
+          contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-text-muted'), background)
+        ).toBeGreaterThanOrEqual(4.5)
+        expect(
+          contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-text-soft'), background)
+        ).toBeGreaterThanOrEqual(4.5)
+        expect(
+          contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-focus-ring'), background)
+        ).toBeGreaterThanOrEqual(3)
+        expect(
+          contrastRatio(analyticsThemeVariable(css, theme.selector, 'analytics-control-border'), background)
+        ).toBeGreaterThanOrEqual(3)
+      }
     }
 
     expect(css).not.toMatch(/color:\s*var\(--text-(?:muted|soft)\)/)
@@ -343,3 +578,5 @@ describe('StudyAnalyticsPage', () => {
     expect(css).toContain('minmax(0, 1fr)')
   })
 })
+
+
