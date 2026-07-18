@@ -2894,4 +2894,515 @@ describe('TeachingTurnCoordinator', () => {
     }
   })
 
+  it('round9 HIGH: not_evidenced marker vs established outcomeRef rejects before bus emit (no durable lie)', async () => {
+    const load = vi.fn(async (sessionId: string) =>
+      sessionSnapshot({
+        id: sessionId,
+        workspaceId: 'workspace-1',
+        outcomeRef: {
+          outcomeId: 'outcome-established',
+          kind: 'established',
+          relativePath: 'learning-sessions/session-1/outcome.json',
+          evidenceEventIds: ['evidence-1'],
+          contentSha256: 'e'.repeat(64)
+        }
+      })
+    )
+    const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'settled',
+      marker: {
+        schemaVersion: 1,
+        sessionId,
+        outcomeId: 'outcome-not-evidenced',
+        operationId: 'op-r9-ne',
+        kind: 'not_evidenced',
+        evidenceEventIds: [],
+        evaluatorVersion: 1,
+        record: null
+      },
+      record: null,
+      catalogRecordPresent: false,
+      diagnostics: []
+    }))
+    const coordinator = createTeachingTurnCoordinator({
+      ...createPorts({ load, reconcile }),
+      maxOperations: 8,
+      maxEventIds: 8,
+      maxBuses: 2
+    })
+    const busSeen: Array<{ type: string; durability?: string }> = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-r9-ne-vs-est' }, (e) => {
+      busSeen.push({ type: e.payload.type, durability: e.durability })
+    })
+    const result = await coordinator.execute({
+      type: 'recover_session',
+      turnId: 'turn-r9-ne-vs-est',
+      eventId: 'ev-r9-ne-vs-est',
+      operationId: 'op-r9-ne-vs-est',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1'
+    })
+    unsub()
+    expect(result.acceptance).toBe('rejected')
+    expect(result.rejectReason).toBe('payload_mismatch')
+    expect(busSeen.some((e) => e.type === 'command_accepted')).toBe(false)
+    expect(busSeen.some((e) => e.type === 'recover_reconciled')).toBe(false)
+    expect(busSeen.some((e) => e.durability === 'durable')).toBe(false)
+    const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-r9-ne-vs-est' }, 0)
+    expect(replay?.events.some((e) => e.payload.type === 'command_accepted')).toBeFalsy()
+    expect(replay?.events.some((e) => e.payload.type === 'recover_reconciled')).toBeFalsy()
+    expect(replay?.events.some((e) => e.durability === 'durable')).toBeFalsy()
+
+    // Archive after bus reclaim must not retain a durable lie.
+    await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-r9-ne-fill-a',
+      eventId: 'ev-r9-ne-fill-a',
+      operationId: 'op-r9-ne-fill-a',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      reasonCode: 'user_cancel'
+    })
+    await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-r9-ne-fill-b',
+      eventId: 'ev-r9-ne-fill-b',
+      operationId: 'op-r9-ne-fill-b',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      reasonCode: 'user_cancel'
+    })
+    const afterReclaim = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-r9-ne-vs-est' }, 0)
+    expect(afterReclaim?.events.some((e) => e.payload.type === 'recover_reconciled')).toBeFalsy()
+    expect(afterReclaim?.events.some((e) => e.payload.type === 'command_accepted')).toBeFalsy()
+  })
+
+  it('round9 M1: same-kind different outcomeId / evidenceEventIds mismatch reject with bus+replay+archive', async () => {
+    const cases: Array<{
+      name: string
+      markerOutcomeId: string
+      markerEvidence: string[]
+      refOutcomeId: string
+      refEvidence: string[]
+    }> = [
+      {
+        name: 'different-outcomeId',
+        markerOutcomeId: 'outcome-marker',
+        markerEvidence: ['evidence-1'],
+        refOutcomeId: 'outcome-ref-OTHER',
+        refEvidence: ['evidence-1']
+      },
+      {
+        name: 'evidenceEventIds-mismatch',
+        markerOutcomeId: 'outcome-same',
+        markerEvidence: ['evidence-1', 'evidence-2'],
+        refOutcomeId: 'outcome-same',
+        refEvidence: ['evidence-1', 'evidence-OTHER']
+      }
+    ]
+
+    for (const [index, item] of cases.entries()) {
+      const turnId = 'turn-r9-m1-' + item.name
+      const load = vi.fn(async (sessionId: string) =>
+        sessionSnapshot({
+          id: sessionId,
+          workspaceId: 'workspace-1',
+          outcomeRef: {
+            outcomeId: item.refOutcomeId,
+            kind: 'established',
+            relativePath: 'learning-sessions/session-1/outcome.json',
+            evidenceEventIds: item.refEvidence,
+            contentSha256: 'f'.repeat(64)
+          }
+        })
+      )
+      const recordRef = {
+        recordId: 'rec-r9-m1',
+        relativePath: 'learning-records/outcome-session-1.md',
+        contentSha256: 'a'.repeat(64)
+      }
+      const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+        sessionId,
+        state: 'settled',
+        marker: {
+          schemaVersion: 1,
+          sessionId,
+          outcomeId: item.markerOutcomeId,
+          operationId: 'op-r9-m1-' + index,
+          kind: 'established',
+          evidenceEventIds: item.markerEvidence,
+          evaluatorVersion: 1,
+          record: recordRef
+        },
+        record: recordRef,
+        catalogRecordPresent: true,
+        diagnostics: []
+      }))
+      const coordinator = createTeachingTurnCoordinator({
+        ...createPorts({ load, reconcile }),
+        maxOperations: 8,
+        maxEventIds: 8,
+        maxBuses: 2
+      })
+      const busSeen: string[] = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (e) => {
+        busSeen.push(e.payload.type)
+      })
+      const result = await coordinator.execute({
+        type: 'recover_session',
+        turnId,
+        eventId: 'ev-r9-m1-' + index,
+        operationId: 'op-r9-m1-' + index,
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1'
+      })
+      unsub()
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(result.rejectReason, item.name).toBe('payload_mismatch')
+      expect(busSeen, item.name).not.toContain('command_accepted')
+      expect(busSeen, item.name).not.toContain('recover_reconciled')
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.payload.type === 'recover_reconciled'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.durability === 'durable'), item.name).toBeFalsy()
+
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-a',
+        eventId: 'ev-' + item.name + '-fill-a',
+        operationId: 'op-' + item.name + '-fill-a',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-b',
+        eventId: 'ev-' + item.name + '-fill-b',
+        operationId: 'op-' + item.name + '-fill-b',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      const afterReclaim = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'recover_reconciled'), item.name).toBeFalsy()
+    }
+  })
+
+  it('round9 M3: lone recon.record never emits durable recover; marker+record consistent may be durable', async () => {
+    // Lone record (no marker): accepted ephemeral only — never durable.
+    const loneRecord = {
+      recordId: 'rec-lone',
+      relativePath: 'learning-records/outcome-session-1.md',
+      contentSha256: 'b'.repeat(64)
+    }
+    const reconcileLone = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'repaired',
+      marker: null,
+      record: loneRecord,
+      catalogRecordPresent: true,
+      diagnostics: []
+    }))
+    const coordinatorLone = createTeachingTurnCoordinator(createPorts({ reconcile: reconcileLone }))
+    const busLone: Array<{ type: string; durability?: string }> = []
+    const unsubLone = coordinatorLone.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-r9-lone-rec' }, (e) => {
+      busLone.push({ type: e.payload.type, durability: e.durability })
+    })
+    const lone = await coordinatorLone.execute({
+      type: 'recover_session',
+      turnId: 'turn-r9-lone-rec',
+      eventId: 'ev-r9-lone-rec',
+      operationId: 'op-r9-lone-rec',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1'
+    })
+    unsubLone()
+    expect(lone.acceptance).toBe('accepted')
+    const loneRecover = busLone.find((e) => e.type === 'recover_reconciled')
+    expect(loneRecover).toBeTruthy()
+    expect(loneRecover?.durability).toBe('ephemeral')
+    expect(busLone.some((e) => e.type === 'recover_reconciled' && e.durability === 'durable')).toBe(false)
+    const loneReplay = coordinatorLone.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-r9-lone-rec' }, 0)
+    expect(loneReplay?.events.some((e) => e.payload.type === 'recover_reconciled' && e.durability === 'durable')).toBeFalsy()
+
+    // Marker claiming record without recon.record proof: accepted ephemeral (not durable).
+    const markerOnlyRecordClaim = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'review_required',
+      marker: {
+        schemaVersion: 1,
+        sessionId,
+        outcomeId: 'outcome-missing-rec',
+        operationId: 'op-r9-miss-rec',
+        kind: 'established',
+        evidenceEventIds: ['evidence-1'],
+        evaluatorVersion: 1,
+        record: loneRecord
+      },
+      record: null,
+      catalogRecordPresent: false,
+      diagnostics: ['missing_record']
+    }))
+    const coordinatorMiss = createTeachingTurnCoordinator(createPorts({ reconcile: markerOnlyRecordClaim }))
+    const busMiss: Array<{ type: string; durability?: string }> = []
+    const unsubMiss = coordinatorMiss.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-r9-miss-rec' }, (e) => {
+      busMiss.push({ type: e.payload.type, durability: e.durability })
+    })
+    const miss = await coordinatorMiss.execute({
+      type: 'recover_session',
+      turnId: 'turn-r9-miss-rec',
+      eventId: 'ev-r9-miss-rec',
+      operationId: 'op-r9-miss-rec',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1'
+    })
+    unsubMiss()
+    expect(miss.acceptance).toBe('accepted')
+    expect(busMiss.some((e) => e.type === 'recover_reconciled' && e.durability === 'durable')).toBe(false)
+    expect(busMiss.find((e) => e.type === 'recover_reconciled')?.durability).toBe('ephemeral')
+
+    // Marker + matching record + matching outcomeRef: durable recover.
+    const loadOk = vi.fn(async (sessionId: string) =>
+      sessionSnapshot({
+        id: sessionId,
+        workspaceId: 'workspace-1',
+        outcomeRef: {
+          outcomeId: 'outcome-ok',
+          kind: 'established',
+          relativePath: 'learning-sessions/session-1/outcome.json',
+          evidenceEventIds: ['evidence-1'],
+          contentSha256: 'c'.repeat(64)
+        }
+      })
+    )
+    const recordOk = {
+      recordId: 'rec-ok',
+      relativePath: 'learning-records/outcome-session-1.md',
+      contentSha256: 'd'.repeat(64)
+    }
+    const reconcileOk = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'settled',
+      marker: {
+        schemaVersion: 1,
+        sessionId,
+        outcomeId: 'outcome-ok',
+        operationId: 'op-r9-ok',
+        kind: 'established',
+        evidenceEventIds: ['evidence-1'],
+        evaluatorVersion: 1,
+        record: recordOk
+      },
+      record: recordOk,
+      catalogRecordPresent: true,
+      diagnostics: []
+    }))
+    const coordinatorOk = createTeachingTurnCoordinator(createPorts({ load: loadOk, reconcile: reconcileOk }))
+    const busOk: Array<{ type: string; durability?: string }> = []
+    const unsubOk = coordinatorOk.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-r9-ok-rec' }, (e) => {
+      busOk.push({ type: e.payload.type, durability: e.durability })
+    })
+    const ok = await coordinatorOk.execute({
+      type: 'recover_session',
+      turnId: 'turn-r9-ok-rec',
+      eventId: 'ev-r9-ok-rec',
+      operationId: 'op-r9-ok-rec',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1'
+    })
+    unsubOk()
+    expect(ok.acceptance).toBe('accepted')
+    expect(busOk.some((e) => e.type === 'command_accepted')).toBe(true)
+    expect(busOk.find((e) => e.type === 'recover_reconciled')?.durability).toBe('durable')
+  })
+
+  it('round9 M2: wrong-type sequence / null lessonInteraction / malformed schema or timestamps never emit on bus', async () => {
+    const baseInteraction = {
+      schemaVersion: 1 as const,
+      eventId: 'evidence-r9-m2',
+      kind: 'quiz_answered' as const,
+      workspaceId: 'workspace-1',
+      courseId: 'course-1',
+      sessionId: 'session-1',
+      lessonId: 'lesson-1',
+      itemId: 'item-1',
+      attempt: 1,
+      observedAt: '2026-07-18T10:00:00.000Z',
+      artifactDigest: 'a'.repeat(64),
+      surface: 'lesson_preview' as const,
+      selectedOptionIds: ['a'],
+      correct: false
+    }
+    const cases: Array<{ name: string; eventId: string; ledgerEvent: Record<string, unknown> }> = [
+      {
+        name: 'wrong-type-sequence',
+        eventId: 'evidence-r9-seq',
+        ledgerEvent: {
+          schemaVersion: 1,
+          eventId: 'evidence-r9-seq',
+          sessionId: 'session-1',
+          kind: 'quiz_attempted',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: '1',
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: { lessonInteraction: { ...baseInteraction, eventId: 'evidence-r9-seq' } }
+        }
+      },
+      {
+        name: 'null-lessonInteraction',
+        eventId: 'evidence-r9-null-li',
+        ledgerEvent: {
+          schemaVersion: 1,
+          eventId: 'evidence-r9-null-li',
+          sessionId: 'session-1',
+          kind: 'quiz_attempted',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: { lessonInteraction: null }
+        }
+      },
+      {
+        name: 'malformed-schemaVersion',
+        eventId: 'evidence-r9-schema',
+        ledgerEvent: {
+          schemaVersion: 99,
+          eventId: 'evidence-r9-schema',
+          sessionId: 'session-1',
+          kind: 'quiz_attempted',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: { lessonInteraction: { ...baseInteraction, eventId: 'evidence-r9-schema' } }
+        }
+      },
+      {
+        name: 'malformed-occurredAt',
+        eventId: 'evidence-r9-occurred',
+        ledgerEvent: {
+          schemaVersion: 1,
+          eventId: 'evidence-r9-occurred',
+          sessionId: 'session-1',
+          kind: 'quiz_attempted',
+          occurredAt: '2026-07-18 10:00:00',
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: { lessonInteraction: { ...baseInteraction, eventId: 'evidence-r9-occurred' } }
+        }
+      },
+      {
+        name: 'malformed-recordedAt',
+        eventId: 'evidence-r9-recorded',
+        ledgerEvent: {
+          schemaVersion: 1,
+          eventId: 'evidence-r9-recorded',
+          sessionId: 'session-1',
+          kind: 'quiz_attempted',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: 1,
+          recordedAt: 'not-a-timestamp',
+          payload: { lessonInteraction: { ...baseInteraction, eventId: 'evidence-r9-recorded' } }
+        }
+      },
+      {
+        name: 'missing-schemaVersion',
+        eventId: 'evidence-r9-no-schema',
+        ledgerEvent: {
+          eventId: 'evidence-r9-no-schema',
+          sessionId: 'session-1',
+          kind: 'quiz_attempted',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: { lessonInteraction: { ...baseInteraction, eventId: 'evidence-r9-no-schema' } }
+        }
+      }
+    ]
+
+    for (const [index, item] of cases.entries()) {
+      const turnId = 'turn-r9-m2-' + item.name
+      const record = vi.fn(async (evidence: {
+        eventId: string
+        sessionId: string
+        workspaceId: string
+      }): Promise<EvidenceReceipt> => ({
+        eventId: evidence.eventId,
+        sessionId: evidence.sessionId,
+        sequence: 1,
+        duplicate: false,
+        evidence: {
+          ...baseInteraction,
+          eventId: evidence.eventId,
+          sessionId: evidence.sessionId,
+          workspaceId: evidence.workspaceId,
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z'
+        } as EvidenceReceipt['evidence']
+      }))
+      const load = vi.fn(async (sessionId: string) =>
+        sessionSnapshot({
+          id: sessionId,
+          workspaceId: 'workspace-1',
+          eventCount: 1,
+          events: [item.ledgerEvent as never]
+        })
+      )
+      const coordinator = createTeachingTurnCoordinator({
+        ...createPorts({ record, load }),
+        maxOperations: 8,
+        maxEventIds: 8,
+        maxBuses: 2
+      })
+      const busSeen: string[] = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (e) => {
+        busSeen.push(e.payload.type)
+      })
+      const result = await coordinator.execute({
+        type: 'record_evidence',
+        turnId,
+        eventId: 'ev-r9-m2-' + index,
+        operationId: 'op-r9-m2-' + index,
+        workspaceId: 'workspace-1',
+        evidence: {
+          ...baseInteraction,
+          eventId: item.eventId
+        }
+      })
+      unsub()
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(result.rejectReason, item.name).toBe('payload_mismatch')
+      expect(busSeen, item.name).not.toContain('command_accepted')
+      expect(busSeen, item.name).not.toContain('evidence_recorded')
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.payload.type === 'evidence_recorded'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.durability === 'durable'), item.name).toBeFalsy()
+
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-a',
+        eventId: 'ev-m2-' + item.name + '-fill-a',
+        operationId: 'op-m2-' + item.name + '-fill-a',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      await coordinator.execute({
+        type: 'cancel_turn',
+        turnId: turnId + '-fill-b',
+        eventId: 'ev-m2-' + item.name + '-fill-b',
+        operationId: 'op-m2-' + item.name + '-fill-b',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        reasonCode: 'user_cancel'
+      })
+      const afterReclaim = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'evidence_recorded'), item.name).toBeFalsy()
+      expect(afterReclaim?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+    }
+  })
+
+
 })

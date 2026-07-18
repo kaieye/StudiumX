@@ -103,7 +103,10 @@ import {
   type TeachingTurnTerminalOutcome,
   type TeachingTurnTerminalReasonCode
 } from '../shared/teaching-events'
-import type { LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
+import type {
+  LearningOutcomeRef,
+  LearningSessionSnapshot
+} from '../shared/teaching-types/learning-session'
 import {
   lessonInteractionLedgerKind,
   normalizeLessonInteraction,
@@ -1122,17 +1125,12 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     ) {
       return this.portIdentityReject(command, bus, collected, command.sessionId)
     }
-    // When ledger already holds outcomeRef, marker kind must not contradict trusted outcome.
-    if (
-      reconciliation.marker &&
-      loaded.outcomeRef &&
-      reconciliation.marker.kind !== 'not_evidenced' &&
-      reconciliation.marker.kind !== loaded.outcomeRef.kind
-    ) {
+    // Round-9 HIGH/M1/M3: marker vs outcomeRef full identity; durability never from record alone.
+    const recoverAuthority = verifyRecoverAuthority(reconciliation, loaded.outcomeRef)
+    if (!recoverAuthority.ok) {
       return this.portIdentityReject(command, bus, collected, command.sessionId)
     }
-    // Durability only from validated marker/record shapes — never raw truthiness alone.
-    const persisted = Boolean(reconciliation.marker || reconciliation.record)
+    const persisted = recoverAuthority.durable
 
     this.emitAccepted(bus, command, command.sessionId)
     this.emit(bus, {
@@ -1838,8 +1836,10 @@ function parseEvidenceReceipt(value: unknown): ParsedEvidenceReceipt | null {
 }
 
 /**
- * Round-8 exact-event authority: complete ledger event, production-normalized payload.lessonInteraction,
- * top-level kind via lessonInteractionLedgerKind, and full authority match vs command/receipt.
+ * Round-8/9 exact-event authority: full production LearningSessionEvent envelope
+ * (schemaVersion + valid occurredAt/recordedAt + sequence), production-normalized
+ * payload.lessonInteraction, top-level kind via lessonInteractionLedgerKind, and
+ * full authority match vs command/receipt.
  */
 function verifyAuthoritativeLedgerEvidence(
   ledgerEvent: unknown,
@@ -1847,6 +1847,10 @@ function verifyAuthoritativeLedgerEvidence(
   receipt: ParsedEvidenceReceipt
 ): boolean {
   if (!isPlainObject(ledgerEvent)) return false
+  // M2: full production envelope schemaVersion + timestamps (ledger-compatible ISO).
+  if (ledgerEvent.schemaVersion !== 1) return false
+  if (!isProductionIsoTimestamp(ledgerEvent.occurredAt)) return false
+  if (!isProductionIsoTimestamp(ledgerEvent.recordedAt)) return false
   if (ledgerEvent.eventId !== receipt.eventId || ledgerEvent.eventId !== command.evidence.eventId) {
     return false
   }
@@ -1865,7 +1869,7 @@ function verifyAuthoritativeLedgerEvidence(
   if (!Object.prototype.hasOwnProperty.call(ledgerEvent.payload, 'lessonInteraction')) {
     return false
   }
-  // Empty / non-object / sparse lessonInteraction fails production normalize.
+  // Empty / non-object / sparse / null lessonInteraction fails production normalize.
   const stored = tryNormalizeLessonInteraction(ledgerEvent.payload.lessonInteraction)
   if (!stored) return false
   // Top-level ledger kind must match production recorder mapping.
@@ -1877,6 +1881,13 @@ function verifyAuthoritativeLedgerEvidence(
   if (!lessonInteractionsAuthorityEqual(stored, receipt.evidence)) return false
   if (stored.workspaceId !== command.workspaceId) return false
   return true
+}
+
+/** Ledger-compatible strict ISO instant (Date.toISOString() round-trip). */
+function isProductionIsoTimestamp(value: unknown): boolean {
+  if (typeof value !== 'string' || value.trim().length === 0) return false
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) && date.toISOString() === value
 }
 
 function tryNormalizeLessonInteraction(value: unknown): LessonInteraction | null {
@@ -1920,6 +1931,69 @@ const SETTLEMENT_OUTCOME_KINDS = new Set([
 ])
 
 /**
+ * Round-9 recover authority:
+ * - HIGH: any marker/outcomeRef kind (or full-identity) contradiction rejects before bus emit.
+ * - M1: when both exist, bind outcomeId + kind + canonical evidenceEventIds (not kind alone).
+ * - M3: durable only with authoritative marker; never from recon.record alone.
+ *   Record-claiming kinds need matching marker.record + recon.record proof.
+ *   Marker-only durable only for production no-formal-record kinds (needs_practice/not_evidenced).
+ */
+function verifyRecoverAuthority(
+  reconciliation: OutcomeReconciliation,
+  outcomeRef: LearningOutcomeRef | null
+): { ok: true; durable: boolean } | { ok: false } {
+  const marker = reconciliation.marker
+  const record = reconciliation.record
+
+  // Full outcome identity bind when both authorities exist (HIGH + M1).
+  if (marker && outcomeRef && !markerOutcomeRefIdentitiesEqual(marker, outcomeRef)) {
+    return { ok: false }
+  }
+
+  // M3: never durable from reconciliation.record alone.
+  if (!marker) {
+    return { ok: true, durable: false }
+  }
+
+  // Marker claims a formal record: require matching recon.record proof for durability.
+  if (marker.record) {
+    if (!record || !learningRecordRefsEqual(marker.record, record)) {
+      // Missing/mismatched record proof — ephemeral review path only (not durable).
+      return { ok: true, durable: false }
+    }
+    return { ok: true, durable: true }
+  }
+
+  // Marker-only: production settlement supports no formal record for needs_practice/not_evidenced.
+  if (marker.kind === 'needs_practice' || marker.kind === 'not_evidenced') {
+    return { ok: true, durable: true }
+  }
+
+  // established / misconception_corrected without record proof are not durable.
+  return { ok: true, durable: false }
+}
+
+function markerOutcomeRefIdentitiesEqual(
+  marker: OutcomeSettlementMarker,
+  outcomeRef: LearningOutcomeRef
+): boolean {
+  if (marker.kind !== outcomeRef.kind) return false
+  if (marker.outcomeId !== outcomeRef.outcomeId) return false
+  if (!canonicalEvidenceEventIdsEqual(marker.evidenceEventIds, outcomeRef.evidenceEventIds)) {
+    return false
+  }
+  return true
+}
+
+function canonicalEvidenceEventIdsEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  const a = [...left].map((id) => id.trim()).filter((id) => id.length > 0).sort((x, y) => x.localeCompare(y))
+  const b = [...right].map((id) => id.trim()).filter((id) => id.length > 0).sort((x, y) => x.localeCompare(y))
+  if (a.length !== left.length || b.length !== right.length) return false
+  return stableJsonEqual(a, b)
+}
+
+/**
  * Strict runtime parse of OutcomeReconciliation. Malformed spoof never reaches bus emit.
  */
 function parseOutcomeReconciliation(value: unknown): OutcomeReconciliation | null {
@@ -1941,6 +2015,10 @@ function parseOutcomeReconciliation(value: unknown): OutcomeReconciliation | nul
   }
   // Marker.record and top-level record must agree when both present.
   if (marker?.record && record && !learningRecordRefsEqual(marker.record, record)) {
+    return null
+  }
+  // Marker present with null record but top-level record claimed is contradictory spoof.
+  if (marker && !marker.record && record) {
     return null
   }
   if (marker && marker.sessionId !== value.sessionId) {
