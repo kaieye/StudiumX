@@ -66,7 +66,6 @@ describe('Teaching workspace activation lifecycle', () => {
     await expect(readFile(join(workspace!.rootPath, 'RESOURCES.md'), 'utf8')).resolves.toContain('图论中的连通性 Resources')
     await expect(readFile(join(workspace!.rootPath, 'assets', 'lesson.css'), 'utf8')).resolves.toContain('body')
     await expect(readFile(join(workspace!.rootPath, '.studiumx', 'index.json'), 'utf8')).resolves.toContain(workspace!.id)
-    await expect(readFile(join(workspace!.rootPath, '.teachos', 'index.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(readSessionKinds(workspace!.rootPath)).resolves.toEqual(['workspace_created'])
 
     expect(await readRegistry(registryPath)).toMatchObject({

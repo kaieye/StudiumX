@@ -9,7 +9,6 @@ import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import {
   ensurePreviewBaseTag,
   injectPreviewMarkdownLinkBridge,
-  LEGACY_PREVIEW_PROTOCOL,
   parsePreviewExternalHref,
   parsePreviewMarkdownHref,
   PREVIEW_EXTERNAL_LINK_MESSAGE,
@@ -108,11 +107,6 @@ try {
     parsePreviewMarkdownHref(`${PREVIEW_PROTOCOL}://${encodeURIComponent(workspace.id)}/MISSION.md`),
     { workspaceId: workspace.id, relativePath: 'MISSION.md' },
     'preview markdown bridge should parse studiumx-preview Markdown links for the app shell'
-  )
-  assert.deepEqual(
-    parsePreviewMarkdownHref(`${LEGACY_PREVIEW_PROTOCOL}://${encodeURIComponent(workspace.id)}/MISSION.md`),
-    { workspaceId: workspace.id, relativePath: 'MISSION.md' },
-    'preview markdown bridge should keep parsing legacy teachos-preview Markdown links'
   )
   assert.equal(
     parsePreviewExternalHref('https://example.com/docs?x=1#intro'),

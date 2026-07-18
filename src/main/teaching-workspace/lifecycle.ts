@@ -124,8 +124,7 @@ export function deriveWorkspaceTopic(prompt: string, fallback: string): string {
 export async function loadWorkspaceIndex(workspace: RegistryWorkspace): Promise<WorkspaceIndex> {
   try {
     const indexPath = join(workspace.rootPath, '.studiumx', 'index.json')
-    const legacyIndexPath = join(workspace.rootPath, '.teachos', 'index.json')
-    const parsed = JSON.parse(await readFile(await fileExists(indexPath) ? indexPath : legacyIndexPath, 'utf8')) as WorkspaceIndex
+    const parsed = JSON.parse(await readFile(indexPath, 'utf8')) as WorkspaceIndex
     return {
       id: workspace.id,
       name: workspace.name,

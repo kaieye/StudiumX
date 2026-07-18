@@ -103,8 +103,6 @@ import { AgentConversationReader } from './views/agent-conversation/AgentConvers
 import { ConversationInterruptionDock } from './views/agent-conversation/ConversationInterruptionDock'
 import { AgentMessageActions, AgentMessageEditor } from './views/agent-conversation/AgentSessionTreePanel'
 import {
-  LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE,
-  LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE,
   parsePreviewExternalHref,
   parsePreviewLessonInteractionMessage,
   parsePreviewMarkdownHref,
@@ -488,7 +486,7 @@ function ProjectFolderPicker({ mode = 'workspace' }: { mode?: 'workspace' | 'tem
       >
         <Folder size={15} strokeWidth={1.8} />
         <span className="overview-picker-label">{label}</span>
-        {acting ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+        {acting ? <Loader2 size={13} className="spin" /> : null}
       </button>
 
       {open ? (
@@ -669,7 +667,7 @@ function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
       >
         <GitBranch size={15} strokeWidth={1.8} />
         <span className="overview-picker-label">{middleEllipsize(label, 32)}</span>
-        {triggerLoading ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+        {triggerLoading ? <Loader2 size={13} className="spin" /> : null}
       </button>
 
       {open ? (
@@ -1137,12 +1135,12 @@ function MainArea() {
 
       const data = event.data as { type?: unknown; href?: unknown }
       if (!data || typeof data.type !== 'string' || typeof data.href !== 'string') return
-      if (data.type === PREVIEW_EXTERNAL_LINK_MESSAGE || data.type === LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE) {
+      if (data.type === PREVIEW_EXTERNAL_LINK_MESSAGE) {
         const href = parsePreviewExternalHref(data.href)
         if (href) void openExternal(href)
         return
       }
-      if (data.type === PREVIEW_MARKDOWN_LINK_MESSAGE || data.type === LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE) {
+      if (data.type === PREVIEW_MARKDOWN_LINK_MESSAGE) {
         const target = parsePreviewMarkdownHref(data.href)
         if (!target) return
         const workspace = appState.workspaces.find((item) => item.id === target.workspaceId)
@@ -1922,7 +1920,7 @@ export function AgentFileAccessPicker() {
       >
         <StatusIcon size={15} />
         <span className="overview-file-access-trigger-label">{triggerLabel}</span>
-        {updating ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+        {updating ? <Loader2 size={13} className="spin" /> : null}
       </button>
 
       {open ? (

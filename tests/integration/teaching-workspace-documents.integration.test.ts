@@ -8,7 +8,7 @@ import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import {
-  LEGACY_PREVIEW_PROTOCOL,
+  PREVIEW_PROTOCOL,
   PREVIEW_EXTERNAL_LINK_MESSAGE,
   PREVIEW_MARKDOWN_LINK_MESSAGE,
   PREVIEW_SCROLLBAR_STYLE_ID
@@ -89,9 +89,9 @@ describe('TeachingWorkspaceDocuments', () => {
     const htmlPreview = await documents.readPreview(
       workspace,
       'courses/course-a/lesson-a/index.html',
-      `${LEGACY_PREVIEW_PROTOCOL}://workspace-documents/courses/course-a/lesson-a/index.html`
+      `${PREVIEW_PROTOCOL}://workspace-documents/courses/course-a/lesson-a/index.html`
     )
-    expect(htmlPreview?.body.toString('utf8')).toContain(`<base href="${LEGACY_PREVIEW_PROTOCOL}://workspace-documents/courses/course-a/lesson-a/index.html"`)
+    expect(htmlPreview?.body.toString('utf8')).toContain(`<base href="${PREVIEW_PROTOCOL}://workspace-documents/courses/course-a/lesson-a/index.html"`)
     expect(htmlPreview?.body.toString('utf8')).toContain(PREVIEW_MARKDOWN_LINK_MESSAGE)
     expect(htmlPreview?.body.toString('utf8')).toContain(`id="${PREVIEW_SCROLLBAR_STYLE_ID}"`)
 

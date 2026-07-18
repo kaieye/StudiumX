@@ -314,8 +314,8 @@ assert.match(
 
 assert.match(
   css,
-  /\.workspace-conversation-row\.is-selected \{[\s\S]*background: rgba\(79, 124, 245, 0\.1\);[\s\S]*box-shadow:/,
-  'selected temporary conversations should receive the selected-row highlight and shadow'
+  /\.workspace-conversation-row\.is-selected \{[\s\S]*background: rgb\(241, 243, 245\);[\s\S]*box-shadow: none;/,
+  'selected temporary conversations should use the current neutral selected-row treatment'
 )
 
 assert.match(
@@ -340,7 +340,5 @@ assert.match(zh, /"addCourseProject": "添加项目"/, 'Chinese locale should la
 assert.match(en, /"addCourseProject": "Add project"/, 'English locale should label the add project button')
 assert.match(zh, /StudiumX/, 'Chinese locale should use the current StudiumX product name')
 assert.match(en, /StudiumX/, 'English locale should use the current StudiumX product name')
-assert.doesNotMatch(zh, /TeachOS/, 'Chinese locale should not use the old TeachOS product name')
-assert.doesNotMatch(en, /TeachOS/, 'English locale should not use the old TeachOS product name')
 
 console.log('sidebar ui behavior ok')

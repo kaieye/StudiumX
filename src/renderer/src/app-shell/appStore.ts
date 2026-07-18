@@ -326,7 +326,6 @@ export function toUserError(error: unknown): UserError {
 // ================================================================
 
 const AGENT_INPUT_HISTORY_STORAGE_KEY = 'studiumx:agent-input-history'
-const LEGACY_AGENT_INPUT_HISTORY_STORAGE_KEY = 'teachos:agent-input-history'
 const MAX_AGENT_INPUT_HISTORY = 20
 
 function appendAgentInputHistory(history: string[], input: string): string[] {
@@ -350,9 +349,7 @@ function normalizeAgentInputHistory(input: unknown): string[] {
 
 function readPersistedAgentInputHistory(): string[] {
   try {
-    const stored =
-      window.localStorage.getItem(AGENT_INPUT_HISTORY_STORAGE_KEY) ??
-      window.localStorage.getItem(LEGACY_AGENT_INPUT_HISTORY_STORAGE_KEY)
+    const stored = window.localStorage.getItem(AGENT_INPUT_HISTORY_STORAGE_KEY)
     if (!stored) return []
     const history = normalizeAgentInputHistory(JSON.parse(stored))
     window.localStorage.setItem(AGENT_INPUT_HISTORY_STORAGE_KEY, JSON.stringify(history))

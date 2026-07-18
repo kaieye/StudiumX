@@ -28,7 +28,7 @@ try {
   const lessonAbsolutePath = join(workspace.rootPath, lessonRelativePath)
   await writeFile(lessonAbsolutePath, `<html><head><title>${lessonTitle}</title></head><body>${lessonTitle}</body></html>`)
   await writeFile(
-    join(workspace.rootPath, '.teachos', 'index.json'),
+    join(workspace.rootPath, '.studiumx', 'index.json'),
     `${JSON.stringify({
       id: workspace.id,
       name: workspace.name,

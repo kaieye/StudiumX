@@ -130,7 +130,7 @@ try {
     relativePath: pathMetaLesson,
     pinned: true
   })
-  let workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.teachos', 'index.json'), 'utf8'))
+  let workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.studiumx', 'index.json'), 'utf8'))
   assert.deepEqual(
     workspaceIndex.pathMeta[pathMetaLesson],
     { pinned: true },
@@ -141,7 +141,7 @@ try {
     relativePath: pathMetaLesson,
     archived: true
   })
-  workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.teachos', 'index.json'), 'utf8'))
+  workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.studiumx', 'index.json'), 'utf8'))
   assert.deepEqual(
     workspaceIndex.pathMeta[pathMetaLesson],
     { pinned: true, archived: true },
@@ -153,7 +153,7 @@ try {
     pinned: null,
     archived: null
   })
-  workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.teachos', 'index.json'), 'utf8'))
+  workspaceIndex = JSON.parse(await readFile(join(current.rootPath, '.studiumx', 'index.json'), 'utf8'))
   assert.equal(
     workspaceIndex.pathMeta?.[pathMetaLesson],
     undefined,

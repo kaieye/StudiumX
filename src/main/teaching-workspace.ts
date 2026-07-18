@@ -706,8 +706,10 @@ export class TeachingWorkspaceService {
       ? findWorkspace(registryState, payload.workspaceId)
       : null
     if (workspace?.archived) throw new Error('Workspace not found.')
-    const workspaceToolAccessGranted = workspace ? workspaceTrust(workspace) === 'trusted' : false
-    // The runtime contract requires this explicit, fail-closed tool grant.
+    const settings = await this.loadSettings()
+    // The three approval modes are the only user-facing file permission model.
+    // File tools remain unavailable when the workspace-file tool itself is off.
+    const workspaceToolAccessGranted = workspace ? settings.tools.workspaceRead : false
     const runtimeWorkspace = workspace ? { ...workspace, workspaceToolAccessGranted } : null
     const isTeachingConversation = (payload.mode ?? 'teaching') === 'teaching'
     if (workspace && payload.conversationId) {
@@ -1388,11 +1390,12 @@ export class TeachingWorkspaceService {
       }
     }
 
-    // Direct generation takes the same server-derived, fail-closed capability
-    // path as generate_lesson inside an agent conversation.
+    // Direct generation follows the same workspace-file tool setting as an
+    // agent conversation. Approval mode controls writes inside that capability.
+    const settings = await this.loadSettings()
     const runtimeWorkspace = {
       ...workspace,
-      workspaceToolAccessGranted: workspaceTrust(workspace) === 'trusted'
+      workspaceToolAccessGranted: settings.tools.workspaceRead
     }
     const generation = await this.generateAndPersistLesson({
       workspace: runtimeWorkspace,

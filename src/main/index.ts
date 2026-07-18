@@ -9,10 +9,9 @@ import { registerTeachingIpcGateway } from './teaching-ipc-gateway'
 import { registerMusicIpcGateway } from './music/music-ipc-gateway'
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
-import { createAppDataMigrationPlan } from './app-data-migration-plan'
 import { openExternalHttpUrl } from './external-links'
 import { createApplicationRuntime, type ApplicationRuntime } from './application-runtime'
-import { LEGACY_PREVIEW_PROTOCOL, PREVIEW_PROTOCOL } from '../shared/preview-markdown-bridge'
+import { PREVIEW_PROTOCOL } from '../shared/preview-markdown-bridge'
 import type { TeachingSettingsV1 } from '../shared/teaching-types'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -20,8 +19,12 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL)
 const APP_NAME = 'StudiumX'
 
+// Playback URLs are resolved through async IPC. Allow the original click to
+// start that media request without Chromium requiring a second user gesture.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
 protocol.registerSchemesAsPrivileged(
-  [PREVIEW_PROTOCOL, LEGACY_PREVIEW_PROTOCOL].map((scheme) => ({
+  [PREVIEW_PROTOCOL].map((scheme) => ({
     scheme,
     privileges: {
       standard: true,
@@ -54,7 +57,6 @@ function registerPreviewProtocol(service: TeachingWorkspaceService, logger: Logg
   }
 
   protocol.handle(PREVIEW_PROTOCOL, handlePreviewRequest)
-  protocol.handle(LEGACY_PREVIEW_PROTOCOL, handlePreviewRequest)
 }
 
 /** Preserve URL escaping so document resolution can reject encoded traversal before URL normalization. */
@@ -204,13 +206,12 @@ if (!hasSingleInstanceLock) {
     app.setName(APP_NAME)
     app.setAppUserModelId('com.local.studiumx')
 
-    const appDataPath = app.getPath('appData')
     const userDataPath = app.getPath('userData')
     const defaultRoot = join(app.getPath('documents'), `${APP_NAME} Workspaces`)
-    const appDataMigration = createAppDataMigrationPlan({ appDataPath, userDataPath })
+    const registryPath = join(userDataPath, 'studiumx-workspaces.json')
 
     runtime = createApplicationRuntime({
-      prepare: () => appDataMigration.apply(),
+      prepare: async () => {},
       create: async () => {
         const settingsService = new TeachingSettingsService({
           userDataPath,
@@ -236,7 +237,7 @@ if (!hasSingleInstanceLock) {
         await skillLibraryService.listSkills()
 
         const workspaceService = new TeachingWorkspaceService({
-          registryPath: appDataMigration.registryPath,
+          registryPath,
           defaultRoot,
           settingsProvider: () => settingsService.load(),
           skillLibraryService

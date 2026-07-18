@@ -42,12 +42,14 @@ describe('AgentFileAccessPicker', () => {
     renderUi(<AgentFileAccessPicker />)
 
     const trigger = screen.getByRole('button', { name: /Agent 权限模式：请求批准|Agent permission mode: Request approval/i })
+    expect(trigger).toHaveTextContent(/^请求批准$/)
     await user.click(trigger)
 
     const menu = screen.getByRole('menu', { name: /Agent 权限模式|Agent permission mode/i })
     const fullAccess = screen.getByRole('menuitemradio', { name: /完全访问|Full access/i })
     expect(menu).toBeInTheDocument()
     expect(fullAccess).toHaveAttribute('aria-checked', 'false')
+    expect(fullAccess).toHaveTextContent('完全访问权限')
 
     await user.click(fullAccess)
 
@@ -58,7 +60,8 @@ describe('AgentFileAccessPicker', () => {
       expect(useAppStore.getState().settings.tools.approvalMode).toBe('full_access')
     })
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Agent 权限模式：完全访问|Agent permission mode: Full access/i }))
-      .toHaveClass('is-full_access')
+    const updatedTrigger = screen.getByRole('button', { name: /Agent 权限模式：完全访问|Agent permission mode: Full access/i })
+    expect(updatedTrigger).toHaveClass('is-full_access')
+    expect(updatedTrigger).toHaveTextContent(/^完全访问$/)
   })
 })

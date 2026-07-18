@@ -90,7 +90,7 @@ export class Logger {
     const files = await readdir(dir).catch(() => [])
     const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000
     for (const file of files) {
-      if ((!file.startsWith('studiumx') && !file.startsWith('teachos')) || !file.endsWith('.log')) continue
+      if ((!file.startsWith('studiumx')) || !file.endsWith('.log')) continue
       const full = join(dir, file)
       const info = await stat(full).catch(() => null)
       if (info && info.mtimeMs < cutoff) await unlink(full).catch(() => {})

@@ -9,14 +9,11 @@ import { EXTERNAL_DESTINATION_PROTOCOLS, classifyExternalDestination } from './e
 export type { PreviewLessonInteractionIntent } from './teaching-types/lesson-interaction'
 
 export const PREVIEW_PROTOCOL = 'studiumx-preview'
-export const LEGACY_PREVIEW_PROTOCOL = 'teachos-preview'
 export const PREVIEW_MARKDOWN_LINK_MESSAGE = 'studiumx:open-markdown'
 export const PREVIEW_EXTERNAL_LINK_MESSAGE = 'studiumx:open-external'
 export const PREVIEW_LESSON_INTERACTION_MESSAGE = 'studiumx:lesson-interaction'
 export const PREVIEW_LESSON_INTERACTION_SOURCE = 'studiumx-lesson-evidence'
 export const MARKDOWN_LESSON_INTERACTION_PROTOCOL = 'studiumx-evidence'
-export const LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE = 'teachos:open-markdown'
-export const LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE = 'teachos:open-external'
 
 const BRIDGE_SCRIPT_ID = 'studiumx-markdown-link-bridge'
 export const PREVIEW_SCROLLBAR_STYLE_ID = 'studiumx-preview-scrollbar-style'
@@ -100,7 +97,7 @@ function markdownBridgeScript(): string {
     } catch {
       return;
     }
-    if (${JSON.stringify([`${PREVIEW_PROTOCOL}:`, `${LEGACY_PREVIEW_PROTOCOL}:`])}.includes(url.protocol)) {
+    if (url.protocol === ${JSON.stringify(`${PREVIEW_PROTOCOL}:`)}) {
       const path = decodeURIComponent(url.pathname);
       if (!/\\.(?:md|markdown)$/i.test(path)) return;
       event.preventDefault();
@@ -169,7 +166,7 @@ export function parsePreviewMarkdownHref(href: string): PreviewMarkdownLink | nu
   } catch {
     return null
   }
-  if (url.protocol !== `${PREVIEW_PROTOCOL}:` && url.protocol !== `${LEGACY_PREVIEW_PROTOCOL}:`) return null
+  if (url.protocol !== `${PREVIEW_PROTOCOL}:`) return null
 
   const workspaceId = decodeURIComponent(url.hostname)
   const relativePath = url.pathname

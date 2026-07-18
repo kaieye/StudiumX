@@ -69,6 +69,8 @@
 :root[data-resolved-theme="dark"] .overview-dialog-icon,
 :root[data-resolved-theme="dark"] .overview-dialog-access,
 :root[data-resolved-theme="dark"] .overview-dialog-model,
+:root[data-resolved-theme="dark"] .overview-picker-trigger,
+:root[data-resolved-theme="dark"] .overview-file-access-trigger,
 :root[data-resolved-theme="dark"] .row-context-menu-item,
 :root[data-resolved-theme="dark"] .import-dialog-header span,
 :root[data-resolved-theme="dark"] .import-dialog-field span {
@@ -81,6 +83,10 @@
 :root[data-resolved-theme="dark"] .overview-dialog-icon:hover,
 :root[data-resolved-theme="dark"] .overview-dialog-access:hover,
 :root[data-resolved-theme="dark"] .overview-dialog-model:hover,
+:root[data-resolved-theme="dark"] .overview-picker-trigger:hover:not(:disabled),
+:root[data-resolved-theme="dark"] .overview-picker-trigger:focus-visible,
+:root[data-resolved-theme="dark"] .overview-file-access-trigger:hover:not(:disabled),
+:root[data-resolved-theme="dark"] .overview-file-access-trigger:focus-visible,
 :root[data-resolved-theme="dark"] .row-context-menu-item:hover,
 :root[data-resolved-theme="dark"] .row-context-menu-item:focus-visible {
   color: var(--text);

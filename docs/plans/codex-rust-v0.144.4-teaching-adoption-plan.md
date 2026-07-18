@@ -291,7 +291,7 @@ P0 只保证 Session/evidence/Learning record/resource effects 有 operation ID�
 | Learning record | `learning-records/` canonical 文件 | Lesson 生成时的目标说明 |
 | Workspace catalog | 从磁盘重建的投影 | 写入真相 |
 | Agent run checkpoint | `.agent-sessions/` | 教学 Session |
-| Workspace lifecycle event | `.teachos` 运行/工作区事件 | 教学 Session evidence |
+| Workspace lifecycle event | `.studiumx` 运行/工作区事件 | 教学 Session evidence |
 
 ### 5.2 P0 建议的 canonical 形态
 
@@ -308,7 +308,7 @@ Teaching workspace/
     <record-id>.md              # 只有 established/corrected 才产生
 ```
 
-如果复用 `.teachos/` 作为内部存储，仍必须保证 Learning record 位于正式 `learning-records/`，Session 对学习者可解释且可迁移，schema 有版本，catalog 可重建，legacy Lesson 可通过 Adapter 只读投影，且不要求一次性迁移全部旧文件。
+如果复用 `.studiumx/` 作为内部存储，仍必须保证 Learning record 位于正式 `learning-records/`，Session 对学习者可解释且可迁移，schema 有版本，catalog 可重建，legacy Lesson 可通过 Adapter 只读投影，且不要求一次性迁移全部旧文件。
 
 ### 5.3 Outcome 与 Next Step 状态
 

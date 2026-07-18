@@ -8,7 +8,6 @@ import {
 import type { TeachingSettingsPatch, TeachingSettingsV1 } from '../shared/teaching-types'
 
 const SETTINGS_FILE_NAME = 'studiumx-settings.json'
-const LEGACY_SETTINGS_FILE_NAME = 'teachos-settings.json'
 const SAFE_STORAGE_PREFIX = 'safeStorage:v1:'
 
 export type SettingsSecretStorage = {
@@ -19,7 +18,6 @@ export type SettingsSecretStorage = {
 
 export class TeachingSettingsService {
   private readonly settingsPath: string
-  private readonly legacySettingsPath: string
   private readonly fallbackDefaultRoot: string
   private readonly secretStorage?: SettingsSecretStorage
   private protectedSecretTemplate: Record<string, unknown> | null = null
@@ -31,7 +29,6 @@ export class TeachingSettingsService {
     secretStorage?: SettingsSecretStorage
   }) {
     this.settingsPath = join(options.userDataPath, SETTINGS_FILE_NAME)
-    this.legacySettingsPath = join(options.userDataPath, LEGACY_SETTINGS_FILE_NAME)
     this.fallbackDefaultRoot = options.defaultRoot
     this.secretStorage = options.secretStorage
   }
@@ -44,11 +41,6 @@ export class TeachingSettingsService {
       parsed = JSON.parse(await readFile(this.settingsPath, 'utf8'))
     } catch (error) {
       if (isErrno(error) && error.code === 'ENOENT') {
-        const legacySettings = await this.loadLegacySettings()
-        if (legacySettings) {
-          this.cache = await this.save(normalizeSettings(legacySettings, this.fallbackDefaultRoot))
-          return this.cache
-        }
         this.cache = await this.ensureSettings(defaultSettings(this.fallbackDefaultRoot))
         return this.cache
       }
@@ -116,15 +108,6 @@ export class TeachingSettingsService {
     return this.save(defaultSettings(this.fallbackDefaultRoot))
   }
 
-  private async loadLegacySettings(): Promise<unknown | null> {
-    try {
-      return JSON.parse(await readFile(this.legacySettingsPath, 'utf8'))
-    } catch (error) {
-      if (isErrno(error) && error.code === 'ENOENT') return null
-      if (error instanceof SyntaxError) return null
-      throw error
-    }
-  }
 }
 
 /** Compatibility export retained for existing main-process callers. */
