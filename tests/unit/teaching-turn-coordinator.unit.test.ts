@@ -99,39 +99,78 @@ function createPorts(overrides: {
       scan: overrides.scan ?? vi.fn(async () => emptyScan(sessions.get(snapshot.id) ?? snapshot))
     },
     recorder: {
-      record: overrides.record ?? vi.fn(async (evidence: { eventId: string; sessionId: string; workspaceId: string; kind: string }): Promise<EvidenceReceipt> => {
+      record: overrides.record ?? vi.fn(async (evidence: {
+        eventId: string
+        sessionId: string
+        workspaceId: string
+        kind: string
+        courseId?: string
+        lessonId?: string
+        itemId?: string
+        attempt?: number
+        observedAt?: string
+        artifactDigest?: string
+        surface?: string
+        selectedOptionIds?: string[]
+        correct?: boolean
+      }): Promise<EvidenceReceipt> => {
         const existing = sessions.get(evidence.sessionId)
         const sequence = (existing?.eventCount ?? 0) + 1
+        // Mirror production recorder: complete lessonInteraction + mapped ledger kind (not eventId+sequence stub).
+        const interaction = {
+          schemaVersion: 1 as const,
+          eventId: evidence.eventId,
+          kind: (evidence.kind ?? 'quiz_answered') as 'quiz_answered',
+          workspaceId: evidence.workspaceId,
+          courseId: evidence.courseId ?? 'course-1',
+          sessionId: evidence.sessionId,
+          lessonId: evidence.lessonId ?? 'lesson-1',
+          itemId: evidence.itemId ?? 'item-1',
+          attempt: typeof evidence.attempt === 'number' ? evidence.attempt : 1,
+          observedAt: evidence.observedAt ?? '2026-07-18T10:00:00.000Z',
+          artifactDigest: evidence.artifactDigest ?? 'a'.repeat(64),
+          surface: (evidence.surface ?? 'lesson_preview') as 'lesson_preview',
+          selectedOptionIds: Array.isArray(evidence.selectedOptionIds) ? evidence.selectedOptionIds : ['a'],
+          correct: typeof evidence.correct === 'boolean' ? evidence.correct : false
+        }
+        const ledgerKind =
+          interaction.kind === 'quiz_answered'
+            ? 'quiz_attempted'
+            : interaction.kind === 'lesson_opened'
+              ? 'lesson_opened'
+              : interaction.kind === 'lesson_completed'
+                ? 'lesson_completed'
+                : interaction.kind === 'retrieval_response_submitted'
+                  ? 'retrieval_attempted'
+                  : interaction.kind === 'flashcard_rated'
+                    ? 'flashcard_reviewed'
+                    : 'learner_response_recorded'
         if (existing) {
           sessions.set(evidence.sessionId, {
             ...existing,
             eventCount: sequence,
             events: [
               ...(existing.events ?? []),
-              { eventId: evidence.eventId, sequence } as never
+              {
+                schemaVersion: 1,
+                eventId: interaction.eventId,
+                sessionId: interaction.sessionId,
+                kind: ledgerKind,
+                occurredAt: interaction.observedAt,
+                sequence,
+                recordedAt: '2026-07-18T10:00:00.000Z',
+                payload: { lessonInteraction: { ...interaction } }
+              } as never
             ]
           })
         }
         return {
-          eventId: evidence.eventId,
-          sessionId: evidence.sessionId,
+          eventId: interaction.eventId,
+          sessionId: interaction.sessionId,
           sequence,
           duplicate: false,
           evidence: {
-            schemaVersion: 1,
-            eventId: evidence.eventId,
-            kind: 'quiz_answered',
-            workspaceId: evidence.workspaceId,
-            courseId: 'course-1',
-            sessionId: evidence.sessionId,
-            lessonId: 'lesson-1',
-            itemId: 'item-1',
-            attempt: 1,
-            observedAt: '2026-07-18T10:00:00.000Z',
-            artifactDigest: 'a'.repeat(64),
-            surface: 'lesson_preview',
-            selectedOptionIds: ['a'],
-            correct: false,
+            ...interaction,
             sequence,
             recordedAt: '2026-07-18T10:00:00.000Z'
           } as EvidenceReceipt['evidence']
@@ -233,6 +272,22 @@ describe('TeachingTurnCoordinator', () => {
   })
 
   it('records evidence with durable receipt and progress without sticky terminal', async () => {
+    const fullInteraction = {
+      schemaVersion: 1 as const,
+      eventId: 'evidence-1',
+      kind: 'quiz_answered' as const,
+      workspaceId: 'workspace-1',
+      courseId: 'course-1',
+      sessionId: 'session-1',
+      lessonId: 'lesson-1',
+      itemId: 'item-1',
+      attempt: 1,
+      observedAt: '2026-07-18T10:00:00.000Z',
+      artifactDigest: 'a'.repeat(64),
+      surface: 'lesson_preview' as const,
+      selectedOptionIds: ['a'],
+      correct: false
+    }
     const load = vi.fn(async (sessionId: string) =>
       sessionSnapshot({
         id: sessionId,
@@ -247,12 +302,7 @@ describe('TeachingTurnCoordinator', () => {
             sequence: 1,
             recordedAt: '2026-07-18T10:00:00.000Z',
             payload: {
-              lessonInteraction: {
-                eventId: 'evidence-1',
-                sessionId,
-                workspaceId: 'workspace-1',
-                kind: 'quiz_answered'
-              }
+              lessonInteraction: { ...fullInteraction, sessionId }
             }
           } as never
         ]
@@ -266,23 +316,10 @@ describe('TeachingTurnCoordinator', () => {
         sequence: 1,
         duplicate: true,
         evidence: {
-          schemaVersion: 1,
-          eventId: 'evidence-1',
-          kind: 'quiz_answered',
-          workspaceId: 'workspace-1',
-          courseId: 'course-1',
-          sessionId: 'session-1',
-          lessonId: 'lesson-1',
-          itemId: 'item-1',
-          attempt: 1,
-          observedAt: '2026-07-18T10:00:00.000Z',
-          artifactDigest: 'a'.repeat(64),
-          surface: 'lesson_preview',
-          selectedOptionIds: ['a'],
-          correct: false,
+          ...fullInteraction,
           sequence: 1,
           recordedAt: '2026-07-18T10:00:00.000Z'
-        }
+        } as EvidenceReceipt['evidence']
       }))
     })
     const coordinator = createTeachingTurnCoordinator(ports)
@@ -2356,4 +2393,505 @@ describe('TeachingTurnCoordinator', () => {
     const after = await coordinator.execute(command)
     expect(after.acceptance).toBe('duplicate')
   })
+
+  it('round8: sparse ledger event (eventId+sequence stub) never emits accepted/durable on bus', async () => {
+    const record = vi.fn(async (evidence: {
+      eventId: string
+      sessionId: string
+      workspaceId: string
+      kind: string
+    }): Promise<EvidenceReceipt> => ({
+      eventId: evidence.eventId,
+      sessionId: evidence.sessionId,
+      sequence: 1,
+      duplicate: false,
+      evidence: {
+        schemaVersion: 1,
+        eventId: evidence.eventId,
+        kind: 'quiz_answered',
+        workspaceId: evidence.workspaceId,
+        courseId: 'course-1',
+        sessionId: evidence.sessionId,
+        lessonId: 'lesson-1',
+        itemId: 'item-1',
+        attempt: 1,
+        observedAt: '2026-07-18T10:00:00.000Z',
+        artifactDigest: 'a'.repeat(64),
+        surface: 'lesson_preview',
+        selectedOptionIds: ['a'],
+        correct: false,
+        sequence: 1,
+        recordedAt: '2026-07-18T10:00:00.000Z'
+      } as EvidenceReceipt['evidence']
+    }))
+    const load = vi.fn(async (sessionId: string) =>
+      sessionSnapshot({
+        id: sessionId,
+        workspaceId: 'workspace-1',
+        eventCount: 1,
+        events: [{ eventId: 'evidence-sparse', sequence: 1 } as never]
+      })
+    )
+    const ports = createPorts({ record, load })
+    const coordinator = createTeachingTurnCoordinator({
+      ...ports,
+      maxOperations: 8,
+      maxEventIds: 8,
+      maxBuses: 2
+    })
+    const busSeen: string[] = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-r8-sparse' }, (e) => {
+      busSeen.push(e.payload.type)
+    })
+    const result = await coordinator.execute({
+      type: 'record_evidence',
+      turnId: 'turn-r8-sparse',
+      eventId: 'ev-r8-sparse',
+      operationId: 'op-r8-sparse',
+      workspaceId: 'workspace-1',
+      evidence: {
+        schemaVersion: 1,
+        eventId: 'evidence-sparse',
+        kind: 'quiz_answered',
+        workspaceId: 'workspace-1',
+        courseId: 'course-1',
+        sessionId: 'session-1',
+        lessonId: 'lesson-1',
+        itemId: 'item-1',
+        attempt: 1,
+        observedAt: '2026-07-18T10:00:00.000Z',
+        artifactDigest: 'a'.repeat(64),
+        surface: 'lesson_preview',
+        selectedOptionIds: ['a'],
+        correct: false
+      }
+    })
+    unsub()
+    expect(result.acceptance).toBe('rejected')
+    expect(result.rejectReason).toBe('payload_mismatch')
+    expect(busSeen).not.toContain('command_accepted')
+    expect(busSeen).not.toContain('evidence_recorded')
+    const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-r8-sparse' }, 0)
+    expect(replay?.events.some((e) => e.payload.type === 'command_accepted')).toBeFalsy()
+    expect(replay?.events.some((e) => e.payload.type === 'evidence_recorded')).toBeFalsy()
+    expect(replay?.events.some((e) => e.durability === 'durable')).toBeFalsy()
+
+    // Force bus reclaim and assert archive has no false durable domain events.
+    await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-r8-fill-a',
+      eventId: 'ev-r8-fill-a',
+      operationId: 'op-r8-fill-a',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      reasonCode: 'user_cancel'
+    })
+    await coordinator.execute({
+      type: 'cancel_turn',
+      turnId: 'turn-r8-fill-b',
+      eventId: 'ev-r8-fill-b',
+      operationId: 'op-r8-fill-b',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      reasonCode: 'user_cancel'
+    })
+    const afterReclaim = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-r8-sparse' }, 0)
+    expect(afterReclaim?.events.some((e) => e.payload.type === 'evidence_recorded')).toBeFalsy()
+    expect(afterReclaim?.events.some((e) => e.payload.type === 'command_accepted')).toBeFalsy()
+  })
+
+  it('round8: empty/wrong kind/session/workspace/payload ledger authority never emits on bus', async () => {
+    const cases: Array<{
+      name: string
+      eventId: string
+      ledgerEvent: Record<string, unknown>
+    }> = [
+      {
+        name: 'empty-li',
+        eventId: 'evidence-empty-li',
+        ledgerEvent: {
+          schemaVersion: 1,
+          eventId: 'evidence-empty-li',
+          sessionId: 'session-1',
+          kind: 'quiz_attempted',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: { lessonInteraction: {} }
+        }
+      },
+      {
+        name: 'wrong-top-kind',
+        eventId: 'evidence-wrong-top',
+        ledgerEvent: {
+          schemaVersion: 1,
+          eventId: 'evidence-wrong-top',
+          sessionId: 'session-1',
+          kind: 'lesson_opened',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: {
+            lessonInteraction: {
+              schemaVersion: 1,
+              eventId: 'evidence-wrong-top',
+              kind: 'quiz_answered',
+              workspaceId: 'workspace-1',
+              courseId: 'course-1',
+              sessionId: 'session-1',
+              lessonId: 'lesson-1',
+              itemId: 'item-1',
+              attempt: 1,
+              observedAt: '2026-07-18T10:00:00.000Z',
+              artifactDigest: 'a'.repeat(64),
+              surface: 'lesson_preview',
+              selectedOptionIds: ['a'],
+              correct: false
+            }
+          }
+        }
+      },
+      {
+        name: 'wrong-evidence-kind',
+        eventId: 'evidence-wrong-kind',
+        ledgerEvent: {
+          schemaVersion: 1,
+          eventId: 'evidence-wrong-kind',
+          sessionId: 'session-1',
+          kind: 'lesson_opened',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: {
+            lessonInteraction: {
+              schemaVersion: 1,
+              eventId: 'evidence-wrong-kind',
+              kind: 'lesson_opened',
+              workspaceId: 'workspace-1',
+              courseId: 'course-1',
+              sessionId: 'session-1',
+              lessonId: 'lesson-1',
+              itemId: 'item-1',
+              attempt: 1,
+              observedAt: '2026-07-18T10:00:00.000Z',
+              artifactDigest: 'a'.repeat(64),
+              surface: 'lesson_preview'
+            }
+          }
+        }
+      },
+      {
+        name: 'wrong-session',
+        eventId: 'evidence-wrong-session',
+        ledgerEvent: {
+          schemaVersion: 1,
+          eventId: 'evidence-wrong-session',
+          sessionId: 'session-OTHER',
+          kind: 'quiz_attempted',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: {
+            lessonInteraction: {
+              schemaVersion: 1,
+              eventId: 'evidence-wrong-session',
+              kind: 'quiz_answered',
+              workspaceId: 'workspace-1',
+              courseId: 'course-1',
+              sessionId: 'session-OTHER',
+              lessonId: 'lesson-1',
+              itemId: 'item-1',
+              attempt: 1,
+              observedAt: '2026-07-18T10:00:00.000Z',
+              artifactDigest: 'a'.repeat(64),
+              surface: 'lesson_preview',
+              selectedOptionIds: ['a'],
+              correct: false
+            }
+          }
+        }
+      },
+      {
+        name: 'wrong-workspace',
+        eventId: 'evidence-wrong-ws',
+        ledgerEvent: {
+          schemaVersion: 1,
+          eventId: 'evidence-wrong-ws',
+          sessionId: 'session-1',
+          kind: 'quiz_attempted',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: {
+            lessonInteraction: {
+              schemaVersion: 1,
+              eventId: 'evidence-wrong-ws',
+              kind: 'quiz_answered',
+              workspaceId: 'workspace-OTHER',
+              courseId: 'course-1',
+              sessionId: 'session-1',
+              lessonId: 'lesson-1',
+              itemId: 'item-1',
+              attempt: 1,
+              observedAt: '2026-07-18T10:00:00.000Z',
+              artifactDigest: 'a'.repeat(64),
+              surface: 'lesson_preview',
+              selectedOptionIds: ['a'],
+              correct: false
+            }
+          }
+        }
+      },
+      {
+        name: 'mismatched-payload-item',
+        eventId: 'evidence-mismatch-item',
+        ledgerEvent: {
+          schemaVersion: 1,
+          eventId: 'evidence-mismatch-item',
+          sessionId: 'session-1',
+          kind: 'quiz_attempted',
+          occurredAt: '2026-07-18T10:00:00.000Z',
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z',
+          payload: {
+            lessonInteraction: {
+              schemaVersion: 1,
+              eventId: 'evidence-mismatch-item',
+              kind: 'quiz_answered',
+              workspaceId: 'workspace-1',
+              courseId: 'course-1',
+              sessionId: 'session-1',
+              lessonId: 'lesson-1',
+              itemId: 'item-DIFFERENT',
+              attempt: 1,
+              observedAt: '2026-07-18T10:00:00.000Z',
+              artifactDigest: 'a'.repeat(64),
+              surface: 'lesson_preview',
+              selectedOptionIds: ['a'],
+              correct: false
+            }
+          }
+        }
+      }
+    ]
+
+    for (const [index, item] of cases.entries()) {
+      const turnId = `turn-r8-adv-${item.name}`
+      const record = vi.fn(async (): Promise<EvidenceReceipt> => ({
+        eventId: item.eventId,
+        sessionId: 'session-1',
+        sequence: 1,
+        duplicate: false,
+        evidence: {
+          schemaVersion: 1,
+          eventId: item.eventId,
+          kind: 'quiz_answered',
+          workspaceId: 'workspace-1',
+          courseId: 'course-1',
+          sessionId: 'session-1',
+          lessonId: 'lesson-1',
+          itemId: 'item-1',
+          attempt: 1,
+          observedAt: '2026-07-18T10:00:00.000Z',
+          artifactDigest: 'a'.repeat(64),
+          surface: 'lesson_preview',
+          selectedOptionIds: ['a'],
+          correct: false,
+          sequence: 1,
+          recordedAt: '2026-07-18T10:00:00.000Z'
+        } as EvidenceReceipt['evidence']
+      }))
+      const load = vi.fn(async (sessionId: string) =>
+        sessionSnapshot({
+          id: sessionId,
+          workspaceId: 'workspace-1',
+          eventCount: 1,
+          events: [item.ledgerEvent as never]
+        })
+      )
+      const coordinator = createTeachingTurnCoordinator(createPorts({ record, load }))
+      const busSeen: string[] = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (e) => {
+        busSeen.push(e.payload.type)
+      })
+      const result = await coordinator.execute({
+        type: 'record_evidence',
+        turnId,
+        eventId: `ev-r8-adv-${index}`,
+        operationId: `op-r8-adv-${index}`,
+        workspaceId: 'workspace-1',
+        evidence: {
+          schemaVersion: 1,
+          eventId: item.eventId,
+          kind: 'quiz_answered',
+          workspaceId: 'workspace-1',
+          courseId: 'course-1',
+          sessionId: 'session-1',
+          lessonId: 'lesson-1',
+          itemId: 'item-1',
+          attempt: 1,
+          observedAt: '2026-07-18T10:00:00.000Z',
+          artifactDigest: 'a'.repeat(64),
+          surface: 'lesson_preview',
+          selectedOptionIds: ['a'],
+          correct: false
+        }
+      })
+      unsub()
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(busSeen, item.name).not.toContain('command_accepted')
+      expect(busSeen, item.name).not.toContain('evidence_recorded')
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.payload.type === 'evidence_recorded'), item.name).toBeFalsy()
+    }
+  })
+
+  it('round8: recordSaved:true with only outcomeRef never emits accepted/durable on bus', async () => {
+    const commit = vi.fn(async (): Promise<OutcomeCommitResult> => ({
+      status: 'committed',
+      outcome: { kind: 'established' },
+      recordSaved: true,
+      catalogRecordPresent: false
+    } as OutcomeCommitResult))
+    const load = vi.fn(async (sessionId: string) =>
+      sessionSnapshot({
+        id: sessionId,
+        workspaceId: 'workspace-1',
+        outcomeRef: {
+          outcomeId: 'outcome-only',
+          kind: 'established',
+          relativePath: 'sessions/session-1/outcome.json',
+          evidenceEventIds: ['evidence-1'],
+          contentSha256: 'c'.repeat(64)
+        }
+      })
+    )
+    const reconcile = vi.fn(async (sessionId: string): Promise<OutcomeReconciliation> => ({
+      sessionId,
+      state: 'settled',
+      marker: {
+        schemaVersion: 1,
+        sessionId,
+        outcomeId: 'outcome-only',
+        operationId: 'op-r8-orec',
+        kind: 'established',
+        evidenceEventIds: ['evidence-1'],
+        evaluatorVersion: 1,
+        record: null
+      },
+      record: null,
+      catalogRecordPresent: false,
+      diagnostics: []
+    }))
+    const coordinator = createTeachingTurnCoordinator(createPorts({ commit, reconcile, load }))
+    const busSeen: Array<{ type: string; durability?: string }> = []
+    const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId: 'turn-r8-orec' }, (e) => {
+      busSeen.push({ type: e.payload.type, durability: e.durability })
+    })
+    const result = await coordinator.execute({
+      type: 'commit_outcome',
+      turnId: 'turn-r8-orec',
+      eventId: 'ev-r8-orec',
+      operationId: 'op-r8-orec',
+      workspaceId: 'workspace-1',
+      request: { sessionId: 'session-1', operationId: 'op-r8-orec' }
+    })
+    unsub()
+    expect(result.acceptance).toBe('rejected')
+    expect(result.rejectReason).toBe('payload_mismatch')
+    expect(busSeen.some((e) => e.type === 'command_accepted')).toBe(false)
+    expect(busSeen.some((e) => e.type === 'outcome_committed')).toBe(false)
+    expect(busSeen.some((e) => e.durability === 'durable')).toBe(false)
+    const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId: 'turn-r8-orec' }, 0)
+    expect(replay?.events.some((e) => e.payload.type === 'outcome_committed')).toBeFalsy()
+  })
+
+  it('round8: recover spoofed reconcile never emits accepted/durable on bus', async () => {
+    const spoofs: Array<{ name: string; recon: unknown }> = [
+      {
+        name: 'wrong-session',
+        recon: {
+          sessionId: 'session-OTHER',
+          state: 'settled',
+          marker: {
+            schemaVersion: 1,
+            sessionId: 'session-OTHER',
+            outcomeId: 'out-spoof',
+            operationId: 'op-spoof',
+            kind: 'established',
+            evidenceEventIds: ['e1'],
+            evaluatorVersion: 1,
+            record: { recordId: 'r1', relativePath: 'learning-records/r1.md', contentSha256: 'd'.repeat(64) }
+          },
+          record: { recordId: 'r1', relativePath: 'learning-records/r1.md', contentSha256: 'd'.repeat(64) },
+          catalogRecordPresent: true,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'malformed-shape',
+        recon: {
+          sessionId: 'session-1',
+          state: 'not-a-real-state',
+          marker: { sessionId: 'session-1' },
+          record: null,
+          catalogRecordPresent: true,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'marker-session-mismatch',
+        recon: {
+          sessionId: 'session-1',
+          state: 'settled',
+          marker: {
+            schemaVersion: 1,
+            sessionId: 'session-FOREIGN',
+            outcomeId: 'out-foreign',
+            operationId: 'op-foreign',
+            kind: 'established',
+            evidenceEventIds: ['e1'],
+            evaluatorVersion: 1,
+            record: null
+          },
+          record: null,
+          catalogRecordPresent: false,
+          diagnostics: []
+        }
+      },
+      {
+        name: 'garbage',
+        recon: { ok: true, spoofed: true }
+      }
+    ]
+
+    for (const [index, item] of spoofs.entries()) {
+      const turnId = `turn-r8-recover-${item.name}`
+      const reconcile = vi.fn(async () => item.recon as OutcomeReconciliation)
+      const coordinator = createTeachingTurnCoordinator(createPorts({ reconcile }))
+      const busSeen: string[] = []
+      const unsub = coordinator.subscribe({ workspaceId: 'workspace-1', turnId }, (e) => {
+        busSeen.push(e.payload.type)
+      })
+      const result = await coordinator.execute({
+        type: 'recover_session',
+        turnId,
+        eventId: `ev-r8-recover-${index}`,
+        operationId: `op-r8-recover-${index}`,
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1'
+      })
+      unsub()
+      expect(result.acceptance, item.name).toBe('rejected')
+      expect(result.rejectReason, item.name).toBe('payload_mismatch')
+      expect(busSeen, item.name).not.toContain('command_accepted')
+      expect(busSeen, item.name).not.toContain('recover_reconciled')
+      const replay = coordinator.replayAfter({ workspaceId: 'workspace-1', turnId }, 0)
+      expect(replay?.events.some((e) => e.payload.type === 'command_accepted'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.payload.type === 'recover_reconciled'), item.name).toBeFalsy()
+      expect(replay?.events.some((e) => e.durability === 'durable'), item.name).toBeFalsy()
+    }
+  })
+
 })

@@ -67,7 +67,13 @@ import { createHash } from 'node:crypto'
 
 import type { LearningSessionLedger } from './learning-session-ledger'
 import type { LessonInteractionRecorder } from './lesson-interaction-recorder'
-import type { LearningOutcomeCommitter, OutcomeCommitResult } from './learning-outcome-committer'
+import type {
+  LearningOutcomeCommitter,
+  LearningOutcomeRecordRef,
+  OutcomeCommitResult,
+  OutcomeReconciliation,
+  OutcomeSettlementMarker
+} from './learning-outcome-committer'
 import type { NextTeachingStepPlanner } from './next-teaching-step-planner'
 import { createTeachingContextAssembler, type TeachingContextAssembler } from './teaching-context-assembler'
 import type { ResourceGrounder } from './resource-grounder'
@@ -98,6 +104,11 @@ import {
   type TeachingTurnTerminalReasonCode
 } from '../shared/teaching-events'
 import type { LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
+import {
+  lessonInteractionLedgerKind,
+  normalizeLessonInteraction,
+  type LessonInteraction
+} from '../shared/teaching-types/lesson-interaction'
 import type { TeachingLoopFacts, TeachingLoopSnapshot } from '../shared/teaching-types/teaching-loop'
 import type { NextTeachingStepDecision } from '../shared/teaching-types/next-teaching-step'
 import type { TeachingContextAssembly } from './teaching-context-assembler'
@@ -694,17 +705,11 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     if (!receipt) {
       return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
     }
-    // Full receipt identity vs request/evidence and authoritative session state (H3).
+    // Full receipt identity vs request/evidence (H3). Production normalize already ran in parse.
     if (
       receipt.sessionId !== command.evidence.sessionId ||
-      receipt.evidence.sessionId !== command.evidence.sessionId ||
-      receipt.evidence.workspaceId !== command.workspaceId ||
-      receipt.evidence.eventId !== command.evidence.eventId ||
       receipt.eventId !== command.evidence.eventId ||
-      typeof receipt.sequence !== 'number' ||
-      !Number.isInteger(receipt.sequence) ||
-      receipt.sequence < 1 ||
-      typeof receipt.duplicate !== 'boolean'
+      !lessonInteractionsAuthorityEqual(receipt.evidence, command.evidence)
     ) {
       return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
     }
@@ -717,33 +722,11 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     ) {
       return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
     }
-    // H-A: require matching ledger event presence before any accepted/durable emit.
-    // Self-reported receipt alone is never authority; missing event must fail closed.
+    // H-A / Round-8: authoritative ledger event must be complete and exact — never eventId+sequence stub.
+    // Missing/sparse/empty/mismatched payload/kind/session/workspace fail closed before any bus emit.
     const ledgerEvent = (authoritative.events ?? []).find((event) => event.eventId === receipt.eventId)
-    if (!ledgerEvent) {
+    if (!verifyAuthoritativeLedgerEvidence(ledgerEvent, command, receipt)) {
       return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
-    }
-    if (typeof ledgerEvent.sequence !== 'number' || ledgerEvent.sequence !== receipt.sequence) {
-      return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
-    }
-    if (typeof ledgerEvent.sessionId === 'string' && ledgerEvent.sessionId !== receipt.sessionId) {
-      return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
-    }
-    // Consistency as available: payload.lessonInteraction identity/kind must match request.
-    if (isPlainObject(ledgerEvent.payload) && isPlainObject(ledgerEvent.payload.lessonInteraction)) {
-      const li = ledgerEvent.payload.lessonInteraction
-      if (typeof li.eventId === 'string' && li.eventId !== receipt.eventId) {
-        return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
-      }
-      if (typeof li.sessionId === 'string' && li.sessionId !== receipt.sessionId) {
-        return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
-      }
-      if (typeof li.workspaceId === 'string' && li.workspaceId !== command.workspaceId) {
-        return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
-      }
-      if (typeof li.kind === 'string' && typeof command.evidence.kind === 'string' && li.kind !== command.evidence.kind) {
-        return this.portIdentityReject(command, bus, collected, command.evidence.sessionId)
-      }
     }
 
     // M1/H3: all local + authority identity checks complete before any bus emit.
@@ -1120,8 +1103,37 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       }
     }
 
-    const reconciliation = await this.ports.committer.reconcile(command.sessionId)
+    const reconciliationRaw = await this.ports.committer.reconcile(command.sessionId)
+    // Round-8: never trust raw reconcile self-report for accepted/durable recover.
+    const reconciliation = parseOutcomeReconciliation(reconciliationRaw)
+    if (!reconciliation || reconciliation.sessionId !== command.sessionId) {
+      return this.portIdentityReject(command, bus, collected, command.sessionId)
+    }
+    if (reconciliation.marker && reconciliation.marker.sessionId !== command.sessionId) {
+      return this.portIdentityReject(command, bus, collected, command.sessionId)
+    }
+
+    // Reload authoritative ledger (workspace/session identity). Marker/record bind via session.
+    const loaded = await this.ports.ledger.load(command.sessionId)
+    if (
+      !loaded ||
+      loaded.id !== command.sessionId ||
+      loaded.workspaceId !== command.workspaceId
+    ) {
+      return this.portIdentityReject(command, bus, collected, command.sessionId)
+    }
+    // When ledger already holds outcomeRef, marker kind must not contradict trusted outcome.
+    if (
+      reconciliation.marker &&
+      loaded.outcomeRef &&
+      reconciliation.marker.kind !== 'not_evidenced' &&
+      reconciliation.marker.kind !== loaded.outcomeRef.kind
+    ) {
+      return this.portIdentityReject(command, bus, collected, command.sessionId)
+    }
+    // Durability only from validated marker/record shapes — never raw truthiness alone.
     const persisted = Boolean(reconciliation.marker || reconciliation.record)
+
     this.emitAccepted(bus, command, command.sessionId)
     this.emit(bus, {
       durability: persisted ? 'durable' : 'ephemeral',
@@ -1300,11 +1312,19 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
         return false
       }
 
-      // recordSaved claims a durable learning record — require record proof, not empty marker.
+      // Round-8: recordSaved:true requires marker.record and/or recon.record proof.
+      // outcomeRef alone is only outcome identity proof — never saved-record proof.
       if (commitResult.recordSaved === true) {
-        const hasRecord =
-          (marker !== null && marker.record !== null) || recon.record !== null || outcomeRef !== null
-        if (!hasRecord) {
+        const markerRecord = marker?.record ?? null
+        const reconRecord = recon.record
+        if (!markerRecord && !reconRecord) {
+          return false
+        }
+        if (markerRecord && reconRecord && !learningRecordRefsEqual(markerRecord, reconRecord)) {
+          return false
+        }
+        // Record identity must be consistent with the settled session/outcome kind already checked.
+        if (marker && marker.sessionId !== sessionId) {
           return false
         }
       }
@@ -1783,13 +1803,19 @@ function parseOutcomeCommitResult(value: unknown): OutcomeCommitResult | null {
   return null
 }
 
-function parseEvidenceReceipt(value: unknown): {
+type ParsedEvidenceReceipt = {
   eventId: string
   sessionId: string
   sequence: number
   duplicate: boolean
-  evidence: { eventId: string; sessionId: string; workspaceId: string }
-} | null {
+  evidence: LessonInteraction
+}
+
+/**
+ * Strict receipt parse: top-level ids + production-normalized lesson interaction evidence.
+ * Persisted sequence/recordedAt on evidence are stripped before production normalize.
+ */
+function parseEvidenceReceipt(value: unknown): ParsedEvidenceReceipt | null {
   if (!isPlainObject(value)) return null
   if (!isNonEmptyId(value.eventId) || !isNonEmptyId(value.sessionId)) return null
   if (typeof value.sequence !== 'number' || !Number.isInteger(value.sequence) || value.sequence < 1) {
@@ -1797,11 +1823,9 @@ function parseEvidenceReceipt(value: unknown): {
   }
   if (typeof value.duplicate !== 'boolean') return null
   if (!isPlainObject(value.evidence)) return null
-  if (
-    !isNonEmptyId(value.evidence.eventId) ||
-    !isNonEmptyId(value.evidence.sessionId) ||
-    !isNonEmptyId(value.evidence.workspaceId)
-  ) {
+  const evidence = tryNormalizeLessonInteraction(value.evidence)
+  if (!evidence) return null
+  if (evidence.eventId !== value.eventId || evidence.sessionId !== value.sessionId) {
     return null
   }
   return {
@@ -1809,12 +1833,180 @@ function parseEvidenceReceipt(value: unknown): {
     sessionId: value.sessionId,
     sequence: value.sequence,
     duplicate: value.duplicate,
-    evidence: {
-      eventId: value.evidence.eventId,
-      sessionId: value.evidence.sessionId,
-      workspaceId: value.evidence.workspaceId
-    }
+    evidence
   }
+}
+
+/**
+ * Round-8 exact-event authority: complete ledger event, production-normalized payload.lessonInteraction,
+ * top-level kind via lessonInteractionLedgerKind, and full authority match vs command/receipt.
+ */
+function verifyAuthoritativeLedgerEvidence(
+  ledgerEvent: unknown,
+  command: TeachingTurnRecordEvidenceCommand,
+  receipt: ParsedEvidenceReceipt
+): boolean {
+  if (!isPlainObject(ledgerEvent)) return false
+  if (ledgerEvent.eventId !== receipt.eventId || ledgerEvent.eventId !== command.evidence.eventId) {
+    return false
+  }
+  if (
+    typeof ledgerEvent.sequence !== 'number' ||
+    !Number.isInteger(ledgerEvent.sequence) ||
+    ledgerEvent.sequence !== receipt.sequence
+  ) {
+    return false
+  }
+  // sessionId is required exact — sparse stubs without it fail closed.
+  if (ledgerEvent.sessionId !== receipt.sessionId || ledgerEvent.sessionId !== command.evidence.sessionId) {
+    return false
+  }
+  if (!isPlainObject(ledgerEvent.payload)) return false
+  if (!Object.prototype.hasOwnProperty.call(ledgerEvent.payload, 'lessonInteraction')) {
+    return false
+  }
+  // Empty / non-object / sparse lessonInteraction fails production normalize.
+  const stored = tryNormalizeLessonInteraction(ledgerEvent.payload.lessonInteraction)
+  if (!stored) return false
+  // Top-level ledger kind must match production recorder mapping.
+  if (ledgerEvent.kind !== lessonInteractionLedgerKind(stored)) {
+    return false
+  }
+  // Stored interaction must match command and receipt on all authority-relevant fields.
+  if (!lessonInteractionsAuthorityEqual(stored, command.evidence)) return false
+  if (!lessonInteractionsAuthorityEqual(stored, receipt.evidence)) return false
+  if (stored.workspaceId !== command.workspaceId) return false
+  return true
+}
+
+function tryNormalizeLessonInteraction(value: unknown): LessonInteraction | null {
+  if (value === null || value === undefined) return null
+  // Strip persisted-only fields so production exact-key normalize can succeed.
+  let candidate: unknown = value
+  if (isPlainObject(value) && ('sequence' in value || 'recordedAt' in value)) {
+    const { sequence: _sequence, recordedAt: _recordedAt, ...rest } = value
+    candidate = rest
+  }
+  try {
+    return normalizeLessonInteraction(candidate)
+  } catch {
+    return null
+  }
+}
+
+function lessonInteractionsAuthorityEqual(a: LessonInteraction, b: LessonInteraction): boolean {
+  // Both sides are production-normalized; structural equality covers identity + kind-specific fields.
+  return stableJsonEqual(a, b)
+}
+
+function stableJsonEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+const RECONCILIATION_STATES = new Set([
+  'not_found',
+  'pending',
+  'settled',
+  'repaired',
+  'review_required',
+  'read_only'
+])
+
+const SETTLEMENT_OUTCOME_KINDS = new Set([
+  'established',
+  'misconception_corrected',
+  'needs_practice',
+  'not_evidenced'
+])
+
+/**
+ * Strict runtime parse of OutcomeReconciliation. Malformed spoof never reaches bus emit.
+ */
+function parseOutcomeReconciliation(value: unknown): OutcomeReconciliation | null {
+  if (!isPlainObject(value)) return null
+  if (!isNonEmptyId(value.sessionId)) return null
+  if (typeof value.state !== 'string' || !RECONCILIATION_STATES.has(value.state)) return null
+  if (typeof value.catalogRecordPresent !== 'boolean') return null
+  if (!Array.isArray(value.diagnostics)) return null
+
+  let marker: OutcomeSettlementMarker | null = null
+  if (value.marker !== null && value.marker !== undefined) {
+    marker = parseSettlementMarker(value.marker)
+    if (!marker) return null
+  }
+  let record: LearningOutcomeRecordRef | null = null
+  if (value.record !== null && value.record !== undefined) {
+    record = parseLearningRecordRef(value.record)
+    if (!record) return null
+  }
+  // Marker.record and top-level record must agree when both present.
+  if (marker?.record && record && !learningRecordRefsEqual(marker.record, record)) {
+    return null
+  }
+  if (marker && marker.sessionId !== value.sessionId) {
+    return null
+  }
+
+  return {
+    sessionId: value.sessionId,
+    state: value.state as OutcomeReconciliation['state'],
+    marker,
+    record,
+    catalogRecordPresent: value.catalogRecordPresent,
+    diagnostics: []
+  }
+}
+
+function parseSettlementMarker(value: unknown): OutcomeSettlementMarker | null {
+  if (!isPlainObject(value)) return null
+  if (value.schemaVersion !== 1) return null
+  if (!isNonEmptyId(value.sessionId) || !isNonEmptyId(value.outcomeId) || !isNonEmptyId(value.operationId)) {
+    return null
+  }
+  if (typeof value.kind !== 'string' || !SETTLEMENT_OUTCOME_KINDS.has(value.kind)) return null
+  if (!Array.isArray(value.evidenceEventIds) || !value.evidenceEventIds.every((id) => isNonEmptyId(id))) {
+    return null
+  }
+  if (typeof value.evaluatorVersion !== 'number' || !Number.isInteger(value.evaluatorVersion)) {
+    return null
+  }
+  let record: LearningOutcomeRecordRef | null = null
+  if (value.record !== null && value.record !== undefined) {
+    record = parseLearningRecordRef(value.record)
+    if (!record) return null
+  }
+  return {
+    schemaVersion: 1,
+    sessionId: value.sessionId,
+    outcomeId: value.outcomeId,
+    operationId: value.operationId,
+    kind: value.kind as OutcomeSettlementMarker['kind'],
+    evidenceEventIds: value.evidenceEventIds as string[],
+    evaluatorVersion: value.evaluatorVersion,
+    record
+  }
+}
+
+function parseLearningRecordRef(value: unknown): LearningOutcomeRecordRef | null {
+  if (!isPlainObject(value)) return null
+  if (!isNonEmptyId(value.recordId)) return null
+  if (typeof value.relativePath !== 'string' || value.relativePath.trim().length === 0) return null
+  if (typeof value.contentSha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(value.contentSha256)) {
+    return null
+  }
+  return {
+    recordId: value.recordId,
+    relativePath: value.relativePath,
+    contentSha256: value.contentSha256
+  }
+}
+
+function learningRecordRefsEqual(a: LearningOutcomeRecordRef, b: LearningOutcomeRecordRef): boolean {
+  return (
+    a.recordId === b.recordId &&
+    a.relativePath === b.relativePath &&
+    a.contentSha256 === b.contentSha256
+  )
 }
 
 function isNonEmptyId(value: unknown): value is string {
