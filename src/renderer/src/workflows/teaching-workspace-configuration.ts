@@ -91,7 +91,7 @@ export type TeachingWorkspaceSettingsPath =
   | 'generator.requestTimeoutMs'
   | 'tools.enabled'
   | 'tools.workspaceRead'
-  | 'tools.workspaceWritePermission'
+  | 'tools.approvalMode'
   | 'tools.webSearch'
   | 'tools.webFetch'
   | 'tools.maxIterations'
@@ -154,7 +154,7 @@ export function buildTeachingWorkspaceSettingsPatch(
       return { generator: { [path.slice('generator.'.length)]: value } }
     case 'tools.enabled':
     case 'tools.workspaceRead':
-    case 'tools.workspaceWritePermission':
+    case 'tools.approvalMode':
     case 'tools.webSearch':
     case 'tools.webFetch':
     case 'tools.maxIterations':

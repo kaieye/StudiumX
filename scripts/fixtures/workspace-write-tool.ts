@@ -15,7 +15,7 @@ try {
   const settings = defaultSettings(defaultRoot)
   settings.tools.enabled = true
   settings.tools.workspaceRead = true
-  settings.tools.workspaceWritePermission = 'allow_for_conversation'
+  settings.tools.approvalMode = 'full_access'
   settings.tools.webSearch = false
   settings.tools.webFetch = false
 

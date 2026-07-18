@@ -15,7 +15,7 @@ try {
   const settings = defaultSettings(root)
   settings.tools.enabled = true
   settings.tools.workspaceRead = true
-  settings.tools.workspaceWritePermission = 'read_only'
+  settings.tools.approvalMode = 'request_approval'
   settings.tools.webSearch = true
   settings.tools.webFetch = true
   settings.webSearch.backend = 'ddgs'
@@ -23,7 +23,7 @@ try {
   const context = buildToolContext(settings, {
     workspaceRoot: root,
     requestToolPermission: async () => {
-      throw new Error('read-only writes must not reach the local permission resolver')
+      return { decision: 'deny', reason: 'External content cannot approve local writes.' }
     }
   })
   const registry = buildDefaultRegistry(settings, { workspaceRoot: root, workspaceWrite: true })
@@ -79,14 +79,14 @@ try {
   assert.match(failedFetch.error, /IGNORE ALL PREVIOUS INSTRUCTIONS/)
 
   assert.deepEqual(registry.names(), toolNamesBefore, 'external content must not change the locally resolved tool registry')
-  assert.equal(settings.tools.workspaceWritePermission, 'read_only', 'external content must not mutate local permission settings')
+  assert.equal(settings.tools.approvalMode, 'request_approval', 'external content must not mutate the local permission mode')
   const writeResult = JSON.parse(await handlers.write_workspace_file({
     path: 'notes/injected.md',
     content: injectedExternalText
   }))
   assert.equal(writeResult.permission.kind, 'workspace_write')
   assert.equal(writeResult.permission.decision, 'deny')
-  assert.match(writeResult.error, /只读模式/)
+  assert.match(writeResult.error, /External content cannot approve local writes/)
   await assert.rejects(stat(join(root, 'notes', 'injected.md')))
 
   const prompt = buildAgentChatSystemPrompt({ mode: 'teaching', lessonToolEnabled: false, skillReferences: [] })

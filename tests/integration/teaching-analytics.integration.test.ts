@@ -200,7 +200,7 @@ function settings(runtime: IsolatedTestRuntime): TeachingSettingsV1 {
     workspace: { defaultRoot: runtime.workspaceDir, confirmBeforeGenerating: true, autoOpenGeneratedLesson: false, showAllCourseFiles: false, lessonStyleId: 'default' },
     worktree: { rootPath: runtime.workspaceDir },
     memory: { enabled: true, maxInjected: 10 },
-    tools: { enabled: true, workspaceRead: true, workspaceWritePermission: 'ask', webSearch: false, webFetch: false, maxIterations: 3, runBudget: { maxDurationMs: 1000, maxProviderCalls: 2, maxToolCalls: 2, maxTotalTokens: 1000, warningThreshold: 0.8 } },
+    tools: { enabled: true, workspaceRead: true, approvalMode: 'ask', webSearch: false, webFetch: false, maxIterations: 3, runBudget: { maxDurationMs: 1000, maxProviderCalls: 2, maxToolCalls: 2, maxTotalTokens: 1000, warningThreshold: 0.8 } },
     webSearch: { backend: 'none', fallbackEnabled: false, maxResults: 0, searxngUrl: '', braveApiKey: '', firecrawlApiKey: '', firecrawlApiUrl: '', tavilyApiKey: '', exaApiKey: '', parallelApiKey: '', parallelSearchMode: 'off', xaiApiKey: '', xaiModel: '' },
     notifications: { enabled: false, lessonGenerated: false, workspaceImported: false, errors: false },
     pet: { enabled: true, displayName: 'Fixture Pet', showStatusBubble: true, appearance: 'default', size: 112 },

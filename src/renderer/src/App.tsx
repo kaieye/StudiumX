@@ -35,6 +35,8 @@ import {
   Square,
   Play,
   SendHorizontal,
+  ShieldAlert,
+  ShieldCheck,
   X,
   Wrench
 } from 'lucide-react'
@@ -122,7 +124,8 @@ import {
   type TeachingWorkspaceChangeSummary,
   type TeachingWorkspaceSummary,
   type WorkspaceMarkdownDocument,
-  type WorkspaceView
+  type WorkspaceView,
+  type AgentApprovalMode
 } from '../../shared/teaching-types'
 
 // ================================================================
@@ -258,7 +261,6 @@ function Sidebar() {
   const lessonReaderOpen = useAppStore((s) => s.lessonReaderOpen)
   const selectedMarkdownDocument = useAppStore((s) => s.selectedMarkdownDocument)
   const loading = useAppStore((s) => s.loading)
-  const pendingWorkspaceTrustIds = useAppStore((s) => s.pendingWorkspaceTrustIds)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
   const selectWorkspace = useAppStore((s) => s.selectWorkspace)
@@ -274,7 +276,6 @@ function Sidebar() {
   const importWorkspacePath = useAppStore((s) => s.importWorkspacePath)
   const openImportLocation = useAppStore((s) => s.openImportLocation)
   const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
-  const setWorkspaceTrust = useAppStore((s) => s.setWorkspaceTrust)
   const renameAgentConversation = useAppStore((s) => s.renameAgentConversation)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
   const removeWorkspace = useAppStore((s) => s.removeWorkspace)
@@ -319,8 +320,6 @@ function Sidebar() {
           showAllCourseFiles={settings.workspace.showAllCourseFiles}
           defaultRoot={settings.workspace.defaultRoot}
           loading={loading}
-          workspaceWritePermission={settings.tools.workspaceWritePermission}
-          pendingWorkspaceTrustIds={pendingWorkspaceTrustIds}
           onSelectWorkspace={selectWorkspace}
           onSetOverviewDialogMode={setOverviewDialogMode}
           onOpenWorkspaceTeachingMode={openWorkspaceTeachingMode}
@@ -335,7 +334,6 @@ function Sidebar() {
           onImportWorkspacePath={importWorkspacePath}
           onOpenImportLocation={openImportLocation}
           onSetWorkspaceItemMeta={setWorkspaceItemMeta}
-          onSetWorkspaceTrust={setWorkspaceTrust}
           onRenameAgentConversation={renameAgentConversation}
           onRemoveWorkspaceItem={removeWorkspaceItem}
           onRemoveWorkspace={removeWorkspace}
@@ -1880,6 +1878,81 @@ function DialogModeSwitch() {
   )
 }
 
+export function AgentFileAccessPicker() {
+  const { t } = useTranslation()
+  const settings = useAppStore((s) => s.settings)
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const [open, setOpen] = useState(false)
+  const [updating, setUpdating] = useState(false)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  usePickerOutsideClose(open, wrapRef, setOpen)
+
+  const approvalMode = settings.tools.approvalMode
+  const disabled = updating
+  const status = t(`overview.fileAccess.mode.${approvalMode}`)
+  const triggerLabel = Array.from(status).slice(0, 4).join('')
+  const StatusIcon = approvalMode === 'full_access' ? ShieldCheck : ShieldAlert
+
+  const selectMode = async (nextMode: AgentApprovalMode): Promise<void> => {
+    if (disabled) return
+    setUpdating(true)
+    try {
+      if (nextMode !== approvalMode) {
+        await updateSettings({ tools: { approvalMode: nextMode } })
+        // updateSettings reports failures through the global error surface.
+        if (useAppStore.getState().settings.tools.approvalMode !== nextMode) return
+      }
+      setOpen(false)
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  return (
+    <div ref={wrapRef} className="overview-picker overview-file-access-picker">
+      <button
+        type="button"
+        className={`overview-file-access-trigger is-${approvalMode}`}
+        onClick={() => setOpen((value) => !value)}
+        disabled={disabled}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={t('overview.fileAccess.triggerAria', { status })}
+        title={t('overview.fileAccess.triggerTitle', { status })}
+      >
+        <StatusIcon size={15} />
+        <span className="overview-file-access-trigger-label">{triggerLabel}</span>
+        {updating ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+      </button>
+
+      {open ? (
+        <div className="overview-picker-menu overview-file-access-menu" role="menu" aria-label={t('overview.fileAccess.title')}>
+          {(['request_approval', 'based_on_approval', 'full_access'] as const).map((mode) => {
+            const selected = approvalMode === mode
+            return (
+              <button
+                key={mode}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                className={`overview-file-access-option${selected ? ' is-selected' : ''}`}
+                onClick={() => void selectMode(mode)}
+                disabled={updating}
+              >
+                <span className="overview-file-access-option-copy">
+                  <strong>{t(`overview.fileAccess.mode.${mode}`)}</strong>
+                  <small>{t(`overview.fileAccess.modeDetail.${mode}`)}</small>
+                </span>
+                {selected ? <Check size={16} /> : null}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function OverviewLessonComposer({
   active,
   className = '',
@@ -1938,6 +2011,7 @@ function OverviewLessonComposer({
             }}
           />
           <div className="overview-dialog-footer">
+            <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
               <OverviewModelPicker />
               <OverviewReasoningPicker />
@@ -2342,6 +2416,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             }}
           />
           <div className="overview-dialog-footer">
+            <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
               <OverviewModelPicker />
               <OverviewReasoningPicker />

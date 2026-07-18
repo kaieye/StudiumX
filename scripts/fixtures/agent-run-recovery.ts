@@ -288,9 +288,9 @@ try {
   assert.equal(quarantined.some((name) => name.startsWith('unknown.json.corrupt-')), true)
   assert.equal(quarantined.some((name) => name.startsWith('invalid-budget.json.corrupt-')), true)
 
-  assert.equal(defaultSettings(root).tools.workspaceWritePermission, 'ask_each_time')
-  assert.equal(normalizeSettings({ tools: { workspaceWritePermission: 'read_only' } }, root).tools.workspaceWritePermission, 'read_only')
-  assert.equal(normalizeSettings({ tools: { workspaceWritePermission: 'allow_for_conversation' } }, root).tools.workspaceWritePermission, 'allow_for_conversation')
+  assert.equal(defaultSettings(root).tools.approvalMode, 'request_approval')
+  assert.equal(normalizeSettings({ tools: { workspaceWritePermission: 'read_only' } }, root).tools.approvalMode, 'request_approval')
+  assert.equal(normalizeSettings({ tools: { workspaceWritePermission: 'allow_for_conversation' } }, root).tools.approvalMode, 'full_access')
 
   await assert.rejects(
     secondRestart.operations.startOperation({

@@ -63,34 +63,6 @@
       "listDetail": "Hide this item while keeping files on disk.",
       "diskTitle": "Remove from disk",
       "diskDetail": "Delete local files. This cannot be undone in StudiumX."
-    },
-    "workspaceTrust": {
-      "trusted": {
-        "label": "Agent file tools: Trusted",
-        "aria": "Agent workspace file tools are trusted",
-        "detail": "Trust lets the Agent use this workspace’s file tools. Revoking applies to subsequent Agent turns and does not interrupt a turn already running. Workspace writes are controlled separately by Settings > Workspace.",
-        "action": "Revoke",
-        "actionTitle": "Revoke Agent file access for subsequent Agent turns",
-        "actionAria": "Revoke Agent file access for subsequent Agent turns in {{name}}"
-      },
-      "untrusted": {
-        "label": "Agent file tools: Untrusted",
-        "aria": "Agent workspace file tools are untrusted",
-        "detail": "The Agent cannot use this workspace’s file tools until it is trusted. Trust changes apply to subsequent Agent turns. Workspace writes are controlled separately by Settings > Workspace.",
-        "action": "Trust",
-        "actionTitle": "Allow the Agent to use workspace file tools",
-        "actionAria": "Trust {{name}} for Agent workspace file tools"
-      },
-      "writePolicy": {
-        "aria": "Workspace write permission: {{permission}}",
-        "allow_for_conversation": "Writes: Allowed for this conversation",
-        "ask_each_time": "Writes: Ask every time",
-        "read_only": "Writes: Read-only"
-      },
-      "policyDetail": "Trust gates Agent workspace file tools. Writes remain subject to Settings > Workspace ({{permission}}). Trust changes apply to subsequent Agent turns; revoking does not interrupt an Agent turn already running.",
-      "updating": "Updating…",
-      "updatingAria": "Updating Agent file access for {{name}}",
-      "updated": "Agent file access updated for subsequent Agent turns: {{status}}."
     }
   },
   "sidebarResizer": {
@@ -146,6 +118,22 @@
       "aria": "Dialog mode",
       "chat": "Chat",
       "teaching": "Teaching"
+    },
+    "fileAccess": {
+      "trigger": "{{status}}",
+      "triggerAria": "Agent permission mode: {{status}}",
+      "triggerTitle": "Agent permission mode: {{status}}",
+      "title": "Agent permission mode",
+      "mode": {
+        "request_approval": "Request approval",
+        "based_on_approval": "Based on approval",
+        "full_access": "Full access"
+      },
+      "modeDetail": {
+        "request_approval": "Ask before the Agent creates or changes a workspace file.",
+        "based_on_approval": "Create new files automatically; ask before replacing an existing file.",
+        "full_access": "Let the Agent create or change workspace files without approval."
+      }
     }
   },
   "ask": {

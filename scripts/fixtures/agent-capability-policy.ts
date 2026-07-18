@@ -143,7 +143,7 @@ try {
   const settings = defaultSettings(root)
   settings.tools.enabled = true
   settings.tools.workspaceRead = true
-  settings.tools.workspaceWritePermission = 'read_only'
+  settings.tools.approvalMode = 'request_approval'
   const registry = buildDefaultRegistry(settings, { workspaceRoot: root, workspaceWrite: true })
     .project({
       allow: teachingTrustedWorkspace.allowedToolNames,
@@ -153,7 +153,7 @@ try {
   assert.ok(handler, 'workspace policy must retain the established write tool')
   const result = JSON.parse(await handler!({ path: 'notes/blocked.md', content: '# blocked\n' }))
   assert.equal(result.permission.kind, 'workspace_write')
-  assert.match(result.error, /只读模式/)
+  assert.match(result.error, /没有审批通道/)
   await assert.rejects(() => stat(join(root, 'notes', 'blocked.md')))
 } finally {
   await rm(root, { recursive: true, force: true })

@@ -258,7 +258,7 @@ function summarizeSettings(settings, info) {
     tools: {
       enabled: settings.tools?.enabled === true,
       workspaceRead: settings.tools?.workspaceRead !== false,
-      workspaceWritePermission: stringValue(settings.tools?.workspaceWritePermission),
+      approvalMode: stringValue(settings.tools?.approvalMode),
       webSearch: settings.tools?.webSearch !== false,
       webFetch: settings.tools?.webFetch === true,
       maxIterations: numberValue(settings.tools?.maxIterations)

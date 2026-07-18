@@ -53,7 +53,7 @@ try {
       tools: {
         enabled: true,
         workspaceRead: true,
-        workspaceWritePermission: 'ask_each_time',
+        approvalMode: 'request_approval',
         webSearch: true,
         webFetch: true,
         maxIterations: 8

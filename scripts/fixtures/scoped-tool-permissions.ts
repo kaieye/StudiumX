@@ -15,7 +15,7 @@ try {
   await mkdir(join(root, 'docs'), { recursive: true })
   const symlinkAvailable = await tryCreateSymlink(outside, join(root, 'linked'))
   const settings = defaultSettings(root)
-  settings.tools.workspaceWritePermission = 'ask_each_time'
+  settings.tools.approvalMode = 'request_approval'
 
   let executions = 0
   const registry = new ToolRegistry()
@@ -107,24 +107,24 @@ try {
   await runHandlers.scoped_write({ path: 'docs/run-b.md' })
   assert.equal(runRequests, 1)
 
-  const readOnlySettings = defaultSettings(root)
-  readOnlySettings.tools.workspaceWritePermission = 'read_only'
+  const fullAccessSettings = defaultSettings(root)
+  fullAccessSettings.tools.approvalMode = 'full_access'
   const store = new AgentRunStore(root)
-  await store.create({ runId: 'read-only-run', streamId: 'read-only-run', budget: DEFAULT_AGENT_RUN_BUDGET })
-  let readOnlyRequests = 0
-  const readOnlyHandlers = registry.handlerMap(buildToolContext(readOnlySettings, {
+  await store.create({ runId: 'full-access-run', streamId: 'full-access-run', budget: DEFAULT_AGENT_RUN_BUDGET })
+  let fullAccessRequests = 0
+  const fullAccessHandlers = registry.handlerMap(buildToolContext(fullAccessSettings, {
     workspaceRoot: root,
-    runId: 'read-only-run',
+    runId: 'full-access-run',
     operationJournal: store.operations,
     requestToolPermission: async () => {
-      readOnlyRequests += 1
+      fullAccessRequests += 1
       return { decision: 'allow_once' }
     }
   }))
-  const beforeReadOnly = executions
-  assert.match(JSON.parse(await readOnlyHandlers.scoped_write({ path: 'notes/read-only.md' })).error, /只读模式/)
-  assert.equal(readOnlyRequests, 0)
-  assert.equal(executions, beforeReadOnly)
+  const beforeFullAccess = executions
+  assert.equal(JSON.parse(await fullAccessHandlers.scoped_write({ path: 'notes/full-access.md' })).ok, true)
+  assert.equal(fullAccessRequests, 0)
+  assert.equal(executions, beforeFullAccess + 1)
 
   console.log('scoped tool permission boundaries ok')
 } finally {

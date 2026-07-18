@@ -39,11 +39,11 @@ function renderNavigator(overrides: Partial<TeachingWorkspaceNavigatorProps> = {
     onLoadLesson: vi.fn(async () => {}), onLoadCourseHtmlFile: vi.fn(async () => {}), onLoadWorkspaceMarkdownFile: vi.fn(async () => {}),
     onLoadAgentConversation: vi.fn(async () => {}), onRestorePendingAgentConversation: vi.fn(), onOpenPath: vi.fn(async () => {}),
     onImportWorkspace: vi.fn(async () => true), onImportWorkspacePath: vi.fn(async () => true), onOpenImportLocation: vi.fn(async () => {}),
-    onSetWorkspaceItemMeta: vi.fn(async () => {}), onSetWorkspaceTrust: vi.fn(async () => true), onRenameAgentConversation: vi.fn(async () => {}), onRemoveWorkspaceItem: vi.fn(async () => {}), onRemoveWorkspace: vi.fn(async () => {})
+    onSetWorkspaceItemMeta: vi.fn(async () => {}), onRenameAgentConversation: vi.fn(async () => {}), onRemoveWorkspaceItem: vi.fn(async () => {}), onRemoveWorkspace: vi.fn(async () => {})
   }
   render(<TeachingWorkspaceNavigator workspaces={[workspace]} activeWorkspace={workspace} temporaryConversations={[]} selectedLessonPath={null}
     view="overview" activeConversationId={null} pendingAgentConversation={null} showAllCourseFiles={false} defaultRoot="D:/math" loading={false}
-    workspaceWritePermission="ask_each_time" pendingWorkspaceTrustIds={new Set()} {...callbacks} {...overrides} />)
+    {...callbacks} {...overrides} />)
   return callbacks
 }
 
@@ -75,50 +75,6 @@ describe('TeachingWorkspaceNavigator', () => {
     await user.click(screen.getByRole('button', { name: 'Course conversation' }))
     expect(callbacks.onLoadAgentConversation).toHaveBeenCalledWith('durable-1', 'workspace-1', 'workspace')
     expect(callbacks.onSetOverviewDialogMode).toHaveBeenCalled()
-  })
-
-  it('keeps trust and Settings Workspace write policy visibly and accessibly distinct', async () => {
-    const user = userEvent.setup()
-    const callbacks = renderNavigator()
-
-    expect(screen.getByLabelText(/Agent workspace file tools are untrusted|Agent 未获工作区文件工具访问权限/)).toBeVisible()
-    expect(screen.getByLabelText(/Workspace write permission: Writes: Ask every time|工作区写入权限：写入：每次询问/)).toBeVisible()
-    expect(screen.getByText(/Trust gates Agent workspace file tools|信任控制 Agent 能否使用工作区文件工具/)).toBeVisible()
-    expect(screen.getByText(/revoking does not interrupt an Agent turn already running|撤销不会中断已经运行中的轮次/)).toBeVisible()
-
-    await user.click(screen.getByRole('button', { name: /Trust Math workspace|信任 Math workspace/ }))
-    expect(callbacks.onSetWorkspaceTrust).toHaveBeenCalledWith('workspace-1', 'trusted')
-    expect(callbacks.onSetWorkspaceTrust).toHaveBeenLastCalledWith(expect.any(String), expect.any(String))
-    expect(await screen.findByRole('status')).toHaveTextContent(/Agent file access updated|Agent 文件访问权限已为后续 Agent 轮次更新/)
-  })
-
-  it('offers an accessible Revoke action for trusted workspaces and disables trust changes while loading', async () => {
-    const user = userEvent.setup()
-    const trustedWorkspace = { ...workspace, agentWorkspaceTrust: 'trusted' as const }
-    const callbacks = renderNavigator({ workspaces: [trustedWorkspace], activeWorkspace: trustedWorkspace })
-
-    const revoke = screen.getByRole('button', { name: /Revoke Agent file access for Math workspace|撤销 Agent 对 Math workspace 后续轮次的文件访问权限/ })
-    expect(revoke).toHaveAttribute('title', expect.stringMatching(/Revoke Agent file access|撤销 Agent 后续轮次的文件访问权限/))
-    await user.click(revoke)
-    expect(callbacks.onSetWorkspaceTrust).toHaveBeenCalledWith('workspace-1', 'untrusted')
-
-    renderNavigator({ loading: true })
-    expect(screen.getByRole('button', { name: /Trust Math workspace|信任 Math workspace/ })).toBeDisabled()
-  })
-
-  it('shows localized per-workspace updating feedback without disabling another workspace trust control', () => {
-    const otherWorkspace = { ...workspace, id: 'workspace-2', name: 'Physics workspace', rootPath: 'D:/physics', agentWorkspaceTrust: 'untrusted' as const }
-    renderNavigator({
-      workspaces: [workspace, otherWorkspace],
-      activeWorkspace: workspace,
-      pendingWorkspaceTrustIds: new Set(['workspace-1'])
-    })
-
-    const updating = screen.getByRole('button', { name: /Updating Agent file access for Math workspace|正在更新 Math workspace 的 Agent 文件访问权限/ })
-    expect(updating).toBeDisabled()
-    expect(updating).toHaveAttribute('aria-busy', 'true')
-    expect(updating).toHaveTextContent(/Updating|正在更新/)
-    expect(screen.getByRole('button', { name: /Trust Physics workspace|信任 Physics workspace/ })).toBeEnabled()
   })
 
   it('renames a temporary conversation from its more-actions menu', async () => {

@@ -25,14 +25,14 @@ import {
 import {
   PARALLEL_SEARCH_MODES,
   WEB_SEARCH_BACKENDS,
-  WORKSPACE_WRITE_PERMISSION_POLICIES,
+  AGENT_APPROVAL_MODES,
   type ModelReasoningEffort,
   type SettingsSection,
   type TeachingModelProviderProfile,
   type TeachingSettingsPatch,
   type TeachingSettingsV1,
   type WebSearchBackend,
-  type WorkspaceWritePermissionPolicy
+  type AgentApprovalMode
 } from '../../../shared/teaching-types'
 import {
   modelListProbeSupportedForFormat,
@@ -71,9 +71,9 @@ export const parallelSearchModeOptions = PARALLEL_SEARCH_MODES.map((mode) => ({
   label: mode
 }))
 
-export const workspaceWritePermissionOptions = WORKSPACE_WRITE_PERMISSION_POLICIES.map((policy) => ({
-  value: policy,
-  label: workspaceWritePermissionLabel(policy)
+export const agentApprovalModeOptions = AGENT_APPROVAL_MODES.map((mode) => ({
+  value: mode,
+  label: agentApprovalModeLabel(mode)
 }))
 
 export const modelSettingsProviderIds = ['deepseek', 'glm', 'custom'] as const
@@ -102,14 +102,14 @@ export function webSearchBackendLabel(backend: WebSearchBackend): string {
   }
 }
 
-export function workspaceWritePermissionLabel(policy: WorkspaceWritePermissionPolicy): string {
-  switch (policy) {
-    case 'allow_for_conversation':
-      return '允许本轮教学写入'
-    case 'ask_each_time':
-      return '每次写入前询问'
-    case 'read_only':
-      return '只读模式'
+export function agentApprovalModeLabel(mode: AgentApprovalMode): string {
+  switch (mode) {
+    case 'request_approval':
+      return '请求批准'
+    case 'based_on_approval':
+      return '基于审批'
+    case 'full_access':
+      return '完全访问权限'
   }
 }
 

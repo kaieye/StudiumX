@@ -13,13 +13,13 @@ import {
   registerToolPermissionPending,
   resolveToolPermissionPending
 } from '../../src/main/ai/tool-permission-pending'
-import type { TeachingSettingsV1, WorkspaceWritePermissionPolicy } from '../../src/shared/teaching-types'
+import type { TeachingSettingsV1, AgentApprovalMode } from '../../src/shared/teaching-types'
 
-function settingsFor(root: string, policy: WorkspaceWritePermissionPolicy): TeachingSettingsV1 {
+function settingsFor(root: string, mode: AgentApprovalMode): TeachingSettingsV1 {
   const settings = defaultSettings(root)
   settings.tools.enabled = true
   settings.tools.workspaceRead = true
-  settings.tools.workspaceWritePermission = policy
+  settings.tools.approvalMode = mode
   return settings
 }
 
@@ -30,7 +30,7 @@ async function exists(path: string): Promise<boolean> {
 const root = await mkdtemp(join(tmpdir(), 'studiumx-tool-permissions-'))
 
 try {
-  const allowSettings = settingsFor(root, 'allow_for_conversation')
+  const allowSettings = settingsFor(root, 'full_access')
   const allowHandlers = buildDefaultRegistry(allowSettings, {
     workspaceRoot: root,
     workspaceWrite: true
@@ -42,20 +42,32 @@ try {
   assert.equal(allowResult.created, true)
   assert.equal(await readFile(join(root, 'notes/allowed.md'), 'utf8'), '# Allowed\n')
 
-  const readOnlySettings = settingsFor(root, 'read_only')
-  const readOnlyHandlers = buildDefaultRegistry(readOnlySettings, {
+  const requestSettings = settingsFor(root, 'request_approval')
+  const requestWithoutResolverHandlers = buildDefaultRegistry(requestSettings, {
     workspaceRoot: root,
     workspaceWrite: true
-  }).handlerMap(buildToolContext(readOnlySettings, { workspaceRoot: root }))
-  const readOnlyResult = JSON.parse(await readOnlyHandlers.write_workspace_file({
-    path: 'notes/read-only.md',
+  }).handlerMap(buildToolContext(requestSettings, { workspaceRoot: root }))
+  const requestWithoutResolverResult = JSON.parse(await requestWithoutResolverHandlers.write_workspace_file({
+    path: 'notes/request-without-resolver.md',
     content: '# Blocked\n'
   }))
-  assert.match(readOnlyResult.error, /只读模式/)
-  assert.equal(readOnlyResult.permission.kind, 'workspace_write')
-  assert.equal(await exists(join(root, 'notes/read-only.md')), false)
+  assert.match(requestWithoutResolverResult.error, /没有审批通道/)
+  assert.equal(requestWithoutResolverResult.permission.kind, 'workspace_write')
+  assert.equal(await exists(join(root, 'notes/request-without-resolver.md')), false)
 
-  const askSettings = settingsFor(root, 'ask_each_time')
+  const riskBasedSettings = settingsFor(root, 'based_on_approval')
+  const riskBasedHandlers = buildDefaultRegistry(riskBasedSettings, {
+    workspaceRoot: root,
+    workspaceWrite: true
+  }).handlerMap(buildToolContext(riskBasedSettings, { workspaceRoot: root }))
+  const riskBasedResult = JSON.parse(await riskBasedHandlers.write_workspace_file({
+    path: 'notes/risk-based-new.md',
+    content: '# Created without approval\n'
+  }))
+  assert.equal(riskBasedResult.created, true)
+  assert.equal(await readFile(join(root, 'notes/risk-based-new.md'), 'utf8'), '# Created without approval\n')
+
+  const askSettings = settingsFor(root, 'request_approval')
   const askWithoutResolverHandlers = buildDefaultRegistry(askSettings, {
     workspaceRoot: root,
     workspaceWrite: true

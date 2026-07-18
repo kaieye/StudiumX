@@ -11,7 +11,7 @@ const root = await mkdtemp(join(tmpdir(), 'studiumx-operation-idempotency-'))
 
 try {
   const settings = defaultSettings(root)
-  settings.tools.workspaceWritePermission = 'allow_for_conversation'
+  settings.tools.approvalMode = 'full_access'
   const store = new AgentRunStore(root)
   await store.create({ runId: 'run-a', streamId: 'run-a', budget: DEFAULT_AGENT_RUN_BUDGET })
   await store.create({ runId: 'run-b', streamId: 'run-b', budget: DEFAULT_AGENT_RUN_BUDGET })
