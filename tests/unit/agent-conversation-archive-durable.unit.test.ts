@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, open as openFile, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, open as openFile, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { saveAgentConversationArchive } from '../../src/main/agent-conversation-archive'
+import { type AgentConversationSessionAuditOperations } from '../../src/main/agent-conversation-session-audit'
 import { LEARNING_WORK_LEDGER_RELATIVE_PATH } from '../../src/main/learning-work-ledger'
 import type { DurableFileOperations } from '../../src/main/persistence/durable-file'
 import {
@@ -19,6 +20,11 @@ type InstrumentedDurableOperations = {
   operations: DurableFileOperations
   events: string[]
   modes: Array<{ path: string; mode: number | undefined }>
+}
+
+type InstrumentedSessionAuditOperations = {
+  operations: AgentConversationSessionAuditOperations
+  events: string[]
 }
 
 afterEach(async () => {
@@ -78,6 +84,58 @@ function instrumentedDurableOperations(options: {
     }
   }
   return { operations, events, modes }
+}
+
+/** Injects only the session-audit durable boundary; canonical publication and
+ * ledger behavior remain real archive collaborators. */
+function instrumentedSessionAuditOperations(options: {
+  fail?: (event: string) => Error | undefined
+} = {}): InstrumentedSessionAuditOperations {
+  const events: string[] = []
+  const observe = (event: string): void => {
+    events.push(event)
+    const failure = options.fail?.(event)
+    if (failure) throw failure
+  }
+  const operations: AgentConversationSessionAuditOperations = {
+    mkdir,
+    lstat: (async (path: Parameters<typeof lstat>[0], optionsArg?: Parameters<typeof lstat>[1]) => {
+      observe(`lstat:${path}`)
+      return optionsArg === undefined ? lstat(path) : lstat(path, optionsArg)
+    }) as typeof lstat,
+    open: async (path, flags: string | number, mode) => {
+      observe(`open:${flags}:${path}`)
+      const handle = await openFile(path, flags, mode)
+      return {
+        read: async (buffer, offset, length, position) => {
+          observe(`read:${path}`)
+          const result = await handle.read(buffer, offset, length, position)
+          return { bytesRead: result.bytesRead }
+        },
+        write: async (buffer, offset, length, position) => {
+          observe(`write:${path}`)
+          const result = await handle.write(buffer, offset, length, position)
+          return { bytesWritten: result.bytesWritten }
+        },
+        stat: async () => {
+          observe(`stat:${path}`)
+          return handle.stat()
+        },
+        sync: async () => {
+          observe(`sync:${path}`)
+          await handle.sync()
+        },
+        close: async () => {
+          const event = `close:${path}`
+          events.push(event)
+          const failure = options.fail?.(event)
+          await handle.close()
+          if (failure) throw failure
+        }
+      }
+    }
+  }
+  return { operations, events }
 }
 
 async function archiveFixture(): Promise<{
@@ -339,4 +397,64 @@ describe('Agent conversation archive durable canonical publication', () => {
     await expectNoAuditOrLedger(fixture)
     expect(await temporaryFiles(fixture.rootPath)).toEqual([])
   })
+
+  it('blocks the ledger after a post-append audit-directory failure, then exact-dedupes the retry before ledger and final verification', async () => {
+    const fixture = await archiveFixture()
+    const auditDirectory = dirname(fixture.auditPath)
+    const failedAudit = instrumentedSessionAuditOperations({
+      fail: (event) => event === `sync:${auditDirectory}` ? errno('EIO') : undefined
+    })
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: failedAudit.operations
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    const auditAfterFailure = await readFile(fixture.auditPath)
+    expect(auditAfterFailure.byteLength).toBeGreaterThan(0)
+    await expect(readFile(fixture.ledgerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(failedAudit.events).toContain(`sync:${auditDirectory}`)
+
+    const retryAudit = instrumentedSessionAuditOperations()
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: retryAudit.operations
+    })).resolves.toBeUndefined()
+
+    expect(await readFile(fixture.auditPath)).toEqual(auditAfterFailure)
+    expect(retryAudit.events).not.toContain(`write:${fixture.auditPath}`)
+    await expect(readFile(fixture.ledgerPath, 'utf8')).resolves.toContain(fixture.record.id)
+  })
+
+  it('does not duplicate a successful audit when the later ledger append fails and is retried', async () => {
+    const fixture = await archiveFixture()
+    // The ledger's existing fixed-file validation rejects this target after
+    // archive JSON, Markdown, and the durable audit append have completed.
+    await mkdir(fixture.ledgerPath, { recursive: true })
+    const firstAudit = instrumentedSessionAuditOperations()
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: firstAudit.operations
+    })).rejects.toThrow('not a regular file')
+
+    const auditAfterLedgerFailure = await readFile(fixture.auditPath)
+    expect(firstAudit.events).toContain(`write:${fixture.auditPath}`)
+
+    await rm(fixture.ledgerPath, { recursive: true, force: true })
+    const retryAudit = instrumentedSessionAuditOperations()
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: retryAudit.operations
+    })).resolves.toBeUndefined()
+
+    expect(await readFile(fixture.auditPath)).toEqual(auditAfterLedgerFailure)
+    expect(retryAudit.events).not.toContain(`write:${fixture.auditPath}`)
+    await expect(readFile(fixture.ledgerPath, 'utf8')).resolves.toContain(fixture.record.id)
+  })
+
 })
