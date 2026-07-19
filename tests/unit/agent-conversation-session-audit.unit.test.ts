@@ -684,7 +684,7 @@ describe('agent conversation session audit durable append', () => {
   })
 
   it.each(
-    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'] as const)
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES'] as const)
   )('fails closed without capability downgrade when audit file open returns %s', async (code) => {
     const root = await createRoot()
     const record = createRecord()
@@ -701,13 +701,14 @@ describe('agent conversation session audit durable append', () => {
       .rejects.toMatchObject({ code })
     expect(io.events).toContain(openEvent)
     expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
     expect(warnings).toEqual([])
     // Instrumented open fails before the real openFile call, so no audit file is created.
     await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it.each(
-    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'] as const)
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES'] as const)
   )('fails closed without capability downgrade when audit file sync returns %s', async (code) => {
     const root = await createRoot()
     const record = createRecord()
@@ -726,7 +727,7 @@ describe('agent conversation session audit durable append', () => {
   })
 
   it.each(
-    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'] as const)
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES'] as const)
   )('fails closed without capability downgrade when audit file close returns %s', async (code) => {
     const root = await createRoot()
     const record = createRecord()
