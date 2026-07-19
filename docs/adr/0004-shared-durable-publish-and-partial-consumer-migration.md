@@ -58,6 +58,16 @@ S3 的实现仍是 descriptor-bound/no-follow、same-parent publication；restri
 
 Windows 上的真实行为因此是：不暴露 `write_workspace_file`、不显示该 tool 的审批请求、不创建或覆盖目标，且不泄露 native 细节。Linux（以及现有 POSIX native branch）保持 S2/S3 真正发布、对抗性拒绝、same-`toolCallId` completed replay 不二次发布及 `possibly_published` exact canonical-read 恢复语义。Windows 原生实现若要进入后续工作，必须先独立设计和验证 HANDLE-relative traversal、reparse point/junction 处理、no-overwrite 与 restricted-overwrite 的原子/durability 语义，以及 host-native adversarial CI；在此之前这个 registry gate 不得被绕过。
 
+### 2026-07-19 Windows host-native feasibility audit（阻塞证据，不是 Windows support）
+
+本轮在 Windows host（Windows SDK `10.0.26100.0`、Node `24.13.0`、VS 2022 Build Tools）实际重建了当前 native addon；它能编译，但现有 `_WIN32` 分支仍明确拒绝 descriptor-relative traversal，因而**没有**把 writer gate 打开，也没有把“addon 可编译”误记为 Windows publish 证据。
+
+在 Microsoft SDK headers 和 Microsoft 文档允许的范围内，已核验 `NtCreateFile` 的 `RootDirectory`、`OBJ_DONT_REPARSE`、`FILE_OPEN_REPARSE_POINT` 与 `FILE_CREATE` 可用于 HANDLE-relative/no-follow traversal 与 S2 create-new；`GetFileInformationByHandleEx` 可提供 reparse、directory、link-count 和 file-ID 检查；`FlushFileBuffers` 可用于已打开 file/directory handle 的 flush。可是 `SetFileInformationByHandle(FileRenameInfo[/Ex])`、`ReplaceFileW` 以及相关 rename API 都没有“仅在期望 file ID 仍是当前 target 时替换”的 compare-and-swap / exchange parameter。持有 target handle 并拒绝 delete sharing 会阻止攻击者替换，却也会阻止替换发布；在 publish 前释放则重新引入 inspect-to-publish race。
+
+因此，使用已审计的 Windows API 不能证明**本次 Windows 任务所要求**的 S3 “existing single-link regular、target identity unchanged、atomic restricted overwrite”同时成立。尤其不能把“先以 HANDLE 检查，再以 handle-relative rename replace”描述为 target-changed-safe；它仍可能替换检查后被并发换入的 leaf。为保持 fail-closed，本轮没有加入 pathname fallback、没有用 `MoveFileEx` / `ReplaceFile` / preflight `lstat` 充当安全基础，也没有使 `getWorkspaceWriteToolAvailability()`、registry 或 approval flow 在 Windows 上变为可用。
+
+要解除该 gate，需要一个可审计且能提供该原子 identity precondition 的 Windows/NTFS publish primitive（或经批准改变 S3 contract 的新设计）；仅增加 HANDLE-relative S1/S2 不足以安全暴露当前同时提供 S2 和 S3 的 writer。这个结论不修改下方既有 macOS/Linux 验证记录。
+
 ### 最终本地验证和 Linux host-native 记录
 
 最终本地验证在 macOS 上构建 native addon，并实际执行以下五个 unit 文件，共 **123 tests passed**；另通过 typecheck、workspace write tool check、agent-operation idempotency check、workspace path target check、security check 和 diff check。这是定向验证记录，**不是 full suite** 声明。

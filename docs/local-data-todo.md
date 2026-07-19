@@ -16,7 +16,7 @@
 
 - C-4P8 的受控 text create / restricted-overwrite scope 保持关闭，但本轮明确其运行时边界：`write_workspace_file` 只在 descriptor-relative native capability 可用时由 registry 注册。Windows 目前不暴露该 writer；read-only workspace tools 不受影响，`approvalMode` 也不会显示或批准一个注定安全失败的写入。
 - 当前 Windows 策略是 fail-closed，不是 pathname fallback：不会 `writeFile` / ordinary `rename`，不会依赖 preflight `lstat`，不会创建或覆盖目标；状态是稳定且无本地细节的 `containment_unavailable` / `当前平台无法安全发布工作区文件。`。
-- **仍未完成：**若要支持 Windows，必须先单独批准并实施 HANDLE-relative、reparse-point/junction-safe traversal，以及与 S2/S3 等价的 no-overwrite、restricted-overwrite、file/directory durability 和 adversarial host-native CI。不得以 registry override、permission 例外或普通 pathname 写入绕过当前 gate。
+- **仍未完成：**2026-07-19 的 Windows host-native/SDK audit 已确认 `NtCreateFile` 的 `RootDirectory` + `OBJ_DONT_REPARSE` 可作为 HANDLE-relative S1/S2 的候选基础，但已审计的 `FileRenameInfo[/Ex]` / `ReplaceFileW` 等 API 不提供 S3 所需的 expected-target-file-ID compare-and-swap 或 exchange；仅在 publish 前检查 file ID 仍有 inspect-to-publish race。因为当前 tool 必须同时提供 S2 和 restricted S3，不能仅凭 S1/S2 打开 registry。若要支持 Windows，必须先获得可审计的 Windows/NTFS S3 identity-precondition primitive，或批准新的 S3 contract；随后才实施 HANDLE-relative、reparse-point/junction-safe traversal、no-overwrite、file/directory durability 和 adversarial host-native CI。不得以 registry override、permission 例外、普通 pathname 写入或“先检查后 handle-relative replace”绕过当前 gate。
 
 ### P9：session-audit durable append
 

@@ -10,7 +10,7 @@ S1 的 workspace descriptor foundation 由 `80f2fd0` / `e2ce36c` 实施；S2 的
 
 本历史设计关闭后，runtime 已补充 **capability-aware fail-closed** 边界：`write_workspace_file` 只在实际 descriptor-relative durable capability 可用时注册。Windows native addon 当前明确拒绝 descriptor-relative traversal，故 Windows 不暴露 write definition/handler；只读 workspace tools 保持可用，`full_access`、`based_on_approval` 和 `request_approval` 都不会创建“已批准但随后失败”的 workspace-write 流程。不可用状态仅为稳定的 `{ available: false, code: 'containment_unavailable', message: '当前平台无法安全发布工作区文件。' }`，不泄露 native/路径细节。
 
-这不是 Windows support：不存在 `writeFile`、ordinary `rename`、preflight `lstat` 后写或其它 pathname fallback。若未来要实施 Windows，必须作为独立 design gate，覆盖 HANDLE-relative traversal、reparse point / symlink / junction adversarial tests、atomic no-overwrite / restricted-overwrite 语义及 file/directory durability。当前实施事实和验证入口仍以 ADR-0004 为准。
+这不是 Windows support：不存在 `writeFile`、ordinary `rename`、preflight `lstat` 后写或其它 pathname fallback。2026-07-19 Windows host-native/SDK audit 进一步确认：`NtCreateFile` 的 `RootDirectory`、`OBJ_DONT_REPARSE` 和 `FILE_OPEN_REPARSE_POINT` 可作为 HANDLE-relative/no-follow S1/S2 的候选，但已审计的 `FileRenameInfo[/Ex]` 与 `ReplaceFileW` 不提供“expected target file ID 仍匹配才替换”的 compare-and-swap / exchange。先检查 file ID 再做 handle-relative replacement 仍有 race，不能满足**本次 Windows 任务**要求的 target-identity precondition。因此当前 registry gate 继续关闭；若未来要满足该额外前提，必须先取得可审计的 Windows/NTFS identity-precondition primitive，或单独批准不同的 S3 contract，然后才可实施 HANDLE-relative traversal、reparse point / symlink / junction adversarial tests、atomic no-overwrite / restricted-overwrite 语义及 file/directory durability。当前实施事实和验证入口仍以 ADR-0004 为准。
 
 > 未完成工作的唯一入口见 [本地数据待办](../local-data-todo.md)。
 
