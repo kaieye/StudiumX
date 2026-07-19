@@ -354,6 +354,60 @@ describe('agent conversation session audit durable append', () => {
     expect(raw).toBe(await readAudit(referenceRoot, record))
   })
 
+  it('rejects concurrent same-ID canonical-body conflicts and preserves the queued winner bytes', async () => {
+    // Directed residual evidence for the C-4P9 concurrency matrix only; this
+    // is not the full C-4P9 close-out. Unlike the divergent-trace case, these
+    // concurrent records have the same IDs but different canonical bodies.
+    const root = await createRoot()
+    const baseline = createRecord()
+    const conflicting = createRecord({
+      turns: [{ ...baseline.turns[0]!, content: 'Different concurrent canonical body' }, baseline.turns[1]!]
+    })
+    const auditFile = auditPath(root, baseline)
+    const firstStatStarted = deferred()
+    const releaseFirstStat = deferred()
+    let held = false
+    const io = instrumentedAuditOperations({
+      onEvent: (event) => {
+        if (event === `stat:${auditFile}` && !held) firstStatStarted.resolve()
+      },
+      hold: (event) => {
+        if (event === `stat:${auditFile}` && !held) {
+          held = true
+          return releaseFirstStat.promise
+        }
+        return undefined
+      }
+    })
+
+    const first = appendWith(root, baseline, io.operations)
+    await firstStatStarted.promise
+    const second = appendWith(root, conflicting, io.operations)
+    // Per-path queue linearization keeps the conflicting save from opening the
+    // audit file before the first descriptor lifecycle has completed.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(io.opens.filter((open) => open.path === auditFile)).toHaveLength(1)
+
+    releaseFirstStat.resolve()
+    await expect(first).resolves.toBe(agentConversationSessionAuditRelativePathForMarkdown(baseline.relativePath))
+    await expect(second).rejects.toThrow('conflicts with its canonical record')
+
+    const raw = await readAudit(root, baseline)
+    const lines = parseAgentConversationSessionAuditLines(raw)
+    const entries = lines.filter((line) => line.type !== 'session')
+    const referenceRoot = await createRoot()
+    const reference = instrumentedAuditOperations()
+    await appendWith(referenceRoot, baseline, reference.operations)
+
+    // The successful winner is retained byte-for-byte: no mixed rows and no
+    // rewrite that allows the conflicting canonical body to succeed.
+    expect(raw).toBe(await readAudit(referenceRoot, baseline))
+    expect(lines.filter((line) => line.type === 'session')).toHaveLength(1)
+    expect(entries.filter((line) => line.id === 'turn:turn-one')).toHaveLength(1)
+    expect(new Set(entries.map((line) => line.id)).size).toBe(entries.length)
+  })
+
   it('rejects a same-ID canonical-body conflict without changing existing audit bytes', async () => {
     const root = await createRoot()
     const initial = createRecord()
