@@ -28,10 +28,17 @@ type Deferred<T> = {
   reject: (reason?: unknown) => void
 }
 
+type AuditWritePlan = (input: {
+  path: string
+  bytes: Buffer
+  writeCall: number
+}) => { bytesWritten?: number; failure?: Error } | undefined
+
 type InstrumentedAuditOperations = {
   operations: AgentConversationSessionAuditOperations
   events: string[]
   opens: Array<{ path: string; flags: string | number }>
+  writtenBuffers: Buffer[]
 }
 
 async function createRoot(): Promise<string> {
@@ -62,9 +69,12 @@ function instrumentedAuditOperations(options: {
   fail?: (event: string) => Error | undefined
   hold?: (event: string) => Promise<void> | undefined
   onEvent?: (event: string) => void
+  writePlan?: AuditWritePlan
 } = {}): InstrumentedAuditOperations {
   const events: string[] = []
   const opens: Array<{ path: string; flags: string | number }> = []
+  const writtenBuffers: Buffer[] = []
+  let writeCall = 0
   const observe = async (event: string): Promise<void> => {
     events.push(event)
     options.onEvent?.(event)
@@ -91,7 +101,15 @@ function instrumentedAuditOperations(options: {
         },
         write: async (buffer, offset, length, position) => {
           await observe(`write:${path}`)
-          const result = await handle.write(buffer, offset, length, position)
+          const plan = options.writePlan?.({
+            path,
+            bytes: Buffer.from(buffer.subarray(offset, offset + length)),
+            writeCall: writeCall++
+          })
+          if (plan?.failure) throw plan.failure
+          const writeLength = Math.min(length, plan?.bytesWritten ?? length)
+          const result = await handle.write(buffer, offset, writeLength, position)
+          writtenBuffers.push(Buffer.from(buffer.subarray(offset, offset + result.bytesWritten)))
           return { bytesWritten: result.bytesWritten }
         },
         stat: async () => {
@@ -116,7 +134,7 @@ function instrumentedAuditOperations(options: {
       }
     }
   }
-  return { operations, events, opens }
+  return { operations, events, opens, writtenBuffers }
 }
 
 function createRecord(input: {
@@ -374,6 +392,103 @@ describe('agent conversation session audit durable append', () => {
 
     expect(await readFile(path)).toEqual(noFinalNewline)
     expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+  })
+
+  it.each([
+    ['inside the header', (canonical: Buffer) => Math.max(1, Math.floor(canonical.indexOf(0x0a) / 2)), false],
+    ['after a complete header and inside the next row', (canonical: Buffer) => canonical.indexOf(0x0a) + 17, true]
+  ])('preserves a partial-write prefix %s, frames its torn tail, and retries only missing canonical rows', async (_name, cutAtFor, hasCompleteHeader) => {
+    const record = createRecord({ traceId: TRACE_A })
+    const referenceRoot = await createRoot()
+    const reference = instrumentedAuditOperations()
+    await appendWith(referenceRoot, record, reference.operations)
+    const canonical = await readFile(auditPath(referenceRoot, record))
+    const cutAt = cutAtFor(canonical)
+    expect(cutAt).toBeGreaterThan(0)
+    expect(cutAt).toBeLessThan(canonical.byteLength)
+
+    const root = await createRoot()
+    const failed = instrumentedAuditOperations({
+      writePlan: ({ writeCall }) => writeCall === 0
+        ? { bytesWritten: cutAt }
+        : { failure: errno('EIO') }
+    })
+
+    await expect(appendWith(root, record, failed.operations)).rejects.toMatchObject({ code: 'EIO' })
+    const path = auditPath(root, record)
+    const failurePrefix = await readFile(path)
+    expect(failurePrefix).toEqual(canonical.subarray(0, cutAt))
+
+    const retry = instrumentedAuditOperations()
+    await expect(appendWith(root, record, retry.operations)).resolves.toBeDefined()
+    const retried = await readFile(path)
+    const lines = parseAgentConversationSessionAuditLines(retried.toString('utf8'))
+    const canonicalIds = [record.id, ...buildAgentConversationSessionAuditEntries(record).map((entry) => entry.id)]
+
+    expect(retried.subarray(0, failurePrefix.byteLength)).toEqual(failurePrefix)
+    expect(retried[failurePrefix.byteLength]).toBe(0x0a)
+    for (const id of canonicalIds) {
+      expect(lines.filter((line) => line.id === id)).toHaveLength(1)
+    }
+    expect(new Set(lines.map((line) => line.id)).size).toBe(lines.length)
+    if (hasCompleteHeader) {
+      expect(Buffer.concat(retry.writtenBuffers).toString('utf8')).not.toContain('"type":"session"')
+    }
+  })
+
+  it('fails before the first audit byte when the first write rejects, then cleanly retries', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const first = instrumentedAuditOperations({
+      writePlan: ({ writeCall }) => writeCall === 0 ? { failure: errno('EIO') } : undefined
+    })
+
+    await expect(appendWith(root, record, first.operations)).rejects.toMatchObject({ code: 'EIO' })
+    await expect(readFile(path)).resolves.toEqual(Buffer.alloc(0))
+
+    const retry = instrumentedAuditOperations()
+    await appendWith(root, record, retry.operations)
+    const lines = parseAgentConversationSessionAuditLines(await readAudit(root, record))
+    expect(lines.map((line) => line.id)).toEqual([
+      record.id,
+      ...buildAgentConversationSessionAuditEntries(record).map((entry) => entry.id)
+    ])
+  })
+
+  it('completes repeated short writes before syncing and closing the file and both directory boundaries', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const auditDirectory = dirname(path)
+    const parentDirectory = dirname(auditDirectory)
+    const io = instrumentedAuditOperations({
+      writePlan: ({ bytes }) => ({ bytesWritten: Math.min(11, bytes.byteLength) })
+    })
+
+    await appendWith(root, record, io.operations)
+
+    expect(io.events.filter((event) => event === `write:${path}`).length).toBeGreaterThan(1)
+    const lastWrite = io.events.lastIndexOf(`write:${path}`)
+    const fileSync = io.events.indexOf(`sync:${path}`)
+    const fileClose = io.events.indexOf(`close:${path}`)
+    const auditOpen = io.events.indexOf(`open:r:${auditDirectory}`)
+    const auditSync = io.events.indexOf(`sync:${auditDirectory}`)
+    const auditClose = io.events.indexOf(`close:${auditDirectory}`)
+    const parentOpen = io.events.indexOf(`open:r:${parentDirectory}`)
+    const parentSync = io.events.indexOf(`sync:${parentDirectory}`)
+    const parentClose = io.events.indexOf(`close:${parentDirectory}`)
+    expect(fileSync).toBeGreaterThan(lastWrite)
+    expect(fileClose).toBeGreaterThan(fileSync)
+    expect(auditOpen).toBeGreaterThan(fileClose)
+    expect(auditSync).toBeGreaterThan(auditOpen)
+    expect(auditClose).toBeGreaterThan(auditSync)
+    expect(parentOpen).toBeGreaterThan(auditClose)
+    expect(parentSync).toBeGreaterThan(parentOpen)
+    expect(parentClose).toBeGreaterThan(parentSync)
+    expect(parseAgentConversationSessionAuditLines(await readAudit(root, record))).toHaveLength(
+      1 + buildAgentConversationSessionAuditEntries(record).length
+    )
   })
 
   it.each([
