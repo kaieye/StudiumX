@@ -951,7 +951,8 @@ describe('agent conversation session audit durable append', () => {
 
   it.each([
     ['zero', 0],
-    ['non-integer', Number.NaN]
+    ['non-integer', Number.NaN],
+    ['negative', -1]
   ] as const)('fails closed when audit file write returns %s bytesWritten', async (_name, bytesWritten) => {
     const root = await createRoot()
     const record = createRecord()
@@ -1029,7 +1030,8 @@ describe('agent conversation session audit durable append', () => {
 
   it.each([
     ['zero', 0],
-    ['non-integer', Number.NaN]
+    ['non-integer', Number.NaN],
+    ['negative', -1]
   ] as const)('fails closed when audit file read returns %s bytesRead', async (_name, bytesRead) => {
     const root = await createRoot()
     const record = createRecord()
