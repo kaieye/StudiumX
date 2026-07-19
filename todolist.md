@@ -34,7 +34,7 @@
 - [ ] 当前 main 已有 `TeachingLoopSnapshot`、`loadTeachingLoopFactSource`、`buildTeachingLoopFacts`、`resolveTeachingLoop`、planner、context assembler 与 grounder 的领域实现/测试；但未发现 `TeachingSystemApi.readTeachingLoopSnapshot`、`teach:read-teaching-loop-snapshot` 或对应 preload/gateway/service 生产入口。因此只能称为“底层 read-model 已具备、M5 生产读链未接通”。
 - [ ] **Protocol Medium backlog 已识别但尚未结项：** 它是 Protocol Core v1 之后的硬化工作，不能因为 Round 1–11 已合入就从待办中删除。
 - [ ] **已知 gate 缺陷（origin/main，非本文引入的回归）：** `pnpm run check:lesson-styles` 当前仍失败。静态 gate 仍要求 `TeachingSettingsService` 内联出现 `lessonStyleId: normalizeLessonStyleId(workspaceInput.lessonStyleId)`，但该规范化已迁至 `src/shared/teaching-settings-schema.ts`；需要将 gate 与当前 shared-schema 架构对齐。在该修复合入并实际重跑通过前，**不得宣称全量 teaching gates 全绿**。
-- [x] **Agent persistence 稳定性复跑工具：** `pnpm run test:stability:agent-persistence` 以默认 3 轮串行执行 `agent-run-persistence.unit.test.ts`、`check:agent-operation-idempotency` 和 `check:agent-run-recovery`；可用 `--runs <N>` 调整轮数，报告写入已忽略的 `out/test-results/stability-agent-persistence/`。
+- [x] **Agent persistence 稳定性复跑工具：** `pnpm run test:stability:agent-persistence` 以默认 3 轮串行执行 `agent-run-persistence.unit.test.ts`、`check:agent-operation-idempotency` 和 `check:agent-run-recovery`；可用 `--runs <N>` 调整轮数，报告写入已忽略的 `out/test-results/stability-agent-persistence/`。timeout 时 Windows 使用 `taskkill /PID <pid> /T /F`、POSIX 终止独立 process group，并在 child `close` 后返回；终止失败与输出会写入报告，fixture 自动验证不会遗留延迟 worker。
 - [ ] **后续 CI / 发布 gate：** 在 CI 或发布前使用该稳定性命令并保留生成报告；任一轮的退出码、signal、spawn error 或 timeout 都必须阻断 gate。该工具不修复也不掩盖当前 baseline 的 `check:lesson-styles` 失败。
 
 ---

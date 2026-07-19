@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
+import { runCommand } from './lib/stability-check-runner.mjs'
 import { arch, release } from 'node:os'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -136,7 +136,7 @@ function parsePositiveInteger(value, name) {
 
 async function runCheck(check, timeoutMs) {
   const startedAt = new Date()
-  const childResult = await spawnAndCapture(check.command, check.args, timeoutMs)
+  const childResult = await runCommand({ command: check.command, args: check.args, cwd: projectRoot, timeoutMs })
   const durationMs = Date.now() - startedAt.getTime()
   const status = childResult.kind === 'passed' ? 'passed' : 'failed'
 
@@ -150,83 +150,13 @@ async function runCheck(check, timeoutMs) {
     signal: childResult.signal,
     failure: childResult.kind === 'passed' ? null : childResult.kind,
     error: childResult.error,
+    termination: childResult.termination,
     output: {
       stdout: childResult.stdout,
       stderr: childResult.stderr,
       truncated: childResult.truncated
     }
   }
-}
-
-function spawnAndCapture(command, args, timeoutMs) {
-  return new Promise((resolveResult) => {
-    let stdout = ''
-    let stderr = ''
-    let truncated = false
-    let settled = false
-    let timedOut = false
-    let timeout
-
-    const finish = (result) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      resolveResult({ ...result, stdout, stderr, truncated })
-    }
-
-    let child
-    try {
-      child = spawn(command, args, {
-        cwd: projectRoot,
-        env: process.env,
-        shell: false,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe']
-      })
-    } catch (error) {
-      finish({ kind: 'spawn_error', exitCode: null, signal: null, error: serializeError(error) })
-      return
-    }
-
-    child.stdout?.on('data', (chunk) => {
-      const captured = appendOutput(stdout, chunk)
-      stdout = captured.value
-      truncated ||= captured.truncated
-    })
-    child.stderr?.on('data', (chunk) => {
-      const captured = appendOutput(stderr, chunk)
-      stderr = captured.value
-      truncated ||= captured.truncated
-    })
-    child.once('error', (error) => {
-      finish({ kind: 'spawn_error', exitCode: null, signal: null, error: serializeError(error) })
-    })
-    child.once('close', (exitCode, signal) => {
-      if (timedOut) {
-        finish({ kind: 'timeout', exitCode, signal, error: `Timed out after ${timeoutMs}ms` })
-      } else if (signal) {
-        finish({ kind: 'signal', exitCode, signal, error: null })
-      } else if (exitCode === 0) {
-        finish({ kind: 'passed', exitCode, signal: null, error: null })
-      } else {
-        finish({ kind: 'exit_code', exitCode, signal: null, error: null })
-      }
-    })
-
-    timeout = setTimeout(() => {
-      timedOut = true
-      child.kill('SIGTERM')
-    }, timeoutMs)
-    timeout.unref()
-  })
-}
-
-function appendOutput(existing, chunk) {
-  const next = `${existing}${Buffer.from(chunk).toString('utf8')}`
-  if (Buffer.byteLength(next) <= outputLimitBytes) return { value: next, truncated: false }
-
-  const preserved = Buffer.from(next).subarray(-outputLimitBytes).toString('utf8')
-  return { value: preserved, truncated: true }
 }
 
 function summarize(runs) {
@@ -286,10 +216,14 @@ function printFailureOutput(result) {
     result.failure && `failure=${result.failure}`,
     result.exitCode !== null && `exitCode=${result.exitCode}`,
     result.signal && `signal=${result.signal}`,
-    result.error && `error=${result.error}`
+    result.error && `error=${result.error}`,
+    result.termination && `termination=${result.termination.method}:${result.termination.succeeded ? 'ok' : 'failed'}`
   ].filter(Boolean).join(', ')
 
   console.error(`    ${details}`)
+  if (result.termination && !result.termination.succeeded) {
+    console.error(`    Termination failure: ${result.termination.error ?? 'unknown error'}`)
+  }
   if (output) console.error(output)
   if (result.output.truncated) console.error(`    Output was truncated to the final ${outputLimitBytes} bytes.`)
 }
