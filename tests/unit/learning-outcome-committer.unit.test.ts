@@ -928,6 +928,147 @@ describe('LearningOutcomeCommitter', () => {
     expect(evaluationCalls).toBe(1)
   })
 
+  it('settles a post-marker interruption after restart without rewriting immutable projections', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-after-settlement-marker-restart-unit'
+    const outcomeId = 'outcome-after-settlement-marker-restart-1'
+    const operationId = 'after-settlement-marker-restart-operation-1'
+    const evidenceEventId = 'evidence-after-settlement-marker-restart-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const injectedPoints: string[] = []
+    let initialEvaluationCalls = 0
+    const interrupted = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        initialEvaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      },
+      testingFaults: {
+        inject(point) {
+          injectedPoints.push(point)
+          if (point === 'after_settlement_marker') throw new Error('simulated crash after settlement marker')
+        }
+      }
+    })
+
+    await expect(interrupted.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    expect(initialEvaluationCalls).toBe(1)
+    expect(injectedPoints).toEqual([
+      'after_stage_flush',
+      'after_record_publish',
+      'after_outcome_publish',
+      'after_settlement_marker'
+    ])
+    expect(injectedPoints).not.toContain('before_catalog_reconcile')
+
+    const [recordBeforeRestart, outcomeBeforeRestart, manifestBeforeRestart, markerBeforeRestart] = await Promise.all([
+      readFile(record),
+      readFile(outcomePath),
+      readFile(manifestPath),
+      readFile(markerPath)
+    ])
+    const recordContent = recordBeforeRestart.toString('utf8')
+    const recordMetadataMatch = /^<!-- studiumx-learning-outcome (.+) -->\n/.exec(recordContent)
+    expect(recordMetadataMatch).not.toBeNull()
+    const recordMetadata = JSON.parse(recordMetadataMatch![1]!) as Record<string, unknown>
+    const markerBeforeRestartValue = JSON.parse(markerBeforeRestart.toString('utf8')) as Record<string, unknown>
+    const expectedRecord = {
+      recordId: recordMetadata.recordId,
+      relativePath: `learning-records/outcome-${sessionId}.md`,
+      contentSha256: createHash('sha256').update(recordBeforeRestart).digest('hex')
+    }
+    expect(recordMetadata).toMatchObject({
+      sessionId,
+      outcomeId,
+      operationId,
+      outcomeKind: 'established',
+      evidenceEventIds: [evidenceEventId],
+      evaluatorVersion: 1,
+      recordId: `learning-outcome-${sessionId}-${outcomeId}`
+    })
+    expect(JSON.parse(outcomeBeforeRestart.toString('utf8'))).toMatchObject({
+      sessionId,
+      outcomeId,
+      kind: 'established',
+      evidenceEventIds: [evidenceEventId]
+    })
+    expect(JSON.parse(manifestBeforeRestart.toString('utf8'))).toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+    expect(markerBeforeRestartValue).toMatchObject({
+      sessionId: recordMetadata.sessionId,
+      outcomeId: recordMetadata.outcomeId,
+      operationId: recordMetadata.operationId,
+      kind: recordMetadata.outcomeKind,
+      evidenceEventIds: recordMetadata.evidenceEventIds,
+      evaluatorVersion: recordMetadata.evaluatorVersion,
+      record: expectedRecord
+    })
+
+    const recoveryDurable = instrumentedDurableOperations()
+    let recoveryEvaluationCalls = 0
+    let recoveryCreateIdCalls = 0
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      durableFileOperations: recoveryDurable.operations,
+      createId: () => {
+        recoveryCreateIdCalls += 1
+        throw new Error('recovery createId must not be called')
+      },
+      evaluate: async () => {
+        recoveryEvaluationCalls += 1
+        throw new Error('recovery evaluator must not be called')
+      }
+    })
+    const expectDurableBytesUnchanged = async () => {
+      await expect(readFile(record)).resolves.toEqual(recordBeforeRestart)
+      await expect(readFile(outcomePath)).resolves.toEqual(outcomeBeforeRestart)
+      await expect(readFile(manifestPath)).resolves.toEqual(manifestBeforeRestart)
+      await expect(readFile(markerPath)).resolves.toEqual(markerBeforeRestart)
+    }
+
+    const firstReconciliation = await recovered.reconcile(sessionId)
+    expect(firstReconciliation).toMatchObject({
+      state: 'settled',
+      marker: markerBeforeRestartValue,
+      record: expectedRecord
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+
+    const secondReconciliation = await recovered.reconcile(sessionId)
+    expect(secondReconciliation).toMatchObject({
+      state: 'settled',
+      marker: markerBeforeRestartValue,
+      record: expectedRecord
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'already_committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: expectedRecord
+    })
+    expect(recoveryEvaluationCalls).toBe(0)
+    expect(recoveryCreateIdCalls).toBe(0)
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+  })
+
   it('returns stable non-retryable results for invalid Session, invalid request, and missing Session', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-input-unit')
