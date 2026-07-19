@@ -101,6 +101,28 @@ describe('TeachingWorkspaceService outcome commit façade', () => {
     expect(fixture.commit).toHaveBeenCalledWith({ sessionId: 'session-1', operationId: 'operation-1' })
   })
 
+  it('passes the load-only compatibility ledger to the default committer without throwing', async () => {
+    let workspaceId = ''
+    const runtime = await runtimeScope.create('outcome-commit-load-only-ledger')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const ledger = { load: vi.fn(async () => canonicalSession(workspaceId)) }
+    const learningOutcomeLedgerFactory = vi.fn(() => ledger)
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot),
+      learningOutcomeLedgerFactory
+    })
+    const workspace = (await service.createWorkspace({ name: 'Outcome IPC', prompt: 'Test safe outcome delegation.' })).activeWorkspace!
+    workspaceId = workspace.id
+
+    await expect(service.commitLearningOutcome({ ...request, workspaceId })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'temporarily_unavailable'
+    })
+    expect(learningOutcomeLedgerFactory).toHaveBeenCalledWith(workspace.rootPath)
+    expect(ledger.load).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects unknown workspace, missing session, legacy/read-only session, and workspace mismatch before the committer', async () => {
     let mode: 'missing' | 'legacy' | 'readOnly' | 'mismatch' = 'missing'
     let workspaceId = ''
