@@ -77,7 +77,7 @@ const chairYOffset = 65
 const seatedPetWidth = 96
 const seatedPetBottomOffset = 36
 
-const deskImageUrl = new URL('../../../../../ref.png', import.meta.url).href
+const deskImageUrl = new URL('../../assets/images/workbench/ref.png', import.meta.url).href
 
 const workstationPositions = [
   { col: 1, row: 2 },

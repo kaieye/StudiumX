@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, StickyNote, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
-import girlVideo from '../../../../../girl.mp4'
+import girlVideo from '../../assets/videos/workbench/girl.mp4'
 import {
   formatStudyDuration,
   formatStudySeatLabel
@@ -28,7 +28,7 @@ import './workbench-analytics-entry.css'
 
 type DeskId = `desk-${number}`
 
-// OfficeSceneRuntime owns browser asset loading: new URL('../../../../../ref.png', import.meta.url).
+// OfficeSceneRuntime owns browser asset loading: new URL('../../assets/images/workbench/ref.png', import.meta.url).
 // Its canvas draw loop renders every desk with drawDeskImage(ctx, assets.deskImage, slot).
 const workbenchSeatCount = 12
 const immersiveCloseFallbackDurationMs = 1_200
