@@ -5628,6 +5628,106 @@ describe('LearningOutcomeCommitter', () => {
     })
   })
 
+  it('fails closed after outcome publication when ledger complete faults after_file_stat on session manifest load', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-manifest-complete-after-file-stat-session-json-failure-unit'
+    const outcomeId = 'outcome-manifest-complete-after-file-stat-session-json-failure-1'
+    const operationId = 'manifest-complete-after-file-stat-session-json-failure-operation-1'
+    const evidenceEventId = 'evidence-manifest-complete-after-file-stat-session-json-failure-1'
+    let observedSessionManifestStatFault = false
+    const ledger = await openSession(workspaceRoot, sessionId, {
+      testingFaults: {
+        inject(point, context) {
+          if (point !== 'after_file_stat' || context.operation !== 'complete') return
+          if (!context.path?.endsWith('session.json')) return
+          expect(context).toMatchObject({ operation: 'complete', sessionId })
+          observedSessionManifestStatFault = true
+          throw new Error('manifest complete after_file_stat session.json private failure')
+        }
+      }
+    })
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    expect(JSON.stringify(result)).not.toContain('manifest complete after_file_stat session.json private failure')
+    expect(observedSessionManifestStatFault).toBe(true)
+    await expect(readFile(record, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'active',
+      outcomeRef: null
+    })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+  })
+
+  it('fails closed after outcome publication when ledger complete faults after_file_stat on session event load', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-manifest-complete-after-file-stat-event-failure-unit'
+    const outcomeId = 'outcome-manifest-complete-after-file-stat-event-failure-1'
+    const operationId = 'manifest-complete-after-file-stat-event-failure-operation-1'
+    const evidenceEventId = 'evidence-manifest-complete-after-file-stat-event-failure-1'
+    let observedSessionEventStatFault = false
+    const ledger = await openSession(workspaceRoot, sessionId, {
+      testingFaults: {
+        inject(point, context) {
+          if (point !== 'after_file_stat' || context.operation !== 'complete') return
+          // completeUnlocked loads session.json first, then each durable event file.
+          // Fail the first event-file stable read so the pre-manifest residual is observable.
+          if (!context.path || !context.path.includes('/events/') || !context.path.endsWith('.json')) return
+          expect(context).toMatchObject({ operation: 'complete', sessionId })
+          observedSessionEventStatFault = true
+          throw new Error('manifest complete after_file_stat event private failure')
+        }
+      }
+    })
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    expect(JSON.stringify(result)).not.toContain('manifest complete after_file_stat event private failure')
+    expect(observedSessionEventStatFault).toBe(true)
+    await expect(readFile(record, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'active',
+      outcomeRef: null
+    })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
