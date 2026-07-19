@@ -1,6 +1,6 @@
 # ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer
 
-- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P6-S2…C-4P6-S132 tests-only evidence（含 marker/record residual matrix；完整 P6 close-out 仍未关闭）、C-4P8-S1/S2/S3 foundation、C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure、经明确批准的 Windows direct-path non-CAS profile，以及 C-4P9-S2 audit 专用 durable append、P9-S3…P9-S45 tests-only evidence）
+- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P6-S2…C-4P6-S134 tests-only evidence（含 marker/record residual matrix；完整 P6 close-out 仍未关闭）、C-4P8-S1/S2/S3 foundation、C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure、经明确批准的 Windows direct-path non-CAS profile，以及 C-4P9-S2 audit 专用 durable append、P9-S3…P9-S45 tests-only evidence）
 - **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P6-S2（tests-only evidence）、C-4P6-S3（tests-only evidence）、C-4P6-S4（tests-only evidence）、C-4P6-S5（tests-only evidence）、C-4P6-S6（tests-only evidence）、C-4P6-S7（tests-only evidence）、C-4P6-S8（tests-only evidence）、C-4P6-S9（tests-only evidence）、C-4P6-S10（tests-only evidence）、C-4P6-S11（tests-only evidence）、C-4P6-S12（tests-only evidence）、C-4P6-S13（tests-only evidence）、C-4P6-S14（tests-only evidence）、C-4P6-S15（tests-only evidence）、C-4P6-S16（tests-only evidence）、C-4P6-S17（tests-only evidence）、C-4P6-S18（tests-only evidence）、C-4P6-S19…C-4P6-S128（tests-only residual evidence）、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P8-S4、Windows direct-path non-CAS profile、C-4P9-S2、C-4P9-S3（tests-only evidence）、C-4P9-S4（tests-only evidence）、C-4P9-S5（tests-only evidence）、C-4P9-S6（tests-only evidence）、C-4P9-S7（tests-only evidence）、C-4P9-S8（tests-only evidence）、C-4P9-S9（tests-only evidence）、C-4P9-S10（tests-only evidence）、C-4P9-S11（tests-only evidence）、C-4P9-S12（tests-only evidence）、C-4P9-S13（tests-only evidence）、C-4P9-S14（tests-only evidence）、C-4P9-S15（tests-only evidence）、C-4P9-S16（tests-only evidence）、C-4P9-S17（tests-only evidence）、C-4P9-S18（tests-only evidence）、C-4P9-S19（tests-only evidence）、C-4P9-S20…C-4P9-S45（tests-only residual evidence）
 - **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`9847842`、`1334513`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`56eabe6`、`54506d5`、`ed8d88a`、`9c452f3`、`0bbfdef`、`e84c813`、`4b30220`、`5f47382`、`c286a42`、`ab723a6`、`47393f9`、`c97146e`、`e821c69`、`ebd084c`、`5f931c9`、`145b671`、`816e403`、`d26bb83`、`bee173f`、`e743a3e`、`dcb9bae`、`a631a31`、`9d54c5e`、`6bfffc5`、`4603601`、`60b6791`、`bab5d1e`、`2aec1bc`、`5e35703`、`e1f0563`、`be460a4`、`f90a863`、`8779879`、`3568673`、`5fb4f04`、`07ecb54`、`85840ae`、`8848af7`、`14fa960`、`54cec58`、`94e686f`、`529febd`
 
@@ -1403,6 +1403,24 @@ pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.t
 ```bash
 pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
 # P6-S132 stage close residual: 1 file, 157 tests passed
+```
+
+## C-4P6-S133：durable stage mkdir EIO fail-closed residual 的 tests-only evidence
+
+`7a928e3`（`test(data): cover stage mkdir EIO and ENOSPC fail-closed residuals`）仅修改测试，补齐 ordered publication 中 `durableStage` stage-parent **mkdir** `EIO` residual：`commit` → `retryable_failure/reconciliation_required`；不 open stage、不 publish record/outcome/marker；session 保持 active。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S133 stage mkdir EIO residual: 1 file, 159 tests passed
+```
+
+## C-4P6-S134：durable stage mkdir ENOSPC fail-closed residual 的 tests-only evidence
+
+`7a928e3` 同提交补齐 ordered publication 中 `durableStage` stage-parent **mkdir** `ENOSPC` residual：`commit` → `retryable_failure/reconciliation_required`；不 open stage、不 publish record/outcome/marker；session 保持 active。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S134 stage mkdir ENOSPC residual: 1 file, 159 tests passed
 ```
 
 ## C-4P8：已关闭的受控 workspace-tool scope
