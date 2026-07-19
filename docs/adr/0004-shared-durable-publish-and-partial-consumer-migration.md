@@ -1117,6 +1117,24 @@ pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.t
 # P6-S100 number outcomeKind residual: 1 file, 125 tests passed
 ```
 
+## C-4P6-S101：well-formed null settlement-marker outcomeId 的 tests-only evidence
+
+`3084e41`（`test(data): cover null marker outcomeId and array marker residuals`）修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 settlement marker `outcomeId: null` residual：`normalizeMarker` via `text()` 拒绝；restart `reconcile()` → `review_required` + `invalid_settlement_marker`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。同提交亦引入 S102。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S101/S102 null marker outcomeId + array marker residuals: 1 file, 127 tests passed
+```
+
+## C-4P6-S102：well-formed array settlement-marker 的 tests-only evidence
+
+`3084e41` 同提交补齐 settled 后 well-formed JSON array settlement marker residual：`normalizeMarker` 拒绝 non-object；restart `reconcile()` → `review_required` + `invalid_settlement_marker`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S102 array settlement-marker residual: 1 file, 127 tests passed
+```
+
 ## C-4P8：已关闭的受控 workspace-tool scope
 
 C-4P8 的 S1 至 S4 已在**受控 `write_workspace_file` 文本文件 create / restricted-overwrite scope**关闭。S1 的 workspace descriptor foundation 证据为 `80f2fd0` / `e2ce36c`；S2 的 `b46c8b2` / `bdcd6cb` 和 S3 的 `56eabe6` / `54506d5` 仍是 POSIX descriptor-bound foundation；S4 的 handler/API integration 与定向测试为 `0bbfdef` / `e84c813`。2026-07-19 经明确批准后，Windows 另实现 root-constrained direct-path profile；它不把 Windows 冒充为该 descriptor-bound foundation。
