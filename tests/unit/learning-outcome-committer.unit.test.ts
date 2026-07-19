@@ -5728,6 +5728,105 @@ describe('LearningOutcomeCommitter', () => {
     await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
   })
 
+  it('returns temporarily_unavailable when ledger faults after_writer_lock_acquired before any write', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-after-writer-lock-acquired-failure-unit'
+    const outcomeId = 'outcome-commit-after-writer-lock-acquired-failure-1'
+    const operationId = 'commit-after-writer-lock-acquired-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-after-writer-lock-acquired-failure-1'
+    let observedWriterLockFault = false
+    const ledger = await openSession(workspaceRoot, sessionId, {
+      testingFaults: {
+        inject(point, context) {
+          // Commit acquires the ledger writer lock with operation "repair" before any publication.
+          if (point !== 'after_writer_lock_acquired' || context.operation !== 'repair') return
+          expect(context).toMatchObject({ operation: 'repair', sessionId })
+          observedWriterLockFault = true
+          throw new Error('commit after_writer_lock_acquired private failure')
+        }
+      }
+    })
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'retryable_failure',
+      reason: 'temporarily_unavailable'
+    })
+    expect(JSON.stringify(result)).not.toContain('commit after_writer_lock_acquired private failure')
+    expect(observedWriterLockFault).toBe(true)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'active',
+      outcomeRef: null
+    })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+  })
+
+  it('returns temporarily_unavailable when ledger faults after_file_stat on pre-write repair load', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-after-file-stat-repair-load-failure-unit'
+    const outcomeId = 'outcome-commit-after-file-stat-repair-load-failure-1'
+    const operationId = 'commit-after-file-stat-repair-load-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-after-file-stat-repair-load-failure-1'
+    let observedRepairLoadFault = false
+    const ledger = await openSession(workspaceRoot, sessionId, {
+      testingFaults: {
+        inject(point, context) {
+          // Commit reconcile loads the session under operation "repair" before evaluation/writes.
+          if (point !== 'after_file_stat' || context.operation !== 'repair') return
+          if (!context.path?.endsWith('session.json')) return
+          expect(context).toMatchObject({ operation: 'repair', sessionId })
+          observedRepairLoadFault = true
+          throw new Error('commit after_file_stat repair load private failure')
+        }
+      }
+    })
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'retryable_failure',
+      reason: 'temporarily_unavailable'
+    })
+    expect(JSON.stringify(result)).not.toContain('commit after_file_stat repair load private failure')
+    expect(observedRepairLoadFault).toBe(true)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'active',
+      outcomeRef: null
+    })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
