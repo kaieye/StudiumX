@@ -819,7 +819,7 @@ describe('agent conversation session audit durable append', () => {
   })
 
   it.each(
-    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES'] as const)
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
   )('fails closed without capability downgrade when audit file lstat returns %s', async (code) => {
     const root = await createRoot()
     const record = createRecord()
