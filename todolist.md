@@ -33,6 +33,7 @@
 - [ ] **M5 分支仅已占位，尚未交付。** `feat/m5-teaching-loop-snapshot-ipc` 的 HEAD 与 `origin/main` 完全相同（左右差异均为 `0`），工作树干净，没有 M5 专属提交。**创建 M5 worktree/branch 不等于 M5 已完成，也不等于生产 IPC 已接通。**
 - [ ] 当前 main 已有 `TeachingLoopSnapshot`、`loadTeachingLoopFactSource`、`buildTeachingLoopFacts`、`resolveTeachingLoop`、planner、context assembler 与 grounder 的领域实现/测试；但未发现 `TeachingSystemApi.readTeachingLoopSnapshot`、`teach:read-teaching-loop-snapshot` 或对应 preload/gateway/service 生产入口。因此只能称为“底层 read-model 已具备、M5 生产读链未接通”。
 - [ ] **Protocol Medium backlog 已识别但尚未结项：** 它是 Protocol Core v1 之后的硬化工作，不能因为 Round 1–11 已合入就从待办中删除。
+- [ ] **已知 gate 缺陷（origin/main，非本文引入的回归）：** `pnpm run check:lesson-styles` 当前失败。静态 gate 仍要求 `TeachingSettingsService` 内联出现 `lessonStyleId: normalizeLessonStyleId(workspaceInput.lessonStyleId)`，但该规范化已迁至 `src/shared/teaching-settings-schema.ts`；需要将 gate 与当前 shared-schema 架构对齐。在该修复合入并实际重跑通过前，**不得宣称全量 teaching gates 全绿**。
 
 ---
 
@@ -172,7 +173,7 @@
 - [ ] `pnpm run check:security`、`pnpm run check:provider-privacy`、`pnpm run check:settings-secret-storage`、`pnpm run check:repository-hygiene`
 - [ ] `pnpm run check:agent-run-recovery`、`pnpm run check:agent-operation-idempotency`、`pnpm run check:workspace-write-tool`、`pnpm run check:web-fetch-safe-url`、`pnpm run check:external-link-controls`
 - [ ] `node scripts/check-workspace-catalog-reconciliation.mjs`、`node scripts/check-teaching-learning-loop.mjs`
-- [ ] `pnpm exec playwright test --project electron-e2e tests/e2e/teaching-learning-loop.e2e.spec.ts`
+- [ ] `pnpm exec playwright test tests/e2e/teaching-learning-loop.e2e.spec.ts --project electron-e2e`
 - [ ] 同一 Electron Golden 再执行 `--repeat-each=3`；并执行 `git diff --check`
 
 **任一** flaky、安全/隐私泄露、secret/路径/raw payload 暴露、canonical/catalog/UI 不一致、重复 record、未确认写入自动重试、schema downgrade、或者未关闭的 Protocol Medium authority 漏洞，都阻塞 M10 与发布。
