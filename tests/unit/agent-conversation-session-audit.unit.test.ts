@@ -780,6 +780,31 @@ describe('agent conversation session audit durable append', () => {
     await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+
+  it('fails closed without capability downgrade when audit file open returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const flags =
+      fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_RDWR | fsConstants.O_NOFOLLOW
+    const openEvent = `open:${flags}:${path}`
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file open failure')
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === openEvent ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(openEvent)
+    // Unknown open errors stay fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+    // Instrumented open fails before the real openFile call, so no audit file is created.
+    await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it.each(
     (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
   )('fails closed without capability downgrade when audit file sync returns %s', async (code) => {
