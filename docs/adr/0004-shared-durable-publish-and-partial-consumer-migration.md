@@ -57,6 +57,11 @@
 | C-4P6-S34 `6f550b2` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 non-writing 的 canonical learning-record `outcomeKind` residual（其它 metadata/body 仍合法，仅 `outcomeKind` 与 body heading 为 `needs_practice`）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 outcomeKind、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、59 tests passed |
 | C-4P6-S35 `65527ef` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 unknown 的 canonical learning-record `outcomeKind` residual（其它 metadata/body 仍合法，仅 `outcomeKind` 与 body heading 为 `unknown_kind`）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 outcomeKind、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、60 tests passed |
 | C-4P6-S36 `8467c76` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 negative 的 canonical learning-record `evaluatorVersion` residual（其它 metadata/body 仍合法，仅 `evaluatorVersion: -1`）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 evaluatorVersion、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、61 tests passed |
+| C-4P6-S37 `dd4ce9a` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed empty canonical learning-record `outcomeId` residual：`outcomeId: ""` 使 `text()`/`readCanonicalRecord` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、62 tests passed |
+| C-4P6-S38 `11299c2` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 64-char non-hex assessment `contentSha256` residual：`g`×64 使 `isVerifiedAssessment` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、63 tests passed |
+| C-4P6-S39 `20da409` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed null assessment residual：`assessment: null` 使 `isVerifiedAssessment` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、64 tests passed |
+| C-4P6-S40 `e71a7c2` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 64-char uppercase-hex assessment `contentSha256` residual：`A`×64 使 `isVerifiedAssessment` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、65 tests passed |
+| C-4P6-S41 `0cf87ef` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed non-array `evidenceEventIds` residual：`evidenceEventIds: null` 使 `stringArray` throw 且 `readCanonicalRecord` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、66 tests passed |
 | C-4P7 `0d55fd8` | private `MusicCookieStore` cookie state | `tests/unit/music-cookie-store-durable.unit.test.ts` |
 | C-4P8-S1 `80f2fd0`、`e2ce36c` | workspace descriptor foundation：可信既有 workspace root 绑定、descriptor-bound parent traversal 与 final-leaf inspection | 下列 C-4P8 最终定向验证 |
 | C-4P8-S2 `b46c8b2`、`bdcd6cb` | internal descriptor-bound atomic `createNoOverwrite` foundation | 下列 C-4P8 最终定向验证 |
@@ -99,6 +104,10 @@
 | C-4P9-S36 `683599b` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file close unknown non-errno error residual：close 返回未知 Error 时 fatal、不 capability downgrade、不启动 directory open、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、135 tests passed |
 | C-4P9-S37 `dddc2cc` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file lstat unknown non-errno error residual：lstat 返回未知 Error 时 fatal、不 open/write、不 capability downgrade、无 warning、无 audit 文件创建；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、136 tests passed |
 | C-4P9-S38 `ac2f27f` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file stat unknown non-errno error residual：stat 返回未知 Error 时 fatal、不 write、不 capability downgrade、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、137 tests passed |
+| C-4P9-S39 `7b5a4e6` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file read unknown non-errno error residual：seeded non-empty audit 后 continuation read 返回未知 Error 时 fatal、不 write、不 capability downgrade、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、138 tests passed |
+| C-4P9-S40 `fca501c` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file read errno residual matrix：read 返回 `EIO`/`EINVAL`/`EACCES`/`EPERM`/`ENOSPC` 时 fatal、不 write、不 capability downgrade、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、143 tests passed |
+| C-4P9-S41 `570a372` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file read partial-then-stall residual：read 先推进 1 byte 再返回 0 时 fail closed、不 write、不 capability downgrade、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、144 tests passed |
+| C-4P9-S42 `1383428` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file write partial-then-stall residual：write 先推进 1 byte 再返回 0 时 fail closed、不 capability downgrade、不启动 directory open、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、145 tests passed |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
@@ -518,6 +527,51 @@ pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.t
 ```bash
 pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
 # P6-S36 well-formed negative canonical learning-record evaluatorVersion residual: 1 file, 61 tests passed
+```
+
+## C-4P6-S37：well-formed empty canonical learning-record outcomeId 的 tests-only evidence
+
+`dd4ce9a`（`test(data): cover empty learning record outcomeId residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 empty 的 canonical learning-record `outcomeId` residual：其它 metadata/body 仍合法，仅 `outcomeId: ""`，使 `text()` 返回 null 且 `readCanonicalRecord` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 outcomeId、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S37 well-formed empty canonical learning-record outcomeId residual: 1 file, 62 tests passed
+```
+
+## C-4P6-S38：well-formed 64-char non-hex assessment contentSha256 的 tests-only evidence
+
+`11299c2`（`test(data): cover non-hex learning record assessment sha residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 64-char non-hex 的 assessment `contentSha256` residual：其它 metadata/body 仍合法，仅 `contentSha256` 为 `g`×64，使 `isVerifiedAssessment` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 assessment、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S38 well-formed 64-char non-hex assessment contentSha256 residual: 1 file, 63 tests passed
+```
+
+## C-4P6-S39：well-formed null assessment 的 tests-only evidence
+
+`20da409`（`test(data): cover null learning record assessment residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 null 的 assessment residual：其它 metadata/body 仍合法，仅 `assessment: null`，使 `isVerifiedAssessment` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 assessment、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S39 well-formed null assessment residual: 1 file, 64 tests passed
+```
+
+## C-4P6-S40：well-formed 64-char uppercase-hex assessment contentSha256 的 tests-only evidence
+
+`e71a7c2`（`test(data): cover uppercase learning record assessment sha residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 64-char uppercase-hex 的 assessment `contentSha256` residual：其它 metadata/body 仍合法，仅 `contentSha256` 为 `A`×64，使 `isVerifiedAssessment` 拒绝（regex 要求 lowercase）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 assessment、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S40 well-formed 64-char uppercase-hex assessment contentSha256 residual: 1 file, 65 tests passed
+```
+
+## C-4P6-S41：well-formed non-array evidenceEventIds 的 tests-only evidence
+
+`0cf87ef`（`test(data): cover non-array learning record evidence residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 non-array 的 `evidenceEventIds` residual：其它 metadata/body 仍合法，仅 `evidenceEventIds: null`，使 `stringArray` throw 且 `readCanonicalRecord` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 evidence、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S41 well-formed non-array evidenceEventIds residual: 1 file, 66 tests passed
 ```
 
 ## C-4P8：已关闭的受控 workspace-tool scope
@@ -971,6 +1025,42 @@ pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.
 ```bash
 pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
 # P9-S38 audit file stat unknown error residual: 1 file, 137 tests passed
+```
+
+## C-4P9-S39：audit file read unknown error residual 的 tests-only evidence
+
+`7b5a4e6`（`test(data): cover audit file read unknown error residual`）仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file read unknown non-errno error residual：seeded non-empty audit 后 continuation read 返回未知 Error 时 fatal、不 write、不 capability downgrade、无 warning。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+# P9-S39 audit file read unknown error residual: 1 file, 138 tests passed
+```
+
+## C-4P9-S40：audit file read errno residual matrix 的 tests-only evidence
+
+`fca501c`（`test(data): cover audit file read errno residual matrix`）仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file read errno residual matrix：read 返回 `EIO`/`EINVAL`/`EACCES`/`EPERM`/`ENOSPC` 时 fatal、不 write、不 capability downgrade、无 warning。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+# P9-S40 audit file read errno residual matrix: 1 file, 143 tests passed
+```
+
+## C-4P9-S41：audit file read partial-then-stall residual 的 tests-only evidence
+
+`570a372`（`test(data): cover audit file read partial-then-stall residual`）仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file read partial-then-stall residual：read 先推进 1 byte 再返回 0 时 fail closed、不 write、不 capability downgrade、无 warning。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+# P9-S41 audit file read partial-then-stall residual: 1 file, 144 tests passed
+```
+
+## C-4P9-S42：audit file write partial-then-stall residual 的 tests-only evidence
+
+`1383428`（`test(data): cover audit file write partial-then-stall residual`）仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file write partial-then-stall residual：write 先推进 1 byte 再返回 0 时 fail closed、不 capability downgrade、不启动 directory open、无 warning。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+# P9-S42 audit file write partial-then-stall residual: 1 file, 145 tests passed
 ```
 
 ## C-4P9-S9：concurrent same-ID body conflict 的 tests-only evidence
