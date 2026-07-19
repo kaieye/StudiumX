@@ -40,6 +40,7 @@
 | C-4P6-S17 `14fa960` | **tests-only evidence**：新增独立 `it`，仅覆盖 settled 后 canonical learning record 为 directory（非 symlink）；restart `reconcile()` 为 `review_required` 且 diagnostics 含 `missing_record`；不 rewrite outcome/manifest/marker、不修复 directory、不调用 evaluator / `createId`；同 operation commit 为 `conflict/review_required`；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、42 tests passed |
 | C-4P6-S18 `94e686f` | **tests-only evidence**：新增独立 `it`，仅覆盖 settled 后 canonical learning record 为 non-file symlink；restart `reconcile()` 为 `review_required` 且 diagnostics 含 `missing_record`；不 rewrite outcome/manifest/marker、不修复 symlink、不调用 evaluator / `createId`；同 operation commit 为 `conflict/review_required`；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、43 tests passed |
 | C-4P6-S19 `f9e263f` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 canonical learning record 为 regular file 但 content 无效的 fail-closed residual：restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 content、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、44 tests passed |
+| C-4P6-S20 `412acc5` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 normalizeMarker 失败的 settlement marker residual：restart `reconcile()` → `review_required` + `invalid_settlement_marker`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、45 tests passed |
 | C-4P7 `0d55fd8` | private `MusicCookieStore` cookie state | `tests/unit/music-cookie-store-durable.unit.test.ts` |
 | C-4P8-S1 `80f2fd0`、`e2ce36c` | workspace descriptor foundation：可信既有 workspace root 绑定、descriptor-bound parent traversal 与 final-leaf inspection | 下列 C-4P8 最终定向验证 |
 | C-4P8-S2 `b46c8b2`、`bdcd6cb` | internal descriptor-bound atomic `createNoOverwrite` foundation | 下列 C-4P8 最终定向验证 |
@@ -64,6 +65,7 @@
 | C-4P9-S18 `54cec58` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file lstat fail-closed residual：对 audit 目标 lstat 注入 `EIO`/`EINVAL`/`ENOSYS`/`ENOTSUP`/`EOPNOTSUPP`/`EISDIR`/`EACCES` 均 fatal、不 open、不 capability downgrade、无 warning、无 audit 文件创建；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、79 tests passed |
 | C-4P9-S19 `529febd` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file stat fail-closed residual：对已 open 的 audit 目标 `stat` 注入 `EIO`/`EINVAL`/`ENOSYS`/`ENOTSUP`/`EOPNOTSUPP`/`EISDIR`/`EACCES` 均 fatal、不 write、不 capability downgrade、不启动 directory open、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、86 tests passed |
 | C-4P9-S20 `8091193` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit incomplete write/read transfer fail-closed residual：`bytesWritten`/`bytesRead` 为 `0` 或 `NaN` 时分别 throw incomplete-transfer errors；不 capability downgrade、不启动 directory open、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、90 tests passed |
+| C-4P9-S21 `9309b81` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file open/sync/close `EACCES` fail-closed residual：fatal、不 capability downgrade；open 失败不创建文件、不启动 directory open；无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、93 tests passed |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
@@ -301,6 +303,22 @@ git diff --check
 
 该切片**不宣称**完整 C-4P6 closure，也不覆盖 manifest publisher capability matrix 或其它 crash window。
 
+## C-4P6-S20：well-formed invalid settlement marker 的 tests-only evidence
+
+`412acc5`（`test(data): cover invalid normalized settlement marker residual`）只修改 `tests/unit/learning-outcome-committer.unit.test.ts`，新增一个独立的 `it`；没有 production/API/schema/path/order 变化。它严格限于 durable settlement 后将 `outcome-settlement.json` 覆写为 well-formed JSON 但 `schemaVersion` 非权威版本（`{"schemaVersion":2}`），canonical record / outcome.json / completed session.json 保持匹配。restart `reconcile()` 返回 `review_required`，diagnostics 含 `invalid_settlement_marker`；recovery 不 rewrite durable authority bytes，不调用 evaluator / `createId`；同 operation commit 返回 `conflict/review_required`。
+
+验证入口：
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S20 well-formed invalid settlement marker residual: 1 file, 45 tests passed
+pnpm run typecheck
+pnpm run check:security
+git diff --check
+```
+
+该切片**不宣称**完整 C-4P6 closure，也不覆盖 manifest publisher capability matrix 或其它 crash window。
+
 ## C-4P8：已关闭的受控 workspace-tool scope
 
 C-4P8 的 S1 至 S4 已在**受控 `write_workspace_file` 文本文件 create / restricted-overwrite scope**关闭。S1 的 workspace descriptor foundation 证据为 `80f2fd0` / `e2ce36c`；S2 的 `b46c8b2` / `bdcd6cb` 和 S3 的 `56eabe6` / `54506d5` 仍是 POSIX descriptor-bound foundation；S4 的 handler/API integration 与定向测试为 `0bbfdef` / `e84c813`。2026-07-19 经明确批准后，Windows 另实现 root-constrained direct-path profile；它不把 Windows 冒充为该 descriptor-bound foundation。
@@ -376,7 +394,7 @@ C-4P5 的 allowlisted Markdown service 是不同 consumer；其 allowlist/servic
 
 C-4P9 只实施了最小切片 S2；P9-S3、P9-S4、P9-S5、P9-S6、P9-S7 与 P9-S8 都是严格 tests-only evidence slice。S2 证据提交为 `4b30220`（`feat(data): add durable session audit append`）和 `5f47382`（`test(data): cover durable session audit append`）。S3 的 `c286a42`（`test(data): cover audit durable append recovery`）保留实际历史证据：partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory 与 conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；无生产语义改动。S4 的 `ab723a6`（`test(data): cover audit pre-write short-circuit`）仅覆盖 archive save 层首个 audit write 注入 `EIO` 且 audit 0 bytes：JSON/Markdown 保留、ledger 未执行；clean retry 后每个 canonical audit row 恰一条、ledger 恰一条。S5 的 `47393f9`（`test(data): cover audit directory capability symmetry`）仅修改测试，未修改 production code；Sol review approved。它对 audit directory 与 conversation parent directory 的 `open`/`sync` 做 capability symmetry 定向证据：五个 allowlist code 各覆盖两层、两种操作，共 20 cases；每个成功且恰好一条固定通用 warning，warning 不泄露路径、内容、conversation/header/entry ID 或 trace；parent-directory `close` 的 `EINVAL` 仍 fatal。S5 无 production/API/schema/order 变化，不是完整 capability matrix，也不是生产功能。以下是受限 evidence 的实际验证命令和结果，不是完整 suite 的声明：
 
-**P9-S3 的历史 evidence、P9-S4 的单一 pre-write short-circuit/retry evidence、P9-S5 的 directory capability symmetry evidence 与 P9-S6 的 ledger-own failure residual evidence 与 P9-S7 的 concurrent identical same-save evidence 与 P9-S8 的 divergent-trace conflict fail-closed evidence 与 P9-S9 的 concurrent same-ID body conflict fail-closed evidence 与 P9-S10 的 Markdown durable publish short-circuit residual evidence 与 P9-S11 的 Markdown-phase directory close residual evidence 与 P9-S12 的 Markdown-phase directory fsync residual evidence 与 P9-S13 的 Markdown-phase directory open residual evidence 与 P9-S14 的 JSON-phase directory open residual evidence 与 P9-S15 的 audit file open fail-closed residual evidence 与 P9-S16 的 audit file sync fail-closed residual evidence 与 P9-S17 的 audit file close fail-closed residual evidence 与 P9-S18 的 audit file lstat fail-closed residual evidence 与 P9-S19 的 audit file stat fail-closed residual evidence 与 P9-S20 的 audit incomplete write/read transfer fail-closed residual evidence 均已记录；C-4P9 仍未关闭。**
+**P9-S3 的历史 evidence、P9-S4 的单一 pre-write short-circuit/retry evidence、P9-S5 的 directory capability symmetry evidence 与 P9-S6 的 ledger-own failure residual evidence 与 P9-S7 的 concurrent identical same-save evidence 与 P9-S8 的 divergent-trace conflict fail-closed evidence 与 P9-S9 的 concurrent same-ID body conflict fail-closed evidence 与 P9-S10 的 Markdown durable publish short-circuit residual evidence 与 P9-S11 的 Markdown-phase directory close residual evidence 与 P9-S12 的 Markdown-phase directory fsync residual evidence 与 P9-S13 的 Markdown-phase directory open residual evidence 与 P9-S14 的 JSON-phase directory open residual evidence 与 P9-S15 的 audit file open fail-closed residual evidence 与 P9-S16 的 audit file sync fail-closed residual evidence 与 P9-S17 的 audit file close fail-closed residual evidence 与 P9-S18 的 audit file lstat fail-closed residual evidence 与 P9-S19 的 audit file stat fail-closed residual evidence 与 P9-S20 的 audit incomplete write/read transfer fail-closed residual evidence 与 P9-S21 的 audit file open/sync/close EACCES fail-closed residual evidence 均已记录；C-4P9 仍未关闭。**
 
 ```sh
 # P9-S3 historical evidence: 2 files, 61 tests passed
@@ -554,6 +572,22 @@ git diff --check
 ```bash
 pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
 # P9-S20 audit incomplete write/read transfer fail-closed residual: 1 file, 90 tests passed
+pnpm run typecheck
+pnpm run check:security
+git diff --check
+```
+
+该切片**不宣称** C-4P9 已关闭，也不覆盖完整 capability matrix、generic JSONL、rotation 或 IPC/UI。
+
+## C-4P9-S21：audit file open/sync/close EACCES fail-closed residual 的 tests-only evidence
+
+`9309b81`（`test(data): cover audit file EACCES residual`）仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，将 audit file open/sync/close fail-closed matrices 扩展包含 `EACCES`：均 fatal、不 capability downgrade；open 失败时不创建 audit 文件、不启动 directory open；无 warning。与 lstat/stat `EACCES` residual 形成 file-path 权限失败对称。无生产语义改动。
+
+验证入口：
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+# P9-S21 audit file open/sync/close EACCES fail-closed residual: 1 file, 93 tests passed
 pnpm run typecheck
 pnpm run check:security
 git diff --check
