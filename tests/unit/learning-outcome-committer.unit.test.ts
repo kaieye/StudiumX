@@ -302,6 +302,126 @@ describe('LearningOutcomeCommitter', () => {
     ])
   })
 
+  it('deterministically repairs an after-outcome-publication crash after restart without reevaluation or outcome rewrite', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-after-outcome-publish-restart-unit'
+    const outcomeId = 'outcome-after-outcome-publish-restart-1'
+    const operationId = 'after-outcome-publish-restart-operation-1'
+    const evidenceEventId = 'evidence-after-outcome-publish-restart-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const manifestPath = join(directory, 'session.json')
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const injectedPoints: string[] = []
+    let evaluationCalls = 0
+    const options = {
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }: { session: { id: string } }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    }
+    const interrupted = createLearningOutcomeCommitter({
+      ...options,
+      testingFaults: {
+        inject(point) {
+          injectedPoints.push(point)
+          if (point === 'after_outcome_publish') throw new Error('simulated crash after outcome publish')
+        }
+      }
+    })
+
+    await expect(interrupted.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(injectedPoints).toEqual(['after_stage_flush', 'after_record_publish', 'after_outcome_publish'])
+    const recordBeforeRestart = await readFile(recordPath(workspaceRoot, sessionId), 'utf8')
+    const outcomeBeforeRestart = await readFile(outcomePath, 'utf8')
+    expect(recordBeforeRestart).toContain(`\"sessionId\":\"${sessionId}\"`)
+    expect(recordBeforeRestart).toContain(`\"outcomeId\":\"${outcomeId}\"`)
+    expect(JSON.parse(outcomeBeforeRestart)).toMatchObject({
+      sessionId,
+      outcomeId,
+      kind: 'established',
+      evidenceEventIds: [evidenceEventId]
+    })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+    const manifestBeforeRestart = await readFile(manifestPath, 'utf8')
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recoveryPublicationOrder: string[] = []
+    let manifestAtMarkerPublication: string | null = null
+    const recoveryOperations: DurableFileOperations = {
+      ...recoveryDurable.operations,
+      rename: async (from, to) => {
+        if (to === markerPath) {
+          manifestAtMarkerPublication = await readFile(manifestPath, 'utf8')
+          expect(JSON.parse(manifestAtMarkerPublication)).toMatchObject({
+            status: 'completed',
+            outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+          })
+          recoveryPublicationOrder.push('manifest-published')
+          await recoveryDurable.operations.rename(from, to)
+          recoveryPublicationOrder.push('settlement-marker-published')
+          return
+        }
+        await recoveryDurable.operations.rename(from, to)
+      }
+    }
+    const recovered = createLearningOutcomeCommitter({ ...options, durableFileOperations: recoveryOperations })
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'repaired',
+      marker: {
+        sessionId,
+        outcomeId,
+        operationId,
+        kind: 'established',
+        evidenceEventIds: [evidenceEventId],
+        record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+      },
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryDurable.events.some((event) => event.includes(outcomePath))).toBe(false)
+    expect(recoveryDurable.events.some((event) => event.endsWith(`->${markerPath}`))).toBe(true)
+    expect(recoveryPublicationOrder).toEqual(['manifest-published', 'settlement-marker-published'])
+    await expect(readFile(outcomePath, 'utf8')).resolves.toBe(outcomeBeforeRestart)
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).resolves.toBe(recordBeforeRestart)
+    await expect(readFile(manifestPath, 'utf8')).resolves.not.toBe(manifestBeforeRestart)
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+    const recordAfterRepair = await readFile(recordPath(workspaceRoot, sessionId), 'utf8')
+    const outcomeAfterRepair = await readFile(outcomePath, 'utf8')
+    const manifestAfterRepair = await readFile(manifestPath, 'utf8')
+    const markerAfterRepair = await readFile(markerPath, 'utf8')
+    expect(manifestAtMarkerPublication).toBe(manifestAfterRepair)
+
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({ state: 'settled' })
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).resolves.toBe(recordAfterRepair)
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe(manifestAfterRepair)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toBe(outcomeAfterRepair)
+    await expect(readFile(markerPath, 'utf8')).resolves.toBe(markerAfterRepair)
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'already_committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).resolves.toBe(recordAfterRepair)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toBe(outcomeAfterRepair)
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe(manifestAfterRepair)
+    await expect(readFile(markerPath, 'utf8')).resolves.toBe(markerAfterRepair)
+    expect(evaluationCalls).toBe(1)
+  })
+
   it('requires review instead of record-first repair when a marker conflicts with the canonical record', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-conflict-unit')
