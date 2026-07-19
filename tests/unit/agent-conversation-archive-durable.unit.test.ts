@@ -330,10 +330,15 @@ describe('Agent conversation archive durable canonical publication', () => {
     expect(await temporaryFiles(fixture.rootPath)).toEqual([])
   })
 
-  it('keeps the completed JSON publish when Markdown durable publication fails and does not append audit or ledger', async () => {
+  it.each([
+    ['write', (event: string, markdownPath: string) => event.startsWith('write:') && event.includes('.durable-conversation.md.')],
+    ['file sync', (event: string, markdownPath: string) => event.startsWith('sync:') && event.includes('.durable-conversation.md.')],
+    ['file close', (event: string, markdownPath: string) => event.startsWith('close:') && event.includes('.durable-conversation.md.')],
+    ['rename', (event: string, markdownPath: string) => event.startsWith('rename:') && event.endsWith(`->${markdownPath}`)]
+  ])('keeps the completed JSON publish when Markdown durable %s fails and does not append audit or ledger', async (_name, matches) => {
     const fixture = await archiveFixture()
     const durable = instrumentedDurableOperations({
-      fail: (event) => event.startsWith('write:') && event.includes('.durable-conversation.md.') ? errno('EIO') : undefined
+      fail: (event) => matches(event, fixture.markdownPath) ? errno('EIO') : undefined
     })
 
     await expect(saveAgentConversationArchive({
