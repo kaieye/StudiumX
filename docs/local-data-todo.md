@@ -2,15 +2,15 @@
 
 > 本文是本地数据**下一步工作的唯一入口**。已完成的架构决定及其证据见 [ADR 索引](adr/README.md)。
 >
-> 下列条目均为待批准、未实施的设计门；设计文档不是实现授权。不得把其中的建议、验证矩阵或候选 contract 记作已完成代码、测试或 durable closure。
+> 下列条目记录未完成范围及待批准的设计门；设计文档不是实现授权。个别条目会标明已实施的受限切片，但不得把该切片的建议、验证矩阵或候选 contract 扩大为 complete durable closure。
 
 ## 先决规则
 
-1. 任何切片先在对应 design gate 获得 scope / owner / API 批准，再单独立项；不得直接修改其 writer 以“顺手迁移”。
+1. 任何后续切片先在对应 design gate 获得 scope / owner / API 批准，再单独立项；不得直接修改其 writer 以“顺手迁移”。
 2. canonical JSON、Markdown、JSONL、immutable record 和 Memory 文件仍是事实来源；projection、分区、sealing、summary、`.bak` 与 receipt 都不授权删除或替代事实来源。
-3. 不得把 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 的部分 consumer migration 解释为全量 writer migration，也不得把 [ADR-0005](adr/0005-main-owned-trace-correlation-and-safe-logs.md) 解释为全局 actionId / retry / receipt。
+3. 不得把 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 的部分 consumer migration（包括 C-4P6-S1）解释为全量 writer migration、完整 C-4P6 或跨文件事务，也不得把 [ADR-0005](adr/0005-main-owned-trace-correlation-and-safe-logs.md) 解释为全局 actionId / retry / receipt。
 
-## C-4：尚未迁移的 durable writer 设计门
+## C-4：仍未完成的 durable writer / closure 设计门
 
 ### P8：agent workspace tool durable publish
 
@@ -28,11 +28,12 @@
 - 推荐的获批后首个切片是 **P9-S2 framed、legacy-compatible、fixed-file durable append**，并保留每个 conversation audit 的固定单文件语义。
 - 禁止越界：必须 **non-rotating**；不得接入 `appendDurableJsonlLine()` 的默认 month / size rotation，也不得将 C-4P1 archive publish 或 C-5E trace 计为 P9 完成。实现前仍需明确 per-path queue、safe newline / torn-tail policy、ID / trace conflict、post-directory-failure retry、capability allowlist 与 archive → ledger 顺序。
 
-### P6：learning-outcome durable settlement
+### P6：learning-outcome durable settlement 的剩余 close-out 设计门
 
-- 设计文档：[C-4P6 Learning outcome durable settlement](plans/local-data-learning-outcome-durable-settlement-design.md)
-- 当前仅有审计与设计约束，**不可直接实施**。先决问题包括 immutable record post-link parent-directory failure、record authority、outcome / manifest / marker 有序 publish、record-first controlled repair、writer lock 与 I/O seam。
-- 禁止越界：不得将单一 overwrite durable write 称为 settlement durable closure 或多文件事务。
+- 设计文档：[C-4P6 Learning outcome durable settlement](plans/local-data-learning-outcome-durable-settlement-design.md)；已实施范围和提交证据见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
+- **已实施且仅限 S1：**`7292bf4` / `e02a086` 实现严格有序 publish、内置 ledger 的私有 writer-lock 覆盖、fail-closed injected load-only ledger，以及 authority-first controlled reconcile。它不是完整 settlement closure。
+- **仍未完成：**完整 C-4P6 因 manifest publisher 的 durability/capability-policy 尚未闭合、crash / failure 矩阵尚未穷尽验证，必须继续保留在本待办；完成前还需运行验证。不得把 S1 的 41 项相关单元检查和 14 项集成检查解释为已消除整个矩阵或未来 C-4P6 风险。
+- 禁止越界：S1 不授权跨文件事务或共同原子性、rollback、删除、通用 migration 或新的外部 API；不得将单一 overwrite durable write 或 S1 基础称为 settlement durable closure。
 
 ## C-5：尚未覆盖的用户动作 correlation 设计门
 
