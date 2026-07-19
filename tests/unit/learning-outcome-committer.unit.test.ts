@@ -25,6 +25,8 @@ function errno(code: string, message = code): NodeJS.ErrnoException {
 
 function instrumentedDurableOperations(options: {
   fail?: (event: string) => Error | undefined
+  /** When true, mkdir calls are observed/fail-injectable as `mkdir:${path}`. Default false keeps historical event streams stable. */
+  trackMkdir?: boolean
 } = {}): InstrumentedDurableOperations {
   const events: string[] = []
   const observe = (event: string): void => {
@@ -36,7 +38,10 @@ function instrumentedDurableOperations(options: {
   return {
     events,
     operations: {
-      mkdir,
+      mkdir: async (path, mkdirOptions) => {
+        if (options.trackMkdir) observe(`mkdir:${String(path)}`)
+        return mkdir(path, mkdirOptions)
+      },
       readFile,
       open: async (path, flags, mode) => {
         observe(`open:${flags}:${path}`)
@@ -4632,6 +4637,85 @@ describe('LearningOutcomeCommitter', () => {
     expect(durable.events).toContain(`close:${staged}`)
     expect(durable.events.some((event) => event.startsWith('rename:') && event.includes('outcome.json'))).toBe(false)
     expect(durable.events).not.toContain(`open:wx:${join(sessionDirectory(workspaceRoot, sessionId), '.outcome.json')}`)
+  })
+
+  it('fails closed before record publication when durable stage mkdir fails with EIO', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-stage-mkdir-eio-failure-unit'
+    const outcomeId = 'outcome-stage-mkdir-eio-failure-1'
+    const operationId = 'stage-mkdir-eio-failure-operation-1'
+    const evidenceEventId = 'evidence-stage-mkdir-eio-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const staged = stagePath(workspaceRoot, sessionId, outcomeId, operationId)
+    const stageDirectory = join(workspaceRoot, 'learning-records', '.learning-outcome-committer-stage')
+    const durable = instrumentedDurableOperations({
+      trackMkdir: true,
+      fail: (event) => event === `mkdir:${stageDirectory}`
+        ? errno('EIO', 'stage mkdir private failure')
+        : undefined
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    await expect(committer.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome-settlement.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+    expect(durable.events).toContain(`mkdir:${stageDirectory}`)
+    expect(durable.events.some((event) => event.startsWith('open:'))).toBe(false)
+    expect(durable.events.some((event) => event.startsWith('rename:') && event.includes('outcome.json'))).toBe(false)
+    expect(durable.events).not.toContain(`open:wx:${join(sessionDirectory(workspaceRoot, sessionId), '.outcome.json')}`)
+    // Stage path must not be created when parent mkdir fails closed.
+    await expect(readFile(staged, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('fails closed before record publication when durable stage mkdir fails with ENOSPC', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-stage-mkdir-enospc-failure-unit'
+    const outcomeId = 'outcome-stage-mkdir-enospc-failure-1'
+    const operationId = 'stage-mkdir-enospc-failure-operation-1'
+    const evidenceEventId = 'evidence-stage-mkdir-enospc-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const staged = stagePath(workspaceRoot, sessionId, outcomeId, operationId)
+    const stageDirectory = join(workspaceRoot, 'learning-records', '.learning-outcome-committer-stage')
+    const durable = instrumentedDurableOperations({
+      trackMkdir: true,
+      fail: (event) => event === `mkdir:${stageDirectory}`
+        ? errno('ENOSPC', 'stage mkdir private ENOSPC failure')
+        : undefined
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    await expect(committer.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome-settlement.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+    expect(durable.events).toContain(`mkdir:${stageDirectory}`)
+    expect(durable.events.some((event) => event.startsWith('open:'))).toBe(false)
+    expect(durable.events.some((event) => event.startsWith('rename:') && event.includes('outcome.json'))).toBe(false)
+    expect(durable.events).not.toContain(`open:wx:${join(sessionDirectory(workspaceRoot, sessionId), '.outcome.json')}`)
+    await expect(readFile(staged, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
