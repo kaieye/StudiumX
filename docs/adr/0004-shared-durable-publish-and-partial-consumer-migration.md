@@ -1,8 +1,8 @@
 # ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer
 
-- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P8-S1/S2/S3 foundation 与 C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure，以及 C-4P9-S2 audit 专用 durable append、P9-S3 tests-only evidence 与 P9-S4 tests-only evidence）
-- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P8-S4、C-4P9-S2、C-4P9-S3（tests-only evidence）、C-4P9-S4（tests-only evidence）
-- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`56eabe6`、`54506d5`、`ed8d88a`、`9c452f3`、`0bbfdef`、`e84c813`、`4b30220`、`5f47382`、`c286a42`、`ab723a6`
+- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P8-S1/S2/S3 foundation 与 C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure，以及 C-4P9-S2 audit 专用 durable append、P9-S3/P9-S4/P9-S5 tests-only evidence）
+- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P8-S4、C-4P9-S2、C-4P9-S3（tests-only evidence）、C-4P9-S4（tests-only evidence）、C-4P9-S5（tests-only evidence）
+- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`56eabe6`、`54506d5`、`ed8d88a`、`9c452f3`、`0bbfdef`、`e84c813`、`4b30220`、`5f47382`、`c286a42`、`ab723a6`、`47393f9`
 
 ## 决定
 
@@ -30,6 +30,7 @@
 | C-4P9-S2 `4b30220`、`5f47382` | 固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append；不 rotation、不迁移其它 JSONL | 下列 C-4P9-S2/S3/S4 验证命令 |
 | C-4P9-S3 `c286a42` | **tests-only historical evidence**：补齐 P9-S2 的 partial-write 与 archive-level failure/retry 定向证据：fixed-file non-rotating audit append 的 partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；无生产语义改动 | 2 个 unit 文件、61 tests passed；另有当时本主会话的 typecheck、security check、diff check |
 | C-4P9-S4 `ab723a6` | **tests-only evidence**：仅覆盖 archive save 层首个 audit write 注入 `EIO`、audit 0 bytes 时的 short-circuit/retry；JSON/Markdown 保留、ledger 未执行，clean retry 后每个 canonical audit row 恰一条、ledger 恰一条；无生产语义改动 | `tests/unit/agent-conversation-archive-durable.unit.test.ts`；1 file、27 tests passed |
+| C-4P9-S5 `47393f9` | **tests-only evidence**：仅修改测试，未修改 production code；Sol review approved。对 audit directory 与 conversation parent directory 的 `open`/`sync` 做 capability symmetry 定向证据：五个 allowlist code `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 各覆盖两层、两种操作，共 20 cases；每个成功且恰好一条固定通用 warning，warning 不泄露路径、内容、conversation/header/entry ID 或 trace；parent-directory `close` 返回 `EINVAL` 仍 fatal；无 production/API/schema/order 变化 | 单独：`tests/unit/agent-conversation-session-audit.unit.test.ts`，1 file、51 tests passed；与 archive durable 共同运行，2 files、78 tests passed；另通过 typecheck、security check、diff check |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
@@ -78,9 +79,9 @@ C-4P8 的关闭不改变 C-4 的 global partial-writer limitation，也不授权
 
 C-4P5 的 allowlisted Markdown service 是不同 consumer；其 allowlist/service contract 不由 C-4P8 继承或替代。
 
-## C-4P9-S2 实施与 P9-S3/S4 evidence 验证入口
+## C-4P9-S2 实施与 P9-S3/S4/S5 evidence 验证入口
 
-C-4P9 只实施了最小切片 S2；P9-S3 与 P9-S4 都是严格 tests-only evidence slice。S2 证据提交为 `4b30220`（`feat(data): add durable session audit append`）和 `5f47382`（`test(data): cover durable session audit append`）。S3 的 `c286a42`（`test(data): cover audit durable append recovery`）保留实际历史证据：partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory 与 conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；无生产语义改动。S4 的 `ab723a6`（`test(data): cover audit pre-write short-circuit`）仅覆盖 archive save 层首个 audit write 注入 `EIO` 且 audit 0 bytes：JSON/Markdown 保留、ledger 未执行；clean retry 后每个 canonical audit row 恰一条、ledger 恰一条。S4 不改变生产语义，也不覆盖并发、trace、capability、generic JSONL、rotation、事务、ledger authority/save order 或 API。以下是受限 evidence 的实际验证命令和结果，不是完整 suite 的声明：
+C-4P9 只实施了最小切片 S2；P9-S3、P9-S4 与 P9-S5 都是严格 tests-only evidence slice。S2 证据提交为 `4b30220`（`feat(data): add durable session audit append`）和 `5f47382`（`test(data): cover durable session audit append`）。S3 的 `c286a42`（`test(data): cover audit durable append recovery`）保留实际历史证据：partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory 与 conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；无生产语义改动。S4 的 `ab723a6`（`test(data): cover audit pre-write short-circuit`）仅覆盖 archive save 层首个 audit write 注入 `EIO` 且 audit 0 bytes：JSON/Markdown 保留、ledger 未执行；clean retry 后每个 canonical audit row 恰一条、ledger 恰一条。S5 的 `47393f9`（`test(data): cover audit directory capability symmetry`）仅修改测试，未修改 production code；Sol review approved。它对 audit directory 与 conversation parent directory 的 `open`/`sync` 做 capability symmetry 定向证据：五个 allowlist code 各覆盖两层、两种操作，共 20 cases；每个成功且恰好一条固定通用 warning，warning 不泄露路径、内容、conversation/header/entry ID 或 trace；parent-directory `close` 的 `EINVAL` 仍 fatal。S5 无 production/API/schema/order 变化，不是完整 capability matrix，也不是生产功能。以下是受限 evidence 的实际验证命令和结果，不是完整 suite 的声明：
 
 **P9-S3 的历史 evidence 与 P9-S4 的单一 pre-write short-circuit/retry evidence 均已记录；C-4P9 仍未关闭。**
 
@@ -93,6 +94,15 @@ git diff --check
 
 # P9-S4: 1 file, 27 tests passed
 pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts
+
+# P9-S5 current slice: 1 file, 51 tests passed
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+
+# P9-S5 current slice with archive durable: 2 files, 78 tests passed
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
+pnpm run typecheck
+pnpm run check:security
+git diff --check
 ```
 
 ## C-4P9-S2 已实施的受限语义
@@ -103,4 +113,4 @@ pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durabl
 - file close 后按 audit directory、再 conversation parent directory 的子到父顺序确认 durability。directory `open`/`sync` 仅 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 可降级为通用 warning；其它错误及任何 close failure 均 fatal。
 - post-directory failure 会使 save reject 且不回滚；retry 先重新读取、dedupe exact rows，再允许既有 ledger flow 继续。
 
-这不关闭 C-4P9，也不表示 generic JSONL migration、跨文件 transaction、ledger authority/save-order 改造、repair、rotation 或 IPC/UI 已交付。未完成工作仍见[本地数据待办](../local-data-todo.md)。
+这不关闭 C-4P9，也不表示完整 capability matrix、generic JSONL migration、跨文件 transaction、ledger authority/save-order 改造、repair、rotation 或 IPC/UI 已交付。P9-S3 的历史定向 unit 结果仍必须记为 **61 tests passed**；当前 P9-S5 本切片的结果是 **51 tests passed**，与 archive durable 共同运行是 **78 tests passed**，不要混用这些历史与当前数字。未完成工作仍见[本地数据待办](../local-data-todo.md)。

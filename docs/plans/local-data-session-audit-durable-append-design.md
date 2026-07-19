@@ -1,10 +1,10 @@
-# C-4P9 Session-audit durable append：设计门（P9-S2 已实施；P9-S3/S4 evidence 已完成；C-4P9 未关闭）
+# C-4P9 Session-audit durable append：设计门（P9-S2 已实施；P9-S3/S4/S5 evidence 已完成；C-4P9 未关闭）
 
-> **状态：P9-S2 已实施，P9-S3/S4 tests-only evidence slice 已完成；C-4P9 design gate 仍 pending。**`4b30220`（`feat(data): add durable session audit append`）与 `5f47382`（`test(data): cover durable session audit append`）完成最小切片 **P9-S2 audit 专用 framed、legacy-compatible、fixed-file durable append**；`c286a42`（`test(data): cover audit durable append recovery`）保留 P9-S2 partial-write 与 archive-level failure/retry 的实际历史 evidence：partial prefix、torn-tail framing、dedupe recovery，以及 audit file `sync`/`close`、audit directory 与 conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；`ab723a6`（`test(data): cover audit pre-write short-circuit`）仅补齐 archive save 层首个 audit write 注入 `EIO` 且 audit 为 0 bytes 的 short-circuit/retry evidence：JSON/Markdown 保留、ledger 未执行，clean retry 后每个 canonical audit row 恰一条、ledger 恰一条。本文保留 P9-S2 的已实施 contract、P9-S3 的历史 evidence、P9-S4 的单一 tests-only evidence 和 P9 后续风险；它**不宣称 C-4P9 已完成**，也不授权 generic JSONL migration、跨文件 transaction、ledger authority/save-order 变更、repair、rotation 或 IPC/UI。
+> **状态：P9-S2 已实施，P9-S3/S4/S5 tests-only evidence slice 已完成；C-4P9 design gate 仍 pending。**`4b30220`（`feat(data): add durable session audit append`）与 `5f47382`（`test(data): cover durable session audit append`）完成最小切片 **P9-S2 audit 专用 framed、legacy-compatible、fixed-file durable append**；`c286a42`（`test(data): cover audit durable append recovery`）保留 P9-S2 partial-write 与 archive-level failure/retry 的实际历史 evidence；`ab723a6`（`test(data): cover audit pre-write short-circuit`）仅补齐首个 audit write `EIO`、0 bytes 的 archive-save short-circuit/retry evidence；`47393f9`（`test(data): cover audit directory capability symmetry`）仅修改测试，补齐 audit/parent directory `open`/`sync` 的 20 个 allowlist capability symmetry cases。本文保留各切片的受限 evidence 和 P9 后续风险；它**不宣称 C-4P9 已完成**，也不授权 generic JSONL migration、跨文件 transaction、ledger authority/save-order 变更、repair、rotation 或 IPC/UI。
 
 P9-S2 只替换 per-conversation 固定 `.agent-sessions/<conversation-id>.jsonl` 的 append boundary：不 rotation、不调用 generic `durable-jsonl`；per absolute audit path queue 在线性化的 same-descriptor 生命周期中完成 exact-byte read、validate/dedupe/conflict、framed append、file `fsync`/`close`，再按 audit directory、conversation parent directory 的顺序确认 durability。directory `open`/`sync` 仅 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 可降级为通用 warning；post-directory failure retry 先 dedupe exact rows，之后才允许既有 ledger flow 继续。
 
-P9-S3 是严格 tests-only historical evidence slice：不改变上述生产 contract，只补齐 P9-S2 的 partial-write 与 archive-level failure/retry 定向 evidence，覆盖 partial prefix、torn-tail framing、dedupe recovery，以及 audit file `sync`/`close`、audit directory 与 conversation parent directory `open`/`sync`/`close` failure 后的 clean retry。P9-S4 同为严格 tests-only evidence slice，且**仅**覆盖 archive save 层首个 audit write 注入 `EIO`、audit 0 bytes 时的 short-circuit/retry：JSON/Markdown 保留、ledger 未执行；clean retry 后每个 canonical audit row 恰一条、ledger 恰一条。S4 不覆盖并发、trace、capability、generic JSONL、rotation、事务、ledger authority/save order 或 API。
+P9-S3 是严格 tests-only historical evidence slice，P9-S4 与 P9-S5 同为严格 tests-only evidence slice；三者均不改变生产 contract。S4 仅覆盖首个 audit write `EIO`、0 bytes 的 short-circuit/retry。S5 覆盖 audit directory 与 conversation parent directory 的 `open`/`sync`：五个 allowlist code 各覆盖两层、两种操作，共 20 cases；每个成功且恰好一条固定通用 warning，warning 不泄露路径、内容、conversation/header/entry ID 或 trace；parent-directory `close` 的 `EINVAL` 仍 fatal。S5 无 production/API/schema/order 变化，也不是完整 capability matrix。
 
 C-4P1 `34c48f4` 的 JSON/Markdown durable replace 仍只提供既有有序 archive boundary。P9-S2 保持 JSON → Markdown → audit → existing ledger queue → final verify 的顺序，且不改变 audit JSONL schema/version、parser、raw historical bytes、trace write-once 规则、archive/ledger authority、IPC/UI 或任何 canonical bytes。不得以 C-4P1、C-5E trace、shared `replaceDurably()` 或其它 JSONL writer 的通过证明整个 C-4P9 已 durable。
 
@@ -91,9 +91,9 @@ C-4P9 需要 audit-specific durable append primitive 或获批准的 shared exte
 
 `appendDurableJsonlLine()` **不得直接用于 C-4P9**，除非先有经批准的 non-rotation option、audit-specific path/row contract 与可注入 I/O seam。其现有 month/size sealing model 不构成 audit append 的安全替代；把 audit path 接入默认 rotation 即为破坏性语义变更。
 
-## 6. P9-S2 实施与 P9-S3/S4 evidence 验证；仍未关闭的测试矩阵
+## 6. P9-S2 实施与 P9-S3/S4/S5 evidence 验证；仍未关闭的测试矩阵
 
-`c286a42` 的 P9-S3 定向 unit 覆盖 2 个文件、61 tests passed；当时本主会话实际运行 `pnpm run typecheck`、`pnpm run check:security`、`git diff --check` 均通过。`ab723a6` 的 P9-S4 仅运行 archive durable 定向 unit：1 file、27 tests passed。两者都**不是完整 suite**：
+`c286a42` 的 P9-S3 定向 unit 覆盖 2 个文件、**61 tests passed**；`ab723a6` 的 P9-S4 仅运行 archive durable 定向 unit：1 file、27 tests passed。当前 `47393f9` 的 P9-S5 单独运行 session-audit unit 为 **1 file、51 tests passed**，与 archive durable 共同运行是 **2 files、78 tests passed**；另通过 `pnpm run typecheck`、`pnpm run check:security`、`git diff --check`。这些都是定向 evidence，**不是完整 suite**：
 
 ```sh
 # P9-S3 historical evidence
@@ -104,6 +104,13 @@ git diff --check
 
 # P9-S4 pre-write short-circuit evidence
 pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts
+
+# P9-S5 current capability-symmetry evidence
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
+pnpm run typecheck
+pnpm run check:security
+git diff --check
 ```
 
 P9-S3 新补齐的定向 evidence gap 仅为：
@@ -111,11 +118,11 @@ P9-S3 新补齐的定向 evidence gap 仅为：
 - P9-S2 fixed-file durable append 的真实 partial-write 路径：partial prefix、torn-tail framing 与 dedupe；
 - archive-level failure/retry 矩阵：audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry。
 
-两个 evidence slice 都没有生产语义改动。**P9-S3 保留 partial-write 与 archive-level failure/retry 的实际历史证据；P9-S4 仅补齐首个 audit write `EIO`、0 audit bytes 的 archive-save short-circuit/retry evidence；C-4P9 仍未关闭。**
+三个 evidence slice 都没有生产语义改动。**P9-S3 保留 partial-write 与 archive-level failure/retry 的实际历史证据；P9-S4 仅补齐首个 audit write `EIO`、0 audit bytes 的 archive-save short-circuit/retry evidence；P9-S5 仅补齐上述 20 个 directory capability symmetry cases；C-4P9 仍未关闭。**
 
 下表仍是完整 C-4P9 后续切片/close-out 必须保留的 residual matrix；P9-S3/S4 只补齐上方明确列出的定向 evidence，不把其它项目、其它 JSONL writer 或跨文件 failure matrix 记为已关闭：
 
-| 测试类别 | 最低验证 | P9-S3/S4 evidence 状态 |
+| 测试类别 | 最低验证 | P9-S3/S4/S5 evidence 状态 |
 |---|---|---|
 | non-rotation compatibility | 固定 `.agent-sessions/<conversation-id>.jsonl` 继续单文件；不产生 sealed/month/size segment；header、entry IDs、archive verification、history/artifact protection 与 deletion lifecycle compatibility 不变。 | 未由 P9-S3/S4 关闭；仍属 residual matrix。 |
 | C-4P1 save short-circuits | JSON failure 不触发 Markdown/audit/ledger；Markdown failure 不触发 audit/ledger；audit failure 不触发 ledger；ledger failure 可留 JSON/Markdown/audit 但 save reject；success 后才 final verify。 | P9-S4 仅补齐首个 audit write `EIO`、0 audit bytes 时 JSON/Markdown 保留、ledger 未执行及 clean retry；其它 short-circuit 仍属 residual matrix。 |
@@ -125,11 +132,11 @@ P9-S3 新补齐的定向 evidence gap 仅为：
 | concurrency | concurrent same save、initial+continuation、同 ID retry；一个 header、无 duplicate entry、正确 parent chain；不同 canonical rows 共享 ID 时 conflict fail closed。 | 未由 P9-S3/S4 关闭；仍属 residual matrix。 |
 | read/tail corruption | `ENOENT` 空文件；`EACCES` 与其它 read failure reject；malformed legacy row、torn tail、non-newline tail 不静默拼接/重写；批准策略外一律 fail closed。 | P9-S3 已补齐 partial prefix、torn-tail framing、dedupe 的定向 evidence；P9-S4 不扩大该范围；其余 read/tail residual matrix 仍保留。 |
 | trace/legacy compatibility | C-5E normalized write-once trace、legacy trace-free/malformed tolerant read、既有 raw bytes 不回填/不 rewrite；trace conflict 不得误作 dedupe success。 | 未由 P9-S3/S4 关闭；仍属 residual matrix。 |
-| capability downgrade | 仅五-code allowlist 可降级，warning 无 path/content/ID/trace；permission/I/O/unknown/close failure fatal。 | 未由 P9-S3/S4 关闭；仍属 residual matrix。 |
-| existing suites | `tests/unit/agent-conversation-session-audit.unit.test.ts`、`tests/unit/agent-conversation-archive-durable.unit.test.ts` 及相关 archive/ledger compatibility tests 继续通过；新增或后续测试必须清楚标明归属哪个已批准的 P9 evidence 或 implementation slice，且不得把本 design gate 记为已关闭。 | P9-S3 记录 2 个 unit 文件、61 tests passed；P9-S4 记录 1 个 archive durable unit file、27 tests passed；不是 full suite，残余矩阵仍保留。 |
+| capability downgrade | 仅五-code allowlist 可降级，warning 无 path/content/ID/trace；permission/I/O/unknown/close failure fatal。 | P9-S5 仅补齐 audit/parent directory `open`/`sync` 的 20 个 symmetry cases；完整 capability matrix 仍属 residual matrix。 |
+| existing suites | `tests/unit/agent-conversation-session-audit.unit.test.ts`、`tests/unit/agent-conversation-archive-durable.unit.test.ts` 及相关 archive/ledger compatibility tests 继续通过；新增或后续测试必须清楚标明归属哪个已批准的 P9 evidence 或 implementation slice，且不得把本 design gate 记为已关闭。 | P9-S3 历史记录为 2 个 unit 文件、**61 tests passed**；P9-S4 为 1 个 archive durable unit file、27 tests passed；当前 P9-S5 为 1 file、**51 tests passed**，与 archive durable 共同运行 **78 tests passed**；不是 full suite，残余矩阵仍保留。 |
 
-## 7. P9-S2/S3/S4 后边界与仍待批准范围
+## 7. P9-S2/S3/S4/S5 后边界与仍待批准范围
 
-P9-S2 只授权并实现本文件所述的固定 audit-file durable append；P9-S3/S4 只提供上述 tests-only evidence，不改变生产语义。S4 的范围严格限于首个 audit write `EIO`、0 audit bytes 的 archive-save short-circuit/retry，不能据此扩展为并发、trace、capability、generic JSONL、rotation、事务、ledger authority/save order 或 API 的 evidence。三者都不授权 generic JSONL migration 或调用 `appendDurableJsonlLine()`、跨文件 transaction、改变 audit parser、重写/修复 existing JSONL、rotation、schema/version 变化、trace/action identity 改造、ledger authority 或 archive save-order 调整、artifact/history/deletion lifecycle 变化或新的 IPC/UI。
+P9-S2 只授权并实现本文件所述的固定 audit-file durable append；P9-S3/S4/S5 只提供上述 tests-only evidence，不改变生产语义。S5 的范围严格限于 20 个 directory capability symmetry cases，不能据此扩展为完整 capability matrix、并发、trace、generic JSONL、rotation、事务、ledger authority/save order 或 API 的 evidence。四者都不授权 generic JSONL migration 或调用 `appendDurableJsonlLine()`、跨文件 transaction、改变 audit parser、重写/修复 existing JSONL、rotation、schema/version 变化、trace/action identity 改造、ledger authority 或 archive save-order 调整、artifact/history/deletion lifecycle 变化或新的 IPC/UI。
 
-完整 C-4P9 仍须在本 design gate 中逐项保留并批准 non-rotation helper 边界以外的后续 scope、其余 failure coverage、其它 writer 是否可迁移，以及第 6 节尚未关闭的完整 residual matrix。路线图与 implementation plan 只能记录：**“P9-S3 保留 P9-S2 partial-write 与 archive-level failure/retry 的实际历史 evidence；P9-S4 仅补齐首个 audit write `EIO`、0 audit bytes 的 archive-save short-circuit/retry evidence；C-4P9 仍未关闭。”**
+完整 C-4P9 仍须在本 design gate 中逐项保留并批准 non-rotation helper 边界以外的后续 scope、其余 failure coverage、其它 writer 是否可迁移，以及第 6 节尚未关闭的完整 residual matrix。路线图与 implementation plan 只能记录：**“P9-S3 保留 P9-S2 partial-write 与 archive-level failure/retry 的实际历史 evidence；P9-S4 仅补齐首个 audit write `EIO`、0 audit bytes 的 archive-save short-circuit/retry evidence；P9-S5 仅补齐 20 个 directory capability symmetry tests-only cases；C-4P9 仍未关闭。”**
