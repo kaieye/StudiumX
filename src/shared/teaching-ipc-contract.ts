@@ -62,7 +62,6 @@ export const teachingInvokeChannels = {
   resolveAgentConversationCheckpoint: 'teach:resolve-agent-conversation-checkpoint',
   queryAgentArchivedHistory: 'teach:query-agent-archived-history',
   rebuildAgentHistoryIndex: 'teach:rebuild-agent-history-index',
-  cleanupAgentArtifacts: 'teach:cleanup-agent-artifacts',
   setWorkspaceItemMeta: 'teach:set-workspace-item-meta',
   removeWorkspaceItem: 'teach:remove-workspace-item',
   removeWorkspace: 'teach:remove-workspace',

@@ -55,13 +55,11 @@ import {
   saveAgentConversationBranchAtRoot,
   updateAgentConversationBranchStatusAtRoot
 } from './agent-conversation-session-tree'
-import { cleanupAgentArtifacts as runAgentArtifactCleanup } from './agent-artifact-lifecycle'
 import {
   AGENT_CONVERSATION_HISTORY_INDEX_RELATIVE_PATH,
   queryAgentArchivedHistory as queryArchivedHistoryAtRoot,
   rebuildAgentConversationHistoryIndex
 } from './agent-conversation-history'
-import { collectAgentArtifactProtectionSnapshot } from './agent-artifact-protection'
 import { projectAgentConversationSummaries } from './agent-conversation-summary-projection'
 import type { SkillLibraryService } from './skill-library'
 import type { LessonPlanSource } from '../shared/lesson-schema'
@@ -130,8 +128,6 @@ import type {
   AgentConversationCheckpoint,
   AgentConversationSessionTree,
   AgentConversationStorageScope,
-  CleanupAgentArtifactsPayload,
-  CleanupAgentArtifactsResult,
   CreateAgentConversationCheckpointPayload,
   ForkAgentConversationBranchPayload,
   ForkAgentConversationBranchResult,
@@ -1255,58 +1251,6 @@ export class TeachingWorkspaceService {
     }
   }
 
-  async cleanupAgentArtifacts(payload: CleanupAgentArtifactsPayload): Promise<CleanupAgentArtifactsResult> {
-    const roots = await this.agentStorageRoots(payload.workspaceId, payload.scope)
-    const results = await Promise.all(roots.map(async ({ scope, rootPath }) => ({
-      scope,
-      result: await runAgentArtifactCleanup({
-        storageRoot: rootPath,
-        dryRun: payload.dryRun !== false,
-        policy: {
-          retentionDays: payload.retentionDays,
-          gracePeriodHours: payload.graceHours,
-          maxTotalBytes: payload.maxTotalBytes
-        },
-        resolveProtectionSnapshot: () => collectAgentArtifactProtectionSnapshot(rootPath)
-      })
-    })))
-
-    return {
-      dryRun: payload.dryRun !== false,
-      scanned: results.reduce((sum, entry) => sum + entry.result.totals.scannedEntries, 0),
-      scannedBytes: results.reduce((sum, entry) => sum + entry.result.totals.scannedBytes, 0),
-      deleted: results.reduce((sum, entry) => sum + entry.result.totals.deletedEntries, 0),
-      deletedBytes: results.reduce((sum, entry) => sum + entry.result.totals.deletedBytes, 0),
-      retained: results.reduce((sum, entry) => sum + entry.result.totals.protectedEntries, 0),
-      duplicateGroups: results.reduce((sum, entry) => sum + entry.result.duplicates.length, 0),
-      actions: results.flatMap(({ scope, result }) => [
-        ...result.actions.map((action) => ({
-          relativePath: `${scope}:${action.relativePath}`,
-          kind: cleanupArtifactKind(action.kind),
-          bytes: action.bytes,
-          sha256: action.sha256,
-          reason: action.reason === 'storage_budget' ? 'over_budget' as const : 'expired_orphan' as const,
-          action: action.status === 'deleted' || action.status === 'planned' ? 'delete' as const : 'retain' as const
-        })),
-        ...result.duplicates.flatMap((duplicate) => duplicate.relativePaths.map((relativePath) => ({
-          relativePath: `${scope}:${relativePath}`,
-          kind: 'unknown' as const,
-          bytes: duplicate.bytes,
-          sha256: duplicate.sha256,
-          reason: 'duplicate' as const,
-          action: 'report_duplicate' as const
-        })))
-      ]),
-      issues: results.flatMap(({ scope, result }) => result.issues.map((issue) => ({
-        code: issue.code,
-        message: issue.message,
-        ...(issue.relativePath ? { relativePath: `${scope}:${issue.relativePath}` } : {})
-      }))),
-      auditRelativePaths: results.flatMap(({ scope, result }) => result.auditRelativePath
-        ? [`${scope}:${result.auditRelativePath}`]
-        : [])
-    }
-  }
 
   private async agentStorageRoots(
     workspaceId: string,
@@ -2248,12 +2192,6 @@ function prunePendingAgentRunArchiveScopes(scopes: Map<string, PendingAgentRunAr
   }
 }
 
-function cleanupArtifactKind(kind: string): 'tool_result' | 'child_transcript' | 'parent_turn_staging' | 'unknown' {
-  if (kind === 'conversation_tool_result') return 'tool_result'
-  if (kind === 'conversation_child_transcript' || kind === 'staged_child_transcript') return 'child_transcript'
-  if (kind === 'parent_turn_stage') return 'parent_turn_staging'
-  return 'unknown'
-}
 
 async function invalidateAgentHistoryIndex(rootPath: string): Promise<void> {
   await rm(join(rootPath, AGENT_CONVERSATION_HISTORY_INDEX_RELATIVE_PATH), { force: true })

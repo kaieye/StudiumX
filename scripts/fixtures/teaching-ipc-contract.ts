@@ -15,6 +15,8 @@ assert.equal(invokeValues.length, new Set(invokeValues).size, 'invoke channels s
 assert.equal(eventValues.length, new Set(eventValues).size, 'event channels should be unique')
 assert.equal(teachingInvokeChannels.listUpstreamModels, 'teach:list-upstream-models')
 assert.equal(teachingInvokeChannels.applyLessonStyle, 'teach:apply-lesson-style')
+assert.equal('cleanupAgentArtifacts' in teachingInvokeChannels, false, 'agent artifact cleanup must not be a renderer IPC capability')
+assert.equal(Object.values(teachingInvokeChannels).includes('teach:cleanup-agent-artifacts'), false, 'agent artifact cleanup channel must not be published')
 assert.equal(teachingInvokeChannels.projectAgentConversationSummaries, 'teach:project-agent-conversation-summaries')
 assert.equal(teachingEventChannels.lessonStreamChunk, 'teach:generate-lesson-chunk')
 assert.equal(teachingEventChannels.agentChatTool, 'teach:agent-chat-tool')
@@ -30,7 +32,6 @@ const requiredInvokeCapabilities: TeachingInvokeCapability[] = [
   'resolveAgentConversationCheckpoint',
   'queryAgentArchivedHistory',
   'rebuildAgentHistoryIndex',
-  'cleanupAgentArtifacts',
   'listUpstreamModels',
   'getConnectorStatuses',
   'openAppDataDir'

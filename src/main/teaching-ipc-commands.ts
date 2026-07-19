@@ -5,7 +5,6 @@ import type {
   AgentChatStreamPayload,
   AgentChatTurn,
   ApplyLessonStylePayload,
-  CleanupAgentArtifactsPayload,
   CreateAgentConversationCheckpointPayload,
   ForkAgentConversationBranchPayload,
   OpenAgentConversationBranchPayload,
@@ -395,17 +394,6 @@ export function parseRebuildAgentHistoryIndexPayload(payload: unknown): RebuildA
   }
 }
 
-export function parseCleanupAgentArtifactsPayload(payload: unknown): CleanupAgentArtifactsPayload {
-  const record = requireRecord(payload)
-  return {
-    workspaceId: requireString(record.workspaceId, 'workspaceId'),
-    scope: requireAgentConversationStorageScope(record.scope),
-    dryRun: record.dryRun !== false,
-    retentionDays: optionalPositiveInteger(record.retentionDays, 1, 3_650),
-    graceHours: optionalPositiveInteger(record.graceHours, 1, 24 * 30),
-    maxTotalBytes: optionalPositiveInteger(record.maxTotalBytes, 1024 * 1024, 10 * 1024 * 1024 * 1024)
-  }
-}
 
 export function parseWorkspaceItemMetaPayload(payload: unknown): WorkspaceItemMetaPayload {
   const record = requireRecord(payload)

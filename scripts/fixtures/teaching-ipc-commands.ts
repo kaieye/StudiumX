@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 
 import {
   parseAgentChatStreamPayload,
-  parseCleanupAgentArtifactsPayload,
   parseCreateAgentConversationCheckpointPayload,
   parseListUpstreamModelsPayload,
   parseQueryAgentArchivedHistoryPayload,
@@ -165,17 +164,6 @@ assert.throws(() => parseQueryAgentArchivedHistoryPayload({
 assert.deepEqual(parseRebuildAgentHistoryIndexPayload({ workspaceId: 'workspace-1', scope: 'workspace' }), {
   workspaceId: 'workspace-1', scope: 'workspace'
 })
-assert.deepEqual(parseCleanupAgentArtifactsPayload({
-  workspaceId: 'workspace-1', scope: 'temporary', dryRun: false, retentionDays: 30, graceHours: 12
-}), {
-  workspaceId: 'workspace-1',
-  scope: 'temporary',
-  dryRun: false,
-  retentionDays: 30,
-  graceHours: 12,
-  maxTotalBytes: undefined
-})
-
 const providers = [
   { id: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk', endpointFormat: 'chat_completions' as const }
 ]

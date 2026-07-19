@@ -234,10 +234,6 @@ export function agentConversationHistoryIndexRelativePath(): string {
   return '.agent-sessions/history-index.v1.json'
 }
 
-export function agentArtifactCleanupAuditRelativePath(): string {
-  return '.agent-sessions/artifact-cleanup.jsonl'
-}
-
 /** Preserves canonical legacy or YYYY/MM partition directory paths; never rewrites a layout. */
 export function normalizeAgentConversationDirectory(conversationDir: string): string {
   if (typeof conversationDir !== 'string') return 'conversations'

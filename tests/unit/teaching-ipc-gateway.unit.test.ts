@@ -643,12 +643,9 @@ describe('Teaching IPC gateway', () => {
     expect(updateAgentConversationBranchStatus).not.toHaveBeenCalled()
   })
 
-  it('routes explicit archived-history operations through bounded parsers', async () => {
+  it('routes archived-history queries through bounded parsers without publishing cleanup', async () => {
     const queryAgentArchivedHistory = vi.fn().mockResolvedValue({ items: [], truncated: false })
-    const cleanupAgentArtifacts = vi.fn().mockResolvedValue({ dryRun: true, actions: [] })
-    registerTeachingIpcGateway(registration({
-      workspaceService: { queryAgentArchivedHistory, cleanupAgentArtifacts }
-    }))
+    registerTeachingIpcGateway(registration({ workspaceService: { queryAgentArchivedHistory } }))
 
     await handler(teachingInvokeChannels.queryAgentArchivedHistory)(event, {
       workspaceId: 'workspace-1',
@@ -667,12 +664,11 @@ describe('Teaching IPC gateway', () => {
       limit: 10
     }))
 
-    await handler(teachingInvokeChannels.cleanupAgentArtifacts)(event, {
-      workspaceId: 'workspace-1', dryRun: true, retentionDays: 90
-    })
-    expect(cleanupAgentArtifacts).toHaveBeenCalledWith(expect.objectContaining({
-      workspaceId: 'workspace-1', dryRun: true, retentionDays: 90
-    }))
+    expect('cleanupAgentArtifacts' in teachingInvokeChannels).toBe(false)
+    expect(electron.handlers.has('teach:cleanup-agent-artifacts')).toBe(false)
+    const preloadSource = await readFile(join(process.cwd(), 'src', 'preload', 'index.ts'), 'utf8')
+    expect(preloadSource).not.toContain('cleanupAgentArtifacts')
+    expect(preloadSource).not.toContain('cleanup-agent-artifacts')
   })
 
   it('registers every existing Teaching invoke channel exactly once', () => {

@@ -113,7 +113,6 @@ const api: TeachingSystemApi = {
   resolveAgentConversationCheckpoint: (payload) => ipcRenderer.invoke(teachingInvokeChannels.resolveAgentConversationCheckpoint, payload),
   queryAgentArchivedHistory: (payload) => ipcRenderer.invoke(teachingInvokeChannels.queryAgentArchivedHistory, payload),
   rebuildAgentHistoryIndex: (payload) => ipcRenderer.invoke(teachingInvokeChannels.rebuildAgentHistoryIndex, payload),
-  cleanupAgentArtifacts: (payload) => ipcRenderer.invoke(teachingInvokeChannels.cleanupAgentArtifacts, payload),
   setWorkspaceItemMeta: (payload) => ipcRenderer.invoke(teachingInvokeChannels.setWorkspaceItemMeta, payload),
   removeWorkspaceItem: (payload) => ipcRenderer.invoke(teachingInvokeChannels.removeWorkspaceItem, payload),
   removeWorkspace: (payload) => ipcRenderer.invoke(teachingInvokeChannels.removeWorkspace, payload),
