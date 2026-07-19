@@ -6763,6 +6763,103 @@ describe('LearningOutcomeCommitter', () => {
     await expect(readFile(manifestPath, 'utf8')).resolves.toBe('[{"schemaVersion":1}]\n')
   })
 
+  it('fails closed before writes when session manifest conversationRefs is not an array', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-conversation-refs-not-array-failure-unit'
+    const outcomeId = 'outcome-commit-conversation-refs-not-array-failure-1'
+    const operationId = 'commit-conversation-refs-not-array-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-conversation-refs-not-array-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    expect(Array.isArray(manifest.conversationRefs)).toBe(true)
+    // parseManifest rejects non-array conversationRefs as invalid_session_manifest before any publication.
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, conversationRefs: { conversationId: 'c1' } }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'active',
+      conversationRefs: { conversationId: 'c1' },
+      outcomeRef: null
+    })
+  })
+
+  it('fails closed before writes when session manifest carries an unknown key', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-unknown-manifest-key-failure-unit'
+    const outcomeId = 'outcome-commit-unknown-manifest-key-failure-1'
+    const operationId = 'commit-unknown-manifest-key-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-unknown-manifest-key-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    // parseManifest assertOnlyKeys rejects unexpected top-level keys before any publication.
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, unexpectedAuthority: true }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'active',
+      unexpectedAuthority: true,
+      outcomeRef: null
+    })
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
