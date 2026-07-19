@@ -118,6 +118,8 @@
 | C-4P9-S41 `570a372` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file read partial-then-stall residual：read 先推进 1 byte 再返回 0 时 fail closed、不 write、不 capability downgrade、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、144 tests passed |
 | C-4P9-S42 `1383428` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file write partial-then-stall residual：write 先推进 1 byte 再返回 0 时 fail closed、不 capability downgrade、不启动 directory open、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、145 tests passed |
 | C-4P9-S43 `8570645` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit negative transfer residual counts：read/write 返回 `-1` 时 fail closed、不 capability downgrade、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、147 tests passed |
+| C-4P9-S44 `e06a117` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit write multi-byte partial-then-stall residual：首次 `bytesWritten: 2` 后 `0` 时 fail closed、不 capability downgrade、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、148 tests passed |
+| C-4P9-S45 `33a914a` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit exact-read multi-byte partial-then-stall residual：首次 `bytesRead: 2` 后 `0` 时 fail closed、不 write、不 capability downgrade、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、149 tests passed |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
@@ -1233,6 +1235,24 @@ pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.
 ```bash
 pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
 # P9-S43 audit negative transfer residual counts: 1 file, 147 tests passed
+```
+
+## C-4P9-S44：audit file write multi-byte partial-then-stall residual 的 tests-only evidence
+
+`e06a117`（`test(data): cover multi-byte write partial-stall residual`）仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit write multi-byte partial-then-stall residual：首次 `bytesWritten: 2` 后 `0`，fail closed、不 capability downgrade、不启动 directory open、无 warning。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+# P9-S44 audit write multi-byte partial-then-stall residual: 1 file, 148 tests passed
+```
+
+## C-4P9-S45：audit file read multi-byte partial-then-stall residual 的 tests-only evidence
+
+`33a914a`（`test(data): cover multi-byte read partial-stall residual`）仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit exact-read multi-byte partial-then-stall residual：首次 `bytesRead: 2` 后 `0`，fail closed、不 write、不 capability downgrade、不启动 directory open、无 warning。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+# P9-S45 audit read multi-byte partial-then-stall residual: 1 file, 149 tests passed
 ```
 
 ## C-4P9-S9：concurrent same-ID body conflict 的 tests-only evidence
