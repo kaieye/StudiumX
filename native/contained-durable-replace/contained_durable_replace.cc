@@ -6,6 +6,15 @@
 #include <string>
 #include <vector>
 
+#if defined(__APPLE__)
+#include <stdio.h>
+#endif
+
+#if defined(__linux__)
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#endif
+
 #if !defined(_WIN32)
 #include <dirent.h>
 #include <fcntl.h>
@@ -33,6 +42,7 @@ struct ReplaceWork {
   std::string error;
   bool directory_sync_unsupported = false;
 };
+
 
 bool ThrowNapiError(napi_env env, napi_status status, const char* operation) {
   if (status == napi_ok) return true;
@@ -114,10 +124,23 @@ void CloseCapability(napi_env, void* data, void*) {
   delete capability;
 }
 
+
+struct TemporaryFileCapability {
+  int fd = -1;
+};
+
+void CloseTemporaryFileCapability(napi_env, void* data, void*) {
+  auto* capability = static_cast<TemporaryFileCapability*>(data);
+  if (capability == nullptr) return;
+  CloseFileDescriptor(&capability->fd);
+  delete capability;
+}
+
 void CleanupReplaceWork(ReplaceWork* work) {
   if (work == nullptr) return;
   CloseFileDescriptor(&work->directory_fd);
 }
+
 
 
 bool GetBoolean(napi_env env, napi_value value, bool* output) {
@@ -184,6 +207,43 @@ class ScopedFileDescriptor {
 
 bool IsUnsupportedDirectorySync(int error) {
   return error == EINVAL || error == ENOSYS || error == ENOTSUP || error == EOPNOTSUPP || error == EISDIR;
+}
+
+
+bool IsCreateNoOverwritePrimitiveUnavailable(int error) {
+  // The arguments and fixed no-replace flags below are valid. On the two
+  // supported host families these errors therefore mean the kernel/filesystem
+  // does not provide the required atomic no-clobber primitive. Do not fall
+  // back to a check followed by rename.
+  return error == ENOSYS || error == EINVAL || error == ENOTSUP || error == EOPNOTSUPP;
+}
+
+bool PublishCreateNoOverwrite(int directory_fd, const char* temporary_name, const char* filename, std::string* error, std::string* error_code) {
+#if defined(__APPLE__)
+  if (renameatx_np(directory_fd, temporary_name, directory_fd, filename, RENAME_EXCL) == 0) return true;
+  const int publish_error = errno;
+#elif defined(__linux__) && defined(SYS_renameat2) && defined(RENAME_NOREPLACE)
+  if (syscall(SYS_renameat2, directory_fd, temporary_name, directory_fd, filename, RENAME_NOREPLACE) == 0) return true;
+  const int publish_error = errno;
+#else
+  (void)directory_fd;
+  (void)temporary_name;
+  (void)filename;
+  *error = "Atomic descriptor-relative create-no-overwrite publication is unavailable on this platform.";
+  *error_code = "ERR_CONTAINED_CREATE_NO_OVERWRITE_UNAVAILABLE";
+  return false;
+#endif
+
+#if defined(__APPLE__) || (defined(__linux__) && defined(SYS_renameat2) && defined(RENAME_NOREPLACE))
+  if (IsCreateNoOverwritePrimitiveUnavailable(publish_error)) {
+    *error = "Atomic descriptor-relative create-no-overwrite publication is unavailable on this host.";
+    *error_code = "ERR_CONTAINED_CREATE_NO_OVERWRITE_UNAVAILABLE";
+    return false;
+  }
+  *error = std::string("Unable to publish descriptor-relative create-no-overwrite candidate: ") + std::strerror(publish_error);
+  *error_code = publish_error == EEXIST ? "EEXIST" : "EIO";
+  return false;
+#endif
 }
 
 bool SyncDirectoryEntry(int parent_fd, bool* directory_sync_unsupported, const char* created_kind, std::string* error) {
@@ -859,6 +919,253 @@ napi_value ReplaceAtContainedDirectory(napi_env env, napi_callback_info info) {
   return promise;
 }
 
+bool GetTemporaryFileCapability(napi_env env, napi_value value, TemporaryFileCapability** output, const char* operation) {
+  TemporaryFileCapability* capability = nullptr;
+  if (!ThrowNapiError(env, napi_get_value_external(env, value, reinterpret_cast<void**>(&capability)), operation)) return false;
+  if (capability == nullptr || capability->fd < 0) {
+    napi_throw_error(env, nullptr, "Contained temporary file capability is closed or invalid.");
+    return false;
+  }
+  *output = capability;
+  return true;
+}
+
+napi_value MakeTemporaryFileCapability(napi_env env, int fd) {
+  TemporaryFileCapability* capability = nullptr;
+  try {
+    capability = new TemporaryFileCapability();
+  } catch (const std::exception&) {
+    CloseFileDescriptor(&fd);
+    napi_throw_error(env, nullptr, "Unable to allocate contained temporary file capability.");
+    return nullptr;
+  }
+  capability->fd = fd;
+  napi_value external = nullptr;
+  if (!ThrowNapiError(env, napi_create_external(env, capability, CloseTemporaryFileCapability, nullptr, &external), "Unable to create contained temporary file capability")) {
+    CloseTemporaryFileCapability(env, capability, nullptr);
+    return nullptr;
+  }
+  return external;
+}
+
+napi_value CreateContainedTemporaryFile(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2] = {nullptr, nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read createContainedTemporaryFile arguments")) return nullptr;
+  if (argc != 2) {
+    napi_throw_error(env, nullptr, "createContainedTemporaryFile requires a directory capability and temporary name.");
+    return nullptr;
+  }
+  DirectoryCapability* directory = nullptr;
+  std::string temporary_name;
+  if (!GetDirectoryCapability(env, argv[0], &directory, "Unable to read contained directory capability") ||
+      !GetString(env, argv[1], &temporary_name) || !IsSafeName(temporary_name)) {
+    napi_throw_error(env, nullptr, "Contained temporary file arguments are invalid.");
+    return nullptr;
+  }
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  const int temporary_fd = openat(directory->fd, temporary_name.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0666);
+  if (temporary_fd < 0) {
+    ThrowNativeError(env, std::string("Unable to create contained temporary file: ") + std::strerror(errno), "EIO");
+    return nullptr;
+  }
+  return MakeTemporaryFileCapability(env, temporary_fd);
+#endif
+}
+
+napi_value WriteContainedTemporaryFile(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2] = {nullptr, nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read writeContainedTemporaryFile arguments")) return nullptr;
+  if (argc != 2) {
+    napi_throw_error(env, nullptr, "writeContainedTemporaryFile requires a temporary file capability and content.");
+    return nullptr;
+  }
+  TemporaryFileCapability* temporary = nullptr;
+  if (!GetTemporaryFileCapability(env, argv[0], &temporary, "Unable to read contained temporary file capability")) return nullptr;
+  bool is_buffer = false;
+  if (!ThrowNapiError(env, napi_is_buffer(env, argv[1], &is_buffer), "Unable to inspect contained temporary file content")) return nullptr;
+  if (!is_buffer) {
+    napi_throw_error(env, nullptr, "Contained temporary file content must be a Buffer.");
+    return nullptr;
+  }
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  void* bytes = nullptr;
+  size_t length = 0;
+  if (!ThrowNapiError(env, napi_get_buffer_info(env, argv[1], &bytes, &length), "Unable to read contained temporary file content")) return nullptr;
+  std::vector<uint8_t> content;
+  try {
+    content.assign(static_cast<uint8_t*>(bytes), static_cast<uint8_t*>(bytes) + length);
+  } catch (const std::exception&) {
+    napi_throw_error(env, nullptr, "Unable to allocate contained temporary file content.");
+    return nullptr;
+  }
+  std::string error;
+  if (!WriteAll(temporary->fd, content, &error)) {
+    ThrowNativeError(env, error, "EIO");
+    return nullptr;
+  }
+  napi_value undefined = nullptr;
+  if (!ThrowNapiError(env, napi_get_undefined(env, &undefined), "Unable to return from writeContainedTemporaryFile")) return nullptr;
+  return undefined;
+#endif
+}
+
+napi_value SyncContainedTemporaryFile(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read syncContainedTemporaryFile arguments")) return nullptr;
+  if (argc != 1) {
+    napi_throw_error(env, nullptr, "syncContainedTemporaryFile requires a temporary file capability.");
+    return nullptr;
+  }
+  TemporaryFileCapability* temporary = nullptr;
+  if (!GetTemporaryFileCapability(env, argv[0], &temporary, "Unable to read contained temporary file capability")) return nullptr;
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  if (fsync(temporary->fd) != 0) {
+    ThrowNativeError(env, std::string("Unable to sync contained temporary file: ") + std::strerror(errno), "EIO");
+    return nullptr;
+  }
+  napi_value undefined = nullptr;
+  if (!ThrowNapiError(env, napi_get_undefined(env, &undefined), "Unable to return from syncContainedTemporaryFile")) return nullptr;
+  return undefined;
+#endif
+}
+
+napi_value CloseContainedTemporaryFileChecked(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read closeContainedTemporaryFileChecked arguments")) return nullptr;
+  if (argc != 1) {
+    napi_throw_error(env, nullptr, "Contained temporary file capability is invalid.");
+    return nullptr;
+  }
+  TemporaryFileCapability* temporary = nullptr;
+  if (!GetTemporaryFileCapability(env, argv[0], &temporary, "Unable to read contained temporary file capability")) return nullptr;
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  const int fd = temporary->fd;
+  temporary->fd = -1;
+  if (close(fd) != 0) {
+    ThrowNativeError(env, std::string("Unable to close contained temporary file: ") + std::strerror(errno), "EIO");
+    return nullptr;
+  }
+  napi_value undefined = nullptr;
+  if (!ThrowNapiError(env, napi_get_undefined(env, &undefined), "Unable to return from closeContainedTemporaryFileChecked")) return nullptr;
+  return undefined;
+#endif
+}
+
+napi_value PublishNoOverwriteAtContainedDirectory(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value argv[3] = {nullptr, nullptr, nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read publishNoOverwriteAtContainedDirectory arguments")) return nullptr;
+  if (argc != 3) {
+    napi_throw_error(env, nullptr, "publishNoOverwriteAtContainedDirectory requires a directory capability, temporary name, and final name.");
+    return nullptr;
+  }
+  DirectoryCapability* directory = nullptr;
+  std::string temporary_name;
+  std::string filename;
+  if (!GetDirectoryCapability(env, argv[0], &directory, "Unable to read contained directory capability") ||
+      !GetString(env, argv[1], &temporary_name) || !GetString(env, argv[2], &filename) ||
+      !IsSafeName(temporary_name) || !IsSafeName(filename)) {
+    napi_throw_error(env, nullptr, "Contained create-no-overwrite publication arguments are invalid.");
+    return nullptr;
+  }
+#if defined(_WIN32)
+  ThrowNativeError(env, "Atomic descriptor-relative create-no-overwrite publication is unavailable on Windows.", "ERR_CONTAINED_CREATE_NO_OVERWRITE_UNAVAILABLE");
+  return nullptr;
+#else
+  // Acquire the return value before the exclusive rename. Once the rename
+  // succeeds, this callback performs no fallible N-API work: that syscall
+  // success is the sole publication marker observed by the TypeScript layer.
+  napi_value undefined = nullptr;
+  if (!ThrowNapiError(env, napi_get_undefined(env, &undefined), "Unable to prepare publishNoOverwriteAtContainedDirectory result")) return nullptr;
+  std::string error;
+  std::string error_code;
+  if (!PublishCreateNoOverwrite(directory->fd, temporary_name.c_str(), filename.c_str(), &error, &error_code)) {
+    ThrowNativeError(env, error, error_code.c_str());
+    return nullptr;
+  }
+  return undefined;
+#endif
+}
+
+napi_value RemoveContainedDirectoryEntry(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2] = {nullptr, nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read removeContainedDirectoryEntry arguments")) return nullptr;
+  if (argc != 2) {
+    napi_throw_error(env, nullptr, "removeContainedDirectoryEntry requires a directory capability and entry name.");
+    return nullptr;
+  }
+  DirectoryCapability* directory = nullptr;
+  std::string name;
+  if (!GetDirectoryCapability(env, argv[0], &directory, "Unable to read contained directory capability") ||
+      !GetString(env, argv[1], &name) || !IsSafeName(name)) {
+    napi_throw_error(env, nullptr, "Contained directory entry removal arguments are invalid.");
+    return nullptr;
+  }
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  if (unlinkat(directory->fd, name.c_str(), 0) != 0 && errno != ENOENT) {
+    ThrowNativeError(env, std::string("Unable to remove contained temporary entry: ") + std::strerror(errno), "EIO");
+    return nullptr;
+  }
+  napi_value undefined = nullptr;
+  if (!ThrowNapiError(env, napi_get_undefined(env, &undefined), "Unable to return from removeContainedDirectoryEntry")) return nullptr;
+  return undefined;
+#endif
+}
+
+napi_value SyncContainedDirectoryForPublication(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read syncContainedDirectoryForPublication arguments")) return nullptr;
+  if (argc != 1) {
+    napi_throw_error(env, nullptr, "syncContainedDirectoryForPublication requires a directory capability.");
+    return nullptr;
+  }
+  DirectoryCapability* directory = nullptr;
+  if (!GetDirectoryCapability(env, argv[0], &directory, "Unable to read contained directory capability")) return nullptr;
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  bool unsupported = directory->directory_sync_unsupported;
+  if (!unsupported && fsync(directory->fd) != 0) {
+    const int sync_error = errno;
+    if (IsUnsupportedDirectorySync(sync_error)) {
+      directory->directory_sync_unsupported = true;
+      unsupported = true;
+    } else {
+      ThrowNativeError(env, std::string("Unable to sync contained publication directory: ") + std::strerror(sync_error), "EIO");
+      return nullptr;
+    }
+  }
+  napi_value result = nullptr;
+  napi_value unsupported_value = nullptr;
+  if (!ThrowNapiError(env, napi_create_object(env, &result), "Unable to allocate contained publication directory sync result") ||
+      !ThrowNapiError(env, napi_get_boolean(env, unsupported, &unsupported_value), "Unable to create contained publication directory sync result") ||
+      !ThrowNapiError(env, napi_set_named_property(env, result, "directorySyncUnsupported", unsupported_value), "Unable to set contained publication directory sync result")) return nullptr;
+  return result;
+#endif
+}
+
 napi_value CloseContainedDirectoryChecked(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value argv[1] = {nullptr};
@@ -924,10 +1231,17 @@ napi_value Init(napi_env env, napi_value exports) {
     {"listContainedDirectory", nullptr, ListContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"readRegularFileAtContainedDirectory", nullptr, ReadRegularFileAtContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"replaceAtContainedDirectory", nullptr, ReplaceAtContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"createContainedTemporaryFile", nullptr, CreateContainedTemporaryFile, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"writeContainedTemporaryFile", nullptr, WriteContainedTemporaryFile, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"syncContainedTemporaryFile", nullptr, SyncContainedTemporaryFile, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"closeContainedTemporaryFileChecked", nullptr, CloseContainedTemporaryFileChecked, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"publishNoOverwriteAtContainedDirectory", nullptr, PublishNoOverwriteAtContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"removeContainedDirectoryEntry", nullptr, RemoveContainedDirectoryEntry, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"syncContainedDirectoryForPublication", nullptr, SyncContainedDirectoryForPublication, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"closeContainedDirectoryChecked", nullptr, CloseContainedDirectoryChecked, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"closeContainedDirectory", nullptr, CloseContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr}
   };
-  if (!ThrowNapiError(env, napi_define_properties(env, exports, 10, properties), "Unable to define contained durable replacement exports")) return nullptr;
+  if (!ThrowNapiError(env, napi_define_properties(env, exports, 17, properties), "Unable to define contained durable replacement exports")) return nullptr;
   return exports;
 }
 

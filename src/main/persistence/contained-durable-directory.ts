@@ -30,6 +30,13 @@ type NativeContainedDurableReplace = {
     temporaryName: string,
     content: Buffer
   ) => Promise<{ directorySyncUnsupported: boolean }>
+  createContainedTemporaryFile: (directory: unknown, temporaryName: string) => unknown
+  writeContainedTemporaryFile: (temporaryFile: unknown, content: Buffer) => void
+  syncContainedTemporaryFile: (temporaryFile: unknown) => void
+  closeContainedTemporaryFileChecked: (temporaryFile: unknown) => void
+  publishNoOverwriteAtContainedDirectory: (directory: unknown, temporaryName: string, filename: string) => void
+  removeContainedDirectoryEntry: (directory: unknown, name: string) => void
+  syncContainedDirectoryForPublication: (directory: unknown) => { directorySyncUnsupported: boolean }
   closeContainedDirectoryChecked: (directory: unknown) => void
   closeContainedDirectory: (directory: unknown) => void
 }
@@ -136,6 +143,11 @@ export type NativeContainedDurableReplaceResolverInput = {
 /** An opaque native directory descriptor retained across contained operations. */
 export type ContainedDurableDirectory = {
   readonly nativeDirectory: unknown
+}
+
+/** Opaque descriptor-bound temporary file capability for P8 publication. */
+export type ContainedTemporaryFile = {
+  readonly nativeTemporaryFile: unknown
 }
 
 export type ContainedDirectoryEntry = NativeContainedDirectoryEntry
@@ -292,6 +304,79 @@ export async function replaceDurablyInContainedDirectory(input: {
   if (result.directorySyncUnsupported) {
     ;(input.warn ?? console.warn)('[StudiumX] A required contained-directory fsync is unsupported; publication completed under the documented durability downgrade.')
   }
+}
+
+
+/** Creates one descriptor-relative, exclusive temporary candidate. */
+export function createContainedTemporaryFile(
+  directory: ContainedDurableDirectory,
+  temporaryName: string
+): ContainedTemporaryFile {
+  if (!isSafeBasename(temporaryName)) throw new Error('Contained temporary filename is invalid.')
+  return {
+    nativeTemporaryFile: loadNativeContainedDurableReplace().createContainedTemporaryFile(
+      directory.nativeDirectory,
+      temporaryName
+    )
+  }
+}
+
+/** Writes bytes through the already-open temporary descriptor. */
+export function writeContainedTemporaryFile(file: ContainedTemporaryFile, content: Uint8Array): void {
+  // The S2 caller encodes text exactly once with Buffer.from(text, 'utf8').
+  // Preserve those bytes without reinterpreting them as a host pathname/string.
+  loadNativeContainedDurableReplace().writeContainedTemporaryFile(file.nativeTemporaryFile, Buffer.from(content))
+}
+
+/** fsyncs the already-open temporary descriptor. */
+export function syncContainedTemporaryFile(file: ContainedTemporaryFile): void {
+  loadNativeContainedDurableReplace().syncContainedTemporaryFile(file.nativeTemporaryFile)
+}
+
+/** Checked close of the temporary descriptor; no retry occurs after failure. */
+export function closeContainedTemporaryFileChecked(file: ContainedTemporaryFile): void {
+  loadNativeContainedDurableReplace().closeContainedTemporaryFileChecked(file.nativeTemporaryFile)
+}
+
+/**
+ * Atomically publishes the temporary candidate only if the final leaf is still
+ * absent. Native uses renameatx_np(RENAME_EXCL) or renameat2(RENAME_NOREPLACE)
+ * and fails closed when unavailable.
+ */
+export function publishNoOverwriteAtContainedDirectory(
+  directory: ContainedDurableDirectory,
+  temporaryName: string,
+  filename: string
+): void {
+  if (!isSafeBasename(temporaryName) || !isSafeBasename(filename)) {
+    throw new Error('Contained create-no-overwrite publication filename is invalid.')
+  }
+  loadNativeContainedDurableReplace().publishNoOverwriteAtContainedDirectory(
+    directory.nativeDirectory,
+    temporaryName,
+    filename
+  )
+}
+
+/** Removes a descriptor-relative temporary candidate with unlinkat(2). */
+export function removeContainedDirectoryEntry(directory: ContainedDurableDirectory, name: string): void {
+  if (!isSafeBasename(name)) throw new Error('Contained directory entry name is invalid.')
+  loadNativeContainedDurableReplace().removeContainedDirectoryEntry(directory.nativeDirectory, name)
+}
+
+/**
+ * Publication-only directory sync. It owns the exact five-code durability
+ * downgrade and returns only the safe semantic result, never raw I/O detail.
+ */
+export function syncContainedDirectoryForPublication(
+  directory: ContainedDurableDirectory
+): { directorySyncUnsupported: boolean } {
+  return loadNativeContainedDurableReplace().syncContainedDirectoryForPublication(directory.nativeDirectory)
+}
+
+/** Checked close used by an owned P8 request descriptor. */
+export function closeContainedDurableDirectoryChecked(directory: ContainedDurableDirectory): void {
+  loadNativeContainedDurableReplace().closeContainedDirectoryChecked(directory.nativeDirectory)
 }
 
 export function closeContainedDurableDirectory(directory: ContainedDurableDirectory): void {
