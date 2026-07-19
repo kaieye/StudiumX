@@ -34,6 +34,11 @@ type AuditWritePlan = (input: {
   writeCall: number
 }) => { bytesWritten?: number; failure?: Error } | undefined
 
+type AuditReadPlan = (input: {
+  path: string
+  readCall: number
+}) => { bytesRead?: number; failure?: Error } | undefined
+
 type InstrumentedAuditOperations = {
   operations: AgentConversationSessionAuditOperations
   events: string[]
@@ -70,11 +75,13 @@ function instrumentedAuditOperations(options: {
   hold?: (event: string) => Promise<void> | undefined
   onEvent?: (event: string) => void
   writePlan?: AuditWritePlan
+  readPlan?: AuditReadPlan
 } = {}): InstrumentedAuditOperations {
   const events: string[] = []
   const opens: Array<{ path: string; flags: string | number }> = []
   const writtenBuffers: Buffer[] = []
   let writeCall = 0
+  let readCall = 0
   const observe = async (event: string): Promise<void> => {
     events.push(event)
     options.onEvent?.(event)
@@ -96,7 +103,18 @@ function instrumentedAuditOperations(options: {
       return {
         read: async (buffer, offset, length, position) => {
           await observe(`read:${path}`)
-          const result = await handle.read(buffer, offset, length, position)
+          const plan = options.readPlan?.({
+            path,
+            readCall: readCall++
+          })
+          if (plan?.failure) throw plan.failure
+          // Synthetic incomplete/non-integer counts exercise fail-closed transfer
+          // residuals without needing production seams beyond the I/O handle.
+          if (plan?.bytesRead !== undefined && (!Number.isInteger(plan.bytesRead) || plan.bytesRead <= 0)) {
+            return { bytesRead: plan.bytesRead }
+          }
+          const readLength = plan?.bytesRead === undefined ? length : Math.min(length, plan.bytesRead)
+          const result = await handle.read(buffer, offset, readLength, position)
           return { bytesRead: result.bytesRead }
         },
         write: async (buffer, offset, length, position) => {
@@ -107,6 +125,11 @@ function instrumentedAuditOperations(options: {
             writeCall: writeCall++
           })
           if (plan?.failure) throw plan.failure
+          // Return non-progressing/invalid counts as-is so incomplete-write
+          // residuals match production writeAllAuditBytes checks.
+          if (plan?.bytesWritten !== undefined && (!Number.isInteger(plan.bytesWritten) || plan.bytesWritten <= 0)) {
+            return { bytesWritten: plan.bytesWritten }
+          }
           const writeLength = Math.min(length, plan?.bytesWritten ?? length)
           const result = await handle.write(buffer, offset, writeLength, position)
           writtenBuffers.push(Buffer.from(buffer.subarray(offset, offset + result.bytesWritten)))
@@ -759,6 +782,56 @@ describe('agent conversation session audit durable append', () => {
     // open happened before stat; write must not proceed; directory durability must not start
     expect(io.events.some((event) => event.startsWith('open:') && event.endsWith(`:${path}`))).toBe(true)
     expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each([
+    ['zero', 0],
+    ['non-integer', Number.NaN]
+  ] as const)('fails closed when audit file write returns %s bytesWritten', async (_name, bytesWritten) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      writePlan: () => ({ bytesWritten })
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow(/could not be written completely/)
+    expect(io.events).toContain(`write:${path}`)
+    // Incomplete write is fatal: no directory durability / capability downgrade path.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each([
+    ['zero', 0],
+    ['non-integer', Number.NaN]
+  ] as const)('fails closed when audit file read returns %s bytesRead', async (_name, bytesRead) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    // Seed a non-empty audit file so readExactAuditBytes enters its transfer loop.
+    await appendWith(root, record, instrumentedAuditOperations().operations)
+    const continuation = createRecord({
+      updatedAt: '2026-07-18T00:02:00.000Z',
+      turns: [
+        ...record.turns,
+        { id: 'turn-three', role: 'user', content: 'Follow-up residual', createdAt: '2026-07-18T00:02:00.000Z' }
+      ]
+    })
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      readPlan: () => ({ bytesRead })
+    })
+
+    await expect(appendWith(root, continuation, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow(/could not be read exactly/)
+    expect(io.events).toContain(`read:${path}`)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    // Incomplete read is fatal: no directory durability / capability downgrade path.
     expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
     expect(warnings).toEqual([])
   })
