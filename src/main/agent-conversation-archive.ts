@@ -20,6 +20,7 @@ import {
   archiveAgentConversationArtifacts,
   buildAgentConversationSessionAuditEntries,
   parseAgentConversationSessionAuditLines,
+  type AgentConversationSessionAuditOperations,
   type AgentStagedChildTranscriptAllowance
 } from './agent-conversation-session-audit'
 import { isPathInsideRoot, readContainedRegularFile } from './path-access'
@@ -66,6 +67,10 @@ export async function saveAgentConversationArchive(input: {
   durableFileOperations?: DurableFileOperations
   /** Receives only the shared primitive's generic directory-fsync warning. */
   durableWarn?: (message: string) => void
+  /** Narrow main-internal seam for the session-audit durable append boundary. */
+  sessionAuditOperations?: AgentConversationSessionAuditOperations
+  /** Receives only the session-audit append boundary's generic directory-fsync warning. */
+  sessionAuditWarn?: (message: string) => void
 }): Promise<void> {
   // This is the durable boundary. Callers retain their raw record for run
   // confirmation; every archive sink below
@@ -110,7 +115,12 @@ export async function saveAgentConversationArchive(input: {
       operations: input.durableFileOperations,
       warn: input.durableWarn
     })
-    await appendAgentConversationSessionAuditLog({ rootPath: input.workspace.rootPath, record: persistedRecord })
+    await appendAgentConversationSessionAuditLog({
+      rootPath: input.workspace.rootPath,
+      record: persistedRecord,
+      operations: input.sessionAuditOperations,
+      warn: input.sessionAuditWarn
+    })
   }
   if (input.skipLearningWorkLedger) {
     await persistCanonicalArchive()
