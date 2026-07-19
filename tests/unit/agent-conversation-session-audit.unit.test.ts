@@ -1116,6 +1116,37 @@ describe('agent conversation session audit durable append', () => {
     expect(warnings).toEqual([])
   })
 
+  it('fails closed without capability downgrade when audit file read stalls after partial progress', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    // Seed a non-empty audit file so readExactAuditBytes enters its transfer loop.
+    await appendWith(root, record, instrumentedAuditOperations().operations)
+    const seededSize = (await readFile(path)).byteLength
+    expect(seededSize).toBeGreaterThan(1)
+    const continuation = createRecord({
+      updatedAt: '2026-07-18T00:02:00.000Z',
+      turns: [
+        ...record.turns,
+        { id: 'turn-three', role: 'user', content: 'Follow-up residual', createdAt: '2026-07-18T00:02:00.000Z' }
+      ]
+    })
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      // First call advances one byte; second call returns zero so the exact-read loop fails closed.
+      readPlan: ({ readCall }) => readCall === 0 ? { bytesRead: 1 } : { bytesRead: 0 }
+    })
+
+    await expect(appendWith(root, continuation, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow(/could not be read exactly/)
+    expect(io.events.filter((event) => event === `read:${path}`).length).toBeGreaterThan(1)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    // Partial-then-stall read stays fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
   it.each(
     (['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'] as const).flatMap((code) => [
       ['audit-directory open', code, (root: string, record: AgentConversationRecord) => `open:r:${dirname(auditPath(root, record))}`],
