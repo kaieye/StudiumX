@@ -1,0 +1,413 @@
+import { execFile, spawnSync } from 'node:child_process'
+import { link, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type {
+  ContainedDurableDirectory,
+  WorkspaceContainedLeaf,
+  WorkspaceContainedPathBinding
+} from '../../src/main/persistence/contained-durable-directory'
+import {
+  runWorkspaceWriteWithDurableDependenciesForTesting,
+  type WorkspaceWriteDurableDependencies
+} from '../../src/main/ai/tools/workspace'
+import { buildDefaultRegistry, buildToolContext } from '../../src/main/ai/tools/registry'
+import { defaultSettings } from '../../src/main/teaching-settings'
+
+const roots: string[] = []
+const execFileAsync = promisify(execFile)
+const mkfifoUnavailable = (spawnSync('mkfifo', [], { stdio: 'ignore' }).error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
+const sensitivePayload = 'PRIVATE-PAYLOAD-DO-NOT-LEAK'
+const sensitiveTemporaryName = '.workspace-write-candidate-secret'
+const sensitiveNativeDetail = 'RAW_NATIVE_DETAIL_DO_NOT_LEAK'
+
+async function workspace(): Promise<{ root: string; ctx: ReturnType<typeof buildToolContext> }> {
+  const root = await mkdtemp(join(tmpdir(), 'studiumx-workspace-write-tool-unit-'))
+  roots.push(root)
+  await mkdir(join(root, 'notes'), { recursive: true })
+  return { root, ctx: buildToolContext(defaultSettings(root), { workspaceRoot: root }) }
+}
+
+function protocolError(kind: string, phase?: string): Error & { kind: string; phase?: string } {
+  return Object.assign(
+    new Error(`${sensitiveNativeDetail}: ${sensitiveTemporaryName}: ${sensitivePayload}`),
+    { kind, ...(phase ? { phase } : {}) }
+  )
+}
+
+function binding(input: {
+  leaf?: WorkspaceContainedLeaf
+  onClose?: () => void
+} = {}): WorkspaceContainedPathBinding {
+  return {
+    relativePath: 'notes/entry.md',
+    parentComponents: ['notes'],
+    basename: 'entry.md',
+    parentDirectory: { nativeDirectory: {} } as ContainedDurableDirectory,
+    inspectLeaf: () => input.leaf ?? { type: 'regular', mode: 0o600, linkCount: 1 },
+    syncParentDirectory: () => undefined,
+    close: () => input.onClose?.()
+  }
+}
+
+function dependencies(
+  overrides: Partial<WorkspaceWriteDurableDependencies> = {}
+): WorkspaceWriteDurableDependencies {
+  return {
+    createNoOverwrite: async () => undefined,
+    overwriteExistingRestricted: async () => undefined,
+    bindForCanonicalRead: () => binding(),
+    readRegularFile: () => Buffer.alloc(0),
+    ...overrides
+  }
+}
+
+async function invoke(
+  root: string,
+  args: unknown,
+  seam: WorkspaceWriteDurableDependencies
+): Promise<Record<string, unknown>> {
+  const result = await runWorkspaceWriteWithDurableDependenciesForTesting(
+    args,
+    buildToolContext(defaultSettings(root), { workspaceRoot: root }),
+    seam
+  )
+  return JSON.parse(result) as Record<string, unknown>
+}
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+})
+
+describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
+  it('uses S2 for a no-overwrite create with exact UTF-8 content and has no pathname-write fallback', async () => {
+    const { root } = await workspace()
+    const createNoOverwrite = vi.fn(async () => undefined)
+    const content = `开始\n${'汉字🧪'.repeat(9_000)}\n结束`
+
+    const result = await invoke(root, { path: 'notes/entry.md', content }, dependencies({ createNoOverwrite }))
+
+    expect(createNoOverwrite).toHaveBeenCalledTimes(1)
+    expect(createNoOverwrite).toHaveBeenCalledWith({
+      workspaceRootPath: root,
+      relativePath: 'notes/entry.md',
+      content
+    })
+    expect(result).toMatchObject({
+      path: 'notes/entry.md',
+      bytes: Buffer.byteLength(content, 'utf8'),
+      created: true,
+      overwritten: false
+    })
+    await expect(stat(join(root, 'notes', 'entry.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('maps an S2 target_exists failure without falling back to a pathname write', async () => {
+    const { root } = await workspace()
+    const result = await invoke(root, {
+      path: 'notes/entry.md',
+      content: 'new bytes'
+    }, dependencies({ createNoOverwrite: async () => { throw protocolError('target_exists') } }))
+
+    expect(result).toMatchObject({ code: 'target_exists', path: 'notes/entry.md' })
+    await expect(stat(join(root, 'notes', 'entry.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('uses S2 when overwrite:true targets an absent file', async () => {
+    const { root } = await workspace()
+    const createNoOverwrite = vi.fn(async () => undefined)
+    const overwriteExistingRestricted = vi.fn(async () => undefined)
+
+    const result = await invoke(root, {
+      path: 'notes/entry.md',
+      content: 'created through S2',
+      overwrite: true
+    }, dependencies({ createNoOverwrite, overwriteExistingRestricted }))
+
+    expect(result).toMatchObject({ created: true, overwritten: false })
+    expect(createNoOverwrite).toHaveBeenCalledTimes(1)
+    expect(overwriteExistingRestricted).not.toHaveBeenCalled()
+  })
+
+  it('uses S3 only for an existing single-link regular file and has no pathname-write fallback', async () => {
+    const { root } = await workspace()
+    const target = join(root, 'notes', 'entry.md')
+    await writeFile(target, 'old pathname bytes', 'utf8')
+    const createNoOverwrite = vi.fn(async () => undefined)
+    const overwriteExistingRestricted = vi.fn(async () => undefined)
+
+    const result = await invoke(root, {
+      path: 'notes/entry.md',
+      content: 'new S3 bytes',
+      overwrite: true
+    }, dependencies({ createNoOverwrite, overwriteExistingRestricted }))
+
+    expect(result).toMatchObject({ created: false, overwritten: true, path: 'notes/entry.md' })
+    expect(overwriteExistingRestricted).toHaveBeenCalledTimes(1)
+    expect(createNoOverwrite).not.toHaveBeenCalled()
+    expect(await readFile(target, 'utf8')).toBe('old pathname bytes')
+  })
+
+  it.skipIf(process.platform === 'win32')(
+    'uses S3 for a backslash input when its normalized target already exists',
+    async () => {
+      const { root } = await workspace()
+      await writeFile(join(root, 'notes', 'entry.md'), 'existing canonical target', 'utf8')
+      const createNoOverwrite = vi.fn(async () => undefined)
+      const overwriteExistingRestricted = vi.fn(async () => undefined)
+
+      const result = await invoke(root, {
+        path: 'notes\\entry.md',
+        content: 'replacement through S3',
+        overwrite: true
+      }, dependencies({ createNoOverwrite, overwriteExistingRestricted }))
+
+      expect(result).toMatchObject({
+        path: 'notes/entry.md',
+        created: false,
+        overwritten: true
+      })
+      expect(overwriteExistingRestricted).toHaveBeenCalledWith({
+        workspaceRootPath: root,
+        relativePath: 'notes/entry.md',
+        content: 'replacement through S3'
+      })
+      expect(createNoOverwrite).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['directory', 'symlink', 'hardlink'] as const)(
+    'rejects an overwrite target that is a %s before either durable publisher runs',
+    async (kind) => {
+      const { root } = await workspace()
+      const target = join(root, 'notes', 'entry.md')
+
+      if (kind === 'directory') {
+        await mkdir(target)
+      } else if (kind === 'symlink') {
+        await symlink(join(root, 'outside.md'), target)
+      } else {
+        const firstName = join(root, 'notes', 'first.md')
+        await writeFile(firstName, 'hard-linked original', 'utf8')
+        await link(firstName, target)
+      }
+
+      const createNoOverwrite = vi.fn(async () => undefined)
+      const overwriteExistingRestricted = vi.fn(async () => undefined)
+      const result = await invoke(root, {
+        path: 'notes/entry.md',
+        content: 'must not publish',
+        overwrite: true
+      }, dependencies({ createNoOverwrite, overwriteExistingRestricted }))
+
+      expect(result).toMatchObject({ code: 'path_rejected', path: 'notes/entry.md' })
+      expect(createNoOverwrite).not.toHaveBeenCalled()
+      expect(overwriteExistingRestricted).not.toHaveBeenCalled()
+    }
+  )
+
+  it.skipIf(process.platform === 'win32' || mkfifoUnavailable)(
+    'rejects an overwrite target that is another filesystem type (FIFO)',
+    async () => {
+      const { root } = await workspace()
+      const target = join(root, 'notes', 'entry.md')
+      await execFileAsync('mkfifo', [target])
+      const createNoOverwrite = vi.fn(async () => undefined)
+      const overwriteExistingRestricted = vi.fn(async () => undefined)
+
+      const result = await invoke(root, {
+        path: 'notes/entry.md',
+        content: 'must not publish',
+        overwrite: true
+      }, dependencies({ createNoOverwrite, overwriteExistingRestricted }))
+
+      expect(result).toMatchObject({ code: 'path_rejected', path: 'notes/entry.md' })
+      expect(createNoOverwrite).not.toHaveBeenCalled()
+      expect(overwriteExistingRestricted).not.toHaveBeenCalled()
+    }
+  )
+
+  it('maps a raced S2 EEXIST to target_exists and preserves the competitor bytes', async () => {
+    const { root } = await workspace()
+    const target = join(root, 'notes', 'entry.md')
+    const competitorBytes = 'competitor is authoritative'
+    const publisherBytes = 'S2 must not overwrite competitor'
+    const createNoOverwrite = vi.fn(async () => {
+      await writeFile(target, competitorBytes, 'utf8')
+      throw protocolError('target_exists')
+    })
+
+    const result = await invoke(root, { path: 'notes/entry.md', content: publisherBytes }, dependencies({ createNoOverwrite }))
+
+    expect(result).toMatchObject({ code: 'target_exists', path: 'notes/entry.md' })
+    expect(createNoOverwrite).toHaveBeenCalledTimes(1)
+    expect(await readFile(target, 'utf8')).toBe(competitorBytes)
+  })
+
+  it.each([
+    ['missing', 'target_missing'],
+    ['changed type', 'target_not_restricted_regular']
+  ])('maps S3 target %s to target_changed', async (_name, kind) => {
+    const { root } = await workspace()
+    await writeFile(join(root, 'notes', 'entry.md'), 'old bytes', 'utf8')
+
+    const result = await invoke(root, {
+      path: 'notes/entry.md',
+      content: 'replacement',
+      overwrite: true
+    }, dependencies({ overwriteExistingRestricted: async () => { throw protocolError(kind) } }))
+
+    expect(result).toMatchObject({ code: 'target_changed', path: 'notes/entry.md' })
+  })
+
+  it.each([
+    ['S2 atomic no-clobber', false, 'atomic_no_clobber_unavailable'],
+    ['S3 atomic exchange', true, 'atomic_exchange_unavailable']
+  ])('maps unavailable %s capability to containment_unavailable', async (_name, overwrite, kind) => {
+    const { root } = await workspace()
+    if (overwrite) await writeFile(join(root, 'notes', 'entry.md'), 'old bytes', 'utf8')
+
+    const result = await invoke(root, {
+      path: 'notes/entry.md',
+      content: 'new bytes',
+      overwrite
+    }, dependencies({
+      createNoOverwrite: async () => { throw protocolError(kind) },
+      overwriteExistingRestricted: async () => { throw protocolError(kind) }
+    }))
+
+    expect(result).toMatchObject({ code: 'containment_unavailable', path: 'notes/entry.md' })
+  })
+
+  it('maps pre-publication failures without publishing or exposing native detail', async () => {
+    const { root } = await workspace()
+    const result = await invoke(root, {
+      path: 'notes/entry.md',
+      content: sensitivePayload
+    }, dependencies({ createNoOverwrite: async () => { throw protocolError('prepublication_failure', 'temporary_write') } }))
+
+    expect(result).toMatchObject({ code: 'prepublication_failed', path: 'notes/entry.md' })
+    expect(JSON.stringify(result)).not.toContain(sensitivePayload)
+    expect(JSON.stringify(result)).not.toContain(sensitiveTemporaryName)
+    expect(JSON.stringify(result)).not.toContain(sensitiveNativeDetail)
+    await expect(stat(join(root, 'notes', 'entry.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('confirms a possibly-published result only with a full exact descriptor-bound UTF-8 read, and closes once', async () => {
+    const { root } = await workspace()
+    const content = `首尾必须都在\n${'多字节🧪'.repeat(9_000)}\n完整结束`
+    const expectedBytes = Buffer.from(content, 'utf8')
+    const close = vi.fn()
+    const bindForCanonicalRead = vi.fn(() => binding({ onClose: close }))
+    const readRegularFile = vi.fn(() => Buffer.from(expectedBytes))
+
+    const result = await invoke(root, { path: 'notes/entry.md', content }, dependencies({
+      createNoOverwrite: async () => { throw protocolError('possibly_published') },
+      bindForCanonicalRead,
+      readRegularFile
+    }))
+
+    expect(result).toMatchObject({
+      path: 'notes/entry.md',
+      bytes: expectedBytes.byteLength,
+      created: true,
+      overwritten: false,
+      possiblyPublished: true,
+      canonicalRead: 'exact',
+      retryable: false
+    })
+    expect(readRegularFile).toHaveBeenCalledTimes(1)
+    expect(readRegularFile.mock.results[0]?.value).toEqual(expectedBytes)
+    expect(bindForCanonicalRead).toHaveBeenCalledWith({
+      workspaceRootPath: root,
+      relativePath: 'notes/entry.md',
+      createParentDirectories: false
+    })
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(result)).not.toMatch(/durab|持久|耐久/i)
+    await expect(stat(join(root, 'notes', 'entry.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each([
+    ['canonical mismatch', { type: 'regular', mode: 0o600, linkCount: 1 } as WorkspaceContainedLeaf, () => Buffer.from('different bytes')],
+    ['canonical missing', { type: 'absent' } as WorkspaceContainedLeaf, () => Buffer.alloc(0)],
+    ['canonical read failure', { type: 'regular', mode: 0o600, linkCount: 1 } as WorkspaceContainedLeaf, () => { throw protocolError('read_failure') }]
+  ])('leaves possibly-published unconfirmed after %s', async (_name, leaf, read) => {
+    const { root } = await workspace()
+    const close = vi.fn()
+
+    const result = await invoke(root, { path: 'notes/entry.md', content: 'requested bytes' }, dependencies({
+      createNoOverwrite: async () => { throw protocolError('possibly_published') },
+      bindForCanonicalRead: () => binding({ leaf, onClose: close }),
+      readRegularFile: () => read()
+    }))
+
+    expect(result).toMatchObject({
+      code: 'possibly_published',
+      path: 'notes/entry.md',
+      retryable: false
+    })
+    expect(result).not.toHaveProperty('canonicalRead')
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps pathname I/O detail private when registry permission preflight cannot lstat the target', async () => {
+    const { root } = await workspace()
+    const rawTargetPath = join(root, 'notes', 'entry.md')
+    await rm(join(root, 'notes'), { recursive: true, force: true })
+    await writeFile(join(root, 'notes'), 'not a directory', 'utf8')
+
+    const settings = defaultSettings(root)
+    settings.tools.workspaceRead = true
+    settings.tools.workspaceWritePermission = 'allow_for_conversation'
+    const handlers = buildDefaultRegistry(settings, { workspaceRoot: root, workspaceWrite: true })
+      .handlerMap(buildToolContext(settings, { workspaceRoot: root }))
+    const handler = handlers.write_workspace_file
+    expect(handler).toBeTypeOf('function')
+
+    const result = JSON.parse(await handler!({
+      path: 'notes/entry.md',
+      content: 'must not reach publisher',
+      overwrite: true
+    })) as Record<string, unknown>
+    const serialized = JSON.stringify(result)
+
+    expect(result).toMatchObject({
+      tool: 'write_workspace_file',
+      error: '无法安全确定工作区文件写入目标。',
+      permission: { kind: 'workspace_write', decision: 'deny' }
+    })
+    expect(serialized).not.toContain(root)
+    expect(serialized).not.toContain(rawTargetPath)
+    expect(serialized).not.toContain('ENOTDIR')
+    expect(serialized).not.toContain('lstat')
+  })
+
+  it.each([
+    ['request_rejected', async (root: string) => invoke(root, { path: 'notes/entry.md' }, dependencies())],
+    ['path_rejected', async (root: string) => invoke(root, { path: '../outside.md', content: sensitivePayload }, dependencies())],
+    ['containment_unavailable', async (root: string) => invoke(root, { path: 'notes/entry.md', content: sensitivePayload }, dependencies({ createNoOverwrite: async () => { throw protocolError('atomic_no_clobber_unavailable') } }))],
+    ['target_exists', async (root: string) => invoke(root, { path: 'notes/entry.md', content: sensitivePayload }, dependencies({ createNoOverwrite: async () => { throw protocolError('target_exists') } }))],
+    ['target_changed', async (root: string) => {
+      await writeFile(join(root, 'notes', 'entry.md'), 'existing bytes', 'utf8')
+      return invoke(root, { path: 'notes/entry.md', content: sensitivePayload, overwrite: true }, dependencies({ overwriteExistingRestricted: async () => { throw protocolError('target_missing') } }))
+    }],
+    ['prepublication_failed', async (root: string) => invoke(root, { path: 'notes/entry.md', content: sensitivePayload }, dependencies({ createNoOverwrite: async () => { throw protocolError('prepublication_failure') } }))],
+    ['possibly_published', async (root: string) => invoke(root, { path: 'notes/entry.md', content: sensitivePayload }, dependencies({
+      createNoOverwrite: async () => { throw protocolError('possibly_published') },
+      bindForCanonicalRead: () => { throw protocolError('bind_failure') }
+    }))]
+  ])('keeps stable %s errors private', async (code, action) => {
+    const { root } = await workspace()
+    const result = await action(root)
+    const serialized = JSON.stringify(result)
+
+    expect(result).toMatchObject({ code })
+    expect(serialized).not.toContain(root)
+    expect(serialized).not.toContain(sensitivePayload)
+    expect(serialized).not.toContain(sensitiveTemporaryName)
+    expect(serialized).not.toContain(sensitiveNativeDetail)
+  })
+})
