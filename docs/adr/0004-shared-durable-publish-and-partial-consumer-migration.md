@@ -739,6 +739,24 @@ pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.t
 # P6-S58 well-formed null evidenceEventIds item residual: 1 file, 83 tests passed
 ```
 
+## C-4P6-S59：well-formed missing assessment relativePath key 的 tests-only evidence
+
+`e986993`（`test(data): cover missing assessment relativePath residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 missing assessment `relativePath` key residual：其它 metadata/body 仍合法，仅删除 `assessment.relativePath` 并保留 `contentSha256`，使 `isVerifiedAssessment` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 assessment、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S59 well-formed missing assessment relativePath key residual: 1 file, 84 tests passed
+```
+
+## C-4P6-S60：well-formed empty assessment contentSha256 的 tests-only evidence
+
+`bc43e30`（`test(data): cover empty assessment contentSha256 residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 empty 的 assessment `contentSha256` residual：其它 metadata/body 仍合法，仅 `assessment.contentSha256: ""`，使 `isVerifiedAssessment` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 assessment、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S60 well-formed empty assessment contentSha256 residual: 1 file, 85 tests passed
+```
+
 ## C-4P8：已关闭的受控 workspace-tool scope
 
 C-4P8 的 S1 至 S4 已在**受控 `write_workspace_file` 文本文件 create / restricted-overwrite scope**关闭。S1 的 workspace descriptor foundation 证据为 `80f2fd0` / `e2ce36c`；S2 的 `b46c8b2` / `bdcd6cb` 和 S3 的 `56eabe6` / `54506d5` 仍是 POSIX descriptor-bound foundation；S4 的 handler/API integration 与定向测试为 `0bbfdef` / `e84c813`。2026-07-19 经明确批准后，Windows 另实现 root-constrained direct-path profile；它不把 Windows 冒充为该 descriptor-bound foundation。
