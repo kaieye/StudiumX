@@ -15,7 +15,7 @@
 | 你关心的问题 | 建议先读 |
 | --- | --- |
 | SQLite 分析索引损坏后能否隔离、重建或回退读取 | ADR-0001 |
-| logical JSONL 如何分区、分段和生成会话摘要 | ADR-0002 |
+| canonical teaching data 的永久保留边界，以及 logical JSONL 如何分区、分段和生成会话摘要 | ADR-0002 |
 | 关键 JSON 不可读时如何从 `.bak` 验证恢复 | ADR-0003 |
 | 哪些 writer 已使用 durable publish，哪些仍未迁移 | ADR-0004、[本地数据待办](../local-data-todo.md) |
 | 已覆盖持久化链如何关联 trace，同时保持日志安全 | ADR-0005 |
@@ -28,7 +28,7 @@
 | ADR | 主题 | 已实施范围 |
 | --- | --- | --- |
 | [ADR-0001](0001-rebuildable-sqlite-projection.md) | C-1 可重建 SQLite projection 与 no-FTS 边界 | SQLite 仅作为可再建 analytics 投影并保留 canonical 文件回退；FTS、查询/搜索面与 query-facing corpus 均未获授权。 |
-| [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md) | C-2 分区、分段与摘要 projection | UTC 月分区、无损 sealed JSONL 分段、显式会话摘要 projection。 |
+| [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md) | C-2 canonical 永久保留、分区、分段与摘要 projection | canonical teaching data 永久保留；UTC 月分区、无损 sealed JSONL 分段和显式会话摘要 projection 已实施。physical retention / recovery 未获批准；相邻 agent-artifact 年龄/大小删除路径已移除。 |
 | [ADR-0003](0003-critical-json-backups-and-verified-recovery.md) | C-3 关键 JSON 备份与恢复 | `.bak` 备份及 verified read recovery。 |
 | [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) | C-4 durable publish | 共享 durable publish 原语及已迁移的部分 consumer。 |
 | [ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md) | C-5 trace correlation | main 生成的 trace correlation 与安全日志边界。 |

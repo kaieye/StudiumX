@@ -10,12 +10,6 @@
 2. canonical JSON、Markdown、JSONL、immutable record 和 Memory 文件仍是事实来源；projection、分区、sealing、summary、`.bak` 与 receipt 都不授权删除或替代事实来源。
 3. 不得把 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 的部分 consumer migration 解释为全量 writer migration，也不得把 [ADR-0005](adr/0005-main-owned-trace-correlation-and-safe-logs.md) 解释为全局 actionId / retry / receipt。
 
-## C-2：留存控制、删除与恢复设计门
-
-- 设计文档：[C-2 retention control / recovery](plans/local-data-retention-control-recovery-design.md)
-- 未实施：physical retention、canonical compaction、删除、用户控制、恢复与审计协议。
-- 禁止越界：UTC 月分区、50 MiB sealing 和 summary projection 都不构成删除授权；sealed JSONL 仍是 canonical logical source 的组成部分。
-
 ## C-4：尚未迁移的 durable writer 设计门
 
 ### P8：agent workspace tool durable publish
