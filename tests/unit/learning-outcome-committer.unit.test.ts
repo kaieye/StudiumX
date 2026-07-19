@@ -6561,6 +6561,106 @@ describe('LearningOutcomeCommitter', () => {
     expect((await lstat(manifestPath)).isSymbolicLink()).toBe(true)
   })
 
+  it('fails closed before writes when session manifest id mismatches directory', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-id-mismatch-failure-unit'
+    const outcomeId = 'outcome-commit-id-mismatch-failure-1'
+    const operationId = 'commit-id-mismatch-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-id-mismatch-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    expect(manifest.id).toBe(sessionId)
+    // parseManifest rejects manifest id that does not match its directory before any publication.
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, id: 'session-other-directory-id-unit' }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      id: 'session-other-directory-id-unit',
+      status: 'active',
+      outcomeRef: null
+    })
+  })
+
+  it('fails closed before writes when session manifest identity flags are invalid', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-invalid-identity-flags-failure-unit'
+    const outcomeId = 'outcome-commit-invalid-identity-flags-failure-1'
+    const operationId = 'commit-invalid-identity-flags-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-invalid-identity-flags-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    expect(manifest.source).toBe('canonical')
+    expect(manifest.readOnly).toBe(false)
+    // parseManifest rejects non-canonical source / readOnly identity flags before any publication.
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, source: 'legacy_lesson', readOnly: true }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      source: 'legacy_lesson',
+      readOnly: true,
+      status: 'active',
+      outcomeRef: null
+    })
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
