@@ -2,12 +2,13 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, relative, isAbsolute } from 'node:path';
 
 const root = resolve(process.cwd());
 const args = process.argv.slice(2);
 const outputArg = args.indexOf('--output');
-const output = outputArg >= 0 ? resolve(root, args[outputArg + 1]) : resolve(root, 'release/p0-clean-checkout-audit.json');
+const output = outputArg >= 0 ? resolve(root, args[outputArg + 1]) : resolve(mkdtempSync(resolve(tmpdir(), 'studiumx-release-audit-')), 'p0-clean-checkout-audit.json');
+const outputInRepo = (() => { const rel = relative(root, output); return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)); })();
 const commandArgs = [];
 for (let i = 0; i < args.length; i++) if (args[i] === '--command') commandArgs.push(args[++i]);
 const knownSkip = /POSIX|descriptor-relative|FIFO|platform capability|win32/i;
@@ -26,16 +27,21 @@ for (const text of commands) {
   const outPath = resolve(logDir, `${results.length}.stdout`), errPath = resolve(logDir, `${results.length}.stderr`);
   writeFileSync(outPath, r.stdout); writeFileSync(errPath, r.stderr);
   const hash = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
-  const skips = [...(r.stdout+'\n'+r.stderr).matchAll(/(?:skip(?:ped)?|todo)[:\-]?\s*([^\n]+)/gi)].map(m=>m[1].trim());
+  const skips = [...(r.stdout+'\\n'+r.stderr).matchAll(/(?:skip(?:ped)?|todo)[:\-]?\s*([^\n]+)/gi)].map(m=>m[1].trim());
   const unknownSkips = skips.filter(s => !knownSkip.test(s));
   results.push({ command:text, argv, exit:r.exit, durationMs:r.durationMs, stdoutFile:outPath, stderrFile:errPath, stdoutSha256:hash(outPath), stderrSha256:hash(errPath), skips, unknownSkips });
   if (r.exit !== 0 || unknownSkips.length) { console.error(`release audit failed: ${text}`); process.exitCode = 1; break; }
 }
 const statusAfter = git(['status','--porcelain=v1']);
-const audit = { schemaVersion:1, generatedAt:new Date().toISOString(), commitSha:sha, statusBefore:statusBefore.stdout, statusAfter:statusAfter.stdout, tools, commands:results, knownSkipPolicy:'Only explicit Windows POSIX addon capability skips are allowed; skips never imply green.', passed: process.exitCode !== 1 && !statusAfter.stdout.trim() };
-mkdirSync(dirname(output), { recursive:true }); writeFileSync(output, JSON.stringify(audit,null,2)+'\n');
+const passed = process.exitCode !== 1 && !statusAfter.stdout.trim() && !outputInRepo;
+const artifact = { path: output, sha256: null, sha256Basis: 'SHA-256 of manifest bytes with artifact.sha256 set to null' };
+const audit = { schemaVersion:1, generatedAt:new Date().toISOString(), commitSha:sha, statusBefore:statusBefore.stdout, statusAfter:statusAfter.stdout, tools, commands:results, artifact, outputInsideAuditedRepo: outputInRepo, knownSkipPolicy:'Only explicit Windows POSIX addon capability skips are allowed; skips never imply green.', passed };
+mkdirSync(dirname(output), { recursive:true });
+const basis = JSON.stringify(audit,null,2)+'\\n';
+artifact.sha256 = createHash('sha256').update(basis).digest('hex');
+writeFileSync(output, JSON.stringify(audit,null,2)+'\\n');
 if (statusAfter.stdout.trim()) { console.error('release audit failed: worktree became dirty'); process.exitCode=1; }
+if (outputInRepo) { console.error('release audit output is inside audited repo; clean-pass is not possible'); process.exitCode=1; }
 console.log(output);
-
 
 
