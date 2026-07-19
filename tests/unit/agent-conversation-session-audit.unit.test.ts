@@ -843,6 +843,26 @@ describe('agent conversation session audit durable append', () => {
     expect(warnings).toEqual([])
   })
 
+
+  it('fails closed without capability downgrade when audit file close returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file close failure')
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `close:${path}` ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(`close:${path}`)
+    // Unknown close errors stay fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
   it.each(
     (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
   )('fails closed without capability downgrade when audit file lstat returns %s', async (code) => {
