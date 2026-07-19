@@ -26,8 +26,10 @@
 ### P9：session-audit durable append
 
 - 设计文档：[C-4P9 Session-audit durable append](plans/local-data-session-audit-durable-append-design.md)
-- 推荐的获批后首个切片是 **P9-S2 framed、legacy-compatible、fixed-file durable append**，并保留每个 conversation audit 的固定单文件语义。
-- 禁止越界：必须 **non-rotating**；不得接入 `appendDurableJsonlLine()` 的默认 month / size rotation，也不得将 C-4P1 archive publish 或 C-5E trace 计为 P9 完成。实现前仍需明确 per-path queue、safe newline / torn-tail policy、ID / trace conflict、post-directory-failure retry、capability allowlist 与 archive → ledger 顺序。
+- **已实施且仅限 S2：**`4b30220` / `5f47382` 完成 **P9-S2 audit 专用 framed、legacy-compatible、fixed-file durable append**；证据与实际验证入口见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
+- **S2 已交付的最小范围：**仅固定 `.agent-sessions/<conversation-id>.jsonl`；不 rotation、不调用 generic `durable-jsonl`；per absolute audit path queue 覆盖 same-descriptor exact-byte read / validate / dedupe / framed append / file fsync+close，随后 audit directory、再 conversation parent directory durability confirmation。directory open/sync 仅五个 allowlist code 可降级为通用 warning；post-directory failure retry 会先 dedupe exact rows，之后才继续既有 ledger flow。
+- **仍未完成：**C-4P9 整个 gate 未关闭。S2 不表示 generic JSONL migration、跨文件 transaction、ledger authority 或 archive save-order 变更、repair、rotation、IPC/UI 已实施；保留 design gate 中其余风险、验证矩阵与后续批准要求。
+- 禁止越界：继续 **non-rotating**；不得接入 `appendDurableJsonlLine()` 的默认 month / size rotation，也不得将 C-4P1 archive publish 或 C-5E trace 计为完整 P9。不得以 S2 改变 ledger authority、JSON → Markdown → audit → 既有 ledger queue → final verify 的顺序，或扩大为其它 JSONL writer。
 
 ### P6：learning-outcome durable settlement 的剩余 close-out 设计门
 

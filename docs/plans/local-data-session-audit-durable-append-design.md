@@ -1,8 +1,10 @@
-# C-4P9 Session-audit durable append：设计门（未实施、未批准）
+# C-4P9 Session-audit durable append：设计门（P9-S2 已实施；C-4P9 未关闭）
 
-> **状态：仅 design gate。**本文只记录未来将 per-conversation session audit JSONL 的 ordinary append 迁入 durable append 所必须先获批准的边界。它**不实现、不批准，也不宣称 C-4P9 已完成**；不改 audit JSONL schema/version、reader、trace 规则、archive/ledger authority、IPC/UI 或任何 canonical bytes。本文没有代码迁移、没有测试变更，也**没有任何可计入 C-4P9 的测试结果**。
+> **状态：P9-S2 已实施的受限 design gate。**`4b30220`（`feat(data): add durable session audit append`）与 `5f47382`（`test(data): cover durable session audit append`）完成最小切片 **P9-S2 audit 专用 framed、legacy-compatible、fixed-file durable append**。本文保留 P9-S2 的已实施 contract、证据和 P9 后续风险；它**不宣称 C-4P9 已完成**，也不授权 generic JSONL migration、跨文件 transaction、ledger authority/save-order 变更、repair、rotation 或 IPC/UI。
 
-C-4P1 `34c48f4` 只将 conversation archive 的 canonical JSON/Markdown publish 迁入 shared durable replace，并明确**不改变** conversation audit 的既有 ordinary append。只有本 design gate 的 contract、helper capability、I/O seam 和测试矩阵被逐项批准后，才可另立一个受限 implementation slice；不得以 C-4P1、C-5E trace、existing `appendFile()`、shared `replaceDurably()` 或其它 JSONL writer 的通过证明 audit append 已 durable。
+P9-S2 只替换 per-conversation 固定 `.agent-sessions/<conversation-id>.jsonl` 的 append boundary：不 rotation、不调用 generic `durable-jsonl`；per absolute audit path queue 在线性化的 same-descriptor 生命周期中完成 exact-byte read、validate/dedupe/conflict、framed append、file `fsync`/`close`，再按 audit directory、conversation parent directory 的顺序确认 durability。directory `open`/`sync` 仅 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 可降级为通用 warning；post-directory failure retry 先 dedupe exact rows，之后才允许既有 ledger flow 继续。
+
+C-4P1 `34c48f4` 的 JSON/Markdown durable replace 仍只提供既有有序 archive boundary。P9-S2 保持 JSON → Markdown → audit → existing ledger queue → final verify 的顺序，且不改变 audit JSONL schema/version、parser、raw historical bytes、trace write-once 规则、archive/ledger authority、IPC/UI 或任何 canonical bytes。不得以 C-4P1、C-5E trace、shared `replaceDurably()` 或其它 JSONL writer 的通过证明整个 C-4P9 已 durable。
 
 > 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
 
@@ -87,9 +89,18 @@ C-4P9 需要 audit-specific durable append primitive 或获批准的 shared exte
 
 `appendDurableJsonlLine()` **不得直接用于 C-4P9**，除非先有经批准的 non-rotation option、audit-specific path/row contract 与可注入 I/O seam。其现有 month/size sealing model 不构成 audit append 的安全替代；把 audit path 接入默认 rotation 即为破坏性语义变更。
 
-## 6. 批准后才可实施的测试矩阵
+## 6. P9-S2 已执行验证与仍未关闭的测试矩阵
 
-代码获批前不新增实现测试，也不将现有 C-4P1/C-5E/audit tests 记为 C-4P9 通过证据。future implementation 至少需要 audit-specific injected I/O seam，并覆盖：
+P9-S2 已实际执行下列定向验证；unit 命令覆盖 2 个文件、48 项测试，**不是完整 suite**：
+
+```sh
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
+pnpm run typecheck
+pnpm run check:security
+git diff --check
+```
+
+下表仍是完整 C-4P9 后续切片/close-out 必须保留的风险与验证矩阵；S2 的实现和上述定向证据不自动宣称所有项目、其它 JSONL writer 或跨文件 failure matrix 已关闭：
 
 | 测试类别 | 最低验证 |
 |---|---|
@@ -104,8 +115,8 @@ C-4P9 需要 audit-specific durable append primitive 或获批准的 shared exte
 | capability downgrade | 仅五-code allowlist 可降级，warning 无 path/content/ID/trace；permission/I/O/unknown/close failure fatal。 |
 | existing suites | `tests/unit/agent-conversation-session-audit.unit.test.ts`、`tests/unit/agent-conversation-archive-durable.unit.test.ts` 及相关 archive/ledger compatibility tests 继续通过；新增测试必须明确是 future C-4P9 implementation evidence，而非本 design gate 的结果。 |
 
-## 7. 批准前边界
+## 7. P9-S2 后边界与仍待批准范围
 
-C-4P9 不授权代码迁移、调用 `appendDurableJsonlLine()`、改变 audit parser、重写/修复 existing JSONL、rotation、schema/version 变化、trace/action identity 改造、ledger authority 调整、artifact/history/deletion lifecycle 变化或新的 IPC/UI。
+P9-S2 只授权并实现本文件所述的固定 audit-file durable append。它不授权 generic JSONL migration 或调用 `appendDurableJsonlLine()`、跨文件 transaction、改变 audit parser、重写/修复 existing JSONL、rotation、schema/version 变化、trace/action identity 改造、ledger authority 或 archive save-order 调整、artifact/history/deletion lifecycle 变化或新的 IPC/UI。
 
-只有在 non-rotation primitive design、per-path queue ownership、row/torn-tail conflict contract、post-directory failure/retry semantics、archive/ledger recovery boundary、I/O injection seam 与第 6 节测试矩阵都被明确批准后，才可创建一个独立 implementation slice。在此之前，路线图与 implementation plan 只能记录：**“C-4P9 session-audit durable append design gate recorded；未实施、未批准、无可计入的代码或测试结果。”**
+完整 C-4P9 仍须在本 design gate 中逐项保留并批准 non-rotation helper 边界以外的后续 scope、crash/failure 覆盖、其它 writer 是否可迁移，以及第 6 节尚未关闭的矩阵。路线图与 implementation plan 只能记录：**“C-4P9 P9-S2 fixed-file audit durable append 已实施并有定向证据；C-4P9 gate 未完成，未获授权范围与风险仍保留。”**

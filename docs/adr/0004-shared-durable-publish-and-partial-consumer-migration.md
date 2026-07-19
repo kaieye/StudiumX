@@ -1,8 +1,8 @@
 # ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer
 
-- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础及 C-4P8-S1 descriptor foundation）
-- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P7、C-4P8-S1
-- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`0d55fd8`、`80f2fd0`、`e2ce36c`
+- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P8-S1 descriptor foundation 及 C-4P9-S2 audit 专用 durable append）
+- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P7、C-4P8-S1、C-4P9-S2
+- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`4b30220`、`5f47382`
 
 ## 决定
 
@@ -24,6 +24,7 @@
 | C-4P6-S1 `7292bf4`、`e02a086` | learning-outcome 的严格有序 publish、受控 reconcile 与失败关闭基础 | `tests/unit/learning-outcome-committer.unit.test.ts`、`tests/unit/teaching-workspace-outcome-commit.unit.test.ts`；相关提交覆盖 41 项单元检查和 14 项集成检查 |
 | C-4P7 `0d55fd8` | private `MusicCookieStore` cookie state | `tests/unit/music-cookie-store-durable.unit.test.ts` |
 | C-4P8-S1 `80f2fd0`、`e2ce36c` | 仅 workspace descriptor foundation：可信既有 workspace root 绑定、descriptor-bound parent traversal 与 final-leaf inspection；不发布文件 | 下列已实际执行的 C-4P8-S1 验证命令 |
+| C-4P9-S2 `4b30220`、`5f47382` | 固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append；不 rotation、不迁移其它 JSONL | 下列已实际执行的 C-4P9-S2 验证命令 |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
@@ -39,6 +40,27 @@ node scripts/check-workspace-path-target.mjs
 pnpm run typecheck
 pnpm run check:security
 ```
+
+## C-4P9-S2 实际验证入口
+
+C-4P9 只实施了最小切片 S2；证据提交为 `4b30220`（`feat(data): add durable session audit append`）和 `5f47382`（`test(data): cover durable session audit append`）。以下是该受限切片已实际执行的验证命令；它们不是完整 suite 的声明：
+
+```sh
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
+pnpm run typecheck
+pnpm run check:security
+git diff --check
+```
+
+## C-4P9-S2 已实施的受限语义
+
+- 仅替换固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit append boundary；不 rotation，且不调用或迁移到 generic `durable-jsonl`。
+- 模块私有 queue 按**规范化绝对 audit path**串行化；同一路径在一个 descriptor 生命周期内完成 exact-byte read、canonical/legacy validate、dedupe/conflict 判定、framed append、file `fsync` 与 `close`。
+- 缺失 canonical rows 才追加：保留已有 raw bytes，并仅在既有非空末字节不是 LF 时添加一个隔离 LF；legacy trace-free/malformed-trace rows 可兼容读取，既有 trace write-once 行不回填、不重写。
+- file close 后按 audit directory、再 conversation parent directory 的子到父顺序确认 durability。directory `open`/`sync` 仅 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 可降级为通用 warning；其它错误及任何 close failure 均 fatal。
+- post-directory failure 会使 save reject 且不回滚；retry 先重新读取、dedupe exact rows，再允许既有 ledger flow 继续。ledger authority、其 queue/identity 语义、archive save 顺序和 final verify 均未改变。
+
+S2 不构成整个 C-4P9 gate completed：它不迁移 generic JSONL、不是跨文件 transaction，不改变 ledger authority 或 save 顺序，不做 repair/rotation，也不涉及 IPC/UI。
 
 ## C-4P6-S1 已实施的受限语义
 
@@ -64,7 +86,7 @@ S1 **不包含** workspace tool handler、registry、IPC、renderer 或 API 变�
 
 - **C-4P6 仍未完整关闭，仍是待办。**S1 未提供跨文件事务或共同原子性、rollback、删除、通用 migration 或新的外部 API。完整 P6 close-out 仍需单独批准并验证 manifest publisher 的 capability-policy 对齐、穷尽的 crash / failure 设计矩阵及运行验证。
 - **C-4P8 仍未完成，仍是待办。**仅 S1 descriptor foundation 已实施；S2 atomic `createNoOverwrite`、S3 restricted overwrite、S4 handler / API integration 均未实施。S1 不是 C-4P5 的 allowlisted document service，当前 `write_workspace_file` 仍未接入。
-- **C-4P9** session-audit durable append 未实施；C-4P1 没有改变 session audit 的 ordinary append。
+- **C-4P9 仍未完整关闭，仍是待办。**仅 P9-S2 已实施：固定 audit 文件的专用 framed、legacy-compatible durable append。它不是 generic JSONL migration、跨文件 transaction、ledger authority/save-order 变更、repair、rotation 或 IPC/UI；C-4P1 之外的剩余 P9 风险与 design gate 仍须保留。
 - 高频日志不因本 ADR 自动改为逐条 fsync。
 
 这些未完成范围、获批前置条件和 design gate 统一见[本地数据待办](../local-data-todo.md)。
