@@ -5935,6 +5935,120 @@ describe('LearningOutcomeCommitter', () => {
     })
   })
 
+  it('fails closed before writes when active session manifest carries a non-null outcomeRef', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-active-outcome-ref-failure-unit'
+    const outcomeId = 'outcome-commit-active-outcome-ref-failure-1'
+    const operationId = 'commit-active-outcome-ref-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-active-outcome-ref-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    expect(manifest.status).toBe('active')
+    expect(manifest.outcomeRef).toBeNull()
+    // parseManifest rejects active + non-null outcomeRef as invalid_session_manifest before any publication.
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({
+        ...manifest,
+        outcomeRef: {
+          outcomeId: 'ghost-outcome',
+          kind: 'established',
+          relativePath: 'learning-sessions/session-commit-active-outcome-ref-failure-unit/outcome.json',
+          contentSha256: 'a'.repeat(64),
+          evidenceEventIds: [evidenceEventId]
+        }
+      }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'active',
+      outcomeRef: { outcomeId: 'ghost-outcome' }
+    })
+  })
+
+  it('fails closed before writes when session manifest version lags canonical facts', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-version-behind-failure-unit'
+    const outcomeId = 'outcome-commit-version-behind-failure-1'
+    const operationId = 'commit-version-behind-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-version-behind-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      eventCount: number
+      version: number
+      status: string
+      outcomeRef: null
+    }
+    // minimumVersion = 1 + eventCount for active sessions. Leave eventCount accurate but lag version.
+    const minimumVersion = 1 + manifest.eventCount
+    expect(manifest.version).toBeGreaterThanOrEqual(minimumVersion)
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, version: minimumVersion - 1 }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'active',
+      outcomeRef: null,
+      eventCount: manifest.eventCount,
+      version: minimumVersion - 1
+    })
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
