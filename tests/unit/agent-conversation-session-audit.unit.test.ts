@@ -743,6 +743,27 @@ describe('agent conversation session audit durable append', () => {
   })
 
   it.each(
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES'] as const)
+  )('fails closed without capability downgrade when audit file stat returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `stat:${path}` ? errno(code) : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(`stat:${path}`)
+    // open happened before stat; write must not proceed; directory durability must not start
+    expect(io.events.some((event) => event.startsWith('open:') && event.endsWith(`:${path}`))).toBe(true)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each(
     (['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'] as const).flatMap((code) => [
       ['audit-directory open', code, (root: string, record: AgentConversationRecord) => `open:r:${dirname(auditPath(root, record))}`],
       ['audit-directory sync', code, (root: string, record: AgentConversationRecord) => `sync:${dirname(auditPath(root, record))}`],
