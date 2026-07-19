@@ -2330,6 +2330,88 @@ describe('LearningOutcomeCommitter', () => {
     await expectAuthorityBytesUnchanged()
   })
 
+  it('fails closed on restart when the canonical learning record is a directory', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-invalid-record-directory-unit'
+    const outcomeId = 'outcome-invalid-record-directory-1'
+    const operationId = 'invalid-record-directory-operation-1'
+    const evidenceEventId = 'evidence-invalid-record-directory-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let evaluationCalls = 0
+    const initial = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    await expect(initial.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+
+    const [outcomeBeforeRestart, manifestBeforeRestart, markerBeforeRestart] = await Promise.all([
+      readFile(outcomePath),
+      readFile(manifestPath),
+      readFile(markerPath)
+    ])
+    // Poison only the canonical learning record into a directory (not a symlink).
+    // Outcome, completed manifest, and settlement marker remain matching authority.
+    await rm(record)
+    await mkdir(record)
+    await writeFile(join(record, 'junk-inside-directory.md'), '# invalid record directory\n', 'utf8')
+    await expect(lstat(record)).resolves.toMatchObject({ isDirectory: expect.any(Function) })
+    expect((await lstat(record)).isDirectory()).toBe(true)
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      durableFileOperations: recoveryDurable.operations,
+      createId: () => {
+        throw new Error('recovery createId must not be called')
+      },
+      evaluate: async () => {
+        evaluationCalls += 1
+        throw new Error('recovery evaluator must not be called')
+      }
+    })
+    const expectAuthorityBytesUnchanged = async () => {
+      await expect(readFile(outcomePath)).resolves.toEqual(outcomeBeforeRestart)
+      await expect(readFile(manifestPath)).resolves.toEqual(manifestBeforeRestart)
+      await expect(readFile(markerPath)).resolves.toEqual(markerBeforeRestart)
+      expect((await lstat(record)).isDirectory()).toBe(true)
+    }
+
+    // Directed residual: invalid directory canonical record fails closed without repair.
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'review_required',
+      diagnostics: expect.arrayContaining(['missing_record'])
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectAuthorityBytesUnchanged()
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryDurable.events).toEqual([])
+    await expectAuthorityBytesUnchanged()
+  })
+
   it('reports legacy_generated records as read-only diagnostics without upgrading their bytes', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-legacy-unit')
