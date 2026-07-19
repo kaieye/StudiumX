@@ -5,7 +5,7 @@ import { defaultSettings } from './teaching-settings'
 import { Logger } from './logger'
 import { TeachingMemoryStore } from './teaching-memory'
 import { createLearningSessionLedger, type LearningSessionLedger } from './learning-session-ledger'
-import { createLearningOutcomeCommitter, type LearningOutcomeCommitter } from './learning-outcome-committer'
+import { createLearningOutcomeCommitter, type LearningOutcomeCommitter, type LearningOutcomeCommitterFaultPoint } from './learning-outcome-committer'
 import { createLessonInteractionRecorder } from './lesson-interaction-recorder'
 import { inspectGitWorkspace } from './teaching-git'
 import {
@@ -398,9 +398,14 @@ export class TeachingWorkspaceService {
     this.learningOutcomeLedgerFactory = options.learningOutcomeLedgerFactory ?? ((workspaceRoot) =>
       createLearningSessionLedger({ workspaceRoot })
     )
-    this.learningOutcomeCommitterFactory = options.learningOutcomeCommitterFactory ?? ((workspaceRoot, ledger) =>
-      createLearningOutcomeCommitter({ workspaceRoot, ledger: ledger as LearningSessionLedger })
-    )
+    this.learningOutcomeCommitterFactory = options.learningOutcomeCommitterFactory ?? ((workspaceRoot, ledger) => {
+      const crashPoint = process.env.STUDIUMX_E2E_CRASH_POINT as LearningOutcomeCommitterFaultPoint | undefined
+      return createLearningOutcomeCommitter({
+        workspaceRoot,
+        ledger: ledger as LearningSessionLedger,
+        testingFaults: crashPoint ? { inject: async (point) => { if (point === crashPoint) process.kill(process.pid, 'SIGKILL') } } : undefined
+      })
+    })
     this.memoryStore = new TeachingMemoryStore({
       rootDir: join(this.appDataRoot, 'memory'),
       settingsProvider: () => this.loadSettings()
