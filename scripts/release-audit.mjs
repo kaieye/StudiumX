@@ -19,7 +19,8 @@ const sha = git(['rev-parse','HEAD']).stdout.trim();
 const tools = {};
 for (const [name, argv] of Object.entries({node:['node','--version'], pnpm:['pnpm','--version'], git:['git','--version']})) { const r = run(argv); tools[name] = { version: r.stdout.trim() || r.stderr.trim(), argv }; }
 const commands = commandArgs.length ? commandArgs : ['pnpm install --frozen-lockfile','pnpm run typecheck','pnpm run test:unit','pnpm run build','pnpm run test:integration','pnpm run check:security','git diff --check'];
-const results = [];`nconst logDir = mkdtempSync(resolve(tmpdir(), 'studiumx-release-audit-'));
+const results = [];
+const logDir = mkdtempSync(resolve(tmpdir(), 'studiumx-release-audit-'));
 for (const text of commands) {
   const argv = text.trim().split(/\s+/); const r = run(argv);
   const outPath = resolve(logDir, `${results.length}.stdout`), errPath = resolve(logDir, `${results.length}.stderr`);
@@ -35,5 +36,6 @@ const audit = { schemaVersion:1, generatedAt:new Date().toISOString(), commitSha
 mkdirSync(dirname(output), { recursive:true }); writeFileSync(output, JSON.stringify(audit,null,2)+'\n');
 if (statusAfter.stdout.trim()) { console.error('release audit failed: worktree became dirty'); process.exitCode=1; }
 console.log(output);
+
 
 

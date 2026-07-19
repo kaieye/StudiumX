@@ -14,7 +14,7 @@ import type { TeachingAppState, TeachingSettingsV1 } from '../../src/shared/teac
 import { learningSessionOutcomeRelativePath } from '../../src/shared/teaching-placement'
 import { expect, test } from '../helpers/electron'
 import { createTestRuntime, type TestRuntime } from '../helpers/test-runtime'
-import { launchElectronRuntime } from '../helpers/test-runtime/electron'
+import { forceKillElectronRuntime, launchElectronRuntime } from '../helpers/test-runtime/electron'
 
 const generator: TeachingSettingsV1['generator'] = {
   providerId: 'test-provider',
@@ -372,7 +372,7 @@ test.describe('P0 longitudinal Electron Golden — learning-outcome commit loop'
       expect(await countLearningRecords(seeded.rootPath)).toBe(1)
 
       // 4) Restart same isolated userData — durable single-record + idempotent commit
-      await launched.close({ failed: false })
+      await forceKillElectronRuntime(launched)
       launched = await launchElectronRuntime(runtime, testInfo)
       mainWindow = await firstWindow(launched.application)
 
@@ -410,3 +410,5 @@ test.describe('P0 longitudinal Electron Golden — learning-outcome commit loop'
     }
   })
 })
+
+

@@ -103,3 +103,24 @@ export async function launchElectronRuntime(
     }
   }
 }
+/** Forcefully terminate the Electron main process tree (simulates crash; no graceful close). */
+export async function forceKillElectronRuntime(runtime: LaunchedElectronRuntime): Promise<void> {
+  const app = runtime.application as unknown as { process?: () => { pid?: number } }
+  const pid = app.process?.().pid
+  if (!pid) throw new Error('Electron process PID unavailable for force kill')
+  const { execFile } = await import('node:child_process')
+  await new Promise<void>((resolve, reject) => {
+    if (process.platform === 'win32') {
+      execFile('taskkill', ['/PID', String(pid), '/T', '/F'], (error) => {
+        if (error && !/not found|no running instance/i.test(error.message)) reject(error)
+        else resolve()
+      })
+    } else {
+      try { process.kill(pid, 'SIGKILL') } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code !== 'ESRCH') return reject(error)
+      }
+      resolve()
+    }
+  })
+}
