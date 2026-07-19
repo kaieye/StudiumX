@@ -2239,6 +2239,97 @@ describe('LearningOutcomeCommitter', () => {
     await expectAuthorityBytesUnchanged()
   })
 
+  it('fails closed on restart when session.json is a directory', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-invalid-manifest-directory-unit'
+    const outcomeId = 'outcome-invalid-manifest-directory-1'
+    const operationId = 'invalid-manifest-directory-operation-1'
+    const evidenceEventId = 'evidence-invalid-manifest-directory-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let evaluationCalls = 0
+    const initial = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    await expect(initial.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+
+    const [recordBeforeRestart, outcomeBeforeRestart, markerBeforeRestart] = await Promise.all([
+      readFile(record),
+      readFile(outcomePath),
+      readFile(markerPath)
+    ])
+    // Poison only session.json into a directory (not a symlink). Record,
+    // outcome.json, and settlement marker remain matching authority.
+    await rm(manifestPath)
+    await mkdir(manifestPath)
+    await writeFile(join(manifestPath, 'junk-inside-directory.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      status: 'completed',
+      outcomeRef: {
+        outcomeId: 'outcome-manifest-directory-junk-1',
+        kind: 'needs_practice',
+        relativePath: 'learning-sessions/outside/outcome.json',
+        evidenceEventIds: ['evidence-manifest-directory-junk-1'],
+        contentSha256: '0'.repeat(64)
+      }
+    })}\n`, 'utf8')
+    await expect(lstat(manifestPath)).resolves.toMatchObject({ isDirectory: expect.any(Function) })
+    expect((await lstat(manifestPath)).isDirectory()).toBe(true)
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      durableFileOperations: recoveryDurable.operations,
+      createId: () => {
+        throw new Error('recovery createId must not be called')
+      },
+      evaluate: async () => {
+        evaluationCalls += 1
+        throw new Error('recovery evaluator must not be called')
+      }
+    })
+    const expectAuthorityBytesUnchanged = async () => {
+      await expect(readFile(record)).resolves.toEqual(recordBeforeRestart)
+      await expect(readFile(outcomePath)).resolves.toEqual(outcomeBeforeRestart)
+      await expect(readFile(markerPath)).resolves.toEqual(markerBeforeRestart)
+      expect((await lstat(manifestPath)).isDirectory()).toBe(true)
+    }
+
+    // Directed residual: invalid directory session manifest fails closed without repair.
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'review_required'
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectAuthorityBytesUnchanged()
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryDurable.events).toEqual([])
+    await expectAuthorityBytesUnchanged()
+  })
+
   it('reports legacy_generated records as read-only diagnostics without upgrading their bytes', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-legacy-unit')
