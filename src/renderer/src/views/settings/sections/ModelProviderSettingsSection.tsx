@@ -93,7 +93,7 @@ export function ModelProviderSettingsSection({
           />
         </SettingsRow>
         <SettingsRow label={t('model.apiKey.label')}>
-          <div className="settings-inline-group">
+          <div className="settings-api-key-field">
             <SettingsTextInput
               type={apiKeyVisible ? 'text' : 'password'}
               value={activeModelSettingsProvider.apiKey}
@@ -101,7 +101,7 @@ export function ModelProviderSettingsSection({
               onChange={(apiKey) => updateProvider({ apiKey })}
             />
             <button
-              className="icon-button soft"
+              className="settings-api-key-visibility"
               type="button"
               aria-label={apiKeyVisible ? t('model.apiKey.hide') : t('model.apiKey.show')}
               title={apiKeyVisible ? t('model.apiKey.hide') : t('model.apiKey.show')}

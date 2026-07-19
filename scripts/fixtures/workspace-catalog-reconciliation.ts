@@ -23,7 +23,7 @@ try {
   assert.ok(workspace, 'workspace should be created')
 
   assertCatalogDirectoryPaths(workspace)
-  const indexPath = join(workspace.rootPath, '.teachos', 'index.json')
+  const indexPath = join(workspace.rootPath, '.studiumx', 'index.json')
   const initialIndex = await readFile(indexPath, 'utf8')
   const initialStat = await stat(indexPath)
 

@@ -1,6 +1,10 @@
 import { dirname, resolve } from 'node:path'
 import { isPathInsideRoot } from '../path-access'
 
+/** The only persisted positive grant. Its absence is intentionally untrusted. */
+export type AgentWorkspaceTrust = 'trusted'
+export type WorkspaceTrust = AgentWorkspaceTrust | 'untrusted'
+
 export type RegistryWorkspace = {
   id: string
   name: string
@@ -9,6 +13,8 @@ export type RegistryWorkspace = {
   updatedAt: string
   pinned?: boolean
   archived?: boolean
+  /** Stored only in the application-data registry, never in a workspace catalog. */
+  agentWorkspaceTrust?: AgentWorkspaceTrust
 }
 
 export type WorkspaceRegistry = {
@@ -24,6 +30,43 @@ export const EMPTY_REGISTRY: WorkspaceRegistry = {
 export type RegistryWorkspaceMetaPatch = {
   pinned?: boolean | null
   archived?: boolean | null
+}
+
+export function isWorkspaceTrust(value: unknown): value is WorkspaceTrust {
+  return value === 'trusted' || value === 'untrusted'
+}
+
+/**
+ * Fails closed: only the explicit persisted positive grant enables workspace
+ * tools. Missing, old, and malformed values are all untrusted.
+ */
+export function workspaceTrust(workspace: Pick<RegistryWorkspace, 'agentWorkspaceTrust'>): WorkspaceTrust {
+  return workspace.agentWorkspaceTrust === 'trusted' ? 'trusted' : 'untrusted'
+}
+
+/**
+ * Preserve all unrelated registry metadata while replacing the trust grant.
+ * Untrusted is represented by absence so old registries stay compatible.
+ */
+export function setRegistryWorkspaceTrust(
+  workspace: RegistryWorkspace,
+  trust: WorkspaceTrust
+): RegistryWorkspace {
+  const next = { ...workspace }
+  if (trust === 'trusted') next.agentWorkspaceTrust = 'trusted'
+  else delete next.agentWorkspaceTrust
+  return next
+}
+
+/**
+ * Canonicalizes fields this slice owns without discarding unrelated registry
+ * metadata, including future workspace-write settings and permission grants.
+ * An unrecognized trust value must never be carried forward as a grant.
+ */
+export function normalizeRegistryWorkspace(workspace: RegistryWorkspace): RegistryWorkspace {
+  const next: RegistryWorkspace = { ...workspace, rootPath: resolve(workspace.rootPath) }
+  if (workspace.agentWorkspaceTrust !== 'trusted') delete next.agentWorkspaceTrust
+  return next
 }
 
 export function upsertRegistryWorkspace(
@@ -87,8 +130,12 @@ export function findWorkspace(registry: WorkspaceRegistry, workspaceId: string):
   return workspace
 }
 
+/**
+ * Compare canonical roots exactly. Case folding would conflate distinct roots
+ * on case-sensitive filesystems and could transfer a workspace trust grant.
+ */
 export function samePath(left: string, right: string): boolean {
-  return resolve(left).toLowerCase() === resolve(right).toLowerCase()
+  return resolve(left) === resolve(right)
 }
 
 export function assertSafeWorkspaceRootForRemoval(rootPath: string, managedRoots: string[]): void {

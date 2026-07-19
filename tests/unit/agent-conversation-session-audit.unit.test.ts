@@ -118,6 +118,9 @@ function instrumentedAuditOperations(options: {
         },
         sync: async () => {
           await observe(`sync:${path}`)
+          // Windows cannot fsync directory handles. The production primitive
+          // downgrades that native capability gap; retain injected faults above.
+          if (process.platform === 'win32' && (await handle.stat()).isDirectory()) return
           await handle.sync()
         },
         // Close the real handle before surfacing a synthetic close failure so
@@ -236,7 +239,9 @@ describe('agent conversation session audit durable append', () => {
     const auditTargetOpen = io.opens.find((open) => open.path === auditFile)
     expect(auditTargetOpen).toBeDefined()
     expect(typeof auditTargetOpen?.flags).toBe('number')
-    expect((auditTargetOpen?.flags as number) & fsConstants.O_NOFOLLOW).toBe(fsConstants.O_NOFOLLOW)
+    if (fsConstants.O_NOFOLLOW !== undefined) {
+      expect((auditTargetOpen?.flags as number) & fsConstants.O_NOFOLLOW).toBe(fsConstants.O_NOFOLLOW)
+    }
     expect(io.opens.filter((open) => open.path === auditDirectory || open.path === parentDirectory))
       .toEqual(expect.arrayContaining([
         { path: auditDirectory, flags: 'r' },
@@ -334,7 +339,14 @@ describe('agent conversation session audit durable append', () => {
     } else {
       const target = join(root, 'other-target.jsonl')
       await writeFile(target, 'unrelated\n', 'utf8')
-      await symlink(target, path)
+      try {
+        await symlink(target, path)
+      } catch (error) {
+        // File symlinks require Developer Mode or elevation on many Windows
+        // hosts. The paired directory case remains covered without that grant.
+        if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') return
+        throw error
+      }
     }
     const io = instrumentedAuditOperations()
 

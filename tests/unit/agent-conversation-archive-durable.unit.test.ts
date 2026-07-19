@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { lstat, mkdir, mkdtemp, open as openFile, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { saveAgentConversationArchive } from '../../src/main/agent-conversation-archive'
@@ -72,6 +72,9 @@ function instrumentedDurableOperations(options: {
         },
         sync: async () => {
           observe(`sync:${path}`)
+          // Windows cannot fsync directory handles. The production primitive
+          // downgrades that native capability gap; retain injected faults above.
+          if (process.platform === 'win32' && (await handle.stat()).isDirectory()) return
           await handle.sync()
         },
         // Close the real descriptor before surfacing an injected close error so
@@ -146,6 +149,9 @@ function instrumentedSessionAuditOperations(options: {
         },
         sync: async () => {
           observe(`sync:${path}`)
+          // Windows cannot fsync directory handles. The production primitive
+          // downgrades that native capability gap; retain injected faults above.
+          if (process.platform === 'win32' && (await handle.stat()).isDirectory()) return
           await handle.sync()
         },
         close: async () => {
@@ -224,7 +230,7 @@ async function temporaryFiles(rootPath: string): Promise<string[]> {
 }
 
 function candidatePath(events: readonly string[], canonicalPath: string): string {
-  const openEvent = events.find((event) => event.startsWith(`open:wx:${join(canonicalPath, '..')}`) && event.includes(`.${canonicalPath.split('/').at(-1)}.`))
+  const openEvent = events.find((event) => event.startsWith(`open:wx:${dirname(canonicalPath)}`) && event.includes(`.${basename(canonicalPath)}.`))
   if (!openEvent) throw new Error(`Missing durable temporary candidate for ${canonicalPath}`)
   return openEvent.slice('open:wx:'.length)
 }

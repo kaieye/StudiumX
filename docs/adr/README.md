@@ -1,6 +1,6 @@
-# 本地数据 ADR 索引
+# 架构 ADR 索引
 
-本目录记录已在 `database` 分支实施、且有代码、测试和 Git 提交证据的本地数据架构决定。ADR（Architecture Decision Record，架构决策记录）说明系统为什么采用某项重要做法、已经落地到什么范围，以及它**没有**授权做什么。
+本目录记录已经实施、且有代码、测试和 Git 提交证据的架构决定。ADR（Architecture Decision Record，架构决策记录）说明系统为什么采用某项重要做法、已经落地到什么范围，以及它**没有**授权做什么。
 
 ## 先从这里读
 
@@ -22,6 +22,15 @@
 | Memory 数据如何按范围隔离，以及能否迁移旧数据 | ADR-0006 |
 | 新持久化 conversation/history 如何先经脱敏 | ADR-0007 |
 | 哪些本地数据能力仍未完成 | [本地数据待办](../local-data-todo.md) |
+| P0 教学 Session 如何成为 canonical 事实，而非 Agent run 或 Lesson 目录 | ADR-0008 |
+| Lesson 回答、检索练习与 conversation 互动如何成为可追溯 Evidence | ADR-0009 |
+| 为什么 Lesson 生成不会再自动写正式 Learning record | ADR-0010 |
+| 谁可以从 Evidence 写入正式 outcome / Learning record | ADR-0011 |
+| 后续教学动作如何避免由自由文本 prompt 决定 | ADR-0012 |
+| 教学 context 与资源如何受 provenance 和预算约束 | ADR-0013 |
+| 如何将运行时教学事实安全地呈现给学习者 | ADR-0014 |
+| 教学运行事件如何保持版本化和封闭 payload | ADR-0015 |
+| OutcomeEvaluator 如何仅信任绑定且校验过的 assessment artifact | ADR-0016 |
 
 ## 已实施决定
 
@@ -30,10 +39,19 @@
 | [ADR-0001](0001-rebuildable-sqlite-projection.md) | C-1 可重建 SQLite projection 与 no-FTS 边界 | SQLite 仅作为可再建 analytics 投影并保留 canonical 文件回退；FTS、查询/搜索面与 query-facing corpus 均未获授权。 |
 | [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md) | C-2 canonical 永久保留、分区、分段与摘要 projection | canonical teaching data 永久保留；UTC 月分区、无损 sealed JSONL 分段和显式会话摘要 projection 已实施。physical retention / recovery 未获批准；相邻 agent-artifact 年龄/大小删除路径已移除。 |
 | [ADR-0003](0003-critical-json-backups-and-verified-recovery.md) | C-3 关键 JSON 备份与恢复 | `.bak` 备份及 verified read recovery。 |
-| [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) | C-4 durable publish | 共享 durable publish 原语及已迁移的部分 consumer；包含 C-4P6-S1 的严格有序 publish 与受控恢复基础、C-4P6-S2 的 `after_outcome_publish` tests-only evidence、C-4P6-S3 的 settlement-marker final rename `EIO` tests-only evidence、C-4P8-S1/S2/S3 foundation，以及 C-4P8-S4 的受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure，还有 C-4P9-S2 固定 session-audit 文件的专用 durable append 与 P9-S3/P9-S4/P9-S5 tests-only evidence。C-4 仍是 partial writer migration：完整 C-4P6 与完整 C-4P9 未关闭；C-4P6-S3 不等同于泛化 `after_manifest_publish`、完整 manifest failure matrix 或生产功能；P9-S3 保留历史 partial-write 与 archive-level failure/retry 证据；P9-S4 只覆盖首个 audit write `EIO`、0 audit bytes 的 archive-save short-circuit/retry；P9-S5 只覆盖 audit/parent directory `open`/`sync` 的 20 个 allowlist capability symmetry cases，不是完整 capability matrix或生产功能；P8 不表示所有 writer、跨文件 transaction、CAS/lost-update protection、Windows/fully cross-platform 或 metadata full preservation。 |
+| [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) | C-4 durable publish | 共享 durable publish 原语及已迁移的部分 consumer；包含 C-4P6-S1 的严格有序 publish 与受控恢复基础、C-4P6-S2 的 `after_outcome_publish` tests-only evidence、C-4P6-S3 的 settlement-marker final rename `EIO` tests-only evidence、C-4P8-S1/S2/S3 foundation、C-4P8-S4 的受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure、经明确批准的 Windows direct-path non-CAS profile，以及 C-4P9-S2 固定 session-audit 文件的专用 durable append 与 P9-S3/P9-S4/P9-S5 tests-only evidence。C-4 仍是 partial writer migration：完整 C-4P6 与完整 C-4P9 未关闭；C-4P6-S3 不等同于泛化 `after_manifest_publish`、完整 manifest failure matrix 或生产功能；P9-S3 保留历史 partial-write 与 archive-level failure/retry 证据；P9-S4 只覆盖首个 audit write `EIO`、0 audit bytes 的 archive-save short-circuit/retry；P9-S5 只覆盖 audit/parent directory `open`/`sync` 的 20 个 allowlist capability symmetry cases，不是完整 capability matrix 或生产功能；P8 不表示所有 writer、跨文件 transaction、CAS/lost-update protection、Windows strict/fully cross-platform durable publish 或 metadata full preservation。2026-07-19 Windows host-native/SDK audit 确认已审计 API 缺少 S3 expected-target-ID atomic precondition；批准的 direct-path profile 可暴露该写工具，但不构成 descriptor/HANDLE-relative containment、CAS 或 Windows durable publish。 |
 | [ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md) | C-5 trace correlation | main 生成的 trace correlation 与安全日志边界。 |
 | [ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md) | C-6 Memory | scope 分区及 aggregate-only readonly migration preflight。 |
 | [ADR-0007](0007-persisted-user-history-redaction.md) | C-7 历史数据脱敏 | 新持久化 conversation/history projection 的脱敏边界。 |
+| [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md) | P0 LearningSession ledger | 独立的 canonical LearningSession、幂等 receipt、恢复与 legacy projection；不代表 P0 闭环完成。 |
+| [ADR-0009](0009-typed-lesson-interaction-evidence.md) | P0 typed Evidence | Lesson / conversation 互动的原始可追溯 Evidence、原子 receipt 与 preview 绑定；不是 outcome 或 record。 |
+| [ADR-0010](0010-evidence-gated-learning-record-cutover.md) | P0 Learning record cutover | 切断 Lesson 生成自动写正式 Learning record；`learningRecordNote` 仅为待验证 evidence/rubric。 |
+| [ADR-0011](0011-evidence-gated-learning-outcome-settlement.md) | P0 outcome settlement | Evidence-gated 的 canonical outcome / Learning record 结算、有序发布、reconcile 和窄 IPC sole-writer 边界。 |
+| [ADR-0012](0012-deterministic-next-teaching-step-planner.md) | P0 next teaching step | 由 outcome / Evidence 导出的确定性 typed 教学动作，而非自由文本推断。 |
+| [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md) | P0 teaching context | provenance allowlist、预算化 context 装配及最小 resource grounding。 |
+| [ADR-0014](0014-learner-safe-teaching-turn-presentation.md) | P0 learner presentation | 教学事实的 learner-safe 四阶段投影、redaction 和 a11y 边界。 |
+| [ADR-0015](0015-canonical-teaching-event-protocol.md) | P1 canonical teaching events | 版本化封闭 event envelope、event bus 与 legacy adapter 边界。 |
+| [ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md) | P0 assessment evaluator | 仅信任绑定、publisher-owned、digest 校验的 assessment artifact，并对不可信输入保守失败。 |
 
 ## C-4P6-S1/S2/S3 evidence 边界
 
@@ -48,7 +66,8 @@ ADR-0004 记录的 C-4P8 已在**受控 `write_workspace_file` 文本文件 crea
 
 - 请求仍是 `{path, content, overwrite?}`。`overwrite` 缺省或为 `false` 时使用 S2 no-clobber create：目标不存在时创建，目标已存在时返回 `target_exists`，不覆盖已有内容。`overwrite: true` 时，目标不存在仍使用 S2 create；目标已存在且是 `nlink = 1` 的 regular file 才使用 S3 restricted overwrite。directory、symlink、hardlink、FIFO、device、socket 和其它 non-regular target 均返回 `path_rejected`，不运行任一 publisher。预检时 absent 但发布时已有目标出现返回 `target_exists`；原本合格的 regular target 在 S3 前消失、类型改变或不再满足条件返回 `target_changed`。
 - tool-facing stable code 为 `request_rejected`、`path_rejected`、`containment_unavailable`、`target_exists`、`target_changed`、`prepublication_failed`、`possibly_published`；不暴露 raw internal、absolute path、payload/content 或 temporary name。
-- 任何失败（包括 `target_exists`、`target_changed`、`prepublication_failed` 和 `possibly_published`）都不得自动 retry、rollback 或删除 canonical target。`possibly_published` 仅可通过 descriptor-bound canonical regular leaf 的完整字节 reread 确认：exact 时返回 `possiblyPublished: true`、`canonicalRead: 'exact'`、`retryable: false`；否则返回 `possibly_published`、`retryable: false`，且不得将其解释为“未执行”。相同 `toolCallId` replay journal 中的记录结果，不会第二次 publish。
+- runtime registry 以 profile-aware capability 为 gate：POSIX 需要 descriptor-relative durable capability；Windows 使用经明确批准、参考 codex-rust 的 root-constrained direct-path profile，因而可暴露 `write_workspace_file`。其它不可用 host 返回稳定 availability `{ available: false, code: 'containment_unavailable', message: '当前平台无法安全发布工作区文件。' }` 并不注册 write definition/handler。Windows profile 不是 descriptor/HANDLE-bound containment、target-ID CAS、atomic exchange 或 directory-fsync durability；只读工具和既有三个 `settings.tools.approvalMode` 语义不变。
+- 任何失败（包括 `target_exists`、`target_changed`、`prepublication_failed` 和 `possibly_published`）都不得自动 retry、rollback 或删除 canonical target。`possibly_published` 在 POSIX 通过 descriptor-bound canonical regular leaf、在 Windows direct-path profile 通过再次 realpath-contained 的 direct-path read 做完整字节确认：exact 时返回 `possiblyPublished: true`、`canonicalRead: 'exact'`、`retryable: false`；否则返回 `possibly_published`、`retryable: false`，且不得将其解释为“未执行”。相同 `toolCallId` replay journal 中的记录结果，不会第二次 publish。
 
 最终本地验证在 macOS 构建 native addon，并运行五个定向 unit 文件共 **123 tests passed**，另通过 typecheck、workspace write tool check、agent-operation idempotency check、workspace path target check、security check 和 diff check；这不是 full suite 声明。完整命令、五个文件名、scope 限制和 Linux host-native 记录见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)。
 

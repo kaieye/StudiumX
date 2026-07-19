@@ -6,13 +6,14 @@ import { join } from 'node:path'
 import { AgentRunStore, DEFAULT_AGENT_RUN_BUDGET } from '../../src/main/ai/agent-run-store'
 import { ToolRegistry, buildDefaultRegistry, buildToolContext } from '../../src/main/ai/tools/registry'
 import { defaultSettings } from '../../src/main/teaching-settings'
+import { getWorkspaceWriteToolAvailability } from '../../src/main/ai/tools/workspace'
 
 const root = await mkdtemp(join(tmpdir(), 'studiumx-operation-idempotency-'))
 
 try {
   const settings = defaultSettings(root)
+  settings.tools.approvalMode = 'full_access'
   settings.tools.workspaceRead = true
-  settings.tools.workspaceWritePermission = 'allow_for_conversation'
   const store = new AgentRunStore(root)
   await store.create({ runId: 'run-a', streamId: 'run-a', budget: DEFAULT_AGENT_RUN_BUDGET })
   await store.create({ runId: 'run-b', streamId: 'run-b', budget: DEFAULT_AGENT_RUN_BUDGET })
@@ -139,7 +140,6 @@ try {
     workspaceRoot: root,
     workspaceWrite: true
   })
-  assert.equal(workspaceWriteRegistry.names().includes('write_workspace_file'), true)
   const workspaceWriteHandlers = workspaceWriteRegistry.handlerMap(buildToolContext(settings, {
     workspaceRoot: root,
     runId: workspaceRunId,
@@ -155,49 +155,65 @@ try {
     content: '完整 UTF-8 replay 内容 🧪\n',
     overwrite: true
   }
-  const firstWorkspaceWrite = JSON.parse(await workspaceWriteHandlers.write_workspace_file(
-    workspaceWriteArgs,
-    workspaceWriteCall
-  ))
-  assert.equal(firstWorkspaceWrite.operation.disposition, 'first_execution')
-  assert.deepEqual(
-    {
-      path: firstWorkspaceWrite.path,
-      created: firstWorkspaceWrite.created,
-      overwritten: firstWorkspaceWrite.overwritten
-    },
-    { path: workspaceWriteArgs.path, created: true, overwritten: false }
+  const workspaceWriteAvailability = getWorkspaceWriteToolAvailability()
+  assert.equal(
+    workspaceWriteRegistry.names().includes('write_workspace_file'),
+    workspaceWriteAvailability.available,
+    'workspace write registration must match the durable containment capability'
   )
   const workspaceWriteTarget = join(root, workspaceWriteArgs.path)
-  const publishedBeforeReplay = await stat(workspaceWriteTarget)
-  assert.equal(await readFile(workspaceWriteTarget, 'utf8'), workspaceWriteArgs.content)
 
-  // Reconstruct the journal and registry to make this a true persisted replay,
-  // not an in-memory short-circuit. Registry reuse must happen before the real
-  // write handler/publisher; otherwise this overwrite:true call would run S3
-  // and atomically replace the target with a distinct inode.
-  const restartedWorkspaceStore = new AgentRunStore(root)
-  const restartedWorkspaceRegistry = buildDefaultRegistry(settings, {
-    workspaceRoot: root,
-    workspaceWrite: true
-  })
-  const replayedWorkspaceWrite = JSON.parse(await restartedWorkspaceRegistry.handlerMap(buildToolContext(settings, {
-    workspaceRoot: root,
-    runId: workspaceRunId,
-    operationJournal: restartedWorkspaceStore.operations
-  })).write_workspace_file(workspaceWriteArgs, workspaceWriteCall))
-  assert.equal(replayedWorkspaceWrite.operation.disposition, 'idempotent_reuse')
-  assert.deepEqual(
-    {
-      path: replayedWorkspaceWrite.path,
-      created: replayedWorkspaceWrite.created,
-      overwritten: replayedWorkspaceWrite.overwritten
-    },
-    { path: workspaceWriteArgs.path, created: true, overwritten: false }
-  )
-  const publishedAfterReplay = await stat(workspaceWriteTarget)
-  assert.equal(publishedAfterReplay.ino, publishedBeforeReplay.ino, 'completed replay must not invoke the S3 filesystem publisher')
-  assert.equal(await readFile(workspaceWriteTarget, 'utf8'), workspaceWriteArgs.content)
+  if (!workspaceWriteAvailability.available) {
+    assert.equal(workspaceWriteAvailability.code, 'containment_unavailable')
+    assert.equal(workspaceWriteAvailability.message, '当前平台无法安全发布工作区文件。')
+    assert.equal(typeof workspaceWriteHandlers.write_workspace_file, 'undefined')
+    await assert.rejects(stat(workspaceWriteTarget), { code: 'ENOENT' })
+    console.log('[agent operation idempotency] durable workspace publication unavailable; no write operation was offered')
+  } else {
+    const firstWorkspaceWrite = JSON.parse(await workspaceWriteHandlers.write_workspace_file(
+      workspaceWriteArgs,
+      workspaceWriteCall
+    ))
+    assert.equal(firstWorkspaceWrite.operation.disposition, 'first_execution')
+
+    assert.deepEqual(
+      {
+        path: firstWorkspaceWrite.path,
+        created: firstWorkspaceWrite.created,
+        overwritten: firstWorkspaceWrite.overwritten
+      },
+      { path: workspaceWriteArgs.path, created: true, overwritten: false }
+    )
+    const publishedBeforeReplay = await stat(workspaceWriteTarget)
+    assert.equal(await readFile(workspaceWriteTarget, 'utf8'), workspaceWriteArgs.content)
+
+    // Reconstruct the journal and registry to make this a true persisted replay,
+    // not an in-memory short-circuit. Registry reuse must happen before the real
+    // write handler/publisher; otherwise this overwrite:true call would run S3
+    // and atomically replace the target with a distinct inode.
+    const restartedWorkspaceStore = new AgentRunStore(root)
+    const restartedWorkspaceRegistry = buildDefaultRegistry(settings, {
+      workspaceRoot: root,
+      workspaceWrite: true
+    })
+    const replayedWorkspaceWrite = JSON.parse(await restartedWorkspaceRegistry.handlerMap(buildToolContext(settings, {
+      workspaceRoot: root,
+      runId: workspaceRunId,
+      operationJournal: restartedWorkspaceStore.operations
+    })).write_workspace_file(workspaceWriteArgs, workspaceWriteCall))
+    assert.equal(replayedWorkspaceWrite.operation.disposition, 'idempotent_reuse')
+    assert.deepEqual(
+      {
+        path: replayedWorkspaceWrite.path,
+        created: replayedWorkspaceWrite.created,
+        overwritten: replayedWorkspaceWrite.overwritten
+      },
+      { path: workspaceWriteArgs.path, created: true, overwritten: false }
+    )
+    const publishedAfterReplay = await stat(workspaceWriteTarget)
+    assert.equal(publishedAfterReplay.ino, publishedBeforeReplay.ino, 'completed replay must not invoke the S3 filesystem publisher')
+    assert.equal(await readFile(workspaceWriteTarget, 'utf8'), workspaceWriteArgs.content)
+  }
 
   console.log('agent operation idempotency boundaries ok')
 } finally {

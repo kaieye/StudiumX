@@ -17,8 +17,9 @@ type AnalyticsCopy = {
     refreshing: string
     loaded: string
     failed: string
-    unavailable: string
-    unavailableDetail: string
+    apiUnavailable: string
+    apiUnavailableDetail: string
+    requestFailedDetail: string
     skip: string
     updated: string
     notGenerated: string
@@ -194,8 +195,9 @@ export const analyticsCopy: AnalyticsCopy = {
     refreshing: '正在刷新学习分析',
     loaded: '学习分析已更新',
     failed: '学习分析加载失败',
-    unavailable: '分析服务尚未接入',
-    unavailableDetail: '当前版本还没有可用的学习分析聚合接口。',
+    apiUnavailable: '学习分析功能不可用',
+    apiUnavailableDetail: '当前应用未提供学习分析 API。请更新应用或联系管理员。',
+    requestFailedDetail: '分析服务暂时无法响应。请稍后重试。',
     skip: '跳到分析内容',
     updated: '更新于',
     notGenerated: '尚未生成',
@@ -211,8 +213,8 @@ export const analyticsCopy: AnalyticsCopy = {
   },
   section: {
     loading: '正在加载',
-    empty: '当前范围内没有数据。',
-    partial: '部分数据源不完整,结果可能存在缺口。',
+    empty: '当前范围内暂无学习记录。',
+    partial: '部分数据源不完整，结果可能存在缺口。',
     error: '该板块加载失败。',
     retry: '重试'
   },
@@ -340,8 +342,9 @@ const analyticsCopyEn: AnalyticsCopy = {
     refreshing: 'Refreshing learning analytics',
     loaded: 'Learning analytics updated',
     failed: 'Learning analytics failed to load',
-    unavailable: 'Analytics service is unavailable',
-    unavailableDetail: 'No learning analytics aggregation API is available in this version.',
+    apiUnavailable: 'Learning Analytics is unavailable',
+    apiUnavailableDetail: 'This app does not provide the Learning Analytics API. Update the app or contact your administrator.',
+    requestFailedDetail: 'The analytics service could not respond. Try again later.',
     skip: 'Skip to analytics content',
     updated: 'Updated',
     notGenerated: 'Not generated yet',
@@ -357,7 +360,7 @@ const analyticsCopyEn: AnalyticsCopy = {
   },
   section: {
     loading: 'Loading',
-    empty: 'No data in the selected range.',
+    empty: 'No learning activity was recorded in the selected range.',
     partial: 'Some sources are incomplete; results may have gaps.',
     error: 'This section failed to load.',
     retry: 'Retry'

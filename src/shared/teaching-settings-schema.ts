@@ -8,7 +8,7 @@ import {
   PARALLEL_SEARCH_MODES,
   TEACHING_MODEL_PROVIDER_PRESETS,
   WEB_SEARCH_BACKENDS,
-  WORKSPACE_WRITE_PERMISSION_POLICIES,
+  AGENT_APPROVAL_MODES,
   normalizePetAppearanceId,
   type ModelEndpointFormat,
   type ModelReasoningEffort,
@@ -17,7 +17,7 @@ import {
   type TeachingSettingsPatch,
   type TeachingSettingsV1,
   type WebSearchBackend,
-  type WorkspaceWritePermissionPolicy
+  type AgentApprovalMode
 } from './teaching-types'
 import { DEFAULT_LESSON_STYLE_ID, normalizeLessonStyleId } from './lesson-styles'
 
@@ -92,7 +92,7 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
     tools: {
       enabled: false,
       workspaceRead: true,
-      workspaceWritePermission: 'ask_each_time',
+      approvalMode: 'request_approval',
       webSearch: true,
       webFetch: false,
       maxIterations: 0,
@@ -316,9 +316,9 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
     tools: {
       enabled: toolsInput.enabled === true,
       workspaceRead: toolsInput.workspaceRead !== false,
-      workspaceWritePermission: normalizeWorkspaceWritePermissionPolicy(
-        toolsInput.workspaceWritePermission,
-        defaults.tools.workspaceWritePermission
+      approvalMode: normalizeAgentApprovalMode(
+        toolsInput.approvalMode ?? legacyApprovalMode(toolsInput.workspaceWritePermission),
+        defaults.tools.approvalMode
       ),
       webSearch: toolsInput.webSearch !== false,
       webFetch: toolsInput.webFetch === true,
@@ -471,13 +471,26 @@ function normalizeParallelSearchMode(input: unknown, fallback: ParallelSearchMod
     : fallback
 }
 
-function normalizeWorkspaceWritePermissionPolicy(
+function normalizeAgentApprovalMode(
   input: unknown,
-  fallback: WorkspaceWritePermissionPolicy
-): WorkspaceWritePermissionPolicy {
-  return typeof input === 'string' && WORKSPACE_WRITE_PERMISSION_POLICIES.includes(input as WorkspaceWritePermissionPolicy)
-    ? input as WorkspaceWritePermissionPolicy
+  fallback: AgentApprovalMode
+): AgentApprovalMode {
+  return typeof input === 'string' && AGENT_APPROVAL_MODES.includes(input as AgentApprovalMode)
+    ? input as AgentApprovalMode
     : fallback
+}
+
+/** Migrate the prior write-only control without turning old settings into silent access. */
+function legacyApprovalMode(input: unknown): AgentApprovalMode | undefined {
+  switch (input) {
+    case 'allow_for_conversation':
+      return 'full_access'
+    case 'ask_each_time':
+    case 'read_only':
+      return 'request_approval'
+    default:
+      return undefined
+  }
 }
 
 function defaultWorktreeRoot(defaultRoot: string): string {

@@ -71,7 +71,15 @@ describe('durable JSONL', () => {
     await mkdir(join(directory, 'ledger.sealed-2026-07-000002.jsonl'))
     const symlinkTarget = join(directory, 'outside.jsonl')
     await writeFile(symlinkTarget, '{"id":"symlink"}\n', 'utf8')
-    await symlink(symlinkTarget, join(directory, 'ledger.sealed-2026-07-000003.jsonl'))
+    // File symlink creation commonly needs Developer Mode or elevated rights on
+    // Windows. The directory candidate above still covers the unprivileged
+    // host's unsafe-entry filter; exercise the file-symlink branch where the
+    // platform grants that capability.
+    try {
+      await symlink(symlinkTarget, join(directory, 'ledger.sealed-2026-07-000003.jsonl'))
+    } catch (error) {
+      if (!(process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM')) throw error
+    }
 
     const sources = await readDurableJsonlSources(activePath)
     expect(sources.map((source) => source.path)).toEqual([
@@ -97,6 +105,15 @@ describe('durable JSONL', () => {
     expect(firstJulySeal).toContain(durableJsonlSealedSegmentFileName('ledger.jsonl', '2026-07', 1))
     await expect(readFile(activePath, 'utf8')).resolves.toBe('')
     expect(await readDurableJsonlLines(activePath)).toEqual(['{"id":"june"}', '{"id":"july"}'])
+  })
+
+  it.runIf(process.platform === 'win32')('appends and rotates with Windows directory fsync unavailable', async () => {
+    const activePath = await createActivePath()
+
+    await appendDurableJsonlLine({ activePath, maxBytes: 12 }, '{"id":1}')
+    await appendDurableJsonlLine({ activePath, maxBytes: 12 }, '{"id":2}')
+
+    expect(await readDurableJsonlLines(activePath)).toEqual(['{"id":1}', '{"id":2}'])
   })
 
   it('rejects real directory fsync failures instead of reporting a durable append', async () => {

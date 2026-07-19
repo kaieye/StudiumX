@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { readValidatedWithBackup, replaceWithBackup } from '../persistence/durable-file'
 import type {
@@ -17,6 +17,7 @@ import {
   EMPTY_REGISTRY,
   findWorkspace,
   isRegistryWorkspace,
+  normalizeRegistryWorkspace,
   orderRegistryWorkspaces,
   samePath,
   sameRegistryWorkspaceOrder,
@@ -85,6 +86,7 @@ export class TeachingWorkspaceActivationLifecycle {
     if (existing) {
       const entry = await this.provisionWorkspace({
         ...existing,
+        existing,
         rootPath: normalizedRoot,
         prompt: `继续整理 ${existing.name} 教学工作区`,
         now,
@@ -195,15 +197,20 @@ export class TeachingWorkspaceActivationLifecycle {
     updatedAt?: string
     pinned?: boolean
     archived?: boolean
+    agentWorkspaceTrust?: 'trusted'
+    /** Existing application-data metadata survives an idempotent re-import. */
+    existing?: RegistryWorkspace
   }): Promise<RegistryWorkspace> {
     const entry: RegistryWorkspace = {
+      ...(options.existing ?? {}),
       id: options.id,
       name: normalizeWorkspaceName(options.name),
       rootPath: resolve(options.rootPath),
       createdAt: options.createdAt ?? options.now,
       updatedAt: options.updatedAt ?? options.now,
       ...(options.pinned === true ? { pinned: true } : {}),
-      ...(options.archived === true ? { archived: true } : {})
+      ...(options.archived === true ? { archived: true } : {}),
+      ...(options.agentWorkspaceTrust === 'trusted' ? { agentWorkspaceTrust: 'trusted' as const } : {})
     }
     const existingIndex = await loadWorkspaceIndex(entry)
     await provisionWorkspaceMaterial(entry, {
@@ -212,6 +219,9 @@ export class TeachingWorkspaceActivationLifecycle {
       prompt: options.prompt,
       pathMeta: existingIndex.pathMeta
     })
+    // Provisioning may create a directory through a symlink/junction. Persist
+    // the physical root so subsequent imports compare one canonical identity.
+    entry.rootPath = await canonicalizeWorkspaceRoot(entry.rootPath)
     await saveWorkspaceIndex(entry.rootPath, {
       ...existingIndex,
       id: entry.id,
@@ -236,7 +246,7 @@ export class TeachingWorkspaceActivationLifecycle {
 
   private async loadAvailableRegistry(): Promise<WorkspaceRegistry> {
     const read = await this.readRegistry()
-    const registry = read.registry
+    const { registry, wasNormalized } = read
     const workspaces = orderRegistryWorkspaces(await this.pruneUnavailableRoots(registry.workspaces))
     const visible = visibleRegistryWorkspaces(workspaces)
     const activeWorkspaceId = visible.some((workspace) => workspace.id === registry.activeWorkspaceId)
@@ -244,9 +254,11 @@ export class TeachingWorkspaceActivationLifecycle {
       : visible[0]?.id ?? null
     const nextRegistry = { activeWorkspaceId, workspaces }
     if (
+      wasNormalized ||
       nextRegistry.workspaces.length !== registry.workspaces.length ||
       nextRegistry.activeWorkspaceId !== registry.activeWorkspaceId ||
-      !sameRegistryWorkspaceOrder(nextRegistry.workspaces, registry.workspaces)
+      !sameRegistryWorkspaceOrder(nextRegistry.workspaces, registry.workspaces) ||
+      nextRegistry.workspaces.some((workspace, index) => workspace.rootPath !== registry.workspaces[index]?.rootPath)
     ) {
       // Reading a backup is recovery, not restoration. Keep the recovered
       // document untouched until an explicit registry mutation needs saving.
@@ -255,26 +267,43 @@ export class TeachingWorkspaceActivationLifecycle {
     return nextRegistry
   }
 
-  private async readRegistry(): Promise<{ registry: WorkspaceRegistry; source: 'canonical' | 'backup' | null }> {
+  private async readRegistry(): Promise<{
+    registry: WorkspaceRegistry
+    source: 'canonical' | 'backup' | null
+    wasNormalized: boolean
+  }> {
     const recovered = await readValidatedWithBackup({
       path: this.options.registryPath,
       validate: isWorkspaceRegistryDocument
     })
     const parsed = recovered.value
-    if (!parsed) return { registry: EMPTY_REGISTRY, source: null }
+    if (!parsed) return { registry: EMPTY_REGISTRY, source: null, wasNormalized: false }
+
+    const rawRegistry = parsed as WorkspaceRegistry
+    let wasNormalized = false
+    const workspaces = rawRegistry.workspaces
+      .filter((workspace) => {
+        const valid = isRegistryWorkspace(workspace)
+        if (!valid) wasNormalized = true
+        return valid
+      })
+      .map((workspace) => {
+        const normalized = normalizeRegistryWorkspace(workspace)
+        if (JSON.stringify(normalized) !== JSON.stringify(workspace)) wasNormalized = true
+        return normalized
+      })
+    if (typeof rawRegistry.activeWorkspaceId !== 'string' && rawRegistry.activeWorkspaceId !== null) {
+      wasNormalized = true
+    }
     return {
       source: recovered.source,
       registry: {
-        activeWorkspaceId: typeof parsed.activeWorkspaceId === 'string'
-          ? parsed.activeWorkspaceId
+        activeWorkspaceId: typeof rawRegistry.activeWorkspaceId === 'string'
+          ? rawRegistry.activeWorkspaceId
           : null,
-        workspaces: parsed.workspaces
-          .filter(isRegistryWorkspace)
-          .map((workspace) => ({
-            ...workspace,
-            rootPath: resolve(workspace.rootPath)
-          }))
-      }
+        workspaces
+      },
+      wasNormalized
     }
   }
 
@@ -291,11 +320,13 @@ export class TeachingWorkspaceActivationLifecycle {
     const existing: RegistryWorkspace[] = []
     const seen = new Set<string>()
     for (const workspace of workspaces) {
-      const rootPath = resolve(workspace.rootPath)
-      const key = rootPath.toLowerCase()
-      if (seen.has(key) || !(await directoryExists(rootPath))) continue
+      const requestedRoot = resolve(workspace.rootPath)
+      if (!(await directoryExists(requestedRoot))) continue
+      const rootPath = await canonicalizeWorkspaceRoot(requestedRoot).catch(() => null)
+      if (!rootPath) continue
+      if (seen.has(rootPath)) continue
       existing.push({ ...workspace, rootPath })
-      seen.add(key)
+      seen.add(rootPath)
     }
     return existing
   }
@@ -335,7 +366,11 @@ async function validateWorkspaceRoot(rootPath: string): Promise<string> {
   const normalizedRoot = resolve(rootPath)
   const info = await stat(normalizedRoot)
   if (!info.isDirectory()) throw new Error('Selected path is not a directory.')
-  return normalizedRoot
+  return canonicalizeWorkspaceRoot(normalizedRoot)
+}
+
+async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
+  return realpath(resolve(rootPath))
 }
 
 async function selectCatalogLesson(

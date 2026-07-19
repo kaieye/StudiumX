@@ -338,6 +338,7 @@ function isWorkspaceIndexDocument(value: unknown): value is WorkspaceIndex {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
+
 function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }

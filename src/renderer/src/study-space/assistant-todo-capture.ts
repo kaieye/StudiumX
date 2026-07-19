@@ -1,5 +1,4 @@
 import {
-  LEGACY_STUDY_SPACE_STORAGE_KEY,
   STUDY_SPACE_STORAGE_KEY,
   defaultStudySnapshot
 } from './constants'
@@ -74,7 +73,6 @@ function parseTodoPayload(payload: string): string[] {
 function readBrowserStudySnapshot(): StudySnapshot {
   try {
     const serialized = window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY)
-      ?? window.localStorage.getItem(LEGACY_STUDY_SPACE_STORAGE_KEY)
     const parsed = serialized ? JSON.parse(serialized) : defaultStudySnapshot
     return normalizeStudySnapshot(parsed)
   } catch {

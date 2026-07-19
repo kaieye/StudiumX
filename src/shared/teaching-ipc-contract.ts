@@ -28,6 +28,7 @@ export const teachingInvokeChannels = {
   pickDirectory: 'teach:pick-directory',
   openImportLocation: 'teach:open-import-location',
   updateMission: 'teach:update-mission',
+  setWorkspaceTrust: 'teach:set-workspace-trust',
   applyLessonStyle: 'teach:apply-lesson-style',
   listSkills: 'teach:list-skills',
   installSkill: 'teach:install-skill',

@@ -10,6 +10,7 @@ import type {
   WorkspaceContainedPathBinding
 } from '../../src/main/persistence/contained-durable-directory'
 import {
+  getWorkspaceWriteToolAvailability,
   runWorkspaceWriteWithDurableDependenciesForTesting,
   type WorkspaceWriteDurableDependencies
 } from '../../src/main/ai/tools/workspace'
@@ -22,6 +23,9 @@ const mkfifoUnavailable = (spawnSync('mkfifo', [], { stdio: 'ignore' }).error as
 const sensitivePayload = 'PRIVATE-PAYLOAD-DO-NOT-LEAK'
 const sensitiveTemporaryName = '.workspace-write-candidate-secret'
 const sensitiveNativeDetail = 'RAW_NATIVE_DETAIL_DO_NOT_LEAK'
+const overwriteTargetKinds = process.platform === 'win32'
+  ? ['directory', 'hardlink'] as const
+  : ['directory', 'symlink', 'hardlink'] as const
 
 async function workspace(): Promise<{ root: string; ctx: ReturnType<typeof buildToolContext> }> {
   const root = await mkdtemp(join(tmpdir(), 'studiumx-workspace-write-tool-unit-'))
@@ -82,6 +86,63 @@ afterEach(async () => {
 })
 
 describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
+  it.runIf(!getWorkspaceWriteToolAvailability().available)('withholds the write tool before permission when durable containment is unavailable', async () => {
+    const { root } = await workspace()
+    const requestToolPermission = vi.fn()
+    const settings = defaultSettings(root)
+    settings.tools.workspaceRead = true
+    settings.tools.approvalMode = 'request_approval'
+
+    expect(getWorkspaceWriteToolAvailability()).toEqual({
+      available: false,
+      code: 'containment_unavailable',
+      message: '当前平台无法安全发布工作区文件。'
+    })
+
+    const registry = buildDefaultRegistry(settings, { workspaceRoot: root, workspaceWrite: true })
+    expect(registry.names()).toContain('read_workspace_file')
+    expect(registry.names()).not.toContain('write_workspace_file')
+
+    const handlers = registry.handlerMap(buildToolContext(settings, {
+      workspaceRoot: root,
+      requestToolPermission
+    }))
+    expect(handlers.write_workspace_file).toBeUndefined()
+    expect(requestToolPermission).not.toHaveBeenCalled()
+    await expect(stat(join(root, 'notes', 'entry.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.runIf(process.platform === 'win32')('uses the documented Windows direct-path profile for S2 create and non-CAS S3 overwrite', async () => {
+    const { root, ctx } = await workspace()
+    const createdPath = join(root, 'notes', 'direct-created.md')
+    const createdContent = 'Windows direct S2 content 🧪'
+
+    expect(getWorkspaceWriteToolAvailability()).toEqual({ available: true })
+    expect(JSON.parse(await runWorkspaceWriteWithDurableDependenciesForTesting({
+      path: 'notes/direct-created.md',
+      content: createdContent
+    }, ctx))).toMatchObject({
+      path: 'notes/direct-created.md',
+      created: true,
+      overwritten: false
+    })
+    await expect(readFile(createdPath, 'utf8')).resolves.toBe(createdContent)
+
+    const overwritePath = join(root, 'notes', 'direct-overwrite.md')
+    await writeFile(overwritePath, 'old direct-path bytes', 'utf8')
+    const replacement = 'Windows direct S3 replacement 🧪'
+    expect(JSON.parse(await runWorkspaceWriteWithDurableDependenciesForTesting({
+      path: 'notes/direct-overwrite.md',
+      content: replacement,
+      overwrite: true
+    }, ctx))).toMatchObject({
+      path: 'notes/direct-overwrite.md',
+      created: false,
+      overwritten: true
+    })
+    await expect(readFile(overwritePath, 'utf8')).resolves.toBe(replacement)
+  })
+
   it('uses S2 for a no-overwrite create with exact UTF-8 content and has no pathname-write fallback', async () => {
     const { root } = await workspace()
     const createNoOverwrite = vi.fn(async () => undefined)
@@ -178,7 +239,7 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
     }
   )
 
-  it.each(['directory', 'symlink', 'hardlink'] as const)(
+  it.each(overwriteTargetKinds)(
     'rejects an overwrite target that is a %s before either durable publisher runs',
     async (kind) => {
       const { root } = await workspace()
@@ -353,7 +414,7 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps pathname I/O detail private when registry permission preflight cannot lstat the target', async () => {
+  it.skipIf(!getWorkspaceWriteToolAvailability().available)('keeps pathname I/O detail private when an available writer cannot bind the target', async () => {
     const { root } = await workspace()
     const rawTargetPath = join(root, 'notes', 'entry.md')
     await rm(join(root, 'notes'), { recursive: true, force: true })
@@ -361,7 +422,7 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
 
     const settings = defaultSettings(root)
     settings.tools.workspaceRead = true
-    settings.tools.workspaceWritePermission = 'allow_for_conversation'
+    settings.tools.approvalMode = 'full_access'
     const handlers = buildDefaultRegistry(settings, { workspaceRoot: root, workspaceWrite: true })
       .handlerMap(buildToolContext(settings, { workspaceRoot: root }))
     const handler = handlers.write_workspace_file
@@ -376,9 +437,10 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
 
     expect(result).toMatchObject({
       tool: 'write_workspace_file',
-      error: '无法安全确定工作区文件写入目标。',
-      permission: { kind: 'workspace_write', decision: 'deny' }
+      code: 'containment_unavailable',
+      error: '无法安全绑定工作区目标。'
     })
+    expect(result).not.toHaveProperty('permission')
     expect(serialized).not.toContain(root)
     expect(serialized).not.toContain(rawTargetPath)
     expect(serialized).not.toContain('ENOTDIR')

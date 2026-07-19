@@ -27,6 +27,18 @@ describe('teaching settings schema', () => {
     expect(normalizeTeachingSettings({ pet: { size: 111.6 } }, fallbackRoot).pet.size).toBe(112)
   })
 
+  it('migrates the legacy write-only permission setting into a safe unified approval mode', () => {
+    expect(normalizeTeachingSettings({
+      tools: { workspaceWritePermission: 'allow_for_conversation' }
+    }, fallbackRoot).tools.approvalMode).toBe('full_access')
+    expect(normalizeTeachingSettings({
+      tools: { workspaceWritePermission: 'ask_each_time' }
+    }, fallbackRoot).tools.approvalMode).toBe('request_approval')
+    expect(normalizeTeachingSettings({
+      tools: { workspaceWritePermission: 'read_only' }
+    }, fallbackRoot).tools.approvalMode).toBe('request_approval')
+  })
+
   it('defaults and normalizes persisted pet notification preferences', () => {
     expect(normalizeTeachingSettings({}, fallbackRoot).pet.notificationPreferences).toEqual({
       actionableOnly: false,
@@ -110,7 +122,7 @@ describe('teaching settings schema', () => {
       tools: {
         enabled: 'true',
         workspaceRead: false,
-        workspaceWritePermission: 'write-everywhere',
+        approvalMode: 'write-everywhere',
         webSearch: false,
         webFetch: true,
         maxIterations: 0,
@@ -166,7 +178,7 @@ describe('teaching settings schema', () => {
       tools: {
         enabled: false,
         workspaceRead: false,
-        workspaceWritePermission: 'ask_each_time',
+        approvalMode: 'request_approval',
         webSearch: false,
         webFetch: true,
         maxIterations: 0,

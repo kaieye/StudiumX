@@ -196,6 +196,12 @@ describe('PetAssistantDialog', () => {
 
     const dialog = screen.getByRole('dialog')
     expect(dialog).toHaveStyle({ left: '16px', top: '16px', width: '148px', height: '128px' })
+
+    // Wait for the dialog-open composer autofocus (80ms) to settle first.
+    // Otherwise that timer can steal focus from the reset button during keyboard activation.
+    const composer = screen.getByRole('textbox', { name: '给 AI 发送消息' })
+    await waitFor(() => expect(composer).toHaveFocus())
+
     const reset = screen.getByRole('button', { name: '重置 Assistant 窗口位置和尺寸' })
     reset.focus()
     await user.keyboard('{Enter}')

@@ -94,8 +94,8 @@ function createExecutor(input: {
     saveWorkspaceIndex: async (_rootPath, index) => {
       events.push('save-durable')
       durableIndex = index
-      await mkdir(join(index.rootPath, '.teachos'), { recursive: true })
-      await writeFile(join(index.rootPath, '.teachos', 'index.json'), `${JSON.stringify(index, null, 2)}\n`, 'utf8')
+      await mkdir(join(index.rootPath, '.studiumx'), { recursive: true })
+      await writeFile(join(index.rootPath, '.studiumx', 'index.json'), `${JSON.stringify(index, null, 2)}\n`, 'utf8')
     },
     loadTemporaryConversationIndex: async () => temporaryIndex,
     saveTemporaryConversationIndex: async (index) => {

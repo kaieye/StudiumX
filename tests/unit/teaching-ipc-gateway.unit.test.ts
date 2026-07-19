@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -124,7 +124,21 @@ describe('Teaching IPC gateway', () => {
     expect(createWorkspace).toHaveBeenCalledWith({ name: 'Course', prompt: 'Teach algebra' })
   })
 
-  it('returns exact aggregate-only memory diagnostics through the registered handler', async () => {
+  it('routes the path-free workspace trust command through its exact parser', async () => {
+    const setWorkspaceTrust = vi.fn().mockResolvedValue({ id: 'workspace-1', agentWorkspaceTrust: 'trusted' })
+    registerTeachingIpcGateway(registration({ workspaceService: { setWorkspaceTrust } }))
+
+    await expect(handler(teachingInvokeChannels.setWorkspaceTrust)(event, { workspaceId: 'workspace-1', trust: 'trusted' }))
+      .resolves.toEqual({ id: 'workspace-1', agentWorkspaceTrust: 'trusted' })
+    expect(setWorkspaceTrust).toHaveBeenCalledWith('workspace-1', 'trusted')
+
+    await expect(handler(teachingInvokeChannels.setWorkspaceTrust)(event, {
+      workspaceId: 'workspace-1', trust: 'trusted', rootPath: 'D:/must-not-cross-ipc'
+    })).rejects.toThrow('IPC workspace trust payload must contain only "workspaceId" and "trust".')
+    expect(setWorkspaceTrust).toHaveBeenCalledTimes(1)
+  })
+
+  it.runIf(process.platform !== 'win32')('returns exact aggregate-only memory diagnostics through the registered handler', async () => {
     const runtime = await runtimeScope.create('gateway-memory-diagnostics')
     const managedRoot = join(runtime.paths.workspace, 'managed')
     const sensitiveRoot = join(runtime.paths.appData, 'memory')
@@ -163,8 +177,28 @@ describe('Teaching IPC gateway', () => {
     expect(serialized).not.toContain(sensitiveHash)
   })
 
+  it.runIf(process.platform === 'win32')('fails closed through the memory IPC boundary when the POSIX descriptor capability is unavailable', async () => {
+    const runtime = await runtimeScope.create('gateway-windows-memory-unavailable')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot)
+    })
+    registerTeachingIpcGateway(registration({ workspaceService: service }))
+
+    await expect(handler(teachingInvokeChannels.getMemoryDiagnostics)(event))
+      .rejects.toThrow('Descriptor-relative contained directory access is unavailable on this platform.')
+    await expect(handler(teachingInvokeChannels.createMemory)(event, {
+      content: 'Must not fall back to unsafe pathname traversal.',
+      scope: 'user'
+    })).rejects.toThrow('Descriptor-relative contained directory access is unavailable on this platform.')
+  })
+
   it('accepts memory scope roots only after registered-workspace resolution and strips renderer destination fields', async () => {
-    const rootPath = '/registered/course'
+    const rootPath = await runtimeScope.create('gateway-memory-scope')
+      .then((runtime) => join(runtime.paths.workspace, 'registered-course'))
+    await mkdir(rootPath, { recursive: true })
     const createMemory = vi.fn().mockResolvedValue({ id: 'memory-1' })
     const getState = vi.fn().mockResolvedValue({ workspaces: [{ rootPath }] })
     registerTeachingIpcGateway(registration({ workspaceService: { getState, createMemory } }))
@@ -172,7 +206,7 @@ describe('Teaching IPC gateway', () => {
     await expect(handler(teachingInvokeChannels.createMemory)(event, {
       content: 'Remember this',
       scope: 'workspace',
-      workspaceRoot: '/registered/course/lessons/..',
+      workspaceRoot: join(rootPath, 'lessons', '..'),
       tags: ['trusted'],
       confidence: 0.8,
       traceId: 'renderer-controlled-trace',
@@ -188,7 +222,7 @@ describe('Teaching IPC gateway', () => {
     })
 
     await expect(handler(teachingInvokeChannels.createMemory)(event, {
-      content: 'Not authorized', scope: 'workspace', workspaceRoot: '/unregistered/course'
+      content: 'Not authorized', scope: 'workspace', workspaceRoot: resolve('/unregistered/course')
     })).rejects.toThrow('limited to registered teaching workspaces')
     expect(createMemory).toHaveBeenCalledTimes(1)
   })
@@ -346,7 +380,7 @@ describe('Teaching IPC gateway', () => {
     expect(recordPreviewLessonInteraction).toHaveBeenCalledTimes(100)
   })
 
-  it('activates only a matching canonical preview child navigation, then revokes cross-document and main-frame navigation', async () => {
+  it.runIf(process.platform !== 'win32')('activates only a matching canonical preview child navigation, then revokes cross-document and main-frame navigation', async () => {
     const service = await createEvidenceService('gateway-preview-navigation')
     const workspace = (await service.createWorkspace({ name: 'Navigation evidence', prompt: 'Teach preview navigation revocation.' })).activeWorkspace!
     const lesson = (await service.generateLesson({

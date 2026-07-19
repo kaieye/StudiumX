@@ -118,6 +118,22 @@
       "aria": "Dialog mode",
       "chat": "Chat",
       "teaching": "Teaching"
+    },
+    "fileAccess": {
+      "trigger": "{{status}}",
+      "triggerAria": "Agent permission mode: {{status}}",
+      "triggerTitle": "Agent permission mode: {{status}}",
+      "title": "Agent permission mode",
+      "mode": {
+        "request_approval": "Request approval",
+        "based_on_approval": "Based on approval",
+        "full_access": "Full access"
+      },
+      "modeDetail": {
+        "request_approval": "Ask before the Agent creates or changes a workspace file.",
+        "based_on_approval": "Create new files automatically; ask before replacing an existing file.",
+        "full_access": "Let the Agent create or change workspace files without approval."
+      }
     }
   },
   "ask": {

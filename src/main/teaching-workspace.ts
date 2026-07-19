@@ -93,9 +93,12 @@ import {
   applyRegistryWorkspaceMeta,
   assertSafeWorkspaceRootForRemoval,
   findWorkspace,
+  isWorkspaceTrust,
   orderRegistryWorkspaces,
+  setRegistryWorkspaceTrust,
   touchRegistryWorkspace,
   visibleRegistryWorkspaces,
+  workspaceTrust,
   type RegistryWorkspace,
   type WorkspaceRegistry
 } from './teaching-workspace/registry'
@@ -380,6 +383,8 @@ export class TeachingWorkspaceService {
   private readonly previewInteractionQueues = new Map<number, Promise<void>>()
   private nextPreviewBindingAttempt = 1
   private readonly previewReadGenerations = new Map<number, number>()
+  /** Instance-local queue for whole-registry trust read-modify-write operations. */
+  private workspaceTrustMutationQueue: Promise<void> = Promise.resolve()
 
   constructor(options: TeachingWorkspaceServiceOptions) {
     this.registryPath = options.registryPath
@@ -614,6 +619,39 @@ export class TeachingWorkspaceService {
     return this.activation.import(rootPath)
   }
 
+  /**
+   * Stores the workspace-level positive agent-tool grant in application data.
+   * This deliberately avoids workspace `.studiumx` material and leaves every
+   * unrelated registry field (including future write/permission settings) intact.
+   */
+  async setWorkspaceTrust(workspaceId: string, trust: 'trusted' | 'untrusted'): Promise<TeachingAppState> {
+    if (!isWorkspaceTrust(trust)) throw new Error('Workspace trust must be trusted or untrusted.')
+    return this.serializeWorkspaceTrustMutation(async () => {
+      const registry = await this.ensureRegistry()
+      const workspace = findWorkspace(registry, workspaceId)
+      if (workspace.archived) throw new Error('Workspace not found.')
+      const nextRegistry: WorkspaceRegistry = {
+        ...registry,
+        workspaces: registry.workspaces.map((entry) =>
+          entry.id === workspace.id ? setRegistryWorkspaceTrust(entry, trust) : entry
+        )
+      }
+      await this.saveRegistry(nextRegistry)
+      return this.buildState(nextRegistry, registry.activeWorkspaceId, null)
+    })
+  }
+
+  /**
+   * Trust changes replace the complete registry file, so they must serialize
+   * within this main-process service instance. A failed mutation releases the
+   * queue; no module-global lock or unrelated workspace operation is affected.
+   */
+  private async serializeWorkspaceTrustMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const queued = this.workspaceTrustMutationQueue.then(operation, operation)
+    this.workspaceTrustMutationQueue = queued.then(() => undefined, () => undefined)
+    return queued
+  }
+
   async updateMission(payload: UpdateMissionPayload): Promise<TeachingAppState> {
     const prompt = cleanText(payload.prompt)
     if (!prompt) throw new Error('Mission prompt is required.')
@@ -703,6 +741,12 @@ export class TeachingWorkspaceService {
     const workspace = payload.workspaceId && registryState
       ? findWorkspace(registryState, payload.workspaceId)
       : null
+    if (workspace?.archived) throw new Error('Workspace not found.')
+    const settings = await this.loadSettings()
+    // The three approval modes are the only user-facing file permission model.
+    // File tools remain unavailable when the workspace-file tool itself is off.
+    const workspaceToolAccessGranted = workspace ? settings.tools.workspaceRead : false
+    const runtimeWorkspace = workspace ? { ...workspace, workspaceToolAccessGranted } : null
     const isTeachingConversation = (payload.mode ?? 'teaching') === 'teaching'
     if (workspace && payload.conversationId) {
       const location = await this.findAgentConversationLocation(
@@ -726,17 +770,17 @@ export class TeachingWorkspaceService {
     // A stream id is a one-run capability. Reusing it must never retain a prior
     // run's staged transcript promotion allowance, including after a failed run.
     this.pendingAgentRunArchiveScopes.delete(stream.streamId)
-    const result = await runTeachingConversationTurn(payload, stream, workspace, {
+    const result = await runTeachingConversationTurn(payload, stream, runtimeWorkspace, {
       runStore: new AgentRunStore(runStorageRoot),
       loadSettings: () => this.loadSettings(),
       listMemories: (workspaceRoot) => this.memoryStore.list(workspaceRoot),
       createMemory: (memoryPayload) => this.memoryStore.create(memoryPayload),
       loadSkillReferences: (skillIds, userInput) =>
         this.skillLibraryService?.readInvokedSkillReferences(userInput, skillIds) ?? Promise.resolve([]),
-      generateLessonFromBrief: workspace && isTeachingConversation
+      generateLessonFromBrief: runtimeWorkspace && isTeachingConversation
         ? async (brief) => {
             const generation = await this.generateAndPersistLesson({
-              workspace,
+              workspace: runtimeWorkspace,
               prompt: brief.topic,
               brief,
               messages: [],
@@ -1379,8 +1423,15 @@ export class TeachingWorkspaceService {
       }
     }
 
+    // Direct generation follows the same workspace-file tool setting as an
+    // agent conversation. Approval mode controls writes inside that capability.
+    const settings = await this.loadSettings()
+    const runtimeWorkspace = {
+      ...workspace,
+      workspaceToolAccessGranted: settings.tools.workspaceRead
+    }
     const generation = await this.generateAndPersistLesson({
-      workspace,
+      workspace: runtimeWorkspace,
       prompt,
       messages: payload.messages ?? [],
       requestedCourseName: payload.courseName,
@@ -1825,6 +1876,7 @@ export class TeachingWorkspaceService {
       rootPath: workspace.rootPath,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
+      agentWorkspaceTrust: workspaceTrust(workspace),
       pinned: workspace.pinned,
       ...catalog,
       git: await inspectGitWorkspace(workspace.rootPath)

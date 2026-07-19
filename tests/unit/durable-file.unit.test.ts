@@ -104,8 +104,12 @@ describe('durable file replacement', () => {
     await replaceWithBackup({ path, content: '{"version":2}\n', validate: isVersioned, mode: 0o644 })
     await expect(readFile(path, 'utf8')).resolves.toContain('"version":2')
     await expect(readFile(`${path}.bak`, 'utf8')).resolves.toContain('"version":1')
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
-    expect((await stat(`${path}.bak`)).mode & 0o777).toBe(0o600)
+    // Windows ACLs do not preserve POSIX 0600 mode bits. The in-memory
+    // protocol test below still verifies that private 0600 is requested.
+    if (process.platform !== 'win32') {
+      expect((await stat(path)).mode & 0o777).toBe(0o600)
+      expect((await stat(`${path}.bak`)).mode & 0o777).toBe(0o600)
+    }
   })
 
   it('honors an explicit direct-replacement create mode while retaining private defaults', async () => {
@@ -175,8 +179,8 @@ describe('durable file replacement', () => {
 
   it.each([
     ['write', (event: string) => event.startsWith('write:')],
-    ['file sync', (event: string) => event.startsWith('sync:/state/.state.json.')],
-    ['file close', (event: string) => event.startsWith('close:/state/.state.json.')]
+    ['file sync', (event: string) => event.startsWith('sync:') && event.includes('.state.json.')],
+    ['file close', (event: string) => event.startsWith('close:') && event.includes('.state.json.')]
   ])('cleans unpublished temporary files after a %s failure', async (_boundary, matches) => {
     const path = '/state/state.json'
     const fake = memoryOperations({ fail: (event) => matches(event) ? new Error('disk full') : undefined })
@@ -184,7 +188,18 @@ describe('durable file replacement', () => {
     await expect(replaceDurably({ path, content: 'new', operations: fake.operations })).rejects.toThrow('disk full')
     expect(fake.files.get(path)).toBeUndefined()
     expect(temporaryFiles(fake)).toEqual([])
-    expect(fake.events.some((event) => event.startsWith('rm:/state/.state.json.'))).toBe(true)
+    expect(fake.events.some((event) => event.startsWith('rm:') && event.endsWith('.tmp'))).toBe(true)
+  })
+
+  it.runIf(process.platform === 'win32')('publishes with the Windows directory-fsync downgrade and a generic warning', async () => {
+    const path = await temporaryFile('windows-state.json')
+    const warnings: string[] = []
+
+    await replaceDurably({ path, content: 'state', warn: (message) => warnings.push(message) })
+
+    await expect(readFile(path, 'utf8')).resolves.toBe('state')
+    expect(warnings).toEqual(['[StudiumX] Directory fsync is unsupported; durable rename completed without directory fsync.'])
+    expect(warnings[0]).not.toContain(path)
   })
 
   it('only downgrades the narrow unsupported directory-fsync set and keeps I/O, permission, and close failures fatal', async () => {

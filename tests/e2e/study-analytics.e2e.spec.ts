@@ -27,7 +27,7 @@ async function openAnalytics(mainWindow: import('@playwright/test').Page): Promi
   await expect(mainWindow.locator('.study-analytics-page')).toBeVisible()
 }
 
-test('opens analytics from a deep link and exposes page landmarks and unavailable states @a11y', async ({ mainWindow }) => {
+test('opens analytics from a deep link with accessible light and dark section states @a11y', async ({ mainWindow }) => {
   await openAnalytics(mainWindow)
 
   await expect(mainWindow).toHaveURL(/workbench=analytics/)
@@ -35,12 +35,27 @@ test('opens analytics from a deep link and exposes page landmarks and unavailabl
   await expect(mainWindow.locator('.study-analytics-page h1')).toBeVisible()
   await expect(mainWindow.locator('.study-analytics-page [data-section-state]').first()).toBeVisible()
   await expect(mainWindow.locator('.study-analytics-scroll')).toHaveCount(1)
-  const overflow = await mainWindow.locator('.study-analytics-scroll').evaluate((element) => ({
-    scrollWidth: element.scrollWidth,
-    clientWidth: element.clientWidth
-  }))
-  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1)
-  await expectNoAccessibilityViolations(mainWindow, { include: '.study-analytics-page' })
+
+  const emptySections = mainWindow.locator('.analytics-section-card[data-section-state="empty"]')
+  await expect(emptySections.first()).toBeVisible()
+  await expect(mainWindow.getByText('当前范围内暂无学习记录。').first()).toBeVisible()
+  await expect(mainWindow.getByText(/尚未接入/)).toHaveCount(0)
+  await expect(mainWindow.getByText(/未提供学习分析 API/)).toHaveCount(0)
+
+  for (const theme of ['light', 'dark'] as const) {
+    await mainWindow.evaluate((resolvedTheme) => {
+      document.documentElement.dataset.resolvedTheme = resolvedTheme
+    }, theme)
+    await expect(mainWindow.locator('html')).toHaveAttribute('data-resolved-theme', theme)
+
+    const overflow = await mainWindow.locator('.study-analytics-scroll').evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth
+    }))
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1)
+
+    await expectNoAccessibilityViolations(mainWindow, { include: '.study-analytics-page' })
+  }
 })
 
 test('task panel analytics button opens analytics and back restores focus', async ({ mainWindow }) => {

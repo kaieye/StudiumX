@@ -90,8 +90,8 @@ export function TeachingWorkspaceNavigator({
             {workspaceFolders.map(({ workspace, node }) => <WorkspaceFileNodeRow
               key={workspaceNodeKey(workspace.id, node.relativePath)} node={node} workspace={workspace} level={0} treeRoot="courses"
               expandedPaths={state.expandedPaths} selectedLessonPath={selectedLessonPath}
-              activeConversationId={view === 'agent' ? activeConversationId : null}
-              onToggle={(workspaceId, relativePath) => dispatch({ type: 'toggle-path', workspaceId, relativePath })}
+              activeConversationId={view === 'agent' ? activeConversationId : null} loading={loading}
+                   onToggle={(workspaceId, relativePath) => dispatch({ type: 'toggle-path', workspaceId, relativePath })}
               onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
               onSetOverviewDialogMode={onSetOverviewDialogMode} onOpenWorkspaceTeachingMode={onOpenWorkspaceTeachingMode}
               onOpenPath={onOpenPath} onOpenHtmlFile={onLoadCourseHtmlFile}
@@ -344,7 +344,7 @@ function ConversationListRow({ conversation, isActiveConversation, onOpen, onSet
 }
 
 function WorkspaceFileNodeRow({
-  node, workspace, level, treeRoot, expandedPaths, selectedLessonPath, activeConversationId,
+  node, workspace, level, treeRoot, expandedPaths, selectedLessonPath, activeConversationId, loading,
   onToggle, onEnsureWorkspaceSelected, onSetOverviewDialogMode, onOpenWorkspaceTeachingMode,
   onOpenPath, onOpenHtmlFile, onOpenMarkdownFile, onOpenCourse, onOpenLesson, onOpenConversation,
   onRestorePendingConversation, onSetWorkspaceItemMeta, onRenameAgentConversation, onRemoveWorkspaceItem, onRemoveWorkspace
@@ -356,6 +356,7 @@ function WorkspaceFileNodeRow({
   expandedPaths: Set<string>
   selectedLessonPath: string | null
   activeConversationId: string | null
+  loading: boolean
   onToggle: (workspaceId: string, relativePath: string) => void
   onEnsureWorkspaceSelected: () => Promise<void>
   onSetOverviewDialogMode: (mode: 'teaching') => void
@@ -471,7 +472,7 @@ function WorkspaceFileNodeRow({
     {isDirectory && node.children?.length ? <div className={`workspace-node-children${isExpanded ? ' is-open' : ''}${isWorkspaceFolder || isCourseFolder ? ' is-course-children' : ''}`} aria-hidden={!isExpanded} inert={!isExpanded ? true : undefined}>
       <div className="workspace-node-children-inner">{node.children.map((child) => <WorkspaceFileNodeRow
         key={workspaceNodeKey(workspace.id, child.relativePath)} node={child} workspace={workspace} level={level + 1} treeRoot={treeRoot}
-        expandedPaths={expandedPaths} selectedLessonPath={selectedLessonPath} activeConversationId={activeConversationId}
+        expandedPaths={expandedPaths} selectedLessonPath={selectedLessonPath} activeConversationId={activeConversationId} loading={loading}
         onToggle={onToggle} onEnsureWorkspaceSelected={onEnsureWorkspaceSelected} onSetOverviewDialogMode={onSetOverviewDialogMode}
         onOpenWorkspaceTeachingMode={onOpenWorkspaceTeachingMode} onOpenPath={onOpenPath} onOpenHtmlFile={onOpenHtmlFile}
         onOpenMarkdownFile={onOpenMarkdownFile} onOpenCourse={onOpenCourse} onOpenLesson={onOpenLesson}

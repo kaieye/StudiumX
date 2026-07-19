@@ -12,6 +12,9 @@ export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'wo
 
 export type WorkflowStepState = 'done' | 'active' | 'waiting' | 'error'
 
+/** UI-facing workspace grant for Agent file-tool access. */
+export type AgentWorkspaceTrustState = 'trusted' | 'untrusted'
+
 export type ResourceSummary = {
   title: string
   detail: string
@@ -127,6 +130,8 @@ export type TeachingWorkspaceSummary = {
   reviewsDir: string
   createdAt: string
   updatedAt: string
+  /** Always projected from the fail-closed persistent workspace grant. */
+  agentWorkspaceTrust: AgentWorkspaceTrustState
   pinned?: boolean
   missionTitle: string
   missionExcerpt: string
@@ -175,6 +180,12 @@ export type GenerateLessonPayload = {
 export type UpdateMissionPayload = {
   workspaceId: string
   prompt: string
+}
+
+/** Deliberately path-free renderer command for changing Agent workspace access. */
+export type SetWorkspaceTrustPayload = {
+  workspaceId: string
+  trust: AgentWorkspaceTrustState
 }
 
 export type ApplyLessonStylePayload = {

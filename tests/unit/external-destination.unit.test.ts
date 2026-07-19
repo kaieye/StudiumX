@@ -8,9 +8,9 @@ import { parsePreviewExternalHref } from '../../src/shared/preview-markdown-brid
 
 describe('external destination policy', () => {
   it('classifies and canonicalizes allowlisted browser destinations', () => {
-    expect(classifyExternalDestination('https://example.com/docs?q=teach os')).toEqual({
+    expect(classifyExternalDestination('https://example.com/docs?q=learning topic')).toEqual({
       kind: 'browser',
-      url: 'https://example.com/docs?q=teach%20os',
+      url: 'https://example.com/docs?q=learning%20topic',
       protocol: 'https:'
     })
   })
@@ -33,8 +33,8 @@ describe('external destination policy', () => {
   })
 
   it('keeps the preview bridge as a browser adapter over the shared classification', () => {
-    expect(parsePreviewExternalHref('HTTPS://EXAMPLE.COM/guide?q=teach os')).toBe(
-      'https://example.com/guide?q=teach%20os'
+    expect(parsePreviewExternalHref('HTTPS://EXAMPLE.COM/guide?q=learning topic')).toBe(
+      'https://example.com/guide?q=learning%20topic'
     )
     expect(parsePreviewExternalHref('mailto:teacher@example.com')).toBeNull()
   })

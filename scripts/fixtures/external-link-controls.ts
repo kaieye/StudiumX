@@ -6,9 +6,9 @@ const enabledSettings = { privacy: { allowExternalLinks: true } }
 const disabledSettings = { privacy: { allowExternalLinks: false } }
 const opened: string[] = []
 
-assert.deepEqual(normalizeExternalHttpUrl('https://example.com/docs?q=teach os'), {
+assert.deepEqual(normalizeExternalHttpUrl('https://example.com/docs?q=learning topic'), {
   ok: true,
-  url: 'https://example.com/docs?q=teach%20os'
+  url: 'https://example.com/docs?q=learning%20topic'
 })
 assert.equal(normalizeExternalHttpUrl('file:///etc/passwd').ok, false)
 assert.equal(normalizeExternalHttpUrl('javascript:alert(1)').ok, false)

@@ -28,7 +28,7 @@ export const webSearchTool: ToolEntry = {
     function: {
       name: 'web_search',
       description:
-        '在网络上搜索信息并返回结构化来源（sourceId、标题、链接、片段、retrievedAt、provider）。后端由搜索设置选择，支持 Firecrawl、Parallel、Tavily、Exa、SearXNG、Brave Search、DDGS/DuckDuckGo 和 xAI。用于补充课程内容或回答事实性、时效性问题。若 query 是微信公众号文章链接，会尝试提取可见元数据并搜索公开转载/索引线索；这不能绕过微信登录墙读取原文全文。',
+        '在网络上搜索信息并返回带 provenance.trust=external_untrusted 的结构化外部来源（sourceId、标题、链接、片段、retrievedAt、provider）。后端由搜索设置选择，支持 Firecrawl、Parallel、Tavily、Exa、SearXNG、Brave Search、DDGS/DuckDuckGo 和 xAI。用于补充课程内容或回答事实性、时效性问题。若 query 是微信公众号文章链接，会尝试提取可见元数据并搜索公开转载/索引线索；这不能绕过微信登录墙读取原文全文。',
       parameters: {
         type: 'object',
         properties: {

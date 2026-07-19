@@ -14,7 +14,7 @@ try {
   await mkdir(join(rootPath, 'courses', 'demo', 'lesson'), { recursive: true })
   await mkdir(join(rootPath, 'lessons'), { recursive: true })
   await mkdir(join(rootPath, 'reviews', 'nested'), { recursive: true })
-  await mkdir(join(rootPath, '.teachos'), { recursive: true })
+  await mkdir(join(rootPath, '.studiumx'), { recursive: true })
   await writeFile(alphaArtifact, JSON.stringify({
     lessonId: ' lesson-alpha ',
     lessonTitle: ' Alpha lesson ',
@@ -38,7 +38,7 @@ try {
     lessonId: 'ignored',
     cards: [{ front: '  ', back: 'answer' }, { front: 'question', back: ' ' }]
   }), 'utf8')
-  await writeFile(join(rootPath, '.teachos', 'progress.json'), JSON.stringify({
+  await writeFile(join(rootPath, '.studiumx', 'progress.json'), JSON.stringify({
     totalAnswered: 999,
     correct: 999,
     byLesson: {
@@ -108,7 +108,7 @@ try {
     }
   }, 'attempt aggregation must keep the existing payload.lessonId semantics, including unmatched questions')
 
-  const durableProgress = JSON.parse(await readFile(join(rootPath, '.teachos', 'progress.json'), 'utf8'))
+  const durableProgress = JSON.parse(await readFile(join(rootPath, '.studiumx', 'progress.json'), 'utf8'))
   assert.equal(durableProgress.version, 2)
   assert.equal(durableProgress.totalAnswered, 9)
   assert.equal(durableProgress.correct, 5)

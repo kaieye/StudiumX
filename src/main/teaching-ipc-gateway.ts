@@ -23,7 +23,7 @@ import {
   parseRebuildAgentHistoryIndexPayload, parseResolveAgentConversationCheckpointPayload,
   parseReadWorkspaceMarkdownPayload, parseRecordProgressPayload, parseRemoveGitWorktreePayload, parseReplayAgentChatEventsPayload,
   parseSaveAgentConversationPayload, parseSaveWorkspaceMarkdownPayload, parseSettingsPatch,
-  parseUpdateAgentConversationBranchStatusPayload, parseUpdateMemoryPayload, parseUpdateMissionPayload,
+  parseUpdateAgentConversationBranchStatusPayload, parseUpdateMemoryPayload, parseUpdateMissionPayload, parseSetWorkspaceTrustPayload,
   parseWorkspaceItemMetaPayload,
   parseWorkspaceItemRemovePayload, parseWorkspaceRemovePayload, requireStreamId, requireString,
   requireWindowControlAction
@@ -254,6 +254,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       }, reply: identityReply, streamCleanup: noStreamCleanup
     }),
     command({ channel: teachingInvokeChannels.updateMission, parser: (payload) => parseUpdateMissionPayload(payload), action: (_event, payload) => service.updateMission(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.setWorkspaceTrust, parser: (payload) => parseSetWorkspaceTrustPayload(payload), action: (_event, payload) => service.setWorkspaceTrust(payload.workspaceId, payload.trust), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.applyLessonStyle, parser: (payload) => parseApplyLessonStylePayload(payload), action: (_event, payload) => service.applyLessonStyle(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.listSkills, parser: () => undefined, action: () => skills.listSkills(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.installSkill, parser: (skillId) => requireString(skillId, 'skillId'), action: (_event, skillId) => skills.installSkill(skillId), reply: identityReply, streamCleanup: noStreamCleanup }),

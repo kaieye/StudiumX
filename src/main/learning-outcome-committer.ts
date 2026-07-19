@@ -651,6 +651,11 @@ async function publishImmutable(
 }
 
 async function syncDirectoryRequired(directory: string, operations?: DurableFileOperations): Promise<void> {
+  // Node cannot fsync a directory handle on Windows (EPERM). This uses the
+  // unwrapped production filesystem only; injected seams remain strict so
+  // permission and I/O fault tests cannot be downgraded accidentally.
+  if (!operations && process.platform === 'win32') return
+
   const handle = await (operations?.open ?? open)(directory, 'r')
   let syncFailure: unknown
   try {

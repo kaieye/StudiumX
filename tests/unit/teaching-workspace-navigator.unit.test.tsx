@@ -26,7 +26,7 @@ const durableConversation: AgentConversationSummary = {
 const workspace: TeachingWorkspaceSummary = {
   id: 'workspace-1', name: 'Math workspace', rootPath: 'D:/math', missionPath: 'D:/math/MISSION.md', resourcesPath: 'D:/math/RESOURCES.md',
   lessonsDir: 'D:/math/courses', recordsDir: 'D:/math/records', referenceDir: 'D:/math/references', reviewsDir: 'D:/math/reviews',
-  createdAt: '2026-07-14', updatedAt: '2026-07-14', missionTitle: 'Learn calculus', missionExcerpt: 'A durable mission',
+  createdAt: '2026-07-14', updatedAt: '2026-07-14', agentWorkspaceTrust: 'untrusted', missionTitle: 'Learn calculus', missionExcerpt: 'A durable mission',
   courses: [{ id: 'course-1', name: 'Calculus', relativePath: 'courses/calculus', absolutePath: 'D:/math/courses/calculus', lessonCount: 1, sessionCount: 2,
     sessions: [{ id: 'session-1', name: 'Session 1 — Limits', relativePath: lesson.sessionRelativePath, absolutePath: lesson.sessionAbsolutePath, lesson }], conversations: [durableConversation] }],
   fileTree: [{ name: 'courses', kind: 'directory', relativePath: 'courses', absolutePath: 'D:/math/courses', children: [{ name: 'calculus', kind: 'directory', relativePath: 'courses/calculus', absolutePath: 'D:/math/courses/calculus', children: [] }] }],
@@ -42,7 +42,8 @@ function renderNavigator(overrides: Partial<TeachingWorkspaceNavigatorProps> = {
     onSetWorkspaceItemMeta: vi.fn(async () => {}), onRenameAgentConversation: vi.fn(async () => {}), onRemoveWorkspaceItem: vi.fn(async () => {}), onRemoveWorkspace: vi.fn(async () => {})
   }
   render(<TeachingWorkspaceNavigator workspaces={[workspace]} activeWorkspace={workspace} temporaryConversations={[]} selectedLessonPath={null}
-    view="overview" activeConversationId={null} pendingAgentConversation={null} showAllCourseFiles={false} defaultRoot="D:/math" loading={false} {...callbacks} {...overrides} />)
+    view="overview" activeConversationId={null} pendingAgentConversation={null} showAllCourseFiles={false} defaultRoot="D:/math" loading={false}
+    {...callbacks} {...overrides} />)
   return callbacks
 }
 

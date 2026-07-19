@@ -162,7 +162,9 @@ async function rotateActiveFile(options: DurableJsonlOptions, knownMtime?: Date)
   if (!activeInfo || activeInfo.size === 0) return null
   if (!activeInfo.isFile()) throw new Error('Durable JSONL active path is not a regular file.')
 
-  const file = await open(activePath, 'r')
+  // Windows requires a writable handle for fsync even though this operation
+  // only confirms the already-appended active file before rename.
+  const file = await open(activePath, process.platform === 'win32' ? 'r+' : 'r')
   try {
     await file.sync()
   } finally {
@@ -270,6 +272,12 @@ async function syncDirectory(
   directory: string,
   injectedSync?: (directory: string) => Promise<void>
 ): Promise<void> {
+  // Node on Windows cannot fsync a directory handle (it returns EPERM). This
+  // is the same unsupported-directory capability downgrade that applies to
+  // documented filesystem errors. Do not apply it to injected seams: tests
+  // and callers use those to surface genuine permission and I/O failures.
+  if (!injectedSync && process.platform === 'win32') return
+
   try {
     await (injectedSync ?? syncDirectoryOnDisk)(directory)
   } catch (error) {

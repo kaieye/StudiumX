@@ -54,20 +54,24 @@ try {
   const workspaceRoot = join(tempRoot, 'workspace')
   const outsideRoot = join(tempRoot, 'outside')
 
+  // Access resolution is fail-closed and async: roots must exist so realpath
+  // can canonicalize, and only registered workspace roots are accepted.
+  await mkdir(workspaceRoot, { recursive: true })
+  await mkdir(outsideRoot, { recursive: true })
   const registered = [{ rootPath: workspaceRoot }]
-  assert.deepEqual(resolveRegisteredWorkspaceRoot(registered, workspaceRoot), {
+  assert.deepEqual(await resolveRegisteredWorkspaceRoot(registered, workspaceRoot), {
     ok: true,
     rootPath: workspaceRoot
   })
-  assert.equal(resolveRegisteredWorkspaceRoot(registered, join(workspaceRoot, 'nested')).ok, false)
-  assert.equal(resolveRegisteredWorkspaceRoot(registered, outsideRoot).ok, false)
-  assert.equal(resolveRegisteredWorkspaceRoot(registered, '   ').reason, 'no_workspace')
-  assert.deepEqual(resolveOptionalRegisteredWorkspaceRoot(registered, undefined), { ok: true })
-  assert.deepEqual(resolveOptionalRegisteredWorkspaceRoot(registered, workspaceRoot), {
+  assert.equal((await resolveRegisteredWorkspaceRoot(registered, join(workspaceRoot, 'nested'))).ok, false)
+  assert.equal((await resolveRegisteredWorkspaceRoot(registered, outsideRoot)).ok, false)
+  assert.equal((await resolveRegisteredWorkspaceRoot(registered, '   ')).reason, 'no_workspace')
+  assert.deepEqual(await resolveOptionalRegisteredWorkspaceRoot(registered, undefined), { ok: true })
+  assert.deepEqual(await resolveOptionalRegisteredWorkspaceRoot(registered, workspaceRoot), {
     ok: true,
     rootPath: workspaceRoot
   })
-  assert.equal(resolveOptionalRegisteredWorkspaceRoot(registered, outsideRoot).ok, false)
+  assert.equal((await resolveOptionalRegisteredWorkspaceRoot(registered, outsideRoot)).ok, false)
 
   await execFile('git', ['init', workspaceRoot], { env: { ...process.env, LC_ALL: 'C', LANG: 'C' } })
   await git(workspaceRoot, ['config', 'user.email', 'studiumx@example.test'])
@@ -81,8 +85,6 @@ try {
   const listed = await getGitBranchesForWorkspace(workspaceRoot)
   assert.equal(listed.ok, true, 'registered workspace git branch listing should succeed')
   assert.ok(listed.ok && listed.branches.some((branch) => branch.name === 'feature/git-guard'))
-
-  await mkdir(outsideRoot, { recursive: true })
   const nonRepositoryBranches = await getGitBranchesForWorkspace(outsideRoot)
   assert.deepEqual(nonRepositoryBranches, {
     ok: false,

@@ -22,7 +22,9 @@ assert.ok(
 assert.match(presentation, /export function consumeTeachingTurnAnnouncement\(/, 'Replay/restart announcement de-duplication must have a pure seam.')
 assert.doesNotMatch(presentation, /\b(?:writeFile|appendFile|mkdir|rename|unlink|rm|fetch)\b/, 'Renderer projection must not write records or call providers.')
 assert.doesNotMatch(presentation, /\bMath\.random\b|new Date\(/, 'Projection must not use random or clock state.')
+assert.match(presentation, /technicalDiagnostic:/, 'Projection must include the typed technical diagnostic adapter.')
 assert.match(reader, /<details className="teaching-turn-panel__diagnostic">/, 'Technical diagnostic adapter must be collapsed.')
+assert.match(reader, /aria-label=\{`技术诊断：\$\{diagnostic\.label\}`\}|aria-label=\{`技术诊断：\$\{presentation\.technicalDiagnostic\.label\}`\}/, 'Diagnostic summary must expose an accessible name.')
 assert.match(reader, /role="status" aria-live="polite"/, 'Only the saved notice should use a restrained live region.')
 assert.doesNotMatch(reader, /aria-live="assertive"/, 'Learner status must not use assertive live announcements.')
 assert.match(unit, /projects each typed learner event into exactly one of the four learner phases/, 'Unit coverage must prove the four phases.')
@@ -30,5 +32,6 @@ assert.match(unit, /gates corrected success on canonical record confirmation/, '
 assert.match(unit, /downgrades unavailable context or resources/, 'Unit coverage must prove resource downgrade.')
 assert.match(unit, /is deterministic across replay/, 'Unit coverage must prove replay behavior.')
 assert.match(unit, /supports keyboard focus, actions, source disclosure/, 'Unit coverage must prove keyboard/focus behavior.')
+assert.match(unit, /diagnostic disclosure stays collapsed|collapsed-by-default technical diagnostic/, 'Unit coverage must prove collapsed diagnostic defaults.')
 
 console.log('teaching turn presentation gate ok')

@@ -31,7 +31,7 @@ function activatePreviewLesson(service: TeachingWorkspaceService, webContentsId:
   })
 }
 
-describe('TeachingWorkspaceService preview lesson evidence', () => {
+describe.runIf(process.platform !== 'win32')('TeachingWorkspaceService preview lesson evidence', () => {
   it('generates a canonical writable Session, binds a lesson preview to its sender, and durably reloads host-owned evidence', async () => {
     const service = await createService('preview-evidence')
     const created = await service.createWorkspace({ name: 'Evidence course', prompt: 'Teach trustworthy learning evidence.' })

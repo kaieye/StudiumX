@@ -1,4 +1,4 @@
-import { resolve } from 'node:path'
+import { realpath } from 'node:fs/promises'
 import type { TeachingWorkspaceSummary } from '../shared/teaching-types'
 
 export type RegisteredWorkspaceRootResult =
@@ -9,34 +9,35 @@ export type OptionalRegisteredWorkspaceRootResult =
   | { ok: true; rootPath?: string }
   | { ok: false; reason: 'error'; message: string }
 
-export function resolveRegisteredWorkspaceRoot(
+export async function resolveRegisteredWorkspaceRoot(
   workspaces: Array<Pick<TeachingWorkspaceSummary, 'rootPath'>>,
   rawWorkspaceRoot: string
-): RegisteredWorkspaceRootResult {
+): Promise<RegisteredWorkspaceRootResult> {
   const requested = rawWorkspaceRoot.trim()
   if (!requested) {
     return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
   }
 
-  const workspace = workspaces.find((item) => sameResolvedPath(item.rootPath, requested))
-  if (!workspace) {
-    return {
-      ok: false,
-      reason: 'error',
-      message: 'This capability is limited to registered teaching workspaces.'
-    }
-  }
+  const requestedCanonicalPath = await canonicalRealPath(requested)
+  if (!requestedCanonicalPath) return unregisteredWorkspaceResult()
+
+  const canonicalWorkspaces = await Promise.all(workspaces.map(async (workspace) => ({
+    workspace,
+    canonicalRootPath: await canonicalRealPath(workspace.rootPath)
+  })))
+  const workspace = canonicalWorkspaces.find(({ canonicalRootPath }) => canonicalRootPath === requestedCanonicalPath)?.workspace
+  if (!workspace) return unregisteredWorkspaceResult()
 
   return { ok: true, rootPath: workspace.rootPath }
 }
 
-export function resolveOptionalRegisteredWorkspaceRoot(
+export async function resolveOptionalRegisteredWorkspaceRoot(
   workspaces: Array<Pick<TeachingWorkspaceSummary, 'rootPath'>>,
   rawWorkspaceRoot: string | undefined
-): OptionalRegisteredWorkspaceRootResult {
+): Promise<OptionalRegisteredWorkspaceRootResult> {
   const requested = rawWorkspaceRoot?.trim()
   if (!requested) return { ok: true }
-  const result = resolveRegisteredWorkspaceRoot(workspaces, requested)
+  const result = await resolveRegisteredWorkspaceRoot(workspaces, requested)
   if (!result.ok) {
     return {
       ok: false,
@@ -47,8 +48,19 @@ export function resolveOptionalRegisteredWorkspaceRoot(
   return { ok: true, rootPath: result.rootPath }
 }
 
-function sameResolvedPath(left: string, right: string): boolean {
-  const leftResolved = resolve(left)
-  const rightResolved = resolve(right)
-  return process.platform === 'win32' ? leftResolved.toLowerCase() === rightResolved.toLowerCase() : leftResolved === rightResolved
+function unregisteredWorkspaceResult(): RegisteredWorkspaceRootResult {
+  return {
+    ok: false,
+    reason: 'error',
+    message: 'This capability is limited to registered teaching workspaces.'
+  }
+}
+
+async function canonicalRealPath(path: string): Promise<string | undefined> {
+  try {
+    return await realpath(path)
+  } catch {
+    // Root-scoped IPC access is fail-closed when a path cannot be canonicalized.
+    return undefined
+  }
 }

@@ -57,6 +57,9 @@ function instrumentedDurableOperations(options: {
         },
         sync: async () => {
           await observe(`sync:${path}`)
+          // Windows cannot fsync directory handles. The production primitive
+          // downgrades that native capability gap; retain injected faults above.
+          if (process.platform === 'win32' && (await handle.stat()).isDirectory()) return
           await handle.sync()
         },
         close: async () => {
@@ -138,7 +141,12 @@ describe('agent conversation open-state durable publication', () => {
     const durableTarget = instrumentedDurableOperations()
     const outsideTarget = join(outsideRoot, 'state.json')
     await writeFile(outsideTarget, '{"outside":"target"}\n', 'utf8')
-    await symlink(outsideTarget, targetPath)
+    try {
+      await symlink(outsideTarget, targetPath)
+    } catch (error) {
+      if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') return
+      throw error
+    }
 
     await expect(writeAgentConversationOpenStateAtRoot(rootPath, entries('branch-symlink-target'), {
       durableFileOperations: durableTarget.operations

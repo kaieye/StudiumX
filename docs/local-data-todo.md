@@ -12,6 +12,12 @@
 
 ## C-4：仍未完成的其它 durable writer / closure 设计门
 
+### P8：Windows workspace publish：direct-path profile 已实施；strict durable profile 仍未实施
+
+- C-4P8 的受控 text create / restricted-overwrite scope 保持关闭。2026-07-19 在用户明确批准不同 S3 contract 后，Windows 已注册一个参考 `codex-rust` 的 root-constrained direct-path profile：上层相对路径/root/realpath 检查，S2 `wx` no-clobber create，S3 对既有 single-link regular target 使用 non-creating `r+` truncate/write/sync，并在写后 exact reread；既有 approvalMode、operation journal replay 与隐私化 stable error 保持有效。
+- 该 profile 的限制是实现事实：它不是 descriptor/HANDLE-relative traversal，不比较 target file ID，不是 CAS 或 POSIX atomic exchange，不保证 directory-fsync durability，也不能证明 external reparse/leaf replacement race 安全。必须在 UI、tool contract、测试和文档中按“Windows direct-path non-CAS”表述，不能声称为 Windows native durable publish 或 strict containment。
+- **仍未完成：**2026-07-19 的 Windows host-native/SDK audit 已确认 `NtCreateFile` 的 `RootDirectory` + `OBJ_DONT_REPARSE` 可作为 HANDLE-relative S1/S2 的候选基础，但已审计的 `FileRenameInfo[/Ex]` / `ReplaceFileW` 等 API 不提供 S3 所需的 expected-target-file-ID compare-and-swap 或 exchange；仅在 publish 前检查 file ID 仍有 inspect-to-publish race。若将来要求 POSIX-equivalent Windows strict profile，仍必须先获得可审计的 Windows/NTFS S3 identity-precondition primitive，再实施 HANDLE-relative、reparse-point/junction-safe traversal、atomic no-overwrite / exchange、file/directory durability 和 adversarial host-native CI；不得把当前 direct-path profile 当作该 gate 的完成。
+
 ### P9：session-audit durable append
 
 - 设计文档：[C-4P9 Session-audit durable append](plans/local-data-session-audit-durable-append-design.md)

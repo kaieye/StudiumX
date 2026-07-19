@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import { buildDefaultRegistry, buildToolContext } from '../../src/main/ai/tools/registry'
+import { getWorkspaceWriteToolAvailability } from '../../src/main/ai/tools/workspace'
 
 const execFileAsync = promisify(execFile)
 const mkfifoUnavailable = (spawnSync('mkfifo', [], { stdio: 'ignore' }).error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
@@ -21,7 +22,7 @@ try {
   const settings = defaultSettings(defaultRoot)
   settings.tools.enabled = true
   settings.tools.workspaceRead = true
-  settings.tools.workspaceWritePermission = 'allow_for_conversation'
+  settings.tools.approvalMode = 'full_access'
   settings.tools.webSearch = false
   settings.tools.webFetch = false
 
@@ -46,8 +47,26 @@ try {
     workspaceRoot: workspace.rootPath,
     workspaceWrite: true
   })
+  const availability = getWorkspaceWriteToolAvailability()
   const handlers = writeRegistry.handlerMap(buildToolContext(settings, { workspaceRoot: workspace.rootPath }))
-  assert.equal(typeof handlers.write_workspace_file, 'function', 'teaching chat should expose write_workspace_file')
+  assert.equal(
+    writeRegistry.definitions().some((tool) => tool.function.name === 'write_workspace_file'),
+    availability.available,
+    'workspace write registration must match the active workspace-write capability profile'
+  )
+
+  if (!availability.available) {
+    assert.equal(availability.code, 'containment_unavailable')
+    assert.equal(availability.message, '当前平台无法安全发布工作区文件。')
+    assert.equal(typeof handlers.write_workspace_file, 'undefined', 'unavailable hosts must not expose a write handler')
+    assert.equal(
+      await stat(join(workspace.rootPath, 'reference', 'rag-glossary.html')).then(() => true).catch(() => false),
+      false,
+      'withheld write tools must not create a target file'
+    )
+    console.log('[workspace write tool] durable workspace publication unavailable; registry withheld the write tool')
+  } else {
+    assert.equal(typeof handlers.write_workspace_file, 'function', 'supported hosts should expose write_workspace_file')
 
   // Lesson pages must be rejected: they go through the generate_lesson
   // pipeline so numbering, template rendering, and index registration stay
@@ -188,6 +207,8 @@ try {
       if (!unsupportedOptionalFilesystemCodes.has(code ?? '')) throw error
       console.log(`[workspace write tool] FIFO rejection explicitly skipped: ${code ?? 'unavailable'}`)
     }
+  }
+
   }
 
   console.log('workspace write tool boundaries ok')

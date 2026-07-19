@@ -67,9 +67,9 @@ try {
     '<!doctype html>\n<h1>Intro</h1>\n',
     'utf8'
   )
-  await mkdir(join(workspaceRoot, '.teachos'), { recursive: true })
-  await writeFile(join(workspaceRoot, '.teachos', 'index.json'), '{"lessons":[]}\n', 'utf8')
-  await writeFile(join(workspaceRoot, '.teachos', 'sessions.jsonl'), '{"kind":"lesson_generated"}\n', 'utf8')
+  await mkdir(join(workspaceRoot, '.studiumx'), { recursive: true })
+  await writeFile(join(workspaceRoot, '.studiumx', 'index.json'), '{"lessons":[]}\n', 'utf8')
+  await writeFile(join(workspaceRoot, '.studiumx', 'sessions.jsonl'), '{"kind":"lesson_generated"}\n', 'utf8')
 
   const summary = await summarizeWorkspaceChanges({
     workspaceId: 'workspace-1',
@@ -80,8 +80,8 @@ try {
     affectedPaths: [
       'courses/ai/sessions/0001-intro/lessons/0001-intro.html',
       'dirty-target.md',
-      '.teachos/index.json',
-      '.teachos/sessions.jsonl'
+      '.studiumx/index.json',
+      '.studiumx/sessions.jsonl'
     ]
   })
   assert.ok(summary)

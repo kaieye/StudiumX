@@ -118,6 +118,22 @@
       "aria": "对话框模式",
       "chat": "对话",
       "teaching": "教学"
+    },
+    "fileAccess": {
+      "trigger": "{{status}}",
+      "triggerAria": "Agent 权限模式：{{status}}",
+      "triggerTitle": "Agent 权限模式：{{status}}",
+      "title": "Agent 权限模式",
+      "mode": {
+        "request_approval": "请求批准",
+        "based_on_approval": "基于审批",
+        "full_access": "完全访问权限"
+      },
+      "modeDetail": {
+        "request_approval": "Agent 创建或改写工作区文件前请求批准。",
+        "based_on_approval": "自动创建新文件；覆盖已有文件前请求批准。",
+        "full_access": "Agent 可不经批准创建或改写工作区文件。"
+      }
     }
   },
   "ask": {

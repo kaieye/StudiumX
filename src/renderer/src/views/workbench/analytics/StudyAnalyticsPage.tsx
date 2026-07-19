@@ -69,8 +69,8 @@ function defaultIdentity(): StudyAnalyticsIdentity {
 
 function fallbackStateFor(phase: ReturnType<typeof useStudyAnalytics>['phase']): AnalyticsFallbackState {
   if (phase === 'loading') return 'loading'
-  if (phase === 'error') return 'error'
-  return 'unavailable'
+  if (phase === 'unavailable') return 'api-unavailable'
+  return 'request-error'
 }
 
 export function StudyAnalyticsPage({
@@ -102,18 +102,24 @@ export function StudyAnalyticsPage({
   const analytics = useStudyAnalytics({ query, client })
   const bundle: LearningAnalyticsBundle | null = analytics.bundle
   const fallbackState = fallbackStateFor(analytics.phase)
-  const fallbackMessage = analytics.issue?.kind === 'unavailable'
-    ? copy.page.unavailableDetail
-    : analytics.issue?.message
+  const fallbackMessage = analytics.phase === 'unavailable'
+    ? copy.page.apiUnavailableDetail
+    : analytics.phase === 'error'
+      ? copy.page.requestFailedDetail
+      : analytics.phase === 'ready'
+        ? copy.section.error
+        : undefined
 
   const liveMessage = analytics.isRefreshing
     ? copy.page.refreshing
     : analytics.phase === 'ready'
-      ? copy.page.loaded
+      ? analytics.issue?.kind === 'request_failed'
+        ? copy.page.failed
+        : copy.page.loaded
       : analytics.phase === 'error'
         ? copy.page.failed
         : analytics.phase === 'unavailable'
-          ? copy.page.unavailable
+          ? copy.page.apiUnavailable
           : copy.states.loading
 
   const shared = {
@@ -169,7 +175,7 @@ export function StudyAnalyticsPage({
 
         <p className="analytics-live-status" aria-live="polite" aria-atomic="true">{liveMessage}</p>
 
-        <div id="analytics-main" className="analytics-main">
+        <div id="analytics-main" className="analytics-main" tabIndex={-1}>
           <AnalyticsSection
             {...shared}
             id="analytics-section-hero"

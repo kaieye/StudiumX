@@ -382,7 +382,7 @@ try {
   settings.generator.streaming = false
   settings.tools.enabled = true
   settings.tools.workspaceRead = true
-  settings.tools.workspaceWritePermission = 'ask_each_time'
+  settings.tools.approvalMode = 'request_approval'
   settings.tools.webSearch = false
   settings.tools.webFetch = false
   settings.provider.providers = settings.provider.providers.map((provider) =>
@@ -452,7 +452,7 @@ try {
   assert.ok(statuses.includes('tool_running'), 'lesson generation should stream tool progress')
   assert.equal(pipelineBodies[0]?.response_format?.type, 'json_object', 'tool-augmented lesson generation should request JSON mode')
   assert.ok((pipelineBodies[0]?.max_tokens ?? 0) >= 8192, 'lesson generation should raise the output budget for structured lesson plans')
-  settings.tools.workspaceWritePermission = 'allow_for_conversation'
+  settings.tools.approvalMode = 'full_access'
 
   // --- Scenario 2: pipeline failure must not persist any placeholder lesson.
   pipelineMode = 'broken'

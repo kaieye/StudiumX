@@ -12,17 +12,14 @@ const systemError = console.error
 try {
   tempRoot = await mkdtemp(join(tmpdir(), 'studiumx-diagnostic-journal-'))
   const oldStudiumLog = join(tempRoot, 'studiumx-old.log')
-  const oldTeachOsLog = join(tempRoot, 'teachos-old.log')
   const unrelatedLog = join(tempRoot, 'other-old.log')
   const oldDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000)
   await Promise.all([
     writeFile(oldStudiumLog, 'old StudiumX journal\n'),
-    writeFile(oldTeachOsLog, 'old TeachOS journal\n'),
     writeFile(unrelatedLog, 'unrelated journal\n')
   ])
   await Promise.all([
     utimes(oldStudiumLog, oldDate, oldDate),
-    utimes(oldTeachOsLog, oldDate, oldDate),
     utimes(unrelatedLog, oldDate, oldDate)
   ])
 
@@ -35,7 +32,6 @@ try {
   const journal = new Logger({ userDataPath: tempRoot, enabled: true, retentionDays: 999 })
   await journal.purgeOldLogs(7)
   await assert.rejects(access(oldStudiumLog), /ENOENT/)
-  await assert.rejects(access(oldTeachOsLog), /ENOENT/)
   await access(unrelatedLog)
 
   journal.captureConsole()

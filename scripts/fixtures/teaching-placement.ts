@@ -58,7 +58,7 @@ assert.deepEqual(
     sessionName: '0003 Retriever Tuning',
     sessionRelativePath: 'courses/rag-project/lesson',
     lessonRelativePath: 'courses/rag-project/lesson/0003-retriever-tuning.html',
-    assessmentRelativePath: 'courses/rag-project/lesson/0003-retriever-tuning-assessment.html',
+    assessmentRelativePath: 'courses/rag-project/lesson/0003-retriever-tuning-assessment.json',
     referenceRelativePath: 'courses/rag-project/lesson/0003-retriever-tuning-reference.html',
     reviewsRelativePath: 'courses/rag-project/lesson/0003-retriever-tuning-flashcards.json'
   }

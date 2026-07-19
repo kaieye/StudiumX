@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { presentAgentTurnProvenance } from '../../src/renderer/src/agent-conversation-state'
+import {
+  agentTurnsToMessages,
+  agentTurnsToMessageTurnIds,
+  presentAgentTurnProvenance
+} from '../../src/renderer/src/agent-conversation-state'
 import type { AgentChatTurn } from '../../src/shared/teaching-types'
 
 const createdAt = '2026-07-14T10:00:00.000Z'
@@ -70,6 +74,62 @@ function pendingConversation(): PendingAgentConversation {
     toolsSupported: true
   }
 }
+
+describe('model history projection', () => {
+  it('excludes recovery notices by structured provenance while preserving durable and replayed history with aligned IDs', () => {
+    const turns: AgentChatTurn[] = [
+      { id: 'u-durable', role: 'user', content: 'Durable user input', createdAt },
+      {
+        id: 'a-replayed',
+        role: 'assistant',
+        content: 'Replay-safe durable answer',
+        createdAt,
+        metadata: {
+          version: 1,
+          provenance: { kind: 'replayed', sourceTurnId: 'a-source', replayId: 'replay-1' }
+        }
+      },
+      {
+        id: 'a-text-coincidence',
+        role: 'assistant',
+        content: 'Renderer-only recovery notice',
+        createdAt
+      },
+      ...(['done', 'canceled', 'error'] as const).map((status) => ({
+        id: `a-${status}`,
+        role: 'assistant' as const,
+        content: `Durable ${status} result`,
+        createdAt,
+        processEvents: [{
+          id: `status-${status}`,
+          kind: 'status' as const,
+          title: status,
+          status,
+          createdAt
+        }]
+      })),
+      {
+        id: 'interrupted-run-9',
+        role: 'assistant',
+        content: 'Renderer-only recovery notice',
+        createdAt,
+        metadata: { version: 1, provenance: { kind: 'recovery_notice' } }
+      }
+    ]
+
+    expect(agentTurnsToMessages(turns)).toEqual([
+      { role: 'user', content: 'Durable user input' },
+      { role: 'assistant', content: 'Replay-safe durable answer' },
+      { role: 'assistant', content: 'Renderer-only recovery notice' },
+      { role: 'assistant', content: 'Durable done result' },
+      { role: 'assistant', content: 'Durable canceled result' },
+      { role: 'assistant', content: 'Durable error result' }
+    ])
+    expect(agentTurnsToMessageTurnIds(turns)).toEqual([
+      'u-durable', 'a-replayed', 'a-text-coincidence', 'a-done', 'a-canceled', 'a-error'
+    ])
+  })
+})
 
 describe('agent streamed reasoning state', () => {
   it('coalesces reasoning deltas into process evidence without mixing them into the answer', () => {

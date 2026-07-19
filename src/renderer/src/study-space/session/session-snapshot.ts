@@ -1,6 +1,4 @@
 import {
-  LEGACY_STUDY_SPACE_SESSION_CLIENT_KEY,
-  LEGACY_STUDY_SPACE_STORAGE_KEY,
   STUDY_PRESENCE_BROKER_URL,
   STUDY_PRESENCE_CLIENT_PREFIX,
   STUDY_PUBLIC_SPACE_CODE,
@@ -221,9 +219,7 @@ export function readStudySessionClientId(): string {
   try {
     const params = new URLSearchParams(window.location.search)
     const forceFreshSession = params.get('studyFreshSession') === '1'
-    const stored =
-      window.sessionStorage.getItem(STUDY_SPACE_SESSION_CLIENT_KEY) ??
-      window.sessionStorage.getItem(LEGACY_STUDY_SPACE_SESSION_CLIENT_KEY)
+    const stored = window.sessionStorage.getItem(STUDY_SPACE_SESSION_CLIENT_KEY)
     if (stored?.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)) {
       window.sessionStorage.setItem(STUDY_SPACE_SESSION_CLIENT_KEY, stored)
     }
@@ -311,9 +307,7 @@ function parseStoredSnapshot(serialized: string | null): unknown {
  */
 export function readStudySnapshot(): StudySnapshot {
   try {
-    const stored =
-      window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY) ??
-      window.localStorage.getItem(LEGACY_STUDY_SPACE_STORAGE_KEY)
+    const stored = window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY)
     const snapshot = applyStudyInviteParams(applyStudySessionIdentity(normalizeStudySnapshot(parseStoredSnapshot(stored))))
     persistStudySnapshot(snapshot)
     return snapshot

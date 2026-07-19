@@ -35,6 +35,8 @@ import {
   Square,
   Play,
   SendHorizontal,
+  ShieldAlert,
+  ShieldCheck,
   X,
   Wrench
 } from 'lucide-react'
@@ -101,8 +103,6 @@ import { AgentConversationReader } from './views/agent-conversation/AgentConvers
 import { ConversationInterruptionDock } from './views/agent-conversation/ConversationInterruptionDock'
 import { AgentMessageActions, AgentMessageEditor } from './views/agent-conversation/AgentSessionTreePanel'
 import {
-  LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE,
-  LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE,
   parsePreviewExternalHref,
   parsePreviewLessonInteractionMessage,
   parsePreviewMarkdownHref,
@@ -110,6 +110,13 @@ import {
   PREVIEW_MARKDOWN_LINK_MESSAGE
 } from '../../shared/preview-markdown-bridge'
 import type { PreviewLessonInteractionIntent } from '../../shared/teaching-types/lesson-interaction'
+import {
+  createLearningOutcomeCommitClient,
+  isPreviewCommitScopeCurrent,
+  recordPreviewLessonInteractionAndMaybeCommit,
+  type LearningOutcomeCommitUiStatus
+} from './teaching/learning-outcome-commit-client'
+import { LearningOutcomeCommitStatusBanner } from './teaching/learning-outcome-commit-status-banner'
 import { sanitizeAgentTurnContent } from '../../shared/agent-conversation-turns'
 import {
   type AgentChatTurn,
@@ -122,7 +129,8 @@ import {
   type TeachingWorkspaceChangeSummary,
   type TeachingWorkspaceSummary,
   type WorkspaceMarkdownDocument,
-  type WorkspaceView
+  type WorkspaceView,
+  type AgentApprovalMode
 } from '../../shared/teaching-types'
 
 // ================================================================
@@ -485,7 +493,7 @@ function ProjectFolderPicker({ mode = 'workspace' }: { mode?: 'workspace' | 'tem
       >
         <Folder size={15} strokeWidth={1.8} />
         <span className="overview-picker-label">{label}</span>
-        {acting ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+        {acting ? <Loader2 size={13} className="spin" /> : null}
       </button>
 
       {open ? (
@@ -666,7 +674,7 @@ function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
       >
         <GitBranch size={15} strokeWidth={1.8} />
         <span className="overview-picker-label">{middleEllipsize(label, 32)}</span>
-        {triggerLoading ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
+        {triggerLoading ? <Loader2 size={13} className="spin" /> : null}
       </button>
 
       {open ? (
@@ -1005,6 +1013,23 @@ export function previewLessonInteractionForCurrentIframe(
 function MainArea() {
   const { t } = useTranslation()
   const lessonFrameRef = useRef<HTMLIFrameElement | null>(null)
+  const learningOutcomeMountedRef = useRef(true)
+  const [learningOutcomeCommitStatus, setLearningOutcomeCommitStatus] = useState<LearningOutcomeCommitUiStatus>({ kind: 'idle' })
+  const [learningOutcomeRetryPending, setLearningOutcomeRetryPending] = useState(false)
+  const learningOutcomeCommitClientRef = useRef(createLearningOutcomeCommitClient({
+    commitLearningOutcome: (request) => {
+      const api = window.teachingSystem
+      if (!api) return Promise.reject(new Error('Teaching system API unavailable'))
+      // Production sole-writer path: formal IPC via preload TeachingSystemApi.
+      return api.commitLearningOutcome(request)
+    },
+    onStatusChange: (status) => {
+      // Never setState after MainArea unmount (dispose also suppresses notify).
+      if (!learningOutcomeMountedRef.current) return
+      setLearningOutcomeCommitStatus(status)
+      if (status.kind !== 'committing') setLearningOutcomeRetryPending(false)
+    }
+  }))
   const chrome = resolveWindowChromePolicy(window.teachingSystem?.platform ?? 'win32')
   const isWindows = chrome.adapter === 'windows'
   const showInlineSidebarToggle = chrome.sidebarTogglePlacement === 'inline-topbar'
@@ -1107,10 +1132,62 @@ function MainArea() {
       setChangeDiffLoadingPath(null)
     }
   }
+  const previewCommitWorkspaceId = selectedCourseWorkspaceId ?? active?.id ?? null
+  const previewCommitScopeKey = readingCourseHtml && selectedPreviewFile
+    ? `${previewCommitWorkspaceId ?? 'none'}:${selectedPreviewFile.relativePath}:${lessonFrameKey}`
+    : readingMarkdown && selectedMarkdownDocument
+      ? `${previewCommitWorkspaceId ?? 'none'}:md:${selectedMarkdownDocument.relativePath}`
+      : null
+
+  const previewCommitScopeKeyRef = useRef(previewCommitScopeKey)
+  const previewCommitWorkspaceIdRef = useRef(previewCommitWorkspaceId)
+  previewCommitScopeKeyRef.current = previewCommitScopeKey
+  previewCommitWorkspaceIdRef.current = previewCommitWorkspaceId
+
+  useEffect(() => {
+    learningOutcomeCommitClientRef.current.setLessonScope(previewCommitScopeKey)
+  }, [previewCommitScopeKey])
+
+  useEffect(() => {
+    learningOutcomeMountedRef.current = true
+    const client = learningOutcomeCommitClientRef.current
+    return () => {
+      learningOutcomeMountedRef.current = false
+      client.dispose()
+    }
+  }, [])
+
+  const retryLearningOutcomeCommit = useCallback((): void => {
+    const client = learningOutcomeCommitClientRef.current
+    const status = client.getStatus()
+    if (status.kind !== 'retryable' || !status.canRetry) return
+    if (!learningOutcomeMountedRef.current) return
+    setLearningOutcomeRetryPending(true)
+    void client.retry().catch(() => undefined).finally(() => {
+      if (learningOutcomeMountedRef.current) setLearningOutcomeRetryPending(false)
+    })
+  }, [])
+
   const recordPreviewLessonInteraction = useCallback((intent: PreviewLessonInteractionIntent): void => {
     const api = window.teachingSystem
     if (!api) return
-    void api.recordPreviewLessonInteraction(intent).catch(() => undefined)
+    // Capture scope at record start; isCurrent reads live refs so a late resolve
+    // after workspace/lesson switch never commits or paints the new lesson banner.
+    const workspaceId = previewCommitWorkspaceIdRef.current
+    const scopeAtStart = previewCommitScopeKeyRef.current
+    const client = learningOutcomeCommitClientRef.current
+    void recordPreviewLessonInteractionAndMaybeCommit({
+      api,
+      intent,
+      workspaceId,
+      client,
+      isCurrent: () => isPreviewCommitScopeCurrent({
+        scopeAtStart,
+        workspaceIdAtStart: workspaceId,
+        currentScopeKey: previewCommitScopeKeyRef.current,
+        currentWorkspaceId: previewCommitWorkspaceIdRef.current
+      })
+    }).catch(() => undefined)
   }, [])
 
   const renderSidebarToggle = (className = 'icon-button') => (
@@ -1134,12 +1211,12 @@ function MainArea() {
 
       const data = event.data as { type?: unknown; href?: unknown }
       if (!data || typeof data.type !== 'string' || typeof data.href !== 'string') return
-      if (data.type === PREVIEW_EXTERNAL_LINK_MESSAGE || data.type === LEGACY_PREVIEW_EXTERNAL_LINK_MESSAGE) {
+      if (data.type === PREVIEW_EXTERNAL_LINK_MESSAGE) {
         const href = parsePreviewExternalHref(data.href)
         if (href) void openExternal(href)
         return
       }
-      if (data.type === PREVIEW_MARKDOWN_LINK_MESSAGE || data.type === LEGACY_PREVIEW_MARKDOWN_LINK_MESSAGE) {
+      if (data.type === PREVIEW_MARKDOWN_LINK_MESSAGE) {
         const target = parsePreviewMarkdownHref(data.href)
         if (!target) return
         const workspace = appState.workspaces.find((item) => item.id === target.workspaceId)
@@ -1219,11 +1296,7 @@ function MainArea() {
         </div>
       )}
 
-      {view === 'overview' && (
-        <OverviewChat active={active} />
-      )}
-
-      {view === 'agent' && (
+      {(view === 'overview' || view === 'agent') && (
         <OverviewChat active={active} />
       )}
 
@@ -1275,42 +1348,53 @@ function MainArea() {
             data-reading-html={readingCourseHtml ? 'true' : undefined}
             data-reading-markdown={readingMarkdown ? 'true' : undefined}
           >
-            {readingCourseHtml && selectedPreviewFile ? (
-              <section className="lesson-reader-panel" aria-label={t('lessons.previewAria')}>
-                <div className="lesson-reader-frame-wrap">
-                  <iframe
-                    ref={lessonFrameRef}
-                    key={lessonFrameKey}
-                    className="lesson-reader-frame"
-                    title={selectedPreviewFile.title}
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                    src={appState.previewUrl || undefined}
-                    srcDoc={appState.previewUrl ? undefined : appState.previewHtml || undefined}
+            {(readingCourseHtml && selectedPreviewFile) || (readingMarkdown && selectedMarkdownDocument) ? (
+              <section
+                className={readingCourseHtml && selectedPreviewFile ? 'lesson-reader-panel' : 'lesson-reader-panel lesson-reader-panel--markdown'}
+                aria-label={t('lessons.previewAria')}
+                data-reading-surface={readingCourseHtml && selectedPreviewFile ? 'html' : 'markdown'}
+              >
+                <LearningOutcomeCommitStatusBanner
+                  status={learningOutcomeCommitStatus}
+                  onRetry={retryLearningOutcomeCommit}
+                  retryPending={learningOutcomeRetryPending}
+                />
+                {readingCourseHtml && selectedPreviewFile ? (
+                  <div className="lesson-reader-frame-wrap">
+                    <iframe
+                      ref={lessonFrameRef}
+                      key={lessonFrameKey}
+                      className="lesson-reader-frame"
+                      title={selectedPreviewFile.title}
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                      src={appState.previewUrl || undefined}
+                      srcDoc={appState.previewUrl ? undefined : appState.previewHtml || undefined}
+                    />
+                  </div>
+                ) : selectedMarkdownDocument ? (
+                  <MarkdownDocumentPanel
+                    document={selectedMarkdownDocument}
+                    draft={markdownDraft}
+                    saving={markdownSaving}
+                    workspaceId={selectedCourseWorkspaceId}
+                    onDraftChange={setMarkdownDraft}
+                    onSave={() => void saveMarkdownDocument()}
+                    onOpenExternal={(href) => void openExternal(href)}
+                    onPreviewLessonInteraction={recordPreviewLessonInteraction}
+                    onOpenWorkspaceMarkdown={(relativePath) => {
+                      if (!selectedCourseWorkspaceId) return
+                      void loadWorkspaceMarkdownFile(
+                        {
+                          title: titleFromFileName(relativePath),
+                          relativePath,
+                          absolutePath: relativePath
+                        },
+                        selectedCourseWorkspaceId
+                      )
+                    }}
                   />
-                </div>
+                ) : null}
               </section>
-            ) : readingMarkdown && selectedMarkdownDocument ? (
-              <MarkdownDocumentPanel
-                document={selectedMarkdownDocument}
-                draft={markdownDraft}
-                saving={markdownSaving}
-                workspaceId={selectedCourseWorkspaceId}
-                onDraftChange={setMarkdownDraft}
-                onSave={() => void saveMarkdownDocument()}
-                onOpenExternal={(href) => void openExternal(href)}
-                onPreviewLessonInteraction={recordPreviewLessonInteraction}
-                onOpenWorkspaceMarkdown={(relativePath) => {
-                  if (!selectedCourseWorkspaceId) return
-                  void loadWorkspaceMarkdownFile(
-                    {
-                      title: titleFromFileName(relativePath),
-                      relativePath,
-                      absolutePath: relativePath
-                    },
-                    selectedCourseWorkspaceId
-                  )
-                }}
-              />
             ) : (
               <section className="lesson-course-library" aria-label={t('lessons.libraryTitle')}>
                 <div className="lesson-library-header">
@@ -1853,7 +1937,13 @@ function DialogModeSwitch() {
     { id: 'teaching', label: t('overview.mode.teaching'), icon: BookOpen }
   ]
   return (
-    <div className="dialog-mode-switch" role="tablist" aria-label={t('overview.mode.aria')}>
+    <div
+      className="dialog-mode-switch"
+      data-active-mode={mode}
+      role="tablist"
+      aria-label={t('overview.mode.aria')}
+    >
+      <span className="dialog-mode-switch-indicator" aria-hidden="true" />
       {options.map((option) => {
         const Icon = option.icon
         const isActive = mode === option.id
@@ -1871,6 +1961,81 @@ function DialogModeSwitch() {
           </button>
         )
       })}
+    </div>
+  )
+}
+
+export function AgentFileAccessPicker() {
+  const { t } = useTranslation()
+  const settings = useAppStore((s) => s.settings)
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const [open, setOpen] = useState(false)
+  const [updating, setUpdating] = useState(false)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  usePickerOutsideClose(open, wrapRef, setOpen)
+
+  const approvalMode = settings.tools.approvalMode
+  const disabled = updating
+  const status = t(`overview.fileAccess.mode.${approvalMode}`)
+  const triggerLabel = Array.from(status).slice(0, 4).join('')
+  const StatusIcon = approvalMode === 'full_access' ? ShieldCheck : ShieldAlert
+
+  const selectMode = async (nextMode: AgentApprovalMode): Promise<void> => {
+    if (disabled) return
+    setUpdating(true)
+    try {
+      if (nextMode !== approvalMode) {
+        await updateSettings({ tools: { approvalMode: nextMode } })
+        // updateSettings reports failures through the global error surface.
+        if (useAppStore.getState().settings.tools.approvalMode !== nextMode) return
+      }
+      setOpen(false)
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  return (
+    <div ref={wrapRef} className="overview-picker overview-file-access-picker">
+      <button
+        type="button"
+        className={`overview-file-access-trigger is-${approvalMode}`}
+        onClick={() => setOpen((value) => !value)}
+        disabled={disabled}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={t('overview.fileAccess.triggerAria', { status })}
+        title={t('overview.fileAccess.triggerTitle', { status })}
+      >
+        <StatusIcon size={15} />
+        <span className="overview-file-access-trigger-label">{triggerLabel}</span>
+        {updating ? <Loader2 size={13} className="spin" /> : null}
+      </button>
+
+      {open ? (
+        <div className="overview-picker-menu overview-file-access-menu" role="menu" aria-label={t('overview.fileAccess.title')}>
+          {(['request_approval', 'based_on_approval', 'full_access'] as const).map((mode) => {
+            const selected = approvalMode === mode
+            return (
+              <button
+                key={mode}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                className={`overview-file-access-option${selected ? ' is-selected' : ''}`}
+                onClick={() => void selectMode(mode)}
+                disabled={updating}
+              >
+                <span className="overview-file-access-option-copy">
+                  <strong>{t(`overview.fileAccess.mode.${mode}`)}</strong>
+                  <small>{t(`overview.fileAccess.modeDetail.${mode}`)}</small>
+                </span>
+                {selected ? <Check size={16} /> : null}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1933,6 +2098,7 @@ function OverviewLessonComposer({
             }}
           />
           <div className="overview-dialog-footer">
+            <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
               <OverviewModelPicker />
               <OverviewReasoningPicker />
@@ -2337,6 +2503,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             }}
           />
           <div className="overview-dialog-footer">
+            <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
               <OverviewModelPicker />
               <OverviewReasoningPicker />

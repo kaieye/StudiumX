@@ -298,6 +298,58 @@ describe('AgentConversationTurnRunner', () => {
     })
   })
 
+  it('excludes a renderer-only recovery notice from the next model request and its lineage while retaining durable history', async () => {
+    const recoveryNoticeText = 'RECOVERY-NOTICE: do not send this renderer-only notice to the model'
+    const stream = vi.fn(async () => completedTurn())
+    const harness = makeHarness({
+      agentChatStream: stream,
+      saveAgentConversation: vi.fn(async (payload) => ({
+        state: appState(),
+        conversation: {
+          id: 'conversation-7',
+          title: 'Momentum branch',
+          createdAt,
+          updatedAt: createdAt,
+          relativePath: '.agent-sessions/conversations/conversation-7.json',
+          absolutePath: '/workspace/.agent-sessions/conversations/conversation-7.json',
+          messageCount: payload.turns.length
+        }
+      })),
+      cancelAgentChatStream: vi.fn()
+    }, {
+      activeConversationId: 'conversation-7',
+      activeConversationRevision: 7,
+      activeSessionTree: sessionTree('conversation-7', 7),
+      agentTurns: [
+        { id: 'u-durable', role: 'user', content: 'What is momentum?', createdAt },
+        { id: 'a-durable', role: 'assistant', content: 'Mass times velocity.', createdAt },
+        {
+          id: 'interrupted-run-9',
+          role: 'assistant',
+          content: recoveryNoticeText,
+          createdAt,
+          metadata: { version: 1, provenance: { kind: 'recovery_notice' } }
+        }
+      ]
+    })
+
+    await harness.runner.run({ inputOverride: 'Now explain impulse instead.' })
+
+    const request = stream.mock.calls[0]?.[0]
+    expect(request).toMatchObject({
+      userInput: 'Now explain impulse instead.',
+      messages: [
+        { role: 'user', content: 'What is momentum?' },
+        { role: 'assistant', content: 'Mass times velocity.' }
+      ],
+      messageTurnIds: ['u-durable', 'a-durable']
+    })
+    expect(request.messages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ content: recoveryNoticeText })
+    ]))
+    expect(request.messageTurnIds).not.toContain('interrupted-run-9')
+  })
+
   it('clears a stale tree when post-save refresh fails', async () => {
     const save = vi.fn(async (payload) => ({
       state: appState(),

@@ -5,7 +5,11 @@ import type { AgentArtifactRef, TeachingSettingsV1 } from '../../../shared/teach
 import type { AgentOperationJournal, AgentOperationRecord } from '../agent-operation-journal'
 import { webSearchTool } from './web_search'
 import { webFetchTool } from './web_fetch'
-import { workspaceReadTools, writeWorkspaceFileTool } from './workspace'
+import {
+  getWorkspaceWriteToolAvailability,
+  workspaceReadTools,
+  writeWorkspaceFileTool
+} from './workspace'
 
 export type ToolPermissionKind =
   | 'workspace_write'
@@ -249,7 +253,13 @@ export function buildDefaultRegistry(
   const registry = new ToolRegistry()
   if (settings.tools.workspaceRead && options.workspaceRoot) {
     for (const tool of workspaceReadTools) registry.register(tool)
-    if (options.workspaceWrite === true) registry.register(writeWorkspaceFileTool)
+    // Do not expose a write capability that this host cannot execute safely.
+    // The durable publisher has no pathname fallback, so leaving the tool out
+    // prevents an approval UI from promising a write which would only fail at
+    // execution time. Read-only workspace tools stay available.
+    if (options.workspaceWrite === true && getWorkspaceWriteToolAvailability().available) {
+      registry.register(writeWorkspaceFileTool)
+    }
   }
   if (settings.tools.webSearch) registry.register(webSearchTool)
   if (settings.tools.webFetch) registry.register(webFetchTool)
@@ -261,28 +271,32 @@ async function resolveToolPermission(
   ctx: ToolContext,
   callCtx?: ToolCallContext
 ): Promise<ToolPermissionDecision> {
-  if (request.kind === 'workspace_write') {
-    switch (ctx.settings.tools.workspaceWritePermission) {
-      case 'allow_for_conversation':
-        return { decision: 'allow_for_run' }
-      case 'read_only':
-        return { decision: 'deny', reason: `当前工具权限为只读模式，已拒绝 ${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}。` }
-      case 'ask_each_time': {
-        if (await ctx.permissionGrants.allows(request, ctx)) return { decision: 'allow_for_run' }
-        if (!ctx.requestToolPermission) {
-          return {
-            decision: 'deny',
-            reason: `需要用户批准 ${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}，但当前会话没有审批通道。`
-          }
-        }
-        const rawDecision = await ctx.requestToolPermission(request, callCtx)
-        const decision = rawDecision.decision === 'allow' ? { ...rawDecision, decision: 'allow_once' as const } : rawDecision
-        if (decision.decision !== 'deny') await ctx.permissionGrants.remember(request, decision, ctx)
-        return decision
-      }
+  if (request.kind !== 'workspace_write') return { decision: 'allow_once' }
+
+  switch (ctx.settings.tools.approvalMode) {
+    case 'full_access':
+      return { decision: 'allow_for_run' }
+    case 'based_on_approval':
+      // Creating a new in-workspace text file is reversible and constrained by
+      // the workspace path guard. Replacing an existing file remains a risk and
+      // therefore flows through the same explicit approval mechanism below.
+      if (request.creates === true) return { decision: 'allow_for_run' }
+      break
+    case 'request_approval':
+      break
+  }
+
+  if (await ctx.permissionGrants.allows(request, ctx)) return { decision: 'allow_for_run' }
+  if (!ctx.requestToolPermission) {
+    return {
+      decision: 'deny',
+      reason: `需要用户批准 ${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}，但当前会话没有审批通道。`
     }
   }
-  return { decision: 'allow_once' }
+  const rawDecision = await ctx.requestToolPermission(request, callCtx)
+  const decision = rawDecision.decision === 'allow' ? { ...rawDecision, decision: 'allow_once' as const } : rawDecision
+  if (decision.decision !== 'deny') await ctx.permissionGrants.remember(request, decision, ctx)
+  return decision
 }
 
 async function describeToolPermission(

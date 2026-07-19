@@ -45,7 +45,9 @@ describe('TeachingWorkspaceService generation Session gate', () => {
         workspaceId: workspace.id,
         prompt: 'Explain why a Session identity must be canonical.',
         messages: []
-      })).rejects.toThrow('controlled canonical session open failure')
+      })).rejects.toThrow(process.platform === 'win32'
+        ? 'Descriptor-relative contained directory access is unavailable on this platform.'
+        : 'controlled canonical session open failure')
     } finally {
       ledgerControl.failOpen = false
     }

@@ -36,7 +36,7 @@ import {
   type TeachingWorkspaceSummary,
   type UpdateTeachingMemoryPayload,
   type WebSearchBackend,
-  type WorkspaceWritePermissionPolicy
+  type AgentApprovalMode
 } from '../../../../shared/teaching-types'
 import {
   activeModelProvider,
@@ -50,7 +50,7 @@ import {
   toolsSupportedForSettings,
   webSearchBackendLabel,
   webSearchBackendOptions,
-  workspaceWritePermissionOptions
+  agentApprovalModeOptions
 } from '../../workflows/settings'
 import {
   NumberInput,
@@ -467,12 +467,12 @@ export function SettingsView({
                   onChange={(workspaceRead) => void configuration.updateSetting('tools.workspaceRead', workspaceRead)}
                 />
               </SettingsRow>
-              <SettingsRow label="工作区写入权限" detail="控制 Agent 写入课程、参考资料、学习记录和工作区文本文件前的主进程策略">
+              <SettingsRow label="Agent 权限模式" detail="与对话框左下角保持一致：统一控制 Agent 对工作区文件执行写入操作时的审批策略">
                 <SettingsSelect
-                  value={settings.tools.workspaceWritePermission}
-                  options={workspaceWritePermissionOptions}
-                  onChange={(workspaceWritePermission: WorkspaceWritePermissionPolicy) =>
-                    void configuration.updateSetting('tools.workspaceWritePermission', workspaceWritePermission)}
+                  value={settings.tools.approvalMode}
+                  options={agentApprovalModeOptions}
+                  onChange={(approvalMode: AgentApprovalMode) =>
+                    void configuration.updateSetting('tools.approvalMode', approvalMode)}
                 />
               </SettingsRow>
               <SettingsRow label="web_search（多后端）" detail="自动使用 SearXNG、Brave Search 或 DuckDuckGo Lite 检索最新和课程外信息">

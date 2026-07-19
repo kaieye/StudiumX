@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  LEGACY_STUDY_SPACE_SESSION_CLIENT_KEY,
-  LEGACY_STUDY_SPACE_STORAGE_KEY,
   STUDY_SPACE_SESSION_CLIENT_KEY,
   STUDY_SPACE_STORAGE_KEY,
   defaultStudySnapshot
@@ -19,35 +17,6 @@ describe('durable Study Session snapshot', () => {
     window.history.replaceState(null, '', '/')
   })
 
-  it('migrates a legacy snapshot and legacy tab identity into canonical storage', () => {
-    window.localStorage.setItem(LEGACY_STUDY_SPACE_STORAGE_KEY, JSON.stringify({
-      ...defaultStudySnapshot,
-      clientId: 'studiumx-persisted',
-      nickname: '专注同学',
-      spaceCode: 'legacy room',
-      roomId: 'sprint',
-      focusMinutes: 45,
-      breakMinutes: 10,
-      remainingSeconds: 2_700
-    }))
-    window.sessionStorage.setItem(LEGACY_STUDY_SPACE_SESSION_CLIENT_KEY, 'studiumx-legacy-tab')
-
-    const snapshot = readStudySnapshot()
-    const persisted = JSON.parse(window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY) ?? 'null')
-
-    expect(snapshot).toMatchObject({
-      clientId: 'studiumx-legacy-tab',
-      nickname: '专注同学',
-      spaceCode: 'LEGACYROOM',
-      roomId: 'sprint'
-    })
-    expect(window.sessionStorage.getItem(STUDY_SPACE_SESSION_CLIENT_KEY)).toBe('studiumx-legacy-tab')
-    expect(persisted).toMatchObject({
-      clientId: 'studiumx-legacy-tab',
-      spaceCode: 'LEGACYROOM',
-      roomId: 'sprint'
-    })
-  })
 
   it('recovers from malformed stored JSON and overwrites it with a normalized snapshot', () => {
     window.localStorage.setItem(STUDY_SPACE_STORAGE_KEY, '{not valid JSON')

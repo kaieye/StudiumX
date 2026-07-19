@@ -287,6 +287,15 @@ async function syncDirectory(
   operations: DurableFileOperations,
   warn: DurableReplaceOptions['warn']
 ): Promise<void> {
+  // Node on Windows cannot fsync a directory handle (it returns EPERM), so
+  // retain the existing unsupported-directory durability downgrade there.
+  // Keep injected operations on the strict error path: an injected EPERM can
+  // still represent a genuine permission failure and must remain fatal.
+  if (operations === defaultOperations && process.platform === 'win32') {
+    ;(warn ?? console.warn)('[StudiumX] Directory fsync is unsupported; durable rename completed without directory fsync.')
+    return
+  }
+
   let handle: DurableFileHandle | undefined
   try {
     handle = await operations.open(directoryPath, 'r')

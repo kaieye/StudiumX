@@ -123,6 +123,7 @@ export class TeachingSettingsService {
     return this.save(defaultSettings(this.fallbackDefaultRoot))
   }
 
+
   private async loadLegacySettings(): Promise<unknown | null> {
     try {
       return JSON.parse(await readFile(this.legacySettingsPath, 'utf8'))
@@ -132,6 +133,7 @@ export class TeachingSettingsService {
       throw error
     }
   }
+
 }
 
 /** Compatibility export retained for existing main-process callers. */

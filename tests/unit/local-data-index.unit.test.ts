@@ -67,7 +67,7 @@ describe('local data SQLite index migrations', () => {
 })
 
 describe('local data SQLite availability', () => {
-  it('quarantines a corrupt disposable database and opens an incomplete replacement without touching canonical sources', async () => {
+  it.runIf(process.platform !== 'win32')('quarantines a corrupt disposable database and opens an incomplete replacement without touching canonical sources', async () => {
     await writeFile(join(runtime.userDataDir, 'studiumx-index.sqlite'), 'not a sqlite database', 'utf8')
     const index = makeIndex()
     expect(index.open()).toBe(true)
@@ -164,7 +164,11 @@ describe('local data SQLite projections', () => {
     await mkdir(join(ledgerDirectory, 'learning-work.sealed-2026-07-000002.jsonl'))
     const symlinkTarget = join(ledgerDirectory, 'outside-learning-work.jsonl')
     await writeFile(symlinkTarget, `${ledger('symlink', 103)}\n`)
-    await symlink(symlinkTarget, join(ledgerDirectory, 'learning-work.sealed-2026-07-000003.jsonl'))
+    try {
+      await symlink(symlinkTarget, join(ledgerDirectory, 'learning-work.sealed-2026-07-000003.jsonl'))
+    } catch (error) {
+      if (!(process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM')) throw error
+    }
 
     const index = makeIndex()
     expect(index.open()).toBe(true)
@@ -237,7 +241,7 @@ describe('local data SQLite projections', () => {
     expect(await rebuilt.isCompleteForCurrentSources()).toBe(true)
     rebuilt.close()
   })
-  it('scans all Memory scopes and tombstones, records recovery issues, and never stores content', async () => {
+  it.runIf(process.platform !== 'win32')('scans all Memory scopes and tombstones, records recovery issues, and never stores content', async () => {
     const root = join(runtime.userDataDir, 'memory')
     await mkdir(root, { recursive: true })
     const catalog = new TeachingMemoryCatalog(root)

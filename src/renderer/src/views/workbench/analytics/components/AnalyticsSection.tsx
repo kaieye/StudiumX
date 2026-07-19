@@ -3,7 +3,13 @@ import { AlertTriangle, RefreshCw } from 'lucide-react'
 import type { AnalyticsCopy } from '../analyticsCopy'
 import type { AnalyticsSectionResult } from '../types'
 
-export type AnalyticsFallbackState = 'loading' | 'unavailable' | 'error'
+/**
+ * Page-level fallback when a section result is absent.
+ * Distinct from section-level `unavailable` (a typed reason on a successful section envelope).
+ * - api-unavailable: Learning Analytics API is not provided by the app (non-retryable)
+ * - request-error: request/transport/contract failure (retryable)
+ */
+export type AnalyticsFallbackState = 'loading' | 'api-unavailable' | 'request-error'
 
 type DataBearing<T> = Extract<AnalyticsSectionResult<T>, { state: 'available' | 'empty' | 'partial' }>
 
@@ -29,8 +35,30 @@ export type AnalyticsSectionProps<T> = {
 
 function stateLabel(copy: AnalyticsCopy, state: string): string {
   if (state === 'partial') return copy.section.partial
-  if (state === 'error') return copy.section.error
+  if (state === 'error' || state === 'request-error') return copy.section.error
   return ''
+}
+
+/**
+ * Whether a section-level envelope should expose Retry.
+ * Shared contract:
+ * - `error` carries typed `error.retryable`
+ * - `unavailable` has only `reason` (no retryable flag) — keep showing Retry
+ * - `partial` has no retryable flag — keep showing Retry when the message surface is used
+ * Page-level fallbacks:
+ * - `request-error` is retryable
+ * - `api-unavailable` is not (and is never confused with section-level unavailable)
+ */
+export function shouldShowSectionRetry(
+  result: AnalyticsSectionResult<unknown> | null,
+  fallbackState: AnalyticsFallbackState
+): boolean {
+  if (result) {
+    if (result.state === 'error') return result.error.retryable
+    if (result.state === 'unavailable' || result.state === 'partial') return true
+    return false
+  }
+  return fallbackState === 'request-error'
 }
 
 /**
@@ -54,24 +82,27 @@ export function AnalyticsSection<T>({
   headerActions,
   wide = false
 }: AnalyticsSectionProps<T>) {
+  // Prefer the typed section envelope. Fallbacks are only for missing results and
+  // use api-unavailable / request-error so they never collide with section-level `unavailable`.
   const state = result?.state ?? fallbackState
   const hasBody = result
     ? result.state === 'available' || result.state === 'partial' || (renderEmpty && result.state === 'empty')
     : false
 
   const message = (() => {
-    if (result?.state === 'error') return result.error.message
+    if (result?.state === 'error') return copy.section.error
     if (result?.state === 'unavailable') return copy.states.unavailableReasons[result.reason]
     if (result?.state === 'empty') return copy.section.empty
     if (!result) {
       if (fallbackState === 'loading') return copy.section.loading
-      if (fallbackState === 'error') return fallbackMessage ?? copy.section.error
-      return fallbackMessage ?? copy.page.unavailableDetail
+      if (fallbackState === 'request-error') return fallbackMessage ?? copy.page.requestFailedDetail
+      return fallbackMessage ?? copy.page.apiUnavailableDetail
     }
     return copy.section.empty
   })()
 
-  const showRetry = state === 'error' || state === 'unavailable' || state === 'partial'
+  const isErrorState = state === 'error' || state === 'request-error'
+  const showRetry = shouldShowSectionRetry(result, fallbackState)
   const chip = stateLabel(copy, state)
 
   return (
@@ -80,7 +111,7 @@ export function AnalyticsSection<T>({
       className={`analytics-section-card${wide ? ' analytics-section-card--wide' : ''}`}
       data-section-state={state}
       data-stale={isStale}
-      aria-busy={isRefreshing}
+      aria-busy={state === 'loading' || isRefreshing}
     >
       <header className="analytics-section-card-header">
         <div>
@@ -98,8 +129,8 @@ export function AnalyticsSection<T>({
       {hasBody && result ? (
         children(result as DataBearing<T>)
       ) : (
-        <div className="analytics-section-message" role={state === 'error' ? 'alert' : 'status'}>
-          {state === 'error' || state === 'partial' ? <AlertTriangle size={20} aria-hidden="true" /> : null}
+        <div className="analytics-section-message" role={isErrorState ? 'alert' : 'status'}>
+          {isErrorState || state === 'partial' ? <AlertTriangle size={20} aria-hidden="true" /> : null}
           <p>{message}</p>
           {showRetry ? (
             <button type="button" className="analytics-secondary-button" onClick={onRetry}>

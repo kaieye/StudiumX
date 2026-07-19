@@ -274,9 +274,94 @@
 }.overview-dialog-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   min-height: 40px;
   gap: 16px;
+}
+
+/* File-tool access stays with the action that may invoke it: the composer. */
+.overview-file-access-picker {
+  flex: 0 1 auto;
+}.overview-file-access-trigger {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  height: 34px;
+  gap: 6px;
+  padding: 0 10px;
+  color: #596981;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}.overview-file-access-trigger:hover:not(:disabled),
+.overview-file-access-trigger:focus-visible {
+  color: #333333;
+  background: rgb(242, 242, 243);
+  box-shadow: none;
+}
+.overview-file-access-trigger:focus-visible {
+  outline: 2px solid rgba(79, 124, 245, 0.62);
+  outline-offset: 2px;
+}
+.overview-file-access-trigger.is-request_approval {
+  color: #73520e;
+}.overview-file-access-trigger.is-based_on_approval {
+  color: #294e8c;
+}.overview-file-access-trigger.is-full_access {
+  color: #17603a;
+}
+.overview-file-access-trigger:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}.overview-file-access-menu {
+  width: min(340px, calc(100vw - 48px));
+  padding: 8px;
+}.overview-file-access-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  gap: 12px;
+  padding: 8px;
+  color: #25354f;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}.overview-file-access-option:hover:not(:disabled),
+.overview-file-access-option:focus-visible,
+.overview-file-access-option.is-selected {
+  background: #f4f7fc;
+  outline: none;
+}.overview-file-access-option:disabled {
+  cursor: progress;
+  opacity: 0.66;
+}.overview-file-access-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}.overview-file-access-option-copy strong {
+  font-size: 12px;
+  font-weight: 680;
+}.overview-file-access-option-copy small {
+  color: #75849a;
+  font-size: 11px;
+  line-height: 1.35;
+}.overview-file-access-option > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
 }
 
 /* Teaching-mode composer: pills on the left, send button on the right. */.overview-dialog-card--composer .overview-dialog-footer {
@@ -289,19 +374,59 @@
   font-size: 12px;
 }
 
-/* Mode switch (segmented control) above the overview dialog. */.dialog-mode-switch {
-  display: flex;
+/* Mode switch (segmented control) above the overview dialog. */
+.dialog-mode-switch {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-  gap: 2px;
   padding: 3px;
   margin: 0 auto 6px;
   width: fit-content;
+  border: 1px solid rgba(20, 20, 20, 0.04);
   border-radius: var(--radius-full, 999px);
   background: rgba(20, 20, 20, 0.045);
-  border: 1px solid rgba(20, 20, 20, 0.04);
-}.dialog-mode-switch-btn {
+}
+
+.dialog-mode-switch-indicator {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 1px;
+  width: calc((100% - 2px) / 2);
+  border-radius: var(--radius-full, 999px);
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 3px 8px rgba(0, 0, 0, 0.06);
+  transform: translateX(0);
+  will-change: transform;
+}
+
+.dialog-mode-switch[data-active-mode="chat"] .dialog-mode-switch-indicator {
+  animation: dialog-mode-indicator-slide-left 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dialog-mode-switch[data-active-mode="teaching"] .dialog-mode-switch-indicator {
+  animation: dialog-mode-indicator-slide-right 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes dialog-mode-indicator-slide-right {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes dialog-mode-indicator-slide-left {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.dialog-mode-switch-btn {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   height: 28px;
   padding: 0 14px;
@@ -312,18 +437,15 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    background 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease;
-}.dialog-mode-switch-btn:hover {
+  transition: color 180ms ease;
+}
+
+.dialog-mode-switch-btn:hover {
   color: #2e2e2e;
-}.dialog-mode-switch-btn.is-active {
+}
+
+.dialog-mode-switch-btn.is-active {
   color: #1f2a3d;
-  background: #ffffff;
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.06),
-    0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
 /* Conversation session list (chat-mode sidebar). */.workspace-conversation-list {
@@ -781,7 +903,7 @@
   font-weight: 620;
 }.overview-dialog-model:hover {
   color: #333333;
-  background: #f5f5f5;
+  background: rgb(242, 242, 243);
 }.overview-dialog-reasoning {
   max-width: 160px;
 }.overview-dialog-reasoning svg {
@@ -811,7 +933,7 @@
   justify-content: space-between;
   min-height: 48px;
   gap: 16px;
-  padding: 33px 14px 9px;
+  padding: 27px 14px 5px;
   border-top: 0;
   border-radius: 0 0 22px 22px;
   background: #f3f3f4;
@@ -893,11 +1015,16 @@
   cursor: pointer;
   transition:
     background 160ms ease,
+    box-shadow 160ms ease,
     color 160ms ease;
-}.overview-picker-trigger:hover:not(:disabled) {
-  color: #24324a;
-  background: rgba(255, 255, 255, 0.78);
-}.overview-picker-trigger:disabled {
+}.overview-picker-trigger:hover:not(:disabled),
+.overview-picker-trigger:focus-visible {
+  color: #333333;
+  background: rgb(233, 233, 234);
+  box-shadow: none;
+  outline: none;
+}
+.overview-picker-trigger:disabled {
   cursor: progress;
   opacity: 0.7;
 }.overview-picker-trigger svg {
@@ -912,7 +1039,7 @@
   bottom: calc(100% + 8px);
   left: 0;
   z-index: 50;
-  width: min(360px, calc(100vw - 48px));
+  width: min(340px, calc(100vw - 48px));
   display: flex;
   flex-direction: column;
   max-height: 380px;
@@ -925,7 +1052,7 @@
     0 1px 2px rgba(0, 0, 0, 0.045),
     0 24px 60px rgba(20, 30, 50, 0.16);
 }.overview-git-menu {
-  width: min(420px, calc(100vw - 48px));
+  width: min(380px, calc(100vw - 48px));
 }
 
 /* Model picker: open right-aligned so the menu stays inside the composer card. */.overview-model-menu {

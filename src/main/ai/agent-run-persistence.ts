@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import { redactAgentSecretText } from '../../shared/agent-secret-redaction'
@@ -21,6 +21,113 @@ const MAX_PARENT_TURN_PREVIEW_BYTES = 16 * 1024
 const MAX_PARENT_TURN_EVIDENCE = 32
 const CHILD_TRANSCRIPT_DIRECTORY = '.agent-sessions/child-transcripts'
 
+/** Windows codes that commonly indicate a transient file lock / sharing violation. */
+const WINDOWS_TRANSIENT_FS_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+/** Bounded backoff schedule for transient Windows filesystem races (rename + temp open/fsync). */
+const WINDOWS_TRANSIENT_FS_RETRY_DELAYS_MS = [10, 20, 40, 80, 160, 320] as const
+
+type RenameFile = (from: string, to: string) => Promise<void>
+type SyncFile = (path: string) => Promise<void>
+type Wait = (delayMs: number) => Promise<void>
+
+export type AgentRunPersistenceOptions = Readonly<{
+  platform?: NodeJS.Platform
+  rename?: RenameFile
+  /** Injected open+fsync seam used by tests; production defaults to open(path,'r+') + handle.sync(). */
+  syncFile?: SyncFile
+  /** Shared bounded retry delays for Windows transient rename and temp-file sync failures. */
+  renameRetryDelaysMs?: readonly number[]
+  wait?: Wait
+}>
+
+function defineInternalDebugProperty(target: object, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: false,
+    configurable: false,
+    writable: false
+  })
+}
+
+function defineInternalCause(target: object, cause: unknown): void {
+  Object.defineProperty(target, 'cause', {
+    value: cause,
+    enumerable: false,
+    configurable: true,
+    writable: true
+  })
+}
+
+/**
+ * Typed publish failure for the atomic rename step.
+ *
+ * Absolute paths and the raw cause are retained only as non-enumerable debug fields so that
+ * message text, Object.keys / for..in enumeration, and JSON serialization stay path-safe.
+ */
+export class AgentRunAtomicRenameError extends Error {
+  readonly name = 'AgentRunAtomicRenameError'
+  readonly code = 'agent_run_atomic_rename_failed'
+  readonly causeCode: string | undefined
+  readonly attempts: number
+  readonly retryable: boolean
+  /** @internal absolute source path for local debugging only; non-enumerable */
+  readonly sourcePath!: string
+  /** @internal absolute destination path for local debugging only; non-enumerable */
+  readonly destinationPath!: string
+
+  constructor(
+    sourcePath: string,
+    destinationPath: string,
+    attempts: number,
+    retryable: boolean,
+    cause: unknown
+  ) {
+    const causeCode = errnoCode(cause)
+    super(
+      `Atomic agent state rename failed after ${attempts} attempt${attempts === 1 ? '' : 's'}` +
+      `${causeCode ? ` (${causeCode})` : ''}.`
+    )
+    this.causeCode = causeCode
+    this.attempts = attempts
+    this.retryable = retryable
+    defineInternalDebugProperty(this, 'sourcePath', sourcePath)
+    defineInternalDebugProperty(this, 'destinationPath', destinationPath)
+    defineInternalCause(this, cause)
+  }
+}
+
+/**
+ * Typed publish failure for the temp-file open/fsync step that precedes rename.
+ * Same non-enumerable path / cause policy as {@link AgentRunAtomicRenameError}.
+ */
+export class AgentRunAtomicSyncError extends Error {
+  readonly name = 'AgentRunAtomicSyncError'
+  readonly code = 'agent_run_atomic_sync_failed'
+  readonly causeCode: string | undefined
+  readonly attempts: number
+  readonly retryable: boolean
+  /** @internal absolute temp path for local debugging only; non-enumerable */
+  readonly path!: string
+
+  constructor(
+    path: string,
+    attempts: number,
+    retryable: boolean,
+    cause: unknown
+  ) {
+    const causeCode = errnoCode(cause)
+    super(
+      `Atomic agent state temp-file sync failed after ${attempts} attempt${attempts === 1 ? '' : 's'}` +
+      `${causeCode ? ` (${causeCode})` : ''}.`
+    )
+    this.causeCode = causeCode
+    this.attempts = attempts
+    this.retryable = retryable
+    defineInternalDebugProperty(this, 'path', path)
+    defineInternalCause(this, cause)
+  }
+}
+
 export function agentRunChildTranscriptRelativePath(
   runId: string,
   childRunId: string,
@@ -39,7 +146,11 @@ export function agentRunChildTranscriptRelativePath(
 export class AgentRunPersistence {
   private queue = Promise.resolve()
 
-  constructor(readonly storageRoot: string, private readonly now: () => string = () => new Date().toISOString()) {}
+  constructor(
+    readonly storageRoot: string,
+    private readonly now: () => string = () => new Date().toISOString(),
+    private readonly options: AgentRunPersistenceOptions = {}
+  ) {}
 
   timestamp(): string {
     return this.now()
@@ -62,7 +173,7 @@ export class AgentRunPersistence {
 
   async writeCheckpoint(checkpoint: AgentRunCheckpoint, replace: boolean): Promise<void> {
     const path = await this.safeFilePath('runs', `${checkpoint.runId}.json`, true)
-    await atomicPrivateJson(path, validateCheckpoint(checkpoint), replace)
+    await atomicPrivateJson(path, validateCheckpoint(checkpoint), replace, undefined, this.options)
   }
 
   async listCheckpointFiles(): Promise<string[]> {
@@ -85,7 +196,7 @@ export class AgentRunPersistence {
 
   async writeParentTurnStage(stage: AgentParentTurnStage, replace: boolean): Promise<void> {
     const path = await this.safeFilePath('parent-turns', `${stage.runId}.json`, true)
-    await atomicPrivateJson(path, validateParentTurnStage(stage), replace, MAX_PARENT_TURN_STAGE_BYTES)
+    await atomicPrivateJson(path, validateParentTurnStage(stage), replace, MAX_PARENT_TURN_STAGE_BYTES, this.options)
   }
 
   async listParentTurnStageFiles(): Promise<string[]> {
@@ -112,7 +223,7 @@ export class AgentRunPersistence {
 
   async writeChildRun(record: AgentRunChildRecord, replace: boolean): Promise<void> {
     const path = await this.safeFilePath(join('child-runs', record.runId), `${record.childRunId}.json`, true)
-    await atomicPrivateJson(path, validateChildRun(record), replace)
+    await atomicPrivateJson(path, validateChildRun(record), replace, undefined, this.options)
   }
 
   async listChildRunFiles(runId: string): Promise<string[]> {
@@ -137,7 +248,7 @@ export class AgentRunPersistence {
 
   async writeOperation(record: AgentOperationRecord, replace: boolean): Promise<void> {
     const path = await this.safeFilePath(join('operations', record.runId), `${record.operationId}.json`, true)
-    await atomicPrivateJson(path, validateOperation(record), replace)
+    await atomicPrivateJson(path, validateOperation(record), replace, undefined, this.options)
   }
 
   async listOperationFiles(runId: string): Promise<string[]> {
@@ -181,8 +292,19 @@ export class AgentRunPersistence {
       return validate(JSON.parse(await readFile(path, 'utf8')))
     } catch (error) {
       if (isNotFound(error)) throw error
-      await quarantine(path, this.now())
-      throw new Error(`Agent state record is corrupt or unsupported: ${cleanDiagnostic(error)}`)
+      // Always surface the canonical corrupt/unsupported diagnostic. Quarantine is best-effort:
+      // bounded Windows rename retries may still fail, but that must not replace the original
+      // parse/validation failure semantics. Any quarantine failure is retained only as a
+      // non-enumerable internal cause (typed rename error already redacts absolute paths).
+      let quarantineFailure: unknown
+      try {
+        await quarantine(path, this.now(), this.options)
+      } catch (failed) {
+        quarantineFailure = failed
+      }
+      const diagnostic = new Error(`Agent state record is corrupt or unsupported: ${cleanDiagnostic(error)}`)
+      if (quarantineFailure !== undefined) defineInternalCause(diagnostic, quarantineFailure)
+      throw diagnostic
     }
   }
 
@@ -425,27 +547,133 @@ function validateUsage(value: unknown): AgentRunUsageAggregate {
   }
 }
 
-async function atomicPrivateJson(path: string, value: unknown, replace: boolean, maxBytes?: number): Promise<void> {
+async function atomicPrivateJson(
+  path: string,
+  value: unknown,
+  replace: boolean,
+  maxBytes?: number,
+  options: AgentRunPersistenceOptions = {}
+): Promise<void> {
   const serialized = `${JSON.stringify(value, null, 2)}\n`
   if (maxBytes !== undefined && Buffer.byteLength(serialized, 'utf8') > maxBytes) {
     throw new Error('Agent state record exceeds its storage limit.')
   }
-  await mkdir(dirname(path), { recursive: true })
-  if (!replace && await stat(path).then(() => true).catch(() => false)) throw new Error('Agent state record already exists.')
+  const directory = dirname(path)
+  await mkdir(directory, { recursive: true })
+  // Create-only protection is a pre-existence check plus the single-process serialize() queue
+  // invariant used by AgentRunPersistence callers. Rename itself is not create-only: a
+  // cross-process TOCTOU race remains a known limitation.
+  if (!replace && await pathExists(path)) throw new Error('Agent state record already exists.')
   const temporary = `${path}.tmp-${process.pid}-${Date.now()}`
   try {
     await writeFile(temporary, serialized, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
     await chmod(temporary, 0o600)
-    await rename(temporary, path)
+    // Publish only fully flushed content. Same-directory rename is the atomic publish step;
+    // temp open+fsync uses the same bounded Windows transient retry policy as rename.
+    // Temporary files are always unlinked in finally, including after sync/rename exhaustion.
+    await syncFileWithRetry(temporary, options)
+    await renameAtomicallyWithRetry(temporary, path, options)
     await chmod(path, 0o600)
+    await syncDirectory(directory, options.platform ?? process.platform)
   } finally {
     await unlink(temporary).catch(() => undefined)
   }
 }
 
-async function quarantine(path: string, now: string): Promise<void> {
+async function withWindowsTransientRetry(
+  operation: () => Promise<void>,
+  options: AgentRunPersistenceOptions,
+  onFailure: (attempts: number, retryable: boolean, error: unknown) => never
+): Promise<void> {
+  const platform = options.platform ?? process.platform
+  const retryDelaysMs = options.renameRetryDelaysMs ?? WINDOWS_TRANSIENT_FS_RETRY_DELAYS_MS
+  const wait = options.wait ?? sleep
+  let attempts = 0
+  while (true) {
+    attempts += 1
+    try {
+      await operation()
+      return
+    } catch (error) {
+      const retryable = platform === 'win32' && WINDOWS_TRANSIENT_FS_RETRY_CODES.has(errnoCode(error) ?? '')
+      const retryDelay = retryDelaysMs[attempts - 1]
+      if (!retryable || retryDelay === undefined) {
+        onFailure(attempts, retryable, error)
+      }
+      await wait(retryDelay)
+    }
+  }
+}
+
+async function renameAtomicallyWithRetry(
+  sourcePath: string,
+  destinationPath: string,
+  options: AgentRunPersistenceOptions
+): Promise<void> {
+  const renameFile = options.rename ?? rename
+  await withWindowsTransientRetry(
+    () => renameFile(sourcePath, destinationPath),
+    options,
+    (attempts, retryable, error) => {
+      throw new AgentRunAtomicRenameError(sourcePath, destinationPath, attempts, retryable, error)
+    }
+  )
+}
+
+async function syncFileWithRetry(
+  path: string,
+  options: AgentRunPersistenceOptions
+): Promise<void> {
+  const sync = options.syncFile ?? defaultSyncFile
+  await withWindowsTransientRetry(
+    () => sync(path),
+    options,
+    (attempts, retryable, error) => {
+      throw new AgentRunAtomicSyncError(path, attempts, retryable, error)
+    }
+  )
+}
+
+async function defaultSyncFile(path: string): Promise<void> {
+  const handle = await open(path, 'r+')
+  try {
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+}
+
+async function syncDirectory(directory: string, platform: NodeJS.Platform): Promise<void> {
+  if (platform === 'win32') return
+  const handle = await open(directory, 'r')
+  try {
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch (error) {
+    if (isNotFound(error)) return false
+    throw error
+  }
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, delayMs))
+}
+
+async function quarantine(
+  path: string,
+  now: string,
+  options: AgentRunPersistenceOptions
+): Promise<void> {
   const suffix = now.replace(/[^0-9]/g, '').slice(0, 17) || String(Date.now())
-  await rename(path, `${path}.corrupt-${suffix}`).catch(() => undefined)
+  await renameAtomicallyWithRetry(path, `${path}.corrupt-${suffix}`, options)
 }
 
 async function containedArtifactExists(storageRoot: string, pointer: string): Promise<boolean> {
@@ -551,6 +779,13 @@ function hashValue(value: unknown): string {
 
 function cleanDiagnostic(value: unknown): string {
   return redactAgentSecretText(value instanceof Error ? value.message : String(value)).slice(0, 1000)
+}
+
+function errnoCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) return undefined
+  return typeof (error as { code?: unknown }).code === 'string'
+    ? (error as { code: string }).code
+    : undefined
 }
 
 function isNotFound(error: unknown): boolean {

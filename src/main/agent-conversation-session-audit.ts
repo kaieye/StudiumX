@@ -401,6 +401,7 @@ export function appendAgentConversationSessionAuditLog(input: {
       record,
       traceId,
       operations,
+      useNativeFilesystem: !input.operations,
       warn: input.warn
     })
   }).then(() => relativePath)
@@ -411,6 +412,8 @@ async function appendAgentConversationSessionAuditLogUnserialized(input: {
   record: AgentConversationRecord
   traceId: string | undefined
   operations: AgentConversationSessionAuditOperations
+  /** True only for the unwrapped Node filesystem implementation. */
+  useNativeFilesystem: boolean
   warn?: (message: string) => void
 }): Promise<void> {
   const auditDirectory = dirname(input.absolutePath)
@@ -453,8 +456,8 @@ async function appendAgentConversationSessionAuditLogUnserialized(input: {
     await file.close()
   }
 
-  await syncAgentConversationSessionAuditDirectory(auditDirectory, input.operations, input.warn)
-  await syncAgentConversationSessionAuditDirectory(conversationParentDirectory, input.operations, input.warn)
+  await syncAgentConversationSessionAuditDirectory(auditDirectory, input.operations, input.useNativeFilesystem, input.warn)
+  await syncAgentConversationSessionAuditDirectory(conversationParentDirectory, input.operations, input.useNativeFilesystem, input.warn)
 }
 
 function enqueueAgentConversationSessionAudit(path: string, task: () => Promise<void>): Promise<void> {
@@ -519,11 +522,14 @@ function missingAgentConversationSessionAuditLines(
     if (typeof parsed.record.type !== 'string' || typeof parsed.record.id !== 'string') continue
     if (parsed.record.type === 'session') {
       if (parsed.record.id === header.id) {
+        // Conversation titles can legitimately change after the initial
+        // append. The audit header retains its first title, while its stable
+        // identity remains bound to the conversation placement and creation.
         observeCanonicalAuditIdentity(
           observed,
           `session:${header.id}`,
-          parsed,
-          canonicalNonTraceAuditJsons(header, true)
+          withStableSessionHeaderIdentity(parsed),
+          canonicalSessionHeaderIdentityJsons(header)
         )
         hasHeader = true
         continue
@@ -595,6 +601,28 @@ function observeCanonicalAuditIdentity(
   observed.set(identity, { nonTraceJson: parsed.nonTraceJson, traceState: parsed.traceState })
 }
 
+function withStableSessionHeaderIdentity(parsed: ParsedAuditRecord): ParsedAuditRecord {
+  return { ...parsed, nonTraceJson: stableSessionHeaderIdentityJson(parsed.record) }
+}
+
+function canonicalSessionHeaderIdentityJsons(header: AgentConversationSessionAuditHeader): string[] {
+  const canonical = stableSessionHeaderIdentityJson(header as unknown as Record<string, unknown>)
+  const jsons = [canonical]
+  // The first session-audit writer predated workspace identity in the header.
+  if (Object.prototype.hasOwnProperty.call(header, 'workspaceId')) {
+    const { workspaceId: _workspaceId, ...legacy } = withoutAuditTrace(header as unknown as Record<string, unknown>)
+    delete legacy.title
+    jsons.push(JSON.stringify(legacy))
+  }
+  return jsons
+}
+
+function stableSessionHeaderIdentityJson(record: Record<string, unknown>): string {
+  const stable = withoutAuditTrace(record)
+  delete stable.title
+  return JSON.stringify(stable)
+}
+
 function canonicalNonTraceAuditJsons(
   line: AgentConversationSessionAuditLine,
   allowLegacySessionHeader: boolean
@@ -606,6 +634,14 @@ function canonicalNonTraceAuditJsons(
   // or extra fields in any current record.
   if (allowLegacySessionHeader && Object.prototype.hasOwnProperty.call(canonical, 'workspaceId')) {
     const { workspaceId: _workspaceId, ...legacy } = canonical
+    jsons.push(JSON.stringify(legacy))
+  }
+  // Older audit rows were emitted before a branch/session write consistently
+  // carried metadataVersion on pre-existing turns. That version is derived
+  // metadata, not the turn's durable identity, so accept the legacy omission
+  // while continuing to reject every other shape change.
+  if (canonical.type === 'turn' && Object.prototype.hasOwnProperty.call(canonical, 'metadataVersion')) {
+    const { metadataVersion: _metadataVersion, ...legacy } = canonical
     jsons.push(JSON.stringify(legacy))
   }
   return jsons
@@ -624,8 +660,18 @@ function auditTraceState(record: Record<string, unknown>): string {
 async function syncAgentConversationSessionAuditDirectory(
   directoryPath: string,
   operations: AgentConversationSessionAuditOperations,
+  useNativeFilesystem: boolean,
   warn: ((message: string) => void) | undefined
 ): Promise<void> {
+  // Node on Windows cannot fsync a directory handle (it reports EPERM). This
+  // is a platform capability gap, not a permission failure in the audit file.
+  // Keep injected operation seams strict so their synthetic EPERM/EIO errors
+  // continue to exercise the fail-closed contract.
+  if (useNativeFilesystem && process.platform === 'win32') {
+    (warn ?? console.warn)(DIRECTORY_FSYNC_DOWNGRADE_WARNING)
+    return
+  }
+
   let directory: AgentConversationSessionAuditFileHandle | undefined
   let downgraded = false
   try {

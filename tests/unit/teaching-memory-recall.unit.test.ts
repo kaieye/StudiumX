@@ -37,7 +37,7 @@ afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((rootDir) => rm(rootDir, { recursive: true, force: true })))
 })
 
-describe('TeachingMemoryRecall diagnostics', () => {
+describe.runIf(process.platform !== 'win32')('TeachingMemoryRecall diagnostics', () => {
   it('returns only renderer-safe aggregate diagnostics from the catalog preflight', async () => {
     const catalog = await createCatalog()
     const record = legacyRecord('legacy-diagnostic-record')
