@@ -912,6 +912,41 @@ describe('agent conversation session audit durable append', () => {
     }
   })
 
+  it.each(
+    (
+      [
+        ['audit-directory', (root: string, record: AgentConversationRecord) => dirname(auditPath(root, record))],
+        ['parent-directory', (root: string, record: AgentConversationRecord) => dirname(dirname(auditPath(root, record)))]
+      ] as const
+    ).flatMap(([boundary, directoryFor]) =>
+      ([
+        ['EACCES', errno('EACCES')],
+        ['EPERM', errno('EPERM')],
+        ['EIO', errno('EIO')],
+        ['unknown error', new Error('unexpected directory open failure')]
+      ] as const).map(([name, failure]) => [boundary, name, directoryFor, failure] as const)
+    )
+  )('fails closed without capability downgrade when %s open returns %s', async (_boundary, _name, directoryFor, failure) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const directory = directoryFor(root, record)
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const openEvent = `open:r:${directory}`
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === openEvent ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(openEvent)
+    // File append completed before directory durability; open failure must not
+    // be reinterpreted as an allowlist capability downgrade warning.
+    expect(io.events.some((event) => event === `sync:${directory}`)).toBe(false)
+    expect(warnings).toEqual([])
+    await expect(readFile(path, 'utf8')).resolves.toContain(record.id)
+  })
+
   it.each([
     ['EACCES', errno('EACCES')],
     ['EPERM', errno('EPERM')],
