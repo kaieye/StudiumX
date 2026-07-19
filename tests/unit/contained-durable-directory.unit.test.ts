@@ -151,6 +151,27 @@ describe.runIf(process.platform !== 'win32')('POSIX descriptor-relative containe
     }
   })
 
+  it('preserves private C-2C directory and file modes independently of workspace-parent creation', async () => {
+    const root = await temporaryRoot()
+    const originalUmask = process.umask(0)
+    let outputDirectory
+    try {
+      outputDirectory = openContainedDurableDirectory(root)
+      expect((await stat(join(root, '.studiumx'))).mode & 0o777).toBe(0o700)
+      expect((await stat(join(root, '.studiumx', 'conversation-projections'))).mode & 0o777).toBe(0o700)
+
+      await replaceDurablyInContainedDirectory({
+        directory: outputDirectory,
+        filename: 'private.json',
+        content: '{}'
+      })
+      expect((await stat(join(root, '.studiumx', 'conversation-projections', 'private.json'))).mode & 0o777).toBe(0o600)
+    } finally {
+      process.umask(originalUmask)
+      if (outputDirectory) closeContainedDurableDirectory(outputDirectory)
+    }
+  })
+
   it('keeps reads and durable writes bound to the opened directory through a pathname swap', async () => {
     const root = await temporaryRoot()
     const external = await temporaryRoot()
