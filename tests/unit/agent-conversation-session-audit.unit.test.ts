@@ -1087,6 +1087,36 @@ describe('agent conversation session audit durable append', () => {
   })
 
   it.each(
+    (['EIO', 'EINVAL', 'EACCES', 'EPERM', 'ENOSPC'] as const)
+  )('fails closed without capability downgrade when audit file read returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    // Seed a non-empty audit file so readExactAuditBytes enters its transfer loop.
+    await appendWith(root, record, instrumentedAuditOperations().operations)
+    const continuation = createRecord({
+      updatedAt: '2026-07-18T00:02:00.000Z',
+      turns: [
+        ...record.turns,
+        { id: 'turn-three', role: 'user', content: 'Follow-up residual', createdAt: '2026-07-18T00:02:00.000Z' }
+      ]
+    })
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      readPlan: ({ readCall }) => readCall === 0 ? { failure: errno(code) } : undefined
+    })
+
+    await expect(appendWith(root, continuation, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(`read:${path}`)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    // File-path read failures stay fatal: no directory open / capability downgrade path.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each(
     (['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'] as const).flatMap((code) => [
       ['audit-directory open', code, (root: string, record: AgentConversationRecord) => `open:r:${dirname(auditPath(root, record))}`],
       ['audit-directory sync', code, (root: string, record: AgentConversationRecord) => `sync:${dirname(auditPath(root, record))}`],
