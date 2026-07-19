@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2023",
     "useDefineForClassFields": true,
     "lib": [
       "DOM",
       "DOM.Iterable",
-      "ES2022"
+      "ES2023"
     ],
     "allowJs": false,
     "skipLibCheck": true,
