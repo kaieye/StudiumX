@@ -1,8 +1,8 @@
 # ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer
 
-- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P6-S2/C-4P6-S3/C-4P6-S4/C-4P6-S5/C-4P6-S6/C-4P6-S7/C-4P6-S8 tests-only evidence、C-4P8-S1/S2/S3 foundation、C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure、经明确批准的 Windows direct-path non-CAS profile，以及 C-4P9-S2 audit 专用 durable append、P9-S3/P9-S4/P9-S5/P9-S6/P9-S7/P9-S8/P9-S9 tests-only evidence）
-- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P6-S2（tests-only evidence）、C-4P6-S3（tests-only evidence）、C-4P6-S4（tests-only evidence）、C-4P6-S5（tests-only evidence）、C-4P6-S6（tests-only evidence）、C-4P6-S7（tests-only evidence）、C-4P6-S8（tests-only evidence）、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P8-S4、Windows direct-path non-CAS profile、C-4P9-S2、C-4P9-S3（tests-only evidence）、C-4P9-S4（tests-only evidence）、C-4P9-S5（tests-only evidence）、C-4P9-S6（tests-only evidence）、C-4P9-S7（tests-only evidence）、C-4P9-S8（tests-only evidence）、C-4P9-S9（tests-only evidence）
-- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`9847842`、`1334513`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`56eabe6`、`54506d5`、`ed8d88a`、`9c452f3`、`0bbfdef`、`e84c813`、`4b30220`、`5f47382`、`c286a42`、`ab723a6`、`47393f9`、`c97146e`、`e821c69`、`ebd084c`、`5f931c9`、`145b671`、`816e403`、`d26bb83`、`bee173f`、`e743a3e`、`dcb9bae`
+- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P6-S2/C-4P6-S3/C-4P6-S4/C-4P6-S5/C-4P6-S6/C-4P6-S7/C-4P6-S8/C-4P6-S9 tests-only evidence、C-4P8-S1/S2/S3 foundation、C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure、经明确批准的 Windows direct-path non-CAS profile，以及 C-4P9-S2 audit 专用 durable append、P9-S3/P9-S4/P9-S5/P9-S6/P9-S7/P9-S8/P9-S9/P9-S10 tests-only evidence）
+- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P6-S2（tests-only evidence）、C-4P6-S3（tests-only evidence）、C-4P6-S4（tests-only evidence）、C-4P6-S5（tests-only evidence）、C-4P6-S6（tests-only evidence）、C-4P6-S7（tests-only evidence）、C-4P6-S8（tests-only evidence）、C-4P6-S9（tests-only evidence）、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P8-S4、Windows direct-path non-CAS profile、C-4P9-S2、C-4P9-S3（tests-only evidence）、C-4P9-S4（tests-only evidence）、C-4P9-S5（tests-only evidence）、C-4P9-S6（tests-only evidence）、C-4P9-S7（tests-only evidence）、C-4P9-S8（tests-only evidence）、C-4P9-S9（tests-only evidence）、C-4P9-S10（tests-only evidence）
+- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`9847842`、`1334513`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`56eabe6`、`54506d5`、`ed8d88a`、`9c452f3`、`0bbfdef`、`e84c813`、`4b30220`、`5f47382`、`c286a42`、`ab723a6`、`47393f9`、`c97146e`、`e821c69`、`ebd084c`、`5f931c9`、`145b671`、`816e403`、`d26bb83`、`bee173f`、`e743a3e`、`dcb9bae`、`a631a31`、`9d54c5e`
 
 ## 决定
 
@@ -29,6 +29,7 @@
 | C-4P6-S6 `145b671` | **tests-only evidence**：新增独立 `it`，仅覆盖 `after_stage_flush` 中断；stage 保留而 record/outcome/marker 缺失，manifest 保持 active；restart reconcile 为 `pending` 且无 durable write；同 operation re-commit fail closed 于既有 exclusive stage，不 promote incomplete projections；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、31 tests passed |
 | C-4P6-S7 `d26bb83` | **tests-only evidence**：新增独立 `it`，仅覆盖 `after_record_publish` 中断；immutable record 已存在而 outcome/marker 缺失、manifest 仍 active；restart `reconcile()` 返回 `repaired`（authority-first，不重跑 evaluator / `createId`），随后 manifest → marker；第二次 reconcile 为 `settled`，同 operation 为 `already_committed`，四份 canonical bytes 稳定；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、32 tests passed |
 | C-4P6-S8 `e743a3e` | **tests-only evidence**：新增独立 `it`，仅覆盖 malformed `outcome-settlement.json`；restart `reconcile()` 为 `review_required` 且 diagnostics 含 `invalid_settlement_marker`；不 rewrite durable bytes、不调用 evaluator / `createId`；同 operation commit 为 `conflict/review_required`；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、33 tests passed |
+| C-4P6-S9 `a631a31` | **tests-only evidence**：新增独立 `it`，仅覆盖 settled 后 `outcome.json` 与 immutable record authority 分叉；restart `reconcile()` 为 `review_required` 且 diagnostics 含 `conflicting_outcome`；不 rewrite durable bytes、不调用 evaluator / `createId`；同 operation commit 为 `conflict/review_required`；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、34 tests passed |
 | C-4P7 `0d55fd8` | private `MusicCookieStore` cookie state | `tests/unit/music-cookie-store-durable.unit.test.ts` |
 | C-4P8-S1 `80f2fd0`、`e2ce36c` | workspace descriptor foundation：可信既有 workspace root 绑定、descriptor-bound parent traversal 与 final-leaf inspection | 下列 C-4P8 最终定向验证 |
 | C-4P8-S2 `b46c8b2`、`bdcd6cb` | internal descriptor-bound atomic `createNoOverwrite` foundation | 下列 C-4P8 最终定向验证 |
@@ -42,6 +43,7 @@
 | C-4P9-S7 `816e403` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 concurrent identical same-save residual：per-path queue 线性化，两路并发 append 同一 record 时仅一个 open lifecycle、一个 session header、entry IDs 唯一，exact bytes 与单次顺序 write 一致；无生产语义改动 | `tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、52 tests passed |
 | C-4P9-S8 `bee173f` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 on-disk 同 identity 但 trace 分叉时 fail closed：throw `Conversation session audit contains divergent duplicate records.`，poisoned bytes 不变，无额外 write/rewrite；无生产语义改动 | `tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、53 tests passed |
 | C-4P9-S9 `dcb9bae` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 concurrent same-ID 但 canonical body 分叉：per-path queue 线性化下一路成功、一路 reject `conflicts with its canonical record`，winner bytes 与单次顺序 write 一致；无生产语义改动 | `tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、54 tests passed |
+| C-4P9-S10 `9d54c5e` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-archive-durable.unit.test.ts`，将 Markdown write-failure 并入 4-case matrix 并补齐 file sync / file close / rename short-circuit residual：JSON 保留、Markdown 仍 `ENOENT`、不 append audit/ledger；无生产语义改动 | `tests/unit/agent-conversation-archive-durable.unit.test.ts`；1 file、30 tests passed |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
@@ -119,6 +121,16 @@
 
 实际定向验证为 `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`（1 file / 33 tests passed）。S8 不是完整 C-4P6 或 authority/conflict matrix。
 
+## C-4P6-S9：conflicting outcome projection 的 tests-only evidence
+
+`a631a31`（`test(data): cover conflicting outcome projection residual`）只修改 `tests/unit/learning-outcome-committer.unit.test.ts`，新增一个独立的 `it`；没有 production/API/schema/path/order 变化。它严格限于 durable 已 settled 后仅 poison `outcome.json` 为与 immutable record 不匹配的 valid-looking projection：
+
+- restart `reconcile()` 返回 `review_required`，diagnostics 含 `conflicting_outcome`。
+- 不 rewrite poisoned outcome / record / manifest / marker；recovery 不调用 evaluator / `createId`；无 durable write。
+- 同 operation `commit` 返回 `conflict/review_required`。
+
+实际定向验证为 `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`（1 file / 34 tests passed）。S9 不是完整 C-4P6 或 authority/conflict matrix。
+
 ## C-4P8：已关闭的受控 workspace-tool scope
 
 C-4P8 的 S1 至 S4 已在**受控 `write_workspace_file` 文本文件 create / restricted-overwrite scope**关闭。S1 的 workspace descriptor foundation 证据为 `80f2fd0` / `e2ce36c`；S2 的 `b46c8b2` / `bdcd6cb` 和 S3 的 `56eabe6` / `54506d5` 仍是 POSIX descriptor-bound foundation；S4 的 handler/API integration 与定向测试为 `0bbfdef` / `e84c813`。2026-07-19 经明确批准后，Windows 另实现 root-constrained direct-path profile；它不把 Windows 冒充为该 descriptor-bound foundation。
@@ -194,7 +206,7 @@ C-4P5 的 allowlisted Markdown service 是不同 consumer；其 allowlist/servic
 
 C-4P9 只实施了最小切片 S2；P9-S3、P9-S4、P9-S5、P9-S6、P9-S7 与 P9-S8 都是严格 tests-only evidence slice。S2 证据提交为 `4b30220`（`feat(data): add durable session audit append`）和 `5f47382`（`test(data): cover durable session audit append`）。S3 的 `c286a42`（`test(data): cover audit durable append recovery`）保留实际历史证据：partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory 与 conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；无生产语义改动。S4 的 `ab723a6`（`test(data): cover audit pre-write short-circuit`）仅覆盖 archive save 层首个 audit write 注入 `EIO` 且 audit 0 bytes：JSON/Markdown 保留、ledger 未执行；clean retry 后每个 canonical audit row 恰一条、ledger 恰一条。S5 的 `47393f9`（`test(data): cover audit directory capability symmetry`）仅修改测试，未修改 production code；Sol review approved。它对 audit directory 与 conversation parent directory 的 `open`/`sync` 做 capability symmetry 定向证据：五个 allowlist code 各覆盖两层、两种操作，共 20 cases；每个成功且恰好一条固定通用 warning，warning 不泄露路径、内容、conversation/header/entry ID 或 trace；parent-directory `close` 的 `EINVAL` 仍 fatal。S5 无 production/API/schema/order 变化，不是完整 capability matrix，也不是生产功能。以下是受限 evidence 的实际验证命令和结果，不是完整 suite 的声明：
 
-**P9-S3 的历史 evidence、P9-S4 的单一 pre-write short-circuit/retry evidence、P9-S5 的 directory capability symmetry evidence 与 P9-S6 的 ledger-own failure residual evidence 与 P9-S7 的 concurrent identical same-save evidence 与 P9-S8 的 divergent-trace conflict fail-closed evidence 与 P9-S9 的 concurrent same-ID body conflict fail-closed evidence 均已记录；C-4P9 仍未关闭。**
+**P9-S3 的历史 evidence、P9-S4 的单一 pre-write short-circuit/retry evidence、P9-S5 的 directory capability symmetry evidence 与 P9-S6 的 ledger-own failure residual evidence 与 P9-S7 的 concurrent identical same-save evidence 与 P9-S8 的 divergent-trace conflict fail-closed evidence 与 P9-S9 的 concurrent same-ID body conflict fail-closed evidence 与 P9-S10 的 Markdown durable publish short-circuit residual evidence 均已记录；C-4P9 仍未关闭。**
 
 ```sh
 # P9-S3 historical evidence: 2 files, 61 tests passed
@@ -222,11 +234,18 @@ pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.
 
 # P9-S9 concurrent same-ID body conflict: 1 file, 54 tests passed
 pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+
+# P9-S10 Markdown durable publish short-circuit: 1 file, 30 tests passed
+pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts
 pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
 pnpm run typecheck
 pnpm run check:security
 git diff --check
 ```
+
+## C-4P9-S10：Markdown durable publish short-circuit residual 的 tests-only evidence
+
+`9d54c5e`（`test(data): cover markdown publish short-circuit residual`）仅修改 `tests/unit/agent-conversation-archive-durable.unit.test.ts`，将既有 Markdown write-failure short-circuit 并入 4-case matrix，并补齐 Markdown durable file sync / file close / rename 失败 residual：JSON 保留、Markdown 目标仍 `ENOENT`、不 append audit/ledger、无 temporary leftover。验证为 `pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts`（1 file / 30 tests passed）。S10 不是完整 C-4P1 short-circuit matrix 或 C-4P9 gate closure。
 
 ## C-4P9-S9：concurrent same-ID body conflict 的 tests-only evidence
 
@@ -252,4 +271,4 @@ git diff --check
 - file close 后按 audit directory、再 conversation parent directory 的子到父顺序确认 durability。directory `open`/`sync` 仅 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 可降级为通用 warning；其它错误及任何 close failure 均 fatal。
 - post-directory failure 会使 save reject 且不回滚；retry 先重新读取、dedupe exact rows，再允许既有 ledger flow 继续。
 
-这不关闭 C-4P9，也不表示完整 capability matrix、generic JSONL migration、跨文件 transaction、ledger authority/save-order 改造、repair、rotation 或 IPC/UI 已交付。P9-S3 的历史定向 unit 结果仍必须记为 **61 tests passed**；P9-S5 本切片 **51**、P9-S7 **52**、P9-S8 **53**、P9-S9 **54** 都是各自切片时的定向计数，不要混用历史与当前数字。未完成工作仍见[本地数据待办](../local-data-todo.md)。
+这不关闭 C-4P9，也不表示完整 capability matrix、generic JSONL migration、跨文件 transaction、ledger authority/save-order 改造、repair、rotation 或 IPC/UI 已交付。P9-S3 的历史定向 unit 结果仍必须记为 **61 tests passed**；P9-S5 本切片 **51**、P9-S7 **52**、P9-S8 **53**、P9-S9 **54**、P9-S10 archive durable **30** 都是各自切片时的定向计数，不要混用历史与当前数字。未完成工作仍见[本地数据待办](../local-data-todo.md)。
