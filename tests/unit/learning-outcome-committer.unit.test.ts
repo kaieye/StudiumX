@@ -5309,6 +5309,118 @@ describe('LearningOutcomeCommitter', () => {
     expect(durable.events.filter((event) => event === `open:r:${directory}`).length).toBeGreaterThanOrEqual(2)
   })
 
+  it('fails closed after marker rename when session directory sync fails', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-marker-post-rename-directory-sync-failure-unit'
+    const outcomeId = 'outcome-marker-post-rename-directory-sync-failure-1'
+    const operationId = 'marker-post-rename-directory-sync-failure-operation-1'
+    const evidenceEventId = 'evidence-marker-post-rename-directory-sync-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let sawMarkerRenameAttempt = false
+    const durable = instrumentedDurableOperations({
+      fail: (event) => {
+        if (event.startsWith('rename:') && event.endsWith(`->${markerPath}`)) {
+          sawMarkerRenameAttempt = true
+          return undefined
+        }
+        if (sawMarkerRenameAttempt && event === `sync:${directory}`) {
+          return errno('EIO', 'marker post-rename directory sync private failure')
+        }
+        return undefined
+      }
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    expect(JSON.stringify(result)).not.toContain('marker post-rename directory sync private failure')
+    await expect(readFile(record, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(markerPath, 'utf8')).resolves.toContain(outcomeId)
+    expect(JSON.parse(await readFile(join(directory, 'session.json'), 'utf8'))).toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+    expect(sawMarkerRenameAttempt).toBe(true)
+    expect(durable.events.some((event) => event.startsWith('rename:') && event.endsWith(`->${markerPath}`))).toBe(true)
+    expect(durable.events).toContain(`sync:${directory}`)
+  })
+
+  it('fails closed after marker rename when session directory close fails', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-marker-post-rename-directory-close-failure-unit'
+    const outcomeId = 'outcome-marker-post-rename-directory-close-failure-1'
+    const operationId = 'marker-post-rename-directory-close-failure-operation-1'
+    const evidenceEventId = 'evidence-marker-post-rename-directory-close-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let sawMarkerRenameAttempt = false
+    const durable = instrumentedDurableOperations({
+      fail: (event) => {
+        if (event.startsWith('rename:') && event.endsWith(`->${markerPath}`)) {
+          sawMarkerRenameAttempt = true
+          return undefined
+        }
+        if (sawMarkerRenameAttempt && event === `close:${directory}`) {
+          return errno('EIO', 'marker post-rename directory close private failure')
+        }
+        return undefined
+      }
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    expect(JSON.stringify(result)).not.toContain('marker post-rename directory close private failure')
+    await expect(readFile(record, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(markerPath, 'utf8')).resolves.toContain(outcomeId)
+    expect(JSON.parse(await readFile(join(directory, 'session.json'), 'utf8'))).toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+    expect(sawMarkerRenameAttempt).toBe(true)
+    expect(durable.events.some((event) => event.startsWith('rename:') && event.endsWith(`->${markerPath}`))).toBe(true)
+    expect(durable.events).toContain(`close:${directory}`)
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
