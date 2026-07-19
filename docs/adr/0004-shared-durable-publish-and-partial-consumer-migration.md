@@ -973,6 +973,24 @@ pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.t
 # P6-S84 object schemaVersion residual: 1 file, 109 tests passed
 ```
 
+## C-4P6-S85：well-formed leading metadata garbage 的 tests-only evidence
+
+`a5f4993`（`test(data): cover leading metadata garbage and missing suffix residuals`）修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 metadata 前存在 leading garbage residual：JSON/body 仍在，但 prefix 不在 byte 0，使 `start !== 0` 失败；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。同提交亦引入 S86。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S85/S86 leading metadata garbage + missing metadata suffix residuals: 1 file, 111 tests passed
+```
+
+## C-4P6-S86：well-formed missing metadata suffix 的 tests-only evidence
+
+`a5f4993` 同提交补齐 settled 后 missing metadata suffix residual：prefix 仍在 byte 0，但 suffix 被移除，使 `end < 0` 失败；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S86 missing metadata suffix residual: 1 file, 111 tests passed
+```
+
 ## C-4P8：已关闭的受控 workspace-tool scope
 
 C-4P8 的 S1 至 S4 已在**受控 `write_workspace_file` 文本文件 create / restricted-overwrite scope**关闭。S1 的 workspace descriptor foundation 证据为 `80f2fd0` / `e2ce36c`；S2 的 `b46c8b2` / `bdcd6cb` 和 S3 的 `56eabe6` / `54506d5` 仍是 POSIX descriptor-bound foundation；S4 的 handler/API integration 与定向测试为 `0bbfdef` / `e84c813`。2026-07-19 经明确批准后，Windows 另实现 root-constrained direct-path profile；它不把 Windows 冒充为该 descriptor-bound foundation。
