@@ -4488,6 +4488,79 @@ describe('LearningOutcomeCommitter', () => {
     expect(recoveryDurable.events).toEqual([])
     await expectDurableBytesUnchanged()
   })
+  it('fails closed before record publication when durable stage write fails', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-stage-write-failure-unit'
+    const outcomeId = 'outcome-stage-write-failure-1'
+    const operationId = 'stage-write-failure-operation-1'
+    const evidenceEventId = 'evidence-stage-write-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const staged = stagePath(workspaceRoot, sessionId, outcomeId, operationId)
+    const durable = instrumentedDurableOperations({
+      fail: (event) => event === `write:${staged}`
+        ? errno('EIO', 'stage write private failure')
+        : undefined
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    await expect(committer.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome-settlement.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+    expect(durable.events).toContain(`open:wx:${staged}`)
+    expect(durable.events).toContain(`write:${staged}`)
+    expect(durable.events.some((event) => event.startsWith('rename:') && event.includes('outcome.json'))).toBe(false)
+    expect(durable.events).not.toContain(`open:wx:${join(sessionDirectory(workspaceRoot, sessionId), '.outcome.json')}`)
+  })
+
+  it('fails closed before record publication when durable stage sync fails', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-stage-sync-failure-unit'
+    const outcomeId = 'outcome-stage-sync-failure-1'
+    const operationId = 'stage-sync-failure-operation-1'
+    const evidenceEventId = 'evidence-stage-sync-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const staged = stagePath(workspaceRoot, sessionId, outcomeId, operationId)
+    const durable = instrumentedDurableOperations({
+      fail: (event) => event === `sync:${staged}`
+        ? errno('EIO', 'stage sync private failure')
+        : undefined
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    await expect(committer.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome-settlement.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+    expect(durable.events).toContain(`open:wx:${staged}`)
+    expect(durable.events).toContain(`write:${staged}`)
+    expect(durable.events).toContain(`sync:${staged}`)
+    expect(durable.events.some((event) => event.startsWith('rename:') && event.includes('outcome.json'))).toBe(false)
+    expect(durable.events).not.toContain(`open:wx:${join(sessionDirectory(workspaceRoot, sessionId), '.outcome.json')}`)
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
