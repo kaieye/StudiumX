@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { link, lstat, mkdir, open, readFile, readdir, rename, rm, stat, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { link, lstat, mkdir, open, readFile, readdir, realpath, unlink } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 
 import {
   evaluateLearningSessionOutcome,
@@ -11,11 +11,14 @@ import {
   createLearningSessionLedger,
   encodeCommittedLearningSessionOutcome,
   LearningSessionLedgerError,
-  type LearningSessionLedger
+  type LearningSessionLedger,
+  type LearningSessionLedgerFaultPoint
 } from './learning-session-ledger'
+import { replaceDurably, type DurableFileOperations } from './persistence/durable-file'
+import { isPathInsideRoot } from './path-access'
 import { readLearningAssetCatalog } from './teaching-workspace/learning-assets-catalog'
 import { requireLearningSessionId } from '../shared/teaching-placement'
-import type { LearningOutcomeKind, LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
+import type { LearningOutcomeKind, LearningOutcomeRef, LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
 import type {
   LearnerSafeLearningOutcome,
   LearningOutcomeCommitRequest,
@@ -96,6 +99,24 @@ export type LearningOutcomeCommitterOptions = {
   testingFaults?: {
     inject(point: LearningOutcomeCommitterFaultPoint, context: { sessionId: string; operationId: string }): Promise<void> | void
   }
+  /** Narrow main-internal seam for committer durability-operation faults. */
+  durableFileOperations?: DurableFileOperations
+  /** Receives only the shared primitive's generic directory-fsync warning. */
+  durableWarn?: (message: string) => void
+}
+
+type LearningOutcomeCommitterWriterScope = {
+  load(sessionId: string): Promise<LearningSessionSnapshot | null>
+  loadForOutcomeReconciliation(sessionId: string): Promise<LearningSessionSnapshot | null>
+  complete(sessionId: string, outcomeRef: LearningOutcomeRef): Promise<LearningSessionSnapshot>
+  injectFault(point: LearningSessionLedgerFaultPoint, path?: string): Promise<void>
+}
+
+type WriterLockedLearningSessionLedger = LearningSessionLedger & {
+  withWriterLock<T>(
+    sessionId: string,
+    execute: (scope: LearningOutcomeCommitterWriterScope) => Promise<T>
+  ): Promise<T>
 }
 
 /**
@@ -145,67 +166,78 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
       return nonRetryableFailure('invalid_request')
     }
 
+    const writerLockedLedger = asWriterLockedLedger(this.ledger)
+    if (!writerLockedLedger) return retryableFailure('temporarily_unavailable')
+
     let writeAttempted = false
     try {
-      const session = await this.loadCanonicalSession(sessionId)
-      const existing = await this.reconcile(sessionId)
-      if (existing.state === 'review_required') return conflictResult()
-      if (existing.state === 'read_only') return nonRetryableFailure('read_only')
-      if (existing.state === 'not_found') return nonRetryableFailure('not_found')
-      if (existing.marker?.operationId === operationId && existing.state === 'settled') {
-        if (existing.marker.kind === 'not_evidenced') return insufficientEvidenceResult()
-        return committedResult('already_committed', existing.marker, existing.catalogRecordPresent)
-      }
-      if (session.status === 'completed') {
-        if (existing.marker && existing.state === 'settled') {
+      return await writerLockedLedger.withWriterLock(sessionId, async (scope) => {
+        // Reconcile recovery authority before loading a normal completed Session:
+        // the latter intentionally rejects a missing outcome projection.
+        const existing = await this.reconcileLocked(scope, sessionId)
+        if (existing.state === 'review_required') return conflictResult()
+        if (existing.state === 'read_only') return nonRetryableFailure('read_only')
+        if (existing.state === 'not_found') return nonRetryableFailure('not_found')
+        if (existing.marker?.operationId === operationId && existing.state === 'settled') {
+          if (existing.marker.kind === 'not_evidenced') return insufficientEvidenceResult()
           return committedResult('already_committed', existing.marker, existing.catalogRecordPresent)
         }
-        return retryableFailure('reconciliation_required')
-      }
 
-      const evaluation = await this.evaluateDecision({ workspaceRoot: this.options.workspaceRoot, session })
-      assertEvaluationMatchesSession(evaluation, session)
-      const settlement = settlementFromEvaluation(session, operationId, evaluation, this.createId())
+        const session = await this.loadCanonicalSession(sessionId, scope)
+        if (session.status === 'completed') {
+          if (existing.marker && existing.state === 'settled') {
+            return committedResult('already_committed', existing.marker, existing.catalogRecordPresent)
+          }
+          return retryableFailure('reconciliation_required')
+        }
 
-      if (!writesLearningRecord(settlement.marker.kind)) {
+        const evaluation = await this.evaluateDecision({ workspaceRoot: this.options.workspaceRoot, session })
+        assertEvaluationMatchesSession(evaluation, session)
+        const settlement = settlementFromEvaluation(session, operationId, evaluation, this.createId())
+
+        if (!writesLearningRecord(settlement.marker.kind)) {
+          writeAttempted = true
+          await this.durableReplace(join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE), serialize(settlement.marker))
+          await this.inject('after_settlement_marker', sessionId, operationId)
+          await this.inject('before_catalog_reconcile', sessionId, operationId)
+          if (settlement.marker.kind === 'not_evidenced') return insufficientEvidenceResult()
+          return committedResult('committed', settlement.marker, await this.catalogHas(settlement.marker.record))
+        }
+
+        const record = settlement.record!
+        const recordContent = renderLearningRecord(settlement.marker, session, evaluation)
+        const recordsDirectory = join(this.options.workspaceRoot, LEARNING_RECORDS_DIRECTORY)
+        const stagePath = join(recordsDirectory, STAGE_DIRECTORY, `${record.recordId}.${operationId}.md`)
+        const recordPath = join(this.options.workspaceRoot, ...record.relativePath.split('/'))
+
         writeAttempted = true
-        await durableAtomicReplace(
-          join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE),
-          serialize(settlement.marker)
+        // Ordered publication: stage -> immutable record -> outcome -> manifest -> marker -> catalog.
+        await durableStage(stagePath, recordContent, this.options.durableFileOperations)
+        await this.inject('after_stage_flush', sessionId, operationId)
+        await publishImmutable(
+          stagePath,
+          recordPath,
+          recordContent,
+          this.options.durableFileOperations,
+          () => scope.injectFault('after_stage_sync', record.relativePath)
         )
+        await this.inject('after_record_publish', sessionId, operationId)
+
+        const encoded = encodeCommittedLearningSessionOutcome({
+          sessionId,
+          outcomeId: settlement.marker.outcomeId,
+          kind: settlement.marker.kind,
+          evidenceEventIds: settlement.marker.evidenceEventIds
+        })
+        await this.durableReplace(join(this.sessionDirectory(sessionId), 'outcome.json'), encoded.content)
+        await this.inject('after_outcome_publish', sessionId, operationId)
+        await scope.complete(sessionId, encoded.ref)
+        await this.durableReplace(join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE), serialize(settlement.marker))
         await this.inject('after_settlement_marker', sessionId, operationId)
         await this.inject('before_catalog_reconcile', sessionId, operationId)
-        if (settlement.marker.kind === 'not_evidenced') return insufficientEvidenceResult()
-        const catalogRecordPresent = await this.catalogHas(settlement.marker.record)
-        return committedResult('committed', settlement.marker, catalogRecordPresent)
-      }
 
-      const record = settlement.record!
-      const recordContent = renderLearningRecord(settlement.marker, session, evaluation)
-      const recordsDirectory = join(this.options.workspaceRoot, LEARNING_RECORDS_DIRECTORY)
-      const stagePath = join(recordsDirectory, STAGE_DIRECTORY, `${record.recordId}.${operationId}.md`)
-      const recordPath = join(this.options.workspaceRoot, ...record.relativePath.split('/'))
-
-      writeAttempted = true
-      await durableStage(stagePath, recordContent)
-      await this.inject('after_stage_flush', sessionId, operationId)
-      await publishImmutable(stagePath, recordPath, recordContent)
-      await this.inject('after_record_publish', sessionId, operationId)
-
-      const encoded = encodeCommittedLearningSessionOutcome({
-        sessionId,
-        outcomeId: settlement.marker.outcomeId,
-        kind: settlement.marker.kind,
-        evidenceEventIds: settlement.marker.evidenceEventIds
+        return committedResult('committed', settlement.marker, await this.catalogHas(record))
       })
-      await durableAtomicReplace(join(this.sessionDirectory(sessionId), 'outcome.json'), encoded.content)
-      await this.inject('after_outcome_publish', sessionId, operationId)
-      await this.ledger.complete(sessionId, encoded.ref)
-      await durableAtomicReplace(join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE), serialize(settlement.marker))
-      await this.inject('after_settlement_marker', sessionId, operationId)
-      await this.inject('before_catalog_reconcile', sessionId, operationId)
-
-      return committedResult('committed', settlement.marker, await this.catalogHas(record))
     } catch (error) {
       return resultFromCommitError(error, writeAttempted)
     }
@@ -213,85 +245,144 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
 
   async reconcile(sessionId: string): Promise<OutcomeReconciliation> {
     const safeSessionId = requireLearningSessionId(sessionId)
-    const snapshot = await this.ledger.load(safeSessionId)
-    if (!snapshot) return emptyReconciliation(safeSessionId, 'not_found')
-    if (snapshot.readOnly) return { ...emptyReconciliation(safeSessionId, 'read_only'), diagnostics: await legacyDiagnostics(this.options.workspaceRoot) }
+    const writerLockedLedger = asWriterLockedLedger(this.ledger)
+    // A load-only injected ledger cannot prove a settlement was serialized.
+    // Return the existing conservative review state rather than inspecting or
+    // repairing durable projections without the ledger's filesystem lock.
+    if (!writerLockedLedger) return emptyReconciliation(safeSessionId, 'review_required')
+    return writerLockedLedger.withWriterLock(safeSessionId, (scope) => this.reconcileLocked(scope, safeSessionId))
+  }
 
-    await cleanupStages(join(this.options.workspaceRoot, LEARNING_RECORDS_DIRECTORY, STAGE_DIRECTORY))
+  private async reconcileLocked(
+    scope: LearningOutcomeCommitterWriterScope,
+    sessionId: string
+  ): Promise<OutcomeReconciliation> {
+    // Inspect record/marker/outcome before the Session projection. A missing
+    // outcome can make a completed normal load fail, but a valid immutable
+    // record may safely repair exactly that missing projection.
     const diagnostics: OutcomeReconciliation['diagnostics'] = await legacyDiagnostics(this.options.workspaceRoot)
-    const markerResult = await readMarker(join(this.sessionDirectory(safeSessionId), OUTCOME_SETTLEMENT_FILE))
-    if (markerResult.invalid) diagnostics.push('invalid_settlement_marker')
-    const marker = markerResult.marker
-    // The immutable canonical record is the recovery authority. A marker only
-    // supplies a no-record outcome or confirms the canonical record projection.
-    const record = await readCanonicalRecord(this.options.workspaceRoot, safeSessionId)
+    const markerRead = await readMarker(join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE))
+    const recordRead = await readCanonicalRecord(this.options.workspaceRoot, sessionId)
+    const outcomeRead = await readRegularFile(join(this.sessionDirectory(sessionId), 'outcome.json'))
+    if (markerRead.state === 'invalid') diagnostics.push('invalid_settlement_marker')
 
-    if (record) {
-      const repairedMarker = markerFromRecord(record) ?? marker
-      if (!repairedMarker) {
-        diagnostics.push('missing_record')
-        return { sessionId: safeSessionId, state: 'review_required', marker, record: null, catalogRecordPresent: false, diagnostics }
+    let snapshot: LearningSessionSnapshot | null
+    try {
+      snapshot = await scope.loadForOutcomeReconciliation(sessionId)
+    } catch (error) {
+      if (error instanceof LearningSessionLedgerError) {
+        if (recordRead.state !== 'valid') diagnostics.push('missing_record')
+        return this.review(sessionId, markerRead.marker, recordRead.record?.marker.record ?? null, diagnostics)
       }
-      if (marker && !sameMarkerIdentity(marker, repairedMarker)) {
+      throw error
+    }
+    if (!snapshot) return emptyReconciliation(sessionId, 'not_found')
+    if (snapshot.readOnly) return { ...emptyReconciliation(sessionId, 'read_only'), diagnostics }
+
+    if (markerRead.state === 'invalid' || recordRead.state === 'invalid' || outcomeRead.state === 'invalid') {
+      if (recordRead.state !== 'valid') diagnostics.push('missing_record')
+      return this.review(sessionId, markerRead.marker, recordRead.record?.marker.record ?? null, diagnostics)
+    }
+
+    const marker = markerRead.marker
+    const parsedRecord = recordRead.record
+    if (parsedRecord) {
+      const authoritativeMarker = parsedRecord.marker
+      if (marker && !sameMarkerIdentity(marker, authoritativeMarker)) {
         diagnostics.push('conflicting_outcome')
-        return {
-          sessionId: safeSessionId,
-          state: 'review_required',
-          marker,
-          record: repairedMarker.record,
-          catalogRecordPresent: await this.catalogHas(repairedMarker.record),
-          diagnostics
-        }
+        return this.review(sessionId, marker, authoritativeMarker.record, diagnostics)
       }
+
       const encoded = encodeCommittedLearningSessionOutcome({
-        sessionId: safeSessionId,
-        outcomeId: repairedMarker.outcomeId,
-        kind: repairedMarker.kind,
-        evidenceEventIds: repairedMarker.evidenceEventIds
+        sessionId,
+        outcomeId: authoritativeMarker.outcomeId,
+        kind: authoritativeMarker.kind,
+        evidenceEventIds: authoritativeMarker.evidenceEventIds
       })
-      const outcomePath = join(this.sessionDirectory(safeSessionId), 'outcome.json')
-      const existingOutcome = await readRegularFile(outcomePath)
-      if (existingOutcome !== null && existingOutcome !== encoded.content) {
+      if (outcomeRead.content !== null && outcomeRead.content !== encoded.content) {
         diagnostics.push('conflicting_outcome')
+        return this.review(sessionId, marker ?? authoritativeMarker, authoritativeMarker.record, diagnostics)
+      }
+      if (snapshot.status === 'completed' && !sameOutcomeRef(snapshot.outcomeRef, encoded.ref)) {
+        diagnostics.push('conflicting_outcome')
+        return this.review(sessionId, marker ?? authoritativeMarker, authoritativeMarker.record, diagnostics)
+      }
+
+      const needsOutcome = outcomeRead.state === 'missing'
+      const needsManifest = snapshot.status === 'active'
+      const needsMarker = marker === null
+      if (!needsOutcome && !needsManifest && !needsMarker) {
         return {
-          sessionId: safeSessionId,
-          state: 'review_required',
-          marker: repairedMarker,
-          record: repairedMarker.record,
-          catalogRecordPresent: await this.catalogHas(repairedMarker.record),
+          sessionId,
+          state: 'settled',
+          marker: authoritativeMarker,
+          record: authoritativeMarker.record,
+          catalogRecordPresent: await this.catalogHas(authoritativeMarker.record),
           diagnostics
         }
       }
-      if (existingOutcome === null) await durableAtomicReplace(outcomePath, encoded.content)
-      const reloaded = await this.ledger.load(safeSessionId)
-      if (reloaded?.status === 'active') await this.ledger.complete(safeSessionId, encoded.ref)
-      if (!marker || !sameMarkerIdentity(marker, repairedMarker)) {
-        await durableAtomicReplace(join(this.sessionDirectory(safeSessionId), OUTCOME_SETTLEMENT_FILE), serialize(repairedMarker))
-      }
+
+      // A valid immutable record is recovery authority only after every
+      // existing projection has matched it. Repair in the original order.
+      if (needsOutcome) await this.durableReplace(join(this.sessionDirectory(sessionId), 'outcome.json'), encoded.content)
+      if (needsManifest) await scope.complete(sessionId, encoded.ref)
+      if (needsMarker) await this.durableReplace(join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE), serialize(authoritativeMarker))
       return {
-        sessionId: safeSessionId,
-        state: marker ? 'settled' : 'repaired',
-        marker: repairedMarker,
-        record: repairedMarker.record,
-        catalogRecordPresent: await this.catalogHas(repairedMarker.record),
+        sessionId,
+        state: 'repaired',
+        marker: authoritativeMarker,
+        record: authoritativeMarker.record,
+        catalogRecordPresent: await this.catalogHas(authoritativeMarker.record),
         diagnostics
       }
     }
 
-    if (marker?.record || (snapshot.status === 'completed' && snapshot.outcomeRef !== null)) diagnostics.push('missing_record')
+    // Without an immutable record, a valid recordless marker is the only
+    // authority. Never infer or synthesize an outcome/manifest from it.
+    if (marker) {
+      if (marker.record !== null || writesLearningRecord(marker.kind) || snapshot.status === 'completed' || outcomeRead.state !== 'missing') {
+        diagnostics.push(marker.record !== null ? 'missing_record' : 'conflicting_outcome')
+        return this.review(sessionId, marker, null, diagnostics)
+      }
+      return {
+        sessionId,
+        state: 'settled',
+        marker,
+        record: null,
+        catalogRecordPresent: false,
+        diagnostics
+      }
+    }
+
+    if (snapshot.status === 'completed' || outcomeRead.state !== 'missing') {
+      diagnostics.push('missing_record')
+      return this.review(sessionId, null, null, diagnostics)
+    }
+    return { sessionId, state: 'pending', marker: null, record: null, catalogRecordPresent: false, diagnostics }
+  }
+
+  private async review(
+    sessionId: string,
+    marker: OutcomeSettlementMarker | null,
+    record: LearningOutcomeRecordRef | null,
+    diagnostics: OutcomeReconciliation['diagnostics']
+  ): Promise<OutcomeReconciliation> {
     return {
-      sessionId: safeSessionId,
-      state: marker ? (marker.record ? 'review_required' : 'settled') : snapshot.status === 'completed' ? 'review_required' : 'pending',
+      sessionId,
+      state: 'review_required',
       marker,
-      record: null,
-      catalogRecordPresent: false,
+      record,
+      catalogRecordPresent: await this.catalogHas(record),
       diagnostics
     }
   }
 
-  private async loadCanonicalSession(sessionId: string): Promise<Extract<LearningSessionSnapshot, { source: 'canonical' }>> {
+  private async loadCanonicalSession(
+    sessionId: string,
+    scope?: LearningOutcomeCommitterWriterScope
+  ): Promise<Extract<LearningSessionSnapshot, { source: 'canonical' }>> {
     const safeSessionId = requireLearningSessionId(sessionId)
-    const session = await this.ledger.load(safeSessionId)
+    const session = scope ? await scope.load(safeSessionId) : await this.ledger.load(safeSessionId)
     if (!session) throw new OutcomeCommitterError('not_found')
     if (session.readOnly || session.source !== 'canonical') throw new OutcomeCommitterError('read_only')
     return session
@@ -299,6 +390,15 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
 
   private sessionDirectory(sessionId: string): string {
     return join(this.options.workspaceRoot, 'learning-sessions', requireLearningSessionId(sessionId))
+  }
+
+  private async durableReplace(path: string, content: string): Promise<void> {
+    await replaceDurably({
+      path,
+      content,
+      operations: this.options.durableFileOperations,
+      warn: this.options.durableWarn
+    })
   }
 
   private async catalogHas(record: LearningOutcomeRecordRef | null): Promise<boolean> {
@@ -315,6 +415,14 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
 type Settlement = { marker: OutcomeSettlementMarker; record: LearningOutcomeRecordRef | null }
 
 type ParsedRecord = { marker: OutcomeSettlementMarker }
+
+type RegularFileRead =
+  | { state: 'missing'; content: null }
+  | { state: 'invalid'; content: null }
+  | { state: 'valid'; content: string }
+
+type MarkerRead = { state: 'missing' | 'invalid' | 'valid'; marker: OutcomeSettlementMarker | null }
+type CanonicalRecordRead = { state: 'missing' | 'invalid' | 'valid'; record: ParsedRecord | null }
 
 function settlementFromEvaluation(
   session: Extract<LearningSessionSnapshot, { source: 'canonical' }>,
@@ -373,9 +481,6 @@ function renderLearningRecord(
   return `${RECORD_METADATA_PREFIX}${JSON.stringify(metadata)}${RECORD_METADATA_SUFFIX}\n# Learning outcome: ${marker.kind}\n\nVerified learning outcome for Session \`${marker.sessionId}\`.\n`
 }
 
-function markerFromRecord(record: ParsedRecord): OutcomeSettlementMarker | null {
-  return record.marker
-}
 
 function assertEvaluationMatchesSession(evaluation: LearningOutcomeEvaluation, session: LearningSessionSnapshot): void {
   if (evaluation.schemaVersion !== 1 || evaluation.sessionId !== session.id) {
@@ -442,6 +547,12 @@ class OutcomeCommitterError extends Error {
   }
 }
 
+function asWriterLockedLedger(ledger: LearningSessionLedger): WriterLockedLearningSessionLedger | null {
+  return typeof (ledger as Partial<WriterLockedLearningSessionLedger>).withWriterLock === 'function'
+    ? ledger as WriterLockedLearningSessionLedger
+    : null
+}
+
 function emptyReconciliation(sessionId: string, state: OutcomeReconciliation['state']): OutcomeReconciliation {
   return { sessionId, state, marker: null, record: null, catalogRecordPresent: false, diagnostics: [] }
 }
@@ -461,97 +572,203 @@ function sameMarkerIdentity(left: OutcomeSettlementMarker, right: OutcomeSettlem
     left.outcomeId === right.outcomeId &&
     left.operationId === right.operationId &&
     left.kind === right.kind &&
+    left.evaluatorVersion === right.evaluatorVersion &&
     JSON.stringify(left.evidenceEventIds) === JSON.stringify(right.evidenceEventIds) &&
-    left.record?.contentSha256 === right.record?.contentSha256
+    sameRecordRef(left.record, right.record)
 }
 
-async function durableStage(path: string, content: string): Promise<void> {
-  await mkdir(join(path, '..'), { recursive: true })
-  await durableWrite(path, content)
+function sameRecordRef(left: LearningOutcomeRecordRef | null, right: LearningOutcomeRecordRef | null): boolean {
+  return left?.recordId === right?.recordId &&
+    left?.relativePath === right?.relativePath &&
+    left?.contentSha256 === right?.contentSha256
 }
 
-async function publishImmutable(stagePath: string, recordPath: string, expectedContent: string): Promise<void> {
-  await mkdir(join(recordPath, '..'), { recursive: true })
-  try {
-    // Linking a fully synced stage file publishes exactly one immutable record.
-    // Unlike rename, it cannot replace a concurrent publisher's canonical file.
-    await link(stagePath, recordPath)
-    await syncDirectory(join(recordPath, '..'))
-    await unlink(stagePath)
-  } catch (error) {
-    const existing = await readFile(recordPath, 'utf8').catch(() => null)
-    if (existing === expectedContent) {
-      await rm(stagePath, { force: true })
-      return
-    }
-    throw error
-  }
+function sameOutcomeRef(left: LearningOutcomeRef | null, right: LearningOutcomeRef): boolean {
+  return left !== null &&
+    left.outcomeId === right.outcomeId &&
+    left.kind === right.kind &&
+    left.relativePath === right.relativePath &&
+    left.contentSha256 === right.contentSha256 &&
+    JSON.stringify(left.evidenceEventIds) === JSON.stringify(right.evidenceEventIds)
 }
 
-async function durableAtomicReplace(path: string, content: string): Promise<void> {
-  await mkdir(join(path, '..'), { recursive: true })
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
-  try {
-    await durableWrite(temporary, content)
-    await rename(temporary, path)
-    await syncDirectory(join(path, '..'))
-  } finally {
-    await rm(temporary, { force: true }).catch(() => undefined)
-  }
-}
-
-async function durableWrite(path: string, content: string): Promise<void> {
-  const handle = await open(path, 'w', 0o600)
+async function durableStage(
+  path: string,
+  content: string,
+  operations?: DurableFileOperations
+): Promise<void> {
+  await (operations?.mkdir ?? mkdir)(dirname(path), { recursive: true })
+  // A stage is never overwritten: an unexpected pre-existing stage remains
+  // evidence for recovery/review rather than being silently replaced.
+  const handle = await (operations?.open ?? open)(path, 'wx', 0o600)
+  let writeFailure: unknown
   try {
     await handle.writeFile(content, 'utf8')
     await handle.sync()
+  } catch (error) {
+    writeFailure = error
+    throw error
   } finally {
-    await handle.close()
+    try {
+      await handle.close()
+    } catch (closeError) {
+      if (!writeFailure) throw closeError
+    }
   }
 }
 
-async function syncDirectory(directory: string): Promise<void> {
-  const handle = await open(directory, 'r').catch(() => null)
-  if (!handle) return
+async function publishImmutable(
+  stagePath: string,
+  recordPath: string,
+  expectedContent: string,
+  operations?: DurableFileOperations,
+  onMatchingExistingBeforeParentSync?: () => Promise<void>
+): Promise<void> {
+  await (operations?.mkdir ?? mkdir)(dirname(recordPath), { recursive: true })
+  try {
+    // link() is no-replace publication. Its successful return is deliberately
+    // outside the EEXIST path so a following directory-sync/close failure can
+    // never be mistaken for an idempotent concurrent publication.
+    await link(stagePath, recordPath)
+  } catch (error) {
+    if (!isErrno(error, 'EEXIST')) throw error
+    const existing = await readRegularFile(recordPath)
+    if (existing.state !== 'valid' || existing.content !== expectedContent) throw error
+    // The existing matching link may be from an interrupted publish, so its
+    // parent still has to be durably synced before any projection follows.
+    // Reuse the ledger's private fault hook here so the exact EEXIST recovery
+    // path can be fail-closed tested without adding another public test API.
+    await onMatchingExistingBeforeParentSync?.()
+    await syncDirectoryRequired(dirname(recordPath), operations)
+    // Cleanup is part of the completed idempotent path; its failure is fatal.
+    await unlink(stagePath)
+    return
+  }
+  // Immutable record durability has no capability downgrade. A parent open,
+  // sync, or close failure means later projections must not be written.
+  await syncDirectoryRequired(dirname(recordPath), operations)
+  await unlink(stagePath)
+}
+
+async function syncDirectoryRequired(directory: string, operations?: DurableFileOperations): Promise<void> {
+  const handle = await (operations?.open ?? open)(directory, 'r')
+  let syncFailure: unknown
   try {
     await handle.sync()
-  } catch {
-    // Windows does not consistently permit directory handles to be synced.
+  } catch (error) {
+    syncFailure = error
+    throw error
   } finally {
-    await handle.close()
+    try {
+      await handle.close()
+    } catch (closeError) {
+      if (!syncFailure) throw closeError
+    }
   }
 }
 
-async function cleanupStages(directory: string): Promise<void> {
-  const entries = await readdir(directory).catch(() => [])
-  await Promise.all(entries.map(async (entry) => {
-    const path = join(directory, entry)
-    const info = await stat(path).catch(() => null)
-    if (info?.isFile()) await rm(path, { force: true })
-  }))
-}
-
-async function readRegularFile(path: string): Promise<string | null> {
-  const info = await lstat(path).catch(() => null)
-  if (!info || info.isSymbolicLink() || !info.isFile()) return null
-  return readFile(path, 'utf8').catch(() => null)
-}
-async function readMarker(path: string): Promise<{ marker: OutcomeSettlementMarker | null; invalid: boolean }> {
-  const content = await readRegularFile(path)
-  if (content === null) return { marker: null, invalid: false }
+async function readRegularFile(path: string): Promise<RegularFileRead> {
+  let info
   try {
-    return { marker: normalizeMarker(JSON.parse(content)), invalid: false }
+    info = await lstat(path)
+  } catch (error) {
+    if (isErrno(error, 'ENOENT')) return { state: 'missing', content: null }
+    return { state: 'invalid', content: null }
+  }
+  if (info.isSymbolicLink() || !info.isFile()) return { state: 'invalid', content: null }
+  try {
+    return { state: 'valid', content: await readFile(path, 'utf8') }
   } catch {
-    return { marker: null, invalid: true }
+    // A target observed as a regular file but changed before read is uncertain,
+    // not safely absent.
+    return { state: 'invalid', content: null }
   }
 }
 
-async function readCanonicalRecord(workspaceRoot: string, sessionId: string): Promise<ParsedRecord | null> {
-  const content = await readRegularFile(join(workspaceRoot, LEARNING_RECORDS_DIRECTORY, `outcome-${sessionId}.md`))
-  if (content === null) return null
+async function readMarker(path: string): Promise<MarkerRead> {
+  const file = await readRegularFile(path)
+  if (file.state === 'missing') return { state: 'missing', marker: null }
+  if (file.state === 'invalid') return { state: 'invalid', marker: null }
+  try {
+    return { state: 'valid', marker: normalizeMarker(JSON.parse(file.content)) }
+  } catch {
+    return { state: 'invalid', marker: null }
+  }
+}
+
+/**
+ * A canonical record cannot be recovery authority unless its direct parent is
+ * a real directory below the resolved workspace root. In particular, do not
+ * follow a `learning-records` link merely because its final record entry is a
+ * regular file.
+ */
+async function readCanonicalRecordsDirectory(
+  workspaceRoot: string,
+  recordsDirectory: string
+): Promise<'missing' | 'invalid' | 'valid'> {
+  let info
+  try {
+    info = await lstat(recordsDirectory)
+  } catch (error) {
+    return isErrno(error, 'ENOENT') ? 'missing' : 'invalid'
+  }
+  if (info.isSymbolicLink() || !info.isDirectory()) return 'invalid'
+
+  try {
+    const [realRoot, realDirectory] = await Promise.all([realpath(workspaceRoot), realpath(recordsDirectory)])
+    if (!isPathInsideRoot(realRoot, realDirectory)) return 'invalid'
+    // Recheck after resolving: an attacker must not be able to replace the
+    // directory with a link between its first inspection and record access.
+    const current = await lstat(recordsDirectory)
+    return current.isSymbolicLink() || !current.isDirectory() ? 'invalid' : 'valid'
+  } catch {
+    return 'invalid'
+  }
+}
+
+/** Read a final regular file from its already-verified canonical real path. */
+async function readContainedRegularFile(workspaceRoot: string, path: string): Promise<RegularFileRead> {
+  // Revalidate the direct parent immediately before record access. This closes
+  // a parent swap after readCanonicalRecord's initial directory inspection.
+  if (await readCanonicalRecordsDirectory(workspaceRoot, dirname(path)) !== 'valid') {
+    return { state: 'invalid', content: null }
+  }
+
+  let info
+  try {
+    info = await lstat(path)
+  } catch (error) {
+    return isErrno(error, 'ENOENT') ? { state: 'missing', content: null } : { state: 'invalid', content: null }
+  }
+  if (info.isSymbolicLink() || !info.isFile()) return { state: 'invalid', content: null }
+
+  try {
+    const [realRoot, realPath] = await Promise.all([realpath(workspaceRoot), realpath(path)])
+    if (!isPathInsideRoot(realRoot, realPath)) return { state: 'invalid', content: null }
+    if (await readCanonicalRecordsDirectory(workspaceRoot, dirname(path)) !== 'valid') {
+      return { state: 'invalid', content: null }
+    }
+    const realInfo = await lstat(realPath)
+    if (realInfo.isSymbolicLink() || !realInfo.isFile()) return { state: 'invalid', content: null }
+    return { state: 'valid', content: await readFile(realPath, 'utf8') }
+  } catch {
+    return { state: 'invalid', content: null }
+  }
+}
+
+async function readCanonicalRecord(workspaceRoot: string, sessionId: string): Promise<CanonicalRecordRead> {
+  const recordsDirectory = join(workspaceRoot, LEARNING_RECORDS_DIRECTORY)
+  const directory = await readCanonicalRecordsDirectory(workspaceRoot, recordsDirectory)
+  if (directory === 'missing') return { state: 'missing', record: null }
+  if (directory === 'invalid') return { state: 'invalid', record: null }
+
+  const file = await readContainedRegularFile(workspaceRoot, join(recordsDirectory, `outcome-${sessionId}.md`))
+  if (file.state === 'missing') return { state: 'missing', record: null }
+  if (file.state === 'invalid') return { state: 'invalid', record: null }
+  const content = file.content
   const start = content.indexOf(RECORD_METADATA_PREFIX)
   const end = start < 0 ? -1 : content.indexOf(RECORD_METADATA_SUFFIX, start)
-  if (start !== 0 || end < 0) return null
+  if (start !== 0 || end < 0) return { state: 'invalid', record: null }
   try {
     const value = JSON.parse(content.slice(RECORD_METADATA_PREFIX.length, end)) as Record<string, unknown>
     const outcomeId = text(value.outcomeId)
@@ -561,24 +778,53 @@ async function readCanonicalRecord(workspaceRoot: string, sessionId: string): Pr
     const recordId = text(value.recordId)
     const recordedSessionId = text(value.sessionId)
     const evaluatorVersion = number(value.evaluatorVersion)
-    if (!outcomeId || !operationId || !kind || !recordId || recordedSessionId !== sessionId || evaluatorVersion === null) return null
+    if (
+      value.schemaVersion !== LEARNING_OUTCOME_COMMITTER_SCHEMA_VERSION ||
+      !outcomeId ||
+      !operationId ||
+      !kind ||
+      !writesLearningRecord(kind) ||
+      evidenceEventIds.length === 0 ||
+      !recordId ||
+      recordId !== `learning-outcome-${sessionId}-${outcomeId}` ||
+      recordedSessionId !== sessionId ||
+      evaluatorVersion === null ||
+      !isVerifiedAssessment(value.assessment) ||
+      !content.startsWith(`${RECORD_METADATA_PREFIX}${JSON.stringify(value)}${RECORD_METADATA_SUFFIX}\n# Learning outcome: ${kind}\n`)
+    ) return { state: 'invalid', record: null }
+    if (requireOperationId(operationId) !== operationId) return { state: 'invalid', record: null }
     const relativePath = `${LEARNING_RECORDS_DIRECTORY}/outcome-${sessionId}.md`
     const record: LearningOutcomeRecordRef = { recordId, relativePath, contentSha256: sha256(content) }
     return {
-      marker: {
-        schemaVersion: LEARNING_OUTCOME_COMMITTER_SCHEMA_VERSION,
-        sessionId,
-        outcomeId,
-        operationId,
-        kind,
-        evidenceEventIds,
-        evaluatorVersion,
-        record
+      state: 'valid',
+      record: {
+        marker: {
+          schemaVersion: LEARNING_OUTCOME_COMMITTER_SCHEMA_VERSION,
+          sessionId,
+          outcomeId,
+          operationId,
+          kind,
+          evidenceEventIds,
+          evaluatorVersion,
+          record
+        }
       }
     }
   } catch {
-    return null
+    return { state: 'invalid', record: null }
   }
+}
+
+function isVerifiedAssessment(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const assessment = value as Record<string, unknown>
+  const relativePath = text(assessment.relativePath)
+  const contentSha256 = text(assessment.contentSha256)
+  return relativePath !== null && /^[a-f0-9]{64}$/.test(contentSha256 ?? '')
+}
+
+function isErrno(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as NodeJS.ErrnoException).code === code
 }
 
 function normalizeMarker(value: unknown): OutcomeSettlementMarker {
@@ -593,9 +839,21 @@ function normalizeMarker(value: unknown): OutcomeSettlementMarker {
     throw new Error('Invalid outcome settlement marker.')
   }
   const safeSessionId = requireLearningSessionId(sessionId)
+  const normalizedOperationId = requireOperationId(operationId)
+  if (normalizedOperationId !== operationId) throw new Error('Outcome settlement marker operation ID is not canonical.')
+  const evidenceEventIds = stringArray(record.evidenceEventIds)
   const parsedRecord = record.record === null ? null : normalizeRecordRef(record.record)
-  if (parsedRecord && parsedRecord.relativePath !== `${LEARNING_RECORDS_DIRECTORY}/outcome-${safeSessionId}.md`) {
-    throw new Error('Outcome settlement marker points outside its canonical Learning record path.')
+  if (writesLearningRecord(kind) !== (parsedRecord !== null)) {
+    throw new Error('Outcome settlement marker record presence does not match its outcome kind.')
+  }
+  if (writesLearningRecord(kind) && evidenceEventIds.length === 0) {
+    throw new Error('Recorded Learning outcome requires evidence identities.')
+  }
+  if (parsedRecord && (
+    parsedRecord.relativePath !== `${LEARNING_RECORDS_DIRECTORY}/outcome-${safeSessionId}.md` ||
+    parsedRecord.recordId !== `learning-outcome-${safeSessionId}-${outcomeId}`
+  )) {
+    throw new Error('Outcome settlement marker does not match its canonical Learning record identity.')
   }
   return {
     schemaVersion: LEARNING_OUTCOME_COMMITTER_SCHEMA_VERSION,
@@ -603,7 +861,7 @@ function normalizeMarker(value: unknown): OutcomeSettlementMarker {
     outcomeId,
     operationId,
     kind,
-    evidenceEventIds: stringArray(record.evidenceEventIds),
+    evidenceEventIds,
     evaluatorVersion,
     record: parsedRecord
   }
@@ -621,10 +879,11 @@ function normalizeRecordRef(value: unknown): LearningOutcomeRecordRef {
 
 async function legacyDiagnostics(workspaceRoot: string): Promise<Array<'legacy_generated'>> {
   const directory = join(workspaceRoot, LEARNING_RECORDS_DIRECTORY)
+  if (await readCanonicalRecordsDirectory(workspaceRoot, directory) !== 'valid') return []
   const entries = await readdir(directory).catch(() => [])
   for (const entry of entries) {
     if (!entry.endsWith('.md') || entry.startsWith('outcome-')) continue
-    const content = await readRegularFile(join(directory, entry)) ?? ''
+    const content = (await readRegularFile(join(directory, entry))).content ?? ''
     if (/legacy_generated/i.test(content)) return ['legacy_generated']
   }
   return []

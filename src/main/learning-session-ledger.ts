@@ -71,6 +71,10 @@ const HARDLINK_FALLBACK_CODES = new Set(['EPERM', 'EACCES', 'EXDEV', 'ENOTSUP', 
 const workspaceWriteTails = new Map<string, Promise<void>>()
 
 type CanonicalLearningSessionManifest = Omit<CanonicalLearningSessionSnapshot, 'events'>
+type SessionLoadOptions = {
+  validateCompletedOutcome?: boolean
+  repairManifest?: boolean
+}
 
 export type LegacyLearningSessionResolver = (sessionId: string) => Promise<LegacyLearningSessionSnapshot | null>
 
@@ -119,6 +123,25 @@ export type LearningSessionAppendReceipt = {
   disposition: 'appended' | 'matching_existing'
   snapshot: LearningSessionSnapshot
   event: LearningSessionEvent
+}
+
+/**
+ * Narrow unlocked façade supplied only while the ledger's workspace writer lock
+ * is held. It lets a multi-file publisher share the existing serialization
+ * boundary without recursively acquiring a competing lock.
+ */
+type LearningSessionLedgerWriterScope = {
+  load(sessionId: string): Promise<LearningSessionSnapshot | null>
+  /**
+   * Reads canonical Session structure while deliberately deferring validation
+   * of the completed outcome bytes. The outcome committer uses this only under
+   * this same writer scope to decide whether a valid immutable record may
+   * repair a missing projection.
+   */
+  loadForOutcomeReconciliation(sessionId: string): Promise<LearningSessionSnapshot | null>
+  complete(sessionId: string, outcomeRef: LearningOutcomeRef): Promise<LearningSessionSnapshot>
+  /** Reuses the existing ledger test hook while this private lock scope is held. */
+  injectFault(point: LearningSessionLedgerFaultPoint, path?: string): Promise<void>
 }
 
 export interface LearningSessionLedger {
@@ -271,6 +294,14 @@ export function encodeCommittedLearningSessionOutcome(
       contentSha256: sha256(content)
     }
   }
+}
+
+function requireWriterScopeSessionId(requestedSessionId: string, lockedSessionId: string): string {
+  const requested = requireSessionId(requestedSessionId, 'Session ID')
+  if (requested !== lockedSessionId) {
+    throw invalidInput('Learning Session writer scope may only operate on its locked Session.')
+  }
+  return requested
 }
 
 class FileLearningSessionLedger implements LearningSessionLedger {
@@ -442,70 +473,35 @@ class FileLearningSessionLedger implements LearningSessionLedger {
 
   async complete(sessionId: string, outcomeRef: LearningOutcomeRef): Promise<LearningSessionSnapshot> {
     const safeSessionId = requireSessionId(sessionId, 'Session ID')
-    return this.withWriter('complete', safeSessionId, async (workspaceRoot) => {
-      const current = await this.loadUnlocked(workspaceRoot, safeSessionId, 'complete')
-      await injectFault(this.options, 'after_state_loaded', { operation: 'complete', sessionId: safeSessionId })
-      if (!current) throw new LearningSessionLedgerError('not_found', `Learning Session "${safeSessionId}" was not found.`)
-      if (current.readOnly) {
-        throw new LearningSessionLedgerError('read_only', `Session "${safeSessionId}" is a legacy read-only projection.`)
-      }
-      const normalizedOutcomeRef = normalizeOutcomeRef(outcomeRef, safeSessionId)
-      if (current.status === 'completed') {
-        if (!sameOutcomeRefs(current.outcomeRef, normalizedOutcomeRef)) {
-          throw new LearningSessionLedgerError('invalid_transition', `Completed Session "${safeSessionId}" cannot be committed to a different outcome.`)
-        }
-        return current
-      }
+    return this.withWriter('complete', safeSessionId, (workspaceRoot) =>
+      this.completeUnlocked(workspaceRoot, safeSessionId, outcomeRef)
+    )
+  }
 
-      const knownEventIds = new Set(current.events.map((candidate) => candidate.eventId))
-      const missingEvidenceIds = normalizedOutcomeRef.evidenceEventIds.filter((eventId) => !knownEventIds.has(eventId))
-      if (missingEvidenceIds.length > 0) {
-        throw invalidInput(`Learning outcome references unknown Session evidence: ${missingEvidenceIds.join(', ')}.`)
-      }
-      const sessionsRoot = await requireLearningSessionsRoot(workspaceRoot)
-      const sessionRoot = await requireCanonicalSessionRoot(workspaceRoot, sessionsRoot, safeSessionId)
-      await validateCommittedOutcome(
-        workspaceRoot,
-        safeSessionId,
-        sessionRoot,
-        normalizedOutcomeRef,
-        'input',
-        this.options,
-        'complete'
-      )
-
-      const completedAt = latestTimestamp(
-        current.createdAt,
-        current.updatedAt,
-        requireIsoTimestamp(this.now(), 'Session completion time')
-      )
-      const nextManifest: CanonicalLearningSessionManifest = {
-        ...manifestFromSnapshot(current),
-        status: 'completed',
-        version: current.version + 1,
-        updatedAt: completedAt,
-        completedAt,
-        outcomeRef: normalizedOutcomeRef
-      }
-      await durableAtomicReplaceFile(
-        workspaceRoot,
-        join(sessionRoot, SESSION_MANIFEST_FILE),
-        serializeManifest(nextManifest),
-        this.options,
-        this.settlement,
-        { operation: 'complete', sessionId: safeSessionId }
-      )
-      await validateCommittedOutcome(
-        workspaceRoot,
-        safeSessionId,
-        sessionRoot,
-        normalizedOutcomeRef,
-        'corrupt',
-        this.options,
-        'complete'
-      )
-      return { ...nextManifest, events: current.events }
-    })
+  async withWriterLock<T>(
+    sessionId: string,
+    execute: (scope: LearningSessionLedgerWriterScope) => Promise<T>
+  ): Promise<T> {
+    const safeSessionId = requireSessionId(sessionId, 'Session ID')
+    return this.withWriter('repair', safeSessionId, async (workspaceRoot) => execute({
+      load: async (requestedSessionId) => {
+        const requested = requireWriterScopeSessionId(requestedSessionId, safeSessionId)
+        return this.loadUnlocked(workspaceRoot, requested, 'repair')
+      },
+      loadForOutcomeReconciliation: async (requestedSessionId) => {
+        const requested = requireWriterScopeSessionId(requestedSessionId, safeSessionId)
+        return this.loadUnlocked(workspaceRoot, requested, 'repair', { validateCompletedOutcome: false, repairManifest: false })
+      },
+      complete: async (requestedSessionId, outcomeRef) => {
+        const requested = requireWriterScopeSessionId(requestedSessionId, safeSessionId)
+        return this.completeUnlocked(workspaceRoot, requested, outcomeRef)
+      },
+      injectFault: async (point, path) => injectFault(this.options, point, {
+        operation: 'repair',
+        sessionId: safeSessionId,
+        ...(path ? { path } : {})
+      })
+    }))
   }
 
   async load(sessionId: string): Promise<LearningSessionSnapshot | null> {
@@ -542,23 +538,94 @@ class FileLearningSessionLedger implements LearningSessionLedger {
     )
   }
 
+  private async completeUnlocked(
+    workspaceRoot: string,
+    safeSessionId: string,
+    outcomeRef: LearningOutcomeRef
+  ): Promise<LearningSessionSnapshot> {
+    const current = await this.loadUnlocked(workspaceRoot, safeSessionId, 'complete')
+    await injectFault(this.options, 'after_state_loaded', { operation: 'complete', sessionId: safeSessionId })
+    if (!current) throw new LearningSessionLedgerError('not_found', `Learning Session "${safeSessionId}" was not found.`)
+    if (current.readOnly) {
+      throw new LearningSessionLedgerError('read_only', `Session "${safeSessionId}" is a legacy read-only projection.`)
+    }
+    const normalizedOutcomeRef = normalizeOutcomeRef(outcomeRef, safeSessionId)
+    if (current.status === 'completed') {
+      if (!sameOutcomeRefs(current.outcomeRef, normalizedOutcomeRef)) {
+        throw new LearningSessionLedgerError('invalid_transition', `Completed Session "${safeSessionId}" cannot be committed to a different outcome.`)
+      }
+      return current
+    }
+
+    const knownEventIds = new Set(current.events.map((candidate) => candidate.eventId))
+    const missingEvidenceIds = normalizedOutcomeRef.evidenceEventIds.filter((eventId) => !knownEventIds.has(eventId))
+    if (missingEvidenceIds.length > 0) {
+      throw invalidInput(`Learning outcome references unknown Session evidence: ${missingEvidenceIds.join(', ')}.`)
+    }
+    const sessionsRoot = await requireLearningSessionsRoot(workspaceRoot)
+    const sessionRoot = await requireCanonicalSessionRoot(workspaceRoot, sessionsRoot, safeSessionId)
+    await validateCommittedOutcome(
+      workspaceRoot,
+      safeSessionId,
+      sessionRoot,
+      normalizedOutcomeRef,
+      'input',
+      this.options,
+      'complete'
+    )
+
+    const completedAt = latestTimestamp(
+      current.createdAt,
+      current.updatedAt,
+      requireIsoTimestamp(this.now(), 'Session completion time')
+    )
+    const nextManifest: CanonicalLearningSessionManifest = {
+      ...manifestFromSnapshot(current),
+      status: 'completed',
+      version: current.version + 1,
+      updatedAt: completedAt,
+      completedAt,
+      outcomeRef: normalizedOutcomeRef
+    }
+    await durableAtomicReplaceFile(
+      workspaceRoot,
+      join(sessionRoot, SESSION_MANIFEST_FILE),
+      serializeManifest(nextManifest),
+      this.options,
+      this.settlement,
+      { operation: 'complete', sessionId: safeSessionId }
+    )
+    await validateCommittedOutcome(
+      workspaceRoot,
+      safeSessionId,
+      sessionRoot,
+      normalizedOutcomeRef,
+      'corrupt',
+      this.options,
+      'complete'
+    )
+    return { ...nextManifest, events: current.events }
+  }
+
   private async loadUnlocked(
     workspaceRoot: string,
     safeSessionId: string,
-    operation: LearningSessionWriterOperation
+    operation: LearningSessionWriterOperation,
+    options: SessionLoadOptions = {}
   ): Promise<LearningSessionSnapshot | null> {
     const sessionsRoot = await existingLearningSessionsRoot(workspaceRoot)
     if (!sessionsRoot) return this.loadLegacy(safeSessionId)
     const sessionRoot = await resolveCanonicalSessionRoot(workspaceRoot, sessionsRoot, safeSessionId)
     if (!sessionRoot) return this.loadLegacy(safeSessionId)
-    return this.loadCanonicalAtRoot(workspaceRoot, safeSessionId, sessionRoot, operation)
+    return this.loadCanonicalAtRoot(workspaceRoot, safeSessionId, sessionRoot, operation, options)
   }
 
   private async loadCanonicalAtRoot(
     workspaceRoot: string,
     safeSessionId: string,
     sessionRoot: string,
-    operation: LearningSessionWriterOperation
+    operation: LearningSessionWriterOperation,
+    options: SessionLoadOptions = {}
   ): Promise<CanonicalLearningSessionSnapshot> {
     await assertSafeExistingDirectory(workspaceRoot, sessionRoot, safeSessionId)
     const manifestPath = join(sessionRoot, SESSION_MANIFEST_FILE)
@@ -591,6 +658,14 @@ class FileLearningSessionLedger implements LearningSessionLedger {
       relativePath(workspaceRoot, join(sessionRoot, SESSION_EVENTS_DIRECTORY))
     )
     if (stableJsonStringify(repaired) !== stableJsonStringify(manifest)) {
+      if (options.repairManifest === false) {
+        throw corruptSession(
+          safeSessionId,
+          relativePath(workspaceRoot, manifestPath),
+          'Session manifest requires independent repair before Learning outcome reconciliation.',
+          'invalid_session_manifest'
+        )
+      }
       await injectFault(this.options, 'before_manifest_repair', {
         operation,
         sessionId: safeSessionId,
@@ -616,15 +691,17 @@ class FileLearningSessionLedger implements LearningSessionLedger {
           'invalid_session_outcome'
         )
       }
-      await validateCommittedOutcome(
-        workspaceRoot,
-        safeSessionId,
-        sessionRoot,
-        repaired.outcomeRef,
-        'corrupt',
-        this.options,
-        operation
-      )
+      if (options.validateCompletedOutcome !== false) {
+        await validateCommittedOutcome(
+          workspaceRoot,
+          safeSessionId,
+          sessionRoot,
+          repaired.outcomeRef,
+          'corrupt',
+          this.options,
+          operation
+        )
+      }
     }
     return { ...repaired, events }
   }
