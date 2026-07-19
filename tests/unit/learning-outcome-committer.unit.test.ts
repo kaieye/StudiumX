@@ -6471,6 +6471,96 @@ describe('LearningOutcomeCommitter', () => {
     })
   })
 
+  it('fails closed before writes when session.json is a directory', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-session-json-directory-failure-unit'
+    const outcomeId = 'outcome-commit-session-json-directory-failure-1'
+    const operationId = 'commit-session-json-directory-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-session-json-directory-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    // Distinct from post-settlement restart directory residual: poison before any outcome publish.
+    await rm(manifestPath)
+    await mkdir(manifestPath)
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(lstat(manifestPath)).resolves.toMatchObject({ isDirectory: expect.any(Function) })
+    expect((await lstat(manifestPath)).isDirectory()).toBe(true)
+  })
+
+  it('fails closed before writes when session.json is a non-file symlink', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-session-json-symlink-failure-unit'
+    const outcomeId = 'outcome-commit-session-json-symlink-failure-1'
+    const operationId = 'commit-session-json-symlink-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-session-json-symlink-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const outsideManifest = join(workspaceRoot, 'outside-pre-write-session-manifest.json')
+    await writeFile(outsideManifest, '{"schemaVersion":1,"poison":true}\n', 'utf8')
+    await rm(manifestPath)
+    try {
+      await symlink(outsideManifest, manifestPath, 'file')
+    } catch (error) {
+      // Some hosts refuse file symlink creation; keep the residual optional only on EPERM.
+      expect(error).toMatchObject({ code: 'EPERM' })
+      return
+    }
+    await expect(lstat(manifestPath)).resolves.toMatchObject({ isSymbolicLink: expect.any(Function) })
+    expect((await lstat(manifestPath)).isSymbolicLink()).toBe(true)
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await lstat(manifestPath)).isSymbolicLink()).toBe(true)
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
