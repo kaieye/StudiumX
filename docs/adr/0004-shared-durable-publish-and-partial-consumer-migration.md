@@ -683,6 +683,24 @@ pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.t
 # P6-S52 well-formed number assessment residual: 1 file, 77 tests passed
 ```
 
+## C-4P6-S53：well-formed whitespace-only recordId 的 tests-only evidence
+
+`eee9b34`（`test(data): cover whitespace learning record recordId residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 whitespace-only 的 canonical learning-record `recordId` residual：其它 metadata/body 仍合法，仅 `recordId: " "`，使 `text()` 返回 null 且 `readCanonicalRecord` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 recordId、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S53 well-formed whitespace-only recordId residual: 1 file, 78 tests passed
+```
+
+## C-4P6-S54：well-formed string assessment 的 tests-only evidence
+
+`1a481c4`（`test(data): cover string learning record assessment residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 string 的 assessment residual：其它 metadata/body 仍合法，仅 `assessment: "not-an-assessment-object"`，使 `isVerifiedAssessment` 拒绝；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 assessment、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S54 well-formed string assessment residual: 1 file, 79 tests passed
+```
+
 ## C-4P8：已关闭的受控 workspace-tool scope
 
 C-4P8 的 S1 至 S4 已在**受控 `write_workspace_file` 文本文件 create / restricted-overwrite scope**关闭。S1 的 workspace descriptor foundation 证据为 `80f2fd0` / `e2ce36c`；S2 的 `b46c8b2` / `bdcd6cb` 和 S3 的 `56eabe6` / `54506d5` 仍是 POSIX descriptor-bound foundation；S4 的 handler/API integration 与定向测试为 `0bbfdef` / `e84c813`。2026-07-19 经明确批准后，Windows 另实现 root-constrained direct-path profile；它不把 Windows 冒充为该 descriptor-bound foundation。
