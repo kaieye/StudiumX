@@ -27,6 +27,26 @@ async function exists(path: string): Promise<boolean> {
   return stat(path).then((info) => info.isFile()).catch(() => false)
 }
 
+function assertPublishedOrFailsClosed(result: Record<string, unknown>, path: string): boolean {
+  if (process.platform !== 'win32') {
+    assert.equal(result.created, true)
+    return true
+  }
+
+  // The native addon explicitly refuses descriptor-relative traversal on
+  // Windows, so permissions can be granted while publication still fails
+  // closed. Linux host-native coverage verifies successful S2/S3 publication.
+  assert.deepEqual(
+    { path: result.path, code: result.code, error: result.error },
+    {
+      path,
+      code: 'containment_unavailable',
+      error: '无法安全绑定工作区目标。'
+    }
+  )
+  return false
+}
+
 const root = await mkdtemp(join(tmpdir(), 'studiumx-tool-permissions-'))
 
 try {
@@ -39,8 +59,9 @@ try {
     path: 'notes/allowed.md',
     content: '# Allowed\n'
   }))
-  assert.equal(allowResult.created, true)
-  assert.equal(await readFile(join(root, 'notes/allowed.md'), 'utf8'), '# Allowed\n')
+  if (assertPublishedOrFailsClosed(allowResult, 'notes/allowed.md')) {
+    assert.equal(await readFile(join(root, 'notes/allowed.md'), 'utf8'), '# Allowed\n')
+  }
 
   const requestSettings = settingsFor(root, 'request_approval')
   const requestWithoutResolverHandlers = buildDefaultRegistry(requestSettings, {
@@ -64,8 +85,9 @@ try {
     path: 'notes/risk-based-new.md',
     content: '# Created without approval\n'
   }))
-  assert.equal(riskBasedResult.created, true)
-  assert.equal(await readFile(join(root, 'notes/risk-based-new.md'), 'utf8'), '# Created without approval\n')
+  if (assertPublishedOrFailsClosed(riskBasedResult, 'notes/risk-based-new.md')) {
+    assert.equal(await readFile(join(root, 'notes/risk-based-new.md'), 'utf8'), '# Created without approval\n')
+  }
 
   const askSettings = settingsFor(root, 'request_approval')
   const askWithoutResolverHandlers = buildDefaultRegistry(askSettings, {
@@ -97,8 +119,9 @@ try {
     toolCallId: 'call-approved',
     toolName: 'write_workspace_file'
   }))
-  assert.equal(approvedResult.created, true)
-  assert.equal(await readFile(join(root, 'notes/approved.md'), 'utf8'), '# Approved\n')
+  if (assertPublishedOrFailsClosed(approvedResult, 'notes/approved.md')) {
+    assert.equal(await readFile(join(root, 'notes/approved.md'), 'utf8'), '# Approved\n')
+  }
   assert.deepEqual(approvalRequests.map((request) => ({
     id: request.id,
     kind: request.kind,

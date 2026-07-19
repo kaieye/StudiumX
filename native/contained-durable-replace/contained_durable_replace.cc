@@ -127,7 +127,13 @@ void CloseCapability(napi_env, void* data, void*) {
 
 struct TemporaryFileCapability {
   int fd = -1;
+  // This is intentionally not a target identity/version token. It records
+  // only that descriptor-bound no-follow reinspection and candidate chmod
+  // completed before the candidate's checked close.
+  bool restricted_overwrite_prepared = false;
 };
+
+bool GetTemporaryFileCapability(napi_env env, napi_value value, TemporaryFileCapability** output, const char* operation);
 
 void CloseTemporaryFileCapability(napi_env, void* data, void*) {
   auto* capability = static_cast<TemporaryFileCapability*>(data);
@@ -216,6 +222,60 @@ bool IsCreateNoOverwritePrimitiveUnavailable(int error) {
   // does not provide the required atomic no-clobber primitive. Do not fall
   // back to a check followed by rename.
   return error == ENOSYS || error == EINVAL || error == ENOTSUP || error == EOPNOTSUPP;
+}
+
+bool InspectRestrictedOverwriteTarget(
+  int directory_fd,
+  const char* filename,
+  struct stat* target,
+  std::string* error,
+  std::string* error_code
+) {
+  if (fstatat(directory_fd, filename, target, AT_SYMLINK_NOFOLLOW) != 0) {
+    *error = std::string("Unable to inspect descriptor-relative restricted-overwrite target: ") + std::strerror(errno);
+    *error_code = errno == ENOENT ? "ENOENT" : "EIO";
+    return false;
+  }
+  if (!S_ISREG(target->st_mode) || target->st_nlink != 1) {
+    *error = "Restricted overwrite requires an existing single-link regular file.";
+    *error_code = "ERR_CONTAINED_RESTRICTED_OVERWRITE_TARGET_INVALID";
+    return false;
+  }
+  return true;
+}
+
+bool ExchangeRestrictedOverwrite(
+  int directory_fd,
+  const char* temporary_name,
+  const char* filename,
+  std::string* error,
+  std::string* error_code
+) {
+#if defined(__APPLE__)
+  if (renameatx_np(directory_fd, temporary_name, directory_fd, filename, RENAME_SWAP) == 0) return true;
+  const int exchange_error = errno;
+#elif defined(__linux__) && defined(SYS_renameat2) && defined(RENAME_EXCHANGE)
+  if (syscall(SYS_renameat2, directory_fd, temporary_name, directory_fd, filename, RENAME_EXCHANGE) == 0) return true;
+  const int exchange_error = errno;
+#else
+  (void)directory_fd;
+  (void)temporary_name;
+  (void)filename;
+  *error = "Atomic descriptor-relative restricted overwrite exchange is unavailable on this platform.";
+  *error_code = "ERR_CONTAINED_RESTRICTED_OVERWRITE_UNAVAILABLE";
+  return false;
+#endif
+
+#if defined(__APPLE__) || (defined(__linux__) && defined(SYS_renameat2) && defined(RENAME_EXCHANGE))
+  if (exchange_error == ENOSYS || exchange_error == EINVAL || exchange_error == ENOTSUP || exchange_error == EOPNOTSUPP) {
+    *error = "Atomic descriptor-relative restricted overwrite exchange is unavailable on this host.";
+    *error_code = "ERR_CONTAINED_RESTRICTED_OVERWRITE_UNAVAILABLE";
+    return false;
+  }
+  *error = std::string("Unable to exchange descriptor-relative restricted-overwrite candidate: ") + std::strerror(exchange_error);
+  *error_code = "EIO";
+  return false;
+#endif
 }
 
 bool PublishCreateNoOverwrite(int directory_fd, const char* temporary_name, const char* filename, std::string* error, std::string* error_code) {
@@ -1017,6 +1077,97 @@ napi_value WriteContainedTemporaryFile(napi_env env, napi_callback_info info) {
 #endif
 }
 
+napi_value PrepareContainedRestrictedOverwriteCandidate(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value argv[3] = {nullptr, nullptr, nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read prepareContainedRestrictedOverwriteCandidate arguments")) return nullptr;
+  if (argc != 3) {
+    napi_throw_error(env, nullptr, "prepareContainedRestrictedOverwriteCandidate requires a directory capability, temporary file capability, and target name.");
+    return nullptr;
+  }
+  DirectoryCapability* directory = nullptr;
+  TemporaryFileCapability* temporary = nullptr;
+  std::string filename;
+  if (!GetDirectoryCapability(env, argv[0], &directory, "Unable to read contained directory capability") ||
+      !GetTemporaryFileCapability(env, argv[1], &temporary, "Unable to read contained temporary file capability") ||
+      !GetString(env, argv[2], &filename) || !IsSafeName(filename)) {
+    napi_throw_error(env, nullptr, "Contained restricted-overwrite candidate arguments are invalid.");
+    return nullptr;
+  }
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained restricted overwrite is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  struct stat target {};
+  std::string error;
+  std::string error_code;
+  if (!InspectRestrictedOverwriteTarget(directory->fd, filename.c_str(), &target, &error, &error_code)) {
+    ThrowNativeError(env, error, error_code.c_str());
+    return nullptr;
+  }
+  const mode_t target_mode = target.st_mode & 0777;
+  if (fchmod(temporary->fd, target_mode) != 0) {
+    ThrowNativeError(env, std::string("Unable to set restricted-overwrite candidate mode: ") + std::strerror(errno), "EIO");
+    return nullptr;
+  }
+  temporary->restricted_overwrite_prepared = true;
+  napi_value undefined = nullptr;
+  if (!ThrowNapiError(env, napi_get_undefined(env, &undefined), "Unable to return from prepareContainedRestrictedOverwriteCandidate")) return nullptr;
+  return undefined;
+#endif
+}
+
+napi_value SwapContainedRestrictedOverwriteAtContainedDirectory(napi_env env, napi_callback_info info) {
+  size_t argc = 4;
+  napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read swapContainedRestrictedOverwriteAtContainedDirectory arguments")) return nullptr;
+  if (argc != 4) {
+    napi_throw_error(env, nullptr, "swapContainedRestrictedOverwriteAtContainedDirectory requires a directory capability, temporary file capability, temporary name, and target name.");
+    return nullptr;
+  }
+  DirectoryCapability* directory = nullptr;
+  TemporaryFileCapability* temporary = nullptr;
+  std::string temporary_name;
+  std::string filename;
+  if (!GetDirectoryCapability(env, argv[0], &directory, "Unable to read contained directory capability") ||
+      !ThrowNapiError(env, napi_get_value_external(env, argv[1], reinterpret_cast<void**>(&temporary)), "Unable to read contained temporary file capability") ||
+      temporary == nullptr ||
+      !GetString(env, argv[2], &temporary_name) || !GetString(env, argv[3], &filename) ||
+      !IsSafeName(temporary_name) || !IsSafeName(filename)) {
+    napi_throw_error(env, nullptr, "Contained restricted-overwrite swap arguments are invalid.");
+    return nullptr;
+  }
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained restricted overwrite is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  if (temporary->fd >= 0 || !temporary->restricted_overwrite_prepared) {
+    ThrowNativeError(env, "Restricted-overwrite candidate must be prepared and checked-closed before exchange.", "ERR_CONTAINED_RESTRICTED_OVERWRITE_CANDIDATE_UNREADY");
+    return nullptr;
+  }
+
+  // Obtain every fallible N-API return value before publication. After a
+  // successful exchange, this callback must return directly so TypeScript can
+  // never observe an exception and mistake a published target for an
+  // unpublished one.
+  napi_value undefined = nullptr;
+  if (!ThrowNapiError(env, napi_get_undefined(env, &undefined), "Unable to prepare swapContainedRestrictedOverwriteAtContainedDirectory result")) return nullptr;
+
+  // Deliberately non-CAS: preparation already performed the required
+  // no-follow regular/nlink reinspection and candidate chmod. Do not retain or
+  // compare device, inode, mode, or any other target version here. A concurrent
+  // regular replacement may be overwritten; an incompatible replacement is
+  // left to the exchange syscall and is classified by the caller as uncertain.
+  std::string error;
+  std::string error_code;
+  if (!ExchangeRestrictedOverwrite(directory->fd, temporary_name.c_str(), filename.c_str(), &error, &error_code)) {
+    ThrowNativeError(env, error, error_code.c_str());
+    return nullptr;
+  }
+  return undefined;
+#endif
+}
+
 napi_value SyncContainedTemporaryFile(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value argv[1] = {nullptr};
@@ -1233,6 +1384,8 @@ napi_value Init(napi_env env, napi_value exports) {
     {"replaceAtContainedDirectory", nullptr, ReplaceAtContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"createContainedTemporaryFile", nullptr, CreateContainedTemporaryFile, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"writeContainedTemporaryFile", nullptr, WriteContainedTemporaryFile, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"prepareContainedRestrictedOverwriteCandidate", nullptr, PrepareContainedRestrictedOverwriteCandidate, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"swapContainedRestrictedOverwriteAtContainedDirectory", nullptr, SwapContainedRestrictedOverwriteAtContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"syncContainedTemporaryFile", nullptr, SyncContainedTemporaryFile, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"closeContainedTemporaryFileChecked", nullptr, CloseContainedTemporaryFileChecked, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"publishNoOverwriteAtContainedDirectory", nullptr, PublishNoOverwriteAtContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -1241,7 +1394,7 @@ napi_value Init(napi_env env, napi_value exports) {
     {"closeContainedDirectoryChecked", nullptr, CloseContainedDirectoryChecked, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"closeContainedDirectory", nullptr, CloseContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr}
   };
-  if (!ThrowNapiError(env, napi_define_properties(env, exports, 17, properties), "Unable to define contained durable replacement exports")) return nullptr;
+  if (!ThrowNapiError(env, napi_define_properties(env, exports, 19, properties), "Unable to define contained durable replacement exports")) return nullptr;
   return exports;
 }
 

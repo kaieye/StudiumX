@@ -1,10 +1,15 @@
+import { Buffer } from 'node:buffer'
 import { lstat, mkdir, mkdtemp, open as openFile, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { saveAgentConversationArchive } from '../../src/main/agent-conversation-archive'
-import { type AgentConversationSessionAuditOperations } from '../../src/main/agent-conversation-session-audit'
+import {
+  buildAgentConversationSessionAuditEntries,
+  parseAgentConversationSessionAuditLines,
+  type AgentConversationSessionAuditOperations
+} from '../../src/main/agent-conversation-session-audit'
 import { LEARNING_WORK_LEDGER_RELATIVE_PATH } from '../../src/main/learning-work-ledger'
 import type { DurableFileOperations } from '../../src/main/persistence/durable-file'
 import {
@@ -22,9 +27,16 @@ type InstrumentedDurableOperations = {
   modes: Array<{ path: string; mode: number | undefined }>
 }
 
+type AuditWritePlan = (input: {
+  path: string
+  bytes: Buffer
+  writeCall: number
+}) => { bytesWritten?: number; failure?: Error } | undefined
+
 type InstrumentedSessionAuditOperations = {
   operations: AgentConversationSessionAuditOperations
   events: string[]
+  writtenBuffers: Buffer[]
 }
 
 afterEach(async () => {
@@ -93,8 +105,11 @@ function instrumentedDurableOperations(options: {
  * ledger behavior remain real archive collaborators. */
 function instrumentedSessionAuditOperations(options: {
   fail?: (event: string) => Error | undefined
+  writePlan?: AuditWritePlan
 } = {}): InstrumentedSessionAuditOperations {
   const events: string[] = []
+  const writtenBuffers: Buffer[] = []
+  let writeCall = 0
   const observe = (event: string): void => {
     events.push(event)
     const failure = options.fail?.(event)
@@ -117,7 +132,15 @@ function instrumentedSessionAuditOperations(options: {
         },
         write: async (buffer, offset, length, position) => {
           observe(`write:${path}`)
-          const result = await handle.write(buffer, offset, length, position)
+          const plan = options.writePlan?.({
+            path,
+            bytes: Buffer.from(buffer.subarray(offset, offset + length)),
+            writeCall: writeCall++
+          })
+          if (plan?.failure) throw plan.failure
+          const writeLength = Math.min(length, plan?.bytesWritten ?? length)
+          const result = await handle.write(buffer, offset, writeLength, position)
+          writtenBuffers.push(Buffer.from(buffer.subarray(offset, offset + result.bytesWritten)))
           return { bytesWritten: result.bytesWritten }
         },
         stat: async () => {
@@ -141,7 +164,7 @@ function instrumentedSessionAuditOperations(options: {
       }
     }
   }
-  return { operations, events }
+  return { operations, events, writtenBuffers }
 }
 
 async function archiveFixture(): Promise<{
@@ -402,6 +425,122 @@ describe('Agent conversation archive durable canonical publication', () => {
     await expect(readFile(fixture.markdownPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expectNoAuditOrLedger(fixture)
     expect(await temporaryFiles(fixture.rootPath)).toEqual([])
+  })
+
+  it.each([
+    ['audit file sync', (fixture: Awaited<ReturnType<typeof archiveFixture>>) => `sync:${fixture.auditPath}`],
+    ['audit file close', (fixture: Awaited<ReturnType<typeof archiveFixture>>) => `close:${fixture.auditPath}`],
+    ['audit directory open', (fixture: Awaited<ReturnType<typeof archiveFixture>>) => `open:r:${dirname(fixture.auditPath)}`],
+    ['audit directory sync', (fixture: Awaited<ReturnType<typeof archiveFixture>>) => `sync:${dirname(fixture.auditPath)}`],
+    ['audit directory close', (fixture: Awaited<ReturnType<typeof archiveFixture>>) => `close:${dirname(fixture.auditPath)}`],
+    ['conversation parent directory open', (fixture: Awaited<ReturnType<typeof archiveFixture>>) => `open:r:${dirname(dirname(fixture.auditPath))}`],
+    ['conversation parent directory sync', (fixture: Awaited<ReturnType<typeof archiveFixture>>) => `sync:${dirname(dirname(fixture.auditPath))}`],
+    ['conversation parent directory close', (fixture: Awaited<ReturnType<typeof archiveFixture>>) => `close:${dirname(dirname(fixture.auditPath))}`]
+  ])('keeps canonical files and audit bytes after fatal %s, then retries audit durability before one ledger entry', async (_name, failureEventFor) => {
+    const fixture = await archiveFixture()
+    const failureEvent = failureEventFor(fixture)
+    const failedAudit = instrumentedSessionAuditOperations({
+      fail: (event) => event === failureEvent ? errno('EIO') : undefined
+    })
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: failedAudit.operations
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    await expect(readFile(fixture.jsonPath, 'utf8')).resolves.toContain(fixture.record.id)
+    await expect(readFile(fixture.markdownPath, 'utf8')).resolves.toContain('OAuth archive notes')
+    const auditAfterFailure = await readFile(fixture.auditPath)
+    expect(auditAfterFailure.byteLength).toBeGreaterThan(0)
+    await expect(readFile(fixture.ledgerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(failedAudit.events).toContain(failureEvent)
+
+    const retryAudit = instrumentedSessionAuditOperations()
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: retryAudit.operations
+    })).resolves.toBeUndefined()
+
+    expect(await readFile(fixture.auditPath)).toEqual(auditAfterFailure)
+    expect(retryAudit.events).toContain(`read:${fixture.auditPath}`)
+    expect(retryAudit.events).not.toContain(`write:${fixture.auditPath}`)
+    const auditDirectory = dirname(fixture.auditPath)
+    const parentDirectory = dirname(auditDirectory)
+    const fileSync = retryAudit.events.indexOf(`sync:${fixture.auditPath}`)
+    const fileClose = retryAudit.events.indexOf(`close:${fixture.auditPath}`)
+    const auditOpen = retryAudit.events.indexOf(`open:r:${auditDirectory}`)
+    const auditSync = retryAudit.events.indexOf(`sync:${auditDirectory}`)
+    const auditClose = retryAudit.events.indexOf(`close:${auditDirectory}`)
+    const parentOpen = retryAudit.events.indexOf(`open:r:${parentDirectory}`)
+    const parentSync = retryAudit.events.indexOf(`sync:${parentDirectory}`)
+    const parentClose = retryAudit.events.indexOf(`close:${parentDirectory}`)
+    expect(fileSync).toBeGreaterThanOrEqual(0)
+    expect(fileClose).toBeGreaterThan(fileSync)
+    expect(auditOpen).toBeGreaterThan(fileClose)
+    expect(auditSync).toBeGreaterThan(auditOpen)
+    expect(auditClose).toBeGreaterThan(auditSync)
+    expect(parentOpen).toBeGreaterThan(auditClose)
+    expect(parentSync).toBeGreaterThan(parentOpen)
+    expect(parentClose).toBeGreaterThan(parentSync)
+
+    const auditLines = parseAgentConversationSessionAuditLines((await readFile(fixture.auditPath, 'utf8')))
+    const expectedAuditIds = [fixture.record.id, ...buildAgentConversationSessionAuditEntries(fixture.record).map((entry) => entry.id)]
+    for (const id of expectedAuditIds) {
+      expect(auditLines.filter((line) => line.id === id)).toHaveLength(1)
+    }
+    const ledgerLines = (await readFile(fixture.ledgerPath, 'utf8')).trim().split('\n')
+    expect(ledgerLines).toHaveLength(1)
+    expect(JSON.parse(ledgerLines[0]!)).toMatchObject({ conversation: { id: fixture.record.id } })
+  })
+
+  it('preserves a partial audit prefix across an archive retry, fills only missing canonical rows, and appends one ledger entry', async () => {
+    const fixture = await archiveFixture()
+    let cutAt = 0
+    const failedAudit = instrumentedSessionAuditOperations({
+      writePlan: ({ bytes, writeCall }) => {
+        if (writeCall === 0) {
+          cutAt = bytes.indexOf(0x0a) + 13
+          return { bytesWritten: cutAt }
+        }
+        return { failure: errno('EIO') }
+      }
+    })
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: failedAudit.operations
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    const partialPrefix = await readFile(fixture.auditPath)
+    expect(partialPrefix.byteLength).toBe(cutAt)
+    await expect(readFile(fixture.jsonPath, 'utf8')).resolves.toContain(fixture.record.id)
+    await expect(readFile(fixture.markdownPath, 'utf8')).resolves.toContain('OAuth archive notes')
+    await expect(readFile(fixture.ledgerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+
+    const retryAudit = instrumentedSessionAuditOperations()
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: retryAudit.operations
+    })).resolves.toBeUndefined()
+
+    const finalAudit = await readFile(fixture.auditPath)
+    expect(finalAudit.subarray(0, partialPrefix.byteLength)).toEqual(partialPrefix)
+    expect(finalAudit[partialPrefix.byteLength]).toBe(0x0a)
+    expect(retryAudit.events).toContain(`read:${fixture.auditPath}`)
+    expect(retryAudit.events).toContain(`write:${fixture.auditPath}`)
+    expect(Buffer.concat(retryAudit.writtenBuffers).toString('utf8')).not.toContain('"type":"session"')
+    const auditLines = parseAgentConversationSessionAuditLines(finalAudit.toString('utf8'))
+    const expectedAuditIds = [fixture.record.id, ...buildAgentConversationSessionAuditEntries(fixture.record).map((entry) => entry.id)]
+    for (const id of expectedAuditIds) {
+      expect(auditLines.filter((line) => line.id === id)).toHaveLength(1)
+    }
+    const ledgerLines = (await readFile(fixture.ledgerPath, 'utf8')).trim().split('\n')
+    expect(ledgerLines).toHaveLength(1)
+    expect(JSON.parse(ledgerLines[0]!)).toMatchObject({ conversation: { id: fixture.record.id } })
   })
 
   it('blocks the ledger after a post-append audit-directory failure, then exact-dedupes the retry before ledger and final verification', async () => {

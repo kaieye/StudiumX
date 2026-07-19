@@ -8,27 +8,17 @@
 
 1. 任何后续切片先在对应 design gate 获得 scope / owner / API 批准，再单独立项；不得直接修改其 writer 以“顺手迁移”。
 2. canonical JSON、Markdown、JSONL、immutable record 和 Memory 文件仍是事实来源；projection、分区、sealing、summary、`.bak` 与 receipt 都不授权删除或替代事实来源。
-3. 不得把 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 的部分 consumer migration（包括 C-4P6-S1）解释为全量 writer migration、完整 C-4P6 或跨文件事务，也不得把 [ADR-0005](adr/0005-main-owned-trace-correlation-and-safe-logs.md) 解释为全局 actionId / retry / receipt。
+3. [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 记录的是**部分** consumer migration：C-4P8 已在受控 `write_workspace_file` 的文本文件 create / restricted-overwrite scope 关闭，但这不表示所有 writer 已迁移、完整 C-4P6、完整 C-4P9 或跨文件事务已经完成；C-4P6-S1 也不得扩大为完整 C-4P6。不得把 [ADR-0005](adr/0005-main-owned-trace-correlation-and-safe-logs.md) 解释为全局 actionId / retry / receipt。
 
-## C-4：仍未完成的 durable writer / closure 设计门
-
-### P8：agent workspace tool durable publish
-
-- 设计文档：[C-4P8 Workspace tool durable publish](plans/local-data-workspace-tool-durable-publish-design.md)
-- **P8 未完成；S1 和 S2 已实施。**S1 的 workspace descriptor foundation 证据为 `80f2fd0` / `e2ce36c`；S2 的 `b46c8b2` / `bdcd6cb` 只实现 internal descriptor-bound atomic `createNoOverwrite` foundation。证据、受限语义与实际验证入口见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
-- **剩余且必须另行获批的顺序：**
-  1. **S3** restricted overwrite；
-  2. **S4** handler / API integration。
-- **仍未完成 / 未批准：**S3、S4 均未实施且未批准。S2 没有迁移 handler、registry、IPC 或 API；`write_workspace_file` 仍完全未接入，现有 handler 不变且不支持 overwrite。不得把 internal `target_exists` 或 `possibly_published` 误写成 tool-facing stable contract。
-- **未关闭验证风险：**本轮只在 macOS host-built addon 定向验证；Linux host-native exclusive rename 未真实验证。仓库没有 `.github` CI 目录，因此 Linux build / targeted test 是后续验收，不得声称 P8 跨平台完成。
-- 禁止越界：不得把 agent `write_workspace_file` 直接替换成 `replaceDurably()`；C-4P5 allowlisted Markdown service 与该任意受控工具 writer 是不同 scope。
+## C-4：仍未完成的其它 durable writer / closure 设计门
 
 ### P9：session-audit durable append
 
 - 设计文档：[C-4P9 Session-audit durable append](plans/local-data-session-audit-durable-append-design.md)
-- **已实施且仅限 S2：**`4b30220` / `5f47382` 完成 **P9-S2 audit 专用 framed、legacy-compatible、fixed-file durable append**；证据与实际验证入口见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
-- **S2 已交付的最小范围：**仅固定 `.agent-sessions/<conversation-id>.jsonl`；不 rotation、不调用 generic `durable-jsonl`；per absolute audit path queue 覆盖 same-descriptor exact-byte read / validate / dedupe / framed append / file fsync+close，随后 audit directory、再 conversation parent directory durability confirmation。directory open/sync 仅五个 allowlist code 可降级为通用 warning；post-directory failure retry 会先 dedupe exact rows，之后才继续既有 ledger flow。
-- **仍未完成：**C-4P9 整个 gate 未关闭。S2 不表示 generic JSONL migration、跨文件 transaction、ledger authority 或 archive save-order 变更、repair、rotation、IPC/UI 已实施；保留 design gate 中其余风险、验证矩阵与后续批准要求。
+- **已实施范围仍仅限 S2 + S3 evidence：**`4b30220` / `5f47382` 完成 **P9-S2 audit 专用 framed、legacy-compatible、fixed-file durable append**；`c286a42`（`test(data): cover audit durable append recovery`）完成严格 **P9-S3 tests-only evidence slice**。证据与实际验证入口见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
+- **S2 实现范围：**仅固定 `.agent-sessions/<conversation-id>.jsonl`；不 rotation、不调用 generic `durable-jsonl`；per absolute audit path queue 覆盖 same-descriptor exact-byte read / validate / dedupe / framed append / file fsync+close，随后 audit directory、再 conversation parent directory durability confirmation。directory open/sync 仅五个 allowlist code 可降级为通用 warning；post-directory failure retry 会先 dedupe exact rows，之后才继续既有 ledger flow。
+- **S3 新增 evidence 范围：**仅补齐 P9-S2 的 partial-write 与 archive-level failure/retry 定向证据：fixed-file non-rotating audit append 的真实 partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；无生产语义改动。定向 unit 覆盖 2 个文件、61 tests passed；本主会话实际运行 `pnpm typecheck`、`pnpm check:security`、`git diff --check` 均通过。
+- **仍未完成：**C-4P9 整个 gate 未关闭。S2 的实现与 S3 evidence 不表示 generic JSONL migration、跨文件 transaction、ledger authority 或 archive save-order 变更、repair、rotation、IPC/UI 已实施；保留 design gate 中其余风险、验证矩阵与后续批准要求。
 - 禁止越界：继续 **non-rotating**；不得接入 `appendDurableJsonlLine()` 的默认 month / size rotation，也不得将 C-4P1 archive publish 或 C-5E trace 计为完整 P9。不得以 S2 改变 ledger authority、JSON → Markdown → audit → 既有 ledger queue → final verify 的顺序，或扩大为其它 JSONL writer。
 
 ### P6：learning-outcome durable settlement 的剩余 close-out 设计门

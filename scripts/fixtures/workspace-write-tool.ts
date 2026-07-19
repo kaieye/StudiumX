@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, stat, symlink } from 'node:fs/promises'
+import { execFile, spawnSync } from 'node:child_process'
+import { link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import { buildDefaultRegistry, buildToolContext } from '../../src/main/ai/tools/registry'
+
+const execFileAsync = promisify(execFile)
+const mkfifoUnavailable = (spawnSync('mkfifo', [], { stdio: 'ignore' }).error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
+const unsupportedOptionalFilesystemCodes = new Set(['EACCES', 'EPERM', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP'])
 
 let tempRoot = ''
 
@@ -50,6 +56,7 @@ try {
     path: 'lessons/0001-rag-concepts-for-interview.html',
     content: '<!doctype html><title>RAG</title>'
   }))
+  assert.equal(lessonRejection.code, 'path_rejected')
   assert.match(lessonRejection.error, /generate_lesson/, 'lessons/*.html writes should redirect to generate_lesson')
   assert.equal(
     await stat(join(workspace.rootPath, 'lessons', '0001-rag-concepts-for-interview.html')).then(() => true).catch(() => false),
@@ -57,7 +64,28 @@ try {
     'rejected lesson write must not create a file'
   )
 
-  // Reference material stays agent-writable.
+  if (process.platform === 'win32') {
+    // The native addon explicitly refuses descriptor-relative traversal on
+    // Windows. Exercise the stable, fail-closed tool contract here; Linux
+    // host-native CI below covers the S2/S3 publication behavior.
+    const unavailableResult = JSON.parse(await handlers.write_workspace_file({
+      path: 'reference/rag-glossary.html',
+      content: '<!doctype html><title>must remain unpublished</title>'
+    }))
+    assert.deepEqual(
+      { path: unavailableResult.path, code: unavailableResult.code, error: unavailableResult.error },
+      {
+        path: 'reference/rag-glossary.html',
+        code: 'containment_unavailable',
+        error: '无法安全绑定工作区目标。'
+      },
+      'Windows must fail closed when descriptor-relative publication is unavailable'
+    )
+    console.log('[workspace write tool] Windows descriptor-relative publication is intentionally unavailable; fail-closed contract verified')
+  } else {
+  // Default creates must invoke the real S2 path. The subsequent duplicate
+  // verifies that neither the default behavior nor any legacy pathname write
+  // fallback can replace the original bytes.
   const referenceRelativePath = 'reference/rag-glossary.html'
   const html = [
     '<!doctype html>',
@@ -70,16 +98,51 @@ try {
     path: referenceRelativePath,
     content: html
   }))
-  assert.equal(writeResult.path, referenceRelativePath)
-  assert.equal(writeResult.created, true)
+  assert.deepEqual(
+    { path: writeResult.path, created: writeResult.created, overwritten: writeResult.overwritten },
+    { path: referenceRelativePath, created: true, overwritten: false },
+    'default absent write must be an S2 create'
+  )
   assert.equal(await stat(join(workspace.rootPath, referenceRelativePath)).then((info) => info.isFile()).catch(() => false), true)
-  assert.match(await readFile(join(workspace.rootPath, referenceRelativePath), 'utf8'), /RAG 核心概念/)
+  assert.equal(await readFile(join(workspace.rootPath, referenceRelativePath), 'utf8'), html)
 
+  const duplicateContent = '<!doctype html><title>must not overwrite</title>'
   const duplicateResult = JSON.parse(await handlers.write_workspace_file({
     path: referenceRelativePath,
-    content: '<!doctype html><title>overwrite</title>'
+    content: duplicateContent
   }))
-  assert.match(duplicateResult.error, /文件已存在/, 'write_workspace_file should not overwrite by default')
+  assert.equal(duplicateResult.code, 'target_exists', 'default duplicate must retain create-only behavior')
+  assert.equal(await readFile(join(workspace.rootPath, referenceRelativePath), 'utf8'), html, 'S2 target_exists must retain original bytes')
+
+  const overwriteAbsentRelativePath = 'reference/overwrite-absent.html'
+  const overwriteAbsentContent = '<!doctype html><title>S2 even with overwrite true</title>'
+  const overwriteAbsentResult = JSON.parse(await handlers.write_workspace_file({
+    path: overwriteAbsentRelativePath,
+    content: overwriteAbsentContent,
+    overwrite: true
+  }))
+  assert.deepEqual(
+    { path: overwriteAbsentResult.path, created: overwriteAbsentResult.created, overwritten: overwriteAbsentResult.overwritten },
+    { path: overwriteAbsentRelativePath, created: true, overwritten: false },
+    'overwrite:true on an absent target must still use S2 create-only publication'
+  )
+  assert.equal(await readFile(join(workspace.rootPath, overwriteAbsentRelativePath), 'utf8'), overwriteAbsentContent)
+
+  const overwriteExistingRelativePath = 'reference/overwrite-existing.html'
+  const originalExistingContent = '<!doctype html><title>old regular target</title>'
+  const replacementExistingContent = '<!doctype html><title>new S3 replacement</title><p>完整 UTF-8 🧪</p>'
+  await writeFile(join(workspace.rootPath, overwriteExistingRelativePath), originalExistingContent, 'utf8')
+  const overwriteExistingResult = JSON.parse(await handlers.write_workspace_file({
+    path: overwriteExistingRelativePath,
+    content: replacementExistingContent,
+    overwrite: true
+  }))
+  assert.deepEqual(
+    { path: overwriteExistingResult.path, created: overwriteExistingResult.created, overwritten: overwriteExistingResult.overwritten },
+    { path: overwriteExistingRelativePath, created: false, overwritten: true },
+    'overwrite:true on an existing regular nlink=1 target must use S3'
+  )
+  assert.equal(await readFile(join(workspace.rootPath, overwriteExistingRelativePath), 'utf8'), replacementExistingContent)
 
   const outsideTarget = join(tempRoot, 'outside-created-through-dangling-symlink.md')
   const danglingLinkRelativePath = 'reference/dangling-link.md'
@@ -90,7 +153,8 @@ try {
     symlinkCreated = true
   } catch (error) {
     const code = (error as { code?: string }).code
-    if (code !== 'EPERM' && code !== 'EACCES') throw error
+    if (!unsupportedOptionalFilesystemCodes.has(code ?? '')) throw error
+    console.log(`[workspace write tool] symlink rejection explicitly skipped: ${code ?? 'unavailable'}`)
   }
 
   if (symlinkCreated) {
@@ -99,12 +163,52 @@ try {
       content: 'must not be written outside the workspace',
       overwrite: true
     }))
-    assert.match(danglingSymlinkResult.error, /符号链接/, 'dangling symlink write targets should be rejected')
+    assert.equal(danglingSymlinkResult.code, 'path_rejected', 'dangling symlink write targets should be rejected')
     assert.equal(
       await stat(outsideTarget).then(() => true).catch(() => false),
       false,
       'rejected dangling symlink write must not create the external target'
     )
+  }
+
+  const hardlinkSource = join(workspace.rootPath, 'reference', 'hardlink-source.html')
+  const hardlinkRelativePath = 'reference/hardlink-target.html'
+  const hardlinkContent = '<!doctype html><title>hardlink source</title>'
+  try {
+    await writeFile(hardlinkSource, hardlinkContent, 'utf8')
+    await link(hardlinkSource, join(workspace.rootPath, hardlinkRelativePath))
+    const hardlinkResult = JSON.parse(await handlers.write_workspace_file({
+      path: hardlinkRelativePath,
+      content: '<!doctype html><title>must reject hardlink</title>',
+      overwrite: true
+    }))
+    assert.equal(hardlinkResult.code, 'path_rejected', 'S3 must reject a regular target with nlink > 1')
+    assert.equal(await readFile(hardlinkSource, 'utf8'), hardlinkContent, 'hardlink source bytes must remain intact')
+  } catch (error) {
+    const code = (error as { code?: string }).code
+    if (!unsupportedOptionalFilesystemCodes.has(code ?? '')) throw error
+    console.log(`[workspace write tool] hardlink rejection explicitly skipped: ${code ?? 'unavailable'}`)
+  }
+
+  const fifoRelativePath = 'reference/fifo-target.html'
+  if (process.platform === 'win32' || mkfifoUnavailable) {
+    console.log('[workspace write tool] FIFO rejection explicitly skipped: mkfifo is unavailable on this platform')
+  } else {
+    try {
+      await execFileAsync('mkfifo', [join(workspace.rootPath, fifoRelativePath)])
+      const fifoResult = JSON.parse(await handlers.write_workspace_file({
+        path: fifoRelativePath,
+        content: '<!doctype html><title>must reject fifo</title>',
+        overwrite: true
+      }))
+      assert.equal(fifoResult.code, 'path_rejected', 'S3 must reject FIFO/other targets')
+    } catch (error) {
+      const code = (error as { code?: string }).code
+      if (!unsupportedOptionalFilesystemCodes.has(code ?? '')) throw error
+      console.log(`[workspace write tool] FIFO rejection explicitly skipped: ${code ?? 'unavailable'}`)
+    }
+  }
+
   }
 
   console.log('workspace write tool boundaries ok')
