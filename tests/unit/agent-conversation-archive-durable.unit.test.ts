@@ -486,6 +486,33 @@ describe('Agent conversation archive durable canonical publication', () => {
     expect(directorySyncCount).toBeGreaterThanOrEqual(2)
   })
 
+  it('does not report success when Markdown directory open fails after both renames complete', async () => {
+    const fixture = await archiveFixture()
+    const directoryPath = join(fixture.rootPath, 'conversation/2026/07')
+    let directoryOpenCount = 0
+    const durable = instrumentedDurableOperations({
+      fail: (event) => {
+        if (event === `open:r:${directoryPath}`) {
+          directoryOpenCount += 1
+          if (directoryOpenCount >= 2) return errno('EIO')
+        }
+        return undefined
+      }
+    })
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      durableFileOperations: durable.operations
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    await expect(readFile(fixture.jsonPath, 'utf8')).resolves.toContain(fixture.record.id)
+    await expect(readFile(fixture.markdownPath, 'utf8')).resolves.toContain('OAuth archive notes')
+    await expectNoAuditOrLedger(fixture)
+    expect(await temporaryFiles(fixture.rootPath)).toEqual([])
+    expect(directoryOpenCount).toBeGreaterThanOrEqual(2)
+  })
+
   it.each([
     ['audit file sync', (fixture: Awaited<ReturnType<typeof archiveFixture>>) => `sync:${fixture.auditPath}`],
     ['audit file close', (fixture: Awaited<ReturnType<typeof archiveFixture>>) => `close:${fixture.auditPath}`],
