@@ -1,6 +1,6 @@
-# 本地数据 ADR 索引
+# 架构 ADR 索引
 
-本目录记录已在 `database` 分支实施、且有代码、测试和 Git 提交证据的本地数据架构决定。ADR（Architecture Decision Record，架构决策记录）说明系统为什么采用某项重要做法、已经落地到什么范围，以及它**没有**授权做什么。
+本目录记录已经实施、且有代码、测试和 Git 提交证据的架构决定。ADR（Architecture Decision Record，架构决策记录）说明系统为什么采用某项重要做法、已经落地到什么范围，以及它**没有**授权做什么。
 
 ## 先从这里读
 
@@ -22,6 +22,15 @@
 | Memory 数据如何按范围隔离，以及能否迁移旧数据 | ADR-0006 |
 | 新持久化 conversation/history 如何先经脱敏 | ADR-0007 |
 | 哪些本地数据能力仍未完成 | [本地数据待办](../local-data-todo.md) |
+| P0 教学 Session 如何成为 canonical 事实，而非 Agent run 或 Lesson 目录 | ADR-0008 |
+| Lesson 回答、检索练习与 conversation 互动如何成为可追溯 Evidence | ADR-0009 |
+| 为什么 Lesson 生成不会再自动写正式 Learning record | ADR-0010 |
+| 谁可以从 Evidence 写入正式 outcome / Learning record | ADR-0011 |
+| 后续教学动作如何避免由自由文本 prompt 决定 | ADR-0012 |
+| 教学 context 与资源如何受 provenance 和预算约束 | ADR-0013 |
+| 如何将运行时教学事实安全地呈现给学习者 | ADR-0014 |
+| 教学运行事件如何保持版本化和封闭 payload | ADR-0015 |
+| OutcomeEvaluator 如何仅信任绑定且校验过的 assessment artifact | ADR-0016 |
 
 ## 已实施决定
 
@@ -34,6 +43,15 @@
 | [ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md) | C-5 trace correlation | main 生成的 trace correlation 与安全日志边界。 |
 | [ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md) | C-6 Memory | scope 分区及 aggregate-only readonly migration preflight。 |
 | [ADR-0007](0007-persisted-user-history-redaction.md) | C-7 历史数据脱敏 | 新持久化 conversation/history projection 的脱敏边界。 |
+| [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md) | P0 LearningSession ledger | 独立的 canonical LearningSession、幂等 receipt、恢复与 legacy projection；不代表 P0 闭环完成。 |
+| [ADR-0009](0009-typed-lesson-interaction-evidence.md) | P0 typed Evidence | Lesson / conversation 互动的原始可追溯 Evidence、原子 receipt 与 preview 绑定；不是 outcome 或 record。 |
+| [ADR-0010](0010-evidence-gated-learning-record-cutover.md) | P0 Learning record cutover | 切断 Lesson 生成自动写正式 Learning record；`learningRecordNote` 仅为待验证 evidence/rubric。 |
+| [ADR-0011](0011-evidence-gated-learning-outcome-settlement.md) | P0 outcome settlement | Evidence-gated 的 canonical outcome / Learning record 结算、有序发布、reconcile 和窄 IPC sole-writer 边界。 |
+| [ADR-0012](0012-deterministic-next-teaching-step-planner.md) | P0 next teaching step | 由 outcome / Evidence 导出的确定性 typed 教学动作，而非自由文本推断。 |
+| [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md) | P0 teaching context | provenance allowlist、预算化 context 装配及最小 resource grounding。 |
+| [ADR-0014](0014-learner-safe-teaching-turn-presentation.md) | P0 learner presentation | 教学事实的 learner-safe 四阶段投影、redaction 和 a11y 边界。 |
+| [ADR-0015](0015-canonical-teaching-event-protocol.md) | P1 canonical teaching events | 版本化封闭 event envelope、event bus 与 legacy adapter 边界。 |
+| [ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md) | P0 assessment evaluator | 仅信任绑定、publisher-owned、digest 校验的 assessment artifact，并对不可信输入保守失败。 |
 
 ## C-4P8 S1/S2 证据与实际验证入口
 
