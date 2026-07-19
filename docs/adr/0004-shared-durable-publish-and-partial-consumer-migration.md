@@ -1,8 +1,8 @@
 # ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer
 
-- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P8-S1/S2/S3 foundation 与 C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure，以及 C-4P9-S2 audit 专用 durable append）
-- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P8-S4、C-4P9-S2
-- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`56eabe6`、`54506d5`、`ed8d88a`、`9c452f3`、`0bbfdef`、`e84c813`、`4b30220`、`5f47382`
+- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P8-S1/S2/S3 foundation 与 C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure，以及 C-4P9-S2 audit 专用 durable append 与 P9-S3 tests-only evidence）
+- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P8-S4、C-4P9-S2、C-4P9-S3（tests-only evidence）
+- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`56eabe6`、`54506d5`、`ed8d88a`、`9c452f3`、`0bbfdef`、`e84c813`、`4b30220`、`5f47382`、`c286a42`
 
 ## 决定
 
@@ -27,7 +27,8 @@
 | C-4P8-S2 `b46c8b2`、`bdcd6cb` | internal descriptor-bound atomic `createNoOverwrite` foundation | 下列 C-4P8 最终定向验证 |
 | C-4P8-S3 `56eabe6`、`54506d5` | internal descriptor-bound restricted-overwrite foundation | 下列 C-4P8 最终定向验证 |
 | C-4P8-S4 `0bbfdef`、`e84c813` | 受控 `write_workspace_file` 文本文件 create / restricted-overwrite handler integration、稳定结果和同 toolCallId journal replay | `tests/unit/workspace-write-tool.unit.test.ts` 与下列最终定向验证 |
-| C-4P9-S2 `4b30220`、`5f47382` | 固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append；不 rotation、不迁移其它 JSONL | 下列 C-4P9-S2 验证命令 |
+| C-4P9-S2 `4b30220`、`5f47382` | 固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append；不 rotation、不迁移其它 JSONL | 下列 C-4P9-S2/S3 验证命令 |
+| C-4P9-S3 `c286a42` | **tests-only evidence**：补齐 P9-S2 的 partial-write 与 archive-level failure/retry 定向证据：fixed-file non-rotating audit append 的 partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；无生产语义改动 | 2 个 unit 文件、61 tests passed；另有本主会话的 typecheck、security check、diff check |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
@@ -76,9 +77,11 @@ C-4P8 的关闭不改变 C-4 的 global partial-writer limitation，也不授权
 
 C-4P5 的 allowlisted Markdown service 是不同 consumer；其 allowlist/service contract 不由 C-4P8 继承或替代。
 
-## C-4P9-S2 实际验证入口
+## C-4P9-S2 实施与 P9-S3 evidence 验证入口
 
-C-4P9 只实施了最小切片 S2；证据提交为 `4b30220`（`feat(data): add durable session audit append`）和 `5f47382`（`test(data): cover durable session audit append`）。以下是该受限切片已实际执行的验证命令；它们不是完整 suite 的声明：
+C-4P9 只实施了最小切片 S2；P9-S3 是严格 tests-only evidence slice。S2 证据提交为 `4b30220`（`feat(data): add durable session audit append`）和 `5f47382`（`test(data): cover durable session audit append`）；S3 证据提交为 `c286a42`（`test(data): cover audit durable append recovery`）。P9-S3 补齐 P9-S2 的 partial-write 与 archive-level failure/retry 定向证据：fixed-file non-rotating audit append 的 partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；无生产语义改动。以下是本次受限 evidence slice 的实际验证命令和结果，不是完整 suite 的声明：
+
+**P9-S3 tests-only evidence slice 已完成，并补齐 P9-S2 的 partial-write 与 archive-level failure/retry 定向证据；C-4P9 仍未关闭。**
 
 ```sh
 pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
