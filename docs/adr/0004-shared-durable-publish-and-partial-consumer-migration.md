@@ -1,7 +1,7 @@
 # ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer
 
-- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P6-S2/C-4P6-S3/C-4P6-S4/C-4P6-S5/C-4P6-S6/C-4P6-S7/C-4P6-S8/C-4P6-S9/C-4P6-S10/C-4P6-S11 tests-only evidence、C-4P8-S1/S2/S3 foundation、C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure、经明确批准的 Windows direct-path non-CAS profile，以及 C-4P9-S2 audit 专用 durable append、P9-S3/P9-S4/P9-S5/P9-S6/P9-S7/P9-S8/P9-S9/P9-S10/P9-S11/P9-S12 tests-only evidence）
-- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P6-S2（tests-only evidence）、C-4P6-S3（tests-only evidence）、C-4P6-S4（tests-only evidence）、C-4P6-S5（tests-only evidence）、C-4P6-S6（tests-only evidence）、C-4P6-S7（tests-only evidence）、C-4P6-S8（tests-only evidence）、C-4P6-S9（tests-only evidence）、C-4P6-S10（tests-only evidence）、C-4P6-S11（tests-only evidence）、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P8-S4、Windows direct-path non-CAS profile、C-4P9-S2、C-4P9-S3（tests-only evidence）、C-4P9-S4（tests-only evidence）、C-4P9-S5（tests-only evidence）、C-4P9-S6（tests-only evidence）、C-4P9-S7（tests-only evidence）、C-4P9-S8（tests-only evidence）、C-4P9-S9（tests-only evidence）、C-4P9-S10（tests-only evidence）、C-4P9-S11（tests-only evidence）、C-4P9-S12（tests-only evidence）
+- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P6-S2/C-4P6-S3/C-4P6-S4/C-4P6-S5/C-4P6-S6/C-4P6-S7/C-4P6-S8/C-4P6-S9/C-4P6-S10/C-4P6-S11/C-4P6-S12 tests-only evidence、C-4P8-S1/S2/S3 foundation、C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure、经明确批准的 Windows direct-path non-CAS profile，以及 C-4P9-S2 audit 专用 durable append、P9-S3/P9-S4/P9-S5/P9-S6/P9-S7/P9-S8/P9-S9/P9-S10/P9-S11/P9-S12/P9-S13 tests-only evidence）
+- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P6-S2（tests-only evidence）、C-4P6-S3（tests-only evidence）、C-4P6-S4（tests-only evidence）、C-4P6-S5（tests-only evidence）、C-4P6-S6（tests-only evidence）、C-4P6-S7（tests-only evidence）、C-4P6-S8（tests-only evidence）、C-4P6-S9（tests-only evidence）、C-4P6-S10（tests-only evidence）、C-4P6-S11（tests-only evidence）、C-4P6-S12（tests-only evidence）、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P8-S4、Windows direct-path non-CAS profile、C-4P9-S2、C-4P9-S3（tests-only evidence）、C-4P9-S4（tests-only evidence）、C-4P9-S5（tests-only evidence）、C-4P9-S6（tests-only evidence）、C-4P9-S7（tests-only evidence）、C-4P9-S8（tests-only evidence）、C-4P9-S9（tests-only evidence）、C-4P9-S10（tests-only evidence）、C-4P9-S11（tests-only evidence）、C-4P9-S12（tests-only evidence）、C-4P9-S13（tests-only evidence）
 - **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`9847842`、`1334513`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`56eabe6`、`54506d5`、`ed8d88a`、`9c452f3`、`0bbfdef`、`e84c813`、`4b30220`、`5f47382`、`c286a42`、`ab723a6`、`47393f9`、`c97146e`、`e821c69`、`ebd084c`、`5f931c9`、`145b671`、`816e403`、`d26bb83`、`bee173f`、`e743a3e`、`dcb9bae`、`a631a31`、`9d54c5e`
 
 ## 决定
@@ -32,6 +32,7 @@
 | C-4P6-S9 `a631a31` | **tests-only evidence**：新增独立 `it`，仅覆盖 settled 后 `outcome.json` 与 immutable record authority 分叉；restart `reconcile()` 为 `review_required` 且 diagnostics 含 `conflicting_outcome`；不 rewrite durable bytes、不调用 evaluator / `createId`；同 operation commit 为 `conflict/review_required`；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、34 tests passed |
 | C-4P6-S10 `6bfffc5` | **tests-only evidence**：新增独立 `it`，仅覆盖 settled 后 completed `session.json` `outcomeRef` 与 immutable record authority 分叉（record / outcome.json / marker 匹配）；restart `reconcile()` 为 `review_required` 且 diagnostics 含 `conflicting_outcome`；不 rewrite durable bytes、不调用 evaluator / `createId`；同 operation commit 为 `conflict/review_required`；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、35 tests passed |
 | C-4P6-S11 `4603601` | **tests-only evidence**：新增独立 `it`，仅覆盖 settled 后 `outcome.json` 为 non-file symlink；restart `reconcile()` 为 `review_required`；不 rewrite record/manifest/marker、不修复 symlink、不调用 evaluator / `createId`；同 operation commit 为 `conflict/review_required`；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、36 tests passed |
+| C-4P6-S12 `60b6791` | **tests-only evidence**：新增独立 `it`，仅覆盖 settled 后 `outcome-settlement.json` 为 non-file symlink；restart `reconcile()` 为 `review_required` 且 diagnostics 含 `invalid_settlement_marker`；不 rewrite record/outcome/manifest，不把 symlink 修复为 regular file；同 operation commit 为 `conflict/review_required`；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、37 tests passed；另通过 typecheck、security check、diff check |
 | C-4P7 `0d55fd8` | private `MusicCookieStore` cookie state | `tests/unit/music-cookie-store-durable.unit.test.ts` |
 | C-4P8-S1 `80f2fd0`、`e2ce36c` | workspace descriptor foundation：可信既有 workspace root 绑定、descriptor-bound parent traversal 与 final-leaf inspection | 下列 C-4P8 最终定向验证 |
 | C-4P8-S2 `b46c8b2`、`bdcd6cb` | internal descriptor-bound atomic `createNoOverwrite` foundation | 下列 C-4P8 最终定向验证 |
@@ -48,6 +49,7 @@
 | C-4P9-S10 `9d54c5e` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-archive-durable.unit.test.ts`，将 Markdown write-failure 并入 4-case matrix 并补齐 file sync / file close / rename short-circuit residual：JSON 保留、Markdown 仍 `ENOENT`、不 append audit/ledger；无生产语义改动 | `tests/unit/agent-conversation-archive-durable.unit.test.ts`；1 file、30 tests passed |
 | C-4P9-S11 `bab5d1e` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-archive-durable.unit.test.ts`，补齐 Markdown-phase directory close residual：第二次 directory close 失败时 JSON 与 Markdown 均已发布、不 append audit/ledger、无 temporary leftover；无生产语义改动 | `tests/unit/agent-conversation-archive-durable.unit.test.ts`；1 file、31 tests passed |
 | C-4P9-S12 `2aec1bc` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-archive-durable.unit.test.ts`，补齐 Markdown-phase directory fsync residual：第二次 directory sync 失败时 JSON 与 Markdown 均已发布、不 append audit/ledger、无 temporary leftover；无生产语义改动 | `tests/unit/agent-conversation-archive-durable.unit.test.ts`；1 file、32 tests passed |
+| C-4P9-S13 `5e35703` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-archive-durable.unit.test.ts`，补齐 Markdown-phase directory open residual：第二次 directory open 失败时 JSON 与 Markdown 均已发布、不 append audit/ledger、无 temporary leftover、save 不报告成功；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts`；1 file、33 tests passed；另通过 typecheck、security check、diff check |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
@@ -154,6 +156,23 @@
 - 同 operation `commit` 返回 `conflict/review_required`，不 false success。
 
 实际定向验证为 `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`（1 file / 36 tests passed）。S11 不是完整 C-4P6 或 authority/conflict matrix。
+
+
+## C-4P6-S12：invalid non-file settlement-marker symlink 的 tests-only evidence
+
+`60b6791`（`test(data): cover invalid settlement marker symlink residual`）只修改 `tests/unit/learning-outcome-committer.unit.test.ts`，新增一个独立的 `it`；没有 production/API/schema/path/order 变化。它严格限于 durable settlement 后将 `outcome-settlement.json` 替换为指向 workspace 外的 non-file symlink，而 immutable record、`outcome.json` 与 completed `session.json` 保持匹配 authority。restart `reconcile()` 返回 `review_required`，diagnostics 含 `invalid_settlement_marker`；recovery 不 rewrite 任何 durable authority bytes，不把 symlink 修复为 regular file，不调用 evaluator / `createId`；同 operation commit 返回 `conflict/review_required`。
+
+验证入口：
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S12 invalid settlement-marker symlink residual: 1 file, 37 tests passed
+pnpm run typecheck
+pnpm run check:security
+git diff --check
+```
+
+该切片**不宣称**完整 C-4P6 closure，也不覆盖 manifest publisher capability matrix 或其它 crash window。
 
 ## C-4P8：已关闭的受控 workspace-tool scope
 
@@ -280,6 +299,23 @@ git diff --check
 ## C-4P9-S12：Markdown-phase directory fsync residual 的 tests-only evidence
 
 `2aec1bc`（`test(data): cover markdown directory sync residual`）仅修改 `tests/unit/agent-conversation-archive-durable.unit.test.ts`，新增独立 `it`，补齐 Markdown-phase directory fsync residual：第二次 `sync:conversation/...`（Markdown rename 之后）返回 `EIO` 时 JSON 与 Markdown 均已发布、不 append audit/ledger、无 temporary leftover、save 不报告成功。验证为 `pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts`（1 file / 32 tests passed）。S12 不是完整 C-4P1 short-circuit matrix 或 C-4P9 gate closure。
+
+
+## C-4P9-S13：Markdown-phase directory open residual 的 tests-only evidence
+
+`5e35703`（`test(data): cover markdown directory open residual`）仅修改 `tests/unit/agent-conversation-archive-durable.unit.test.ts`，新增独立 `it`，补齐 Markdown-phase directory open residual：第二次 `open:r:conversation/...`（Markdown rename 之后）返回 `EIO` 时 JSON 与 Markdown 均已发布、不 append audit/ledger、无 temporary leftover、save 不报告成功。无生产语义改动。
+
+验证入口：
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts
+# P9-S13 Markdown-phase directory open residual: 1 file, 33 tests passed
+pnpm run typecheck
+pnpm run check:security
+git diff --check
+```
+
+该切片**不宣称** C-4P9 已关闭，也不覆盖完整 capability matrix、generic JSONL、rotation 或 IPC/UI。
 
 ## C-4P9-S9：concurrent same-ID body conflict 的 tests-only evidence
 
