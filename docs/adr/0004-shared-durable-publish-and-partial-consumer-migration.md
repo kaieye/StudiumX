@@ -1,8 +1,8 @@
 # ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer
 
-- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P8-S1 descriptor foundation、C-4P8-S2 internal `createNoOverwrite` foundation，以及 C-4P9-S2 audit 专用 durable append）
-- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P7、C-4P8-S1、C-4P8-S2、C-4P9-S2
-- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`4b30220`、`5f47382`
+- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P8-S1 descriptor foundation、C-4P8-S2 internal `createNoOverwrite` foundation、C-4P8-S3 internal restricted-overwrite foundation，以及 C-4P9-S2 audit 专用 durable append）
+- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P9-S2
+- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`56eabe6`、`54506d5`、`4b30220`、`5f47382`
 
 ## 决定
 
@@ -24,7 +24,8 @@
 | C-4P6-S1 `7292bf4`、`e02a086` | learning-outcome 的严格有序 publish、受控 reconcile 与失败关闭基础 | `tests/unit/learning-outcome-committer.unit.test.ts`、`tests/unit/teaching-workspace-outcome-commit.unit.test.ts`；相关提交覆盖 41 项单元检查和 14 项集成检查 |
 | C-4P7 `0d55fd8` | private `MusicCookieStore` cookie state | `tests/unit/music-cookie-store-durable.unit.test.ts` |
 | C-4P8-S1 `80f2fd0`、`e2ce36c` | 仅 workspace descriptor foundation：可信既有 workspace root 绑定、descriptor-bound parent traversal 与 final-leaf inspection；不发布文件 | 下列已实际执行的 C-4P8-S1 验证命令 |
-| C-4P8-S2 `b46c8b2`、`bdcd6cb` | 仅 internal descriptor-bound atomic `createNoOverwrite` foundation；不是 handler/API migration，不支持 overwrite | 下列已实际执行的 C-4P8-S2 验证命令 |
+| C-4P8-S2 `b46c8b2`、`bdcd6cb` | 仅 internal descriptor-bound atomic `createNoOverwrite` foundation；不是 handler/API migration，也不实现 S3 restricted overwrite | 下列已实际执行的 C-4P8-S2 验证命令 |
+| C-4P8-S3 `56eabe6`、`54506d5` | 仅 internal descriptor-bound restricted-overwrite foundation；不是 handler/API migration | 下列已实际执行的 C-4P8-S3 验证命令 |
 | C-4P9-S2 `4b30220`、`5f47382` | 固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append；不 rotation、不迁移其它 JSONL | 下列已实际执行的 C-4P9-S2 验证命令 |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
@@ -56,7 +57,7 @@ pnpm run check:security
 git diff --check
 ```
 
-Linux 的 host-native exclusive rename 本轮**没有真实验证**。源码中的 Linux `renameat2(..., RENAME_NOREPLACE)` 路径不能替代该证据；仓库当前也没有 `.github` CI 目录可提供 Linux CI 覆盖。因此 Linux native build / targeted test 是未关闭的后续验收，不能将 P8-S2 或 C-4P8 表述为跨平台完成。
+Linux 的 S2/S3 host-native rename 本轮**没有真实验证**。源码中的 S2 `renameat2(..., RENAME_NOREPLACE)` 与 S3 `renameat2(..., RENAME_EXCHANGE)` 路径不能替代该证据；仓库当前也没有 `.github` CI 目录可提供 Linux CI 覆盖。因此 Linux native build / targeted test 是未关闭的后续验收，不能将 P8-S2、P8-S3 或 C-4P8 表述为跨平台完成。
 
 ### C-4P8-S2 已实施的受限语义
 
@@ -64,9 +65,9 @@ Linux 的 host-native exclusive rename 本轮**没有真实验证**。源码中�
 - macOS 使用 `renameatx_np(..., RENAME_EXCL)`；Linux 源码使用 `renameat2(..., RENAME_NOREPLACE)`。若宿主/文件系统没有所需 primitive，则 fail closed；不会退回 hardlink、`linkat`、pathname fallback、普通 `rename` 或“先检查再 rename”。
 - publication 时已有 final target（包括 preflight 已见或竞争中出现的 existing final）统一得到 internal `target_exists`；竞争方 bytes 不被 clobber。S2 不把 leaf type 差异扩展为 overwrite policy。
 - publication 成功后，如 directory `fsync`、directory close 或 completion 过程失败，internal 结果为 `possibly_published`：final bytes 可能已发布，不得把该结果解释为“尚未执行”。directory `fsync` 只有 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 五个 capability errno 可降级，并仅发出不含路径、临时名、payload 或原始 I/O 文本的 generic warning；其余错误 fail closed。
-- S2 没有 handler、tool registry、IPC、renderer 或 API integration；internal error kinds 不是 tool/API stable contract。`write_workspace_file` 仍完全未接入、现有 handler 不变，且仍不支持 overwrite。
+- S2 没有 handler、tool registry、IPC、renderer 或 API integration；internal error kinds 不是 tool/API stable contract。`write_workspace_file` 未接入 S2：它已有 pathname-based `overwrite` boolean，并会在已有普通文件且 `overwrite: true` 时通过 pathname-based `writeFile()` 覆盖；这不是 S2/S3 durable publication 的证据。
 
-C-4P8 整体仍未完成：S3 restricted overwrite 和 S4 handler/API integration 均未实施、未批准。不得将 S1/S2 或上述定向验证解释为 workspace tool durable write 已交付。
+C-4P8 整体仍未完成：S3 restricted overwrite 已作为 internal foundation 实施并完成本轮 macOS 定向验证；S4 handler/API integration 仍未实施、未批准。不得将 S1/S2/S3 或上述定向验证解释为 workspace tool durable write 已交付。
 
 ## C-4P9-S2 实际验证入口
 
@@ -107,12 +108,35 @@ S2 不构成整个 C-4P9 gate completed：它不迁移 generic JSONL、不是跨
 - 提供窄的 typed internal seam、operation record 与 internal error kinds；它们不是 tool/API 的稳定错误 contract。
 - 仅支持 macOS/Linux 的 host-built capability；其它平台或 native capability 不可用时 fail closed。
 
-S1 **不包含** workspace tool handler、registry、IPC、renderer 或 API 变更；不写 payload 或 temp，不实现 durable publisher、atomic no-clobber 或 restricted overwrite，也没有 tool-facing stable errors 或 `possibly_published`。当前 `write_workspace_file` 仍未接入。
+S1 **不包含** workspace tool handler、registry、IPC、renderer 或 API 变更；不写 payload 或 temp，不实现 durable publisher、atomic no-clobber 或 restricted overwrite，也没有 tool-facing stable errors 或 `possibly_published`。当前 `write_workspace_file` 未接入 S1/S2/S3。
+
+## C-4P8-S3 已实施的受限语义与验证入口
+
+S3 的证据提交为 `56eabe6`（`feat(data): add workspace restricted overwrite foundation`）和 `54506d5`（`test(data): cover workspace restricted overwrite`）。它是 strict internal-only restricted-overwrite foundation：没有 handler、API、tool registry、IPC、renderer 或 UI integration，也不改变 `write_workspace_file`。现有 `write_workspace_file` 保持 pathname-based `overwrite` boolean 和 pathname-based `writeFile()` 覆盖；它没有接入 S3，不能作为 S3 的实现或验证证据。
+
+- 仅可 replacement existing-only regular `nlink = 1` target；absent、hardlink、directory、symlink、device、FIFO、socket 与其它 non-regular target fail closed。parent/final 均 descriptor-bound、no-follow；禁止 pathname fallback、ordinary `rename` fallback、hardlink/`linkat` fallback，也不能以 pre/post `realpath` 代替 publication。
+- candidate 以 `0666 & umask` 创建，随后采用 old target normal mode `& 0777`；不恢复/复制 setuid/setgid/sticky special bits，也不承诺 inode、hardlink、owner/group、ACL、xattr、birth time 或其它 metadata。
+- 在 same parent descriptor 下 atomic swap：macOS 使用 `renameatx_np(..., RENAME_SWAP)`；Linux source 使用 `renameat2(..., RENAME_EXCHANGE)`。它不是 CAS，不承诺 version match、lost-update 防护或 external concurrent mutation 检测/阻止。
+- prepublication failure 保留 primary target，并 cleanup/sync candidate。只有 swap-success marker 后的 error 是已发布状态，必须为 internal `possibly_published`；之后的顺序为 first directory `fsync` → old-alias unlink → second directory `fsync` → close，不得 rollback、删除 canonical target 或以旧内容再次覆盖，retry 不得把它当作未执行。
+
+本会话实际在当前 macOS host-built addon 上运行：
+
+```sh
+pnpm run build:contained-durable-replace
+pnpm exec vitest run --project unit tests/unit/contained-durable-directory.unit.test.ts tests/unit/workspace-contained-directory.unit.test.ts tests/unit/workspace-contained-create-no-overwrite.unit.test.ts tests/unit/workspace-contained-restricted-overwrite.unit.test.ts
+pnpm run typecheck
+pnpm run check:workspace-write-tool
+node scripts/check-workspace-path-target.mjs
+pnpm run check:security
+git diff --check
+```
+
+四个定向 unit 文件 **96 tests passed**；其中 S3 文件有 **36 tests**，并包含 macOS real native integration。此为当前 macOS host-native 验证，不是全量或跨平台证明；Linux S2/S3 host-native verification 仍 pending。S3 的 internal 分类不是 tool/API stable contract。
 
 ## 明确不包含与后续门槛
 
 - **C-4P6 仍未完整关闭，仍是待办。**S1 未提供跨文件事务或共同原子性、rollback、删除、通用 migration 或新的外部 API。完整 P6 close-out 仍需单独批准并验证 manifest publisher 的 capability-policy 对齐、穷尽的 crash / failure 设计矩阵及运行验证。
-- **C-4P8 仍未完成，仍是待办。**S1 descriptor foundation 与仅 internal 的 S2 atomic `createNoOverwrite` foundation 已实施；S3 restricted overwrite、S4 handler / API integration 均未实施、未批准。S2 不是 C-4P5 的 allowlisted document service；当前 `write_workspace_file` 仍完全未接入、现有 handler 不变且不支持 overwrite。Linux host-native exclusive rename 也仍待真实验证。
+- **C-4P8 仍未完成，仍是待办。**S1 descriptor foundation、仅 internal 的 S2 atomic `createNoOverwrite` foundation 与仅 internal 的 S3 restricted-overwrite foundation 已实施；S4 handler / API integration 仍未实施、未批准。S2/S3 不是 C-4P5 的 allowlisted document service。当前 `write_workspace_file` 有 pathname-based `overwrite` boolean，并在已有普通文件且 `overwrite: true` 时通过 pathname-based `writeFile()` 覆盖；它未接入 S3，不能作为 durable overwrite、atomic swap 或 S3 验证的证据。Linux S2/S3 host-native verification 仍待真实验证。
 - **C-4P9 仍未完整关闭，仍是待办。**仅 P9-S2 已实施：固定 audit 文件的专用 framed、legacy-compatible durable append。它不是 generic JSONL migration、跨文件 transaction、ledger authority/save-order 变更、repair、rotation 或 IPC/UI；C-4P1 之外的剩余 P9 风险与 design gate 仍须保留。
 - 高频日志不因本 ADR 自动改为逐条 fsync。
 

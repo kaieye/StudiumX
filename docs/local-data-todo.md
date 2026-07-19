@@ -15,12 +15,11 @@
 ### P8：agent workspace tool durable publish
 
 - 设计文档：[C-4P8 Workspace tool durable publish](plans/local-data-workspace-tool-durable-publish-design.md)
-- **P8 未完成；S1 和 S2 已实施。**S1 的 workspace descriptor foundation 证据为 `80f2fd0` / `e2ce36c`；S2 的 `b46c8b2` / `bdcd6cb` 只实现 internal descriptor-bound atomic `createNoOverwrite` foundation。证据、受限语义与实际验证入口见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
-- **剩余且必须另行获批的顺序：**
-  1. **S3** restricted overwrite；
-  2. **S4** handler / API integration。
-- **仍未完成 / 未批准：**S3、S4 均未实施且未批准。S2 没有迁移 handler、registry、IPC 或 API；`write_workspace_file` 仍完全未接入，现有 handler 不变且不支持 overwrite。不得把 internal `target_exists` 或 `possibly_published` 误写成 tool-facing stable contract。
-- **未关闭验证风险：**本轮只在 macOS host-built addon 定向验证；Linux host-native exclusive rename 未真实验证。仓库没有 `.github` CI 目录，因此 Linux build / targeted test 是后续验收，不得声称 P8 跨平台完成。
+- **P8 未完成；S1、S2 和 S3 已实施。**S1 的 workspace descriptor foundation 证据为 `80f2fd0` / `e2ce36c`；S2 的 `b46c8b2` / `bdcd6cb` 只实现 internal descriptor-bound atomic `createNoOverwrite` foundation；S3 的 `56eabe6` / `54506d5` 只实现 internal descriptor-bound restricted-overwrite foundation。证据、受限语义与实际验证入口见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
+- **剩余且仍须另行获批：**仅 **S4** handler / API integration。
+- **S3 已实施且仅限 internal foundation：**existing-only regular `nlink = 1`，descriptor-bound/no-follow，macOS `RENAME_SWAP` / Linux source `RENAME_EXCHANGE` atomic swap，且非 CAS。candidate 使用 `0666 & umask`，再采用 old target normal mode `& 0777`；不承诺 special bits 或其它 metadata。swap 前失败保留 primary 并 cleanup/sync candidate；swap-success marker 后的错误为 `possibly_published`，顺序为 first `fsync` → old-alias unlink → second `fsync` → close。没有 pathname、ordinary rename 或 hardlink fallback。
+- **S3 不是 tool migration：**无 handler、API、registry、IPC、renderer 或 UI integration。现有 `write_workspace_file` 保持 pathname-based `overwrite` boolean，并会在已有普通文件且 `overwrite: true` 时通过 pathname-based `writeFile()` 覆盖；它未接入 S3，不能作为 S3 证据或 durable overwrite/atomic swap 证据。internal `target_exists` / `possibly_published` 也不是 tool-facing stable contract。
+- **实际验证与未关闭风险：**本会话在当前 macOS host-built addon 上实际运行 build、typecheck、workspace-tool/path-target/security checks 与四个定向 unit 文件；四文件 **96 tests passed**，其中 S3 **36 tests** 含 macOS real native integration。它不是全量或跨平台声明；Linux S2/S3 host-native build / targeted test 仍 pending。仓库没有 `.github` CI 目录，因此不得声称 P8 或 S2/S3 跨平台完成。
 - 禁止越界：不得把 agent `write_workspace_file` 直接替换成 `replaceDurably()`；C-4P5 allowlisted Markdown service 与该任意受控工具 writer 是不同 scope。
 
 ### P9：session-audit durable append
