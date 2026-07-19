@@ -44,6 +44,7 @@
 | C-4P6-S21 `9e47eed` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 invalid 的 canonical learning-record metadata residual（metadata `schemaVersion` 1→2）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 metadata、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、46 tests passed |
 | C-4P6-S22 `a947d4c` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 invalid 的 canonical learning-record metadata identity residual（`recordId` 非 canonical，`schemaVersion` 仍为 1）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 metadata、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、47 tests passed |
 | C-4P6-S23 `a6d693f` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 invalid 的 canonical learning-record assessment residual（`assessment.contentSha256` 非 64-hex，`schemaVersion`/`recordId` 仍合法）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 assessment、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、48 tests passed |
+| C-4P6-S24 `2fdf59f` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 invalid 的 canonical learning-record assessment path residual（`assessment.relativePath` 为空串，`schemaVersion`/`recordId`/`assessment.contentSha256` 仍合法）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 assessment path、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、49 tests passed |
 | C-4P7 `0d55fd8` | private `MusicCookieStore` cookie state | `tests/unit/music-cookie-store-durable.unit.test.ts` |
 | C-4P8-S1 `80f2fd0`、`e2ce36c` | workspace descriptor foundation：可信既有 workspace root 绑定、descriptor-bound parent traversal 与 final-leaf inspection | 下列 C-4P8 最终定向验证 |
 | C-4P8-S2 `b46c8b2`、`bdcd6cb` | internal descriptor-bound atomic `createNoOverwrite` foundation | 下列 C-4P8 最终定向验证 |
@@ -72,6 +73,7 @@
 | C-4P9-S22 `79e9d8d` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`（含 test-only `mkdir` 观测 instrumentation），补齐 audit directory mkdir fail-closed residual：对 audit directory `mkdir` 注入 `EIO`/`EACCES` 均 fatal、不 lstat、不 open、不 capability downgrade、无 warning、无 audit 文件创建；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、95 tests passed |
 | C-4P9-S23 `c3f9be5` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit/parent directory open fatal fail-closed residual：对 directory `open:r` 注入 `EACCES`/`EPERM`/`EIO`/unknown 均 fatal、不 capability downgrade、不继续 directory sync、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、103 tests passed |
 | C-4P9-S24 `8a27fc9` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit/parent directory sync fatal fail-closed residual：对 directory `sync` 注入 `EACCES`/`EPERM`/`EIO`/unknown 在 audit-directory 与 parent-directory 均 fatal、不 capability downgrade、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、107 tests passed |
+| C-4P9-S25 `fc765d2` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 post-open audit target non-file fail-closed residual：handle `stat` 报告 non-file 时 reject、不 capability downgrade、不 read/write、不启动 directory durability、无 warning；test-only `statPlan`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、108 tests passed |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
@@ -365,6 +367,16 @@ git diff --check
 ```bash
 pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
 # P6-S23 well-formed invalid canonical learning-record assessment residual: 1 file, 48 tests passed
+```
+
+
+## C-4P6-S24：well-formed invalid canonical learning-record assessment path 的 tests-only evidence
+
+`2fdf59f`（`test(data): cover invalid learning record assessment path residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 invalid 的 canonical learning-record assessment path residual：保持 `schemaVersion:1`、canonical `recordId` 与 64-hex `assessment.contentSha256`，仅将 `assessment.relativePath` 改为空串；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite outcome/manifest/marker，不修复 record，不调用 evaluator/`createId`；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S24 well-formed invalid canonical learning-record assessment path residual: 1 file, 49 tests passed
 ```
 
 ## C-4P8：已关闭的受控 workspace-tool scope
@@ -683,6 +695,16 @@ git diff --check
 ```bash
 pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
 # P9-S24 audit/parent directory sync fatal fail-closed residual: 1 file, 107 tests passed
+```
+
+
+## C-4P9-S25：post-open audit target non-file fail-closed residual 的 tests-only evidence
+
+`fc765d2`（`test(data): cover audit post-open non-file residual`）仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 post-open audit target non-file fail-closed residual：handle `stat` 报告 non-file 时 reject `not a regular file`、不 capability downgrade、不 read/write、不启动 directory durability、无 warning。使用 test-only `statPlan` instrumentation。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+# P9-S25 post-open audit target non-file fail-closed residual: 1 file, 108 tests passed
 ```
 
 ## C-4P9-S9：concurrent same-ID body conflict 的 tests-only evidence
