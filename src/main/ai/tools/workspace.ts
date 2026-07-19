@@ -1,13 +1,27 @@
-import { lstat, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { extname, join, relative } from 'node:path'
 import type { Dirent } from 'node:fs'
+import {
+  bindTrustedWorkspaceContainedPath,
+  readRegularFileAtContainedDirectory,
+  type ContainedDurableDirectory,
+  type WorkspaceContainedPathBinding
+} from '../../persistence/contained-durable-directory'
+import {
+  createNoOverwriteAtWorkspaceContainedPath,
+  WorkspaceContainedCreateNoOverwriteError,
+  type CreateWorkspaceContainedNoOverwriteInput
+} from '../../persistence/workspace-contained-create-no-overwrite'
+import {
+  overwriteExistingRestrictedAtWorkspaceContainedPath,
+  WorkspaceContainedRestrictedOverwriteError,
+  type RestrictedOverwriteWorkspaceContainedPathInput
+} from '../../persistence/workspace-contained-restricted-overwrite'
 import type { ToolEntry, ToolContext } from './registry'
 import {
-  prepareWorkspaceWriteTarget,
   resolveWorkspacePathTarget,
   toPosixWorkspacePath,
   verifyExistingWorkspaceTarget,
-  verifyWrittenWorkspaceTarget
 } from './workspace-path-target'
 
 const MAX_FILE_BYTES = 512 * 1024
@@ -386,6 +400,308 @@ export const readWorkspaceFileTool: ToolEntry = {
   }
 }
 
+type WorkspaceWriteStableError =
+  | 'request_rejected'
+  | 'path_rejected'
+  | 'containment_unavailable'
+  | 'target_exists'
+  | 'target_changed'
+  | 'prepublication_failed'
+  | 'possibly_published'
+
+type WorkspaceWritePublication = 'created' | 'overwritten'
+
+type WorkspaceWriteDurableProtocolError = {
+  readonly kind: string
+  readonly phase?: string
+}
+
+/**
+ * Internal handler seam for deterministic S4 tests. It deliberately exposes
+ * only the approved S2/S3 publishers and descriptor-bound canonical read;
+ * there is no pathname write, mkdir, rename, or replace-durably escape hatch.
+ */
+export type WorkspaceWriteDurableDependencies = {
+  createNoOverwrite: (input: CreateWorkspaceContainedNoOverwriteInput) => Promise<void>
+  overwriteExistingRestricted: (input: RestrictedOverwriteWorkspaceContainedPathInput) => Promise<void>
+  bindForCanonicalRead: (input: {
+    workspaceRootPath: string
+    relativePath: string
+    createParentDirectories: false
+  }) => WorkspaceContainedPathBinding
+  readRegularFile: (directory: ContainedDurableDirectory, filename: string) => Buffer
+}
+
+const defaultWorkspaceWriteDurableDependencies: WorkspaceWriteDurableDependencies = {
+  createNoOverwrite: createNoOverwriteAtWorkspaceContainedPath,
+  overwriteExistingRestricted: overwriteExistingRestrictedAtWorkspaceContainedPath,
+  bindForCanonicalRead: bindTrustedWorkspaceContainedPath,
+  readRegularFile: readRegularFileAtContainedDirectory
+}
+
+const workspaceWriteErrorMessages: Record<WorkspaceWriteStableError, string> = {
+  request_rejected: '写入请求不符合工作区文件写入策略。',
+  path_rejected: '工作区相对路径或目标类型不可用于安全写入（包括符号链接）。',
+  containment_unavailable: '无法安全绑定工作区目标。',
+  target_exists: '目标文件已存在；未执行覆盖。',
+  target_changed: '目标已变更或不再符合受限覆盖条件。',
+  prepublication_failed: '文件在发布前未能完成写入。',
+  possibly_published: '文件可能已发布，但无法确认最终内容；请先读取目标后再决定后续操作。'
+}
+
+function stableWorkspaceWriteError(
+  code: WorkspaceWriteStableError,
+  path?: string,
+  message = workspaceWriteErrorMessages[code]
+): string {
+  return jsonResult({
+    tool: 'write_workspace_file',
+    ...(path ? { path } : {}),
+    // `error` remains a safe, human-readable compatibility field; `code` is
+    // the stable durable-operation classification. Neither exposes S1/S2/S3 detail.
+    error: message,
+    code,
+    ...(code === 'possibly_published' ? { retryable: false } : {})
+  })
+}
+
+function isWorkspaceWriteDurableProtocolError(error: unknown): error is WorkspaceWriteDurableProtocolError {
+  return typeof error === 'object' && error !== null && 'kind' in error && typeof error.kind === 'string'
+}
+
+function isPossiblyPublishedWorkspaceWriteError(error: unknown): boolean {
+  return (
+    error instanceof WorkspaceContainedCreateNoOverwriteError ||
+    error instanceof WorkspaceContainedRestrictedOverwriteError ||
+    isWorkspaceWriteDurableProtocolError(error)
+  ) && isWorkspaceWriteDurableProtocolError(error) && error.kind === 'possibly_published'
+}
+
+function stableErrorForDurablePublicationFailure(
+  error: unknown,
+  publication: WorkspaceWritePublication
+): WorkspaceWriteStableError {
+  if (!isWorkspaceWriteDurableProtocolError(error)) return 'prepublication_failed'
+
+  if (publication === 'created') {
+    switch (error.kind) {
+      case 'target_exists':
+        return 'target_exists'
+      case 'atomic_no_clobber_unavailable':
+        return 'containment_unavailable'
+      case 'prepublication_failure':
+        return error.phase === 'bind' ? 'containment_unavailable' : 'prepublication_failed'
+      default:
+        return 'prepublication_failed'
+    }
+  }
+
+  switch (error.kind) {
+    case 'target_missing':
+    case 'target_not_restricted_regular':
+      return 'target_changed'
+    case 'atomic_exchange_unavailable':
+      return 'containment_unavailable'
+    case 'prepublication_failure':
+      return error.phase === 'bind' ? 'containment_unavailable' : 'prepublication_failed'
+    default:
+      return 'prepublication_failed'
+  }
+}
+
+/**
+ * Resolve the pathname used solely for lstat preflight from the same normalized
+ * logical target passed to S1/S2/S3. `absolutePath` reflects the original
+ * platform parsing of user input, which differs from the provider-visible
+ * normalized relative path for POSIX backslash input.
+ */
+function workspaceWriteLogicalTargetPath(input: { root: string; relativePath: string }): string {
+  return join(input.root, input.relativePath)
+}
+
+function selectOverwritePublicationTarget(input: {
+  root: string
+  relativePath: string
+}): Promise<WorkspaceWritePublication | WorkspaceWriteStableError> {
+  // This preflight chooses S2 versus S3 only. The durable publisher remains
+  // authoritative for all final target validation and publication checks.
+  return lstatIfExists(workspaceWriteLogicalTargetPath(input))
+    .then((existing) => {
+      if (existing === null) return 'created'
+      return existing.isFile() && existing.nlink === 1 ? 'overwritten' : 'path_rejected'
+    })
+    .catch(() => 'path_rejected')
+}
+
+const workspaceWritePermissionDescriptionError = '无法安全确定工作区文件写入目标。'
+
+async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext): Promise<{
+  operation: string
+  targetPath: string
+  reason: string
+  creates: boolean
+}> {
+  const input = (args ?? {}) as { path?: string; overwrite?: boolean }
+  if (!input.path?.trim()) throw new Error('缺少参数 path。')
+
+  try {
+    const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
+    const existing = await lstatIfExists(workspaceWriteLogicalTargetPath(target))
+    return {
+      operation: existing ? '覆盖工作区文件' : '创建工作区文件',
+      targetPath: target.relativePath,
+      reason: input.overwrite === true
+        ? '模型请求覆盖已有教学资产。'
+        : '模型请求写入新的教学资产。',
+      creates: existing === null
+    }
+  } catch {
+    // Registry forwards describe() errors verbatim, so deny without exposing
+    // native error detail or any absolute filesystem path.
+    throw new Error(workspaceWritePermissionDescriptionError)
+  }
+}
+
+/**
+ * Post-publication recovery is intentionally a single descriptor-bound read:
+ * it never retries publication, rolls back, deletes, or follows a pathname.
+ */
+function canonicalWorkspaceWriteReadIsExact(input: {
+  workspaceRootPath: string
+  relativePath: string
+  expectedBytes: Buffer
+  dependencies: WorkspaceWriteDurableDependencies
+}): boolean {
+  let binding: WorkspaceContainedPathBinding | undefined
+  let exact = false
+  try {
+    binding = input.dependencies.bindForCanonicalRead({
+      workspaceRootPath: input.workspaceRootPath,
+      relativePath: input.relativePath,
+      createParentDirectories: false
+    })
+    const leaf = binding.inspectLeaf()
+    if (leaf.type !== 'regular') return false
+    exact = input.dependencies.readRegularFile(binding.parentDirectory, binding.basename).equals(input.expectedBytes)
+  } catch {
+    exact = false
+  } finally {
+    if (binding) {
+      try {
+        binding.close()
+      } catch {
+        exact = false
+      }
+    }
+  }
+  return exact
+}
+
+function workspaceWriteSuccess(input: {
+  path: string
+  bytes: number
+  publication: WorkspaceWritePublication
+  possiblyPublished?: boolean
+}): string {
+  const created = input.publication === 'created'
+  return jsonResult({
+    path: input.path,
+    bytes: input.bytes,
+    created,
+    overwritten: !created,
+    message: input.possiblyPublished
+      ? '文件可能已发布；已通过受控读取确认其内容与请求完全一致。'
+      : `已写入 ${input.path}`,
+    ...(input.possiblyPublished
+      ? { possiblyPublished: true, canonicalRead: 'exact', retryable: false }
+      : {})
+  })
+}
+
+/** Internal-only test entry point; the tool registry/API always uses defaults. */
+export async function runWorkspaceWriteWithDurableDependenciesForTesting(
+  args: unknown,
+  ctx: ToolContext,
+  dependencies: WorkspaceWriteDurableDependencies = defaultWorkspaceWriteDurableDependencies
+): Promise<string> {
+  const input = (args ?? {}) as { path?: string; content?: unknown; overwrite?: boolean }
+  if (!input.path?.trim() || typeof input.content !== 'string') {
+    return stableWorkspaceWriteError('request_rejected')
+  }
+
+  let target: ReturnType<typeof resolveWorkspacePathTarget>
+  try {
+    target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
+  } catch {
+    return stableWorkspaceWriteError('path_rejected')
+  }
+
+  try {
+    if (isProtectedWorkspaceRelativePath(target.relativePath)) {
+      return stableWorkspaceWriteError('path_rejected', target.relativePath, '该路径属于隐藏、构建或敏感文件范围，已拒绝写入。')
+    }
+    if (isLessonHtmlRelativePath(target.relativePath)) {
+      return stableWorkspaceWriteError(
+        'path_rejected',
+        target.relativePath,
+        '课程页面不能用 write_workspace_file 直接写入 lessons/ 目录。请调用 generate_lesson 工具生成本节课程，它会统一编号、套用课程模板并登记到课程索引。'
+      )
+    }
+    if (!isLikelyTextPath(target.relativePath)) {
+      return stableWorkspaceWriteError('path_rejected', target.relativePath, '仅允许写入文本文件类型。')
+    }
+    if (Buffer.byteLength(input.content, 'utf8') > MAX_WRITE_BYTES) {
+      return stableWorkspaceWriteError('request_rejected', target.relativePath)
+    }
+    // Validate the same normalized relative path the S1 binder will receive.
+    // The durable publishers remain the authority for every final check.
+    if (target.relativePath === '.') return stableWorkspaceWriteError('path_rejected', target.relativePath)
+  } catch {
+    return stableWorkspaceWriteError('request_rejected', target.relativePath)
+  }
+
+  const bytes = Buffer.byteLength(input.content, 'utf8')
+  const expectedBytes = Buffer.from(input.content, 'utf8')
+  const publication = input.overwrite === true
+    ? await selectOverwritePublicationTarget({ root: target.root, relativePath: target.relativePath })
+    : 'created'
+
+  if (publication !== 'created' && publication !== 'overwritten') {
+    return stableWorkspaceWriteError(publication, target.relativePath)
+  }
+
+  try {
+    if (publication === 'created') {
+      await dependencies.createNoOverwrite({
+        workspaceRootPath: target.root,
+        relativePath: target.relativePath,
+        content: input.content
+      })
+    } else {
+      await dependencies.overwriteExistingRestricted({
+        workspaceRootPath: target.root,
+        relativePath: target.relativePath,
+        content: input.content
+      })
+    }
+    return workspaceWriteSuccess({ path: target.relativePath, bytes, publication })
+  } catch (error) {
+    if (!isPossiblyPublishedWorkspaceWriteError(error)) {
+      return stableWorkspaceWriteError(stableErrorForDurablePublicationFailure(error, publication), target.relativePath)
+    }
+
+    if (canonicalWorkspaceWriteReadIsExact({
+      workspaceRootPath: target.root,
+      relativePath: target.relativePath,
+      expectedBytes,
+      dependencies
+    })) {
+      return workspaceWriteSuccess({ path: target.relativePath, bytes, publication, possiblyPublished: true })
+    }
+    return stableWorkspaceWriteError('possibly_published', target.relativePath)
+  }
+}
+
 export const writeWorkspaceFileTool: ToolEntry = {
   definition: {
     type: 'function',
@@ -406,63 +722,10 @@ export const writeWorkspaceFileTool: ToolEntry = {
   },
   permission: {
     kind: 'workspace_write',
-    describe: async (args: unknown, ctx: ToolContext) => {
-      const input = (args ?? {}) as { path?: string; overwrite?: boolean }
-      if (!input.path?.trim()) throw new Error('缺少参数 path。')
-      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
-      const existing = await lstatIfExists(target.absolutePath)
-      return {
-        operation: existing ? '覆盖工作区文件' : '创建工作区文件',
-        targetPath: target.relativePath,
-        reason: input.overwrite === true
-          ? '模型请求覆盖已有教学资产。'
-          : '模型请求写入新的教学资产。',
-        creates: existing === null
-      }
-    }
+    describe: describeWorkspaceWritePermission
   },
-  handler: async (args: unknown, ctx: ToolContext): Promise<string> => {
-    try {
-      const input = (args ?? {}) as { path?: string; content?: unknown; overwrite?: boolean }
-      if (!input.path?.trim()) throw new Error('缺少参数 path。')
-      if (typeof input.content !== 'string') throw new Error('缺少参数 content，且必须是字符串。')
-      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
-      if (isProtectedWorkspaceRelativePath(target.relativePath)) {
-        throw new Error('该路径属于隐藏、构建或敏感文件范围，已拒绝写入。')
-      }
-      if (isLessonHtmlRelativePath(target.relativePath)) {
-        throw new Error(
-          '课程页面不能用 write_workspace_file 直接写入 lessons/ 目录。请调用 generate_lesson 工具生成本节课程，它会统一编号、套用课程模板并登记到课程索引。'
-        )
-      }
-      if (!isLikelyTextPath(target.relativePath)) {
-        throw new Error('仅允许写入文本文件类型。')
-      }
-      const bytes = Buffer.byteLength(input.content, 'utf8')
-      if (bytes > MAX_WRITE_BYTES) {
-        throw new Error(`写入内容过大（${bytes} bytes），已超过 ${MAX_WRITE_BYTES} bytes 上限。`)
-      }
-
-      const existing = await prepareWorkspaceWriteTarget(target)
-      if (existing.kind === 'directory') throw new Error('目标路径是目录，不能写入为文件。')
-      if (existing.kind === 'file' && input.overwrite !== true) {
-        throw new Error('文件已存在；如需覆盖请传 overwrite: true。')
-      }
-
-      await writeFile(target.absolutePath, input.content, 'utf8')
-      await verifyWrittenWorkspaceTarget(target)
-
-      return jsonResult({
-        path: target.relativePath,
-        bytes,
-        created: existing.exists === false,
-        overwritten: existing.kind === 'file',
-        message: `已写入 ${target.relativePath}`
-      })
-    } catch (error) {
-      return jsonError('write_workspace_file', error)
-    }
-  }
+  handler: async (args: unknown, ctx: ToolContext): Promise<string> =>
+    runWorkspaceWriteWithDurableDependenciesForTesting(args, ctx)
 }
 
 export const searchWorkspaceTool: ToolEntry = {
