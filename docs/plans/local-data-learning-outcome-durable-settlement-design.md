@@ -1,6 +1,6 @@
-# C-4P6 Learning outcome durable settlement：S1 已实施，完整闭环仍待设计门
+# C-4P6 Learning outcome durable settlement：S1 已实施，S2 tests-only evidence 已补，完整闭环仍待设计门
 
-> **状态：C-4P6-S1 已实施；C-4P6 尚未完整关闭，仍是待办。**提交 `7292bf4`（`fix(data): harden learning outcome settlement`）和 `e02a086`（`test(data): cover outcome settlement durability`）实现的仅是“严格有序发布与受控恢复基础”。本文记录该事实、剩余设计门和禁止越界的边界；它不把 S1 宣称为跨文件事务或共同原子性 或完整 durable closure。
+> **状态：C-4P6-S1 已实施，C-4P6-S2 已完成 tests-only evidence；C-4P6 尚未完整关闭，仍是待办。**提交 `7292bf4`（`fix(data): harden learning outcome settlement`）和 `e02a086`（`test(data): cover outcome settlement durability`）实现的仅是“严格有序发布与受控恢复基础”；`9847842`（`test(data): cover outcome publish crash recovery`）仅补齐单一 `after_outcome_publish` crash window 的测试证据。本文记录该事实、剩余设计门和禁止越界的边界；它不把 S1 宣称为跨文件事务或共同原子性 或完整 durable closure。
 
 > 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定与提交证据见 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
 
@@ -18,6 +18,16 @@ S1 覆盖 evaluator-derived Learning outcome 的主进程写入链：stage、imm
 | 受控恢复 | reconcile 为 authority-first：仅有效 immutable record 可按 `outcome.json` → manifest → marker 修复缺失 projection，不能覆盖冲突。状态不安全或不一致时返回 `review_required`；authority-first reconcile 不清理 stage。 |
 
 `e02a086` 的相关测试覆盖 41 项单元检查和 14 项集成检查。该数字是 S1 的有限验证证据，**不是**“所有设计矩阵、所有 crash/failure 风险或整个 C-4P6 均已覆盖”的断言。
+
+### S2 tests-only evidence：单一 `after_outcome_publish` crash window
+
+`9847842` 仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，没有 production/API/schema/path/order 变化，且 Sol final review approved。该证据只覆盖 `after_outcome_publish` 这一单一 crash window：
+
+- 初次 commit 返回 `retryable_failure/reconciliation_required`；record 与 matching outcome 存在，manifest 仍为 `active` / `outcomeRef: null`，marker 缺失，且未继续 manifest、marker 或 catalog-success。
+- 重启后的 reconcile 使用 immutable record authority，返回 `repaired`，不重新运行 evaluator、不重写 outcome，并按 manifest → marker 发布。
+- 第二次 reconcile 返回 `settled`，record/outcome/manifest/marker 四份 bytes 稳定；同一 operation 返回 `already_committed`，四份 bytes 仍稳定。
+
+实际验证入口与结果：`pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`（1 file / 28 tests passed）；`pnpm run typecheck`、`pnpm run check:security`、`git diff --check` 均通过。
 
 ## 2. Canonical authority 与幂等性边界
 
@@ -42,7 +52,7 @@ S1 将可变文件的 replace 与 immutable record 的不可覆盖 publish 分�
 
 ## 4. S1 未关闭的 C-4P6 范围
 
-C-4P6 因 manifest publisher 的 durability/capability-policy 尚未闭合、crash / failure 矩阵尚未穷尽验证，必须继续作为不完整待办保留，直至未来获得批准并完成剩余 close-out。至少仍包括：
+C-4P6 因 manifest publisher 的 durability/capability-policy 尚未闭合、除 `after_outcome_publish` 外的 crash / failure 矩阵尚未穷尽验证，必须继续作为不完整待办保留，直至未来获得批准并完成剩余 close-out。至少仍包括：
 
 1. **manifest publisher capability-policy 对齐：**确认并落实 manifest publisher 与 shared durable capability 的策略边界，而不是从 S1 的 outcome / marker 行为外推。
 2. **穷尽的 crash / failure 设计矩阵：**S1 测试不宣称覆盖所有 crash window、文件/目录 open-sync-close 组合、冲突与损坏状态；未来需要针对完整 scope 明确 acceptance criteria 和结果语义。
@@ -57,13 +67,13 @@ C-4P6 因 manifest publisher 的 durability/capability-policy 尚未闭合、cra
 | 类别 | 剩余验证要求 |
 |---|---|
 | manifest capability-policy | manifest publisher 的 durable capability、allowlist、错误传播和与 S1 顺序的明确对齐 |
-| crash windows | `after_stage_flush`、`after_record_publish`、`after_outcome_publish`、`after_manifest_publish`、`after_settlement_marker`、`before_catalog_reconcile` 后的重启 / reconcile 确定性结果 |
+| crash windows | S2 仅提供 `after_outcome_publish` 的重启 / reconcile 定向证据；`after_stage_flush`、`after_record_publish`、`after_manifest_publish`、`after_settlement_marker`、`before_catalog_reconcile` 及其它 failure combinations 仍待验证 |
 | 失败传播 | write、file fsync、file close、rename / link、parent directory open / sync / close 与 cleanup failure 不得被成功结果掩盖 |
 | authority / conflict | valid record 的受控 repair、冲突 marker / projection、corrupt 或越界状态均不覆盖且安全地进入既有 retryable / `review_required` 语义 |
 | compatibility / operations | schema、canonical path、`0600` mode、reader compatibility、非敏感 warning / log，以及可操作的运行验证 |
 
-该矩阵是未来 acceptance criteria，不是对 `7292bf4` / `e02a086` 已经完全满足的声明。
+该矩阵是未来 acceptance criteria；S2 仅关闭 `after_outcome_publish` 这一条定向 evidence，不是对 `7292bf4` / `e02a086` / `9847842` 已经完全满足的声明。
 
 ## 6. 后续实施前边界
 
-任何后续 P6 切片都必须先单独获得 scope / owner / API 批准，并明确其与 S1 的关系；不得借 S1 直接扩大为自动 repair、删除、rollback、迁移或外部接口改动。没有获得这类批准和完整验证前，路线图只能表述为：**“C-4P6-S1 implemented; full P6 close-out remains pending.”**
+任何后续 P6 切片都必须先单独获得 scope / owner / API 批准，并明确其与 S1 的关系；不得借 S1 直接扩大为自动 repair、删除、rollback、迁移或外部接口改动。没有获得这类批准和完整验证前，路线图只能表述为：**“C-4P6-S1 implemented; C-4P6-S2 tests-only evidence for `after_outcome_publish` recorded; full P6 close-out remains pending.”**

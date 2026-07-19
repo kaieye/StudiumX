@@ -26,9 +26,10 @@
 ### P6：learning-outcome durable settlement 的剩余 close-out 设计门
 
 - 设计文档：[C-4P6 Learning outcome durable settlement](plans/local-data-learning-outcome-durable-settlement-design.md)；已实施范围和提交证据见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
-- **已实施且仅限 S1：**`7292bf4` / `e02a086` 实现严格有序 publish、内置 ledger 的私有 writer-lock 覆盖、fail-closed injected load-only ledger，以及 authority-first controlled reconcile。它不是完整 settlement closure。
-- **仍未完成：**完整 C-4P6 因 manifest publisher 的 durability/capability-policy 尚未闭合、crash / failure 矩阵尚未穷尽验证，必须继续保留在本待办；完成前还需运行验证。不得把 S1 的 41 项相关单元检查和 14 项集成检查解释为已消除整个矩阵或未来 C-4P6 风险。
-- 禁止越界：S1 不授权跨文件事务或共同原子性、rollback、删除、通用 migration 或新的外部 API；不得将单一 overwrite durable write 或 S1 基础称为 settlement durable closure。
+- **已实施且仅限 S1 + S2 tests-only evidence：**`7292bf4` / `e02a086` 实现严格有序 publish、内置 ledger 的私有 writer-lock 覆盖、fail-closed injected load-only ledger，以及 authority-first controlled reconcile。`9847842`（`test(data): cover outcome publish crash recovery`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐单一 `after_outcome_publish` crash window 的恢复证据；没有 production/API/schema/path/order 变化。它不是完整 settlement closure。
+- **S2 evidence 的准确边界：**初次 commit 返回 `retryable_failure/reconciliation_required`；record 与 matching outcome 已存在，manifest 仍为 `active` / `outcomeRef: null`，marker 缺失，且未继续 manifest、marker 或 catalog-success。重启后的 reconcile 使用 immutable record authority，返回 `repaired`，不重新运行 evaluator、不重写 outcome，并按 manifest → marker 发布；第二次 reconcile 返回 `settled`，record/outcome/manifest/marker 四份 bytes 稳定；同一 operation 返回 `already_committed`，四份 bytes 仍稳定。Sol final review approved。验证入口为 `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`（1 file / 28 tests passed），另有 `pnpm run typecheck`、`pnpm run check:security`、`git diff --check` 通过。
+- **仍未完成：**完整 C-4P6 因 manifest publisher 的 durability/capability-policy 尚未闭合、其它 crash windows / failure matrix 尚未穷尽验证，必须继续保留在本待办；完成前还需运行验证。不得把 S1 的 41 项相关单元检查和 14 项集成检查改成或混为 S2 的 28 项 unit tests，也不得解释为已消除整个矩阵或未来 C-4P6 风险。
+- **明确不在 S2 范围：**manifest capability-policy alignment、其它 crash windows / failure matrix、跨文件 transaction、rollback、delete、migration、API 或 operations validation，以及完整 C-4P6 closure。
 
 ## C-5：尚未覆盖的用户动作 correlation 设计门
 
