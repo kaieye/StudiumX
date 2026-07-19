@@ -298,6 +298,62 @@ describe('agent conversation session audit durable append', () => {
     ])
   })
 
+  it('linearizes concurrent identical same-save appends without duplicate header or entry rows', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const auditFile = auditPath(root, record)
+    const firstStatStarted = deferred()
+    const releaseFirstStat = deferred()
+    let held = false
+    const io = instrumentedAuditOperations({
+      onEvent: (event) => {
+        if (event === `stat:${auditFile}` && !held) firstStatStarted.resolve()
+      },
+      hold: (event) => {
+        if (event === `stat:${auditFile}` && !held) {
+          held = true
+          return releaseFirstStat.promise
+        }
+        return undefined
+      }
+    })
+
+    const first = appendWith(root, record, io.operations)
+    await firstStatStarted.promise
+    const second = appendWith(root, record, io.operations)
+    // Queue must keep the second same-path open from starting while the first
+    // save still owns the descriptor lifecycle.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(io.opens.filter((open) => open.path === auditFile)).toHaveLength(1)
+
+    releaseFirstStat.resolve()
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      agentConversationSessionAuditRelativePathForMarkdown(record.relativePath),
+      agentConversationSessionAuditRelativePathForMarkdown(record.relativePath)
+    ])
+
+    const raw = await readAudit(root, record)
+    const lines = parseAgentConversationSessionAuditLines(raw)
+    const entryIds = lines.filter((line) => line.type !== 'session').map((line) => line.id)
+    const expectedIdentity = buildAgentConversationSessionAuditEntries(record)
+      .map(({ type, id, parentId }) => ({ type, id, parentId }))
+
+    expect(lines.filter((line) => line.type === 'session')).toHaveLength(1)
+    expect(entryIds).toEqual(expectedIdentity.map((entry) => entry.id))
+    expect(new Set(entryIds).size).toBe(entryIds.length)
+    expect(
+      lines
+        .filter((line) => line.type !== 'session')
+        .map(({ type, id, parentId }) => ({ type, id, parentId }))
+    ).toEqual(expectedIdentity)
+    // Exact bytes must match a single sequential write of the same record.
+    const referenceRoot = await createRoot()
+    const reference = instrumentedAuditOperations()
+    await appendWith(referenceRoot, record, reference.operations)
+    expect(raw).toBe(await readAudit(referenceRoot, record))
+  })
+
   it('rejects a same-ID canonical-body conflict without changing existing audit bytes', async () => {
     const root = await createRoot()
     const initial = createRecord()
