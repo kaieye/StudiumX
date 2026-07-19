@@ -793,6 +793,24 @@ pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.t
 # P6-S64 well-formed missing operationId key residual: 1 file, 89 tests passed
 ```
 
+## C-4P6-S65：well-formed missing sessionId key 的 tests-only evidence
+
+`4145db8`（`test(data): cover missing learning record sessionId residual`）修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 missing `sessionId` key residual：其它 metadata/body 仍合法，仅删除 `sessionId`，使 `text()` 返回 null；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 sessionId、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。同提交亦引入 S66 初版。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S65 well-formed missing sessionId key residual: 1 file, 90 tests passed
+```
+
+## C-4P6-S66：well-formed missing evidenceEventIds key 的 tests-only evidence
+
+`4145db8` 引入 well-formed missing `evidenceEventIds` key residual；`c3efedc`（`test(data): harden missing evidenceEventIds residual asserts`）仅收紧断言：去除 matchObject 重复 key，并将 poisoned text 对 evidence id 的期望改为 `not.toContain`（删除 key 后 metadata 不再含该 id）。`stringArray(undefined)` throw → catch → invalid → `missing_record`；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不 evaluate；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S66 well-formed missing evidenceEventIds key residual: 1 file, 91 tests passed
+```
+
 ## C-4P8：已关闭的受控 workspace-tool scope
 
 C-4P8 的 S1 至 S4 已在**受控 `write_workspace_file` 文本文件 create / restricted-overwrite scope**关闭。S1 的 workspace descriptor foundation 证据为 `80f2fd0` / `e2ce36c`；S2 的 `b46c8b2` / `bdcd6cb` 和 S3 的 `56eabe6` / `54506d5` 仍是 POSIX descriptor-bound foundation；S4 的 handler/API integration 与定向测试为 `0bbfdef` / `e84c813`。2026-07-19 经明确批准后，Windows 另实现 root-constrained direct-path profile；它不把 Windows 冒充为该 descriptor-bound foundation。
