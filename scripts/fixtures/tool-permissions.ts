@@ -9,6 +9,7 @@ import {
   buildToolContext,
   type ToolPermissionRequest
 } from '../../src/main/ai/tools/registry'
+import { getWorkspaceWriteToolAvailability } from '../../src/main/ai/tools/workspace'
 import {
   registerToolPermissionPending,
   resolveToolPermissionPending
@@ -27,118 +28,121 @@ async function exists(path: string): Promise<boolean> {
   return stat(path).then((info) => info.isFile()).catch(() => false)
 }
 
-function assertPublishedOrFailsClosed(result: Record<string, unknown>, path: string): boolean {
-  if (process.platform !== 'win32') {
-    assert.equal(result.created, true)
-    return true
-  }
-
-  // The native addon explicitly refuses descriptor-relative traversal on
-  // Windows, so permissions can be granted while publication still fails
-  // closed. Linux host-native coverage verifies successful S2/S3 publication.
-  assert.deepEqual(
-    { path: result.path, code: result.code, error: result.error },
-    {
-      path,
-      code: 'containment_unavailable',
-      error: '无法安全绑定工作区目标。'
-    }
-  )
-  return false
-}
-
 const root = await mkdtemp(join(tmpdir(), 'studiumx-tool-permissions-'))
 
 try {
-  const allowSettings = settingsFor(root, 'full_access')
-  const allowHandlers = buildDefaultRegistry(allowSettings, {
-    workspaceRoot: root,
-    workspaceWrite: true
-  }).handlerMap(buildToolContext(allowSettings, { workspaceRoot: root }))
-  const allowResult = JSON.parse(await allowHandlers.write_workspace_file({
-    path: 'notes/allowed.md',
-    content: '# Allowed\n'
-  }))
-  if (assertPublishedOrFailsClosed(allowResult, 'notes/allowed.md')) {
+  const workspaceWriteAvailability = getWorkspaceWriteToolAvailability()
+  if (!workspaceWriteAvailability.available) {
+    assert.equal(workspaceWriteAvailability.code, 'containment_unavailable')
+    assert.equal(workspaceWriteAvailability.message, '当前平台无法安全发布工作区文件。')
+
+    for (const mode of ['full_access', 'based_on_approval', 'request_approval'] as const) {
+      const settings = settingsFor(root, mode)
+      const permissionRequests: ToolPermissionRequest[] = []
+      const registry = buildDefaultRegistry(settings, { workspaceRoot: root, workspaceWrite: true })
+      const handlers = registry.handlerMap(buildToolContext(settings, {
+        workspaceRoot: root,
+        requestToolPermission: async (request) => {
+          permissionRequests.push(request)
+          return { decision: 'allow_once' }
+        }
+      }))
+      assert.equal(registry.names().includes('read_workspace_file'), true, 'read-only tools remain available')
+      assert.equal(registry.names().includes('write_workspace_file'), false, `${mode} must not offer an unavailable writer`)
+      assert.equal(typeof handlers.write_workspace_file, 'undefined')
+      assert.deepEqual(permissionRequests, [], 'withheld tools cannot create an approval request')
+    }
+    assert.equal(await exists(join(root, 'notes', 'allowed.md')), false)
+    assert.equal(await exists(join(root, 'notes', 'approved.md')), false)
+    console.log('tool permission policies: durable workspace writer unavailable; no approval flow was offered')
+  } else {
+    const allowSettings = settingsFor(root, 'full_access')
+    const allowHandlers = buildDefaultRegistry(allowSettings, {
+      workspaceRoot: root,
+      workspaceWrite: true
+    }).handlerMap(buildToolContext(allowSettings, { workspaceRoot: root }))
+    const allowResult = JSON.parse(await allowHandlers.write_workspace_file({
+      path: 'notes/allowed.md',
+      content: '# Allowed\n'
+    }))
+    assert.equal(allowResult.created, true)
     assert.equal(await readFile(join(root, 'notes/allowed.md'), 'utf8'), '# Allowed\n')
-  }
 
-  const requestSettings = settingsFor(root, 'request_approval')
-  const requestWithoutResolverHandlers = buildDefaultRegistry(requestSettings, {
-    workspaceRoot: root,
-    workspaceWrite: true
-  }).handlerMap(buildToolContext(requestSettings, { workspaceRoot: root }))
-  const requestWithoutResolverResult = JSON.parse(await requestWithoutResolverHandlers.write_workspace_file({
-    path: 'notes/request-without-resolver.md',
-    content: '# Blocked\n'
-  }))
-  assert.match(requestWithoutResolverResult.error, /没有审批通道/)
-  assert.equal(requestWithoutResolverResult.permission.kind, 'workspace_write')
-  assert.equal(await exists(join(root, 'notes/request-without-resolver.md')), false)
+    const requestSettings = settingsFor(root, 'request_approval')
+    const requestWithoutResolverHandlers = buildDefaultRegistry(requestSettings, {
+      workspaceRoot: root,
+      workspaceWrite: true
+    }).handlerMap(buildToolContext(requestSettings, { workspaceRoot: root }))
+    const requestWithoutResolverResult = JSON.parse(await requestWithoutResolverHandlers.write_workspace_file({
+      path: 'notes/request-without-resolver.md',
+      content: '# Blocked\n'
+    }))
+    assert.match(requestWithoutResolverResult.error, /没有审批通道/)
+    assert.equal(requestWithoutResolverResult.permission.kind, 'workspace_write')
+    assert.equal(await exists(join(root, 'notes/request-without-resolver.md')), false)
 
-  const riskBasedSettings = settingsFor(root, 'based_on_approval')
-  const riskBasedHandlers = buildDefaultRegistry(riskBasedSettings, {
-    workspaceRoot: root,
-    workspaceWrite: true
-  }).handlerMap(buildToolContext(riskBasedSettings, { workspaceRoot: root }))
-  const riskBasedResult = JSON.parse(await riskBasedHandlers.write_workspace_file({
-    path: 'notes/risk-based-new.md',
-    content: '# Created without approval\n'
-  }))
-  if (assertPublishedOrFailsClosed(riskBasedResult, 'notes/risk-based-new.md')) {
+    const riskBasedSettings = settingsFor(root, 'based_on_approval')
+    const riskBasedHandlers = buildDefaultRegistry(riskBasedSettings, {
+      workspaceRoot: root,
+      workspaceWrite: true
+    }).handlerMap(buildToolContext(riskBasedSettings, { workspaceRoot: root }))
+    const riskBasedResult = JSON.parse(await riskBasedHandlers.write_workspace_file({
+      path: 'notes/risk-based-new.md',
+      content: '# Created without approval\n'
+    }))
+    assert.equal(riskBasedResult.created, true)
     assert.equal(await readFile(join(root, 'notes/risk-based-new.md'), 'utf8'), '# Created without approval\n')
-  }
 
-  const askSettings = settingsFor(root, 'request_approval')
-  const askWithoutResolverHandlers = buildDefaultRegistry(askSettings, {
-    workspaceRoot: root,
-    workspaceWrite: true
-  }).handlerMap(buildToolContext(askSettings, { workspaceRoot: root }))
-  const askWithoutResolverResult = JSON.parse(await askWithoutResolverHandlers.write_workspace_file({
-    path: 'notes/no-resolver.md',
-    content: '# Blocked\n'
-  }))
-  assert.match(askWithoutResolverResult.error, /没有审批通道/)
-  assert.equal(await exists(join(root, 'notes/no-resolver.md')), false)
+    const askSettings = settingsFor(root, 'request_approval')
+    const askWithoutResolverHandlers = buildDefaultRegistry(askSettings, {
+      workspaceRoot: root,
+      workspaceWrite: true
+    }).handlerMap(buildToolContext(askSettings, { workspaceRoot: root }))
+    const askWithoutResolverResult = JSON.parse(await askWithoutResolverHandlers.write_workspace_file({
+      path: 'notes/no-resolver.md',
+      content: '# Blocked\n'
+    }))
+    assert.match(askWithoutResolverResult.error, /没有审批通道/)
+    assert.equal(await exists(join(root, 'notes/no-resolver.md')), false)
 
-  const approvalRequests: ToolPermissionRequest[] = []
-  const askWithResolverHandlers = buildDefaultRegistry(askSettings, {
-    workspaceRoot: root,
-    workspaceWrite: true
-  }).handlerMap(buildToolContext(askSettings, {
-    workspaceRoot: root,
-    requestToolPermission: async (request) => {
-      approvalRequests.push(request)
-      return { decision: 'allow' }
-    }
-  }))
-  const approvedResult = JSON.parse(await askWithResolverHandlers.write_workspace_file({
-    path: 'notes/approved.md',
-    content: '# Approved\n'
-  }, {
-    toolCallId: 'call-approved',
-    toolName: 'write_workspace_file'
-  }))
-  if (assertPublishedOrFailsClosed(approvedResult, 'notes/approved.md')) {
+    const approvalRequests: ToolPermissionRequest[] = []
+    const askWithResolverHandlers = buildDefaultRegistry(askSettings, {
+      workspaceRoot: root,
+      workspaceWrite: true
+    }).handlerMap(buildToolContext(askSettings, {
+      workspaceRoot: root,
+      requestToolPermission: async (request) => {
+        approvalRequests.push(request)
+        return { decision: 'allow' }
+      }
+    }))
+    const approvedResult = JSON.parse(await askWithResolverHandlers.write_workspace_file({
+      path: 'notes/approved.md',
+      content: '# Approved\n'
+    }, {
+      toolCallId: 'call-approved',
+      toolName: 'write_workspace_file'
+    }))
+    assert.equal(approvedResult.created, true)
     assert.equal(await readFile(join(root, 'notes/approved.md'), 'utf8'), '# Approved\n')
+    assert.deepEqual(approvalRequests.map((request) => ({
+      id: request.id,
+      kind: request.kind,
+      toolName: request.toolName,
+      operation: request.operation,
+      targetPath: request.targetPath,
+      creates: request.creates
+    })), [
+      {
+        id: 'call-approved',
+        kind: 'workspace_write',
+        toolName: 'write_workspace_file',
+        operation: '创建工作区文件',
+        targetPath: 'notes/approved.md',
+        creates: true
+      }
+    ])
   }
-  assert.deepEqual(approvalRequests.map((request) => ({
-    id: request.id,
-    kind: request.kind,
-    toolName: request.toolName,
-    operation: request.operation,
-    targetPath: request.targetPath,
-    creates: request.creates
-  })), [
-    {
-      id: 'call-approved',
-      kind: 'workspace_write',
-      toolName: 'write_workspace_file',
-      operation: '创建工作区文件',
-      targetPath: 'notes/approved.md',
-      creates: true
-    }
-  ])
 
   const pendingDecision = registerToolPermissionPending('stream-1', 'permission-1')
   assert.equal(

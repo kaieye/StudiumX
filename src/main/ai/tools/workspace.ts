@@ -3,6 +3,7 @@ import { extname, join, relative } from 'node:path'
 import type { Dirent } from 'node:fs'
 import {
   bindTrustedWorkspaceContainedPath,
+  getContainedDurableDirectoryCapability,
   readRegularFileAtContainedDirectory,
   type ContainedDurableDirectory,
   type WorkspaceContainedPathBinding
@@ -534,6 +535,29 @@ function selectOverwritePublicationTarget(input: {
 }
 
 const workspaceWritePermissionDescriptionError = '无法安全确定工作区文件写入目标。'
+
+/**
+ * Product-facing availability for the controlled workspace writer. This is
+ * intentionally narrower than `workspaceRead`: the write tool is offered only
+ * when the host can bind and publish through the descriptor-relative native
+ * capability. The unavailable state is stable and deliberately omits native
+ * loader, filesystem, and local-path detail.
+ */
+export type WorkspaceWriteToolAvailability =
+  | { readonly available: true }
+  | { readonly available: false; readonly code: 'containment_unavailable'; readonly message: string }
+
+const workspaceWriteToolUnavailableMessage = '当前平台无法安全发布工作区文件。'
+
+export function getWorkspaceWriteToolAvailability(): WorkspaceWriteToolAvailability {
+  return getContainedDurableDirectoryCapability().available
+    ? { available: true }
+    : {
+        available: false,
+        code: 'containment_unavailable',
+        message: workspaceWriteToolUnavailableMessage
+      }
+}
 
 async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext): Promise<{
   operation: string

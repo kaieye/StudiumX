@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { AgentRunStore, DEFAULT_AGENT_RUN_BUDGET } from '../../src/main/ai/agent-run-store'
 import { ToolRegistry, buildDefaultRegistry, buildToolContext } from '../../src/main/ai/tools/registry'
 import { defaultSettings } from '../../src/main/teaching-settings'
+import { getWorkspaceWriteToolAvailability } from '../../src/main/ai/tools/workspace'
 
 const root = await mkdtemp(join(tmpdir(), 'studiumx-operation-idempotency-'))
 
@@ -139,7 +140,6 @@ try {
     workspaceRoot: root,
     workspaceWrite: true
   })
-  assert.equal(workspaceWriteRegistry.names().includes('write_workspace_file'), true)
   const workspaceWriteHandlers = workspaceWriteRegistry.handlerMap(buildToolContext(settings, {
     workspaceRoot: root,
     runId: workspaceRunId,
@@ -155,28 +155,27 @@ try {
     content: '完整 UTF-8 replay 内容 🧪\n',
     overwrite: true
   }
-  const firstWorkspaceWrite = JSON.parse(await workspaceWriteHandlers.write_workspace_file(
-    workspaceWriteArgs,
-    workspaceWriteCall
-  ))
-  assert.equal(firstWorkspaceWrite.operation.disposition, 'first_execution')
+  const workspaceWriteAvailability = getWorkspaceWriteToolAvailability()
+  assert.equal(
+    workspaceWriteRegistry.names().includes('write_workspace_file'),
+    workspaceWriteAvailability.available,
+    'workspace write registration must match the durable containment capability'
+  )
   const workspaceWriteTarget = join(root, workspaceWriteArgs.path)
 
-  if (process.platform === 'win32') {
-    // The native addon intentionally refuses descriptor-relative traversal on
-    // Windows. The operation must fail closed without publishing a file; the
-    // Linux host-native job verifies the real S2/S3 replay invariant below.
-    assert.deepEqual(
-      { path: firstWorkspaceWrite.path, code: firstWorkspaceWrite.code, error: firstWorkspaceWrite.error },
-      {
-        path: workspaceWriteArgs.path,
-        code: 'containment_unavailable',
-        error: '无法安全绑定工作区目标。'
-      }
-    )
+  if (!workspaceWriteAvailability.available) {
+    assert.equal(workspaceWriteAvailability.code, 'containment_unavailable')
+    assert.equal(workspaceWriteAvailability.message, '当前平台无法安全发布工作区文件。')
+    assert.equal(typeof workspaceWriteHandlers.write_workspace_file, 'undefined')
     await assert.rejects(stat(workspaceWriteTarget), { code: 'ENOENT' })
-    console.log('[agent operation idempotency] Windows descriptor-relative publication is intentionally unavailable; fail-closed contract verified')
+    console.log('[agent operation idempotency] durable workspace publication unavailable; no write operation was offered')
   } else {
+    const firstWorkspaceWrite = JSON.parse(await workspaceWriteHandlers.write_workspace_file(
+      workspaceWriteArgs,
+      workspaceWriteCall
+    ))
+    assert.equal(firstWorkspaceWrite.operation.disposition, 'first_execution')
+
     assert.deepEqual(
       {
         path: firstWorkspaceWrite.path,

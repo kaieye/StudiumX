@@ -6,6 +6,12 @@ S1 的 workspace descriptor foundation 由 `80f2fd0` / `e2ce36c` 实施；S2 的
 
 相关但不同的已实施 consumer 是 C-4P5 `TeachingWorkspaceDocuments` 的 allowlisted workspace Markdown publish。C-4P8 不继承 C-4P5 的 allowlist/service contract，也不能以 C-4P5 的测试或 shared `replaceDurably()` 通过作为 C-4P8 的证据。
 
+## 后续收敛：runtime platform capability policy
+
+本历史设计关闭后，runtime 已补充 **capability-aware fail-closed** 边界：`write_workspace_file` 只在实际 descriptor-relative durable capability 可用时注册。Windows native addon 当前明确拒绝 descriptor-relative traversal，故 Windows 不暴露 write definition/handler；只读 workspace tools 保持可用，`full_access`、`based_on_approval` 和 `request_approval` 都不会创建“已批准但随后失败”的 workspace-write 流程。不可用状态仅为稳定的 `{ available: false, code: 'containment_unavailable', message: '当前平台无法安全发布工作区文件。' }`，不泄露 native/路径细节。
+
+这不是 Windows support：不存在 `writeFile`、ordinary `rename`、preflight `lstat` 后写或其它 pathname fallback。若未来要实施 Windows，必须作为独立 design gate，覆盖 HANDLE-relative traversal、reparse point / symlink / junction adversarial tests、atomic no-overwrite / restricted-overwrite 语义及 file/directory durability。当前实施事实和验证入口仍以 ADR-0004 为准。
+
 > 未完成工作的唯一入口见 [本地数据待办](../local-data-todo.md)。
 
 ## 历史 S1：descriptor-bound foundation
@@ -65,6 +71,6 @@ git diff --check
 - 所有 writer migration、其它 workspace writer 或 C-4P5 allowlisted document service 的替代；
 - 跨文件 transaction、共同原子性、CAS 或 lost-update protection；
 - trace / traceId、全局 actionId、receipt 或跨工具 idempotency 协议；
-- IPC、renderer/UI、prompt、tool registry 或 permission model 变更；
+- IPC、renderer/UI、prompt 或 approvalMode 语义变更；后续已实施的 registry capability gate 仅收敛 tool eligibility，不构成 Windows writer support；
 - workspace registry、touch/save registry、conversation audit、generic JSONL、migration、repair、历史扫描/回填、backup、retention 或 schema change；
 - Windows、fully cross-platform 支持或 metadata full preservation。

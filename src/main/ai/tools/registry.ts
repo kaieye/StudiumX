@@ -5,7 +5,11 @@ import type { AgentArtifactRef, TeachingSettingsV1 } from '../../../shared/teach
 import type { AgentOperationJournal, AgentOperationRecord } from '../agent-operation-journal'
 import { webSearchTool } from './web_search'
 import { webFetchTool } from './web_fetch'
-import { workspaceReadTools, writeWorkspaceFileTool } from './workspace'
+import {
+  getWorkspaceWriteToolAvailability,
+  workspaceReadTools,
+  writeWorkspaceFileTool
+} from './workspace'
 
 export type ToolPermissionKind =
   | 'workspace_write'
@@ -249,7 +253,13 @@ export function buildDefaultRegistry(
   const registry = new ToolRegistry()
   if (settings.tools.workspaceRead && options.workspaceRoot) {
     for (const tool of workspaceReadTools) registry.register(tool)
-    if (options.workspaceWrite === true) registry.register(writeWorkspaceFileTool)
+    // Do not expose a write capability that this host cannot execute safely.
+    // The durable publisher has no pathname fallback, so leaving the tool out
+    // prevents an approval UI from promising a write which would only fail at
+    // execution time. Read-only workspace tools stay available.
+    if (options.workspaceWrite === true && getWorkspaceWriteToolAvailability().available) {
+      registry.register(writeWorkspaceFileTool)
+    }
   }
   if (settings.tools.webSearch) registry.register(webSearchTool)
   if (settings.tools.webFetch) registry.register(webFetchTool)

@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import { buildDefaultRegistry, buildToolContext } from '../../src/main/ai/tools/registry'
+import { getWorkspaceWriteToolAvailability } from '../../src/main/ai/tools/workspace'
 
 const execFileAsync = promisify(execFile)
 const mkfifoUnavailable = (spawnSync('mkfifo', [], { stdio: 'ignore' }).error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
@@ -46,8 +47,26 @@ try {
     workspaceRoot: workspace.rootPath,
     workspaceWrite: true
   })
+  const availability = getWorkspaceWriteToolAvailability()
   const handlers = writeRegistry.handlerMap(buildToolContext(settings, { workspaceRoot: workspace.rootPath }))
-  assert.equal(typeof handlers.write_workspace_file, 'function', 'teaching chat should expose write_workspace_file')
+  assert.equal(
+    writeRegistry.definitions().some((tool) => tool.function.name === 'write_workspace_file'),
+    availability.available,
+    'workspace write registration must match the durable containment capability'
+  )
+
+  if (!availability.available) {
+    assert.equal(availability.code, 'containment_unavailable')
+    assert.equal(availability.message, '当前平台无法安全发布工作区文件。')
+    assert.equal(typeof handlers.write_workspace_file, 'undefined', 'unavailable hosts must not expose a write handler')
+    assert.equal(
+      await stat(join(workspace.rootPath, 'reference', 'rag-glossary.html')).then(() => true).catch(() => false),
+      false,
+      'withheld write tools must not create a target file'
+    )
+    console.log('[workspace write tool] durable workspace publication unavailable; registry withheld the write tool')
+  } else {
+    assert.equal(typeof handlers.write_workspace_file, 'function', 'supported hosts should expose write_workspace_file')
 
   // Lesson pages must be rejected: they go through the generate_lesson
   // pipeline so numbering, template rendering, and index registration stay
@@ -64,25 +83,6 @@ try {
     'rejected lesson write must not create a file'
   )
 
-  if (process.platform === 'win32') {
-    // The native addon explicitly refuses descriptor-relative traversal on
-    // Windows. Exercise the stable, fail-closed tool contract here; Linux
-    // host-native CI below covers the S2/S3 publication behavior.
-    const unavailableResult = JSON.parse(await handlers.write_workspace_file({
-      path: 'reference/rag-glossary.html',
-      content: '<!doctype html><title>must remain unpublished</title>'
-    }))
-    assert.deepEqual(
-      { path: unavailableResult.path, code: unavailableResult.code, error: unavailableResult.error },
-      {
-        path: 'reference/rag-glossary.html',
-        code: 'containment_unavailable',
-        error: '无法安全绑定工作区目标。'
-      },
-      'Windows must fail closed when descriptor-relative publication is unavailable'
-    )
-    console.log('[workspace write tool] Windows descriptor-relative publication is intentionally unavailable; fail-closed contract verified')
-  } else {
   // Default creates must invoke the real S2 path. The subsequent duplicate
   // verifies that neither the default behavior nor any legacy pathname write
   // fallback can replace the original bytes.

@@ -47,6 +47,17 @@ C-4P8 的 S1 至 S4 已在**受控 `write_workspace_file` 文本文件 create / 
 
 S3 的实现仍是 descriptor-bound/no-follow、same-parent publication；restricted overwrite 只接受既有 `nlink = 1` regular leaf，采用 macOS `RENAME_SWAP` 或 Linux `RENAME_EXCHANGE`，不是 CAS，也不提供版本匹配、合并或 lost-update 防护。candidate 以 `0666 & umask` 创建，并采用旧 target normal mode `& 0777`；不承诺 special bits、owner/group、ACL、xattr、birth time 或其它 metadata 的完整保留。
 
+### Runtime 平台 capability 与产品边界
+
+本轮选择 **capability-aware fail-closed 产品策略**，而非声称已经实现 Windows 原生 durable publish。native addon 目前只有 host-built POSIX 的 descriptor-relative/no-follow 实现；Windows 分支明确拒绝 descriptor-relative traversal，且没有 `HANDLE`-relative / reparse-point-safe 等价实现。因此任何不可用 host（包括 Windows，或 POSIX host 上 addon 不可加载）都**不得**退回 pathname `writeFile`、`rename`、先 `lstat` 后写或任何其它 TOCTOU 方案。
+
+- `getWorkspaceWriteToolAvailability()` 将底层 capability 映射成稳定的产品状态：可用时仅返回 `{ available: true }`；不可用时返回 `{ available: false, code: 'containment_unavailable', message: '当前平台无法安全发布工作区文件。' }`，不携带本地路径、loader、errno、descriptor 或 temporary-name 细节。
+- `buildDefaultRegistry()` 只有在调用方已请求 workspace write、workspace read 已启用且该 capability 可用时才注册 `write_workspace_file`。不可用时所有只读 workspace 工具保持注册，但 write definition 和 handler 均不存在；这会在模型调用和 permission UI 之前阻止请求，因而不会出现“已批准写入”随后才安全失败的产品承诺，也不会为该 tool 创建 operation journal 条目。
+- `settings.tools.approvalMode` 仍是已注册 writer 的唯一审批模型：`full_access`、`based_on_approval` 与 `request_approval` 的已有语义不变；capability 不可用时三者都没有可审批的 workspace write。没有重新引入 `workspaceWritePermission` 运行时字段。
+- 直接调用内部 handler 时，下层 publisher 仍保持稳定的 `containment_unavailable` fail-closed result；这只是防御纵深，不是产品暴露路径。
+
+Windows 上的真实行为因此是：不暴露 `write_workspace_file`、不显示该 tool 的审批请求、不创建或覆盖目标，且不泄露 native 细节。Linux（以及现有 POSIX native branch）保持 S2/S3 真正发布、对抗性拒绝、same-`toolCallId` completed replay 不二次发布及 `possibly_published` exact canonical-read 恢复语义。Windows 原生实现若要进入后续工作，必须先独立设计和验证 HANDLE-relative traversal、reparse point/junction 处理、no-overwrite 与 restricted-overwrite 的原子/durability 语义，以及 host-native adversarial CI；在此之前这个 registry gate 不得被绕过。
+
 ### 最终本地验证和 Linux host-native 记录
 
 最终本地验证在 macOS 上构建 native addon，并实际执行以下五个 unit 文件，共 **123 tests passed**；另通过 typecheck、workspace write tool check、agent-operation idempotency check、workspace path target check、security check 和 diff check。这是定向验证记录，**不是 full suite** 声明。
@@ -70,7 +81,7 @@ C-4P8 的关闭不改变 C-4 的 global partial-writer limitation，也不授权
 
 - 迁移所有 writer，或把任意 writer 都接到此 tool / durable operation；
 - 跨文件 transaction、共同原子性、CAS 或 lost-update protection；
-- IPC、renderer/UI、prompt、tool registry 或 permission model 的变更；
+- IPC、renderer/UI、prompt 或 approvalMode 语义的变更；本轮仅把既有 registry 的 write eligibility 与真实 native capability 对齐；
 - workspace registry、touch/save registry、conversation audit、generic JSONL、repair、migration、backup、retention 或 schema change；
 - Windows、所有 Linux filesystem/kernel，或 fully cross-platform support 的宣称；
 - 完整 metadata preservation。

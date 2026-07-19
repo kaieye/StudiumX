@@ -12,6 +12,12 @@
 
 ## C-4：仍未完成的其它 durable writer / closure 设计门
 
+### P8：Windows native durable workspace publish（未实施；当前产品边界已收敛）
+
+- C-4P8 的受控 text create / restricted-overwrite scope 保持关闭，但本轮明确其运行时边界：`write_workspace_file` 只在 descriptor-relative native capability 可用时由 registry 注册。Windows 目前不暴露该 writer；read-only workspace tools 不受影响，`approvalMode` 也不会显示或批准一个注定安全失败的写入。
+- 当前 Windows 策略是 fail-closed，不是 pathname fallback：不会 `writeFile` / ordinary `rename`，不会依赖 preflight `lstat`，不会创建或覆盖目标；状态是稳定且无本地细节的 `containment_unavailable` / `当前平台无法安全发布工作区文件。`。
+- **仍未完成：**若要支持 Windows，必须先单独批准并实施 HANDLE-relative、reparse-point/junction-safe traversal，以及与 S2/S3 等价的 no-overwrite、restricted-overwrite、file/directory durability 和 adversarial host-native CI。不得以 registry override、permission 例外或普通 pathname 写入绕过当前 gate。
+
 ### P9：session-audit durable append
 
 - 设计文档：[C-4P9 Session-audit durable append](plans/local-data-session-audit-durable-append-design.md)
