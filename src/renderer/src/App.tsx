@@ -1296,11 +1296,7 @@ function MainArea() {
         </div>
       )}
 
-      {view === 'overview' && (
-        <OverviewChat active={active} />
-      )}
-
-      {view === 'agent' && (
+      {(view === 'overview' || view === 'agent') && (
         <OverviewChat active={active} />
       )}
 
@@ -1941,7 +1937,13 @@ function DialogModeSwitch() {
     { id: 'teaching', label: t('overview.mode.teaching'), icon: BookOpen }
   ]
   return (
-    <div className="dialog-mode-switch" role="tablist" aria-label={t('overview.mode.aria')}>
+    <div
+      className="dialog-mode-switch"
+      data-active-mode={mode}
+      role="tablist"
+      aria-label={t('overview.mode.aria')}
+    >
+      <span className="dialog-mode-switch-indicator" aria-hidden="true" />
       {options.map((option) => {
         const Icon = option.icon
         const isActive = mode === option.id

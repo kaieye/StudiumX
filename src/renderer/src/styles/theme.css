@@ -96,9 +96,17 @@
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-html-file,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-markdown-file,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-conversation,
-:root[data-resolved-theme="dark"] .workspace-conversation-row.is-selected,
+:root[data-resolved-theme="dark"] .workspace-conversation-row.is-selected {
+  color: var(--text);
+  background: rgba(138, 180, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(138, 180, 255, 0.18);
+}
+
 :root[data-resolved-theme="dark"] .dialog-mode-switch-btn.is-active {
   color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .dialog-mode-switch-indicator {
   background: rgba(138, 180, 255, 0.14);
   box-shadow: inset 0 0 0 1px rgba(138, 180, 255, 0.18);
 }:root[data-resolved-theme="dark"] .nav-item.is-active {

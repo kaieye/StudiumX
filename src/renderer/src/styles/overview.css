@@ -374,19 +374,59 @@
   font-size: 12px;
 }
 
-/* Mode switch (segmented control) above the overview dialog. */.dialog-mode-switch {
-  display: flex;
+/* Mode switch (segmented control) above the overview dialog. */
+.dialog-mode-switch {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-  gap: 2px;
   padding: 3px;
   margin: 0 auto 6px;
   width: fit-content;
+  border: 1px solid rgba(20, 20, 20, 0.04);
   border-radius: var(--radius-full, 999px);
   background: rgba(20, 20, 20, 0.045);
-  border: 1px solid rgba(20, 20, 20, 0.04);
-}.dialog-mode-switch-btn {
+}
+
+.dialog-mode-switch-indicator {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 1px;
+  width: calc((100% - 2px) / 2);
+  border-radius: var(--radius-full, 999px);
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 3px 8px rgba(0, 0, 0, 0.06);
+  transform: translateX(0);
+  will-change: transform;
+}
+
+.dialog-mode-switch[data-active-mode="chat"] .dialog-mode-switch-indicator {
+  animation: dialog-mode-indicator-slide-left 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dialog-mode-switch[data-active-mode="teaching"] .dialog-mode-switch-indicator {
+  animation: dialog-mode-indicator-slide-right 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes dialog-mode-indicator-slide-right {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes dialog-mode-indicator-slide-left {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.dialog-mode-switch-btn {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   height: 28px;
   padding: 0 14px;
@@ -397,18 +437,15 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    background 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease;
-}.dialog-mode-switch-btn:hover {
+  transition: color 180ms ease;
+}
+
+.dialog-mode-switch-btn:hover {
   color: #2e2e2e;
-}.dialog-mode-switch-btn.is-active {
+}
+
+.dialog-mode-switch-btn.is-active {
   color: #1f2a3d;
-  background: #ffffff;
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.06),
-    0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
 /* Conversation session list (chat-mode sidebar). */.workspace-conversation-list {

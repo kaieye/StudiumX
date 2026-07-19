@@ -276,6 +276,42 @@
   width: 116px;
 }
 
+.settings-api-key-field {
+  position: relative;
+  width: min(360px, 100%);
+}
+
+.settings-api-key-field .settings-input {
+  width: 100%;
+  padding-right: 42px;
+}
+
+.settings-api-key-visibility {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  color: var(--text-muted);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  transform: translateY(-50%);
+}
+
+.settings-api-key-visibility:hover {
+  color: var(--text);
+}
+
+.settings-api-key-visibility:focus-visible {
+  color: var(--text);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .settings-textarea {
   min-height: 96px;
   padding: 10px;
