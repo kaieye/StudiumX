@@ -2,6 +2,8 @@
 
 > **状态：仅 design gate / 只读审计结论。**本文不实现、不批准也不宣称完成 learning-outcome settlement 的 durable migration；不改代码、测试、canonical schema 或既有结果语义。C-4 仍只是部分 consumer 的逐项迁移，C-4P6 只为未来获得批准后的单独实现切片建立安全门槛。
 
+> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
+
 ## 1. 范围与当前审计结论
 
 本设计针对 evaluator-derived Learning outcome 的主进程写入链：stage、immutable Learning record、session `outcome.json`、Learning Session manifest、operation settlement marker，以及最终 catalog read。它不把 catalog 当作 canonical settlement authority，也不把这些多个文件称为 atomic transaction。

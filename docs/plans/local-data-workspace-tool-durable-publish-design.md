@@ -4,6 +4,8 @@
 
 相关但不同的已实施 consumer 是 C-4P5 `TeachingWorkspaceDocuments` 的 allowlisted workspace Markdown publish。C-4P8 的 writer scope 不继承 C-4P5 的 allowlist/service contract，也不能以 C-4P5 的测试或 shared `replaceDurably()` 通过作为 C-4P8 已迁移的证据。
 
+> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
+
 ## 1. 固定 scope 与非目标
 
 未来获批的 writer scope **仅**是 agent workspace tool 的任意受控、单个文本文件写入：输入必须先经过 tool 的 workspace policy 与受控相对路径解析，随后在该 workspace root 的 descriptor-bound capability 内发布一个文本文件。

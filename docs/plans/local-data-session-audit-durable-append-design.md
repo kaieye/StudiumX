@@ -4,6 +4,8 @@
 
 C-4P1 `34c48f4` 只将 conversation archive 的 canonical JSON/Markdown publish 迁入 shared durable replace，并明确**不改变** conversation audit 的既有 ordinary append。只有本 design gate 的 contract、helper capability、I/O seam 和测试矩阵被逐项批准后，才可另立一个受限 implementation slice；不得以 C-4P1、C-5E trace、existing `appendFile()`、shared `replaceDurably()` 或其它 JSONL writer 的通过证明 audit append 已 durable。
 
+> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
+
 ## 1. 固定 scope 与不变量
 
 未来 scope **仅**是一个已解析 conversation 的固定 session-audit 文件 append：

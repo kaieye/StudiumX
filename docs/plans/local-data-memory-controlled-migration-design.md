@@ -2,6 +2,8 @@
 
 **状态：仅 design discovery；不是功能或测试实现。** `5803176` 已实现 C-6A 的严格只读、aggregate-only preflight，但它不实现、不批准 copy、delete、move 或任何真实搬迁。C-6 整体和 controlled legacy Memory migration 仍未完成；本文不能作为启动、后台或自动迁移的授权。
 
+> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
+
 ## 1. 已有 C-6A 事实与其局限
 
 C-6A 复用 TeachingMemoryCatalog 的**同一次** descriptor-bound、no-follow discovery snapshot，仅向既有 diagnostics IPC/Settings 提供 aggregate preflight：flat eligible 数、已分区 selected source 数、duplicate blocker 数、recovery blocker 数和 `migrationReady` boolean。缺失 Memory root 时，它以 non-creating descriptor open 安全返回空 aggregate；不会创建 root，也不会改变父目录 entries 或 mtime。

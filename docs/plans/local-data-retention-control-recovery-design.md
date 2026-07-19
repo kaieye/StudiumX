@@ -4,7 +4,9 @@
 
 本文只为未来可能发生的 canonical 数据物理 retention（删除、截断或其他不可逆回收）定义产品、安全、恢复和审计的前置门槛。它不授权任何启动时、后台、定时或用户点击后自动删除；不修改业务代码、测试、配置或现有数据格式。当前唯一结论是：在这些门槛经产品、法律/合规和安全审查批准并由独立实现切片验证前，**physical retention 未实施且不得执行**。
 
-相关已实施切片见 [local-data-storage-implementation-plan.md](local-data-storage-implementation-plan.md) 的 C-2A、C-2B、C-2C；路线图中的未实施队列见 [local-data-storage-improvement-roadmap.md](../local-data-storage-improvement-roadmap.md)。本文件只记录“**C-2 design gate recorded**”，不改变该队列，也不把分区、分段或摘要投影解释为删除授权。
+C-2 已实施决定见 [ADR-0002：UTC 分区、无损 JSONL 分段与摘要 projection](../adr/0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)；待批准工作统一见 [本地数据待办](../local-data-todo.md)。本文件只记录“**C-2 design gate recorded**”，不改变待办边界，也不把分区、分段或摘要投影解释为删除授权。
+
+> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
 
 ## 1. 当前事实与为什么它们不授权删除
 

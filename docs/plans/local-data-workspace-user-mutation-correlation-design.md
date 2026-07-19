@@ -4,7 +4,9 @@
 >
 > 本文记录 `mission_updated` 与 `lesson_style_applied` 审计后发现的 action correlation 缺口，以及一个可审查的、分阶段的候选 contract。它**不是功能实现、测试报告或 C-5 completion 声明**。本轮没有业务代码或测试变更，也没有运行或虚构任何测试结果。
 >
-> 路线图仍将 `mission_updated`、`lesson_style_applied`、`lesson_generated` 与其它 user actions 保留在 C-5 remaining queue；见 [路线图 C-5 后续队列](../local-data-storage-improvement-roadmap.md#5-下一迭代队列仅未实施工作) 与[实施计划 C-5](local-data-storage-implementation-plan.md#8-c-5跨存储-traceid-与可解析结构化日志conversationmemorylearning-sessionconversation-lifecycleconversation-audit-jsonl-与-forked-conversation-已有切片)。
+> 已实施的 C-5 范围见 [ADR-0005：main-owned trace correlation 与安全日志](../adr/0005-main-owned-trace-correlation-and-safe-logs.md)；`mission_updated`、`lesson_style_applied`、`lesson_generated` 与其它 user actions 的待批准队列统一见 [本地数据待办](../local-data-todo.md)。
+
+> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
 
 ## 1. 设计问题与现状
 

@@ -2,6 +2,8 @@
 
 **状态：仅 design discovery；不是功能或测试实现。** C-1 的可重建 SQLite projection 已实施，但 FTS、用户可见检索和新的 query API/IPC 均未实施。本文不批准任何索引字段、查询入口或 UI，也不能将 C-1 FTS/query 标记为完成。
 
+> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
+
 ## 1. 当前事实与非授权结论
 
 当前 C-1 将本地 canonical 文件的有限信息投影到可丢弃、可重建的 SQLite 数据库，并只把它作为 main-process `learning-analytics` 的可选读取 adapter：索引不可用、未完成、损坏或 source manifest 不再匹配时，既有 consumer 必须回退到 canonical 文件 reader。当前 projection 的 schema migration、source fingerprint/currentness 检查和损坏隔离服务于这一可再建边界，而不是建立新的事实来源。

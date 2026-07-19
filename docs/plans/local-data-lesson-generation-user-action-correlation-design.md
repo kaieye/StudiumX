@@ -4,7 +4,9 @@
 >
 > 本文只审计 direct UI 从 `generateLesson` / `generateLessonStream` submit 到 main `generateAndPersistLesson()` 的**同一次用户动作**。它不是功能实现、测试报告或 C-5 completion 声明；没有业务代码、测试、配置或迁移变更，也没有运行或虚构任何 C-5I 测试结果。
 >
-> 本文不把 C-5H 的 mission-first 候选 contract 延伸为已批准的 lesson-generation contract。C-5H 与 C-5I 都必须各自通过产品/API 设计门后才能实施；见 [C-5H workspace user-mutation correlation 设计门槛](local-data-workspace-user-mutation-correlation-design.md)、[路线图 C-5 后续队列](../local-data-storage-improvement-roadmap.md#5-下一迭代队列仅未实施工作) 和[实施计划 C-5](local-data-storage-implementation-plan.md#8-c-5跨存储-traceid-与可解析结构化日志conversationmemorylearning-sessionconversation-lifecycleconversation-audit-jsonl-与-forked-conversation-已有切片)。
+> 本文不把 C-5H 的 mission-first 候选 contract 延伸为已批准的 lesson-generation contract。C-5H 与 C-5I 都必须各自通过产品/API 设计门后才能实施；见 [C-5H workspace user-mutation correlation 设计门槛](local-data-workspace-user-mutation-correlation-design.md)、[ADR-0005：main-owned trace correlation 与安全日志](../adr/0005-main-owned-trace-correlation-and-safe-logs.md) 和[本地数据待办](../local-data-todo.md)。
+
+> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
 
 ## 1. 范围、排除项与当前事实
 
