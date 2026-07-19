@@ -91,7 +91,10 @@ function instrumentedAuditOperations(options: {
   }
 
   const operations: AgentConversationSessionAuditOperations = {
-    mkdir,
+    mkdir: (async (path: Parameters<typeof mkdir>[0], optionsArg?: Parameters<typeof mkdir>[1]) => {
+      await observe(`mkdir:${path}`)
+      return optionsArg === undefined ? mkdir(path) : mkdir(path, optionsArg)
+    }) as typeof mkdir,
     lstat: (async (path: Parameters<typeof lstat>[0], optionsArg?: Parameters<typeof lstat>[1]) => {
       await observe(`lstat:${path}`)
       return optionsArg === undefined ? lstat(path) : lstat(path, optionsArg)
@@ -681,6 +684,26 @@ describe('agent conversation session audit durable append', () => {
 
     await expect(appendWith(root, record, io.operations)).rejects.toMatchObject({ code: 'EIO' })
     expect(io.events).toContain(event)
+  })
+
+  it.each(['EIO', 'EACCES'] as const)('fails closed when audit directory mkdir returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const auditDirectory = dirname(path)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `mkdir:${auditDirectory}` ? errno(code) : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(`mkdir:${auditDirectory}`)
+    expect(io.events.some((event) => event.startsWith('lstat:'))).toBe(false)
+    expect(io.events.some((event) => event.startsWith('open:'))).toBe(false)
+    expect(io.events.some((event) => event.startsWith('sync:'))).toBe(false)
+    expect(warnings).toEqual([])
+    await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it.each(
