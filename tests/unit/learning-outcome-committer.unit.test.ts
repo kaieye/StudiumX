@@ -6661,6 +6661,108 @@ describe('LearningOutcomeCommitter', () => {
     })
   })
 
+  it('fails closed before writes when session manifest completedAt follows updatedAt', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-completed-at-after-updated-failure-unit'
+    const outcomeId = 'outcome-commit-completed-at-after-updated-failure-1'
+    const operationId = 'commit-completed-at-after-updated-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-completed-at-after-updated-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    // Distinct from completedAt-before-createdAt: keep completedAt >= createdAt but completedAt > updatedAt.
+    const outcomeRef = {
+      outcomeId: 'outcome-poison-completed-at-after-updated-1',
+      kind: 'established',
+      relativePath: 'learning-records/outcome-poison-after-updated.md',
+      evidenceEventIds: [evidenceEventId]
+    }
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({
+        ...manifest,
+        status: 'completed',
+        createdAt: '2026-07-15T14:00:00.000Z',
+        updatedAt: '2026-07-15T14:00:10.000Z',
+        completedAt: '2026-07-15T14:00:20.000Z',
+        outcomeRef,
+        version: Number(manifest.version) + 1
+      }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'completed',
+      createdAt: '2026-07-15T14:00:00.000Z',
+      updatedAt: '2026-07-15T14:00:10.000Z',
+      completedAt: '2026-07-15T14:00:20.000Z'
+    })
+  })
+
+  it('fails closed before writes when session manifest JSON is a non-object value', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-non-object-session-json-failure-unit'
+    const outcomeId = 'outcome-commit-non-object-session-json-failure-1'
+    const operationId = 'commit-non-object-session-json-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-non-object-session-json-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    // Distinct from malformed JSON residual: parse succeeds but value is an array, not an object.
+    await writeFile(manifestPath, '[{"schemaVersion":1}]\n', 'utf8')
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe('[{"schemaVersion":1}]\n')
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
