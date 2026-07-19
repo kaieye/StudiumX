@@ -4990,6 +4990,112 @@ describe('LearningOutcomeCommitter', () => {
     expect(durable.events.some((event) => event.startsWith('rename:') && event.endsWith(`->${markerPath}`))).toBe(false)
   })
 
+
+  it('fails closed after manifest completion when durable marker temp open fails', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-marker-temp-open-failure-unit'
+    const outcomeId = 'outcome-marker-temp-open-failure-1'
+    const operationId = 'marker-temp-open-failure-operation-1'
+    const evidenceEventId = 'evidence-marker-temp-open-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const markerTempPrefix = join(directory, '.outcome-settlement.json.')
+    const durable = instrumentedDurableOperations({
+      fail: (event) => event.startsWith(`open:wx:${markerTempPrefix}`) && event.endsWith('.tmp')
+        ? errno('EIO', 'marker temp open private failure')
+        : undefined
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    expect(JSON.stringify(result)).not.toContain('marker temp open private failure')
+    await expect(readFile(record, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toContain(outcomeId)
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+    expect(durable.events.some(
+      (event) => event.startsWith(`open:wx:${markerTempPrefix}`) && event.endsWith('.tmp')
+    )).toBe(true)
+    expect(durable.events.some((event) => event.startsWith('rename:') && event.endsWith(`->${markerPath}`))).toBe(false)
+  })
+
+  it('fails closed after manifest completion when durable marker temp write fails', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-marker-temp-write-failure-unit'
+    const outcomeId = 'outcome-marker-temp-write-failure-1'
+    const operationId = 'marker-temp-write-failure-operation-1'
+    const evidenceEventId = 'evidence-marker-temp-write-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const markerTempPrefix = join(directory, '.outcome-settlement.json.')
+    const durable = instrumentedDurableOperations({
+      fail: (event) => event.startsWith(`write:${markerTempPrefix}`) && event.endsWith('.tmp')
+        ? errno('EIO', 'marker temp write private failure')
+        : undefined
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    expect(JSON.stringify(result)).not.toContain('marker temp write private failure')
+    await expect(readFile(record, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toContain(outcomeId)
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+    expect(durable.events.some(
+      (event) => event.startsWith(`open:wx:${markerTempPrefix}`) && event.endsWith('.tmp')
+    )).toBe(true)
+    expect(durable.events.some(
+      (event) => event.startsWith(`write:${markerTempPrefix}`) && event.endsWith('.tmp')
+    )).toBe(true)
+    expect(durable.events.some((event) => event.startsWith('rename:') && event.endsWith(`->${markerPath}`))).toBe(false)
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
