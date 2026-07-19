@@ -305,6 +305,91 @@ describe('LearningOutcomeCommitter', () => {
     ])
   })
 
+  it('repairs an after-record-publish interruption after restart without reevaluation or false success', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-after-record-publish-restart-unit'
+    const outcomeId = 'outcome-after-record-publish-restart-1'
+    const operationId = 'after-record-publish-restart-operation-1'
+    const evidenceEventId = 'evidence-after-record-publish-restart-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const manifestPath = join(directory, 'session.json')
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestBeforeCrash = await readFile(manifestPath, 'utf8')
+    const injectedPoints: string[] = []
+    let evaluationCalls = 0
+    const options = {
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }: { session: { id: string } }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    }
+    const interrupted = createLearningOutcomeCommitter({
+      ...options,
+      testingFaults: {
+        inject(point) {
+          injectedPoints.push(point)
+          if (point === 'after_record_publish') throw new Error('simulated crash after record publish')
+        }
+      }
+    })
+
+    await expect(interrupted.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    expect(injectedPoints).toEqual(['after_stage_flush', 'after_record_publish'])
+    expect(evaluationCalls).toBe(1)
+    const recordBeforeRestart = await readFile(recordPath(workspaceRoot, sessionId), 'utf8')
+    expect(recordBeforeRestart).toContain(`\"sessionId\":\"${sessionId}\"`)
+    expect(recordBeforeRestart).toContain(`\"outcomeId\":\"${outcomeId}\"`)
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe(manifestBeforeCrash)
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+
+    const recovered = createLearningOutcomeCommitter(options)
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'repaired',
+      marker: {
+        sessionId,
+        outcomeId,
+        operationId,
+        kind: 'established',
+        evidenceEventIds: [evidenceEventId],
+        record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+      },
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).resolves.toBe(recordBeforeRestart)
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+
+    const recordAfterRepair = await readFile(recordPath(workspaceRoot, sessionId), 'utf8')
+    const outcomeAfterRepair = await readFile(outcomePath, 'utf8')
+    const manifestAfterRepair = await readFile(manifestPath, 'utf8')
+    const markerAfterRepair = await readFile(markerPath, 'utf8')
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({ state: 'settled' })
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'already_committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).resolves.toBe(recordAfterRepair)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toBe(outcomeAfterRepair)
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe(manifestAfterRepair)
+    await expect(readFile(markerPath, 'utf8')).resolves.toBe(markerAfterRepair)
+    expect(evaluationCalls).toBe(1)
+  })
+
   it('recovers safely after a post-stage-flush interruption without promoting incomplete projections', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-after-stage-flush-restart-unit'
