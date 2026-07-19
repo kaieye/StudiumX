@@ -7244,8 +7244,7 @@ describe('LearningOutcomeCommitter', () => {
       schemaVersion: 1,
       recordId: `learning-outcome-${sessionId}-${outcomeId}`,
       evidenceEventIds: [evidenceEventId],
-      outcomeKind: 'established',
-      evidenceEventIds: [evidenceEventId]
+      outcomeKind: 'established'
     })
     expect(metadata).toHaveProperty('assessment')
     delete metadata.evidenceEventIds
@@ -7260,7 +7259,7 @@ describe('LearningOutcomeCommitter', () => {
     expect(poisonedRecordText).toContain(`"recordId":"learning-outcome-${sessionId}-${outcomeId}"`)
     expect(poisonedRecordText).toContain('"assessment"')
     expect(poisonedRecordText).toContain('"outcomeKind":"established"')
-    expect(poisonedRecordText).toContain(evidenceEventId)
+    expect(poisonedRecordText).not.toContain(evidenceEventId)
     expect(poisonedRecordText.endsWith(validRecordText.slice(metadataEnd + metadataSuffix.length))).toBe(true)
     await writeFile(record, poisonedRecordText, 'utf8')
     const poisonedRecordBytes = await readFile(record)
