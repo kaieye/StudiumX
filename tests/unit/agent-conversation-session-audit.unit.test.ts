@@ -928,6 +928,26 @@ describe('agent conversation session audit durable append', () => {
   })
 
 
+  it('fails closed without capability downgrade when audit file stat returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file stat failure')
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `stat:${path}` ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(`stat:${path}`)
+    // open happened before stat; write must not proceed; directory durability must not start
+    expect(io.events.some((event) => event.startsWith('open:') && event.endsWith(`:${path}`))).toBe(true)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
 
   it.each([
     ['zero', 0],
