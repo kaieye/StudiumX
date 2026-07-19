@@ -947,20 +947,33 @@ describe('agent conversation session audit durable append', () => {
     await expect(readFile(path, 'utf8')).resolves.toContain(record.id)
   })
 
-  it.each([
-    ['EACCES', errno('EACCES')],
-    ['EPERM', errno('EPERM')],
-    ['EIO', errno('EIO')],
-    ['unknown error', new Error('unexpected directory fsync failure')]
-  ])('does not downgrade fatal directory sync %s', async (_name, failure) => {
+  it.each(
+    (
+      [
+        ['audit-directory', (root: string, record: AgentConversationRecord) => dirname(auditPath(root, record))],
+        ['parent-directory', (root: string, record: AgentConversationRecord) => dirname(dirname(auditPath(root, record)))]
+      ] as const
+    ).flatMap(([boundary, directoryFor]) =>
+      ([
+        ['EACCES', errno('EACCES')],
+        ['EPERM', errno('EPERM')],
+        ['EIO', errno('EIO')],
+        ['unknown error', new Error('unexpected directory fsync failure')]
+      ] as const).map(([name, failure]) => [boundary, name, directoryFor, failure] as const)
+    )
+  )('does not downgrade fatal %s sync %s', async (_boundary, _name, directoryFor, failure) => {
     const root = await createRoot()
     const record = createRecord()
-    const directory = dirname(auditPath(root, record))
+    const directory = directoryFor(root, record)
+    const path = auditPath(root, record)
     const warnings: string[] = []
     const io = instrumentedAuditOperations({ fail: (event) => event === `sync:${directory}` ? failure : undefined })
 
     await expect(appendWith(root, record, io.operations, (message) => warnings.push(message))).rejects.toBe(failure)
+    expect(io.events).toContain(`sync:${directory}`)
+    // Directory sync failure must remain fatal; do not emit capability-downgrade warning.
     expect(warnings).toEqual([])
+    await expect(readFile(path, 'utf8')).resolves.toContain(record.id)
   })
 
   it.each([
