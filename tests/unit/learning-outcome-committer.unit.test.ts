@@ -7955,6 +7955,237 @@ describe('LearningOutcomeCommitter', () => {
     expect(recoveryDurable.events).toEqual([])
     await expectAuthorityBytesUnchanged()
   })
+  it('fails closed on restart when the canonical learning record schemaVersion is a boolean', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-invalid-record-schema-version-boolean-unit'
+    const outcomeId = 'outcome-invalid-record-schema-version-boolean-1'
+    const operationId = 'invalid-record-schema-version-boolean-operation-1'
+    const evidenceEventId = 'evidence-invalid-record-schema-version-boolean-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let evaluationCalls = 0
+    const initial = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    await expect(initial.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+
+    const [validRecordText, outcomeBeforeRestart, manifestBeforeRestart, markerBeforeRestart] = await Promise.all([
+      readFile(record, 'utf8'),
+      readFile(outcomePath),
+      readFile(manifestPath),
+      readFile(markerPath)
+    ])
+    // Keep other metadata/body canonical, but set schemaVersion to boolean true so strict equality fails closed without repair.
+    const metadataPrefix = '<!-- studiumx-learning-outcome '
+    const metadataSuffix = ' -->'
+    const metadataStart = validRecordText.indexOf(metadataPrefix)
+    const metadataEnd = validRecordText.indexOf(metadataSuffix, metadataStart)
+    expect(metadataStart).toBe(0)
+    expect(metadataEnd).toBeGreaterThan(metadataStart)
+    const metadata = JSON.parse(validRecordText.slice(metadataStart + metadataPrefix.length, metadataEnd)) as Record<string, unknown>
+    expect(metadata).toMatchObject({
+      schemaVersion: 1,
+      recordId: `learning-outcome-${sessionId}-${outcomeId}`,
+      outcomeKind: 'established',
+      evidenceEventIds: [evidenceEventId]
+    })
+    expect(metadata).toHaveProperty('assessment')
+    expect(metadata.schemaVersion).toBe(1)
+    metadata.schemaVersion = true
+    expect(metadata.schemaVersion).toBe(true)
+    const poisonedRecordText =
+      `${metadataPrefix}${JSON.stringify(metadata)}${metadataSuffix}` +
+      validRecordText.slice(metadataEnd + metadataSuffix.length)
+    expect(poisonedRecordText).not.toBe(validRecordText)
+    expect(poisonedRecordText).toContain('"schemaVersion":true')
+    expect(poisonedRecordText).not.toContain('"schemaVersion":1')
+    expect(poisonedRecordText).toContain('"outcomeId"')
+    expect(poisonedRecordText).toContain(`"recordId":"learning-outcome-${sessionId}-${outcomeId}"`)
+    expect(poisonedRecordText).toContain('"assessment"')
+    expect(poisonedRecordText).toContain('"outcomeKind":"established"')
+    expect(poisonedRecordText).toContain(evidenceEventId)
+    expect(poisonedRecordText.endsWith(validRecordText.slice(metadataEnd + metadataSuffix.length))).toBe(true)
+    await writeFile(record, poisonedRecordText, 'utf8')
+    const poisonedRecordBytes = await readFile(record)
+    expect(poisonedRecordBytes.toString('utf8')).toBe(poisonedRecordText)
+    await expect(lstat(record)).resolves.toMatchObject({ isFile: expect.any(Function) })
+    expect((await lstat(record)).isFile()).toBe(true)
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      durableFileOperations: recoveryDurable.operations,
+      createId: () => {
+        throw new Error('recovery createId must not be called')
+      },
+      evaluate: async () => {
+        evaluationCalls += 1
+        throw new Error('recovery evaluator must not be called')
+      }
+    })
+    const expectAuthorityBytesUnchanged = async () => {
+      await expect(readFile(outcomePath)).resolves.toEqual(outcomeBeforeRestart)
+      await expect(readFile(manifestPath)).resolves.toEqual(manifestBeforeRestart)
+      await expect(readFile(markerPath)).resolves.toEqual(markerBeforeRestart)
+      await expect(readFile(record)).resolves.toEqual(poisonedRecordBytes)
+      expect((await lstat(record)).isFile()).toBe(true)
+    }
+
+    // Directed residual: boolean schemaVersion / strict version check fails closed without repair.
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'review_required',
+      diagnostics: expect.arrayContaining(['missing_record'])
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectAuthorityBytesUnchanged()
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryDurable.events).toEqual([])
+    await expectAuthorityBytesUnchanged()
+  })
+  it('fails closed on restart when the canonical learning record assessment contentSha256 is null', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-invalid-record-assessment-sha-null-unit'
+    const outcomeId = 'outcome-invalid-record-assessment-sha-null-1'
+    const operationId = 'invalid-record-assessment-sha-null-operation-1'
+    const evidenceEventId = 'evidence-invalid-record-assessment-sha-null-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let evaluationCalls = 0
+    const initial = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    await expect(initial.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+
+    const [validRecordText, outcomeBeforeRestart, manifestBeforeRestart, markerBeforeRestart] = await Promise.all([
+      readFile(record, 'utf8'),
+      readFile(outcomePath),
+      readFile(manifestPath),
+      readFile(markerPath)
+    ])
+    // Keep schemaVersion/recordId/relativePath well-formed, but set assessment.contentSha256 to null
+    // so text() returns null / isVerifiedAssessment rejects while leaving relativePath intact.
+    const metadataPrefix = '<!-- studiumx-learning-outcome '
+    const metadataSuffix = ' -->'
+    const metadataStart = validRecordText.indexOf(metadataPrefix)
+    const metadataEnd = validRecordText.indexOf(metadataSuffix, metadataStart)
+    expect(metadataStart).toBe(0)
+    expect(metadataEnd).toBeGreaterThan(metadataStart)
+    const metadata = JSON.parse(validRecordText.slice(metadataStart + metadataPrefix.length, metadataEnd)) as Record<string, unknown>
+    expect(metadata).toMatchObject({
+      schemaVersion: 1,
+      recordId: `learning-outcome-${sessionId}-${outcomeId}`,
+      outcomeKind: 'established',
+      evidenceEventIds: [evidenceEventId]
+    })
+    expect(metadata).toHaveProperty('assessment')
+    const assessment = metadata.assessment as Record<string, unknown>
+    expect(typeof assessment).toBe('object')
+    expect(assessment).not.toBeNull()
+    expect(Array.isArray(assessment)).toBe(false)
+    const validAssessmentSha = assessment.contentSha256
+    const validAssessmentPath = assessment.relativePath
+    expect(typeof validAssessmentSha).toBe('string')
+    expect(typeof validAssessmentPath).toBe('string')
+    expect(validAssessmentSha).toMatch(/^[a-f0-9]{64}$/)
+    assessment.contentSha256 = null
+    expect(assessment.contentSha256).toBeNull()
+    expect(assessment.relativePath).toBe(validAssessmentPath)
+    const poisonedRecordText =
+      `${metadataPrefix}${JSON.stringify(metadata)}${metadataSuffix}` +
+      validRecordText.slice(metadataEnd + metadataSuffix.length)
+    expect(poisonedRecordText).not.toBe(validRecordText)
+    expect(poisonedRecordText).toContain('"contentSha256":null')
+    expect(poisonedRecordText).not.toContain(`"contentSha256":"${validAssessmentSha}"`)
+    expect(poisonedRecordText).toContain(`"relativePath":"${validAssessmentPath}"`)
+    expect(poisonedRecordText).toContain('"schemaVersion":1')
+    expect(poisonedRecordText).toContain(`"recordId":"learning-outcome-${sessionId}-${outcomeId}"`)
+    expect(poisonedRecordText).toContain('"outcomeKind":"established"')
+    expect(poisonedRecordText.endsWith(validRecordText.slice(metadataEnd + metadataSuffix.length))).toBe(true)
+    await writeFile(record, poisonedRecordText, 'utf8')
+    const poisonedRecordBytes = await readFile(record)
+    expect(poisonedRecordBytes.toString('utf8')).toBe(poisonedRecordText)
+    await expect(lstat(record)).resolves.toMatchObject({ isFile: expect.any(Function) })
+    expect((await lstat(record)).isFile()).toBe(true)
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      durableFileOperations: recoveryDurable.operations,
+      createId: () => {
+        throw new Error('recovery createId must not be called')
+      },
+      evaluate: async () => {
+        evaluationCalls += 1
+        throw new Error('recovery evaluator must not be called')
+      }
+    })
+    const expectAuthorityBytesUnchanged = async () => {
+      await expect(readFile(outcomePath)).resolves.toEqual(outcomeBeforeRestart)
+      await expect(readFile(manifestPath)).resolves.toEqual(manifestBeforeRestart)
+      await expect(readFile(markerPath)).resolves.toEqual(markerBeforeRestart)
+      await expect(readFile(record)).resolves.toEqual(poisonedRecordBytes)
+      expect((await lstat(record)).isFile()).toBe(true)
+    }
+
+    // Directed residual: null assessment contentSha256 / isVerifiedAssessment rejects and fails closed without repair.
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'review_required',
+      diagnostics: expect.arrayContaining(['missing_record'])
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectAuthorityBytesUnchanged()
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryDurable.events).toEqual([])
+    await expectAuthorityBytesUnchanged()
+  })
   it('reports legacy_generated records as read-only diagnostics without upgrading their bytes', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-legacy-unit')
