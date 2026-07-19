@@ -616,8 +616,12 @@ describe('Agent conversation archive durable canonical publication', () => {
     await expect(readFile(fixture.ledgerPath, 'utf8')).resolves.toContain(fixture.record.id)
   })
 
-  it('does not duplicate a successful audit when the later ledger append fails and is retried', async () => {
+  it('does not duplicate a successful audit and preserves ledger idempotency when the later ledger append fails and is retried', async () => {
     const fixture = await archiveFixture()
+    const expectedAuditIds = [
+      fixture.record.id,
+      ...buildAgentConversationSessionAuditEntries(fixture.record).map((entry) => entry.id)
+    ]
     // The ledger's existing fixed-file validation rejects this target after
     // archive JSON, Markdown, and the durable audit append have completed.
     await mkdir(fixture.ledgerPath, { recursive: true })
@@ -631,6 +635,8 @@ describe('Agent conversation archive durable canonical publication', () => {
 
     const auditAfterLedgerFailure = await readFile(fixture.auditPath)
     expect(firstAudit.events).toContain(`write:${fixture.auditPath}`)
+    expect(parseAgentConversationSessionAuditLines(auditAfterLedgerFailure.toString('utf8')).map((line) => line.id))
+      .toEqual(expectedAuditIds)
 
     await rm(fixture.ledgerPath, { recursive: true, force: true })
     const retryAudit = instrumentedSessionAuditOperations()
@@ -642,7 +648,24 @@ describe('Agent conversation archive durable canonical publication', () => {
 
     expect(await readFile(fixture.auditPath)).toEqual(auditAfterLedgerFailure)
     expect(retryAudit.events).not.toContain(`write:${fixture.auditPath}`)
-    await expect(readFile(fixture.ledgerPath, 'utf8')).resolves.toContain(fixture.record.id)
+    const ledgerAfterRetry = await readFile(fixture.ledgerPath, 'utf8')
+    const ledgerLines = ledgerAfterRetry.trim().split('\n')
+    expect(ledgerLines).toHaveLength(1)
+    expect(JSON.parse(ledgerLines[0]!)).toMatchObject({
+      entryId: expect.any(String),
+      conversation: { id: fixture.record.id }
+    })
+
+    const idempotentAudit = instrumentedSessionAuditOperations()
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: idempotentAudit.operations
+    })).resolves.toBeUndefined()
+
+    expect(await readFile(fixture.auditPath)).toEqual(auditAfterLedgerFailure)
+    expect(idempotentAudit.events).not.toContain(`write:${fixture.auditPath}`)
+    expect(await readFile(fixture.ledgerPath, 'utf8')).toBe(ledgerAfterRetry)
   })
 
 })
