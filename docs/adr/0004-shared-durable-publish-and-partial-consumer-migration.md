@@ -64,6 +64,8 @@ Windows 上的真实行为因此是：不暴露 `write_workspace_file`、不显�
 
 在 Microsoft SDK headers 和 Microsoft 文档允许的范围内，已核验 `NtCreateFile` 的 `RootDirectory`、`OBJ_DONT_REPARSE`、`FILE_OPEN_REPARSE_POINT` 与 `FILE_CREATE` 可用于 HANDLE-relative/no-follow traversal 与 S2 create-new；`GetFileInformationByHandleEx` 可提供 reparse、directory、link-count 和 file-ID 检查；`FlushFileBuffers` 可用于已打开 file/directory handle 的 flush。可是 `SetFileInformationByHandle(FileRenameInfo[/Ex])`、`ReplaceFileW` 以及相关 rename API 都没有“仅在期望 file ID 仍是当前 target 时替换”的 compare-and-swap / exchange parameter。持有 target handle 并拒绝 delete sharing 会阻止攻击者替换，却也会阻止替换发布；在 publish 前释放则重新引入 inspect-to-publish race。
 
+对可替代机制的第二轮审计也没有得到例外：`CreateFileTransacted` / `MoveFileTransacted` 是 pathname-based TxF API，未提供 expected file-ID 参数，且 TxF 已被 Microsoft 标记为不建议新开发使用、未来版本可能不可用；`FileDispositionInfoEx`、`FileLinkInformation[Ex]`、`OpenFileById`、object-ID / CSV revision FSCTL 仅提供 delete/link、按 ID 打开或 metadata 查询/管理，均不是带 expected identity 的 replacement CAS。oplock、share mode 与 `LockFileEx` 也只是可被 break 的缓存/打开协调或 byte-range 锁，不能在任意并发 publisher 面前维持 namespace target identity。
+
 因此，使用已审计的 Windows API 不能证明**本次 Windows 任务所要求**的 S3 “existing single-link regular、target identity unchanged、atomic restricted overwrite”同时成立。尤其不能把“先以 HANDLE 检查，再以 handle-relative rename replace”描述为 target-changed-safe；它仍可能替换检查后被并发换入的 leaf。为保持 fail-closed，本轮没有加入 pathname fallback、没有用 `MoveFileEx` / `ReplaceFile` / preflight `lstat` 充当安全基础，也没有使 `getWorkspaceWriteToolAvailability()`、registry 或 approval flow 在 Windows 上变为可用。
 
 要解除该 gate，需要一个可审计且能提供该原子 identity precondition 的 Windows/NTFS publish primitive（或经批准改变 S3 contract 的新设计）；仅增加 HANDLE-relative S1/S2 不足以安全暴露当前同时提供 S2 和 S3 的 writer。这个结论不修改下方既有 macOS/Linux 验证记录。
