@@ -3066,6 +3066,206 @@ describe('LearningOutcomeCommitter', () => {
     expect(recoveryDurable.events).toEqual([])
     await expectDurableBytesUnchanged()
   })
+  it('fails closed on restart when a well-formed settlement marker has a non-string evidenceEventIds item', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-invalid-marker-evidence-item-nonstring-unit'
+    const outcomeId = 'outcome-invalid-marker-evidence-item-nonstring-1'
+    const operationId = 'invalid-marker-evidence-item-nonstring-operation-1'
+    const evidenceEventId = 'evidence-invalid-marker-evidence-item-nonstring-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let evaluationCalls = 0
+    const initial = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    await expect(initial.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+
+    const [recordBeforeRestart, outcomeBeforeRestart, manifestBeforeRestart, validMarkerText] = await Promise.all([
+      readFile(record),
+      readFile(outcomePath),
+      readFile(manifestPath),
+      readFile(markerPath, 'utf8')
+    ])
+    // Keep evidenceEventIds as an array, but poison one item to a non-string so stringArray throws on item type. Distinct from non-array evidence residual and empty evidence residual.
+    const validMarker = JSON.parse(validMarkerText) as Record<string, unknown>
+    expect(validMarker).toMatchObject({
+      schemaVersion: 1,
+      sessionId,
+      outcomeId,
+      operationId,
+      kind: 'established',
+      evidenceEventIds: [evidenceEventId]
+    })
+    expect(Array.isArray(validMarker.evidenceEventIds)).toBe(true)
+    const previousEvidence = validMarker.evidenceEventIds
+    const poisonedMarker = { ...validMarker, evidenceEventIds: [evidenceEventId, 42] }
+    expect(poisonedMarker.evidenceEventIds).toEqual([evidenceEventId, 42])
+    expect(poisonedMarker.evidenceEventIds).not.toEqual(previousEvidence)
+
+    const poisonedMarkerText = `${JSON.stringify(poisonedMarker)}\n`
+    expect(poisonedMarkerText).not.toBe(validMarkerText)
+    expect(poisonedMarkerText).toContain(`"evidenceEventIds":["${evidenceEventId}",42]`)
+
+    expect(poisonedMarkerText).toContain('"schemaVersion":1')
+    await writeFile(markerPath, poisonedMarkerText, 'utf8')
+    const markerBeforeRestart = await readFile(markerPath)
+    expect(markerBeforeRestart.toString('utf8')).toBe(poisonedMarkerText)
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      durableFileOperations: recoveryDurable.operations,
+      createId: () => {
+        throw new Error('recovery createId must not be called')
+      },
+      evaluate: async () => {
+        evaluationCalls += 1
+        throw new Error('recovery evaluator must not be called')
+      }
+    })
+    const expectDurableBytesUnchanged = async () => {
+      await expect(readFile(record)).resolves.toEqual(recordBeforeRestart)
+      await expect(readFile(outcomePath)).resolves.toEqual(outcomeBeforeRestart)
+      await expect(readFile(manifestPath)).resolves.toEqual(manifestBeforeRestart)
+      await expect(readFile(markerPath)).resolves.toEqual(markerBeforeRestart)
+    }
+
+    // Directed residual: normalizeMarker reject fails closed without repair/rewrite.
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'review_required',
+      marker: null,
+      diagnostics: expect.arrayContaining(['invalid_settlement_marker'])
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+  })
+  it('fails closed on restart when a well-formed settlement marker has an unknown kind', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-invalid-marker-kind-unknown-unit'
+    const outcomeId = 'outcome-invalid-marker-kind-unknown-1'
+    const operationId = 'invalid-marker-kind-unknown-operation-1'
+    const evidenceEventId = 'evidence-invalid-marker-kind-unknown-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let evaluationCalls = 0
+    const initial = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    await expect(initial.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+
+    const [recordBeforeRestart, outcomeBeforeRestart, manifestBeforeRestart, validMarkerText] = await Promise.all([
+      readFile(record),
+      readFile(outcomePath),
+      readFile(manifestPath),
+      readFile(markerPath, 'utf8')
+    ])
+    // Keep marker otherwise well-formed, but set kind to an unknown non-null string so outcomeKind rejects. Distinct from null kind residual and record-presence mismatch residual.
+    const validMarker = JSON.parse(validMarkerText) as Record<string, unknown>
+    expect(validMarker).toMatchObject({
+      schemaVersion: 1,
+      sessionId,
+      outcomeId,
+      operationId,
+      kind: 'established',
+      evidenceEventIds: [evidenceEventId]
+    })
+    const previousKind = validMarker.kind
+    const poisonedMarker = { ...validMarker, kind: 'not_a_known_outcome_kind' }
+    expect(poisonedMarker.kind).toBe('not_a_known_outcome_kind')
+    expect(poisonedMarker.kind).not.toBe(previousKind)
+
+    const poisonedMarkerText = `${JSON.stringify(poisonedMarker)}\n`
+    expect(poisonedMarkerText).not.toBe(validMarkerText)
+    expect(poisonedMarkerText).toContain('"kind":"not_a_known_outcome_kind"')
+    expect(poisonedMarkerText).not.toContain('"kind":"established"')
+
+    expect(poisonedMarkerText).toContain('"schemaVersion":1')
+    await writeFile(markerPath, poisonedMarkerText, 'utf8')
+    const markerBeforeRestart = await readFile(markerPath)
+    expect(markerBeforeRestart.toString('utf8')).toBe(poisonedMarkerText)
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      durableFileOperations: recoveryDurable.operations,
+      createId: () => {
+        throw new Error('recovery createId must not be called')
+      },
+      evaluate: async () => {
+        evaluationCalls += 1
+        throw new Error('recovery evaluator must not be called')
+      }
+    })
+    const expectDurableBytesUnchanged = async () => {
+      await expect(readFile(record)).resolves.toEqual(recordBeforeRestart)
+      await expect(readFile(outcomePath)).resolves.toEqual(outcomeBeforeRestart)
+      await expect(readFile(manifestPath)).resolves.toEqual(manifestBeforeRestart)
+      await expect(readFile(markerPath)).resolves.toEqual(markerBeforeRestart)
+    }
+
+    // Directed residual: normalizeMarker reject fails closed without repair/rewrite.
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'review_required',
+      marker: null,
+      diagnostics: expect.arrayContaining(['invalid_settlement_marker'])
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+  })
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
