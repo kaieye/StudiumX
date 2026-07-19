@@ -1671,6 +1671,117 @@ describe('LearningOutcomeCommitter', () => {
     await expectDurableBytesUnchanged()
   })
 
+  it('fails closed on restart when completed session outcomeRef conflicts with durable record authority', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-conflicting-manifest-outcome-ref-unit'
+    const outcomeId = 'outcome-conflicting-manifest-outcome-ref-1'
+    const operationId = 'conflicting-manifest-outcome-ref-operation-1'
+    const evidenceEventId = 'evidence-conflicting-manifest-outcome-ref-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let evaluationCalls = 0
+    const initial = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    await expect(initial.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+
+    const [recordBeforeRestart, outcomeBeforeRestart, manifestBeforeRestart, markerBeforeRestart] = await Promise.all([
+      readFile(record),
+      readFile(outcomePath),
+      readFile(manifestPath),
+      readFile(markerPath)
+    ])
+    const settledManifest = JSON.parse(manifestBeforeRestart.toString('utf8')) as {
+      status: string
+      outcomeRef: {
+        outcomeId: string
+        kind: LearningOutcomeEvaluation['kind']
+        relativePath: string
+        evidenceEventIds: string[]
+        contentSha256: string
+      }
+    }
+    expect(settledManifest).toMatchObject({
+      status: 'completed',
+      outcomeRef: {
+        outcomeId,
+        kind: 'established',
+        relativePath: `learning-sessions/${sessionId}/outcome.json`,
+        evidenceEventIds: [evidenceEventId],
+        contentSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
+      }
+    })
+    // Poison only the completed manifest outcomeRef identity. Its path and
+    // evidence remain valid so reconciliation reaches conflicting_outcome.
+    const poisonedManifest = {
+      ...settledManifest,
+      outcomeRef: {
+        ...settledManifest.outcomeRef,
+        outcomeId: 'outcome-poisoned-manifest-ref-1'
+      }
+    }
+    const poisonedManifestText = `${JSON.stringify(poisonedManifest)}\n`
+    expect(poisonedManifestText).not.toBe(manifestBeforeRestart.toString('utf8'))
+    await writeFile(manifestPath, poisonedManifestText, 'utf8')
+    const poisonedManifestBytes = await readFile(manifestPath)
+    expect(poisonedManifestBytes.toString('utf8')).toBe(poisonedManifestText)
+    expect(poisonedManifestBytes.equals(manifestBeforeRestart)).toBe(false)
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      durableFileOperations: recoveryDurable.operations,
+      createId: () => {
+        throw new Error('recovery createId must not be called')
+      },
+      evaluate: async () => {
+        evaluationCalls += 1
+        throw new Error('recovery evaluator must not be called')
+      }
+    })
+    const expectDurableBytesUnchanged = async () => {
+      await expect(readFile(record)).resolves.toEqual(recordBeforeRestart)
+      await expect(readFile(outcomePath)).resolves.toEqual(outcomeBeforeRestart)
+      await expect(readFile(manifestPath)).resolves.toEqual(poisonedManifestBytes)
+      await expect(readFile(markerPath)).resolves.toEqual(markerBeforeRestart)
+    }
+
+    // Directed residual evidence: a completed manifest must match record authority.
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'review_required',
+      diagnostics: expect.arrayContaining(['conflicting_outcome'])
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+  })
+
   it('reports legacy_generated records as read-only diagnostics without upgrading their bytes', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-legacy-unit')
