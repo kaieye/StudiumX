@@ -102,6 +102,7 @@
     "check:settings-secret-storage": "node scripts/check-settings-secret-storage.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/setup/tsconfig.json",
     "test:unit": "vitest run --project unit",
+    "test:stability:agent-persistence": "node scripts/run-stability-checks.mjs",
     "test:integration": "vitest run --project integration --passWithNoTests",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "pnpm run build && playwright test --project electron-e2e",
