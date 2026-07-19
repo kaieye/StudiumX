@@ -5421,6 +5421,109 @@ describe('LearningOutcomeCommitter', () => {
     expect(durable.events).toContain(`close:${directory}`)
   })
 
+  it('fails closed after outcome publication when ledger complete faults after_state_loaded', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-manifest-complete-after-state-loaded-failure-unit'
+    const outcomeId = 'outcome-manifest-complete-after-state-loaded-failure-1'
+    const operationId = 'manifest-complete-after-state-loaded-failure-operation-1'
+    const evidenceEventId = 'evidence-manifest-complete-after-state-loaded-failure-1'
+    let observedCompleteFault = false
+    const ledger = await openSession(workspaceRoot, sessionId, {
+      testingFaults: {
+        inject(point, context) {
+          if (point !== 'after_state_loaded' || context.operation !== 'complete') return
+          expect(context).toMatchObject({ operation: 'complete', sessionId })
+          observedCompleteFault = true
+          throw new Error('manifest complete after_state_loaded private failure')
+        }
+      }
+    })
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    expect(JSON.stringify(result)).not.toContain('manifest complete after_state_loaded private failure')
+    expect(observedCompleteFault).toBe(true)
+    await expect(readFile(record, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'active',
+      outcomeRef: null
+    })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+  })
+
+  it('fails closed after outcome publication when ledger complete faults after_stage_sync', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-manifest-complete-after-stage-sync-failure-unit'
+    const outcomeId = 'outcome-manifest-complete-after-stage-sync-failure-1'
+    const operationId = 'manifest-complete-after-stage-sync-failure-operation-1'
+    const evidenceEventId = 'evidence-manifest-complete-after-stage-sync-failure-1'
+    let observedCompleteStageFault = false
+    const ledger = await openSession(workspaceRoot, sessionId, {
+      testingFaults: {
+        inject(point, context) {
+          if (point !== 'after_stage_sync' || context.operation !== 'complete') return
+          expect(context).toMatchObject({ operation: 'complete', sessionId })
+          expect(context.path).toMatch(/\.manifest-stage-/)
+          observedCompleteStageFault = true
+          throw new Error('manifest complete after_stage_sync private failure')
+        }
+      }
+    })
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const manifestPath = join(directory, 'session.json')
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => decision(session.id, 'established', [evidenceEventId])
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'retryable_failure',
+      reason: 'reconciliation_required'
+    })
+    expect(JSON.stringify(result)).not.toContain('manifest complete after_stage_sync private failure')
+    expect(observedCompleteStageFault).toBe(true)
+    await expect(readFile(record, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+      status: 'active',
+      outcomeRef: null
+    })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+    // createStagedFile injects after_stage_sync after writing the stage and before rename, so an
+    // interrupted complete leaves an unpublished .manifest-stage-* residual while session.json
+    // stays active. Marker must not publish after a failed manifest completion.
+    const residualNames = await readdir(directory)
+    expect(residualNames.some((name) => name.startsWith('.manifest-stage-'))).toBe(true)
+    expect(residualNames).not.toContain('outcome-settlement.json')
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
