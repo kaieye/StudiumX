@@ -57,17 +57,17 @@ pnpm run check:security
 git diff --check
 ```
 
-Linux 的 S2/S3 host-native rename 本轮**没有真实验证**。源码中的 S2 `renameat2(..., RENAME_NOREPLACE)` 与 S3 `renameat2(..., RENAME_EXCHANGE)` 路径不能替代该证据；仓库当前也没有 `.github` CI 目录可提供 Linux CI 覆盖。因此 Linux native build / targeted test 是未关闭的后续验收，不能将 P8-S2、P8-S3 或 C-4P8 表述为跨平台完成。
+Linux 的 S2/S3 host-native rename 现有真实验证为 2026-07-19 [GitHub Actions run 29678781775](https://github.com/kaieye/StudiumX/actions/runs/29678781775)：指定 GitHub-hosted `ubuntu-24.04` x64 host 成功完成本机构建与四个 P8 定向 unit files（**4 passed / 96 passed**、没有 skipped）。这补充了 S2 `renameat2(..., RENAME_NOREPLACE)` 与 S3 `renameat2(..., RENAME_EXCHANGE)` 的源码证据，但不替代更广泛的验收；不能将 P8-S2、P8-S3 或 C-4P8 表述为跨平台完成，也不表示所有 Linux filesystem/kernel 或 Windows 支持。
 
 ### C-4P8-S2 已实施的受限语义
 
 - 已实施的仅是 **internal descriptor-bound atomic `createNoOverwrite` foundation**。它绑定可信既有 workspace root，并在同一个已绑定 parent descriptor 下创建 temporary candidate、写入、file `fsync`、close，再以 exclusive rename 发布到 final name。
-- macOS 使用 `renameatx_np(..., RENAME_EXCL)`；Linux 源码使用 `renameat2(..., RENAME_NOREPLACE)`。若宿主/文件系统没有所需 primitive，则 fail closed；不会退回 hardlink、`linkat`、pathname fallback、普通 `rename` 或“先检查再 rename”。
+- macOS 使用 `renameatx_np(..., RENAME_EXCL)`；Linux 使用 `renameat2(..., RENAME_NOREPLACE)`。若宿主/文件系统没有所需 primitive，则 fail closed；不会退回 hardlink、`linkat`、pathname fallback、普通 `rename` 或“先检查再 rename”。
 - publication 时已有 final target（包括 preflight 已见或竞争中出现的 existing final）统一得到 internal `target_exists`；竞争方 bytes 不被 clobber。S2 不把 leaf type 差异扩展为 overwrite policy。
 - publication 成功后，如 directory `fsync`、directory close 或 completion 过程失败，internal 结果为 `possibly_published`：final bytes 可能已发布，不得把该结果解释为“尚未执行”。directory `fsync` 只有 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 五个 capability errno 可降级，并仅发出不含路径、临时名、payload 或原始 I/O 文本的 generic warning；其余错误 fail closed。
 - S2 没有 handler、tool registry、IPC、renderer 或 API integration；internal error kinds 不是 tool/API stable contract。`write_workspace_file` 未接入 S2：它已有 pathname-based `overwrite` boolean，并会在已有普通文件且 `overwrite: true` 时通过 pathname-based `writeFile()` 覆盖；这不是 S2/S3 durable publication 的证据。
 
-C-4P8 整体仍未完成：S3 restricted overwrite 已作为 internal foundation 实施并完成本轮 macOS 定向验证；S4 handler/API integration 仍未实施、未批准。不得将 S1/S2/S3 或上述定向验证解释为 workspace tool durable write 已交付。
+C-4P8 整体仍未完成：S3 restricted overwrite 已作为 internal foundation 实施，并有 macOS 与指定 GitHub-hosted `ubuntu-24.04` x64 host 的定向验证；S4 handler/API integration 仍未实施、未批准。不得将 S1/S2/S3 或上述定向验证解释为 workspace tool durable write 已交付。
 
 ## C-4P9-S2 实际验证入口
 
@@ -116,10 +116,10 @@ S3 的证据提交为 `56eabe6`（`feat(data): add workspace restricted overwrit
 
 - 仅可 replacement existing-only regular `nlink = 1` target；absent、hardlink、directory、symlink、device、FIFO、socket 与其它 non-regular target fail closed。parent/final 均 descriptor-bound、no-follow；禁止 pathname fallback、ordinary `rename` fallback、hardlink/`linkat` fallback，也不能以 pre/post `realpath` 代替 publication。
 - candidate 以 `0666 & umask` 创建，随后采用 old target normal mode `& 0777`；不恢复/复制 setuid/setgid/sticky special bits，也不承诺 inode、hardlink、owner/group、ACL、xattr、birth time 或其它 metadata。
-- 在 same parent descriptor 下 atomic swap：macOS 使用 `renameatx_np(..., RENAME_SWAP)`；Linux source 使用 `renameat2(..., RENAME_EXCHANGE)`。它不是 CAS，不承诺 version match、lost-update 防护或 external concurrent mutation 检测/阻止。
+- 在 same parent descriptor 下 atomic swap：macOS 使用 `renameatx_np(..., RENAME_SWAP)`；Linux 使用 `renameat2(..., RENAME_EXCHANGE)`。它不是 CAS，不承诺 version match、lost-update 防护或 external concurrent mutation 检测/阻止。
 - prepublication failure 保留 primary target，并 cleanup/sync candidate。只有 swap-success marker 后的 error 是已发布状态，必须为 internal `possibly_published`；之后的顺序为 first directory `fsync` → old-alias unlink → second directory `fsync` → close，不得 rollback、删除 canonical target 或以旧内容再次覆盖，retry 不得把它当作未执行。
 
-本会话实际在当前 macOS host-built addon 上运行：
+既有本会话实际在当前 macOS host-built addon 上运行：
 
 ```sh
 pnpm run build:contained-durable-replace
@@ -131,12 +131,16 @@ pnpm run check:security
 git diff --check
 ```
 
-四个定向 unit 文件 **96 tests passed**；其中 S3 文件有 **36 tests**，并包含 macOS real native integration。此为当前 macOS host-native 验证，不是全量或跨平台证明；Linux S2/S3 host-native verification 仍 pending。S3 的 internal 分类不是 tool/API stable contract。
+四个定向 unit 文件 **96 tests passed**；其中 S3 文件有 **36 tests**，并包含 macOS real native integration。
+
+随后，`ed8d88a`（`test(data): enable Linux workspace native verification`）新增 GitHub Actions workflow，并把两套 native integration 的运行条件从 darwin-only 改为 `darwin || linux`。2026-07-19 的 [GitHub Actions run 29678781775](https://github.com/kaieye/StudiumX/actions/runs/29678781775) 在 `ubuntu-24.04` GitHub-hosted x64 Linux 上运行：Node `22.23.1`、node-gyp `12.4.0` 本机构建 addon，日志确认 `build/Release/contained_durable_replace.node`；四个 P8 定向 unit files 为 **4 passed / 96 passed**，没有 skipped；typecheck、workspace write check、workspace path target check、security 与 `git diff --check` 均成功。
+
+这使 S2/S3 的 Linux source branch 不再是唯一证据，但只记录**macOS 和这个指定 GitHub-hosted Ubuntu/Linux x64 host 的 S2/S3 internal native 定向验证**。它不是全量或跨平台证明，不表示所有 Linux filesystem/kernel 或 Windows 支持，也不表示 tool durable write complete。S3 的 internal 分类不是 tool/API stable contract。
 
 ## 明确不包含与后续门槛
 
 - **C-4P6 仍未完整关闭，仍是待办。**S1 未提供跨文件事务或共同原子性、rollback、删除、通用 migration 或新的外部 API。完整 P6 close-out 仍需单独批准并验证 manifest publisher 的 capability-policy 对齐、穷尽的 crash / failure 设计矩阵及运行验证。
-- **C-4P8 仍未完成，仍是待办。**S1 descriptor foundation、仅 internal 的 S2 atomic `createNoOverwrite` foundation 与仅 internal 的 S3 restricted-overwrite foundation 已实施；S4 handler / API integration 仍未实施、未批准。S2/S3 不是 C-4P5 的 allowlisted document service。当前 `write_workspace_file` 有 pathname-based `overwrite` boolean，并在已有普通文件且 `overwrite: true` 时通过 pathname-based `writeFile()` 覆盖；它未接入 S3，不能作为 durable overwrite、atomic swap 或 S3 验证的证据。Linux S2/S3 host-native verification 仍待真实验证。
+- **C-4P8 仍未完成，仍是待办。**S1 descriptor foundation、仅 internal 的 S2 atomic `createNoOverwrite` foundation 与仅 internal 的 S3 restricted-overwrite foundation 已实施；S4 handler / API integration 仍未实施、未批准。S2/S3 不是 C-4P5 的 allowlisted document service。当前 `write_workspace_file` 有 pathname-based `overwrite` boolean，并在已有普通文件且 `overwrite: true` 时通过 pathname-based `writeFile()` 覆盖；它未接入 S3，不能作为 durable overwrite、atomic swap 或 S3 验证的证据。已记录的 Linux 证据仅为指定 GitHub-hosted `ubuntu-24.04` x64 host 上的 S2/S3 internal native 定向验证，不得泛化为跨平台、所有 Linux filesystem/kernel、Windows 或 tool durable write complete。
 - **C-4P9 仍未完整关闭，仍是待办。**仅 P9-S2 已实施：固定 audit 文件的专用 framed、legacy-compatible durable append。它不是 generic JSONL migration、跨文件 transaction、ledger authority/save-order 变更、repair、rotation 或 IPC/UI；C-4P1 之外的剩余 P9 风险与 design gate 仍须保留。
 - 高频日志不因本 ADR 自动改为逐条 fsync。
 

@@ -1,6 +1,6 @@
 # C-4P8 Workspace tool durable publish：设计门（S1/S2/S3 已实施；S4 待批准）
 
-> **状态：C-4P8 未完成。**S1 descriptor-bound foundation 已由 `80f2fd0`（`feat(data): add workspace descriptor foundation`）与 `e2ce36c`（`test(data): cover workspace descriptor foundation`）实施。S2 已由 `b46c8b2`（`feat(data): add workspace create no-overwrite`）与 `bdcd6cb`（`test(data): cover workspace create no-overwrite`）实施，范围仅为 **internal descriptor-bound atomic `createNoOverwrite` foundation**。S3 已由 `56eabe6`（`feat(data): add workspace restricted overwrite foundation`）与 `54506d5`（`test(data): cover workspace restricted overwrite`）实施，范围仅为 **internal descriptor-bound restricted-overwrite foundation**。S4 handler/API integration 仍未批准、未实施。本文保留 S4 与 Linux 验证风险；它不授权改变现有工具行为，也不宣称 P8 complete。
+> **状态：C-4P8 未完成。**S1 descriptor-bound foundation 已由 `80f2fd0`（`feat(data): add workspace descriptor foundation`）与 `e2ce36c`（`test(data): cover workspace descriptor foundation`）实施。S2 已由 `b46c8b2`（`feat(data): add workspace create no-overwrite`）与 `bdcd6cb`（`test(data): cover workspace create no-overwrite`）实施，范围仅为 **internal descriptor-bound atomic `createNoOverwrite` foundation**。S3 已由 `56eabe6`（`feat(data): add workspace restricted overwrite foundation`）与 `54506d5`（`test(data): cover workspace restricted overwrite`）实施，范围仅为 **internal descriptor-bound restricted-overwrite foundation**。S4 handler/API integration 仍未批准、未实施。本文保留 S4 与其余验证边界；它不授权改变现有工具行为，也不宣称 P8 complete。
 
 相关但不同的已实施 consumer 是 C-4P5 `TeachingWorkspaceDocuments` 的 allowlisted workspace Markdown publish。C-4P8 不继承 C-4P5 的 allowlist/service contract，也不能以 C-4P5 的测试或 shared `replaceDurably()` 通过作为 C-4P8 已迁移的证据。
 
@@ -20,7 +20,7 @@ S1 本身不写 payload 或 temporary candidate、不发布文件，也不包含
 
 S2 在 S1 绑定的可信 workspace root 中实现 internal-only 的单文件 create protocol：在 **same parent descriptor** 下创建 temporary candidate，写入精确 UTF-8 bytes、file `fsync`、close，然后以 descriptor-relative exclusive rename 将 candidate 发布为 final name。
 
-- macOS native primitive 为 `renameatx_np(..., RENAME_EXCL)`；Linux source path 为 `renameat2(..., RENAME_NOREPLACE)`。
+- macOS native primitive 为 `renameatx_np(..., RENAME_EXCL)`；Linux native primitive 为 `renameat2(..., RENAME_NOREPLACE)`。
 - 缺少所需 atomic no-clobber primitive 时 fail closed。实现**不**使用 hardlink、`linkat`、pathname fallback、ordinary `rename` fallback 或“先检查再 rename”。
 - existing final（无论 preflight 已存在，还是 publication race 中出现）均统一给 internal `target_exists`；竞争方 bytes 不得被 clobber。S2 不引入 existing target 的 overwrite/type-policy。
 - publication 成功后，directory `fsync`、directory close 或 completion 失败统一以 internal `possibly_published` 报告：final 可能已存在，调用方不得将其当作“没有执行”。
@@ -29,9 +29,9 @@ S2 在 S1 绑定的可信 workspace root 中实现 internal-only 的单文件 cr
 
 S2 的 `target_exists`、`possibly_published` 与其它 error kinds 都是 internal protocol 分类，**不是** tool/API stable contract。它没有接入 handler、tool registry、IPC、renderer 或 API。当前 `write_workspace_file` 也尚未接入 S1/S2/S3：它已有 pathname-based `overwrite` boolean，对已有普通文件在 `overwrite: true` 时以 pathname-based `writeFile()` 覆盖；这不是 descriptor-bound publication、atomic swap 或 durable overwrite 的证据。
 
-## 本轮验证边界与未关闭 Linux 风险
+## 已记录的 host-native 定向验证边界（仍有剩余风险）
 
-本轮实际验证的是当前 **macOS host-built addon**：
+既有本会话实际验证的是当前 **macOS host-built addon**：
 
 ```sh
 pnpm run build:contained-durable-replace
@@ -43,7 +43,11 @@ pnpm run check:security
 git diff --check
 ```
 
-四个定向 unit 文件共 **96 tests passed**，其中 S3 `workspace-contained-restricted-overwrite.unit.test.ts` 为 **36 tests**，并在当前 macOS host 上包含 real native integration。上述命令和结果不是全量 suite 或跨平台声明。尤其 Linux 的 S2 `renameat2(..., RENAME_NOREPLACE)` 与 S3 `renameat2(..., RENAME_EXCHANGE)` 仅有源码路径，尚未完成 Linux host-native build 与 targeted test；源码存在不能替代 Linux host-native 验证。仓库没有 `.github` CI 目录，因此没有可引用的仓库内 Linux CI 覆盖。Linux S2/S3 验证必须作为后续验收保留，P8 不得被称为跨平台完成。
+四个定向 unit 文件共 **96 tests passed**，其中 S3 `workspace-contained-restricted-overwrite.unit.test.ts` 为 **36 tests**，并在当前 macOS host 上包含 real native integration。
+
+`ed8d88a`（`test(data): enable Linux workspace native verification`）新增 GitHub Actions workflow，并把两套 native integration 的运行条件从 darwin-only 改为 `darwin || linux`。2026-07-19 的 [GitHub Actions run 29678781775](https://github.com/kaieye/StudiumX/actions/runs/29678781775) 在 `ubuntu-24.04` GitHub-hosted x64 Linux 上运行：以 Node `22.23.1`、node-gyp `12.4.0` 本机构建 addon，日志确认产物 `build/Release/contained_durable_replace.node`；四个 P8 定向 unit files 为 **4 passed / 96 passed**，且没有 skipped。该 workflow 的 typecheck、workspace write check、workspace path target check、security 与 `git diff --check` 均成功。
+
+因此，S2 `renameat2(..., RENAME_NOREPLACE)` 与 S3 `renameat2(..., RENAME_EXCHANGE)` 的 Linux source branch 不再是唯一证据。但这些命令和结果只记录**macOS 和这个指定 GitHub-hosted Ubuntu/Linux x64 host 的 S2/S3 internal native 定向验证**；它们不是全量 suite、跨平台、所有 Linux filesystem/kernel、Windows 支持或 tool durable write complete 的声明。P8 仍未完成，S4 handler/API integration 仍未批准、未实施；当前 `write_workspace_file` 仍以 pathname `writeFile()` 写入，未迁移到 durable operation。
 
 ## 固定 scope 与非目标
 
@@ -64,10 +68,10 @@ S3 已由 `56eabe6`（生产实现）和 `54506d5`（测试）实施，是独立
 
 1. **目标与 containment policy。**仅允许 replacement 一个**已存在的 regular file**，且该 leaf 的 `nlink = 1`。absent target、hardlink、directory、symlink、device、FIFO、socket 及其它 non-regular target 都 fail closed。parent 与 final leaf 都 descriptor-bound、no-follow 地解析和检查；parent/final 或 child traversal 的 symlink swap、capability unavailable 与任何无法证明 containment 的状态均 fail closed。实现不使用 pathname fallback、ordinary `rename` fallback、hardlink/`linkat` fallback，也不以 pre/post `realpath` 代替 descriptor-bound publication。
 2. **candidate / permission。**candidate 以 `0666 & umask` 创建；发布前将其普通 permission bits 设为 old target normal mode `& 0777`。不恢复或复制 setuid、setgid、sticky special bits，也不承诺 inode identity、hardlink identity/count、owner/group、ACL、xattr、birth time 或其它 metadata。
-3. **publication 与并发边界。**在 same parent descriptor 下准备 candidate 后 atomic swap：macOS native primitive 为 `renameatx_np(..., RENAME_SWAP)`；Linux source path 为 `renameat2(..., RENAME_EXCHANGE)`。S3 **不是 CAS**：不提供版本匹配、合并、lost-update 防护，也不承诺检测或阻止 validation 与 publication 之间的 external concurrent mutation。
+3. **publication 与并发边界。**在 same parent descriptor 下准备 candidate 后 atomic swap：macOS native primitive 为 `renameatx_np(..., RENAME_SWAP)`；Linux primitive 为 `renameat2(..., RENAME_EXCHANGE)`。S3 **不是 CAS**：不提供版本匹配、合并、lost-update 防护，也不承诺检测或阻止 validation 与 publication 之间的 external concurrent mutation。
 4. **failure / durability。**swap 前的 failure 保留 primary target，并对 candidate 执行 cleanup/sync；只有 swap-success marker 之后的 error 才视为已发布并报告 internal `possibly_published`。成功 swap 后严格按以下顺序执行：首次 directory `fsync` → unlink temporary alias（旧 target）→ 第二次 directory `fsync` → close。swap 后不得 rollback、删除 canonical target，或以旧内容再次覆盖它；retry 不得把 `possibly_published` 当成“未执行”。
 
-S3 的 `possibly_published` 及其它分类仍是 internal protocol 分类，不是 tool/API stable contract；只有未来另行批准的 S4 才可决定是否以及如何映射为稳定外部结果。当前实际验证仅限 macOS host-native；Linux S3 host-native 验证仍未完成。
+S3 的 `possibly_published` 及其它分类仍是 internal protocol 分类，不是 tool/API stable contract；只有未来另行批准的 S4 才可决定是否以及如何映射为稳定外部结果。实际验证已记录为 macOS 及指定 GitHub-hosted `ubuntu-24.04` x64 host 的 S2/S3 internal native 定向验证；这不代表更广泛的 Linux、Windows 或 tool durable write 验证完成。
 
 ## S4 设计门：handler / API integration（未实施、未批准）
 
@@ -80,6 +84,6 @@ S4 不能通过“让 `write_workspace_file` 改用 `replaceDurably()`”获得�
 
 ## 后续验收与批准顺序
 
-C-4P8 现在不是“无实施”，但仍不能关闭。S1/S2/S3 的 internal foundations 已实施；后续仅能在 S4 另行获得 scope / owner / API 批准后考虑 handler/API integration。Linux 的 S2/S3 host-native 验证尚未关闭；没有真实 Linux host build 与定向测试，就不得把 source-level native 路径视为 cross-platform completion。
+C-4P8 现在不是“无实施”，但仍不能关闭。S1/S2/S3 的 internal foundations 已实施；后续仅能在 S4 另行获得 scope / owner / API 批准后考虑 handler/API integration。指定 GitHub-hosted `ubuntu-24.04` x64 host 的 Linux S2/S3 host-native 定向验证已经记录，但它不能泛化为跨平台、所有 Linux filesystem/kernel、Windows 或 tool durable write complete。
 
 在这些批准和验证完成前，任何直接替换为 `replaceDurably()`、只补 pre/post `realpath`、或把 S2/S3 internal foundation 接入 `write_workspace_file` 的改动，都不得称为 C-4P8 complete、workspace tool durable write delivered 或 handler migration。
