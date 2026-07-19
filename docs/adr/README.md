@@ -27,7 +27,7 @@
 
 | ADR | 主题 | 已实施范围 |
 | --- | --- | --- |
-| [ADR-0001](0001-rebuildable-sqlite-projection.md) | C-1 可重建 SQLite projection | SQLite 仅作为可再建分析投影，并保留文件扫描回退。 |
+| [ADR-0001](0001-rebuildable-sqlite-projection.md) | C-1 可重建 SQLite projection 与 no-FTS 边界 | SQLite 仅作为可再建 analytics 投影并保留 canonical 文件回退；FTS、查询/搜索面与 query-facing corpus 均未获授权。 |
 | [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md) | C-2 分区、分段与摘要 projection | UTC 月分区、无损 sealed JSONL 分段、显式会话摘要 projection。 |
 | [ADR-0003](0003-critical-json-backups-and-verified-recovery.md) | C-3 关键 JSON 备份与恢复 | `.bak` 备份及 verified read recovery。 |
 | [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) | C-4 durable publish | 共享 durable publish 原语及已迁移的部分 consumer。 |

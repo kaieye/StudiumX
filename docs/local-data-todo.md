@@ -10,12 +10,6 @@
 2. canonical JSON、Markdown、JSONL、immutable record 和 Memory 文件仍是事实来源；projection、分区、sealing、summary、`.bak` 与 receipt 都不授权删除或替代事实来源。
 3. 不得把 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 的部分 consumer migration 解释为全量 writer migration，也不得把 [ADR-0005](adr/0005-main-owned-trace-correlation-and-safe-logs.md) 解释为全局 actionId / retry / receipt。
 
-## C-1：FTS/query 隐私与授权设计门
-
-- 设计文档：[C-1 FTS/query：隐私、授权与可重建设计门槛](plans/local-data-query-fts-privacy-design.md)
-- 未实施：FTS、全文检索 API、授权范围、查询结果脱敏与 privacy contract。
-- 禁止越界：不能以现有 SQLite projection 为由直接开放全文查询或扩大数据暴露面。
-
 ## C-2：留存控制、删除与恢复设计门
 
 - 设计文档：[C-2 retention control / recovery](plans/local-data-retention-control-recovery-design.md)
