@@ -1582,6 +1582,95 @@ describe('LearningOutcomeCommitter', () => {
     await expectDurableBytesUnchanged()
   })
 
+  it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-conflicting-outcome-projection-unit'
+    const outcomeId = 'outcome-conflicting-outcome-projection-1'
+    const operationId = 'conflicting-outcome-projection-operation-1'
+    const evidenceEventId = 'evidence-conflicting-outcome-projection-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let evaluationCalls = 0
+    const initial = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    await expect(initial.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+
+    const [recordBeforeRestart, outcomeBeforeRestart, manifestBeforeRestart, markerBeforeRestart] = await Promise.all([
+      readFile(record),
+      readFile(outcomePath),
+      readFile(manifestPath),
+      readFile(markerPath)
+    ])
+    // Poison only outcome.json: still valid-looking JSON, but not the encoded
+    // projection for the immutable record (wrong outcomeId / kind / evidence).
+    const poisonedOutcome = `${JSON.stringify({
+      schemaVersion: 1,
+      outcomeId: 'outcome-poisoned-projection-1',
+      kind: 'needs_practice',
+      evidenceEventIds: ['evidence-poisoned-projection-1']
+    })}\n`
+    expect(poisonedOutcome).not.toEqual(outcomeBeforeRestart.toString('utf8'))
+    await writeFile(outcomePath, poisonedOutcome, 'utf8')
+    const poisonedOutcomeBytes = await readFile(outcomePath)
+    expect(poisonedOutcomeBytes.toString('utf8')).toBe(poisonedOutcome)
+    expect(poisonedOutcomeBytes.equals(outcomeBeforeRestart)).toBe(false)
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      durableFileOperations: recoveryDurable.operations,
+      createId: () => {
+        throw new Error('recovery createId must not be called')
+      },
+      evaluate: async () => {
+        evaluationCalls += 1
+        throw new Error('recovery evaluator must not be called')
+      }
+    })
+    const expectDurableBytesUnchanged = async () => {
+      await expect(readFile(record)).resolves.toEqual(recordBeforeRestart)
+      await expect(readFile(outcomePath)).resolves.toEqual(poisonedOutcomeBytes)
+      await expect(readFile(manifestPath)).resolves.toEqual(manifestBeforeRestart)
+      await expect(readFile(markerPath)).resolves.toEqual(markerBeforeRestart)
+    }
+
+    // Directed residual evidence: mismatched outcome projection vs record authority must fail closed.
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'review_required',
+      diagnostics: expect.arrayContaining(['conflicting_outcome'])
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryDurable.events).toEqual([])
+    await expectDurableBytesUnchanged()
+  })
+
   it('reports legacy_generated records as read-only diagnostics without upgrading their bytes', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-legacy-unit')
