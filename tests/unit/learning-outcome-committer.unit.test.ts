@@ -305,6 +305,91 @@ describe('LearningOutcomeCommitter', () => {
     ])
   })
 
+  it('recovers safely after a post-stage-flush interruption without promoting incomplete projections', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-after-stage-flush-restart-unit'
+    const outcomeId = 'outcome-after-stage-flush-restart-1'
+    const operationId = 'after-stage-flush-restart-operation-1'
+    const evidenceEventId = 'evidence-after-stage-flush-restart-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const manifestPath = join(directory, 'session.json')
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const stagedRecordPath = stagePath(workspaceRoot, sessionId, outcomeId, operationId)
+    const manifestBeforeCrash = await readFile(manifestPath, 'utf8')
+    const injectedPoints: string[] = []
+    let evaluationCalls = 0
+    let createIdCalls = 0
+    const options = {
+      workspaceRoot,
+      ledger,
+      createId: () => {
+        createIdCalls += 1
+        return outcomeId
+      },
+      evaluate: async ({ session }: { session: { id: string } }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    }
+    const interrupted = createLearningOutcomeCommitter({
+      ...options,
+      testingFaults: {
+        inject(point) {
+          injectedPoints.push(point)
+          if (point === 'after_stage_flush') throw new Error('simulated crash after stage flush')
+        }
+      }
+    })
+
+    await expect(interrupted.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    expect(injectedPoints).toEqual(['after_stage_flush'])
+    expect(evaluationCalls).toBe(1)
+    expect(createIdCalls).toBe(1)
+    const stagedRecordBeforeRestart = await readFile(stagedRecordPath)
+    expect(stagedRecordBeforeRestart.toString('utf8')).toContain(`\"outcomeId\":\"${outcomeId}\"`)
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe(manifestBeforeCrash)
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recovered = createLearningOutcomeCommitter({
+      ...options,
+      durableFileOperations: recoveryDurable.operations
+    })
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'pending', marker: null, record: null, catalogRecordPresent: false
+    })
+    expect(recoveryDurable.events).toEqual([])
+    expect(evaluationCalls).toBe(1)
+    expect(createIdCalls).toBe(1)
+    await expect(readFile(stagedRecordPath)).resolves.toEqual(stagedRecordBeforeRestart)
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe(manifestBeforeCrash)
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    expect(recoveryDurable.events).toEqual([`open:wx:${stagedRecordPath}`])
+    expect(evaluationCalls).toBe(2)
+    expect(createIdCalls).toBe(2)
+    await expect(readFile(stagedRecordPath)).resolves.toEqual(stagedRecordBeforeRestart)
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe(manifestBeforeCrash)
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+  })
+
   it('deterministically repairs an after-outcome-publication crash after restart without reevaluation or outcome rewrite', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-after-outcome-publish-restart-unit'
