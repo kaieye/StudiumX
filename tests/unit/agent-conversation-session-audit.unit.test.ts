@@ -368,6 +368,33 @@ describe('agent conversation session audit durable append', () => {
     expect(await readFile(auditPath(root, initial))).toEqual(before)
   })
 
+  it('rejects on-disk same-identity rows whose traces diverge instead of treating them as exact dedupe', async () => {
+    // Residual: C-5E write-once/trace conflict must fail closed. Two exact
+    // non-trace bodies that differ only in traceState must not report success
+    // as if exact-byte dedupe already applied.
+    const root = await createRoot()
+    const record = createRecord({ traceId: TRACE_A })
+    const io = instrumentedAuditOperations()
+    await appendWith(root, record, io.operations)
+    const path = auditPath(root, record)
+    const before = await readFile(path, 'utf8')
+    const turnOne = parseAgentConversationSessionAuditLines(before).find((line) => line.id === 'turn:turn-one')
+    expect(turnOne).toBeDefined()
+    expect(turnOne?.traceId).toBe(TRACE_A)
+    const poisoned = `${before}${JSON.stringify({ ...turnOne!, traceId: TRACE_B })}\n`
+    await writeFile(path, poisoned, 'utf8')
+    const poisonedBytes = await readFile(path)
+
+    const writesBeforeConflict = io.events.filter((event) => event === `write:${path}`).length
+    await expect(appendWith(root, record, io.operations)).rejects.toThrow(
+      'Conversation session audit contains divergent duplicate records.'
+    )
+    expect(await readFile(path)).toEqual(poisonedBytes)
+    // Fail closed before framed append: exact prior bytes stay, no rewrite, no
+    // second write that would treat the divergent trace pair as exact dedupe.
+    expect(io.events.filter((event) => event === `write:${path}`)).toHaveLength(writesBeforeConflict)
+  })
+
   it('treats ENOENT as empty, but propagates EACCES, EIO, and unknown byte-read failures', async () => {
     const root = await createRoot()
     const record = createRecord()
