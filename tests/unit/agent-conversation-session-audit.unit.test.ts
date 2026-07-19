@@ -724,19 +724,31 @@ describe('agent conversation session audit durable append', () => {
     expect(io.events).toContain(event)
   })
 
-  it.each(['EIO', 'EACCES'] as const)('fails closed when audit directory mkdir returns %s', async (code) => {
+  it.each(
+    (
+      [
+        ['EIO', errno('EIO')],
+        ['EACCES', errno('EACCES')],
+        ['EPERM', errno('EPERM')],
+        ['ENOSPC', errno('ENOSPC')],
+        ['EINVAL', errno('EINVAL')],
+        ['unknown error', new Error('unexpected audit directory mkdir failure')]
+      ] as const
+    )
+  )('fails closed without capability downgrade when audit directory mkdir returns %s', async (_name, failure) => {
     const root = await createRoot()
     const record = createRecord()
     const path = auditPath(root, record)
     const auditDirectory = dirname(path)
     const warnings: string[] = []
     const io = instrumentedAuditOperations({
-      fail: (event) => event === `mkdir:${auditDirectory}` ? errno(code) : undefined
+      fail: (event) => event === `mkdir:${auditDirectory}` ? failure : undefined
     })
 
     await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
-      .rejects.toMatchObject({ code })
+      .rejects.toBe(failure)
     expect(io.events).toContain(`mkdir:${auditDirectory}`)
+    // mkdir is the first durable boundary; no lstat/open/write and no capability downgrade.
     expect(io.events.some((event) => event.startsWith('lstat:'))).toBe(false)
     expect(io.events.some((event) => event.startsWith('open:'))).toBe(false)
     expect(io.events.some((event) => event.startsWith('sync:'))).toBe(false)
