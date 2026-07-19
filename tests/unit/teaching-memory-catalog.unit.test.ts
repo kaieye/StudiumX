@@ -55,7 +55,7 @@ afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((rootDir) => rm(rootDir, { recursive: true, force: true })))
 })
 
-describe('TeachingMemoryCatalog scope partitions', () => {
+describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog scope partitions', () => {
   it('derives stable full SHA-256 base64url partitions only from normalized main-process records', async () => {
     const workspace = record('workspace', { scope: 'workspace', workspace: 'C:\\Courses\\Alpha\\lessons\\..' })
     const project = record('project', { scope: 'project', workspace: 'C:\\Courses\\Alpha', project: 'D:\\Projects\\Alpha\\chapter\\..' })
@@ -330,7 +330,7 @@ async function snapshotMemoryTree(rootDir: string): Promise<Array<{ path: string
   })))
 }
 
-describe('TeachingMemoryCatalog legacy migration preflight', () => {
+describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog legacy migration preflight', () => {
   it('returns an empty preflight without creating a missing Memory root or changing its parent', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'studiumx-teaching-memory-missing-root-parent-'))
     temporaryRoots.push(parent)

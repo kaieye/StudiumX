@@ -48,7 +48,10 @@ function instrumentedDurableOperations(options: {
           },
           sync: async () => {
             observe(`sync:${path}`)
-            await handle.sync()
+            // Windows cannot fsync directory handles. The production primitive
+          // downgrades that native capability gap; retain injected faults above.
+          if (process.platform === 'win32' && (await handle.stat()).isDirectory()) return
+          await handle.sync()
           },
           // Always release the native descriptor before surfacing an injected
           // close failure, so tests do not leak handles.

@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MusicCookieStore, type MusicCookieState } from '../../src/main/music/music-cookie-store'
 import type { DurableFileOperations } from '../../src/main/persistence/durable-file'
@@ -102,11 +102,11 @@ describe('MusicCookieStore durable publishing', () => {
 
     await expect(store.set('netease', 'MUSIC_U=first;\nfoo=bar;;')).resolves.toBe('MUSIC_U=first; foo=bar')
     await expect(readFile(path, 'utf8')).resolves.toBe(cookieJson({ netease: 'MUSIC_U=first; foo=bar', qq: '' }))
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
 
     await store.set('qq', 'uin=second;')
     await expect(readFile(path, 'utf8')).resolves.toBe(cookieJson({ netease: 'MUSIC_U=first; foo=bar', qq: 'uin=second' }))
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
   })
 
   it('single-flights an initial load shared by concurrent reads and the first mutation', async () => {
@@ -147,9 +147,9 @@ describe('MusicCookieStore durable publishing', () => {
 
   it.each([
     ['write', (event: string) => event.startsWith('write:')],
-    ['file sync', (event: string) => event.startsWith('sync:/cookies/.music-cookies.json.')],
-    ['file close', (event: string) => event.startsWith('close:/cookies/.music-cookies.json.')],
-    ['rename', (event: string) => event.includes('->/cookies/music-cookies.json')]
+    ['file sync', (event: string) => event.startsWith(`sync:${join(dirname('/cookies/music-cookies.json'), `.${basename('/cookies/music-cookies.json')}.`)}`)],
+    ['file close', (event: string) => event.startsWith(`close:${join(dirname('/cookies/music-cookies.json'), `.${basename('/cookies/music-cookies.json')}.`)}`)],
+    ['rename', (event: string) => event.includes(`->${'/cookies/music-cookies.json'}`)]
   ])('keeps old bytes and memory on a pre-rename %s failure and removes the candidate', async (_boundary, matches) => {
     const path = '/cookies/music-cookies.json'
     const fake = memoryOperations({ fail: (event) => matches(event) ? errno('EIO') : undefined })

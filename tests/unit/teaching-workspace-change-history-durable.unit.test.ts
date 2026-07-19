@@ -44,7 +44,10 @@ function recordingOperations(options: {
           },
           sync: async () => {
             observe(`sync:${path}`)
-            await handle.sync()
+            // Windows cannot fsync directory handles. The production primitive
+          // downgrades that native capability gap; retain injected faults above.
+          if (process.platform === 'win32' && (await handle.stat()).isDirectory()) return
+          await handle.sync()
           },
           close: async () => {
             recorded.push({ event: `close:${path}` })

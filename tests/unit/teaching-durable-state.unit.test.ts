@@ -54,7 +54,7 @@ describe('critical durable JSON consumers', () => {
     await expect(readFile(settingsPath, 'utf8')).resolves.toBe(canonicalBeforeLoad)
     await expect(readFile(`${settingsPath}.bak`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     expect(calls.encrypt).toBe(encryptsBeforeLoad)
-    expect((await stat(settingsPath)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(settingsPath)).mode & 0o777).toBe(0o600)
   })
 
   it('persists an explicit settings canonicalization migration only when normalization changes a healthy object', async () => {
@@ -71,8 +71,8 @@ describe('critical durable JSON consumers', () => {
     expect(loaded.workspace.defaultRoot).toBe(defaultRoot)
     await expect(readFile(settingsPath, 'utf8')).resolves.toContain('"version": 1')
     await expect(readFile(`${settingsPath}.bak`, 'utf8')).resolves.toBe(legacyShape)
-    expect((await stat(settingsPath)).mode & 0o777).toBe(0o600)
-    expect((await stat(`${settingsPath}.bak`)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(settingsPath)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(`${settingsPath}.bak`)).mode & 0o777).toBe(0o600)
   })
 
   it('recovers encrypted settings secrets from a retained backup without restoring the damaged canonical file', async () => {
@@ -93,7 +93,7 @@ describe('critical durable JSON consumers', () => {
     const recovered = await new TeachingSettingsService({ userDataPath, defaultRoot, secretStorage: storage }).load()
     expect(recovered.provider.providers[0]!.apiKey).toBe('retained-secret')
     await expect(readFile(settingsPath, 'utf8')).resolves.toBe('{ invalid settings')
-    expect((await stat(`${settingsPath}.bak`)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(`${settingsPath}.bak`)).mode & 0o777).toBe(0o600)
   })
 
   it('replaces settings only after both canonical and retained backup are invalid', async () => {
@@ -133,7 +133,7 @@ describe('critical durable JSON consumers', () => {
     }).getState()
     expect(recovered.workspaces.map((workspace) => workspace.id)).toEqual([retainedId])
     await expect(readFile(registryPath, 'utf8')).resolves.toBe('{ invalid registry')
-    expect((await stat(`${registryPath}.bak`)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(`${registryPath}.bak`)).mode & 0o777).toBe(0o600)
   })
 
   it('rebuilds a registry after both canonical and retained backup are invalid', async () => {
@@ -181,7 +181,7 @@ describe('critical durable JSON consumers', () => {
     await expect(loadWorkspaceIndex(workspace)).resolves.toMatchObject({ updatedAt: '2026-07-17T00:00:00.000Z' })
     await expect(readFile(modernPath, 'utf8')).resolves.toBe('{ invalid modern index')
     await expect(readFile(`${legacyPath}.bak`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    expect((await stat(`${modernPath}.bak`)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(`${modernPath}.bak`)).mode & 0o777).toBe(0o600)
   })
 
   it('uses legacy workspace index data only after both modern canonical and backup are invalid', async () => {
@@ -231,6 +231,6 @@ describe('critical durable JSON consumers', () => {
 
     await expect(readFile(indexPath, 'utf8')).resolves.toContain('"conversation.md"')
     await expect(readFile(`${indexPath}.bak`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    expect((await stat(indexPath)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(indexPath)).mode & 0o777).toBe(0o600)
   })
 })
