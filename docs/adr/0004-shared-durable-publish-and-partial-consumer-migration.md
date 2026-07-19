@@ -48,6 +48,7 @@
 | C-4P6-S25 `e7440cc` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 invalid 的 canonical learning-record body prefix residual（metadata JSON 仍合法，markdown `# Learning outcome:` 前缀与 outcomeKind 不一致）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 body、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、50 tests passed |
 | C-4P6-S26 `80788b1` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 empty 的 canonical learning-record `evidenceEventIds` residual（其它 metadata/body 仍合法，仅 `evidenceEventIds: []`）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 evidence、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、51 tests passed |
 | C-4P6-S27 `fdc2d22` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 invalid 的 canonical learning-record `evaluatorVersion` residual（其它 metadata/body 仍合法，仅 `evaluatorVersion: null`）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 evaluatorVersion、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、52 tests passed |
+| C-4P6-S28 `eb2fbf6` | **tests-only evidence**：仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 mismatched 的 canonical learning-record `sessionId` residual（path/recordId/body 仍对应当前 session，仅 metadata `sessionId` 与 path session 不一致）；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite authority、不修复 sessionId、不 evaluate；同 operation commit → `conflict/review_required`；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、53 tests passed |
 | C-4P7 `0d55fd8` | private `MusicCookieStore` cookie state | `tests/unit/music-cookie-store-durable.unit.test.ts` |
 | C-4P8-S1 `80f2fd0`、`e2ce36c` | workspace descriptor foundation：可信既有 workspace root 绑定、descriptor-bound parent traversal 与 final-leaf inspection | 下列 C-4P8 最终定向验证 |
 | C-4P8-S2 `b46c8b2`、`bdcd6cb` | internal descriptor-bound atomic `createNoOverwrite` foundation | 下列 C-4P8 最终定向验证 |
@@ -80,6 +81,7 @@
 | C-4P9-S26 `c3c8db5` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit directory mkdir fatal residual matrix：对 `mkdir` 注入 `EIO`/`EACCES`/`EPERM`/`ENOSPC`/`EINVAL`/unknown 均 fatal、不 capability downgrade、不 lstat/open/write/sync、无 warning、无 audit 文件创建；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、112 tests passed |
 | C-4P9-S27 `4e3ce10` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file write fatal residual matrix：对首个 audit file `write` 注入 `EIO`/`EINVAL`/`ENOSYS`/`ENOTSUP`/`EOPNOTSUPP`/`EISDIR`/`EACCES`/`EPERM`/`ENOSPC` 均 fatal、不 capability downgrade、不启动 directory open/sync、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、121 tests passed |
 | C-4P9-S28 `46a46ad` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，补齐 audit file write unknown error residual：首个 audit file `write` 注入 non-errno unknown Error 时 fatal、不 capability downgrade、不启动 directory open/sync、无 warning；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、122 tests passed |
+| C-4P9-S29 `abe159d` | **tests-only evidence**：仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，将 audit file open fatal residual matrix 扩到 `EPERM`/`ENOSPC`：open 失败 fatal、不 capability downgrade、不 write、不启动 directory open、无 warning、无 audit 文件创建；无生产语义改动 | `pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts`；1 file、124 tests passed |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
@@ -412,6 +414,16 @@ pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.t
 pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
 # P6-S27 well-formed invalid canonical learning-record evaluatorVersion residual: 1 file, 52 tests passed
 ```
+
+## C-4P6-S28：well-formed mismatched canonical learning-record sessionId 的 tests-only evidence
+
+`eb2fbf6`（`test(data): cover mismatched learning record sessionId residual`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，补齐 settled 后 well-formed 但 mismatched 的 canonical learning-record `sessionId` residual：path/recordId/body 仍对应当前 session，仅 metadata `sessionId` 与 path session 不一致；restart `reconcile()` → `review_required` + `missing_record`；不 rewrite outcome/manifest/marker，不修复 sessionId，不调用 evaluator/`createId`；同 operation commit → `conflict/review_required`。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts
+# P6-S28 well-formed mismatched canonical learning-record sessionId residual: 1 file, 53 tests passed
+```
+
 
 
 
@@ -770,6 +782,16 @@ pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.
 pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
 # P9-S28 audit file write unknown error residual: 1 file, 122 tests passed
 ```
+
+## C-4P9-S29：audit file open EPERM/ENOSPC residual 的 tests-only evidence
+
+`abe159d`（`test(data): cover audit file open EPERM/ENOSPC residual`）仅修改 `tests/unit/agent-conversation-session-audit.unit.test.ts`，将 audit file open fatal residual matrix 扩到 `EPERM`/`ENOSPC`：open 失败 fatal、不 capability downgrade、不 write、不启动 directory open、无 warning、无 audit 文件创建。无生产语义改动。
+
+```bash
+pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
+# P9-S29 audit file open EPERM/ENOSPC residual: 1 file, 124 tests passed
+```
+
 
 
 
