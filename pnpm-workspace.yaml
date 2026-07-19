@@ -1,4 +1,5 @@
 allowBuilds:
+  better-sqlite3: true
   '@swc/core': true
   electron: true
   electron-winstaller: true

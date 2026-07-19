@@ -209,7 +209,7 @@ export async function writeContentAddressedFile(input: {
   }
 
   assertLexicallyInsideRoot(input.rootPath, input.targetPath)
-  await createContainedParentDirectory(input.rootPath, dirname(input.targetPath))
+  await ensureContainedDirectory(input.rootPath, dirname(input.targetPath))
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const existing = await readExistingContainedFile(input.rootPath, input.targetPath)
@@ -241,7 +241,12 @@ export async function writeContentAddressedFile(input: {
   throw new Error('Content-addressed file could not be created safely.')
 }
 
-async function createContainedParentDirectory(rootPath: string, targetDirectory: string): Promise<void> {
+/**
+ * Ensures an output directory is below root without accepting a symlink,
+ * junction, or non-directory in any component. Callers that publish a file
+ * must perform this check before invoking their same-directory durable write.
+ */
+export async function ensureContainedDirectory(rootPath: string, targetDirectory: string): Promise<void> {
   const absoluteRoot = resolve(rootPath)
   const absoluteDirectory = resolve(targetDirectory)
   assertLexicallyInsideRoot(absoluteRoot, absoluteDirectory)

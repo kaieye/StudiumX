@@ -18,7 +18,7 @@ export type TeachingMemoryRecallInput = {
  * settings, ranking, limits, and injection telemetry remain local here.
  */
 export class TeachingMemoryRecall {
-  private lastInjectedIds: string[] = []
+  private lastInjectedCount = 0
 
   constructor(
     private readonly options: {
@@ -49,18 +49,19 @@ export class TeachingMemoryRecall {
 
   async diagnostics(): Promise<TeachingMemoryDiagnostics> {
     const settings = await this.options.settingsProvider()
-    const records = await this.options.catalog.readAll()
+    const snapshot = await this.options.catalog.diagnosticsSnapshot()
     return {
       enabled: settings.memory.enabled,
-      rootDir: this.options.catalog.rootDir,
-      activeCount: records.filter((record) => !record.deletedAt && !record.disabledAt).length,
-      tombstoneCount: records.filter((record) => Boolean(record.deletedAt)).length,
-      lastInjectedIds: [...this.lastInjectedIds]
+      activeCount: snapshot.activeCount,
+      tombstoneCount: snapshot.tombstoneCount,
+      lastInjectedCount: this.lastInjectedCount,
+      legacyMigrationPreflight: snapshot.legacyMigrationPreflight
     }
   }
 
+  /** Keeps renderer-facing telemetry aggregate-only; record IDs are never returned. */
   setLastInjected(ids: string[]): void {
-    this.lastInjectedIds = [...ids]
+    this.lastInjectedCount = ids.length
   }
 }
 

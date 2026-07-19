@@ -15,8 +15,6 @@ import type {
   ForkAgentConversationBranchResult,
   OpenAgentConversationBranchPayload,
   OpenAgentConversationBranchResult,
-  CleanupAgentArtifactsPayload,
-  CleanupAgentArtifactsResult,
   CreateAgentConversationCheckpointPayload,
   QueryAgentArchivedHistoryPayload,
   QueryAgentArchivedHistoryResult,
@@ -35,7 +33,9 @@ import type {
   SaveAgentConversationPayload,
   SaveAgentConversationResult,
   UpdateAgentConversationBranchStatusPayload,
-  UpdateAgentConversationBranchStatusResult
+  UpdateAgentConversationBranchStatusResult,
+  ProjectAgentConversationSummariesPayload,
+  ProjectAgentConversationSummariesResult
 } from './agent'
 import type {
   CreateTeachingMemoryPayload,
@@ -173,6 +173,7 @@ export type TeachingSystemApi = {
   saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>
   renameAgentConversation: (payload: RenameAgentConversationPayload) => Promise<RenameAgentConversationResult>
   readAgentConversation: (payload: ReadAgentConversationPayload) => Promise<AgentConversationRecord>
+  projectAgentConversationSummaries: (payload: ProjectAgentConversationSummariesPayload) => Promise<ProjectAgentConversationSummariesResult>
   readAgentConversationSessionTree: (payload: ReadAgentConversationSessionTreePayload) => Promise<AgentConversationSessionTree>
   openAgentConversationBranch: (payload: OpenAgentConversationBranchPayload) => Promise<OpenAgentConversationBranchResult>
   forkAgentConversationBranch: (payload: ForkAgentConversationBranchPayload) => Promise<ForkAgentConversationBranchResult>
@@ -182,7 +183,6 @@ export type TeachingSystemApi = {
   resolveAgentConversationCheckpoint: (payload: ResolveAgentConversationCheckpointPayload) => Promise<ResolveAgentConversationCheckpointResult>
   queryAgentArchivedHistory: (payload: QueryAgentArchivedHistoryPayload) => Promise<QueryAgentArchivedHistoryResult>
   rebuildAgentHistoryIndex: (payload: RebuildAgentHistoryIndexPayload) => Promise<RebuildAgentHistoryIndexResult>
-  cleanupAgentArtifacts: (payload: CleanupAgentArtifactsPayload) => Promise<CleanupAgentArtifactsResult>
   setWorkspaceItemMeta: (payload: WorkspaceItemMetaPayload) => Promise<TeachingAppState>
   removeWorkspaceItem: (payload: WorkspaceItemRemovePayload) => Promise<TeachingAppState>
   removeWorkspace: (payload: WorkspaceRemovePayload) => Promise<TeachingAppState>

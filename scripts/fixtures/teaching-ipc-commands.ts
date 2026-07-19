@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 
 import {
   parseAgentChatStreamPayload,
-  parseCleanupAgentArtifactsPayload,
   parseCreateAgentConversationCheckpointPayload,
   parseListUpstreamModelsPayload,
   parseQueryAgentArchivedHistoryPayload,
   parseRebuildAgentHistoryIndexPayload,
   parseResolveAgentConversationCheckpointPayload,
   parseSaveAgentConversationPayload,
+  parseProjectAgentConversationSummariesPayload,
   parseStreamId,
   parseWorkspaceItemRemovePayload,
   requireHttpUrl,
@@ -93,6 +93,26 @@ assert.throws(
   /streamId/
 )
 
+assert.deepEqual(parseProjectAgentConversationSummariesPayload({
+  workspaceId: 'workspace-1',
+  conversationIds: ['chat-archived-1', 'chat-archived-2']
+}), {
+  workspaceId: 'workspace-1',
+  conversationIds: ['chat-archived-1', 'chat-archived-2']
+})
+assert.throws(
+  () => parseProjectAgentConversationSummariesPayload({ workspaceId: 'workspace-1', conversationIds: ['chat-1', 'chat-1'] }),
+  /duplicate/
+)
+assert.throws(
+  () => parseProjectAgentConversationSummariesPayload({ workspaceId: 'workspace-1', conversationIds: ['../escape'] }),
+  /canonical conversation id/
+)
+assert.throws(
+  () => parseProjectAgentConversationSummariesPayload({ workspaceId: 'workspace-1', conversationIds: ['chat-1'], rootPath: '/escape' }),
+  /only "workspaceId" and "conversationIds"/
+)
+
 assert.throws(
   () => parseSaveAgentConversationPayload({ workspaceId: 'workspace-1', turns: [{
     id: 't1', role: 'user', content: 'hi', createdAt: '2026-01-01T00:00:00.000Z'
@@ -144,17 +164,6 @@ assert.throws(() => parseQueryAgentArchivedHistoryPayload({
 assert.deepEqual(parseRebuildAgentHistoryIndexPayload({ workspaceId: 'workspace-1', scope: 'workspace' }), {
   workspaceId: 'workspace-1', scope: 'workspace'
 })
-assert.deepEqual(parseCleanupAgentArtifactsPayload({
-  workspaceId: 'workspace-1', scope: 'temporary', dryRun: false, retentionDays: 30, graceHours: 12
-}), {
-  workspaceId: 'workspace-1',
-  scope: 'temporary',
-  dryRun: false,
-  retentionDays: 30,
-  graceHours: 12,
-  maxTotalBytes: undefined
-})
-
 const providers = [
   { id: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk', endpointFormat: 'chat_completions' as const }
 ]

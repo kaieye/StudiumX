@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, mkdir, open, readFile, realpath, rename, stat, unlink } from 'node:fs/promises'
+import { lstat, mkdir, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { agentConversationMarkdownRelativePath, describeAgentConversationPath } from '../shared/agent-conversation-catalog'
+import { sanitizePersistedAgentConversationRecord, sanitizePersistedConversationTitle } from '../shared/agent-persisted-history'
+import { normalizeTraceId } from '../shared/trace-context'
 import type {
   AgentChatTurn,
   AgentConversationBranchMetadata,
@@ -24,6 +26,7 @@ import {
   type PersistedAgentConversationRecord
 } from './teaching-agent-conversations'
 import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
+import { replaceDurably, type DurableFileOperations } from './persistence/durable-file'
 
 export const AGENT_CONVERSATION_OPEN_STATE_RELATIVE_PATH = '.agent-sessions/session-open-state.v1.json'
 export const AGENT_CONVERSATION_OPEN_STATE_MAX_BYTES = 64 * 1024
@@ -82,6 +85,12 @@ export type AgentConversationOpenState = {
     algorithm: 'sha256'
     digest: string
   }
+}
+
+/** Narrow main-internal seam for exercising shared durable-file faults. */
+export type AgentConversationOpenStateDurableOptions = {
+  durableFileOperations?: DurableFileOperations
+  durableWarn?: (message: string) => void
 }
 
 export type AgentConversationOpenIssue = {
@@ -233,7 +242,9 @@ export function projectAgentConversationReplay(input: {
   replayId: string
   createdAt: string
 }): AgentConversationReplayProjection {
-  const source = input.source as BranchAwareConversationRecord
+  // Replays/forks are new durable projections. Sanitize the source in memory
+  // rather than upgrading or rewriting a legacy archive on disk.
+  const source = sanitizePersistedAgentConversationRecord(input.source) as BranchAwareConversationRecord
   const metadata = inferAgentConversationBranchMetadata(source)
   if (metadata.status === 'deleted') throw new Error('Deleted conversation branches cannot be replayed.')
   const replayId = requireLineageId(input.replayId, 'replay id')
@@ -449,6 +460,7 @@ export async function forkAgentConversationBranchAtRoot(
     expectedRevision?: number
     createConversationId?: (rootPath: string, title: string, timestamp: string) => string | Promise<string>
     replayId?: string
+    traceId?: string
   } = {}
 ): Promise<AgentConversationRecord> {
   return runAgentConversationRootExclusive(workspace.rootPath, async () => {
@@ -460,7 +472,7 @@ export async function forkAgentConversationBranchAtRoot(
     if (sourceMetadata.status === 'deleted') throw new Error('Deleted conversation branches cannot be forked.')
     assertRequiredExpectedRevision(sourceMetadata.revision, options.expectedRevision)
     const now = requireTimestamp(options.now ?? new Date().toISOString(), 'fork timestamp')
-    const title = options.title?.trim() || `${source.title} (fork)`
+    const title = sanitizePersistedConversationTitle(options.title?.trim() || `${source.title} (fork)`)
     const allocate = options.createConversationId ?? nextAgentConversationId
     const newId = requireExactConversationId(await allocate(workspace.rootPath, title, now), 'fork conversation id')
     const persisted = await listPersistedAgentConversationRecords(workspace.rootPath)
@@ -468,6 +480,7 @@ export async function forkAgentConversationBranchAtRoot(
       throw new Error(`Conversation branch "${newId}" already exists.`)
     }
     const replayId = requireLineageId(options.replayId ?? `replay-${randomUUID()}`, 'replay id')
+    const traceId = normalizeTraceId(options.traceId)
     const projection = projectAgentConversationReplay({
       source,
       sourceTurnId: options.sourceTurnId,
@@ -479,18 +492,11 @@ export async function forkAgentConversationBranchAtRoot(
       throw new Error('Source conversation path is not bound to its conversation id.')
     }
 
-    // Materialize inferred metadata before a legacy root gains descendants. Keeping
-    // revision 0 makes a failed first fork safely retryable with the same CAS token.
-    if (!source.branch) {
-      const upgradedSource: BranchAwareConversationRecord = {
-        ...source,
-        branch: sourceMetadata
-      }
-      await writeAgentConversationRecord(workspace, upgradedSource)
-      source.branch = sourceMetadata
-      const persistedSource = persisted.find((item) => item.record.id === source.id)
-      if (persistedSource) persistedSource.record = upgradedSource
-    }
+    // Legacy roots are inferred as active single-branch sessions in memory.
+    // Forking must never "upgrade" their canonical JSON/Markdown/audit/ledger
+    // as a side effect; the child binds to the inferred id and is validated
+    // against the source's sanitized in-memory projection instead.
+
 
     const relativePath = agentConversationMarkdownRelativePath(newId, sourcePath.directoryRelativePath)
     const record: BranchAwareConversationRecord = {
@@ -502,6 +508,7 @@ export async function forkAgentConversationBranchAtRoot(
       relativePath,
       absolutePath: join(workspace.rootPath, relativePath),
       messageCount: projection.turns.length,
+      ...(traceId ? { traceId } : {}),
       branch: {
         schemaVersion: 1,
         sessionId: sourceMetadata.sessionId,
@@ -515,7 +522,12 @@ export async function forkAgentConversationBranchAtRoot(
       turns: projection.turns
     }
     validateCandidateConversationRecord(persisted, record, sourceMetadata.sessionId)
-    await writeAgentConversationRecord(workspace, record)
+    await writeAgentConversationRecord(workspace, record, {
+      // The learning-work ledger is a shared legacy source artifact. A legacy
+      // fork still gets its own canonical JSON/Markdown/audit, but must not
+      // append to that source ledger as an implicit migration side effect.
+      skipLearningWorkLedger: source.branch === undefined
+    })
     return record
   })
 }
@@ -526,19 +538,21 @@ export async function saveAgentConversationBranchAtRoot(
   options: {
     expectedRevision?: number
     allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
+    beforeCanonicalSave?: (record: AgentConversationRecord) => Promise<void>
   } = {}
 ): Promise<AgentConversationRecord> {
   return runAgentConversationRootExclusive(workspace.rootPath, async () => {
-    const id = requireExactConversationId(record.id, 'conversation id')
+    const persistedInput = sanitizePersistedAgentConversationRecord(record)
+    const id = requireExactConversationId(persistedInput.id, 'conversation id')
     const current = await readRawAgentConversationRecord(workspace.rootPath, id) as BranchAwareConversationRecord
     const currentMetadata = inferAgentConversationBranchMetadata(current)
     if (currentMetadata.status === 'deleted') throw new Error('Deleted conversation branches cannot be saved.')
     if (currentMetadata.status === 'archived') throw new Error('Archived conversation branches must be restored before saving.')
     assertRequiredExpectedRevision(currentMetadata.revision, options.expectedRevision)
     const next: BranchAwareConversationRecord = {
-      ...record,
+      ...persistedInput,
       id: current.id,
-      workspaceId: current.workspaceId ?? record.workspaceId ?? workspace.id,
+      workspaceId: current.workspaceId ?? persistedInput.workspaceId ?? workspace.id,
       createdAt: current.createdAt,
       relativePath: current.relativePath,
       absolutePath: join(workspace.rootPath, current.relativePath),
@@ -549,10 +563,16 @@ export async function saveAgentConversationBranchAtRoot(
     }
     const persisted = await listPersistedAgentConversationRecords(workspace.rootPath)
     validateCandidateConversationRecord(persisted, next, currentMetadata.sessionId)
+    let canonicalRecord: AgentConversationRecord | undefined
     await writeAgentConversationRecord(workspace, next, {
-      allowedStagedChildTranscripts: options.allowedStagedChildTranscripts
+      allowedStagedChildTranscripts: options.allowedStagedChildTranscripts,
+      beforeCanonicalSave: async (record) => {
+        canonicalRecord = record
+        await options.beforeCanonicalSave?.(record)
+      }
     })
-    return next
+    if (!canonicalRecord) throw new Error('Conversation archive did not provide its canonical record.')
+    return canonicalRecord
   })
 }
 
@@ -576,14 +596,18 @@ export async function updateAgentConversationBranchStatusAtRoot(
       if (expectedRevision !== metadata.revision && expectedRevision !== metadata.revision - 1) {
         throw new AgentConversationBranchRevisionConflictError(expectedRevision, metadata.revision)
       }
-      const repairRecord: BranchAwareConversationRecord = current.branch
-        ? current
-        : { ...current, branch: metadata }
-      await writeAgentConversationRecord(workspace, repairRecord)
-      return repairRecord
+      // A legacy record has no branch metadata to repair. Returning it is the
+      // only non-mutating idempotent result; do not silently rewrite its
+      // canonical artifacts just to materialize inferred metadata.
+      if (!current.branch) return current
+      await writeAgentConversationRecord(workspace, current)
+      return current
     }
 
     assertExpectedRevision(metadata.revision, expectedRevision)
+    if (!current.branch) {
+      throw new Error('Legacy conversation branches cannot change status without an explicit migration; canonical artifacts were left unchanged.')
+    }
     if (metadata.status === 'deleted') {
       throw new Error('Deleted conversation branches are tombstones and cannot be restored.')
     }
@@ -628,9 +652,10 @@ export async function readAgentConversationOpenStateAtRoot(
 
 export async function writeAgentConversationOpenStateAtRoot(
   rootPath: string,
-  entries: readonly AgentConversationOpenStateEntry[]
+  entries: readonly AgentConversationOpenStateEntry[],
+  durableOptions: AgentConversationOpenStateDurableOptions = {}
 ): Promise<AgentConversationOpenState> {
-  return runAgentConversationRootExclusive(rootPath, () => writeAgentConversationOpenStateAtRootUnlocked(rootPath, entries))
+  return runAgentConversationRootExclusive(rootPath, () => writeAgentConversationOpenStateAtRootUnlocked(rootPath, entries, durableOptions))
 }
 
 async function readAgentConversationOpenStateAtRootUnlocked(
@@ -670,7 +695,8 @@ async function readAgentConversationOpenStateAtRootUnlocked(
 
 async function writeAgentConversationOpenStateAtRootUnlocked(
   rootPath: string,
-  entries: readonly AgentConversationOpenStateEntry[]
+  entries: readonly AgentConversationOpenStateEntry[],
+  durableOptions: AgentConversationOpenStateDurableOptions = {}
 ): Promise<AgentConversationOpenState> {
   const sessions = compactOpenStateEntries(entries)
   const payload = { schemaVersion: 1 as const, sessions }
@@ -692,23 +718,15 @@ async function writeAgentConversationOpenStateAtRootUnlocked(
   const directory = dirname(targetPath)
   await ensureContainedOpenStateDirectory(rootPath, directory)
   await assertReplaceableTargetContained(rootPath, targetPath)
-  const temporaryPath = join(directory, `.session-open-state.v1.${randomUUID()}.tmp`)
-  if (!isPathInsideRoot(rootPath, temporaryPath)) {
-    throw new AgentConversationOpenStateError('invalid_path', 'Conversation open-state temporary path escapes the workspace.')
-  }
-  let handle: Awaited<ReturnType<typeof open>> | null = null
-  try {
-    handle = await open(temporaryPath, 'wx', 0o600)
-    await handle.writeFile(serialized, 'utf8')
-    await handle.sync()
-    await handle.close()
-    handle = null
-    await rename(temporaryPath, targetPath)
-  } catch (error) {
-    if (handle) await handle.close().catch(() => undefined)
-    await unlink(temporaryPath).catch(() => undefined)
-    throw error
-  }
+  await replaceDurably({
+    path: targetPath,
+    content: serialized,
+    // The sidecar has always been private; keep that contract explicit rather
+    // than relying on the shared primitive's private default.
+    mode: 0o600,
+    operations: durableOptions.durableFileOperations,
+    warn: durableOptions.durableWarn
+  })
   return state
 }
 
@@ -863,7 +881,7 @@ function validateBranchLineage(
       `Branch "${node.branchId}" fork point and replay source disagree.`
     )
   }
-  const sourcePrefix = selectReplayPrefix(parent.record.turns, fork.sourceTurnId)
+  const sourcePrefix = selectReplayPrefix(sanitizePersistedAgentConversationRecord(parent.record).turns, fork.sourceTurnId)
   if (sourcePrefix.length !== fork.sourceTurnCount) {
     throw new AgentConversationSessionTreeError(
       'invalid_source_turn',

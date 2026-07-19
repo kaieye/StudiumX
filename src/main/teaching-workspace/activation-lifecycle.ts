@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
+import { readValidatedWithBackup, replaceWithBackup } from '../persistence/durable-file'
 import type {
   CreateWorkspacePayload,
   TeachingAppState,
@@ -27,7 +28,6 @@ import {
 } from './registry'
 import {
   appendSessionEvent,
-  atomicWriteFile,
   deriveWorkspaceTopic,
   loadWorkspaceIndex,
   provisionWorkspaceMaterial,
@@ -70,7 +70,8 @@ export class TeachingWorkspaceActivationLifecycle {
       rootPath: await this.nextWorkspacePath(name),
       prompt: normalizeWorkspacePrompt(payload.prompt, name),
       now,
-      eventKind: 'workspace_created'
+      eventKind: 'workspace_created',
+      traceId: randomUUID()
     })
     const nextRegistry = upsertRegistryWorkspace(await this.loadAvailableRegistry(), entry, entry.id)
     await this.writeRegistry(nextRegistry)
@@ -107,7 +108,8 @@ export class TeachingWorkspaceActivationLifecycle {
       rootPath: normalizedRoot,
       prompt: `继续整理 ${name} 教学工作区`,
       now,
-      eventKind: 'workspace_imported'
+      eventKind: 'workspace_imported',
+      traceId: randomUUID()
     })
     const nextRegistry = upsertRegistryWorkspace(registry, entry, entry.id)
     await this.writeRegistry(nextRegistry)
@@ -139,7 +141,8 @@ export class TeachingWorkspaceActivationLifecycle {
       rootPath: await this.nextWorkspacePath(name),
       prompt: '搭建个人化 AI 教学系统的第一版工作流',
       now,
-      eventKind: 'workspace_created'
+      eventKind: 'workspace_created',
+      traceId: randomUUID()
     })
     const nextRegistry = { activeWorkspaceId: entry.id, workspaces: [entry] }
     await this.writeRegistry(nextRegistry)
@@ -188,6 +191,8 @@ export class TeachingWorkspaceActivationLifecycle {
     prompt: string
     now: string
     eventKind?: SessionEvent['kind']
+    /** Internal activation trace; present only for event-emitting creation paths. */
+    traceId?: string
     createdAt?: string
     updatedAt?: string
     pinned?: boolean
@@ -231,6 +236,7 @@ export class TeachingWorkspaceActivationLifecycle {
         kind: options.eventKind,
         timestamp: options.now,
         workspaceId: entry.id,
+        traceId: options.traceId,
         prompt: options.prompt,
         paths: ['MISSION.md', 'RESOURCES.md', 'assets/lesson.css', 'assets/quiz.js']
       })
@@ -239,7 +245,8 @@ export class TeachingWorkspaceActivationLifecycle {
   }
 
   private async loadAvailableRegistry(): Promise<WorkspaceRegistry> {
-    const { registry, wasNormalized } = await this.readRegistry()
+    const read = await this.readRegistry()
+    const { registry, wasNormalized } = read
     const workspaces = orderRegistryWorkspaces(await this.pruneUnavailableRoots(registry.workspaces))
     const visible = visibleRegistryWorkspaces(workspaces)
     const activeWorkspaceId = visible.some((workspace) => workspace.id === registry.activeWorkspaceId)
@@ -253,49 +260,60 @@ export class TeachingWorkspaceActivationLifecycle {
       !sameRegistryWorkspaceOrder(nextRegistry.workspaces, registry.workspaces) ||
       nextRegistry.workspaces.some((workspace, index) => workspace.rootPath !== registry.workspaces[index]?.rootPath)
     ) {
-      await this.writeRegistry(nextRegistry)
+      // Reading a backup is recovery, not restoration. Keep the recovered
+      // document untouched until an explicit registry mutation needs saving.
+      if (read.source !== 'backup') await this.writeRegistry(nextRegistry)
     }
     return nextRegistry
   }
 
-  private async readRegistry(): Promise<{ registry: WorkspaceRegistry; wasNormalized: boolean }> {
-    try {
-      const { readFile } = await import('node:fs/promises')
-      const parsed = JSON.parse(await readFile(this.options.registryPath, 'utf8')) as unknown
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as WorkspaceRegistry).workspaces)) {
-        return { registry: EMPTY_REGISTRY, wasNormalized: false }
-      }
-      const rawRegistry = parsed as WorkspaceRegistry
-      const rawWorkspaces = rawRegistry.workspaces
-      let wasNormalized = false
-      const workspaces = rawWorkspaces
-        .filter((workspace) => {
-          const valid = isRegistryWorkspace(workspace)
-          if (!valid) wasNormalized = true
-          return valid
-        })
-        .map((workspace) => {
-          const normalized = normalizeRegistryWorkspace(workspace)
-          if (JSON.stringify(normalized) !== JSON.stringify(workspace)) wasNormalized = true
-          return normalized
-        })
-      if (typeof rawRegistry.activeWorkspaceId !== 'string' && rawRegistry.activeWorkspaceId !== null) {
-        wasNormalized = true
-      }
-      return {
-        registry: {
-          activeWorkspaceId: typeof rawRegistry.activeWorkspaceId === 'string' ? rawRegistry.activeWorkspaceId : null,
-          workspaces
-        },
-        wasNormalized
-      }
-    } catch {
-      return { registry: EMPTY_REGISTRY, wasNormalized: false }
+  private async readRegistry(): Promise<{
+    registry: WorkspaceRegistry
+    source: 'canonical' | 'backup' | null
+    wasNormalized: boolean
+  }> {
+    const recovered = await readValidatedWithBackup({
+      path: this.options.registryPath,
+      validate: isWorkspaceRegistryDocument
+    })
+    const parsed = recovered.value
+    if (!parsed) return { registry: EMPTY_REGISTRY, source: null, wasNormalized: false }
+
+    const rawRegistry = parsed as WorkspaceRegistry
+    let wasNormalized = false
+    const workspaces = rawRegistry.workspaces
+      .filter((workspace) => {
+        const valid = isRegistryWorkspace(workspace)
+        if (!valid) wasNormalized = true
+        return valid
+      })
+      .map((workspace) => {
+        const normalized = normalizeRegistryWorkspace(workspace)
+        if (JSON.stringify(normalized) !== JSON.stringify(workspace)) wasNormalized = true
+        return normalized
+      })
+    if (typeof rawRegistry.activeWorkspaceId !== 'string' && rawRegistry.activeWorkspaceId !== null) {
+      wasNormalized = true
+    }
+    return {
+      source: recovered.source,
+      registry: {
+        activeWorkspaceId: typeof rawRegistry.activeWorkspaceId === 'string'
+          ? rawRegistry.activeWorkspaceId
+          : null,
+        workspaces
+      },
+      wasNormalized
     }
   }
 
   private async writeRegistry(registry: WorkspaceRegistry): Promise<void> {
-    await atomicWriteFile(this.options.registryPath, `${JSON.stringify(registry, null, 2)}\n`)
+    await replaceWithBackup({
+      path: this.options.registryPath,
+      content: `${JSON.stringify(registry, null, 2)}\n`,
+      validate: isWorkspaceRegistryDocument,
+      mode: 0o600
+    })
   }
 
   private async pruneUnavailableRoots(workspaces: RegistryWorkspace[]): Promise<RegistryWorkspace[]> {
@@ -365,4 +383,11 @@ async function selectCatalogLesson(
     if (isPathInsideRoot(workspace.rootPath, absolutePath) && await fileExists(absolutePath)) return absolutePath
   }
   return workspace.lessons[0]?.absolutePath ?? null
+}
+
+function isWorkspaceRegistryDocument(value: unknown): value is WorkspaceRegistry {
+  // Keep the historical tolerant reader: individual workspace entries are
+  // filtered below, while a registry needs only an object and workspaces array
+  // to be a safe durable backup candidate.
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && Array.isArray((value as WorkspaceRegistry).workspaces)
 }

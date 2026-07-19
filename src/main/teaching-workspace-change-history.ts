@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { readFile } from 'node:fs/promises'
 import type { TeachingWorkspaceChangeSummary } from '../shared/teaching-types'
+import { replaceDurably, type DurableFileOperations } from './persistence/durable-file'
 
 const HISTORY_VERSION = 1
 export const MAX_WORKSPACE_CHANGE_HISTORY_ENTRIES = 20
@@ -17,6 +17,8 @@ export class TeachingWorkspaceChangeHistoryStore {
     private readonly options: {
       filePath: string
       maxEntriesPerWorkspace?: number
+      durableFileOperations?: DurableFileOperations
+      durableWarn?: (message: string) => void
     }
   ) {}
 
@@ -41,7 +43,13 @@ export class TeachingWorkspaceChangeHistoryStore {
         .sort(compareNewestFirst)
         .slice(0, this.maxEntriesPerWorkspace())
       history.workspaces[normalizedWorkspaceId] = next
-      await atomicWriteJson(this.options.filePath, history)
+      await replaceDurably({
+        path: this.options.filePath,
+        content: `${JSON.stringify(history, null, 2)}\n`,
+        mode: 0o666,
+        operations: this.options.durableFileOperations,
+        warn: this.options.durableWarn
+      })
     })
 
     return normalizedSummary
@@ -155,15 +163,4 @@ function compareNewestFirst(
   right: TeachingWorkspaceChangeSummary
 ): number {
   return right.timestamp.localeCompare(left.timestamp) || right.id.localeCompare(left.id)
-}
-
-async function atomicWriteJson(path: string, value: PersistedChangeHistory): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  try {
-    await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
-    await rename(tempPath, path)
-  } finally {
-    await rm(tempPath, { force: true }).catch(() => {})
-  }
 }

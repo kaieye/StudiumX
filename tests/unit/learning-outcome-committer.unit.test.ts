@@ -1,14 +1,94 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, open as openFile, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { createLearningOutcomeCommitter } from '../../src/main/learning-outcome-committer'
 import { createLearningSessionLedger } from '../../src/main/learning-session-ledger'
+import type { LearningSessionLedger, LearningSessionLedgerOptions } from '../../src/main/learning-session-ledger'
+import type { DurableFileOperations } from '../../src/main/persistence/durable-file'
 import type { LearningOutcomeEvaluation } from '../../src/main/learning-outcome-evaluator'
 import type { LegacyLearningSessionSnapshot } from '../../src/shared/teaching-types/learning-session'
 
 const roots: string[] = []
+const DIRECTORY_FSYNC_WARNING = '[StudiumX] Directory fsync is unsupported; durable rename completed without directory fsync.'
+
+type InstrumentedDurableOperations = {
+  operations: DurableFileOperations
+  events: string[]
+}
+
+function errno(code: string, message = code): NodeJS.ErrnoException {
+  return Object.assign(new Error(message), { code })
+}
+
+function instrumentedDurableOperations(options: {
+  fail?: (event: string) => Error | undefined
+} = {}): InstrumentedDurableOperations {
+  const events: string[] = []
+  const observe = (event: string): void => {
+    events.push(event)
+    const failure = options.fail?.(event)
+    if (failure) throw failure
+  }
+
+  return {
+    events,
+    operations: {
+      mkdir,
+      readFile,
+      open: async (path, flags, mode) => {
+        observe(`open:${flags}:${path}`)
+        const handle = await openFile(path, flags, mode)
+        return {
+          writeFile: async (content) => {
+            observe(`write:${path}`)
+            await handle.writeFile(content)
+          },
+          sync: async () => {
+            observe(`sync:${path}`)
+            await handle.sync()
+          },
+          // Always release the native descriptor before surfacing an injected
+          // close failure, so tests do not leak handles.
+          close: async () => {
+            const event = `close:${path}`
+            events.push(event)
+            const failure = options.fail?.(event)
+            await handle.close()
+            if (failure) throw failure
+          }
+        }
+      },
+      rename: async (from, to) => {
+        observe(`rename:${from}->${to}`)
+        await rename(from, to)
+      },
+      rm: async (path, rmOptions) => {
+        observe(`rm:${path}`)
+        await rm(path, rmOptions)
+      }
+    }
+  }
+}
+
+function sessionDirectory(workspaceRoot: string, sessionId: string): string {
+  return join(workspaceRoot, 'learning-sessions', sessionId)
+}
+
+function recordPath(workspaceRoot: string, sessionId: string): string {
+  return join(workspaceRoot, 'learning-records', `outcome-${sessionId}.md`)
+}
+
+function stagePath(workspaceRoot: string, sessionId: string, outcomeId: string, operationId: string): string {
+  return join(
+    workspaceRoot,
+    'learning-records',
+    '.learning-outcome-committer-stage',
+    `learning-outcome-${sessionId}-${outcomeId}.${operationId}.md`
+  )
+}
 
 async function workspace(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'studiumx-outcome-committer-unit-'))
@@ -30,8 +110,12 @@ function decision(sessionId: string, kind: LearningOutcomeEvaluation['kind'], ev
   }
 }
 
-async function openSession(workspaceRoot: string, sessionId = 'session-committer-unit') {
-  const ledger = createLearningSessionLedger({ workspaceRoot, now: () => '2026-07-15T14:00:00.000Z' })
+async function openSession(
+  workspaceRoot: string,
+  sessionId = 'session-committer-unit',
+  options: Pick<LearningSessionLedgerOptions, 'testingFaults'> = {}
+) {
+  const ledger = createLearningSessionLedger({ workspaceRoot, now: () => '2026-07-15T14:00:00.000Z', ...options })
   await ledger.open({
     sessionId,
     workspaceId: 'workspace-1',
@@ -57,6 +141,27 @@ afterEach(async () => {
 })
 
 describe('LearningOutcomeCommitter', () => {
+  it('fails safely without inspecting or writing when injected through the load-only workspace ledger boundary', async () => {
+    const workspaceRoot = await workspace()
+    let loadCalls = 0
+    const loadOnlyLedger = {
+      load: async () => {
+        loadCalls += 1
+        return null
+      }
+    } as unknown as LearningSessionLedger
+    const committer = createLearningOutcomeCommitter({ workspaceRoot, ledger: loadOnlyLedger })
+
+    await expect(committer.commit({ sessionId: 'session-load-only-unit', operationId: 'load-only-1' })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'temporarily_unavailable'
+    })
+    await expect(committer.reconcile('session-load-only-unit')).resolves.toMatchObject({
+      sessionId: 'session-load-only-unit', state: 'review_required', marker: null, record: null
+    })
+    expect(loadCalls).toBe(0)
+    await expect(readdir(workspaceRoot)).resolves.toEqual([])
+  })
+
   it('keeps evaluation read-only and settles needs_practice as a no-record committed result', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot)
@@ -104,6 +209,11 @@ describe('LearningOutcomeCommitter', () => {
       record: null
     })
     await expect(committer.commit(request)).resolves.toEqual(expected)
+    await expect(committer.reconcile('session-not-evidenced-unit')).resolves.toMatchObject({
+      state: 'settled',
+      marker: { operationId: 'not-evidenced-1', kind: 'not_evidenced', record: null },
+      record: null
+    })
     await expect(readFile(join(workspaceRoot, 'learning-sessions', 'session-not-evidenced-unit', 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(readdir(join(workspaceRoot, 'learning-records'))).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(ledger.load('session-not-evidenced-unit')).resolves.toMatchObject({ status: 'active', outcomeRef: null })
@@ -150,7 +260,7 @@ describe('LearningOutcomeCommitter', () => {
     ])
   })
 
-  it('returns reconciliation_required in the post-publish fault window, then read-repairs without a duplicate', async () => {
+  it('uses a durable record as repair authority after publication before projections exist', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-repair-unit')
     await appendEvidence(ledger, 'session-repair-unit', 'evidence-repair-1')
@@ -173,6 +283,11 @@ describe('LearningOutcomeCommitter', () => {
       status: 'retryable_failure',
       reason: 'reconciliation_required'
     })
+    await expect(readFile(recordPath(workspaceRoot, 'session-repair-unit'), 'utf8')).resolves.toContain('outcome-repair-1')
+    await expect(readFile(join(sessionDirectory(workspaceRoot, 'session-repair-unit'), 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, 'session-repair-unit'), 'outcome-settlement.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load('session-repair-unit')).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+    await expect(readdir(join(workspaceRoot, 'learning-records', '.learning-outcome-committer-stage'))).resolves.toEqual([])
     const recovered = createLearningOutcomeCommitter(options)
     await expect(recovered.reconcile('session-repair-unit')).resolves.toMatchObject({
       state: 'repaired',
@@ -187,7 +302,7 @@ describe('LearningOutcomeCommitter', () => {
     ])
   })
 
-  it('returns conflict without completing or overwriting when the marker conflicts with a canonical record', async () => {
+  it('requires review instead of record-first repair when a marker conflicts with the canonical record', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-conflict-unit')
     await appendEvidence(ledger, 'session-conflict-unit', 'evidence-conflict-1')
@@ -231,6 +346,316 @@ describe('LearningOutcomeCommitter', () => {
     await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(ledger.load('session-conflict-unit')).resolves.toMatchObject({ status: 'active' })
     await expect(readFile(markerPath, 'utf8')).resolves.toBe(`${JSON.stringify(conflictingMarker)}\n`)
+  })
+
+  it('requires review when a settlement marker differs from the immutable record only by evaluatorVersion', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-evaluator-version-conflict-unit'
+    const outcomeId = 'outcome-evaluator-version-conflict-1'
+    const operationId = 'evaluator-version-conflict-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, 'evidence-evaluator-version-conflict-1')
+    const options = {
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }: { session: { id: string } }) => decision(session.id, 'established', ['evidence-evaluator-version-conflict-1'])
+    }
+    const interrupted = createLearningOutcomeCommitter({
+      ...options,
+      testingFaults: {
+        inject(point) {
+          if (point === 'after_record_publish') throw new Error('simulate record-only publication')
+        }
+      }
+    })
+
+    await expect(interrupted.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    const recordContent = await readFile(recordPath(workspaceRoot, sessionId), 'utf8')
+    const metadataMatch = /^<!-- studiumx-learning-outcome (.+) -->\n/.exec(recordContent)
+    expect(metadataMatch).not.toBeNull()
+    const metadata = JSON.parse(metadataMatch![1]!) as Record<string, unknown>
+    const authoritativeMarker = {
+      schemaVersion: 1,
+      sessionId,
+      outcomeId: metadata.outcomeId,
+      operationId: metadata.operationId,
+      kind: metadata.outcomeKind,
+      evidenceEventIds: metadata.evidenceEventIds,
+      evaluatorVersion: metadata.evaluatorVersion,
+      record: {
+        recordId: metadata.recordId,
+        relativePath: `learning-records/outcome-${sessionId}.md`,
+        contentSha256: createHash('sha256').update(recordContent).digest('hex')
+      }
+    }
+    const evaluatorVersionConflict = {
+      ...authoritativeMarker,
+      evaluatorVersion: Number(authoritativeMarker.evaluatorVersion) + 1
+    }
+    expect({ ...evaluatorVersionConflict, evaluatorVersion: authoritativeMarker.evaluatorVersion }).toEqual(authoritativeMarker)
+    const markerPath = join(sessionDirectory(workspaceRoot, sessionId), 'outcome-settlement.json')
+    await writeFile(markerPath, `${JSON.stringify(evaluatorVersionConflict)}\n`, 'utf8')
+    const recovered = createLearningOutcomeCommitter(options)
+
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'review_required', diagnostics: ['conflicting_outcome']
+    })
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'conflict', reason: 'review_required'
+    })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+    await expect(readFile(markerPath, 'utf8')).resolves.toBe(`${JSON.stringify(evaluatorVersionConflict)}\n`)
+  })
+
+  it('fails closed before projections when matching-existing record recovery faults before directory sync', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-existing-record-sync-failure-unit'
+    const outcomeId = 'outcome-existing-record-sync-failure-1'
+    const operationId = 'existing-record-sync-failure-1'
+    let injectRecoverySyncFailure = false
+    let observedRecoveryFault = false
+    const ledger = await openSession(workspaceRoot, sessionId, {
+      testingFaults: {
+        inject(point, context) {
+          if (!injectRecoverySyncFailure || point !== 'after_stage_sync') return
+          expect(context).toMatchObject({
+            operation: 'repair', sessionId, path: `learning-records/outcome-${sessionId}.md`
+          })
+          observedRecoveryFault = true
+          throw new Error('simulated EEXIST recovery parent-sync failure')
+        }
+      }
+    })
+    await appendEvidence(ledger, sessionId, 'evidence-existing-record-sync-failure-1')
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => decision(session.id, 'established', ['evidence-existing-record-sync-failure-1']),
+      testingFaults: {
+        async inject(point) {
+          if (point !== 'after_stage_flush') return
+          await link(
+            stagePath(workspaceRoot, sessionId, outcomeId, operationId),
+            recordPath(workspaceRoot, sessionId)
+          )
+          injectRecoverySyncFailure = true
+        }
+      }
+    })
+
+    await expect(committer.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    expect(observedRecoveryFault).toBe(true)
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(stagePath(workspaceRoot, sessionId, outcomeId, operationId), 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome-settlement.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+  })
+
+  it('serializes concurrent commits so the second request observes the settled outcome', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-concurrent-commit-unit'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, 'evidence-concurrent-commit-1')
+    let evaluationCalls = 0
+    let releaseFirstEvaluation!: () => void
+    const firstEvaluationReleased = new Promise<void>((resolve) => { releaseFirstEvaluation = resolve })
+    let signalFirstEvaluation!: () => void
+    const firstEvaluationStarted = new Promise<void>((resolve) => { signalFirstEvaluation = resolve })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => 'outcome-concurrent-commit-1',
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        if (evaluationCalls === 1) {
+          signalFirstEvaluation()
+          await firstEvaluationReleased
+        }
+        return decision(session.id, 'established', ['evidence-concurrent-commit-1'])
+      }
+    })
+
+    const first = committer.commit({ sessionId, operationId: 'concurrent-commit-1' })
+    await firstEvaluationStarted
+    const second = committer.commit({ sessionId, operationId: 'concurrent-commit-2' })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(evaluationCalls).toBe(1)
+    releaseFirstEvaluation()
+
+    await expect(first).resolves.toMatchObject({ status: 'committed', outcome: { outcomeId: 'outcome-concurrent-commit-1' } })
+    await expect(second).resolves.toMatchObject({ status: 'already_committed', outcome: { outcomeId: 'outcome-concurrent-commit-1' } })
+    expect(evaluationCalls).toBe(1)
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'completed', outcomeRef: { outcomeId: 'outcome-concurrent-commit-1' } })
+    expect((await readdir(join(workspaceRoot, 'learning-records'))).filter((file) => file.endsWith('.md'))).toEqual([
+      'outcome-session-concurrent-commit-unit.md'
+    ])
+  })
+
+  it.each([
+    ['parent directory open', (directory: string) => `open:r:${directory}`],
+    ['parent directory fsync', (directory: string) => `sync:${directory}`],
+    ['parent directory close', (directory: string) => `close:${directory}`]
+  ])('fails closed after record link when %s fails, preserving the stage for recovery', async (_name, eventFor) => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-record-directory-failure-unit'
+    const outcomeId = 'outcome-record-directory-failure-1'
+    const operationId = 'record-directory-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, 'evidence-record-directory-failure-1')
+    const recordsDirectory = join(workspaceRoot, 'learning-records')
+    const durable = instrumentedDurableOperations({
+      fail: (event) => event === eventFor(recordsDirectory)
+        ? errno('EIO', 'parent directory failure includes private detail')
+        : undefined
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', ['evidence-record-directory-failure-1'])
+    })
+
+    await expect(committer.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(stagePath(workspaceRoot, sessionId, outcomeId, operationId), 'utf8')).resolves.toContain(outcomeId)
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome-settlement.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+    expect(durable.events).not.toContain(`open:wx:${join(sessionDirectory(workspaceRoot, sessionId), '.outcome.json')}`)
+  })
+
+  it.each(['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'])(
+    'permits only the shared directory-fsync capability downgrade (%s) without leaking details',
+    async (code) => {
+      const workspaceRoot = await workspace()
+      const sessionId = `session-downgrade-${code.toLowerCase()}-unit`
+      const ledger = await openSession(workspaceRoot, sessionId)
+      await appendEvidence(ledger, sessionId, `evidence-downgrade-${code.toLowerCase()}-1`)
+      const directory = sessionDirectory(workspaceRoot, sessionId)
+      const warnings: string[] = []
+      let injected = false
+      const durable = instrumentedDurableOperations({
+        fail: (event) => {
+          if (!injected && event === `sync:${directory}`) {
+            injected = true
+            return errno(code, `fsync ${directory} failed with sensitive-token-7YqP9`)
+          }
+          return undefined
+        }
+      })
+      const committer = createLearningOutcomeCommitter({
+        workspaceRoot,
+        ledger,
+        createId: () => `outcome-downgrade-${code.toLowerCase()}-1`,
+        durableFileOperations: durable.operations,
+        durableWarn: (message) => warnings.push(message),
+        evaluate: async ({ session }) => decision(session.id, 'established', [`evidence-downgrade-${code.toLowerCase()}-1`])
+      })
+
+      await expect(committer.commit({ sessionId, operationId: `downgrade-${code.toLowerCase()}-1` })).resolves.toMatchObject({
+        status: 'committed', recordSaved: true
+      })
+      expect(warnings).toEqual([DIRECTORY_FSYNC_WARNING])
+      expect(warnings[0]).not.toContain(workspaceRoot)
+      expect(warnings[0]).not.toContain('sensitive-token-7YqP9')
+      await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'completed' })
+    }
+  )
+
+  it.each([
+    ['EIO directory fsync', (directory: string) => `sync:${directory}`],
+    ['directory close', (directory: string) => `close:${directory}`]
+  ])('does not downgrade %s while publishing the outcome projection', async (_name, eventFor) => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-outcome-directory-fatal-unit'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, 'evidence-outcome-directory-fatal-1')
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const durable = instrumentedDurableOperations({
+      fail: (event) => event === eventFor(directory)
+        ? errno('EIO', 'directory close/fsync private failure')
+        : undefined
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => 'outcome-outcome-directory-fatal-1',
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', ['evidence-outcome-directory-fatal-1'])
+    })
+
+    await expect(committer.commit({ sessionId, operationId: 'outcome-directory-fatal-1' })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    await expect(readFile(join(directory, 'outcome.json'), 'utf8')).resolves.toContain('outcome-outcome-directory-fatal-1')
+    await expect(readFile(join(directory, 'outcome-settlement.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+  })
+
+  it('blocks manifest and marker publication when durable outcome replacement fails', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-outcome-publish-failure-unit'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, 'evidence-outcome-publish-failure-1')
+    const outcomePath = join(sessionDirectory(workspaceRoot, sessionId), 'outcome.json')
+    const durable = instrumentedDurableOperations({
+      fail: (event) => event.startsWith('rename:') && event.endsWith(`->${outcomePath}`)
+        ? errno('EIO', 'outcome rename private failure')
+        : undefined
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => 'outcome-outcome-publish-failure-1',
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', ['evidence-outcome-publish-failure-1'])
+    })
+
+    await expect(committer.commit({ sessionId, operationId: 'outcome-publish-failure-1' })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    await expect(readFile(recordPath(workspaceRoot, sessionId), 'utf8')).resolves.toContain('outcome-outcome-publish-failure-1')
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome-settlement.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+  })
+
+  it('does not report committed when settlement-marker publication fails after manifest completion', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-marker-publish-failure-unit'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, 'evidence-marker-publish-failure-1')
+    const markerPath = join(sessionDirectory(workspaceRoot, sessionId), 'outcome-settlement.json')
+    const durable = instrumentedDurableOperations({
+      fail: (event) => event.startsWith('rename:') && event.endsWith(`->${markerPath}`)
+        ? errno('EIO', 'marker rename private failure')
+        : undefined
+    })
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => 'outcome-marker-publish-failure-1',
+      durableFileOperations: durable.operations,
+      evaluate: async ({ session }) => decision(session.id, 'established', ['evidence-marker-publish-failure-1'])
+    })
+
+    await expect(committer.commit({ sessionId, operationId: 'marker-publish-failure-1' })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome.json'), 'utf8')).resolves.toContain('outcome-marker-publish-failure-1')
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'completed' })
   })
 
   it('returns stable non-retryable results for invalid Session, invalid request, and missing Session', async () => {
@@ -282,6 +707,60 @@ describe('LearningOutcomeCommitter', () => {
     await expect(readdir(join(workspaceRoot, 'learning-records'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('requires review without repairing projections when the learning-records parent is a symlink outside the workspace', async () => {
+    const workspaceRoot = await workspace()
+    const outsideRecordsDirectory = await mkdtemp(join(tmpdir(), 'studiumx-outcome-committer-outside-records-'))
+    roots.push(outsideRecordsDirectory)
+    const sessionId = 'session-records-parent-symlink-unit'
+    const outcomeId = 'outcome-records-parent-symlink-1'
+    const operationId = 'records-parent-symlink-operation-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, 'evidence-records-parent-symlink-1')
+    const options = {
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }: { session: { id: string } }) => decision(session.id, 'established', ['evidence-records-parent-symlink-1'])
+    }
+    const interrupted = createLearningOutcomeCommitter({
+      ...options,
+      testingFaults: {
+        inject(point) {
+          if (point === 'after_record_publish') throw new Error('simulated crash after record publish')
+        }
+      }
+    })
+
+    await expect(interrupted.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'retryable_failure', reason: 'reconciliation_required'
+    })
+    const canonicalRecord = await readFile(recordPath(workspaceRoot, sessionId), 'utf8')
+    const recordsDirectory = join(workspaceRoot, 'learning-records')
+    const outsideRecordPath = join(outsideRecordsDirectory, `outcome-${sessionId}.md`)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const manifestPath = join(directory, 'session.json')
+    const manifestBeforeReconcile = await readFile(manifestPath, 'utf8')
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    await rm(recordsDirectory, { recursive: true, force: true })
+    await writeFile(outsideRecordPath, canonicalRecord, 'utf8')
+    try {
+      await symlink(outsideRecordsDirectory, recordsDirectory, 'dir')
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'EPERM' })
+      return
+    }
+    const recovered = createLearningOutcomeCommitter(options)
+
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({ state: 'review_required' })
+    await expect(readFile(outsideRecordPath, 'utf8')).resolves.toBe(canonicalRecord)
+    await expect(readdir(outsideRecordsDirectory)).resolves.toEqual([`outcome-${sessionId}.md`])
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe(manifestBeforeReconcile)
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'active', outcomeRef: null })
+  })
+
   it('rejects a symlink at the canonical record path during reconciliation', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-symlink-unit')
@@ -298,7 +777,9 @@ describe('LearningOutcomeCommitter', () => {
     }
     const committer = createLearningOutcomeCommitter({ workspaceRoot, ledger })
 
-    await expect(committer.reconcile('session-symlink-unit')).resolves.toMatchObject({ state: 'pending', record: null })
+    await expect(committer.reconcile('session-symlink-unit')).resolves.toMatchObject({
+      state: 'review_required', record: null, diagnostics: ['missing_record']
+    })
   })
 
   it('reports legacy_generated records as read-only diagnostics without upgrading their bytes', async () => {

@@ -81,12 +81,12 @@ export class AgentParentTurnStaging {
     })
   }
 
-  prepareSave(runId: string, targetConversationId: string, expectedTurnDigest: string): Promise<AgentParentTurnStage | null> {
+  prepareSave(runId: string, targetConversationId: string, expectedParentTurnProof: string): Promise<AgentParentTurnStage | null> {
     return this.persistence.serialize(async () => {
       const stage = await this.readOptional(runId)
       if (!stage) throw new Error('Parent turn staging is unavailable.')
       if (stage.status === 'settled') {
-        if (stage.targetConversationId !== targetConversationId || stage.expectedTurnDigest !== expectedTurnDigest) {
+        if (stage.targetConversationId !== targetConversationId || stage.expectedParentTurnProof !== expectedParentTurnProof) {
           throw new Error('Parent turn staging is already settled with a different conversation commit.')
         }
         return stage
@@ -97,7 +97,7 @@ export class AgentParentTurnStaging {
       if (stage.targetConversationId && stage.targetConversationId !== targetConversationId) {
         throw new Error('Parent turn staging target conversation changed.')
       }
-      if (stage.expectedTurnDigest && stage.expectedTurnDigest !== expectedTurnDigest) {
+      if (stage.expectedParentTurnProof && stage.expectedParentTurnProof !== expectedParentTurnProof) {
         throw new Error('Parent turn staging digest changed.')
       }
       const next: AgentParentTurnStage = {
@@ -105,7 +105,7 @@ export class AgentParentTurnStaging {
         status: 'awaiting_conversation_save',
         boundary: 'conversation_save',
         targetConversationId,
-        expectedTurnDigest,
+        expectedParentTurnProof,
         updatedAt: this.persistence.timestamp()
       }
       await this.persistence.writeParentTurnStage(next, true)
@@ -113,14 +113,14 @@ export class AgentParentTurnStaging {
     })
   }
 
-  settle(runId: string, targetConversationId: string, expectedTurnDigest: string): Promise<AgentParentTurnStage | null> {
+  settle(runId: string, targetConversationId: string, expectedParentTurnProof: string): Promise<AgentParentTurnStage | null> {
     return this.persistence.serialize(async () => {
       const stage = await this.readOptional(runId)
       if (!stage) throw new Error('Parent turn staging is unavailable.')
       if (stage.targetConversationId !== targetConversationId) {
         throw new Error('Parent turn staging settlement target does not match.')
       }
-      if (stage.expectedTurnDigest !== expectedTurnDigest) {
+      if (stage.expectedParentTurnProof !== expectedParentTurnProof) {
         throw new Error('Parent turn staging settlement digest does not match.')
       }
       if (stage.status === 'settled') return stage
@@ -133,7 +133,7 @@ export class AgentParentTurnStaging {
         status: 'settled',
         boundary: 'conversation_save',
         targetConversationId,
-        expectedTurnDigest,
+        expectedParentTurnProof,
         settledAt: stage.settledAt ?? now,
         updatedAt: now,
         recoveryReason: undefined
@@ -300,11 +300,18 @@ function textEvidence(value: string): AgentParentTurnTextEvidence {
   const redacted = redactStagingText(value)
   const preview = truncateUtf8(redacted, MAX_PREVIEW_BYTES)
   return {
-    sha256: createHash('sha256').update(value).digest('hex'),
+    // Hash only the redacted projection. A raw-content digest is an offline
+    // candidate-secret equality oracle and must never enter the stage file.
+    sha256: parentTurnStageSafeTextDigest(value),
     preview,
     originalBytes,
     truncated: Buffer.byteLength(redacted, 'utf8') > MAX_PREVIEW_BYTES
   }
+}
+
+/** Hashes only the same redacted text persisted in stage evidence. */
+export function parentTurnStageSafeTextDigest(value: string): string {
+  return createHash('sha256').update(redactStagingText(value), 'utf8').digest('hex')
 }
 
 function truncateUtf8(value: string, maxBytes: number): string {

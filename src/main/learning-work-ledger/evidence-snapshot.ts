@@ -5,6 +5,9 @@ import {
   agentConversationSessionAuditRelativePathForMarkdown,
   courseRelativePathForAgentConversation
 } from '../../shared/agent-conversation-catalog'
+import { sanitizePersistedAgentConversationRecord } from '../../shared/agent-persisted-history'
+import { redactAgentSecretText } from '../../shared/agent-secret-redaction'
+import { normalizeTraceId } from '../../shared/trace-context'
 import type {
   AgentChatProcessEvent,
   AgentChatToolCallView,
@@ -29,6 +32,8 @@ export type LearningWorkStatus =
 export type LearningWorkLedgerSnapshot = {
   version: 1
   entryId: string
+  /** Optional main-process archive correlation id; excluded from entryId identity. */
+  traceId?: string
   type: 'conversation_snapshot'
   createdAt: string
   status: LearningWorkStatus
@@ -70,43 +75,47 @@ export function buildLearningWorkEvidenceSnapshot(
   workspace: { id?: string; name: string },
   conversation: AgentConversationRecord
 ): LearningWorkLedgerSnapshot {
-  const evidence = buildEvidence(conversation.turns)
-  const status = deriveLearningWorkStatus(conversation.turns)
-  const jsonRelativePath = agentConversationJsonRelativePathForMarkdown(conversation.relativePath)
-  const sessionAuditRelativePath = agentConversationSessionAuditRelativePathForMarkdown(conversation.relativePath)
-  const courseRelativePath = courseRelativePathForAgentConversation(conversation.relativePath) ?? undefined
+  // This builder is public and can be called independently of the archive.
+  // Reapply the durable user-history boundary here so evidence cannot bypass it.
+  const persistedConversation = sanitizePersistedAgentConversationRecord(conversation)
+  const evidence = buildEvidence(persistedConversation.turns)
+  const status = deriveLearningWorkStatus(persistedConversation.turns)
+  const jsonRelativePath = agentConversationJsonRelativePathForMarkdown(persistedConversation.relativePath)
+  const sessionAuditRelativePath = agentConversationSessionAuditRelativePathForMarkdown(persistedConversation.relativePath)
+  const courseRelativePath = courseRelativePathForAgentConversation(persistedConversation.relativePath) ?? undefined
   const identity = {
-    conversationId: conversation.id,
-    updatedAt: conversation.updatedAt,
-    messageCount: conversation.messageCount,
+    conversationId: persistedConversation.id,
+    updatedAt: persistedConversation.updatedAt,
+    messageCount: persistedConversation.messageCount,
     status,
     evidenceDigest: digestJson(evidence)
   }
 
   return pruneUndefined({
     version: 1 as const,
-    entryId: `learning-work:${conversation.id}:${stableDigest(identity)}`,
+    entryId: `learning-work:${persistedConversation.id}:${stableDigest(identity)}`,
+    traceId: normalizeTraceId(persistedConversation.traceId),
     type: 'conversation_snapshot' as const,
     createdAt: new Date().toISOString(),
     status,
     workspace: pruneUndefined({
-      id: workspace.id,
-      name: compactText(workspace.name, MAX_TEXT_LENGTH)
+      id: workspace.id === undefined ? undefined : safeText(workspace.id, MAX_TEXT_LENGTH),
+      name: safeText(workspace.name, MAX_TEXT_LENGTH)
     }),
     conversation: pruneUndefined({
-      id: conversation.id,
-      title: compactText(conversation.title, MAX_TEXT_LENGTH),
-      relativePath: conversation.relativePath,
-      jsonRelativePath,
-      sessionAuditRelativePath,
-      courseRelativePath,
-      updatedAt: conversation.updatedAt,
-      messageCount: conversation.messageCount
+      id: safeText(persistedConversation.id, MAX_TEXT_LENGTH),
+      title: safeText(persistedConversation.title, MAX_TEXT_LENGTH),
+      relativePath: safeText(persistedConversation.relativePath, MAX_TEXT_LENGTH),
+      jsonRelativePath: safeText(jsonRelativePath, MAX_TEXT_LENGTH),
+      sessionAuditRelativePath: safeText(sessionAuditRelativePath, MAX_TEXT_LENGTH),
+      courseRelativePath: courseRelativePath === undefined ? undefined : safeText(courseRelativePath, MAX_TEXT_LENGTH),
+      updatedAt: persistedConversation.updatedAt,
+      messageCount: persistedConversation.messageCount
     }),
     pointers: {
-      markdown: conversation.relativePath,
-      materializedJson: jsonRelativePath,
-      sessionAudit: sessionAuditRelativePath
+      markdown: safeText(persistedConversation.relativePath, MAX_TEXT_LENGTH),
+      materializedJson: safeText(jsonRelativePath, MAX_TEXT_LENGTH),
+      sessionAudit: safeText(sessionAuditRelativePath, MAX_TEXT_LENGTH)
     },
     evidence
   })
@@ -126,29 +135,29 @@ function buildEvidence(turns: AgentChatTurn[]): LearningWorkLedgerSnapshot['evid
       const key = source.sourceId || source.url
       if (!key || sources.has(key)) continue
       sources.set(key, pruneUndefined({
-        sourceId: source.sourceId,
-        url: source.url,
-        title: compactText(source.title ?? '', MAX_TEXT_LENGTH) || undefined,
-        provider: source.provider,
-        toolName: source.toolName
+        sourceId: safeText(source.sourceId, MAX_TEXT_LENGTH),
+        url: safeText(source.url, MAX_TEXT_LENGTH),
+        title: safeOptionalText(source.title),
+        provider: safeOptionalText(source.provider),
+        toolName: safeOptionalText(source.toolName)
       }))
     }
     for (const child of turn.metadata?.childRuns ?? []) {
       if (childRuns.has(child.childRunId)) continue
       childRuns.set(child.childRunId, pruneUndefined({
-        childRunId: child.childRunId,
-        label: compactText(child.label, MAX_TEXT_LENGTH),
-        profile: child.profile,
-        status: child.status,
-        summary: compactText(child.summary ?? '', MAX_TEXT_LENGTH) || undefined
+        childRunId: safeText(child.childRunId, MAX_TEXT_LENGTH),
+        label: safeText(child.label, MAX_TEXT_LENGTH),
+        profile: safeText(child.profile, MAX_TEXT_LENGTH),
+        status: safeText(child.status, MAX_TEXT_LENGTH),
+        summary: safeOptionalText(child.summary)
       }))
     }
     for (const compaction of turn.metadata?.compactions ?? []) {
       if (compactions.has(compaction.sourceDigest)) continue
       compactions.set(compaction.sourceDigest, pruneUndefined({
-        sourceDigest: compaction.sourceDigest,
-        reason: compactText(compaction.reason, MAX_TEXT_LENGTH),
-        mode: compaction.mode,
+        sourceDigest: safeText(compaction.sourceDigest, MAX_TEXT_LENGTH),
+        reason: safeText(compaction.reason, MAX_TEXT_LENGTH),
+        mode: safeText(compaction.mode, MAX_TEXT_LENGTH),
         failed: compaction.failed === true ? true : undefined
       }))
     }
@@ -157,9 +166,9 @@ function buildEvidence(turns: AgentChatTurn[]): LearningWorkLedgerSnapshot['evid
       const key = `${diagnostic.archive.kind}:${diagnostic.archive.relativePath}`
       if (artifacts.has(key)) continue
       artifacts.set(key, {
-        kind: diagnostic.archive.kind,
-        relativePath: diagnostic.archive.relativePath,
-        source: diagnostic.toolName
+        kind: safeText(diagnostic.archive.kind, MAX_TEXT_LENGTH),
+        relativePath: safeText(diagnostic.archive.relativePath, MAX_TEXT_LENGTH),
+        source: safeText(diagnostic.toolName, MAX_TEXT_LENGTH)
       })
     }
     for (const toolCall of turn.toolCalls ?? []) {
@@ -196,10 +205,10 @@ function collectToolArtifact(
     const key = `${candidate.kind}:${candidate.path}`
     if (artifacts.has(key)) continue
     artifacts.set(key, pruneUndefined({
-      kind: candidate.kind,
-      relativePath: candidate.path,
-      title: compactText(candidate.title ?? '', MAX_TEXT_LENGTH) || undefined,
-      source: toolCall.name
+      kind: safeText(candidate.kind, MAX_TEXT_LENGTH),
+      relativePath: safeText(candidate.path, MAX_TEXT_LENGTH),
+      title: candidate.title === undefined ? undefined : safeText(candidate.title, MAX_TEXT_LENGTH),
+      source: safeText(toolCall.name, MAX_TEXT_LENGTH)
     }))
   }
 }
@@ -214,11 +223,11 @@ function collectPermissionDecision(
   const requestRecord = request && typeof request === 'object' ? request as Record<string, unknown> : {}
   const resultRecord = result && typeof result === 'object' ? result as Record<string, unknown> : {}
   out.set(toolCall.id, pruneUndefined({
-    toolCallId: toolCall.id,
-    toolName: stringValue(requestRecord.toolName),
-    operation: stringValue(requestRecord.operation),
-    targetPath: stringValue(requestRecord.targetPath),
-    decision: stringValue(resultRecord.decision),
+    toolCallId: safeText(toolCall.id, MAX_TEXT_LENGTH),
+    toolName: safeUnknownText(requestRecord.toolName),
+    operation: safeUnknownText(requestRecord.operation),
+    targetPath: safeUnknownText(requestRecord.targetPath),
+    decision: safeUnknownText(resultRecord.decision),
     isError: toolCall.isError === true ? true : undefined
   }))
 }
@@ -274,6 +283,18 @@ function safeParseJson(value: unknown): unknown | null {
   } catch {
     return null
   }
+}
+
+function safeText(value: string, maxLength: number): string {
+  return compactText(redactAgentSecretText(value), maxLength)
+}
+
+function safeOptionalText(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : safeText(value, MAX_TEXT_LENGTH) || undefined
+}
+
+function safeUnknownText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? safeText(value, MAX_TEXT_LENGTH) || undefined : undefined
 }
 
 function stringValue(value: unknown): string | undefined {

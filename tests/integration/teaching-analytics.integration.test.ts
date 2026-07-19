@@ -20,6 +20,7 @@ import {
   LearningAnalyticsService,
   type AnalyticsWorkspaceScanResult
 } from '../../src/main/teaching/services/learning-analytics'
+import { LocalDataIndex } from '../../src/main/local-data-index'
 
 const ledgerRelativePath = join('.studiumx', 'learning-work.jsonl')
 const instant = '2026-07-11T00:00:00.000Z'
@@ -219,10 +220,23 @@ function makeService(
   temporary?: {
     list: () => Promise<AgentConversationSummary[]>
     read: (workspaceId: string | undefined, conversationId: string) => Promise<AgentConversationRecord>
-  }
+  },
+  localDataIndex?: LocalDataIndex
 ) {
   const skills: SkillCatalogResult = { rootPath: runtime.rootDir, skills: [] }
-  const diagnostics: TeachingMemoryDiagnostics = { enabled: true, rootDir: runtime.rootDir, activeCount: 0, tombstoneCount: 0, lastInjectedIds: [] }
+  const diagnostics: TeachingMemoryDiagnostics = {
+    enabled: true,
+    activeCount: 0,
+    tombstoneCount: 0,
+    lastInjectedCount: 0,
+    legacyMigrationPreflight: {
+      legacyFlatEligibleCount: 0,
+      alreadyPartitionedCount: 0,
+      blockedDuplicateCount: 0,
+      blockedRecoveryIssueCount: 0,
+      migrationReady: false
+    }
+  }
   return new LearningAnalyticsService({
     appDataRoot: runtime.userDataDir,
     listWorkspaceSummaries: async () => scans,
@@ -243,7 +257,8 @@ function makeService(
     listSkills: async () => { if (sourceReads) sourceReads.platform = (sourceReads.platform ?? 0) + 1; return skills },
     loadSettings: async () => { if (sourceReads) sourceReads.platform = (sourceReads.platform ?? 0) + 1; return settings(runtime) },
     listWorkspaceChanges: async () => [],
-    now: () => new Date(analyticsNow)
+    now: () => new Date(analyticsNow),
+    localDataIndex
   })
 }
 
@@ -269,6 +284,138 @@ describe('teaching analytics integration', () => {
       'token_evidence',
       'workspace_catalog'
     ])
+  })
+
+  it('falls back to canonical file scanning when an incomplete SQLite projection cannot be trusted, never returning synthetic empty tokens', async () => {
+    const good = summary(runtime, 'ws-good')
+    const conversation = conversationRecord('fallback-from-index', [
+      { id: 'turn-1', role: 'assistant', content: 'canonical data', createdAt: instant, metadata: { version: 1, runUsage: usage(13, 8, 5) } }
+    ], runtime)
+    good.conversations = [{ ...conversation, workspaceId: good.id, relativePath: 'conversation/fallback-from-index.md', absolutePath: join(runtime.workspaceDir, 'conversation', 'fallback-from-index.md') }]
+    const scans = workspaceScan(runtime, [good])
+    // No JSON source is written: this intentionally makes the projection incomplete.
+    const index = new LocalDataIndex({
+      appDataRoot: runtime.userDataDir,
+      sources: { listWorkspaces: async () => scans, listTemporaryConversations: async () => [], listMemory: async () => [] }
+    })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('incomplete')
+
+    const reads = { value: 0 }
+    const service = makeService(runtime, scans, new Map([[conversation.id, conversation]]), reads, undefined, undefined, index)
+    const bundle = await service.getLearningAnalytics({ ...request(), sectionIds: ['tokens'] })
+
+    expect(bundle.tokens.state).toBe('available')
+    expect(dataOf(bundle.tokens).totals.totalTokens).toBe(13)
+    expect(reads.value).toBe(1)
+    index.close()
+  })
+
+  it('falls back to canonical files when a post-last-check filesystem race invalidates a just-ready SQLite projection', async () => {
+    const good = summary(runtime, 'ws-good')
+    const projected = {
+      ...conversationRecord('post-last-check-race', [
+        { id: 'turn-1', role: 'assistant', content: 'old canonical data', createdAt: instant, metadata: { version: 1, runUsage: usage(13, 8, 5) } }
+      ], runtime),
+      relativePath: 'conversation/post-last-check-race.md',
+      absolutePath: join(runtime.workspaceDir, 'conversation', 'post-last-check-race.md')
+    }
+    const current = {
+      ...projected,
+      turns: [{ ...projected.turns[0]!, content: 'new canonical data', metadata: { version: 1, runUsage: usage(29, 17, 12) } }]
+    }
+    good.conversations = [{ ...projected, workspaceId: good.id, relativePath: 'conversation/post-last-check-race.md', absolutePath: join(runtime.workspaceDir, 'conversation', 'post-last-check-race.md') }]
+    const scans = workspaceScan(runtime, [good])
+    const sourcePath = join(runtime.workspaceDir, 'conversation', 'post-last-check-race.json')
+    await mkdir(join(runtime.workspaceDir, 'conversation'), { recursive: true })
+    await writeFile(sourcePath, JSON.stringify(projected), 'utf8')
+
+    let mutateOnce = true
+    const index = new LocalDataIndex({
+      appDataRoot: runtime.userDataDir,
+      sources: { listWorkspaces: async () => scans, listTemporaryConversations: async () => [], listMemory: async () => [] },
+      testHooks: {
+        // This is intentionally after the final rebuild manifest check: no rebuild
+        // protocol can atomically lock arbitrary canonical files with SQLite.
+        afterFinalReadyVerification: async () => {
+          if (!mutateOnce) return
+          mutateOnce = false
+          await writeFile(sourcePath, JSON.stringify(current), 'utf8')
+        }
+      }
+    })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+
+    const reads = { value: 0 }
+    const service = makeService(runtime, scans, new Map([[current.id, current]]), reads, undefined, undefined, index)
+    const bundle = await service.getLearningAnalytics({ ...request(), sectionIds: ['tokens'] })
+
+    // Query-time exact-manifest validation rejects the stale ready projection. The
+    // returned total and canonical read prove analytics used the file-scan fallback,
+    // not the old SQLite row (13 tokens).
+    expect(bundle.tokens.state).toBe('available')
+    expect(dataOf(bundle.tokens).totals.totalTokens).toBe(29)
+    expect(reads.value).toBe(1)
+    expect(index.status).not.toBe('ready')
+    expect(index.tokenEvidenceAdapters()).toBeNull()
+    index.close()
+  })
+
+  it('falls back to canonical files when sources drift after analytics obtains index adapters but before SQL executes', async () => {
+    const good = summary(runtime, 'ws-good')
+    const projected = {
+      ...conversationRecord('adapter-boundary-race', [
+        { id: 'turn-1', role: 'assistant', content: 'old projected data', createdAt: instant, metadata: { version: 1, runUsage: usage(13, 8, 5) } }
+      ], runtime),
+      relativePath: 'conversation/adapter-boundary-race.md',
+      absolutePath: join(runtime.workspaceDir, 'conversation', 'adapter-boundary-race.md')
+    }
+    const current = {
+      ...projected,
+      turns: [{ ...projected.turns[0]!, content: 'current canonical data', metadata: { version: 1, runUsage: usage(29, 17, 12) } }]
+    }
+    good.conversations = [{ ...projected, workspaceId: good.id }]
+    const scans = workspaceScan(runtime, [good])
+    const sourcePath = join(runtime.workspaceDir, 'conversation', 'adapter-boundary-race.json')
+    await mkdir(join(runtime.workspaceDir, 'conversation'), { recursive: true })
+    await writeFile(sourcePath, JSON.stringify(projected), 'utf8')
+
+    const records = new Map([[projected.id, projected]])
+    let mutateOnce = true
+    const index = new LocalDataIndex({
+      appDataRoot: runtime.userDataDir,
+      sources: { listWorkspaces: async () => scans, listTemporaryConversations: async () => [], listMemory: async () => [] },
+      testHooks: {
+        // scanTokens has already selected the index adapters; this runs inside an
+        // adapter immediately before its exact-manifest check and SQL statement.
+        beforeAdapterQueryCurrentnessVerification: async () => {
+          if (!mutateOnce) return
+          mutateOnce = false
+          records.set(current.id, current)
+          await writeFile(sourcePath, JSON.stringify(current), 'utf8')
+        }
+      }
+    })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+
+    const reads = { value: 0 }
+    const service = makeService(runtime, scans, records, reads, undefined, undefined, index)
+    const bundle = await service.getLearningAnalytics({ ...request(), sectionIds: ['tokens'] })
+
+    // The old 13-token SQLite row is never handed to token analytics. Index
+    // unavailability is converted to a canonical file scan, not fake emptiness.
+    expect(bundle.tokens.state).toBe('available')
+    expect(dataOf(bundle.tokens).totals.totalTokens).toBe(29)
+    expect(reads.value).toBe(1)
+    expect(index.issues()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceKey: 'source_manifest', code: 'source_drift', message: expect.stringMatching(/before a SQLite projection query/i) })
+    ]))
+    index.close()
   })
 
   it('uses conversation turns first, falls back to one latest ledger snapshot, and never adds ledger to partial turns', async () => {

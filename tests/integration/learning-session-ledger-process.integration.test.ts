@@ -23,8 +23,8 @@ async function createWorkspace(): Promise<string> {
 beforeAll(async () => {
   workerRoot = await mkdtemp(join(tmpdir(), 'studiumx-learning-session-worker-'))
   workerPath = join(workerRoot, 'worker.mjs')
-  await runCommand(process.execPath, [
-    join(process.cwd(), 'node_modules', 'esbuild', 'bin', 'esbuild'),
+  const esbuildBinary = join(process.cwd(), 'node_modules', 'esbuild', 'bin', 'esbuild')
+  await runCommand(esbuildBinary, [
     join(process.cwd(), 'scripts', 'fixtures', 'learning-session-concurrency-worker.ts'),
     '--bundle',
     '--platform=node',
@@ -524,10 +524,19 @@ async function waitForFile(path: string): Promise<void> {
 
 async function runCommand(command: string, args: string[]): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    execFile(command, args, { cwd: process.cwd(), timeout: 15_000 }, (error, _stdout, stderr) => {
-      if (error) reject(new Error(`${error.message}
-${stderr}`))
-      else resolve()
+    execFile(command, args, { cwd: process.cwd(), timeout: 15_000 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(
+          new Error([
+            `Command failed: ${command} ${args.join(' ')}`,
+            error.message,
+            `stdout:\n${stdout}`,
+            `stderr:\n${stderr}`
+          ].join('\n'))
+        )
+        return
+      }
+      resolve()
     })
   })
 }

@@ -7,7 +7,7 @@ import type {
   ReviewCard
 } from '../../shared/teaching-types'
 import { collectTeachingFiles, toWorkspaceRelativePath } from '../teaching-workspace-paths'
-import { atomicWriteFile } from './lifecycle'
+import { replaceDurably, type DurableFileOperations } from '../persistence/durable-file'
 
 export type ReviewWorkspace = {
   id: string
@@ -30,6 +30,13 @@ type LoadedReviewDeckState = LoadedReviewDeck & {
   durableProgress: DurableReviewProgress
 }
 
+type TeachingWorkspaceReviewDeckOptions = {
+  /** Narrow test seam for the shared durable progress publisher. */
+  durableFileOperations?: DurableFileOperations
+  /** Receives only the shared primitive's generic directory-fsync warning. */
+  durableWarn?: (message: string) => void
+}
+
 /**
  * The durable review-deck seam. It adapts lesson flashcard artifacts and the
  * legacy `.studiumx/progress.json` document behind two operations: load a deck
@@ -37,6 +44,8 @@ type LoadedReviewDeckState = LoadedReviewDeck & {
  * or aggregate durable review records themselves.
  */
 export class TeachingWorkspaceReviewDeck {
+  constructor(private readonly options: TeachingWorkspaceReviewDeckOptions = {}) {}
+
   async loadDeck(workspace: ReviewWorkspace): Promise<LoadedReviewDeck> {
     const deck = await this.loadDeckState(workspace)
     return { cards: deck.cards, progress: deck.progress }
@@ -46,11 +55,21 @@ export class TeachingWorkspaceReviewDeck {
     const deck = await this.loadDeckState(workspace)
     const durableProgress = addAttempt(deck.durableProgress, deck.cards, payload)
     const progress = summarizeProgress(durableProgress.byLesson)
-    await atomicWriteFile(this.progressPath(workspace), `${JSON.stringify({
-      version: 2,
-      ...progress,
-      byCard: durableProgress.byCard
-    }, null, 2)}\n`)
+    await replaceDurably({
+      path: this.progressPath(workspace),
+      content: `${JSON.stringify({
+        version: 2,
+        ...progress,
+        byCard: durableProgress.byCard
+      }, null, 2)}\n`,
+      // atomicWriteFile created its replacement candidate with writeFile's
+      // default 0666 create mode (subject to the process umask). Preserve that
+      // established progress-file contract while other durable state remains
+      // private by default.
+      mode: 0o666,
+      operations: this.options.durableFileOperations,
+      warn: this.options.durableWarn
+    })
     return { cards: deck.cards, progress }
   }
 

@@ -32,10 +32,17 @@ afterEach(async () => {
 describe('agent secret redaction', () => {
   it('redacts provider credentials and durable-agent secret formats without changing ordinary text', () => {
     const githubToken = `ghp_${'a'.repeat(36)}`
+    const genericToken = 'C7aQ9vL2xM8kR4pT7nW3yH6dF1sJ5bG0zX9uK2e'
+    const genericBase64Token = 'Q2FuZGlkYXRlQjY0L1NlY3JldCtXaXRoRW50cm9weT0='
     const githubFineGrainedToken = `github_pat_${'b'.repeat(30)}_${'c'.repeat(20)}`
     const input = [
       'Keep this ordinary explanation and file path notes/token-guide.md.',
+      `Mixed prose unknown credential ${genericToken} must not persist.`,
+      `Mixed prose Base64 credential ${genericBase64Token} must not persist.`,
       'Authorization: Bearer bearer-secret-value',
+      'Bearer standalone-bearer-secret-value',
+      'OPENAI_API_KEY=sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890',
+      'hf_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
       'password=hunter2',
       '"passphrase": "correct horse battery staple"',
       'client_secret=client-secret-value',
@@ -45,6 +52,8 @@ describe('agent secret redaction', () => {
       'PRIVATE-TOKEN: private-secret-value',
       'https://example.test/callback?client_secret=url-secret&next=lesson',
       githubToken,
+      genericToken,
+      genericBase64Token,
       githubFineGrainedToken,
       '-----BEGIN PRIVATE KEY-----',
       'sensitive-private-key-material',
@@ -58,6 +67,9 @@ describe('agent secret redaction', () => {
     expect(redacted).toContain('[redacted]')
     for (const secret of [
       'bearer-secret-value',
+      'standalone-bearer-secret-value',
+      'sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890',
+      'hf_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
       'hunter2',
       'correct horse battery staple',
       'client-secret-value',
@@ -68,6 +80,8 @@ describe('agent secret redaction', () => {
       'url-secret',
       githubToken,
       githubFineGrainedToken,
+      genericToken,
+      genericBase64Token,
       'sensitive-private-key-material'
     ]) {
       expect(redacted).not.toContain(secret)
@@ -75,8 +89,9 @@ describe('agent secret redaction', () => {
     expect(redactAgentSecretText(redacted)).toBe(redacted)
   })
 
-  it('redacts derived conversation artifacts and audit metadata while preserving authoritative turn content', async () => {
+  it('redacts durable conversation artifacts and audit metadata', async () => {
     const root = await createRoot()
+    const genericToken = 'C7aQ9vL2xM8kR4pT7nW3yH6dF1sJ5bG0zX9uK2e'
     const largeToolSecret = 'archived-tool-secret'
     const childTranscriptSecret = 'child-transcript-secret'
     const childRun = {
@@ -84,10 +99,10 @@ describe('agent secret redaction', () => {
       label: 'Research helper',
       profile: 'research',
       status: 'completed',
-      summary: 'password=child-summary-secret',
-      error: 'client_secret=child-error-secret',
+      summary: `mixed child summary ${genericToken}`,
+      error: `mixed child error ${genericToken}`,
       citations: [{ sourceId: 'citation-1', url: 'https://example.test/cite?token=citation-url-secret', title: 'password=citation-title-secret' }],
-      transcript: `Child transcript session_token=${childTranscriptSecret}`,
+      transcript: `Child transcript ${genericToken} session_token=${childTranscriptSecret}`,
       startedAt: '2026-07-14T10:00:00.000Z',
       completedAt: '2026-07-14T10:00:01.000Z'
     } satisfies AgentChildRunMetadata & { transcript: string }
@@ -103,27 +118,27 @@ describe('agent secret redaction', () => {
       turns: [{
         id: 'turn-1',
         role: 'assistant',
-        content: 'Authoritative turn password=authoritative-turn-secret',
+        content: `Authoritative turn unknown credential ${genericToken} password=authoritative-turn-secret`,
         createdAt: '2026-07-14T10:00:00.000Z',
         toolCalls: [
           {
             id: 'tool-small',
             name: 'lookup',
-            arguments: '{"password":"tool-argument-secret","query":"safe"}',
-            result: 'password=inline-result-secret safe-result'
+            arguments: `{"unknown":"${genericToken}","password":"tool-argument-secret","query":"safe"}`,
+            result: `mixed tool result ${genericToken} password=inline-result-secret safe-result`
           },
           {
             id: 'tool-large',
             name: 'fetch',
             arguments: 'https://example.test/data?access_token=large-argument-secret',
-            result: `client_secret=${largeToolSecret}\n${'x'.repeat(2400)}`
+            result: `mixed large result ${genericToken} client_secret=${largeToolSecret}\n${'x'.repeat(2400)}`
           }
         ],
         processEvents: [{
           id: 'event-1',
           kind: 'status',
-          title: 'password=process-title-secret',
-          detail: 'refresh_token=process-detail-secret',
+          title: `mixed process title ${genericToken} password=process-title-secret`,
+          detail: `mixed process detail ${genericToken} refresh_token=process-detail-secret`,
           createdAt: '2026-07-14T10:00:00.500Z'
         }],
         metadata: {
@@ -150,7 +165,7 @@ describe('agent secret redaction', () => {
     const source = turn.metadata?.sources?.[0]
     const persistedChild = turn.metadata?.childRuns?.[0] as (AgentChildRunMetadata & { transcript?: string }) | undefined
 
-    expect(turn.content).toContain('authoritative-turn-secret')
+    expect(turn.content).not.toContain('authoritative-turn-secret')
     expect(smallTool?.arguments).not.toContain('tool-argument-secret')
     expect(smallTool?.result).not.toContain('inline-result-secret')
     expect(largeTool?.arguments).not.toContain('large-argument-secret')
@@ -193,7 +208,8 @@ describe('agent secret redaction', () => {
       'child-error-secret',
       'citation-url-secret',
       'citation-title-secret',
-      childTranscriptSecret
+      childTranscriptSecret,
+      genericToken
     ]) {
       expect(audit).not.toContain(secret)
     }
@@ -202,9 +218,10 @@ describe('agent secret redaction', () => {
 
   it('redacts run-scoped transcript, child-run, operation, and parent-turn staging text before disk writes', async () => {
     const root = await createRoot()
+    const genericToken = 'C7aQ9vL2xM8kR4pT7nW3yH6dF1sJ5bG0zX9uK2e'
     const persistence = new AgentRunPersistence(root, () => '2026-07-14T11:00:00.000Z')
     const transcriptSecret = 'run-transcript-secret'
-    const transcript = `Delegated result password=${transcriptSecret}\nordinary transcript text`
+    const transcript = `Delegated result ${genericToken} password=${transcriptSecret}\nordinary transcript text`
     const archive = await persistence.stageChildTranscript('run-1', 'child-1', transcript)
     const persistedTranscript = await readFile(join(root, archive.relativePath), 'utf8')
 
@@ -256,10 +273,10 @@ describe('agent secret redaction', () => {
       payload: {
         streamId: 'stream-parent',
         status: 'thinking',
-        message: 'refresh_token=parent-event-secret ordinary evidence'
+        message: `mixed event ${genericToken} refresh_token=parent-event-secret ordinary evidence`
       }
     })
-    await staging.confirmFinal('run-parent', 'password=parent-final-secret ordinary final')
+    await staging.confirmFinal('run-parent', `mixed final ${genericToken} password=parent-final-secret ordinary final`)
 
     const childJson = await readFile(join(root, '.agent-sessions', 'child-runs', 'run-1', 'child-1.json'), 'utf8')
     const operationJson = await readFile(join(root, '.agent-sessions', 'operations', 'run-1', 'operation-1.json'), 'utf8')
@@ -267,7 +284,7 @@ describe('agent secret redaction', () => {
     for (const [persisted, secrets] of [
       [childJson, ['run-child-summary-secret', 'run-child-error-secret']],
       [operationJson, ['operation-result-secret', 'operation-error-secret']],
-      [parentStageJson, [githubToken, 'parent-event-secret', 'parent-final-secret']]
+      [parentStageJson, [githubToken, genericToken, 'parent-event-secret', 'parent-final-secret']]
     ] as const) {
       expect(persisted).toContain('[redacted]')
       for (const secret of secrets) expect(persisted).not.toContain(secret)
@@ -275,5 +292,8 @@ describe('agent secret redaction', () => {
     expect(operationJson).toContain('ordinary result')
     expect(parentStageJson).toContain('ordinary evidence')
     expect(parentStageJson).toContain('ordinary final')
+    // The stage stores a digest of the redacted text, never SHA-256(raw
+    // candidate). Otherwise a durable stage would be an offline secret oracle.
+    expect(parentStageJson).not.toContain(createHash('sha256').update(genericToken, 'utf8').digest('hex'))
   })
 })

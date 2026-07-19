@@ -15,8 +15,13 @@ import {
 export { LessonInteractionValidationError }
 export type { EvidenceReceipt, LessonInteraction, PersistedLessonInteraction } from '../shared/teaching-types/lesson-interaction'
 
+export type LessonInteractionMutationOptions = Readonly<{
+  /** Main-process generated correlation metadata; never sourced from renderer intent. */
+  traceId?: string
+}>
+
 export interface LessonInteractionRecorder {
-  record(event: LessonInteraction): Promise<EvidenceReceipt>
+  record(event: LessonInteraction, options?: LessonInteractionMutationOptions): Promise<EvidenceReceipt>
   list(sessionId: string): Promise<PersistedLessonInteraction[]>
 }
 
@@ -87,7 +92,7 @@ export function projectLegacyReviewProgressToLessonInteractions(
 class LedgerLessonInteractionRecorder implements LessonInteractionRecorder {
   constructor(private readonly ledger: Pick<LearningSessionLedger, 'appendWithReceipt' | 'load'>) {}
 
-  async record(event: LessonInteraction): Promise<EvidenceReceipt> {
+  async record(event: LessonInteraction, options?: LessonInteractionMutationOptions): Promise<EvidenceReceipt> {
     const evidence = normalizeLessonInteraction(event)
     const before = await this.ledger.load(evidence.sessionId)
     if (!before) throw new LessonInteractionValidationError(`Learning Session "${evidence.sessionId}" was not found.`)
@@ -100,6 +105,7 @@ class LedgerLessonInteractionRecorder implements LessonInteractionRecorder {
       kind: lessonInteractionLedgerKind(evidence),
       occurredAt: evidence.observedAt,
       ...(evidence.kind === 'conversation_evidence_recorded' ? { turnId: evidence.provenance.turnId } : {}),
+      ...(options?.traceId ? { traceId: options.traceId } : {}),
       payload: { lessonInteraction: evidence }
     })
     const persistedEvidence = interactionFromLedgerEvent(receipt.event)

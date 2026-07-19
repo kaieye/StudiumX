@@ -11,6 +11,7 @@ import {
   normalizeAgentConversationRelativePath
 } from '../shared/agent-conversation-catalog'
 import { redactAgentSecretText } from '../shared/agent-secret-redaction'
+import { sanitizePersistedAgentConversationRecord } from '../shared/agent-persisted-history'
 import type {
   AgentArchivedHistoryIntegrity,
   AgentArchivedHistoryIssue,
@@ -120,7 +121,13 @@ export async function rebuildAgentConversationHistoryIndex(input: {
 
   for (const record of records) {
     try {
-      items.push(...await buildConversationHistoryItems(input.rootPath, record, issues))
+      // Rebuilds can read legacy raw archives, but the newly written index must
+      // consume only a privacy-safe projection and never rewrite the source.
+      items.push(...await buildConversationHistoryItems(
+        input.rootPath,
+        sanitizePersistedAgentConversationRecord(record),
+        issues
+      ))
     } catch (error) {
       issues.push(issue(
         'conversation_index_failed',

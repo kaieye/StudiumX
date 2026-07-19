@@ -19,7 +19,7 @@ vi.mock('../../src/main/teaching-agent-conversations', async () => {
   return {
     ...actual,
     listPersistedAgentConversationRecords: vi.fn(async () => [...persistence.records.values()].map((record) => ({
-      jsonRelativePath: `conversations/${record.id}.json`,
+      jsonRelativePath: record.relativePath.replace(/\.md$/i, '.json'),
       record: structuredClone(record)
     }))),
     readAgentConversationRecord: vi.fn(async (_rootPath: string, id: string) => {
@@ -32,7 +32,12 @@ vi.mock('../../src/main/teaching-agent-conversations', async () => {
       if (!record) throw new Error('Conversation not found.')
       return structuredClone(record)
     }),
-    writeAgentConversationRecord: vi.fn(async (_workspace: unknown, record: AgentConversationRecord) => {
+    writeAgentConversationRecord: vi.fn(async (
+      _workspace: unknown,
+      record: AgentConversationRecord,
+      options?: { beforeCanonicalSave?: (canonicalRecord: AgentConversationRecord) => Promise<void> }
+    ) => {
+      await options?.beforeCanonicalSave?.(record)
       persistence.records.set(record.id, structuredClone(record))
     }),
     nextAgentConversationId: vi.fn(async () => 'allocated-branch')
@@ -93,11 +98,16 @@ describe('agent conversation durable session tree', () => {
 
   it('forks any existing turn without changing the parent and rebuilds nested shared tree shape', async () => {
     const rootPath = await createRoot()
-    const parent = record('root-branch', [
-      turn('turn-1', 'user', 'Q1', '2026-07-14T03:00:00.000Z'),
-      turn('turn-2', 'assistant', 'A1', '2026-07-14T03:01:00.000Z'),
-      turn('turn-3', 'user', 'Q2', '2026-07-14T03:02:00.000Z')
-    ])
+    const parentTrace = '11111111-2222-4333-8444-555555555555'
+    const childTrace = 'A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D'
+    const parent = {
+      ...record('root-branch', [
+        turn('turn-1', 'user', 'Q1', '2026-07-14T03:00:00.000Z'),
+        turn('turn-2', 'assistant', 'A1', '2026-07-14T03:01:00.000Z'),
+        turn('turn-3', 'user', 'Q2', '2026-07-14T03:02:00.000Z')
+      ]),
+      traceId: parentTrace
+    }
     persistence.records.set(parent.id, structuredClone(parent))
     const before = structuredClone(parent)
 
@@ -106,6 +116,7 @@ describe('agent conversation durable session tree', () => {
       expectedRevision: 0,
       createConversationId: async () => 'child-branch',
       replayId: 'replay-child',
+      traceId: childTrace,
       now: '2026-07-14T04:00:00.000Z'
     })
     const nested = await forkAgentConversationBranchAtRoot(workspace(rootPath), child.id, {
@@ -116,18 +127,36 @@ describe('agent conversation durable session tree', () => {
       now: '2026-07-14T05:00:00.000Z'
     })
 
-    expect(persistence.records.get(parent.id)).toEqual({
-      ...before,
+    // Forking a legacy root is intentionally non-mutating: inferred branch
+    // metadata exists only in memory while the source record remains byte-safe.
+    expect(persistence.records.get(parent.id)).toEqual(before)
+    expect(child).toMatchObject({
+      id: 'child-branch',
+      traceId: childTrace.toLowerCase(),
       branch: {
-        schemaVersion: 1,
         sessionId: parent.id,
-        branchId: parent.id,
-        revision: 0,
-        status: 'active'
+        branchId: 'child-branch',
+        parentBranchId: parent.id,
+        revision: 1,
+        status: 'active',
+        forkPoint: {
+          sourceConversationId: parent.id,
+          sourceBranchId: parent.id,
+          sourceTurnId: 'turn-2'
+        },
+        replaySource: {
+          replayId: 'replay-child',
+          sourceConversationId: parent.id,
+          sourceBranchId: parent.id
+        }
       }
     })
+    expect(child.traceId).not.toBe(parentTrace)
     expect(child.turns).toHaveLength(2)
-    expect(child.branch).toMatchObject({ parentBranchId: parent.id, revision: 1, status: 'active' })
+    expect(child.turns.map((turn) => turn.metadata?.provenance)).toEqual([
+      expect.objectContaining({ kind: 'replayed', replayId: 'replay-child', sourceConversationId: parent.id, sourceBranchId: parent.id, sourceTurnId: 'turn-1' }),
+      expect.objectContaining({ kind: 'replayed', replayId: 'replay-child', sourceConversationId: parent.id, sourceBranchId: parent.id, sourceTurnId: 'turn-2' })
+    ])
     expect(nested.branch).toMatchObject({ parentBranchId: child.id, sessionId: parent.id })
 
     const tree = await readAgentConversationSessionTreeAtRoot(rootPath, parent.id)
@@ -143,6 +172,29 @@ describe('agent conversation durable session tree', () => {
       head: { turnCount: 2 },
       isOpen: false
     })
+  })
+
+  it('keeps forks in the source UTC partition directory', async () => {
+    const rootPath = await createRoot()
+    const parent = {
+      ...record('root-partitioned', [
+        turn('turn-1', 'user', 'Question', '2026-07-14T03:00:00.000Z'),
+        turn('turn-2', 'assistant', 'Answer', '2026-07-14T03:01:00.000Z')
+      ]),
+      relativePath: 'conversations/2026/07/root-partitioned.md',
+      absolutePath: 'C:/workspace/conversations/2026/07/root-partitioned.md'
+    }
+    persistence.records.set(parent.id, structuredClone(parent))
+
+    const child = await forkAgentConversationBranchAtRoot(workspace(rootPath), parent.id, {
+      expectedRevision: 0,
+      createConversationId: async () => 'child-partitioned',
+      replayId: 'replay-partitioned',
+      now: '2026-07-14T04:00:00.000Z'
+    })
+
+    expect(child.relativePath).toBe('conversations/2026/07/child-partitioned.md')
+    expect(persistence.records.get(child.id)?.relativePath).toBe(child.relativePath)
   })
 
   it('rejects damaged parent references and source digests during rebuild', () => {
@@ -211,7 +263,7 @@ describe('agent conversation durable session tree', () => {
 
     await expect(updateAgentConversationBranchStatusAtRoot(
       workspace(rootPath), parent.id, 'archived', { expectedRevision: 0 }
-    )).rejects.toThrow('last active conversation branch')
+    )).rejects.toThrow('Legacy conversation branches cannot change status')
     expect(persistence.records.get(parent.id)?.branch).toBeUndefined()
 
     const child = await forkAgentConversationBranchAtRoot(workspace(rootPath), parent.id, {
@@ -329,6 +381,17 @@ describe('agent conversation durable session tree', () => {
     expect(state?.sessions[0]?.sessionId).toBe('session-299')
     expect(state?.sessions.some((entry) => entry.sessionId === 'session-000')).toBe(false)
     expect(state?.sessions.some((entry) => entry.sessionId === 'session-044')).toBe(true)
+  })
+
+  it('does not return a successful branch open when repairing the sidecar write fails', async () => {
+    const rootPath = await createRoot()
+    const parent = record('root-branch', [turn('turn-1', 'user', 'Q', '2026-07-14T08:00:00.000Z')])
+    persistence.records.set(parent.id, parent)
+    await mkdir(join(rootPath, AGENT_CONVERSATION_OPEN_STATE_RELATIVE_PATH))
+
+    await expect(openAgentConversationBranchAtRoot(rootPath, parent.id, {
+      now: '2026-07-14T08:01:00.000Z'
+    })).rejects.toMatchObject({ code: 'invalid_path' })
   })
 
   it('rejects sidecar integrity/version/size corruption and repairs it audibly on open', async () => {

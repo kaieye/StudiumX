@@ -1,5 +1,39 @@
 import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { redactAgentSecretText } from '../shared/agent-secret-redaction'
+import { normalizeTraceId } from '../shared/trace-context'
+
+const MAX_LOG_MESSAGE_LENGTH = 2_000
+const LOG_COMPONENTS = ['main'] as const
+const LOG_TAGS = ['agent-archive', 'memory-catalog', 'learning-session-ledger'] as const
+
+export type SafeLogComponent = typeof LOG_COMPONENTS[number]
+export type SafeLogTag = typeof LOG_TAGS[number]
+
+/**
+ * Narrow, non-user-controlled diagnostic context. Tags are a fixed vocabulary
+ * so paths, provider identifiers, and user strings cannot become log labels.
+ */
+export type SafeLogContext = Readonly<{
+  component?: SafeLogComponent
+  tag?: SafeLogTag
+  traceId?: string
+}>
+
+export type ParsedLogLine = Readonly<{
+  timestamp: string
+  level: string
+  message: string
+  component?: SafeLogComponent
+  tag?: SafeLogTag
+  traceId?: string
+}>
+
+export type LoggerChild = Readonly<{
+  info(message: string): void
+  warn(message: string): void
+  error(message: string): void
+}>
 
 /**
  * Durable diagnostic journal. It serializes best-effort file persistence,
@@ -30,23 +64,36 @@ export class Logger {
     return this.logPath
   }
 
-  write(level: string, message: string): void {
+  /** Creates a fixed, safe context without changing legacy logger callers. */
+  child(context: SafeLogContext): LoggerChild {
+    const safeContext = normalizeLogContext(context)
+    return {
+      info: (message) => this.info(message, safeContext),
+      warn: (message) => this.warn(message, safeContext),
+      error: (message) => this.error(message, safeContext)
+    }
+  }
+
+  write(level: string, message: string, context?: SafeLogContext): void {
     if (!this.enabled || this.stopped) return
-    const line = `${new Date().toISOString()} [${level}] ${message}\n`
+    const safeContext = normalizeLogContext(context)
+    const tags = formatLogContext(safeContext)
+    const safeMessage = sanitizeLogMessage(message)
+    const line = `${new Date().toISOString()} [${sanitizeLogLevel(level)}]${tags} ${safeMessage}\n`
     this.queue.push(line)
     void this.flush()
   }
 
-  info(message: string): void {
-    this.write('info', message)
+  info(message: string, context?: SafeLogContext): void {
+    this.write('info', message, context)
   }
 
-  warn(message: string): void {
-    this.write('warn', message)
+  warn(message: string, context?: SafeLogContext): void {
+    this.write('warn', message, context)
   }
 
-  error(message: string): void {
-    this.write('error', message)
+  error(message: string, context?: SafeLogContext): void {
+    this.write('error', message, context)
   }
 
   /** Capture console warnings/errors without suppressing their normal output. */
@@ -56,12 +103,14 @@ export class Logger {
     const originalWarn = console.warn
     const originalError = console.error
     const capturedWarn = (...args: unknown[]) => {
-      this.warn(formatConsoleArgs(args))
-      originalWarn.apply(console, args)
+      const safeMessage = sanitizeLogMessage(formatConsoleArgs(args))
+      this.warn(safeMessage)
+      originalWarn.call(console, safeMessage)
     }
     const capturedError = (...args: unknown[]) => {
-      this.error(formatConsoleArgs(args))
-      originalError.apply(console, args)
+      const safeMessage = sanitizeLogMessage(formatConsoleArgs(args))
+      this.error(safeMessage)
+      originalError.call(console, safeMessage)
     }
 
     console.warn = capturedWarn
@@ -151,16 +200,82 @@ export class Logger {
   }
 }
 
-function formatConsoleArgs(args: unknown[]): string {
-  return args.map(stringifyArg).join(' ')
+/** Parses both legacy text lines and the optional tagged C-5 line format. */
+export function parseLoggerLine(line: string): ParsedLogLine | null {
+  const base = /^(\S+) \[([^\]]+)\] (.*?)(?:\r?\n)?$/.exec(line)
+  if (!base) return null
+  const [, timestamp, level, rawRest] = base
+  if (!timestamp || !level || rawRest === undefined) return null
+
+  let rest = rawRest
+  const parsed: { component?: SafeLogComponent; tag?: SafeLogTag; traceId?: string } = {}
+  const component = /^\[([^\]]+)\] /.exec(rest)
+  if (component && isSafeLogComponent(component[1])) {
+    parsed.component = component[1]
+    rest = rest.slice(component[0].length)
+  }
+  const tag = /^\[([^\]]+)\] /.exec(rest)
+  if (tag && isSafeLogTag(tag[1])) {
+    parsed.tag = tag[1]
+    rest = rest.slice(tag[0].length)
+  }
+  const trace = /^\[trace=([^\]]+)\] /.exec(rest)
+  const traceId = trace ? normalizeTraceId(trace[1]) : undefined
+  if (trace && traceId) {
+    parsed.traceId = traceId
+    rest = rest.slice(trace[0].length)
+  }
+
+  return { timestamp, level, message: rest, ...parsed }
 }
 
-function stringifyArg(value: unknown): string {
-  if (value instanceof Error) return value.stack ?? value.message
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return String(value)
+function normalizeLogContext(context: SafeLogContext | undefined): SafeLogContext {
+  if (!context) return {}
+  return {
+    component: isSafeLogComponent(context.component) ? context.component : undefined,
+    tag: isSafeLogTag(context.tag) ? context.tag : undefined,
+    traceId: normalizeTraceId(context.traceId)
   }
+}
+
+function formatLogContext(context: SafeLogContext): string {
+  return [
+    context.component ? `[${context.component}]` : '',
+    context.tag ? `[${context.tag}]` : '',
+    context.traceId ? `[trace=${context.traceId}]` : ''
+  ].filter(Boolean).map((value) => ` ${value}`).join('')
+}
+
+function sanitizeLogLevel(level: string): string {
+  return /^[a-z0-9_-]{1,24}$/i.test(level) ? level : 'info'
+}
+
+function sanitizeLogMessage(message: string): string {
+  let redacted: string
+  try {
+    redacted = redactAgentSecretText(typeof message === 'string' ? message : '[invalid log message]')
+  } catch {
+    return '[log message omitted]'
+  }
+  const singleLine = redacted.replace(/[\r\n]+/g, ' ').trim() || '[empty log message]'
+  return singleLine.length <= MAX_LOG_MESSAGE_LENGTH
+    ? singleLine
+    : `${singleLine.slice(0, MAX_LOG_MESSAGE_LENGTH)}…[truncated]`
+}
+
+function formatConsoleArgs(args: unknown[]): string {
+  if (args.length === 0) return '[console call without text]'
+  return args.map((value) => {
+    if (typeof value === 'string') return value
+    if (value instanceof Error) return `Error: ${value.message}`
+    return '[console value omitted]'
+  }).join(' ')
+}
+
+function isSafeLogComponent(value: unknown): value is SafeLogComponent {
+  return typeof value === 'string' && (LOG_COMPONENTS as readonly string[]).includes(value)
+}
+
+function isSafeLogTag(value: unknown): value is SafeLogTag {
+  return typeof value === 'string' && (LOG_TAGS as readonly string[]).includes(value)
 }

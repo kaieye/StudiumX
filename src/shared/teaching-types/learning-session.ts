@@ -78,6 +78,8 @@ export type AppendLearningSessionEventInput = {
   kind: LearningSessionEventKind
   occurredAt: string
   turnId?: string
+  /** Optional main-generated opaque correlation metadata; never an identity key. */
+  traceId?: string
   payload: LearningSessionEventPayload
 }
 

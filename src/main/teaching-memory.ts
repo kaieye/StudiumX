@@ -9,11 +9,23 @@ import {
   TeachingMemoryCatalog,
   normalizeTeachingMemoryRecord,
   normalizeTeachingMemoryScope,
-  type TeachingMemoryAccess
+  type TeachingMemoryAccess,
+  type TeachingMemoryCatalogIndexScan
 } from './teaching-memory-catalog'
 import { TeachingMemoryRecall, type TeachingMemoryRecallInput } from './teaching-memory-recall'
+import { normalizeTraceId } from '../shared/trace-context'
 
 export { pathExists } from './teaching-memory-catalog'
+
+/** Main-process-only metadata; renderer IPC payloads never reach this seam. */
+type TeachingMemoryMutationOptions = {
+  traceId?: string
+}
+
+function normalizedMutationTrace(options?: TeachingMemoryMutationOptions): Pick<TeachingMemoryRecord, 'traceId'> | Record<never, never> {
+  const traceId = normalizeTraceId(options?.traceId)
+  return traceId ? { traceId } : {}
+}
 
 /**
  * Teaching workspace façade for durable Memory records and recall.
@@ -41,7 +53,7 @@ export class TeachingMemoryStore {
     })
   }
 
-  async create(input: CreateTeachingMemoryPayload): Promise<TeachingMemoryRecord> {
+  async create(input: CreateTeachingMemoryPayload, options?: TeachingMemoryMutationOptions): Promise<TeachingMemoryRecord> {
     const now = this.now()
     const scope = normalizeTeachingMemoryScope(input.scope)
     const workspaceRoot = input.workspaceRoot
@@ -53,6 +65,7 @@ export class TeachingMemoryStore {
       project: scope === 'project' ? workspaceRoot : undefined,
       tags: input.tags ?? [],
       confidence: input.confidence ?? 1,
+      ...normalizedMutationTrace(options),
       createdAt: now,
       updatedAt: now
     })
@@ -60,7 +73,7 @@ export class TeachingMemoryStore {
     return record
   }
 
-  async update(id: string, patch: UpdateTeachingMemoryPayload, access?: TeachingMemoryAccess): Promise<TeachingMemoryRecord> {
+  async update(id: string, patch: UpdateTeachingMemoryPayload, access?: TeachingMemoryAccess, options?: TeachingMemoryMutationOptions): Promise<TeachingMemoryRecord> {
     const current = await this.catalog.get(id, access)
     const now = this.now()
     const next = normalizeTeachingMemoryRecord({
@@ -70,17 +83,19 @@ export class TeachingMemoryStore {
       ...(patch.confidence !== undefined ? { confidence: patch.confidence } : {}),
       ...(patch.disabled === true ? { disabledAt: current.disabledAt ?? now } : {}),
       ...(patch.disabled === false ? { disabledAt: undefined } : {}),
+      ...normalizedMutationTrace(options),
       updatedAt: now
     })
     await this.catalog.write(next)
     return next
   }
 
-  async delete(id: string, access?: TeachingMemoryAccess): Promise<void> {
+  async delete(id: string, access?: TeachingMemoryAccess, options?: TeachingMemoryMutationOptions): Promise<void> {
     const current = await this.catalog.get(id, access)
     const now = this.now()
     const next = normalizeTeachingMemoryRecord({
       ...current,
+      ...normalizedMutationTrace(options),
       deletedAt: current.deletedAt ?? now,
       updatedAt: now
     })
@@ -89,6 +104,11 @@ export class TeachingMemoryStore {
 
   async list(workspaceRoot?: string, includeDeleted = false): Promise<TeachingMemoryRecord[]> {
     return this.catalog.list(workspaceRoot, includeDeleted)
+  }
+
+  /** Main-process-only canonical scan for the disposable local SQLite projection. */
+  async scanForLocalDataIndex(): Promise<TeachingMemoryCatalogIndexScan> {
+    return this.catalog.scanForLocalDataIndex()
   }
 
   async retrieve(input: TeachingMemoryRecallInput): Promise<TeachingMemoryRecord[]> {

@@ -15,7 +15,14 @@ assert.equal(pkg.name, 'studiumx', 'root package.json should remain StudiumX met
 assert.equal(pkg.main, 'out/main/index.js', 'root package.json main should point at built main process')
 assert.equal(pkg.build?.productName, 'StudiumX', 'Electron product name should remain StudiumX')
 assert.match(pkg.packageManager ?? '', /^pnpm@11\.9\.0$/, 'package manager policy should be pinned to pnpm@11.9.0')
-assert.equal(pkg.scripts?.dist, 'pnpm run build && electron-builder', 'dist script should use the pinned pnpm workflow')
+assert.ok(
+  [
+    'pnpm run build && electron-builder',
+    'pnpm run build && pnpm run rebuild:better-sqlite3:electron && electron-builder',
+    'node scripts/package-host-native.mjs'
+  ].includes(pkg.scripts?.dist),
+  'dist script should use the pinned pnpm workflow or the host-native packaging wrapper'
+)
 
 assert.equal(await exists('index.js'), false, 'Codex app bundle index.js must not live in repo root')
 assert.equal(await exists('desktop-CdASu-HC.js'), false, 'Codex desktop grammar chunk must not live in repo root')

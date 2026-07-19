@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   agentConversationChildTranscriptDirectoryRelativePathForMarkdown,
   agentConversationJsonRelativePathForMarkdown,
@@ -20,6 +20,7 @@ import {
   archiveAgentConversationArtifacts,
   buildAgentConversationSessionAuditEntries,
   parseAgentConversationSessionAuditLines,
+  type AgentConversationSessionAuditOperations,
   type AgentStagedChildTranscriptAllowance
 } from './agent-conversation-session-audit'
 import { isPathInsideRoot, readContainedRegularFile } from './path-access'
@@ -27,9 +28,13 @@ import { assertAgentConversationCheckpointPrefixesPreserved } from './agent-conv
 import {
   appendLearningWorkLedgerSnapshot,
   buildLearningWorkLedgerEntry,
-  LEARNING_WORK_LEDGER_RELATIVE_PATH
+  LEARNING_WORK_LEDGER_RELATIVE_PATH,
+  readLearningWorkLedgerLines
 } from './learning-work-ledger'
 import { normalizeWorkspaceRelativePath } from './teaching-workspace-paths'
+import { sanitizePersistedAgentConversationRecord } from '../shared/agent-persisted-history'
+import { normalizeTraceId, traceIdsMatchForIdempotency } from '../shared/trace-context'
+import { replaceDurably, type DurableFileOperations } from './persistence/durable-file'
 
 export type AgentConversationArchiveWorkspace = {
   id?: string
@@ -54,16 +59,32 @@ export async function saveAgentConversationArchive(input: {
   workspace: AgentConversationArchiveWorkspace
   record: AgentConversationRecord
   allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
+  /** Legacy-fork compatibility: do not mutate a shared source ledger. */
+  skipLearningWorkLedger?: boolean
+  /** Runs after artifact promotion/proof rebinding and before canonical JSON is written. */
+  beforeCanonicalSave?: (record: AgentConversationRecord) => Promise<void>
+  /** Narrow main-internal test seam for the shared canonical file publisher. */
+  durableFileOperations?: DurableFileOperations
+  /** Receives only the shared primitive's generic directory-fsync warning. */
+  durableWarn?: (message: string) => void
+  /** Narrow main-internal seam for the session-audit durable append boundary. */
+  sessionAuditOperations?: AgentConversationSessionAuditOperations
+  /** Receives only the session-audit append boundary's generic directory-fsync warning. */
+  sessionAuditWarn?: (message: string) => void
 }): Promise<void> {
-  const paths = resolveArchivePaths(input.workspace.rootPath, input.record.relativePath, input.record.id)
-  assertArtifactKindsMatchMetadataPlacement(input.record)
+  // This is the durable boundary. Callers retain their raw record for run
+  // confirmation; every archive sink below
+  // receives only this sanitized projection.
+  const record = sanitizePersistedAgentConversationRecord(input.record)
+  const paths = resolveArchivePaths(input.workspace.rootPath, record.relativePath, record.id)
+  assertArtifactKindsMatchMetadataPlacement(record)
   await assertAgentConversationCheckpointPrefixesPreserved({
     rootPath: input.workspace.rootPath,
-    record: input.record
+    record
   })
   const persistedRecord = await archiveAgentConversationArtifacts({
     rootPath: input.workspace.rootPath,
-    record: input.record,
+    record,
     allowedStagedChildTranscripts: input.allowedStagedChildTranscripts
   })
   await preflightAgentConversationArchive({
@@ -71,24 +92,56 @@ export async function saveAgentConversationArchive(input: {
     record: persistedRecord,
     paths
   })
+  await input.beforeCanonicalSave?.(persistedRecord)
   const canonicalJson = renderCanonicalConversationJson(input.workspace, persistedRecord)
   const canonicalMarkdown = renderAgentConversationMarkdown(input.workspace, persistedRecord)
 
-  await atomicWriteFile(paths.json, canonicalJson)
-  await atomicWriteFile(paths.markdown, canonicalMarkdown)
-  await appendAgentConversationSessionAuditLog({ rootPath: input.workspace.rootPath, record: persistedRecord })
-  await appendLearningWorkLedgerSnapshot({
-    rootPath: input.workspace.rootPath,
-    workspace: input.workspace,
-    record: persistedRecord
-  })
+  const persistCanonicalArchive = async (): Promise<void> => {
+    // Preserve the legacy writeFile create-mode contract (0666 subject to the
+    // process umask) while publishing each canonical projection through the
+    // shared file-and-directory durable-replace boundary. This remains two
+    // ordered publishes, not a multi-file transaction.
+    await replaceDurably({
+      path: paths.json,
+      content: canonicalJson,
+      mode: 0o666,
+      operations: input.durableFileOperations,
+      warn: input.durableWarn
+    })
+    await replaceDurably({
+      path: paths.markdown,
+      content: canonicalMarkdown,
+      mode: 0o666,
+      operations: input.durableFileOperations,
+      warn: input.durableWarn
+    })
+    await appendAgentConversationSessionAuditLog({
+      rootPath: input.workspace.rootPath,
+      record: persistedRecord,
+      operations: input.sessionAuditOperations,
+      warn: input.sessionAuditWarn
+    })
+  }
+  if (input.skipLearningWorkLedger) {
+    await persistCanonicalArchive()
+  } else {
+    // The ledger serializes identity verification with this callback. A trace
+    // collision therefore rejects before canonical files can be overwritten.
+    await appendLearningWorkLedgerSnapshot({
+      rootPath: input.workspace.rootPath,
+      workspace: input.workspace,
+      record: persistedRecord,
+      beforeAppend: persistCanonicalArchive
+    })
+  }
 
   await verifyAgentConversationArchive({
     workspace: input.workspace,
     record: persistedRecord,
     paths,
     canonicalJson,
-    canonicalMarkdown
+    canonicalMarkdown,
+    skipLearningWorkLedger: input.skipLearningWorkLedger
   })
 }
 
@@ -148,6 +201,7 @@ function renderCanonicalConversationJson(
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     relativePath: record.relativePath,
+    traceId: normalizeTraceId(record.traceId),
     branch: record.branch,
     turns: record.turns
   }, null, 2)}\n`
@@ -180,12 +234,13 @@ async function verifyAgentConversationArchive(input: {
   paths: ArchivePaths
   canonicalJson: string
   canonicalMarkdown: string
+  skipLearningWorkLedger?: boolean
 }): Promise<void> {
-  const [json, markdown, audit, ledger] = await Promise.all([
+  const [json, markdown, audit, ledgerLines] = await Promise.all([
     readFile(input.paths.json, 'utf8'),
     readFile(input.paths.markdown, 'utf8'),
     readFile(input.paths.audit, 'utf8'),
-    readFile(input.paths.ledger, 'utf8')
+    readLearningWorkLedgerLines(input.workspace.rootPath)
   ])
   if (json !== input.canonicalJson) throw new Error('Conversation archive JSON verification failed.')
   if (markdown !== input.canonicalMarkdown) throw new Error('Conversation archive Markdown verification failed.')
@@ -214,16 +269,29 @@ async function verifyAgentConversationArchive(input: {
     if (!auditIds.has(entry.id)) throw new Error('Conversation archive session audit is incomplete.')
   }
 
+  if (input.skipLearningWorkLedger) return
   const expectedLedgerEntry = buildLearningWorkLedgerEntry(input.workspace, input.record)
-  const hasLedgerEntry = ledger.split(/\r?\n/).some((line) => {
+  let hasLedgerEntry = false
+  for (const line of ledgerLines) {
     const entry = safeParseJson(line)
-    if (!entry || typeof entry !== 'object') return false
-    const candidate = entry as { entryId?: unknown; conversation?: { relativePath?: unknown; jsonRelativePath?: unknown; sessionAuditRelativePath?: unknown } }
-    return candidate.entryId === expectedLedgerEntry.entryId &&
+    if (!entry || typeof entry !== 'object') continue
+    const candidate = entry as {
+      entryId?: unknown
+      traceId?: unknown
+      conversation?: { relativePath?: unknown; jsonRelativePath?: unknown; sessionAuditRelativePath?: unknown }
+    }
+    if (candidate.entryId !== expectedLedgerEntry.entryId) continue
+    if (!traceIdsMatchForIdempotency(candidate.traceId, expectedLedgerEntry.traceId)) {
+      throw new Error('Conversation archive learning-work ledger trace does not match its canonical record.')
+    }
+    if (
       candidate.conversation?.relativePath === input.paths.markdownRelativePath &&
       candidate.conversation?.jsonRelativePath === input.paths.jsonRelativePath &&
       candidate.conversation?.sessionAuditRelativePath === input.paths.auditRelativePath
-  })
+    ) {
+      hasLedgerEntry = true
+    }
+  }
   if (!hasLedgerEntry) throw new Error('Conversation archive learning-work ledger is incomplete.')
 }
 
@@ -423,11 +491,4 @@ function safeParseJson(text: string): unknown {
   } catch {
     return null
   }
-}
-
-async function atomicWriteFile(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
-  await writeFile(tempPath, content, 'utf8')
-  await rename(tempPath, path)
 }

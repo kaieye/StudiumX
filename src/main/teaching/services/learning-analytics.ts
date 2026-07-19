@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { LocalDataIndex, LocalDataIndexTokenEvidenceAdapters } from '../../local-data-index'
 import {
   LearningAnalyticsSourcePlan,
   type LearningAnalyticsInvalidation,
@@ -46,7 +47,8 @@ import {
   createDurableConversationEvidenceAdapter,
   createDurableTemporaryConversationEvidenceAdapter,
   createLearningWorkLedgerEvidenceAdapter,
-  discoverTokenEvidence
+  discoverTokenEvidence,
+  type TokenEvidenceAdapters
 } from './analytics/token-evidence'
 
 export { aggregateTokenFacts, collectConversationTokenFacts, readLatestLedgerSnapshots } from './analytics/token-evidence'
@@ -84,6 +86,8 @@ export type LearningAnalyticsDependencies = {
   getConnectorStatuses?: () => Promise<ConnectorStatusesResult>
   listWorkspaceChanges?: (workspaceId: string) => Promise<TeachingWorkspaceChangeSummary[]>
   now?: () => Date
+  /** Optional main-process-only SQLite projection. File scanning remains the fallback. */
+  localDataIndex?: LocalDataIndex
 }
 
 type AnalyticsPlanContext = {
@@ -411,6 +415,34 @@ export class LearningAnalyticsService {
     return digest(stableJson({ header: sourceHeaderIdentity(header), changes: await collectPathVersions([join(this.dependencies.appDataRoot, 'learning-changes', 'history.json')]) }))
   }
 
+  private withCanonicalTokenEvidenceFallback(indexed: LocalDataIndexTokenEvidenceAdapters, durable: TokenEvidenceAdapters): TokenEvidenceAdapters {
+    return {
+      conversations: {
+        read: async (workspaceId, conversationId) => {
+          const result = await indexed.conversations.read(workspaceId, conversationId)
+          return result.state === 'unavailable' ? durable.conversations.read(workspaceId, conversationId) : result
+        }
+      },
+      ...(durable.temporaryConversations ? {
+        temporaryConversations: {
+          read: async (workspaceId: string | undefined, conversationId: string) => {
+            const result = await indexed.temporaryConversations.read(workspaceId, conversationId)
+            return result.state === 'unavailable'
+              ? durable.temporaryConversations!.read(workspaceId, conversationId)
+              : result
+          }
+        }
+      } : {}),
+      ledger: {
+        read: async (workspace) => {
+          const result = await indexed.ledger.read(workspace)
+          if ('state' in result) return durable.ledger.read(workspace)
+          return result
+        }
+      }
+    }
+  }
+
   private async scanTokens(query: LearningAnalyticsQuery, header: ScanHeader, inheritedWarnings: AnalyticsWarning[]): Promise<TokenScanResult> {
     const { selected, temporaryConversations } = header
     if (query.scope.teaching.kind === 'none' && temporaryConversations.length === 0) {
@@ -420,18 +452,26 @@ export class LearningAnalyticsService {
       return { section: unavailableSection(queryTemporal(query), coverage(query, true, [], [], false), 'no_active_workspace', inheritedWarnings) }
     }
 
+    // The SQLite projection is used only when it is complete and its source identity
+    // still matches canonical files. The adapter boundary repeats that exact check
+    // immediately before each SQLite statement; an unavailable index query falls
+    // through to the canonical file adapters rather than looking like empty data.
+    const durableAdapters: TokenEvidenceAdapters = {
+      conversations: createDurableConversationEvidenceAdapter(this.dependencies.readConversation),
+      ...(this.dependencies.readTemporaryConversation ? {
+        temporaryConversations: createDurableTemporaryConversationEvidenceAdapter(this.dependencies.readTemporaryConversation)
+      } : {}),
+      ledger: createLearningWorkLedgerEvidenceAdapter()
+    }
+    const indexedAdapters = this.dependencies.localDataIndex && await this.dependencies.localDataIndex.isCompleteForCurrentSources()
+      ? this.dependencies.localDataIndex.tokenEvidenceAdapters()
+      : null
     const evidence = await discoverTokenEvidence({
       query,
       workspaces: selected,
       temporaryConversations,
       inheritedWarnings,
-      adapters: {
-        conversations: createDurableConversationEvidenceAdapter(this.dependencies.readConversation),
-        ...(this.dependencies.readTemporaryConversation ? {
-          temporaryConversations: createDurableTemporaryConversationEvidenceAdapter(this.dependencies.readTemporaryConversation)
-        } : {}),
-        ledger: createLearningWorkLedgerEvidenceAdapter()
-      }
+      adapters: indexedAdapters ? this.withCanonicalTokenEvidenceFallback(indexedAdapters, durableAdapters) : durableAdapters
     })
     const data = aggregateTokenFacts(evidence.rangedFacts, evidence.toolFacts, evidence.counters)
     const complete = evidence.complete && header.temporaryWarnings.length === 0

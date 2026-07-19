@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { isPathInsideRoot } from './path-access'
 import {
@@ -11,6 +11,8 @@ import {
   workspaceRelativePath,
   type WorkspacePathMeta
 } from './teaching-workspace-paths'
+import { requireSafeTeachingRelativePath } from '../shared/teaching-placement'
+import { normalizeTraceId } from '../shared/trace-context'
 import {
   agentConversationCourseJsonScanDirectories,
   agentConversationJsonScanDirectories,
@@ -25,6 +27,11 @@ import {
 } from './agent-conversation-session-audit'
 import { saveAgentConversationArchive } from './agent-conversation-archive'
 import { sanitizeAgentConversationTurns, sanitizeAgentTurnContent } from '../shared/agent-conversation-turns'
+import {
+  hasPersistedAgentParentTurnProof,
+  sanitizePersistedConversationTitle,
+  sanitizePersistedUserHistory
+} from '../shared/agent-persisted-history'
 import type {
   AgentArtifactRef,
   AgentChildRunMetadata,
@@ -93,7 +100,8 @@ export async function nextAgentConversationId(
   title: string,
   timestamp: string
 ): Promise<string> {
-  const base = `chat-${formatConversationTimestamp(new Date(timestamp))}-${slugify(title, 'conversation')}`.slice(0, 96)
+  const safeTitle = sanitizePersistedConversationTitle(title)
+  const base = `chat-${formatConversationTimestamp(new Date(timestamp))}-${slugify(safeTitle, 'conversation')}`.slice(0, 96)
   let id = requireSafeAgentConversationId(base)
   let suffix = 2
   while (await agentConversationIdExists(rootPath, id)) {
@@ -125,17 +133,29 @@ export async function readRawAgentConversationRecord(
 export type PersistedAgentConversationRecord = {
   jsonRelativePath: string
   record: AgentConversationRecord
+  /** SHA-256 of the exact canonical JSON bytes that produced record. */
+  sourceFingerprint?: string
 }
 
 /** Enumerates canonical persisted records for rebuild-only consumers such as the history index. */
 export async function listPersistedAgentConversationRecords(
-  rootPath: string
+  rootPath: string,
+  options: { excludeDeleted?: boolean } = {}
 ): Promise<PersistedAgentConversationRecord[]> {
+  // Keep strict C-2B validation and duplicate detection in this canonical reader.
+  // Rebuild consumers must fail closed rather than silently indexing a weakened parse.
   const relativePaths = await collectAgentConversationJsonRelativePaths(rootPath)
-  return Promise.all(relativePaths.map(async (jsonRelativePath) => ({
-    jsonRelativePath,
-    record: await readAgentConversationRecordAt(rootPath, jsonRelativePath, { hydrateArtifacts: false })
-  })))
+  const records = await Promise.all(relativePaths.map(async (jsonRelativePath) => {
+    const source = await readFile(join(rootPath, jsonRelativePath))
+    return {
+      jsonRelativePath,
+      // Parse the same immutable Buffer whose digest the projection persists; never
+      // pair a record parsed from one read with a digest from a later read.
+      record: await parseAgentConversationRecordSource(rootPath, jsonRelativePath, source.toString('utf8'), { hydrateArtifacts: false }),
+      sourceFingerprint: createHash('sha256').update(source).digest('hex')
+    }
+  }))
+  return options.excludeDeleted ? records.filter((item) => item.record.branch?.status !== 'deleted') : records
 }
 
 /**
@@ -168,58 +188,73 @@ export async function readAgentConversationChildTranscript(
 export async function writeAgentConversationRecord(
   workspace: AgentConversationWorkspace,
   record: AgentConversationRecord,
-  options: { allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[] } = {}
+  options: {
+    allowedStagedChildTranscripts?: readonly AgentStagedChildTranscriptAllowance[]
+    skipLearningWorkLedger?: boolean
+    beforeCanonicalSave?: (record: AgentConversationRecord) => Promise<void>
+  } = {}
 ): Promise<void> {
   await saveAgentConversationArchive({
     workspace,
     record,
-    allowedStagedChildTranscripts: options.allowedStagedChildTranscripts
+    allowedStagedChildTranscripts: options.allowedStagedChildTranscripts,
+    skipLearningWorkLedger: options.skipLearningWorkLedger,
+    beforeCanonicalSave: options.beforeCanonicalSave
   })
 }
 
-export function agentParentTurnDigest(turns: readonly AgentChatTurn[]): string {
-  const assistantIndex = turns.findLastIndex((turn) => turn.role === 'assistant')
-  const assistant = assistantIndex >= 0 ? turns[assistantIndex] : null
-  const user = assistantIndex >= 0
-    ? turns.slice(0, assistantIndex).findLast((turn) => turn.role === 'user')
-    : null
-  if (!user || !assistant) throw new Error('A parent turn digest requires a user turn followed by an assistant turn.')
-  const projection = {
-    user: { id: user.id, content: user.content, createdAt: user.createdAt },
-    assistant: { id: assistant.id, content: assistant.content, createdAt: assistant.createdAt }
-  }
-  return createHash('sha256').update(JSON.stringify(projection)).digest('hex')
+const LEGACY_PARENT_TURN_DIGEST_DISABLED = 'legacy-parent-turn-digest-disabled'
+
+/**
+ * @deprecated Kept only so older consumers still compile. It no longer hashes
+ * raw turns and always returns a fixed non-secret sentinel; do not use it for
+ * persistence, recovery, or equality checks. Use the archive's
+ * `beforeCanonicalSave` callback and the canonical parent-turn proof instead.
+ */
+export function agentParentTurnDigest(_turns: readonly AgentChatTurn[]): string {
+  return LEGACY_PARENT_TURN_DIGEST_DISABLED
 }
 
+/**
+ * The optional third argument is accepted for source compatibility with the
+ * legacy raw-digest API, but is deliberately ignored. New durable records
+ * never persist it; the archive binds a sanitized canonical proof instead.
+ */
 export function attachAgentParentTurnCommit(
   turns: readonly AgentChatTurn[],
   runId: string,
-  digest: string
+  _legacyDigest?: string
 ): AgentChatTurn[] {
   const assistantIndex = turns.findLastIndex((turn) => turn.role === 'assistant')
   if (assistantIndex < 0) throw new Error('A saved parent turn requires an assistant turn.')
-  return turns.map((turn, index) => index === assistantIndex
-    ? {
-        ...turn,
-        metadata: {
-          ...(turn.metadata ?? { version: 1 as const }),
-          version: 1,
-          runId,
-          parentTurnDigest: digest
-        }
+  return turns.map((turn, index) => {
+    if (index !== assistantIndex) return turn
+    const { parentTurnDigest: _previousLegacyDigest, ...metadata } = turn.metadata ?? { version: 1 as const }
+    return {
+      ...turn,
+      metadata: {
+        ...metadata,
+        version: 1,
+        runId,
+        // The durable archive boundary binds the final canonical sanitized
+        // representation to a non-secret proof after artifact promotion.
+        parentTurnProof: undefined
       }
-    : turn)
+    }
+  })
 }
 
+/**
+ * Settles a recovered run only when the durable safe proof exactly matches the
+ * canonical sanitized parent-turn prefix. Legacy raw digests deliberately do
+ * not receive a marker-based fallback.
+ */
 export function hasAgentParentTurnCommit(
   turns: readonly AgentChatTurn[],
   runId: string,
-  digest: string
+  proofDigest: string
 ): boolean {
-  return turns.some((turn, index) => turn.role === 'assistant' &&
-    turn.metadata?.runId === runId &&
-    turn.metadata.parentTurnDigest === digest &&
-    agentParentTurnDigest(turns.slice(0, index + 1)) === digest)
+  return hasPersistedAgentParentTurnProof(turns, runId, proofDigest)
 }
 
 export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[] {
@@ -299,8 +334,15 @@ function normalizeAgentProcessEventKind(value: unknown): AgentChatProcessEvent['
 
 export function deriveConversationTitle(turns: AgentChatTurn[], timestamp: string): string {
   const firstUserContent = cleanText(turns.find((turn) => turn.role === 'user')?.content)
-  if (firstUserContent) return firstUserContent.length > 48 ? `${firstUserContent.slice(0, 48)}...` : firstUserContent
-  return `Conversation ${formatDate(new Date(timestamp))}`
+  // Redact before truncating. Truncating first can leave a 31-character
+  // prefix of an unknown credential that no longer satisfies token detection,
+  // then leak through a title, generated filename, or workspace event.
+  const sanitized = firstUserContent ? sanitizePersistedUserHistory(firstUserContent) : null
+  const safeUserContent = sanitized?.kind === 'redacted' ? sanitized.text : ''
+  const candidate = safeUserContent
+    ? (safeUserContent.length > 48 ? `${safeUserContent.slice(0, 48)}...` : safeUserContent)
+    : `Conversation ${formatDate(new Date(timestamp))}`
+  return sanitizePersistedConversationTitle(candidate)
 }
 
 export async function ensureTeachingContentDirectories(rootPath: string): Promise<void> {
@@ -370,12 +412,25 @@ async function readAgentConversationRecordAt(
   options: { hydrateArtifacts?: boolean } = {}
 ): Promise<AgentConversationRecord> {
   const normalizedJsonRelativePath = normalizeWorkspaceRelativePath(jsonRelativePath)
+  const jsonPath = join(rootPath, normalizedJsonRelativePath)
+  if (!isPathInsideRoot(rootPath, jsonPath)) throw new Error('Conversation path is outside the workspace.')
+  return parseAgentConversationRecordSource(rootPath, normalizedJsonRelativePath, await readFile(jsonPath, 'utf8'), options)
+}
+
+/** Parses a previously captured canonical source read without touching the file again. */
+export async function parseAgentConversationRecordSource(
+  rootPath: string,
+  jsonRelativePath: string,
+  content: string,
+  options: { hydrateArtifacts?: boolean } = {}
+): Promise<AgentConversationRecord> {
+  const normalizedJsonRelativePath = normalizeWorkspaceRelativePath(jsonRelativePath)
   const jsonPathInfo = describeAgentConversationPath(normalizedJsonRelativePath)
   if (!jsonPathInfo || jsonPathInfo.format !== 'json') throw new Error('Conversation JSON path is invalid.')
   const id = requireCanonicalAgentConversationId(jsonPathInfo.id)
   const jsonPath = join(rootPath, normalizedJsonRelativePath)
   if (!isPathInsideRoot(rootPath, jsonPath)) throw new Error('Conversation path is outside the workspace.')
-  const parsed = safeJsonParse(await readFile(jsonPath, 'utf8'))
+  const parsed = safeJsonParse(content)
   if (!parsed || typeof parsed !== 'object') throw new Error('Conversation record is invalid.')
   const record = parsed as Record<string, unknown>
   if (record.id !== id) throw new Error('Conversation record id does not match its JSON basename.')
@@ -399,6 +454,7 @@ async function readAgentConversationRecordAt(
     throw new Error('Conversation record relativePath is not bound to its JSON basename.')
   }
   const relativePath = storedMarkdownRelativePath || agentConversationMarkdownRelativePath(id, conversationDir)
+  const traceId = normalizeTraceId(record.traceId)
   const conversationRecord: AgentConversationRecord = {
     id,
     workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
@@ -408,6 +464,7 @@ async function readAgentConversationRecordAt(
     relativePath,
     absolutePath: join(rootPath, relativePath),
     messageCount: turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant').length,
+    traceId,
     branch: normalizeAgentConversationBranchMetadata(record.branch, id),
     turns
   }
@@ -559,9 +616,10 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
   const toolResults = normalizeToolResults(record.toolResults)
   const runUsage = normalizeRunUsage(record.runUsage)
   const runId = typeof record.runId === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(record.runId) ? record.runId : undefined
-  const parentTurnDigest = typeof record.parentTurnDigest === 'string' && /^[a-f0-9]{64}$/.test(record.parentTurnDigest)
-    ? record.parentTurnDigest
-    : undefined
+  // Legacy raw parent-turn digests are intentionally discarded while
+  // normalizing durable input: they allow offline equality checks against a
+  // candidate secret. Recovery requires the non-secret safe proof instead.
+  const parentTurnProof = normalizePersistedParentTurnProof(record.parentTurnProof)
   const provenance = normalizeAgentTurnProvenance(record.provenance)
   const metadata: AgentTurnMetadata = {
     version: 1,
@@ -573,7 +631,7 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     toolResults: toolResults.length > 0 ? toolResults : undefined,
     runUsage,
     runId,
-    parentTurnDigest,
+    parentTurnProof,
     provenance
   }
   return metadata.sources ||
@@ -584,10 +642,18 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     metadata.toolResults ||
     metadata.runUsage ||
     metadata.runId ||
-    metadata.parentTurnDigest ||
+    metadata.parentTurnProof ||
     metadata.provenance
     ? metadata
     : undefined
+}
+
+function normalizePersistedParentTurnProof(value: unknown): AgentTurnMetadata['parentTurnProof'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (record.schemaVersion !== 1 || record.algorithm !== 'sha256' ||
+    typeof record.digest !== 'string' || !/^[a-f0-9]{64}$/.test(record.digest)) return undefined
+  return { schemaVersion: 1, algorithm: 'sha256', digest: record.digest }
 }
 
 function normalizeSources(value: unknown): AgentSourceMetadata[] {
@@ -859,27 +925,87 @@ async function collectAgentConversationJsonRelativePaths(
   const includeCourses = options.includeCourses ?? true
   const result: string[] = []
   for (const directory of agentConversationJsonScanDirectories(options)) {
-    const entries = await readdir(join(rootPath, directory), { withFileTypes: true }).catch(() => [])
-    for (const entry of entries) {
-      if (entry.isFile() && isAgentConversationRecordFileName(entry.name)) {
-        result.push(workspaceRelativePath(directory, entry.name))
+    await collectAgentConversationJsonFilesInBaseDirectory(rootPath, directory, result)
+  }
+  if (includeCourses) {
+    const courseEntries = await readAgentConversationDirectoryEntries(rootPath, 'courses')
+    for (const courseEntry of courseEntries) {
+      // Dirent#isDirectory is false for symlinks. Do not follow a course root
+      // or recurse into an arbitrary entry name.
+      if (!courseEntry.isDirectory() || !isSafeAgentConversationDirectoryEntryName(courseEntry.name)) continue
+      for (const directory of agentConversationCourseJsonScanDirectories(courseEntry.name)) {
+        await collectAgentConversationJsonFilesInBaseDirectory(rootPath, directory, result)
       }
     }
   }
-  if (!includeCourses) return result
-  const courseEntries = await readdir(join(rootPath, 'courses'), { withFileTypes: true }).catch(() => [])
-  for (const courseEntry of courseEntries) {
-    if (!courseEntry.isDirectory()) continue
-    for (const directory of agentConversationCourseJsonScanDirectories(courseEntry.name)) {
-      const entries = await readdir(join(rootPath, directory), { withFileTypes: true }).catch(() => [])
-      for (const entry of entries) {
-        if (entry.isFile() && isAgentConversationRecordFileName(entry.name)) {
-          result.push(workspaceRelativePath(directory, entry.name))
+  return assertUniqueAgentConversationIds(result)
+}
+
+/** Scans one base at exactly depth 0 (legacy) and depth 2 (UTC YYYY/MM). */
+async function collectAgentConversationJsonFilesInBaseDirectory(
+  rootPath: string,
+  directory: string,
+  out: string[]
+): Promise<void> {
+  const entries = await readAgentConversationDirectoryEntries(rootPath, directory)
+  for (const entry of entries) {
+    if (entry.isFile() && isAgentConversationRecordFileName(entry.name)) {
+      out.push(workspaceRelativePath(directory, entry.name))
+      continue
+    }
+    if (!entry.isDirectory() || !isAgentConversationUtcYear(entry.name)) continue
+    const yearDirectory = workspaceRelativePath(directory, entry.name)
+    const monthEntries = await readAgentConversationDirectoryEntries(rootPath, yearDirectory)
+    for (const monthEntry of monthEntries) {
+      if (!monthEntry.isDirectory() || !isAgentConversationUtcMonth(monthEntry.name)) continue
+      const monthDirectory = workspaceRelativePath(yearDirectory, monthEntry.name)
+      const files = await readAgentConversationDirectoryEntries(rootPath, monthDirectory)
+      for (const file of files) {
+        if (file.isFile() && isAgentConversationRecordFileName(file.name)) {
+          out.push(workspaceRelativePath(monthDirectory, file.name))
         }
       }
     }
   }
-  return result
+}
+
+/** Never follow symlinked bases, partitions, or files while discovering records. */
+async function readAgentConversationDirectoryEntries(rootPath: string, relativePath: string) {
+  const targetPath = join(rootPath, relativePath)
+  if (!isPathInsideRoot(rootPath, targetPath)) return []
+  const metadata = await lstat(targetPath).catch(() => null)
+  if (!metadata || metadata.isSymbolicLink() || !metadata.isDirectory()) return []
+  return readdir(targetPath, { withFileTypes: true }).catch(() => [])
+}
+
+function assertUniqueAgentConversationIds(relativePaths: readonly string[]): string[] {
+  const pathsById = new Map<string, string>()
+  for (const relativePath of relativePaths) {
+    const info = describeAgentConversationPath(relativePath)
+    if (!info || info.format !== 'json') continue
+    const existing = pathsById.get(info.id)
+    if (existing && existing !== relativePath) {
+      throw new Error(`Duplicate conversation id "${info.id}" is present at "${existing}" and "${relativePath}".`)
+    }
+    pathsById.set(info.id, relativePath)
+  }
+  return [...relativePaths].sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true, sensitivity: 'variant' }))
+}
+
+function isAgentConversationUtcYear(value: string): boolean {
+  return /^\d{4}$/.test(value)
+}
+
+function isAgentConversationUtcMonth(value: string): boolean {
+  return /^(0[1-9]|1[0-2])$/.test(value)
+}
+
+function isSafeAgentConversationDirectoryEntryName(value: string): boolean {
+  try {
+    return requireSafeTeachingRelativePath(value, 'Course folder') === value
+  } catch {
+    return false
+  }
 }
 
 function isAgentConversationRecordFileName(fileName: string): boolean {
@@ -898,7 +1024,7 @@ async function agentConversationIdExists(rootPath: string, id: string): Promise<
     .some((relativePath) => describeAgentConversationPath(relativePath)?.id === safeId)
 }
 
-async function findAgentConversationJsonRelativePath(rootPath: string, id: string): Promise<string> {
+export async function findAgentConversationJsonRelativePath(rootPath: string, id: string): Promise<string> {
   const safeId = requireCanonicalAgentConversationId(id)
   const matches = (await collectAgentConversationJsonRelativePaths(rootPath))
     .filter((relativePath) => describeAgentConversationPath(relativePath)?.id === safeId)
@@ -908,6 +1034,73 @@ async function findAgentConversationJsonRelativePath(rootPath: string, id: strin
     throw new Error(`Conversation id "${safeId}" is ambiguous within this storage root.`)
   }
   return matches[0]
+}
+
+/**
+ * Resolves an explicitly requested C-2C id without invoking the canonical
+ * collection scanner. The only candidates are the fixed non-course bases and
+ * their flat location plus the UTC partition inferred from the canonical
+ * timestamp-bearing id (with adjacent months for local-vs-UTC boundaries).
+ *
+ * Canonical readers intentionally keep their full historical discovery and
+ * duplicate-detection semantics in `findAgentConversationJsonRelativePath`.
+ * C-2C is an explicit, bounded maintenance command: it never accepts a path
+ * from the renderer and returns not-found rather than broadening discovery.
+ */
+export async function findExplicitAgentConversationJsonRelativePath(
+  rootPath: string,
+  id: string,
+  options: { lstat?: typeof lstat } = {}
+): Promise<string> {
+  const safeId = requireCanonicalAgentConversationId(id)
+  const lstatFile = options.lstat ?? lstat
+  const matches: string[] = []
+  for (const relativePath of explicitAgentConversationJsonRelativePathCandidates(safeId)) {
+    const metadata = await lstatFile(join(rootPath, relativePath)).catch((error: unknown) => {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null
+      throw error
+    })
+    if (!metadata) continue
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      throw new Error('Explicit conversation source is not a regular file.')
+    }
+    matches.push(relativePath)
+  }
+  if (matches.length === 0) throw new Error('Conversation not found.')
+  if (matches.length > 1) {
+    throw new Error(`Conversation id "${safeId}" is ambiguous within bounded C-2C locations.`)
+  }
+  return matches[0]!
+}
+
+function explicitAgentConversationJsonRelativePathCandidates(id: string): string[] {
+  const bases = agentConversationJsonScanDirectories({ includeCourses: false })
+  const candidates = new Set(bases.map((directory) => workspaceRelativePath(directory, `${id}.json`)))
+  const partition = conversationPartitionFromCanonicalId(id)
+  if (partition) {
+    for (const directory of bases) {
+      for (const { year, month } of [partition, adjacentConversationPartition(partition, -1), adjacentConversationPartition(partition, 1)]) {
+        candidates.add(workspaceRelativePath(directory, year, month, `${id}.json`))
+      }
+    }
+  }
+  return [...candidates]
+}
+
+function conversationPartitionFromCanonicalId(id: string): { year: string; month: string } | null {
+  const match = /^chat-(\d{4})(\d{2})(\d{2})-\d{6}(?:-|$)/.exec(id)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null
+  return { year: match[1]!, month: match[2]! }
+}
+
+function adjacentConversationPartition(partition: { year: string; month: string }, delta: number): { year: string; month: string } {
+  const date = new Date(Date.UTC(Number(partition.year), Number(partition.month) - 1 + delta, 1))
+  return { year: String(date.getUTCFullYear()).padStart(4, '0'), month: String(date.getUTCMonth() + 1).padStart(2, '0') }
 }
 
 function formatConversationTimestamp(date: Date): string {

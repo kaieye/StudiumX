@@ -198,13 +198,14 @@ async function verifyStagedTranscript(input: {
   childRunId: string
   archive: ChildTranscriptArchive
   expectedPath: 'MISSION.md' | 'RESOURCES.md'
-  expectedToolMarker: string
+  sensitiveToolMarker: string
 }): Promise<void> {
   const text = await readFile(join(input.storageRoot, input.archive.relativePath), 'utf8')
   assert.equal(Buffer.byteLength(text, 'utf8'), input.archive.bytes)
   assert.equal(text.split(/\r\n|\r|\n/).length, input.archive.lines)
   assert.match(text, new RegExp(CHILD_SYSTEM_MARKER))
-  assert.match(text, new RegExp(input.expectedToolMarker))
+  assert.equal(text.includes(input.sensitiveToolMarker), false, 'the archived transcript must redact sensitive tool text')
+  assert.match(text, /\[redacted\]/)
 
   const transcript = JSON.parse(text) as ChildTranscriptDocument
   assert.equal(transcript.version, 1)
@@ -215,7 +216,8 @@ async function verifyStagedTranscript(input: {
   assert.match(String(transcript.messages?.[1]?.content ?? ''), new RegExp(input.expectedPath.replace('.', '\\.')))
   assert.equal(transcript.messages?.[2]?.tool_calls?.[0]?.function?.name, 'read_workspace_file')
   assert.match(transcript.messages?.[2]?.tool_calls?.[0]?.function?.arguments ?? '', new RegExp(input.expectedPath.replace('.', '\\.')))
-  assert.match(String(transcript.messages?.[3]?.content ?? ''), new RegExp(input.expectedToolMarker))
+  assert.equal(String(transcript.messages?.[3]?.content ?? '').includes(input.sensitiveToolMarker), false)
+  assert.match(String(transcript.messages?.[3]?.content ?? ''), /\[redacted\]/)
   assert.ok(String(transcript.messages?.[4]?.content ?? '').trim(), 'child transcript should include the final assistant summary')
 }
 
@@ -325,7 +327,7 @@ try {
     childRunId: delegationPayload.childRunId,
     archive: delegationArchive,
     expectedPath: 'MISSION.md',
-    expectedToolMarker: MISSION_TRANSCRIPT_MARKER
+    sensitiveToolMarker: MISSION_TRANSCRIPT_MARKER
   })
   assertNoChildTranscriptLeak('delegation tool JSON', delegationToolResult, MISSION_TRANSCRIPT_MARKER)
   const delegationJournal = await readFile(
@@ -437,7 +439,7 @@ try {
       childRunId: child.childRunId,
       archive,
       expectedPath: expected.path,
-      expectedToolMarker: expected.marker
+      sensitiveToolMarker: expected.marker
     })
     const journal = await readFile(
       join(tempRoot, '.agent-sessions', 'child-runs', DELEGATION_STREAM_ID, `${child.childRunId}.json`),

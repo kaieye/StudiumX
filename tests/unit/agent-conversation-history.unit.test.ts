@@ -243,6 +243,28 @@ describe('Agent archived history index', () => {
     expect(rebuilt.issues.some((issue) => issue.code === 'session_audit_invalid_json')).toBe(true)
     expect(rebuilt.index.items.filter((item) => item.type === 'session_sidecar')).toHaveLength(2)
   })
+
+  it('projects a legacy raw record into a redacted index without rewriting canonical source bytes', async () => {
+    const rootPath = await createRoot()
+    const secret = 'sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'
+    const record = createRecord('legacy-private', [
+      createTurn('turn-1', 'user', `Review OAuth with OPENAI_API_KEY=${secret}`, '2026-07-14T08:00:00.000Z'),
+      createTurn('turn-2', 'assistant', 'Use a short-lived authorization code.', '2026-07-14T08:01:00.000Z')
+    ])
+    record.title = `OPENAI_API_KEY=${secret}`
+    const canonicalPath = join(rootPath, 'conversations', 'legacy-private.json')
+    const legacyBytes = JSON.stringify({ title: record.title, turns: record.turns })
+    await mkdir(dirname(canonicalPath), { recursive: true })
+    await writeFile(canonicalPath, legacyBytes, 'utf8')
+
+    await rebuildAgentConversationHistoryIndex({ rootPath, records: [record] })
+
+    expect(await readFile(canonicalPath, 'utf8')).toBe(legacyBytes)
+    const index = await readFile(join(rootPath, AGENT_CONVERSATION_HISTORY_INDEX_RELATIVE_PATH), 'utf8')
+    expect(index).not.toContain(secret)
+    expect(index).toContain('Review OAuth')
+  })
+
 })
 
 function createRecord(id: string, turns: AgentChatTurn[]): AgentConversationRecord {

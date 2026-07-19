@@ -7,11 +7,12 @@ import { join } from 'node:path'
 
 import { AgentRunStore, DEFAULT_AGENT_RUN_BUDGET } from '../../src/main/ai/agent-run-store'
 import {
-  agentParentTurnDigest,
   attachAgentParentTurnCommit,
   hasAgentParentTurnCommit,
   normalizeAgentConversationTurns
 } from '../../src/main/teaching-agent-conversations'
+import { parentTurnStageSafeTextDigest } from '../../src/main/ai/agent-parent-turn-staging'
+import { persistedAgentParentTurnProof, sanitizePersistedAgentConversationRecord } from '../../src/shared/agent-persisted-history'
 import type { AgentChatTurn } from '../../src/shared/teaching-types'
 
 const root = await mkdtemp(join(tmpdir(), 'studiumx-agent-parent-turn-staging-'))
@@ -55,7 +56,7 @@ try {
   const providerBeforeSummary = requireRun(providerBeforeRecovery, 'run-provider-before')
   assert.equal(providerBeforeSummary.previousStatus, 'running')
   assert.equal(providerBeforeSummary.userInputPreview, providerBeforeStage.userInput.preview)
-  assert.equal(providerBeforeSummary.userInputSha256, sha256(`请总结这段材料。 api_key=${inputSecret} ${inputPassword} ${inputQuotedPassword} ${inputJsonPassphrase}`))
+  assert.equal(providerBeforeSummary.userInputSha256, parentTurnStageSafeTextDigest(`请总结这段材料。 api_key=${inputSecret} ${inputPassword} ${inputQuotedPassword} ${inputJsonPassphrase}`))
   assert.equal(providerBeforeSummary.confirmedAssistantPreview, undefined)
 
   // Stream deltas are deliberately unrecoverable: count bytes/chunks, but never persist or confirm them.
@@ -257,27 +258,32 @@ try {
   assert.equal(awaitingSummary.confirmedAssistantPreview?.includes('[redacted]'), true)
   await assertFileExcludes(stagePath('run-awaiting-save'), [finalSecret, 'final phrase with spaces'])
 
-  // The durable conversation marker is stable across normalization and changes with turn content.
+  // The durable marker is a non-secret proof of the canonical sanitized prefix.
   const committedTurns: AgentChatTurn[] = [
     { id: 'user-marker', role: 'user', content: '请保存这个回答。', createdAt: '2026-07-14T01:00:00.000Z' },
     { id: 'assistant-marker', role: 'assistant', content: '这是最终回答。', createdAt: '2026-07-14T01:00:01.000Z' }
   ]
-  const markerDigest = agentParentTurnDigest(committedTurns)
-  const markedTurns = attachAgentParentTurnCommit(committedTurns, 'run-marker', markerDigest)
+  const markedTurns = sanitizePersistedAgentConversationRecord({
+    id: 'conversation-marker', workspaceId: 'workspace-1', title: 'Marker',
+    createdAt: '2026-07-14T01:00:00.000Z', updatedAt: '2026-07-14T01:00:01.000Z',
+    relativePath: 'conversations/conversation-marker.md', absolutePath: '/unused', messageCount: 2,
+    turns: attachAgentParentTurnCommit(committedTurns, 'run-marker')
+  }).turns
+  const markerProof = markedTurns[1]?.metadata?.parentTurnProof?.digest
+  assert.ok(markerProof)
   const normalizedMarkedTurns = normalizeAgentConversationTurns(markedTurns)
-  assert.equal(agentParentTurnDigest(normalizedMarkedTurns), markerDigest)
-  assert.equal(hasAgentParentTurnCommit(normalizedMarkedTurns, 'run-marker', markerDigest), true)
+  assert.equal(persistedAgentParentTurnProof(normalizedMarkedTurns).digest, markerProof)
+  assert.equal(hasAgentParentTurnCommit(normalizedMarkedTurns, 'run-marker', markerProof), true)
   const tamperedMarkedTurns = normalizedMarkedTurns.map((turn) =>
     turn.role === 'assistant' ? { ...turn, content: '被修改的回答。' } : turn
   )
-  assert.notEqual(agentParentTurnDigest(tamperedMarkedTurns), markerDigest)
-  assert.equal(hasAgentParentTurnCommit(tamperedMarkedTurns, 'run-marker', markerDigest), false)
+  assert.equal(hasAgentParentTurnCommit(tamperedMarkedTurns, 'run-marker', markerProof), false)
   const appendedTurns: AgentChatTurn[] = [
     ...normalizedMarkedTurns,
     { id: 'user-later', role: 'user', content: '后续问题。', createdAt: '2026-07-14T01:01:00.000Z' },
     { id: 'assistant-later', role: 'assistant', content: '后续回答。', createdAt: '2026-07-14T01:01:01.000Z' }
   ]
-  assert.equal(hasAgentParentTurnCommit(appendedTurns, 'run-marker', markerDigest), true)
+  assert.equal(hasAgentParentTurnCommit(appendedTurns, 'run-marker', markerProof), true)
 
   // If the conversation commit is already durable, startup settles staging and reports nothing.
   await store.create({
@@ -295,7 +301,7 @@ try {
     if (stage.runId !== 'run-conversation-saved') return false
     savedCallbackCount += 1
     assert.equal(stage.targetConversationId, 'conversation-saved')
-    assert.equal(stage.expectedTurnDigest, 'b'.repeat(64))
+    assert.equal(stage.expectedParentTurnProof, 'b'.repeat(64))
     return true
   })
   assert.equal(savedRecovery.some((item) => item.runId === 'run-conversation-saved'), false)

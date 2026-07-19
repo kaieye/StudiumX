@@ -107,7 +107,7 @@ try {
       id: 'chat-invalid-placement',
       relativePath: 'notes/chat-invalid-placement.md'
     }),
-    /outside a conversations directory/
+    /canonically bound to its conversation id/
   )
 
   console.log('agent conversation durable archive boundaries ok')

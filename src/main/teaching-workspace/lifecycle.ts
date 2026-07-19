@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
   LESSON_FLASHCARD_CSS,
@@ -9,6 +9,7 @@ import {
   normalizeLessonStyleId
 } from '../../shared/lesson-styles'
 import type { LessonPlanSource } from '../../shared/lesson-schema'
+import { normalizeTraceId } from '../../shared/trace-context'
 import { LEARNING_SESSIONS_ROOT_RELATIVE_PATH } from '../../shared/teaching-placement'
 import type { LessonSummary, TeachingSettingsV1, WorkspaceItemKind } from '../../shared/teaching-types'
 import { normalizeLessonSummary } from '../teaching-workspace-catalog'
@@ -21,6 +22,8 @@ import {
   type WorkspacePathMeta
 } from '../teaching-workspace-paths'
 import type { RegistryWorkspace } from './registry'
+import { appendDurableJsonlLine, readDurableJsonlLines } from '../durable-jsonl'
+import { readValidatedWithBackup, replaceWithBackup } from '../persistence/durable-file'
 
 export type WorkspaceIndex = {
   id: string
@@ -37,6 +40,8 @@ export type WorkspaceLifecycleEvent = {
   kind: 'workspace_created' | 'workspace_imported' | 'mission_updated' | 'lesson_generated' | 'lesson_style_applied' | 'agent_conversation_recorded'
   timestamp: string
   workspaceId: string
+  /** Opaque diagnostic correlation metadata; never participates in lifecycle identity or filtering. */
+  traceId?: string
   prompt?: string
   paths?: string[]
   meta?: { source?: LessonPlanSource; reason?: string; model?: string; styleId?: string }
@@ -122,41 +127,66 @@ export function deriveWorkspaceTopic(prompt: string, fallback: string): string {
   return topic || cleanText(fallback) || '学习任务'
 }
 export async function loadWorkspaceIndex(workspace: RegistryWorkspace): Promise<WorkspaceIndex> {
+  const indexPath = join(workspace.rootPath, '.studiumx', 'index.json')
+  const recovered = await readValidatedWithBackup({
+    path: indexPath,
+    validate: isWorkspaceIndexDocument
+  })
+  if (recovered.value) return normalizeWorkspaceIndex(workspace, recovered.value)
+
+  const legacyIndexPath = join(workspace.rootPath, '.teachos', 'index.json')
   try {
-    const indexPath = join(workspace.rootPath, '.studiumx', 'index.json')
-    const parsed = JSON.parse(await readFile(indexPath, 'utf8')) as WorkspaceIndex
-    return {
-      id: workspace.id,
-      name: workspace.name,
-      rootPath: workspace.rootPath,
-      createdAt: parsed.createdAt ?? workspace.createdAt,
-      updatedAt: parsed.updatedAt ?? workspace.updatedAt,
-      lessons: Array.isArray(parsed.lessons)
-        ? parsed.lessons
-            .filter(isLessonSummary)
-            .map((lesson) => normalizeLessonSummary(workspace.rootPath, workspace.name, lesson))
-        : [],
-      pathMeta: normalizePathMeta(parsed.pathMeta)
-    }
-  } catch {
-    return {
-      id: workspace.id,
-      name: workspace.name,
-      rootPath: workspace.rootPath,
-      createdAt: workspace.createdAt,
-      updatedAt: workspace.updatedAt,
-      lessons: []
-    }
+    const parsed = JSON.parse(await readFile(legacyIndexPath, 'utf8')) as unknown
+    return isWorkspaceIndexDocument(parsed)
+      ? normalizeWorkspaceIndex(workspace, parsed)
+      : emptyWorkspaceIndex(workspace)
+  } catch (error) {
+    if (isMissingFile(error) || error instanceof SyntaxError) return emptyWorkspaceIndex(workspace)
+    throw error
   }
 }
 
 export async function saveWorkspaceIndex(rootPath: string, index: WorkspaceIndex): Promise<void> {
-  await atomicWriteFile(join(rootPath, '.studiumx', 'index.json'), `${JSON.stringify(index, null, 2)}\n`)
+  await replaceWithBackup({
+    path: join(rootPath, '.studiumx', 'index.json'),
+    content: `${JSON.stringify(index, null, 2)}\n`,
+    validate: isWorkspaceIndexDocument,
+    mode: 0o600
+  })
 }
 
+export const WORKSPACE_LIFECYCLE_LEDGER_RELATIVE_PATH = '.studiumx/sessions.jsonl'
+
 export async function appendWorkspaceLifecycleEvent(rootPath: string, event: WorkspaceLifecycleEvent): Promise<void> {
-  await mkdir(join(rootPath, '.studiumx'), { recursive: true })
-  await appendFile(join(rootPath, '.studiumx', 'sessions.jsonl'), `${JSON.stringify(event)}\n`, 'utf8')
+  // Never spread the raw trace back into durable JSONL: it is diagnostic
+  // metadata and may otherwise carry malformed or secret-like input.
+  const { traceId: rawTraceId, ...eventWithoutTrace } = event
+  const traceId = normalizeTraceId(rawTraceId)
+  const persistedEvent: WorkspaceLifecycleEvent = {
+    ...eventWithoutTrace,
+    ...(traceId ? { traceId } : {})
+  }
+  await appendDurableJsonlLine({
+    activePath: join(rootPath, WORKSPACE_LIFECYCLE_LEDGER_RELATIVE_PATH)
+  }, JSON.stringify(persistedEvent))
+}
+
+/** Reads strict sealed lifecycle segments before the active lifecycle JSONL. */
+export async function readWorkspaceLifecycleEventLines(rootPath: string): Promise<string[]> {
+  return readDurableJsonlLines(join(rootPath, WORKSPACE_LIFECYCLE_LEDGER_RELATIVE_PATH))
+}
+
+/** Reads well-formed lifecycle events from all strict sealed and active segments. */
+export async function readWorkspaceLifecycleEvents(rootPath: string): Promise<WorkspaceLifecycleEvent[]> {
+  const lines = await readWorkspaceLifecycleEventLines(rootPath)
+  return lines.flatMap((line) => {
+    try {
+      const value = JSON.parse(line)
+      return isWorkspaceLifecycleEvent(value) ? [value] : []
+    } catch {
+      return []
+    }
+  })
 }
 
 /** @deprecated Use appendWorkspaceLifecycleEvent. This log does not contain teaching Session evidence. */
@@ -164,6 +194,11 @@ export async function appendSessionEvent(rootPath: string, event: SessionEvent):
   await appendWorkspaceLifecycleEvent(rootPath, event)
 }
 
+/**
+ * Best-effort compatibility helper for high-frequency/scaffold callers. It
+ * uses temp-and-rename but intentionally does not fsync the file or directory;
+ * durable state must call replaceDurably or replaceWithBackup explicitly.
+ */
 export async function atomicWriteFile(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`
@@ -270,6 +305,44 @@ async function writeWorkspaceScaffoldFileIfMissing(
   await writeIfMissing(join(rootPath, relativePath), content)
 }
 
+function normalizeWorkspaceIndex(workspace: RegistryWorkspace, parsed: WorkspaceIndex): WorkspaceIndex {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    rootPath: workspace.rootPath,
+    createdAt: parsed.createdAt ?? workspace.createdAt,
+    updatedAt: parsed.updatedAt ?? workspace.updatedAt,
+    lessons: Array.isArray(parsed.lessons)
+      ? parsed.lessons
+          .filter(isLessonSummary)
+          .map((lesson) => normalizeLessonSummary(workspace.rootPath, workspace.name, lesson))
+      : [],
+    pathMeta: normalizePathMeta(parsed.pathMeta)
+  }
+}
+
+function emptyWorkspaceIndex(workspace: RegistryWorkspace): WorkspaceIndex {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    rootPath: workspace.rootPath,
+    createdAt: workspace.createdAt,
+    updatedAt: workspace.updatedAt,
+    lessons: []
+  }
+}
+
+function isWorkspaceIndexDocument(value: unknown): value is WorkspaceIndex {
+  // Existing indexes are intentionally normalized tolerantly, but only a
+  // top-level object is eligible to become a retained modern backup.
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+
+function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
+}
+
 function isLessonSummary(value: unknown): value is LessonSummary {
   if (!value || typeof value !== 'object') return false
   const record = value as Record<string, unknown>
@@ -283,4 +356,13 @@ function isLessonSummary(value: unknown): value is LessonSummary {
     typeof record.relativePath === 'string' &&
     typeof record.absolutePath === 'string'
   )
+}
+
+function isWorkspaceLifecycleEvent(value: unknown): value is WorkspaceLifecycleEvent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const event = value as Record<string, unknown>
+  return typeof event.id === 'string' &&
+    typeof event.kind === 'string' &&
+    typeof event.timestamp === 'string' &&
+    typeof event.workspaceId === 'string'
 }

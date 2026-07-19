@@ -5,7 +5,6 @@ import type {
   AgentChatStreamPayload,
   AgentChatTurn,
   ApplyLessonStylePayload,
-  CleanupAgentArtifactsPayload,
   CreateAgentConversationCheckpointPayload,
   ForkAgentConversationBranchPayload,
   OpenAgentConversationBranchPayload,
@@ -22,6 +21,7 @@ import type {
   ProbeProviderPayload,
   ReadWorkspaceChangeDiffPayload,
   ReadAgentConversationPayload,
+  ProjectAgentConversationSummariesPayload,
   RenameAgentConversationPayload,
   ReadAgentConversationSessionTreePayload,
   ReplayAgentConversationBranchPayload,
@@ -299,6 +299,27 @@ export function parseReadAgentConversationPayload(payload: unknown): ReadAgentCo
   return parseAgentConversationBranchReference(record)
 }
 
+export function parseProjectAgentConversationSummariesPayload(
+  payload: unknown
+): ProjectAgentConversationSummariesPayload {
+  const record = requireRecord(payload)
+  if (Object.keys(record).length !== 2 || !Object.prototype.hasOwnProperty.call(record, 'workspaceId') || !Object.prototype.hasOwnProperty.call(record, 'conversationIds')) {
+    throw new Error('IPC projection payload may contain only "workspaceId" and "conversationIds".')
+  }
+  const ids = record.conversationIds
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100) {
+    throw new Error('IPC payload field "conversationIds" must contain 1 to 100 canonical conversation ids.')
+  }
+  const conversationIds = ids.map((value) => requireCanonicalConversationId(value))
+  if (new Set(conversationIds).size !== conversationIds.length) {
+    throw new Error('IPC payload field "conversationIds" must not contain duplicate ids.')
+  }
+  return {
+    workspaceId: requireSafeId(record.workspaceId, 'workspaceId'),
+    conversationIds
+  }
+}
+
 export function parseReadAgentConversationSessionTreePayload(
   payload: unknown
 ): ReadAgentConversationSessionTreePayload {
@@ -396,17 +417,6 @@ export function parseRebuildAgentHistoryIndexPayload(payload: unknown): RebuildA
   }
 }
 
-export function parseCleanupAgentArtifactsPayload(payload: unknown): CleanupAgentArtifactsPayload {
-  const record = requireRecord(payload)
-  return {
-    workspaceId: requireString(record.workspaceId, 'workspaceId'),
-    scope: requireAgentConversationStorageScope(record.scope),
-    dryRun: record.dryRun !== false,
-    retentionDays: optionalPositiveInteger(record.retentionDays, 1, 3_650),
-    graceHours: optionalPositiveInteger(record.graceHours, 1, 24 * 30),
-    maxTotalBytes: optionalPositiveInteger(record.maxTotalBytes, 1024 * 1024, 10 * 1024 * 1024 * 1024)
-  }
-}
 
 export function parseWorkspaceItemMetaPayload(payload: unknown): WorkspaceItemMetaPayload {
   const record = requireRecord(payload)

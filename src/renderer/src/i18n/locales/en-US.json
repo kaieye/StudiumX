@@ -865,6 +865,10 @@
     "diagnostics": {
       "label": "Memory diagnostics",
       "detail": "{{active}} active, {{deleted}} deleted",
+      "migrationPreflightLabel": "Legacy migration preflight",
+      "migrationPreflight": "{{eligible}} legacy flat eligible, {{partitioned}} already partitioned, {{duplicates}} duplicate blocks, {{recovery}} recovery blocks",
+      "migrationReady": "Ready for review",
+      "migrationBlocked": "Review required",
       "loading": "Loading diagnostics..."
     },
     "refresh": "Refresh",

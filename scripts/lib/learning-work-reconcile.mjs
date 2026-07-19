@@ -1,17 +1,20 @@
-import { access, readFile, realpath } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { access, mkdir, open, readFile, readdir, realpath, rename, stat, unlink } from 'node:fs/promises'
+import { createHash, randomBytes } from 'node:crypto'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 const LEDGER_RELATIVE_PATH = '.studiumx/learning-work.jsonl'
 const POINTER_KEYS = ['markdown', 'materializedJson', 'sessionAudit']
+const SEALED_SEGMENT_SEQUENCE_WIDTH = 6
 
+/**
+ * Reconciles the canonical logical learning-work source: every strictly named
+ * sealed sibling in (month, sequence) order, followed by the active basename.
+ */
 export async function reconcileLearningWorkLedger(rootPath) {
   const normalizedRoot = resolve(rootPath)
   const ledgerPath = join(normalizedRoot, LEDGER_RELATIVE_PATH)
-  const content = await readFile(ledgerPath, 'utf8').catch((error) => {
-    if (error?.code === 'ENOENT') return null
-    throw error
-  })
-  if (content === null) return emptyResult('not_found')
+  const sources = await readLearningWorkLedgerSources(ledgerPath)
+  if (sources.length === 0) return emptyResult('not_found')
 
   const issues = {
     invalidLines: 0,
@@ -24,16 +27,18 @@ export async function reconcileLearningWorkLedger(rootPath) {
   const seenEntryIds = new Set()
   const entries = []
 
-  for (const line of content.split(/\r?\n/)) {
-    if (!line.trim()) continue
-    const entry = parseLedgerEntry(line)
-    if (!entry) {
-      issues.invalidLines += 1
-      continue
+  for (const source of sources) {
+    for (const line of source.content.split(/\r?\n/)) {
+      if (!line.trim()) continue
+      const entry = parseLedgerEntry(line)
+      if (!entry) {
+        issues.invalidLines += 1
+        continue
+      }
+      if (seenEntryIds.has(entry.entryId)) issues.duplicateEntries += 1
+      seenEntryIds.add(entry.entryId)
+      entries.push(entry)
     }
-    if (seenEntryIds.has(entry.entryId)) issues.duplicateEntries += 1
-    seenEntryIds.add(entry.entryId)
-    entries.push(entry)
   }
 
   const latestByConversation = new Map()
@@ -77,10 +82,181 @@ export async function reconcileLearningWorkLedger(rootPath) {
     ledgerRelativePath: LEDGER_RELATIVE_PATH,
     status: issueCount > 0 ? 'issues' : 'ok',
     exists: true,
+    segments: sources.map(segmentDescriptor),
     entries: entries.length,
     conversations: latestByConversation.size,
     issues
   }
+}
+
+/**
+ * Explicit C-2A rollback export. It validates every non-blank JSONL record in
+ * the strict sealed+active source, writes their ordered logical content to a
+ * same-directory temporary file, fsyncs it, atomically replaces the active
+ * basename, then verifies its SHA-256 checksum. Sealed source files are never
+ * renamed, deleted, or modified.
+ *
+ * This is deliberately a rollback-only export: after it succeeds, run an old
+ * active-only application (or restore the pre-export active file) before using
+ * an all-segment reader again, otherwise it would observe the retained sealed
+ * files plus the merged active copy.
+ */
+export async function mergeLearningWorkLedgerToLegacyActive(rootPath) {
+  const normalizedRoot = resolve(rootPath)
+  const ledgerPath = join(normalizedRoot, LEDGER_RELATIVE_PATH)
+  const sources = await readLearningWorkLedgerSources(ledgerPath)
+  if (sources.length === 0) {
+    throw new Error(`Cannot create legacy learning-work rollback export: no source exists at ${ledgerPath}.`)
+  }
+
+  const merged = mergeStrictJsonlSources(sources)
+  const sourceChecksums = sources.map((source) => ({
+    path: source.path,
+    kind: source.kind,
+    sha256: sha256(source.content)
+  }))
+  const sourceChecksum = sha256(merged)
+
+  await atomicWriteFile(ledgerPath, merged)
+  const output = await readFile(ledgerPath, 'utf8')
+  const outputChecksum = sha256(output)
+  if (outputChecksum !== sourceChecksum) {
+    throw new Error(`Legacy learning-work rollback export checksum mismatch for ${ledgerPath}.`)
+  }
+
+  return {
+    ledgerRelativePath: LEDGER_RELATIVE_PATH,
+    activePath: ledgerPath,
+    sourceSegments: sources.map(segmentDescriptor),
+    sourceChecksums,
+    sourceChecksum,
+    outputChecksum,
+    bytes: Buffer.byteLength(output, 'utf8'),
+    lines: countNonBlankLines(output)
+  }
+}
+
+async function readLearningWorkLedgerSources(ledgerPath) {
+  const segments = await discoverStrictLedgerSegments(ledgerPath)
+  const sources = []
+  for (const segment of segments) {
+    sources.push({ ...segment, content: await readFile(segment.path, 'utf8') })
+  }
+  return sources
+}
+
+async function discoverStrictLedgerSegments(activePath) {
+  const directory = dirname(activePath)
+  const activeName = basename(activePath)
+  const sealed = await readdir(directory, { withFileTypes: true }).then((entries) => entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => parseSealedSegmentName(activeName, entry.name))
+    .filter((segment) => segment !== null)
+    .sort((left, right) => left.month.localeCompare(right.month) || left.sequence - right.sequence)
+    .map((segment) => ({ path: join(directory, segment.name), kind: 'sealed', month: segment.month, sequence: segment.sequence }))).catch((error) => {
+    if (error?.code === 'ENOENT') return []
+    throw error
+  })
+
+  const activeExists = await stat(activePath).then((info) => info.isFile()).catch((error) => {
+    if (error?.code === 'ENOENT') return false
+    throw error
+  })
+  return activeExists ? [...sealed, { path: activePath, kind: 'active' }] : sealed
+}
+
+function mergeStrictJsonlSources(sources) {
+  let merged = ''
+  for (const source of sources) {
+    validateJsonlSource(source)
+    if (merged && !endsWithLineBreak(merged) && source.content) merged += '\n'
+    merged += source.content
+  }
+  return merged
+}
+
+function validateJsonlSource(source) {
+  for (const [index, line] of source.content.split(/\r?\n/).entries()) {
+    if (!line.trim()) continue
+    try {
+      JSON.parse(line)
+    } catch {
+      throw new Error(`Cannot create legacy learning-work rollback export: invalid JSONL in ${source.path} at line ${index + 1}.`)
+    }
+  }
+}
+
+async function atomicWriteFile(path, content) {
+  const directory = dirname(path)
+  await mkdir(directory, { recursive: true })
+  const temporaryPath = join(directory, `.${basename(path)}.rollback-${randomBytes(12).toString('hex')}.tmp`)
+  let renamed = false
+  try {
+    const handle = await open(temporaryPath, 'wx', 0o600)
+    try {
+      await handle.writeFile(content, 'utf8')
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    await rename(temporaryPath, path)
+    renamed = true
+    await syncDirectory(directory)
+  } finally {
+    if (!renamed) await unlink(temporaryPath).catch((error) => {
+      if (error?.code !== 'ENOENT') throw error
+    })
+  }
+}
+
+async function syncDirectory(directory) {
+  try {
+    const handle = await open(directory, 'r')
+    try {
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+  } catch (error) {
+    if (isDirectorySyncUnsupportedError(error)) return
+    throw error
+  }
+}
+
+function isDirectorySyncUnsupportedError(error) {
+  return ['EOPNOTSUPP', 'ENOTSUP', 'ENOSYS', 'EINVAL', 'EISDIR'].includes(error?.code)
+}
+
+function parseSealedSegmentName(activeFileName, candidate) {
+  const stem = activeFileName.endsWith('.jsonl')
+    ? activeFileName.slice(0, -'.jsonl'.length)
+    : activeFileName
+  const escapedStem = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = new RegExp(`^${escapedStem}\\.sealed-(\\d{4}-(?:0[1-9]|1[0-2]))-(\\d{${SEALED_SEGMENT_SEQUENCE_WIDTH}})\\.jsonl$`).exec(candidate)
+  if (!match) return null
+  const sequence = Number(match[2])
+  if (!Number.isInteger(sequence) || sequence < 1) return null
+  return { name: candidate, month: match[1], sequence }
+}
+
+function segmentDescriptor(source) {
+  return {
+    path: source.path,
+    kind: source.kind,
+    ...(source.kind === 'sealed' ? { month: source.month, sequence: source.sequence } : {})
+  }
+}
+
+function sha256(value) {
+  return createHash('sha256').update(value, 'utf8').digest('hex')
+}
+
+function endsWithLineBreak(value) {
+  return value.endsWith('\n') || value.endsWith('\r')
+}
+
+function countNonBlankLines(value) {
+  return value.split(/\r?\n/).filter((line) => line.trim()).length
 }
 
 function emptyResult(status) {
@@ -88,6 +264,7 @@ function emptyResult(status) {
     ledgerRelativePath: LEDGER_RELATIVE_PATH,
     status,
     exists: false,
+    segments: [],
     entries: 0,
     conversations: 0,
     issues: {

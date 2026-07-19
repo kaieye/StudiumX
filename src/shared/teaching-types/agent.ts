@@ -195,6 +195,12 @@ export type AgentToolResultDiagnostic = {
   archive?: AgentArtifactRef
 }
 
+export type AgentPersistedParentTurnProof = {
+  schemaVersion: 1
+  algorithm: 'sha256'
+  digest: string
+}
+
 export type AgentTurnMetadata = {
   version: 1
   sources?: AgentSourceMetadata[]
@@ -206,8 +212,14 @@ export type AgentTurnMetadata = {
   runUsage?: AgentRunUsageAggregate
   /** Durable run marker used to settle a pending parent turn without duplicating it after restart. */
   runId?: string
-  /** Digest of the saved parent-turn projection associated with `runId`. */
+  /**
+   * Legacy raw parent digest. New durable records must omit this because it is
+   * an offline candidate-secret oracle. It is retained only to read and reject
+   * old records safely.
+   */
   parentTurnDigest?: string
+  /** Non-secret canonical proof of the sanitized parent-turn sequence. */
+  parentTurnProof?: AgentPersistedParentTurnProof
   provenance?: {
     kind: 'original' | 'replayed' | 'recovery_notice'
     sourceConversationId?: string
@@ -505,7 +517,47 @@ export type AgentChatStreamResult =
   | { error: true; message: string; usage?: AgentRunUsageAggregate }
 
 export type AgentConversationRecord = AgentConversationSummary & {
+  /** Main-process-generated opaque correlation id; never supplied by renderer payloads. */
+  traceId?: string
   turns: AgentChatTurn[]
+}
+
+/** A rebuildable, privacy-conservative overview derived from canonical conversation files. */
+export type AgentConversationSummaryProjection = {
+  projectionVersion: 1
+  conversationId: string
+  /** Metadata only; never authorizes deletion or modification of canonical files. */
+  timeCompacting: true
+  source: {
+    jsonRelativePath: string
+    markdownRelativePath: string
+    jsonSha256: string
+    markdownSha256: string
+  }
+  summary: {
+    template: 'conversation-summary-v1'
+    title: string
+    turnCounts: {
+      total: number
+      user: number
+      assistant: number
+    }
+  }
+}
+
+export type ProjectAgentConversationSummariesPayload = {
+  workspaceId: string
+  conversationIds: string[]
+}
+
+export type AgentConversationSummaryProjectionOutcome = {
+  conversationId: string
+  status: 'generated' | 'ineligible' | 'not_found' | 'rejected'
+  reason?: 'not_archived' | 'deleted' | 'temporary' | 'invalid_source' | 'source_drift' | 'write_failed' | 'unsupported_platform' | 'native_unavailable'
+}
+
+export type ProjectAgentConversationSummariesResult = {
+  outcomes: AgentConversationSummaryProjectionOutcome[]
 }
 
 export type SaveAgentConversationPayload = {
@@ -715,41 +767,4 @@ export type RebuildAgentHistoryIndexResult = {
     issues: AgentArchivedHistoryIssue[]
     indexRelativePath: string
   }>
-}
-
-export type CleanupAgentArtifactsPayload = {
-  workspaceId: string
-  scope?: AgentConversationStorageScope
-  dryRun?: boolean
-  retentionDays?: number
-  graceHours?: number
-  maxTotalBytes?: number
-}
-
-export type AgentArtifactCleanupAction = {
-  relativePath: string
-  kind: 'tool_result' | 'child_transcript' | 'parent_turn_staging' | 'unknown'
-  bytes: number
-  sha256?: string
-  reason: 'expired_orphan' | 'over_budget' | 'duplicate' | 'protected_reference' | 'protected_active_scope'
-  action: 'delete' | 'retain' | 'report_duplicate'
-}
-
-export type AgentArtifactCleanupIssue = {
-  code: string
-  message: string
-  relativePath?: string
-}
-
-export type CleanupAgentArtifactsResult = {
-  dryRun: boolean
-  scanned: number
-  scannedBytes: number
-  deleted: number
-  deletedBytes: number
-  retained: number
-  duplicateGroups: number
-  actions: AgentArtifactCleanupAction[]
-  issues: AgentArtifactCleanupIssue[]
-  auditRelativePaths: string[]
 }

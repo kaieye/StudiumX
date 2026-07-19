@@ -130,20 +130,20 @@ export class AgentRunLifecycle {
   prepareParentTurnSave(
     runId: string,
     targetConversationId: string,
-    expectedTurnDigest: string
+    expectedParentTurnProof: string
   ): Promise<AgentParentTurnStage | null> {
-    return this.parentTurns.prepareSave(runId, targetConversationId, expectedTurnDigest)
+    return this.parentTurns.prepareSave(runId, targetConversationId, expectedParentTurnProof)
   }
 
   settleParentTurn(
     runId: string,
     targetConversationId: string,
-    expectedTurnDigest: string
+    expectedParentTurnProof: string
   ): Promise<AgentParentTurnStage | null> {
     return this.persistence.serialize(async () => {
       const stage = await this.readParentTurnStageOptional(runId)
       if (!stage) throw new Error('Parent turn staging is unavailable.')
-      const settled = await this.settleParentTurnPersisted(stage, targetConversationId, expectedTurnDigest)
+      const settled = await this.settleParentTurnPersisted(stage, targetConversationId, expectedParentTurnProof)
       await this.completeCheckpointPersisted(runId)
       return settled
     })
@@ -249,14 +249,14 @@ export class AgentRunLifecycle {
         }
 
         if (stage.status === 'awaiting_conversation_save') {
-          const saved = stage.targetConversationId && stage.expectedTurnDigest && isConversationSaved
+          const saved = stage.targetConversationId && stage.expectedParentTurnProof && isConversationSaved
             ? await Promise.resolve(isConversationSaved(stage)).catch(() => false)
             : false
           if (saved) {
             await this.settleParentTurnPersisted(
               stage,
               stage.targetConversationId!,
-              stage.expectedTurnDigest!
+              stage.expectedParentTurnProof!
             )
             if (checkpoint) {
               checkpoints.set(stage.runId, await this.completeCheckpointPersisted(stage.runId) ?? checkpoint)
@@ -402,12 +402,12 @@ export class AgentRunLifecycle {
   private async settleParentTurnPersisted(
     stage: AgentParentTurnStage,
     targetConversationId: string,
-    expectedTurnDigest: string
+    expectedParentTurnProof: string
   ): Promise<AgentParentTurnStage> {
     if (stage.targetConversationId !== targetConversationId) {
       throw new Error('Parent turn staging settlement target does not match.')
     }
-    if (stage.expectedTurnDigest !== expectedTurnDigest) {
+    if (stage.expectedParentTurnProof !== expectedParentTurnProof) {
       throw new Error('Parent turn staging settlement digest does not match.')
     }
     if (stage.status === 'settled') return stage
@@ -420,7 +420,7 @@ export class AgentRunLifecycle {
       status: 'settled',
       boundary: 'conversation_save',
       targetConversationId,
-      expectedTurnDigest,
+      expectedParentTurnProof,
       settledAt: stage.settledAt ?? at,
       updatedAt: at,
       recoveryReason: undefined

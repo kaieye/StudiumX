@@ -1,9 +1,10 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, open as openFile, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
 import { TeachingWorkspaceDocuments } from '../../src/main/teaching-workspace-documents'
+import type { DurableFileOperations } from '../../src/main/persistence/durable-file'
 import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
@@ -15,6 +16,55 @@ import {
 } from '../../src/shared/preview-markdown-bridge'
 
 const runtimeScope = createVitestRuntimeScope()
+
+function errno(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(code), { code })
+}
+
+function recordingDurableOperations(): {
+  operations: DurableFileOperations
+  events: string[]
+  failWith: (matcher: (event: string) => Error | undefined) => void
+} {
+  const events: string[] = []
+  let fail: (event: string) => Error | undefined = () => undefined
+  const observe = (event: string): void => {
+    events.push(event)
+    const failure = fail(event)
+    if (failure) throw failure
+  }
+  const operations: DurableFileOperations = {
+    mkdir,
+    readFile,
+    open: async (path, flags, mode) => {
+      observe(`open:${flags}:${path}`)
+      const handle = await openFile(path, flags, mode)
+      return {
+        writeFile: async (content) => {
+          observe(`write:${path}`)
+          await handle.writeFile(content)
+        },
+        sync: async () => {
+          observe(`sync:${path}`)
+          await handle.sync()
+        },
+        close: async () => {
+          const event = `close:${path}`
+          events.push(event)
+          const failure = fail(event)
+          await handle.close()
+          if (failure) throw failure
+        }
+      }
+    },
+    rename: async (from, to) => {
+      observe(`rename:${from}->${to}`)
+      await rename(from, to)
+    },
+    rm
+  }
+  return { operations, events, failWith: (matcher) => { fail = matcher } }
+}
 
 async function createDocumentWorkspace() {
   const runtime = await runtimeScope.create('workspace-documents')
@@ -98,6 +148,40 @@ describe('TeachingWorkspaceDocuments', () => {
     const binaryPreview = await documents.readPreview(workspace, 'assets/sample.bin', 'studiumx-preview://workspace-documents/assets/sample.bin')
     expect(binaryPreview?.mimeType).toBe('application/octet-stream')
     expect(binaryPreview?.body).toEqual(binary)
+  })
+
+  it.each([
+    ['pre-rename file write', (event: string, targetPath: string, rootPath: string) => event.startsWith('write:') && event.includes('.NOTES.md.')],
+    ['post-rename directory sync', (event: string, targetPath: string, rootPath: string) => event === `sync:${rootPath}`]
+  ])('rejects durable Markdown %s failures before touching or saving the registry', async (name, matches) => {
+    const workspace = await createDocumentWorkspace()
+    const durable = recordingDurableOperations()
+    const registryPath = join(workspace.rootPath, '..', `registry-durable-${name.replace(/\s+/g, '-')}.json`)
+    const service = new TeachingWorkspaceService({
+      registryPath,
+      defaultRoot: join(workspace.rootPath, 'managed-workspaces'),
+      settingsProvider: async () => defaultSettings(join(workspace.rootPath, 'managed-workspaces')),
+      durableFileOperations: durable.operations
+    })
+    const created = await service.createWorkspace({ name: `registry durable ${name}`, prompt: 'document durability' })
+    const registered = created.activeWorkspace!
+    const targetPath = join(registered.rootPath, 'NOTES.md')
+    const oldContent = '# Previous registry-safe notes\n'
+    const nextContent = '# Durable registry-gated notes\n'
+    await writeFile(targetPath, oldContent, 'utf8')
+    const registryBeforeFailure = await readFile(registryPath, 'utf8')
+    durable.events.length = 0
+    const failure = errno('EIO')
+    durable.failWith((event) => matches(event, targetPath, registered.rootPath) ? failure : undefined)
+
+    await expect(service.saveWorkspaceMarkdown({
+      workspaceId: registered.id,
+      documentPath: 'NOTES.md',
+      content: nextContent
+    })).rejects.toBe(failure)
+
+    await expect(readFile(registryPath, 'utf8')).resolves.toBe(registryBeforeFailure)
+    await expect(readFile(targetPath, 'utf8')).resolves.toBe(name === 'pre-rename file write' ? oldContent : nextContent)
   })
 
   it('rejects absolute and encoded traversal intents, while a failed save leaves registry metadata untouched', async () => {

@@ -24,11 +24,13 @@ test('rotates the music artwork while playback is active', async ({ mainWindow }
   const sample = async () => artwork.evaluate((element) => {
     const animation = element.getAnimations()[0]
     const effect = animation?.effect
+    const keyframes = effect instanceof KeyframeEffect ? effect.getKeyframes() : undefined
+
     return {
       currentTime: animation?.currentTime,
       playState: animation?.playState,
       timing: effect?.getComputedTiming(),
-      keyframes: effect instanceof KeyframeEffect ? effect.getKeyframes() : undefined,
+      keyframes,
       transform: getComputedStyle(element).transform,
       inlineTransform: (element as HTMLElement).style.transform,
       reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches

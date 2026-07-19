@@ -237,7 +237,7 @@ function mergeAgentTurnMetadata(
     ...(toolResults.length ? { toolResults } : {}),
     runUsage: right.runUsage ?? left.runUsage,
     runId: right.runId ?? left.runId,
-    parentTurnDigest: right.parentTurnDigest ?? left.parentTurnDigest,
+    parentTurnProof: right.parentTurnProof ?? left.parentTurnProof,
     provenance: right.provenance ?? left.provenance
   }
   return hasMetadataContent(metadata) ? metadata : undefined
@@ -259,7 +259,7 @@ function hasMetadataContent(metadata: AgentTurnMetadata): boolean {
     metadata.toolResults?.length ||
     metadata.runUsage ||
     metadata.runId ||
-    metadata.parentTurnDigest ||
+    metadata.parentTurnProof ||
     metadata.provenance
   )
 }

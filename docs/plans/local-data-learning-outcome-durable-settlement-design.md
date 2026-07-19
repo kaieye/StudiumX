@@ -1,0 +1,69 @@
+# C-4P6 Learning outcome durable settlement：S1 已实施，完整闭环仍待设计门
+
+> **状态：C-4P6-S1 已实施；C-4P6 尚未完整关闭，仍是待办。**提交 `7292bf4`（`fix(data): harden learning outcome settlement`）和 `e02a086`（`test(data): cover outcome settlement durability`）实现的仅是“严格有序发布与受控恢复基础”。本文记录该事实、剩余设计门和禁止越界的边界；它不把 S1 宣称为跨文件事务或共同原子性 或完整 durable closure。
+
+> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定与提交证据见 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
+
+## 1. S1 已实施范围与证据
+
+S1 覆盖 evaluator-derived Learning outcome 的主进程写入链：stage、immutable Learning record、session `outcome.json`、Learning Session manifest、operation settlement marker，以及最终 catalog read。catalog 仍不是 canonical settlement authority；多个文件不构成 transaction，也不具备共同 atomicity。
+
+| 已实施项目 | S1 的受限事实 |
+| --- | --- |
+| 并发 / owner 基础 | 内置 `FileLearningSessionLedger` 私有复用既有 filesystem writer lock，锁覆盖完整 commit / reconcile 生命周期；公开 `LearningSessionLedger` API 未扩展。注入的 load-only ledger 会在 canonical write 前 fail closed：commit 返回可重试 `temporarily_unavailable`，reconcile 返回 `review_required`。 |
+| 有 record 的顺序 | stage → immutable record（不 replace link）→ `outcome.json` → manifest → settlement marker → catalog。任何前项未被确认，不能继续后项 canonical write。 |
+| 无 record 的顺序 | 仍为 marker-only；不虚构 stage、record、outcome 或 manifest 写入，marker 后才可 catalog read 并返回既有成功语义。 |
+| 可变文件 durability | `outcome.json` 与 marker 使用共享 `replaceDurably`。仅 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 可作为 directory-fsync capability downgrade；warning 为通用且非敏感信息。其它 I/O、open、sync、close 错误为 fatal。 |
+| immutable record durability | link 后 parent-directory 失败、匹配 `EEXIST` 路径和 stage cleanup 错误为 fatal；link 成功后不得用 matching-bytes 抑制错误。canonical record 的 parent / leaf containment 与 symlink 安全检查 fail closed。 |
+| 受控恢复 | reconcile 为 authority-first：仅有效 immutable record 可按 `outcome.json` → manifest → marker 修复缺失 projection，不能覆盖冲突。状态不安全或不一致时返回 `review_required`；authority-first reconcile 不清理 stage。 |
+
+`e02a086` 的相关测试覆盖 41 项单元检查和 14 项集成检查。该数字是 S1 的有限验证证据，**不是**“所有设计矩阵、所有 crash/failure 风险或整个 C-4P6 均已覆盖”的断言。
+
+## 2. Canonical authority 与幂等性边界
+
+S1 实施并保留以下 authority 关系：
+
+| 情形 | authority（由高到低） | 不得作为 authority 的内容 |
+|---|---|---|
+| **会写 immutable Learning record 的分支** | immutable Learning record → `outcome.json` + manifest → settlement marker | catalog presence、stage 文件、仅 marker |
+| **不会写 record 的分支** | settlement marker 是唯一的 operation settlement / idempotency authority | catalog read、缺失的 record、manifest 单独状态 |
+
+有 record 时，record 是恢复和冲突判断的第一事实，`outcome.json` 与 manifest 是 session projection，marker 是 operation identity / settlement projection，不能反过来覆盖有效 record。无 record 时，只有有效 marker 能证明 operation settlement；catalog 只在必要 canonical publish 完成后读取，不授权 commit、repair 或成功结果。
+
+已实施的 repair 限于“有效 immutable record 修复缺失 projection”，且顺序为 outcome → manifest → marker。冲突 identity、损坏、越界或其他不能安全证明的状态固定进入 `review_required`，不执行泛化覆盖、回滚或删除。
+
+## 3. S1 的 durability 与失败边界
+
+S1 将可变文件的 replace 与 immutable record 的不可覆盖 publish 分开处理：
+
+- 可变 `outcome.json` / marker 的 capability downgrade 只接受上述五个 code；不在 allowlist 的 permission、I/O、unknown、open、sync 或 close 失败均为 fatal，且不能继续后续 canonical write。
+- immutable record 的 link 成功并不掩盖 parent directory open / sync / close 失败；匹配 `EEXIST` 和 stage cleanup 的错误同样传播为 fatal。不会因最终 record bytes 可读或匹配而报告成功。
+- stage、record、outcome、manifest、marker 是有序可恢复点，而非共同提交点。因此 S1 不承诺 post-rename rollback、共同原子可见性或任意跨文件锁定。
+
+## 4. S1 未关闭的 C-4P6 范围
+
+C-4P6 因 manifest publisher 的 durability/capability-policy 尚未闭合、crash / failure 矩阵尚未穷尽验证，必须继续作为不完整待办保留，直至未来获得批准并完成剩余 close-out。至少仍包括：
+
+1. **manifest publisher capability-policy 对齐：**确认并落实 manifest publisher 与 shared durable capability 的策略边界，而不是从 S1 的 outcome / marker 行为外推。
+2. **穷尽的 crash / failure 设计矩阵：**S1 测试不宣称覆盖所有 crash window、文件/目录 open-sync-close 组合、冲突与损坏状态；未来需要针对完整 scope 明确 acceptance criteria 和结果语义。
+3. **运行验证：**完整 close-out 仍需实际运行 / 运维验证，而不是仅依据提交或有限单元、集成检查。
+
+以下内容仍不在 S1 或本 design gate 的授权范围内：跨文件事务或共同原子性、rollback、删除、general migration、canonical rewrite、retention 改动，以及新的外部 API。C-4P8 和 C-4P9 也完全未受本切片改变。
+
+## 5. 剩余设计矩阵（不是已通过证据）
+
+未来 close-out 需单独批准范围、owner 与 API，并以不扩大 S1 的方式审查至少下列矩阵：
+
+| 类别 | 剩余验证要求 |
+|---|---|
+| manifest capability-policy | manifest publisher 的 durable capability、allowlist、错误传播和与 S1 顺序的明确对齐 |
+| crash windows | `after_stage_flush`、`after_record_publish`、`after_outcome_publish`、`after_manifest_publish`、`after_settlement_marker`、`before_catalog_reconcile` 后的重启 / reconcile 确定性结果 |
+| 失败传播 | write、file fsync、file close、rename / link、parent directory open / sync / close 与 cleanup failure 不得被成功结果掩盖 |
+| authority / conflict | valid record 的受控 repair、冲突 marker / projection、corrupt 或越界状态均不覆盖且安全地进入既有 retryable / `review_required` 语义 |
+| compatibility / operations | schema、canonical path、`0600` mode、reader compatibility、非敏感 warning / log，以及可操作的运行验证 |
+
+该矩阵是未来 acceptance criteria，不是对 `7292bf4` / `e02a086` 已经完全满足的声明。
+
+## 6. 后续实施前边界
+
+任何后续 P6 切片都必须先单独获得 scope / owner / API 批准，并明确其与 S1 的关系；不得借 S1 直接扩大为自动 repair、删除、rollback、迁移或外部接口改动。没有获得这类批准和完整验证前，路线图只能表述为：**“C-4P6-S1 implemented; full P6 close-out remains pending.”**

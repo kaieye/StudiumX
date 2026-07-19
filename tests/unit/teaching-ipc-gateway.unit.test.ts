@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -136,6 +136,98 @@ describe('Teaching IPC gateway', () => {
       workspaceId: 'workspace-1', trust: 'trusted', rootPath: 'D:/must-not-cross-ipc'
     })).rejects.toThrow('IPC workspace trust payload must contain only "workspaceId" and "trust".')
     expect(setWorkspaceTrust).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns exact aggregate-only memory diagnostics through the registered handler', async () => {
+    const runtime = await runtimeScope.create('gateway-memory-diagnostics')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const sensitiveRoot = join(runtime.paths.appData, 'memory')
+    const sensitiveContent = 'Memory content must never cross IPC.'
+    const sensitiveHash = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot)
+    })
+    const memory = await service.createMemory({
+      content: `${sensitiveContent} ${sensitiveHash}`,
+      scope: 'user'
+    })
+    registerTeachingIpcGateway(registration({ workspaceService: service }))
+
+    const result = await handler(teachingInvokeChannels.getMemoryDiagnostics)(event)
+
+    expect(result).toEqual({
+      enabled: true,
+      activeCount: 1,
+      tombstoneCount: 0,
+      lastInjectedCount: 0,
+      legacyMigrationPreflight: {
+        legacyFlatEligibleCount: 0,
+        alreadyPartitionedCount: 1,
+        blockedDuplicateCount: 0,
+        blockedRecoveryIssueCount: 0,
+        migrationReady: false
+      }
+    })
+    const serialized = JSON.stringify(result)
+    expect(serialized).not.toContain(sensitiveRoot)
+    expect(serialized).not.toContain(memory.id)
+    expect(serialized).not.toContain(sensitiveContent)
+    expect(serialized).not.toContain(sensitiveHash)
+  })
+
+  it('accepts memory scope roots only after registered-workspace resolution and strips renderer destination fields', async () => {
+    const rootPath = resolve('/registered/course')
+    const createMemory = vi.fn().mockResolvedValue({ id: 'memory-1' })
+    const getState = vi.fn().mockResolvedValue({ workspaces: [{ rootPath }] })
+    registerTeachingIpcGateway(registration({ workspaceService: { getState, createMemory } }))
+
+    await expect(handler(teachingInvokeChannels.createMemory)(event, {
+      content: 'Remember this',
+      scope: 'workspace',
+      workspaceRoot: join(rootPath, 'lessons', '..'),
+      tags: ['trusted'],
+      confidence: 0.8,
+      traceId: 'renderer-controlled-trace',
+      destinationPath: '/private/renderer-controlled-memory',
+      partitionKey: 'renderer-controlled'
+    })).resolves.toEqual({ id: 'memory-1' })
+    expect(createMemory).toHaveBeenCalledWith({
+      content: 'Remember this',
+      scope: 'workspace',
+      workspaceRoot: rootPath,
+      tags: ['trusted'],
+      confidence: 0.8
+    })
+
+    await expect(handler(teachingInvokeChannels.createMemory)(event, {
+      content: 'Not authorized', scope: 'workspace', workspaceRoot: resolve('/unregistered/course')
+    })).rejects.toThrow('limited to registered teaching workspaces')
+    expect(createMemory).toHaveBeenCalledTimes(1)
+  })
+
+  it('maps the narrow explicit per-id conversation projection command without renderer paths', async () => {
+    const projectAgentConversationSummaries = vi.fn().mockResolvedValue({
+      outcomes: [{ conversationId: 'chat-archived-1', status: 'generated' }]
+    })
+    registerTeachingIpcGateway(registration({ workspaceService: { projectAgentConversationSummaries } }))
+    const request = { workspaceId: 'workspace-1', conversationIds: ['chat-archived-1'] }
+
+    await expect(handler(teachingInvokeChannels.projectAgentConversationSummaries)(event, request)).resolves.toEqual({
+      outcomes: [{ conversationId: 'chat-archived-1', status: 'generated' }]
+    })
+    expect(projectAgentConversationSummaries).toHaveBeenCalledWith(request)
+    await expect(handler(teachingInvokeChannels.projectAgentConversationSummaries)(event, {
+      ...request,
+      rootPath: '/private/workspace'
+    })).rejects.toThrow('IPC projection payload may contain only "workspaceId" and "conversationIds".')
+    expect(projectAgentConversationSummaries).toHaveBeenCalledTimes(1)
+
+    const preloadSource = await readFile(join(process.cwd(), 'src', 'preload', 'index.ts'), 'utf8')
+    expect(preloadSource).toContain(
+      'projectAgentConversationSummaries: (payload) => ipcRenderer.invoke(teachingInvokeChannels.projectAgentConversationSummaries, payload)'
+    )
   })
 
   it('rejects invalid input before its action can run', async () => {
@@ -565,12 +657,9 @@ describe('Teaching IPC gateway', () => {
     expect(updateAgentConversationBranchStatus).not.toHaveBeenCalled()
   })
 
-  it('routes explicit archived-history operations through bounded parsers', async () => {
+  it('routes archived-history queries through bounded parsers without publishing cleanup', async () => {
     const queryAgentArchivedHistory = vi.fn().mockResolvedValue({ items: [], truncated: false })
-    const cleanupAgentArtifacts = vi.fn().mockResolvedValue({ dryRun: true, actions: [] })
-    registerTeachingIpcGateway(registration({
-      workspaceService: { queryAgentArchivedHistory, cleanupAgentArtifacts }
-    }))
+    registerTeachingIpcGateway(registration({ workspaceService: { queryAgentArchivedHistory } }))
 
     await handler(teachingInvokeChannels.queryAgentArchivedHistory)(event, {
       workspaceId: 'workspace-1',
@@ -589,12 +678,11 @@ describe('Teaching IPC gateway', () => {
       limit: 10
     }))
 
-    await handler(teachingInvokeChannels.cleanupAgentArtifacts)(event, {
-      workspaceId: 'workspace-1', dryRun: true, retentionDays: 90
-    })
-    expect(cleanupAgentArtifacts).toHaveBeenCalledWith(expect.objectContaining({
-      workspaceId: 'workspace-1', dryRun: true, retentionDays: 90
-    }))
+    expect('cleanupAgentArtifacts' in teachingInvokeChannels).toBe(false)
+    expect(electron.handlers.has('teach:cleanup-agent-artifacts')).toBe(false)
+    const preloadSource = await readFile(join(process.cwd(), 'src', 'preload', 'index.ts'), 'utf8')
+    expect(preloadSource).not.toContain('cleanupAgentArtifacts')
+    expect(preloadSource).not.toContain('cleanup-agent-artifacts')
   })
 
   it('registers every existing Teaching invoke channel exactly once', () => {

@@ -1,5 +1,7 @@
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, rename, stat } from 'node:fs/promises'
+import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
+import { readValidatedWithBackup, replaceWithBackup } from './persistence/durable-file'
 import {
   createTeachingSettingsDefaults,
   mergeTeachingSettings,
@@ -8,6 +10,7 @@ import {
 import type { TeachingSettingsPatch, TeachingSettingsV1 } from '../shared/teaching-types'
 
 const SETTINGS_FILE_NAME = 'studiumx-settings.json'
+const LEGACY_SETTINGS_FILE_NAME = 'teachos-settings.json'
 const SAFE_STORAGE_PREFIX = 'safeStorage:v1:'
 
 export type SettingsSecretStorage = {
@@ -18,6 +21,7 @@ export type SettingsSecretStorage = {
 
 export class TeachingSettingsService {
   private readonly settingsPath: string
+  private readonly legacySettingsPath: string
   private readonly fallbackDefaultRoot: string
   private readonly secretStorage?: SettingsSecretStorage
   private protectedSecretTemplate: Record<string, unknown> | null = null
@@ -29,6 +33,7 @@ export class TeachingSettingsService {
     secretStorage?: SettingsSecretStorage
   }) {
     this.settingsPath = join(options.userDataPath, SETTINGS_FILE_NAME)
+    this.legacySettingsPath = join(options.userDataPath, LEGACY_SETTINGS_FILE_NAME)
     this.fallbackDefaultRoot = options.defaultRoot
     this.secretStorage = options.secretStorage
   }
@@ -36,32 +41,38 @@ export class TeachingSettingsService {
   async load(): Promise<TeachingSettingsV1> {
     if (this.cache) return this.cache
 
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(await readFile(this.settingsPath, 'utf8'))
-    } catch (error) {
-      if (isErrno(error) && error.code === 'ENOENT') {
-        this.cache = await this.ensureSettings(defaultSettings(this.fallbackDefaultRoot))
-        return this.cache
+    const recovered = await readValidatedWithBackup({
+      path: this.settingsPath,
+      validate: isSettingsDocument
+    })
+    if (recovered.value) {
+      const parsed = recovered.value
+      if (!encryptionAvailable(this.secretStorage) && hasProtectedSettingsSecrets(parsed)) {
+        this.protectedSecretTemplate = parsed
       }
-      if (error instanceof SyntaxError) {
-        this.cache = await this.replaceInvalidSettings('invalid JSON')
-        return this.cache
+      const decoded = decodeSettingsSecrets(parsed, this.secretStorage)
+      this.cache = await this.ensureSettings(normalizeSettings(decoded, this.fallbackDefaultRoot))
+      // A healthy canonical document is read-only at load time: do not create
+      // a backup, rewrite formatting, or re-encrypt secrets merely by opening
+      // settings. Persist only an actual schema/secret-storage migration.
+      // Backup recovery is deliberately non-destructive in every case.
+      if (recovered.source === 'canonical' && needsSettingsCanonicalization(parsed, decoded, this.cache, this.secretStorage)) {
+        await this.persist(this.cache)
       }
-      throw error
-    }
-
-    if (!isRecord(parsed)) {
-      this.cache = await this.replaceInvalidSettings('top-level value is not an object')
       return this.cache
     }
 
-    if (!encryptionAvailable(this.secretStorage) && hasProtectedSettingsSecrets(parsed)) {
-      this.protectedSecretTemplate = parsed
+    if (recovered.canonicalStatus === 'missing') {
+      const legacySettings = await this.loadLegacySettings()
+      if (legacySettings) {
+        this.cache = await this.save(normalizeSettings(legacySettings, this.fallbackDefaultRoot))
+        return this.cache
+      }
+      this.cache = await this.ensureSettings(defaultSettings(this.fallbackDefaultRoot))
+      return this.cache
     }
-    const decoded = decodeSettingsSecrets(parsed, this.secretStorage)
-    this.cache = await this.ensureSettings(normalizeSettings(decoded, this.fallbackDefaultRoot))
-    await this.persist(this.cache)
+
+    this.cache = await this.replaceInvalidSettings('invalid JSON or unsupported top-level value')
     return this.cache
   }
 
@@ -92,8 +103,12 @@ export class TeachingSettingsService {
       stored = preserveProtectedSettingsSecrets(stored, this.protectedSecretTemplate)
     }
     this.protectedSecretTemplate = hasProtectedSettingsSecrets(stored) ? stored : null
-    await mkdir(dirname(this.settingsPath), { recursive: true })
-    await atomicWriteFile(this.settingsPath, `${JSON.stringify(stored, null, 2)}\n`)
+    await replaceWithBackup({
+      path: this.settingsPath,
+      content: `${JSON.stringify(stored, null, 2)}\n`,
+      validate: isSettingsDocument,
+      mode: 0o600
+    })
   }
 
   private async replaceInvalidSettings(reason: string): Promise<TeachingSettingsV1> {
@@ -106,6 +121,17 @@ export class TeachingSettingsService {
       console.warn(`[StudiumX] Invalid settings were replaced with defaults: ${reason}. Backup could not be written.`)
     }
     return this.save(defaultSettings(this.fallbackDefaultRoot))
+  }
+
+
+  private async loadLegacySettings(): Promise<unknown | null> {
+    try {
+      return JSON.parse(await readFile(this.legacySettingsPath, 'utf8'))
+    } catch (error) {
+      if (isErrno(error) && error.code === 'ENOENT') return null
+      if (error instanceof SyntaxError) return null
+      throw error
+    }
   }
 
 }
@@ -208,6 +234,36 @@ function hasProtectedSettingsSecrets(input: Record<string, unknown>): boolean {
   return found
 }
 
+function needsSettingsCanonicalization(
+  stored: Record<string, unknown>,
+  decoded: Record<string, unknown>,
+  normalized: TeachingSettingsV1,
+  storage?: SettingsSecretStorage
+): boolean {
+  // Normalization changing an otherwise readable object is the explicit
+  // schema migration path retained from the historical load behavior.
+  if (!isDeepStrictEqual(decoded, normalized)) return true
+  if (!encryptionAvailable(storage)) return false
+
+  // Valid safeStorage values remain untouched. Plaintext values and values
+  // that can no longer be decrypted are the only secret-storage migrations.
+  let migrationRequired = false
+  transformSettingsSecrets(stored, (value) => {
+    if (!value) return value
+    if (!isProtectedSecret(value)) {
+      migrationRequired = true
+      return value
+    }
+    try {
+      storage.decryptString(Buffer.from(value.slice(SAFE_STORAGE_PREFIX.length), 'base64'))
+    } catch {
+      migrationRequired = true
+    }
+    return value
+  })
+  return migrationRequired
+}
+
 function isProtectedSecret(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith(SAFE_STORAGE_PREFIX)
 }
@@ -232,17 +288,14 @@ function encryptionAvailable(storage?: SettingsSecretStorage): storage is Settin
   }
 }
 
-function isRecord(input: unknown): input is Record<string, unknown> {
+function isSettingsDocument(input: unknown): input is Record<string, unknown> {
+  // The settings reader intentionally remains tolerant: every object is
+  // normalized by the shared schema, while arrays and primitives are unsafe
+  // backup candidates.
   return typeof input === 'object' && input !== null && !Array.isArray(input)
 }
 
+
 function isErrno(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null
-}
-
-async function atomicWriteFile(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`
-  await writeFile(tempPath, content, { encoding: 'utf8', mode: 0o600 })
-  await rename(tempPath, path)
 }

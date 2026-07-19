@@ -11,16 +11,27 @@ export type TeachingMemoryRecord = {
   confidence: number
   createdAt: string
   updatedAt: string
+  /** Main-process-only opaque mutation correlation metadata. */
+  traceId?: string
   disabledAt?: string
   deletedAt?: string
 }
 
+/** Renderer-safe aggregate only; it intentionally excludes paths, IDs, content, and hashes. */
+export type TeachingMemoryLegacyMigrationPreflight = {
+  legacyFlatEligibleCount: number
+  alreadyPartitionedCount: number
+  blockedDuplicateCount: number
+  blockedRecoveryIssueCount: number
+  migrationReady: boolean
+}
+
 export type TeachingMemoryDiagnostics = {
   enabled: boolean
-  rootDir: string
   activeCount: number
   tombstoneCount: number
-  lastInjectedIds: string[]
+  lastInjectedCount: number
+  legacyMigrationPreflight: TeachingMemoryLegacyMigrationPreflight
 }
 
 export type CreateTeachingMemoryPayload = {
