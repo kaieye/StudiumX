@@ -32,6 +32,8 @@ type NativeContainedDurableReplace = {
   ) => Promise<{ directorySyncUnsupported: boolean }>
   createContainedTemporaryFile: (directory: unknown, temporaryName: string) => unknown
   writeContainedTemporaryFile: (temporaryFile: unknown, content: Buffer) => void
+  prepareContainedRestrictedOverwriteCandidate: (directory: unknown, temporaryFile: unknown, filename: string) => void
+  swapContainedRestrictedOverwriteAtContainedDirectory: (directory: unknown, temporaryFile: unknown, temporaryName: string, filename: string) => void
   syncContainedTemporaryFile: (temporaryFile: unknown) => void
   closeContainedTemporaryFileChecked: (temporaryFile: unknown) => void
   publishNoOverwriteAtContainedDirectory: (directory: unknown, temporaryName: string, filename: string) => void
@@ -326,6 +328,47 @@ export function writeContainedTemporaryFile(file: ContainedTemporaryFile, conten
   // The S2 caller encodes text exactly once with Buffer.from(text, 'utf8').
   // Preserve those bytes without reinterpreting them as a host pathname/string.
   loadNativeContainedDurableReplace().writeContainedTemporaryFile(file.nativeTemporaryFile, Buffer.from(content))
+}
+
+/**
+ * Re-inspects the existing no-follow target and applies its `mode & 0777` to
+ * the still-open, descriptor-created candidate. It never accepts a missing,
+ * linked, or non-regular target at the native boundary. It deliberately does
+ * not retain or compare target identity/version: restricted overwrite is non-CAS.
+ */
+export function prepareContainedRestrictedOverwriteCandidate(
+  directory: ContainedDurableDirectory,
+  file: ContainedTemporaryFile,
+  filename: string
+): void {
+  if (!isSafeBasename(filename)) throw new Error('Contained restricted-overwrite filename is invalid.')
+  loadNativeContainedDurableReplace().prepareContainedRestrictedOverwriteCandidate(
+    directory.nativeDirectory,
+    file.nativeTemporaryFile,
+    filename
+  )
+}
+
+/**
+ * Exchanges a prepared, checked-closed candidate with the pre-inspected
+ * existing leaf using RENAME_SWAP/RENAME_EXCHANGE only. A return from this
+ * primitive is the sole internal publication marker.
+ */
+export function swapContainedRestrictedOverwriteAtContainedDirectory(
+  directory: ContainedDurableDirectory,
+  file: ContainedTemporaryFile,
+  temporaryName: string,
+  filename: string
+): void {
+  if (!isSafeBasename(temporaryName) || !isSafeBasename(filename)) {
+    throw new Error('Contained restricted-overwrite filenames are invalid.')
+  }
+  loadNativeContainedDurableReplace().swapContainedRestrictedOverwriteAtContainedDirectory(
+    directory.nativeDirectory,
+    file.nativeTemporaryFile,
+    temporaryName,
+    filename
+  )
 }
 
 /** fsyncs the already-open temporary descriptor. */
