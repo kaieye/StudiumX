@@ -30,7 +30,7 @@
 | [ADR-0001](0001-rebuildable-sqlite-projection.md) | C-1 可重建 SQLite projection 与 no-FTS 边界 | SQLite 仅作为可再建 analytics 投影并保留 canonical 文件回退；FTS、查询/搜索面与 query-facing corpus 均未获授权。 |
 | [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md) | C-2 canonical 永久保留、分区、分段与摘要 projection | canonical teaching data 永久保留；UTC 月分区、无损 sealed JSONL 分段和显式会话摘要 projection 已实施。physical retention / recovery 未获批准；相邻 agent-artifact 年龄/大小删除路径已移除。 |
 | [ADR-0003](0003-critical-json-backups-and-verified-recovery.md) | C-3 关键 JSON 备份与恢复 | `.bak` 备份及 verified read recovery。 |
-| [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) | C-4 durable publish | 共享 durable publish 原语及已迁移的部分 consumer；包含 C-4P6-S1 的严格有序 publish 与受控恢复基础、C-4P8-S1/S2/S3 foundation，以及 C-4P8-S4 的受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure，还有 C-4P9-S2 固定 session-audit 文件的专用 durable append 与 P9-S3 tests-only evidence。C-4 仍是 partial writer migration：完整 C-4P6 与完整 C-4P9 未关闭；P9-S3 只补齐 P9-S2 的 partial-write 与 archive-level directory failure/retry 定向证据；P8 不表示所有 writer、跨文件 transaction、CAS/lost-update protection、Windows/fully cross-platform 或 metadata full preservation。 |
+| [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) | C-4 durable publish | 共享 durable publish 原语及已迁移的部分 consumer；包含 C-4P6-S1 的严格有序 publish 与受控恢复基础、C-4P8-S1/S2/S3 foundation，以及 C-4P8-S4 的受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure，还有 C-4P9-S2 固定 session-audit 文件的专用 durable append 与 P9-S3 tests-only historical evidence 与 P9-S4 tests-only evidence。C-4 仍是 partial writer migration：完整 C-4P6 与完整 C-4P9 未关闭；P9-S3 保留 P9-S2 的 partial-write 与 archive-level directory failure/retry 实际历史证据；P9-S4 只覆盖首个 audit write `EIO`、0 audit bytes 的 archive-save short-circuit/retry；P8 不表示所有 writer、跨文件 transaction、CAS/lost-update protection、Windows/fully cross-platform 或 metadata full preservation。 |
 | [ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md) | C-5 trace correlation | main 生成的 trace correlation 与安全日志边界。 |
 | [ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md) | C-6 Memory | scope 分区及 aggregate-only readonly migration preflight。 |
 | [ADR-0007](0007-persisted-user-history-redaction.md) | C-7 历史数据脱敏 | 新持久化 conversation/history projection 的脱敏边界。 |
@@ -47,18 +47,16 @@ ADR-0004 记录的 C-4P8 已在**受控 `write_workspace_file` 文本文件 crea
 
 Linux 的现有 hosted 证据由 `ed8d88a` / `9c452f3` 记录：2026-07-19 的 GitHub-hosted `ubuntu-24.04` x64、Node `22.23.1` run 对 S2/S3 native branch 进行了本机构建和四个 P8 定向 unit files 验证（**4 passed / 96 passed**、没有 skipped）。它不是所有 Linux filesystem/kernel、Windows 或 fully cross-platform support 的声明。
 
-## C-4P9-S2 实施与 P9-S3 evidence
+## C-4P9-S2 实施与 P9-S3/S4 evidence
 
-ADR-0004 记录的 C-4P9 已实施范围仍仅为 S2：固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append。S3 的 `c286a42`（`test(data): cover audit durable append recovery`）是严格 **tests-only evidence slice**，不改变生产语义：它补齐 fixed-file non-rotating audit append 的真实 partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry。两份定向 unit 文件共 **61 tests passed**；本主会话还实际执行：
+ADR-0004 记录的 C-4P9 已实施范围仍仅为 S2：固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append。S3 的 `c286a42`（`test(data): cover audit durable append recovery`）是严格 **tests-only historical evidence slice**：它保留 fixed-file non-rotating audit append 的 partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；两份定向 unit 文件共 **61 tests passed**。S4 的 `ab723a6`（`test(data): cover audit pre-write short-circuit`）是严格 **tests-only evidence slice**，仅补齐 archive save 层首个 audit write 注入 `EIO` 且 audit 为 0 bytes 时的 short-circuit/retry：JSON/Markdown 保留、ledger 未执行；clean retry 后每个 canonical audit row 恰一条、ledger 恰一条。S4 的验证入口及结果为：
 
 ```sh
-pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
-pnpm run typecheck
-pnpm run check:security
-git diff --check
+pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts
+# 1 file, 27 tests passed
 ```
 
-这不是完整 suite，也不关闭 C-4P9；不应推断 crash/power-loss、all filesystems、cross-process、all JSONL、跨文件 transaction、rotation、repair/migration、ledger authority/save-order 改造或 IPC/UI 已交付。
+S4 不改变生产语义，也不覆盖并发、trace、capability、generic JSONL、rotation、事务、ledger authority/save order 或 API。这不是完整 suite，也不关闭 C-4P9；不应推断 crash/power-loss、all filesystems、cross-process、all JSONL、跨文件 transaction、rotation、repair/migration、ledger authority/save-order 改造或 IPC/UI 已交付。
 
 ## 维护约定
 
