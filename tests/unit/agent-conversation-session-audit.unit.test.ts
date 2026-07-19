@@ -880,6 +880,26 @@ describe('agent conversation session audit durable append', () => {
     expect(warnings).toEqual([])
   })
 
+  it.each(
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
+  )('fails closed without capability downgrade when audit file write returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      writePlan: ({ writeCall }) => writeCall === 0 ? { failure: errno(code) } : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(`write:${path}`)
+    // File-path write failures stay fatal: no directory open / capability downgrade path.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
   it.each([
     ['zero', 0],
     ['non-integer', Number.NaN]
