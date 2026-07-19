@@ -1,8 +1,8 @@
 # ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer
 
-- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础）
-- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P7
-- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`0d55fd8`
+- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础及 C-4P8-S1 descriptor foundation）
+- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P7、C-4P8-S1
+- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`0d55fd8`、`80f2fd0`、`e2ce36c`
 
 ## 决定
 
@@ -23,8 +23,22 @@
 | C-4P5 `278f141` | `TeachingWorkspaceDocuments` allowlisted workspace Markdown | `tests/unit/teaching-workspace-documents-durable.unit.test.ts`、`tests/integration/teaching-workspace-documents.integration.test.ts` |
 | C-4P6-S1 `7292bf4`、`e02a086` | learning-outcome 的严格有序 publish、受控 reconcile 与失败关闭基础 | `tests/unit/learning-outcome-committer.unit.test.ts`、`tests/unit/teaching-workspace-outcome-commit.unit.test.ts`；相关提交覆盖 41 项单元检查和 14 项集成检查 |
 | C-4P7 `0d55fd8` | private `MusicCookieStore` cookie state | `tests/unit/music-cookie-store-durable.unit.test.ts` |
+| C-4P8-S1 `80f2fd0`、`e2ce36c` | 仅 workspace descriptor foundation：可信既有 workspace root 绑定、descriptor-bound parent traversal 与 final-leaf inspection；不发布文件 | 下列已实际执行的 C-4P8-S1 验证命令 |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
+
+### C-4P8-S1 实际验证入口
+
+C-4P8 只实施了 S1；其证据提交为 `80f2fd0`（`feat(data): add workspace descriptor foundation`）和 `e2ce36c`（`test(data): cover workspace descriptor foundation`）。以下是该受限切片已实际执行的验证命令：
+
+```sh
+pnpm run build:contained-durable-replace
+pnpm exec vitest run --project unit tests/unit/contained-durable-directory.unit.test.ts tests/unit/workspace-contained-directory.unit.test.ts
+pnpm run check:workspace-write-tool
+node scripts/check-workspace-path-target.mjs
+pnpm run typecheck
+pnpm run check:security
+```
 
 ## C-4P6-S1 已实施的受限语义
 
@@ -36,10 +50,20 @@
 
 上述测试数量只说明该受限 S1 的相关覆盖；**不表示**设计矩阵中的全部 crash/failure 情形、后续 C-4P6 风险或任何未来切片已经消除。
 
+## C-4P8-S1 已实施的受限语义
+
+- 只在**既有且可信的** workspace root 上绑定 capability；S1 不会从不可信 target pathname 创建 workspace root。
+- 解析后的 parent component 使用 descriptor-bound、no-follow traversal；workspace parent 仅在请求时创建，遵循 `0777 & umask` 的普通 mkdir 语义。root 绑定后不退回 pathname traversal。
+- final leaf 以 no-follow inspect 分类为 absent、regular（记录 mode 与 linkCount）、directory、symlink 或 other；S1 只暴露检查结果，尚未把其作为 create 或 overwrite publication 的操作语义。
+- 提供窄的 typed internal seam、operation record 与 internal error kinds；它们不是 tool/API 的稳定错误 contract。
+- 仅支持 macOS/Linux 的 host-built capability；其它平台或 native capability 不可用时 fail closed。
+
+S1 **不包含** workspace tool handler、registry、IPC、renderer 或 API 变更；不写 payload 或 temp，不实现 durable publisher、atomic no-clobber 或 restricted overwrite，也没有 tool-facing stable errors 或 `possibly_published`。当前 `write_workspace_file` 仍未接入。
+
 ## 明确不包含与后续门槛
 
 - **C-4P6 仍未完整关闭，仍是待办。**S1 未提供跨文件事务或共同原子性、rollback、删除、通用 migration 或新的外部 API。完整 P6 close-out 仍需单独批准并验证 manifest publisher 的 capability-policy 对齐、穷尽的 crash / failure 设计矩阵及运行验证。
-- **C-4P8** agent `write_workspace_file` durable publish 未实施；它不是 C-4P5 的 allowlisted document service。
+- **C-4P8 仍未完成，仍是待办。**仅 S1 descriptor foundation 已实施；S2 atomic `createNoOverwrite`、S3 restricted overwrite、S4 handler / API integration 均未实施。S1 不是 C-4P5 的 allowlisted document service，当前 `write_workspace_file` 仍未接入。
 - **C-4P9** session-audit durable append 未实施；C-4P1 没有改变 session audit 的 ordinary append。
 - 高频日志不因本 ADR 自动改为逐条 fsync。
 

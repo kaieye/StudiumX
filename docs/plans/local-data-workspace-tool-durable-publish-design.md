@@ -1,10 +1,24 @@
-# C-4P8 Workspace tool durable publish：设计门（未实施、未批准）
+# C-4P8 Workspace tool durable publish：设计门（仅 S1 已实施；S2–S4 仍待实施）
 
-> **状态：仅 design gate / 审查否决后的设计约束。**当前将 `write_workspace_file` 的 pathname-based `writeFile` 直接替换为 shared `replaceDurably()` 的实现审查已被否决：该 primitive 不能单独满足 create 的原子 no-clobber、descriptor-bound containment 或 publication ambiguity 的要求。本文**不实现、不批准，也不宣称 C-4P8 已完成**；不改代码、测试、配置、canonical schema 或现有工具行为。只有完成本门规定的 sub-slice 划分与显式批准后，才可另立实现工作。
+> **状态：C-4P8 未完成。**S1 descriptor-bound foundation 已获批并实施，证据提交为 `80f2fd0`（`feat(data): add workspace descriptor foundation`）和 `e2ce36c`（`test(data): cover workspace descriptor foundation`）。当前将 `write_workspace_file` 的 pathname-based `writeFile` 直接替换为 shared `replaceDurably()` 的实现审查仍然不获批准：该 primitive 不能单独满足 create 的原子 no-clobber、descriptor-bound containment 或 publication ambiguity 的要求。本文保留 S2、S3、S4 的设计门和获批顺序；它**不批准或宣称 C-4P8 已完成**，也不授权顺带改变现有工具行为。
 
 相关但不同的已实施 consumer 是 C-4P5 `TeachingWorkspaceDocuments` 的 allowlisted workspace Markdown publish。C-4P8 的 writer scope 不继承 C-4P5 的 allowlist/service contract，也不能以 C-4P5 的测试或 shared `replaceDurably()` 通过作为 C-4P8 已迁移的证据。
 
 > 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
+
+## 已实施的 S1：descriptor-bound foundation（受限范围）
+
+S1 已作出的精确决定和已实现范围如下：
+
+1. 只绑定既有、可信的 workspace root；不会从不可信 target pathname 创建 workspace root。
+2. parent traversal 为 descriptor-bound、no-follow traversal；root 绑定后不退回 pathname traversal。workspace parent 的创建遵循 `0777 & umask` 的普通 mkdir 语义。
+3. final leaf 做 no-follow inspect，分类为 absent、regular（mode、linkCount）、directory、symlink 或 other。
+4. 只提供 typed internal seam、operation records 与 internal errors；这些不是 tool/API 的稳定 contract。
+5. 仅 macOS/Linux host-built capability 受支持；其它平台或 capability unavailable 时 fail closed。
+
+S1 **不包含** workspace tool handler、registry、IPC、renderer 或 API 变更；不写 payload 或 temp，不实现 durable publisher、atomic no-clobber 或 restricted overwrite，也没有 tool-facing stable errors 或 `possibly_published`。当前 `write_workspace_file` 仍未接入。
+
+S2 atomic `createNoOverwrite`、S3 restricted overwrite、S4 handler / API integration 均未实施，且必须按本文件规定的获批顺序继续进行；S1 不授权跳过它们或改变其 scope。
 
 ## 1. 固定 scope 与非目标
 
@@ -102,13 +116,13 @@ Tool JSON 的 message/metadata 不得泄露 workspace absolute path、parent des
 
 现有 `tests/unit/durable-file.unit.test.ts` 的 `DurableFileOperations` / `memoryOperations` 可作为 file/directory fault-injection 的参考，但其普通 rename replacement semantics 不能被误当成 no-clobber 或 descriptor-containment 的完整测试设施。需要的 native/portable capability 也必须提供相应的可控测试 seam，或给出同等强度的 deterministic harness。
 
-## 8. 实施前的批准门
+## 8. S2–S4 实施前的批准门
 
-C-4P8 仍无 approved implementation。实施前必须先完成并获批准：
+C-4P8 不再是“无 approved implementation”：S1 已获批并实施；但 S2、S3、S4 仍无获批实现，且必须按 S1 → S2 → S3 → S4 的顺序继续。开始 S2 前，剩余工作必须完成并获批准：
 
-1. 将上述 requirement 划为精确、可独立验证的 sub-slice（至少分开 capability foundation、no-clobber create、restricted overwrite、handler/API/error integration）；
-2. 对 hardlink policy、temp-alias cleanup 与第一次/最终 parent-directory fsync 顺序（含是否需要第二次 sync）、成功 acknowledgement、portable/native capability matrix、stable error enum、`possibly_published` read/retry UX/API 与并发外部 mutation boundary 作出明确决定；
-3. 审核 I/O seam 与全部 failure test plan，确认不以 pathname fallback 降级；
-4. 明确每个 sub-slice 的 compatibility baseline、最小执行命令和 review/approval owner。
+1. 将 S2 atomic `createNoOverwrite`、S3 restricted overwrite、S4 handler/API/error integration 划为精确、可独立验证的 sub-slice；不得把 S1 foundation 当作任一 publication 或 integration 的批准；
+2. 对 hardlink policy、temp-alias cleanup 与第一次/最终 parent-directory fsync 顺序（含是否需要第二次 sync）、成功 acknowledgement、stable error enum、`possibly_published` read/retry UX/API 与并发外部 mutation boundary 作出明确决定；
+3. 审核 S2/S3 所需的 publication I/O seam 与全部 failure test plan，确认不以 pathname fallback 降级；
+4. 明确 S2、S3、S4 各自的 compatibility baseline、最小执行命令和 review/approval owner。
 
-在这些决定完成前，任何“直接改用 `replaceDurably()`”或只补 pre/post `realpath` 的改动都不得称为 C-4P8、durable contained publish、no-clobber safe，或已完成。
+在这些决定完成前，任何“直接改用 `replaceDurably()`”或只补 pre/post `realpath` 的改动都不得称为 C-4P8、durable contained publish、no-clobber safe，或已完成。尤其不得把已实施的 S1 误述为 durable workspace tool write 已交付。

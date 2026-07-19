@@ -15,11 +15,12 @@
 ### P8：agent workspace tool durable publish
 
 - 设计文档：[C-4P8 Workspace tool durable publish](plans/local-data-workspace-tool-durable-publish-design.md)
-- **获批后的最小顺序：**
-  1. **S1** descriptor-bound foundation；
-  2. **S2** atomic `createNoOverwrite`；
-  3. **S3** restricted overwrite；
-  4. **S4** handler / API integration。
+- **P8 未完成。已实施且仅限 S1：**`80f2fd0` / `e2ce36c` 完成 workspace descriptor foundation；证据与实际验证入口见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
+- **获批后的剩余顺序（必须保持）：**
+  1. **S2** atomic `createNoOverwrite`；
+  2. **S3** restricted overwrite；
+  3. **S4** handler / API integration。
+- **仍未完成：**S2、S3、S4 均未实施。S1 不写 payload/temp、不实现 durable publisher、atomic no-clobber 或 restricted overwrite；没有 tool-facing stable errors 或 `possibly_published`，且当前 `write_workspace_file` 仍未接入。
 - 禁止越界：不得把 agent `write_workspace_file` 直接替换成 `replaceDurably()`；C-4P5 allowlisted Markdown service 与该任意受控工具 writer 是不同 scope。
 
 ### P9：session-audit durable append
