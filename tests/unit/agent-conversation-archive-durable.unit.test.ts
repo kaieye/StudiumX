@@ -489,6 +489,49 @@ describe('Agent conversation archive durable canonical publication', () => {
     expect(JSON.parse(ledgerLines[0]!)).toMatchObject({ conversation: { id: fixture.record.id } })
   })
 
+  it('short-circuits before ledger when the first audit write fails, then retries each canonical audit row once', async () => {
+    const fixture = await archiveFixture()
+    let firstAuditWrite = true
+    const failedAudit = instrumentedSessionAuditOperations({
+      fail: (event) => {
+        if (firstAuditWrite && event === `write:${fixture.auditPath}`) {
+          firstAuditWrite = false
+          return errno('EIO')
+        }
+        return undefined
+      }
+    })
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: failedAudit.operations
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    await expect(readFile(fixture.jsonPath, 'utf8')).resolves.toContain(fixture.record.id)
+    await expect(readFile(fixture.markdownPath, 'utf8')).resolves.toContain('OAuth archive notes')
+    // The real O_CREAT audit open occurs before the injected first write error.
+    await expect(readFile(fixture.auditPath, 'utf8')).resolves.toBe('')
+    await expect(readFile(fixture.ledgerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(failedAudit.events).toContain(`write:${fixture.auditPath}`)
+
+    const retryAudit = instrumentedSessionAuditOperations()
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: retryAudit.operations
+    })).resolves.toBeUndefined()
+
+    const auditLines = parseAgentConversationSessionAuditLines(await readFile(fixture.auditPath, 'utf8'))
+    const expectedAuditIds = [fixture.record.id, ...buildAgentConversationSessionAuditEntries(fixture.record).map((entry) => entry.id)]
+    for (const id of expectedAuditIds) {
+      expect(auditLines.filter((line) => line.id === id)).toHaveLength(1)
+    }
+    const ledgerLines = (await readFile(fixture.ledgerPath, 'utf8')).trim().split('\n')
+    expect(ledgerLines).toHaveLength(1)
+    expect(JSON.parse(ledgerLines[0]!)).toMatchObject({ conversation: { id: fixture.record.id } })
+  })
+
   it('preserves a partial audit prefix across an archive retry, fills only missing canonical rows, and appends one ledger entry', async () => {
     const fixture = await archiveFixture()
     let cutAt = 0
