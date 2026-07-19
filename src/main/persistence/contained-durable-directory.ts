@@ -9,9 +9,19 @@ type NativeContainedDirectoryEntry = {
   type: 'file' | 'directory' | 'symlink' | 'other'
 }
 
+type NativeContainedDirectoryLeaf =
+  | { type: 'absent' }
+  | { type: 'regular'; mode: number; linkCount: number }
+  | { type: 'directory'; mode: number; linkCount: number }
+  | { type: 'symlink'; mode: number; linkCount: number }
+  | { type: 'other'; mode: number; linkCount: number }
+
 type NativeContainedDurableReplace = {
   openContainedRootDirectory: (physicalParentPath: string, rootName: string, createIfMissing: boolean) => unknown
   openContainedDirectoryChild: (directory: unknown, name: string, createIfMissing: boolean) => unknown
+  openContainedWorkspaceDirectoryChild: (directory: unknown, name: string, createIfMissing: boolean) => unknown
+  inspectContainedDirectoryLeaf: (directory: unknown, name: string) => NativeContainedDirectoryLeaf
+  syncContainedDirectory: (directory: unknown) => void
   listContainedDirectory: (directory: unknown) => NativeContainedDirectoryEntry[]
   readRegularFileAtContainedDirectory: (directory: unknown, filename: string) => Buffer
   replaceAtContainedDirectory: (
@@ -20,7 +30,93 @@ type NativeContainedDurableReplace = {
     temporaryName: string,
     content: Buffer
   ) => Promise<{ directorySyncUnsupported: boolean }>
+  closeContainedDirectoryChecked: (directory: unknown) => void
   closeContainedDirectory: (directory: unknown) => void
+}
+
+/** A normalized descriptor-relative target beneath a trusted workspace root. */
+export type WorkspaceContainedRelativePath = {
+  /** Canonical display/storage form. It always uses POSIX separators. */
+  readonly relativePath: string
+  /** The descriptor-relative directories to traverse before the final leaf. */
+  readonly parentComponents: readonly string[]
+  /** The safe final component; never a path fragment. */
+  readonly basename: string
+}
+
+/** A no-follow final-leaf classification produced by fstatat(AT_SYMLINK_NOFOLLOW). */
+export type WorkspaceContainedLeaf =
+  | { readonly type: 'absent' }
+  | { readonly type: 'regular'; readonly mode: number; readonly linkCount: number }
+  | { readonly type: 'directory' }
+  | { readonly type: 'symlink' }
+  | { readonly type: 'other' }
+
+export type WorkspaceContainedDirectoryErrorKind =
+  | 'invalid_relative_path'
+  | 'descriptor_capability_unavailable'
+  | 'workspace_root_bind_failed'
+  | 'parent_component_open_failed'
+  | 'leaf_inspection_failed'
+  | 'directory_sync_failed'
+  | 'directory_close_failed'
+
+/**
+ * Internal boundary error for the descriptor-only workspace foundation.
+ * Its detail is deliberately not a tool/API error contract.
+ */
+export class WorkspaceContainedDirectoryError extends Error {
+  readonly kind: WorkspaceContainedDirectoryErrorKind
+
+  constructor(kind: WorkspaceContainedDirectoryErrorKind, message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause })
+    this.name = 'WorkspaceContainedDirectoryError'
+    this.kind = kind
+  }
+}
+
+/**
+ * The deliberately narrow S1 seam: it can record or deterministically fail
+ * descriptor operations, but exposes no payload creation/publication hooks.
+ */
+export type WorkspaceContainedDirectoryOperations = {
+  openOrCreateComponent: (
+    parent: ContainedDurableDirectory,
+    component: string,
+    createIfMissing: boolean
+  ) => ContainedDurableDirectory
+  inspectLeaf: (parent: ContainedDurableDirectory, basename: string) => WorkspaceContainedLeaf
+  syncDirectory: (directory: ContainedDurableDirectory) => void
+  closeDirectory: (directory: ContainedDurableDirectory) => void
+}
+
+export type WorkspaceContainedDirectoryOperation =
+  | { readonly type: 'open_or_create_component'; readonly component: string; readonly createIfMissing: boolean }
+  | { readonly type: 'inspect_leaf'; readonly basename: string }
+  | { readonly type: 'sync_directory' }
+  | { readonly type: 'close_directory' }
+
+export type BindWorkspaceContainedPathInput = {
+  /** Existing main-process-trusted workspace root. It is never created by S1. */
+  workspaceRootPath: string
+  relativePath: string
+  /** Create only missing parent directories, never the final leaf. */
+  createParentDirectories?: boolean
+  /** Test-only/internal operation replacement; it is not a publication seam. */
+  operations?: Partial<WorkspaceContainedDirectoryOperations>
+  /** Lightweight operation recorder for deterministic foundation tests. */
+  onOperation?: (operation: WorkspaceContainedDirectoryOperation) => void
+}
+
+/**
+ * A retained descriptor to the parsed target's parent. S1 intentionally
+ * provides no final-leaf writer, temporary-file, or publication operation.
+ */
+export type WorkspaceContainedPathBinding = WorkspaceContainedRelativePath & {
+  readonly parentDirectory: ContainedDurableDirectory
+  inspectLeaf: () => WorkspaceContainedLeaf
+  syncParentDirectory: () => void
+  close: () => void
 }
 
 export type NativeContainedDurableReplaceUnavailableReason = 'unsupported_platform' | 'native_unavailable'
@@ -202,6 +298,253 @@ export function closeContainedDurableDirectory(directory: ContainedDurableDirect
   loadNativeContainedDurableReplace().closeContainedDirectory(directory.nativeDirectory)
 }
 
+/**
+ * Parses a workspace target without using the host pathname normalizer. Both
+ * slash forms are separators, preventing a display path from diverging from
+ * the components later supplied to openat(2).
+ */
+export function parseWorkspaceContainedRelativePath(value: string): WorkspaceContainedRelativePath {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.includes('\0')) {
+    throw new WorkspaceContainedDirectoryError('invalid_relative_path', 'Workspace relative path is empty or contains a NUL byte.')
+  }
+  if (value.startsWith('/') || value.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(value)) {
+    throw new WorkspaceContainedDirectoryError('invalid_relative_path', 'Workspace relative path must not be absolute.')
+  }
+
+  const components = value.split(/[\\/]+/)
+  if (components.length === 0 || components.some((component) => component.length === 0 || component === '.' || component === '..')) {
+    throw new WorkspaceContainedDirectoryError('invalid_relative_path', 'Workspace relative path contains an unsafe traversal component.')
+  }
+
+  const basename = components.at(-1)
+  if (!basename || !isSafeBasename(basename)) {
+    throw new WorkspaceContainedDirectoryError('invalid_relative_path', 'Workspace relative path has an unsafe basename.')
+  }
+  return {
+    relativePath: components.join('/'),
+    parentComponents: components.slice(0, -1),
+    basename
+  }
+}
+
+/** Short alias for the workspace-relative parser. */
+export const parseWorkspaceRelativePath = parseWorkspaceContainedRelativePath
+/** Alias emphasizing that the result is a safe descriptor-relative target. */
+export const parseWorkspaceRelativePathForContainedDirectory = parseWorkspaceContainedRelativePath
+
+/**
+ * Binds an existing trusted workspace root, then opens or creates only the
+ * parsed parent components beneath its retained descriptor. There is no
+ * pathname fallback after the root has been bound.
+ */
+export function bindWorkspaceContainedPath(input: BindWorkspaceContainedPathInput): WorkspaceContainedPathBinding {
+  const target = parseWorkspaceContainedRelativePath(input.relativePath)
+  const capability = getContainedDurableDirectoryCapability()
+  if (!capability.available) {
+    throw new WorkspaceContainedDirectoryError(
+      'descriptor_capability_unavailable',
+      'Descriptor-relative workspace containment is unavailable on this host.'
+    )
+  }
+
+  let current: ContainedDurableDirectory
+  try {
+    // S1 binds only an already-existing workspace root. It never creates a
+    // workspace root from an untrusted target pathname.
+    current = openContainedRootDirectory(input.workspaceRootPath, false)
+  } catch (cause) {
+    throw new WorkspaceContainedDirectoryError(
+      'workspace_root_bind_failed',
+      'Unable to bind the existing trusted workspace root.',
+      cause
+    )
+  }
+
+  const operations: WorkspaceContainedDirectoryOperations = {
+    ...defaultWorkspaceContainedDirectoryOperations,
+    ...input.operations
+  }
+  const createParentDirectories = input.createParentDirectories === true
+  let currentNeedsCleanup = true
+  try {
+    for (const component of target.parentComponents) {
+      input.onOperation?.({ type: 'open_or_create_component', component, createIfMissing: createParentDirectories })
+      let child: ContainedDurableDirectory
+      try {
+        child = operations.openOrCreateComponent(current, component, createParentDirectories)
+      } catch (cause) {
+        throw new WorkspaceContainedDirectoryError(
+          'parent_component_open_failed',
+          'Unable to open or create a workspace parent directory component.',
+          cause
+        )
+      }
+      let currentCloseAttempted = false
+      try {
+        input.onOperation?.({ type: 'close_directory' })
+        currentCloseAttempted = true
+        operations.closeDirectory(current)
+      } catch (cause) {
+        if (currentCloseAttempted) {
+          // A checked close has already been attempted for this descriptor; never retry it in outer cleanup.
+          currentNeedsCleanup = false
+        }
+        try {
+          operations.closeDirectory(child)
+        } catch {
+          // The original checked-close failure remains the useful foundation error.
+        }
+        throw new WorkspaceContainedDirectoryError(
+          'directory_close_failed',
+          'Unable to close a superseded workspace parent directory descriptor.',
+          cause
+        )
+      }
+      current = child
+    }
+  } catch (error) {
+    if (currentNeedsCleanup) {
+      try {
+        input.onOperation?.({ type: 'close_directory' })
+        operations.closeDirectory(current)
+      } catch {
+        // Do not hide the traversal failure with cleanup detail.
+      }
+    }
+    throw error
+  }
+
+  let closed = false
+  return {
+    ...target,
+    parentDirectory: current,
+    inspectLeaf: () => {
+      ensureWorkspaceBindingOpen(closed)
+      input.onOperation?.({ type: 'inspect_leaf', basename: target.basename })
+      try {
+        return operations.inspectLeaf(current, target.basename)
+      } catch (cause) {
+        throw new WorkspaceContainedDirectoryError(
+          'leaf_inspection_failed',
+          'Unable to inspect the workspace target leaf.',
+          cause
+        )
+      }
+    },
+    syncParentDirectory: () => {
+      ensureWorkspaceBindingOpen(closed)
+      input.onOperation?.({ type: 'sync_directory' })
+      try {
+        operations.syncDirectory(current)
+      } catch (cause) {
+        throw new WorkspaceContainedDirectoryError(
+          'directory_sync_failed',
+          'Unable to sync the workspace target parent directory.',
+          cause
+        )
+      }
+    },
+    close: () => {
+      if (closed) return
+      closed = true
+      input.onOperation?.({ type: 'close_directory' })
+      try {
+        operations.closeDirectory(current)
+      } catch (cause) {
+        throw new WorkspaceContainedDirectoryError(
+          'directory_close_failed',
+          'Unable to close the workspace target parent directory descriptor.',
+          cause
+        )
+      }
+    }
+  }
+}
+
+/** Alias for callers that want to make the trusted-root boundary explicit. */
+export const bindTrustedWorkspaceContainedPath = bindWorkspaceContainedPath
+/** Alias using the target-opening vocabulary used by later descriptor-only stages. */
+export const openWorkspaceContainedPath = bindWorkspaceContainedPath
+
+/** Performs one typed no-follow final-leaf inspection below a retained descriptor. */
+export function inspectWorkspaceContainedLeaf(
+  directory: ContainedDurableDirectory,
+  basename: string,
+  operations: Pick<WorkspaceContainedDirectoryOperations, 'inspectLeaf'> = defaultWorkspaceContainedDirectoryOperations
+): WorkspaceContainedLeaf {
+  if (!isSafeBasename(basename)) {
+    throw new WorkspaceContainedDirectoryError('invalid_relative_path', 'Workspace target leaf basename is invalid.')
+  }
+  try {
+    return operations.inspectLeaf(directory, basename)
+  } catch (cause) {
+    throw new WorkspaceContainedDirectoryError('leaf_inspection_failed', 'Unable to inspect the workspace target leaf.', cause)
+  }
+}
+
+/** Explicit descriptor-directory fsync with the S1 typed internal error boundary. */
+export function syncWorkspaceContainedDirectory(
+  directory: ContainedDurableDirectory,
+  operations: Pick<WorkspaceContainedDirectoryOperations, 'syncDirectory'> = defaultWorkspaceContainedDirectoryOperations
+): void {
+  try {
+    operations.syncDirectory(directory)
+  } catch (cause) {
+    throw new WorkspaceContainedDirectoryError('directory_sync_failed', 'Unable to sync the workspace directory.', cause)
+  }
+}
+
+/** Checked descriptor close with the S1 typed internal error boundary. */
+export function closeWorkspaceContainedDirectory(
+  directory: ContainedDurableDirectory,
+  operations: Pick<WorkspaceContainedDirectoryOperations, 'closeDirectory'> = defaultWorkspaceContainedDirectoryOperations
+): void {
+  try {
+    operations.closeDirectory(directory)
+  } catch (cause) {
+    throw new WorkspaceContainedDirectoryError('directory_close_failed', 'Unable to close the workspace directory.', cause)
+  }
+}
+
+function ensureWorkspaceBindingOpen(closed: boolean): void {
+  if (closed) {
+    throw new WorkspaceContainedDirectoryError('directory_close_failed', 'Workspace target parent directory descriptor is already closed.')
+  }
+}
+
+const defaultWorkspaceContainedDirectoryOperations: WorkspaceContainedDirectoryOperations = {
+  openOrCreateComponent(parent, component, createIfMissing) {
+    return {
+      nativeDirectory: loadNativeContainedDurableReplace().openContainedWorkspaceDirectoryChild(
+        parent.nativeDirectory,
+        component,
+        createIfMissing
+      )
+    }
+  },
+  inspectLeaf(parent, basename) {
+    const inspected = loadNativeContainedDurableReplace().inspectContainedDirectoryLeaf(parent.nativeDirectory, basename)
+    switch (inspected.type) {
+      case 'absent':
+        return { type: 'absent' }
+      case 'regular':
+        return { type: 'regular', mode: inspected.mode, linkCount: inspected.linkCount }
+      case 'directory':
+        return { type: 'directory' }
+      case 'symlink':
+        return { type: 'symlink' }
+      default:
+        return { type: 'other' }
+    }
+  },
+  syncDirectory(directory) {
+    loadNativeContainedDurableReplace().syncContainedDirectory(directory.nativeDirectory)
+  },
+  closeDirectory(directory) {
+    loadNativeContainedDurableReplace().closeContainedDirectoryChecked(directory.nativeDirectory)
+  }
+}
+
 export function isNativeContainedDurableReplaceUnavailable(
   error: unknown
 ): error is NativeContainedDurableReplaceUnavailableError {
@@ -237,7 +580,10 @@ function isSafeBasename(value: string): boolean {
 }
 
 function isHostBuiltPosixPlatform(platform: NodeJS.Platform): boolean {
-  return platform !== 'win32'
+  // The addon is built in the packaging host and is verified only for the
+  // POSIX targets we ship. Other platforms fail closed rather than attempting
+  // to load a possibly incompatible native artifact.
+  return platform === 'darwin' || platform === 'linux'
 }
 
 function loadNativeContainedDurableReplace(

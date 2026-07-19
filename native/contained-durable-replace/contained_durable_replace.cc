@@ -217,6 +217,8 @@ bool DuplicateFileDescriptorCloseOnExec(int source_fd, int* result, std::string*
 bool OpenDirectoryComponent(
   int parent_fd,
   const char* name,
+  mode_t create_mode,
+  const char* created_kind,
   int* result,
   bool* directory_sync_unsupported,
   std::string* error
@@ -233,10 +235,10 @@ bool OpenDirectoryComponent(
       return false;
     }
 
-    if (mkdirat(parent_fd, name, 0700) == 0) {
+    if (mkdirat(parent_fd, name, create_mode) == 0) {
       // A first write changes the parent directory entry too. Apply the same
       // documented downgrade-only directory-fsync policy before proceeding.
-      if (!SyncDirectoryEntry(parent_fd, directory_sync_unsupported, "contained output directory", error)) return false;
+      if (!SyncDirectoryEntry(parent_fd, directory_sync_unsupported, created_kind, error)) return false;
       continue;
     }
     if (errno == EEXIST) continue;
@@ -366,7 +368,15 @@ napi_value OpenContainedDirectoryChild(napi_env env, napi_callback_info info) {
   bool directory_sync_unsupported = parent->directory_sync_unsupported;
   std::string error;
   if (create_if_missing) {
-    if (!OpenDirectoryComponent(parent->fd, name.c_str(), &child_fd, &directory_sync_unsupported, &error)) {
+    if (!OpenDirectoryComponent(
+      parent->fd,
+      name.c_str(),
+      0700,
+      "contained output directory",
+      &child_fd,
+      &directory_sync_unsupported,
+      &error
+    )) {
       ThrowNativeError(env, error, errno == ELOOP ? "ELOOP" : "EIO");
       return nullptr;
     }
@@ -379,6 +389,145 @@ napi_value OpenContainedDirectoryChild(napi_env env, napi_callback_info info) {
     }
   }
   return MakeDirectoryCapability(env, child_fd, directory_sync_unsupported);
+#endif
+}
+
+napi_value OpenContainedWorkspaceDirectoryChild(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value argv[3] = {nullptr, nullptr, nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read openContainedWorkspaceDirectoryChild arguments")) return nullptr;
+  if (argc != 3) {
+    napi_throw_error(env, nullptr, "openContainedWorkspaceDirectoryChild requires a parent capability, child name, and create-if-missing flag.");
+    return nullptr;
+  }
+
+  DirectoryCapability* parent = nullptr;
+  std::string name;
+  bool create_if_missing = false;
+  if (!GetDirectoryCapability(env, argv[0], &parent, "Unable to read contained workspace parent directory capability") ||
+      !GetString(env, argv[1], &name) || !IsSafeName(name) || !GetBoolean(env, argv[2], &create_if_missing)) {
+    napi_throw_error(env, nullptr, "Contained workspace child directory arguments are invalid.");
+    return nullptr;
+  }
+
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  int child_fd = -1;
+  bool directory_sync_unsupported = parent->directory_sync_unsupported;
+  std::string error;
+  if (create_if_missing) {
+    // Workspace-owned parent directories follow ordinary mkdir semantics. The
+    // process umask is deliberately left in effect; private C-2C consumers
+    // continue to use OpenContainedDirectoryChild's 0700 creation mode.
+    if (!OpenDirectoryComponent(
+      parent->fd,
+      name.c_str(),
+      0777,
+      "contained workspace directory",
+      &child_fd,
+      &directory_sync_unsupported,
+      &error
+    )) {
+      ThrowNativeError(env, error, errno == ELOOP ? "ELOOP" : "EIO");
+      return nullptr;
+    }
+  } else {
+    child_fd = openat(parent->fd, name.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (child_fd < 0) {
+      const int open_error = errno;
+      ThrowNativeError(env, std::string("Unable to open contained workspace child directory without following a link: ") + std::strerror(open_error), open_error == ELOOP ? "ELOOP" : (open_error == ENOENT ? "ENOENT" : "EIO"));
+      return nullptr;
+    }
+  }
+  return MakeDirectoryCapability(env, child_fd, directory_sync_unsupported);
+#endif
+}
+
+napi_value InspectContainedDirectoryLeaf(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2] = {nullptr, nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read inspectContainedDirectoryLeaf arguments")) return nullptr;
+  if (argc != 2) {
+    napi_throw_error(env, nullptr, "inspectContainedDirectoryLeaf requires a directory capability and leaf name.");
+    return nullptr;
+  }
+
+  DirectoryCapability* capability = nullptr;
+  std::string name;
+  if (!GetDirectoryCapability(env, argv[0], &capability, "Unable to read contained directory capability") ||
+      !GetString(env, argv[1], &name) || !IsSafeName(name)) {
+    napi_throw_error(env, nullptr, "Contained leaf inspection arguments are invalid.");
+    return nullptr;
+  }
+
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  struct stat leaf_stats {};
+  const int inspect_result = fstatat(capability->fd, name.c_str(), &leaf_stats, AT_SYMLINK_NOFOLLOW);
+  const int inspect_error = errno;
+
+  const char* type = "other";
+  bool absent = false;
+  if (inspect_result != 0) {
+    if (inspect_error != ENOENT) {
+      ThrowNativeError(env, std::string("Unable to inspect contained final leaf without following a link: ") + std::strerror(inspect_error), inspect_error == ELOOP ? "ELOOP" : "EIO");
+      return nullptr;
+    }
+    type = "absent";
+    absent = true;
+  } else if (S_ISREG(leaf_stats.st_mode)) {
+    type = "regular";
+  } else if (S_ISDIR(leaf_stats.st_mode)) {
+    type = "directory";
+  } else if (S_ISLNK(leaf_stats.st_mode)) {
+    type = "symlink";
+  }
+
+  napi_value result = nullptr;
+  napi_value type_value = nullptr;
+  if (!ThrowNapiError(env, napi_create_object(env, &result), "Unable to allocate contained leaf inspection result") ||
+      !ThrowNapiError(env, napi_create_string_utf8(env, type, NAPI_AUTO_LENGTH, &type_value), "Unable to create contained leaf type") ||
+      !ThrowNapiError(env, napi_set_named_property(env, result, "type", type_value), "Unable to set contained leaf type")) return nullptr;
+  if (!absent) {
+    napi_value mode = nullptr;
+    napi_value link_count = nullptr;
+    if (!ThrowNapiError(env, napi_create_uint32(env, static_cast<uint32_t>(leaf_stats.st_mode), &mode), "Unable to create contained leaf mode") ||
+        !ThrowNapiError(env, napi_create_double(env, static_cast<double>(leaf_stats.st_nlink), &link_count), "Unable to create contained leaf link count") ||
+        !ThrowNapiError(env, napi_set_named_property(env, result, "mode", mode), "Unable to set contained leaf mode") ||
+        !ThrowNapiError(env, napi_set_named_property(env, result, "linkCount", link_count), "Unable to set contained leaf link count")) return nullptr;
+  }
+  return result;
+#endif
+}
+
+napi_value SyncContainedDirectory(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read syncContainedDirectory arguments")) return nullptr;
+  if (argc != 1) {
+    napi_throw_error(env, nullptr, "syncContainedDirectory requires a directory capability.");
+    return nullptr;
+  }
+
+  DirectoryCapability* capability = nullptr;
+  if (!GetDirectoryCapability(env, argv[0], &capability, "Unable to read contained directory capability")) return nullptr;
+
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  if (fsync(capability->fd) != 0) {
+    const int sync_error = errno;
+    ThrowNativeError(env, std::string("Unable to sync contained directory: ") + std::strerror(sync_error), IsUnsupportedDirectorySync(sync_error) ? "ENOTSUP" : "EIO");
+    return nullptr;
+  }
+  napi_value undefined = nullptr;
+  if (!ThrowNapiError(env, napi_get_undefined(env, &undefined), "Unable to return from syncContainedDirectory")) return nullptr;
+  return undefined;
 #endif
 }
 
@@ -710,6 +859,39 @@ napi_value ReplaceAtContainedDirectory(napi_env env, napi_callback_info info) {
   return promise;
 }
 
+napi_value CloseContainedDirectoryChecked(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {nullptr};
+  if (!ThrowNapiError(env, napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr), "Unable to read closeContainedDirectoryChecked arguments")) return nullptr;
+  if (argc != 1) {
+    napi_throw_error(env, nullptr, "Contained output directory capability is invalid.");
+    return nullptr;
+  }
+  DirectoryCapability* capability = nullptr;
+  if (!ThrowNapiError(env, napi_get_value_external(env, argv[0], reinterpret_cast<void**>(&capability)), "Unable to read contained output directory capability")) return nullptr;
+  if (capability == nullptr || capability->fd < 0) {
+    napi_throw_error(env, nullptr, "Contained output directory capability is closed or invalid.");
+    return nullptr;
+  }
+
+#if defined(_WIN32)
+  ThrowNativeError(env, "Descriptor-relative contained directory access is not implemented on Windows; refusing pathname traversal.", "ENOTSUP");
+  return nullptr;
+#else
+  // Do not retry close after EINTR: POSIX permits the descriptor to have been
+  // released already. Mark it closed before surfacing the failure.
+  const int fd = capability->fd;
+  capability->fd = -1;
+  if (close(fd) != 0) {
+    ThrowNativeError(env, std::string("Unable to close contained directory: ") + std::strerror(errno), "EIO");
+    return nullptr;
+  }
+  napi_value undefined = nullptr;
+  if (!ThrowNapiError(env, napi_get_undefined(env, &undefined), "Unable to return from closeContainedDirectoryChecked")) return nullptr;
+  return undefined;
+#endif
+}
+
 napi_value CloseContainedDirectory(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value argv[1] = {nullptr};
@@ -736,12 +918,16 @@ napi_value Init(napi_env env, napi_value exports) {
   napi_property_descriptor properties[] = {
     {"openContainedRootDirectory", nullptr, OpenContainedRootDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"openContainedDirectoryChild", nullptr, OpenContainedDirectoryChild, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"openContainedWorkspaceDirectoryChild", nullptr, OpenContainedWorkspaceDirectoryChild, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"inspectContainedDirectoryLeaf", nullptr, InspectContainedDirectoryLeaf, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"syncContainedDirectory", nullptr, SyncContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"listContainedDirectory", nullptr, ListContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"readRegularFileAtContainedDirectory", nullptr, ReadRegularFileAtContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"replaceAtContainedDirectory", nullptr, ReplaceAtContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"closeContainedDirectoryChecked", nullptr, CloseContainedDirectoryChecked, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"closeContainedDirectory", nullptr, CloseContainedDirectory, nullptr, nullptr, nullptr, napi_default, nullptr}
   };
-  if (!ThrowNapiError(env, napi_define_properties(env, exports, 6, properties), "Unable to define contained durable replacement exports")) return nullptr;
+  if (!ThrowNapiError(env, napi_define_properties(env, exports, 10, properties), "Unable to define contained durable replacement exports")) return nullptr;
   return exports;
 }
 
