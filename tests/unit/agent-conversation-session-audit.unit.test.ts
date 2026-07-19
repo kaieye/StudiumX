@@ -511,31 +511,57 @@ describe('agent conversation session audit durable append', () => {
     expect(io.events).toContain(event)
   })
 
-  it.each(['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'])(
-    'downgrades only supported audit-directory fsync error %s with one generic warning',
-    async (code) => {
-      const root = await createRoot()
-      const record = createRecord({ traceId: TRACE_A })
-      const warnings: string[] = []
-      const directory = dirname(auditPath(root, record))
-      let failed = false
-      const io = instrumentedAuditOperations({
-        fail: (event) => {
-          if (!failed && event === `sync:${directory}`) {
-            failed = true
-            return errno(code)
-          }
-          return undefined
+  it.each(
+    (['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'] as const).flatMap((code) => [
+      ['audit-directory open', code, (root: string, record: AgentConversationRecord) => `open:r:${dirname(auditPath(root, record))}`],
+      ['audit-directory sync', code, (root: string, record: AgentConversationRecord) => `sync:${dirname(auditPath(root, record))}`],
+      ['parent-directory open', code, (root: string, record: AgentConversationRecord) => `open:r:${dirname(dirname(auditPath(root, record)))}`],
+      ['parent-directory sync', code, (root: string, record: AgentConversationRecord) => `sync:${dirname(dirname(auditPath(root, record)))}`]
+    ])
+  )('downgrades supported %s capability error %s with one generic warning', async (_boundary, code, eventFor) => {
+    const root = await createRoot()
+    const record = createRecord({ traceId: TRACE_A })
+    const warnings: string[] = []
+    const path = auditPath(root, record)
+    const auditDirectory = dirname(path)
+    const parentDirectory = dirname(auditDirectory)
+    const event = eventFor(root, record)
+    let failed = false
+    const io = instrumentedAuditOperations({
+      fail: (candidate) => {
+        if (!failed && candidate === event) {
+          failed = true
+          return errno(code)
         }
-      })
+        return undefined
+      }
+    })
 
-      await expect(appendWith(root, record, io.operations, (message) => warnings.push(message))).resolves.toBeDefined()
-      expect(warnings).toEqual([DIRECTORY_FSYNC_WARNING])
-      expect(warnings[0]).not.toContain(root)
-      expect(warnings[0]).not.toContain(record.id)
-      expect(warnings[0]).not.toContain(TRACE_A)
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message))).resolves.toBeDefined()
+    const lines = parseAgentConversationSessionAuditLines(await readAudit(root, record))
+    const header = lines.find((line) => line.type === 'session')
+    const entryIds = buildAgentConversationSessionAuditEntries(record).flatMap((entry) =>
+      entry.parentId === null ? [entry.id] : [entry.id, entry.parentId]
+    )
+
+    expect(warnings).toEqual([DIRECTORY_FSYNC_WARNING])
+    for (const sensitiveValue of [
+      root,
+      path,
+      auditDirectory,
+      parentDirectory,
+      record.relativePath,
+      record.absolutePath,
+      record.title,
+      ...record.turns.map((turn) => turn.content),
+      JSON.stringify(header),
+      record.id,
+      ...entryIds,
+      TRACE_A
+    ]) {
+      expect(warnings[0]).not.toContain(sensitiveValue)
     }
-  )
+  })
 
   it.each([
     ['EACCES', errno('EACCES')],
@@ -553,10 +579,13 @@ describe('agent conversation session audit durable append', () => {
     expect(warnings).toEqual([])
   })
 
-  it('treats every directory close failure as fatal, including an otherwise-downgradeable code', async () => {
+  it.each([
+    ['audit-directory', (root: string, record: AgentConversationRecord) => dirname(auditPath(root, record))],
+    ['parent-directory', (root: string, record: AgentConversationRecord) => dirname(dirname(auditPath(root, record)))]
+  ])('treats every %s close failure as fatal, including an otherwise-downgradeable code', async (_boundary, directoryFor) => {
     const root = await createRoot()
     const record = createRecord()
-    const directory = dirname(auditPath(root, record))
+    const directory = directoryFor(root, record)
     const io = instrumentedAuditOperations({
       fail: (event) => event === `close:${directory}` ? errno('EINVAL') : undefined
     })
