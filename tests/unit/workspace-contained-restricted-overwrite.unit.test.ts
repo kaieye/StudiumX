@@ -508,7 +508,7 @@ describe.runIf(runS3Contract)('workspace contained restricted-overwrite protocol
   })
 })
 
-describe.runIf(process.platform === 'darwin')('workspace contained restricted-overwrite native macOS integration', () => {
+describe.runIf(process.platform === 'darwin' || process.platform === 'linux')('workspace contained restricted-overwrite native macOS/Linux integration', () => {
   it.each([
     ['empty content', '', Buffer.alloc(0)],
     ['non-ASCII UTF-8 content', '你好, 🧪\n', Buffer.from('你好, 🧪\n', 'utf8')]

@@ -334,7 +334,7 @@ describe('workspace contained create-no-overwrite protocol', () => {
   })
 })
 
-describe.runIf(process.platform === 'darwin')('workspace contained create-no-overwrite native macOS integration', () => {
+describe.runIf(process.platform === 'darwin' || process.platform === 'linux')('workspace contained create-no-overwrite native macOS/Linux integration', () => {
   it('creates empty and non-ASCII content with 0666 & umask mode and no temporary alias', async () => {
     const root = await temporaryRoot()
     const originalUmask = process.umask(0o027)

@@ -1,0 +1,73 @@
+name: C-4P8 Linux host-native verification
+
+on:
+  push:
+    branches:
+      - database
+    paths:
+      - native/**
+      - src/main/persistence/**
+      - tests/**
+      - .github/workflows/contained-durable-replace-linux.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-host-native:
+    name: Linux S2/S3 host-native verification
+    runs-on: ubuntu-24.04
+    env:
+      CI: 'true'
+      STUDIUMX_C4P8_LINUX_HOST_NATIVE: '1'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # package.json declares pnpm@11.9.0; the repository has no Node version file.
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      - name: Enable Corepack and pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          pnpm --version
+
+      - name: Install dependencies from frozen lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Linux host-native addon
+        run: |
+          test "$(node --eval 'process.stdout.write(process.platform)')" = linux
+          pnpm run build:contained-durable-replace
+          test -f native/contained-durable-replace/build/Release/contained_durable_replace.node
+
+      - name: Run C-4P8 Linux native unit cases
+        run: |
+          echo "Running C-4P8 native cases on $(node --eval 'process.stdout.write(process.platform)')"
+          test "$STUDIUMX_C4P8_LINUX_HOST_NATIVE" = 1
+          pnpm exec vitest run --project unit \
+            tests/unit/contained-durable-directory.unit.test.ts \
+            tests/unit/workspace-contained-directory.unit.test.ts \
+            tests/unit/workspace-contained-create-no-overwrite.unit.test.ts \
+            tests/unit/workspace-contained-restricted-overwrite.unit.test.ts
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Check workspace write tool
+        run: pnpm run check:workspace-write-tool
+
+      - name: Check workspace path target
+        run: node scripts/check-workspace-path-target.mjs
+
+      - name: Run security checks
+        run: pnpm run check:security
+
+      - name: Check diff whitespace
+        run: git diff --check
