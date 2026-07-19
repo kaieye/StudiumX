@@ -2151,6 +2151,94 @@ describe('LearningOutcomeCommitter', () => {
     await expectAuthorityBytesUnchanged()
   })
 
+  it('fails closed on restart when the settlement marker is a directory', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-invalid-settlement-marker-directory-unit'
+    const outcomeId = 'outcome-invalid-settlement-marker-directory-1'
+    const operationId = 'invalid-settlement-marker-directory-operation-1'
+    const evidenceEventId = 'evidence-invalid-settlement-marker-directory-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let evaluationCalls = 0
+    const initial = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    await expect(initial.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: { relativePath: `learning-records/outcome-${sessionId}.md` }
+    })
+    expect(evaluationCalls).toBe(1)
+
+    const [recordBeforeRestart, outcomeBeforeRestart, manifestBeforeRestart] = await Promise.all([
+      readFile(record),
+      readFile(outcomePath),
+      readFile(manifestPath)
+    ])
+    // Poison only the settlement marker into a directory (not a symlink). Record,
+    // outcome.json, and completed manifest remain matching authority.
+    await rm(markerPath)
+    await mkdir(markerPath)
+    await writeFile(join(markerPath, 'junk-inside-directory.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      outcomeId: 'outcome-settlement-marker-directory-junk-1',
+      kind: 'needs_practice',
+      evidenceEventIds: ['evidence-settlement-marker-directory-junk-1']
+    })}\n`, 'utf8')
+    await expect(lstat(markerPath)).resolves.toMatchObject({ isDirectory: expect.any(Function) })
+    expect((await lstat(markerPath)).isDirectory()).toBe(true)
+
+    const recoveryDurable = instrumentedDurableOperations()
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      durableFileOperations: recoveryDurable.operations,
+      createId: () => {
+        throw new Error('recovery createId must not be called')
+      },
+      evaluate: async () => {
+        evaluationCalls += 1
+        throw new Error('recovery evaluator must not be called')
+      }
+    })
+    const expectAuthorityBytesUnchanged = async () => {
+      await expect(readFile(record)).resolves.toEqual(recordBeforeRestart)
+      await expect(readFile(outcomePath)).resolves.toEqual(outcomeBeforeRestart)
+      await expect(readFile(manifestPath)).resolves.toEqual(manifestBeforeRestart)
+      expect((await lstat(markerPath)).isDirectory()).toBe(true)
+    }
+
+    // Directed residual: invalid directory settlement marker fails closed without repair.
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'review_required',
+      marker: null,
+      diagnostics: expect.arrayContaining(['invalid_settlement_marker'])
+    })
+    expect(recoveryDurable.events).toEqual([])
+    await expectAuthorityBytesUnchanged()
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryDurable.events).toEqual([])
+    await expectAuthorityBytesUnchanged()
+  })
+
   it('reports legacy_generated records as read-only diagnostics without upgrading their bytes', async () => {
     const workspaceRoot = await workspace()
     const ledger = await openSession(workspaceRoot, 'session-legacy-unit')
