@@ -6860,6 +6860,93 @@ describe('LearningOutcomeCommitter', () => {
     })
   })
 
+  it('fails closed before writes when a durable session event JSON is malformed', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-malformed-event-json-failure-unit'
+    const outcomeId = 'outcome-commit-malformed-event-json-failure-1'
+    const operationId = 'commit-malformed-event-json-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-malformed-event-json-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const eventsRoot = join(directory, 'events')
+    const eventPath = join(eventsRoot, `${createHash('sha256').update(evidenceEventId).digest('hex')}.json`)
+    await expect(readFile(eventPath, 'utf8')).resolves.toContain(evidenceEventId)
+    // Poison only the durable event authority before commit load/reconcile.
+    await writeFile(eventPath, '{not-valid-event-json\n', 'utf8')
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(eventPath, 'utf8')).resolves.toBe('{not-valid-event-json\n')
+  })
+
+  it('fails closed before writes when a durable session event filename mismatches eventId', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-event-filename-mismatch-failure-unit'
+    const outcomeId = 'outcome-commit-event-filename-mismatch-failure-1'
+    const operationId = 'commit-event-filename-mismatch-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-event-filename-mismatch-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const eventsRoot = join(directory, 'events')
+    const correctName = `${createHash('sha256').update(evidenceEventId).digest('hex')}.json`
+    const eventPath = join(eventsRoot, correctName)
+    const eventBytes = await readFile(eventPath)
+    // Keep valid event body/eventId, but rename file so filename !== sha256(eventId).json.
+    const mismatchedName = `${'ab' * 32}.json`
+    expect(mismatchedName).not.toBe(correctName)
+    await rm(eventPath)
+    await writeFile(join(eventsRoot, mismatchedName), eventBytes)
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(eventPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(eventsRoot, mismatchedName))).resolves.toEqual(eventBytes)
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
