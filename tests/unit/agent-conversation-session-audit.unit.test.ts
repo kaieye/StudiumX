@@ -1168,6 +1168,25 @@ describe('agent conversation session audit durable append', () => {
     expect(warnings).toEqual([])
   })
 
+  it('fails closed without capability downgrade when audit file write stalls after multi-byte partial progress', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      // First call advances more than one byte; second call returns zero so writeAllAuditBytes fails closed.
+      writePlan: ({ writeCall }) => writeCall === 0 ? { bytesWritten: 2 } : { bytesWritten: 0 }
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow(/could not be written completely/)
+    expect(io.events.filter((event) => event === `write:${path}`).length).toBeGreaterThan(1)
+    // Multi-byte partial-then-stall write stays fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
   it.each(
     (['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'] as const).flatMap((code) => [
       ['audit-directory open', code, (root: string, record: AgentConversationRecord) => `open:r:${dirname(auditPath(root, record))}`],
