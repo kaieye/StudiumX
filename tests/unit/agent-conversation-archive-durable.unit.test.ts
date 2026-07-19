@@ -432,6 +432,33 @@ describe('Agent conversation archive durable canonical publication', () => {
     expect(await temporaryFiles(fixture.rootPath)).toEqual([])
   })
 
+  it('does not report success when opening the JSON directory after rename fails', async () => {
+    const fixture = await archiveFixture()
+    const directoryPath = join(fixture.rootPath, 'conversation/2026/07')
+    let directoryOpenCount = 0
+    const durable = instrumentedDurableOperations({
+      fail: (event) => {
+        if (event === `open:r:${directoryPath}`) {
+          directoryOpenCount += 1
+          if (directoryOpenCount === 1) return errno('EIO')
+        }
+        return undefined
+      }
+    })
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      durableFileOperations: durable.operations
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    await expect(readFile(fixture.jsonPath, 'utf8')).resolves.toContain(fixture.record.id)
+    await expect(readFile(fixture.markdownPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expectNoAuditOrLedger(fixture)
+    expect(await temporaryFiles(fixture.rootPath)).toEqual([])
+    expect(directoryOpenCount).toBeGreaterThanOrEqual(1)
+  })
+
   it('does not report success when closing the Markdown directory after both renames complete', async () => {
     const fixture = await archiveFixture()
     const directoryPath = join(fixture.rootPath, 'conversation/2026/07')
