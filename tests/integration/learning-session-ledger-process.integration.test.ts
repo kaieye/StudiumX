@@ -23,8 +23,12 @@ async function createWorkspace(): Promise<string> {
 beforeAll(async () => {
   workerRoot = await mkdtemp(join(tmpdir(), 'studiumx-learning-session-worker-'))
   workerPath = join(workerRoot, 'worker.mjs')
-  const esbuildBinary = join(process.cwd(), 'node_modules', 'esbuild', 'bin', 'esbuild')
-  await runCommand(esbuildBinary, [
+  // esbuild's bin entry is a Node script (#!/usr/bin/env node). On Windows,
+  // execFile cannot spawn that script path directly (ENOENT), so invoke it
+  // through the current Node executable for a portable host-local bundle.
+  const esbuildEntry = join(process.cwd(), 'node_modules', 'esbuild', 'bin', 'esbuild')
+  await runCommand(process.execPath, [
+    esbuildEntry,
     join(process.cwd(), 'scripts', 'fixtures', 'learning-session-concurrency-worker.ts'),
     '--bundle',
     '--platform=node',

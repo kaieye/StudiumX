@@ -13,6 +13,7 @@ import { buildLearningWorkLedgerEntry, readLearningWorkLedgerLines } from '../..
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import { readWorkspaceLifecycleEvents } from '../../src/main/teaching-workspace/lifecycle'
+import { getContainedDurableDirectoryCapability } from '../../src/main/persistence/contained-durable-directory'
 import { TeachingMemoryCatalog } from '../../src/main/teaching-memory-catalog'
 import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 import type { AgentConversationRecord } from '../../src/shared/teaching-types'
@@ -20,6 +21,12 @@ import type { AgentConversationRecord } from '../../src/shared/teaching-types'
 const runtimeScope = createVitestRuntimeScope()
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const LOWERCASE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+// Memory catalog discover/publish requires the host-built POSIX contained
+// durable directory addon. Windows (and other non-POSIX hosts) deliberately
+// have no pathname fallback (ADR-0004 / ADR-0006). Model that product boundary
+// with an explicit capability gate instead of treating the host as a regression.
+const descriptorRelativeMemoryAvailable = getContainedDurableDirectoryCapability().available
 
 describe('C-5 archive trace propagation', () => {
   it('correlates concurrent saves across canonical JSON, learning-work JSONL, and safe tagged logs', async () => {
@@ -345,7 +352,7 @@ describe('C-5 archive trace propagation', () => {
     expect(continuationSave.conversation.id).toBe(initialSave.conversation.id)
   })
 
-  it('assigns distinct main-generated traces to concurrent Memory CRUD mutations and emits redacted tagged logs', async () => {
+  it.skipIf(!descriptorRelativeMemoryAvailable)('assigns distinct main-generated traces to concurrent Memory CRUD mutations and emits redacted tagged logs', async () => {
     const runtime = await runtimeScope.create('memory-trace-propagation')
     const managedRoot = join(runtime.paths.workspace, 'managed')
     const logger = new Logger({ userDataPath: runtime.paths.userData, enabled: true, retentionDays: 7 })
@@ -397,7 +404,13 @@ describe('C-5 archive trace propagation', () => {
     const service = new TeachingWorkspaceService({
       registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
       defaultRoot: managedRoot,
-      settingsProvider: async () => defaultSettings(managedRoot),
+      // Preview/retry provenance under test does not require Memory catalog I/O.
+      // Disable memory so hosts without descriptor-relative Memory storage still
+      // exercise the learning-session evidence path (ADR-0004/0006 capability boundary).
+      settingsProvider: async () => ({
+        ...defaultSettings(managedRoot),
+        memory: { ...defaultSettings(managedRoot).memory, enabled: false }
+      }),
       logger
     })
     const workspace = (await service.createWorkspace({

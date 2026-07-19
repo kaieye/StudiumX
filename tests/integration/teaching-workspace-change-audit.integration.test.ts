@@ -51,9 +51,14 @@ function directorySyncFailingOperations(options: {
       return {
         writeFile: (content) => handle.writeFile(content),
         sync: async () => {
+          // Injected operations stay on the strict error path (see durable-file
+          // syncDirectory). Prefer throwing the simulated I/O failure without
+          // calling the real directory handle.sync(), which returns EPERM on
+          // Windows and would mask the intended EIO publication failure.
           if (path === options.directoryPath && options.shouldFail()) {
             throw Object.assign(new Error('EIO'), { code: 'EIO' })
           }
+          if (path === options.directoryPath) return
           await handle.sync()
         },
         close: () => handle.close()
