@@ -884,6 +884,28 @@ describe('agent conversation session audit durable append', () => {
     await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+
+  it('fails closed without capability downgrade when audit file lstat returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file lstat failure')
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `lstat:${path}` ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(`lstat:${path}`)
+    // Unknown lstat errors stay fatal on the file path: no open/write and no directory capability downgrade.
+    expect(io.events.some((event) => event.startsWith(`open:`))).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+    await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it.each(
     (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
   )('fails closed without capability downgrade when audit file stat returns %s', async (code) => {
@@ -904,6 +926,8 @@ describe('agent conversation session audit durable append', () => {
     expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
     expect(warnings).toEqual([])
   })
+
+
 
   it.each([
     ['zero', 0],
