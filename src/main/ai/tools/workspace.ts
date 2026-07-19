@@ -24,6 +24,12 @@ import {
   toPosixWorkspacePath,
   verifyExistingWorkspaceTarget,
 } from './workspace-path-target'
+import {
+  createNoOverwriteAtWindowsDirectWorkspacePath,
+  directPathWorkspaceReadIsExact,
+  getWindowsDirectPathWorkspaceWriteCapability,
+  overwriteExistingRestrictedAtWindowsDirectWorkspacePath
+} from './windows-direct-path-workspace-write'
 
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_READ_CHARS = 24_000
@@ -419,10 +425,14 @@ type WorkspaceWriteDurableProtocolError = {
 
 /**
  * Internal handler seam for deterministic S4 tests. It deliberately exposes
- * only the approved S2/S3 publishers and descriptor-bound canonical read;
- * there is no pathname write, mkdir, rename, or replace-durably escape hatch.
+ * only the approved publishers and recovery readers. POSIX uses the
+ * descriptor-bound S2/S3 publisher; Windows has an explicitly separate,
+ * root-constrained direct-path profile because it cannot offer the descriptor
+ * protocol's HANDLE-bound containment or identity-CAS guarantees.
  */
 export type WorkspaceWriteDurableDependencies = {
+  /** Omitted by deterministic descriptor tests; defaults select the host profile. */
+  profile?: 'descriptor_bound' | 'windows_direct_path'
   createNoOverwrite: (input: CreateWorkspaceContainedNoOverwriteInput) => Promise<void>
   overwriteExistingRestricted: (input: RestrictedOverwriteWorkspaceContainedPathInput) => Promise<void>
   bindForCanonicalRead: (input: {
@@ -431,14 +441,32 @@ export type WorkspaceWriteDurableDependencies = {
     createParentDirectories: false
   }) => WorkspaceContainedPathBinding
   readRegularFile: (directory: ContainedDurableDirectory, filename: string) => Buffer
+  readDirectPathExact?: (input: {
+    workspaceRootPath: string
+    relativePath: string
+    expectedBytes: Buffer
+  }) => Promise<boolean>
 }
 
-const defaultWorkspaceWriteDurableDependencies: WorkspaceWriteDurableDependencies = {
-  createNoOverwrite: createNoOverwriteAtWorkspaceContainedPath,
-  overwriteExistingRestricted: overwriteExistingRestrictedAtWorkspaceContainedPath,
-  bindForCanonicalRead: bindTrustedWorkspaceContainedPath,
-  readRegularFile: readRegularFileAtContainedDirectory
-}
+const defaultWorkspaceWriteDurableDependencies: WorkspaceWriteDurableDependencies =
+  getWindowsDirectPathWorkspaceWriteCapability().available
+    ? {
+        profile: 'windows_direct_path',
+        createNoOverwrite: createNoOverwriteAtWindowsDirectWorkspacePath,
+        overwriteExistingRestricted: overwriteExistingRestrictedAtWindowsDirectWorkspacePath,
+        // Kept only to retain one shape for the deterministic descriptor seam.
+        // The direct-path profile never calls these native operations.
+        bindForCanonicalRead: bindTrustedWorkspaceContainedPath,
+        readRegularFile: readRegularFileAtContainedDirectory,
+        readDirectPathExact: directPathWorkspaceReadIsExact
+      }
+    : {
+        profile: 'descriptor_bound',
+        createNoOverwrite: createNoOverwriteAtWorkspaceContainedPath,
+        overwriteExistingRestricted: overwriteExistingRestrictedAtWorkspaceContainedPath,
+        bindForCanonicalRead: bindTrustedWorkspaceContainedPath,
+        readRegularFile: readRegularFileAtContainedDirectory
+      }
 
 const workspaceWriteErrorMessages: Record<WorkspaceWriteStableError, string> = {
   request_rejected: '写入请求不符合工作区文件写入策略。',
@@ -538,10 +566,10 @@ const workspaceWritePermissionDescriptionError = '无法安全确定工作区文
 
 /**
  * Product-facing availability for the controlled workspace writer. This is
- * intentionally narrower than `workspaceRead`: the write tool is offered only
- * when the host can bind and publish through the descriptor-relative native
- * capability. The unavailable state is stable and deliberately omits native
- * loader, filesystem, and local-path detail.
+ * intentionally narrower than `workspaceRead`: POSIX requires the
+ * descriptor-relative native capability, while Windows exposes the separately
+ * documented root-constrained direct-path profile. The unavailable state is
+ * stable and deliberately omits native loader, filesystem, and local-path detail.
  */
 export type WorkspaceWriteToolAvailability =
   | { readonly available: true }
@@ -550,13 +578,13 @@ export type WorkspaceWriteToolAvailability =
 const workspaceWriteToolUnavailableMessage = '当前平台无法安全发布工作区文件。'
 
 export function getWorkspaceWriteToolAvailability(): WorkspaceWriteToolAvailability {
-  return getContainedDurableDirectoryCapability().available
-    ? { available: true }
-    : {
-        available: false,
-        code: 'containment_unavailable',
-        message: workspaceWriteToolUnavailableMessage
-      }
+  if (getContainedDurableDirectoryCapability().available) return { available: true }
+  if (getWindowsDirectPathWorkspaceWriteCapability().available) return { available: true }
+  return {
+    available: false,
+    code: 'containment_unavailable',
+    message: workspaceWriteToolUnavailableMessage
+  }
 }
 
 async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext): Promise<{
@@ -587,15 +615,28 @@ async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext)
 }
 
 /**
- * Post-publication recovery is intentionally a single descriptor-bound read:
- * it never retries publication, rolls back, deletes, or follows a pathname.
+ * Post-publication recovery never retries publication, rolls back, or deletes.
+ * POSIX uses one descriptor-bound read; the documented Windows direct-path
+ * profile uses its bounded-path exact-read counterpart.
  */
-function canonicalWorkspaceWriteReadIsExact(input: {
+async function canonicalWorkspaceWriteReadIsExact(input: {
   workspaceRootPath: string
   relativePath: string
   expectedBytes: Buffer
   dependencies: WorkspaceWriteDurableDependencies
-}): boolean {
+}): Promise<boolean> {
+  if (input.dependencies.profile === 'windows_direct_path') {
+    try {
+      return await input.dependencies.readDirectPathExact?.({
+        workspaceRootPath: input.workspaceRootPath,
+        relativePath: input.relativePath,
+        expectedBytes: input.expectedBytes
+      }) === true
+    } catch {
+      return false
+    }
+  }
+
   let binding: WorkspaceContainedPathBinding | undefined
   let exact = false
   try {
@@ -714,7 +755,7 @@ export async function runWorkspaceWriteWithDurableDependenciesForTesting(
       return stableWorkspaceWriteError(stableErrorForDurablePublicationFailure(error, publication), target.relativePath)
     }
 
-    if (canonicalWorkspaceWriteReadIsExact({
+    if (await canonicalWorkspaceWriteReadIsExact({
       workspaceRootPath: target.root,
       relativePath: target.relativePath,
       expectedBytes,

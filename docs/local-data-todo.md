@@ -12,11 +12,11 @@
 
 ## C-4：仍未完成的其它 durable writer / closure 设计门
 
-### P8：Windows native durable workspace publish（未实施；当前产品边界已收敛）
+### P8：Windows workspace publish：direct-path profile 已实施；strict durable profile 仍未实施
 
-- C-4P8 的受控 text create / restricted-overwrite scope 保持关闭，但本轮明确其运行时边界：`write_workspace_file` 只在 descriptor-relative native capability 可用时由 registry 注册。Windows 目前不暴露该 writer；read-only workspace tools 不受影响，`approvalMode` 也不会显示或批准一个注定安全失败的写入。
-- 当前 Windows 策略是 fail-closed，不是 pathname fallback：不会 `writeFile` / ordinary `rename`，不会依赖 preflight `lstat`，不会创建或覆盖目标；状态是稳定且无本地细节的 `containment_unavailable` / `当前平台无法安全发布工作区文件。`。
-- **仍未完成：**2026-07-19 的 Windows host-native/SDK audit 已确认 `NtCreateFile` 的 `RootDirectory` + `OBJ_DONT_REPARSE` 可作为 HANDLE-relative S1/S2 的候选基础，但已审计的 `FileRenameInfo[/Ex]` / `ReplaceFileW` 等 API 不提供 S3 所需的 expected-target-file-ID compare-and-swap 或 exchange；仅在 publish 前检查 file ID 仍有 inspect-to-publish race。因为当前 tool 必须同时提供 S2 和 restricted S3，不能仅凭 S1/S2 打开 registry。若要支持 Windows，必须先获得可审计的 Windows/NTFS S3 identity-precondition primitive，或批准新的 S3 contract；随后才实施 HANDLE-relative、reparse-point/junction-safe traversal、no-overwrite、file/directory durability 和 adversarial host-native CI。不得以 registry override、permission 例外、普通 pathname 写入或“先检查后 handle-relative replace”绕过当前 gate。
+- C-4P8 的受控 text create / restricted-overwrite scope 保持关闭。2026-07-19 在用户明确批准不同 S3 contract 后，Windows 已注册一个参考 `codex-rust` 的 root-constrained direct-path profile：上层相对路径/root/realpath 检查，S2 `wx` no-clobber create，S3 对既有 single-link regular target 使用 non-creating `r+` truncate/write/sync，并在写后 exact reread；既有 approvalMode、operation journal replay 与隐私化 stable error 保持有效。
+- 该 profile 的限制是实现事实：它不是 descriptor/HANDLE-relative traversal，不比较 target file ID，不是 CAS 或 POSIX atomic exchange，不保证 directory-fsync durability，也不能证明 external reparse/leaf replacement race 安全。必须在 UI、tool contract、测试和文档中按“Windows direct-path non-CAS”表述，不能声称为 Windows native durable publish 或 strict containment。
+- **仍未完成：**2026-07-19 的 Windows host-native/SDK audit 已确认 `NtCreateFile` 的 `RootDirectory` + `OBJ_DONT_REPARSE` 可作为 HANDLE-relative S1/S2 的候选基础，但已审计的 `FileRenameInfo[/Ex]` / `ReplaceFileW` 等 API 不提供 S3 所需的 expected-target-file-ID compare-and-swap 或 exchange；仅在 publish 前检查 file ID 仍有 inspect-to-publish race。若将来要求 POSIX-equivalent Windows strict profile，仍必须先获得可审计的 Windows/NTFS S3 identity-precondition primitive，再实施 HANDLE-relative、reparse-point/junction-safe traversal、atomic no-overwrite / exchange、file/directory durability 和 adversarial host-native CI；不得把当前 direct-path profile 当作该 gate 的完成。
 
 ### P9：session-audit durable append
 

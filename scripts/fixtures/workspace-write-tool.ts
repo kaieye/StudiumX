@@ -52,7 +52,7 @@ try {
   assert.equal(
     writeRegistry.definitions().some((tool) => tool.function.name === 'write_workspace_file'),
     availability.available,
-    'workspace write registration must match the durable containment capability'
+    'workspace write registration must match the active workspace-write capability profile'
   )
 
   if (!availability.available) {

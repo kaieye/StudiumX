@@ -8,9 +8,11 @@ S1 的 workspace descriptor foundation 由 `80f2fd0` / `e2ce36c` 实施；S2 的
 
 ## 后续收敛：runtime platform capability policy
 
-本历史设计关闭后，runtime 已补充 **capability-aware fail-closed** 边界：`write_workspace_file` 只在实际 descriptor-relative durable capability 可用时注册。Windows native addon 当前明确拒绝 descriptor-relative traversal，故 Windows 不暴露 write definition/handler；只读 workspace tools 保持可用，`full_access`、`based_on_approval` 和 `request_approval` 都不会创建“已批准但随后失败”的 workspace-write 流程。不可用状态仅为稳定的 `{ available: false, code: 'containment_unavailable', message: '当前平台无法安全发布工作区文件。' }`，不泄露 native/路径细节。
+本历史设计关闭后，runtime 采用两个明确不同的 profile。POSIX 继续只在实际 descriptor-relative durable capability 可用时注册 `write_workspace_file`，addon 不可加载时仍 fail closed；它绝不退回 pathname write。2026-07-19 Windows host-native/SDK audit 确认：`NtCreateFile` 的 `RootDirectory`、`OBJ_DONT_REPARSE` 和 `FILE_OPEN_REPARSE_POINT` 可作为 HANDLE-relative/no-follow S1/S2 的候选，但已审计的 `FileRenameInfo[/Ex]` 与 `ReplaceFileW` 不提供“expected target file ID 仍匹配才替换”的 compare-and-swap / exchange。先检查 file ID 再做 handle-relative replacement 仍有 race，不能满足原先的 target-identity precondition。
 
-这不是 Windows support：不存在 `writeFile`、ordinary `rename`、preflight `lstat` 后写或其它 pathname fallback。2026-07-19 Windows host-native/SDK audit 进一步确认：`NtCreateFile` 的 `RootDirectory`、`OBJ_DONT_REPARSE` 和 `FILE_OPEN_REPARSE_POINT` 可作为 HANDLE-relative/no-follow S1/S2 的候选，但已审计的 `FileRenameInfo[/Ex]` 与 `ReplaceFileW` 不提供“expected target file ID 仍匹配才替换”的 compare-and-swap / exchange。先检查 file ID 再做 handle-relative replacement 仍有 race，不能满足**本次 Windows 任务**要求的 target-identity precondition。因此当前 registry gate 继续关闭；若未来要满足该额外前提，必须先取得可审计的 Windows/NTFS identity-precondition primitive，或单独批准不同的 S3 contract，然后才可实施 HANDLE-relative traversal、reparse point / symlink / junction adversarial tests、atomic no-overwrite / restricted-overwrite 语义及 file/directory durability。当前实施事实和验证入口仍以 ADR-0004 为准。
+因此在同日获得用户明确批准后，Windows 实现一个**不同的 root-constrained direct-path profile**，参考 `codex-rust` 的“上层 sandbox/root policy + `write`”分层：上层只接受 workspace 内相对路径，进行既有 symlink/realpath containment 检查；S2 用 `wx` create-no-clobber，S3 只对既有 `nlink = 1` regular file 以 non-creating `r+` direct handle truncate/write/sync，成功后 exact reread。它保留 tool 的审批、journal replay、隐私化稳定 error 与 fail-closed 前置检查，但**不是** descriptor/HANDLE-bound traversal、target-file-ID CAS、POSIX atomic exchange、directory-fsync durability 或 Windows strict containment 声称。external reparse/leaf replacement race 超出该 profile 的安全保证；不得把它描述为 Windows durable publish。
+
+其它不支持的 host 仍不注册 write definition/handler，稳定返回 `{ available: false, code: 'containment_unavailable', message: '当前平台无法安全发布工作区文件。' }`。Windows 上 profile 可用时，既有 `full_access`、`based_on_approval` 和 `request_approval` 正常适用。当前实施事实和验证入口仍以 ADR-0004 为准。
 
 > 未完成工作的唯一入口见 [本地数据待办](../local-data-todo.md)。
 
@@ -45,7 +47,7 @@ swap 前失败保留 primary target，并 cleanup/sync candidate；swap-success 
 
 稳定 code 为 `request_rejected`、`path_rejected`、`containment_unavailable`、`target_exists`、`target_changed`、`prepublication_failed`、`possibly_published`。tool result 不得泄露 raw internal error、absolute path、payload/content、descriptor path 或 temporary name。
 
-`possibly_published` 只通过 descriptor-bound canonical regular leaf 的完整字节 reread 处理：完全一致时返回 `possiblyPublished: true`、`canonicalRead: 'exact'`、`retryable: false`；无法确认时返回 `code: 'possibly_published'`、`retryable: false`。journal 对相同 `toolCallId` replay 已记录结果，避免第二次 publish。
+`possibly_published` 在 POSIX 只通过 descriptor-bound canonical regular leaf 的完整字节 reread 处理；Windows direct-path profile 通过再次 realpath-contained 的 direct-path reread 处理：完全一致时返回 `possiblyPublished: true`、`canonicalRead: 'exact'`、`retryable: false`；无法确认时返回 `code: 'possibly_published'`、`retryable: false`。journal 对相同 `toolCallId` replay 已记录结果，避免第二次 publish。
 
 ## 已记录验证
 
@@ -71,6 +73,6 @@ git diff --check
 - 所有 writer migration、其它 workspace writer 或 C-4P5 allowlisted document service 的替代；
 - 跨文件 transaction、共同原子性、CAS 或 lost-update protection；
 - trace / traceId、全局 actionId、receipt 或跨工具 idempotency 协议；
-- IPC、renderer/UI、prompt 或 approvalMode 语义变更；后续已实施的 registry capability gate 仅收敛 tool eligibility，不构成 Windows writer support；
+- IPC、renderer/UI、prompt 或 approvalMode 语义变更；本轮只增加 profile-aware eligibility，不把 Windows direct-path profile 伪装为 POSIX native capability；
 - workspace registry、touch/save registry、conversation audit、generic JSONL、migration、repair、历史扫描/回填、backup、retention 或 schema change；
-- Windows、fully cross-platform 支持或 metadata full preservation。
+- POSIX-equivalent Windows strict containment/CAS、fully cross-platform 支持或 metadata full preservation。

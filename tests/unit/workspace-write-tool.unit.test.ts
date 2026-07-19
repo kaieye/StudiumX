@@ -112,6 +112,37 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
     await expect(stat(join(root, 'notes', 'entry.md'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it.runIf(process.platform === 'win32')('uses the documented Windows direct-path profile for S2 create and non-CAS S3 overwrite', async () => {
+    const { root, ctx } = await workspace()
+    const createdPath = join(root, 'notes', 'direct-created.md')
+    const createdContent = 'Windows direct S2 content 🧪'
+
+    expect(getWorkspaceWriteToolAvailability()).toEqual({ available: true })
+    expect(JSON.parse(await runWorkspaceWriteWithDurableDependenciesForTesting({
+      path: 'notes/direct-created.md',
+      content: createdContent
+    }, ctx))).toMatchObject({
+      path: 'notes/direct-created.md',
+      created: true,
+      overwritten: false
+    })
+    await expect(readFile(createdPath, 'utf8')).resolves.toBe(createdContent)
+
+    const overwritePath = join(root, 'notes', 'direct-overwrite.md')
+    await writeFile(overwritePath, 'old direct-path bytes', 'utf8')
+    const replacement = 'Windows direct S3 replacement 🧪'
+    expect(JSON.parse(await runWorkspaceWriteWithDurableDependenciesForTesting({
+      path: 'notes/direct-overwrite.md',
+      content: replacement,
+      overwrite: true
+    }, ctx))).toMatchObject({
+      path: 'notes/direct-overwrite.md',
+      created: false,
+      overwritten: true
+    })
+    await expect(readFile(overwritePath, 'utf8')).resolves.toBe(replacement)
+  })
+
   it('uses S2 for a no-overwrite create with exact UTF-8 content and has no pathname-write fallback', async () => {
     const { root } = await workspace()
     const createNoOverwrite = vi.fn(async () => undefined)
@@ -383,7 +414,7 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
-  it.skipIf(!getWorkspaceWriteToolAvailability().available)('keeps pathname I/O detail private when registry permission preflight cannot lstat the target', async () => {
+  it.skipIf(!getWorkspaceWriteToolAvailability().available)('keeps pathname I/O detail private when an available writer cannot bind the target', async () => {
     const { root } = await workspace()
     const rawTargetPath = join(root, 'notes', 'entry.md')
     await rm(join(root, 'notes'), { recursive: true, force: true })
@@ -406,9 +437,10 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
 
     expect(result).toMatchObject({
       tool: 'write_workspace_file',
-      error: '无法安全确定工作区文件写入目标。',
-      permission: { kind: 'workspace_write', decision: 'deny' }
+      code: 'containment_unavailable',
+      error: '无法安全绑定工作区目标。'
     })
+    expect(result).not.toHaveProperty('permission')
     expect(serialized).not.toContain(root)
     expect(serialized).not.toContain(rawTargetPath)
     expect(serialized).not.toContain('ENOTDIR')
