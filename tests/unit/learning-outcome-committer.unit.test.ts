@@ -754,9 +754,17 @@ describe('LearningOutcomeCommitter', () => {
   it('does not report committed when settlement-marker publication fails after manifest completion', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-marker-publish-failure-unit'
+    const outcomeId = 'outcome-marker-publish-failure-1'
+    const operationId = 'marker-publish-failure-1'
+    const evidenceEventId = 'evidence-marker-publish-failure-1'
     const ledger = await openSession(workspaceRoot, sessionId)
-    await appendEvidence(ledger, sessionId, 'evidence-marker-publish-failure-1')
-    const markerPath = join(sessionDirectory(workspaceRoot, sessionId), 'outcome-settlement.json')
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const manifestPath = join(directory, 'session.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    let evaluationCalls = 0
     const durable = instrumentedDurableOperations({
       fail: (event) => event.startsWith('rename:') && event.endsWith(`->${markerPath}`)
         ? errno('EIO', 'marker rename private failure')
@@ -765,17 +773,156 @@ describe('LearningOutcomeCommitter', () => {
     const committer = createLearningOutcomeCommitter({
       workspaceRoot,
       ledger,
-      createId: () => 'outcome-marker-publish-failure-1',
+      createId: () => outcomeId,
       durableFileOperations: durable.operations,
-      evaluate: async ({ session }) => decision(session.id, 'established', ['evidence-marker-publish-failure-1'])
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
     })
 
-    await expect(committer.commit({ sessionId, operationId: 'marker-publish-failure-1' })).resolves.toEqual({
+    await expect(committer.commit({ sessionId, operationId })).resolves.toEqual({
       status: 'retryable_failure', reason: 'reconciliation_required'
     })
-    await expect(readFile(join(sessionDirectory(workspaceRoot, sessionId), 'outcome.json'), 'utf8')).resolves.toContain('outcome-marker-publish-failure-1')
+    expect(evaluationCalls).toBe(1)
+
+    const recordBeforeRestart = await readFile(record, 'utf8')
+    const outcomeBeforeRestart = await readFile(outcomePath, 'utf8')
+    const manifestBeforeRestart = await readFile(manifestPath, 'utf8')
+    const recordMetadataMatch = /^<!-- studiumx-learning-outcome (.+) -->\n/.exec(recordBeforeRestart)
+    expect(recordMetadataMatch).not.toBeNull()
+    const recordMetadata = JSON.parse(recordMetadataMatch![1]!) as Record<string, unknown>
+    expect(recordMetadata).toMatchObject({
+      sessionId,
+      outcomeId,
+      operationId,
+      outcomeKind: 'established',
+      evidenceEventIds: [evidenceEventId],
+      evaluatorVersion: 1,
+      recordId: `learning-outcome-${sessionId}-${outcomeId}`
+    })
+    expect(JSON.parse(outcomeBeforeRestart)).toMatchObject({
+      sessionId,
+      outcomeId,
+      kind: 'established',
+      evidenceEventIds: [evidenceEventId]
+    })
+    expect(JSON.parse(manifestBeforeRestart)).toMatchObject({
+      status: 'completed',
+      outcomeRef: {
+        outcomeId,
+        kind: 'established',
+        evidenceEventIds: [evidenceEventId]
+      }
+    })
     await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    await expect(ledger.load(sessionId)).resolves.toMatchObject({ status: 'completed' })
+    await expect(ledger.load(sessionId)).resolves.toMatchObject({
+      status: 'completed',
+      outcomeRef: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] }
+    })
+
+    const recoveryDurable = instrumentedDurableOperations()
+    let recoveryCreateIdCalls = 0
+    const recovered = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => {
+        recoveryCreateIdCalls += 1
+        return 'outcome-marker-publish-failure-recovery-should-not-exist'
+      },
+      durableFileOperations: recoveryDurable.operations,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'repaired',
+      marker: {
+        sessionId,
+        outcomeId,
+        operationId,
+        kind: 'established',
+        evidenceEventIds: [evidenceEventId],
+        evaluatorVersion: recordMetadata.evaluatorVersion,
+        record: {
+          recordId: recordMetadata.recordId,
+          relativePath: `learning-records/outcome-${sessionId}.md`,
+          contentSha256: createHash('sha256').update(recordBeforeRestart).digest('hex')
+        }
+      },
+      record: {
+        recordId: recordMetadata.recordId,
+        relativePath: `learning-records/outcome-${sessionId}.md`,
+        contentSha256: createHash('sha256').update(recordBeforeRestart).digest('hex')
+      }
+    })
+    expect(evaluationCalls).toBe(1)
+    expect(recoveryCreateIdCalls).toBe(0)
+
+    const repairedRecord = await readFile(record, 'utf8')
+    const repairedOutcome = await readFile(outcomePath, 'utf8')
+    const repairedManifest = await readFile(manifestPath, 'utf8')
+    const repairedMarker = await readFile(markerPath, 'utf8')
+    const marker = JSON.parse(repairedMarker) as Record<string, unknown>
+    expect(marker).toEqual({
+      schemaVersion: 1,
+      sessionId,
+      outcomeId: recordMetadata.outcomeId,
+      operationId: recordMetadata.operationId,
+      kind: recordMetadata.outcomeKind,
+      evidenceEventIds: recordMetadata.evidenceEventIds,
+      evaluatorVersion: recordMetadata.evaluatorVersion,
+      record: {
+        recordId: recordMetadata.recordId,
+        relativePath: `learning-records/outcome-${sessionId}.md`,
+        contentSha256: createHash('sha256').update(recordBeforeRestart).digest('hex')
+      }
+    })
+    expect(repairedRecord).toBe(recordBeforeRestart)
+    expect(repairedOutcome).toBe(outcomeBeforeRestart)
+    expect(repairedManifest).toBe(manifestBeforeRestart)
+    const recoveryProjectionEvents = recoveryDurable.events.filter((event) =>
+      [record, outcomePath, manifestPath, markerPath].some((path) => event.includes(path))
+    )
+    expect(recoveryProjectionEvents).not.toEqual([])
+    expect(recoveryProjectionEvents.every((event) => event.includes(markerPath))).toBe(true)
+    expect(recoveryDurable.events.some((event) => event.startsWith('rename:') && event.includes(outcomePath))).toBe(false)
+    expect(recoveryDurable.events.some((event) => event.startsWith('write:') && event.includes(outcomePath))).toBe(false)
+    expect(recoveryDurable.events.some((event) => event.includes(manifestPath))).toBe(false)
+    expect(recoveryDurable.events.some((event) => event.endsWith(`->${markerPath}`))).toBe(true)
+
+    await expect(recovered.reconcile(sessionId)).resolves.toMatchObject({
+      state: 'settled',
+      marker: {
+        sessionId,
+        outcomeId,
+        operationId,
+        kind: 'established',
+        evidenceEventIds: [evidenceEventId]
+      }
+    })
+    await expect(readFile(record, 'utf8')).resolves.toBe(repairedRecord)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toBe(repairedOutcome)
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe(repairedManifest)
+    await expect(readFile(markerPath, 'utf8')).resolves.toBe(repairedMarker)
+
+    await expect(recovered.commit({ sessionId, operationId })).resolves.toMatchObject({
+      status: 'already_committed',
+      outcome: { outcomeId, kind: 'established', evidenceEventIds: [evidenceEventId] },
+      recordSaved: true,
+      record: {
+        recordId: recordMetadata.recordId,
+        relativePath: `learning-records/outcome-${sessionId}.md`,
+        contentSha256: createHash('sha256').update(recordBeforeRestart).digest('hex')
+      }
+    })
+    await expect(readFile(record, 'utf8')).resolves.toBe(repairedRecord)
+    await expect(readFile(outcomePath, 'utf8')).resolves.toBe(repairedOutcome)
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBe(repairedManifest)
+    await expect(readFile(markerPath, 'utf8')).resolves.toBe(repairedMarker)
+    expect(evaluationCalls).toBe(1)
   })
 
   it('returns stable non-retryable results for invalid Session, invalid request, and missing Session', async () => {
