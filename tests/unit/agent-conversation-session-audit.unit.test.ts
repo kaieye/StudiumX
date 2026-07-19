@@ -76,12 +76,15 @@ function instrumentedAuditOperations(options: {
   onEvent?: (event: string) => void
   writePlan?: AuditWritePlan
   readPlan?: AuditReadPlan
+  /** Test-only post-open handle.stat residual injection. */
+  statPlan?: (input: { path: string; statCall: number }) => { failure?: Error; isFile?: boolean } | undefined
 } = {}): InstrumentedAuditOperations {
   const events: string[] = []
   const opens: Array<{ path: string; flags: string | number }> = []
   const writtenBuffers: Buffer[] = []
   let writeCall = 0
   let readCall = 0
+  let statCall = 0
   const observe = async (event: string): Promise<void> => {
     events.push(event)
     options.onEvent?.(event)
@@ -140,7 +143,23 @@ function instrumentedAuditOperations(options: {
         },
         stat: async () => {
           await observe(`stat:${path}`)
-          return handle.stat()
+          const plan = options.statPlan?.({
+            path,
+            statCall: statCall++
+          })
+          if (plan?.failure) throw plan.failure
+          const info = await handle.stat()
+          // Synthetic non-file openedInfo exercises the post-open isFile gate
+          // without replacing global fs or requiring native non-file descriptors.
+          if (plan?.isFile === false) {
+            return {
+              ...info,
+              isFile: () => false,
+              isDirectory: () => true,
+              isSymbolicLink: () => false
+            }
+          }
+          return info
         },
         sync: async () => {
           await observe(`sync:${path}`)
@@ -515,6 +534,25 @@ describe('agent conversation session audit durable append', () => {
 
     await expect(appendWith(root, record, io.operations)).rejects.toThrow('not a regular file')
     expect(io.events.some((event) => event === `open:a+:${path}`)).toBe(false)
+  })
+
+  it('fails closed without capability downgrade when post-open audit target stat reports a non-file', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      statPlan: ({ path: candidate }) => candidate === path ? { isFile: false } : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow('not a regular file')
+    expect(io.events).toContain(`stat:${path}`)
+    // open may succeed; post-open non-file must fail before read/write and directory durability.
+    expect(io.events.some((event) => event === `read:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
   })
 
   it('preserves malformed newline legacy bytes, and frames every non-newline tail exactly once before missing rows', async () => {
