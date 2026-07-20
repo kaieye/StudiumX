@@ -14,6 +14,7 @@
     "doctor": "node scripts/doctor.mjs",
     "check:doctor": "node scripts/check-doctor.mjs",
     "check:teaching-doctor": "node scripts/check-teaching-doctor.mjs",
+    "check:support-bundle": "node scripts/check-support-bundle.mjs",
     "check:learning-work-reconcile": "node scripts/check-learning-work-reconcile.mjs",
     "rollback:learning-work-legacy": "node scripts/merge-learning-work-legacy.mjs",
     "check:path-access": "node scripts/check-path-access.mjs",
@@ -212,4 +213,5 @@
   },
   "packageManager": "pnpm@11.9.0"
 }
+
 
