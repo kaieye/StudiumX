@@ -7211,6 +7211,100 @@ describe('LearningOutcomeCommitter', () => {
     expect((await lstat(eventPath)).isSymbolicLink()).toBe(true)
   })
 
+  it('fails closed before writes when a durable session event schemaVersion is unsupported', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-event-schema-version-failure-unit'
+    const outcomeId = 'outcome-commit-event-schema-version-failure-1'
+    const operationId = 'commit-event-schema-version-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-event-schema-version-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const eventsRoot = join(directory, 'events')
+    const eventPath = join(eventsRoot, `${createHash('sha256').update(evidenceEventId).digest('hex')}.json`)
+    const event = JSON.parse(await readFile(eventPath, 'utf8')) as Record<string, unknown>
+    await writeFile(
+      eventPath,
+      `${JSON.stringify({ ...event, schemaVersion: 999 }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(eventPath, 'utf8'))).toMatchObject({
+      eventId: evidenceEventId,
+      schemaVersion: 999
+    })
+  })
+
+  it('fails closed before writes when a durable session event kind is unsupported', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-event-kind-failure-unit'
+    const outcomeId = 'outcome-commit-event-kind-failure-1'
+    const operationId = 'commit-event-kind-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-event-kind-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const eventsRoot = join(directory, 'events')
+    const eventPath = join(eventsRoot, `${createHash('sha256').update(evidenceEventId).digest('hex')}.json`)
+    const event = JSON.parse(await readFile(eventPath, 'utf8')) as Record<string, unknown>
+    await writeFile(
+      eventPath,
+      `${JSON.stringify({ ...event, kind: 'not_a_supported_session_event_kind' }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(eventPath, 'utf8'))).toMatchObject({
+      eventId: evidenceEventId,
+      kind: 'not_a_supported_session_event_kind'
+    })
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
