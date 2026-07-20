@@ -3,7 +3,7 @@
 Run from a clean checkout. By default the manifest is written under the OS temporary directory, so audit artifacts do not dirty the checkout:
 
 ```powershell
-node scripts/release-audit.mjs --command "node --version"
+node scripts/release-audit.mjs --output release-audit.json
 ```
 
 Use `--output` to choose an explicit path. Paths inside the audited repository are supported for inspection, but the write necessarily dirties that checkout after command execution; such runs record `outputInsideAuditedRepo: true` and cannot be a clean-pass. Prefer a path outside the repository for reproducible clean audits.

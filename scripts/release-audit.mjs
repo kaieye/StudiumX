@@ -6,6 +6,9 @@ import { dirname, resolve, relative } from 'node:path';
 
 const root = resolve(process.cwd());
 const args = process.argv.slice(2); const oi = args.indexOf('--output');
+if (oi >= 0 && (!args[oi + 1] || args[oi + 1].startsWith('--'))) { console.error('--output requires a path'); process.exit(2); }
+const unknownArgs = args.filter((arg, index) => arg !== '--output' && !(oi >= 0 && index === oi + 1));
+if (unknownArgs.length) { console.error(`unsupported release-audit arguments: ${unknownArgs.join(' ')}`); process.exit(2); }
 const output = oi >= 0 ? resolve(root, args[oi + 1]) : resolve(mkdtempSync(resolve(tmpdir(), 'studiumx-release-audit-')), 'p0-clean-checkout-audit.json');
 const artifactDir = resolve(dirname(output), `${output.split(/[\\/]/).pop().replace(/\.json$/, '')}-artifacts`);
 const run = (argv, cwd) => { const started = Date.now(); const r = spawnSync(argv[0], argv.slice(1), { cwd, encoding:'utf8', shell: process.platform === 'win32' }); return { argv, exit:r.status ?? 1, durationMs:Date.now()-started, stdout:r.stdout ?? '', stderr:r.stderr ?? '' }; };
@@ -20,6 +23,9 @@ const commands = [
  ['pnpm','install','--frozen-lockfile'], ['pnpm','run','typecheck'], ['pnpm','run','test:unit'], ['pnpm','run','test:integration'], ['pnpm','run','build'],
  ['pnpm','run','check:security'], ['pnpm','run','check:provider-privacy'], ['pnpm','run','check:repository-hygiene'], ['git','diff','--check'],
  ['node','scripts/check-learning-outcome-committer.mjs'], ['node','scripts/check-learning-outcome-recovery.mjs'], ['node','scripts/check-learning-record-read-repair.mjs'],
+ ['pnpm','run','check:settings-secret-storage'], ['pnpm','run','check:agent-run-recovery'], ['pnpm','run','check:agent-operation-idempotency'],
+ ['pnpm','run','check:workspace-write-tool'], ['pnpm','run','check:web-fetch-safe-url'], ['pnpm','run','check:external-link-controls'],
+ ['node','scripts/check-workspace-catalog-reconciliation.mjs'], ['pnpm','run','check:teaching-learning-loop'],
  ['pnpm','exec','playwright','test','tests/e2e/teaching-learning-loop-crash-recovery.e2e.spec.ts','--project','electron-e2e','--repeat-each=3'],
  ['pnpm','exec','playwright','test','tests/e2e/teaching-learning-loop-longitudinal.e2e.spec.ts','--project','electron-e2e','--repeat-each=3'],
  ['pnpm','exec','playwright','test','tests/e2e/teaching-turn-presentation.a11y.e2e.spec.ts','--project','electron-e2e','--repeat-each=3']
