@@ -1,0 +1,496 @@
+import {
+  TEACHING_DOCTOR_SCHEMA_VERSION,
+  type TeachingDoctorCatalogDriftFacts,
+  type TeachingDoctorCheckId,
+  type TeachingDoctorCheckItem,
+  type TeachingDoctorCheckResult,
+  type TeachingDoctorConfigFacts,
+  type TeachingDoctorFacts,
+  type TeachingDoctorOutcomeCrashWindowFacts,
+  type TeachingDoctorReport,
+  type TeachingDoctorRepairRecommendation,
+  type TeachingDoctorSafeEvidence,
+  type TeachingDoctorSessionCrashWindowFacts,
+  type TeachingDoctorSourceGapFacts
+} from '../shared/teaching-types/teaching-doctor'
+import { redactAgentSecretText } from '../shared/agent-secret-redaction'
+
+/**
+ * Structured, read-only TeachingDoctor.
+ *
+ * `run()` diagnoses P0 crash windows, config unavailability, source gaps, and
+ * catalog drift. Repair is never executed here — recommendations are separate
+ * effect metadata only. Doctor failure never blocks read-only workspace open.
+ */
+export interface TeachingDoctor {
+  run(facts?: TeachingDoctorFacts): TeachingDoctorReport
+}
+
+export type TeachingDoctorOptions = {
+  /** Injected clock for deterministic reports in tests. */
+  now?: () => string
+}
+
+export function createTeachingDoctor(options: TeachingDoctorOptions = {}): TeachingDoctor {
+  const now = options.now ?? (() => new Date().toISOString())
+  return {
+    run(facts = {}) {
+      return runTeachingDoctor(facts, now())
+    }
+  }
+}
+
+/** Pure entry used by unit tests and the factory. */
+export function runTeachingDoctor(facts: TeachingDoctorFacts, generatedAt: string): TeachingDoctorReport {
+  const checks: TeachingDoctorCheckItem[] = [
+    checkSessionEventManifestCrashWindow(facts.sessionCrashWindow),
+    checkOutcomePublicationCrashWindow(facts.outcomeCrashWindow),
+    checkConfigAvailability(facts.config),
+    checkSourceGap(facts.sourceGap),
+    checkCatalogDrift(facts.catalogDrift)
+  ]
+
+  return {
+    schemaVersion: TEACHING_DOCTOR_SCHEMA_VERSION,
+    generatedAt,
+    overallStatus: overallStatus(checks),
+    workspaceOpenPolicy: 'read_only_allowed',
+    mode: 'read_only',
+    checks,
+    diagnostics: {
+      redaction: 'secret-shaped tokens, bearer credentials, URL userinfo, and sensitive assignment values',
+      autoRepair: 'disabled'
+    }
+  }
+}
+
+/**
+ * Exportable redacted report. Always deep-clones and re-redacts every string so
+ * support bundles never carry raw secrets, learner answers, or provider payloads.
+ */
+export function exportTeachingDoctorReport(report: TeachingDoctorReport): TeachingDoctorReport {
+  return redactReport(structuredClone(report))
+}
+
+export function formatTeachingDoctorReport(
+  report: TeachingDoctorReport,
+  format: 'json' | 'text' = 'text'
+): string {
+  const safe = exportTeachingDoctorReport(report)
+  if (format === 'json') return `${JSON.stringify(safe, null, 2)}\n`
+  if (format !== 'text') throw new TypeError(`Unsupported teaching doctor report format: ${String(format)}`)
+
+  const lines = [
+    `StudiumX TeachingDoctor (${safe.generatedAt})`,
+    `overall: ${safe.overallStatus}`,
+    `mode: ${safe.mode}`,
+    `workspace open: ${safe.workspaceOpenPolicy}`,
+    `auto-repair: ${safe.diagnostics.autoRepair}`,
+    'checks:'
+  ]
+  for (const check of safe.checks) {
+    lines.push(`- ${check.checkId}: ${check.result} — ${check.summary}`)
+    lines.push(`  action: ${check.recommendedAction}`)
+    if (check.repair.kind !== 'none') {
+      lines.push(`  repair: ${check.repair.kind} (manual; auto=${check.repair.autoRepairAllowed})`)
+    }
+  }
+  return `${lines.join('\n')}\n`
+}
+
+function checkSessionEventManifestCrashWindow(
+  facts: TeachingDoctorSessionCrashWindowFacts | null | undefined
+): TeachingDoctorCheckItem {
+  const checkId: TeachingDoctorCheckId = 'p0_session_event_manifest_crash_window'
+  if (facts == null) {
+    return item(checkId, 'skipped', 'Session crash-window facts were not supplied.', emptyEvidence(), {
+      kind: 'none',
+      description: 'No repair; supply session scan facts for a full diagnosis.',
+      autoRepairAllowed: false
+    }, 'Provide Learning Session scan facts (stages, quarantines, recoveries) and re-run TeachingDoctor.')
+  }
+
+  const gap = Math.max(0, facts.eventManifestGapCount)
+  const pending = Math.max(0, facts.pendingStageCount)
+  const unsafe = Math.max(0, facts.unsafeStageCount)
+  const quarantined = Math.max(0, facts.quarantinedSessionCount)
+  const recoveries = Math.max(0, facts.recoveryCount)
+  const codes = uniqueStrings(facts.diagnosticCodes)
+
+  const evidence = safeEvidence({
+    eventManifestGapCount: gap,
+    pendingStageCount: pending,
+    unsafeStageCount: unsafe,
+    quarantinedSessionCount: quarantined,
+    recoveryCount: recoveries,
+    diagnosticCodeCount: codes.length
+  }, codes.length > 0 ? [`diagnostic_codes=${codes.slice(0, 8).join(',')}`] : [])
+
+  if (gap > 0 || pending > 0 || unsafe > 0) {
+    return item(
+      checkId,
+      'fail',
+      'P0 session crash window detected: immutable events may outrun the session manifest projection.',
+      evidence,
+      repair(
+        'deterministic_projection_rebuild',
+        'Reload the session through LearningSessionLedger so the independent manifest repair can catch up; do not rewrite event history.'
+      ),
+      'Open the affected session with the ledger load/repair path. Prefer deterministic manifest projection rebuild only; never invent missing events.'
+    )
+  }
+
+  if (quarantined > 0) {
+    return item(
+      checkId,
+      'warning',
+      'Quarantined sessions present; crash-window stage is clean but some sessions need review.',
+      evidence,
+      repair('manual_review', 'Inspect quarantined session diagnostics without mutating event history.'),
+      'Review quarantined session diagnostics and keep the workspace open read-only while investigating.'
+    )
+  }
+
+  if (recoveries > 0) {
+    return item(
+      checkId,
+      'warning',
+      'Prior writer recoveries recorded; current stage projections look consistent.',
+      evidence,
+      repair('none', 'No repair required for recovered writer locks that already settled.'),
+      'No action required unless a later load fails; doctor remains advisory.'
+    )
+  }
+
+  return item(
+    checkId,
+    'ok',
+    'No session event/manifest crash-window symptoms.',
+    evidence,
+    repair('none', 'No repair required.'),
+    'No action required.'
+  )
+}
+
+function checkOutcomePublicationCrashWindow(
+  facts: TeachingDoctorOutcomeCrashWindowFacts | null | undefined
+): TeachingDoctorCheckItem {
+  const checkId: TeachingDoctorCheckId = 'p0_outcome_publication_crash_window'
+  if (facts == null) {
+    return item(checkId, 'skipped', 'Outcome crash-window facts were not supplied.', emptyEvidence(), {
+      kind: 'none',
+      description: 'No repair; supply outcome reconciliation facts for a full diagnosis.',
+      autoRepairAllowed: false
+    }, 'Provide Learning Outcome reconciliation facts and re-run TeachingDoctor.')
+  }
+
+  const pending = Math.max(0, facts.pendingSettlementCount)
+  const needsRepair = Math.max(0, facts.needsProjectionRepairCount)
+  const review = Math.max(0, facts.reviewRequiredCount)
+  const settled = Math.max(0, facts.settledCount)
+
+  const evidence = safeEvidence({
+    pendingSettlementCount: pending,
+    needsProjectionRepairCount: needsRepair,
+    reviewRequiredCount: review,
+    settledCount: settled
+  })
+
+  if (needsRepair > 0 || pending > 0) {
+    return item(
+      checkId,
+      'fail',
+      'P0 outcome publication crash window detected: durable record/marker may lack matching projections.',
+      evidence,
+      repair(
+        'deterministic_projection_rebuild',
+        'Call LearningOutcomeCommitter.reconcile(sessionId) so record-authoritative projections can rebuild without reevaluation.'
+      ),
+      'Run outcome reconcile for the listed sessions. Repair is a separate effect and must stay deterministic; do not re-evaluate outcomes.'
+    )
+  }
+
+  if (review > 0) {
+    return item(
+      checkId,
+      'warning',
+      'Outcome settlements require manual review; auto-repair is not safe.',
+      evidence,
+      repair('manual_review', 'Inspect conflicting or invalid settlement markers without rewriting records.'),
+      'Review outcome diagnostics. Do not auto-repair conflicting settlements.'
+    )
+  }
+
+  return item(
+    checkId,
+    'ok',
+    'No outcome publication crash-window symptoms.',
+    evidence,
+    repair('none', 'No repair required.'),
+    'No action required.'
+  )
+}
+
+function checkConfigAvailability(
+  facts: TeachingDoctorConfigFacts | null | undefined
+): TeachingDoctorCheckItem {
+  const checkId: TeachingDoctorCheckId = 'config_availability'
+  if (facts == null) {
+    return item(checkId, 'skipped', 'Config availability facts were not supplied.', emptyEvidence(), {
+      kind: 'none',
+      description: 'No repair; supply settings/provider facts for a full diagnosis.',
+      autoRepairAllowed: false
+    }, 'Provide settings availability facts and re-run TeachingDoctor.')
+  }
+
+  const evidence = safeEvidence({
+    settingsAvailable: facts.settingsAvailable,
+    settingsReadable: facts.settingsReadable,
+    settingsParseable: facts.settingsParseable,
+    providerConfigured: facts.providerConfigured
+  }, facts.reason ? [redactText(facts.reason)] : [])
+
+  if (!facts.settingsAvailable || !facts.settingsReadable || !facts.settingsParseable) {
+    return item(
+      checkId,
+      'fail',
+      'Teaching configuration is unavailable or unreadable.',
+      evidence,
+      repair('manual_review', 'Restore or replace studiumx-settings.json from a verified backup; do not invent provider secrets.'),
+      'Restore settings from backup or recreate defaults on next app launch. Workspace may still open read-only.'
+    )
+  }
+
+  if (!facts.providerConfigured) {
+    return item(
+      checkId,
+      'warning',
+      'Settings load, but no provider is configured for generation.',
+      evidence,
+      repair('none', 'Provider configuration is user-owned; doctor does not invent credentials.'),
+      'Configure a teaching provider in settings. Read-only workspace open remains allowed.'
+    )
+  }
+
+  return item(
+    checkId,
+    'ok',
+    'Teaching configuration is available.',
+    evidence,
+    repair('none', 'No repair required.'),
+    'No action required.'
+  )
+}
+
+function checkSourceGap(
+  facts: TeachingDoctorSourceGapFacts | null | undefined
+): TeachingDoctorCheckItem {
+  const checkId: TeachingDoctorCheckId = 'source_gap'
+  if (facts == null) {
+    return item(checkId, 'skipped', 'Source-gap facts were not supplied.', emptyEvidence(), {
+      kind: 'none',
+      description: 'No repair; supply grounding/resource facts for a full diagnosis.',
+      autoRepairAllowed: false
+    }, 'Provide grounding pack summary facts and re-run TeachingDoctor.')
+  }
+
+  const codes = uniqueStrings(facts.exclusionCodes)
+  const gapCount = Math.max(0, facts.gapCount)
+  const available = Math.max(0, facts.availableSourceCount)
+  const evidence = safeEvidence({
+    status: facts.status,
+    availableSourceCount: available,
+    gapCount,
+    exclusionCodeCount: codes.length
+  }, codes.length > 0 ? [`exclusion_codes=${codes.slice(0, 12).join(',')}`] : [])
+
+  if (facts.status === 'unavailable' || (available === 0 && gapCount > 0)) {
+    return item(
+      checkId,
+      'fail',
+      'Trusted teaching sources are unavailable (source gap).',
+      evidence,
+      repair('manual_review', 'Restore missing trusted resources or update Mission resource descriptors; never invent sources.'),
+      'Add or repair trusted resources before continuing generative teaching turns. Workspace remains openable read-only.'
+    )
+  }
+
+  if (facts.status === 'degraded' || gapCount > 0 || facts.status === 'not_configured') {
+    return item(
+      checkId,
+      'warning',
+      'Source readiness is degraded or incomplete.',
+      evidence,
+      repair('manual_review', 'Review grounding exclusions and refresh stale or unauthorized resources.'),
+      'Review resource gaps and exclusion codes. Planner should wait_for_resources when readiness is not ready.'
+    )
+  }
+
+  if (facts.status === 'unknown') {
+    return item(
+      checkId,
+      'warning',
+      'Source readiness is unknown.',
+      evidence,
+      repair('none', 'Collect grounding facts and re-run doctor.'),
+      'Collect grounding pack status before diagnosing further source issues.'
+    )
+  }
+
+  return item(
+    checkId,
+    'ok',
+    'No source gap detected.',
+    evidence,
+    repair('none', 'No repair required.'),
+    'No action required.'
+  )
+}
+
+function checkCatalogDrift(
+  facts: TeachingDoctorCatalogDriftFacts | null | undefined
+): TeachingDoctorCheckItem {
+  const checkId: TeachingDoctorCheckId = 'catalog_drift'
+  if (facts == null) {
+    return item(checkId, 'skipped', 'Catalog drift facts were not supplied.', emptyEvidence(), {
+      kind: 'none',
+      description: 'No repair; supply lesson-index reconciliation facts for a full diagnosis.',
+      autoRepairAllowed: false
+    }, 'Provide catalog reconciliation plan facts and re-run TeachingDoctor.')
+  }
+
+  const recovered = Math.max(0, facts.recoveredCount)
+  const removed = Math.max(0, facts.removedCount)
+  const recoveredPaths = uniqueStrings(facts.recoveredRelativePaths).slice(0, 8)
+  const removedPaths = uniqueStrings(facts.removedRelativePaths).slice(0, 8)
+
+  const evidence = safeEvidence(
+    {
+      requiresPersist: facts.requiresPersist,
+      recoveredCount: recovered,
+      removedCount: removed
+    },
+    [
+      ...recoveredPaths.map((path) => `recovered=${redactText(path)}`),
+      ...removedPaths.map((path) => `removed=${redactText(path)}`)
+    ]
+  )
+
+  if (facts.requiresPersist || recovered > 0 || removed > 0) {
+    return item(
+      checkId,
+      'warning',
+      'Catalog drift detected between durable lesson index and filesystem.',
+      evidence,
+      repair(
+        'deterministic_projection_rebuild',
+        'Persist the Lesson index reconciliation plan (recover/remove only). Catalog remains a read-only projection of the resulting index.'
+      ),
+      'Apply deterministic lesson-index reconciliation as a separate effect, then rebuild the catalog projection. Do not invent lessons.'
+    )
+  }
+
+  return item(
+    checkId,
+    'ok',
+    'Lesson catalog matches the durable index plan.',
+    evidence,
+    repair('none', 'No repair required.'),
+    'No action required.'
+  )
+}
+
+function overallStatus(checks: readonly TeachingDoctorCheckItem[]): TeachingDoctorCheckResult {
+  if (checks.some((check) => check.result === 'error')) return 'error'
+  if (checks.some((check) => check.result === 'fail')) return 'fail'
+  if (checks.some((check) => check.result === 'warning')) return 'warning'
+  if (checks.every((check) => check.result === 'skipped')) return 'skipped'
+  if (checks.some((check) => check.result === 'ok')) return 'ok'
+  return 'skipped'
+}
+
+function item(
+  checkId: TeachingDoctorCheckId,
+  result: TeachingDoctorCheckResult,
+  summary: string,
+  evidence: TeachingDoctorSafeEvidence,
+  repairRecommendation: TeachingDoctorRepairRecommendation,
+  recommendedAction: string
+): TeachingDoctorCheckItem {
+  return {
+    checkId,
+    result,
+    summary: redactText(summary),
+    evidence: redactEvidence(evidence),
+    recommendedAction: redactText(recommendedAction),
+    repair: {
+      kind: repairRecommendation.kind,
+      description: redactText(repairRecommendation.description),
+      autoRepairAllowed: false
+    }
+  }
+}
+
+function repair(kind: TeachingDoctorRepairRecommendation['kind'], description: string): TeachingDoctorRepairRecommendation {
+  return { kind, description, autoRepairAllowed: false }
+}
+
+function emptyEvidence(): TeachingDoctorSafeEvidence {
+  return { fields: {}, notes: [] }
+}
+
+function safeEvidence(
+  fields: Record<string, string | number | boolean | null>,
+  notes: string[] = []
+): TeachingDoctorSafeEvidence {
+  const safeFields: Record<string, string | number | boolean | null> = {}
+  for (const [key, value] of Object.entries(fields)) {
+    safeFields[key] = typeof value === 'string' ? redactText(value) : value
+  }
+  return {
+    fields: safeFields,
+    notes: notes.map(redactText)
+  }
+}
+
+function redactEvidence(evidence: TeachingDoctorSafeEvidence): TeachingDoctorSafeEvidence {
+  const fields: Record<string, string | number | boolean | null> = {}
+  for (const [key, value] of Object.entries(evidence.fields)) {
+    fields[key] = typeof value === 'string' ? redactText(value) : value
+  }
+  return {
+    fields,
+    notes: evidence.notes.map(redactText)
+  }
+}
+
+function redactReport(report: TeachingDoctorReport): TeachingDoctorReport {
+  return {
+    ...report,
+    generatedAt: redactText(report.generatedAt),
+    checks: report.checks.map((check) => ({
+      ...check,
+      summary: redactText(check.summary),
+      recommendedAction: redactText(check.recommendedAction),
+      evidence: redactEvidence(check.evidence),
+      repair: {
+        kind: check.repair.kind,
+        description: redactText(check.repair.description),
+        autoRepairAllowed: false
+      }
+    })),
+    diagnostics: {
+      redaction: redactText(report.diagnostics.redaction),
+      autoRepair: 'disabled'
+    }
+  }
+}
+
+function redactText(value: string): string {
+  return redactAgentSecretText(value)
+}
+
+function uniqueStrings(values: readonly string[] | undefined): string[] {
+  if (!values) return []
+  return [...new Set(values.map((value) => String(value)).filter(Boolean))].sort()
+}

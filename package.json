@@ -13,6 +13,7 @@
     "smoke:better-sqlite3:electron": "ELECTRON_RUN_AS_NODE=1 electron -e \"const Database=require('better-sqlite3'); const db=new Database(':memory:'); db.exec('CREATE TABLE smoke (value INTEGER); INSERT INTO smoke VALUES (42)'); console.log(JSON.stringify({ value: db.prepare('SELECT value FROM smoke').get().value, modules: process.versions.modules, electron: process.versions.electron, arch: process.arch })); db.close()\"",
     "doctor": "node scripts/doctor.mjs",
     "check:doctor": "node scripts/check-doctor.mjs",
+    "check:teaching-doctor": "node scripts/check-teaching-doctor.mjs",
     "check:learning-work-reconcile": "node scripts/check-learning-work-reconcile.mjs",
     "rollback:learning-work-legacy": "node scripts/merge-learning-work-legacy.mjs",
     "check:path-access": "node scripts/check-path-access.mjs",
