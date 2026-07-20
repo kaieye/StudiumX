@@ -17,7 +17,7 @@ pnpm exec vitest run --project integration \
 
 该结项只适用于 verifier 输出的本机 internal APFS repository 与 fixture volume。它不宣称跨文件 transaction、共同原子性、Windows strict、网络/可移动存储、reboot durability 或 power-loss durability。未知 publish 后状态仍按既有 `reconciliation_required` / `review_required` fail closed；不新增 public IPC result。
 
-P6 历史 design 与 runbook 保留为已结项 profile 的证据和操作参考。若要扩大到新的 OS、filesystem、durability claim、writer 或 public result，必须新建 ADR，并重新提供匹配声明的 host-native/operations evidence。
+已结项 profile 的权威范围以本 ADR、[ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) 为准；运维参考见 [C-4P6 runbook](../operations/c4p6-learning-outcome-durable-settlement-runbook.md)。若要扩大到新的 OS、filesystem、durability claim、writer 或 public result，必须新建 ADR，并重新提供匹配声明的 host-native/operations evidence。
 
 ### C-4P8：Windows strict proposal 以“不支持”结项
 
@@ -36,5 +36,5 @@ C-4P9 的 V1 fixed-file audit scope 以 [ADR-0019](0019-session-audit-v1-wire-co
 ## 后果
 
 1. `docs/local-data-todo.md` 不再列出 P6、P8 或 P9，因为它只记录仍可分派的开放工作。
-2. 已结项计划和 capability audit 文档保留为历史证据，并在顶部指向本 ADR；它们不再是实现任务入口。
+2. 已结项 plan / capability audit 文档删除；长期有效决定与边界仅以本 ADR 及相关 ADR 为准。
 3. 已有实现不因本 ADR 获得任何更强的 durability、transaction、CAS、recovery、retention 或 public API 声明。

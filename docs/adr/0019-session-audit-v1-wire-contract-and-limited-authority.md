@@ -32,7 +32,7 @@ Session audit 的 authority 是有限的：
 
 - `4b30220` 引入 audit 专用 fixed-file durable append（framed、exact missing-row retry、同路径进程内队列、file sync 后尝试 directory sync）。
 - `d6a94a1` 将 conversation audit events 接入 trace correlation 边界。
-- S3…S45 扩展 recovery / short-circuit / directory capability residual 的 **tests-only** 证据，不扩大 production authority；细节见 ADR-0004 与 [C-4P9 设计文档](../plans/local-data-session-audit-durable-append-design.md)。
+- S3…S45 扩展 recovery / short-circuit / directory capability residual 的 **tests-only** 证据，不扩大 production authority；细节见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)。
 
 主要代码与验证入口：
 

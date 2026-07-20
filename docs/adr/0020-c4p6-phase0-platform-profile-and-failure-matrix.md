@@ -190,4 +190,4 @@ node scripts/check-teaching-app-commit-cutover.mjs
 - [ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)
 - [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)
 - [本地数据待办](../local-data-todo.md)
-- [C-4P6 关闭计划](../plans/local-data-learning-outcome-durable-settlement-design.md)（历史证据；扩张须新 ADR）
+- [C-4P6 durable settlement runbook](../operations/c4p6-learning-outcome-durable-settlement-runbook.md)（运维参考；扩张须新 ADR）

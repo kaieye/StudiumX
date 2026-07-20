@@ -6,9 +6,9 @@
 
 ## 背景
 
-Direct-UI「生成课程」跨 renderer、IPC、provider、artifact、index、lifecycle、history 与 registry。此前没有 caller `actionId` 或 private receipt，lost response / reload 后用户只能再次点击；系统无法区分 exact retry 与新动作，可能重复进入 provider 或重复副作用。设计门见 [local-data-lesson-generation-user-action-correlation-design.md](../plans/local-data-lesson-generation-user-action-correlation-design.md)。
+Direct-UI「生成课程」跨 renderer、IPC、provider、artifact、index、lifecycle、history 与 registry。此前没有 caller `actionId` 或 private receipt，lost response / reload 后用户只能再次点击；系统无法区分 exact retry 与新动作，可能重复进入 provider 或重复副作用。
 
-## 决定（owner 采用设计门）
+## 决定
 
 ### 1. actionId 生命周期
 

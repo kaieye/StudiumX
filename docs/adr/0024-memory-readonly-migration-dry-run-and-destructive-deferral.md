@@ -1,8 +1,8 @@
 # ADR-0024：Memory 只读迁移 dry-run 切片与 destructive migration 延期
 
 - **状态：**已采纳（2026-07-20）
-- **范围：**C-6 设计门第 9 节阶段 2（main-only readonly dry-run intent/receipt preview）结项；明确 **不** 批准 stages 0–1、3–6 的 destructive/controlled migration 实现。
-- **相关：**[ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)（分区 + aggregate preflight）、[C-6 设计门](../plans/local-data-memory-controlled-migration-design.md)
+- **范围：**C-6 阶段 2（main-only readonly dry-run intent/receipt preview）结项；明确 **不** 批准 destructive/controlled migration 实现。
+- **相关：**[ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)（分区 + aggregate preflight）
 
 ## 决定
 
@@ -31,7 +31,7 @@
 
 ### 3. Destructive / controlled migration 延期，当前不可分派为实现
 
-设计门 stages 0–1（治理 contract 与 platform capability matrix）与 stages 3–6（hold、publish+confirmation、delete pilot、rollout/legacy EOL）保持 **未批准、未实现**。在以下全部由独立 ADR + owner 批准并附 matching evidence 之前，**不得**将真实 copy/delete 分派为实现任务：
+destructive/controlled migration（含 hold、publish+confirmation、delete pilot、rollout/legacy EOL）保持 **未批准、未实现**。在以下全部由独立 ADR + owner 批准并附 matching evidence 之前，**不得**将真实 copy/delete 分派为实现任务：
 
 1. main-only trusted identity/scope authorization 与一次性、显式、可取消的 confirmation binding；
 2. 目标平台 descriptor-relative no-follow copy、exclusive destination create、durable publish、descriptor-bound delete、directory sync；不支持则 fail closed，无 unrestricted path I/O fallback；
@@ -66,5 +66,5 @@ pnpm run typecheck
 ## 后果
 
 1. `docs/local-data-todo.md` 不再将 C-6 列为可分派的开放实现工作流；destructive migration 仅可作为未来独立 gated proposal，须先满足本 ADR 第 3 节前提。
-2. [C-6 设计门](../plans/local-data-memory-controlled-migration-design.md) 将阶段 2 标为已实施；其余阶段保留为未批准设计，不是实现任务入口。
+2. 已结项 C-6 plan 删除；readonly dry-run 与 destructive 延期前提仅以本 ADR 与 [ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md) 为准。
 3. [ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md) 的分区与 preflight 边界不变；本 ADR 仅叠加 dry-run 切片并冻结 destructive 延期。

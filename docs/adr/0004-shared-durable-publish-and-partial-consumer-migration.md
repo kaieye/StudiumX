@@ -52,7 +52,7 @@
 - **历史定向测试基线：**`pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`，1 file、**219 tests passed**。这是该定向 unit suite 的历史基线，不是 full suite，也不是完整 durability / failure-matrix 证明。
 - **已证实的边界：**这些 residual 证明特定注入点下的 fail-closed、受控 reconcile 或不重写行为；不新增 production contract。S3 不等同于泛化 `after_manifest_publish` 或完整 manifest failure matrix。
 - **Phase 0 已冻结（决策 only）：**[ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) 选定 `P6-macOS-local-APFS-strict-candidate` 为首个目标 profile，并冻结 participant inventory、public-result 不扩展、Windows non-strict 与 directory-sync 不对齐事实。
-- **Phase 1 已落地（实现 + unit，非 universal close-out）：**共享 directory-sync soft allowlist；committer outcome/marker 经 Session parent containment 后再 durable replace；ledger 不再 soft-downgrade `EPERM|EACCES`；immutable record 仍 strict。详见 ADR-0020 后果补充与 [P6 历史计划](../plans/local-data-learning-outcome-durable-settlement-design.md)。
+- **Phase 1 已落地（实现 + unit，非 universal close-out）：**共享 directory-sync soft allowlist；committer outcome/marker 经 Session parent containment 后再 durable replace；ledger 不再 soft-downgrade `EPERM|EACCES`；immutable record 仍 strict。详见 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) 后果补充与 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)。
 - **受限 profile 结项（ADR-0021）：**`P6-macOS-local-APFS-strict-candidate` 的有序 settlement/reconcile、fresh-process crash/restart 验证与 operations runbook 已作为该工作线 close-out evidence 被接受；权威见 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)。结项验证入口：
 
 ```sh
@@ -67,7 +67,7 @@ pnpm exec vitest run --project integration \
   2. 超出已结项 macOS/APFS profile 的 host-native 证据、Windows power-loss / strict，或其它 OS/filesystem/durability claim；
   3. 新的 migration、public API 扩张或 operations validation，若其声明超过 ADR-0021 已接受的受限 profile。
 
-因此，不得从 S1、S2…S194、Phase 0 决策、Phase 1 unit residual 或受限 profile 结项推断跨文件原子性、通用 host-native settlement，或 Windows power-loss / strict closure。扩大到新的 OS、filesystem、durability claim、writer 或 public result，必须**新建 ADR** 并重新提供匹配声明的 host-native/operations evidence；历史 design / runbook 仅作已结项 profile 的证据与操作参考，不再是可分派实现任务入口。Phase 0 背景见 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md)；结项权威见 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)。
+因此，不得从 S1、S2…S194、Phase 0 决策、Phase 1 unit residual 或受限 profile 结项推断跨文件原子性、通用 host-native settlement，或 Windows power-loss / strict closure。扩大到新的 OS、filesystem、durability claim、writer 或 public result，必须**新建 ADR** 并重新提供匹配声明的 host-native/operations evidence。已结项 profile 的权威在 ADR；运维参考见 [C-4P6 runbook](../operations/c4p6-learning-outcome-durable-settlement-runbook.md)。Phase 0 背景见 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md)；结项权威见 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)。
 
 ## C-4P8：已关闭的受控 workspace-tool scope
 

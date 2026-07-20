@@ -2,7 +2,7 @@
 
 - **状态：** 已实施（限定 mission submit 首个切片）
 - **范围：** C-5H mission-first
-- **关联：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0007](0007-persisted-user-history-redaction.md)、[设计门](../plans/local-data-workspace-user-mutation-correlation-design.md)
+- **关联：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0007](0007-persisted-user-history-redaction.md)
 
 ## 背景
 
