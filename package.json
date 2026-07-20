@@ -33,6 +33,7 @@
     "check:teaching-evidence": "pnpm run check:learning-session-ledger && pnpm run check:lesson-interaction-recorder && pnpm run check:evidence-idempotency && pnpm run check:teaching-evidence-events",
     "check:course-conversations": "node scripts/check-course-conversations.mjs",
     "check:teaching-placement": "node scripts/check-teaching-placement.mjs",
+    "check:course-definition-store": "node scripts/check-course-definition-store.mjs",
     "check:message-history-keyboard": "node scripts/check-message-history-keyboard.mjs",
     "check:agent-event-bus": "node scripts/check-agent-event-bus.mjs",
     "check:agent-run-recovery": "node scripts/check-agent-run-recovery.mjs",
