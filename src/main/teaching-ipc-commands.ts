@@ -135,14 +135,44 @@ export function parseApplyLessonStylePayload(payload: unknown): ApplyLessonStyle
   }
 }
 
+const RFC4122_UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 export function parseGenerateLessonPayload(payload: unknown): GenerateLessonPayload {
   const record = requireRecord(payload)
+  // Reject renderer-supplied internal recovery fields; main owns receipts/trace/transaction IDs.
+  for (const forbidden of ['traceId', 'receiptPath', 'publicationTransactionId', 'lifecycleEventId', 'requestTag']) {
+    if (forbidden in record) {
+      throw new Error('IPC generate-lesson payload must not include "' + forbidden + '".')
+    }
+  }
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    actionId: requireActionId(record.actionId),
     prompt: requireString(record.prompt, 'prompt'),
     courseName: optionalString(record.courseName),
     messages: parseAgentChatMessages(record.messages)
   }
+}
+
+export function parseDirectLessonActionStatusPayload(payload: unknown): { workspaceId: string; actionId: string } {
+  const record = requireRecord(payload)
+  for (const key of Object.keys(record)) {
+    if (key !== 'workspaceId' && key !== 'actionId') {
+      throw new Error('IPC direct-lesson action-status payload must contain only "workspaceId" and "actionId".')
+    }
+  }
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    actionId: requireActionId(record.actionId)
+  }
+}
+
+function requireActionId(value: unknown): string {
+  const actionId = requireString(value, 'actionId').trim()
+  if (!RFC4122_UUID_V4.test(actionId)) {
+    throw new Error('IPC payload field "actionId" must be an RFC 4122 UUID v4.')
+  }
+  return actionId.toLowerCase()
 }
 
 export function parseAgentChatMessages(value: unknown): AgentChatMessage[] {

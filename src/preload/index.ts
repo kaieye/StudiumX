@@ -45,6 +45,7 @@ const api: TeachingSystemApi = {
   listSkills: () => ipcRenderer.invoke(teachingInvokeChannels.listSkills),
   installSkill: (skillId) => ipcRenderer.invoke(teachingInvokeChannels.installSkill, skillId),
   generateLesson: (payload) => ipcRenderer.invoke(teachingInvokeChannels.generateLesson, payload),
+  getDirectLessonActionStatus: (payload) => ipcRenderer.invoke(teachingInvokeChannels.getDirectLessonActionStatus, payload),
   readLesson: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readLesson, payload),
   recordPreviewLessonInteraction: (intent) => ipcRenderer.invoke(teachingInvokeChannels.recordPreviewLessonInteraction, intent),
   commitLearningOutcome: (request) => ipcRenderer.invoke(teachingInvokeChannels.commitLearningOutcome, request),

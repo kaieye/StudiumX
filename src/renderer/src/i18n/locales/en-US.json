@@ -1063,7 +1063,19 @@
     "openPath": "Couldn't open the path.",
     "openExternal": "Couldn't open the link.",
     "openLog": "Couldn't open the log file.",
-    "openAppData": "Couldn't open the app data folder."
+    "openAppData": "Couldn't open the app data folder.",
+    "directLessonActionConflict": {
+      "message": "Lesson generation conflict",
+      "detail": "This submit does not match the recorded action ({{code}}), or the workspace state changed. Reconfirm and submit again as a new user action."
+    },
+    "directLessonActionIndeterminate": {
+      "message": "Lesson generation status unclear",
+      "detail": "The previous lesson generation cannot be safely confirmed ({{code}}). Check the workspace, then reconfirm and submit again. Do not retry automatically."
+    },
+    "directLessonActionRejected": {
+      "message": "Lesson generation rejected",
+      "detail": "The request was rejected ({{code}}). Check the workspace and submit again as a new user action."
+    }
   },
   "errorBoundary": {
     "badge": "App error",

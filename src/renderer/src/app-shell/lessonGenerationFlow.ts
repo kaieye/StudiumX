@@ -201,7 +201,7 @@ export function effectsForAgentGeneratedLessons(input: {
 }
 
 export function directLessonDonePatch(input: {
-  result: GenerateLessonResult
+  result: Extract<GenerateLessonResult, { disposition: 'succeeded' | 'reused' }>
   workspaceId: string
   nextPrompt: string
 }): LessonGenerationPatch {
@@ -211,6 +211,13 @@ export function directLessonDonePatch(input: {
     workspaceId: input.workspaceId,
     nextPrompt: input.nextPrompt
   })
+}
+
+/** True when a generateLesson / stream result carries a usable lesson + state. */
+export function isDirectLessonSuccessResult(
+  result: GenerateLessonResult
+): result is Extract<GenerateLessonResult, { disposition: 'succeeded' | 'reused' }> {
+  return result.disposition === 'succeeded' || result.disposition === 'reused'
 }
 
 export function streamedLessonDonePatch(input: {

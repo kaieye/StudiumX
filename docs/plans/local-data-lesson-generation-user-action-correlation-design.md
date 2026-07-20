@@ -1,8 +1,8 @@
-# C-5I：Direct-UI lesson generation 生命周期与用户动作关联设计（未实现）
+# C-5I：Direct-UI lesson generation 生命周期与用户动作关联设计
 
-> **状态：设计完成，实施 NO-GO。** 当前分支没有 renderer `actionId`、private receipt、direct-UI trace coverage、可恢复的 provider boundary 或 exact-retry 实现。本文定义获批后唯一可实施的首个切片；在产品、API、privacy、运维以及 ADR 审查批准前，不能把它当作已交付能力。
+> **状态：首个切片已实施（ADR-0023）。** renderer `actionId`、private receipt、status poll、provider boundary 与 exact-retry 协调器已在 direct-UI `generateLesson` / `generateLessonStream` 落地。本文件保留设计门与边界；权威实施记录见 [ADR-0023](../adr/0023-direct-ui-lesson-generation-action-correlation.md)。更深 projection recovery / retention worker / multi-platform ops evidence 不在本切片。
 >
-> 已实施的 durable publish / artifact journal、受限 recovery 与部分 main-owned trace correlation 分别以 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0005](../adr/0005-main-owned-trace-correlation-and-safe-logs.md) 为准。教学事件协议以 [ADR-0015](../adr/0015-canonical-teaching-event-protocol.md) 为准；这里的 workspace lifecycle JSONL **不是** `TeachingEventEnvelope`，也不成为教学证据的替代物。待办入口见 [本地数据待办](../local-data-todo.md)。
+> 已实施的 durable publish / artifact journal、受限 recovery 与部分 main-owned trace correlation 分别以 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0005](../adr/0005-main-owned-trace-correlation-and-safe-logs.md) 为准。教学事件协议以 [ADR-0015](../adr/0015-canonical-teaching-event-protocol.md) 为准；这里的 workspace lifecycle JSONL **不是** `TeachingEventEnvelope`，也不成为教学证据的替代物。C-5I 已从 [本地数据待办](../local-data-todo.md) 开放项移除。
 
 ## 1. 问题、目标与非目标
 
@@ -32,7 +32,7 @@
 
 ## 2. 当前事实与缺口（压缩）
 
-**状态重申：设计完成，实施 NO-GO。** 当前没有 renderer `actionId`、private receipt、direct-UI trace coverage、可恢复 provider boundary 或 exact-retry。
+**状态重申：首个切片已实施（ADR-0023）。** 下表保留设计时的对照说明；以 ADR-0023 与代码为准。
 
 | 主题 | 权威记录 / 现状 | 不能充当 |
 |---|---|---|
@@ -264,8 +264,10 @@ receipt phase 只能在它声称的 effect 已被读回证明后推进；不能�
 
 - [ ] macOS、Windows、Linux 目标 profile 上验证 process kill/restart、renderer reload、provider network interruption、journal retention/cleanup、manual `indeterminate` runbook 与 rollback guard。
 - [ ] 运维能在不读取 prompt/content/path 的前提下，用 approved aggregate metrics 发现 `indeterminate`、receipt corruption、provider non-rerun；privacy owner 签署日志 / crash dump / analytics review。
-- [ ] ADR、runbook、API docs、[本地数据待办](../local-data-todo.md) 与本文件同步状态；只有上述所有验收及实际运维证据完成后，才能把 C-5I 从 NO-GO 改为已实施。
+- [ ] ADR、runbook、API docs、[本地数据待办](../local-data-todo.md) 与本文件同步状态；只有上述所有验收及实际运维证据完成后，才能把更深 ops/recovery 切片关闭；首个 action correlation 切片见 ADR-0023。
 
 ## 9. 当前结论
 
-**当前结论仍为 NO-GO。** 当前代码没有 action identity、request tag、receipt、status query、provider boundary callback、reserved publication transaction、direct-action journal hand-off 或上述故障测试；ADR-0005 也明确不覆盖 direct-UI `lesson_generated`。本文件提供的是实施前必须遵守的 contract，而不是对现有 durable publish / trace / lifecycle 的完成声明。任何无法满足第 3.1 的 request-binding privacy 前提，或无法满足第 4.1 的 publisher intent/verification 前提的方案，都必须退回产品决定“每次 retry 是新 action”，不能以内容 dedupe 或自动 rerun 绕过。
+**首个切片：已实施（ADR-0023）。** Path A 已落地 renderer `actionId`、private receipt、HMAC requestTag、status poll、provider-boundary exact-retry 协调与 shared disposition contract。本文件第 3–7 节仍是边界与验收门；更深 projection recovery、retention worker、multi-platform ops evidence 与完整 checklist 未关闭，不得解释为全局 exactly-once。
+
+**仍不适用 / 仍须 fail closed 的原则：** 不满足 request-binding privacy（§3.1）或 publisher intent/verification（§4.1）时，不得以内容 dedupe 或自动 rerun 绕过；未知状态保持 `indeterminate`/`conflict`，用户明确创建新 action。ADR-0005 仍不覆盖 direct-UI `lesson_generated`（见 ADR-0023）。

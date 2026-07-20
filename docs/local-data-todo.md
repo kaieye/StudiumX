@@ -9,7 +9,6 @@
 | 工作流 | 状态 | 当前可分派范围 | 既有边界 |
 | --- | --- | --- | --- |
 | C-5H workspace user mutation correlation | **未批准、未实现** | 先作 mission-first 的产品/API/privacy/operations 决策。 | [ADR-0005](adr/0005-main-owned-trace-correlation-and-safe-logs.md)；trace 不是 caller action identity 或 receipt。 |
-| C-5I direct-UI lesson generation correlation | **NO-GO：未批准、未实现** | 先作 direct-UI action/retry/provider/receipt 决策。 | [ADR-0005](adr/0005-main-owned-trace-correlation-and-safe-logs.md)；不得把现有标识或 artifact 能力当 retry 证明。 |
 | C-6 controlled legacy Memory migration | **真实 destructive migration 未关闭、未批准** | 仅治理、capability 与 recovery 设计；获单独批准时才可讨论 readonly dry-run intent/receipt preview。 | [ADR-0006](adr/0006-scoped-memory-partition-and-readonly-migration-preflight.md)；readonly preflight 不构成 destructive authorization。 |
 
 ## 2. 全局不变量、分派规则与完成定义
@@ -60,17 +59,6 @@
 - **明确排除：**`lesson_style_applied`、CSS scaffold/repair、generic workspace writer、C-4 publish 语义与任何 legacy backfill/repair。
 - **验收：**同 ID retry 无第二次 canonical/projection 写入；不同 ID 不按内容 dedupe；payload change、external edit、receipt 损坏/缺失与每个 I/O/crash boundary 都 fail closed，且无敏感数据泄露。
 
-### C-5I：direct-UI lesson generation correlation
-
-- **设计门：**[P5I direct-UI 设计门](plans/local-data-lesson-generation-user-action-correlation-design.md)。当前没有获批的 caller `actionId`、durable receipt 或 status-query contract；既有标识、trace 与 artifact 能力均不得当作 retry identity 或 receipt。
-- **首先要由 owner 决定：**
-  1. actionId 在 submit、lost response、stream reconnect、renderer reload 与明确放弃时的生成/复用/过期规则；相同 prompt 的新 submit 必须产生新 actionId；
-  2. 同 actionId request binding 如何在不持久化 prompt/messages/content hash 的前提下验证；payload mismatch、external edit、receipt missing/corrupt、canonical/projection 无法证明时的 `conflict`/`indeterminate`；
-  3. stable API/UI disposition、private receipt 的 authority/placement/retention/locking，以及 main 对首次 accepted action 的 trace 边界；
-  4. provider authority/cost：receipt 是否先于 provider call、何时能再次进入 provider、provider outcome unknown 的 fail-closed disposition；未批准前绝不得自动重跑 provider；
-  5. canonical/projection partial state 的 crash/recovery table、人工恢复和 privacy-safe diagnostics。
-- **明确范围与排除：**仅 direct UI generate/stream；不覆盖 agent generation、mission、lesson style、generic writer、C-4 durable publish、artifact journal/reconciliation、legacy backfill/repair。receipt 不是 canonical data、projection、journal 或 audit authority，也不得进入 user-visible artifact、lifecycle/logger/analytics 或 generic error text。
-- **验收：**同 actionId 的明确 retry 不重复 provider/canonical writes；不同 actionId 不按内容 dedupe；unknown provider/partial state 不自动继续；reconnect/reload/concurrency/crash 与 receipt failure 均返回获批 stable state。
 
 ### C-6：controlled legacy Memory migration
 
@@ -88,7 +76,7 @@
 
 | 需求 | 未满足的依赖/约束 |
 | --- | --- |
-| P5H/P5I exact retry | 产品/API/privacy 对 actionId、receipt、provider 与 recovery 的共同决定；每个 producer 保持独立 scope。 |
+| P5H exact retry | 产品/API/privacy 对 mission actionId、receipt 与 recovery 的决定；不得复用 C-5I lesson receipt 语义。 |
 | C-6 destructive migration | governance/explicit confirmation、descriptor-bound copy/delete/durability capability 与 recovery ownership。 |
 
 任何工作流都不得通过复用既有 durable、trace 或 preflight 跨越上表依赖。若一个候选任务同时触及两个工作流，必须拆分为独立 proposal；没有获批的共同 protocol 时，不得称为 transaction 或统一 idempotency。

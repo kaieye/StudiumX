@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import { evaluateLearningSessionOutcome } from '../../src/main/learning-outcome-evaluator'
 import { join } from 'node:path'
@@ -31,16 +32,29 @@ function activatePreviewLesson(service: TeachingWorkspaceService, webContentsId:
   })
 }
 
+
+function requireGeneratedLesson(result: {
+  disposition: string
+  code?: string
+  lesson?: unknown
+}) {
+  if ((result.disposition !== "succeeded" && result.disposition !== "reused") || !result.lesson) {
+    throw new Error(`expected lesson success disposition, got ${result.disposition}${result.code ? `:${result.code}` : ""}`)
+  }
+  return result as typeof result & { lesson: NonNullable<typeof result.lesson> }
+}
+
 describe.runIf(process.platform !== 'win32')('TeachingWorkspaceService preview lesson evidence', () => {
   it('generates a canonical writable Session, binds a lesson preview to its sender, and durably reloads host-owned evidence', async () => {
     const service = await createService('preview-evidence')
     const created = await service.createWorkspace({ name: 'Evidence course', prompt: 'Teach trustworthy learning evidence.' })
     const workspace = created.activeWorkspace!
-    const generated = await service.generateLesson({
+    const generated = requireGeneratedLesson(await service.generateLesson({
       workspaceId: workspace.id,
+      actionId: randomUUID(),
       prompt: 'Explain the difference between a fact and an inference.',
       messages: []
-    })
+    }))
     const lesson = generated.lesson
 
     const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
@@ -130,8 +144,9 @@ describe.runIf(process.platform !== 'win32')('TeachingWorkspaceService preview l
   it('serializes same-binding retries into one durable host-attributed event and rejects changed replay authority', async () => {
     const service = await createService('preview-evidence-idempotency')
     const workspace = (await service.createWorkspace({ name: 'Idempotent evidence', prompt: 'Teach durable retry safety.' })).activeWorkspace!
-    const lesson = (await service.generateLesson({
+    const lesson = requireGeneratedLesson(await service.generateLesson({
       workspaceId: workspace.id,
+      actionId: randomUUID(),
       prompt: 'Explain why a retry must retain its original host attribution.',
       messages: []
     })).lesson
@@ -195,8 +210,8 @@ describe.runIf(process.platform !== 'win32')('TeachingWorkspaceService preview l
   it('keeps concurrent trusted bindings isolated by numeric preview sender', async () => {
     const service = await createService('preview-evidence-concurrent-senders')
     const workspace = (await service.createWorkspace({ name: 'Concurrent bindings', prompt: 'Teach sender-scoped authority.' })).activeWorkspace!
-    const first = (await service.generateLesson({ workspaceId: workspace.id, prompt: 'First concurrent Lesson', messages: [] })).lesson
-    const second = (await service.generateLesson({ workspaceId: workspace.id, prompt: 'Second concurrent Lesson', messages: [] })).lesson
+    const first = requireGeneratedLesson(await service.generateLesson({ workspaceId: workspace.id, actionId: randomUUID(), prompt: 'First concurrent Lesson', messages: [] })).lesson
+    const second = requireGeneratedLesson(await service.generateLesson({ workspaceId: workspace.id, actionId: randomUUID(), prompt: 'Second concurrent Lesson', messages: [] })).lesson
     const documents = (service as unknown as {
       documents: { readLesson: (workspace: unknown, lessonPath: string) => Promise<unknown> }
     }).documents
@@ -232,8 +247,8 @@ describe.runIf(process.platform !== 'win32')('TeachingWorkspaceService preview l
   it('does not let a stale lesson read overwrite a newer sender binding and clears authority explicitly', async () => {
     const service = await createService('preview-evidence-stale-read')
     const workspace = (await service.createWorkspace({ name: 'Stale binding', prompt: 'Teach safe preview binding.' })).activeWorkspace!
-    const first = (await service.generateLesson({ workspaceId: workspace.id, prompt: 'First Lesson', messages: [] })).lesson
-    const second = (await service.generateLesson({ workspaceId: workspace.id, prompt: 'Second Lesson', messages: [] })).lesson
+    const first = requireGeneratedLesson(await service.generateLesson({ workspaceId: workspace.id, actionId: randomUUID(), prompt: 'First Lesson', messages: [] })).lesson
+    const second = requireGeneratedLesson(await service.generateLesson({ workspaceId: workspace.id, actionId: randomUUID(), prompt: 'Second Lesson', messages: [] })).lesson
     const documents = (service as unknown as {
       documents: { readLesson: (workspace: unknown, lessonPath: string) => Promise<unknown> }
     }).documents

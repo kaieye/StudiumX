@@ -65,6 +65,12 @@ export type LessonArtifactPublication = {
  */
 export type LessonArtifactPublicationOptions = {
   bindCanonicalSession?: (publication: Pick<LessonArtifactPublication, 'lesson' | 'assessment'>) => Promise<void | (() => Promise<void>)>
+  /**
+   * Optional caller-reserved journal transaction id (UUID). Used by direct-UI
+   * action receipts so intent can be recorded before the first visible artifact.
+   * Agent generation continues to let the publisher mint its own id.
+   */
+  reservedTransactionId?: string
 }
 
 type RenderedLessonArtifact = {
@@ -112,6 +118,7 @@ export async function publishLessonArtifacts(
     artifacts,
     artifactDirectory: dirname(lesson.absolutePath),
     conversationDirectory: join(dirname(dirname(lesson.absolutePath)), 'conversation'),
+    reservedTransactionId: options.reservedTransactionId,
     bindCanonicalSession: options.bindCanonicalSession
       ? () => options.bindCanonicalSession!({ lesson, assessment })
       : undefined
@@ -314,13 +321,18 @@ async function stageAndPublishArtifacts(opts: {
   artifacts: RenderedLessonArtifact[]
   artifactDirectory: string
   conversationDirectory: string
+  reservedTransactionId?: string
   bindCanonicalSession?: () => Promise<void | (() => Promise<void>)>
 }): Promise<string> {
   const root = resolve(opts.workspaceRoot)
   const createdDirectories: string[] = []
   const artifactParent = await ensureSafeDirectory(root, opts.artifactDirectory, createdDirectories)
   await ensureSafeDirectory(root, opts.conversationDirectory, createdDirectories)
-  const transactionId = randomUUID()
+  const reserved = opts.reservedTransactionId?.trim()
+  if (reserved && !/^[a-f0-9-]{36}$/i.test(reserved)) {
+    throw new Error('Lesson publication reserved transaction id is invalid.')
+  }
+  const transactionId = reserved ? reserved.toLowerCase() : randomUUID()
   const stagingDirectory = join(artifactParent.path, `.studiumx-lesson-stage-${transactionId}`)
   let journalPath: string | null = null
   let journal: LessonPublicationJournal | null = null

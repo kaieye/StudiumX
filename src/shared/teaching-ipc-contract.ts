@@ -33,6 +33,7 @@ export const teachingInvokeChannels = {
   listSkills: 'teach:list-skills',
   installSkill: 'teach:install-skill',
   generateLesson: 'teach:generate-lesson',
+  getDirectLessonActionStatus: 'teach:get-direct-lesson-action-status',
   readLesson: 'teach:read-lesson',
   recordPreviewLessonInteraction: 'teach:record-preview-lesson-interaction',
   commitLearningOutcome: 'teach:commit-learning-outcome',
