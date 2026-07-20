@@ -7305,6 +7305,94 @@ describe('LearningOutcomeCommitter', () => {
     })
   })
 
+  it('fails closed before writes when a durable session event payload is a non-object value', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-event-payload-non-object-failure-unit'
+    const outcomeId = 'outcome-commit-event-payload-non-object-failure-1'
+    const operationId = 'commit-event-payload-non-object-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-event-payload-non-object-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const eventsRoot = join(directory, 'events')
+    const eventPath = join(eventsRoot, `${createHash('sha256').update(evidenceEventId).digest('hex')}.json`)
+    const event = JSON.parse(await readFile(eventPath, 'utf8')) as Record<string, unknown>
+    await writeFile(
+      eventPath,
+      `${JSON.stringify({ ...event, payload: ["not-an-object"] }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(eventPath, 'utf8'))).toMatchObject({ eventId: evidenceEventId, payload: ["not-an-object"] })
+  })
+
+  it('fails closed before writes when a durable session event carries a malformed present traceId', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-event-traceid-malformed-failure-unit'
+    const outcomeId = 'outcome-commit-event-traceid-malformed-failure-1'
+    const operationId = 'commit-event-traceid-malformed-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-event-traceid-malformed-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const eventsRoot = join(directory, 'events')
+    const eventPath = join(eventsRoot, `${createHash('sha256').update(evidenceEventId).digest('hex')}.json`)
+    const event = JSON.parse(await readFile(eventPath, 'utf8')) as Record<string, unknown>
+    await writeFile(
+      eventPath,
+      `${JSON.stringify({ ...event, traceId: "not-a-canonical-uuid" }, null, 2)}\n`,
+      'utf8'
+    )
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(JSON.parse(await readFile(eventPath, 'utf8'))).toMatchObject({ eventId: evidenceEventId, traceId: "not-a-canonical-uuid" })
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
