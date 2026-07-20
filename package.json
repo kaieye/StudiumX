@@ -94,6 +94,7 @@
     "check:workspace-change-history": "node scripts/check-workspace-change-history.mjs",
     "check:web-search-providers": "node scripts/check-web-search-providers.mjs",
     "check:web-fetch-safe-url": "node scripts/check-web-fetch-safe-url.mjs",
+    "check:resource-grounder": "node scripts/check-resource-grounder.mjs",
     "check:external-link-controls": "node scripts/check-external-link-controls.mjs",
     "check:memory-capture": "node scripts/check-memory-capture.mjs",
     "check:teaching-personalization": "node scripts/check-teaching-personalization.mjs",

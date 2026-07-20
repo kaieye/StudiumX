@@ -16,7 +16,7 @@ assert.match(source, /contentSha256 !== descriptor\.contentSha256/, 'Grounder mu
 assert.match(source, /identity: sha256\(stableJson\(packWithoutIdentity\)\)/, 'Grounding identity must be deterministic.')
 assert.match(shared, /type GroundedTeachingResource[\s\S]*sourceId:[\s\S]*location:[\s\S]*provenance:/, 'Grounded source must retain actual source ID, location, and provenance.')
 assert.match(shared, /type GroundingBudget[\s\S]*maxBytes:[\s\S]*usedBytes:[\s\S]*truncationReason:/, 'Grounding budget must expose accounting and truncation reason.')
-assert.match(shared, /type GroundingExclusionCode[\s\S]*resource_absent[\s\S]*unknown_schema[\s\S]*unauthorized_resource[\s\S]*unsafe_location[\s\S]*stale_source[\s\S]*duplicate_chunk/, 'Grounding exclusions must be typed and conservative.')
+assert.match(shared, /type GroundingExclusionCode[\s\S]*resource_absent[\s\S]*unknown_schema[\s\S]*unauthorized_resource[\s\S]*unsafe_location[\s\S]*unsafe_url[\s\S]*source_unavailable[\s\S]*dead_reference[\s\S]*stale_source[\s\S]*duplicate_source_id[\s\S]*duplicate_chunk[\s\S]*resource_gap/, 'Grounding exclusions must be typed and conservative.')
 
 assert.doesNotMatch(source, /writeFile|appendFile|mkdir|rename|unlink|rm\(|fetch\(|http:|https:|\bDate\b|Math\.random|from\s+['"][^'"]*(?:provider|model)[^'"]*['"]/i, 'Grounder must not write, fetch remotely, or depend on time/random/providers.')
 assert.doesNotMatch(`${source}\n${shared}`, /\b(?:learnerAnswer|transcript|rawEvidenceText|assessmentPayload|providerResponse|selectedOptionIds)\s*:/, 'Grounding contracts must not carry raw learner, transcript, evidence, assessment, or provider payloads.')
@@ -24,3 +24,5 @@ assert.match(unit, /deterministic priority and records budget truncation conserv
 assert.match(unit, /typed-excludes/, 'Unit coverage must retain all typed rejection cases.')
 
 console.log('teaching resource grounding gate ok')
+
+
