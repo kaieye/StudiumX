@@ -65,6 +65,8 @@ export async function runLessonGenerationPipeline(options: {
   retrieveMemories: LessonGenerationMemoryRetriever
   callbacks?: LessonGenerationCallbacks
   bindCanonicalSession?: (publication: Pick<LessonArtifactPublication, 'lesson' | 'assessment'>) => Promise<void | (() => Promise<void>)>
+  /** Direct-UI reserved publisher journal id; agent path omits this. */
+  reservedTransactionId?: string
 }): Promise<LessonGenerationResult> {
   const {
     workspace,
@@ -77,8 +79,10 @@ export async function runLessonGenerationPipeline(options: {
     now,
     retrieveMemories,
     callbacks,
-    bindCanonicalSession
+    bindCanonicalSession,
+    reservedTransactionId
   } = options
+
   const mission = await readMissionSummary(workspace.rootPath, workspace.name)
   const lessonPrompt = brief
     ? buildLessonPromptFromBrief(brief)
@@ -132,7 +136,7 @@ export async function runLessonGenerationPipeline(options: {
     mission,
     generator: settings.generator,
     includeReference: settings.generator.generateReference
-  }, { bindCanonicalSession })
+  }, { bindCanonicalSession, reservedTransactionId })
 
   return {
     kind: 'lesson',

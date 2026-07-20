@@ -113,6 +113,8 @@ const statusPatch = updateStreamingStatus({
 assert.equal(statusPatch.appState?.runtime.currentStep, 'validating JSON')
 
 const result: GenerateLessonResult = {
+  disposition: 'succeeded',
+  actionId: '11111111-1111-4111-8111-111111111111',
   kind: 'lesson',
   state: { ...appState, selectedLessonPath: lesson.absolutePath },
   lesson,
@@ -130,6 +132,8 @@ assert.equal(directDone.generating, false)
 
 const streamDone: LessonStreamDone = {
   streamId: 'stream-1',
+  disposition: 'succeeded',
+  actionId: '11111111-1111-4111-8111-111111111111',
   kind: 'lesson',
   state: appState,
   lesson,

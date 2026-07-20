@@ -71,6 +71,8 @@ import type { ConnectorStatusesResult, NotificationPayload } from './system'
 import type {
   ApplyLessonStylePayload,
   CreateWorkspacePayload,
+  DirectLessonActionStatus,
+  DirectLessonActionStatusPayload,
   GenerateLessonPayload,
   GenerateLessonResult,
   ImportWorkspaceResult,
@@ -134,6 +136,7 @@ export type TeachingSystemApi = {
   listSkills: () => Promise<SkillCatalogResult>
   installSkill: (skillId: string) => Promise<SkillSummary>
   generateLesson: (payload: GenerateLessonPayload) => Promise<GenerateLessonResult>
+  getDirectLessonActionStatus: (payload: DirectLessonActionStatusPayload) => Promise<DirectLessonActionStatus>
   readLesson: (payload: ReadLessonPayload) => Promise<ReadLessonResult>
   recordPreviewLessonInteraction: (intent: PreviewLessonInteractionIntent) => Promise<PreviewLessonInteractionReceipt>
   commitLearningOutcome: (request: CommitLearningOutcomeRequest) => Promise<LearningOutcomeCommitResult>

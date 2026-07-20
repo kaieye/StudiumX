@@ -243,6 +243,8 @@ describe('appStore Pet operation error sources', () => {
     const generated = lesson('lesson-1')
     installApi({
       generateLesson: vi.fn(async () => ({
+        disposition: 'succeeded' as const,
+        actionId: crypto.randomUUID(),
         kind: 'lesson' as const,
         state: appState(),
         lesson: generated,
@@ -267,6 +269,8 @@ describe('appStore Pet operation error sources', () => {
       generateLesson: vi.fn(async () => {
         const generated = generatedLessons.shift()!
         return {
+          disposition: 'succeeded' as const,
+          actionId: crypto.randomUUID(),
           kind: 'lesson' as const,
           state: appState(),
           lesson: generated,

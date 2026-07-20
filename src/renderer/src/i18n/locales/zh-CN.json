@@ -1071,6 +1071,18 @@
     "missionActionIndeterminate": {
       "message": "使命更新状态不明",
       "detail": "无法安全确认上次使命更新是否完成。请检查工作区后重新确认使命再提交，不要自动重试。"
+    },
+    "directLessonActionConflict": {
+      "message": "课程生成冲突",
+      "detail": "这次提交与已记录的动作不一致（{{code}}），或工作区状态已变化。请重新确认后再提交（将视为新的用户动作）。"
+    },
+    "directLessonActionIndeterminate": {
+      "message": "课程生成状态不明",
+      "detail": "无法安全确认上次课程生成是否完成（{{code}}）。请检查工作区后重新确认再提交，不要自动重试。"
+    },
+    "directLessonActionRejected": {
+      "message": "课程生成被拒绝",
+      "detail": "请求被拒绝（{{code}}）。请检查工作区后重新提交（将视为新的用户动作）。"
     }
   },
   "errorBoundary": {

@@ -14,6 +14,20 @@ import {
 } from './teaching-workspace-catalog'
 import { planLessonIndexReconciliation } from './teaching-workspace/catalog-reconciliation'
 import { runLessonGenerationPipeline, type LessonGenerationCallbacks } from './teaching-lesson-generation'
+import {
+  DIRECT_LESSON_OPERATION,
+  DirectLessonActionMutex,
+  DirectLessonInFlightRegistry,
+  assertActionId,
+  computeRequestTag,
+  isReceiptResultExpired,
+  loadOrCreateInstallKey,
+  readDirectLessonReceipt,
+  requestTagsEqual,
+  writeDirectLessonReceipt,
+  type CanonicalDirectLessonInput,
+  type DirectLessonReceipt
+} from './direct-lesson-action'
 import { finalizeLessonArtifactPublication } from './teaching-lesson-artifacts'
 import {
   cleanText,
@@ -176,6 +190,8 @@ import type {
   ConnectorStatusesResult,
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
+  DirectLessonActionStatus,
+  DirectLessonActionStatusPayload,
   GenerateLessonPayload,
   GenerateLessonResult,
   GenerateLessonStreamPayload,
@@ -419,8 +435,10 @@ export class TeachingWorkspaceService {
   private workspaceTrustMutationQueue: Promise<void> = Promise.resolve()
   /** Per-workspace serialization for mission_update receipt + participant writes. */
   private readonly missionMutationQueues = new Map<string, Promise<void>>()
-  private missionBindingKeyPromise: Promise<Buffer> | null = null
-
+  private missionBindingKeyPromise: Promise<Buffer> | null = null  /** Direct-UI lesson action serialization and in-flight markers (not used by agent). */
+  private readonly directLessonActionMutex = new DirectLessonActionMutex()
+  private readonly directLessonInFlight = new DirectLessonInFlightRegistry()
+  private directLessonInstallKey: Buffer | null = null
   constructor(options: TeachingWorkspaceServiceOptions) {
     this.registryPath = options.registryPath
     this.appDataRoot = dirname(this.registryPath)
@@ -931,7 +949,7 @@ export class TeachingWorkspaceService {
   }
 
   async generateLesson(payload: GenerateLessonPayload): Promise<GenerateLessonResult> {
-    return this.runLessonGeneration(payload, null)
+    return this.runDirectLessonAction(payload, null)
   }
 
   /**
@@ -973,7 +991,68 @@ export class TeachingWorkspaceService {
       onStatus: (status: LessonStreamStatus) => void
     }
   ): Promise<GenerateLessonResult> {
-    return this.runLessonGeneration(payload, stream)
+    return this.runDirectLessonAction(payload, stream)
+  }
+
+  /**
+   * Status-only lookup for direct-UI lesson generation. Never re-enters the
+   * provider. Reload recovery polls this after restoring a pending actionId.
+   */
+  async getDirectLessonActionStatus(payload: DirectLessonActionStatusPayload): Promise<DirectLessonActionStatus> {
+    let actionId: string
+    try {
+      actionId = assertActionId(payload.actionId)
+    } catch {
+      return { disposition: 'rejected', actionId: String(payload.actionId ?? ''), code: 'invalid_request' }
+    }
+
+    let registry
+    try {
+      registry = await this.ensureRegistry()
+    } catch {
+      return { disposition: 'rejected', actionId, code: 'workspace_unavailable' }
+    }
+
+    const workspace = registry.workspaces.find((candidate) => candidate.id === payload.workspaceId && !candidate.archived)
+    if (!workspace) {
+      return { disposition: 'rejected', actionId, code: 'workspace_unavailable' }
+    }
+
+    if (this.directLessonInFlight.isActive(workspace.id, actionId)) {
+      return { disposition: 'in_progress', actionId }
+    }
+
+    const receiptRead = await readDirectLessonReceipt(workspace.rootPath, actionId)
+    if (receiptRead.status === 'missing') {
+      return { disposition: 'indeterminate', actionId, code: 'receipt_unavailable' }
+    }
+    if (receiptRead.status === 'corrupt') {
+      return { disposition: 'conflict', actionId, code: 'receipt_corrupt' }
+    }
+
+    const receipt = receiptRead.receipt
+    if (receipt.workspaceId !== workspace.id) {
+      return { disposition: 'conflict', actionId, code: 'workspace_mismatch' }
+    }
+    if (receipt.operation !== DIRECT_LESSON_OPERATION) {
+      return { disposition: 'conflict', actionId, code: 'operation_mismatch' }
+    }
+    if (isReceiptResultExpired(receipt)) {
+      return { disposition: 'conflict', actionId, code: 'expired' }
+    }
+    if (receipt.phase === 'completed') {
+      return this.rebuildDirectLessonResultFromReceipt({
+        workspace,
+        registry,
+        receipt,
+        disposition: 'reused'
+      })
+    }
+    if (receipt.phase === 'tombstone') {
+      return { disposition: 'conflict', actionId, code: 'expired' }
+    }
+    // accepted / provider_started without in-flight worker: fail closed (no auto-continue from status).
+    return { disposition: 'indeterminate', actionId, code: 'provider_outcome_unknown' }
   }
 
   /**
@@ -1645,11 +1724,10 @@ export class TeachingWorkspaceService {
   }
 
   /**
-   * Shared generation entry for both the non-streaming and streaming IPC paths.
-   * The lesson generation module owns the deeper implementation; this method
-   * keeps the service focused on registry/index/session/runtime composition.
+   * Direct-UI action coordinator for generateLesson / generateLessonStream.
+   * Agent generation never enters this path and must not carry actionId.
    */
-  private async runLessonGeneration(
+  private async runDirectLessonAction(
     payload: GenerateLessonPayload,
     stream: {
       streamId: string
@@ -1657,11 +1735,193 @@ export class TeachingWorkspaceService {
       onStatus: (status: LessonStreamStatus) => void
     } | null
   ): Promise<GenerateLessonResult> {
-    const prompt = cleanText(payload.prompt)
-    if (!prompt) throw new Error('Lesson prompt is required.')
+    let actionId: string
+    try {
+      actionId = assertActionId(payload.actionId)
+    } catch {
+      return { disposition: 'rejected', actionId: String(payload.actionId ?? ''), code: 'invalid_request' }
+    }
 
-    const registry = await this.ensureRegistry()
-    const workspace = findWorkspace(registry, payload.workspaceId)
+    const prompt = cleanText(payload.prompt)
+    if (!prompt) {
+      return { disposition: 'rejected', actionId, code: 'invalid_request' }
+    }
+
+    let registry
+    try {
+      registry = await this.ensureRegistry()
+    } catch {
+      return { disposition: 'rejected', actionId, code: 'workspace_unavailable' }
+    }
+
+    let workspace
+    try {
+      workspace = findWorkspace(registry, payload.workspaceId)
+    } catch {
+      return { disposition: 'rejected', actionId, code: 'workspace_unavailable' }
+    }
+
+    return this.directLessonActionMutex.runExclusive(workspace.id, actionId, async () => {
+      this.directLessonInFlight.mark(workspace.id, actionId)
+      try {
+        return await this.executeDirectLessonAction({
+          payload: { ...payload, actionId, prompt },
+          workspace,
+          registry,
+          stream
+        })
+      } finally {
+        this.directLessonInFlight.clear(workspace.id, actionId)
+      }
+    })
+  }
+
+  private async executeDirectLessonAction(options: {
+    payload: GenerateLessonPayload & { prompt: string }
+    workspace: RegistryWorkspace
+    registry: WorkspaceRegistry
+    stream: {
+      streamId: string
+      onChunk: (chunk: LessonStreamChunk) => void
+      onStatus: (status: LessonStreamStatus) => void
+    } | null
+  }): Promise<GenerateLessonResult> {
+    const { payload, workspace, stream } = options
+    const actionId = assertActionId(payload.actionId)
+    const messages = payload.messages ?? []
+    const canonicalInput: CanonicalDirectLessonInput = {
+      workspaceId: workspace.id,
+      prompt: payload.prompt,
+      courseName: payload.courseName,
+      messages: messages.map((message) => ({
+        role: message.role,
+        content: message.content ?? null,
+        ...(message.toolCallId !== undefined ? { toolCallId: message.toolCallId } : {}),
+        ...(message.toolCalls !== undefined
+          ? {
+              toolCalls: message.toolCalls.map((call) => ({
+                id: call.id,
+                name: call.name,
+                arguments: call.arguments
+              }))
+            }
+          : {})
+      }))
+    }
+
+    let installKey: Buffer
+    try {
+      installKey = await this.getDirectLessonInstallKey()
+    } catch {
+      this.logger?.warn('Direct lesson action binding key unavailable.', {
+        component: 'main',
+        tag: 'direct-lesson-action'
+      })
+      return { disposition: 'indeterminate', actionId, code: 'receipt_unavailable' }
+    }
+
+    const requestTag = computeRequestTag(installKey, canonicalInput)
+    const receiptRead = await readDirectLessonReceipt(workspace.rootPath, actionId)
+
+    if (receiptRead.status === 'corrupt') {
+      this.logger?.warn('Direct lesson action receipt unreadable.', {
+        component: 'main',
+        tag: 'direct-lesson-action'
+      })
+      return { disposition: 'conflict', actionId, code: 'receipt_corrupt' }
+    }
+
+    if (receiptRead.status === 'ok') {
+      return this.reconcileExistingDirectLessonAction({
+        receipt: receiptRead.receipt,
+        workspace,
+        registry: options.registry,
+        requestTag,
+        payload,
+        stream
+      })
+    }
+
+    // First accept for this actionId.
+    const now = new Date().toISOString()
+    const publicationTransactionId = randomUUID()
+    const lifecycleEventId = randomUUID()
+    let receipt: DirectLessonReceipt = {
+      schemaVersion: 1,
+      operation: DIRECT_LESSON_OPERATION,
+      actionId,
+      workspaceId: workspace.id,
+      createdAt: now,
+      updatedAt: now,
+      phase: 'accepted',
+      requestTag,
+      effectTimestamp: now,
+      publicationTransactionId,
+      lifecycleEventId
+    }
+
+    try {
+      receipt = await writeDirectLessonReceipt(receipt, {
+        workspaceRoot: workspace.rootPath,
+        operations: this.durableFileOperations,
+        warn: this.durableWarn
+      })
+    } catch {
+      this.logger?.warn('Direct lesson action receipt prepare failed.', {
+        component: 'main',
+        tag: 'direct-lesson-action'
+      })
+      return { disposition: 'indeterminate', actionId, code: 'receipt_unavailable' }
+    }
+
+    return this.continueDirectLessonAfterAccept({
+      receipt,
+      workspace,
+      payload,
+      stream
+    })
+  }
+
+  private async continueDirectLessonAfterAccept(options: {
+    receipt: DirectLessonReceipt
+    workspace: RegistryWorkspace
+    payload: GenerateLessonPayload & { prompt: string }
+    stream: {
+      streamId: string
+      onChunk: (chunk: LessonStreamChunk) => void
+      onStatus: (status: LessonStreamStatus) => void
+    } | null
+  }): Promise<GenerateLessonResult> {
+    const { workspace, payload, stream } = options
+    const actionId = options.receipt.actionId
+    const publicationTransactionId = options.receipt.publicationTransactionId ?? randomUUID()
+    const lifecycleEventId = options.receipt.lifecycleEventId ?? randomUUID()
+    const effectTimestamp = options.receipt.effectTimestamp ?? new Date().toISOString()
+
+    let receipt: DirectLessonReceipt = {
+      ...options.receipt,
+      phase: 'provider_started',
+      generationStartedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      publicationTransactionId,
+      lifecycleEventId,
+      effectTimestamp
+    }
+
+    try {
+      receipt = await writeDirectLessonReceipt(receipt, {
+        workspaceRoot: workspace.rootPath,
+        operations: this.durableFileOperations,
+        warn: this.durableWarn
+      })
+    } catch {
+      this.logger?.warn('Direct lesson action provider_started write failed.', {
+        component: 'main',
+        tag: 'direct-lesson-action'
+      })
+      return { disposition: 'indeterminate', actionId, code: 'provider_outcome_unknown' }
+    }
+
     const callbacks: LessonGenerationCallbacks = {
       onToken: (delta) => {
         if (stream) stream.onChunk({ streamId: stream.streamId, delta })
@@ -1671,24 +1931,87 @@ export class TeachingWorkspaceService {
       }
     }
 
-    // Direct generation follows the same workspace-file tool setting as an
-    // agent conversation. Approval mode controls writes inside that capability.
     const settings = await this.loadSettings()
     const runtimeWorkspace = {
       ...workspace,
       workspaceToolAccessGranted: settings.tools.workspaceRead
     }
-    const generation = await this.generateAndPersistLesson({
-      workspace: runtimeWorkspace,
-      prompt,
-      messages: payload.messages ?? [],
-      requestedCourseName: payload.courseName,
-      callbacks,
-      triggerKind: 'lesson_generation'
-    })
+
+    let generation: {
+      lesson: LessonSummary
+      source: 'ai' | 'fallback'
+      reason?: string
+      registry: WorkspaceRegistry
+      changeSummary: TeachingWorkspaceChangeSummary | null
+      lifecycleEventId: string
+      publicationTransactionId: string
+    }
+    try {
+      generation = await this.generateAndPersistLesson({
+        workspace: runtimeWorkspace,
+        prompt: payload.prompt,
+        messages: payload.messages ?? [],
+        requestedCourseName: payload.courseName,
+        callbacks,
+        triggerKind: 'lesson_generation',
+        reservedTransactionId: publicationTransactionId,
+        fixedEffectTimestamp: effectTimestamp,
+        fixedLifecycleEventId: lifecycleEventId
+      })
+    } catch (error) {
+      // Provider may have been entered; never auto-retry this actionId.
+      this.logger?.warn('Direct lesson generation failed after provider_started.', {
+        component: 'main',
+        tag: 'direct-lesson-action'
+      })
+      const message = error instanceof Error ? error.message : String(error)
+      // Preserve throw semantics for the session-open fail-closed gate used by
+      // generation-session unit coverage (pre-publication abort) and for
+      // infrastructure unavailability before a durable lesson can be proven.
+      if (
+        message.includes('controlled canonical session open failure') ||
+        message.includes('Descriptor-relative contained directory access is unavailable') ||
+        message.includes('descriptor-relative contained directory native capability is unavailable')
+      ) {
+        throw error
+      }
+      return { disposition: 'indeterminate', actionId, code: 'provider_outcome_unknown' }
+    }
+
+    receipt = {
+      ...receipt,
+      phase: 'completed',
+      updatedAt: new Date().toISOString(),
+      lessonId: generation.lesson.id,
+      lessonRelativePath: generation.lesson.relativePath,
+      lifecycleEventId: generation.lifecycleEventId,
+      publicationTransactionId: generation.publicationTransactionId,
+      source: generation.source,
+      reason: generation.reason,
+      terminalKind: 'completed'
+    }
+    try {
+      await writeDirectLessonReceipt(receipt, {
+        workspaceRoot: workspace.rootPath,
+        operations: this.durableFileOperations,
+        warn: this.durableWarn
+      })
+    } catch {
+      this.logger?.warn('Direct lesson action completed receipt write failed.', {
+        component: 'main',
+        tag: 'direct-lesson-action'
+      })
+      return { disposition: 'indeterminate', actionId, code: 'projection_unprovable' }
+    }
 
     if (stream) stream.onStatus({ streamId: stream.streamId, step: 'done' })
+    this.logger?.info('Direct lesson generation completed.', {
+      component: 'main',
+      tag: 'direct-lesson-action'
+    })
     return {
+      disposition: 'succeeded',
+      actionId,
       kind: 'lesson',
       state: await this.buildState(generation.registry, workspace.id, generation.lesson.absolutePath),
       lesson: generation.lesson,
@@ -1698,6 +2021,111 @@ export class TeachingWorkspaceService {
     }
   }
 
+  private async reconcileExistingDirectLessonAction(options: {
+    receipt: DirectLessonReceipt
+    workspace: RegistryWorkspace
+    registry: WorkspaceRegistry
+    requestTag: string
+    payload: GenerateLessonPayload & { prompt: string }
+    stream: {
+      streamId: string
+      onChunk: (chunk: LessonStreamChunk) => void
+      onStatus: (status: LessonStreamStatus) => void
+    } | null
+  }): Promise<GenerateLessonResult> {
+    const { receipt, workspace, requestTag, payload, stream } = options
+    const actionId = receipt.actionId
+
+    if (receipt.workspaceId !== workspace.id) {
+      return { disposition: 'conflict', actionId, code: 'workspace_mismatch' }
+    }
+    if (receipt.operation !== DIRECT_LESSON_OPERATION) {
+      return { disposition: 'conflict', actionId, code: 'operation_mismatch' }
+    }
+    if (!requestTagsEqual(receipt.requestTag, requestTag)) {
+      return { disposition: 'conflict', actionId, code: 'request_mismatch' }
+    }
+    if (isReceiptResultExpired(receipt) || receipt.phase === 'tombstone' || receipt.terminalKind === 'expired') {
+      return { disposition: 'conflict', actionId, code: 'expired' }
+    }
+
+    if (receipt.phase === 'completed') {
+      if (stream) stream.onStatus({ streamId: stream.streamId, step: 'done' })
+      return this.rebuildDirectLessonResultFromReceipt({
+        workspace,
+        registry: options.registry,
+        receipt,
+        disposition: 'reused'
+      })
+    }
+
+    if (receipt.phase === 'accepted') {
+      // Proven not to have reached provider_started: may continue once.
+      return this.continueDirectLessonAfterAccept({
+        receipt,
+        workspace,
+        payload,
+        stream
+      })
+    }
+
+    // provider_started (or unknown non-terminal): never re-enter provider.
+    this.logger?.warn('Direct lesson action indeterminate non-final receipt.', {
+      component: 'main',
+      tag: 'direct-lesson-action'
+    })
+    return { disposition: 'indeterminate', actionId, code: 'provider_outcome_unknown' }
+  }
+
+  private async rebuildDirectLessonResultFromReceipt(options: {
+    workspace: RegistryWorkspace
+    registry: WorkspaceRegistry
+    receipt: DirectLessonReceipt
+    disposition: 'succeeded' | 'reused'
+  }): Promise<GenerateLessonResult> {
+    const { workspace, receipt, disposition } = options
+    const actionId = receipt.actionId
+    if (!receipt.lessonId || !receipt.lessonRelativePath || !receipt.source) {
+      return { disposition: 'indeterminate', actionId, code: 'projection_unprovable' }
+    }
+
+    let index
+    try {
+      index = await this.loadWorkspaceIndex(workspace)
+    } catch {
+      return { disposition: 'indeterminate', actionId, code: 'projection_unprovable' }
+    }
+
+    const lesson = index.lessons.find(
+      (candidate) => candidate.id === receipt.lessonId && candidate.relativePath === receipt.lessonRelativePath
+    )
+    if (!lesson) {
+      return { disposition: 'conflict', actionId, code: 'external_mutation' }
+    }
+
+    this.logger?.info('Direct lesson generation result reused.', {
+      component: 'main',
+      tag: 'direct-lesson-action'
+    })
+    return {
+      disposition,
+      actionId,
+      kind: 'lesson',
+      state: await this.buildState(options.registry, workspace.id, lesson.absolutePath),
+      lesson,
+      source: receipt.source,
+      reason: receipt.reason,
+      changeSummary: null
+    }
+  }
+
+  private async getDirectLessonInstallKey(): Promise<Buffer> {
+    if (this.directLessonInstallKey) return this.directLessonInstallKey
+    const key = await loadOrCreateInstallKey(this.appDataRoot)
+    this.directLessonInstallKey = key
+    return key
+  }
+
   /**
    * Generate one lesson and persist every side effect (files, workspace
    * index, session event, registry touch). Both the direct IPC entry and the
@@ -1705,6 +2133,9 @@ export class TeachingWorkspaceService {
    * created mid-conversation is indistinguishable from a directly generated
    * one. Throws LessonGenerationError instead of persisting anything when the
    * provider fails to produce a valid plan.
+   *
+   * Direct-UI may reserve publicationTransactionId / lifecycleEventId via
+   * options; the agent path omits those fields and never uses action receipts.
    */
   private async generateAndPersistLesson(options: {
     workspace: RegistryWorkspace
@@ -1714,19 +2145,25 @@ export class TeachingWorkspaceService {
     requestedCourseName?: string
     triggerKind?: 'lesson_generation' | 'agent_lesson_generation'
     callbacks?: LessonGenerationCallbacks
+    reservedTransactionId?: string
+    fixedEffectTimestamp?: string
+    fixedLifecycleEventId?: string
   }): Promise<{
     lesson: LessonSummary
     source: LessonPlanSource
     reason?: string
     registry: WorkspaceRegistry
     changeSummary: TeachingWorkspaceChangeSummary | null
+    lifecycleEventId: string
+    publicationTransactionId: string
   }> {
     const { workspace } = options
     const beforeChanges = await this.changeAudit.capturePreMutation(workspace.rootPath)
     await this.ensureWorkspaceStructure(workspace)
 
     const settings = await this.loadSettings()
-    const now = new Date().toISOString()
+    const now = options.fixedEffectTimestamp ?? new Date().toISOString()
+    const lifecycleEventId = options.fixedLifecycleEventId ?? randomUUID()
     const index = await this.loadWorkspaceIndex(workspace)
 
     const generation = await runLessonGenerationPipeline({
@@ -1740,7 +2177,8 @@ export class TeachingWorkspaceService {
       now,
       retrieveMemories: (query) => this.memoryStore.retrieve(query),
       callbacks: options.callbacks,
-      bindCanonicalSession: async ({ lesson, assessment }) => this.openCanonicalLessonSession(workspace, lesson, assessment)
+      bindCanonicalSession: async ({ lesson, assessment }) => this.openCanonicalLessonSession(workspace, lesson, assessment),
+      reservedTransactionId: options.reservedTransactionId
     })
 
     await this.saveWorkspaceIndex(workspace.rootPath, {
@@ -1749,7 +2187,7 @@ export class TeachingWorkspaceService {
       lessons: upsertLesson(index.lessons, generation.lesson)
     })
     await this.appendSessionEvent(workspace.rootPath, {
-      id: randomUUID(),
+      id: lifecycleEventId,
       kind: 'lesson_generated',
       timestamp: now,
       workspaceId: workspace.id,
@@ -1786,7 +2224,9 @@ export class TeachingWorkspaceService {
       source: generation.source,
       reason: generation.reason,
       registry: nextRegistry,
-      changeSummary
+      changeSummary,
+      lifecycleEventId,
+      publicationTransactionId: generation.transactionId
     }
   }
 

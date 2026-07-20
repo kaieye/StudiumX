@@ -170,12 +170,50 @@ export type CreateWorkspacePayload = {
   prompt: string
 }
 
+/** Direct-UI lesson generation only; agent tool path never carries actionId. */
 export type GenerateLessonPayload = {
   workspaceId: string
+  /** RFC 4122 UUID v4 opaque caller action identity. */
+  actionId: string
   prompt: string
   courseName?: string
   messages?: AgentChatMessage[]
 }
+
+export type DirectLessonActionStatusPayload = {
+  workspaceId: string
+  actionId: string
+}
+
+export type DirectLessonRejectedCode = 'invalid_request' | 'workspace_unavailable' | 'not_authorized'
+export type DirectLessonConflictCode =
+  | 'workspace_mismatch'
+  | 'operation_mismatch'
+  | 'request_mismatch'
+  | 'external_mutation'
+  | 'receipt_corrupt'
+  | 'expired'
+export type DirectLessonIndeterminateCode =
+  | 'provider_outcome_unknown'
+  | 'publication_unprovable'
+  | 'projection_unprovable'
+  | 'receipt_unavailable'
+
+export type GenerateLessonSuccessResult = {
+  disposition: 'succeeded' | 'reused'
+  actionId: string
+  kind: 'lesson'
+  state: TeachingAppState
+  lesson: LessonSummary
+  source: 'ai' | 'fallback'
+  reason?: string
+  changeSummary?: TeachingWorkspaceChangeSummary | null
+}
+
+export type GenerateLessonFailureResult =
+  | { disposition: 'rejected'; actionId: string; code: DirectLessonRejectedCode }
+  | { disposition: 'conflict'; actionId: string; code: DirectLessonConflictCode }
+  | { disposition: 'indeterminate'; actionId: string; code: DirectLessonIndeterminateCode }
 
 export type UpdateMissionPayload = {
   workspaceId: string
@@ -242,14 +280,11 @@ export type ImportWorkspaceResult = {
   state: TeachingAppState | null
 }
 
-export type GenerateLessonResult = {
-  kind: 'lesson'
-  state: TeachingAppState
-  lesson: LessonSummary
-  source: 'ai' | 'fallback'
-  reason?: string
-  changeSummary?: TeachingWorkspaceChangeSummary | null
-}
+export type GenerateLessonResult = GenerateLessonSuccessResult | GenerateLessonFailureResult
+
+export type DirectLessonActionStatus =
+  | { disposition: 'in_progress'; actionId: string }
+  | GenerateLessonResult
 
 export type PickDirectoryResult = {
   canceled: boolean

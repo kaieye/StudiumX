@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -43,6 +44,7 @@ describe('TeachingWorkspaceService generation Session gate', () => {
     try {
       await expect(service.generateLesson({
         workspaceId: workspace.id,
+        actionId: randomUUID(),
         prompt: 'Explain why a Session identity must be canonical.',
         messages: []
       })).rejects.toThrow(process.platform === 'win32'

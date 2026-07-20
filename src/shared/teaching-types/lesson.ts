@@ -32,7 +32,8 @@ export type LessonStreamStatus = {
 }
 
 export type LessonStreamDone =
-  | { streamId: string; kind: 'lesson'; state: TeachingAppState; lesson: LessonSummary; source: 'ai' | 'fallback'; reason?: string; changeSummary?: TeachingWorkspaceChangeSummary | null }
+  | ({ streamId: string } & import('./workspace').GenerateLessonSuccessResult)
+  | ({ streamId: string } & import('./workspace').GenerateLessonFailureResult)
   | { streamId: string; error: true; message: string }
 
 export type GenerateLessonStreamPayload = GenerateLessonPayload

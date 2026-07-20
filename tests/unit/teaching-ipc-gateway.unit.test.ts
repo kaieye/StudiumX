@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
@@ -105,6 +106,18 @@ function startNavigation(
     isMainFrame: input.isMainFrame,
     frame: { processId: input.frameProcessId, routingId: input.frameRoutingId }
   }, input.url, isSameDocument, input.isMainFrame, input.frameProcessId, input.frameRoutingId)
+}
+
+
+function requireGeneratedLesson(result: {
+  disposition: string
+  code?: string
+  lesson?: unknown
+}) {
+  if ((result.disposition !== "succeeded" && result.disposition !== "reused") || !result.lesson) {
+    throw new Error(`expected lesson success disposition, got ${result.disposition}${result.code ? `:${result.code}` : ""}`)
+  }
+  return result as typeof result & { lesson: NonNullable<typeof result.lesson> }
 }
 
 describe('Teaching IPC gateway', () => {
@@ -383,8 +396,9 @@ describe('Teaching IPC gateway', () => {
   it.runIf(process.platform !== 'win32')('activates only a matching canonical preview child navigation, then revokes cross-document and main-frame navigation', async () => {
     const service = await createEvidenceService('gateway-preview-navigation')
     const workspace = (await service.createWorkspace({ name: 'Navigation evidence', prompt: 'Teach preview navigation revocation.' })).activeWorkspace!
-    const lesson = (await service.generateLesson({
+    const lesson = requireGeneratedLesson(await service.generateLesson({
       workspaceId: workspace.id,
+      actionId: randomUUID(),
       prompt: 'Explain why iframe document navigation revokes trusted authority.',
       messages: []
     })).lesson

@@ -14,7 +14,7 @@ import {
   decodeToolAnswerPayload, optionalString, parseAgentChatStreamPayload, parseApplyLessonStylePayload,
   parseCommitLearningOutcomeRequest, parseCreateAgentConversationCheckpointPayload,
   parseForkAgentConversationBranchPayload, parseOpenAgentConversationBranchPayload,
-  parseCreateMemoryPayload, parseCreateWorkspacePayload, parseGenerateLessonPayload, parseGitBranchPayload,
+  parseCreateMemoryPayload, parseCreateWorkspacePayload, parseDirectLessonActionStatusPayload, parseGenerateLessonPayload, parseGitBranchPayload,
   parseListUpstreamModelsPayload, parseNotificationPayload, parseProbeProviderPayload,
   parseQueryAgentArchivedHistoryPayload, parseReadAgentConversationPayload, parseProjectAgentConversationSummariesPayload, parseRenameAgentConversationPayload,
   parseReadAgentConversationSessionTreePayload, parseReadLessonPayload, parseReadWorkspaceChangeDiffPayload,
@@ -259,6 +259,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({ channel: teachingInvokeChannels.listSkills, parser: () => undefined, action: () => skills.listSkills(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.installSkill, parser: (skillId) => requireString(skillId, 'skillId'), action: (_event, skillId) => skills.installSkill(skillId), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.generateLesson, parser: (payload) => parseGenerateLessonPayload(payload), action: (_event, payload) => service.generateLesson(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.getDirectLessonActionStatus, parser: (payload) => parseDirectLessonActionStatusPayload(payload), action: (_event, payload) => service.getDirectLessonActionStatus(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({
       channel: teachingInvokeChannels.generateLessonStream, parser: (payload) => parseGenerateLessonPayload(payload),
       action: async (event, payload) => {

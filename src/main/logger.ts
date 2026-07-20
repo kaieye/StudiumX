@@ -5,7 +5,7 @@ import { normalizeTraceId } from '../shared/trace-context'
 
 const MAX_LOG_MESSAGE_LENGTH = 2_000
 const LOG_COMPONENTS = ['main'] as const
-const LOG_TAGS = ['agent-archive', 'memory-catalog', 'learning-session-ledger', 'mission-action'] as const
+const LOG_TAGS = ['agent-archive', 'memory-catalog', 'learning-session-ledger', 'mission-action', 'direct-lesson-action'] as const
 
 export type SafeLogComponent = typeof LOG_COMPONENTS[number]
 export type SafeLogTag = typeof LOG_TAGS[number]

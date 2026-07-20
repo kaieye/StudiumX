@@ -89,12 +89,17 @@ import {
   effectsForGeneratedLesson,
   failLessonGeneration,
   failStreamingLessonGeneration,
+  isDirectLessonSuccessResult,
   lessonGenerationDefaultRuntime,
   streamedLessonDonePatch,
   suggestedCourseName,
   updateStreamingStatus,
   type LessonGenerationNotificationIntent
 } from './lessonGenerationFlow'
+import type {
+  GenerateLessonPayload,
+  GenerateLessonResult
+} from '../../../shared/teaching-types'
 
 export type UserError = OperationFeedbackError
 
@@ -339,8 +344,99 @@ function readPendingMissionAction(workspaceId: string): PendingMissionAction | n
     ) {
       return null
     }
-    return parsed
-  } catch {
+    return parsed// ================================================================
+// Direct-UI lesson actionId lifecycle (ADR-0023)
+// ================================================================
+
+const DIRECT_LESSON_ACTION_STORAGE_PREFIX = 'studiumx:direct-lesson-action:'
+const DIRECT_LESSON_OPERATION = 'direct_ui_lesson_generation/v1'
+const DIRECT_LESSON_ACTION_RETRY_WINDOW_MS = 60 * 60 * 1000
+const RFC4122_UUID_V4 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+type PendingDirectLessonActionMarker = {
+  workspaceId: string
+  actionId: string
+  operation: typeof DIRECT_LESSON_OPERATION
+  createdAt: number
+}
+
+/** In-memory only: exact-payload match for lost-response retry. Never written to storage. */
+type PendingDirectLessonActionMemory = PendingDirectLessonActionMarker & {
+  payloadKey: string
+}
+
+const pendingDirectLessonActions = new Map<string, PendingDirectLessonActionMemory>()
+
+function directLessonActionStorageKey(workspaceId: string): string {
+  return `${DIRECT_LESSON_ACTION_STORAGE_PREFIX}${workspaceId}`
+}
+
+function createDirectLessonActionId(): string {
+  // crypto.randomUUID is RFC 4122 v4 in modern Chromium/Electron.
+  return crypto.randomUUID().toLowerCase()
+}
+
+/**
+ * Canonical key for in-memory exact-payload retry only.
+ * Not a content-dedupe key across actionIds and never persisted.
+ */
+export function directLessonPayloadKey(input: {
+  workspaceId: string
+  prompt: string
+  courseName?: string
+  messages: Array<{
+    role: string
+    content: string | null
+    toolCallId?: string
+    toolCalls?: Array<{ id: string; name: string; arguments: string }>
+  }>
+}): string {
+  const messages = input.messages.map((message) => {
+    const entry: Record<string, unknown> = {
+      role: message.role,
+      content: message.content === null ? null : message.content
+    }
+    if (message.toolCallId !== undefined) entry.toolCallId = message.toolCallId
+    if (message.toolCalls !== undefined) {
+      entry.toolCalls = message.toolCalls.map((call) => ({
+        id: call.id,
+        name: call.name,
+        arguments: call.arguments
+      }))
+    }
+    return entry
+  })
+  return JSON.stringify({
+    operation: DIRECT_LESSON_OPERATION,
+    workspaceId: input.workspaceId,
+    prompt: input.prompt,
+    courseName: input.courseName ?? null,
+    messages
+  })
+}
+
+function readPendingDirectLessonMarker(workspaceId: string): PendingDirectLessonActionMarker | null {
+  try {
+    const raw = sessionStorage.getItem(directLessonActionStorageKey(workspaceId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PendingDirectLessonActionMarker
+    if (
+      !parsed ||
+      parsed.workspaceId !== workspaceId ||
+      parsed.operation !== DIRECT_LESSON_OPERATION ||
+      typeof parsed.actionId !== 'string' ||
+      typeof parsed.createdAt !== 'number' ||
+      !RFC4122_UUID_V4.test(parsed.actionId)
+    ) {
+      return null
+    }
+    return {
+      workspaceId,
+      actionId: parsed.actionId.toLowerCase(),
+      operation: DIRECT_LESSON_OPERATION,
+      createdAt: parsed.createdAt
+    }  } catch {
     return null
   }
 }
@@ -370,12 +466,111 @@ function resolveMissionActionId(workspaceId: string, prompt: string): string {
 
 function clearMissionActionId(workspaceId: string): void {
   try {
-    sessionStorage.removeItem(missionActionStorageKey(workspaceId))
+    sessionStorage.removeItem(missionActionStorageKey(workspaceId))function writePendingDirectLessonMarker(marker: PendingDirectLessonActionMarker): void {
+  try {
+    sessionStorage.setItem(
+      directLessonActionStorageKey(marker.workspaceId),
+      JSON.stringify({
+        workspaceId: marker.workspaceId,
+        actionId: marker.actionId,
+        operation: marker.operation,
+        createdAt: marker.createdAt
+      } satisfies PendingDirectLessonActionMarker)
+    )
   } catch {
+    // sessionStorage may be unavailable; in-memory pending still works for lost-response.
+  }
+}
+
+export function clearDirectLessonActionId(workspaceId: string): void {
+  pendingDirectLessonActions.delete(workspaceId)
+  try {
+    sessionStorage.removeItem(directLessonActionStorageKey(workspaceId))  } catch {
     // ignore
   }
 }
 
+/**
+ * Resolve actionId for an explicit generate submit.
+ * - New user confirm / payload change / prior conflict|indeterminate -> new UUID v4
+ * - Same UI instance exact payload lost-response retry -> reuse in-memory pending id
+ * - sessionStorage holds only {workspaceId, actionId, operation} for reload status poll
+ */
+export function resolveDirectLessonActionId(input: {
+  workspaceId: string
+  prompt: string
+  courseName?: string
+  messages: GenerateLessonPayload['messages']
+  forceNew?: boolean
+}): string {
+  const now = Date.now()
+  const payloadKey = directLessonPayloadKey({
+    workspaceId: input.workspaceId,
+    prompt: input.prompt,
+    courseName: input.courseName,
+    messages: (input.messages ?? []).map((message) => ({
+      role: message.role,
+      content: message.content ?? null,
+      ...(message.toolCallId !== undefined ? { toolCallId: message.toolCallId } : {}),
+      ...(message.toolCalls !== undefined
+        ? {
+            toolCalls: message.toolCalls.map((call) => ({
+              id: call.id,
+              name: call.name,
+              arguments: call.arguments
+            }))
+          }
+        : {})
+    }))
+  })
+
+  if (!input.forceNew) {
+    const memory = pendingDirectLessonActions.get(input.workspaceId)
+    if (
+      memory &&
+      memory.payloadKey === payloadKey &&
+      now - memory.createdAt < DIRECT_LESSON_ACTION_RETRY_WINDOW_MS &&
+      RFC4122_UUID_V4.test(memory.actionId)
+    ) {
+      writePendingDirectLessonMarker({
+        workspaceId: memory.workspaceId,
+        actionId: memory.actionId,
+        operation: DIRECT_LESSON_OPERATION,
+        createdAt: memory.createdAt
+      })
+      return memory.actionId
+    }
+  }
+
+  const actionId = createDirectLessonActionId()
+  const marker: PendingDirectLessonActionMemory = {
+    workspaceId: input.workspaceId,
+    actionId,
+    operation: DIRECT_LESSON_OPERATION,
+    createdAt: now,
+    payloadKey
+  }
+  pendingDirectLessonActions.set(input.workspaceId, marker)
+  writePendingDirectLessonMarker(marker)
+  return actionId
+}
+
+function directLessonDispositionError(
+  disposition: 'rejected' | 'conflict' | 'indeterminate',
+  code?: string
+): UserError {
+  const key =
+    disposition === 'conflict'
+      ? 'errors.directLessonActionConflict'
+      : disposition === 'indeterminate'
+        ? 'errors.directLessonActionIndeterminate'
+        : 'errors.directLessonActionRejected'
+  return {
+    message: i18n.t(`${key}.message`),
+    severity: disposition === 'rejected' ? 'error' : 'warning',
+    detail: i18n.t(`${key}.detail`, { code: code ?? disposition })
+  }
+}
 export function toUserError(error: unknown): UserError {
   const feedback = operationFeedback({
     outcome: 'failure',
@@ -797,6 +992,51 @@ export const useAppStore = create<StoreState>((set, get) => {
         agentChatBusy: false,
         pendingAgentConversation: null
       })
+      // Reload recovery: status poll only (workspaceId + actionId). Never auto-resubmit or reattach streams.
+      const activeWorkspaceId = state.activeWorkspace?.id
+      if (activeWorkspaceId) {
+        const pending = readPendingDirectLessonMarker(activeWorkspaceId)
+        if (pending) {
+          try {
+            const status = await api.getDirectLessonActionStatus({
+              workspaceId: activeWorkspaceId,
+              actionId: pending.actionId
+            })
+            if (status.disposition === 'in_progress') {
+              set({
+                generating: true,
+                appState: {
+                  ...get().appState,
+                  runtime: {
+                    ...get().appState.runtime,
+                    status: 'working',
+                    currentStep: 'recovering prior lesson generation',
+                    queuedTasks: 1
+                  }
+                }
+              })
+            } else if (isDirectLessonSuccessResult(status)) {
+              clearDirectLessonActionId(activeWorkspaceId)
+              set({
+                ...directLessonDonePatch({
+                  result: status,
+                  workspaceId: activeWorkspaceId,
+                  nextPrompt
+                }),
+                generating: false
+              })
+            } else {
+              clearDirectLessonActionId(activeWorkspaceId)
+              set({
+                generating: false,
+                error: directLessonDispositionError(status.disposition, status.code)
+              })
+            }
+          } catch {
+            // Keep marker for a later explicit status poll / exact retry; never auto regenerate.
+          }
+        }
+      }
     } catch (error) {
       set({ loading: false, error: toUserError(error) })
     }
@@ -1076,6 +1316,13 @@ export const useAppStore = create<StoreState>((set, get) => {
     ) {
       return
     }
+    const courseName = suggestedCourseName(workspace, prompt)
+    const actionId = resolveDirectLessonActionId({
+      workspaceId: workspace.id,
+      prompt,
+      courseName,
+      messages: lessonMessages
+    })
     const runId = lessonGenerationRunId(workspace.id)
     set({
       ...beginLessonGeneration({ appState: get().appState, providerLabel: runtimeProviderLabel(settings) }),
@@ -1086,31 +1333,49 @@ export const useAppStore = create<StoreState>((set, get) => {
     try {
       const result = await api.generateLesson({
         workspaceId: workspace.id,
+        actionId,
         prompt,
-        courseName: suggestedCourseName(workspace, prompt),
+        courseName,
         messages: lessonMessages
       })
-      set({
-        ...directLessonDonePatch({ result, workspaceId: workspace.id, nextPrompt }),
-        lessonGenerationRunId: null,
-        lessonGenerationPetNotificationResult: {
-          runId,
-          resultId: `${runId}:${result.lesson.id}`,
-          targetId: result.lesson.relativePath,
-          createdAt: Date.now()
+      if (isDirectLessonSuccessResult(result)) {
+        clearDirectLessonActionId(workspace.id)
+        set({
+          ...directLessonDonePatch({ result, workspaceId: workspace.id, nextPrompt }),
+          lessonGenerationRunId: null,
+          lessonGenerationPetNotificationResult: {
+            runId,
+            resultId: `${runId}:${result.lesson.id}`,
+            targetId: result.lesson.relativePath,
+            createdAt: Date.now()
+          }
+        })
+        const effects = effectsForGeneratedLesson({
+          lesson: result.lesson,
+          source: result.source,
+          reason: result.reason,
+          settings: lessonEffectSettings(settings)
+        })
+        if (effects.openPath) void get().openPath(effects.openPath)
+        if (effects.lessonGeneratedNotification) {
+          void get().showNotification(i18n.t('notify.lessonGenerated.title'), lessonGeneratedNotificationBody(effects.lessonGeneratedNotification))
         }
-      })
-      const effects = effectsForGeneratedLesson({
-        lesson: result.lesson,
-        source: result.source,
-        reason: result.reason,
-        settings: lessonEffectSettings(settings)
-      })
-      if (effects.openPath) void get().openPath(effects.openPath)
-      if (effects.lessonGeneratedNotification) {
-        void get().showNotification(i18n.t('notify.lessonGenerated.title'), lessonGeneratedNotificationBody(effects.lessonGeneratedNotification))
+        return
       }
+      // rejected / conflict / indeterminate: fail closed; force a new actionId next submit.
+      clearDirectLessonActionId(workspace.id)
+      const userError = directLessonDispositionError(result.disposition, result.code)
+      set({
+        ...failLessonGeneration({ appState: get().appState, error: userError }),
+        lessonGenerationRunId: null,
+        petNotificationErrors: recordPetOperationError(get().petNotificationErrors, {
+          source: 'lesson-generation',
+          sourceId: runId,
+          error: userError
+        })
+      })
     } catch (error) {
+      // Keep the same actionId for lost-response / thrown I/O retries of this exact submit.
       const feedback = operationFeedback({
         outcome: 'failure',
         error,
@@ -1154,6 +1419,13 @@ export const useAppStore = create<StoreState>((set, get) => {
     ) {
       return
     }
+    const courseName = suggestedCourseName(workspace, prompt)
+    const actionId = resolveDirectLessonActionId({
+      workspaceId: workspace.id,
+      prompt,
+      courseName,
+      messages: lessonMessages
+    })
     const runId = lessonGenerationRunId(workspace.id)
     set({
       ...beginLessonGeneration({ appState: get().appState, providerLabel: runtimeProviderLabel(settings) }),
@@ -1166,8 +1438,9 @@ export const useAppStore = create<StoreState>((set, get) => {
       const done = await api.generateLessonStream(
         {
           workspaceId: workspace.id,
+          actionId,
           prompt,
-          courseName: suggestedCourseName(workspace, prompt),
+          courseName,
           messages: lessonMessages
         },
         (chunk: LessonStreamChunk) => {
@@ -1188,6 +1461,8 @@ export const useAppStore = create<StoreState>((set, get) => {
         }
       )
       if ('error' in done && done.error) {
+        // Transport/error envelope only; keep pending actionId for exact lost-response retry.
+        // StreamIds are main-owned and never reattached after reload.
         const feedback = operationFeedback({
           outcome: 'failure',
           error: new Error(done.message),
@@ -1208,32 +1483,49 @@ export const useAppStore = create<StoreState>((set, get) => {
         deliverOperationFeedback(feedback, get().showNotification)
         return
       }
-      if (!('error' in done) && done.kind === 'lesson') {
-        const patch = streamedLessonDonePatch({ done, workspaceId: workspace.id, nextPrompt })
-        if (patch) {
-          set({
-            ...patch,
-            lessonGenerationRunId: null,
-            lessonGenerationPetNotificationResult: {
-              runId,
-              resultId: `${runId}:${done.lesson.id}`,
-              targetId: done.lesson.relativePath,
-              createdAt: Date.now()
-            }
+      if (!('error' in done) && 'disposition' in done) {
+        if (done.disposition === 'succeeded' || done.disposition === 'reused') {
+          clearDirectLessonActionId(workspace.id)
+          const patch = streamedLessonDonePatch({ done, workspaceId: workspace.id, nextPrompt })
+          if (patch) {
+            set({
+              ...patch,
+              lessonGenerationRunId: null,
+              lessonGenerationPetNotificationResult: {
+                runId,
+                resultId: `${runId}:${done.lesson.id}`,
+                targetId: done.lesson.relativePath,
+                createdAt: Date.now()
+              }
+            })
+          }
+          const effects = effectsForGeneratedLesson({
+            lesson: done.lesson,
+            source: done.source,
+            reason: done.reason,
+            settings: lessonEffectSettings(settings)
           })
+          if (effects.openPath) void get().openPath(effects.openPath)
+          if (effects.lessonGeneratedNotification) {
+            void get().showNotification(i18n.t('notify.lessonGenerated.title'), lessonGeneratedNotificationBody(effects.lessonGeneratedNotification))
+          }
+          return
         }
-        const effects = effectsForGeneratedLesson({
-          lesson: done.lesson,
-          source: done.source,
-          reason: done.reason,
-          settings: lessonEffectSettings(settings)
+        clearDirectLessonActionId(workspace.id)
+        const userError = directLessonDispositionError(done.disposition, done.code)
+        set({
+          ...failStreamingLessonGeneration(userError),
+          lessonGenerationRunId: null,
+          petNotificationErrors: recordPetOperationError(get().petNotificationErrors, {
+            source: 'lesson-generation',
+            sourceId: runId,
+            error: userError
+          })
         })
-        if (effects.openPath) void get().openPath(effects.openPath)
-        if (effects.lessonGeneratedNotification) {
-          void get().showNotification(i18n.t('notify.lessonGenerated.title'), lessonGeneratedNotificationBody(effects.lessonGeneratedNotification))
-        }
+        return
       }
     } catch (error) {
+      // Keep pending actionId for exact lost-response retry; do not reattach old streamId.
       const userError = toUserError(error)
       set({
         ...failLessonGeneration({ appState: get().appState, error: userError }),

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -419,11 +420,16 @@ describe('C-5 archive trace propagation', () => {
     })).activeWorkspace!
     // Create the Session before binding either preview. This avoids setup work
     // invalidating an otherwise active preview authority.
-    const lesson = (await service.generateLesson({
+    const generatedLesson = await service.generateLesson({
       workspaceId: workspace.id,
+      actionId: randomUUID(),
       prompt: 'Traceable lesson',
       messages: []
-    })).lesson
+    })
+    if (generatedLesson.disposition !== \"succeeded\" && generatedLesson.disposition !== \"reused\") {
+      throw new Error(`expected lesson success, got ${generatedLesson.disposition}`)
+    }
+    const lesson = generatedLesson.lesson
     const firstPreview = await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, 701)
     const secondPreview = await service.readLesson({ workspaceId: workspace.id, lessonPath: lesson.relativePath }, 702)
     service.observePreviewLessonNavigation(701, {
