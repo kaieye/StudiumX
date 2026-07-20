@@ -298,6 +298,7 @@ test.describe('P0 longitudinal Electron Golden — crash recovery', () => {
     test(`wrong → crash(${crashPoint}) → recover corrected outcome @p0`, async ({}, testInfo: TestInfo) => {
       test.setTimeout(180_000)
       const runtime: TestRuntime = await createTestRuntime(`${testInfo.project.name}-crash-${crashPoint}-${testInfo.workerIndex}`)
+      runtime.env.STUDIUMX_E2E = '1'
       let launched = await launchElectronRuntime(runtime, testInfo)
       let failed = false
       try {
