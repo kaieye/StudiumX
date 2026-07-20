@@ -7,7 +7,7 @@
  */
 
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import type { LessonSummary } from '../shared/teaching-types'
 import { isPathInsideRoot } from './path-access'

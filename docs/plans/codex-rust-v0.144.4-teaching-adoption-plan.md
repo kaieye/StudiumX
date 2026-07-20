@@ -14,6 +14,7 @@
 | P0 教学领域模块 | [0008](../adr/0008-learning-session-ledger-as-canonical-teaching-process.md)–[0016](../adr/0016-trusted-assessment-artifacts-for-outcome-evaluation.md) | Session / Evidence / Outcome / Planner / Context / Presentation / Events / Assessment |
 | P0 Win/Mac 发布证明 | [0017](../adr/0017-win-mac-p0-release-proof-and-audit-policy.md) | clean-checkout audit、runtime gates、真实 Electron Golden；commit `a797f07` |
 | 本地数据相关边界 | [0001](../adr/0001-rebuildable-sqlite-projection.md)–[0007](../adr/0007-persisted-user-history-redaction.md)、[0018](../adr/0018-recordless-learning-outcome-marker-only-settlement-authority.md)–[0020](../adr/0020-c4p6-phase0-platform-profile-and-failure-matrix.md) | 投影/备份/publish/trace/memory/redaction 与后续 evidence 边界 |
+| P1 运行时边界 | [0021](../adr/0021-agent-run-state-machine-separate-from-session.md)–[0023](../adr/0023-teaching-turn-coordinator-host-and-blocking-ci.md) | Agent run 与 Session 分离、能力 catalog 只读就绪、Coordinator host sole-writer 与 blocking CI |
 
 **禁止：** 借 P1 重开已关闭的 P0 发布证明；不得引入 MCP、shell、第二 provider、通用多 Agent、SQLite 真相源、云同步或新 runtime。  
 **Electron Golden（发布审计仍可用）：**
@@ -28,24 +29,24 @@ pnpm exec playwright test tests/e2e/teaching-turn-presentation.a11y.e2e.spec.ts 
 
 从 HEAD `1515136` 切出 12 个分支，路径 `D:\project\StudiumX-worktrees\p1-XX`。合并顺序见 §3；实现可并行，冲突面尽量按落点文件隔离。
 
-| ID | 分支 | Worktree | 状态 | Commit |
-| --- | --- | --- | --- | --- |
-| P1-2 | `opt/p1-02-typed-tool-dispatcher` | `...\p1-02` | done | `b4f3c9c` |
-| P1-3 | `opt/p1-03-agent-run-state-machine` | `...\p1-03` | done | `8a0fd64` |
-| P1-4 | `opt/p1-04-teaching-config-resolver` | `...\p1-04` | done | `a21de1b` |
-| P1-5 | `opt/p1-05-teaching-capability-catalog` | `...\p1-05` | done | `262c2b9` |
-| P1-6 | `opt/p1-06-context-projection-report` | `...\p1-06` | done | `3966e0d` |
-| P1-7 | `opt/p1-07-course-definition-store` | `...\p1-07` | done | `ef8b326` |
-| P1-8 | `opt/p1-08-resource-grounder-deepen` | `...\p1-08` | done | `768d7d6` |
-| P1-9 | `opt/p1-09-teaching-workspace-inspector` | `...\p1-09` | done | `cf6a070` |
-| P1-10 | `opt/p1-10-teaching-doctor` | `...\p1-10` | done | `8bd3c97` |
-| P1-11 | `opt/p1-11-audit-correlation-privacy` | `...\p1-11` | done | `f1a7f3d` |
-| P1-12 | `opt/p1-12-teaching-composer-a11y` | `...\p1-12` | done | `8cc956b` |
-| P1-13 | `opt/p1-13-coordinator-blocking-ci` | `...\p1-13` | done | `8d5c057` |
+| ID | 分支 | Worktree | 状态 | Feature | Merge |
+| --- | --- | --- | --- | --- | --- |
+| P1-2 | `opt/p1-02-typed-tool-dispatcher` | `...\p1-02` | integrated | `b4f3c9c` | `0d99c14` |
+| P1-3 | `opt/p1-03-agent-run-state-machine` | `...\p1-03` | integrated | `8a0fd64` | `fb02469` |
+| P1-4 | `opt/p1-04-teaching-config-resolver` | `...\p1-04` | integrated | `a21de1b` | `a6072a1` |
+| P1-5 | `opt/p1-05-teaching-capability-catalog` | `...\p1-05` | integrated | `262c2b9` | `cd33836` |
+| P1-6 | `opt/p1-06-context-projection-report` | `...\p1-06` | integrated | `3966e0d` | `2a00286` |
+| P1-7 | `opt/p1-07-course-definition-store` | `...\p1-07` | integrated | `ef8b326` | `2f83389` |
+| P1-8 | `opt/p1-08-resource-grounder-deepen` | `...\p1-08` | integrated | `768d7d6` | `7c83525` |
+| P1-9 | `opt/p1-09-teaching-workspace-inspector` | `...\p1-09` | integrated | `cf6a070` | `9ebc933` |
+| P1-10 | `opt/p1-10-teaching-doctor` | `...\p1-10` | integrated | `8bd3c97` | `85dd33a` |
+| P1-11 | `opt/p1-11-audit-correlation-privacy` | `...\p1-11` | integrated | `f1a7f3d` | `0391ba8` |
+| P1-12 | `opt/p1-12-teaching-composer-a11y` | `...\p1-12` | integrated | `8cc956b` | `f6257cc` |
+| P1-13 | `opt/p1-13-coordinator-blocking-ci` | `...\p1-13` | integrated | `8d5c057` | `8278dd9` |
 
 每个 worktree 完成后应在本分支提交，并在 worktree 根写入 `WORKTREE_RESULT.md`（不入库）。重要架构决定合入 main 时再沉淀为 ADR。
 
-> **进度（2026-07-20）：** 12/12 worktree 均已提交 feat 实现并通过各 worktree 内相关单元/门禁检查。尚未合入 main；建议合并顺序见 §3：`P1-3,2,4→5,6→8,7→9→10,11,12 → P1-13`。
+> **进度（2026-07-20）：** 12/12 worktree 已按 §3 顺序合入 `main`（feature SHAs 与 merge SHAs 见上表；integration tip 另含 typecheck 修复）。合入后 P1 单元测试 166 passed、9 个 P1 check scripts 通过、`tsc --noEmit` 通过。架构沉淀见 ADR-0021–0023。
 
 ## 2. P1 Backlog
 

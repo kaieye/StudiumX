@@ -35,6 +35,9 @@
 | Recordless outcome（`needs_practice` / `not_evidenced`）以什么为 settlement authority | ADR-0018 |
 | Session audit JSONL 的 V1 wire、exact-retry 与有限 authority 边界 | ADR-0019 |
 | C-4P6 Phase 0 platform profile 与 settlement failure matrix | ADR-0020 |
+| Agent run 与 Teaching Session 如何分离 | ADR-0021 |
+| 能力就绪如何只读投影且不进 prompt 旁路 | ADR-0022 |
+| Coordinator host sole-writer 与 blocking CI 边界 | ADR-0023 |
 
 ## 已实施决定
 
@@ -60,6 +63,9 @@
 | [ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md) | P0 recordless settlement | `needs_practice` / `not_evidenced` 仅以 `record: null` 的 settlement marker 为 authority；不写 record/outcome/completed Session，且不 promote。 |
 | [ADR-0019](0019-session-audit-v1-wire-contract-and-limited-authority.md) | C-4P9 audit V1 contract | per-conversation audit JSONL 的 V1 wire/identity/exact-retry 与有限 authority；不授权 generic JSONL、rotation、repair 或跨进程 multi-writer。 |
 | [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) | C-4P6 Phase 0 freeze + Phase 1 pointer | 首个目标 macOS APFS strict-candidate profile、I/O inventory、crash/public-result matrix 与 Windows non-strict 边界；Phase 1 containment/directory-sync 对齐已落地但仍属 unit residual，不关闭 C-4P6。 |
+| [ADR-0021](0021-agent-run-state-machine-separate-from-session.md) | P1 Agent run 状态机 | 显式 run lifecycle 与 LearningSession 分离；非法转换拒绝；恢复/取消幂等。 |
+| [ADR-0022](0022-teaching-capability-catalog-read-only-readiness.md) | P1 CapabilityCatalog | 只读 readiness 快照；disabled/unconfigured 不进 prompt；执行仍由 effect policy 复核。 |
+| [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md) | P1 Coordinator host + blocking CI | 多 workspace 薄 host、commit sole-writer 路径；最小 typecheck/security/P0 teaching CI。 |
 
 ## C-4P6 evidence 边界（完整 close-out 未关闭）
 

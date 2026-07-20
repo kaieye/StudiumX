@@ -588,7 +588,7 @@ function applyOverlay(
         models: [...provider.models]
       }))
       setSource(assignments, 'provider.providers', source)
-      for (const [index, provider] of value.provider.providers.entries()) {
+      for (const [index] of value.provider.providers.entries()) {
         setSource(assignments, `provider.providers.${index}.id`, source)
         setSource(assignments, `provider.providers.${index}.name`, source)
         setSource(assignments, `provider.providers.${index}.baseUrl`, source)
