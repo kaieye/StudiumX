@@ -19,7 +19,7 @@
 | 关键 JSON 不可读时如何从 `.bak` 验证恢复 | ADR-0003 |
 | 哪些 writer 已使用 durable publish，以及受控 `write_workspace_file` 的 P8 S1–S4 closure 到哪里 | ADR-0004、[本地数据待办](../local-data-todo.md) |
 | 已覆盖持久化链如何关联 trace，同时保持日志安全 | ADR-0005 |
-| Memory 数据如何按范围隔离，以及能否迁移旧数据 | ADR-0006 |
+| Memory 数据如何按范围隔离，以及能否迁移旧数据 | ADR-0006、ADR-0024 |
 | 新持久化 conversation/history 如何先经脱敏 | ADR-0007 |
 | 哪些本地数据能力仍未完成 | [本地数据待办](../local-data-todo.md) |
 | P0 教学 Session 如何成为 canonical 事实，而非 Agent run 或 Lesson 目录 | ADR-0008 |
@@ -35,7 +35,8 @@
 | Recordless outcome（`needs_practice` / `not_evidenced`）以什么为 settlement authority | ADR-0018 |
 | Session audit JSONL 的 V1 wire、exact-retry 与有限 authority 边界 | ADR-0019 |
 | C-4P6 Phase 0 platform profile 与 settlement failure matrix | ADR-0020、ADR-0021 |
-| mission_update 的 actionId / private receipt 与 exact retry | ADR-0022 || Direct-UI lesson generation 的 actionId / receipt / exact-retry 边界 | ADR-0023 |
+| mission_update 的 actionId / private receipt 与 exact retry | ADR-0022 |
+| Direct-UI lesson generation 的 actionId / receipt / exact-retry 边界 | ADR-0023 |
 ## 已实施决定
 
 | ADR | 主题 | 已实施范围 |
@@ -45,7 +46,7 @@
 | [ADR-0003](0003-critical-json-backups-and-verified-recovery.md) | C-3 关键 JSON 备份与恢复 | `.bak` 备份及 verified read recovery。 |
 | [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) | C-4 durable publish | 共享 durable publish 原语及已迁移的部分 consumer。C-4P6 仅有 S1 的严格有序 publish / 受控恢复生产基础；S2…S194 是 tests-only historical evidence（定向 unit 历史基线：219 passed），完整 P6 未关闭，不能推断跨文件 transaction / common atomicity、完整 manifest failure matrix 或 Windows power-loss closure。P8-S1…S4 的受控 `write_workspace_file` 文本文件 scope 已关闭，含获批的 Windows direct-path non-CAS profile；P9 仅有 S2 audit 专用 durable append，S3…S45 均为 tests-only evidence，完整 P9 仍未关闭。C-4 始终是 partial writer migration，不表示所有 writer、CAS/lost-update protection、Windows strict/fully cross-platform durable publish 或 metadata full preservation。 |
 | [ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md) | C-5 trace correlation | main 生成的 trace correlation 与安全日志边界。 |
-| [ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md) | C-6 Memory | scope 分区及 aggregate-only readonly migration preflight。 |
+| [ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md) | C-6 Memory | scope 分区及 aggregate-only readonly migration preflight；后续 dry-run 见 ADR-0024。 |
 | [ADR-0007](0007-persisted-user-history-redaction.md) | C-7 历史数据脱敏 | 新持久化 conversation/history projection 的脱敏边界。 |
 | [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md) | P0 LearningSession ledger | 独立的 canonical LearningSession、幂等 receipt、恢复与 legacy projection；领域基线，发布证明见 ADR-0017。 |
 | [ADR-0009](0009-typed-lesson-interaction-evidence.md) | P0 typed Evidence | Lesson / conversation 互动的原始可追溯 Evidence、原子 receipt 与 preview 绑定；不是 outcome 或 record。 |
@@ -61,7 +62,9 @@
 | [ADR-0019](0019-session-audit-v1-wire-contract-and-limited-authority.md) | C-4P9 audit V1 contract | per-conversation audit JSONL 的 V1 wire/identity/exact-retry 与有限 authority；不授权 generic JSONL、rotation、repair 或跨进程 multi-writer。 |
 | [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) | C-4P6 Phase 0 freeze + Phase 1 pointer | 首个目标 macOS APFS strict-candidate profile、I/O inventory、crash/public-result matrix 与 Windows non-strict 边界；后续受限 close-out 见 ADR-0021。 |
 | [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) | C-4 P6/P8/P9 scope close-out | P6 仅以 macOS internal APFS runtime-adjacent evidence 结项；P8 Windows strict 以 unsupported/no-go 结项；P9 保持既有 fixed-file audit boundary，不扩张为 strict/generic/cross-process/transaction/public surface。 |
-| [ADR-0022](0022-mission-update-action-receipt-correlation.md) | C-5H mission_update action/receipt | renderer opaque actionId、workspace-private receipt、main-keyed requestTag、typed disposition 与 final-only exact retry；不含 style/agent/CAS UI。 || [ADR-0023](0023-direct-ui-lesson-generation-action-correlation.md) | C-5I direct-UI lesson generation correlation | 仅 direct-UI `generateLesson` / `generateLessonStream`：caller UUID v4 `actionId`、private receipt、HMAC requestTag、status poll 与 fail-closed dispositions；agent path 隔离；不覆盖 mission、C-5H、全局 projection recovery 或 content dedupe。 |
+| [ADR-0022](0022-mission-update-action-receipt-correlation.md) | C-5H mission_update action/receipt | renderer opaque actionId、workspace-private receipt、main-keyed requestTag、typed disposition 与 final-only exact retry；不含 style/agent/CAS UI。 |
+| [ADR-0023](0023-direct-ui-lesson-generation-action-correlation.md) | C-5I direct-UI lesson generation correlation | 仅 direct-UI `generateLesson` / `generateLessonStream`：caller UUID v4 `actionId`、private receipt、HMAC requestTag、status poll 与 fail-closed dispositions；agent path 隔离；不覆盖 mission、C-5H、全局 projection recovery 或 content dedupe。 |
+| [ADR-0024](0024-memory-readonly-migration-dry-run-and-destructive-deferral.md) | C-6 readonly dry-run + destructive deferral | 采纳 main-only readonly dry-run intent/receipt preview；readonly preflight/dry-run 不构成 destructive authorization；真实 copy/hold/publish/delete 延期且当前不可分派为实现。 |
 ## C-4P6 历史 evidence 边界
 
 > 本节保存 ADR-0004 的历史 evidence 范围；当前 close-out status 以 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) 为准。

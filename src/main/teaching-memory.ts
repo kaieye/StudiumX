@@ -1,6 +1,8 @@
 import type {
   CreateTeachingMemoryPayload,
   TeachingMemoryDiagnostics,
+  TeachingMemoryLegacyMigrationDryRunIntentPreview,
+  TeachingMemoryLegacyMigrationDryRunReceiptPreview,
   TeachingMemoryRecord,
   TeachingSettingsV1,
   UpdateTeachingMemoryPayload
@@ -12,6 +14,7 @@ import {
   type TeachingMemoryAccess,
   type TeachingMemoryCatalogIndexScan
 } from './teaching-memory-catalog'
+import { TeachingMemoryLegacyMigrationDryRun } from './teaching-memory-catalog/migration-dry-run'
 import { TeachingMemoryRecall, type TeachingMemoryRecallInput } from './teaching-memory-recall'
 import { normalizeTraceId } from '../shared/trace-context'
 
@@ -37,6 +40,7 @@ function normalizedMutationTrace(options?: TeachingMemoryMutationOptions): Pick<
 export class TeachingMemoryStore {
   private readonly catalog: TeachingMemoryCatalog
   private readonly recall: TeachingMemoryRecall
+  private readonly migrationDryRun: TeachingMemoryLegacyMigrationDryRun
 
   constructor(
     private readonly options: {
@@ -51,6 +55,7 @@ export class TeachingMemoryStore {
       catalog: this.catalog,
       settingsProvider: options.settingsProvider
     })
+    this.migrationDryRun = new TeachingMemoryLegacyMigrationDryRun(this.catalog)
   }
 
   async create(input: CreateTeachingMemoryPayload, options?: TeachingMemoryMutationOptions): Promise<TeachingMemoryRecord> {
@@ -117,6 +122,22 @@ export class TeachingMemoryStore {
 
   async diagnostics(): Promise<TeachingMemoryDiagnostics> {
     return this.recall.diagnostics()
+  }
+
+  /**
+   * Main-only readonly dry-run intent preview. Never mutates Memory and never
+   * authorizes destructive migration. No renderer path/target/checksum input.
+   */
+  async previewLegacyMigrationDryRun(request?: unknown): Promise<TeachingMemoryLegacyMigrationDryRunIntentPreview> {
+    return this.migrationDryRun.previewIntent(request)
+  }
+
+  /**
+   * Main-only readonly dry-run receipt preview. Fresh discovery only; never
+   * copy/hold/publish/delete. Intent IDs are not destructive consent.
+   */
+  async completeLegacyMigrationDryRun(intentId: string): Promise<TeachingMemoryLegacyMigrationDryRunReceiptPreview> {
+    return this.migrationDryRun.completeReceipt(intentId)
   }
 
   setLastInjected(ids: string[]): void {

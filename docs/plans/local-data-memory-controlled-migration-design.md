@@ -1,6 +1,6 @@
 # C-6：受控 legacy Memory 搬迁设计门、恢复协议与验收计划
 
-> **状态：未关闭；真实迁移未获批准、未实现。** 当前已实施的是 scope 分区、flat/scoped 兼容读取，以及 renderer-safe、aggregate-only 的只读 preflight。权威的已实施范围与历史证据见 [ADR-0006](../adr/0006-scoped-memory-partition-and-readonly-migration-preflight.md)；后续工作的唯一入口见 [本地数据待办](../local-data-todo.md)。本文定义未来真实迁移必须先通过的产品、技术、恢复和运维设计门，**不是启动、后台、自动或 UI 迁移的授权**。
+> **状态：阶段 2（main-only readonly dry-run）已实施；destructive migration 延期、未批准、未实现。** 已实施：scope 分区、flat/scoped 兼容读取、aggregate-only readonly preflight（[ADR-0006](../adr/0006-scoped-memory-partition-and-readonly-migration-preflight.md)），以及 main-only readonly dry-run intent/receipt preview（[ADR-0024](../adr/0024-memory-readonly-migration-dry-run-and-destructive-deferral.md)）。Stages 0–1、3–6 保留为未批准设计门，**不是**可分派实现任务；`docs/local-data-todo.md` 已不再将 C-6 列为开放实现工作流。本文**不是**启动、后台、自动或 UI 迁移的授权；readonly preflight/dry-run 不构成 destructive consent。
 
 ## 1. 问题、目标与非目标
 
@@ -36,7 +36,7 @@
 | scoped record 改变 partition 被拒绝 | 迁移只可保持既有 scope | scope relocation 授权 |
 | descriptor-relative、no-follow root/parent I/O | 未来 copy/publish/delete 必须沿用或加强 | pathname fallback 授权 |
 | Windows Memory descriptor capability fail closed | 必须定义 per-platform profile | 不支持平台上的真实迁移 |
-| `diagnosticsSnapshot()` aggregate-only readonly preflight | 可显示 eligible/blocked 计数与 `migrationReady` 布尔 | consent、authorization、intent、reservation、delete permission 或可复用 snapshot |
+| `diagnosticsSnapshot()` aggregate-only readonly preflight + main-only dry-run intent/receipt | 可显示 eligible/blocked 计数与 `migrationReady` 布尔；dry-run 提供短期 aggregate intent/receipt preview（ADR-0024） | consent、authorization、reservation、delete permission 或可复用为 destructive authority 的 snapshot/intent |
 
 相关代码：`src/main/teaching-memory-catalog.ts`、`src/main/teaching-memory-catalog/record-file.ts`。基线验证入口见第 11 节；它们**不**验证未来 destructive migration。
 
@@ -192,7 +192,7 @@ legacy delete 是不可逆的 destructive step，不能被当作普通 rollback�
 | --- | --- | --- | --- |
 | 0. 治理与 contract | 批准 destructive need、trusted identity/scope、confirmation、public result vocabulary、hold/receipt/provenance、retention/legal hold、人工恢复 owner/SLA。 | 任何代码、UI、copy、hold 或 delete。 | 书面 contract 覆盖本文第 4、6、8 节，尤其 receipt/provenance 的分离与 partial-delete 责任。 |
 | 1. capability 与 fault model | 审计并测试目标平台的 descriptor-relative read/copy/temp/non-overwrite publish/unlink/file+directory sync/close；形成 crash/failure matrix。 | 用现有 replace primitive 或 unit mock 推导全协议已安全；pathname fallback。 | 对每项 native primitive 有 supported/degraded/fatal 语义；不支持即 fail closed；host-native/文件系统证据覆盖关键错误点。 |
-| 2. main-only readonly intent preview（可选最小 safe slice） | 在 fresh readonly discovery + trusted-scope validation 后生成短期 aggregate-only intent preview。 | copy、hold、publish、delete、新 renderer path input、迁移按钮/候选明细。 | missing root 不创建；canonical bytes/mtime/layout 不变；UI/log/audit 无 locator/content；intent 不可复用为 destructive consent。 |
+| 2. main-only readonly intent preview（**已实施**，[ADR-0024](../adr/0024-memory-readonly-migration-dry-run-and-destructive-deferral.md)） | 在 fresh readonly discovery + trusted-scope validation 后生成短期 aggregate-only intent preview。 | copy、hold、publish、delete、新 renderer path input、迁移按钮/候选明细。 | missing root 不创建；canonical bytes/mtime/layout 不变；UI/log/audit 无 locator/content；intent 不可复用为 destructive consent。已由 dry-run 单元测试覆盖。 |
 | 3. private hold 与 recovery foundation | 实现已批准的 private temp/hold、最小 provenance、lease、phase/receipt 和 recovery disposition，先不 delete。 | 自动 resume/cleanup/restore；把 hold 放入 catalog；destination/legacy 删除。 | 每个 crash point 可返回证明不足时的 `recovery_required`；hold 访问/retention 合规；recovery 不枚举 records。 |
 | 4. controlled publish + confirmation | 加入 main-only confirmation binding、fresh revalidation、scoped no-overwrite publish 与最终 receipt；保持 legacy source。 | legacy delete、批量/后台执行、overwrite/merge。 | source bytes 和 destination bytes 在受限边界验证一致；target existed/source drift/duplicate 均不写入或停止；legacy tolerant read 不变。 |
 | 5. destructive delete pilot | 在获批 cohort/平台上执行 descriptor-bound delete、directory sync、ops review 和人工恢复演练。 | 自动 rollout、自动 retry/delete/resume、把 hold 当永久无成本备份。 | 每阶段 crash/disk-full/permission/external edit/partial delete 均按本文第 6 节停住；审计、runbook、legal-hold 和恢复演练通过。 |
@@ -218,14 +218,17 @@ C-6 只有在以下全部由当前证据证明时才可关闭：
 5. 兼容读取、scope 隔离、非泄露 diagnostics/audit 及 normal CRUD 回归均通过；
 6. 隐私、retention、legal hold、capacity、audit 和 partial-delete recovery 已由相应 owner 验收。
 
-在上述证据齐备前，C-6 保持未关闭；唯一已实施且可用的行为仍是 scope partition、legacy tolerant read 和 aggregate-only readonly preflight。
+在上述证据齐备前，**destructive C-6 保持未关闭且不可分派为实现**（[ADR-0024](../adr/0024-memory-readonly-migration-dry-run-and-destructive-deferral.md)）。当前已实施且可用的行为是：scope partition、legacy tolerant read、aggregate-only readonly preflight，以及 main-only readonly dry-run intent/receipt preview。阶段 2 验收已满足；不得据此推断 copy/hold/publish/delete 已授权。
 
 ## 11. 当前基线验证与实施后验证入口
 
-本文件不声称这些命令验证了未来迁移；它们只复核当前 C-6A preflight/兼容读取基线。实施真实迁移时，必须为第 10 节新增定向测试和运行环境证据。
+本文件不声称这些命令验证了未来 destructive 迁移；它们复核分区/preflight 基线与阶段 2 dry-run。实施真实迁移时，必须为第 10 节新增定向测试和 host-native/operations 证据。
 
 ```sh
+pnpm run build:contained-durable-replace
+
 pnpm exec vitest run --project unit \
+  tests/unit/teaching-memory-migration-dry-run.unit.test.ts \
   tests/unit/teaching-memory-catalog.unit.test.ts \
   tests/unit/teaching-memory-recall.unit.test.ts \
   tests/unit/teaching-ipc-gateway.unit.test.ts
@@ -236,4 +239,4 @@ pnpm exec vitest run --project integration \
 pnpm run typecheck
 ```
 
-审阅时应同时核对：[ADR-0006](../adr/0006-scoped-memory-partition-and-readonly-migration-preflight.md) 的已实施/未包含边界、[ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 的“共享 durable primitive 不等于跨文件事务”限制、[ADR-0005](../adr/0005-main-owned-trace-correlation-and-safe-logs.md) 的 trace 安全边界，以及 [本地数据待办](../local-data-todo.md) 中 C-6 的未关闭前提。
+审阅时应同时核对：[ADR-0006](../adr/0006-scoped-memory-partition-and-readonly-migration-preflight.md) 与 [ADR-0024](../adr/0024-memory-readonly-migration-dry-run-and-destructive-deferral.md) 的已实施/未包含边界、[ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 的“共享 durable primitive 不等于跨文件事务”限制、[ADR-0005](../adr/0005-main-owned-trace-correlation-and-safe-logs.md) 的 trace 安全边界。destructive migration 不在 [本地数据待办](../local-data-todo.md) 的可分派开放列表中；重新立项须满足 ADR-0024 第 3 节前提。

@@ -3,6 +3,7 @@
 - **状态：** 已实施（分区与只读预检；非真实迁移）
 - **范围：** C-6、C-6A
 - **证据提交：** `26eca18`、`5803176`
+- **后续切片：** main-only readonly dry-run intent/receipt 与 destructive 延期见 [ADR-0024](0024-memory-readonly-migration-dry-run-and-destructive-deferral.md)。
 
 ## 决定
 
@@ -16,4 +17,4 @@
 
 ## 明确不包含
 
-没有 copy、checksum verify、explicit confirmation、delete legacy、迁移 UI / 新 IPC command、启动迁移、后台迁移或自动 resume。真实 controlled migration 必须先通过设计门；见[本地数据待办](../local-data-todo.md)。
+没有 copy、checksum verify、explicit confirmation、delete legacy、迁移 UI / 新 IPC command、启动迁移、后台迁移或自动 resume。Readonly preflight 不构成 destructive authorization。main-only readonly dry-run intent/receipt preview 与 destructive migration 延期见 [ADR-0024](0024-memory-readonly-migration-dry-run-and-destructive-deferral.md)；不得将 preflight 或 dry-run 复用为 consent。
