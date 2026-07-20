@@ -8,7 +8,7 @@
 - 想知道某项做法的原因、边界和测试入口：打开对应 ADR。
 - 想知道接下来还准备做什么：阅读[本地数据待办](../local-data-todo.md)。它记录未完成范围及待批准的后续工作；其中不应被视为已实现功能，除非相应条目明确标明已实施的受限切片。
 - 下一步工作必须遵循：待办页 → 对应 design gate 获得 scope / owner / API 批准 → 单独立项实施；design gate 本身不授权直接修改 writer。
-- 想研究已关闭工作的历史决定：以本目录 ADR 与相关 runbook 为准；开放/延期工作见[本地数据待办](../local-data-todo.md)。
+- 想研究已关闭工作的历史决定：以本目录 ADR 为准（C-4P6 运维步骤见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)）；开放/延期工作见[本地数据待办](../local-data-todo.md)。
 
 ## 按问题查阅
 
@@ -105,7 +105,7 @@
 - **受限 close-out（ADR-0035）：**`P6-macOS-local-APFS-strict-candidate` 以 macOS internal APFS runtime-adjacent host-native / fresh-process crash-restart 与 operations runbook 作为该工作线结项证据被接受。Phase 0 profile/matrix 冻结于 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md)。
 - **明确非声明（out-of-scope，非开放 todo）：**跨文件 transaction / common atomicity、rollback、delete；完整 manifest `open`/`write`/`fsync`/`close` failure matrix；Windows strict / power-loss durability；网络/可移动存储或 reboot durability；新 public IPC result。扩大到新 OS/filesystem/durability claim/writer/public result 须**新建 ADR**，不得把 residual 当作当前可分派实现切片。
 
-权威范围见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)。运维参考见 [C-4P6 runbook](../operations/c4p6-learning-outcome-durable-settlement-runbook.md)；当前可分派状态见[本地数据待办](../local-data-todo.md)（无开放 P6 实现切片）。
+权威范围与运维步骤见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)（含 C-4P6 运维 runbook）；当前可分派状态见[本地数据待办](../local-data-todo.md)（无开放 P6 实现切片）。
 
 ## C-4P8 S1–S4 已关闭 scope：证据与实际验证入口
 

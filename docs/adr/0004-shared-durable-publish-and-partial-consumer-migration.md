@@ -67,7 +67,7 @@ pnpm exec vitest run --project integration \
   2. 超出已结项 macOS/APFS profile 的 host-native 证据、Windows power-loss / strict，或其它 OS/filesystem/durability claim；
   3. 新的 migration、public API 扩张或 operations validation，若其声明超过 ADR-0035 已接受的受限 profile。
 
-因此，不得从 S1、S2…S194、Phase 0 决策、Phase 1 unit residual 或受限 profile 结项推断跨文件原子性、通用 host-native settlement，或 Windows power-loss / strict closure。扩大到新的 OS、filesystem、durability claim、writer 或 public result，必须**新建 ADR** 并重新提供匹配声明的 host-native/operations evidence。已结项 profile 的权威在 ADR；运维参考见 [C-4P6 runbook](../operations/c4p6-learning-outcome-durable-settlement-runbook.md)。Phase 0 背景见 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md)；结项权威见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)。
+因此，不得从 S1、S2…S194、Phase 0 决策、Phase 1 unit residual 或受限 profile 结项推断跨文件原子性、通用 host-native settlement，或 Windows power-loss / strict closure。扩大到新的 OS、filesystem、durability claim、writer 或 public result，必须**新建 ADR** 并重新提供匹配声明的 host-native/operations evidence。已结项 profile 的权威与运维步骤见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)（含 C-4P6 运维 runbook）。Phase 0 背景见 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md)；结项权威见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)。
 
 ## C-4P8：已关闭的受控 workspace-tool scope
 
