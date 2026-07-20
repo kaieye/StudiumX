@@ -71,6 +71,7 @@
 - **仍缺：**
   1. **Phase 3 host-native**（目标 macOS APFS profile）；Windows strict/power-loss 仍非本项关闭条件（见 C-4P8）；
   2. **Phase 4 operations runbook** 与 close-out 审核。
+- **当前 Phase 3/4 证据入口：**`node scripts/verify-c4p6-host-native.mjs` 在 macOS internal APFS 上以 Electron embedded Node 运行 fresh-process crash/restart matrix；[operations runbook](operations/c4p6-learning-outcome-durable-settlement-runbook.md) 定义安装、restart、capacity、permission/lock、residual 与人工 review。该入口不构成 reboot/power-loss 证据，owner sign-off 与 close-out 审核仍未完成。
 - **可分派的下一项：**Phase 3 host-native / runtime-adjacent crash-restart（对照 ADR-0020）；禁止 schema/IPC enum/transaction/delete。
 - **验收：**Phase 3–4 对照 ADR-0020 matrix 与计划验收全部通过后，才可关闭 C-4P6 并删除计划文件。
 

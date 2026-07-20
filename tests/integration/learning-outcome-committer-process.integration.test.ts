@@ -9,6 +9,11 @@ import { createLearningSessionLedger } from '../../src/main/learning-session-led
 const roots: string[] = []
 const activeWorkers = new Set<ChildProcessWithoutNullStreams>()
 const WORKER_TIMEOUT_MS = 20_000
+// The host-native P6 verifier runs these same crash/restart fixtures under the
+// packaged Electron runtime in `ELECTRON_RUN_AS_NODE` mode. Ordinary test runs
+// deliberately retain Node as the default so this test has no new runtime
+// dependency or production behavior.
+const WORKER_EXECUTABLE = process.env.STUDIUMX_P6_WORKER_EXECUTABLE ?? process.execPath
 let workerRoot = ''
 let workerPath = ''
 
@@ -203,7 +208,7 @@ describe('LearningOutcomeCommitter cross-process settlement', () => {
 
 function startWorker(request: WorkerRequest): ChildProcessWithoutNullStreams {
   const encoded = Buffer.from(JSON.stringify(request), 'utf8').toString('base64url')
-  const child = spawn(process.execPath, [workerPath, encoded], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(WORKER_EXECUTABLE, [workerPath, encoded], { stdio: ['ignore', 'pipe', 'pipe'] })
   activeWorkers.add(child)
   child.once('exit', () => activeWorkers.delete(child))
   return child
