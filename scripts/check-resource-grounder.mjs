@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+
+const root = resolve(import.meta.dirname, '..')
+const grounder = await readFile(resolve(root, 'src/main/resource-grounder.ts'), 'utf8')
+const external = await readFile(resolve(root, 'src/main/resource-grounder-external-adapters.ts'), 'utf8')
+const shared = await readFile(resolve(root, 'src/shared/teaching-types/grounding.ts'), 'utf8')
+const unit = await readFile(resolve(root, 'tests/unit/resource-grounder-deepen.unit.test.ts'), 'utf8')
+const legacyUnit = await readFile(resolve(root, 'tests/unit/teaching-context-assembler.unit.test.ts'), 'utf8')
+const legacyCheck = await readFile(resolve(root, 'scripts/check-teaching-resource-grounding.mjs'), 'utf8')
+
+assert.match(grounder, /export interface GroundingSourceAdapter/, 'Unified GroundingSourceAdapter interface is required.')
+assert.match(grounder, /export async function groundWithAdapters/, 'Multi-adapter merge seam is required.')
+assert.match(grounder, /export function mergeGroundingPacks/, 'Deterministic pack merge is required.')
+assert.match(grounder, /export function createWorkspaceResourceAdapter/, 'Workspace adapter factory is required.')
+assert.match(grounder, /digest: input\.contentSha256/, 'Grounded sources must expose an explicit digest.')
+assert.match(grounder, /trust: 'trusted_workspace'/, 'Workspace adapter must mark trusted_workspace.')
+assert.match(grounder, /useFor: WORKSPACE_USE_FOR/, 'Workspace adapter must set explicit useFor.')
+assert.match(grounder, /freshness: \{ kind: 'revision_matched'/, 'Workspace adapter must record freshness.')
+assert.match(grounder, /duplicate_source_id|duplicate_chunk/, 'Dedupe exclusions must remain typed.')
+assert.match(grounder, /requireSafeTeachingRelativePath/, 'Workspace adapter must validate relative paths.')
+assert.match(grounder, /readContainedRegularFileBounded/, 'Workspace adapter must use bounded contained reads.')
+assert.match(grounder, /identity: sha256\(stableJson\(packWithoutIdentity\)\)/, 'Grounding identity must stay deterministic.')
+
+assert.match(external, /export function createExternalUrlGroundingAdapter/, 'External URL adapter factory is required.')
+assert.match(external, /export function createExternalSearchGroundingAdapter/, 'External search adapter factory is required.')
+assert.match(external, /assertSafeFetchUrl|assertSafeUrl/, 'External adapters must enforce safe URL checks.')
+assert.match(external, /trust: 'external_untrusted'/, 'External adapters must mark external_untrusted.')
+assert.match(external, /'unsafe_url'/, 'Unsafe URLs must become typed exclusions.')
+assert.match(external, /'dead_reference'/, 'Dead references must become typed exclusions.')
+assert.match(external, /Does not fetch|does not write|never write/i, 'External adapters must document no fetch/write side effects.')
+
+assert.match(shared, /export type GroundingTrust = 'trusted_workspace' \| 'external_untrusted'/, 'Trust enum must be explicit.')
+assert.match(shared, /export type GroundingUseFor[\s\S]*lesson_context[\s\S]*source_preview[\s\S]*external_supplement/, 'useFor must be teaching-scenario scoped.')
+assert.match(shared, /export type GroundingFreshness[\s\S]*revision_matched[\s\S]*content_digest_matched[\s\S]*retrieved_at/, 'Freshness must be typed.')
+assert.match(shared, /kind: 'http_url'/, 'HTTP locations must be representable without workspace writes.')
+assert.match(shared, /'unsafe_url'[\s\S]*'dead_reference'[\s\S]*'resource_gap'/, 'New exclusion codes must be typed.')
+assert.match(shared, /export function isResourceGap/, 'Resource gap helper must be exported.')
+assert.match(shared, /digest: string/, 'GroundedTeachingResource must include digest.')
+
+assert.doesNotMatch(grounder, /writeFile|appendFile|mkdir|rename|unlink|rm\(|fetch\(|http:|https:|\bDate\b|Math\.random|from\s+['"][^'"]*(?:provider|model)[^'"]*['"]/i, 'Core grounder must not write, fetch remotely, or depend on time/random/providers.')
+assert.doesNotMatch(external, /writeFile|appendFile|mkdir|rename|unlink|rm\(|from\s+['"][^'"]*(?:provider|model)[^'"]*['"]/i, 'External adapters must not write workspace files or import providers/models.')
+assert.doesNotMatch(external, /searchRuntime\.fetch|searchRuntime\.search|createDefaultSearchRuntime/, 'External adapters must stay thin wrappers over pre-fetched content, not live search/fetch runtimes.')
+assert.doesNotMatch(`${grounder}\n${external}\n${shared}`, /\b(?:learnerAnswer|transcript|rawEvidenceText|assessmentPayload|providerResponse|selectedOptionIds)\s*:/, 'Grounding contracts must not carry raw learner, transcript, evidence, assessment, or provider payloads.')
+assert.doesNotMatch(`${grounder}\n${external}\n${shared}`, /vector|embedding|pinecone|chroma|faiss|rag\b/i, 'Grounder deepen must not introduce a vector/RAG platform.')
+
+assert.match(unit, /digest, trust, useFor, and freshness/, 'Unit coverage must retain metadata deepen behavior.')
+assert.match(unit, /dedupes across adapters/, 'Unit coverage must retain cross-adapter dedupe.')
+assert.match(unit, /without writing the workspace/, 'Unit coverage must prove no workspace write for external content.')
+assert.match(unit, /unsafe URLs and dead references/, 'Unit coverage must retain unsafe URL and dead-reference gaps.')
+assert.match(unit, /adapter failures into explicit resource_gap/, 'Unit coverage must retain failure-to-gap behavior.')
+assert.match(legacyUnit, /deterministic priority and records budget truncation conservatively/, 'Legacy unit coverage for priority/truncation must remain.')
+assert.match(legacyUnit, /typed-excludes/, 'Legacy typed exclusion coverage must remain.')
+assert.match(legacyCheck, /teaching resource grounding gate ok/, 'Legacy grounding gate must remain available.')
+
+console.log('resource grounder deepen gate ok')
