@@ -2177,8 +2177,8 @@ async function isConservativelyStaleWriter(observed: InspectedWriterLock, staleM
     return Date.now() - observed.modifiedAtMs >= Math.max(staleMs, WRITER_OWNER_INITIALIZATION_GRACE_MS)
   }
   if (observed.owner.hostname !== hostname().toLocaleLowerCase('en-US')) return false
-  const acquiredAt = new Date(observed.owner.acquiredAt).getTime()
-  if (Date.now() - acquiredAt < staleMs) return false
+  // A lock owned by a local process that no longer exists is unambiguously stale.
+  // Reclaim it immediately so crash recovery is not blocked by the age threshold.
   return !isProcessAlive(observed.owner.pid)
 }
 
@@ -2657,3 +2657,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isErrnoException(error: unknown, code: string): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error && error.code === code
 }
+
