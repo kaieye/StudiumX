@@ -42,26 +42,38 @@ export function AgentConversationReader({
   presentation,
   teachingPresentation,
   onTeachingAction,
+  openTeachingSourcesKey = null,
   compact = false
 }: {
   presentation: AgentConversationReaderPresentation | undefined
   teachingPresentation?: TeachingTurnPresentation | undefined
   onTeachingAction?: (action: TeachingTurnAction) => void
+  /** When this key changes, expand the trusted-sources disclosure (show_source command). */
+  openTeachingSourcesKey?: string | number | null
   compact?: boolean
 }) {
   if (teachingPresentation) {
-    return <TeachingTurnReader presentation={teachingPresentation} onAction={onTeachingAction} compact={compact} />
+    return (
+      <TeachingTurnReader
+        presentation={teachingPresentation}
+        onAction={onTeachingAction}
+        openSourcesKey={openTeachingSourcesKey}
+        compact={compact}
+      />
+    )
   }
   if (!presentation || (presentation.items.length === 0 && presentation.answeredAsks.length === 0)) return null
   return <AgentProcessReader presentation={presentation} compact={compact} />
 }
 
-function TeachingTurnReader({ presentation, onAction, compact }: {
+function TeachingTurnReader({ presentation, onAction, openSourcesKey, compact }: {
   presentation: TeachingTurnPresentation
   onAction?: (action: TeachingTurnAction) => void
+  openSourcesKey?: string | number | null
   compact: boolean
 }) {
   const actionRef = useRef<HTMLButtonElement>(null)
+  const sourcesRef = useRef<HTMLDetailsElement>(null)
   const announcedIds = useRef(new Set<string>())
   const [liveAnnouncement, setLiveAnnouncement] = useState<string | null>(null)
   useEffect(() => { actionRef.current?.focus() }, [presentation.focusKey])
@@ -71,9 +83,21 @@ function TeachingTurnReader({ presentation, onAction, compact }: {
     announcedIds.current.add(announcement.id)
     setLiveAnnouncement(announcement.message)
   }, [presentation.announcement])
+  useEffect(() => {
+    if (openSourcesKey == null) return
+    const node = sourcesRef.current
+    if (!node) return
+    node.open = true
+  }, [openSourcesKey])
   const activePhase = presentation.phases.find((phase) => phase.id === presentation.activePhaseId)
+  const needsYou = activePhase?.state === 'needs_you'
+  const yourTurnId = `teaching-your-turn-${presentation.focusKey}`
   return (
-    <section className={`teaching-turn-panel${compact ? ' is-compact' : ''}`} aria-label={presentation.accessibleNames.region}>
+    <section
+      className={`teaching-turn-panel${compact ? ' is-compact' : ''}${needsYou ? ' is-your-turn' : ''}`}
+      aria-label={presentation.accessibleNames.region}
+      data-focus-key={presentation.focusKey}
+    >
       <ol className="teaching-turn-panel__phases" aria-label={presentation.accessibleNames.phaseList}>
         {presentation.phases.map((phase) => (
           <li key={phase.id} aria-current={phase.id === presentation.activePhaseId ? 'step' : undefined}>
@@ -82,19 +106,33 @@ function TeachingTurnReader({ presentation, onAction, compact }: {
         ))}
       </ol>
       {activePhase ? (
-        <p className="teaching-turn-panel__status" role="note" aria-label={presentation.accessibleNames.currentPhase}>
+        <p
+          id={yourTurnId}
+          className="teaching-turn-panel__status teaching-turn-panel__your-turn"
+          role={needsYou ? 'status' : 'note'}
+          aria-live={needsYou ? 'polite' : 'off'}
+          aria-atomic="true"
+          aria-label={presentation.accessibleNames.currentPhase}
+          data-phase-state={activePhase.state}
+        >
           {presentation.accessibleNames.currentPhase}
         </p>
       ) : null}
       {presentation.action ? (
-        <button ref={actionRef} type="button" className="teaching-turn-panel__action"
-          onClick={() => onAction?.(presentation.action!)} aria-label={presentation.action.label}>
+        <button
+          ref={actionRef}
+          type="button"
+          className="teaching-turn-panel__action"
+          onClick={() => onAction?.(presentation.action!)}
+          aria-label={presentation.action.label}
+          aria-describedby={activePhase ? yourTurnId : undefined}
+        >
           {presentation.action.label}
         </button>
       ) : null}
       {presentation.sourceIds.length > 0 ? (
-        <details className="teaching-turn-panel__sources">
-          <summary>来源摘要</summary>
+        <details ref={sourcesRef} className="teaching-turn-panel__sources">
+          <summary aria-label={presentation.accessibleNames.sourceList}>来源摘要</summary>
           <ul aria-label={presentation.accessibleNames.sourceList}>
             {presentation.sourceIds.map((sourceId) => <li key={sourceId}>来源 {sourceId}</li>)}
           </ul>

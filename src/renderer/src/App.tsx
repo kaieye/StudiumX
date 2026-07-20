@@ -76,6 +76,8 @@ import { AppPet } from './views/pet/AppPet'
 import { PetSprite } from './views/pet/PetSprite'
 import { useSkillCatalog } from './skills/skillCatalog'
 import { useSkillSlashInput } from './skills/SkillSlashMenu'
+import { useTeachingComposerCommands } from './teaching/TeachingComposerCommandMenu'
+import { isForbiddenTechnicalComposerToken, parseTeachingCommandInput, resolveTeachingCommandSubmission } from '../../shared/teaching-command'
 import { SettingsView } from './views/settings/SettingsView'
 import {
   activeModelProvider,
@@ -2145,6 +2147,20 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const skillSlash = useSkillSlashInput({ value: inputValue, onChange: setAgentInput, inputRef })
+  const [teachingComposerNotice, setTeachingComposerNotice] = useState<string | null>(null)
+  const [openTeachingSourcesKey, setOpenTeachingSourcesKey] = useState(0)
+  const [pendingTeachingActionKind, setPendingTeachingActionKind] = useState<'continue' | 'retry' | null>(null)
+  const teachingComposer = useTeachingComposerCommands({
+    enabled: isTeachingMode,
+    value: inputValue,
+    onChange: setAgentInput,
+    inputRef,
+    context: {
+      presentationActionKind: pendingTeachingActionKind,
+      hasSources: false,
+      diagnosticMode: false
+    }
+  })
   const [inputHistoryIndex, setInputHistoryIndex] = useState<number | null>(null)
   const [inputHistoryDraft, setInputHistoryDraft] = useState('')
   const activeConversationId = useAppStore((s) => s.activeConversationId)
@@ -2246,6 +2262,56 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     void agentChat(prompt, { mode: 'temporary', skillIds: skillSlash.skillIdsFor(prompt) })
   }
   const submitCurrentMode = (): void => {
+    if (isTeachingMode) {
+      const trimmed = inputValue.trim()
+      const looksLikeBareSlash = trimmed.startsWith('/') && !/\s/.test(trimmed)
+      if (looksLikeBareSlash) {
+        const teachingKind = parseTeachingCommandInput(trimmed)
+        if (teachingKind) {
+          const resolved = resolveTeachingCommandSubmission(trimmed, {
+            isTeachingMode: true,
+            presentationActionKind: pendingTeachingActionKind,
+            hasSources: false,
+            diagnosticMode: false
+          })
+          if (resolved.ok) {
+            setTeachingComposerNotice(null)
+            setAgentInput('')
+            setInputHistoryIndex(null)
+            setInputHistoryDraft('')
+            if (resolved.kind === 'continue' || resolved.kind === 'retry') {
+              // Only accepted when presentation already exposes this action — never invents a planner step.
+              setTeachingComposerNotice(resolved.kind === 'continue'
+                ? '已请求继续下一步（遵循当前学习流程）'
+                : '已请求重试（遵循当前学习流程）')
+            } else if (resolved.kind === 'show_source') {
+              setOpenTeachingSourcesKey((key) => key + 1)
+              setTeachingComposerNotice('已展开可信来源摘要')
+            } else if (resolved.kind === 'end_session') {
+              clearAgentChat()
+              setPendingTeachingActionKind(null)
+              setTeachingComposerNotice('已结束本轮教学会话输入')
+            }
+            return
+          }
+          const reason = resolved.reason
+          setTeachingComposerNotice(
+            reason === 'requires_presentation_action' || reason === 'presentation_mismatch'
+              ? '当前学习流程尚未允许该动作（不会绕过规划器）'
+              : reason === 'no_sources'
+                ? '当前没有可展开的可信来源'
+                : '该命令当前不可用'
+          )
+          return
+        }
+        // Technical/agent control stays out of the teaching composer path.
+        if (isForbiddenTechnicalComposerToken(trimmed)) {
+          setTeachingComposerNotice('技术命令不可用。教学命令：/continue /retry /source /end')
+          return
+        }
+        // Other bare slash tokens (e.g. skill commands) fall through to teaching submit.
+      }
+    }
     if (!canSend) return
     if (isTeachingMode) submitTeachingPrompt(inputValue)
     else submitChatPrompt(inputValue)
@@ -2463,6 +2529,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         <DialogModeSwitch />
         <form
           className="overview-dialog-stack"
+          data-teaching-sources-key={openTeachingSourcesKey}
           aria-label={t('overview.formAria')}
           onSubmit={(event) => {
             event.preventDefault()
@@ -2470,6 +2537,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           }}
         >
         <div className="overview-dialog-card">
+          {teachingComposer.menu}
           {skillSlash.menu}
           <textarea
             ref={inputRef}
@@ -2493,6 +2561,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
               setInputHistoryDraft('')
             }}
             onKeyDown={(event) => {
+              if (!isInputComposing(event) && teachingComposer.handleKeyDown(event)) return
               if (!isInputComposing(event) && skillSlash.handleKeyDown(event)) return
               if (navigateSentInputHistory(event)) return
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -2528,6 +2597,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           <div className="overview-dialog-status-group">
             {isTeachingMode && generating ? <span className="overview-dialog-status-text">{t('lessons.composerTitle')}</span> : null}
             {!isTeachingMode && agentStatus ? <span className="overview-dialog-status-text">{agentStatus}</span> : null}
+            {isTeachingMode && teachingComposerNotice ? (
+              <span className="overview-dialog-status-text" role="status" aria-live="polite">{teachingComposerNotice}</span>
+            ) : null}
           </div>
         </div>
         </form>

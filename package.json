@@ -34,6 +34,7 @@
     "check:course-conversations": "node scripts/check-course-conversations.mjs",
     "check:teaching-placement": "node scripts/check-teaching-placement.mjs",
     "check:message-history-keyboard": "node scripts/check-message-history-keyboard.mjs",
+    "check:teaching-composer-a11y": "node scripts/check-teaching-composer-a11y.mjs",
     "check:agent-event-bus": "node scripts/check-agent-event-bus.mjs",
     "check:agent-run-recovery": "node scripts/check-agent-run-recovery.mjs",
     "check:agent-parent-turn-staging": "node scripts/check-agent-parent-turn-staging.mjs",
