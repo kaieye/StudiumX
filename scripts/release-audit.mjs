@@ -11,7 +11,8 @@ const run = (argv, cwd) => { const started = Date.now(); const r = spawnSync(arg
 const git = (a,cwd=root) => run(['git',...a],cwd);
 const before = git(['status','--porcelain=v1']); if (before.stdout.trim()) { console.error('release audit requires clean source worktree'); process.exit(2); }
 const sha = git(['rev-parse','HEAD']).stdout.trim();
-const worktree = mkdtempSync(resolve(tmpdir(),'studiumx-release-audit-worktree-'));
+const worktreeParent = mkdtempSync(resolve(tmpdir(),'studiumx-release-audit-worktree-'));
+const worktree = resolve(worktreeParent, 'checkout');
 const add = git(['worktree','add','--detach',worktree,sha]); if (add.exit !== 0) { console.error(add.stderr); process.exit(2); }
 const logDir = mkdtempSync(resolve(tmpdir(),'studiumx-release-audit-')); const knownSkip=/POSIX|descriptor-relative|FIFO|platform capability|win32/i;
 const commands = [
@@ -28,3 +29,4 @@ const artifact={path:output,sha256:null,sha256Basis:'SHA-256 of manifest bytes w
 const audit={schemaVersion:2,generatedAt:new Date().toISOString(),commitSha:sha,sourceWorktree:root,cleanCheckout:{path:worktree,detached:true,sha},commands:results,artifact,passed:!failed};
 mkdirSync(dirname(output),{recursive:true}); const basis=JSON.stringify(audit,null,2)+'\n'; artifact.sha256=createHash('sha256').update(basis).digest('hex'); writeFileSync(output,JSON.stringify(audit,null,2)+'\n');
 if(failed){console.error('release audit failed'); process.exitCode=1;} console.log(output);
+
