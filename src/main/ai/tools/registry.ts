@@ -6,6 +6,13 @@ import type { AgentOperationJournal, AgentOperationRecord } from '../agent-opera
 import { webSearchTool } from './web_search'
 import { webFetchTool } from './web_fetch'
 import {
+  annotationsForEffectClass,
+  enforceToolResultBudget,
+  type ToolRiskAnnotations,
+  type ToolResultBudgetPolicy
+} from './annotations'
+import { classifyToolEffect } from './effect-policy'
+import {
   getWorkspaceWriteToolAvailability,
   workspaceReadTools,
   writeWorkspaceFileTool
@@ -111,7 +118,16 @@ export type ToolOperationJournal = Pick<AgentOperationJournal, 'startOperation' 
 export type ToolEntry = {
   definition: ToolDefinition
   permission?: ToolPermissionDescriptor
+  /** Optional risk annotations; defaults from classifyToolEffect when omitted. */
+  annotations?: ToolRiskAnnotations
+  /** Optional hard result byte budget; defaults to DEFAULT_TOOL_RESULT_BUDGET_BYTES. */
+  resultBudget?: number | ToolResultBudgetPolicy
   handler: (args: unknown, ctx: ToolContext, callCtx?: ToolCallContext) => Promise<string>
+}
+
+
+export function resolveToolEntryAnnotations(entry: ToolEntry): ToolRiskAnnotations {
+  return entry.annotations ?? annotationsForEffectClass(classifyToolEffect(entry.definition.function.name))
 }
 
 export class ToolRegistry {
@@ -174,7 +190,7 @@ export class ToolRegistry {
         }
         const operationJournal = resolveOperationJournal(ctx.operationJournal)
         if (permission?.kind !== 'workspace_write' || !operationJournal || !ctx.runId || !callCtx?.toolCallId) {
-          return entry.handler(args, ctx, callCtx)
+          return applyEntryResultBudget(await entry.handler(args, ctx, callCtx), entry)
         }
         const normalizedTarget = request?.kind === 'workspace_write'
           ? await workspaceRelativePointer(ctx, request.targetPath)
@@ -203,7 +219,7 @@ export class ToolRegistry {
             artifactPointer ? { ...started.record, artifactPointer } : started.record,
             result
           )
-          return decorateOperationResult(result, completed, 'first_execution')
+          return decorateOperationResult(applyEntryResultBudget(result, entry), completed, 'first_execution')
         } catch (error) {
           await operationJournal.failOperation(started.record, error, Boolean(callCtx.signal?.aborted || ctx.signal?.aborted))
           throw error
@@ -437,6 +453,12 @@ async function resultArtifactPointer(result: string, ctx: ToolContext): Promise<
   }
 }
 
+
+function applyEntryResultBudget(result: string, entry: ToolEntry): string {
+  const annotations = entry.annotations ?? annotationsForEffectClass(classifyToolEffect(entry.definition.function.name))
+  void annotations // annotations are metadata for UI/permission; budget is independent
+  return enforceToolResultBudget(result, entry.resultBudget).content
+}
 function decorateOperationResult(result: string, record: AgentOperationRecord, disposition: AgentOperationRecord['disposition']): string {
   const operation = operationSummary(record, disposition)
   try {

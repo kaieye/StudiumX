@@ -35,6 +35,21 @@ export type TeachingDoctorRepairRecommendation = {
   autoRepairAllowed: false
 }
 
+/**
+ * Structured fix suggestion for UI / diagnosing skills.
+ * Paths are locator labels or relative/redacted configuration paths — never secrets.
+ */
+export type TeachingDoctorFixSuggestion = {
+  /** Stable machine code for agents and UI cards. */
+  code: string
+  title: string
+  steps: readonly string[]
+  /** Configuration locator (logical path or settings key), never a secret value. */
+  configPath?: string | null
+  /** Optional documentation or diagnosing-skill id. */
+  docsRef?: string | null
+}
+
 export type TeachingDoctorCheckItem = {
   checkId: TeachingDoctorCheckId
   result: TeachingDoctorCheckResult
@@ -42,6 +57,10 @@ export type TeachingDoctorCheckItem = {
   evidence: TeachingDoctorSafeEvidence
   recommendedAction: string
   repair: TeachingDoctorRepairRecommendation
+  /** Optional structured fix for UI / diagnosing skills (manual only). */
+  fixSuggestion?: TeachingDoctorFixSuggestion | null
+  /** Optional configuration locator for this check (logical / redacted). */
+  configPath?: string | null
 }
 
 export type TeachingDoctorReport = {
@@ -85,6 +104,14 @@ export type TeachingDoctorConfigFacts = {
   settingsParseable: boolean
   providerConfigured: boolean
   reason: string | null
+  /**
+   * Logical configuration locator for doctor UI / diagnosing skills.
+   * Prefer a redacted or relative label (e.g. `userData/studiumx-settings.json`)
+   * rather than an absolute home path.
+   */
+  configPath?: string | null
+  /** Optional settings schema/key path when known (e.g. `provider.apiKey`). */
+  configKey?: string | null
 }
 
 export type TeachingDoctorSourceGapFacts = {

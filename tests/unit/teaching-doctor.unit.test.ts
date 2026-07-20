@@ -118,7 +118,8 @@ describe('TeachingDoctor', () => {
       settingsReadable: false,
       settingsParseable: false,
       providerConfigured: false,
-      reason: 'settings missing at userData'
+      reason: 'settings missing at userData',
+      configPath: 'userData/studiumx-settings.json'
     }
 
     const report = runTeachingDoctor(facts, NOW)
@@ -128,6 +129,30 @@ describe('TeachingDoctor', () => {
     expect(report.workspaceOpenPolicy).toBe('read_only_allowed')
     expect(check.result).toBe('fail')
     expect(check.recommendedAction).toMatch(/read-only/i)
+    expect(check.configPath).toBe('userData/studiumx-settings.json')
+    expect(check.fixSuggestion?.code).toBe('restore_settings_file')
+    expect(check.fixSuggestion?.steps.length).toBeGreaterThan(0)
+    expect(check.evidence.fields.configPath).toBe('userData/studiumx-settings.json')
+  })
+
+  it('includes configure_provider fix suggestion when provider is missing', () => {
+    const facts = healthyFacts()
+    facts.config = {
+      settingsAvailable: true,
+      settingsReadable: true,
+      settingsParseable: true,
+      providerConfigured: false,
+      reason: null,
+      configPath: 'userData/studiumx-settings.json',
+      configKey: 'provider'
+    }
+
+    const report = runTeachingDoctor(facts, NOW)
+    const check = byId(report, 'config_availability')
+    expect(check.result).toBe('warning')
+    expect(check.fixSuggestion?.code).toBe('configure_provider')
+    expect(check.configPath).toBe('userData/studiumx-settings.json')
+    expect(check.fixSuggestion?.docsRef).toBe('diagnosing-provider')
   })
 
   it('reports source gaps from grounding readiness without inventing sources', () => {
