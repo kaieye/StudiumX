@@ -5,6 +5,7 @@ import type { ElectronApplication, Page, TestInfo } from '@playwright/test'
 
 import { createLearningSessionLedger } from '../../src/main/learning-session-ledger'
 import { publishLessonArtifacts } from '../../src/main/teaching-lesson-artifacts'
+import { readLearningAssetCatalog } from '../../src/main/teaching-workspace/learning-assets-catalog'
 import {
   loadWorkspaceIndex,
   saveWorkspaceIndex
@@ -355,6 +356,10 @@ test.describe('P0 longitudinal Electron Golden — learning-outcome commit loop'
         kind: 'misconception_corrected'
       })
 
+      // Plan §2.3 item 3: catalog reconciliation agrees with the single durable record.
+      const catalogAfterCommit = await readLearningAssetCatalog(seeded.rootPath, seeded.name)
+      expect(catalogAfterCommit.records).toHaveLength(1)
+
       // 3) Same-operationId formal replay stays already_committed (seq 2 = corrected evidence)
       const api = await teachingSystemOn(mainWindow)
       const replay = await api.commitLearningOutcome({
@@ -388,6 +393,9 @@ test.describe('P0 longitudinal Electron Golden — learning-outcome commit loop'
         kind: 'misconception_corrected'
       })
 
+      const catalogAfterRestart = await readLearningAssetCatalog(seeded.rootPath, seeded.name)
+      expect(catalogAfterRestart.records).toHaveLength(1)
+
       const apiAfterRestart = await teachingSystemOn(mainWindow)
       const replayAfterRestart = await apiAfterRestart.commitLearningOutcome({
         schemaVersion: 1,
@@ -401,6 +409,7 @@ test.describe('P0 longitudinal Electron Golden — learning-outcome commit loop'
         recordSaved: true
       })
       expect(await countLearningRecords(seeded.rootPath)).toBe(1)
+      expect((await readLearningAssetCatalog(seeded.rootPath, seeded.name)).records).toHaveLength(1)
     } catch (error) {
       failed = true
       throw error
@@ -410,5 +419,3 @@ test.describe('P0 longitudinal Electron Golden — learning-outcome commit loop'
     }
   })
 })
-
-

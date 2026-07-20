@@ -6,7 +6,10 @@ const root = resolve(import.meta.dirname, '..')
 const harness = await readFile(resolve(root, 'tests/fixtures/teaching-learning-loop/harness.ts'), 'utf8')
 const integration = await readFile(resolve(root, 'tests/integration/teaching-learning-loop.integration.test.ts'), 'utf8')
 const e2e = await readFile(resolve(root, 'tests/e2e/teaching-learning-loop.e2e.spec.ts'), 'utf8')
+const e2eLongitudinal = await readFile(resolve(root, 'tests/e2e/teaching-learning-loop-longitudinal.e2e.spec.ts'), 'utf8')
+const e2eCrash = await readFile(resolve(root, 'tests/e2e/teaching-learning-loop-crash-recovery.e2e.spec.ts'), 'utf8')
 const packageJson = await readFile(resolve(root, 'package.json'), 'utf8')
+const releaseAuditContract = await readFile(resolve(root, 'scripts/release-audit-contract.mjs'), 'utf8')
 
 for (const id of [
   'session-golden-001',
@@ -45,6 +48,34 @@ assert.match(e2e, /source-golden-practice/, 'E2E must disclose the practice sour
 assert.match(e2e, /secret-token-not-rendered/, 'E2E must prove unsafe tokens stay redacted.')
 assert.match(packageJson, /"check:teaching-learning-loop"\s*:\s*"node scripts\/check-teaching-learning-loop\.mjs"/, 'package.json must expose the R6 check script.')
 
+// Plan §2.3: real longitudinal Electron Golden + crash/restart injection (not presentation-only).
+assert.match(e2eLongitudinal, /commitLearningOutcome/, 'Longitudinal E2E must call commitLearningOutcome via preload/IPC.')
+assert.match(e2eLongitudinal, /forceKillElectronRuntime/, 'Longitudinal E2E must terminate and restart the real Electron process.')
+assert.match(e2eLongitudinal, /readLearningAssetCatalog/, 'Longitudinal E2E must assert catalog reconciliation.')
+assert.match(e2eLongitudinal, /already_committed/, 'Longitudinal E2E must prove commit idempotency.')
+assert.match(e2eLongitudinal, /misconception_corrected/, 'Longitudinal E2E must assert canonical corrected outcome.')
+assert.match(e2eLongitudinal, /data-learning-outcome-commit/, 'Longitudinal E2E must assert learner-safe presentation.')
+assert.doesNotMatch(e2eLongitudinal, /\btest\.(skip|fix|only)\b/, 'Longitudinal E2E must not be skipped or focused.')
+
+assert.match(e2eCrash, /STUDIUMX_E2E_CRASH_POINT/, 'Crash-recovery E2E must arm STUDIUMX_E2E_CRASH_POINT.')
+assert.match(e2eCrash, /after_stage_flush/, 'Crash-recovery E2E must cover after_stage_flush.')
+assert.match(e2eCrash, /before_catalog_reconcile/, 'Crash-recovery E2E must cover before_catalog_reconcile.')
+assert.match(e2eCrash, /commitLearningOutcome/, 'Crash-recovery E2E must replay via real preload IPC.')
+assert.match(e2eCrash, /readLearningAssetCatalog/, 'Crash-recovery E2E must assert catalog length after repair.')
+assert.match(e2eCrash, /forceKillElectronRuntime/, 'Crash-recovery E2E must restart the real Electron process.')
+assert.doesNotMatch(e2eCrash, /\btest\.(skip|fix|only)\b/, 'Crash-recovery E2E must not be skipped or focused.')
+
+assert.match(
+  releaseAuditContract,
+  /teaching-learning-loop-longitudinal\.e2e\.spec\.ts.*--project=electron-e2e.*--repeat-each=3/s,
+  'Release audit must run longitudinal Electron e2e with --repeat-each=3.'
+)
+assert.match(
+  releaseAuditContract,
+  /teaching-learning-loop-crash-recovery\.e2e\.spec\.ts.*--project=electron-e2e.*--repeat-each=3/s,
+  'Release audit must run crash-recovery Electron e2e with --repeat-each=3.'
+)
+
 for (const forbidden of [
   'src/main/learning-session-ledger.ts',
   'src/main/lesson-interaction-recorder.ts',
@@ -56,7 +87,7 @@ for (const forbidden of [
   'src/renderer/src/teaching-turn-presentation.ts'
 ]) {
   assert.doesNotMatch(
-    integration + e2e + harness,
+    integration + e2e + e2eLongitudinal + e2eCrash + harness,
     new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '.*rewrite', 'i'),
     `R6 package must not rewrite deep module ${forbidden}.`
   )
