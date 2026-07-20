@@ -19,6 +19,8 @@
 
 **禁止：** 借后续工作重开已关闭的 P0/P1/P2 已实施规格为“未完成 backlog”；变更须走新 design gate / ADR 修订。不得引入 MCP、shell、第二 provider、通用多 Agent、SQLite 真相源、云同步或新 runtime（除非某剩余 P2 项被真实信号触发并获批）。
 
+已合入实现的 feature / merge 历史以 Git 为准；门禁与验收入口以对应 ADR 的「已实施范围与验证入口」为准。IPC/renderer 接线若尚未完成，可另立 design gate，不得重开已关闭领域规格。
+
 **Electron Golden（发布审计仍可用）：**
 
 ```powershell
@@ -27,20 +29,7 @@ pnpm exec playwright test tests/e2e/teaching-learning-loop-longitudinal.e2e.spec
 pnpm exec playwright test tests/e2e/teaching-turn-presentation.a11y.e2e.spec.ts --project=electron-e2e --repeat-each=3
 ```
 
-## 1. 已合入的 P2 实施（并行 worktree）
-
-| 项 | 分支 / feature | merge | 门禁 |
-| --- | --- | --- | --- |
-| P2-1 Learning Branch Projection | `opt/p2-01-learning-branch-projection` / `717a9c6` | `3ec6dda` | `pnpm run check:learning-branch-projection` |
-| P2-2 Session Resume Picker | `opt/p2-02-session-resume-picker` / `669e3a2` | `cac87b0` | `pnpm run check:session-resume-picker` |
-| P2-3 Advanced Tech Inspector | `opt/p2-03-tech-inspector` / `2341549` | `81cee1d` | `pnpm run check:tech-inspector` |
-| P2-4 Parallel Read Tools | `opt/p2-04-parallel-read-tools` / `f87209b` | `1854e28` | `pnpm run check:parallel-read-tools` |
-| P2-5 Config Optimistic Concurrency | `opt/p2-05-config-optimistic-concurrency` / `e39313a` | `fe648a9` | `pnpm run check:config-optimistic-concurrency` |
-| P2-8 Redacted Support Bundle | `opt/p2-08-support-bundle` / `35dde79` | `899aeb3` | `pnpm run check:support-bundle` |
-
-以上条目均为**领域纯模块 / 薄适配**优先：只读投影、CAS 写、consent 导出；默认不改 learner 主路径 UI。IPC/renderer 接线可另立 design gate。
-
-## 2. 剩余 P2 Backlog（仍须真实信号）
+## 1. 剩余 P2 Backlog（仍须真实信号）
 
 ### P2-6：MCP（仅在存在真实教学 Adapter 时）
 - 受限 Adapter，返回既有 typed outcomes。无真实 Adapter 与威胁模型则**永不**实施。
