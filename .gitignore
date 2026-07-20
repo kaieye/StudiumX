@@ -20,4 +20,8 @@ Thumbs.db
 
 .studiumx/
 conversations/
-
+# Transient command artifacts written to the repository root.
+/*.err
+/*.exit
+/*.out
+/*.pid

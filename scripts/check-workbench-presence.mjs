@@ -18,7 +18,7 @@ assert.doesNotMatch(
 
 assert.match(
   workbench,
-  /new URL\('\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/ref\.png', import\.meta\.url\)/,
+  /new URL\('\.\.\/\.\.\/assets\/images\/workbench\/ref\.png', import\.meta\.url\)/,
   'workbench should load ref.png as its desk artwork'
 )
 
