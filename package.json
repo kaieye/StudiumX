@@ -134,7 +134,8 @@
     "check:blocking-ci": "node scripts/check-blocking-ci.mjs",
     "check:session-resume-picker": "node scripts/check-session-resume-picker.mjs",
     "check:tech-inspector": "node scripts/check-tech-inspector.mjs",
-    "check:config-optimistic-concurrency": "node scripts/check-config-optimistic-concurrency.mjs"
+    "check:config-optimistic-concurrency": "node scripts/check-config-optimistic-concurrency.mjs",
+    "check:support-bundle": "node scripts/check-support-bundle.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",

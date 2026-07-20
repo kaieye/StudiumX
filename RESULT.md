@@ -1,32 +1,32 @@
-# P2-5 RESULT: Config Optimistic Concurrency
+# RESULT — P2-8 Redacted Support Bundle
 
 ## Summary
-Added write-side optimistic concurrency (CAS) for teaching config / settings so external editor races do not silently clobber. Pure core compares `expectedFingerprint` against the current secret-free resolved fingerprint, rejects secret-path patches, and re-resolves after applying the user/workspace overlay.
+Implemented a user-previewable, consent-gated support bundle export that is redacted by default (no raw prompts, no API keys/secrets, no absolute home paths, no learner answers).
 
 ## Files
-| Path | Role |
-|------|------|
-| `src/shared/teaching-types/config-optimistic-write.ts` | Shared types: `ConfigWriteRequest`, `ConfigWriteResult`, `ConfigOptimisticStore` |
-| `src/main/config-optimistic-writer.ts` | Pure `compareAndProjectConfigWrite` + thin `writeConfigOptimistic` adapter |
-| `src/shared/teaching-types.ts` | Barrel re-export |
-| `tests/unit/config-optimistic-writer.unit.test.ts` | Happy path, mismatch, secret rejection, fingerprint change, adapter |
-| `scripts/check-config-optimistic-concurrency.mjs` | Static + unit gate |
-| `package.json` | `check:config-optimistic-concurrency` script |
+- `src/shared/teaching-types/support-bundle.ts` — shared contracts (`schemaVersion=1`, section IDs, preview/consent/export, `RedactionPolicy`)
+- `src/main/support-bundle.ts` — `previewSupportBundle` / `exportSupportBundle` with redaction + consent gates
+- `tests/unit/support-bundle.unit.test.ts` — unit coverage
+- `scripts/check-support-bundle.mjs` — static + unit gate
+- `src/shared/teaching-types.ts` — barrel re-export
+- `package.json` — `check:support-bundle` script
 
 ## Behavior
-1. **Match** → apply `next` as user/workspace overlay (shallow-merge when base layer present), re-resolve via `resolveTeachingConfig`, return new `sha256:…` fingerprint.
-2. **Mismatch** → `{ ok: false, code: 'fingerprint_mismatch', currentFingerprint, message }` — no apply.
-3. **Secret paths** in `next` (apiKey, proxy.url, webSearch.*ApiKey, …) → `{ ok: false, code: 'secret_path_rejected', message }` — no apply.
-4. Invalid input / empty fingerprint → structured `invalid_*` codes.
-5. Optional `ConfigOptimisticStore` adapter: `read → CAS → writeAtomic`.
+- **Preview** assembles optional sections: doctor, inspector, config fingerprint, capability, audit correlation, environment.
+- **Redaction** reuses `exportTeachingDoctorReport`, `redactAgentSecretText`, and audit export helpers; absolute paths rewrite to workspace-relative or `<redacted-absolute-path>`.
+- **Export** requires `consent.accepted === true` and only includes sections present in both preview and `consent.sectionsAllowed`.
+- Failure codes: `consent_required`, `section_not_previewed`.
+- Doctor `fail` remains exportable.
 
 ## Verify
 ```bash
-CI=true node ./node_modules/vitest/vitest.mjs run --project unit tests/unit/config-optimistic-writer.unit.test.ts
-node scripts/check-config-optimistic-concurrency.mjs
+CI=true node ./node_modules/vitest/vitest.mjs run --project unit tests/unit/support-bundle.unit.test.ts
+node scripts/check-support-bundle.mjs
 # or
-pnpm run check:config-optimistic-concurrency
+pnpm run check:support-bundle
 ```
 
-## Out of scope (as specified)
-File watcher daemon, full settings UI, alternate secret encryption.
+## Out of scope (intentionally)
+- Automatic upload
+- Emailing support
+- Full conversation transcripts
