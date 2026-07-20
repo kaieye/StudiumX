@@ -189,6 +189,10 @@ function isNotFoundError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }
 
+function isEnotdirError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'ENOTDIR'
+}
+
 async function lstatIfExists(path: string): Promise<Awaited<ReturnType<typeof lstat>> | null> {
   try {
     return await lstat(path)
@@ -559,7 +563,12 @@ function selectOverwritePublicationTarget(input: {
       if (existing === null) return 'created'
       return existing.isFile() && existing.nlink === 1 ? 'overwritten' : 'path_rejected'
     })
-    .catch(() => 'path_rejected')
+    .catch((error) => {
+      // ENOTDIR means an intermediate component is not a directory, so the
+      // writer cannot bind the logical target. Fail closed without path/I/O detail.
+      if (isEnotdirError(error)) return 'containment_unavailable'
+      return 'path_rejected'
+    })
 }
 
 const workspaceWritePermissionDescriptionError = '无法安全确定工作区文件写入目标。'
@@ -598,7 +607,16 @@ async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext)
 
   try {
     const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
-    const existing = await lstatIfExists(workspaceWriteLogicalTargetPath(target))
+    // Permission text only. ENOTDIR (parent component is not a directory) must
+    // not short-circuit the durable writer via a describe throw: the handler
+    // classifies that closed failure as containment_unavailable.
+    let existing: Awaited<ReturnType<typeof lstatIfExists>>
+    try {
+      existing = await lstatIfExists(workspaceWriteLogicalTargetPath(target))
+    } catch (error) {
+      if (!isEnotdirError(error)) throw error
+      existing = null
+    }
     return {
       operation: existing ? '覆盖工作区文件' : '创建工作区文件',
       targetPath: target.relativePath,

@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { access, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, open, readdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -23,12 +23,11 @@ async function createWorkspace(): Promise<string> {
 beforeAll(async () => {
   workerRoot = await mkdtemp(join(tmpdir(), 'studiumx-learning-session-worker-'))
   workerPath = join(workerRoot, 'worker.mjs')
-  // esbuild's bin entry is a Node script (#!/usr/bin/env node). On Windows,
-  // execFile cannot spawn that script path directly (ENOENT), so invoke it
-  // through the current Node executable for a portable host-local bundle.
+  // Portable esbuild spawn: Windows/pnpm usually ships bin/esbuild as a Node
+  // shim (must run under process.execPath). Linux pnpm often places the native
+  // ELF binary at that path, which Node cannot parse as JS. Detect ELF vs JS.
   const esbuildEntry = join(process.cwd(), 'node_modules', 'esbuild', 'bin', 'esbuild')
-  await runCommand(process.execPath, [
-    esbuildEntry,
+  const esbuildArgs = [
     join(process.cwd(), 'scripts', 'fixtures', 'learning-session-concurrency-worker.ts'),
     '--bundle',
     '--platform=node',
@@ -36,7 +35,12 @@ beforeAll(async () => {
     '--target=node22',
     `--outfile=${workerPath}`,
     '--log-level=silent'
-  ])
+  ]
+  if (await isNativeExecutable(esbuildEntry)) {
+    await runCommand(esbuildEntry, esbuildArgs)
+  } else {
+    await runCommand(process.execPath, [esbuildEntry, ...esbuildArgs])
+  }
 })
 
 afterEach(async () => {
@@ -525,6 +529,19 @@ async function waitForFile(path: string): Promise<void> {
   throw new Error(`Timed out waiting for worker readiness: ${path}`)
 }
 
+async function isNativeExecutable(path: string): Promise<boolean> {
+  const handle = await open(path, 'r')
+  try {
+    const header = Buffer.alloc(4)
+    const { bytesRead } = await handle.read(header, 0, 4, 0)
+    if (bytesRead < 4) return false
+    // ELF: 0x7f 'E' 'L' 'F'. PE/COFF MZ is also native on Windows, but the
+    // esbuild bin entry on Windows is a JS shim, not the .exe package binary.
+    return header[0] === 0x7f && header[1] === 0x45 && header[2] === 0x4c && header[3] === 0x46
+  } finally {
+    await handle.close()
+  }
+}
 
 async function runCommand(command: string, args: string[]): Promise<void> {
   await new Promise<void>((resolve, reject) => {

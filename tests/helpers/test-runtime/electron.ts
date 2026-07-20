@@ -29,11 +29,33 @@ export async function launchElectronRuntime(
 
   const consoleMessages: string[] = []
   const pageErrors: string[] = []
+  const launchEnv: Record<string, string> = {
+    ...runtime.env,
+    // Prefer software rendering under headless/WSL agents when GPU is absent.
+    // Does not change product assertions; only stabilizes Electron process bring-up.
+    ELECTRON_DISABLE_GPU: runtime.env.ELECTRON_DISABLE_GPU ?? '1'
+  }
+  if (process.platform === 'linux') {
+    const extra = [
+      runtime.env.ELECTRON_EXTRA_LAUNCH_ARGS,
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      '--disable-software-rasterizer'
+    ].filter((value): value is string => Boolean(value && value.trim()))
+    if (extra.length > 0) launchEnv.ELECTRON_EXTRA_LAUNCH_ARGS = [...new Set(extra.join(' ').split(/\s+/).filter(Boolean))].join(' ')
+  }
+
   const application = await electron.launch({
     executablePath: electronExecutablePath,
-    args: [`--user-data-dir=${runtime.paths.userData}`, electronEntryPath],
+    args: [
+      `--user-data-dir=${runtime.paths.userData}`,
+      ...(process.platform === 'linux'
+        ? ['--disable-gpu', '--disable-dev-shm-usage', '--no-zygote']
+        : []),
+      electronEntryPath
+    ],
     cwd: repositoryRoot,
-    env: runtime.env,
+    env: launchEnv,
     timeout: 30_000,
     tracesDir: testInfo.outputPath('electron-traces')
   })
@@ -103,24 +125,19 @@ export async function launchElectronRuntime(
       if (child.exitCode === null && child.signalCode === null) {
         await Promise.race([application.close().catch(() => undefined), new Promise<void>((resolve) => setTimeout(resolve, 5_000))])
         if (child.exitCode === null && child.signalCode === null && child.pid) {
-          const { execFile } = await import('node:child_process')
-          await new Promise<void>((resolve) => execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], () => resolve()))
+          await killProcessTree(child.pid)
         }
       }
     }
   }
 }
-/** Forcefully terminate the Electron main process tree (simulates crash; no graceful close). */
-export async function forceKillElectronRuntime(runtime: LaunchedElectronRuntime): Promise<void> {
-  const app = runtime.application as unknown as { process?: () => { pid?: number } }
-  const pid = app.process?.().pid
-  if (!pid) throw new Error('Electron process PID unavailable for force kill')
+/**
+ * Kill an Electron main PID and its descendant processes.
+ * Windows uses taskkill /T; POSIX prefers process-group SIGKILL, then a
+ * recursive /proc walk so crash-recovery relaunch does not inherit orphans.
+ */
+async function killProcessTree(pid: number): Promise<void> {
   const { execFile } = await import('node:child_process')
-  const child = runtime.application.process()
-  const exited = new Promise<void>((resolve) => {
-    if (child.exitCode !== null || child.signalCode !== null || child.killed) return resolve()
-    child.once('exit', () => resolve())
-  })
   if (process.platform === 'win32') {
     await new Promise<void>((resolve, reject) => {
       execFile('taskkill', ['/PID', String(pid), '/T', '/F'], (error) => {
@@ -128,11 +145,102 @@ export async function forceKillElectronRuntime(runtime: LaunchedElectronRuntime)
         else resolve()
       })
     })
-  } else {
-    try { process.kill(pid, 'SIGKILL') } catch (error) {
+    return
+  }
+
+  const signalTree = (signal: NodeJS.Signals) => {
+    try {
+      // Negative PID targets the process group when the child is group leader.
+      process.kill(-pid, signal)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'ESRCH' && code !== 'EPERM') throw error
+    }
+    try {
+      process.kill(pid, signal)
+    } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
       if (code !== 'ESRCH') throw error
     }
   }
+
+  signalTree('SIGKILL')
+
+  // Best-effort descendant sweep via /proc (Linux) or pgrep (other POSIX).
+  try {
+    if (process.platform === 'linux') {
+      const children = await collectLinuxDescendantPids(pid)
+      for (const childPid of children) {
+        try {
+          process.kill(childPid, 'SIGKILL')
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code
+          if (code !== 'ESRCH') throw error
+        }
+      }
+    } else {
+      await new Promise<void>((resolve) => {
+        execFile('pkill', ['-KILL', '-P', String(pid)], () => resolve())
+      })
+    }
+  } catch {
+    // Tree cleanup is best-effort; the main PID kill above remains authoritative.
+  }
+}
+
+async function collectLinuxDescendantPids(rootPid: number): Promise<number[]> {
+  const { readdir, readFile } = await import('node:fs/promises')
+  const childrenByParent = new Map<number, number[]>()
+  try {
+    const entries = await readdir('/proc')
+    await Promise.all(entries.map(async (entry) => {
+      if (!/^[0-9]+$/.test(entry)) return
+      const childPid = Number(entry)
+      try {
+        const status = await readFile(`/proc/${childPid}/stat`, 'utf8')
+        // comm may contain spaces/parens; parent is the field after the final ') '.
+        const afterComm = status.slice(status.lastIndexOf(') ') + 2).split(' ')
+        // fields: state ppid ...
+        const ppid = Number(afterComm[1])
+        if (!Number.isFinite(ppid)) return
+        const list = childrenByParent.get(ppid)
+        if (list) list.push(childPid)
+        else childrenByParent.set(ppid, [childPid])
+      } catch {
+        // process exited while enumerating
+      }
+    }))
+  } catch {
+    return []
+  }
+
+  const out: number[] = []
+  const queue = [rootPid]
+  const seen = new Set<number>([rootPid])
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    for (const child of childrenByParent.get(current) ?? []) {
+      if (seen.has(child)) continue
+      seen.add(child)
+      out.push(child)
+      queue.push(child)
+    }
+  }
+  return out
+}
+
+/** Forcefully terminate the Electron main process tree (simulates crash; no graceful close). */
+export async function forceKillElectronRuntime(runtime: LaunchedElectronRuntime): Promise<void> {
+  const app = runtime.application as unknown as { process?: () => { pid?: number } }
+  const pid = app.process?.().pid
+  if (!pid) throw new Error('Electron process PID unavailable for force kill')
+  const child = runtime.application.process()
+  const exited = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null || child.killed) return resolve()
+    child.once('exit', () => resolve())
+  })
+  await killProcessTree(pid)
   await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 10_000))])
+  // Brief settle so port/userData locks and GPU helpers release before relaunch.
+  await new Promise<void>((resolve) => setTimeout(resolve, 250))
 }
