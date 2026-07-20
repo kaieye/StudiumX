@@ -63,17 +63,17 @@ C-4P6 在**已批准 profile** 上完成每个 durable 边界的可验证 I/O、
 
 **明确未交付（仍属 Phase 3–4）：** host-native APFS power-loss / runtime-adjacent profile 证据、operations runbook、C-4P6 close-out。无 schema / public IPC / transaction / canonical delete 变更。
 
-### Phase 3 — Host-native profile 证据
+### Phase 3 — Host-native profile 证据 — **已有 macOS runtime-adjacent evidence（非 close-out）**
 
 1. 在 `P6-macOS-local-APFS-strict-candidate` 上跑真实 FS 与 runtime-adjacent crash/restart；记录 OS/FS/Node/Electron/volume。
    - 执行入口：`node scripts/verify-c4p6-host-native.mjs`。该 verifier 只接受 macOS 内置 APFS volume，并以 `ELECTRON_RUN_AS_NODE` 运行 fresh-process crash/restart fixture；保存其 JSON profile 输出作为 release evidence。
 2. Windows **不**在本 phase 关闭 strict；若测 degraded 行为，只能验证 non-strict contract 与“无 strict marketing”。
 3. power-loss 结论仅在获批真实模型测试后写入。
 
-### Phase 4 — Operations 与 close-out 审核
+### Phase 4 — Operations 与 close-out 审核 — **runbook 已交付；acceptance 仍缺**
 
 1. runbook：fresh install、upgrade、partial settlement、crash/restart、disk-full、permission/lock、并发 retry、损坏 residual、catalog rebuild、人工 review；privacy-safe diagnostics。
-   - 运维入口：[C-4P6 durable settlement runbook](../operations/c4p6-learning-outcome-durable-settlement-runbook.md)。
+   - 运维入口：[C-4P6 durable settlement runbook](../operations/c4p6-learning-outcome-durable-settlement-runbook.md)。operations/support/release owner 仍须接受该 runbook 与 profile evidence。
 2. 若 Phase 1+ 无 schema/API/path 变更，显式记录“不需要 migration”；否则先 migration gate。
 3. decision/implementation/operations owner 审核后更新 ADR-0004 / 本地数据待办；**仅此时**可关闭 C-4P6 并删除本文件。
 
