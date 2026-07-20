@@ -1,14 +1,14 @@
 # 本地数据：未关闭工作的分派入口
 
-> **用途。** 本文只记录尚未关闭或尚未批准的本地数据工作。已结项的 C-4P6/P8/P9 scope decisions 见 [ADR-0021](adr/0021-c4-p6-p8-p9-closeout-scope-decisions.md)。 C-5H/C-5I/C-6 readonly dry-run 已关闭（ADR-0022/0023/0024）；destructive Memory migration 仍延期。
+> **用途。** 本文只记录尚未关闭或尚未批准的本地数据工作。已结项决定、受限 production scope 与验证入口以 [ADR 索引](adr/README.md) 为准；本页不维护已关闭切片、实现细节、测试编号或提交台账。
 >
-> **已完成内容。** 已实施决定、受限 production scope 和验证入口以 [ADR 索引](adr/README.md)为准。本页不维护已关闭切片、实现细节、测试编号或提交台账，也不把局部 durable、trace 或 readonly preflight 误作完整 close-out、action identity、receipt 或 transaction。
+> **当前。** 无开放 local-data 实现切片。唯一延期项：C-6 destructive Memory migration（见 [ADR-0024](adr/0024-memory-readonly-migration-dry-run-and-destructive-deferral.md)），不可分派为实现。
 
 ## 1. 当前状态快照
 
 | 工作流 | 状态 | 当前可分派范围 | 既有边界 |
 | --- | --- | --- | --- |
-| — | **当前无开放 local-data 实现切片** | 已关闭：C-5H (ADR-0022)、C-5I (ADR-0023)、C-6 readonly dry-run (ADR-0024)；destructive C-6 仍延期且不可分派为实现。 | 见 ADR 索引。 |
+| — | **当前无开放 local-data 实现切片** | 无 | 已结项范围见 ADR 索引；destructive C-6 延期见 ADR-0024。 |
 
 ## 2. 全局不变量、分派规则与完成定义
 
@@ -46,13 +46,13 @@
 
 ## 3. 开放工作流
 
-
+（无）
 
 ## 4. 依赖与冲突检查
 
 | 需求 | 未满足的依赖/约束 |
 | --- | --- |
-| C-6 destructive migration | **延期/不可分派为实现**（ADR-0024）；readonly dry-run 不授权 destructive。 |
+| C-6 destructive migration | **延期/不可分派为实现**（[ADR-0024](adr/0024-memory-readonly-migration-dry-run-and-destructive-deferral.md)）；readonly dry-run 不授权 destructive。未来立项须先满足 ADR-0024 第 3 节前提，并另立独立 ADR。 |
 
 任何工作流都不得通过复用既有 durable、trace 或 preflight 跨越上表依赖。若一个候选任务同时触及两个工作流，必须拆分为独立 proposal；没有获批的共同 protocol 时，不得称为 transaction 或统一 idempotency。
 
