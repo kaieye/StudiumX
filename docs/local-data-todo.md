@@ -79,6 +79,7 @@
 ### P9：session-audit durable append
 
 - **设计门：**[P9 详细设计门](plans/local-data-session-audit-durable-append-design.md)。V1 wire/identity/exact-retry 与有限 authority 见 [ADR-0019](adr/0019-session-audit-v1-wire-contract-and-limited-authority.md)；局部 durable scope 见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。任何扩展不得改变既有 authority 或兼容边界，除非先获批准。
+- **当前单一 proposal：**[fixed-file capability/result contract proposal](plans/c4p9-fixed-file-capability-result-proposal.md) 只准备 P9-2 的 internal disposition/failure matrix；它仍待 platform、single-writer、public-result 与 operations owner 批准，未授权 writer、IPC/UI、generic JSONL、rotation 或 repair 改动。
 - **尚缺的批准输入（按顺序）：**
   1. **generic JSONL/rotation/repair：**先批准 generic API 和 audit compatibility contract，再定义 segment discovery、rotation trigger、repair authority/trigger、字节保留或损失政策、operator control 与 migration boundary；
   2. **capability/failure contract：**逐 I/O phase 给出 supported/degraded/fatal、possibly-appended、privacy-safe diagnostic 和唯一 recovery；
