@@ -1,6 +1,6 @@
 # ADR-0011：通过受控 Outcome Committer 结算学习结果
 
-- **状态：** 已实施（模块、窄 IPC 与定向自动化已落地；不代表 P0 发布闭环已证明完成）
+- **状态：** 已实施（模块、窄 IPC 与定向自动化已落地；Win/Mac P0 发布证明见 ADR-0017）
 - **范围：** `LearningOutcomeCommitter`、证据门控、canonical outcome / Learning record 的有序发布、reconcile、窄 IPC sole-writer cutover
 - **证据提交：** `0acaaa4`、`061df11`、`0692732`、`7292bf4`、`e02a086`、`734314e`、`c9c9005`
 
@@ -29,7 +29,7 @@ node scripts/check-learning-record-evidence-gate.mjs
 node scripts/check-teaching-app-commit-cutover.mjs
 ```
 
-三个旧的 committer/recovery/read-repair 静态 checker 仍匹配重构前源码形态，当前不是可通过的发布 gate；它们需要以等价或更强的验证回写，不能据此把本 ADR 解释为 P0 release complete。
+committer / recovery / read-repair 已回写为 Vitest runtime scenario gate（见 scripts/check-learning-outcome-*.mjs）。本 ADR 仍只定义 settlement 语义；Win/Mac 发布证明与 audit 政策见 ADR-0017。
 
 ## 不变量
 
@@ -40,6 +40,6 @@ node scripts/check-teaching-app-commit-cutover.mjs
 
 ## 不包含
 
-- 本 ADR 不把定向模块/IPC 测试等同于完整 Electron crash/restart Golden E2E 或 P0 发布批准。
+- 本 ADR 不把定向模块/IPC 测试单独等同于完整发布证明；Electron crash/restart Golden 与 clean-checkout audit 的关闭记录见 ADR-0017。
 - 本 ADR 不定义下一教学动作、prompt context、学习者呈现或 P1 coordinator。
 - 本 ADR 不授权从 Lesson 的 expected answer、`learningRecordNote`、模型自述或 UI 乐观状态创建 record；该 cutover 见 ADR-0010。

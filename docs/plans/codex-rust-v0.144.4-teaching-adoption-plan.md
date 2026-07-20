@@ -1,6 +1,6 @@
 # Codex Rust v0.144.4 教学化借鉴与实施规划
 
-> **状态：** P0 领域模块已经实施并沉淀至 ADR-0008 至 ADR-0016；P0 **发布完成证明仍待关闭**。本文件只记录剩余证明工作与尚未实施的 P1/P2，不重复已完成实现。
+> **状态：** P0 领域模块已经实施并沉淀至 ADR-0008 至 ADR-0016；P0 **Win/Mac 发布完成证明已关闭**（见 [ADR-0017](../adr/0017-win-mac-p0-release-proof-and-audit-policy.md)）。本文件只记录 P1/P2 backlog，不重复已完成实现与发布证明细节。
 >
 > **参考项目：** `ref_project/codex-rust-v0.144.4`
 >
@@ -12,52 +12,38 @@
 
 所有已完成的领域决定、实现范围、Git 提交与定向自动化入口都已从本执行规划移除，并沉淀到 [ADR 索引](../adr/README.md)（ADR-0008 至 ADR-0016）。本文件不再维护任何完成清单。
 
-ADR 证明的是已实施的**受限模块边界**，不是 P0 release complete 声明。尤其是现有 Electron Golden 测试主要验证 presentation/a11y，而不是 evidence → IPC → canonical persistence → 真实进程重启的完整纵向路径。
+ADR-0008 至 ADR-0016 证明已实施的受限模块边界；ADR-0017 记录 Win/Mac clean-checkout 审计、runtime gate 与真实 Electron longitudinal/crash Golden。P1 不得在未读 ADR-0017 的前提下重新打开已关闭的 P0 发布证明。
 
-## 1. 剩余 P0：发布完成证明与修复门
+## 1. P0 发布证明（已关闭）
+
+> 历史 closure 说明。**不再是待办。** 权威记录：[ADR-0017](../adr/0017-win-mac-p0-release-proof-and-audit-policy.md)。
 
 ### 1.1 当前准确表述
 
-原计划中已经完成的 P0 implementation work package 均不再是待实施事项，也不会在本文件重述。
+- P0 领域模块：ADR-0008 至 ADR-0016。
+- Win/Mac 发布证明：已关闭（runtime gates、真实 Electron longitudinal / crash-restart Golden 于 `--repeat-each=3`、clean-checkout audit、inventoried skip 政策）。
+- 发布证明 commit：`a797f07a65ed7a598bb96d1666e496fcf0275f67`（见 ADR-0017）。
+- 后续工作从 §2 P1 开始；不得借 P1 重开已关闭的 P0 发布证明。
 
-但 P0 仍**不能声称发布完成**。剩余工作是修复和证明发布门，而不是扩张或回收已实施的深模块：
+### 1.2 已关闭的证明面（摘要）
 
-1. **committer gate 漂移。** `check-learning-outcome-committer.mjs`、`check-learning-outcome-recovery.mjs` 与 `check-learning-record-read-repair.mjs` 仍断言重构前源码形态；当前实现的定向 unit/integration 已覆盖行为，但静态 gate 必须被替换为等价或更强的可执行验证，并记录变更理由。
-2. **全量 integration 不绿。** `pnpm run test:integration` 在当前 Windows 审计环境有失败和被跳过的 suite；在满足发布条件前，需要逐项定位为产品回归、平台能力限制或测试基础设施问题，并以受控方式修复/隔离，不能把 skip 当作绿灯。
-3. **完整纵向 Electron Golden 尚未证明。** 已通过的 Electron 测试把快照送入真实 renderer / projector；它没有真正走 evidence、preload/IPC、committer、canonical files、catalog reconciliation 与 Electron restart。需要新增或升级独立 E2E，覆盖该完整路径。
-4. **真实 crash/restart 仍未证明。** Vitest integration harness 覆盖了 Crash A / Crash B 与同根目录 service 重建；发布证明仍需确认真实 main/Electron process 终止和重启后的同一组 canonical、catalog 与 learner-state 断言。
-5. **干净 checkout 发布审计和可追溯交接不足。** 需要在不复用开发 workspace 的干净 checkout 留存全量命令结果，并可追溯 review、handoff、风险与最终集成 hash。
+1. committer / recovery / read-repair **runtime** gates（非失效静态正则）。
+2. 全量 integration 在 Win 上可解释：能力门 skip 进入 `platformReleaseSkipBudget` / `knownPlatformSkip`，未解释 skip 仍 fail-closed。
+3. 真实 longitudinal Electron Golden 与 crash/restart injection。
+4. clean-checkout 全量发布审计与机外证据摘要（ADR-0017）。
 
-### 1.2 P0 closure 的允许写域
+### 1.3 允许写域（仅当修复 ADR-0017 范围内回归）
 
-剩余 P0 工作只可修改与上述证据缺口直接相关的 checker、测试 harness、平台兼容层、CI/发布记录与必要的窄修复。不得借 closure 重写已实施的 session/evidence/outcome/planner/context/presentation 模块，也不得引入 MCP、shell、第二 provider、通用多 Agent、数据库、云同步或新 runtime。
+仅可修改 audit contract/gates、相关 tests/harness、必要的 platform 兼容与文档/ADR。不得借机重写 session/evidence/outcome/planner/context/presentation 深模块，也不得引入 MCP、shell、第二 provider、通用多 Agent、数据库、云同步或新 runtime。
 
-### 1.3 可领取的 closure 顺序
-
-```text
-A. 诊断并回写 committer/recovery/read-repair 的失效 gate
-   ↓
-B. 使干净 checkout 的全量 integration 结果可解释且可重复
-   ↓
-C. 建立真实 evidence → IPC → canonical → restart 的 Electron Golden
-   ↓
-D. 以真实 crash windows 验证恢复，并执行 repeat-each=3
-   ↓
-E. 留存发布审计、review/handoff/风险与最终集成证据
-```
-
-每一步都必须先写能失败的测试/检查，再做最小修复；不允许删除、skip、弱化断言或用手工演示替代自动化。
-
-### 1.4 正确的 Electron 命令
-
-当前 Playwright 对参数顺序敏感。下列命令是可执行形式：
+### 1.4 Electron 命令（仍为发布审计的一部分）
 
 ```powershell
-pnpm exec playwright test tests/e2e/teaching-learning-loop.e2e.spec.ts --project=electron-e2e
-pnpm exec playwright test tests/e2e/teaching-learning-loop.e2e.spec.ts --project=electron-e2e --repeat-each=3
+pnpm exec playwright test tests/e2e/teaching-learning-loop-crash-recovery.e2e.spec.ts --project=electron-e2e --repeat-each=3
+pnpm exec playwright test tests/e2e/teaching-learning-loop-longitudinal.e2e.spec.ts --project=electron-e2e --repeat-each=3
+pnpm exec playwright test tests/e2e/teaching-turn-presentation.a11y.e2e.spec.ts --project=electron-e2e --repeat-each=3
 ```
 
-它们在现状下只能证明已有的 presentation/a11y harness；在完整纵向 E2E 落地前，不可被表述为完整 P0 Golden closure。
 
 ## 2. P1 Backlog：P0 release closure 后才可开始
 
@@ -264,16 +250,14 @@ P2 默认不排期。每个条目必须由可量化触发信号进入实施，�
 
 ---
 
-## 4. P0 发布完成声明的最小证明
+## 4. P0 发布完成声明（Win/Mac，已关闭）
 
-只有下列全部满足，才能声称 P0 发布完成：
+历史最小证明清单已由 [ADR-0017](../adr/0017-win-mac-p0-release-proof-and-audit-policy.md) 关闭。摘要：
 
-- 已实施模块仍遵守 ADR-0008 至 ADR-0016 的 authority 和安全边界；
-- 三个 committer/recovery/read-repair gate 已以当前实现的等价或更强自动化替代并通过；
-- 在干净 checkout 中，typecheck、unit、integration、build、安全、隐私、仓库卫生和相关 teaching checks 全绿，且没有未解释的 skip；
-- 新的真实纵向 Electron Golden 覆盖错误 evidence、纠正、Evidence→IPC→canonical commit、catalog reconciliation、两个 crash window、真实重启、幂等重放、grounding、keyboard/a11y/redaction；
-- 该 Golden 至少 `--repeat-each=3` 通过；
-- canonical files、catalog/projection、IPC 和 UI 对同一 Session/outcome/record 一致；
-- final integration 的 review、handoff、风险、hash 和命令结果可追溯。
+1. runtime committer / recovery / read-repair gates 绿。
+2. 全量 unit/integration 在目标平台可解释；未解释 skip 失败；Win32 预算精确、Linux 预算为空。
+3. longitudinal + crash-recovery Electron Golden 各 `--repeat-each=3` 绿。
+4. clean-checkout `node scripts/release-audit.mjs` 机外证据 `passed: true`。
 
-在此之前，准确表述是：**P0 领域模块已经实施，但发布级自动化、真实 Electron crash/restart Golden 与干净 checkout 审计尚未完成证明。**
+**当前准确表述：** P0 领域模块已实施；Win/Mac 发布级自动化、真实 Electron crash/restart Golden 与干净 checkout 审计已证明完成（ADR-0017）。Linux 产品船与完整 C-4 writer migration 不在该声明内。
+

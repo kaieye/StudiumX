@@ -1,6 +1,6 @@
 # ADR-0012：以确定性 NextTeachingStepPlanner 决定后续教学动作
 
-- **状态：** 已实施（深模块及定向自动化；不代表完整 P0 发布链已证明）
+- **状态：** 已实施（深模块及定向自动化；Win/Mac 发布证明见 ADR-0017）
 - **范围：** `NextTeachingStepPlanner`、受限 next-step union、evidence-backed learner explanation
 - **证据提交：** `eda17c3`、`e7445e2`
 

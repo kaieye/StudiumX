@@ -1,6 +1,6 @@
 # ADR-0008：将 LearningSession 作为独立教学过程，并由 LearningSessionLedger 持久化
 
-- **状态：** 已实施（P0 教学事实基线；不代表 P0 教学闭环已完成）
+- **状态：** 已实施（P0 教学事实基线；Win/Mac 发布证明见 ADR-0017）
 - **范围：** LearningSession 身份、canonical ledger、legacy projection、恢复与幂等 append receipt
 - **证据提交：** `20ae4e9`、`1052aa2`、`f4f7e40`
 

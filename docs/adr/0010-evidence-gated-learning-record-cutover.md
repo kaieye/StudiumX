@@ -32,6 +32,6 @@ pnpm exec vitest run --project integration tests/integration/teaching-lesson-art
 ## 不包含
 
 - 本 ADR 不定义 `LearningOutcomeCommitter` 的 outcome 分类、有序发布、reconcile 或 IPC authority；这些已实施范围见 ADR-0011。
-- 本 ADR 不把 outcome settlement 的定向自动化等同于完整崩溃恢复矩阵或 Golden E2E release proof。
+- 本 ADR 不把 outcome settlement 的定向自动化单独等同于完整发布证明；崩溃恢复矩阵与 Golden E2E 关闭记录见 ADR-0017。
 - 共享 durable publish 的受限 LearningOutcome 存储基础仍按 ADR-0004 的范围解释；不得将其与本语义 cutover 混为一谈。
 - 本 ADR 不授权将 `learningRecordNote` 重新解释为模型生成的掌握结论，或恢复任何绕过证据门控的写入路径。

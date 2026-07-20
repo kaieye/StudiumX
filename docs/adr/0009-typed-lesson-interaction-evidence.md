@@ -1,6 +1,6 @@
 # ADR-0009：将 Lesson 互动记录为可追溯的 typed Evidence
 
-- **状态：** 已实施（P0 教学事实基线；不代表 outcome 判定或 record 提交已经完成）
+- **状态：** 已实施（P0 教学事实基线；outcome/record 见 ADR-0010/0011；发布证明见 ADR-0017）
 - **范围：** LessonInteraction、EvidenceReceipt、原子写入、幂等重放、preview 与 canonical Session 绑定
 - **证据提交：** `17343d3`、`4d4e39b`、`c45d444`、`6521cb8`、`216e6fa`
 

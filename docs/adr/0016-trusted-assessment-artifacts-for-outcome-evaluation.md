@@ -1,6 +1,6 @@
 # ADR-0016：以绑定且校验过的 assessment artifact 作为 OutcomeEvaluator 的唯一评分来源
 
-- **状态：** 已实施（evaluator trust boundary 与定向自动化；不代表 outcome 提交或 P0 发布闭环本身）
+- **状态：** 已实施（evaluator trust boundary 与定向自动化；outcome 提交见 ADR-0011；Win/Mac 发布证明见 ADR-0017）
 - **范围：** `LearningOutcomeEvaluator`、assessment artifact binding / digest、safe path access、静态 assessment grammar、保守失败分类
 - **证据提交：** `863d8ed`、`225ec0c`、`d449094`、`1408239`
 
@@ -35,4 +35,4 @@ pnpm exec vitest run --project integration tests/integration/learning-outcome-ev
 
 - 本 ADR 不授权 evaluator 直接写 Learning record、catalog 或 UI；这些 authority 见 ADR-0011、ADR-0012 和 ADR-0014。
 - 本 ADR 不把 assessment sidecar 扩展为任意 HTML 执行器、通用内容抓取器或远程 RAG 入口。
-- 本 ADR 不声称当前 P0 全量 integration、真实 Electron crash/restart Golden 或发布审计已完成。
+- 本 ADR 不单独承担 P0 发布证明；全量 integration、Electron crash/restart Golden 与 clean-checkout audit 见 ADR-0017。
