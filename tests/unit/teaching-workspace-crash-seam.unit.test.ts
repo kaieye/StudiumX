@@ -10,5 +10,7 @@ describe('resolveE2ECrashPoint', () => {
 
   it('accepts only whitelisted points in explicit E2E test runtime', () => {
     expect(resolveE2ECrashPoint({ NODE_ENV: 'test', STUDIUMX_TEST: '1', STUDIUMX_E2E: '1', STUDIUMX_E2E_CRASH_POINT: 'after_record_publish' })).toBe('after_record_publish')
+    expect(resolveE2ECrashPoint({ NODE_ENV: 'test', STUDIUMX_TEST: '1', STUDIUMX_E2E: '1', STUDIUMX_E2E_CRASH_POINT: 'before_catalog_reconcile' })).toBe('before_catalog_reconcile')
   })
 })
+

@@ -81,6 +81,7 @@ import type { LearningOutcomeCommitResult } from '../shared/teaching-types/learn
 
 const E2E_CRASH_POINTS: readonly LearningOutcomeCommitterFaultPoint[] = [
   'after_stage_flush',
+  'before_catalog_reconcile',
   'after_record_publish',
   'after_outcome_publish'
 ]
@@ -1652,8 +1653,7 @@ export class TeachingWorkspaceService {
     }
 
     const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
-    const session = await ledger.load(lesson.sessionId)
-    if (!isCanonicalWritableLessonSession(session, workspace, lesson)) return result
+    const session = await ledger.load(lesson.sessionId)`r`n    if (!isCanonicalWritableLessonSession(session, workspace, lesson)) return result
 
     const assessment = session?.lessonRef?.assessment
     if (!assessment) return result
@@ -2269,3 +2269,4 @@ function prunePendingAgentRunArchiveScopes(scopes: Map<string, PendingAgentRunAr
 async function invalidateAgentHistoryIndex(rootPath: string): Promise<void> {
   await rm(join(rootPath, AGENT_CONVERSATION_HISTORY_INDEX_RELATIVE_PATH), { force: true })
 }
+
