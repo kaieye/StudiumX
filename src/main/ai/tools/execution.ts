@@ -1,5 +1,12 @@
 import type { ToolCall } from '../provider-adapter'
 import type { ToolCallContext, ToolHandlerMap } from './registry'
+import { ToolDispatcher } from './dispatcher'
+import {
+  parseToolArguments,
+  ToolArgumentParseError,
+  TOOL_CANCELED_MESSAGE
+} from './tool-arguments'
+import type { ToolOutcome } from './tool-outcome'
 
 export type ToolExecutionResult = {
   toolCallId: string
@@ -8,60 +15,34 @@ export type ToolExecutionResult = {
   isError: boolean
 }
 
-const TOOL_CANCELED_MESSAGE = '工具调用已取消。'
+export { parseToolArguments, ToolArgumentParseError, TOOL_CANCELED_MESSAGE }
 
+/**
+ * Legacy thin adapter over ToolDispatcher for callers not yet migrated to ToolOutcome.
+ * Preserves ToolExecutionResult shape; structured handler error JSON still sets isError.
+ */
 export async function executeToolCall(
   toolHandlers: ToolHandlerMap,
   call: ToolCall,
   callCtx?: ToolCallContext
 ): Promise<ToolExecutionResult> {
-  const name = call.function.name
-  try {
-    assertToolNotCanceled(callCtx)
-    const handler = toolHandlers[name]
-    if (!handler) throw new Error(`未知工具：${name}`)
-    const content = await handler(parseToolArguments(call.function.arguments), callCtx)
-    assertToolNotCanceled(callCtx)
-    return {
-      toolCallId: call.id,
-      name,
-      content,
-      isError: toolContentLooksLikeError(content)
-    }
-  } catch (error) {
-    return {
-      toolCallId: call.id,
-      name,
-      content: JSON.stringify({ error: toolExecutionErrorMessage(error, callCtx) }),
-      isError: true
-    }
+  const dispatcher = new ToolDispatcher({ handlers: toolHandlers })
+  const outcome = await dispatcher.dispatch(call, callCtx)
+  return toolOutcomeToExecutionResult(outcome)
+}
+
+export function toolOutcomeToExecutionResult(outcome: ToolOutcome): ToolExecutionResult {
+  return {
+    toolCallId: outcome.toolCallId,
+    name: outcome.name,
+    content: outcome.content,
+    // Legacy path: terminal statuses are errors; succeeded content may still carry
+    // structured { error } JSON from older handlers (registry permission denials).
+    isError: outcome.status !== 'succeeded' || toolContentLooksLikeError(outcome.content)
   }
 }
 
-export function parseToolArguments(raw: string): unknown {
-  if (!raw) return {}
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return {}
-  }
-}
-
-function assertToolNotCanceled(callCtx?: ToolCallContext): void {
-  if (callCtx?.signal?.aborted) throw new Error(TOOL_CANCELED_MESSAGE)
-}
-
-function toolExecutionErrorMessage(error: unknown, callCtx?: ToolCallContext): string {
-  if (callCtx?.signal?.aborted || isAbortError(error)) return TOOL_CANCELED_MESSAGE
-  return error instanceof Error ? error.message : String(error)
-}
-
-function isAbortError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-  return error.name === 'AbortError' || /aborted|abort|canceled|cancelled/i.test(error.message)
-}
-
-function toolContentLooksLikeError(content: string): boolean {
+export function toolContentLooksLikeError(content: string): boolean {
   try {
     const parsed = JSON.parse(content) as unknown
     if (!parsed || typeof parsed !== 'object') return false
