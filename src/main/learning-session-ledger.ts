@@ -38,6 +38,7 @@ import {
 import type { LearningSessionTeachingSummary, LessonSummary } from '../shared/teaching-types/workspace'
 import { normalizeTraceId, traceIdsMatchForIdempotency } from '../shared/trace-context'
 import { isPathInsideRoot } from './path-access'
+import { syncSettlementDirectory } from './persistence/settlement-directory-sync'
 
 const LEARNING_SESSIONS_DIRECTORY = LEARNING_SESSIONS_ROOT_RELATIVE_PATH
 const SESSION_MANIFEST_FILE = LEARNING_SESSION_MANIFEST_FILE_NAME
@@ -1828,33 +1829,17 @@ async function syncDirectory(
   settlement: LearningSessionDurabilitySettlement
 ): Promise<void> {
   if (settlement.directorySync === 'unsupported') return
-  const handle = await open(path, 'r').catch((error: unknown) => {
-    if (isDirectorySyncUnsupported(error)) {
-      settlement.directorySync = 'unsupported'
-      return null
-    }
-    throw error
+  // Shared soft allowlist + explicit production Windows non-strict skip (ADR-0019).
+  // EPERM/EACCES remain fatal outside that skip so permission faults cannot
+  // silently continue as sticky unsupported success on non-Windows hosts.
+  const result = await syncSettlementDirectory({
+    directoryPath: path,
+    allowWindowsProductionSkip: true,
+    warn: () => undefined
   })
-  if (!handle) return
-  try {
-    await handle.sync().catch((error: unknown) => {
-      if (isDirectorySyncUnsupported(error)) {
-        settlement.directorySync = 'unsupported'
-        return
-      }
-      throw error
-    })
-  } finally {
-    await handle.close()
+  if (result === 'unsupported') {
+    settlement.directorySync = 'unsupported'
   }
-}
-
-function isDirectorySyncUnsupported(error: unknown): boolean {
-  return isErrnoException(error, 'EISDIR') ||
-    isErrnoException(error, 'EPERM') ||
-    isErrnoException(error, 'EINVAL') ||
-    isErrnoException(error, 'ENOTSUP') ||
-    isErrnoException(error, 'EACCES')
 }
 
 async function withFilesystemWriterLock<T>(

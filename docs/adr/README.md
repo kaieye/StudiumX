@@ -31,6 +31,9 @@
 | 如何将运行时教学事实安全地呈现给学习者 | ADR-0014 |
 | 教学运行事件如何保持版本化和封闭 payload | ADR-0015 |
 | OutcomeEvaluator 如何仅信任绑定且校验过的 assessment artifact | ADR-0016 |
+| Recordless outcome（`needs_practice` / `not_evidenced`）以什么为 settlement authority | ADR-0017 |
+| Session audit JSONL 的 V1 wire、exact-retry 与有限 authority 边界 | ADR-0018 |
+| C-4P6 Phase 0 platform profile 与 settlement failure matrix | ADR-0019 |
 
 ## 已实施决定
 
@@ -52,6 +55,9 @@
 | [ADR-0014](0014-learner-safe-teaching-turn-presentation.md) | P0 learner presentation | 教学事实的 learner-safe 四阶段投影、redaction 和 a11y 边界。 |
 | [ADR-0015](0015-canonical-teaching-event-protocol.md) | P1 canonical teaching events | 版本化封闭 event envelope、event bus 与 legacy adapter 边界。 |
 | [ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md) | P0 assessment evaluator | 仅信任绑定、publisher-owned、digest 校验的 assessment artifact，并对不可信输入保守失败。 |
+| [ADR-0017](0017-recordless-learning-outcome-marker-only-settlement-authority.md) | P0 recordless settlement | `needs_practice` / `not_evidenced` 仅以 `record: null` 的 settlement marker 为 authority；不写 record/outcome/completed Session，且不 promote。 |
+| [ADR-0018](0018-session-audit-v1-wire-contract-and-limited-authority.md) | C-4P9 audit V1 contract | per-conversation audit JSONL 的 V1 wire/identity/exact-retry 与有限 authority；不授权 generic JSONL、rotation、repair 或跨进程 multi-writer。 |
+| [ADR-0019](0019-c4p6-phase0-platform-profile-and-failure-matrix.md) | C-4P6 Phase 0 freeze + Phase 1 pointer | 首个目标 macOS APFS strict-candidate profile、I/O inventory、crash/public-result matrix 与 Windows non-strict 边界；Phase 1 containment/directory-sync 对齐已在后果补充，不关闭 C-4P6。 |
 
 ## C-4P6 evidence 边界（完整 close-out 未关闭）
 
@@ -59,7 +65,7 @@
 - **tests-only historical evidence：**S2 `9847842` 是单一 `after_outcome_publish` restart/reconcile；S3 `1334513` 是 settlement-marker durable-rename `EIO` 后仅补 marker，不能扩大为泛化 `after_manifest_publish`。S4…S194（`e821c69`…`c1fb162`）累积有序发布、marker/record/manifest residual、failure 注入及 commit 前 session/event validation 的 fail-closed 覆盖；没有 production/API/schema/path/order 改动。定向 unit 历史基线为 **1 file、219 tests passed**，不是 full suite。
 - **仍阻塞：**manifest capability-policy 和完整 `open` / `write` / `fsync` / `close` failure matrix；其它 crash/failure windows；跨文件 transaction / common atomicity、rollback、delete；migration、API、operations validation；以及 Windows power-loss / native durable-closure 证据。
 
-所以 C-4P6 未关闭。不得从这些证据推断跨文件原子性、完整 manifest failure matrix 或 Windows power-loss closure；权威范围与 design gate 见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 和[本地数据待办](../local-data-todo.md)。
+所以 C-4P6 未关闭。不得从这些证据推断跨文件原子性、完整 host-native settlement 或 Windows power-loss closure。Phase 0 profile/matrix 已冻结于 [ADR-0019](0019-c4p6-phase0-platform-profile-and-failure-matrix.md)；Phase 1 containment/directory-sync 对齐已落地但仍属 unit residual。权威范围与剩余 design gate 见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[P6 剩余计划](../plans/local-data-learning-outcome-durable-settlement-design.md) 和[本地数据待办](../local-data-todo.md)。
 
 ## C-4P8 S1–S4 已关闭 scope：证据与实际验证入口
 
@@ -76,7 +82,7 @@ Linux 的现有 hosted 证据由 `ed8d88a` / `9c452f3` 记录：2026-07-19 的 G
 
 ## C-4P9-S2 实施与 P9-S3…S45 tests-only evidence（完整 close-out 未关闭）
 
-ADR-0004 记录的 C-4P9 已实施范围仍仅为 S2：固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append。S3 的 `c286a42`（`test(data): cover audit durable append recovery`）是严格 **tests-only historical evidence slice**：它保留 fixed-file non-rotating audit append 的 partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；两份定向 unit 文件共 **61 tests passed**。S4 的 `ab723a6`（`test(data): cover audit pre-write short-circuit`）是严格 **tests-only evidence slice**，仅补齐 archive save 层首个 audit write 注入 `EIO` 且 audit 为 0 bytes 时的 short-circuit/retry：JSON/Markdown 保留、ledger 未执行；clean retry 后每个 canonical audit row 恰一条、ledger 恰一条。S4 的验证入口及结果为：
+ADR-0004 记录的 C-4P9 已实施范围仍仅为 S2：固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append。V1 wire、identity、exact-retry 与有限 authority 见 [ADR-0018](0018-session-audit-v1-wire-contract-and-limited-authority.md)。S3 的 `c286a42`（`test(data): cover audit durable append recovery`）是严格 **tests-only historical evidence slice**：它保留 fixed-file non-rotating audit append 的 partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；两份定向 unit 文件共 **61 tests passed**。S4 的 `ab723a6`（`test(data): cover audit pre-write short-circuit`）是严格 **tests-only evidence slice**，仅补齐 archive save 层首个 audit write 注入 `EIO` 且 audit 为 0 bytes 时的 short-circuit/retry：JSON/Markdown 保留、ledger 未执行；clean retry 后每个 canonical audit row 恰一条、ledger 恰一条。S4 的验证入口及结果为：
 
 ```sh
 pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts

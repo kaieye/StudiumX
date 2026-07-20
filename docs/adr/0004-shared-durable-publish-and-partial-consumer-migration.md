@@ -51,14 +51,15 @@
 
 - **历史定向测试基线：**`pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`，1 file、**219 tests passed**。这是该定向 unit suite 的历史基线，不是 full suite，也不是完整 durability / failure-matrix 证明。
 - **已证实的边界：**这些 residual 证明特定注入点下的 fail-closed、受控 reconcile 或不重写行为；不新增 production contract。S3 不等同于泛化 `after_manifest_publish` 或完整 manifest failure matrix。
+- **Phase 0 已冻结（决策 only）：**[ADR-0019](0019-c4p6-phase0-platform-profile-and-failure-matrix.md) 选定 `P6-macOS-local-APFS-strict-candidate` 为首个目标 profile，并冻结 participant inventory、public-result 不扩展、Windows non-strict 与 directory-sync 不对齐事实。
+- **Phase 1 已落地（实现 + unit，非 close-out）：**共享 directory-sync soft allowlist；committer outcome/marker 经 Session parent containment 后再 durable replace；ledger 不再 soft-downgrade `EPERM|EACCES`；immutable record 仍 strict。详见 ADR-0019 后果补充与 [P6 剩余计划](../plans/local-data-learning-outcome-durable-settlement-design.md)。
 - **实际仍阻塞 C-4P6 close-out：**
-  1. manifest capability-policy alignment，以及 manifest `open` / `write` / `fsync` / `close` 的完整 failure matrix；
-  2. 未覆盖的 crash / failure windows 和恢复语义；
-  3. 跨文件 transaction / common atomicity、rollback 与 delete 语义；
-  4. migration、API 与 operations validation 的获批并实施范围；
-  5. Windows power-loss / native durable-closure 证据。
+  1. Phase 2：未覆盖的 crash / failure windows 与 fresh-process reconcile 证据；
+  2. 跨文件 transaction / common atomicity、rollback 与 delete 语义（明确不在范围，不得借 close-out 引入）；
+  3. Phase 4：migration（若有）、API 与 operations validation；
+  4. Phase 3：目标 profile 的 host-native 证据；Windows power-loss / strict 仍非本 close-out 默认范围（见 C-4P8 / ADR-0019 degraded profile）。
 
-因此，C-4P6 **未关闭**；不得从 S1 或 S2…S194 推断跨文件原子性、完整 manifest failure matrix，或 Windows power-loss closure。未完成范围和 design gate 仍以[本地数据待办](../local-data-todo.md)为准。
+因此，C-4P6 **未关闭**；不得从 S1、S2…S194、Phase 0 决策或 Phase 1 unit residual 推断跨文件原子性、完整 host-native settlement，或 Windows power-loss closure。未完成范围见 [ADR-0019](0019-c4p6-phase0-platform-profile-and-failure-matrix.md)、[P6 剩余计划](../plans/local-data-learning-outcome-durable-settlement-design.md) 与[本地数据待办](../local-data-todo.md)。
 
 ## C-4P8：已关闭的受控 workspace-tool scope
 

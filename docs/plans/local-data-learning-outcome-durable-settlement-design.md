@@ -1,100 +1,94 @@
-# C-4P6 Learning outcome durable settlement：设计门与风险边界
+# C-4P6 Learning outcome durable settlement：剩余关闭工作
 
-> **状态：未关闭。** 已实施 scope、提交与 historical tests-only evidence 已冻结在 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md)；它们不构成完整 durable settlement、跨文件事务、Windows power-loss 证明或 P6 close-out。
+> **状态：未关闭。** Phase 0 已写入 [ADR-0019](../adr/0019-c4p6-phase0-platform-profile-and-failure-matrix.md)；Phase 1 containment / 单文件 durable publish 对齐已落地（见下）。已实施 production / tests-only 历史证据以 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 为准；authority 语义以 [ADR-0011](../adr/0011-evidence-gated-learning-outcome-settlement.md) / [ADR-0017](../adr/0017-recordless-learning-outcome-marker-only-settlement-authority.md) 为准。本文**只**保留 Phase 3–4 尚未关闭的实现与证据门。Phase 2 实现/unit/process 证据见下。
 
-## 1. 目的与范围
+## 1. 关闭定义（仍有效）
 
-本文件只保留 C-4P6 **尚未关闭**的设计与风险门，不再重复已实施的 committer、authority、幂等、sole-writer 或测试/提交台账。它们分别由 [ADR-0011](../adr/0011-evidence-gated-learning-outcome-settlement.md)（outcome 语义与 canonical authority）和 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md)（共享 durable publish、P6 S1 production scope 与 S2…S194 tests-only evidence）承接。
+C-4P6 在**已批准 profile** 上完成每个 durable 边界的可验证 I/O、crash/recovery 与 public-result 语义之前保持未关闭。仅有定向 unit/integration、静态 checker、提交记录或“最终文件存在”均不足。
 
-后续切片必须服从既有 authority：canonical record / outcome 高于可修复 projection，catalog 不是 canonical authority；identity 冲突、损坏、越界路径或未知 I/O 结果 fail closed，不重新 evaluate、不生成新的 operation identity，也不将未知状态报告为成功。本文件**不**授权扩大 writer、改变 schema / canonical path、增加删除或 rollback 行为，或改变 IPC/API。
+**不在范围：**跨文件 transaction / post-publish rollback / delete-retention；新增 writer；改 assessment/Evidence/IPC public enum（除非独立 ADR/API gate）；将 Windows/网络盘等自动标为 strict-supported。
 
-## 2. 仍开放的设计门 A：manifest durable-I/O capability 与失败语义
+## 2. 已冻结基线（指针）
 
-`session.json` 是 outcome settlement 的 projection，但它仍是影响 recovery 与用户可见状态的关键 durable 文件。不得从 outcome / marker 的现有行为推导 manifest 已具备相同 guarantee。实施或批准下一步前，必须形成并评审以下 contract。
+| 主题 | 权威 |
+|---|---|
+| 首个目标 profile、participant inventory、directory-sync 不对齐、public-result 不扩展 | [ADR-0019](../adr/0019-c4p6-phase0-platform-profile-and-failure-matrix.md) |
+| 共享 durable publish；P6 S1 生产 / S2…S194 tests-only | [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) |
+| Evidence 门控、有序 publish、reconcile、sole-writer | [ADR-0011](../adr/0011-evidence-gated-learning-outcome-settlement.md) |
+| Recordless marker-only authority | [ADR-0017](../adr/0017-recordless-learning-outcome-marker-only-settlement-authority.md) |
 
-### A1. Capability contract
+**首个目标 profile：** `P6-macOS-local-APFS-strict-candidate`。  
+**Windows：** `P6-Windows-degraded-non-strict` only；directory-fsync skip/warning **不是** strict/power-loss 证据。  
+**Public IPC：** 不新增 `possibly_published`；未知 post-publish 继续用既有 `reconciliation_required` / `review_required`。
 
-1. **固定边界：**manifest publisher 必须从已验证的 session directory capability 开始；不得在 publish 后重新按不受约束的 pathname 解析父目录，也不得存在 capability 失败后的宽松 pathname fallback。
-2. **文件类型与 containment：**在读取、stage、replace、recovery 和 cleanup 各阶段确认 regular-file / directory / symlink 语义、session-id 与目录 identity、canonical path containment；未知或不安全的 entry 一律 fail closed。
-3. **显式 ownership：**明确谁打开、谁关闭 file/parent-directory capability，以及每个 handle 的 close 失败如何影响返回结果；不得依赖 GC、进程退出或“最终 bytes 可读”掩盖失败。
-4. **无隐式 downgrade：**任何 capability downgrade 必须是平台特定、最小的、具名 error-code allowlist，并记录 warning/diagnostic。非 allowlist errno、unknown `Error`、permission、open/write/sync/close 失败必须 fatal；不得继续后续 canonical write。
+## 3. 不可变约束（摘要）
 
-### A2. I/O phase matrix 与结果语义
+1. Authority 不倒置：record-writing 以合法 immutable record 为恢复依据；recordless 只接受 `record: null` marker。
+2. identity 不重建：不 re-evaluate、不新 operation/outcome ID、不合并不同 attempt。
+3. 未知即未结算：publish 后 I/O 不明不得确定成功 / 自动 retry publish / rollback。
+4. 最小修复：只补齐可由 authority 唯一导出的缺失 participant；不覆盖冲突、不改 immutable record、不删 canonical。
+5. 路径安全与隐私：containment / regular-file / no-follow；IPC/log 无 path、digest、assessment 内容。
+6. 平台声明以证据为准：不得用 mock 或 POSIX 结论推导 Windows strict。
 
-manifest publisher 必须把下列阶段分别纳入 fault matrix，而不是只测最终 rename：
+## 4. 剩余分阶段任务
 
-| 阶段 | 最低要求 | 失败后的语义门 |
-|---|---|---|
-| 读取 / `lstat` / validation | 确认 source manifest 可读、合法且在 capability 内 | 未写入前：`conflict/review_required` 或明确的 non-retryable 输入结果；不 evaluate、不 publish |
-| stage `open(wx)` → write → file `fsync` → close | 临时文件私有、完整写入、关闭可观察 | 失败不能继续 publish；保留足以审查的状态，不把 cleanup 失败吞成成功 |
-| final publish（rename/replace） | 明确 overwrite 规则、发布后可见性与已发布/未知状态 | rename 后任一 durability error 都不得报告 settled；进入可辨识的 reconciliation/review 路径 |
-| parent directory open → `fsync` → close | manifest entry 的目录持久性按平台 profile 明确 | 只允许已批准 capability downgrade；其余失败阻止后续 marker / success |
-| post-publish cleanup | 仅清理由本 operation 安全识别的临时 artifact | cleanup failure 必须可诊断；不得删除 canonical authority 或假装完全成功 |
+### Phase 1 — Containment 与单文件 durable publish contract — **已落地（实现 + unit）**
 
-对每个阶段必须预先指定：是否可能已经发布、返回的 public result、是否允许重试、`reconcile()` 可做的唯一动作，以及 diagnostics 中不含敏感内容的 operation/session correlation。没有这张矩阵时，`open`、`write`、file `fsync`、file `close`、rename、directory `open` / `fsync` / `close` 的任何补测都不能当作 manifest durable closure。
+**交付（2026-07-20，branch `database`；非 C-4P6 关闭）：**
 
-## 3. 仍开放的设计门 B：recovery 与 crash 边界
+| 工件 | 变更 |
+|---|---|
+| `src/main/persistence/settlement-directory-sync.ts` | 共享 soft-unsupported allowlist：`EINVAL\|ENOSYS\|ENOTSUP\|EOPNOTSUPP\|EISDIR`；生产 Windows skip 仅 default open + `allowWindowsProductionSkip` |
+| `src/main/persistence/settlement-durable-io.ts` | Session parent real-dir containment；`replaceContainedSettlementFile`；失败后无 pathname fallback |
+| `learning-outcome-committer` `durableReplace` | 绝对路径 → workspace-relative → `replaceContainedSettlementFile` |
+| `durable-file.syncDirectory` | 委托 `syncSettlementDirectory` |
+| ledger `syncDirectory` | 委托 `syncSettlementDirectory`（共享 soft allowlist + production Windows skip）；**移除** `EPERM|EACCES` soft-downgrade |
+| immutable record `syncDirectoryRequired` | **保持 strict**（仅生产 win32 skip；无 soft allowlist） |
+| tests | `tests/unit/settlement-durable-io.unit.test.ts`；既有 committer **219** / durable-file / ledger unit 绿 |
 
-当前 ordered publish 是可恢复的多个 durable point，不是共同提交。未来设计必须把完整状态机写成可执行的 crash matrix：
+**明确未交付（仍属 Phase 2–4）：** host-native crash/restart、power-loss、operations runbook、C-4P6 close-out。无 schema / public IPC / transaction / delete 变更。
 
-```text
-validate → stage flush → immutable record publish → outcome publish
-         → manifest publish → settlement marker publish → catalog reconcile
-```
+### Phase 2 — Crash/reconcile 完整化 — **实现 + unit/process 证据已落地（非 C-4P6 关闭）**
 
-每个箭头之前、之后及每个 durability failure 都要定义 restart `reconcile()` 结果。至少应满足：
+**交付（2026-07-20，branch `database`）：**
 
-- **stage only：**stage 不是 authority；不得 promote incomplete projection 或重评估同一 operation。
-- **record published：**已验证 immutable record 是最高 authority；只可修复缺失且与它一致的 projection，冲突则 `review_required`。
-- **outcome / manifest published but marker absent：**不得以 projection 单独宣告 settled；必须有明确 pending/reconciliation 或 review 的判定，尤其不能把未验证的 manifest 当 marker。
-- **marker published：**只有 record（如要求）、outcome、manifest 和 marker 全部符合 authority / identity 约束时才可返回 settled；catalog lag 仅是可修复 projection 问题。
-- **任何读取、验证或 I/O 结果未知：**不得做盲目 rewrite、rollback、delete、evaluate 或生成新的 ID；保留审查证据并返回既有受控失败语义。
+| 工件 | 变更 |
+|---|---|
+| `learning-outcome-committer.reconcileLocked` | 无合法 record 时 best-effort 清理 **可归属 non-authority stage**（`learning-outcome-<sessionId>-*.*.md`）；settled/repaired 路径同样清理；**从不 promote stage** |
+| stage cleanup failure | soft：保留 residual、`pending`；**不** delete record/outcome/manifest/marker，**不** false success |
+| unit | after-stage-flush restart 可 cleanup 后成功 commit；cleanup failure 保持 pending；recordless marker-pre-fail → pending → commit；recordless conflict → `review_required`；committer **222** passed |
+| fresh-process | `tests/integration/learning-outcome-committer-process.integration.test.ts` + `scripts/fixtures/learning-outcome-committer-process-worker.ts`：跨进程 after-stage-flush cleanup+commit；after-record-publish repair；无 duplicate record |
 
-验证必须覆盖正常 commit 与 restart/reconcile 两条路径，且在每个节点注入 file 与 parent-directory failure。单元 fake、跨进程 restart、集成 IPC、以及真实文件系统的 crash/restart 测试各自回答不同问题；任何一层都不能替代其他层。
+**已有基线保留：** record-writing 有序 repair、invalid residual fail-closed、catalog observe-only、idempotent same-operation replay（既有 unit 矩阵）。
 
-## 4. 仍开放的设计门 C：跨文件 transaction、rollback 与 delete
+**明确未交付（仍属 Phase 3–4）：** host-native APFS power-loss / runtime-adjacent profile 证据、operations runbook、C-4P6 close-out。无 schema / public IPC / transaction / canonical delete 变更。
 
-P6 当前模型不提供跨文件 atomicity：record、outcome、manifest、marker 和 catalog 不会共同提交。顺序和 recovery 只降低不一致风险，**不**授权以下行为：
+### Phase 3 — Host-native profile 证据
 
-- post-rename rollback、以旧 projection 覆盖已发布 record，或将“无法确定是否持久”的错误转换为成功；
-- 因 retry、reconcile 或 cleanup 删除 canonical record / outcome / manifest / marker；
-- 对 canonical data 实施 general delete、retention、compaction 或 migration rewrite；
-- 在没有独立协议的情况下把多个文件锁或多个 rename 视为 transaction。
+1. 在 `P6-macOS-local-APFS-strict-candidate` 上跑真实 FS 与 runtime-adjacent crash/restart；记录 OS/FS/Node/Electron/volume。
+2. Windows **不**在本 phase 关闭 strict；若测 degraded 行为，只能验证 non-strict contract 与“无 strict marketing”。
+3. power-loss 结论仅在获批真实模型测试后写入。
 
-若产品需要这些能力，必须先有单独批准的 transaction / lifecycle design，至少定义 intent/commit 记录或等价 protocol、participant authority、crash recovery、idempotent compensation、并发与锁语义、backup/restore、审计和 deletion/tombstone retention。该工作不能作为“补齐 P6 测试”的隐含副作用进入。
+### Phase 4 — Operations 与 close-out 审核
 
-## 5. 仍开放的设计门 D：migration、API 与 operations validation
+1. runbook：fresh install、upgrade、partial settlement、crash/restart、disk-full、permission/lock、并发 retry、损坏 residual、catalog rebuild、人工 review；privacy-safe diagnostics。
+2. 若 Phase 1+ 无 schema/API/path 变更，显式记录“不需要 migration”；否则先 migration gate。
+3. decision/implementation/operations owner 审核后更新 ADR-0004 / 本地数据待办；**仅此时**可关闭 C-4P6 并删除本文件。
 
-### D1. Migration 与 reader compatibility
+## 5. 风险与停止条件
 
-在任意 schema、marker、manifest、record metadata、路径或 mode 变更前，需批准 migration plan，明确：
+| 风险 | 缓解 |
+|---|---|
+| Pathname TOCTOU / symlink escape | Phase 1 Session parent containment 已落地；host-native + crash 仍属 Phase 2/3 |
+| Manifest 与 committer publisher 异质 | 同一 matrix；未通过不得把 marker 当完整 settlement |
+| Directory-sync allowlist 分裂 | soft set 已对齐 durable-file/ledger；record 仍 strict；Windows 仍 non-strict |
+| 误将 unit residual 当运维证据 | Phase 3/4 host-native + operations |
+| 需要新 public result | 先独立 ADR/API gate |
 
-- 新旧 reader/writer 的兼容矩阵、升级与降级行为、未知字段策略，以及不支持版本的 fail-closed 结果；
-- canonical path / record identity / hash / `0600` mode / symlink policy 的稳定性；
-- 是否允许自动 repair 或 rewrite（默认不允许），以及 backup、dry-run、恢复和停止条件；
-- migration 前后 `reconcile()`、IPC result 和 catalog projection 的可观测结果。
+发现需改 schema/IPC/writer ownership/delete/catalog authority，或目标 profile 无法证明 directory durability 却要宣称 strict → **停止**当前切片。
 
-### D2. 后续 API 变更边界
+## 6. 当前下一项
 
-当前 main-process controlled committer 的 sole-writer cutover、stable operation identity 与既有受控失败语义已由 ADR-0011 承接，不在本计划重复列为待实施内容。若后续切片确实改变 API/IPC，必须另行批准并明确 caller retry contract，以及未写入失败、可能已发布而需 reconcile、冲突/人工审查和确定成功之间的 public result；不得以新参数、重试或“修复”路径绕过既有证据门和 authority。
+**Phase 3：**在 `P6-macOS-local-APFS-strict-candidate` 上补 host-native / runtime-adjacent crash-restart 与 profile 记录；Windows 仅 degraded non-strict。不得扩展 public IPC enum，不得引入 transaction/delete。
 
-### D3. 运行与发布验证
-
-未来批准范围需指定 owner、runbook 和可审计 acceptance evidence，至少包括：fresh install / upgrade、已有 partial settlement、损坏 residual、磁盘满与 permission failure、应用异常退出与 restart、backup/restore、并发 operation、IPC caller 重试、catalog rebuild，以及无敏感原文的诊断与告警。定向 unit/integration 通过、提交存在或静态 checker 匹配均不足以构成 operations validation。
-
-## 6. 仍开放的设计门 E：Windows native fsync 与 power-loss
-
-Windows profile 必须独立证明或明确限制；不得用 POSIX 目录 `fsync` 假设替代它。尤其需要确认：
-
-1. file `fsync`、close、rename/replace 在受支持 Windows 文件系统上的实际错误与共享/杀毒/锁竞争行为；
-2. Node 无法对目录 handle `fsync` 时，哪一种降级被允许、适用条件和操作员可见 warning；该降级**不等于**已证明 rename 的 parent-directory durability；
-3. manifest、record、outcome、marker 的每个 publish 边界在 native Windows 的 restart 和真实 power-loss / reboot fault test 中会留下何种可恢复状态；
-4. 只有测试的 Windows 版本、文件系统、Node/Electron runtime 与 storage profile 被记录，且结果符合第 3 节状态机，才能声明该 profile 的 durability support。
-
-在这些验证前，Windows native fsync / power-loss 是开放风险，不能被 mock 注入、Linux/macOS 测试或“文件最终存在”关闭。
-
-## 7. 后续批准的最小输入与不关闭声明
-
-下一切片必须先明确：目标 platform profile、manifest capability contract、完整 fault/crash matrix、允许的 public result / retry 语义、是否涉及 schema/API/lifecycle、测试层级和 operations owner。然后才可修改代码、ADR 或 todo。
-
-本文件只记录未解决的设计门和风险；已完成工作及其证据以 ADR-0004 为准。**C-4P6 仍保持待办，本文不构成 close-out。**
+在 Phase 3–4 验收完成前，C-4P6 保持未关闭；本计划文件不得删除。

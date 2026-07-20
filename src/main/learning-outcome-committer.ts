@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { link, lstat, mkdir, open, readFile, readdir, realpath, unlink } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import {
   evaluateLearningSessionOutcome,
@@ -14,7 +14,8 @@ import {
   type LearningSessionLedger,
   type LearningSessionLedgerFaultPoint
 } from './learning-session-ledger'
-import { replaceDurably, type DurableFileOperations } from './persistence/durable-file'
+import type { DurableFileOperations } from './persistence/durable-file'
+import { replaceContainedSettlementFile, SettlementPathError } from './persistence/settlement-durable-io'
 import { isPathInsideRoot } from './path-access'
 import { readLearningAssetCatalog } from './teaching-workspace/learning-assets-catalog'
 import { requireLearningSessionId } from '../shared/teaching-placement'
@@ -312,6 +313,7 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
       const needsManifest = snapshot.status === 'active'
       const needsMarker = marker === null
       if (!needsOutcome && !needsManifest && !needsMarker) {
+        await cleanupAttributableNonAuthorityStages(this.options.workspaceRoot, sessionId)
         return {
           sessionId,
           state: 'settled',
@@ -327,6 +329,7 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
       if (needsOutcome) await this.durableReplace(join(this.sessionDirectory(sessionId), 'outcome.json'), encoded.content)
       if (needsManifest) await scope.complete(sessionId, encoded.ref)
       if (needsMarker) await this.durableReplace(join(this.sessionDirectory(sessionId), OUTCOME_SETTLEMENT_FILE), serialize(authoritativeMarker))
+      await cleanupAttributableNonAuthorityStages(this.options.workspaceRoot, sessionId)
       return {
         sessionId,
         state: 'repaired',
@@ -358,6 +361,10 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
       diagnostics.push('missing_record')
       return this.review(sessionId, null, null, diagnostics)
     }
+    // Stage is never authority. When no valid record exists, best-effort cleanup of
+    // attributable non-authority stage residuals unblocks same-path open('wx')
+    // retries. Cleanup failure keeps pending and must never delete canonical artifacts.
+    await cleanupAttributableNonAuthorityStages(this.options.workspaceRoot, sessionId)
     return { sessionId, state: 'pending', marker: null, record: null, catalogRecordPresent: false, diagnostics }
   }
 
@@ -393,12 +400,23 @@ class FileLearningOutcomeCommitter implements LearningOutcomeCommitter {
   }
 
   private async durableReplace(path: string, content: string): Promise<void> {
-    await replaceDurably({
-      path,
+    await replaceContainedSettlementFile({
+      workspaceRoot: this.options.workspaceRoot,
+      relativePath: this.requireContainedRelativePath(path),
       content,
       operations: this.options.durableFileOperations,
       warn: this.options.durableWarn
     })
+  }
+
+  private requireContainedRelativePath(absolutePath: string): string {
+    const root = resolve(this.options.workspaceRoot)
+    const target = resolve(absolutePath)
+    const relation = relative(root, target)
+    if (!relation || relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+      throw new SettlementPathError('path_escapes_workspace')
+    }
+    return relation.split(sep).join('/')
   }
 
   private async catalogHas(record: LearningOutcomeRecordRef | null): Promise<boolean> {
@@ -590,6 +608,40 @@ function sameOutcomeRef(left: LearningOutcomeRef | null, right: LearningOutcomeR
     left.relativePath === right.relativePath &&
     left.contentSha256 === right.contentSha256 &&
     JSON.stringify(left.evidenceEventIds) === JSON.stringify(right.evidenceEventIds)
+}
+
+/**
+ * Removes only attributable non-authority stage files for one Session.
+ * Never promotes stage content, never deletes record/outcome/manifest/marker.
+ * Failure is soft for the reconcile state machine: callers keep pending/settled
+ * semantics and do not report false canonical success from cleanup alone.
+ */
+async function cleanupAttributableNonAuthorityStages(workspaceRoot: string, sessionId: string): Promise<void> {
+  const stageDirectory = join(workspaceRoot, LEARNING_RECORDS_DIRECTORY, STAGE_DIRECTORY)
+  let entries: string[]
+  try {
+    entries = await readdir(stageDirectory)
+  } catch (error) {
+    if (isErrno(error, 'ENOENT')) return
+    return
+  }
+
+  const prefix = `learning-outcome-${sessionId}-`
+  for (const entry of entries) {
+    if (!entry.startsWith(prefix) || !entry.endsWith('.md')) continue
+    // Expected name: learning-outcome-<sessionId>-<outcomeId>.<operationId>.md
+    const stem = entry.slice(prefix.length, -'.md'.length)
+    if (!stem.includes('.')) continue
+    const stagePath = join(stageDirectory, entry)
+    try {
+      const info = await lstat(stagePath)
+      if (info.isSymbolicLink() || !info.isFile()) continue
+      await unlink(stagePath)
+    } catch (error) {
+      if (isErrno(error, 'ENOENT')) continue
+      // Soft: leave residual for a later retry; never escalate to canonical mutation.
+    }
+  }
 }
 
 async function durableStage(

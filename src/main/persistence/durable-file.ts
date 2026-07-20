@@ -8,6 +8,7 @@ import {
   replaceDurablyInContainedDirectory,
   type ContainedDurableDirectory
 } from './contained-durable-directory'
+import { syncSettlementDirectory } from './settlement-directory-sync'
 
 export type DurableFileValidator<T> = (value: unknown) => value is T
 
@@ -287,28 +288,15 @@ async function syncDirectory(
   operations: DurableFileOperations,
   warn: DurableReplaceOptions['warn']
 ): Promise<void> {
-  // Node on Windows cannot fsync a directory handle (it returns EPERM), so
-  // retain the existing unsupported-directory durability downgrade there.
-  // Keep injected operations on the strict error path: an injected EPERM can
-  // still represent a genuine permission failure and must remain fatal.
-  if (operations === defaultOperations && process.platform === 'win32') {
-    ;(warn ?? console.warn)('[StudiumX] Directory fsync is unsupported; durable rename completed without directory fsync.')
-    return
-  }
-
-  let handle: DurableFileHandle | undefined
-  try {
-    handle = await operations.open(directoryPath, 'r')
-    await handle.sync()
-  } catch (error) {
-    if (isUnsupportedDirectoryFsync(error)) {
-      ;(warn ?? console.warn)('[StudiumX] Directory fsync is unsupported; durable rename completed without directory fsync.')
-      return
-    }
-    throw error
-  } finally {
-    if (handle) await handle.close()
-  }
+  // Shared settlement directory-sync policy (ADR-0019 / C-4P6 Phase 1):
+  // production Windows may skip only on the default open seam; injected
+  // operations remain strict so permission/I/O faults stay fatal.
+  await syncSettlementDirectory({
+    directoryPath,
+    operations,
+    warn,
+    allowWindowsProductionSkip: operations === defaultOperations
+  })
 }
 
 function temporaryPathFor(path: string): string {
@@ -321,11 +309,6 @@ async function cleanupUnpublishedTemporary(path: string, operations: DurableFile
 
 function isMissingFile(error: unknown): boolean {
   return isErrno(error) && error.code === 'ENOENT'
-}
-
-function isUnsupportedDirectoryFsync(error: unknown): boolean {
-  if (!isErrno(error)) return false
-  return error.code === 'EINVAL' || error.code === 'ENOSYS' || error.code === 'ENOTSUP' || error.code === 'EOPNOTSUPP' || error.code === 'EISDIR'
 }
 
 function isErrno(error: unknown): error is NodeJS.ErrnoException {
