@@ -140,6 +140,15 @@ import { TeachingWorkspaceReviewDeck } from './teaching-workspace/review'
 import { TeachingWorkspaceChangeAudit } from './teaching-workspace-change-audit'
 import { replaceDurably, type DurableFileOperations } from './persistence/durable-file'
 import {
+  advanceMissionActionReceiptPhase,
+  computeMissionRequestTag,
+  loadOrCreateMissionActionBindingKey,
+  missionRequestTagsMatch,
+  readMissionActionReceipt,
+  writeMissionActionReceipt,
+  type MissionActionReceipt
+} from './teaching-workspace/mission-action-receipt'
+import {
   TeachingWorkspaceDocuments,
   previewUrlForDocument,
   type WorkspacePreviewFile
@@ -212,6 +221,7 @@ import type {
   ProjectAgentConversationSummariesPayload,
   ProjectAgentConversationSummariesResult,
   UpdateTeachingMemoryPayload,
+  MissionMutationResult,
   UpdateMissionPayload
 } from '../shared/teaching-types'
 
@@ -407,6 +417,9 @@ export class TeachingWorkspaceService {
   private readonly previewReadGenerations = new Map<number, number>()
   /** Instance-local queue for whole-registry trust read-modify-write operations. */
   private workspaceTrustMutationQueue: Promise<void> = Promise.resolve()
+  /** Per-workspace serialization for mission_update receipt + participant writes. */
+  private readonly missionMutationQueues = new Map<string, Promise<void>>()
+  private missionBindingKeyPromise: Promise<Buffer> | null = null
 
   constructor(options: TeachingWorkspaceServiceOptions) {
     this.registryPath = options.registryPath
@@ -684,34 +697,237 @@ export class TeachingWorkspaceService {
     return queued
   }
 
-  async updateMission(payload: UpdateMissionPayload): Promise<TeachingAppState> {
+  async updateMission(payload: UpdateMissionPayload): Promise<MissionMutationResult> {
+    return this.serializeMissionMutation(payload.workspaceId, () => this.runMissionUpdate(payload))
+  }
+
+  private async runMissionUpdate(payload: UpdateMissionPayload): Promise<MissionMutationResult> {
     const prompt = cleanText(payload.prompt)
     if (!prompt) throw new Error('Mission prompt is required.')
 
     const registry = await this.ensureRegistry()
     const workspace = findWorkspace(registry, payload.workspaceId)
+    const actionId = payload.actionId
+
+    let bindingKey: Buffer
+    try {
+      bindingKey = await this.getMissionActionBindingKey()
+    } catch {
+      this.logger?.warn('Mission action binding key unavailable.', {
+        component: 'main',
+        tag: 'mission-action'
+      })
+      return { disposition: 'indeterminate', retryable: false }
+    }
+
+    const requestTag = computeMissionRequestTag({
+      bindingKey,
+      workspaceId: workspace.id,
+      actionId,
+      prompt
+    })
+
+    const existingRead = await readMissionActionReceipt({
+      workspaceRoot: workspace.rootPath,
+      actionId,
+      operations: this.durableFileOperations
+    })
+
+    if (existingRead.status === 'invalid') {
+      this.logger?.warn('Mission action receipt unreadable.', {
+        component: 'main',
+        tag: 'mission-action'
+      })
+      return { disposition: 'indeterminate', retryable: false }
+    }
+
+    if (existingRead.status === 'valid') {
+      return this.reconcileExistingMissionAction({
+        receipt: existingRead.receipt,
+        workspaceId: workspace.id,
+        requestTag
+      })
+    }
+
     const now = new Date().toISOString()
+    const traceId = randomUUID()
+    const eventId = randomUUID()
+    let receipt: MissionActionReceipt = {
+      schemaVersion: 1,
+      kind: 'mission_update',
+      workspaceId: workspace.id,
+      actionId,
+      traceId,
+      eventId,
+      phase: 'prepared',
+      requestTag,
+      createdAt: now,
+      updatedAt: now
+    }
+
+    try {
+      await writeMissionActionReceipt({
+        workspaceRoot: workspace.rootPath,
+        receipt,
+        operations: this.durableFileOperations,
+        warn: this.durableWarn
+      })
+    } catch {
+      this.logger?.warn('Mission action receipt prepare failed.', {
+        component: 'main',
+        tag: 'mission-action',
+        traceId
+      })
+      return { disposition: 'indeterminate', retryable: false }
+    }
+
     const topic = deriveWorkspaceTopic(prompt, workspace.name)
-    await replaceDurably({
-      path: join(workspace.rootPath, 'MISSION.md'),
-      content: renderMission(topic, prompt),
-      // Keep the legacy writeFile create-mode contract (subject to umask) for
-      // this user-visible canonical artifact.
-      mode: 0o666,
+    try {
+      await replaceDurably({
+        path: join(workspace.rootPath, 'MISSION.md'),
+        content: renderMission(topic, prompt),
+        // Keep the legacy writeFile create-mode contract (subject to umask) for
+        // this user-visible canonical artifact.
+        mode: 0o666,
+        operations: this.durableFileOperations,
+        warn: this.durableWarn
+      })
+    } catch (error) {
+      this.logger?.warn('Mission canonical publish failed.', {
+        component: 'main',
+        tag: 'mission-action',
+        traceId
+      })
+      throw error
+    }
+
+    receipt = advanceMissionActionReceiptPhase(receipt, 'mission_published', new Date().toISOString())
+    await writeMissionActionReceipt({
+      workspaceRoot: workspace.rootPath,
+      receipt,
       operations: this.durableFileOperations,
       warn: this.durableWarn
     })
-    await this.appendSessionEvent(workspace.rootPath, {
-      id: randomUUID(),
-      kind: 'mission_updated',
-      timestamp: now,
-      workspaceId: workspace.id,
-      prompt,
-      paths: ['MISSION.md']
+
+    try {
+      await this.appendSessionEvent(workspace.rootPath, {
+        id: eventId,
+        kind: 'mission_updated',
+        timestamp: now,
+        workspaceId: workspace.id,
+        prompt,
+        paths: ['MISSION.md'],
+        traceId
+      })
+    } catch (error) {
+      this.logger?.warn('Mission lifecycle append failed.', {
+        component: 'main',
+        tag: 'mission-action',
+        traceId
+      })
+      throw error
+    }
+
+    receipt = advanceMissionActionReceiptPhase(receipt, 'event_appended', new Date().toISOString())
+    await writeMissionActionReceipt({
+      workspaceRoot: workspace.rootPath,
+      receipt,
+      operations: this.durableFileOperations,
+      warn: this.durableWarn
     })
+
     const nextRegistry = touchRegistryWorkspace(registry, workspace.id, now)
-    await this.saveRegistry(nextRegistry)
-    return this.buildState(nextRegistry, workspace.id, null)
+    try {
+      await this.saveRegistry(nextRegistry)
+    } catch (error) {
+      this.logger?.warn('Mission registry save failed.', {
+        component: 'main',
+        tag: 'mission-action',
+        traceId
+      })
+      throw error
+    }
+
+    receipt = advanceMissionActionReceiptPhase(receipt, 'final', new Date().toISOString())
+    await writeMissionActionReceipt({
+      workspaceRoot: workspace.rootPath,
+      receipt,
+      operations: this.durableFileOperations,
+      warn: this.durableWarn
+    })
+
+    const state = await this.buildState(nextRegistry, workspace.id, null)
+    this.logger?.info('Mission update completed.', {
+      component: 'main',
+      tag: 'mission-action',
+      traceId
+    })
+    return { disposition: 'completed', state }
+  }
+
+  private async reconcileExistingMissionAction(options: {
+    receipt: MissionActionReceipt
+    workspaceId: string
+    requestTag: string
+  }): Promise<MissionMutationResult> {
+    const { receipt, workspaceId, requestTag } = options
+    if (
+      receipt.kind !== 'mission_update' ||
+      receipt.workspaceId !== workspaceId ||
+      !missionRequestTagsMatch(receipt.requestTag, requestTag)
+    ) {
+      this.logger?.warn('Mission action conflict.', {
+        component: 'main',
+        tag: 'mission-action',
+        traceId: receipt.traceId
+      })
+      return { disposition: 'conflict', retryable: false }
+    }
+
+    if (receipt.phase === 'final') {
+      const registry = await this.ensureRegistry()
+      const state = await this.buildState(registry, workspaceId, null)
+      this.logger?.info('Mission update result reused.', {
+        component: 'main',
+        tag: 'mission-action',
+        traceId: receipt.traceId
+      })
+      return { disposition: 'reused', state }
+    }
+
+    // Non-final phases are not auto-continued in the mission-first slice: without
+    // a stronger canonical ownership proof, continuing could double-append or
+    // silently accept external edits.
+    this.logger?.warn('Mission action indeterminate non-final receipt.', {
+      component: 'main',
+      tag: 'mission-action',
+      traceId: receipt.traceId
+    })
+    return { disposition: 'indeterminate', retryable: false }
+  }
+
+  private async getMissionActionBindingKey(): Promise<Buffer> {
+    if (!this.missionBindingKeyPromise) {
+      this.missionBindingKeyPromise = loadOrCreateMissionActionBindingKey({
+        appDataRoot: this.appDataRoot,
+        durableOperations: this.durableFileOperations,
+        warn: this.durableWarn
+      }).catch((error) => {
+        this.missionBindingKeyPromise = null
+        throw error
+      })
+    }
+    return this.missionBindingKeyPromise
+  }
+
+  private async serializeMissionMutation<T>(workspaceId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.missionMutationQueues.get(workspaceId) ?? Promise.resolve()
+    const queued = previous.then(operation, operation)
+    this.missionMutationQueues.set(
+      workspaceId,
+      queued.then(() => undefined, () => undefined)
+    )
+    return queued
   }
 
   async generateLesson(payload: GenerateLessonPayload): Promise<GenerateLessonResult> {

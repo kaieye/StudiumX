@@ -1063,7 +1063,15 @@
     "openPath": "Couldn't open the path.",
     "openExternal": "Couldn't open the link.",
     "openLog": "Couldn't open the log file.",
-    "openAppData": "Couldn't open the app data folder."
+    "openAppData": "Couldn't open the app data folder.",
+    "missionActionConflict": {
+      "message": "Mission update conflict",
+      "detail": "This submit does not match the recorded action, or the workspace state changed. Reconfirm the mission and submit again as a new user action."
+    },
+    "missionActionIndeterminate": {
+      "message": "Mission update status unclear",
+      "detail": "The previous mission update cannot be safely confirmed. Check the workspace, then reconfirm and submit again. Do not retry automatically."
+    }
   },
   "errorBoundary": {
     "badge": "App error",

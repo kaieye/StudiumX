@@ -180,7 +180,19 @@ export type GenerateLessonPayload = {
 export type UpdateMissionPayload = {
   workspaceId: string
   prompt: string
+  /** Renderer-generated opaque non-secret UUID for exact-retry identity. */
+  actionId: string
 }
+
+/**
+ * Stable public result of a mission_update action. Non-success dispositions are
+ * fail-closed: the client must not treat them as success or auto-retry side effects.
+ */
+export type MissionMutationResult =
+  | { disposition: 'completed'; state: TeachingAppState }
+  | { disposition: 'reused'; state: TeachingAppState }
+  | { disposition: 'conflict'; retryable: false }
+  | { disposition: 'indeterminate'; retryable: false }
 
 /** Deliberately path-free renderer command for changing Agent workspace access. */
 export type SetWorkspaceTrustPayload = {

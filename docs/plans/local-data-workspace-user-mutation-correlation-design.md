@@ -1,6 +1,6 @@
 # C-5H：Workspace 用户变更 correlation 设计门（mission-first，未实现）
 
-> **状态：未批准、未实现。**
+> **状态：mission-first 首个切片已批准并实施（见 [ADR-0022](../adr/0022-mission-update-action-receipt-correlation.md)）。** `lesson_style_applied` 与其它 producer 仍排除。
 >
 > 本文是 `mission_updated` 的用户动作关联与受限重放设计门，而不是功能完成声明。现有 `MISSION.md` / `assets/lesson.css` durable publish 属于 [ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md)；main 生成、规范化和安全记录 trace 的既有范围属于 [ADR-0005：main-owned trace correlation 与安全日志](../adr/0005-main-owned-trace-correlation-and-safe-logs.md)。它们都**不**提供 action identity、receipt、跨文件事务或 exact retry。
 >
@@ -244,4 +244,4 @@ receipt 的 candidate phase 只能陈述已 durably known 的事实，例如 `pr
 
 ## 审查结论
 
-截至本次审阅，C-5H 仍只有设计门：mission 与 style 的 durable publish 已存在，但 renderer action identity、private receipt、mission trace coverage、typed replay result、跨阶段 proof、并发 ownership 和 partial-failure recovery 均未实现。首个可实现目标应是**受证据约束的 mission-only result replay**，而不是以未证明的自动重试冒充 exactly-once。只有在第 6 节的 owner 决策与 ADR 完成后，才可按第 7 节分阶段实施；稳定架构必须沉淀在 ADR，而不能只留在本计划。
+mission-first 决策与实现已沉淀于 [ADR-0022](../adr/0022-mission-update-action-receipt-correlation.md)：renderer actionId、workspace-private receipt、main-owned trace、typed `MissionMutationResult`、per-workspace 序列化，以及 final-only exact retry / 非 final fail-closed。本设计门仍作历史矩阵与 style 排除依据；`lesson_style_applied` 与更强 CAS/crash 自动续跑不在已实施范围内。
