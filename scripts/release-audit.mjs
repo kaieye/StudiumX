@@ -114,11 +114,11 @@ if (sourceStatusBefore.exit !== 0 || sourceStatusBefore.stdout.trim()) {
         writeFileSync(stderrPath, result.stderr)
 
         const skips = parseAuditSkips(`${result.stdout}\n${result.stderr}`)
-        const classification = classifyAuditCommandResult(result.exit, skips)
+        const classification = classifyAuditCommandResult(result.exit, skips, { argv, platform: process.platform })
         const dirtyCheckout = isCleanCheckoutStatusCommand(argv) && result.stdout.trim().length > 0
         const failureReasons = [
           ...(result.exit === 0 ? [] : ['nonzero_exit']),
-          ...(skips.length ? ['skip_detected'] : []),
+          ...(classification.unknownSkips.length ? ['unknown_skip_detected'] : []),
           ...(dirtyCheckout ? ['clean_checkout_dirty'] : []),
           ...(result.error ? ['spawn_error'] : [])
         ]

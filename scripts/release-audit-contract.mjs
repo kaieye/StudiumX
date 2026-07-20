@@ -1,7 +1,48 @@
 import { existsSync, realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 
-export const knownPlatformSkip = /POSIX|descriptor-relative|FIFO|platform capability|win32/i
+/**
+ * Explicit platform/capability skip markers.
+ * Aggregate vitest "N skipped" summaries are NOT matched here; they must be
+ * attributed through platformReleaseSkipBudget for the audited command+platform.
+ */
+export const knownPlatformSkip = /POSIX|descriptor-relative|FIFO|platform capability|win32|\[workspace write tool\].*explicitly skipped|symlink rejection|hardlink rejection|mkfifo is unavailable|filesystem does not support|case-distinct|case.sensitive/i
+
+/**
+ * Win/Mac release targets may omit coverage that requires host capabilities the
+ * product models as unavailable (POSIX descriptor Memory, FIFO, symlink
+ * creation under Windows privilege, native macOS/Linux-only publish paths).
+ *
+ * Plan §2.2 / §4: unexplained skips block release; capability-gated skips must
+ * be explicit and inventoried. Exact budgets fail closed if new skips appear.
+ * Update only when the new skips are documented capability gates, never to hide
+ * product regressions.
+ *
+ * Linux CI keeps empty budgets so any aggregate vitest skip remains unknown
+ * unless the line itself carries a knownPlatformSkip marker.
+ */
+export const platformReleaseSkipBudget = {
+  win32: {
+    'pnpm run test:unit': {
+      testsSkipped: 69,
+      filesSkipped: 3,
+      rationale:
+        'POSIX descriptor Memory/catalog/write suites, native macOS/Linux publish paths, FIFO, and FS case-fold capability gates (see docs/release skip inventory).'
+    },
+    'pnpm run test:integration': {
+      testsSkipped: 1,
+      filesSkipped: 0,
+      rationale:
+        'trace-propagation concurrent Memory CRUD requires descriptor-relative Memory capability.'
+    }
+  },
+  darwin: {
+    // Seal after a clean Mac inventory; until then aggregate skips stay unknown.
+  },
+  linux: {
+    // Full Linux release CI is expected to run without budgeted aggregate skips.
+  }
+}
 
 export const releaseAuditCommands = [
   ['pnpm', 'install', '--frozen-lockfile'],
@@ -33,6 +74,15 @@ export const releaseAuditCommands = [
 export function requiresWindowsCommandShell(argv) {
   return argv[0] === 'pnpm'
 }
+
+export function auditCommandKey(argv) {
+  if (!Array.isArray(argv) || argv.length === 0) return ''
+  if (argv[0] === 'pnpm' && argv[1] === 'run' && argv[2]) return `pnpm run ${argv[2]}`
+  if (argv[0] === 'pnpm' && argv[1] === 'exec') return `pnpm exec ${argv[2] ?? ''}`.trim()
+  if (argv[0] === 'node' && argv[1]) return `node ${argv[1]}`
+  return argv.join(' ')
+}
+
 export function parseAuditSkips(output) {
   return output.split(/\r?\n/).flatMap((line) => {
     const trimmed = line.trim()
@@ -45,15 +95,54 @@ export function parseAuditSkips(output) {
   })
 }
 
-export function classifyAuditCommandResult(exit, skips) {
-  const knownSkips = skips.filter((skip) => knownPlatformSkip.test(skip))
-  const unknownSkips = skips.filter((skip) => !knownPlatformSkip.test(skip))
+function parseVitestSkipCount(skip, kind) {
+  if (kind === 'files') {
+    const match = skip.match(/^Test Files\b.*?\b(\d+)\s+skipped\b/i)
+    return match ? Number(match[1]) : null
+  }
+  if (kind === 'tests') {
+    const summary = skip.match(/^Tests\b.*?\b(\d+)\s+skipped\b/i)
+    if (summary) return Number(summary[1])
+    const bare = skip.match(/^(\d+)\s+skipped\b/i)
+    return bare ? Number(bare[1]) : null
+  }
+  return null
+}
+
+function isBudgetedVitestSkip(skip, platform, commandKey) {
+  const budget = platformReleaseSkipBudget[platform]?.[commandKey]
+  if (!budget) return false
+
+  const filesSkipped = parseVitestSkipCount(skip, 'files')
+  if (filesSkipped !== null) return filesSkipped === budget.filesSkipped
+
+  const testsSkipped = parseVitestSkipCount(skip, 'tests')
+  if (testsSkipped !== null) return testsSkipped === budget.testsSkipped
+
+  return false
+}
+
+export function classifyAuditCommandResult(exit, skips, options = {}) {
+  const platform = options.platform ?? process.platform
+  const commandKey = options.commandKey ?? auditCommandKey(options.argv ?? [])
+  const knownSkips = []
+  const unknownSkips = []
+
+  for (const skip of skips) {
+    if (knownPlatformSkip.test(skip) || isBudgetedVitestSkip(skip, platform, commandKey)) {
+      knownSkips.push(skip)
+    } else {
+      unknownSkips.push(skip)
+    }
+  }
+
   return {
     knownSkips,
     unknownSkips,
-    // A release proof cannot be green with any omitted coverage. Known platform skips
-    // remain classified so the handoff can route them to a supported platform.
-    failed: exit !== 0 || skips.length > 0
+    // Plan §4: unexplained skips block release. Inventoried platform/capability
+    // skips are classified for handoff routing and do not alone fail Win/Mac
+    // release green. Product regressions and budget drift still fail closed.
+    failed: exit !== 0 || unknownSkips.length > 0
   }
 }
 
