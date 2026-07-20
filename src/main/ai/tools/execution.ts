@@ -52,3 +52,16 @@ export function toolContentLooksLikeError(content: string): boolean {
     return false
   }
 }
+
+export {
+  dispatchReadToolsInParallel,
+  extractReadPathTargets,
+  readTargetsOverlap,
+  DEFAULT_PARALLEL_READ_CONCURRENCY,
+  MAX_PARALLEL_READ_CONCURRENCY
+} from './parallel-read-dispatcher'
+export type {
+  ParallelReadDispatchOptions,
+  ParallelReadDispatchSource
+} from './parallel-read-dispatcher'
+
