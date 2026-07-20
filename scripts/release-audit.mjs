@@ -1,41 +1,191 @@
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, resolve, relative } from 'node:path';
+import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, relative, resolve } from 'node:path'
 
-const root = resolve(process.cwd());
-const args = process.argv.slice(2); const oi = args.indexOf('--output');
-if (oi >= 0 && (!args[oi + 1] || args[oi + 1].startsWith('--'))) { console.error('--output requires a path'); process.exit(2); }
-const unknownArgs = args.filter((arg, index) => arg !== '--output' && !(oi >= 0 && index === oi + 1));
-if (unknownArgs.length) { console.error(`unsupported release-audit arguments: ${unknownArgs.join(' ')}`); process.exit(2); }
-const output = oi >= 0 ? resolve(root, args[oi + 1]) : resolve(mkdtempSync(resolve(tmpdir(), 'studiumx-release-audit-')), 'p0-clean-checkout-audit.json');
-const artifactDir = resolve(dirname(output), `${output.split(/[\\/]/).pop().replace(/\.json$/, '')}-artifacts`);
-const run = (argv, cwd) => { const started = Date.now(); const r = spawnSync(argv[0], argv.slice(1), { cwd, encoding:'utf8', shell: process.platform === 'win32' }); return { argv, exit:r.status ?? 1, durationMs:Date.now()-started, stdout:r.stdout ?? '', stderr:r.stderr ?? '' }; };
-const git = (a,cwd=root) => run(['git',...a],cwd);
-const before = git(['status','--porcelain=v1']); if (before.stdout.trim()) { console.error('release audit requires clean source worktree'); process.exit(2); }
-const sha = git(['rev-parse','HEAD']).stdout.trim();
-const worktreeParent = mkdtempSync(resolve(tmpdir(),'studiumx-release-audit-worktree-'));
-const worktree = resolve(worktreeParent, 'checkout');
-const add = git(['worktree','add','--detach',worktree,sha]); if (add.exit !== 0) { console.error(add.stderr); process.exit(2); }
-const logDir = artifactDir; mkdirSync(logDir,{recursive:true}); const knownSkip=/POSIX|descriptor-relative|FIFO|platform capability|win32/i;
-const commands = [
- ['pnpm','install','--frozen-lockfile'], ['pnpm','run','typecheck'], ['pnpm','run','test:unit'], ['pnpm','run','test:integration'], ['pnpm','run','build'],
- ['pnpm','run','check:security'], ['pnpm','run','check:provider-privacy'], ['pnpm','run','check:repository-hygiene'], ['git','diff','--check'],
- ['node','scripts/check-learning-outcome-committer.mjs'], ['node','scripts/check-learning-outcome-recovery.mjs'], ['node','scripts/check-learning-record-read-repair.mjs'],
- ['pnpm','run','check:settings-secret-storage'], ['pnpm','run','check:agent-run-recovery'], ['pnpm','run','check:agent-operation-idempotency'],
- ['pnpm','run','check:workspace-write-tool'], ['pnpm','run','check:web-fetch-safe-url'], ['pnpm','run','check:external-link-controls'],
- ['node','scripts/check-workspace-catalog-reconciliation.mjs'], ['pnpm','run','check:teaching-learning-loop'],
- ['pnpm','exec','playwright','test','tests/e2e/teaching-learning-loop-crash-recovery.e2e.spec.ts','--project','electron-e2e','--repeat-each=3'],
- ['pnpm','exec','playwright','test','tests/e2e/teaching-learning-loop-longitudinal.e2e.spec.ts','--project','electron-e2e','--repeat-each=3'],
- ['pnpm','exec','playwright','test','tests/e2e/teaching-turn-presentation.a11y.e2e.spec.ts','--project','electron-e2e','--repeat-each=3']
-];
-const results=[]; let failed=false;
-try {
- for (const argv of commands) { const r=run(argv,worktree); const i=results.length; const out=resolve(logDir,`${i}.stdout`), err=resolve(logDir,`${i}.stderr`); writeFileSync(out,r.stdout); writeFileSync(err,r.stderr); const skips=[...(r.stdout+'\n'+r.stderr).matchAll(/(?:skip(?:ped)?|todo)[:\-]?\s*([^\n]+)/gi)].map(m=>m[1].trim()); const unknownSkips=skips.filter(s=>!knownSkip.test(s)); results.push({argv,exit:r.exit,durationMs:r.durationMs,stdoutFile:relative(root,out),stderrFile:relative(root,err),stdoutSha256:createHash('sha256').update(readFileSync(out)).digest('hex'),stderrSha256:createHash('sha256').update(readFileSync(err)).digest('hex'),skips,unknownSkips}); if(r.exit!==0||skips.length||unknownSkips.length){failed=true;break;} }
-} finally { git(['worktree','remove','--force',worktree]); }
-const artifact={path:output,sha256:null,sha256Basis:'SHA-256 of manifest bytes with artifact.sha256 set to null'};
-const audit={schemaVersion:2,generatedAt:new Date().toISOString(),commitSha:sha,sourceWorktree:root,cleanCheckout:{path:worktree,detached:true,sha},commands:results,artifact,passed:!failed};
-mkdirSync(dirname(output),{recursive:true}); const basis=JSON.stringify(audit,null,2)+'\n'; artifact.sha256=createHash('sha256').update(basis).digest('hex'); writeFileSync(output,JSON.stringify(audit,null,2)+'\n');
-if(failed){console.error('release audit failed'); process.exitCode=1;} console.log(output);
+import {
+  classifyAuditCommandResult,
+  isCleanCheckoutStatusCommand,
+  isPathInside,
+  parseAuditSkips,
+  releaseAuditCommands
+} from './release-audit-contract.mjs'
 
+const root = resolve(process.cwd())
+const args = process.argv.slice(2)
+const outputIndex = args.indexOf('--output')
+
+if (outputIndex >= 0 && (!args[outputIndex + 1] || args[outputIndex + 1].startsWith('--'))) {
+  console.error('--output requires a path')
+  process.exit(2)
+}
+
+const unsupportedArgs = args.filter((arg, index) => arg !== '--output' && !(outputIndex >= 0 && index === outputIndex + 1))
+if (unsupportedArgs.length) {
+  console.error(`unsupported release-audit arguments: ${unsupportedArgs.join(' ')}`)
+  process.exit(2)
+}
+
+const output = outputIndex >= 0
+  ? resolve(root, args[outputIndex + 1])
+  : resolve(mkdtempSync(resolve(tmpdir(), 'studiumx-release-audit-')), 'p0-clean-checkout-audit.json')
+const artifactDir = resolve(dirname(output), `${output.split(/[\\/]/).pop().replace(/\.json$/, '')}-artifacts`)
+const outputInsideSourceWorktree = isPathInside(root, output) || isPathInside(root, artifactDir)
+
+function quoteWindowsCommandArgument(argument) {
+  return /^[A-Za-z0-9_./:=@+\-]+$/.test(argument) ? argument : `"${argument.replaceAll('"', '""')}"`
+}
+
+function run(argv, cwd) {
+  const started = Date.now()
+  const [command, commandArguments] = process.platform === 'win32'
+    ? [process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', argv.map(quoteWindowsCommandArgument).join(' ')]]
+    : [argv[0], argv.slice(1)]
+  const result = spawnSync(command, commandArguments, {
+    cwd,
+    encoding: 'utf8',
+    shell: false,
+    windowsHide: true
+  })
+  return {
+    argv,
+    exit: result.status ?? 1,
+    durationMs: Date.now() - started,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+    error: result.error ? String(result.error) : null
+  }
+}
+
+const git = (argv, cwd = root) => run(['git', ...argv], cwd)
+const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex')
+const statusRecord = (result) => ({ exit: result.exit, stdout: result.stdout, stderr: result.stderr })
+const toolVersions = Object.fromEntries([
+  ['node', run(['node', '--version'], root)],
+  ['pnpm', run(['pnpm', '--version'], root)],
+  ['git', run(['git', '--version'], root)]
+].map(([tool, result]) => [tool, { exit: result.exit, value: result.stdout.trim(), stderr: result.stderr.trim() }]))
+
+mkdirSync(artifactDir, { recursive: true })
+
+const sourceStatusBefore = git(['status', '--porcelain=v1'])
+const commit = git(['rev-parse', 'HEAD'])
+const commitSha = commit.exit === 0 ? commit.stdout.trim() : null
+const results = []
+let failed = false
+let initializationError = null
+let worktree = null
+let worktreeParent = null
+let cleanup = { attempted: false, succeeded: false, error: null }
+let cleanCheckoutStatusAfterCommands = null
+
+if (sourceStatusBefore.exit !== 0 || sourceStatusBefore.stdout.trim()) {
+  failed = true
+  initializationError = sourceStatusBefore.exit !== 0
+    ? 'Unable to read source worktree status.'
+    : 'Release audit requires a clean source worktree.'
+} else if (commitSha === null) {
+  failed = true
+  initializationError = 'Unable to resolve source HEAD.'
+} else {
+  worktreeParent = mkdtempSync(resolve(tmpdir(), 'studiumx-release-audit-worktree-'))
+  worktree = resolve(worktreeParent, 'checkout')
+  const add = git(['worktree', 'add', '--detach', worktree, commitSha])
+  if (add.exit !== 0) {
+    failed = true
+    initializationError = `Unable to create detached clean checkout: ${add.stderr.trim() || add.error || 'unknown error'}`
+    cleanup = { attempted: true, succeeded: true, error: null }
+    rmSync(worktreeParent, { recursive: true, force: true })
+    worktree = null
+  } else {
+    try {
+      for (const argv of releaseAuditCommands) {
+        const result = run(argv, worktree)
+        const index = results.length
+        const stdoutPath = resolve(artifactDir, `${index}.stdout`)
+        const stderrPath = resolve(artifactDir, `${index}.stderr`)
+        writeFileSync(stdoutPath, result.stdout)
+        writeFileSync(stderrPath, result.stderr)
+
+        const skips = parseAuditSkips(`${result.stdout}\n${result.stderr}`)
+        const classification = classifyAuditCommandResult(result.exit, skips)
+        const dirtyCheckout = isCleanCheckoutStatusCommand(argv) && result.stdout.trim().length > 0
+        const failureReasons = [
+          ...(result.exit === 0 ? [] : ['nonzero_exit']),
+          ...(skips.length ? ['skip_detected'] : []),
+          ...(dirtyCheckout ? ['clean_checkout_dirty'] : []),
+          ...(result.error ? ['spawn_error'] : [])
+        ]
+        const record = {
+          argv,
+          exit: result.exit,
+          durationMs: result.durationMs,
+          stdoutFile: relative(root, stdoutPath),
+          stderrFile: relative(root, stderrPath),
+          stdoutSha256: sha256(stdoutPath),
+          stderrSha256: sha256(stderrPath),
+          skips,
+          knownSkips: classification.knownSkips,
+          unknownSkips: classification.unknownSkips,
+          failureReasons
+        }
+        results.push(record)
+        failed ||= classification.failed || dirtyCheckout || result.error !== null
+      }
+      cleanCheckoutStatusAfterCommands = results.at(-1) ?? null
+    } finally {
+      cleanup.attempted = true
+      const removed = git(['worktree', 'remove', '--force', worktree])
+      cleanup.succeeded = removed.exit === 0
+      cleanup.error = removed.exit === 0 ? null : (removed.stderr.trim() || removed.error || 'unknown error')
+      if (!cleanup.succeeded) {
+        failed = true
+      } else if (worktreeParent) {
+        rmSync(worktreeParent, { recursive: true, force: true })
+      }
+    }
+  }
+}
+
+const sourceStatusAfterCommands = git(['status', '--porcelain=v1'])
+if (sourceStatusAfterCommands.exit !== 0 || sourceStatusAfterCommands.stdout.trim()) failed = true
+if (outputInsideSourceWorktree) failed = true
+
+const artifact = {
+  path: output,
+  sha256: null,
+  sha256Basis: 'SHA-256 of manifest bytes with artifact.sha256 set to null'
+}
+const audit = {
+  schemaVersion: 3,
+  generatedAt: new Date().toISOString(),
+  commitSha,
+  sourceWorktree: root,
+  outputInsideSourceWorktree,
+  sourceStatusBefore: statusRecord(sourceStatusBefore),
+  sourceStatusAfterCommands: statusRecord(sourceStatusAfterCommands),
+  toolVersions,
+  cleanCheckout: {
+    path: worktree,
+    detached: true,
+    sha: commitSha,
+    statusAfterCommands: cleanCheckoutStatusAfterCommands,
+    cleanup
+  },
+  initializationError,
+  commands: results,
+  artifact,
+  passed: !failed
+}
+
+mkdirSync(dirname(output), { recursive: true })
+const basis = `${JSON.stringify(audit, null, 2)}\n`
+artifact.sha256 = createHash('sha256').update(basis).digest('hex')
+writeFileSync(output, `${JSON.stringify(audit, null, 2)}\n`)
+
+if (failed) {
+  console.error('release audit failed')
+  process.exitCode = 1
+}
+console.log(output)

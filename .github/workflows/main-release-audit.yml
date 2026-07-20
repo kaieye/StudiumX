@@ -13,12 +13,12 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22.x' }
       - run: corepack enable && corepack prepare pnpm@11.9.0 --activate
-      - run: pnpm audit:release --output release-audit.json
+      - run: pnpm audit:release --output "$RUNNER_TEMP/release-audit/release-audit.json"
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: release-audit
           path: |
-            release-audit.json
-            release-audit-artifacts/**
+            ${{ runner.temp }}/release-audit/release-audit.json
+            ${{ runner.temp }}/release-audit/release-audit-artifacts/**
           if-no-files-found: error
