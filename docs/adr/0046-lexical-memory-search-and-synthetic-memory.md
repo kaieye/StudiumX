@@ -3,7 +3,7 @@
 - **状态：** 已实施
 - **日期：** 2026-07-21
 - **范围：** main-only 词法检索、`memory_search` / `remember_teaching_memory` / `forget_teaching_memory`、合成记忆索引进 turn-tail、人批门控
-- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0040](0040-teaching-prompt-cache-contract.md)、[ADR-0042](0042-teaching-footprint-ladder.md)、[ADR-0044](0044-tool-contract-and-write-policy.md)、`docs/improvements/hermes-reasonix.md` §2.1–2.2 / Slice F
+- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0040](0040-teaching-prompt-cache-contract.md)、[ADR-0042](0042-teaching-footprint-ladder.md)、[ADR-0044](0044-tool-contract-and-write-policy.md)、Slice F lexical memory（已结项）
 
 ## 背景
 

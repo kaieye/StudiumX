@@ -3,7 +3,7 @@
 - **状态：** 已实施
 - **日期：** 2026-07-21
 - **范围：** `write_workspace_file` 首次触碰 pre-image 日志、main 恢复 API、与会话前缀检查点分离的 UI 文案
-- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0044](0044-tool-contract-and-write-policy.md)、`docs/improvements/hermes-reasonix.md` §3.3 / Slice D
+- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0044](0044-tool-contract-and-write-policy.md)、Slice D write rewind（已结项）
 
 ## 背景
 

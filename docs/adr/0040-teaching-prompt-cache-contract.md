@@ -2,7 +2,7 @@
 
 - **状态：** 已实施
 - **范围：** 教学与临时会话的 agent chat prompt 组装
-- **相关：** docs/improvements/hermes-reasonix.md §1.1，Task A
+- **相关：** Slice A prompt-cache hygiene（已结项）
 
 ## 决定
 

@@ -105,11 +105,11 @@ export function webSearchBackendLabel(backend: WebSearchBackend): string {
 export function agentApprovalModeLabel(mode: AgentApprovalMode): string {
   switch (mode) {
     case 'request_approval':
-      return '请求批准'
+      return '需批准'
     case 'based_on_approval':
-      return '基于审批'
+      return '按风险'
     case 'full_access':
-      return '完全访问权限'
+      return '本课放行'
   }
 }
 

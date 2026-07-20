@@ -154,6 +154,10 @@ P9-S5 `47393f9` 仅修改测试，未改 production code。它覆盖 audit direc
 
 逐条历史证据见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0019](0019-session-audit-v1-wire-contract-and-limited-authority.md) 与 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)。当前无开放 P9 实现切片。
 
+## Hermes × Reasonix 结项（reason-hermes）
+
+`docs/improvements/` 中的 Hermes / Reasonix 合并借鉴清单（A–H 近端切片）已落地并沉淀为 ADR-0040–0046；Slice I 与「明确不借」项保持延期/不借，不进本冲刺。近端清单源文件在结项后删除，以本目录 ADR 与代码为准。
+
 ## 维护约定
 
 - 已实施且会长期影响架构的决定，新增一份编号递增的 ADR；不要为了记录小进度而新建 ADR。

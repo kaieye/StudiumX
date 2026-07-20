@@ -3,7 +3,7 @@
 - **状态：** 已采纳
 - **日期：** 2026-07-20
 - **范围：** Teaching capability 的产品级扩张顺序、临时对话工具边界，以及 TeachingCommand 的单源消费
-- **相关：** [ADR-0014](0014-learner-safe-teaching-turn-presentation.md)、[ADR-0022](0022-teaching-capability-catalog-read-only-readiness.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0032](0032-conservative-parallel-read-tools.md)、[ADR-0040](0040-teaching-prompt-cache-contract.md)、`docs/improvements/hermes-reasonix.md` §1.2
+- **相关：** [ADR-0014](0014-learner-safe-teaching-turn-presentation.md)、[ADR-0022](0022-teaching-capability-catalog-read-only-readiness.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0032](0032-conservative-parallel-read-tools.md)、[ADR-0040](0040-teaching-prompt-cache-contract.md)、Hermes×Reasonix §1.2（已结项）
 
 ## 背景
 

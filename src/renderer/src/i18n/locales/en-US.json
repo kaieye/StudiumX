@@ -125,14 +125,14 @@
       "triggerTitle": "Agent permission mode: {{status}}",
       "title": "Agent permission mode",
       "mode": {
-        "request_approval": "Request approval",
-        "based_on_approval": "Based on approval",
-        "full_access": "Full access"
+        "request_approval": "Need approval",
+        "based_on_approval": "Risk-based",
+        "full_access": "Lesson allow"
       },
       "modeDetail": {
-        "request_approval": "Ask before the Agent creates or changes a workspace file.",
-        "based_on_approval": "Create new files automatically; ask before replacing an existing file.",
-        "full_access": "Let the Agent create or change workspace files without approval."
+        "request_approval": "Ask before creating or overwriting workspace files (no YOLO).",
+        "based_on_approval": "Auto-create low-risk new files; ask before overwriting existing files.",
+        "full_access": "Allow for this lesson/session within granted workspace scope (path deny and durable publish still apply)."
       }
     }
   },
