@@ -335,6 +335,30 @@ describe('Teaching IPC gateway', () => {
     )
     expect(preloadSource).not.toMatch(/\binvoke\s*:/)
   })
+  it('prefers turnCoordinatorHost for commitLearningOutcome when composed', async () => {
+    const serviceCommit = vi.fn()
+    const hostCommit = vi.fn().mockResolvedValue({
+      status: 'committed', outcome: { kind: 'established' }, recordSaved: true
+    })
+    registerTeachingIpcGateway(registration({
+      workspaceService: { commitLearningOutcome: serviceCommit },
+      turnCoordinatorHost: { commitLearningOutcome: hostCommit, execute: vi.fn() }
+    }))
+
+    const request = {
+      schemaVersion: 1,
+      type: 'commit',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      operationId: 'operation-host-path'
+    }
+    await expect(handler(teachingInvokeChannels.commitLearningOutcome)(event, request)).resolves.toEqual({
+      status: 'committed', outcome: { kind: 'established' }, recordSaved: true
+    })
+    expect(hostCommit).toHaveBeenCalledTimes(1)
+    expect(hostCommit).toHaveBeenCalledWith(request)
+    expect(serviceCommit).not.toHaveBeenCalled()
+  })
 
   it('accepts only a narrow preview intent before dispatching sender-bound recording', async () => {
     const recordPreviewLessonInteraction = vi.fn().mockResolvedValue({
