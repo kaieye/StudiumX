@@ -141,6 +141,18 @@ describe('LearningSessionLedger reviewer contracts', () => {
 
 
 
+  it('reclaims a local lock when a live PID has a different process startup identity', async () => {
+    const workspaceRoot = await createWorkspace()
+    const lockPath = join(workspaceRoot, '.learning-session-ledger-writer.lock')
+    await mkdir(lockPath)
+    await writeFile(join(lockPath, 'owner.json'), JSON.stringify({
+      schemaVersion: 1, token: 'reused-pid-token', pid: process.pid, hostname: hostname(),
+      operation: 'scan', sessionId: null, acquiredAt: '2020-01-01T00:00:00.000Z',
+      processStartedAt: '2020-01-01T00:00:00.000Z'
+    }), 'utf8')
+    await expect(createLearningSessionLedger({ workspaceRoot, writerLockWaitMs: 0, writerLockStaleMs: 0 }).scan()).resolves.toBeDefined()
+  })
+
   it('keeps remote-host and owner-initialization writer locks conservatively busy', async () => {
     const remoteWorkspace = await createWorkspace()
     const remoteLock = join(remoteWorkspace, '.learning-session-ledger-writer.lock')

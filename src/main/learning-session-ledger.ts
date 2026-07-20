@@ -69,6 +69,8 @@ const MAX_STAGE_TREE_ENTRIES = 64
 const MAX_STAGE_TREE_DEPTH = 4
 const HARDLINK_FALLBACK_CODES = new Set(['EPERM', 'EACCES', 'EXDEV', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'])
 const workspaceWriteTails = new Map<string, Promise<void>>()
+// Wall-clock process start identity; differs across PID reuse without shell/platform dependencies.
+const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOString()
 
 type CanonicalLearningSessionManifest = Omit<CanonicalLearningSessionSnapshot, 'events'>
 type SessionLoadOptions = {
@@ -88,6 +90,7 @@ export type LearningSessionWriterOwner = {
   operation: LearningSessionWriterOperation
   sessionId: string | null
   acquiredAt: string
+  processStartedAt?: string
 }
 
 export type LearningSessionLedgerFaultPoint =
@@ -1874,7 +1877,8 @@ async function withFilesystemWriterLock<T>(
       hostname: hostname().toLocaleLowerCase('en-US'),
       operation,
       sessionId,
-      acquiredAt: new Date().toISOString()
+      acquiredAt: new Date().toISOString(),
+      processStartedAt: PROCESS_STARTED_AT
     }
     const lockPath = await acquireFilesystemWriterLock(
       workspaceRoot,
@@ -2153,7 +2157,8 @@ function parseWriterOwner(value: unknown): LearningSessionWriterOwner | null {
     typeof value.hostname !== 'string' || !value.hostname ||
     typeof value.operation !== 'string' || !operations.has(value.operation as LearningSessionWriterOperation) ||
     !(value.sessionId === null || typeof value.sessionId === 'string') ||
-    typeof value.acquiredAt !== 'string' || !Number.isFinite(new Date(value.acquiredAt).getTime())
+    typeof value.acquiredAt !== 'string' || !Number.isFinite(new Date(value.acquiredAt).getTime()) ||
+    (value.processStartedAt !== undefined && (typeof value.processStartedAt !== 'string' || !Number.isFinite(new Date(value.processStartedAt).getTime())))
   ) return null
   let sessionId: string | null = null
   try {
@@ -2168,7 +2173,8 @@ function parseWriterOwner(value: unknown): LearningSessionWriterOwner | null {
     hostname: value.hostname.toLocaleLowerCase('en-US'),
     operation: value.operation as LearningSessionWriterOperation,
     sessionId,
-    acquiredAt: new Date(value.acquiredAt).toISOString()
+    acquiredAt: new Date(value.acquiredAt).toISOString(),
+    ...(typeof value.processStartedAt === 'string' ? { processStartedAt: new Date(value.processStartedAt).toISOString() } : {})
   }
 }
 
@@ -2179,7 +2185,10 @@ async function isConservativelyStaleWriter(observed: InspectedWriterLock, staleM
   if (observed.owner.hostname !== hostname().toLocaleLowerCase('en-US')) return false
   // A lock owned by a local process that no longer exists is unambiguously stale.
   // Reclaim it immediately so crash recovery is not blocked by the age threshold.
-  return !isProcessAlive(observed.owner.pid)
+  if (!isProcessAlive(observed.owner.pid)) return true
+  // PID reuse: a live PID with a different startup identity is not the lock owner.
+  // Missing identity is treated conservatively for compatibility with older locks.
+  return observed.owner.processStartedAt !== undefined && observed.owner.processStartedAt !== PROCESS_STARTED_AT
 }
 
 function isProcessAlive(pid: number): boolean {
