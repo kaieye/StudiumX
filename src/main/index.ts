@@ -8,6 +8,7 @@ import { LearningAnalyticsService } from './teaching/services/learning-analytics
 import { LocalDataIndex } from './local-data-index'
 import { TeachingMemoryCatalog } from './teaching-memory-catalog'
 import { registerTeachingIpcGateway } from './teaching-ipc-gateway'
+import { createTeachingTurnCoordinatorHost } from './teaching-turn-coordinator-host'
 import { registerMusicIpcGateway } from './music/music-ipc-gateway'
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
@@ -303,13 +304,22 @@ if (!hasSingleInstanceLock) {
         tray
       }) => {
         registerPreviewProtocol(workspaceService, logger)
+        const turnCoordinatorHost = createTeachingTurnCoordinatorHost({
+          resolveWorkspace: async (workspaceId) => {
+            const state = await workspaceService.getState()
+            const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
+            if (!workspace) return null
+            return { id: workspace.id, rootPath: workspace.rootPath }
+          }
+        })
         registerTeachingIpcGateway({
           workspaceService,
           settingsService,
           skillLibraryService,
           learningAnalyticsService,
           logger,
-          applyAppBehavior: (settings) => applyAppBehavior(settings, tray, logger)
+          applyAppBehavior: (settings) => applyAppBehavior(settings, tray, logger),
+          turnCoordinatorHost
         })
 
         registerMusicIpcGateway()

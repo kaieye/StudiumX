@@ -11,6 +11,8 @@ import {
 } from '../shared/teaching-types/teaching-context'
 import type { TrustedTeachingResourceDescriptor } from '../shared/teaching-types/grounding'
 import type { NextTeachingStepDecision } from '../shared/teaching-types/next-teaching-step'
+import type { ContextProjectionReport } from '../shared/teaching-types/context-projection-report'
+import { buildTeachingContextProjectionReport } from './ai/context-projection-report'
 
 export type TeachingContextAssemblerInput = {
   mission: NormalizedTeachingMission
@@ -24,6 +26,8 @@ export type TeachingContextAssemblerInput = {
 export type TeachingContextAssembly = {
   context: TeachingContext
   grounding: import('../shared/teaching-types/grounding').GroundingPack
+  /** Privacy-safe budget/provenance audit of this assembly (P1-6). */
+  projectionReport: ContextProjectionReport
 }
 
 export interface TeachingContextAssembler {
@@ -59,12 +63,15 @@ export function createTeachingContextAssembler(grounder: ResourceGrounder): Teac
         }
       } satisfies Omit<TeachingContext, 'identity'>
 
+      const context: TeachingContext = {
+        ...contextWithoutIdentity,
+        identity: sha256(JSON.stringify(contextWithoutIdentity))
+      }
+
       return {
         grounding,
-        context: {
-          ...contextWithoutIdentity,
-          identity: sha256(JSON.stringify(contextWithoutIdentity))
-        }
+        context,
+        projectionReport: buildTeachingContextProjectionReport({ context, grounding })
       }
     }
   }

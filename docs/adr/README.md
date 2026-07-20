@@ -35,8 +35,24 @@
 | Recordless outcome（`needs_practice` / `not_evidenced`）以什么为 settlement authority | ADR-0018 |
 | Session audit JSONL 的 V1 wire、exact-retry 与有限 authority 边界 | ADR-0019 |
 | C-4P6 Phase 0 platform profile 与 settlement failure matrix | ADR-0020、ADR-0035 |
+| Agent run 与 Teaching Session 如何分离 | ADR-0021 |
+| 能力就绪如何只读投影且不进 prompt 旁路 | ADR-0022 |
+| Coordinator host sole-writer 与 blocking CI 边界 | ADR-0023 |
+| 工具调用如何 typed 分类 effect 并产出 ToolOutcome | ADR-0024 |
+| 教学配置如何分层解析且不落密钥 | ADR-0025 |
+| Course 如何持久化 Session 顺序而不以 SQLite 为真相 | ADR-0026 |
+| Doctor / Inspector 如何只读诊断且不自动修复 | ADR-0027 |
+| 教学审计如何用 ID correlation 与安全元数据 | ADR-0028 |
+| 学习路径如何只读投影分支而不改 outcome 历史 | ADR-0029 |
+| 长 Session 如何从 ledger 排名 resume 候选 | ADR-0030 |
+| 诊断模式如何查看 events/effects/projection | ADR-0031 |
+| 只读工具如何保守并行 | ADR-0032 |
+| 配置写如何用 fingerprint 乐观并发 | ADR-0033 |
+| 支持包如何预览并经同意后脱敏导出 | ADR-0034 |
+| C-4 P6/P8/P9 受限 close-out 范围 | ADR-0035 |
 | mission_update 的 actionId / private receipt 与 exact retry | ADR-0036 |
 | Direct-UI lesson generation 的 actionId / receipt / exact-retry 边界 | ADR-0037 |
+| Memory readonly dry-run 与 destructive 延期边界 | ADR-0038 |
 ## 已实施决定
 
 | ADR | 主题 | 已实施范围 |
@@ -53,18 +69,33 @@
 | [ADR-0010](0010-evidence-gated-learning-record-cutover.md) | P0 Learning record cutover | 切断 Lesson 生成自动写正式 Learning record；`learningRecordNote` 仅为待验证 evidence/rubric。 |
 | [ADR-0011](0011-evidence-gated-learning-outcome-settlement.md) | P0 outcome settlement | Evidence-gated 的 canonical outcome / Learning record 结算、有序发布、reconcile 和窄 IPC sole-writer 边界。 |
 | [ADR-0012](0012-deterministic-next-teaching-step-planner.md) | P0 next teaching step | 由 outcome / Evidence 导出的确定性 typed 教学动作，而非自由文本推断。 |
-| [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md) | P0 teaching context | provenance allowlist、预算化 context 装配及最小 resource grounding。 |
-| [ADR-0014](0014-learner-safe-teaching-turn-presentation.md) | P0 learner presentation | 教学事实的 learner-safe 四阶段投影、redaction 和 a11y 边界。 |
+| [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md) | P0/P1 teaching context | provenance allowlist、预算化 context、ProjectionReport、multi-adapter ResourceGrounder（含 external_untrusted 边界）。 |
+| [ADR-0014](0014-learner-safe-teaching-turn-presentation.md) | P0/P1 learner presentation | 教学事实的 learner-safe 四阶段投影、redaction、a11y 边界，与封闭 TeachingCommand composer 目录。 |
 | [ADR-0015](0015-canonical-teaching-event-protocol.md) | P1 canonical teaching events | 版本化封闭 event envelope、event bus 与 legacy adapter 边界。 |
 | [ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md) | P0 assessment evaluator | 仅信任绑定、publisher-owned、digest 校验的 assessment artifact，并对不可信输入保守失败。 |
 | [ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md) | P0 Win/Mac release proof | clean-checkout audit、Win/Mac skip 预算、runtime gates 与真实 Electron longitudinal/crash Golden；Linux 产品船与 C-4 完整 migration 不在此声明。 |
 | [ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md) | P0 recordless settlement | `needs_practice` / `not_evidenced` 仅以 `record: null` 的 settlement marker 为 authority；不写 record/outcome/completed Session，且不 promote。 |
 | [ADR-0019](0019-session-audit-v1-wire-contract-and-limited-authority.md) | C-4P9 audit V1 contract | per-conversation audit JSONL 的 V1 wire/identity/exact-retry 与有限 authority；不授权 generic JSONL、rotation、repair 或跨进程 multi-writer。 |
 | [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) | C-4P6 Phase 0 freeze + Phase 1 pointer | 首个目标 macOS APFS strict-candidate profile、I/O inventory、crash/public-result matrix 与 Windows non-strict 边界；后续受限 close-out 见 ADR-0035。 |
+| [ADR-0021](0021-agent-run-state-machine-separate-from-session.md) | P1 Agent run 状态机 | 显式 run lifecycle 与 LearningSession 分离；非法转换拒绝；恢复/取消幂等。 |
+| [ADR-0022](0022-teaching-capability-catalog-read-only-readiness.md) | P1 CapabilityCatalog | 只读 readiness 快照；disabled/unconfigured 不进 prompt；执行仍由 effect policy 复核。 |
+| [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md) | P1 Coordinator host + blocking CI | 多 workspace 薄 host、commit sole-writer 路径；最小 typecheck/security/P0 teaching CI。 |
+| [ADR-0024](0024-typed-tool-dispatcher-effect-policy.md) | P1 Typed ToolDispatcher / Effect Policy | effect 分类与前置授权、严格参数解析、status 为真源的 ToolOutcome；未知工具 fail closed 为 privileged。 |
+| [ADR-0025](0025-teaching-config-resolver-secret-free-layers.md) | P1 TeachingConfigResolver | default/user/workspace/session_override 分层；普通 snapshot 无密钥；字段来源可解释。 |
+| [ADR-0026](0026-course-definition-durable-session-order.md) | P1 CourseDefinition store | per-Course durable 顺序与 status；文件系统仍为 Lesson 发现源；read 无副作用。 |
+| [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md) | P1 Doctor + Workspace Inspector | 只读结构化诊断；repair 仅推荐且 v1 不自动执行；不阻断只读打开。 |
+| [ADR-0028](0028-teaching-audit-correlation-safe-metadata.md) | P1 Audit correlation / privacy | session/turn/operation ID correlation；allowlist 安全元数据；纯函数导出脱敏。 |
+| [ADR-0029](0029-learning-branch-projection.md) | P2 Learning Branch Projection | 只读分支投影；primary + non-canonical alternate；不改 outcome 历史。 |
+| [ADR-0030](0030-session-resume-picker.md) | P2 Session Resume Picker | 对 ledger scan 的排名 resume 候选；无 learner content。 |
+| [ADR-0031](0031-advanced-tech-inspector.md) | P2 Advanced Tech Inspector | 默认 learner_hidden；diagnostic 模式组装脱敏 sections。 |
+| [ADR-0032](0032-conservative-parallel-read-tools.md) | P2 Parallel Read Tools | 仅 effect=read 有界并行；write/privileged denied。 |
+| [ADR-0033](0033-config-optimistic-concurrency.md) | P2 Config Optimistic Concurrency | expectedFingerprint CAS；冲突不静默覆盖。 |
+| [ADR-0034](0034-redacted-support-bundle.md) | P2 Redacted Support Bundle | 预览 + consent-gated 导出；无 raw prompt/secret/完整绝对路径。 |
 | [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) | C-4 P6/P8/P9 scope close-out | P6 仅以 macOS internal APFS runtime-adjacent evidence 结项；P8 Windows strict 以 unsupported/no-go 结项；P9 保持既有 fixed-file audit boundary，不扩张为 strict/generic/cross-process/transaction/public surface。 |
 | [ADR-0036](0036-mission-update-action-receipt-correlation.md) | C-5H mission_update action/receipt | renderer opaque actionId、workspace-private receipt、main-keyed requestTag、typed disposition 与 final-only exact retry；不含 style/agent/CAS UI。 |
 | [ADR-0037](0037-direct-ui-lesson-generation-action-correlation.md) | C-5I direct-UI lesson generation correlation | 仅 direct-UI `generateLesson` / `generateLessonStream`：caller UUID v4 `actionId`、private receipt、HMAC requestTag、status poll 与 fail-closed dispositions；agent path 隔离；不覆盖 mission、C-5H、全局 projection recovery 或 content dedupe。 |
 | [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md) | C-6 readonly dry-run + destructive deferral | 采纳 main-only readonly dry-run intent/receipt preview；readonly preflight/dry-run 不构成 destructive authorization；真实 copy/hold/publish/delete 延期且当前不可分派为实现。 |
+
 ## C-4P6 历史 evidence 与受限结项边界
 
 > 本节保存 ADR-0004 的历史 evidence 范围；**当前工作线 close-out** 以 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 为准，不再作为开放实现 todo。

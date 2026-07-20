@@ -29,6 +29,10 @@ import {
   isDefaultCourseRelativePath,
   normalizeTeachingRelativePath
 } from '../shared/teaching-placement'
+import {
+  CourseDefinitionStore,
+  orderSessionsByCourseDefinition
+} from './course-definition-store'
 
 export { readMissionSummary } from './teaching-workspace/learning-assets-catalog'
 
@@ -76,7 +80,10 @@ export async function buildWorkspaceCatalog(
     { includeRoot: true, includeRootConversation: true, includeLegacyRootConversations: false }
   )
   const fileTree = await buildWorkspaceFileTree(workspace.rootPath, pathMeta)
-  const courses = buildCourseSummaries(workspace, lessons, conversations, pathMeta)
+  const courses = await applyDurableCourseSessionOrder(
+    workspace,
+    buildCourseSummaries(workspace, lessons, conversations, pathMeta)
+  )
   return {
     missionPath: learningAssets.missionPath,
     resourcesPath: learningAssets.resourcesPath,
@@ -95,6 +102,33 @@ export async function buildWorkspaceCatalog(
     referenceCount: learningAssets.referenceCount,
     assetsReady: await fileExists(join(workspace.rootPath, 'assets', 'lesson.css'))
   }
+}
+
+/**
+ * When a durable CourseDefinition is present, restore intentional Session order
+ * without forcing materialization or full-workspace migration.
+ */
+export async function applyDurableCourseSessionOrder(
+  workspace: WorkspaceCatalogWorkspace,
+  courses: TeachingCourseSummary[]
+): Promise<TeachingCourseSummary[]> {
+  const store = new CourseDefinitionStore({
+    workspaceRoot: workspace.rootPath,
+    workspaceName: workspace.name
+  })
+  return Promise.all(
+    courses.map(async (course) => {
+      try {
+        const read = await store.read(course.relativePath)
+        if (!read.definition) return course
+        const sessions = orderSessionsByCourseDefinition(course.sessions, read.definition)
+        return { ...course, sessions }
+      } catch {
+        // Catalog rebuild must stay available if one definition is unreadable.
+        return course
+      }
+    })
+  )
 }
 
 export function buildCourseSummaries(

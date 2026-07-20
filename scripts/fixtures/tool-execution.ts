@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { executeToolCall, parseToolArguments } from '../../src/main/ai/tools/execution'
+import { executeToolCall, parseToolArguments, ToolArgumentParseError } from '../../src/main/ai/tools/execution'
 import type { ToolCall } from '../../src/main/ai/provider-adapter'
 
 function toolCall(name: string, args: string, id = `call-${name}`): ToolCall {
@@ -12,8 +12,8 @@ function toolCall(name: string, args: string, id = `call-${name}`): ToolCall {
 }
 
 assert.deepEqual(parseToolArguments('{"query":"rag","maxResults":3}'), { query: 'rag', maxResults: 3 })
-assert.deepEqual(parseToolArguments('not json'), {})
 assert.deepEqual(parseToolArguments(''), {})
+assert.throws(() => parseToolArguments('not json'), (error: unknown) => error instanceof ToolArgumentParseError)
 
 const ok = await executeToolCall(
   {
@@ -84,5 +84,14 @@ const observed = await executeToolCall(
 )
 assert.equal(observed.isError, false)
 assert.match(observed.content, /"signalForwarded":true/)
+
+const illegalJson = await executeToolCall(
+  {
+    web_search: async () => JSON.stringify({ ok: true })
+  },
+  toolCall('web_search', 'not json')
+)
+assert.equal(illegalJson.isError, true)
+assert.match(illegalJson.content, /合法 JSON|invalid_tool_arguments|工具参数/)
 
 console.log('tool execution rules ok')
