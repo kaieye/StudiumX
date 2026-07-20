@@ -26,6 +26,29 @@ export type {
   AgentRunChildStatus
 } from './agent-run-types'
 
+// Explicit run-state surface (separate from teaching SessionLedger). ID correlation only.
+export {
+  AgentRunStateMachine,
+  createAgentRunStateMachine,
+  transition as transitionAgentRunState,
+  cancelAgentRun,
+  recoverAgentRun,
+  resumeAfterRecovery,
+  projectCheckpointStatusToRunState,
+  projectRunStateToCheckpointStatuses,
+  LEGAL_AGENT_RUN_EDGES,
+  AGENT_RUN_STATES
+} from '../agent-run-state-machine'
+export type {
+  AgentRunState,
+  AgentRunTrigger,
+  AgentRunCommand,
+  AgentRunEvent,
+  TransitionResult,
+  TransitionKind,
+  AgentRunSessionCorrelation
+} from '../agent-run-state-machine'
+
 /**
  * Compatibility facade for the run lifecycle. The operation journal is intentionally exposed as
  * a separate deep module so tool execution depends only on idempotency behaviour, not lifecycle.
