@@ -123,6 +123,9 @@ function isReferenceFile(filePath: string): boolean {
 function isLearningRecordFile(rootPath: string): (filePath: string) => boolean {
   return (filePath) => {
     if (!filePath.toLowerCase().endsWith('.md')) return false
+    const relativePath = toWorkspaceRelativePath(rootPath, filePath)
+    // Durable outcome staging is recovery evidence, never a learner-visible record.
+    if (relativePath.startsWith(`${LEARNING_RECORDS_DIRECTORY}/.learning-outcome-committer-stage/`)) return false
     const name = basename(filePath)
     if (
       name.startsWith('MISSION') ||
@@ -130,6 +133,6 @@ function isLearningRecordFile(rootPath: string): (filePath: string) => boolean {
       name.startsWith('GLOSSARY') ||
       name.startsWith('NOTES')
     ) return false
-    return !isAgentConversationMarkdownRelativePath(toWorkspaceRelativePath(rootPath, filePath))
+    return !isAgentConversationMarkdownRelativePath(relativePath)
   }
 }
