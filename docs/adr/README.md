@@ -34,7 +34,7 @@
 | Win/Mac P0 发布如何证明完成，以及 audit skip 政策 | ADR-0017 |
 | Recordless outcome（`needs_practice` / `not_evidenced`）以什么为 settlement authority | ADR-0018 |
 | Session audit JSONL 的 V1 wire、exact-retry 与有限 authority 边界 | ADR-0019 |
-| C-4P6 Phase 0 platform profile 与 settlement failure matrix | ADR-0020 |
+| C-4P6 Phase 0 platform profile 与 settlement failure matrix | ADR-0020、ADR-0021 |
 
 ## 已实施决定
 
@@ -59,9 +59,12 @@
 | [ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md) | P0 Win/Mac release proof | clean-checkout audit、Win/Mac skip 预算、runtime gates 与真实 Electron longitudinal/crash Golden；Linux 产品船与 C-4 完整 migration 不在此声明。 |
 | [ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md) | P0 recordless settlement | `needs_practice` / `not_evidenced` 仅以 `record: null` 的 settlement marker 为 authority；不写 record/outcome/completed Session，且不 promote。 |
 | [ADR-0019](0019-session-audit-v1-wire-contract-and-limited-authority.md) | C-4P9 audit V1 contract | per-conversation audit JSONL 的 V1 wire/identity/exact-retry 与有限 authority；不授权 generic JSONL、rotation、repair 或跨进程 multi-writer。 |
-| [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) | C-4P6 Phase 0 freeze + Phase 1 pointer | 首个目标 macOS APFS strict-candidate profile、I/O inventory、crash/public-result matrix 与 Windows non-strict 边界；Phase 1 containment/directory-sync 对齐已落地但仍属 unit residual，不关闭 C-4P6。 |
+| [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) | C-4P6 Phase 0 freeze + Phase 1 pointer | 首个目标 macOS APFS strict-candidate profile、I/O inventory、crash/public-result matrix 与 Windows non-strict 边界；后续受限 close-out 见 ADR-0021。 |
+| [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) | C-4 P6/P8/P9 scope close-out | P6 仅以 macOS internal APFS runtime-adjacent evidence 结项；P8 Windows strict 以 unsupported/no-go 结项；P9 保持既有 fixed-file audit boundary，不扩张为 strict/generic/cross-process/transaction/public surface。 |
 
-## C-4P6 evidence 边界（完整 close-out 未关闭）
+## C-4P6 历史 evidence 边界
+
+> 本节保存 ADR-0004 的历史 evidence 范围；当前 close-out status 以 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) 为准。
 
 - **已实施：**仅 S1（`7292bf4` / `e02a086`）的严格有序 publish、受控 reconcile 与失败关闭基础；历史验证为 41 项 unit 和 14 项 integration，不是完整 P6 矩阵。
 - **tests-only historical evidence：**S2 `9847842` 是单一 `after_outcome_publish` restart/reconcile；S3 `1334513` 是 settlement-marker durable-rename `EIO` 后仅补 marker，不能扩大为泛化 `after_manifest_publish`。S4…S194（`e821c69`…`c1fb162`）累积有序发布、marker/record/manifest residual、failure 注入及 commit 前 session/event validation 的 fail-closed 覆盖；没有 production/API/schema/path/order 改动。定向 unit 历史基线为 **1 file、219 tests passed**，不是 full suite。

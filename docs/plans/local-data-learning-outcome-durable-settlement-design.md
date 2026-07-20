@@ -1,6 +1,8 @@
-# C-4P6 Learning outcome durable settlement：剩余关闭工作
+# C-4P6 Learning outcome durable settlement：已结项的历史设计与证据
 
-> **状态：未关闭。** Phase 0 已写入 [ADR-0020](../adr/0020-c4p6-phase0-platform-profile-and-failure-matrix.md)；Phase 1 containment / 单文件 durable publish 对齐已落地（见下）。已实施 production / tests-only 历史证据以 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 为准；authority 语义以 [ADR-0011](../adr/0011-evidence-gated-learning-outcome-settlement.md) / [ADR-0018](../adr/0018-recordless-learning-outcome-marker-only-settlement-authority.md) 为准。本文**只**保留 Phase 3–4 尚未关闭的实现与证据门。Phase 2 实现/unit/process 证据见下。
+> **状态：已结项。** [ADR-0021](../adr/0021-c4-p6-p8-p9-closeout-scope-decisions.md) 接受 `P6-macOS-local-APFS-strict-candidate` 的受限 close-out；本文保留为历史 design/evidence 基线，不再是开放实现入口。它不扩大为 Windows strict、transaction、reboot 或 power-loss claim。
+
+> **历史状态：未关闭。** Phase 0 已写入 [ADR-0020](../adr/0020-c4p6-phase0-platform-profile-and-failure-matrix.md)；Phase 1 containment / 单文件 durable publish 对齐已落地（见下）。已实施 production / tests-only 历史证据以 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 为准；authority 语义以 [ADR-0011](../adr/0011-evidence-gated-learning-outcome-settlement.md) / [ADR-0018](../adr/0018-recordless-learning-outcome-marker-only-settlement-authority.md) 为准。本文**只**保留 Phase 3–4 尚未关闭的实现与证据门。Phase 2 实现/unit/process 证据见下。
 
 ## 1. 关闭定义（仍有效）
 

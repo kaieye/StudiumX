@@ -1,6 +1,8 @@
-# C-4P9 fixed-file audit append：capability/result contract proposal
+# C-4P9 fixed-file audit append：capability/result contract proposal（已归档）
 
-> **状态：待 owner 批准；不授权 writer、archive caller/order、generic JSONL、repair、rotation、IPC/UI 或跨文件实现。**
+> **状态：不采纳为新的 implementation slice。** [ADR-0021](../adr/0021-c4-p6-p8-p9-closeout-scope-decisions.md) 已结项当前 fixed-file scope；本文保留为未来若重新提出扩张时的候选 failure vocabulary。
+
+> **历史状态：待 owner 批准；不授权 writer、archive caller/order、generic JSONL、repair、rotation、IPC/UI 或跨文件实现。**
 >
 > 本提案只选择 P9-2 的单一问题：为现有 per-conversation fixed `.jsonl` append 定义主进程内部 capability/result vocabulary。它不关闭 P9，也不把现有 `Promise<void>` + warning 行为改写为已批准的 caller behavior 或 public result。
 

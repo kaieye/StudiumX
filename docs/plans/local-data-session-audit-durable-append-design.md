@@ -1,6 +1,8 @@
-# C-4P9 Session-audit durable append：可实施设计、边界与验收门
+# C-4P9 Session-audit durable append：已结项 fixed-file scope 的历史设计
 
-> **状态：未关闭；本文是后续切片的设计基线，不是实现授权，也不宣告 C-4P9 complete。**
+> **状态：已结项（不扩张现有 fixed-file audit boundary）。** [ADR-0021](../adr/0021-c4-p6-p8-p9-closeout-scope-decisions.md) 明确拒绝把该 scope 扩张为 strict durable profile、generic JSONL、repair、rotation、cross-process support、transaction 或 public surface；本文保留为未来独立 proposal 的设计基线。
+
+> **历史状态：未关闭；本文是后续切片的设计基线，不是实现授权，也不宣告 C-4P9 complete。**
 >
 > V1 wire、identity、exact-retry 与有限 authority 见 [ADR-0019](../adr/0019-session-audit-v1-wire-contract-and-limited-authority.md)。S2 生产 durable append 与 S3…S45 tests-only 证据见 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 和 [ADR 索引中的 P9 证据说明](../adr/README.md)。待办入口：[本地数据待办（P9）](../local-data-todo.md)。本文件不维护已关闭实现细节或测试台账。
 

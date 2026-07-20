@@ -1,6 +1,6 @@
 # 本地数据：未关闭工作的分派入口
 
-> **用途。** 本文只记录尚未关闭或尚未批准的本地数据工作：先确认 blocker、依赖和验收门，再进入对应 design gate；design gate 获批后才可另立实现任务。
+> **用途。** 本文只记录尚未关闭或尚未批准的本地数据工作。已结项的 C-4P6/P8/P9 scope decisions 见 [ADR-0021](adr/0021-c4-p6-p8-p9-closeout-scope-decisions.md)。
 >
 > **已完成内容。** 已实施决定、受限 production scope 和验证入口以 [ADR 索引](adr/README.md)为准。本页不维护已关闭切片、实现细节、测试编号或提交台账，也不把局部 durable、trace 或 readonly preflight 误作完整 close-out、action identity、receipt 或 transaction。
 
@@ -8,9 +8,6 @@
 
 | 工作流 | 状态 | 当前可分派范围 | 既有边界 |
 | --- | --- | --- | --- |
-| C-4P8 Windows strict durable profile | **未关闭：capability feasibility blocker** | 仅 strict profile 的平台/原语审计与设计。 | [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)；既有较弱 profile 不是 strict 关闭证据。 |
-| C-4P6 learning-outcome durable settlement | **未关闭**（Phase 0+1+2 已落地） | Phase 3：host-native APFS profile 证据；Phase 4 ops/runbook。 | [ADR-0020](adr/0020-c4p6-phase0-platform-profile-and-failure-matrix.md)、[ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0011](adr/0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0018](adr/0018-recordless-learning-outcome-marker-only-settlement-authority.md)；不得声称 transaction 或完整 settlement。 |
-| C-4P9 session-audit durable append | **未关闭** | 每次仅分解并批准一个 generic JSONL、repair、rotation、跨文件或 operations contract。 | [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0019](adr/0019-session-audit-v1-wire-contract-and-limited-authority.md)；不得把 audit scope 扩大为 generic JSONL 或 transaction。 |
 | C-5H workspace user mutation correlation | **未批准、未实现** | 先作 mission-first 的产品/API/privacy/operations 决策。 | [ADR-0005](adr/0005-main-owned-trace-correlation-and-safe-logs.md)；trace 不是 caller action identity 或 receipt。 |
 | C-5I direct-UI lesson generation correlation | **NO-GO：未批准、未实现** | 先作 direct-UI action/retry/provider/receipt 决策。 | [ADR-0005](adr/0005-main-owned-trace-correlation-and-safe-logs.md)；不得把现有标识或 artifact 能力当 retry 证明。 |
 | C-6 controlled legacy Memory migration | **真实 destructive migration 未关闭、未批准** | 仅治理、capability 与 recovery 设计；获单独批准时才可讨论 readonly dry-run intent/receipt preview。 | [ADR-0006](adr/0006-scoped-memory-partition-and-readonly-migration-preflight.md)；readonly preflight 不构成 destructive authorization。 |
@@ -50,43 +47,6 @@
 6. ADR、对应 plan 和本页状态一致，并明确保留未包含的范围。
 
 ## 3. 开放工作流
-
-### C-4P8：Windows strict durable profile
-
-- **硬 blocker：**需要可审计的 Windows/NTFS publish primitive，在**实际 publish 点**施加 expected-target identity precondition（S3）。只在 publish 前读取 file ID 不能消除 inspect-to-publish race，不能关闭该 blocker。
-- **当前 capability audit：**[Windows strict durable profile capability audit](plans/windows-strict-durable-profile-capability-audit.md) 审计到的 Win32 public primitives 没有可在 publish 点接受 expected `FILE_ID_INFO` 的 compare-and-publish precondition；因此 `P8-Windows-NTFS-strict` 仍为 **unsupported**，现有 native `_WIN32` fail-closed boundaries（descriptor-relative operations use `ENOTSUP`; publication entrypoints may use explicit unavailable errors）不得替换为 pathname fallback 或 preflight-only check。
-- **依赖与顺序：**
-  1. 明确目标 Windows/NTFS（及支持的 storage）、Node/Electron/runtime 范围、strict 的可观察承诺和不支持时的 fail-closed result；
-  2. 审计 HANDLE-relative、reparse-point/junction-safe parent traversal、final-leaf inspection，以及 atomic no-overwrite/restricted-overwrite（或 exchange）的 native API；
-  3. 证明或否定 S3 identity-precondition primitive，并定义 metadata、file/parent-directory flush、close error 语义；
-  4. 定义 reparse/leaf replacement、sharing/antivirus/lock、rename、flush/close、crash 的 adversarial matrix 与 host-native CI/reboot/power-loss 验证。
-- **可分派的下一项：**在第 1 项获 owner 批准后，单独进行 native capability/audit 原型与 negative tests；原型未证明 S3 precondition 时，结论必须是“不支持 strict profile”，不得用降级实现关闭。
-- **验收：**只有 end-to-end strict containment、publish-point identity precondition、获批的 atomic publish contract、目录 durability/error semantics 和目标 Windows host-native evidence 全部成立，才可关闭；否则保留为 blocker。
-
-### C-4P6：learning-outcome durable settlement close-out
-
-- **设计门：**[P6 剩余关闭工作](plans/local-data-learning-outcome-durable-settlement-design.md)。Phase 0 profile/matrix 已冻结于 [ADR-0020](adr/0020-c4p6-phase0-platform-profile-and-failure-matrix.md)。既有 authority、sole-writer 与受控 reconcile 以 [ADR-0011](adr/0011-evidence-gated-learning-outcome-settlement.md) 为准；recordless marker-only 见 [ADR-0018](adr/0018-recordless-learning-outcome-marker-only-settlement-authority.md)；局部 durable scope 不构成 P6 close-out，见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。
-- **Phase 0 已关闭（决策 only，无生产变更）：**首个目标 `P6-macOS-local-APFS-strict-candidate`；Windows 为 degraded non-strict；pathname `replaceDurably` / ledger manifest / immutable record 的 publisher 边界与 directory-sync 不对齐已入库；不扩展 public IPC enum。
-- **Phase 1 已落地（实现 + unit，非 close-out）：**共享 `settlement-directory-sync` allowlist；committer outcome/marker 经 `replaceContainedSettlementFile`；ledger 移除 EPERM/EACCES soft-downgrade；immutable record 仍 strict；`settlement-durable-io` unit + committer 219 / durable-file / ledger unit 绿。
-- **Phase 2 已落地（实现 + unit/process，非 close-out）：**可归属 non-authority stage cleanup（不 promote）；cleanup failure soft/pending；recordless restart matrix；fresh-process integration worker；committer unit **222** + process integration **2** 绿。
-- **Phase 3 已有 host-native evidence（非 close-out）：**`node scripts/verify-c4p6-host-native.mjs` 在 macOS internal APFS 上以 Electron embedded Node 运行 fresh-process crash/restart matrix，并输出 OS/FS/Node/Electron/volume profile；Windows strict/power-loss 仍非本项关闭条件（见 C-4P8）。
-- **Phase 4 runbook 已交付（非 close-out）：**[operations runbook](operations/c4p6-learning-outcome-durable-settlement-runbook.md) 定义安装、restart、capacity、permission/lock、residual 与人工 review。
-- **仍缺：**operations/support/release owner 对 runbook 和 profile evidence 的 acceptance，以及对 ADR-0004、ADR-0020、计划和本页的最终 close-out 审核。该入口不构成 reboot/power-loss 证据。
-- **可分派的下一项：**Phase 3 host-native / runtime-adjacent crash-restart（对照 ADR-0020）；禁止 schema/IPC enum/transaction/delete。
-- **验收：**Phase 3–4 对照 ADR-0020 matrix 与计划验收全部通过后，才可关闭 C-4P6 并删除计划文件。
-
-### P9：session-audit durable append
-
-- **设计门：**[P9 详细设计门](plans/local-data-session-audit-durable-append-design.md)。V1 wire/identity/exact-retry 与有限 authority 见 [ADR-0019](adr/0019-session-audit-v1-wire-contract-and-limited-authority.md)；局部 durable scope 见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。任何扩展不得改变既有 authority 或兼容边界，除非先获批准。
-- **当前单一 proposal：**[fixed-file capability/result contract proposal](plans/c4p9-fixed-file-capability-result-proposal.md) 只准备 P9-2 的 main-internal disposition/failure matrix；它仍待 platform、single-writer、archive-caller 与 operations owner 批准，未授权 writer、archive order/caller behavior、IPC/UI、generic JSONL、rotation 或 repair 改动。
-- **当前 P9-2 尚缺的批准输入（按该阶段顺序）：**
-  1. **capability/failure contract：**逐 I/O phase 给出 supported/degraded/fatal、possibly-appended、privacy-safe diagnostic 和唯一 recovery；
-  2. **profile / writer contract：**批准目标 OS/runtime/filesystem/storage profile，并选择可证明的 single-writer exclusion 或单独设计 multi-process protocol；当前不得宣称 cross-process support；
-  3. **archive caller / operations contract：**明确 degraded internal result 是否保持现有 warning-and-continue 行为，以及 observability、runbook、capacity、concurrency 与验收 owner；不得把该选择称为跨文件 transaction；
-  4. **host evidence：**仅对拟声明支持的 profile 取得 file/directory flush/close、crash/restart、two-process negative test；Windows/power-loss 声明需要独立实证。
-- **独立可选后续（不是 P9-2 前置或授权）：**generic JSONL/rotation/repair 仅在产品另有需求时进入 P9-5，并先批准 generic API、audit compatibility、migration/reader/operator contract；任何超出 ordered best-effort 的跨文件语义或任何 IPC/UI surface 也必须另立 proposal 审批。
-- **可分派的下一项：**每次只选择一项 contract，先做 decision/failure matrix；不得将 generic migration、rotation、repair、IPC/UI 或跨文件语义顺带塞进 audit writer 改动。
-- **验收：**所有扩大 scope 均有批准的 API/compatibility/operations contract 和相应 host-native evidence；不得以既有 audit 能力或局部测试替代这些证据。
 
 ### C-5H：workspace user mutation correlation（mission-first）
 
@@ -128,9 +88,6 @@
 
 | 需求 | 未满足的依赖/约束 |
 | --- | --- |
-| Windows strict P8 | 目标平台定义、native S3 identity-precondition primitive 与 host-native evidence。 |
-| P6 manifest/settlement closure | 已批准的 session-directory capability、authority、逐 phase recovery 与 operations contract。 |
-| P9 generic/repair/rotation 或跨文件语义 | audit compatibility、generic API、failure matrix、archive/ledger authority 与 operations approval。 |
 | P5H/P5I exact retry | 产品/API/privacy 对 actionId、receipt、provider 与 recovery 的共同决定；每个 producer 保持独立 scope。 |
 | C-6 destructive migration | governance/explicit confirmation、descriptor-bound copy/delete/durability capability 与 recovery ownership。 |
 

@@ -1,6 +1,8 @@
-# C-4P8 Windows strict durable profile：capability audit（未获批准的设计证据）
+# C-4P8 Windows strict durable profile：capability audit（已结项的 no-go 证据）
 
-> **状态：blocker confirmed；不实施 Windows strict writer。** 本文记录 C-4P8 下一设计门所需的 native capability audit。它不是 strict-support 声明、运行时降级实现授权，亦不改变既有 non-strict Windows 行为。
+> **状态：已结项为 unsupported / no-go。** [ADR-0021](../adr/0021-c4-p6-p8-p9-closeout-scope-decisions.md) 采纳本 audit 的结论：当前不实施 Windows strict writer；本文保留为未来独立 proposal 的 capability evidence。
+
+> **历史状态：blocker confirmed；不实施 Windows strict writer。** 本文记录 C-4P8 下一设计门所需的 native capability audit。它不是 strict-support 声明、运行时降级实现授权，亦不改变既有 non-strict Windows 行为。
 
 ## 1. Scope and target
 
