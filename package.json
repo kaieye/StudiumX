@@ -120,7 +120,8 @@
     "prebuild": "pnpm run build:contained-durable-replace",
     "predev": "pnpm run build:contained-durable-replace",
     "pretest:unit": "pnpm run rebuild:better-sqlite3:node && pnpm run build:contained-durable-replace",
-    "audit:release": "node scripts/release-audit.mjs"
+    "audit:release": "node scripts/release-audit.mjs",
+    "check:teaching-capability-catalog": "node scripts/check-teaching-capability-catalog.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
