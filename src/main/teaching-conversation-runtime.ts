@@ -18,7 +18,7 @@ import {
   lessonGenerationRunBudget
 } from './teaching-conversation-lesson-tool'
 import { createConversationPermissionResolver } from './teaching-conversation-permissions'
-import { buildAgentChatSystemPrompt, type TemporaryChatContext } from './teaching-conversation-prompt'
+import { buildSessionStablePrefix, composeTeachingUserTurn, type TemporaryChatContext } from './teaching-conversation-prompt'
 import { collapseConsecutiveAssistantTurns, sanitizeAgentTurnContent } from '../shared/agent-conversation-turns'
 import { buildLearnerMemoryCandidate, planLearnerMemoryCapture } from '../shared/teaching-memory-capture'
 import type { LessonBrief } from '../shared/teaching-workflow'
@@ -51,7 +51,7 @@ export type TeachingConversationRuntimeWorkspace = {
 }
 
 export type { TemporaryChatContext } from './teaching-conversation-prompt'
-export { buildAgentChatSystemPrompt } from './teaching-conversation-prompt'
+export { buildAgentChatSystemPrompt, buildSessionStablePrefix, composeTeachingUserTurn } from './teaching-conversation-prompt'
 
 export type TeachingConversationRuntimeStream = {
   streamId: string
@@ -313,23 +313,24 @@ async function runTeachingConversationTurnActive(
   const priorMessagesWithTurnIds = priorMessages
     .map((message, index) => ({ message, turnId: priorMessageTurnIds[index] }))
     .filter(({ message }) => message.role !== 'system')
+  const promptOptions = {
+    mode: conversation.mode,
+    lessonToolEnabled: lessonTool.enabled,
+    skillReferences,
+    memoryCapturePlan: capturePlan,
+    existingMemories,
+    settings,
+    provider,
+    temporaryContext,
+    visiblePageContext: payload.context
+  } as const
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: buildAgentChatSystemPrompt({
-        mode: conversation.mode,
-        lessonToolEnabled: lessonTool.enabled,
-        skillReferences,
-        memoryCapturePlan: capturePlan,
-        existingMemories,
-        settings,
-        provider,
-        temporaryContext,
-        visiblePageContext: payload.context
-      })
+      content: buildSessionStablePrefix(promptOptions)
     },
     ...priorMessagesWithTurnIds.map(({ message }) => message),
-    { role: 'user', content: userInput }
+    { role: 'user', content: [composeTeachingUserTurn(promptOptions), userInput].filter(Boolean).join('\n\n') }
   ]
   const messageTurnIds = [
     undefined,
