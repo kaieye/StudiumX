@@ -49,4 +49,7 @@ node scripts/release-audit.mjs --output D:\release-evidence\p0-clean-checkout-au
 
 Domain modules (ADR-0008…0016) were already implemented. With inventoried Win/Mac platform skips, green clean-checkout audit, and real Electron longitudinal + crash/restart Golden at `--repeat-each=3`, the remaining release proof in `sx-p0-remaining-work-execution-plan.md` is closed.
 
-**Final integration hash:** `a797f07a65ed7a598bb96d1666e496fcf0275f67`
+**Final integration hash (code + release policy):** `a797f07a65ed7a598bb96d1666e496fcf0275f67`
+
+**Tip docs hash (re-audited green):** `7aa205fa2337d8290038274046f4f97118b635db`  
+Tip evidence: `D:\release-evidence\p0-clean-checkout-audit-tip.json` SHA-256 `864cb291ab37b44bab07322ed9ee4ba37b10d00549adc1b33b9929b4ef00afd6`

@@ -85,3 +85,17 @@ Zero unknown skips. Zero non-zero exits.
 | Manifest SHA-256 | `e1802af6d0b80a53a982fb3309adc2ea93773ec1bee5b9c02cbb5be56dcd75e4` |
 
 Historical drafts under `*-2026-07-19-draft.md` are not this proof.
+## 6. Tip re-audit
+
+After landing the non-draft docs at `7aa205fa2337d8290038274046f4f97118b635db` (documentation only; no product/gate code change relative to `a797f07`), the same auditor was re-run:
+
+```powershell
+node scripts/release-audit.mjs --output D:\release-evidence\p0-clean-checkout-audit-tip.json
+```
+
+- `passed`: true
+- `commitSha`: `7aa205fa2337d8290038274046f4f97118b635db`
+- Manifest SHA-256: `864cb291ab37b44bab07322ed9ee4ba37b10d00549adc1b33b9929b4ef00afd6`
+- unknown skips: none
+
+Release **code/policy** hash remains `a797f07`; tip docs hash is also clean-audit green.

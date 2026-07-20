@@ -111,3 +111,4 @@ Win/Mac P0 release proof closed at `a797f07a65ed7a598bb96d1666e496fcf0275f67`.
 - Handoff / risks: [docs/release/p0-release-handoff-2026-07-20.md](../release/p0-release-handoff-2026-07-20.md)
 - Skip inventory: [docs/release/p0-windows-platform-skip-inventory.md](../release/p0-windows-platform-skip-inventory.md)
 - Manifest (host path): `D:\release-evidence\p0-clean-checkout-audit.json` SHA-256 `e1802af6d0b80a53a982fb3309adc2ea93773ec1bee5b9c02cbb5be56dcd75e4`
+- Tip re-audit at 7aa205fa2337d8290038274046f4f97118b635db: passed: true (D:\\release-evidence\\p0-clean-checkout-audit-tip.json)
