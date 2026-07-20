@@ -90,6 +90,7 @@
     "check:teaching-git-guards": "node scripts/check-teaching-git-guards.mjs",
     "check:workspace-changes": "node scripts/check-workspace-changes.mjs",
     "check:workspace-change-history": "node scripts/check-workspace-change-history.mjs",
+    "check:teaching-workspace-inspector": "node scripts/check-teaching-workspace-inspector.mjs",
     "check:web-search-providers": "node scripts/check-web-search-providers.mjs",
     "check:web-fetch-safe-url": "node scripts/check-web-fetch-safe-url.mjs",
     "check:external-link-controls": "node scripts/check-external-link-controls.mjs",
