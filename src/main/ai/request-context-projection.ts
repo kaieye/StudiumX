@@ -12,8 +12,13 @@ import {
   requestHistoryHygieneDiagnostic,
   type RequestHistoryHygieneOptions
 } from './request-history-hygiene'
+import {
+  buildRequestContextProjectionReport,
+  type ContextProjectionReport
+} from './context-projection-report'
 
 export type { ContextCompactionOptions } from './context-compactor'
+export type { ContextProjectionReport } from './context-projection-report'
 
 export type RequestContextProjectionTrace =
   | {
@@ -30,6 +35,8 @@ export type RequestContextProjectionTrace =
 export type RequestContextProjection = {
   messages: ChatMessage[]
   trace: RequestContextProjectionTrace[]
+  /** Privacy-safe budget/provenance audit of this projection (P1-6). */
+  report: ContextProjectionReport
 }
 
 export type RequestContextProjectorOptions = {
@@ -55,16 +62,18 @@ export class RequestContextProjector {
   private readonly compactor: ContextCompactor
   private readonly hygiene: RequestHistoryHygieneOptions
   private readonly onTrace?: (event: RequestContextProjectionTrace) => void
+  private readonly contextWindowTokens: number
 
   constructor(options: RequestContextProjectorOptions) {
     this.estimator = new ContextEstimator()
     this.hygiene = options.hygiene ?? {}
     this.onTrace = options.onTrace
+    this.contextWindowTokens =
+      options.compaction?.contextWindowTokens ?? inferContextWindowTokens(options.modelId, options.provider)
     this.compactor = new ContextCompactor({
       estimator: this.estimator,
       enabled: options.compaction?.enabled ?? true,
-      contextWindowTokens:
-        options.compaction?.contextWindowTokens ?? inferContextWindowTokens(options.modelId, options.provider),
+      contextWindowTokens: this.contextWindowTokens,
       softThresholdTokens: options.compaction?.softThresholdTokens,
       hardThresholdTokens: options.compaction?.hardThresholdTokens,
       softThresholdRatio: options.compaction?.softThresholdRatio,
@@ -103,6 +112,14 @@ export class RequestContextProjector {
     })
     for (const event of compaction.events) recordTrace(event)
     recordTrace({ type: 'context_estimated', estimate: compaction.estimateAfter })
-    return { messages: compaction.messages, trace }
+    const report = buildRequestContextProjectionReport({
+      transcriptLength: transcript.length,
+      projectedMessages: compaction.messages,
+      tools,
+      estimate: compaction.estimateAfter,
+      contextWindowTokens: this.contextWindowTokens,
+      trace
+    })
+    return { messages: compaction.messages, trace, report }
   }
 }
