@@ -1653,7 +1653,8 @@ export class TeachingWorkspaceService {
     }
 
     const ledger = createLearningSessionLedger({ workspaceRoot: workspace.rootPath })
-    const session = await ledger.load(lesson.sessionId)`r`n    if (!isCanonicalWritableLessonSession(session, workspace, lesson)) return result
+    const session = await ledger.load(lesson.sessionId)
+    if (!isCanonicalWritableLessonSession(session, workspace, lesson)) return result
 
     const assessment = session?.lessonRef?.assessment
     if (!assessment) return result
