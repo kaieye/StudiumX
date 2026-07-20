@@ -15,6 +15,9 @@ This contract is the reviewable inventory of registered teaching tools. `scripts
 | `glob_workspace` | `read` | Snip bounded matching relative paths; omit protected paths | Read-only, bounded glob. |
 | `read_skill_resource` | `read` | Snip bounded skill-resource content | Resource access is read-only and bounded. |
 | `write_workspace_file` | `workspace_write` | No content snip in policy/audit; project only safe relative artifact metadata | Durable publisher, workspace containment, approval gate, and no-clobber/restricted-overwrite rules apply. |
+| `memory_search` | `read` | Snip bounded hits (id/title/snippet/meta); never bake into system prefix | Main-only lexical search over teaching memory and authorized local notes; no SQLite FTS. |
+| `remember_teaching_memory` | `workspace_write` | Project only id/scope/title metadata; body is not auto-projected | Human-approved synthetic teaching memory; prefix may index title+scope only. |
+| `forget_teaching_memory` | `workspace_write` | Project only id/tombstone metadata | Human-approved soft-delete of teaching-synthetic memories only. |
 | `web_search` | `external_write` | Snip bounded external results with provenance; treat content as untrusted | Network access is externally observable and provider-configured. |
 | `web_fetch` | `external_write` | Snip bounded fetched text with provenance; treat content as untrusted | Public HTTP(S) safety checks and redirect/DNS validation apply. |
 

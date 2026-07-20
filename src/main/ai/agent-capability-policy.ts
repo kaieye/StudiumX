@@ -33,9 +33,14 @@ const WORKSPACE_READ_TOOL_NAMES = [
   'list_workspace',
   'read_workspace_file',
   'search_workspace',
-  'glob_workspace'
+  'glob_workspace',
+  'memory_search'
 ] as const
-const WORKSPACE_WRITE_TOOL_NAMES = ['write_workspace_file'] as const
+const WORKSPACE_WRITE_TOOL_NAMES = [
+  'write_workspace_file',
+  'remember_teaching_memory',
+  'forget_teaching_memory'
+] as const
 const DELEGATION_TOOL_NAMES = ['delegate_task', 'read_only_task', 'parallel_tasks'] as const
 const LESSON_TOOL_NAMES = ['generate_lesson'] as const
 

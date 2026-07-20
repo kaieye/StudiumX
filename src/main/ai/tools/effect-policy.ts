@@ -27,10 +27,15 @@ const WORKSPACE_READ_TOOLS = new Set([
   'search_workspace',
   'glob_workspace',
   'read_skill_resource',
-  'read_only_task'
+  'read_only_task',
+  'memory_search'
 ])
 
-const WORKSPACE_WRITE_TOOLS = new Set(['write_workspace_file'])
+const WORKSPACE_WRITE_TOOLS = new Set([
+  'write_workspace_file',
+  'remember_teaching_memory',
+  'forget_teaching_memory'
+])
 
 const EXTERNAL_WRITE_TOOLS = new Set(['web_search', 'web_fetch'])
 

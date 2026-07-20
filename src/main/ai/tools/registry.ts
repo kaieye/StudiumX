@@ -273,17 +273,25 @@ async function resolveToolPermission(
 ): Promise<ToolPermissionDecision> {
   if (request.kind !== 'workspace_write') return { decision: 'allow_once' }
 
-  switch (ctx.settings.tools.approvalMode) {
-    case 'full_access':
-      return { decision: 'allow_for_run' }
-    case 'based_on_approval':
-      // Creating a new in-workspace text file is reversible and constrained by
-      // the workspace path guard. Replacing an existing file remains a risk and
-      // therefore flows through the same explicit approval mechanism below.
-      if (request.creates === true) return { decision: 'allow_for_run' }
-      break
-    case 'request_approval':
-      break
+  // Synthetic teaching memory mutations always require human approval
+  // (Slice F / ADR-0046). Prior run grants still apply after an explicit allow.
+  const requiresHumanMemoryApproval =
+    request.toolName === 'remember_teaching_memory' ||
+    request.toolName === 'forget_teaching_memory'
+
+  if (!requiresHumanMemoryApproval) {
+    switch (ctx.settings.tools.approvalMode) {
+      case 'full_access':
+        return { decision: 'allow_for_run' }
+      case 'based_on_approval':
+        // Creating a new in-workspace text file is reversible and constrained by
+        // the workspace path guard. Replacing an existing file remains a risk and
+        // therefore flows through the same explicit approval mechanism below.
+        if (request.creates === true) return { decision: 'allow_for_run' }
+        break
+      case 'request_approval':
+        break
+    }
   }
 
   if (await ctx.permissionGrants.allows(request, ctx)) return { decision: 'allow_for_run' }

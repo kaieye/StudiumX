@@ -13,6 +13,7 @@ import { createAndSwitchGitBranchForWorkspace, getGitBranchesForWorkspace, listG
 import {
   decodeToolAnswerPayload, optionalString, parseAgentChatStreamPayload, parseApplyLessonStylePayload,
   parseCommitLearningOutcomeRequest, parseCreateAgentConversationCheckpointPayload,
+  parseListAgentWriteRewindJournalPayload, parseRestoreAgentWriteRewindPayload,
   parseForkAgentConversationBranchPayload, parseOpenAgentConversationBranchPayload,
   parseCreateMemoryPayload, parseCreateWorkspacePayload, parseDirectLessonActionStatusPayload, parseGenerateLessonPayload, parseGitBranchPayload,
   parseListUpstreamModelsPayload, parseNotificationPayload, parseProbeProviderPayload,
@@ -355,6 +356,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({ channel: teachingInvokeChannels.updateAgentConversationBranchStatus, parser: (payload) => parseUpdateAgentConversationBranchStatusPayload(payload), action: async (_event, payload) => { const result = await service.updateAgentConversationBranchStatus(payload); analytics.invalidate(['conversation']); return result }, reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.createAgentConversationCheckpoint, parser: (payload) => parseCreateAgentConversationCheckpointPayload(payload), action: (_event, payload) => service.createAgentConversationCheckpoint(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.resolveAgentConversationCheckpoint, parser: (payload) => parseResolveAgentConversationCheckpointPayload(payload), action: (_event, payload) => service.resolveAgentConversationCheckpoint(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.restoreAgentWriteRewind, parser: (payload) => parseRestoreAgentWriteRewindPayload(payload), action: (_event, payload) => service.restoreAgentWriteRewind(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.listAgentWriteRewindJournal, parser: (payload) => parseListAgentWriteRewindJournalPayload(payload), action: (_event, payload) => service.listAgentWriteRewindJournal(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.queryAgentArchivedHistory, parser: (payload) => parseQueryAgentArchivedHistoryPayload(payload), action: (_event, payload) => service.queryAgentArchivedHistory(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.rebuildAgentHistoryIndex, parser: (payload) => parseRebuildAgentHistoryIndexPayload(payload), action: (_event, payload) => service.rebuildAgentHistoryIndex(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.setWorkspaceItemMeta, parser: (payload) => parseWorkspaceItemMetaPayload(payload), action: (_event, payload) => service.setWorkspaceItemMeta(payload), reply: identityReply, streamCleanup: noStreamCleanup }),

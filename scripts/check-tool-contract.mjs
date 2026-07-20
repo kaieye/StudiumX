@@ -10,6 +10,7 @@ const registrySources = await Promise.all([
   'src/main/ai/tools/delegation.ts',
   'src/main/ai/tools/skill-resource.ts',
   'src/main/ai/tools/workspace.ts',
+  'src/main/ai/tools/memory-tools.ts',
   'src/main/ai/tools/web_fetch.ts',
   'src/main/ai/tools/web_search.ts',
   'src/main/teaching-conversation-lesson-tool.ts'

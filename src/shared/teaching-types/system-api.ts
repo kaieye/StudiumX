@@ -16,6 +16,10 @@ import type {
   OpenAgentConversationBranchPayload,
   OpenAgentConversationBranchResult,
   CreateAgentConversationCheckpointPayload,
+  ListAgentWriteRewindJournalPayload,
+  ListAgentWriteRewindJournalResult,
+  RestoreAgentWriteRewindPayload,
+  RestoreAgentWriteRewindResult,
   QueryAgentArchivedHistoryPayload,
   QueryAgentArchivedHistoryResult,
   RebuildAgentHistoryIndexPayload,
@@ -185,6 +189,9 @@ export type TeachingSystemApi = {
   updateAgentConversationBranchStatus: (payload: UpdateAgentConversationBranchStatusPayload) => Promise<UpdateAgentConversationBranchStatusResult>
   createAgentConversationCheckpoint: (payload: CreateAgentConversationCheckpointPayload) => Promise<AgentConversationCheckpoint>
   resolveAgentConversationCheckpoint: (payload: ResolveAgentConversationCheckpointPayload) => Promise<ResolveAgentConversationCheckpointResult>
+  /** Rewind tool workspace writes for one agent run. Not a conversation prefix checkpoint. */
+  restoreAgentWriteRewind: (payload: RestoreAgentWriteRewindPayload) => Promise<RestoreAgentWriteRewindResult>
+  listAgentWriteRewindJournal: (payload: ListAgentWriteRewindJournalPayload) => Promise<ListAgentWriteRewindJournalResult>
   queryAgentArchivedHistory: (payload: QueryAgentArchivedHistoryPayload) => Promise<QueryAgentArchivedHistoryResult>
   rebuildAgentHistoryIndex: (payload: RebuildAgentHistoryIndexPayload) => Promise<RebuildAgentHistoryIndexResult>
   setWorkspaceItemMeta: (payload: WorkspaceItemMetaPayload) => Promise<TeachingAppState>

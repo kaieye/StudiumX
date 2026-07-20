@@ -693,6 +693,41 @@ export type ResolveAgentConversationCheckpointResult = {
   artifactsHydrated: false
 }
 
+/**
+ * Human-facing rewind of tool workspace writes for one agent run.
+ * Distinct from conversation prefix checkpoints (those restore turns, not file pre-images).
+ */
+export type RestoreAgentWriteRewindPayload = {
+  workspaceId: string
+  /** Agent run / stream id that journaled write_workspace_file pre-images. */
+  runId: string
+}
+
+export type RestoreAgentWriteRewindResult = {
+  /** Copy-safe label: tool-write rewind, not conversation checkpoint. */
+  kind: 'tool_write_rewind'
+  runId: string
+  restored: string[]
+  deleted: string[]
+  skipped: Array<{ path: string; reason: string }>
+}
+
+export type ListAgentWriteRewindJournalPayload = {
+  workspaceId: string
+  runId: string
+}
+
+export type ListAgentWriteRewindJournalResult = {
+  kind: 'tool_write_rewind_journal'
+  runId: string
+  entries: Array<{
+    relativePath: string
+    capturedAt: string
+    existed: boolean
+    bytes: number
+  }>
+}
+
 export type AgentArchivedHistoryItemType =
   | 'conversation_turn'
   | 'session_sidecar'
