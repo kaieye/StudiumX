@@ -871,3 +871,110 @@
     animation-duration: 1ms;
   }
 }
+
+/* ----- Teaching turn presentation (learner-safe) ----- */
+.teaching-turn-panel {
+  width: 100%;
+  min-width: min(100%, 280px);
+  overflow: hidden;
+  border: 1px solid #e8edf5;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #24324a;
+  box-shadow: 0 8px 20px rgba(20, 47, 95, 0.05);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+.teaching-turn-panel.is-compact {
+  border-radius: 11px;
+  box-shadow: none;
+  padding: 8px 10px;
+}
+.teaching-turn-panel.is-your-turn {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 35%, #e8edf5);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #3b82f6) 18%, transparent);
+}
+.teaching-turn-panel__phases {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+.teaching-turn-panel__phases li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: baseline;
+  font-size: 12px;
+  color: #6d7b91;
+}
+.teaching-turn-panel__phases li[aria-current='step'] {
+  color: #2b3950;
+  font-weight: 650;
+}
+.teaching-turn-panel__phases li strong {
+  font-size: 12.5px;
+}
+.teaching-turn-panel__your-turn,
+.teaching-turn-panel__status {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f4f7fb;
+  color: #2b3950;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.teaching-turn-panel__your-turn[data-phase-state='needs_you'] {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 12%, #f4f7fb);
+}
+.teaching-turn-panel__action {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.teaching-turn-panel__action:focus-visible {
+  outline: 2px solid var(--accent, #3b82f6);
+  outline-offset: 2px;
+}
+.teaching-turn-panel__sources,
+.teaching-turn-panel__diagnostic {
+  border-radius: 8px;
+  border: 1px solid #edf1f7;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #53637b;
+}
+.teaching-turn-panel__sources summary,
+.teaching-turn-panel__diagnostic summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.teaching-turn-panel .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .teaching-turn-panel,
+  .teaching-turn-panel__action,
+  .teaching-turn-panel.is-your-turn {
+    transition: none !important;
+    animation: none !important;
+  }
+}
