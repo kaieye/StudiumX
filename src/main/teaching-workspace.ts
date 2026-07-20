@@ -78,6 +78,22 @@ import {
 } from '../shared/teaching-types/lesson-interaction'
 import type { LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
 import type { LearningOutcomeCommitResult } from '../shared/teaching-types/learning-outcome'
+
+const E2E_CRASH_POINTS: readonly LearningOutcomeCommitterFaultPoint[] = [
+  'after_stage_flush',
+  'after_record_publish',
+  'after_outcome_publish'
+]
+
+/** Returns a crash seam only for explicitly marked Electron E2E test runtimes. */
+export function resolveE2ECrashPoint(env: NodeJS.ProcessEnv): LearningOutcomeCommitterFaultPoint | undefined {
+  if (env.NODE_ENV !== 'test' || env.STUDIUMX_TEST !== '1' || env.STUDIUMX_E2E !== '1') return undefined
+  const candidate = env.STUDIUMX_E2E_CRASH_POINT
+  return E2E_CRASH_POINTS.includes(candidate as LearningOutcomeCommitterFaultPoint)
+    ? candidate as LearningOutcomeCommitterFaultPoint
+    : undefined
+}
+
 import type { CommitLearningOutcomeRequest } from '../shared/teaching-types/system-api'
 import { isLearningSessionId } from '../shared/teaching-placement'
 import { persistedAgentParentTurnProof, sanitizePersistedConversationTitle } from '../shared/agent-persisted-history'
@@ -399,7 +415,7 @@ export class TeachingWorkspaceService {
       createLearningSessionLedger({ workspaceRoot })
     )
     this.learningOutcomeCommitterFactory = options.learningOutcomeCommitterFactory ?? ((workspaceRoot, ledger) => {
-      const crashPoint = process.env.STUDIUMX_E2E_CRASH_POINT as LearningOutcomeCommitterFaultPoint | undefined
+      const crashPoint = resolveE2ECrashPoint(process.env)
       return createLearningOutcomeCommitter({
         workspaceRoot,
         ledger: ledger as LearningSessionLedger,
