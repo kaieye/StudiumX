@@ -219,7 +219,7 @@ audit 是持久化数据，不是安全日志。它包含 redacted title、conte
 | P9-5：可选 generic JSONL proposal | 独立 ADR/design：audit 是否真的需要 segments/rotation/repair/backup；完成 migration/reader/operator protocol | P9-4 证明 fixed-file profile；单独产品需求 | 自动把 ledger `durable-jsonl` 套到 audit |
 | P9-6：close-out review | requirement-by-requirement evidence audit，更新 todo/ADR status 的批准 PR | P9-0…P9-4；P9-5 仅在其需求获批时 | 以提交数或定向 unit 绿灯替代 closure |
 
-P9-5 是条件阶段：若产品不批准 audit rotation/repair，它应保持“不实施”，而不是为了关闭 P9 人为引入 lifecycle 风险。若本地数据待办仍把 generic JSONL/rotation/repair 作为 complete 的必要输入，则 close-out reviewer 必须明确选择“批准并完成 P9-5”或“修订该成功定义”；不能静默忽略该要求。
+P9-5 是条件阶段：若产品不批准 audit rotation/repair，它应保持“不实施”，而不是为了关闭 P9 人为引入 lifecycle 风险。P9-0…P9-4 的 fixed-file close-out 不以 P9-5 为前置；只有产品另行批准 generic JSONL/rotation/repair 需求时，才进入该独立 proposal 和 compatibility/migration gate。
 
 ## 9. 精确验收标准与关闭门
 
@@ -261,6 +261,6 @@ P9-5 是条件阶段：若产品不批准 audit rotation/repair，它应保持�
 
 ## 10. 当前阻塞与下一步批准输入
 
-截至本文更新，P9 仍缺少：完整 host/filesystem capability matrix、typed public/internal degraded/unknown semantics、跨进程 writer 选择、archive crash/reconcile protocol 的 operations evidence、Windows native/power-loss evidence，以及 generic JSONL/rotation/repair 是否应成为 audit scope 的独立决定。当前实现和历史定向测试不能补足这些项。
+截至本文更新，P9 仍缺少：完整 host/filesystem capability matrix、typed main-internal degraded/unknown semantics、跨进程 writer 选择、archive crash/reconcile protocol 的 operations evidence、Windows native/power-loss evidence，以及是否另行提出 public IPC/UI 或 generic JSONL/rotation/repair scope 的独立决定。当前实现和历史定向测试不能补足这些项。
 
-任何下一切片在改代码前必须提交并获批以下最小输入：目标 platform/storage profile、single/multi-process writer choice、public result/retry contract、完整 failure/crash matrix、privacy/observability vocabulary、是否涉及 schema/path/IPC/lifecycle、测试层级与 operations owner。获批后只执行对应阶段；未获批项继续按本文件的禁止边界处理。
+任何下一切片在改代码前必须提交并获批以下最小输入：目标 platform/storage profile、single/multi-process writer choice、main-internal result/retry 与 archive-caller disposition contract、完整 failure/crash matrix、privacy/observability vocabulary、是否明确保持 schema/path/IPC/lifecycle 不变、测试层级与 operations owner。只有另行提出 public surface 时才需要 public result/IPC/UI contract；获批后只执行对应阶段，未获批项继续按本文件的禁止边界处理。

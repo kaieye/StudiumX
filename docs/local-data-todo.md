@@ -78,13 +78,13 @@
 ### P9：session-audit durable append
 
 - **设计门：**[P9 详细设计门](plans/local-data-session-audit-durable-append-design.md)。V1 wire/identity/exact-retry 与有限 authority 见 [ADR-0019](adr/0019-session-audit-v1-wire-contract-and-limited-authority.md)；局部 durable scope 见 [ADR-0004](adr/0004-shared-durable-publish-and-partial-consumer-migration.md)。任何扩展不得改变既有 authority 或兼容边界，除非先获批准。
-- **当前单一 proposal：**[fixed-file capability/result contract proposal](plans/c4p9-fixed-file-capability-result-proposal.md) 只准备 P9-2 的 internal disposition/failure matrix；它仍待 platform、single-writer、public-result 与 operations owner 批准，未授权 writer、IPC/UI、generic JSONL、rotation 或 repair 改动。
-- **尚缺的批准输入（按顺序）：**
-  1. **generic JSONL/rotation/repair：**先批准 generic API 和 audit compatibility contract，再定义 segment discovery、rotation trigger、repair authority/trigger、字节保留或损失政策、operator control 与 migration boundary；
-  2. **capability/failure contract：**逐 I/O phase 给出 supported/degraded/fatal、possibly-appended、privacy-safe diagnostic 和唯一 recovery；
-  3. **跨文件 authority：**任何超出 ordered best-effort 的承诺都必须先定义 JSON/Markdown/audit/ledger authority、partial-publish visibility、crash/retry、reconciliation、idempotency 和 final verification；
-  4. **IPC/UI 与 operations：**先批准 repair/migration/rotation/conflict/durability-status surface、权限、stable states、observability、runbook、upgrade/rollback、capacity/retention、concurrency 与验收 owner；
-  5. **Windows/power loss：**独立取得 Windows capability、file/directory flush/close、目标 filesystem 与 crash/reboot/power-loss 的实证。
+- **当前单一 proposal：**[fixed-file capability/result contract proposal](plans/c4p9-fixed-file-capability-result-proposal.md) 只准备 P9-2 的 main-internal disposition/failure matrix；它仍待 platform、single-writer、archive-caller 与 operations owner 批准，未授权 writer、archive order/caller behavior、IPC/UI、generic JSONL、rotation 或 repair 改动。
+- **当前 P9-2 尚缺的批准输入（按该阶段顺序）：**
+  1. **capability/failure contract：**逐 I/O phase 给出 supported/degraded/fatal、possibly-appended、privacy-safe diagnostic 和唯一 recovery；
+  2. **profile / writer contract：**批准目标 OS/runtime/filesystem/storage profile，并选择可证明的 single-writer exclusion 或单独设计 multi-process protocol；当前不得宣称 cross-process support；
+  3. **archive caller / operations contract：**明确 degraded internal result 是否保持现有 warning-and-continue 行为，以及 observability、runbook、capacity、concurrency 与验收 owner；不得把该选择称为跨文件 transaction；
+  4. **host evidence：**仅对拟声明支持的 profile 取得 file/directory flush/close、crash/restart、two-process negative test；Windows/power-loss 声明需要独立实证。
+- **独立可选后续（不是 P9-2 前置或授权）：**generic JSONL/rotation/repair 仅在产品另有需求时进入 P9-5，并先批准 generic API、audit compatibility、migration/reader/operator contract；任何超出 ordered best-effort 的跨文件语义或任何 IPC/UI surface 也必须另立 proposal 审批。
 - **可分派的下一项：**每次只选择一项 contract，先做 decision/failure matrix；不得将 generic migration、rotation、repair、IPC/UI 或跨文件语义顺带塞进 audit writer 改动。
 - **验收：**所有扩大 scope 均有批准的 API/compatibility/operations contract 和相应 host-native evidence；不得以既有 audit 能力或局部测试替代这些证据。
 
