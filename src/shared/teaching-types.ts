@@ -14,4 +14,5 @@ export * from './teaching-types/teaching-doctor'
 export * from './teaching-types/learning-branch-projection'
 export * from './teaching-types/session-resume-picker'
 export * from './teaching-types/tech-inspector'
+export * from './teaching-types/config-optimistic-write'
 

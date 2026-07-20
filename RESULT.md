@@ -1,39 +1,32 @@
-# RESULT — P2-04 Conservative Parallel Read Tools
+# P2-5 RESULT: Config Optimistic Concurrency
 
 ## Summary
-
-Added a conservative parallel dispatcher for **pure-read tools only**. Mixed batches deny non-read tools (`workspace_write` / `external_write` / `privileged`) without executing them, and still parallelize pure reads under bounded concurrency (default 4, max 8). Concurrent same-path reads are allowed. Sequential agent-loop is unchanged (opt-in helper only).
+Added write-side optimistic concurrency (CAS) for teaching config / settings so external editor races do not silently clobber. Pure core compares `expectedFingerprint` against the current secret-free resolved fingerprint, rejects secret-path patches, and re-resolves after applying the user/workspace overlay.
 
 ## Files
-
 | Path | Role |
 |------|------|
-| `src/main/ai/tools/parallel-read-dispatcher.ts` | `dispatchReadToolsInParallel`, path target helpers, concurrency clamp |
-| `src/main/ai/tools/execution.ts` | Re-exports parallel helpers for opt-in callers |
-| `tests/unit/parallel-read-tools.unit.test.ts` | Concurrency measurement + deny cases |
-| `scripts/check-parallel-read-tools.mjs` | Source + unit gate |
-| `package.json` | `check:parallel-read-tools` script |
+| `src/shared/teaching-types/config-optimistic-write.ts` | Shared types: `ConfigWriteRequest`, `ConfigWriteResult`, `ConfigOptimisticStore` |
+| `src/main/config-optimistic-writer.ts` | Pure `compareAndProjectConfigWrite` + thin `writeConfigOptimistic` adapter |
+| `src/shared/teaching-types.ts` | Barrel re-export |
+| `tests/unit/config-optimistic-writer.unit.test.ts` | Happy path, mismatch, secret rejection, fingerprint change, adapter |
+| `scripts/check-config-optimistic-concurrency.mjs` | Static + unit gate |
+| `package.json` | `check:config-optimistic-concurrency` script |
 
 ## Behavior
-
-- **Pre-check**: `classifyToolEffect(name) === 'read'` required to run.
-- **Non-read**: status `denied`, code `parallel_read_only`, handler never called.
-- **Reads**: bounded `Promise.all` workers; order of `ToolOutcome[]` matches input `calls`.
-- **Same-path concurrent reads**: allowed (reads only).
-- **Empty batch**: `[]`.
-- **Aborted signal**: cancelled without running.
-- **Agent loop**: not switched to parallel by default.
+1. **Match** → apply `next` as user/workspace overlay (shallow-merge when base layer present), re-resolve via `resolveTeachingConfig`, return new `sha256:…` fingerprint.
+2. **Mismatch** → `{ ok: false, code: 'fingerprint_mismatch', currentFingerprint, message }` — no apply.
+3. **Secret paths** in `next` (apiKey, proxy.url, webSearch.*ApiKey, …) → `{ ok: false, code: 'secret_path_rejected', message }` — no apply.
+4. Invalid input / empty fingerprint → structured `invalid_*` codes.
+5. Optional `ConfigOptimisticStore` adapter: `read → CAS → writeAtomic`.
 
 ## Verify
-
 ```bash
-CI=true node ./node_modules/vitest/vitest.mjs run --project unit tests/unit/parallel-read-tools.unit.test.ts
-node scripts/check-parallel-read-tools.mjs
+CI=true node ./node_modules/vitest/vitest.mjs run --project unit tests/unit/config-optimistic-writer.unit.test.ts
+node scripts/check-config-optimistic-concurrency.mjs
 # or
-pnpm run check:parallel-read-tools
+pnpm run check:config-optimistic-concurrency
 ```
 
-## Notes
-
-- Worktree needs `node_modules` (junction to main repo is fine, same as other worktrees).
-- Do not commit `_P2_BRIEF.md` or the `node_modules` junction if it is untracked local setup.
+## Out of scope (as specified)
+File watcher daemon, full settings UI, alternate secret encryption.
