@@ -36,8 +36,19 @@ describe('release audit contract', () => {
     expect(requiresWindowsCommandShell(['git', 'worktree', 'add'])).toBe(false)
     expect(requiresWindowsCommandShell(['node', '--version'])).toBe(false)
   })
-  it('detects bare and summary skip markers in command output', () => {
-    expect(parseAuditSkips('Tests 1 skipped\nTODO\nskip')).toEqual(['', '', ''])
+  it('detects test and explicit capability skips without mistaking package-manager progress for coverage', () => {
+    expect(parseAuditSkips([
+      'Tests 1 skipped',
+      'TODO',
+      'skip',
+      '[workspace write tool] symlink rejection explicitly skipped: EPERM',
+      'Lockfile is up to date, resolution step is skipped'
+    ].join('\n'))).toEqual([
+      'Tests 1 skipped',
+      'TODO',
+      'skip',
+      '[workspace write tool] symlink rejection explicitly skipped: EPERM'
+    ])
   })
   it('detects an output path that would dirty the source checkout', () => {
     expect(isPathInside('D:/project/StudiumX', 'D:/project/StudiumX/release-audit.json')).toBe(true)

@@ -34,7 +34,15 @@ export function requiresWindowsCommandShell(argv) {
   return argv[0] === 'pnpm'
 }
 export function parseAuditSkips(output) {
-  return [...output.matchAll(/\b(?:skip(?:ped)?|todo)\b(?:[:\-]?[ \t]*([^\r\n]*))?/gi)].map((match) => match[1]?.trim() ?? '')
+  return output.split(/\r?\n/).flatMap((line) => {
+    const trimmed = line.trim()
+    if (!trimmed) return []
+    if (/^(?:Test Files|Tests)\b.*\b\d+\s+skipped\b/i.test(trimmed)) return [trimmed]
+    if (/^\d+\s+skipped\b/i.test(trimmed)) return [trimmed]
+    if (/\bexplicitly skipped\s*:/i.test(trimmed)) return [trimmed]
+    if (/^(?:skip(?:ped)?|todo)$/i.test(trimmed)) return [trimmed]
+    return []
+  })
 }
 
 export function classifyAuditCommandResult(exit, skips) {

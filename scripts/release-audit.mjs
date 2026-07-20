@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, relative, resolve } from 'node:path'
+import { dirname, parse, relative, resolve } from 'node:path'
 
 import {
   classifyAuditCommandResult,
@@ -60,6 +60,9 @@ function run(argv, cwd) {
 }
 
 const git = (argv, cwd = root) => run(['git', ...argv], cwd)
+const gitWithLongPaths = (argv, cwd = root) => process.platform === 'win32'
+  ? run(['git', '-c', 'core.longpaths=true', ...argv], cwd)
+  : git(argv, cwd)
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex')
 const statusRecord = (result) => ({ exit: result.exit, stdout: result.stdout, stderr: result.stderr })
 const toolVersions = Object.fromEntries([
@@ -90,7 +93,8 @@ if (sourceStatusBefore.exit !== 0 || sourceStatusBefore.stdout.trim()) {
   failed = true
   initializationError = 'Unable to resolve source HEAD.'
 } else {
-  worktreeParent = mkdtempSync(resolve(tmpdir(), 'studiumx-release-audit-worktree-'))
+  const worktreeTemporaryRoot = process.platform === 'win32' ? parse(root).root : tmpdir()
+  worktreeParent = mkdtempSync(resolve(worktreeTemporaryRoot, 'sx-audit-'))
   worktree = resolve(worktreeParent, 'checkout')
   const add = git(['worktree', 'add', '--detach', worktree, commitSha])
   if (add.exit !== 0) {
@@ -137,7 +141,7 @@ if (sourceStatusBefore.exit !== 0 || sourceStatusBefore.stdout.trim()) {
       cleanCheckoutStatusAfterCommands = results.at(-1) ?? null
     } finally {
       cleanup.attempted = true
-      const removed = git(['worktree', 'remove', '--force', worktree])
+      const removed = gitWithLongPaths(['worktree', 'remove', '--force', worktree])
       cleanup.succeeded = removed.exit === 0
       cleanup.error = removed.exit === 0 ? null : (removed.stderr.trim() || removed.error || 'unknown error')
       if (!cleanup.succeeded) {
