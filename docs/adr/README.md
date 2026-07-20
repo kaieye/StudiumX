@@ -35,6 +35,7 @@
 | Recordless outcome（`needs_practice` / `not_evidenced`）以什么为 settlement authority | ADR-0018 |
 | Session audit JSONL 的 V1 wire、exact-retry 与有限 authority 边界 | ADR-0019 |
 | C-4P6 Phase 0 platform profile 与 settlement failure matrix | ADR-0020、ADR-0021 |
+| mission_update 的 actionId / private receipt 与 exact retry | ADR-0022 |
 
 ## 已实施决定
 
@@ -61,6 +62,7 @@
 | [ADR-0019](0019-session-audit-v1-wire-contract-and-limited-authority.md) | C-4P9 audit V1 contract | per-conversation audit JSONL 的 V1 wire/identity/exact-retry 与有限 authority；不授权 generic JSONL、rotation、repair 或跨进程 multi-writer。 |
 | [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) | C-4P6 Phase 0 freeze + Phase 1 pointer | 首个目标 macOS APFS strict-candidate profile、I/O inventory、crash/public-result matrix 与 Windows non-strict 边界；后续受限 close-out 见 ADR-0021。 |
 | [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) | C-4 P6/P8/P9 scope close-out | P6 仅以 macOS internal APFS runtime-adjacent evidence 结项；P8 Windows strict 以 unsupported/no-go 结项；P9 保持既有 fixed-file audit boundary，不扩张为 strict/generic/cross-process/transaction/public surface。 |
+| [ADR-0022](0022-mission-update-action-receipt-correlation.md) | C-5H mission_update action/receipt | renderer opaque actionId、workspace-private receipt、main-keyed requestTag、typed disposition 与 final-only exact retry；不含 style/agent/CAS UI。 |
 
 ## C-4P6 历史 evidence 边界
 

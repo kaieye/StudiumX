@@ -311,6 +311,71 @@ function deliverOperationFeedback(
   if (feedback.notification) deliverOperationNotification(feedback.notification, deliver)
 }
 
+
+const MISSION_ACTION_STORAGE_PREFIX = 'studiumx:mission-action:'
+
+type PendingMissionAction = {
+  actionId: string
+  prompt: string
+  createdAt: number
+}
+
+const MISSION_ACTION_RETRY_WINDOW_MS = 60 * 60 * 1000
+
+function missionActionStorageKey(workspaceId: string): string {
+  return `${MISSION_ACTION_STORAGE_PREFIX}${workspaceId}`
+}
+
+function readPendingMissionAction(workspaceId: string): PendingMissionAction | null {
+  try {
+    const raw = sessionStorage.getItem(missionActionStorageKey(workspaceId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PendingMissionAction
+    if (
+      !parsed ||
+      typeof parsed.actionId !== 'string' ||
+      typeof parsed.prompt !== 'string' ||
+      typeof parsed.createdAt !== 'number'
+    ) {
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function resolveMissionActionId(workspaceId: string, prompt: string): string {
+  const existing = readPendingMissionAction(workspaceId)
+  const now = Date.now()
+  if (
+    existing &&
+    existing.prompt === prompt &&
+    now - existing.createdAt < MISSION_ACTION_RETRY_WINDOW_MS &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(existing.actionId)
+  ) {
+    return existing.actionId.toLowerCase()
+  }
+  const actionId = crypto.randomUUID().toLowerCase()
+  try {
+    sessionStorage.setItem(
+      missionActionStorageKey(workspaceId),
+      JSON.stringify({ actionId, prompt, createdAt: now } satisfies PendingMissionAction)
+    )
+  } catch {
+    // sessionStorage may be unavailable; still proceed with a fresh in-memory id.
+  }
+  return actionId
+}
+
+function clearMissionActionId(workspaceId: string): void {
+  try {
+    sessionStorage.removeItem(missionActionStorageKey(workspaceId))
+  } catch {
+    // ignore
+  }
+}
+
 export function toUserError(error: unknown): UserError {
   const feedback = operationFeedback({
     outcome: 'failure',
@@ -915,10 +980,38 @@ export const useAppStore = create<StoreState>((set, get) => {
     const newPrompt = window.prompt(i18n.t('dialogs.updateMissionTitle'), workspace.missionExcerpt)
     if (!newPrompt) return
     set({ loading: true, error: null })
+    const actionId = resolveMissionActionId(workspace.id, newPrompt)
     try {
-      const state = await api.updateMission({ workspaceId: workspace.id, prompt: newPrompt })
-      set({ appState: state, loading: false })
+      const result = await api.updateMission({
+        workspaceId: workspace.id,
+        prompt: newPrompt,
+        actionId
+      })
+      if (result.disposition === 'completed' || result.disposition === 'reused') {
+        clearMissionActionId(workspace.id)
+        set({ appState: result.state, loading: false, error: null })
+        return
+      }
+      // conflict / indeterminate: fail closed; force a new action id on the next explicit submit.
+      clearMissionActionId(workspace.id)
+      set({
+        loading: false,
+        error: {
+          message: i18n.t(
+            result.disposition === 'conflict'
+              ? 'errors.missionActionConflict.message'
+              : 'errors.missionActionIndeterminate.message'
+          ),
+          severity: 'warning',
+          detail: i18n.t(
+            result.disposition === 'conflict'
+              ? 'errors.missionActionConflict.detail'
+              : 'errors.missionActionIndeterminate.detail'
+          )
+        }
+      })
     } catch (error) {
+      // Keep the same actionId for lost-response / thrown I/O retries of this exact submit.
       set({ loading: false, error: toUserError(error) })
     }
   },

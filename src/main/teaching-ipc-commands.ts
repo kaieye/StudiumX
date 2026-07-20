@@ -94,10 +94,23 @@ export function parseCreateWorkspacePayload(payload: unknown): CreateWorkspacePa
 }
 
 export function parseUpdateMissionPayload(payload: unknown): UpdateMissionPayload {
-  const record = requireRecord(payload)
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('IPC payload must be an object.')
+  }
+  const record = payload as Record<string, unknown>
+  const allowedKeys = ['workspaceId', 'prompt', 'actionId']
+  const keys = Object.keys(record)
+  if (keys.length !== allowedKeys.length || keys.some((key) => !allowedKeys.includes(key))) {
+    throw new Error('IPC updateMission payload must contain only "workspaceId", "prompt", and "actionId".')
+  }
+  const actionId = requireString(record.actionId, 'actionId').trim().toLowerCase()
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(actionId)) {
+    throw new Error('IPC payload field "actionId" must be a UUID.')
+  }
   return {
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
-    prompt: requireString(record.prompt, 'prompt')
+    prompt: requireString(record.prompt, 'prompt'),
+    actionId
   }
 }
 

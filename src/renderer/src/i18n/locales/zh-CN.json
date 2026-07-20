@@ -1063,7 +1063,15 @@
     "openPath": "无法打开路径。",
     "openExternal": "无法打开链接。",
     "openLog": "无法打开日志文件。",
-    "openAppData": "无法打开应用数据目录。"
+    "openAppData": "无法打开应用数据目录。",
+    "missionActionConflict": {
+      "message": "使命更新冲突",
+      "detail": "这次提交与已记录的动作不一致，或工作区状态已变化。请重新确认使命后再提交（将视为新的用户动作）。"
+    },
+    "missionActionIndeterminate": {
+      "message": "使命更新状态不明",
+      "detail": "无法安全确认上次使命更新是否完成。请检查工作区后重新确认使命再提交，不要自动重试。"
+    }
   },
   "errorBoundary": {
     "badge": "应用异常",

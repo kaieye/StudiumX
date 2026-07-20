@@ -133,10 +133,17 @@ async function expectNoMissionPostPublishEffects(fixture: MissionFixture): Promi
   await expect(readFile(fixture.registryPath, 'utf8')).resolves.toBe(fixture.oldRegistry)
 }
 
-function missionUpdate(fixture: MissionFixture) {
+function missionActionId(label = 'mission'): string {
+  // Deterministic-looking but valid UUID v4-shaped id for focused tests.
+  const hex = Buffer.from(label.padEnd(16, '0').slice(0, 16)).toString('hex').slice(0, 12)
+  return `aaaaaaaa-bbbb-4ccc-8ddd-${hex.padEnd(12, '0')}`
+}
+
+function missionUpdate(fixture: MissionFixture, actionId = missionActionId()) {
   return fixture.service.updateMission({
     workspaceId: fixture.workspace.id,
-    prompt: 'Teach durable canonical mission publication.'
+    prompt: 'Teach durable canonical mission publication.',
+    actionId
   })
 }
 
@@ -150,7 +157,12 @@ describe('TeachingWorkspaceService durable MISSION.md publication', () => {
     const fake = recordingOperations()
     const fixture = await missionFixture('mission-durable-success', fake.operations)
 
-    const state = await missionUpdate(fixture)
+    const result = await missionUpdate(fixture)
+    expect(result.disposition).toBe('completed')
+    if (result.disposition !== 'completed' && result.disposition !== 'reused') {
+      throw new Error('expected success disposition')
+    }
+    const state = result.state
 
     expect(await readFile(fixture.missionPath, 'utf8')).toBe(updatedMission(fixture))
     expect(state.activeWorkspace?.id).toBe(fixture.workspace.id)
@@ -166,12 +178,15 @@ describe('TeachingWorkspaceService durable MISSION.md publication', () => {
       prompt: 'Teach durable canonical mission publication.',
       paths: ['MISSION.md']
     })
-    // C-4 adds durability only; this action does not gain C-5 correlation
-    // identifiers or receipts.
-    expect(missionEvent).not.toHaveProperty('traceId')
+    // C-5H extends mission_updated with main-owned diagnostic trace only.
+    // actionId remains private to the receipt and must never enter JSONL.
+    expect(missionEvent).toHaveProperty('traceId')
+    expect(typeof missionEvent?.traceId).toBe('string')
     expect(missionEvent).not.toHaveProperty('actionId')
 
-    const temporaryPath = fake.recorded.find(({ event }) => event.startsWith('open:wx:'))?.event.slice('open:wx:'.length)
+    const temporaryPath = fake.recorded.find(({ event }) =>
+      event.startsWith('open:wx:') && event.includes('.MISSION.md.')
+    )?.event.slice('open:wx:'.length)
     expect(temporaryPath).toBeDefined()
     const path = temporaryPath!
     const order = (event: string) => fake.recorded.findIndex((record) => record.event === event)
@@ -245,7 +260,8 @@ describe('TeachingWorkspaceService durable MISSION.md publication', () => {
       failureMatcher = (event) => event === `sync:${fixture.workspace.rootPath}` ? errno(code) : undefined
 
       await expect(missionUpdate(fixture)).resolves.toMatchObject({
-        activeWorkspace: { id: fixture.workspace.id }
+        disposition: 'completed',
+        state: { activeWorkspace: { id: fixture.workspace.id } }
       })
       await expect(readFile(fixture.missionPath, 'utf8')).resolves.toBe(updatedMission(fixture))
       expect(warnings).toEqual([DIRECTORY_FSYNC_WARNING])
