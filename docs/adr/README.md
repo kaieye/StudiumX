@@ -38,6 +38,11 @@
 | Agent run 与 Teaching Session 如何分离 | ADR-0021 |
 | 能力就绪如何只读投影且不进 prompt 旁路 | ADR-0022 |
 | Coordinator host sole-writer 与 blocking CI 边界 | ADR-0023 |
+| 工具调用如何 typed 分类 effect 并产出 ToolOutcome | ADR-0024 |
+| 教学配置如何分层解析且不落密钥 | ADR-0025 |
+| Course 如何持久化 Session 顺序而不以 SQLite 为真相 | ADR-0026 |
+| Doctor / Inspector 如何只读诊断且不自动修复 | ADR-0027 |
+| 教学审计如何用 ID correlation 与安全元数据 | ADR-0028 |
 
 ## 已实施决定
 
@@ -55,8 +60,8 @@
 | [ADR-0010](0010-evidence-gated-learning-record-cutover.md) | P0 Learning record cutover | 切断 Lesson 生成自动写正式 Learning record；`learningRecordNote` 仅为待验证 evidence/rubric。 |
 | [ADR-0011](0011-evidence-gated-learning-outcome-settlement.md) | P0 outcome settlement | Evidence-gated 的 canonical outcome / Learning record 结算、有序发布、reconcile 和窄 IPC sole-writer 边界。 |
 | [ADR-0012](0012-deterministic-next-teaching-step-planner.md) | P0 next teaching step | 由 outcome / Evidence 导出的确定性 typed 教学动作，而非自由文本推断。 |
-| [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md) | P0 teaching context | provenance allowlist、预算化 context 装配及最小 resource grounding。 |
-| [ADR-0014](0014-learner-safe-teaching-turn-presentation.md) | P0 learner presentation | 教学事实的 learner-safe 四阶段投影、redaction 和 a11y 边界。 |
+| [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md) | P0/P1 teaching context | provenance allowlist、预算化 context、ProjectionReport、multi-adapter ResourceGrounder（含 external_untrusted 边界）。 |
+| [ADR-0014](0014-learner-safe-teaching-turn-presentation.md) | P0/P1 learner presentation | 教学事实的 learner-safe 四阶段投影、redaction、a11y 边界，与封闭 TeachingCommand composer 目录。 |
 | [ADR-0015](0015-canonical-teaching-event-protocol.md) | P1 canonical teaching events | 版本化封闭 event envelope、event bus 与 legacy adapter 边界。 |
 | [ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md) | P0 assessment evaluator | 仅信任绑定、publisher-owned、digest 校验的 assessment artifact，并对不可信输入保守失败。 |
 | [ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md) | P0 Win/Mac release proof | clean-checkout audit、Win/Mac skip 预算、runtime gates 与真实 Electron longitudinal/crash Golden；Linux 产品船与 C-4 完整 migration 不在此声明。 |
@@ -66,6 +71,11 @@
 | [ADR-0021](0021-agent-run-state-machine-separate-from-session.md) | P1 Agent run 状态机 | 显式 run lifecycle 与 LearningSession 分离；非法转换拒绝；恢复/取消幂等。 |
 | [ADR-0022](0022-teaching-capability-catalog-read-only-readiness.md) | P1 CapabilityCatalog | 只读 readiness 快照；disabled/unconfigured 不进 prompt；执行仍由 effect policy 复核。 |
 | [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md) | P1 Coordinator host + blocking CI | 多 workspace 薄 host、commit sole-writer 路径；最小 typecheck/security/P0 teaching CI。 |
+| [ADR-0024](0024-typed-tool-dispatcher-effect-policy.md) | P1 Typed ToolDispatcher / Effect Policy | effect 分类与前置授权、严格参数解析、status 为真源的 ToolOutcome；未知工具 fail closed 为 privileged。 |
+| [ADR-0025](0025-teaching-config-resolver-secret-free-layers.md) | P1 TeachingConfigResolver | default/user/workspace/session_override 分层；普通 snapshot 无密钥；字段来源可解释。 |
+| [ADR-0026](0026-course-definition-durable-session-order.md) | P1 CourseDefinition store | per-Course durable 顺序与 status；文件系统仍为 Lesson 发现源；read 无副作用。 |
+| [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md) | P1 Doctor + Workspace Inspector | 只读结构化诊断；repair 仅推荐且 v1 不自动执行；不阻断只读打开。 |
+| [ADR-0028](0028-teaching-audit-correlation-safe-metadata.md) | P1 Audit correlation / privacy | session/turn/operation ID correlation；allowlist 安全元数据；纯函数导出脱敏。 |
 
 ## C-4P6 evidence 边界（完整 close-out 未关闭）
 
