@@ -1,10 +1,8 @@
 # C-4P9 Session-audit durable append：已结项 fixed-file scope 的历史设计
 
-> **状态：已结项（不扩张现有 fixed-file audit boundary）。** [ADR-0021](../adr/0021-c4-p6-p8-p9-closeout-scope-decisions.md) 明确拒绝把该 scope 扩张为 strict durable profile、generic JSONL、repair、rotation、cross-process support、transaction 或 public surface；本文保留为未来独立 proposal 的设计基线。
-
-> **历史状态：未关闭；本文是后续切片的设计基线，不是实现授权，也不宣告 C-4P9 complete。**
+> **状态：已结项（不扩张现有 fixed-file audit boundary）。** [ADR-0021](../adr/0021-c4-p6-p8-p9-closeout-scope-decisions.md) 明确拒绝把该 scope 扩张为 strict durable profile、generic JSONL、repair、rotation、cross-process support、transaction 或 public surface；本文保留为未来独立 proposal 的设计基线，不再是开放实现入口。
 >
-> V1 wire、identity、exact-retry 与有限 authority 见 [ADR-0019](../adr/0019-session-audit-v1-wire-contract-and-limited-authority.md)。S2 生产 durable append 与 S3…S45 tests-only 证据见 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 和 [ADR 索引中的 P9 证据说明](../adr/README.md)。待办入口：[本地数据待办（P9）](../local-data-todo.md)。本文件不维护已关闭实现细节或测试台账。
+> **历史说明（已由 ADR-0021 覆盖）。** V1 wire、identity、exact-retry 与有限 authority 见 [ADR-0019](../adr/0019-session-audit-v1-wire-contract-and-limited-authority.md)。S2 生产 durable append 与 S3…S45 tests-only 证据见 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 和 [ADR 索引中的 P9 证据说明](../adr/README.md)。[本地数据待办](../local-data-todo.md) 不再列出 P9。下文中“未关闭 / 下一步批准输入”等措辞是结项前设计记录，**不得**再当作可分派实现任务。
 
 ## 1. 目标、非目标与当前事实
 
@@ -261,8 +259,8 @@ P9-5 是条件阶段：若产品不批准 audit rotation/repair，它应保持�
 - [ ] 对照本文件第 1 至 9 节逐项审查，确认没有把 tests-only evidence、generic ledger behavior、`fsync` 调用或文件存在性扩大成 transaction/repair/rotation/power-loss 结论。
 - [ ] close-out PR 同步更新 [本地数据待办](../local-data-todo.md)、本文件状态和（若形成已采纳架构决定）对应 ADR；若任一门未满足，P9 保持未关闭。
 
-## 10. 当前阻塞与下一步批准输入
+## 10. 历史“当前阻塞与下一步批准输入”（已结项，勿再分派）
 
-截至本文更新，P9 仍缺少：完整 host/filesystem capability matrix、typed main-internal degraded/unknown semantics、跨进程 writer 选择、archive crash/reconcile protocol 的 operations evidence、Windows native/power-loss evidence，以及是否另行提出 public IPC/UI 或 generic JSONL/rotation/repair scope 的独立决定。当前实现和历史定向测试不能补足这些项。
+**历史备注（已由 ADR-0021 结项覆盖）：** 下文清单是结项前未批准扩张范围的设计输入；fixed-file scope 已按 ADR-0021 结项。若要扩张，必须新建独立 ADR，而不是重开本文件。历史清单曾记录：完整 host/filesystem capability matrix、typed main-internal degraded/unknown semantics、跨进程 writer 选择、archive crash/reconcile protocol 的 operations evidence、Windows native/power-loss evidence，以及是否另行提出 public IPC/UI 或 generic JSONL/rotation/repair scope 的独立决定。当前实现和历史定向测试不能补足这些项。
 
 任何下一切片在改代码前必须提交并获批以下最小输入：目标 platform/storage profile、single/multi-process writer choice、main-internal result/retry 与 archive-caller disposition contract、完整 failure/crash matrix、privacy/observability vocabulary、是否明确保持 schema/path/IPC/lifecycle 不变、测试层级与 operations owner。只有另行提出 public surface 时才需要 public result/IPC/UI contract；获批后只执行对应阶段，未获批项继续按本文件的禁止边界处理。

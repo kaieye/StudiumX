@@ -1,8 +1,8 @@
 # C-4P6 Learning outcome durable settlement：已结项的历史设计与证据
 
 > **状态：已结项。** [ADR-0021](../adr/0021-c4-p6-p8-p9-closeout-scope-decisions.md) 接受 `P6-macOS-local-APFS-strict-candidate` 的受限 close-out；本文保留为历史 design/evidence 基线，不再是开放实现入口。它不扩大为 Windows strict、transaction、reboot 或 power-loss claim。
-
-> **历史状态：未关闭。** Phase 0 已写入 [ADR-0020](../adr/0020-c4p6-phase0-platform-profile-and-failure-matrix.md)；Phase 1 containment / 单文件 durable publish 对齐已落地（见下）。已实施 production / tests-only 历史证据以 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 为准；authority 语义以 [ADR-0011](../adr/0011-evidence-gated-learning-outcome-settlement.md) / [ADR-0018](../adr/0018-recordless-learning-outcome-marker-only-settlement-authority.md) 为准。本文**只**保留 Phase 3–4 尚未关闭的实现与证据门。Phase 2 实现/unit/process 证据见下。
+>
+> **历史说明（已由 ADR-0021 覆盖）。** Phase 0 见 [ADR-0020](../adr/0020-c4p6-phase0-platform-profile-and-failure-matrix.md)；production / tests-only 证据见 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md)；authority 语义见 [ADR-0011](../adr/0011-evidence-gated-learning-outcome-settlement.md) / [ADR-0018](../adr/0018-recordless-learning-outcome-marker-only-settlement-authority.md)。下文中的 Phase 3–4 与“保持未关闭”措辞是结项前的历史设计记录，**不得**再当作可分派实现任务。
 
 ## 1. 关闭定义（仍有效）
 
@@ -91,8 +91,8 @@ C-4P6 在**已批准 profile** 上完成每个 durable 边界的可验证 I/O、
 
 发现需改 schema/IPC/writer ownership/delete/catalog authority，或目标 profile 无法证明 directory durability 却要宣称 strict → **停止**当前切片。
 
-## 6. 当前下一项
+## 6. 历史“当前下一项”（已结项，勿再分派）
 
 **Phase 3：**在 `P6-macOS-local-APFS-strict-candidate` 上补 host-native / runtime-adjacent crash-restart 与 profile 记录；Windows 仅 degraded non-strict。不得扩展 public IPC enum，不得引入 transaction/delete。
 
-在 Phase 3–4 验收完成前，C-4P6 保持未关闭；本计划文件不得删除。
+**历史备注（已由 ADR-0021 结项覆盖）：** 下文 Phase 3–4 验收清单为结项前设计记录；C-4P6 已按 ADR-0021 受限 close-out，本文件仅作历史证据，不再是开放实现入口。

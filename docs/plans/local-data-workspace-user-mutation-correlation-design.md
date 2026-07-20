@@ -1,10 +1,10 @@
-# C-5H：Workspace 用户变更 correlation 设计门（mission-first，未实现）
+# C-5H：Workspace 用户变更 correlation 设计门（mission-first 首个切片已实施）
 
 > **状态：mission-first 首个切片已批准并实施（见 [ADR-0022](../adr/0022-mission-update-action-receipt-correlation.md)）。** `lesson_style_applied` 与其它 producer 仍排除。
 >
 > 本文是 `mission_updated` 的用户动作关联与受限重放设计门，而不是功能完成声明。现有 `MISSION.md` / `assets/lesson.css` durable publish 属于 [ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md)；main 生成、规范化和安全记录 trace 的既有范围属于 [ADR-0005：main-owned trace correlation 与安全日志](../adr/0005-main-owned-trace-correlation-and-safe-logs.md)。它们都**不**提供 action identity、receipt、跨文件事务或 exact retry。
 >
-> 任务分配的权威入口是[本地数据待办](../local-data-todo.md)的 P5H。本计划只提出批准后可执行的 mission-first 切片；`lesson_style_applied` 明确不在首个切片内。
+> 任务分配的权威入口是[本地数据待办](../local-data-todo.md)（当前无开放 C-5H 实现切片）。本计划保留 mission-first 设计门与 style 排除边界；已实施范围以 ADR-0022 为准，`lesson_style_applied` 仍排除。
 
 ## 1. 目标、问题边界与非目标
 
