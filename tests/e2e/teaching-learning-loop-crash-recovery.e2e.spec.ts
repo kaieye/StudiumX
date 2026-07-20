@@ -310,7 +310,10 @@ test.describe('P0 longitudinal Electron Golden — crash recovery', () => {
         expect(await countLearningRecords(seeded.rootPath)).toBe(0); expect(await readOutcomeJson(seeded.rootPath, seeded.sessionId)).toBeNull(); await forceKillElectronRuntime(launched)
         runtime.env.STUDIUMX_E2E_CRASH_POINT = crashPoint
         launched = await launchElectronRuntime(runtime, testInfo); page = await firstWindow(launched.application)
-        await refreshRendererFromMain(page, seeded.id); await openSeededLesson(page, { lessonTitle: seeded.lessonTitle, sessionName: seeded.sessionName }); const child = launched.application.process()\n        const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))\n        await clickQuizChoice(page, 'b')\n        await exited
+        await refreshRendererFromMain(page, seeded.id); await openSeededLesson(page, { lessonTitle: seeded.lessonTitle, sessionName: seeded.sessionName }); const child = launched.application.process()
+        const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
+        await clickQuizChoice(page, 'b')
+        await exited
         delete runtime.env.STUDIUMX_E2E_CRASH_POINT
         launched = await launchElectronRuntime(runtime, testInfo); page = await firstWindow(launched.application)
         await refreshRendererFromMain(page, seeded.id); await openSeededLesson(page, { lessonTitle: seeded.lessonTitle, sessionName: seeded.sessionName })
@@ -322,4 +325,6 @@ test.describe('P0 longitudinal Electron Golden — crash recovery', () => {
     })
   }
 })
+
+
 
