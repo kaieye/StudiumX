@@ -36,6 +36,7 @@ import {
   type TeachingWorkspaceService
 } from './teaching-workspace'
 import type { LearningAnalyticsService } from './teaching/services/learning-analytics'
+import type { TeachingTurnCoordinatorHost } from './teaching-turn-coordinator-host'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
 import type { AnalyticsExportRequest, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
 
@@ -47,6 +48,12 @@ export interface TeachingIpcRegistration {
   learningAnalyticsService: LearningAnalyticsService
   logger: Pick<Logger, 'error' | 'path'>
   applyAppBehavior: (settings: TeachingSettingsV1) => Promise<void>
+  /**
+   * Optional sole-writer host for teaching-turn / outcome commits.
+   * When provided, commitLearningOutcome routes through TeachingTurnCoordinator
+   * instead of renderer-driven service orchestration.
+   */
+  turnCoordinatorHost?: TeachingTurnCoordinatorHost
 }
 
 type GatewayContext = TeachingIpcRegistration & {
@@ -360,9 +367,12 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({
       channel: teachingInvokeChannels.commitLearningOutcome,
       parser: (payload) => parseCommitLearningOutcomeRequest(payload),
-      action: (_event, request) => request
-        ? service.commitLearningOutcome(request)
-        : { status: 'non_retryable_failure' as const, reason: 'invalid_request' as const },
+      action: (_event, request) => {
+        if (!request) return { status: 'non_retryable_failure' as const, reason: 'invalid_request' as const }
+        // Prefer coordinator host when composed so production sole-writer stays on main.
+        if (context.turnCoordinatorHost) return context.turnCoordinatorHost.commitLearningOutcome(request)
+        return service.commitLearningOutcome(request)
+      },
       reply: identityReply,
       streamCleanup: noStreamCleanup
     }),
