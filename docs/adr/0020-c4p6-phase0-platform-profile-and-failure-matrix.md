@@ -1,6 +1,6 @@
 # ADR-0020：C-4P6 Phase 0 platform profile 与 outcome settlement failure matrix 冻结
 
-- **状态：** 已采纳（Phase 0 decision freeze 历史基线；**无生产行为变更**；C-4P6 受限 macOS/APFS profile 结项见 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)）
+- **状态：** 已采纳（Phase 0 decision freeze 历史基线；**无生产行为变更**；C-4P6 受限 macOS/APFS profile 结项见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)）
 - **范围：** learning-outcome durable settlement 的首个目标 platform profile、I/O participant inventory、crash/failure/public-result matrix、manifest vs pathname publisher 边界、Windows/downgrade 限制与后续 phase 的停止条件
 - **证据提交：** 本 ADR（决策记录）；实现与 tests 仍以 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md) 为准
 
@@ -16,7 +16,7 @@ C-4P6 已有 S1 生产基础（有序 publish + 受控 reconcile）与 S2…S194
 
 | profile ID | 范围 | 允许的承诺 | 当前状态 |
 |---|---|---|---|
-| **P6-macOS-local-APFS-strict-candidate** | macOS（本机审计宿主：Darwin arm64 / macOS 26.x）、本地 APFS 卷、Node 22.x / Electron main、workspace 位于本机可写目录 | 仅当每个 canonical participant 的 **file sync + parent-directory sync + close** 在该 profile 上被 host-native 证据证明后，才允许宣称 **strict durable settlement success**。 | **已选为首个目标**；capability/matrix 在本 ADR 冻结。受限 macOS/APFS profile 的 close-out 证据已按 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) 接受（不宣称跨文件 transaction、Windows strict、reboot/power-loss）。 |
+| **P6-macOS-local-APFS-strict-candidate** | macOS（本机审计宿主：Darwin arm64 / macOS 26.x）、本地 APFS 卷、Node 22.x / Electron main、workspace 位于本机可写目录 | 仅当每个 canonical participant 的 **file sync + parent-directory sync + close** 在该 profile 上被 host-native 证据证明后，才允许宣称 **strict durable settlement success**。 | **已选为首个目标**；capability/matrix 在本 ADR 冻结。受限 macOS/APFS profile 的 close-out 证据已按 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 接受（不宣称跨文件 transaction、Windows strict、reboot/power-loss）。 |
 | **P6-Linux-local-posix-strict-candidate** | Linux local POSIX FS（hosted 证据可参考既有 C-4P8 Ubuntu path，但不自动继承给 P6） | 同上；须单独 host-native crash/restart 证据。 | 候选；未在本 Phase 0 关闭。 |
 | **P6-Windows-degraded-non-strict** | Windows + Node directory `fsync` 不可用（生产路径显式 skip / warn） | **禁止** parent-directory durable closure 与 power-loss/strict claim。outcome settlement 可运行，但 post-publish unknown 必须走既有保守 public result（见下），不得因“文件最终存在”报 strict success。 | **非目标 strict profile**；与 [C-4P8](0004-shared-durable-publish-and-partial-consumer-migration.md) Windows direct-path non-CAS 及 directory-fsync 限制一致。 |
 | **P6-unsupported** | 网络盘、可移动盘、容器卷、未知 FS、无法 containment 的 root | 不提供 P6 durability claim。 | 产品 fail-closed / 禁用策略**尚未**单独批准；在批准前不得 marketing 为 supported。 |
@@ -129,9 +129,9 @@ Reconcile 状态：`settled` | `repaired` | `pending` | `review_required` | `rea
 |---|---|---|
 | 定向 unit | `tests/unit/learning-outcome-committer.unit.test.ts` 历史基线 219 passed（S2…S194 residual） | **否** |
 | 定向 integration / IPC | ADR-0011 所列 integration + cutover checkers | **否** |
-| host-native crash/restart on P6-macOS-local-APFS-strict-candidate | 受限 profile 证据已按 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) 接受（`node scripts/verify-c4p6-host-native.mjs` + process integration） | 本工作线 **已结项**（仅限声明的 restricted profile；非更强 claim） |
+| host-native crash/restart on P6-macOS-local-APFS-strict-candidate | 受限 profile 证据已按 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 接受（`node scripts/verify-c4p6-host-native.mjs` + process integration） | 本工作线 **已结项**（仅限声明的 restricted profile；非更强 claim） |
 | Windows power-loss / strict directory durability | **未交付且非本 profile 目标** | 不得宣称 |
-| operations runbook 演练 | 已结项 profile 的 runbook 保留为历史证据/操作参考（见 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)） | 本工作线 **已结项**；扩张须新 ADR |
+| operations runbook 演练 | 已结项 profile 的 runbook 保留为历史证据/操作参考（见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)） | 本工作线 **已结项**；扩张须新 ADR |
 
 历史命令（定向，非 full suite）：
 
@@ -143,13 +143,13 @@ node scripts/check-learning-record-evidence-gate.mjs
 node scripts/check-teaching-app-commit-cutover.mjs
 ```
 
-### 6. 后续 phase 授权边界与停止条件（历史；工作线结项见 ADR-0021）
+### 6. 后续 phase 授权边界与停止条件（历史；工作线结项见 ADR-0035）
 
 在本 ADR 下曾授权的 phase 边界（保留为基线审计记录）：
 
 - **Phase 1 已落地（见后果补充）：** containment / 单文件 durable publish 对齐；**不得** retroactively 扩大为 schema、canonical path、public IPC enum、writer ownership、delete/rollback 变更。
 - **Phase 2–4（历史授权）：** 曾允许补全 crash/reconcile 证据、仅对该 profile 收集 host-native 证据、以及 operations readiness；仍禁止跨文件 transaction；Windows strict 不在本 profile 内。
-- **当前状态：** 受限 macOS/APFS profile 的 C-4P6 close-out 已由 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) 接受；上述 phase **不再**作为当前可分派实现 todo。超出该结项的扩张须新建 ADR。
+- **当前状态：** 受限 macOS/APFS profile 的 C-4P6 close-out 已由 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 接受；上述 phase **不再**作为当前可分派实现 todo。超出该结项的扩张须新建 ADR。
 
 **立即停止并回到 design/API gate 的条件（仍适用）：**
 
@@ -158,8 +158,8 @@ node scripts/check-teaching-app-commit-cutover.mjs
 ## 后果
 
 - 本 ADR 关闭 Phase 0 “决策与基线冻结”门，并保留 profile / failure matrix / public-result 边界作为历史基线。Phase 1 实现对齐见下文补充，不改变本 matrix 的这些边界。
-- C-4P6 工作线的 **受限 macOS/APFS profile close-out** 见 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)；该结项**不是**当前可分派的开放实现 todo。ADR-0004 的 S1 / S2…S194 措辞保持：tests-only residual ≠ 更强 durability claim。
-- 本 ADR **不**宣称跨文件 transaction、共同原子性、Windows strict、网络/可移动存储、reboot durability，或超出 ADR-0021 已接受 restricted profile 证据的 power-loss durability。未知 publish 后状态仍按既有 `reconciliation_required` / `review_required` fail closed。
+- C-4P6 工作线的 **受限 macOS/APFS profile close-out** 见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)；该结项**不是**当前可分派的开放实现 todo。ADR-0004 的 S1 / S2…S194 措辞保持：tests-only residual ≠ 更强 durability claim。
+- 本 ADR **不**宣称跨文件 transaction、共同原子性、Windows strict、网络/可移动存储、reboot durability，或超出 ADR-0035 已接受 restricted profile 证据的 power-loss durability。未知 publish 后状态仍按既有 `reconciliation_required` / `review_required` fail closed。
 - 若要扩大到新的 OS、filesystem、durability claim、writer 或 public result，必须**新建 ADR**，并重新提供匹配声明的 host-native/operations evidence；不得把 Phase 0 冻结或 Phase 1 对齐解读为这些扩张已开放。
 
 ### Phase 1 实现对齐（2026-07-20，历史补充；非更强 claim）
@@ -172,11 +172,11 @@ node scripts/check-teaching-app-commit-cutover.mjs
 - immutable record `syncDirectoryRequired` 仍 strict（仅生产 win32 skip）。
 - unit：`settlement-durable-io` + committer 219 + durable-file + ledger 定向 suite 绿。
 
-受限 macOS/APFS profile 的 host-native crash/restart 与 operations 证据结项见 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)。**仍不宣称：** 跨文件 transaction、Windows strict、reboot/power-loss beyond that restricted profile。
+受限 macOS/APFS profile 的 host-native crash/restart 与 operations 证据结项见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)。**仍不宣称：** 跨文件 transaction、Windows strict、reboot/power-loss beyond that restricted profile。
 
 ## 不包含
 
-- 不把 Phase 0 冻结本身等同于 unrestricted / multi-platform close-out；结项范围以 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) 的 restricted profile 为准。
+- 不把 Phase 0 冻结本身等同于 unrestricted / multi-platform close-out；结项范围以 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 的 restricted profile 为准。
 - 不批准 Windows strict P6 profile，不批准 unsupported 环境的产品 fail-closed 策略细节。
 - 不把 catalog、stage、UI 或 “最终文件存在” 提升为 authority。
 - 不引入跨文件 transaction，不新增 public IPC result，不把 tests-only residual 升级为更强 host-native claim。
@@ -188,6 +188,6 @@ node scripts/check-teaching-app-commit-cutover.mjs
 - [ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)
 - [ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)
 - [ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)
-- [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)
+- [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)
 - [本地数据待办](../local-data-todo.md)
 - [C-4P6 durable settlement runbook](../operations/c4p6-learning-outcome-durable-settlement-runbook.md)（运维参考；扩张须新 ADR）

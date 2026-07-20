@@ -1,6 +1,6 @@
 # ADR-0019：Session-audit V1 wire contract 与有限 authority
 
-- **状态：** 已实施（audit 专用 V1 wire / identity / exact-retry append；fixed-file C-4P9 scope 已按 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) 结项；不授权 generic JSONL 或其它扩张）
+- **状态：** 已实施（audit 专用 V1 wire / identity / exact-retry append；fixed-file C-4P9 scope 已按 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 结项；不授权 generic JSONL 或其它扩张）
 - **范围：** per-conversation session audit JSONL 的 V1 header/entry contract、identity 与 ordering、exact-retry missing-row append、有限 authority 边界
 - **证据提交：** `4b30220`、`d6a94a1`；后续 S3…S45 为 tests-only historical evidence（见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)）
 
@@ -26,13 +26,13 @@ Session audit 的 authority 是有限的：
 - **不是** learning ledger / LearningSession / outcome / record 的事实来源；
 - append 成功只说明该 audit row 集合按本 contract 处理，不单独证明 JSON/Markdown 可见性，也不覆盖 ledger snapshot identity。
 
-本决定记录 audit 专用 V1 contract 与 S2 production append 边界。V1 fixed-file audit scope（per-conversation append-only、exact missing-row retry、进程内同路径 queue、有限 authority）已按 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md) 结项；超出该边界的扩张——strict durable profile、generic JSONL、rotation、repair、cross-process multi-writer、archive transaction、public IPC/UI——须新建 ADR 并提供匹配声明的 host-native/operations evidence，**当前不可分派**。
+本决定记录 audit 专用 V1 contract 与 S2 production append 边界。V1 fixed-file audit scope（per-conversation append-only、exact missing-row retry、进程内同路径 queue、有限 authority）已按 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 结项；超出该边界的扩张——strict durable profile、generic JSONL、rotation、repair、cross-process multi-writer、archive transaction、public IPC/UI——须新建 ADR 并提供匹配声明的 host-native/operations evidence，**当前不可分派**。
 
 ## 已实施范围与验证入口
 
 - `4b30220` 引入 audit 专用 fixed-file durable append（framed、exact missing-row retry、同路径进程内队列、file sync 后尝试 directory sync）。
 - `d6a94a1` 将 conversation audit events 接入 trace correlation 边界。
-- S3…S45 扩展 recovery / short-circuit / directory capability residual 的 **tests-only** 证据，不扩大 production authority；细节见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)。
+- S3…S45 扩展 recovery / short-circuit / directory capability residual 的 **tests-only** 证据，不扩大 production authority；细节见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)。
 
 主要代码与验证入口：
 
@@ -53,7 +53,7 @@ Directory `open`/`sync` 在部分 errno / Windows native 路径上的降级 warn
 
 ## 不包含
 
-- 本 ADR **不**证明 cross-process exclusion、Windows native/power-loss、strict durable profile、完整 host capability matrix 或超出 fixed-file append 边界的 operations closure；这些仍属未批准扩张，见 [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)。
+- 本 ADR **不**证明 cross-process exclusion、Windows native/power-loss、strict durable profile、完整 host capability matrix 或超出 fixed-file append 边界的 operations closure；这些仍属未批准扩张，见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)。
 - 本 ADR **不**授权 generic JSONL migration、`durable-jsonl` 分段自动套用、rotation、sealing、retention、compaction、deletion、quarantine、restore 或 repair。
 - 本 ADR **不**把 audit 升级为 action identity、receipt、learning ledger authority、SQLite projection 输入，或 ADR-0003 `.bak` 机制的扩展目标。
 - 本 ADR **不**引入 audit IPC/UI、operator repair command，或改变 JSON/Markdown/ledger 的 ownership 与 save order。
@@ -65,4 +65,4 @@ Directory `open`/`sync` 在部分 errno / Windows native 路径上的降级 warn
 - [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)
 - [ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)
 - [ADR-0007](0007-persisted-user-history-redaction.md)
-- [ADR-0021](0021-c4-p6-p8-p9-closeout-scope-decisions.md)
+- [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)

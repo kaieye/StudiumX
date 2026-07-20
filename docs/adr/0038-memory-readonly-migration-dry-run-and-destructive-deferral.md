@@ -1,4 +1,4 @@
-# ADR-0024：Memory 只读迁移 dry-run 切片与 destructive migration 延期
+# ADR-0038：Memory 只读迁移 dry-run 切片与 destructive migration 延期
 
 - **状态：**已采纳（2026-07-20）
 - **范围：**C-6 阶段 2（main-only readonly dry-run intent/receipt preview）结项；明确 **不** 批准 destructive/controlled migration 实现。

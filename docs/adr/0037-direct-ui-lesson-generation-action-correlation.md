@@ -1,4 +1,4 @@
-# ADR-0023：Direct-UI lesson generation 用户动作关联（首个切片）
+# ADR-0037：Direct-UI lesson generation 用户动作关联（首个切片）
 
 - **状态：** 已采纳 / 已实施（限定首个切片）
 - **范围：** C-5I direct-UI `generateLesson` / `generateLessonStream` only

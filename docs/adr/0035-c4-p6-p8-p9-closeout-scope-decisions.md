@@ -1,4 +1,4 @@
-# ADR-0021：C-4 P6 / P8 / P9 的范围结项决定
+# ADR-0035：C-4 P6 / P8 / P9 的范围结项决定
 
 - **状态：**已采纳（2026-07-20）
 - **范围：**只结项本 ADR 明确列出的 C-4P6、C-4P8 Windows strict proposal 与 C-4P9 durable-extension 工作线；不扩张任何现有 writer、wire、IPC、schema 或 canonical authority。

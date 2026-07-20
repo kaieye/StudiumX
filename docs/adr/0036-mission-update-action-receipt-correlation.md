@@ -1,4 +1,4 @@
-# ADR-0022：mission_update 的 actionId / private receipt 关联（mission-first）
+# ADR-0036：mission_update 的 actionId / private receipt 关联（mission-first）
 
 - **状态：** 已实施（限定 mission submit 首个切片）
 - **范围：** C-5H mission-first
