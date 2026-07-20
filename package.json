@@ -57,6 +57,7 @@
     "check:agent-loop-empty-final": "node scripts/check-agent-loop-empty-final.mjs",
     "check:tool-execution": "node scripts/check-tool-execution.mjs",
     "check:tool-dispatcher": "vitest run --project unit tests/unit/tool-dispatcher.unit.test.ts",
+    "check:parallel-read-tools": "node scripts/check-parallel-read-tools.mjs",
     "check:tool-permissions": "node scripts/check-tool-permissions.mjs",
     "check:scoped-tool-permissions": "node scripts/check-scoped-tool-permissions.mjs",
     "check:workspace-write-tool": "node scripts/check-workspace-write-tool.mjs",
