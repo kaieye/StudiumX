@@ -1,64 +1,23 @@
-# C-4P9 Session-audit durable append design gate
+# C-4P9 Session-audit durable append：未关闭的设计门
 
-> **Status: open.** **P9-S2 is the only production scope.** P9-S3 through P9-S45 are tests-only historical evidence; they do not expand production scope or close C-4P9.
+> **状态：未关闭。** 已实施 scope、提交与 tests-only historical evidence 见 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md)；它们不构成 C-4P9 complete durable closure。
 
-## Authority and scope
+## 范围与红线
 
-- The canonical backlog is [local-data-todo](../local-data-todo.md#p9session-audit-durable-append); implementation and evidence history are recorded in [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md).
-- P9-S2 is limited to the fixed session-audit file:
+- 本文件只定义 P9 尚未解决的设计与批准门。下一步工作的唯一入口是 [本地数据待办](../local-data-todo.md#p9session-audit-durable-append)。
+- 不得把 P9 扩大为其它 JSONL writer、archive、artifact、checkpoint、ledger 或 workspace writer 的迁移。
+- 既有 audit schema/version、headers、entry IDs、`parentId`、ordering、历史字节、legacy tolerant read、删除/history/artifact 语义仍须保持；未经单独批准，不得 backfill、normalization、rewrite、retention change 或 automatic cleanup。
+- 不得改变当前 archive save order 或 ledger ownership；P9 不授权新的 trace identity、action ID、receipt 或通用 idempotency model。
 
-  ```text
-  <conversation>/.agent-sessions/<conversation-id>.jsonl
-  ```
+## 待批准的设计门
 
-  It is an audit-specific, framed, legacy-compatible, non-rotating durable append boundary. It does not migrate other JSONL writers, archives, artifacts, checkpoints, ledgers, or workspace writers.
-- `appendDurableJsonlLine()` is not an approved P9 implementation path: its default month/size rotation is incompatible with the fixed-file audit contract unless a later, separately approved design changes that contract.
-- Existing audit schema/version, headers, entry IDs, `parentId`, ordering, raw historical bytes, tolerant legacy reads, and deletion/history/artifact assumptions remain authoritative. No backfill, normalization, rewrite, retention change, or automatic cleanup is authorized.
-- Trace remains optional write-once correlation metadata under the existing normalization rules; it is not part of audit identity, hashing, parentage, or dedupe. P9 is not a C-5 trace, action-ID, receipt, or idempotency-model migration.
+1. **Generic JSONL migration、rotation 与 repair。** 先定义获批的 generic API 与 audit-specific compatibility contract。任何 rotation、sealing 或 segment discovery 都必须证明保持 fixed-file audit、history、artifact protection、verification 与 deletion 语义。repair 还须定义 authority、trigger、字节保留/损失政策、恢复与 operator controls。
+2. **完整 capability 与 failure semantics。** 完成 file/directory `mkdir`、path inspection、`open`、`stat`、`read`、partial/invalid transfer、`write`、`fsync` 与 `close` 的 capability profile 和 residual matrix；定义 fatal / degraded 分界及 stable、privacy-safe diagnostics，禁止将 unsupported behavior 报为 durable success。
+3. **跨文件 transaction 与 archive/ledger authority。** 任何超出有序 best-effort 的承诺都需要明确 crash/retry state machine，并定义 JSON、Markdown、audit 与 ledger 的 authority、partial-publish visibility、reconciliation、idempotency、final verification 和 rollback prohibition，且不得悄然改变 archive order 或 ledger ownership。
+4. **IPC/UI。** repair、migration、rotation、conflict resolution 或 durability-status UI/IPC 均未获批准。未来 surface 必须定义权限、stable/privacy-safe states 与 errors、partial publish 的用户可见后果、retry 行为及 caller compatibility。
+5. **Operations validation。** 在更广 closure 前，定义 owner、runbook、observability（不得泄露 audit data）、upgrade/rollback、capacity/retention、concurrency、failure injection 与可复现实收标准。定向 unit evidence 不等同于 operations validation 或 full-suite closure。
+6. **Windows 与 power-loss claims。** Windows profile 需要 host-native capability analysis、明确 file/directory flush/error semantics 和 adversarial CI。任何 power-loss 声明都需要获批 fault model 及平台对应的 crash/recovery 或 power-loss validation；普通 unit tests 和 `fsync` 调用不足以证明该结论。
 
-## Implemented production contract: P9-S2 only
+## 实施前输入
 
-P9-S2 uses a module-private queue keyed by normalized absolute audit path. For one path, the queue spans the same-descriptor exact-byte read, validation, dedupe/conflict decision, framed append, file `fsync`/`close`, then audit-directory and conversation-parent-directory durability confirmation. It does not impose unnecessary global serialization across different audit files.
-
-The writer must re-read the queued file state before it decides what to append:
-
-- Missing canonical rows are appended; exact already-present canonical rows are a no-op on retry. Existing bytes are not rewritten. Conflicting rows with the same header or entry identity, including divergent trace, fail closed.
-- Legacy trace-free or malformed-trace rows remain readable under existing tolerant-read behavior and are not rewritten. A malformed/torn tail is never silently treated as an authorization to append or dedupe.
-- The implemented framing preserves the existing bytes and isolates a non-LF existing tail before appending; it is not a general repair facility.
-- `ENOENT` is the empty-audit case. Other read/path/type/I/O failures fail closed.
-- Directory `open`/`sync` may degrade only for the established allowlist: `EINVAL`, `ENOSYS`, `ENOTSUP`, `EOPNOTSUPP`, and `EISDIR`. The warning must be generic and contain no paths, content, IDs, or trace data. `EACCES`, `EPERM`, `EIO`, unknown errors, and every close failure are fatal.
-
-A pre-append failure must not confirm a new audit row or start ledger append. If file append completed but directory durability confirmation fails, save rejects without rollback: the row may exist, and retry must re-read, validate, and exact-dedupe before it can proceed. It must not use a stale snapshot, in-memory success flag, truncate, deletion, or overwrite to make retry appear clean.
-
-## Archive ordering and authority (unchanged)
-
-P9-S2 preserves the existing ordered publish boundary:
-
-```text
-canonical JSON → canonical Markdown → session audit → existing ledger queue → final archive verification
-```
-
-This is not a cross-file transaction and makes no shared atomicity or rollback promise.
-
-- JSON failure blocks Markdown, audit, and ledger.
-- Markdown failure may leave JSON, but blocks audit and ledger.
-- Audit failure may leave JSON/Markdown, but blocks ledger and fails the save.
-- Ledger failure may leave JSON/Markdown/audit, but still fails the save. Retry must not duplicate audit rows or claim an audit-only result is a successful archive save.
-- Ledger queue ownership, identity verification, idempotency semantics, and final verification remain with the existing archive/ledger flow. P9-S2 must not introduce a second ledger identity, receipt, or transaction protocol, and must not reorder these stages.
-
-## C-4P9 open gates and design risks
-
-The following are active gates, not work implicitly authorized by P9-S2 or its tests.
-
-1. **Generic JSONL migration, rotation, and repair.** Define a separately approved generic API and audit-specific compatibility contract before any migration. Any rotation/sealing/segment discovery must prove preservation of fixed-file audit, history, artifact-protection, verification, and deletion semantics. Repair needs explicit authority, trigger conditions, byte-preservation/loss policy, recovery behavior, and operator controls; S2 tail framing is not repair.
-2. **Full capability and failure semantics.** Complete the capability profile and residual matrix for file and directory `mkdir`, path inspection, `open`, `stat`, `read`, partial/invalid transfers, `write`, `fsync`, and `close`, including unknown errors and all fatal-versus-degraded outcomes. Define stable, privacy-safe diagnostics and ensure no unsupported platform behavior is misreported as durable success.
-3. **Cross-file transaction and archive/ledger authority.** Any promise beyond the ordered best-effort sequence needs an explicit crash/retry state machine and a decision on authority for JSON, Markdown, audit, and ledger. It must define partial-publish visibility, reconciliation, idempotency, final verification, and rollback prohibitions without silently changing the current archive order or ledger ownership.
-4. **IPC/UI.** No repair, migration, rotation, conflict-resolution, or durability-status UI/IPC is approved. A future surface must specify permissions, stable/privacy-safe states and errors, user-visible consequences of partial publish, retry behavior, and compatibility with existing callers.
-5. **Operations validation.** Before broader closure, define operational ownership and validation: observability without sensitive audit data, recovery/runbook behavior, upgrade and rollback handling, capacity/retention implications, concurrency and failure-injection coverage, and reproducible acceptance criteria. Targeted unit evidence is not operations validation or full-suite closure.
-6. **Windows and power-loss claims where applicable.** P9-S2 must not generalize POSIX-oriented durability behavior into a Windows guarantee. Any Windows profile needs host-native capability analysis, explicit file/directory flush and error semantics, and adversarial CI. Any future power-loss durability claim requires an approved fault model plus platform-appropriate crash/recovery or power-loss validation; ordinary unit tests and `fsync` calls alone are insufficient evidence for that claim.
-
-## Historical evidence
-
-P9-S3 through P9-S45 are completed **tests-only** slices. Collectively they add targeted evidence for recovery, short-circuiting, capability symmetry, residual I/O failures, concurrency, conflict handling, and archive/ledger retry behavior. They made no production-scope expansion and do not close the generic JSONL, rotation, repair, full failure semantics, transaction, IPC/UI, operations, Windows, or power-loss gates above.
-
-The chronological per-slice ledger, commit references, and historical targeted test counts are retained in [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md). Do not combine those historical counts with current test results or represent them as complete-suite, operations, or C-4P9 closure evidence.
+任何后续切片必须先获批 scope、owner、public result/retry semantics、platform profile、failure/crash matrix、测试层级与 operations owner；批准后再单独立项。本文不构成实现授权或 P9 close-out。
