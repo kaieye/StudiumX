@@ -26,6 +26,56 @@ export type TeachingMemoryLegacyMigrationPreflight = {
   migrationReady: boolean
 }
 
+/**
+ * Main-only readonly dry-run dispositions. These never authorize copy, hold,
+ * publish, or legacy delete. `preview_only` means the dry-run completed without
+ * mutating Memory; it is not destructive consent.
+ */
+export type TeachingMemoryLegacyMigrationDryRunDisposition =
+  | 'preview_only'
+  | 'not_ready'
+  | 'not_authorized'
+  | 'blocked'
+  | 'expired'
+  | 'busy'
+
+/** Aggregate access class only; never includes workspace/project roots or paths. */
+export type TeachingMemoryLegacyMigrationDryRunAccessClass = 'catalog' | 'workspace' | 'project'
+
+/**
+ * Short-lived aggregate-only intent preview. Opaque `intentId` values are not
+ * destructive authorization, reservation, or retry keys for real migration.
+ */
+export type TeachingMemoryLegacyMigrationDryRunIntentPreview = {
+  intentId: string
+  createdAt: string
+  expiresAt: string
+  authorizationClass: 'readonly_preview_only'
+  accessClass: TeachingMemoryLegacyMigrationDryRunAccessClass
+  disposition: TeachingMemoryLegacyMigrationDryRunDisposition
+  preflight: TeachingMemoryLegacyMigrationPreflight
+  /** Always false for this slice; destructive migration remains unapproved. */
+  destructiveAuthorized: false
+  /** Always false; dry-run never mutates Memory bytes, mtimes, or layout. */
+  memoryMutated: false
+}
+
+/**
+ * Aggregate-only receipt preview for a completed readonly dry-run. It records
+ * that only preview work occurred and never grants destructive authority.
+ */
+export type TeachingMemoryLegacyMigrationDryRunReceiptPreview = {
+  intentId: string
+  createdAt: string
+  completedAt: string
+  authorizationClass: 'readonly_preview_only'
+  accessClass: TeachingMemoryLegacyMigrationDryRunAccessClass
+  disposition: TeachingMemoryLegacyMigrationDryRunDisposition
+  preflight: TeachingMemoryLegacyMigrationPreflight
+  destructiveAuthorized: false
+  memoryMutated: false
+}
+
 export type TeachingMemoryDiagnostics = {
   enabled: boolean
   activeCount: number

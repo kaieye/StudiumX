@@ -175,8 +175,12 @@ export class TeachingMemoryCatalog {
    * Returns renderer-safe diagnostics assembled from one descriptor-bound
    * discovery snapshot. This method only reads existing sources; it never
    * creates, repairs, relocates, or rewrites Memory files.
+   *
+   * When `access` is provided, eligible/partitioned aggregates are restricted
+   * to that trusted scope. Catalog-wide recovery and duplicate blockers still
+   * count because they are migration safety conditions, not content.
    */
-  async diagnosticsSnapshot(): Promise<{
+  async diagnosticsSnapshot(options: { access?: TeachingMemoryAccess } = {}): Promise<{
     activeCount: number
     tombstoneCount: number
     legacyMigrationPreflight: TeachingMemoryLegacyMigrationPreflight
@@ -185,10 +189,13 @@ export class TeachingMemoryCatalog {
     const discovered = await this.discover({ createRoot: false })
     try {
       const records = [...discovered.selected.values()].map((source) => source.record)
+      const scopedRecords = options.access
+        ? records.filter((record) => inTeachingMemoryScope(record, options.access))
+        : records
       return {
-        activeCount: records.filter((record) => !record.deletedAt && !record.disabledAt).length,
-        tombstoneCount: records.filter((record) => Boolean(record.deletedAt)).length,
-        legacyMigrationPreflight: summarizeLegacyMigrationPreflight(discovered, this.recoveryIssues)
+        activeCount: scopedRecords.filter((record) => !record.deletedAt && !record.disabledAt).length,
+        tombstoneCount: scopedRecords.filter((record) => Boolean(record.deletedAt)).length,
+        legacyMigrationPreflight: summarizeLegacyMigrationPreflight(discovered, this.recoveryIssues, options.access)
       }
     } finally {
       discovered.close()
@@ -366,7 +373,8 @@ export { teachingMemoryRecordFilePath, teachingMemoryScopeDirectory, teachingMem
 
 function summarizeLegacyMigrationPreflight(
   discovered: Discovery,
-  recoveryIssues: readonly TeachingMemoryCatalogRecoveryIssue[]
+  recoveryIssues: readonly TeachingMemoryCatalogRecoveryIssue[],
+  access?: TeachingMemoryAccess
 ): TeachingMemoryLegacyMigrationPreflight {
   const duplicateIds = new Set<string>(discovered.conflictedIds)
   for (const [id, count] of discovered.acceptedSourceCounts) {
@@ -376,6 +384,7 @@ function summarizeLegacyMigrationPreflight(
   let legacyFlatEligibleCount = 0
   let alreadyPartitionedCount = 0
   for (const [id, source] of discovered.selected) {
+    if (access && !inTeachingMemoryScope(source.record, access)) continue
     if (source.layout === 'scoped') {
       alreadyPartitionedCount += 1
       continue
