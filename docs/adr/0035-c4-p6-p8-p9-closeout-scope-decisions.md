@@ -35,7 +35,7 @@ C-4P9 的 V1 fixed-file audit scope 以 [ADR-0019](0019-session-audit-v1-wire-co
 
 ## 后果
 
-1. `docs/local-data-todo.md` 不再列出 P6、P8 或 P9，因为它只记录仍可分派的开放工作。
+1. 当前无开放 local-data 实现切片；P6、P8、P9 不再作为可分派实现工作（本 ADR 结项边界为准）。
 2. 已结项 plan / capability audit / standalone operations 文档删除；长期有效决定、边界与运维步骤仅以本 ADR 及相关 ADR 为准。
 3. 已有实现不因本 ADR 获得任何更强的 durability、transaction、CAS、recovery、retention 或 public API 声明。
 
@@ -103,4 +103,4 @@ Use only the standard main-process path. If a concurrent call cannot prove the o
 - [x] Operations, support and release owners have accepted this runbook and its escalation route.
 - [x] No schema/API/path migration was introduced; if that changes, an independent migration gate is approved first.
 - [x] Matrix evidence covers the claimed runtime-adjacent crash/restart behavior; any untested reboot/power-loss claim is removed.
-- [x] ADR-0004, ADR-0020, and `local-data-todo.md` are reviewed together with this ADR before changing P6 status.
+- [x] ADR-0004 and ADR-0020 are reviewed together with this ADR before changing P6 status.

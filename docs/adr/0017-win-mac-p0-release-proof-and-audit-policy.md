@@ -78,7 +78,7 @@ node scripts/check-teaching-learning-loop.mjs
 
 ## 不包含
 
-- 完整 C-4P6 / C-4P9 writer migration 或 Windows strict descriptor/HANDLE-relative durable publish（见 ADR-0004 / 本地数据待办）。
+- 完整 C-4P6 / C-4P9 writer migration 或 Windows strict descriptor/HANDLE-relative durable publish（见 ADR-0004、ADR-0035）。
 - Mac 聚合预算的独立封存（`darwin` 预算仍空，直至 Mac inventory）。
 - P1 coordinator / blocking CI 扩展 / P2 规模化项。
 

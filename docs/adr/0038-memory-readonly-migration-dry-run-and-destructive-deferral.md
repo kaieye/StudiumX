@@ -65,6 +65,6 @@ pnpm run typecheck
 
 ## 后果
 
-1. `docs/local-data-todo.md` 不再将 C-6 列为可分派的开放实现工作流；destructive migration 仅可作为未来独立 gated proposal，须先满足本 ADR 第 3 节前提。
+1. 当前无开放 C-6 实现工作流；destructive migration 仅可作为未来独立 gated proposal，须先满足本 ADR 第 3 节前提，并另立独立 ADR。
 2. 已结项 C-6 plan 删除；readonly dry-run 与 destructive 延期前提仅以本 ADR 与 [ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md) 为准。
 3. [ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md) 的分区与 preflight 边界不变；本 ADR 仅叠加 dry-run 切片并冻结 destructive 延期。

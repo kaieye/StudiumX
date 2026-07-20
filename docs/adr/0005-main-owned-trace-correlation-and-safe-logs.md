@@ -22,4 +22,4 @@ traceId 由 main 生成并规范化为 opaque UUID，用于已覆盖持久化链
 
 ## 明确不包含
 
-这不是全局 actionId、精确 retry、receipt、全局 transaction 或 IPC/UI 重设计。`mission_updated` 的 main-owned `traceId` 覆盖已由 [ADR-0036](0036-mission-update-action-receipt-correlation.md) 在 mission-first 切片内扩展，但 trace 仍不是 action identity 或 receipt。`lesson_style_applied`、direct-UI `lesson_generated` 及其他 user actions 仍见[本地数据待办](../local-data-todo.md)。
+这不是全局 actionId、精确 retry、receipt、全局 transaction 或 IPC/UI 重设计。`mission_updated` 的 main-owned `traceId` 覆盖已由 [ADR-0036](0036-mission-update-action-receipt-correlation.md) 在 mission-first 切片内扩展，但 trace 仍不是 action identity 或 receipt。direct-UI `lesson_generated` 的 action/receipt 边界见 [ADR-0037](0037-direct-ui-lesson-generation-action-correlation.md)；`lesson_style_applied` 及其他未获 actionId/receipt 批准的 user actions 仍不在本 ADR 或 ADR-0036/0037 范围内。

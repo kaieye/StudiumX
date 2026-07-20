@@ -6,9 +6,9 @@
 
 - 想快速了解现状：阅读下方的“已实施决定”表。
 - 想知道某项做法的原因、边界和测试入口：打开对应 ADR。
-- 想知道接下来还准备做什么：阅读[本地数据待办](../local-data-todo.md)。它记录未完成范围及待批准的后续工作；其中不应被视为已实现功能，除非相应条目明确标明已实施的受限切片。
-- 下一步工作必须遵循：待办页 → 对应 design gate 获得 scope / owner / API 批准 → 单独立项实施；design gate 本身不授权直接修改 writer。
-- 想研究已关闭工作的历史决定：以本目录 ADR 为准（C-4P6 运维步骤见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)）；开放/延期工作见[本地数据待办](../local-data-todo.md)。
+- 想知道接下来还准备做什么：以本目录 ADR 的「明确不包含 / non-claims / 延期」段落为准。当前**无开放 local-data 实现切片**；唯一延期项为 C-6 destructive Memory migration（见 [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md) 第 3 节），不可分派为实现。
+- 下一步工作必须遵循：独立 ADR + design gate 获得 scope / owner / API 批准 → 单独立项实施；design gate / dry-run / preflight 本身不授权直接修改 writer 或 destructive path。
+- 想研究已关闭工作的历史决定：以本目录 ADR 为准（C-4P6 运维步骤见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)）；延期前提见 [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md)。
 
 ## 按问题查阅
 
@@ -17,11 +17,11 @@
 | SQLite 分析索引损坏后能否隔离、重建或回退读取 | ADR-0001 |
 | canonical teaching data 的永久保留边界，以及 logical JSONL 如何分区、分段和生成会话摘要 | ADR-0002 |
 | 关键 JSON 不可读时如何从 `.bak` 验证恢复 | ADR-0003 |
-| 哪些 writer 已使用 durable publish，以及受控 `write_workspace_file` 的 P8 S1–S4 closure 到哪里 | ADR-0004、[本地数据待办](../local-data-todo.md) |
+| 哪些 writer 已使用 durable publish，以及受控 `write_workspace_file` 的 P8 S1–S4 closure 到哪里 | ADR-0004、ADR-0035 |
 | 已覆盖持久化链如何关联 trace，同时保持日志安全 | ADR-0005 |
 | Memory 数据如何按范围隔离，以及能否迁移旧数据 | ADR-0006、ADR-0038 |
 | 新持久化 conversation/history 如何先经脱敏 | ADR-0007 |
-| 哪些本地数据能力仍未完成 | [本地数据待办](../local-data-todo.md) |
+| 哪些本地数据能力仍未完成 / 延期 | 当前无开放实现切片；C-6 destructive 延期见 ADR-0038 |
 | P0 教学 Session 如何成为 canonical 事实，而非 Agent run 或 Lesson 目录 | ADR-0008 |
 | Lesson 回答、检索练习与 conversation 互动如何成为可追溯 Evidence | ADR-0009 |
 | 为什么 Lesson 生成不会再自动写正式 Learning record | ADR-0010 |
@@ -107,7 +107,7 @@
 - **受限 close-out（ADR-0035）：**`P6-macOS-local-APFS-strict-candidate` 以 macOS internal APFS runtime-adjacent host-native / fresh-process crash-restart 与 operations runbook 作为该工作线结项证据被接受。Phase 0 profile/matrix 冻结于 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md)。
 - **明确非声明（out-of-scope，非开放 todo）：**跨文件 transaction / common atomicity、rollback、delete；完整 manifest `open`/`write`/`fsync`/`close` failure matrix；Windows strict / power-loss durability；网络/可移动存储或 reboot durability；新 public IPC result。扩大到新 OS/filesystem/durability claim/writer/public result 须**新建 ADR**，不得把 residual 当作当前可分派实现切片。
 
-权威范围与运维步骤见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)（含 C-4P6 运维 runbook）；当前可分派状态见[本地数据待办](../local-data-todo.md)（无开放 P6 实现切片）。
+权威范围与运维步骤见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)（含 C-4P6 运维 runbook）；当前无开放 P6 实现切片。
 
 ## C-4P8 S1–S4 已关闭 scope：证据与实际验证入口
 
@@ -140,11 +140,11 @@ P9-S5 `47393f9` 仅修改测试，未改 production code。它覆盖 audit direc
 - **边界结项（ADR-0035）：**V1 fixed-file audit scope 以 ADR-0019 与已实施 append/dedupe boundary 结项；**不**批准扩张为 strict durable profile、generic JSONL、rotation、repair、cross-process multi-writer、archive transaction、IPC/UI 或 public result surface。现有 audit 仍是 per-conversation、append-only、ordered-best-effort session evidence：进程内同路径 queue 不是跨进程 exclusion，directory-sync warning 不是 strict/power-loss proof，audit outcome 也不决定 JSON、Markdown 或 learning-work ledger 的 authority。
 - **明确非声明（out-of-scope，非当前可分派实现）：**crash/power-loss、all filesystems、cross-process multi-writer、all JSONL、跨文件 transaction、rotation、repair/migration、ledger authority/save-order 改造或 IPC/UI。产品若需要上述任一扩张，须**新建 ADR** 定义 profile 与 evidence，不得把 residual tests 或本结项解释为这些能力已实现。
 
-逐条历史证据见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0019](0019-session-audit-v1-wire-contract-and-limited-authority.md) 与 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)。当前可分派状态见[本地数据待办](../local-data-todo.md)（无开放 P9 实现切片）。
+逐条历史证据见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0019](0019-session-audit-v1-wire-contract-and-limited-authority.md) 与 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)。当前无开放 P9 实现切片。
 
 ## 维护约定
 
 - 已实施且会长期影响架构的决定，新增一份编号递增的 ADR；不要为了记录小进度而新建 ADR。
-- 已实施决定的范围、边界或验证入口变化时，更新对应 ADR；未完成范围、前置条件和实施顺序变化时，更新[本地数据待办](../local-data-todo.md)。不要把后者的内容提前记为 ADR 已实施事实，也不要把 ADR 的受限切片扩大为完整 closure。已结项 plan 应删除，不保留无用指针 stub。
+- 已实施决定的范围、边界或验证入口变化时，更新对应 ADR；新的开放/延期工作必须新增独立 ADR（含 design gate 前提），不得把 ADR 的受限切片扩大为完整 closure。已结项 plan 应删除，不保留无用指针 stub。
 - ADR 中的 Git 提交 hash 是验证线索。若合并主线时使用 rebase 或 squash 导致 hash 改变，应将其更新为主线中可追溯的提交或合并记录。
-- ADR 记录的是已获采纳的决定；尚未批准的建议、设计门和实施顺序统一维护在[本地数据待办](../local-data-todo.md)。
+- ADR 记录的是已获采纳的决定；尚未批准的建议不得记为已实施事实。当前无独立 local-data 待办页：开放实现须先有新 ADR 批准，延期项以各 ADR 的 non-claims / 延期段落为准（C-6 destructive 见 ADR-0038）。

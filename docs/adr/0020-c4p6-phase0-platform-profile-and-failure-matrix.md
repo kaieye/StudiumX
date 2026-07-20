@@ -189,5 +189,5 @@ node scripts/check-teaching-app-commit-cutover.mjs
 - [ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)
 - [ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)
 - [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)
-- [本地数据待办](../local-data-todo.md)
+- [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)
 - [ADR-0035 C-4P6 运维 runbook](0035-c4-p6-p8-p9-closeout-scope-decisions.md#c-4p6-运维-runbook)（运维参考；扩张须新 ADR）
