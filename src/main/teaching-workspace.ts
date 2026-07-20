@@ -95,6 +95,11 @@ export function resolveE2ECrashPoint(env: NodeJS.ProcessEnv): LearningOutcomeCom
     : undefined
 }
 
+/** Only the first evidence revision is exempted so correction (outcome-seq-2) still crashes. */
+export function isInitialCatalogReconcileOperation(point: LearningOutcomeCommitterFaultPoint, operationId: string): boolean {
+  return point === 'before_catalog_reconcile' && operationId === 'outcome-seq-1'
+}
+
 import type { CommitLearningOutcomeRequest } from '../shared/teaching-types/system-api'
 import { isLearningSessionId } from '../shared/teaching-placement'
 import { persistedAgentParentTurnProof, sanitizePersistedConversationTitle } from '../shared/agent-persisted-history'
@@ -417,16 +422,12 @@ export class TeachingWorkspaceService {
     )
     this.learningOutcomeCommitterFactory = options.learningOutcomeCommitterFactory ?? ((workspaceRoot, ledger) => {
       const crashPoint = resolveE2ECrashPoint(process.env)
-      let skippedInitialCatalogReconcile = false
       return createLearningOutcomeCommitter({
         workspaceRoot,
         ledger: ledger as LearningSessionLedger,
         testingFaults: crashPoint ? {
-          inject: async (point) => {
-            if (point === crashPoint && crashPoint === 'before_catalog_reconcile' && !skippedInitialCatalogReconcile) {
-              skippedInitialCatalogReconcile = true
-              return
-            }
+          inject: async (point, context) => {
+            if (point === crashPoint && isInitialCatalogReconcileOperation(point, context.operationId)) return
             if (point === crashPoint) process.kill(process.pid, 'SIGKILL')
           }
         } : undefined
