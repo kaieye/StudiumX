@@ -100,3 +100,14 @@ git diff --check
 ## 5. 完成声明
 
 只有所有第 2 至第 4 节的门关闭，才可以表述“P0 发布完成”。在此之前，唯一准确表述是：**P0 教学领域模块已实施；发布级 gate、真实 Electron crash/restart Golden 和干净 checkout 全量审计仍待证明。**
+
+---
+
+## 6. Closure evidence (2026-07-20)
+
+Win/Mac P0 release proof closed at `a797f07a65ed7a598bb96d1666e496fcf0275f67`.
+
+- Clean audit: [docs/release/p0-clean-checkout-audit-2026-07-20.md](../release/p0-clean-checkout-audit-2026-07-20.md) (`passed: true`)
+- Handoff / risks: [docs/release/p0-release-handoff-2026-07-20.md](../release/p0-release-handoff-2026-07-20.md)
+- Skip inventory: [docs/release/p0-windows-platform-skip-inventory.md](../release/p0-windows-platform-skip-inventory.md)
+- Manifest (host path): `D:\release-evidence\p0-clean-checkout-audit.json` SHA-256 `e1802af6d0b80a53a982fb3309adc2ea93773ec1bee5b9c02cbb5be56dcd75e4`
