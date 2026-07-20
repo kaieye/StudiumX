@@ -2186,9 +2186,13 @@ async function isConservativelyStaleWriter(observed: InspectedWriterLock, staleM
   // A lock owned by a local process that no longer exists is unambiguously stale.
   // Reclaim it immediately so crash recovery is not blocked by the age threshold.
   if (!isProcessAlive(observed.owner.pid)) return true
-  // PID reuse: a live PID with a different startup identity is not the lock owner.
-  // Missing identity is treated conservatively for compatibility with older locks.
-  return observed.owner.processStartedAt !== undefined && observed.owner.processStartedAt !== PROCESS_STARTED_AT
+  // A startup timestamp is only locally comparable for this process. Comparing another
+  // live process against this process would reclaim every cross-process lock. For an
+  // arbitrary live PID, Node exposes no portable start-identity lookup, so stay safe
+  // and wait rather than risk corrupting a concurrent writer.
+  return observed.owner.pid === process.pid &&
+    observed.owner.processStartedAt !== undefined &&
+    observed.owner.processStartedAt !== PROCESS_STARTED_AT
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -2666,4 +2670,3 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isErrnoException(error: unknown, code: string): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error && error.code === code
 }
-
