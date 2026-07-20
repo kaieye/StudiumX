@@ -1,0 +1,22 @@
+name: Main P0 release audit
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22.x' }
+      - run: corepack enable && corepack prepare pnpm@11.9.0 --activate
+      - run: pnpm audit:release --output release-audit.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-audit
+          path: release-audit.json
+          if-no-files-found: error
