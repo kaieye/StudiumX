@@ -1,7 +1,7 @@
 # P0 clean-checkout release audit
 
-> **Status:** Step D executed on Windows; typecheck regression fixed and re-verified.
-> **Date:** 2026-07-20 (Asia/Shanghai)
+> **Status:** Historical draft / unverified evidence. This document is not a completed release proof and must not be represented as executed by the current audit.
+> **Draft date:** 2026-07-19 (Asia/Shanghai)
 > **Clean checkout:** `git worktree` detached at `C:\Users\Chos1nz\AppData\Local\Temp\StudiumX-p0-audit`
 > **Baseline commit (audit start):** `3906681bfcf5f18378a2386fdbcaa2d7e7b9c4e3`
 > **Typecheck fix commit:** `677b15b9a783c46764b5fe5986ce5f729918edcd`

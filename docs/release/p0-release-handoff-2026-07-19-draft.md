@@ -1,6 +1,6 @@
-# P0 release handoff / review
+# P0 release handoff / review (historical draft)
 
-**Date:** 2026-07-20  
+**Draft date:** 2026-07-19  
 **Reviewer role:** release closure orchestrator  
 **Tip before this handoff commit:** `677b15b` (typecheck) on `main`
 
@@ -9,7 +9,7 @@
 - Steps A–C already on `main` (`99954d4`, `0bb7f86`, `3906681`).
 - Step D clean worktree audit executed; only hard fail was typecheck `findLastIndex` / ES2022.
 - Minimal fix: `tsconfig.json` → ES2023 (`677b15b`), re-typecheck green in main + clean tree.
-- Step E: this handoff + `docs/release/p0-clean-checkout-audit-2026-07-20.md`.
+- Step E: this handoff + `docs/release/p0-clean-checkout-audit-2026-07-19-draft.md`.
 
 ## Write-domain compliance
 
