@@ -105,6 +105,7 @@
     "check:security": "node scripts/check-security.mjs",
     "check:provider-privacy": "node scripts/check-provider-privacy.mjs",
     "check:settings-secret-storage": "node scripts/check-settings-secret-storage.mjs",
+    "check:teaching-audit-correlation": "node scripts/check-teaching-audit-correlation.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/setup/tsconfig.json",
     "test:unit": "vitest run --project unit",
     "test:stability:agent-persistence": "node scripts/run-stability-checks.mjs",
