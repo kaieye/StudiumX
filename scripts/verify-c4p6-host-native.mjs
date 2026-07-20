@@ -19,21 +19,10 @@ if (process.platform !== 'darwin') {
 }
 
 const workspaceRoot = process.cwd()
-const mountTable = await run('df', ['-P', workspaceRoot])
-const mountLine = mountTable.stdout.trim().split('\n').at(-1)?.trim().split(/\s+/) ?? []
-const mountPoint = mountLine.slice(5).join(' ')
-if (!mountPoint) fail('Unable to determine the workspace mount point.', {})
-const diskInfo = await run('diskutil', ['info', mountPoint])
-const filesystem = field(diskInfo.stdout, 'File System Personality')
-const deviceLocation = field(diskInfo.stdout, 'Device Location')
-if (filesystem?.toLowerCase() !== 'apfs') {
-  fail('Workspace is not on APFS; refusing to record P6 host-native evidence.', { filesystem: filesystem ?? null })
-}
-if (deviceLocation?.toLowerCase() !== 'internal') {
-  fail('Workspace is not on internally attached storage; refusing the local-APFS candidate profile.', {
-    deviceLocation: deviceLocation ?? null
-  })
-}
+const repositoryVolume = await inspectInternalApfsVolume(workspaceRoot, 'Repository root')
+// The process fixtures create their actual candidate workspaces below tmpdir,
+// not below the repository. Both locations must meet the stated profile.
+const fixtureVolume = await inspectInternalApfsVolume(os.tmpdir(), 'Process-fixture workspace root')
 
 const electronExecutable = join(
   workspaceRoot,
@@ -52,18 +41,20 @@ await access(vitestExecutable)
 
 const profile = {
   profile: 'P6-macOS-local-APFS-strict-candidate',
+  verified: true,
   os: `${os.type()} ${os.release()}`,
   arch: process.arch,
   node: process.version,
   electron: electronVersion,
-  filesystem,
-  deviceLocation,
-  mountPoint,
+  filesystem: fixtureVolume.filesystem,
+  deviceLocation: fixtureVolume.deviceLocation,
+  mountPoint: fixtureVolume.mountPoint,
+  repositoryVolume,
+  fixtureVolume,
   storage: 'local/internal',
   evidence: 'fresh-process crash/restart fixture under Electron RUN_AS_NODE',
   excludes: ['Windows strict', 'network/removable storage', 'reboot durability', 'power-loss durability']
 }
-process.stdout.write(`${JSON.stringify(profile)}\n`)
 
 await run(vitestExecutable, [
   'run',
@@ -75,6 +66,7 @@ await run(vitestExecutable, [
   STUDIUMX_P6_WORKER_EXECUTABLE: electronExecutable
 })
 
+process.stdout.write(`${JSON.stringify(profile)}\n`)
 process.stdout.write('P6 host-native crash/restart verification passed. This is not reboot or power-loss evidence.\n')
 
 function field(output, label) {
@@ -102,6 +94,27 @@ async function run(command, args, extraEnvironment = {}) {
       resolve({ stdout, stderr })
     })
   })
+}
+
+async function inspectInternalApfsVolume(path, label) {
+  const mountTable = await run('df', ['-P', path])
+  const mountLine = mountTable.stdout.trim().split('\n').at(-1)?.trim().split(/\s+/) ?? []
+  const mountPoint = mountLine.slice(5).join(' ')
+  if (!mountPoint) fail(`Unable to determine the ${label.toLowerCase()} mount point.`, { label })
+  const diskInfo = await run('diskutil', ['info', mountPoint])
+  const filesystem = field(diskInfo.stdout, 'File System Personality')
+  const deviceLocation = field(diskInfo.stdout, 'Device Location')
+  if (filesystem?.toLowerCase() !== 'apfs') {
+    fail(`${label} is not on APFS; refusing to record P6 host-native evidence.`, {
+      filesystem: filesystem ?? null
+    })
+  }
+  if (deviceLocation?.toLowerCase() !== 'internal') {
+    fail(`${label} is not on internally attached storage; refusing the local-APFS candidate profile.`, {
+      deviceLocation: deviceLocation ?? null
+    })
+  }
+  return { filesystem, deviceLocation, mountPoint }
 }
 
 function fail(message, context) {
