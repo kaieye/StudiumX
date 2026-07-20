@@ -31,7 +31,7 @@ export const releaseAuditCommands = [
 ]
 
 export function parseAuditSkips(output) {
-  return [...output.matchAll(/(?:skip(?:ped)?|todo)[:\-]?\s*([^\n]+)/gi)].map((match) => match[1].trim())
+  return [...output.matchAll(/\b(?:skip(?:ped)?|todo)\b(?:[:\-]?[ \t]*([^\r\n]*))?/gi)].map((match) => match[1]?.trim() ?? '')
 }
 
 export function classifyAuditCommandResult(exit, skips) {

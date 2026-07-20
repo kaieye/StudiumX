@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyAuditCommandResult,
   isPathInside,
+  parseAuditSkips,
   releaseAuditCommands
 } from '../../scripts/release-audit-contract.mjs'
 
@@ -29,6 +30,9 @@ describe('release audit contract', () => {
     })
   })
 
+  it('detects bare and summary skip markers in command output', () => {
+    expect(parseAuditSkips('Tests 1 skipped\nTODO\nskip')).toEqual(['', '', ''])
+  })
   it('detects an output path that would dirty the source checkout', () => {
     expect(isPathInside('D:/project/StudiumX', 'D:/project/StudiumX/release-audit.json')).toBe(true)
     expect(isPathInside('D:/project/StudiumX', 'D:/release-evidence/release-audit.json')).toBe(false)
