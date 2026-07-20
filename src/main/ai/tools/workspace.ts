@@ -559,7 +559,11 @@ function selectOverwritePublicationTarget(input: {
       if (existing === null) return 'created'
       return existing.isFile() && existing.nlink === 1 ? 'overwritten' : 'path_rejected'
     })
-    .catch(() => 'path_rejected')
+    // A preflight I/O failure leaves the target's containment and identity
+    // unproven. Do not classify it as a user-controlled path rejection or
+    // expose it through permission description; return the same stable
+    // containment failure used by the durable write path.
+    .catch(() => 'containment_unavailable')
 }
 
 const workspaceWritePermissionDescriptionError = '无法安全确定工作区文件写入目标。'
@@ -598,7 +602,18 @@ async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext)
 
   try {
     const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
-    const existing = await lstatIfExists(workspaceWriteLogicalTargetPath(target))
+    let existing: Awaited<ReturnType<typeof lstatIfExists>>
+    try {
+      existing = await lstatIfExists(workspaceWriteLogicalTargetPath(target))
+    } catch {
+      // Permission description is only a non-authoritative S1 preflight. A
+      // pathname I/O failure here must not escape through the registry's
+      // generic permission-error shape: pass the normalized target to the
+      // durable writer as a conservative create. The writer's trusted bind is
+      // authoritative and maps a failed bind to the stable, non-leaking
+      // `containment_unavailable` result consumed by callers.
+      existing = null
+    }
     return {
       operation: existing ? '覆盖工作区文件' : '创建工作区文件',
       targetPath: target.relativePath,

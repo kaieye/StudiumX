@@ -4,18 +4,9 @@
 
 ## 1. 目的与范围
 
-本文件是后续 C-4P6 工作的设计与风险门（design/risk document），而非提交或测试的逐条台账。领域 authority 和 outcome 语义由 [ADR-0011](../adr/0011-evidence-gated-learning-outcome-settlement.md) 定义；共享 durable publish 原语、consumer migration 边界和历史证据索引由 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 定义。
+本文件只保留 C-4P6 **尚未关闭**的设计与风险门，不再重复已实施的 committer、authority、幂等、sole-writer 或测试/提交台账。它们分别由 [ADR-0011](../adr/0011-evidence-gated-learning-outcome-settlement.md)（outcome 语义与 canonical authority）和 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md)（共享 durable publish、P6 S1 production scope 与 S2…S194 tests-only evidence）承接。
 
-本文件**不**授权扩大 writer、改变 schema / canonical path、增加删除或 rollback 行为、改变 IPC/API，或将 catalog 当作 canonical authority。
-
-### Canonical authority 与幂等边界
-
-| 情形 | authority（高到低） | 不得据此宣告成功或执行覆盖 |
-|---|---|---|
-| 会写 immutable Learning record 的 outcome | immutable Learning record → `outcome.json` / completed `session.json` projection → settlement marker | catalog、stage、marker 单独存在、UI 乐观状态 |
-| 不会写 record 的 outcome | 有效 settlement marker 是 operation settlement / idempotency authority | catalog、缺少 record 的 projection、manifest 单独状态 |
-
-有效 record 只能驱动受控 projection repair，不能被较低层 projection、catalog 或 marker 反向覆盖。identity 冲突、损坏、越界路径或无法确认的 I/O 结果必须 fail closed；不得重新 evaluate、生成新的 operation identity，或把未知状态报告为成功。
+后续切片必须服从既有 authority：canonical record / outcome 高于可修复 projection，catalog 不是 canonical authority；identity 冲突、损坏、越界路径或未知 I/O 结果 fail closed，不重新 evaluate、不生成新的 operation identity，也不将未知状态报告为成功。本文件**不**授权扩大 writer、改变 schema / canonical path、增加删除或 rollback 行为，或改变 IPC/API。
 
 ## 2. 仍开放的设计门 A：manifest durable-I/O capability 与失败语义
 
@@ -83,9 +74,9 @@ P6 当前模型不提供跨文件 atomicity：record、outcome、manifest、mark
 - 是否允许自动 repair 或 rewrite（默认不允许），以及 backup、dry-run、恢复和停止条件；
 - migration 前后 `reconcile()`、IPC result 和 catalog projection 的可观测结果。
 
-### D2. API 与 sole-writer boundary
+### D2. 后续 API 变更边界
 
-main-process controlled committer 仍是正式 record 的 sole writer。任何 API/IPC 变化必须保持 stable operation identity、明确 retry contract，并区分：未写入失败、可能已发布而需 reconcile、冲突/人工审查、以及确定成功。renderer、Lesson、catalog、planner、UI 或外部 caller 不得以新参数、重试或“修复”路径绕过证据门和 authority。
+当前 main-process controlled committer 的 sole-writer cutover、stable operation identity 与既有受控失败语义已由 ADR-0011 承接，不在本计划重复列为待实施内容。若后续切片确实改变 API/IPC，必须另行批准并明确 caller retry contract，以及未写入失败、可能已发布而需 reconcile、冲突/人工审查和确定成功之间的 public result；不得以新参数、重试或“修复”路径绕过既有证据门和 authority。
 
 ### D3. 运行与发布验证
 

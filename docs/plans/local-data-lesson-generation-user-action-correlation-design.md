@@ -1,184 +1,60 @@
 # C-5I：Direct-UI lesson generation lifecycle / user-action correlation 设计门槛（未实现）
 
-> **状态：仅设计发现；阻塞后续实现，未获产品/API 批准。**
+> **状态：未获产品/API 批准；没有 direct-UI `actionId`、private receipt 或 exact-retry 实现。**
 >
-> 本文只审计 direct UI 从 `generateLesson` / `generateLessonStream` submit 到 main `generateAndPersistLesson()` 的**同一次用户动作**。它不是功能实现、测试报告或 C-5 completion 声明；没有业务代码、测试、配置或迁移变更，也没有运行或虚构任何 C-5I 测试结果。
->
-> 本文不把 C-5H 的 mission-first 候选 contract 延伸为已批准的 lesson-generation contract。C-5H 与 C-5I 都必须各自通过产品/API 设计门后才能实施；见 [C-5H workspace user-mutation correlation 设计门槛](local-data-workspace-user-mutation-correlation-design.md)、[ADR-0005：main-owned trace correlation 与安全日志](../adr/0005-main-owned-trace-correlation-and-safe-logs.md) 和[本地数据待办](../local-data-todo.md)。
+> 本文只保留 C-5I 尚未关闭的设计决定和验收边界。已经实施的 durable publish、受限 recovery、部分 trace correlation 及其历史测试证据不在这里重复：分别以 [ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0005：main-owned trace correlation 与安全日志](../adr/0005-main-owned-trace-correlation-and-safe-logs.md) 为准。后续任务分配入口见[本地数据待办](../local-data-todo.md)。
 
-> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
+## 1. 唯一范围与当前未关闭状态
 
-## 1. 范围、排除项与当前事实
+C-5I 只讨论 renderer direct UI 的 `generateLesson()` / `generateLessonStream()` submit 经 IPC 到 main `generateAndPersistLesson()` 后，如何在 response 丢失、stream 断连、renderer reload、crash 或部分 durable failure 时，对**同一次用户动作**给出安全且稳定的结果。
 
-### 1.1 本 gate 的唯一范围
+当前实现的 direct payload 只有业务输入（`workspaceId`、`prompt`、可选 `courseName` / `messages`）：没有 caller-provided `actionId`。renderer `lessonGenerationRunId` 是本地 UI run/notification 状态，不经 IPC、结束后清空，不能作为跨 reload retry identity；gateway stream id 只是 transport invocation 标识。现有 lesson/artifact/session、publisher journal、lifecycle event、trace、registry 或 provider 标识都不是 direct-UI caller receipt，也不能区分“相同 prompt 的第二次 submit”与“第一次 submit 的重试”。
 
-C-5I 只覆盖用户在 renderer direct UI 发起一次 lesson generation 后，经以下已有调用链进入 main 的 action correlation / retry / recovery 问题：
+direct UI 和 agent tool 会复用部分 generation/persistence 实现，但这不授予它们同一 action authority 或 retry contract。`ADR-0005` 当前也明确不包含 direct-UI `lesson_generated` 的 trace coverage。因此 C-5I 仍是独立的 direct-UI-only gate；不得把已有 durable/reconciliation 能力、局部测试或 trace support 解释为 exact retry、全局 transaction 或 completion。
 
-```text
-renderer `generateLesson()` / `generateLessonStream()` submit
-  → preload / IPC parser / gateway
-  → TeachingWorkspaceService.generateLesson() / generateLessonStream()
-  → runLessonGeneration()
-  → generateAndPersistLesson()
-```
+## 2. 排除项
 
-它讨论的是“这一次 direct UI submit 在 response 丢失、stream 断连、renderer reload 或局部 durable failure 后，如何安全地得到稳定结果”的未来 contract；不把现有生成流程改称为已具备 exactly-once 或 transaction 语义。
+本 gate 不覆盖或不默认改变：
 
-### 1.2 明确排除
+- agent `generate_lesson`、agent run/tool retry、turn-local attempted/failure 记录；
+- C-5H `mission_updated`、`lesson_style_applied`、`write_workspace_file`、allowlisted Markdown writer 或任何其他 lifecycle producer；
+- provider/UI redesign、跨 workspace/global transaction、global receipt registry 或通用 idempotency framework；
+- C-4 durable publish、artifact journal/reconciliation、C-5C ledger、C-5E audit JSONL 的既有语义、扫描、回填、迁移或重写历史数据。
 
-本文不实现、也不设计为已解决：
+## 3. 实现前必须批准的 contract
 
-- agent `generate_lesson`、agent run、turn-local attempted/failure 记录、agent tool identity 或 agent retry；它们需要独立 future gate，不能自动并入 direct UI action contract；
-- generic `write_workspace_file`、allowlisted workspace Markdown、`lesson_style_applied`、C-5H `mission_updated`，或任一其它 lifecycle producer；
-- provider policy、prompt/UI redesign、全局 transaction、跨 workspace transaction、全局 receipt registry 或新的 generic idempotency framework；
-- 把 `lessonGenerationRunId`、stream id、agent run id、returned lesson id / artifact transaction id / lifecycle event id 当作 caller retry identity；
-- C-4 durable publish、lesson artifact journal/reconciliation、C-5E conversation audit JSONL、C-5C learning-session ledger 的语义改造或“已覆盖”声明；
-- 扫描、回填、迁移、修复或重写 legacy lessons、artifact journals、workspace index、lifecycle JSONL、change history、registry 或 session data。
+在修改 IPC/type/renderer/main/storage 前，产品、API、privacy 与运维 owner 必须共同批准：
 
-### 1.3 当前 identity 并不满足 user-action retry
+1. **actionId 生命周期与绑定。** renderer 在何时生成、哪些 lost-response/reconnect/reload 情况可以复用、何时丢弃；同一 actionId 如何绑定 workspace、operation kind 和首次请求，而不持久化 raw prompt、messages 或 content hash。语义不能证明一致时必须是明确的 `conflict` 或 `indeterminate`，不得按 prompt/content 相似度 dedupe。
+2. **稳定结果与 UI 语义。** API 需要批准稳定 disposition（至少覆盖成功复用、拒绝、冲突、状态不明）及 UI 对 loading、reconnect、reload、manual recovery 和重新提交的行为。相同 prompt 但不同 actionId 是两个独立用户动作。
+3. **private receipt authority。** schema/version、workspace-private placement、访问权限、retention/cleanup、损坏处理、同 action 并发 serialization，以及 prepare/reconcile/finalize 的 authoritative phase。receipt 是 recovery aid，不能伪装为 artifact journal、lesson/index/lifecycle/registry/change-history 的事实来源。
+4. **provider authority 与成本。** receipt 是否在 provider call 前准备、何时允许同 action 再入 provider；只要无法证明 provider outcome，默认必须返回获批的 `indeterminate` 或其他 fail-closed 结果，不能自动重跑。
+5. **recovery table 与运维边界。** 对 artifact/session 已 committed、index/lifecycle/history/registry 尚未确认、receipt 缺失或损坏、外部修改、crash/restart/concurrency 的逐 phase read/reconcile/continue/conflict/indeterminate 规则，以及诊断、保留和人工恢复责任。
 
-renderer 的 `lessonGenerationRunId` 是本地 UI run/notification 状态：它由 workspace id、时间和本地 sequence 组成，未放入 `GenerateLessonPayload`，不会通过 IPC；结束后 renderer state 会清空，reload 后也不能作为可验证的 retry token。当前 direct generate payload 只有业务输入（`workspaceId`、`prompt`、可选 `courseName` / `messages`）；没有 `actionId`。stream id 是 gateway 为一次 streaming IPC invocation 分配/回传的 transport 标识，不是跨 reload 的 caller identity。
+未完成这些批准前，不得新增 actionId/receipt，也不得用 main random UUID、trace、stream id、artifact transaction id、lesson id 或 lifecycle event id 冒充 caller identity。
 
-同样，agent run / tool result、provider result、lesson number/id、artifact publisher `transactionId`、普通 Lesson 的可见 commit marker、lifecycle event id 都是在调用中或持久化流程中产生的事实/投影标识：它们不能安全表达“这是同一 direct UI submit 的 exact retry”。它们既不能让 renderer 在 response 丢失后定位同一 action，也不能区分“用户第二次以相同 prompt 提交”与“同一 submit 的重试”。
+## 4. 不可突破的 authority、隐私与恢复边界
 
-## 2. 当前多事实 pipeline 与 crash / failure 缺口
+- actionId 若获批，只能是 direct UI submit 的 opaque、non-secret token；main 验证其形状、namespace、workspace binding、operation kind 与 reuse policy。renderer/agent 不得提供 trace、声明 action completed 或写 private receipt。
+- trace 仍由 main 生成，且只作为获批 lifecycle diagnostic correlation metadata；它不是 action identity、receipt key、dedupe/query/filter key。C-5I 不得借实现 action retry 扩大 `ADR-0005` 的 coverage。
+- receipt/action handling 不得持久化或输出 raw prompt、messages、rendered lesson、artifact bytes/content hash、provider secret/API key/request id、agent secret 或 trace-derived secret；actionId 不得进入 user-visible files、lifecycle/logger diagnostics、analytics 或 generic error text。
+- artifact journal/reconciliation 只能按既有 authority 处理 publication safety，不能回答“是否安全重跑 provider”或替代 stable caller result。正常 Lesson/session/artifact set 已 committed 时，不得为 retry 生成 duplicate artifacts、回滚或改写 canonical bytes。
+- receipt 缺失/损坏、payload mismatch、external mutation，或无法证明 artifact/index/lifecycle 状态时必须 fail closed 为已批准的 `conflict` / `indeterminate`；不得覆盖外部修改、删除 canonical artifacts、重写 JSONL，或自动 dedupe。
+- legacy no-receipt workspace 及 legacy journals/index/lessons/lifecycle rows 保持兼容行为；不得为 C-5I 扫描、补 trace、回填或自动修复。
 
-当前 direct UI 和 agent tool 最终共用 `generateAndPersistLesson()`；这种共用实现不等于两者已经共享同一 caller authority 或 retry contract。就 direct UI 而言，当前顺序可概括为：
+## 5. 获批实现后的最小范围与验收
 
-```text
-capture change-audit pre-state
-→ ensure workspace structure / scaffold
-→ load settings + current index
-→ provider plan production
-→ artifact staging + journal
-→ canonical learning-session binding
-→ satellite artifacts + ordinary Lesson visible commit marker
-→ index save
-→ `lesson_generated` lifecycle JSONL append
-→ best-effort publisher journal delete
-→ workspace change-history/audit record
-→ registry touch/save
-→ IPC result / stream done
-```
+最小切片只能修改 direct UI `generateLesson` / `generateLessonStream` 的 request/result contract、其 parser/gateway/preload、direct renderer callers，以及受限的 main private receipt/recovery seam；不得扩散至 agent、style、MISSION 或 generic writers。
 
-### 2.1 Artifact publication、journal 与 canonical session binding
+批准后的测试与操作验收至少证明：
 
-artifact publisher 先完成 render，再在 hidden sibling staging directory 写 artifacts；写 journal 后先 bind canonical learning session，再依次 publish satellites，最后 rename ordinary Lesson。ordinary Lesson 是现有“visible commit marker”：其正常存在使 artifact/session set 可发现；commit intent journal 先 durable，post-commit journal acknowledgement/cleanup 不触发 rollback。
+- lost IPC response、stream reconnect、renderer reload、restart 和同 action 并发 submit 不重复 provider call、artifact publication、lifecycle row 或 registry side effect，并返回同一稳定 disposition；
+- provider outcome unknown、receipt 损坏/缺失、payload conflict、external mutation 采用批准的 fail-closed disposition，而非自动 rerun provider 或 content dedupe；
+- artifact/session 已 committed 而 index、lifecycle、change history、registry 或 response 未确认时，只能按已批准的 receipt-aware reconciliation 补可证明缺失的步骤；不得 duplicate、rollback 或重写 canonical artifacts/JSONL；
+- 对 artifact/journal、index、lifecycle append 的 post-write/close/directory-sync uncertainty、history、registry、receipt 各阶段执行 I/O fault/crash 注入；
+- actionId validation、renderer trace rejection、receipt private path/permissions、日志与诊断脱敏、legacy compatibility 及 scope isolation 均有测试；
+- 在目标平台与实际运维环境验证 recovery、observability、retention/cleanup、人工恢复和 provider-cost policy；unit fault injection 不能单独关闭这些验收项。
 
-artifact journal 的职责是 publisher-level staged/binding/publishing/commit-intent/projection-pending recovery。catalog reconciliation 通过 journal 和最终 artifact bytes 区分可保留、清理或隔离的 artifact set。它**不是** direct UI caller receipt：它不记录 renderer action identity、request/retry disposition、stable IPC result、provider invocation authority 或 lifecycle/index/registry completion。
+## 6. Approval gate
 
-因此，下列现有/可能 window 都不能由 journal 单独回答“一次 direct UI action 是否已成功、可继续还是必须冲突”：
-
-| durable / process 边界 | 当前可见问题；不得由 C-5I 实现临时猜测 |
-|---|---|
-| scaffold / path validation / settings / index read 前后 | workspace structure 可能已创建、pre-state 已 capture；没有 caller receipt 说明 action 是否开始、能否安全重放 provider。 |
-| provider invocation / provider response | provider 可能已消耗请求并产生 plan，但 renderer 未收到结果、进程可在 artifact publish 前中断；没有 action-scoped authority 阻止 retry 盲目再调用 provider。 |
-| staged artifact / journal write | journal 写入或更新失败、staging cleanup/recovery failure、进程死亡可留下 staged/incomplete state；journal 只能按 artifact ownership/reconciliation 处理，不能回复同一 UI action 的 stable result。 |
-| canonical session binding | binding 先于 final artifact；binding 成功后 artifact 失败/进程中断可留下 inert session。现有 rollback/recovery 是 publication safety，不是 UI action completion receipt。 |
-| satellites / ordinary Lesson visible commit | ordinary Lesson rename 后 artifact/session authority set 可已 committed；随后 journal acknowledgement、cleanup、index、lifecycle 或 response 可失败。不得为“再试一次”盲目生成第二套 artifact 或回滚已可见 canonical set。 |
-| index save | committed artifacts 可能存在而 index 未更新；retry 必须先读取并受限 reconcile，不能假定 index absence 等于没有生成。index write 的 pre/post failure、crash 与 external edit 需要 stable disposition。 |
-| `lesson_generated` lifecycle append | index 成功后才 append；append error/close/directory-sync 或进程中断可能发生在 row 已持久化、未持久化或调用方未知的边界。retry 不能追加第二 row，也不能把 trace/event id 当 dedupe key。 |
-| journal delete | 当前 index/event 后删除 journal 是 best-effort；删除失败可留下 recoverable journal，不能被解释为 caller failure receipt 或要求重跑 provider。 |
-| workspace change history / audit | change history/audit 在 lifecycle 后；其失败可能让 artifact/index/lifecycle 已存在而 operation 返回失败，且 registry 尚未保存。它是 mutation history projection，**不是** C-5E conversation audit，也不是 user-action receipt。 |
-| registry touch/save、IPC response / stream done | registry save、response 发送、stream done 都可能在前述 canonical/projection facts 后失败或丢失。重新 submit 不能据此重做 provider、artifact、lifecycle 或 registry side effect。 |
-
-C-5I 不承诺把这些 facts 收敛为一个全局 atomic transaction，也不承诺 post-commit rollback。未来实现只能在获批的 action-scoped recovery table 中定义每个边界的 read/reconcile、continue、conflict 或 indeterminate disposition。
-
-## 3. 红线与 trusted boundary
-
-- direct UI `actionId` 若获批，只能是 renderer 为一个 submit 生成并在明确 retry/reload 窗口内复用的 opaque、non-secret token；它不是 trace、lesson id、event id、stream id、agent run id 或 provider id。
-- main 是 authority：main 必须验证 actionId 的形状/namespace、workspace binding、operation kind 和 reuse policy；renderer 不得提供 trace，不得声明 action 已完成，也不得写 private receipt。
-- trace 仍只能由 main 为获批的新 lifecycle diagnostic correlation metadata 生成并经现有 normalize boundary 持久化。trace **永远不是** action identity、receipt key、lifecycle identity、dedupe、query 或 filter key；不得由 renderer/agent 提供。
-- private receipt 是 recovery aid，不是 lesson、index、lifecycle、registry、journal 或 audit 的事实来源/projection。它不得嵌入 HTML、Markdown、front matter、assessment、session artifact、journal、lifecycle row、registry、change history、logger 或 analytics。
-- receipt/action handling 不得持久化 raw prompt、messages、rendered lesson、artifact bytes、content hash、provider secret、API key、provider request id、agent secret 或 trace-derived secret。actionId 也不得进入 user-visible file、lifecycle/logger diagnostics、analytics projection 或 generic error text。
-- legacy no-receipt workspace、legacy trace-free/malformed lifecycle rows、legacy journals/index/lessons 保持现有 tolerant/reconciliation behavior；不得因 C-5I 扫描回写、补 trace、迁移或“自动修复”。
-- external mutation、receipt missing/corrupt、payload mismatch、无法证明 artifact/index/lifecycle state 的情况必须 fail closed 为 approved `conflict` 或 `indeterminate`；不得覆盖外部修改、删除 canonical artifacts、重写 JSONL 或以 content similarity 自动 dedupe。
-
-## 4. 推荐的候选 contract（仅在批准后）
-
-### Stage 0：实现前必须先批准
-
-在任何 IPC/type/renderer/main/receipt 代码开始前，产品/API owner 必须批准：
-
-1. **actionId 生命周期。** direct UI 在何时生成（点击 submit 前）、何时保存在 renderer/reload recovery state、哪些 lost-response / reconnect / reload 情况可复用、何时明确丢弃；不同用户再次 submit 即使 prompt 相同也必须生成新 actionId。
-2. **request binding / conflict policy。** 同一 actionId 的 retry 如何证明与首次请求一致，而又不把 prompt/messages/content hash 持久化到 receipt；何时使用 request-local comparison、expected revision/CAS 或其它获批 non-content binding；无法证明时的 `conflict` / `indeterminate` policy。
-3. **response and UI vocabulary。** API 是否区分并稳定返回 `success`、`reused`、`rejected`、`conflict`、`indeterminate`（最终枚举待批准），以及 UI 对 each disposition 的 loading、reconnect、reload、重新确认、manual recovery 与错误显示。
-4. **private receipt authority。** receipt namespace/schema/version、workspace-private placement、access policy、retention/cleanup owner、corruption policy、concurrent same-action locking/queue policy，以及何时 prepare/reconcile/finalize；这些不能复用或伪装成 artifact journal。
-5. **provider authority / cost policy。** receipt 的 prepare point 是否在 provider call 前；何时允许一次同 action retry re-enter provider；provider outcome unknown 时是否一律 `indeterminate` 而非自动再调用。
-
-没有上述批准，唯一安全结论是：不得新增 actionId/receipt，也不得用 main random UUID、stream id 或 artifact transactionId 冒充它们。
-
-### Stage 1：direct UI only 的最小候选切片
-
-批准后，最小候选范围仅为 direct UI `generateLesson` / `generateLessonStream`：
-
-- renderer 在一个 direct submit 生命周期为 `{ workspaceId, prompt, courseName?, messages?, actionId }` 附带独立 actionId；renderer trace 仍禁止；
-- parser/gateway 只接受获批的 opaque token，main 创建/读取 private receipt，并为首次被接受的 action 生成 main-owned trace；
-- receipt 至少以 actionId + workspace + operation kind 绑定有限 phase/status、main trace、必要的非内容性 facts references 和更新时间；路径、分片、schema 和 permissions 仍以批准的 private-data design 为准；
-- main 在 receipt-aware gate 内决定 provider call、artifact publication/reconciliation、index/lifecycle/change-history/registry continuation，并返回 approved stable disposition；
-- 不改 agent tool payload/authority，不把 style/MISSION/Markdown writer 纳入，不创造 generic transaction 框架。
-
-这只是候选 subslice，不是对 API、receipt 文件、IPC result type 或任何 storage schema 的批准。
-
-### Stage 2：exact retry 与 stable disposition
-
-批准后的验收 contract 至少必须覆盖：
-
-1. **lost IPC response / stream reconnect / renderer reload：**同 workspace、同 actionId、语义一致的 direct UI retry 要返回同一已决定 disposition，以及同一已接受 action 的 trace/receipt view；不能仅因 transport 断开而再运行 provider。
-2. **provider boundary：**如果 receipt/authoritative facts 无法证明 provider 是否已为该 action 成功产出可安全继续的 plan，不能盲目重跑 provider；必须遵循获批的 read/reconcile、rejected 或 indeterminate policy。
-3. **artifact committed but projections pending：**ordinary Lesson/session/artifact set 已 committed 而 index、lifecycle、change history、registry 或 response 未完成时，retry 只能依据 receipt 和受限 canonical reconciliation 决定继续缺失安全步骤或报告 conflict/indeterminate；绝不再发布 duplicate artifacts。
-4. **post-lifecycle durable uncertainty：**lifecycle append 的 post-write/close/directory-sync failure 可能使 row 已追加但调用未获成功确认。retry 必须先在 action-scoped authority 内读取/验证允许的 facts，不能追加第二 `lesson_generated` row，也不能用 trace/event id 作为 generic dedupe key。
-5. **external mutation / payload conflict：**same actionId + changed prompt/messages/course or external artifact/index/lifecycle mutation，不得静默覆盖、重新生成或将 content 相同视为 safe retry；返回获批 conflict/indeterminate 并保留 canonical bytes。
-6. **different direct submits：**相同 prompt 但不同 actionId 是两个用户动作，不得以 prompt、rendered content、lesson title 或 hash 自动 dedupe；其 provider/artifact/lifecycle/registry effects 依获批 product semantics 分别发生。
-7. **crash/restart/concurrency：**receipt recovery 在 main private authority/queue 下重新读取；同 action 并发 submit/reconnect 不会导致两个 provider call、两套 artifact、两条 lifecycle row 或重复 registry side effect。不同 action 的 normal concurrency policy 不在本文暗中改变。
-
-## 5. “read/reconcile” 与“retry provider”必须分开设计
-
-artifact publisher 和 catalog reconciliation 已有受限恢复职责：验证 staged/final artifact bytes、隔离不安全 incomplete publication、保留已 committed normal Lesson/session pair、补齐可由 disk 发现的 catalog facts。它们不能回答 caller action 是否应再次调用 provider，也不可以被 receipt implementation 用来搜索/猜测用户 prompt 或历史 action identity。
-
-future C-5I implementation 必须为每个 receipt phase 预先定义：
-
-| 观察到的状态 | 可考虑的操作（均须获批实现） | 禁止的捷径 |
-|---|---|---|
-| action 尚未获 main 接受 | reject / create prepared receipt，具体 provider authority 取决于批准 contract | 仅用 renderer run id 或 stream id 判断未开始。 |
-| provider 状态未知 | report `indeterminate`，或仅在明确批准的 safe proof 下继续 | 自动再跑 provider、按同 prompt/content “去重”。 |
-| journal/staging 未完成且 publication 未 committed | 采用已有 publication recovery / isolate 后再按 receipt policy决定；不能把 journal 当 success receipt | 删除不属于本 action 的文件、把 journal phase 当 UI success。 |
-| ordinary Lesson/session committed，index/lifecycle 未确认 | 受限读取/reconcile 后只补批准且可证明缺失的 projection，或 conflict/indeterminate | 再生成/再发布 artifacts，或重写/删除 committed lesson。 |
-| lifecycle 可能已追加 | action-scoped 验证与 stable disposition；保持 lifecycle trace 不作 dedupe key | 直接 append 第二 row、由 UUID trace 查询/过滤来“去重”。 |
-| change history 或 registry 未确认 | 仅按批准恢复表继续可证明步骤，或 indeterminate | 把 change history/journal/registry 任一项伪装为整个 action receipt。 |
-
-任何 future continuation 都必须保留现有 canonical bytes 的 authority；不允许通过 truncate/delete/rewrite lesson HTML、assessment、session artifact、index 或 JSONL 来“修复成一致”。
-
-## 6. Future implementation only：预计 seam 与测试矩阵
-
-下列落点仅用于审查实现边界，**不表示已修改、已批准或穷尽所有文件**：
-
-| 区域 | 可能的最小落点 | future implementation only 职责 |
-|---|---|---|
-| shared IPC/type | `src/shared/teaching-types/workspace.ts`、`src/shared/teaching-types/system-api.ts`、`src/shared/teaching-ipc-contract.ts` | 为 direct UI actionId 与 receipt-aware generation result 定义获批 contract；不扩散到 agent/style/generic writer。 |
-| parser/gateway/preload | `src/main/teaching-ipc-commands.ts`、`src/main/teaching-ipc-gateway.ts`、`src/preload/index.ts` | 验证 opaque actionId、保持 stream transport 与 stable result semantics；拒绝 renderer trace。 |
-| renderer direct callers | `src/renderer/src/app-shell/appStore.ts` 及必要的 direct generation UI | submit-time generate/reuse actionId、lost response/reload handling、approved disposition UI；`lessonGenerationRunId` 仍仅为 UI run state。 |
-| main service / private receipt | `src/main/teaching-workspace.ts`、新增受限 receipt module（路径待批准） | direct-UI-only authority、per-action serialization、provider/artifact/index/lifecycle/history/registry recovery table；不把 receipt 混入 journal。 |
-| artifact/reconciliation boundary | 预计沿用 `src/main/teaching-lesson-artifacts.ts`、`src/main/teaching-workspace/catalog-reconciliation.ts` 的现有安全语义 | 仅以明确 seam 读取/reconcile current facts；不得把 publisher journal 改成 generic UI receipt，也不得扩大为全局 transaction。 |
-| tests | 新增/扩展 direct-generation IPC、renderer, service、receipt、publication/recovery、lifecycle integration tests | 只在批准实现中证明下列矩阵。 |
-
-所需的 future test matrix 至少包括：
-
-- provider call counting：同 action lost-response/reload/reconnect 不重复 provider call；different actionId + same prompt 不被内容 dedupe；provider result unknown 不盲目重跑；
-- deterministic artifact/publication recovery：stage/journal/binding/satellite/ordinary Lesson visible commit 的每个 failure/crash window；committed artifacts 不回滚、不重复；session binding safety 不退化；
-- I/O injection：workspace scaffold、artifact/journal、index save、lifecycle append（尤其 post-write/close/directory-sync uncertainty）、journal delete、change history/audit、registry save、receipt prepare/finalize 的 pre/post durable failures；
-- restart / concurrency：跨进程/重启、同 action concurrent submit、stream reconnect、IPC response loss、renderer reload；验证 stable disposition、无 duplicate artifact/lifecycle/registry，且不会盲目 rerun provider；
-- privacy/security：actionId validation、renderer trace rejection、receipt private path/permissions、generic diagnostics 不含 prompt/messages/content/hash/provider secret/request id；trace 不作为 identity/dedupe/query/filter；
-- compatibility：legacy no-receipt workspace、legacy journals/index/lessons、trace-free/malformed lifecycle rows 保持原语义和 bytes；不扫描、回填或重写历史数据；
-- scope isolation：agent `generate_lesson`、`write_workspace_file`、lesson style、C-5H mission、C-4 durable publishers、C-5C/C-5E existing behavior 均无未经批准的变化。
-
-## 7. 审查结论与 approval gate
-
-C-5I 当前只建立了一个 **direct-UI lesson generation lifecycle / user-action correlation 设计门槛**。它确认 direct UI generation 是 provider、artifact publication/session binding、index、lifecycle、journal cleanup、change history 与 registry 的多事实流程；现有 journal/reconciliation 和 normal Lesson visible commit marker 不能替代 caller receipt，现有 renderer run/stream/result identifiers 也不能替代 action identity。
-
-**当前结论：NO-GO。**在 actionId lifecycle、request conflict policy、private receipt authority/retention、provider retry cost policy、stable IPC/UI disposition 和每个 durable crash/recovery table 获批准前：
-
-- 不新增 actionId、receipt、trace propagation、lifecycle dedupe 或 recovery implementation；
-- 不把 C-4 durable publication、artifact journal/reconciliation 或 C-5H mission gate记为 C-5I completion；
-- 不把 direct UI contract 自动扩展给 agent `generate_lesson`；
-- 不将 C-5 标记为全量 lifecycle/user-action correlation 完成。
+**当前结论：NO-GO。** C-5I 仅有设计发现，尚无 action-scoped identity、receipt authority、stable result vocabulary、provider unknown-outcome policy 或批准的 recovery table。实施前必须完成第 3 节的 owner approval，并将最终架构决定沉淀为 ADR；届时再更新本计划和[本地数据待办](../local-data-todo.md)，而不是把设计候选误写成已实施能力。

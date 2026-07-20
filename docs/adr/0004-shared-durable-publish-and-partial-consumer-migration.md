@@ -4,13 +4,23 @@
 - **范围：** C-4、C-4P0…P5、C-4P6-S1，以及 C-4P6-S2…S194（tests-only）；C-4P7；C-4P8-S1…S4 和 Windows direct-path non-CAS profile；C-4P9-S2，以及 C-4P9-S3…S45（tests-only）。
 - **历史证据：** 各已迁移 consumer 的实施提交和验证入口见下表。P6 生产基础为 `7292bf4` / `e02a086`；早期 tests-only 切片为 `9847842` / `1334513`；其后的 P6 tests-only historical range 为 `e821c69`…`c1fb162`。
 
+## 背景
+
+关键本地数据 writer 曾分别实现 publish、append、path containment 与失败处理，容易让局部成功被误解为统一 durability、跨文件 transaction 或所有平台同等保证。需要一个共享 capability，同时仍让每个 consumer 明确自己的 canonical authority、路径限制、平台 profile 与恢复语义；未被审查和验证的 writer 不能因共享实现存在而自动获得该保证。
+
 ## 决定
 
 以共享 durable-file capability 承担经过审查的关键文件 replace / publish 语义，并逐项迁移 consumer；每个 consumer 保留自身的 canonical authority、路径约束和错误语义。C-4 的完成含义是“共享原语及下列 consumer 已迁移”，**不是所有 writer 已迁移**，也不构成跨文件事务。
 
 `C-4P6-S1` 已实施的范围仅为 **严格有序发布与受控恢复基础**。它不是完整的 C-4P6；不提供跨文件事务或共同原子性，也不构成完整 durable closure。
 
-## 已迁移 consumer 与验证入口
+## 后果与实施边界
+
+- 新 consumer 必须逐项审查并单独迁移；共享原语、既有测试或某一 consumer 的 close-out 都不授权扩大到其它 writer。
+- 每个 consumer 继续拥有自身的 canonical authority、路径约束、错误结果与恢复顺序；失败、可能已发布或无法证明的状态不得被通用地自动 retry、rollback、delete 或报为成功。
+- 本 ADR 的 production 范围、tests-only historical evidence 与尚未关闭的设计门必须分开阅读。未完成的 P6、P8 strict profile、P9 及后续工作只维护在 [本地数据待办](../local-data-todo.md) 与对应 design gate，不能被视为本 ADR 的实施承诺。
+
+## 已迁移 consumer、实现范围与验证入口
 
 | 切片 | 已迁移范围 | 主要验证入口 |
 | --- | --- | --- |
