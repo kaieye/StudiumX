@@ -54,7 +54,7 @@
 ### C-4P8：Windows strict durable profile
 
 - **硬 blocker：**需要可审计的 Windows/NTFS publish primitive，在**实际 publish 点**施加 expected-target identity precondition（S3）。只在 publish 前读取 file ID 不能消除 inspect-to-publish race，不能关闭该 blocker。
-- **当前 capability audit：**[Windows strict durable profile capability audit](plans/windows-strict-durable-profile-capability-audit.md) 审计到的 Win32 public primitives 没有可在 publish 点接受 expected `FILE_ID_INFO` 的 compare-and-publish precondition；因此 `P8-Windows-NTFS-strict` 仍为 **unsupported**，现有 native `ENOTSUP` fail-closed 行为不得替换为 pathname fallback 或 preflight-only check。
+- **当前 capability audit：**[Windows strict durable profile capability audit](plans/windows-strict-durable-profile-capability-audit.md) 审计到的 Win32 public primitives 没有可在 publish 点接受 expected `FILE_ID_INFO` 的 compare-and-publish precondition；因此 `P8-Windows-NTFS-strict` 仍为 **unsupported**，现有 native `_WIN32` fail-closed boundaries（descriptor-relative operations use `ENOTSUP`; publication entrypoints may use explicit unavailable errors）不得替换为 pathname fallback 或 preflight-only check。
 - **依赖与顺序：**
   1. 明确目标 Windows/NTFS（及支持的 storage）、Node/Electron/runtime 范围、strict 的可观察承诺和不支持时的 fail-closed result；
   2. 审计 HANDLE-relative、reparse-point/junction-safe parent traversal、final-leaf inspection，以及 atomic no-overwrite/restricted-overwrite（或 exchange）的 native API；

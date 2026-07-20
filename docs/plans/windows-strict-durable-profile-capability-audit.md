@@ -24,7 +24,7 @@ No audited supported Win32 primitive exposes an atomic **publish-if-final-leaf-h
 
 1. Reading `FILE_ID_INFO`, then invoking `SetFileInformationByHandle` or `ReplaceFileW`, leaves the inspect-to-publish race required by C-4P8's hard blocker.
 2. A pathname-only `ReplaceFileW` sequence also fails the required HANDLE-relative/reparse-safe containment proof.
-3. The current `native/contained-durable-replace/contained_durable_replace.cc` deliberately returns `ENOTSUP` on Windows rather than silently falling back to pathname traversal. That fail-closed behavior remains correct for this profile.
+3. The current `native/contained-durable-replace/contained_durable_replace.cc` deliberately fails closed on Windows rather than silently falling back to pathname traversal: descriptor-relative operations return `ENOTSUP`, while publication entrypoints use explicit unavailable errors where applicable. That boundary remains correct for this profile.
 
 **Decision for the current proposal:** `P8-Windows-NTFS-strict` is **unsupported**. It must not be advertised as strict, and no implementation may downgrade the requirement to preflight identity checking.
 
