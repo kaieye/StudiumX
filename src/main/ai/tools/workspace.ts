@@ -189,10 +189,6 @@ function isNotFoundError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }
 
-function isEnotdirError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'ENOTDIR'
-}
-
 async function lstatIfExists(path: string): Promise<Awaited<ReturnType<typeof lstat>> | null> {
   try {
     return await lstat(path)
@@ -563,12 +559,11 @@ function selectOverwritePublicationTarget(input: {
       if (existing === null) return 'created'
       return existing.isFile() && existing.nlink === 1 ? 'overwritten' : 'path_rejected'
     })
-    .catch((error) => {
-      // ENOTDIR means an intermediate component is not a directory, so the
-      // writer cannot bind the logical target. Fail closed without path/I/O detail.
-      if (isEnotdirError(error)) return 'containment_unavailable'
-      return 'path_rejected'
-    })
+    // A preflight I/O failure leaves the target's containment and identity
+    // unproven. Do not classify it as a user-controlled path rejection or
+    // expose it through permission description; return the same stable
+    // containment failure used by the durable write path.
+    .catch(() => 'containment_unavailable')
 }
 
 const workspaceWritePermissionDescriptionError = '无法安全确定工作区文件写入目标。'
@@ -607,14 +602,16 @@ async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext)
 
   try {
     const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
-    // Permission text only. ENOTDIR (parent component is not a directory) must
-    // not short-circuit the durable writer via a describe throw: the handler
-    // classifies that closed failure as containment_unavailable.
     let existing: Awaited<ReturnType<typeof lstatIfExists>>
     try {
       existing = await lstatIfExists(workspaceWriteLogicalTargetPath(target))
-    } catch (error) {
-      if (!isEnotdirError(error)) throw error
+    } catch {
+      // Permission description is only a non-authoritative S1 preflight. A
+      // pathname I/O failure here must not escape through the registry's
+      // generic permission-error shape: pass the normalized target to the
+      // durable writer as a conservative create. The writer's trusted bind is
+      // authoritative and maps a failed bind to the stable, non-leaking
+      // `containment_unavailable` result consumed by callers.
       existing = null
     }
     return {

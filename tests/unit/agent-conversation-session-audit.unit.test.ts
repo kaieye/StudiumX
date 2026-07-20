@@ -34,6 +34,11 @@ type AuditWritePlan = (input: {
   writeCall: number
 }) => { bytesWritten?: number; failure?: Error } | undefined
 
+type AuditReadPlan = (input: {
+  path: string
+  readCall: number
+}) => { bytesRead?: number; failure?: Error } | undefined
+
 type InstrumentedAuditOperations = {
   operations: AgentConversationSessionAuditOperations
   events: string[]
@@ -70,11 +75,16 @@ function instrumentedAuditOperations(options: {
   hold?: (event: string) => Promise<void> | undefined
   onEvent?: (event: string) => void
   writePlan?: AuditWritePlan
+  readPlan?: AuditReadPlan
+  /** Test-only post-open handle.stat residual injection. */
+  statPlan?: (input: { path: string; statCall: number }) => { failure?: Error; isFile?: boolean } | undefined
 } = {}): InstrumentedAuditOperations {
   const events: string[] = []
   const opens: Array<{ path: string; flags: string | number }> = []
   const writtenBuffers: Buffer[] = []
   let writeCall = 0
+  let readCall = 0
+  let statCall = 0
   const observe = async (event: string): Promise<void> => {
     events.push(event)
     options.onEvent?.(event)
@@ -84,7 +94,10 @@ function instrumentedAuditOperations(options: {
   }
 
   const operations: AgentConversationSessionAuditOperations = {
-    mkdir,
+    mkdir: (async (path: Parameters<typeof mkdir>[0], optionsArg?: Parameters<typeof mkdir>[1]) => {
+      await observe(`mkdir:${path}`)
+      return optionsArg === undefined ? mkdir(path) : mkdir(path, optionsArg)
+    }) as typeof mkdir,
     lstat: (async (path: Parameters<typeof lstat>[0], optionsArg?: Parameters<typeof lstat>[1]) => {
       await observe(`lstat:${path}`)
       return optionsArg === undefined ? lstat(path) : lstat(path, optionsArg)
@@ -96,7 +109,18 @@ function instrumentedAuditOperations(options: {
       return {
         read: async (buffer, offset, length, position) => {
           await observe(`read:${path}`)
-          const result = await handle.read(buffer, offset, length, position)
+          const plan = options.readPlan?.({
+            path,
+            readCall: readCall++
+          })
+          if (plan?.failure) throw plan.failure
+          // Synthetic incomplete/non-integer counts exercise fail-closed transfer
+          // residuals without needing production seams beyond the I/O handle.
+          if (plan?.bytesRead !== undefined && (!Number.isInteger(plan.bytesRead) || plan.bytesRead <= 0)) {
+            return { bytesRead: plan.bytesRead }
+          }
+          const readLength = plan?.bytesRead === undefined ? length : Math.min(length, plan.bytesRead)
+          const result = await handle.read(buffer, offset, readLength, position)
           return { bytesRead: result.bytesRead }
         },
         write: async (buffer, offset, length, position) => {
@@ -107,6 +131,11 @@ function instrumentedAuditOperations(options: {
             writeCall: writeCall++
           })
           if (plan?.failure) throw plan.failure
+          // Return non-progressing/invalid counts as-is so incomplete-write
+          // residuals match production writeAllAuditBytes checks.
+          if (plan?.bytesWritten !== undefined && (!Number.isInteger(plan.bytesWritten) || plan.bytesWritten <= 0)) {
+            return { bytesWritten: plan.bytesWritten }
+          }
           const writeLength = Math.min(length, plan?.bytesWritten ?? length)
           const result = await handle.write(buffer, offset, writeLength, position)
           writtenBuffers.push(Buffer.from(buffer.subarray(offset, offset + result.bytesWritten)))
@@ -114,7 +143,23 @@ function instrumentedAuditOperations(options: {
         },
         stat: async () => {
           await observe(`stat:${path}`)
-          return handle.stat()
+          const plan = options.statPlan?.({
+            path,
+            statCall: statCall++
+          })
+          if (plan?.failure) throw plan.failure
+          const info = await handle.stat()
+          // Synthetic non-file openedInfo exercises the post-open isFile gate
+          // without replacing global fs or requiring native non-file descriptors.
+          if (plan?.isFile === false) {
+            return {
+              ...info,
+              isFile: () => false,
+              isDirectory: () => true,
+              isSymbolicLink: () => false
+            }
+          }
+          return info
         },
         sync: async () => {
           await observe(`sync:${path}`)
@@ -298,6 +343,116 @@ describe('agent conversation session audit durable append', () => {
     ])
   })
 
+  it('linearizes concurrent identical same-save appends without duplicate header or entry rows', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const auditFile = auditPath(root, record)
+    const firstStatStarted = deferred()
+    const releaseFirstStat = deferred()
+    let held = false
+    const io = instrumentedAuditOperations({
+      onEvent: (event) => {
+        if (event === `stat:${auditFile}` && !held) firstStatStarted.resolve()
+      },
+      hold: (event) => {
+        if (event === `stat:${auditFile}` && !held) {
+          held = true
+          return releaseFirstStat.promise
+        }
+        return undefined
+      }
+    })
+
+    const first = appendWith(root, record, io.operations)
+    await firstStatStarted.promise
+    const second = appendWith(root, record, io.operations)
+    // Queue must keep the second same-path open from starting while the first
+    // save still owns the descriptor lifecycle.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(io.opens.filter((open) => open.path === auditFile)).toHaveLength(1)
+
+    releaseFirstStat.resolve()
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      agentConversationSessionAuditRelativePathForMarkdown(record.relativePath),
+      agentConversationSessionAuditRelativePathForMarkdown(record.relativePath)
+    ])
+
+    const raw = await readAudit(root, record)
+    const lines = parseAgentConversationSessionAuditLines(raw)
+    const entryIds = lines.filter((line) => line.type !== 'session').map((line) => line.id)
+    const expectedIdentity = buildAgentConversationSessionAuditEntries(record)
+      .map(({ type, id, parentId }) => ({ type, id, parentId }))
+
+    expect(lines.filter((line) => line.type === 'session')).toHaveLength(1)
+    expect(entryIds).toEqual(expectedIdentity.map((entry) => entry.id))
+    expect(new Set(entryIds).size).toBe(entryIds.length)
+    expect(
+      lines
+        .filter((line) => line.type !== 'session')
+        .map(({ type, id, parentId }) => ({ type, id, parentId }))
+    ).toEqual(expectedIdentity)
+    // Exact bytes must match a single sequential write of the same record.
+    const referenceRoot = await createRoot()
+    const reference = instrumentedAuditOperations()
+    await appendWith(referenceRoot, record, reference.operations)
+    expect(raw).toBe(await readAudit(referenceRoot, record))
+  })
+
+  it('rejects concurrent same-ID canonical-body conflicts and preserves the queued winner bytes', async () => {
+    // Directed residual evidence for the C-4P9 concurrency matrix only; this
+    // is not the full C-4P9 close-out. Unlike the divergent-trace case, these
+    // concurrent records have the same IDs but different canonical bodies.
+    const root = await createRoot()
+    const baseline = createRecord()
+    const conflicting = createRecord({
+      turns: [{ ...baseline.turns[0]!, content: 'Different concurrent canonical body' }, baseline.turns[1]!]
+    })
+    const auditFile = auditPath(root, baseline)
+    const firstStatStarted = deferred()
+    const releaseFirstStat = deferred()
+    let held = false
+    const io = instrumentedAuditOperations({
+      onEvent: (event) => {
+        if (event === `stat:${auditFile}` && !held) firstStatStarted.resolve()
+      },
+      hold: (event) => {
+        if (event === `stat:${auditFile}` && !held) {
+          held = true
+          return releaseFirstStat.promise
+        }
+        return undefined
+      }
+    })
+
+    const first = appendWith(root, baseline, io.operations)
+    await firstStatStarted.promise
+    const second = appendWith(root, conflicting, io.operations)
+    // Per-path queue linearization keeps the conflicting save from opening the
+    // audit file before the first descriptor lifecycle has completed.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(io.opens.filter((open) => open.path === auditFile)).toHaveLength(1)
+
+    releaseFirstStat.resolve()
+    await expect(first).resolves.toBe(agentConversationSessionAuditRelativePathForMarkdown(baseline.relativePath))
+    await expect(second).rejects.toThrow('conflicts with its canonical record')
+
+    const raw = await readAudit(root, baseline)
+    const lines = parseAgentConversationSessionAuditLines(raw)
+    const entries = lines.filter((line) => line.type !== 'session')
+    const referenceRoot = await createRoot()
+    const reference = instrumentedAuditOperations()
+    await appendWith(referenceRoot, baseline, reference.operations)
+
+    // The successful winner is retained byte-for-byte: no mixed rows and no
+    // rewrite that allows the conflicting canonical body to succeed.
+    expect(raw).toBe(await readAudit(referenceRoot, baseline))
+    expect(lines.filter((line) => line.type === 'session')).toHaveLength(1)
+    expect(entries.filter((line) => line.id === 'turn:turn-one')).toHaveLength(1)
+    expect(new Set(entries.map((line) => line.id)).size).toBe(entries.length)
+  })
+
   it('rejects a same-ID canonical-body conflict without changing existing audit bytes', async () => {
     const root = await createRoot()
     const initial = createRecord()
@@ -310,6 +465,33 @@ describe('agent conversation session audit durable append', () => {
 
     await expect(appendWith(root, conflicting, io.operations)).rejects.toThrow('conflicts with its canonical record')
     expect(await readFile(auditPath(root, initial))).toEqual(before)
+  })
+
+  it('rejects on-disk same-identity rows whose traces diverge instead of treating them as exact dedupe', async () => {
+    // Residual: C-5E write-once/trace conflict must fail closed. Two exact
+    // non-trace bodies that differ only in traceState must not report success
+    // as if exact-byte dedupe already applied.
+    const root = await createRoot()
+    const record = createRecord({ traceId: TRACE_A })
+    const io = instrumentedAuditOperations()
+    await appendWith(root, record, io.operations)
+    const path = auditPath(root, record)
+    const before = await readFile(path, 'utf8')
+    const turnOne = parseAgentConversationSessionAuditLines(before).find((line) => line.id === 'turn:turn-one')
+    expect(turnOne).toBeDefined()
+    expect(turnOne?.traceId).toBe(TRACE_A)
+    const poisoned = `${before}${JSON.stringify({ ...turnOne!, traceId: TRACE_B })}\n`
+    await writeFile(path, poisoned, 'utf8')
+    const poisonedBytes = await readFile(path)
+
+    const writesBeforeConflict = io.events.filter((event) => event === `write:${path}`).length
+    await expect(appendWith(root, record, io.operations)).rejects.toThrow(
+      'Conversation session audit contains divergent duplicate records.'
+    )
+    expect(await readFile(path)).toEqual(poisonedBytes)
+    // Fail closed before framed append: exact prior bytes stay, no rewrite, no
+    // second write that would treat the divergent trace pair as exact dedupe.
+    expect(io.events.filter((event) => event === `write:${path}`)).toHaveLength(writesBeforeConflict)
   })
 
   it('treats ENOENT as empty, but propagates EACCES, EIO, and unknown byte-read failures', async () => {
@@ -352,6 +534,25 @@ describe('agent conversation session audit durable append', () => {
 
     await expect(appendWith(root, record, io.operations)).rejects.toThrow('not a regular file')
     expect(io.events.some((event) => event === `open:a+:${path}`)).toBe(false)
+  })
+
+  it('fails closed without capability downgrade when post-open audit target stat reports a non-file', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      statPlan: ({ path: candidate }) => candidate === path ? { isFile: false } : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow('not a regular file')
+    expect(io.events).toContain(`stat:${path}`)
+    // open may succeed; post-open non-file must fail before read/write and directory durability.
+    expect(io.events.some((event) => event === `read:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
   })
 
   it('preserves malformed newline legacy bytes, and frames every non-newline tail exactly once before missing rows', async () => {
@@ -524,6 +725,500 @@ describe('agent conversation session audit durable append', () => {
   })
 
   it.each(
+    (
+      [
+        ['EIO', errno('EIO')],
+        ['EACCES', errno('EACCES')],
+        ['EPERM', errno('EPERM')],
+        ['ENOSPC', errno('ENOSPC')],
+        ['EINVAL', errno('EINVAL')],
+        ['unknown error', new Error('unexpected audit directory mkdir failure')]
+      ] as const
+    )
+  )('fails closed without capability downgrade when audit directory mkdir returns %s', async (_name, failure) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const auditDirectory = dirname(path)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `mkdir:${auditDirectory}` ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(`mkdir:${auditDirectory}`)
+    // mkdir is the first durable boundary; no lstat/open/write and no capability downgrade.
+    expect(io.events.some((event) => event.startsWith('lstat:'))).toBe(false)
+    expect(io.events.some((event) => event.startsWith('open:'))).toBe(false)
+    expect(io.events.some((event) => event.startsWith('sync:'))).toBe(false)
+    expect(warnings).toEqual([])
+    await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each(
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
+  )('fails closed without capability downgrade when audit file open returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const flags =
+      fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_RDWR | fsConstants.O_NOFOLLOW
+    const openEvent = `open:${flags}:${path}`
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === openEvent ? errno(code) : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(openEvent)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+    // Instrumented open fails before the real openFile call, so no audit file is created.
+    await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+
+  it('fails closed without capability downgrade when audit file open returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const flags =
+      fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_RDWR | fsConstants.O_NOFOLLOW
+    const openEvent = `open:${flags}:${path}`
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file open failure')
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === openEvent ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(openEvent)
+    // Unknown open errors stay fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+    // Instrumented open fails before the real openFile call, so no audit file is created.
+    await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each(
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
+  )('fails closed without capability downgrade when audit file sync returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `sync:${path}` ? errno(code) : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(`sync:${path}`)
+    // open + write may have occurred before sync; directory durability must not start
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each(
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
+  )('fails closed without capability downgrade when audit file close returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `close:${path}` ? errno(code) : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(`close:${path}`)
+    // file open/write/sync may have occurred before close; directory durability must not start
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+
+  it('fails closed without capability downgrade when audit file close returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file close failure')
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `close:${path}` ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(`close:${path}`)
+    // Unknown close errors stay fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each(
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
+  )('fails closed without capability downgrade when audit file lstat returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `lstat:${path}` ? errno(code) : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(`lstat:${path}`)
+    // lstat fails before open; no open/write and no directory durability
+    expect(io.events.some((event) => event.startsWith(`open:`))).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+    await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+
+  it('fails closed without capability downgrade when audit file lstat returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file lstat failure')
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `lstat:${path}` ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(`lstat:${path}`)
+    // Unknown lstat errors stay fatal on the file path: no open/write and no directory capability downgrade.
+    expect(io.events.some((event) => event.startsWith(`open:`))).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+    await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each(
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
+  )('fails closed without capability downgrade when audit file stat returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `stat:${path}` ? errno(code) : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(`stat:${path}`)
+    // open happened before stat; write must not proceed; directory durability must not start
+    expect(io.events.some((event) => event.startsWith('open:') && event.endsWith(`:${path}`))).toBe(true)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+
+  it('fails closed without capability downgrade when audit file stat returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file stat failure')
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `stat:${path}` ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(`stat:${path}`)
+    // open happened before stat; write must not proceed; directory durability must not start
+    expect(io.events.some((event) => event.startsWith('open:') && event.endsWith(`:${path}`))).toBe(true)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each([
+    ['zero', 0],
+    ['non-integer', Number.NaN],
+    ['negative', -1]
+  ] as const)('fails closed when audit file write returns %s bytesWritten', async (_name, bytesWritten) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      writePlan: () => ({ bytesWritten })
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow(/could not be written completely/)
+    expect(io.events).toContain(`write:${path}`)
+    // Incomplete write is fatal: no directory durability / capability downgrade path.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each(
+    (['EIO', 'EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR', 'EACCES', 'EPERM', 'ENOSPC'] as const)
+  )('fails closed without capability downgrade when audit file write returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      writePlan: ({ writeCall }) => writeCall === 0 ? { failure: errno(code) } : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(`write:${path}`)
+    // File-path write failures stay fatal: no directory open / capability downgrade path.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it('fails closed without capability downgrade when audit file write returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file write failure')
+    const io = instrumentedAuditOperations({
+      writePlan: ({ writeCall }) => writeCall === 0 ? { failure } : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(`write:${path}`)
+    // Unknown write errors stay fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it('fails closed without capability downgrade when audit file sync returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file sync failure')
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === `sync:${path}` ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(`sync:${path}`)
+    // Unknown sync errors stay fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each([
+    ['zero', 0],
+    ['non-integer', Number.NaN],
+    ['negative', -1]
+  ] as const)('fails closed when audit file read returns %s bytesRead', async (_name, bytesRead) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    // Seed a non-empty audit file so readExactAuditBytes enters its transfer loop.
+    await appendWith(root, record, instrumentedAuditOperations().operations)
+    const continuation = createRecord({
+      updatedAt: '2026-07-18T00:02:00.000Z',
+      turns: [
+        ...record.turns,
+        { id: 'turn-three', role: 'user', content: 'Follow-up residual', createdAt: '2026-07-18T00:02:00.000Z' }
+      ]
+    })
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      readPlan: () => ({ bytesRead })
+    })
+
+    await expect(appendWith(root, continuation, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow(/could not be read exactly/)
+    expect(io.events).toContain(`read:${path}`)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    // Incomplete read is fatal: no directory durability / capability downgrade path.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it('fails closed without capability downgrade when audit file read returns an unknown error', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    // Seed a non-empty audit file so readExactAuditBytes enters its transfer loop.
+    await appendWith(root, record, instrumentedAuditOperations().operations)
+    const continuation = createRecord({
+      updatedAt: '2026-07-18T00:02:00.000Z',
+      turns: [
+        ...record.turns,
+        { id: 'turn-three', role: 'user', content: 'Follow-up residual', createdAt: '2026-07-18T00:02:00.000Z' }
+      ]
+    })
+    const warnings: string[] = []
+    const failure = new Error('unexpected audit file read failure')
+    const io = instrumentedAuditOperations({
+      readPlan: ({ readCall }) => readCall === 0 ? { failure } : undefined
+    })
+
+    await expect(appendWith(root, continuation, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(`read:${path}`)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    // Unknown read errors stay fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each(
+    (['EIO', 'EINVAL', 'EACCES', 'EPERM', 'ENOSPC'] as const)
+  )('fails closed without capability downgrade when audit file read returns %s', async (code) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    // Seed a non-empty audit file so readExactAuditBytes enters its transfer loop.
+    await appendWith(root, record, instrumentedAuditOperations().operations)
+    const continuation = createRecord({
+      updatedAt: '2026-07-18T00:02:00.000Z',
+      turns: [
+        ...record.turns,
+        { id: 'turn-three', role: 'user', content: 'Follow-up residual', createdAt: '2026-07-18T00:02:00.000Z' }
+      ]
+    })
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      readPlan: ({ readCall }) => readCall === 0 ? { failure: errno(code) } : undefined
+    })
+
+    await expect(appendWith(root, continuation, io.operations, (message) => warnings.push(message)))
+      .rejects.toMatchObject({ code })
+    expect(io.events).toContain(`read:${path}`)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    // File-path read failures stay fatal: no directory open / capability downgrade path.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it('fails closed without capability downgrade when audit file read stalls after partial progress', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    // Seed a non-empty audit file so readExactAuditBytes enters its transfer loop.
+    await appendWith(root, record, instrumentedAuditOperations().operations)
+    const seededSize = (await readFile(path)).byteLength
+    expect(seededSize).toBeGreaterThan(1)
+    const continuation = createRecord({
+      updatedAt: '2026-07-18T00:02:00.000Z',
+      turns: [
+        ...record.turns,
+        { id: 'turn-three', role: 'user', content: 'Follow-up residual', createdAt: '2026-07-18T00:02:00.000Z' }
+      ]
+    })
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      // First call advances one byte; second call returns zero so the exact-read loop fails closed.
+      readPlan: ({ readCall }) => readCall === 0 ? { bytesRead: 1 } : { bytesRead: 0 }
+    })
+
+    await expect(appendWith(root, continuation, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow(/could not be read exactly/)
+    expect(io.events.filter((event) => event === `read:${path}`).length).toBeGreaterThan(1)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    // Partial-then-stall read stays fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it('fails closed without capability downgrade when audit file read stalls after multi-byte partial progress', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    // Seed a non-empty audit file so readExactAuditBytes enters its transfer loop.
+    await appendWith(root, record, instrumentedAuditOperations().operations)
+    const seededSize = (await readFile(path)).byteLength
+    expect(seededSize).toBeGreaterThan(2)
+    const continuation = createRecord({
+      updatedAt: '2026-07-18T00:02:00.000Z',
+      turns: [
+        ...record.turns,
+        { id: 'turn-three', role: 'user', content: 'Follow-up residual multi-byte', createdAt: '2026-07-18T00:02:00.000Z' }
+      ]
+    })
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      // First call advances more than one byte; second call returns zero so the exact-read loop fails closed.
+      readPlan: ({ readCall }) => readCall === 0 ? { bytesRead: 2 } : { bytesRead: 0 }
+    })
+
+    await expect(appendWith(root, continuation, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow(/could not be read exactly/)
+    expect(io.events.filter((event) => event === `read:${path}`).length).toBeGreaterThan(1)
+    expect(io.events.some((event) => event === `write:${path}`)).toBe(false)
+    // Multi-byte partial-then-stall read stays fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it('fails closed without capability downgrade when audit file write stalls after partial progress', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      // First call advances one byte; second call returns zero so writeAllAuditBytes fails closed.
+      writePlan: ({ writeCall }) => writeCall === 0 ? { bytesWritten: 1 } : { bytesWritten: 0 }
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow(/could not be written completely/)
+    expect(io.events.filter((event) => event === `write:${path}`).length).toBeGreaterThan(1)
+    // Partial-then-stall write stays fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it('fails closed without capability downgrade when audit file write stalls after multi-byte partial progress', async () => {
+    const root = await createRoot()
+    const record = createRecord()
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const io = instrumentedAuditOperations({
+      // First call advances more than one byte; second call returns zero so writeAllAuditBytes fails closed.
+      writePlan: ({ writeCall }) => writeCall === 0 ? { bytesWritten: 2 } : { bytesWritten: 0 }
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toThrow(/could not be written completely/)
+    expect(io.events.filter((event) => event === `write:${path}`).length).toBeGreaterThan(1)
+    // Multi-byte partial-then-stall write stays fatal on the file path: no directory capability downgrade.
+    expect(io.events.some((event) => event === `open:r:${dirname(path)}`)).toBe(false)
+    expect(io.events.some((event) => event === `sync:${dirname(path)}`)).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
+  it.each(
     (['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EISDIR'] as const).flatMap((code) => [
       ['audit-directory open', code, (root: string, record: AgentConversationRecord) => `open:r:${dirname(auditPath(root, record))}`],
       ['audit-directory sync', code, (root: string, record: AgentConversationRecord) => `sync:${dirname(auditPath(root, record))}`],
@@ -575,20 +1270,68 @@ describe('agent conversation session audit durable append', () => {
     }
   })
 
-  it.each([
-    ['EACCES', errno('EACCES')],
-    ['EPERM', errno('EPERM')],
-    ['EIO', errno('EIO')],
-    ['unknown error', new Error('unexpected directory fsync failure')]
-  ])('does not downgrade fatal directory sync %s', async (_name, failure) => {
+  it.each(
+    (
+      [
+        ['audit-directory', (root: string, record: AgentConversationRecord) => dirname(auditPath(root, record))],
+        ['parent-directory', (root: string, record: AgentConversationRecord) => dirname(dirname(auditPath(root, record)))]
+      ] as const
+    ).flatMap(([boundary, directoryFor]) =>
+      ([
+        ['EACCES', errno('EACCES')],
+        ['EPERM', errno('EPERM')],
+        ['EIO', errno('EIO')],
+        ['unknown error', new Error('unexpected directory open failure')]
+      ] as const).map(([name, failure]) => [boundary, name, directoryFor, failure] as const)
+    )
+  )('fails closed without capability downgrade when %s open returns %s', async (_boundary, _name, directoryFor, failure) => {
     const root = await createRoot()
     const record = createRecord()
-    const directory = dirname(auditPath(root, record))
+    const directory = directoryFor(root, record)
+    const path = auditPath(root, record)
+    const warnings: string[] = []
+    const openEvent = `open:r:${directory}`
+    const io = instrumentedAuditOperations({
+      fail: (event) => event === openEvent ? failure : undefined
+    })
+
+    await expect(appendWith(root, record, io.operations, (message) => warnings.push(message)))
+      .rejects.toBe(failure)
+    expect(io.events).toContain(openEvent)
+    // File append completed before directory durability; open failure must not
+    // be reinterpreted as an allowlist capability downgrade warning.
+    expect(io.events.some((event) => event === `sync:${directory}`)).toBe(false)
+    expect(warnings).toEqual([])
+    await expect(readFile(path, 'utf8')).resolves.toContain(record.id)
+  })
+
+  it.each(
+    (
+      [
+        ['audit-directory', (root: string, record: AgentConversationRecord) => dirname(auditPath(root, record))],
+        ['parent-directory', (root: string, record: AgentConversationRecord) => dirname(dirname(auditPath(root, record)))]
+      ] as const
+    ).flatMap(([boundary, directoryFor]) =>
+      ([
+        ['EACCES', errno('EACCES')],
+        ['EPERM', errno('EPERM')],
+        ['EIO', errno('EIO')],
+        ['unknown error', new Error('unexpected directory fsync failure')]
+      ] as const).map(([name, failure]) => [boundary, name, directoryFor, failure] as const)
+    )
+  )('does not downgrade fatal %s sync %s', async (_boundary, _name, directoryFor, failure) => {
+    const root = await createRoot()
+    const record = createRecord()
+    const directory = directoryFor(root, record)
+    const path = auditPath(root, record)
     const warnings: string[] = []
     const io = instrumentedAuditOperations({ fail: (event) => event === `sync:${directory}` ? failure : undefined })
 
     await expect(appendWith(root, record, io.operations, (message) => warnings.push(message))).rejects.toBe(failure)
+    expect(io.events).toContain(`sync:${directory}`)
+    // Directory sync failure must remain fatal; do not emit capability-downgrade warning.
     expect(warnings).toEqual([])
+    await expect(readFile(path, 'utf8')).resolves.toContain(record.id)
   })
 
   it.each([

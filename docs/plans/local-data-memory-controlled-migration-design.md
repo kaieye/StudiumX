@@ -1,110 +1,239 @@
-# C-6：受控 legacy Memory 搬迁的安全、恢复与审计设计门槛（仅 design discovery）
+# C-6：受控 legacy Memory 搬迁设计门、恢复协议与验收计划
 
-**状态：仅 design discovery；不是功能或测试实现。** `5803176` 已实现 C-6A 的严格只读、aggregate-only preflight，但它不实现、不批准 copy、delete、move 或任何真实搬迁。C-6 整体和 controlled legacy Memory migration 仍未完成；本文不能作为启动、后台或自动迁移的授权。
+> **状态：未关闭；真实迁移未获批准、未实现。** 当前已实施的是 scope 分区、flat/scoped 兼容读取，以及 renderer-safe、aggregate-only 的只读 preflight。权威的已实施范围与历史证据见 [ADR-0006](../adr/0006-scoped-memory-partition-and-readonly-migration-preflight.md)；后续工作的唯一入口见 [本地数据待办](../local-data-todo.md)。本文定义未来真实迁移必须先通过的产品、技术、恢复和运维设计门，**不是启动、后台、自动或 UI 迁移的授权**。
 
-> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
+## 1. 问题、目标与非目标
 
-## 1. 已有 C-6A 事实与其局限
+### 1.1 要解决的问题
 
-C-6A 复用 TeachingMemoryCatalog 的**同一次** descriptor-bound、no-follow discovery snapshot，仅向既有 diagnostics IPC/Settings 提供 aggregate preflight：flat eligible 数、已分区 selected source 数、duplicate blocker 数、recovery blocker 数和 `migrationReady` boolean。缺失 Memory root 时，它以 non-creating descriptor open 安全返回空 aggregate；不会创建 root，也不会改变父目录 entries 或 mtime。
+旧版 Memory 将记录以 flat JSON 文件保存在 Memory root；新的写入按记录的稳定 scope 分区。长期同时保留两个布局会使 scope 隔离、冲突处理和运维恢复都依赖兼容读取。C-6 的唯一目标是：在明确授权的一次性受控操作中，将**当前可证明唯一、合法且属于获授权 scope 的 legacy flat canonical record**复制到其现行 scoped canonical 位置，并且只有在复制、持久化、验证、确认及再次校验全部成功后，才考虑删除对应 legacy source。
 
-这个边界有意不返回 record、canonical identifier、path、scope root、content、checksum/hash 或候选清单。它也不创建 private receipt、不保存迁移意图、不取得文件写权限、不复制/验证/删除文件，且没有 migration button、新 IPC command 或 renderer path input。
+迁移必须保留以下不变量：
 
-因此，C-6A 的 aggregate 只能回答“在**该次**只读 snapshot 中，是否存在可考虑的 legacy flat source”，不能回答“允许谁在何时迁移哪些文件”：
+- 移动前、取消后、失败后和未决状态下，legacy Memory 继续可读；不能因迁移而丢失已选中的 canonical record。
+- scoped destination 由 main 根据已验证 record 推导；不得把 renderer、SQLite projection、历史 preflight、缓存结果或用户输入的路径当作 authority。
+- 不覆盖已有 scoped destination，不合并同 ID 的多个 source，也不将 duplicate 视为可自动修复的正常状态。
+- 多文件 copy/publish/delete 不是跨文件事务；任何无法证明的 I/O 结果均不得报告为成功，也不得自动 delete、rollback、resume 或 cleanup。
 
-- `alreadyPartitioned` 只表示 selected scoped source 的 aggregate，不是 destination 健康证明；
-- `eligible` 只适用于 selected flat source，且同一 canonical identifier 只有一个 accepted source、没有 duplicate/mutation-blocking state；
-- 同 identifier 的 flat/scoped 多 source（无论 bytes 是否相同）、duplicate conflict、invalid JSON、scope mismatch、unsafe path、unknown partition、deep directory、symlink 或其他 recovery finding 都必须保持 blocker 语义；
-- `migrationReady` 是无敏感信息的当时 aggregate，不是 durable authorization、无竞争锁、source 不变保证或删除许可；preflight 一旦 stale，必须重新做只读 discovery。
+### 1.2 明确不在范围内
 
-未来真实操作必须由 main process 根据可信应用状态重新建立 identity 与 scope：renderer 不能提供 root/path、canonical identifier、目标目录或任意 file handle。catalog discovery 的 source scope 只能用于候选发现；正式发布与删除前仍须用主进程可信 scope、当前 canonical record 和 descriptor-bound capability 再验证。
+本设计不改变 Memory record 的业务语义、scope 规则或 normal CRUD；不改写 record 内容来“格式化”历史数据；不将 SQLite/index、summary、backup、hold、receipt 或 audit 变成 canonical authority。以下项目均排除：
 
-## 2. 非目标、不可违反的安全边界
+- startup、background、定时任务、analytics、diagnostics、普通 `list/find/recall` 或 Settings 刷新触发的迁移；
+- 迁移按钮、candidate 列表、单条路径/ID/内容/哈希明细，或 renderer 提供任何特权文件 I/O 参数；
+- 无确认 copy、直接 rename/move loop、覆盖写 destination、自动 duplicate 修复、自动 legacy delete；
+- 将 private hold/backup 放进普通 Memory catalog discovery 范围，或用 retention 绕过单独的删除同意、legal hold、恢复与审计要求；
+- 把 [ADR-0005](../adr/0005-main-owned-trace-correlation-and-safe-logs.md) 的 `traceId` 扩展为 migration identity、精确 retry key、receipt key 或全局事务身份。
 
-本 design gate 不新增代码、IPC、preload API、UI 操作、后台任务、启动任务、native addon、文件格式或 canonical schema。现有 legacy tolerant read、CRUD、C-6 已分区 source 以及 C-6A diagnostics 都必须保持语义不变。
+## 2. 现状与证据边界（压缩）
 
-无论未来采用何种方案，均不得：
+已实施范围权威记录见 [ADR-0006](../adr/0006-scoped-memory-partition-and-readonly-migration-preflight.md)。**真实 destructive migration 未获批准、未实现。**
 
-- 在 startup、background、定时任务、analytics、diagnostics 或普通 Memory read 中触发迁移；
-- 从 renderer 接收 path、scope root、canonical identifier、destination、checksum 或任意特权文件 I/O 参数；
-- 用 SQLite、summary 或 aggregate preflight 代替 canonical discovery、scope authorization 或 delete 决策；
-- 覆盖已有 scoped destination，或把 duplicate 当作“可以修复”的正常状态；
-- 在 UI、日志、audit、错误或 receipt 中泄露 raw content、canonical identifier、path、scope root、checksum/hash 或候选明细；
-- 把 legacy delete 当作可自动回滚的操作，或借 C-2 retention policy 绕过单独的删除同意与恢复要求。
+| 已实施能力 | 含义 | 不构成 |
+|---|---|---|
+| 新写入进入 scoped partition；flat/scoped 兼容读取 | 迁移期间须保留 tolerant read，直至独立 legacy EOL 决策 | 自动搬迁或 legacy 自行消失 |
+| 同 ID 不同 bytes → `duplicate_conflict`；bytes 相同仍拒绝 mutation | duplicate 是迁移 blocker | 可按 selected source 删除 |
+| scoped record 改变 partition 被拒绝 | 迁移只可保持既有 scope | scope relocation 授权 |
+| descriptor-relative、no-follow root/parent I/O | 未来 copy/publish/delete 必须沿用或加强 | pathname fallback 授权 |
+| Windows Memory descriptor capability fail closed | 必须定义 per-platform profile | 不支持平台上的真实迁移 |
+| `diagnosticsSnapshot()` aggregate-only readonly preflight | 可显示 eligible/blocked 计数与 `migrationReady` 布尔 | consent、authorization、intent、reservation、delete permission 或可复用 snapshot |
 
-## 3. 备选方案矩阵（全部尚未获批准）
+相关代码：`src/main/teaching-memory-catalog.ts`、`src/main/teaching-memory-catalog/record-file.ts`。基线验证入口见第 11 节；它们**不**验证未来 destructive migration。
 
-| 方案 | 好处 | 风险、前提与恢复语义 | 当前决定 |
-|---|---|---|---|
-| 保持 legacy read-only | 延续当前最安全的 tolerant read；没有新增写入或删除面。 | 无磁盘整理收益，但也不会制造 duplicate、误删或恢复债务。 | **当前默认**，持续支持。 |
-| copy → internal checksum verify → explicit confirmation → delete legacy | 可在已验证复制后、经独立确认再收敛到 scoped canonical source。 | 需要完整的 descriptor-bound copy/delete capability、scope revalidation、durable phase recovery、非覆盖发布和不可逆删除政策。 | **待批准的推荐候选**；不是实现授权。 |
-| copy-and-keep managed backup | 可降低 delete 后不可恢复风险。 | 备份不能继续处于 catalog discovery 范围而形成 duplicate；需要独立的受保护 hold/archive、retention、restore、容量和访问控制政策。 | 仅在产品/法律要求保留副本时讨论，尚未批准。 |
-| 直接 move 或直接 delete | 实现表面较短。 | move 跨目录/崩溃并非整体原子；未验证 destination 或无确认的 delete 可不可逆丢失 data。 | **拒绝**。 |
+共享 durable primitive 不等于跨文件事务，见 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md)；trace 安全边界见 [ADR-0005](../adr/0005-main-owned-trace-correlation-and-safe-logs.md)。
 
-推荐候选只是在真正需要结束 legacy 扁平布局、且产品批准 destructive step 时的最小顺序；在所有门槛关闭前，必须保持 legacy read-only。
+## 3. 目标架构与 authority
 
-## 4. 候选状态机与耐久性门槛
+### 3.1 durable authority 与布局
 
-真实实现必须把迁移视为多文件、非整体原子的受控协议，而不是 rename loop。以下状态机只定义将来需验证的顺序；本轮没有任何状态实现或持久化。
+真实迁移若获批，canonical authority 仍是单个 Memory record JSON 文件；迁移不是 schema migration，也不得改变该 record 的 bytes、ID、content、tags、timestamps、tombstone 或 scope。候选协议采用 **byte-preserving copy**：destination 使用已存在的 canonical encoded record filename，内容为经内部验证的 source bytes。这样 source/destination 的一致性可以在 main 的受限 capability 内验证，而不把内容或 digest 暴露到 UI、日志、普通 receipt 或 audit。
 
-| 阶段 | 允许动作 | 必须成立的条件 | 失败/恢复语义 |
-|---|---|---|---|
-| `read_only` | 正常 legacy/scoped tolerant read 与 C-6A preflight。 | 无写 capability、无 intent。 | 永远可停留；不能隐式进入下一阶段。 |
-| `preflight_snapshot` | 以现有 descriptor-bound、no-follow discovery 读取 aggregate。 | blocker 为零、存在 eligible aggregate；snapshot 仅为本次判断。 | root 缺失、recovery/duplicate 或 snapshot stale 时安全退出，不写入。 |
-| `intent_prepared` | main process 从可信用户/运维动作、当前授权 scope 和最新 discovery 建立一次性 intent。 | intent 绑定 policy/version、issued/expiry、授权类别、aggregate expectation 与不可猜测 operation handle；receipt/state 不含 identifier、path、content、checksum/hash 或候选映射。 | 任何 scope/时间/manifest 变化使 intent 失效；必须回到 preflight，不可复用。 |
-| `copy_to_private_hold` | 在 main-only descriptor-bound、no-follow capability 下，把候选从受限 source 复制到不被 catalog 发现的私有 hold。 | destination 由主进程派生、exclusive create、无 overwrite；临时文件完成 file fsync 后才可原子发布到 hold，并同步相关目录。 | disk-full、I/O、symlink、external edit、duplicate 或 copy partial 时不 delete source；只允许安全清理未发布 temp，已发布 hold 进入 recovery-required，不自动发布/删除。 |
-| `hold_verified` | 对复制产物作内部 checksum verify，必要时 reread destination。 | checksum 仅在受限 main-memory/capability 内使用；不得进入 UI、普通日志、aggregate receipt 或 audit。还须重验 source/destination descriptor identity。 | verify 不一致或 source stale 时保留 source，hold 不得被当 canonical；停止并要求新的只读 preflight。 |
-| `confirmation_required` | 向获授权主体呈现最小 aggregate 和不可逆 delete 的后果。 | 必须是独立、明确、非默认的确认；不是 Settings 刷新、预检 `migrationReady` 或旧确认的推断。 | 取消/超时保持 legacy；hold 的处理遵循已批准的显式 cleanup/hold policy，不自动 delete source。 |
-| `publish_and_delete` | 确认后重新做 scope/source/destination/staleness 检查；将 verified hold 以非覆盖、durable 顺序发布到 scoped destination，再 descriptor-bound delete legacy。 | publish 成功、destination verify 与当前 source revalidation 都必须先于 legacy delete；每项 delete 都需记录准确 phase，不能用 aggregate 假设成功。 | publish 后 delete 前 crash/外部编辑会形成 recovery-required duplicate；重启不得自动完成 delete。部分 delete 是不可逆 partial outcome，必须停下并显式恢复/重试，不得盲目继续。 |
-| `finalized` | 仅在所有已确认项按协议完成且 durable finalization 写入后结束。 | final receipt 只含 operation handle、phase、时间、aggregate outcome/status 与 policy version。 | finalization 写失败不代表可重删或可回滚 source；保留安全、非敏感 failure 状态并进入人工/受控恢复。 |
+目标布局沿用当前格式：
 
-### Staleness、并发、重试、resume、rollback 与 cleanup
+- `user` scope 的 target partition 是 `_global`；
+- `workspace` / `project` 的 partition 名由 main 对已规范化的 scope root 计算稳定 SHA-256 base64url digest，并带 `.v1`；
+- target leaf 是由 record ID 编码得到的 canonical `memory-*.json` 名；
+- catalog 只认可 root-flat 文件以及已识别 partition 的一层 canonical leaf；symlink、deep directory、未识别 partition、非 regular leaf、文件名不匹配、invalid JSON/record、scope mismatch 都是 recovery/security issue，而不是可迁移输入。
 
-- C-6A snapshot、intent、copy 和确认之间的任一外部写入都可能使候选 stale。任何 phase transition 都必须重新运行 descriptor-bound discovery 与 scope revalidation；不能凭首次 aggregate 或 renderer 缓存继续。
-- 同一 Memory root/scope 的 concurrent migration 必须以 main-owned、scope-bound operation serialization 或等价互斥处理。未获得锁/lease 时返回非敏感 busy，不得并发 copy、publish 或 delete。
-- retry 必须幂等且 fail-closed：仅能重新评估当前 canonical source、hold ownership、destination absence/verified state 与 intent/confirmation；不允许根据名称猜测、覆盖 destination 或自动删除 legacy。
-- 崩溃、进程终止、disk-full、partial copy、checksum mismatch、external edit、unexpected duplicate、权限错误和 delete 中断都不能触发启动时 resume。默认恢复动作是保持 legacy readable、隔离/保留未确认 hold，并要求新的显式、可信 main-process recovery flow。
-- delete 前可以放弃 intent；delete 后不能把“copy 仍在”当作 rollback。restore 必须是另一个获批准的、可审计操作，而不是 migration 自动回滚。任何 hold/archive cleanup 都不能删除 legacy，且必须受独立的 retention/legal policy 与安全 ownership proof 约束。
-- 由于 private receipt/state 被要求不保存 identifier、path、content 或 checksum/hash，可靠的跨崩溃逐项 resume/cleanup 目前存在能力缺口。未提出经审查的最小化 ownership/provenance 设计前，未来实现不得承诺自动续跑、逐项恢复或自动清理已发布 destination。
+该布局是内部实现细节；renderer 不接收或展示 partition、scope root、leaf、fingerprint、hash 或 locator。
 
-## 5. Copy、publish 与 delete 的具体安全约束
+### 3.2 main-only operation boundary
 
-1. **Descriptor boundary：** source、private hold 与 scoped destination 必须从受信的 root descriptor 逐段打开、拒绝 symlink/unsafe/deep/unknown layout，且不允许 fallback pathname scanner。copy 与 delete 所用 capability 必须在操作期间保持 no-follow 边界，而不是只在 preflight 检查一次。
-2. **Source/destination constrain：** destination 只能由当前 canonical record 的已验证 scope 规则在 main process 派生；不得跨 scope relocation，不得接受 renderer 指定位置。legacy source 与 target scoped source 若同时存在、或任何 accepted source count 大于一，必须停止而不是覆盖/合并。
-3. **耐久顺序：** private temp exclusive create → copy → file fsync → internal verify → durable hold publish/目录同步 → explicit confirmation → fresh revalidation → durable non-overwrite scoped publish/目录同步 → legacy delete → final receipt。跨文件系统或跨多 record 操作没有整体原子性，receipt phase 只能记录真实完成状态。
-4. **Backup 与 cleanup：** copy-and-keep 只能保留在不参与 normal catalog discovery 的受保护区域；不得以发现范围内的第二个 canonical copy 当 backup。backup/hold 不是删除 legacy 的替代授权，也不能被自动清理。
-5. **Deletion 不可恢复：** 用户确认文案、产品 policy 和 audit 都必须明确 legacy delete 的不可逆性及可用 restore 保障（若有）。没有获批 backup/hold policy 时，不得声称 delete 后可恢复。
+未来 operation 必须由 main 创建并持有。请求边界只能传达经批准的高层用户动作；main 自行取得可信调用身份、当前 access scope 和 catalog root，再执行当次 discovery。下列值一律由 main 派生并保持私有：source descriptor、target partition/leaf、hold location、记录 fingerprint/checksum、lease、recovery provenance 和任何 canonical locator。
 
-## 6. UI、consent、legal/retention 与 audit
+operation 必须绑定到：
 
-当前 Settings/diagnostics 只能继续显示 C-6A 的 aggregate preflight，不能加入迁移按钮或候选明细。若未来另行批准 UI，它也只能显示最小 aggregate、当前不可用/blocked/ready 状态、确认所需的后果和 policy version；不得显示 path、identifier、content、checksum/hash、原始 blocker 细节或任何可枚举 source 的列表。
+1. 当前可信身份与当前授权 scope；
+2. 一次性、明确、可取消且会过期的 intent；
+3. 当次 descriptor-bound discovery 所证明的唯一 accepted source 和 target absence；
+4. 若涉及 delete，则独立于 preflight 的 destructive confirmation。
 
-未来 destructive confirmation 必须：
+Settings 刷新、`migrationReady`、历史 confirmation、重启、自动 retry、renderer reload、trace、analytics 状态或同内容记录都不能推导以上任何绑定。
 
-- 由获授权主体在可信 main-owned scope 上显式触发，具有清晰的不可逆 delete 提示、有效期与取消路径；
-- 不从历史 preflight、自动 retry、设置切换、启动恢复或 renderer 传入参数推断 consent；
-- 先满足适用的用户同意、组织 policy、legal hold、retention 与备份要求；未满足时一律不 copy/delete；
-- 产生最小 audit：事件类别、operation handle、policy/version、时间、phase、aggregate outcome/status。audit/log/telemetry/error 不得记录 raw content、identifier、path、scope root、checksum/hash、candidate count 与 source/destination mapping 的可重建形式。
+### 3.3 串行化与并发
 
-## 7. 实施前提、能力缺口与未来最小 safe slice
+同一 Memory root 与授权 scope 上，main 必须持有 scope-bound、main-owned serialization/lease（或经评审的等价互斥）覆盖 intent 创建至最终处置。无法取得 lease 时返回稳定、非敏感的 `busy`；不得并发 copy、publish、delete 或通过“最后写入者胜出”处理冲突。lease 失效、进程崩溃、外部修改、意外 duplicate、source/target 重现或不能重新建立授权时，operation 转为 `indeterminate` 或 `recovery_required`，而非继续执行。
 
-任何真实 migration 之前至少需要单独批准并证明：
+## 4. 数据模型、隔离与最小化
 
-1. main-only trusted identity/scope authorization 和一次性 confirmation binding；
-2. 可测试的 descriptor-relative no-follow copy、exclusive destination create、durable publish、descriptor-bound delete 与目录同步 capability；不具备的平台必须 fail closed，不能退回不受约束的 path I/O；
-3. 既满足数据最小化、又足以处理 crash/duplicate/hold ownership 的 private recovery model。当前 aggregate-only C-6A 不能提供逐项 resume 所需映射；
-4. 非覆盖 duplicate policy、hold/archive access/retention/cleanup policy、legal hold 与 delete irreversibility policy；
-5. fuzz/fixture 驱动的安全测试，覆盖 unsafe/deep/symlink/unknown partition、same-identifier equal/different duplicate、scope mismatch、source drift、external edit、concurrency、disk-full、crash at every phase、partial copy/delete、retry/idempotency、legacy tolerant read 与所有日志/UI/audit 的非泄露。
+### 4.1 record 与 scope 隔离规则
 
-在上述门槛获批前，唯一可讨论的最小 safe slice 是 **main-only dry-run intent/receipt preview**：它重新做只读 preflight，验证 trusted scope，并仅生成/显示短期 aggregate-only intent 状态；不 copy、不创建 hold、不 publish、不 delete、不新增 renderer path input。可选的 “copy to private hold without delete” 比 dry-run 风险更高，必须在单独评审中先解决 hold ownership、crash cleanup 与 legal/retention policy，不能由本文自动授权。
+Memory record 当前包含 `id`、`content`、`scope`、可选 `workspace`/`project`、tags、confidence、时间字段和可选 main-owned `traceId` 等业务字段。迁移只能接受 catalog 已规范化且完整性校验通过的 record：workspace scope 必须有 workspace root，project scope 必须有 project root；target partition 必须与该 record 的 current scope 完全一致。不得由 source 文件所在目录、renderer path、SQLite row、旧 partition 或用户选择替代这一判定。
 
-未来 dry-run slice 的验证至少应证明：canonical Memory bytes、mtime 和目录布局不变；缺失 root 不创建；aggregate/receipt/UI/log 不含敏感 locator 或内容；stale/duplicate/recovery blocker/authorization failure fail closed；并发 intent 不扩大 scope；以及没有 startup/background/autoretry path。
+access scope 同时是读取隔离和迁移授权边界：user record 可全局访问；workspace/project record 只能在规范化后的对应 workspace/project access 下访问。跨 scope、scope root 不一致、partition/record 不一致或 source 不唯一均 fail closed；不得复制到“更宽” scope、merge 多 source 或借 migration 修复历史 scope 数据。
 
-## 8. 需要产品/用户决定的问题（最多两项）
+### 4.2 intent、receipt、hold 与 recovery provenance
 
-1. 是否存在明确的用户/运维需求，足以接受受控 legacy delete；若存在，默认是 delete 后不保留副本，还是必须使用受保护、可恢复的 managed backup/hold？
-2. 哪些用户/运维角色、scope 与 legal/retention/consent 条件可以发起确认，以及发生 partial delete 后允许的人工恢复责任与时限是什么？
+真实迁移需要三类互不替代的数据，且必须在实现前获得 privacy/operations owner 批准：
 
-## 9. 交接结论
+| 数据 | 最小职责 | 不得承担的职责与禁止字段 |
+| --- | --- | --- |
+| 内存中的 operation context | 在单次 main operation 内持有 descriptor、内部验证材料、lease、当前 phase 和重新校验结果。 | 不得从 renderer 反序列化 locator/hash；进程重启后不得把内存状态当成可安全 resume 的证据。 |
+| private receipt | 以 opaque operation identity、有限 phase/status、时间和必要的非内容性授权/确认事实表达**已证实**状态。 | 不是 Memory authority、锁、事务日志或自动恢复指令；不得保存 content、canonical ID、path、scope root、checksum/hash、候选清单、raw I/O error 或可枚举 locator；如经 ADR-0005 边界批准保留 trace，它只能作 diagnostic correlation，不能作 operation/retry/dedupe/receipt identity。 |
+| private hold 与最小 provenance contract | 在 delete 前保留独立、受访问控制且不被 normal catalog discovery 扫描的 source bytes；支持经批准的人工恢复。 | 不是第二个 catalog-discoverable canonical copy；不能凭 receipt 的 phase 猜测 ownership，也不能自动 cleanup、自动 restore 或绕过 legal hold。 |
 
-**C-6 controlled migration design gate recorded。** `5803176` 的 C-6A 仍只是严格只读、aggregate-only preflight；C-6 已分区/legacy tolerant read 的现状不变。真实 controlled migration、copy、checksum verify、explicit confirmation、legacy delete、跨崩溃 resume/cleanup、迁移 UI/IPC 都仍未实现且未获批准。
+receipt 不能同时满足“完全不保存 locator/identifier/hash”和“跨崩溃逐项找回、验证、cleanup”的需求。因此，跨重启的 hold ownership、provenance、retention/locking、加密/访问控制（若适用）以及人工恢复定位方式必须形成单独的最小化 contract 并接受审查；在它未被批准前，不能实现自动 resume、自动 cleanup 或逐项恢复。该问题是设计 blocker，不可由更多 aggregate preflight 字段解决。
+
+### 4.3 公开结果与审计边界
+
+最终 API/UI vocabulary 必须由产品 owner 批准；候选仅限稳定、不可枚举的高层结果，例如 `not_authorized`、`not_ready`、`busy`、`cancelled`、`blocked`、`indeterminate`、`recovery_required`、`completed`、`partial_delete`。是否暴露 `completed` 以及其含义必须与 delete/hold policy 一同决定。
+
+公开 UI、日志、diagnostics、audit、error 和 receipt 都不得含 raw content、canonical ID、source/destination path、scope root、partition、checksum/hash、候选数量之外的可关联明细，或 raw OS error。audit 只应记录获批准的最小 operation correlation、phase/result、actor/owner 与保留期；不得写入 normal Memory record、analytics payload 或通用 error text。
+
+## 5. 前置检查、受控协议与状态语义
+
+### 5.1 每次 destructive operation 的 preflight
+
+一次 `migrationReady` 诊断不是操作资格。创建 intent 时、copy 前、confirmation 后、publish 前和 delete 前均需重新执行当次 descriptor-bound discovery 与 scope authorization。至少检查：
+
+1. 当前平台具备获批准的 descriptor-relative no-follow read/copy/create/publish/delete/directory-sync profile；否则 fail closed；
+2. root、source parent、target parent 和 leaf 均通过受限遍历；不存在 unsafe/deep/symlink/unknown-layout/recovery issue；
+3. source 是唯一 accepted flat source；没有 equal 或 different duplicate、mutation-blocking ID、scope mismatch 或 source drift；
+4. record 仍合法，授权 identity/scope 仍匹配，target partition/leaf 仍由 current record 派生；
+5. target 不存在；任何 scoped target（即使 bytes 相同）都按 duplicate/recovery path 停止，绝不 overwrite；
+6. hold policy、容量、access control、retention、legal hold 和人工恢复 owner 已满足；
+7. destructive confirmation 仍有效、未取消，且确认绑定到当前 revalidated intent，不能被 old preflight 或 old receipt 复用。
+
+preflight 发现 blocker 时不创建 Memory 文件、不移动文件、不删除 source；只返回最小 public result，并让 operations owner 通过获批渠道处理 recovery。
+
+### 5.2 候选 phase protocol（获批后才可实现）
+
+以下是唯一可评审的顺序；任何简化为 pathname rename loop、先 delete 再 copy 或自动重试 delete 的实现均不合格。
+
+```text
+trusted authorization
+  → fresh descriptor-bound discovery + scope/duplicate/recovery validation
+  → private intent + scope lease
+  → private temp exclusive create
+  → byte-preserving copy → file fsync → internal verify
+  → durable private-hold publish + directory sync
+  → explicit destructive confirmation
+  → fresh discovery + authorization + source/target revalidation
+  → durable non-overwrite scoped publish + directory sync
+  → descriptor-bound legacy delete + required directory sync
+  → final private receipt / operations disposition
+```
+
+具体语义如下：
+
+- **copy/verify：**只从已绑定 source descriptor 读取，只向 main 派生的 private temp 写入；temp 必须 exclusive create，完成 write、file `fsync`、checked close 后，在受限边界内比较 source 与 copy。verification material 不得离开该 capability。
+- **hold：**验证通过后才可 publish private hold；其 publish 也要求 non-overwrite、目录持久化和已批准的 close-error 语义。hold publish 成功不表示 migration 成功，更不授权 delete。
+- **confirmation：**confirmation 发生在 hold 已被可靠保存之后，且单独、明确、默认拒绝、可撤销、会过期。它必须说明 destructive legacy delete 的后果及恢复/retention policy；不能由 UI ready 状态或 retry 自动补齐。
+- **destination publish：**确认后必须重新 discovery；仅当 source 仍是同一已验证唯一 source 且 target 仍不存在时，才在已绑定 scoped parent 中以 no-overwrite publish，并同步 target directory。publish/dir-sync/close 任一结果未知时，不得声明 target 已完成或继续 delete。
+- **delete：**只有 destination publication 可证明、所有重新校验仍通过且 confirmation 有效，才可在仍绑定的 legacy parent 上删除 exact source leaf，并按平台 profile 同步 parent directory。delete 后的 close/sync 失败、partial deletion 或外部变化都不是成功。
+- **receipt：**每个 phase 只能在它声称的 durable fact 已证实后写入。receipt 不得把“可能已 publish/delete”压缩为 completed，也不承诺跨文件 atomicity、exact retry、自动 rollback 或 cleanup。
+
+## 6. 失败、取消、回滚与恢复
+
+### 6.1 不可逆边界
+
+legacy delete 是不可逆的 destructive step，不能被当作普通 rollback。即便有 private hold，恢复也涉及 ownership、legal hold、access control、目标是否已被后续修改及 non-overwrite 冲突；因此恢复必须是独立、受控、经批准的 operation，不是 retry 中的自动动作。
+
+| 观察到的阶段/故障 | 自动允许动作 | 必须禁止的动作 | 对外/运维 disposition |
+| --- | --- | --- | --- |
+| intent 前或 validation 失败 | 不写 Memory；释放内存态 lease。 | 依据旧 snapshot 重试、创建 root/target、删除任何 source。 | `blocked` / `not_ready` / `not_authorized`。 |
+| temp copy、verify、hold publish 前失败或取消 | 保留 legacy 可读；仅在能证明 temp 由本 operation 所有且仍在已绑定 private parent 时，按 policy 清理 temp。 | 删除 legacy、发布 target、把 cleanup 失败吞成成功。 | `cancelled` 或 `indeterminate`；无法证明 temp ownership 则 `recovery_required`。 |
+| hold durable 后、confirmation 前取消/过期 | legacy 保持；hold 按已批准 retention/legal-hold policy 管理。 | 自动删除 hold、自动继续、把 hold 当 canonical target。 | `cancelled`，operations 可见但不泄露 locator。 |
+| confirmation 后、target publish 前失败 | legacy 保持；不自动续跑。 | 因已确认就重试 copy/delete，或删除 hold。 | `indeterminate` / `recovery_required`，需重新授权与完整 revalidation。 |
+| target publish 后、legacy delete 前崩溃/失败/外部修改 | 保留两侧；停止并冻结为 duplicate/recovery case。 | 自动选择任一副本、覆盖、自动删除 legacy 或 target。 | `recovery_required`。 |
+| delete 返回未知、目录 sync/close 失败或 partial delete | 停止；保留所有尚可读取的证据与 hold。 | 假设 delete 成功、盲目再 delete、自动 restore/rollback。 | `partial_delete` 或 `indeterminate`，进入人工恢复。 |
+| final receipt 失败/损坏 | 不凭内存或文件名猜测最终状态；重新 discovery。 | 将 canonical state 报告为 completed、自动 cleanup。 | `indeterminate` / `recovery_required`。 |
+
+### 6.2 crash/restart 原则
+
+重启、崩溃、断电、进程终止、disk-full、权限改变、external edit、unexpected duplicate、source drift 和未知 native error 都默认 fail closed。startup 只能保持现有 legacy tolerant read；它不能扫描 hold 并续跑、不能根据 receipt 删除任何东西、不能自动清理或恢复。后续人工/受控 recovery 的最小顺序是：重新建立授权与 lease → fresh descriptor discovery → 验证 current canonical states、hold ownership 与 retention/legal hold → 返回 approved disposition。若不能证明任一步，保持 `recovery_required`。
+
+## 7. 兼容性与上线约束
+
+1. **读取兼容：**在真实 migration 的所有阶段以及停止/回退后，catalog 必须继续读取 legacy flat 和 scoped source；duplicate 仍按当前 fail-closed catalog 规则处理。没有单独批准的 legacy retirement 决策前，不得移除 flat discovery 或 tolerant read。
+2. **写入兼容：**normal CRUD 继续遵循当前 source-preserving 和 scope-relocation refusal 语义；迁移不得偷偷改变任一普通 create/update/delete 的 IPC/API、结果或 side effect。
+3. **IPC/UI 兼容：**首个技术切片不得改变既有 diagnostics payload 的 aggregate-only contract，也不得将 path/ID/content/hash 加入 Settings、analytics、preload 或 renderer state。真实 migration API 需另行批准，且只接受高层 action，不能接受 path/target/checksum。
+4. **平台兼容：**每个支持平台与文件系统必须有明确 capability profile，包含 no-follow traversal、exclusive temp/create-no-overwrite、file/directory sync、descriptor-bound unlink、close error 和 crash semantics。任何未被证明的平台/profile 必须返回 stable fail-closed result；不能用非受限 `fs` pathname fallback。现有 Windows Memory capability fail-closed 不是 Windows migration 支持的证明。
+5. **版本兼容：**partition `.v1`、record schema 和 canonical filename 的改变不属于本 C-6 计划。若将来需要格式升级，必须另立 design gate，不能在 migration copy 中暗中转换 bytes。
+
+## 8. 运维、隐私与合规风险
+
+| 风险 | 必须的控制与停止条件 |
+| --- | --- |
+| 误删或 partial delete | delete 前持久化并验证 private hold；由明确 owner 批准 confirmation、retention、legal hold 和人工恢复 SLA。任何未知 delete/sync/close 立即停止。 |
+| scope 越界 / TOCTOU / symlink | main-only authorization；每次 phase transition fresh descriptor-bound discovery；逐段 no-follow；scope-bound lease；无 pathname fallback。 |
+| duplicate 或外部编辑 | equal/different duplicate、target 已存在、source fingerprint/drift、scope mismatch 都停止并进入 recovery，不 merge、不覆盖、不自动选择。 |
+| hold 成为数据泄露面 | hold 位于 catalog discovery 外，最小权限/ownership/retention/locking 必须先获批；禁止普通 UI、analytics、日志和索引扫描；禁止把它当“第二 canonical”。 |
+| 审计/诊断反向泄露 | 只保留最小 opaque correlation、phase/result；统一脱敏/长度/单行限制；禁止 content、locator、scope root、ID、partition、digest、raw OS error。 |
+| 容量与磁盘耗尽 | 在 copy 前评估获批准的容量阈值；write/fsync/dir-sync failure 立即停止。不得为释放空间先删除 legacy 或 hold。 |
+| 法务、保留与用户预期 | destructive confirmation 文案、hold/receipt retention、legal hold、访问主体、恢复责任和时限必须由产品/隐私/运维 owner 书面批准；没有批准即保持 read-only。 |
+| 可观测性不足 | runbook 必须覆盖 `blocked`、`busy`、`indeterminate`、`recovery_required`、`partial_delete` 的 owner、升级路径、审计保留和人工恢复入口；不得依赖可枚举诊断。 |
+
+## 9. 分阶段工作项与验收门
+
+每个阶段须单独立项，列出 scope、决策 owner、实现 owner、API/产品 contract、operations owner、平台 profile 与停止条件；完成一个阶段不自动授权下一阶段。
+
+| 阶段 | 可分配事项 | 明确排除 | 进入下一阶段的可验证验收 |
+| --- | --- | --- | --- |
+| 0. 治理与 contract | 批准 destructive need、trusted identity/scope、confirmation、public result vocabulary、hold/receipt/provenance、retention/legal hold、人工恢复 owner/SLA。 | 任何代码、UI、copy、hold 或 delete。 | 书面 contract 覆盖本文第 4、6、8 节，尤其 receipt/provenance 的分离与 partial-delete 责任。 |
+| 1. capability 与 fault model | 审计并测试目标平台的 descriptor-relative read/copy/temp/non-overwrite publish/unlink/file+directory sync/close；形成 crash/failure matrix。 | 用现有 replace primitive 或 unit mock 推导全协议已安全；pathname fallback。 | 对每项 native primitive 有 supported/degraded/fatal 语义；不支持即 fail closed；host-native/文件系统证据覆盖关键错误点。 |
+| 2. main-only readonly intent preview（可选最小 safe slice） | 在 fresh readonly discovery + trusted-scope validation 后生成短期 aggregate-only intent preview。 | copy、hold、publish、delete、新 renderer path input、迁移按钮/候选明细。 | missing root 不创建；canonical bytes/mtime/layout 不变；UI/log/audit 无 locator/content；intent 不可复用为 destructive consent。 |
+| 3. private hold 与 recovery foundation | 实现已批准的 private temp/hold、最小 provenance、lease、phase/receipt 和 recovery disposition，先不 delete。 | 自动 resume/cleanup/restore；把 hold 放入 catalog；destination/legacy 删除。 | 每个 crash point 可返回证明不足时的 `recovery_required`；hold 访问/retention 合规；recovery 不枚举 records。 |
+| 4. controlled publish + confirmation | 加入 main-only confirmation binding、fresh revalidation、scoped no-overwrite publish 与最终 receipt；保持 legacy source。 | legacy delete、批量/后台执行、overwrite/merge。 | source bytes 和 destination bytes 在受限边界验证一致；target existed/source drift/duplicate 均不写入或停止；legacy tolerant read 不变。 |
+| 5. destructive delete pilot | 在获批 cohort/平台上执行 descriptor-bound delete、directory sync、ops review 和人工恢复演练。 | 自动 rollout、自动 retry/delete/resume、把 hold 当永久无成本备份。 | 每阶段 crash/disk-full/permission/external edit/partial delete 均按本文第 6 节停住；审计、runbook、legal-hold 和恢复演练通过。 |
+| 6. rollout 与长期兼容评审 | 受控观察、容量/异常监控、review recovery cases，并单独评审何时（若有）能停止 legacy tolerant read。 | 用迁移计数宣布 data retirement；删除 hold/legacy 的批量 cleanup。 | operations owner 确认无未决 recovery，且另一个 ADR/设计门批准 legacy end-of-life；否则继续兼容读取。 |
+
+## 10. 必测安全矩阵与完成条件
+
+未来实现必须增加 host-native 与 fixture/fuzz 测试；现有 aggregate preflight 测试不能替代它们。最小矩阵应覆盖：
+
+- discovery：缺失 root、unsafe root、symlink、deep directory、unknown partition、non-regular leaf、invalid JSON/record、file-name mismatch、scope mismatch；
+- source selection：flat only、scoped only、same-ID equal duplicate、different-byte duplicate、target pre-exists、accepted source 非唯一、tombstone/disabled record 与 source drift；
+- authorization：renderer 不能传 root/path/target/checksum，scope mismatch、stale/expired/cancelled confirmation、旧 preflight/intent/receipt、lease busy/lease loss；
+- durability：temp exclusive create、partial/negative/stalled read/write、file `fsync`/close、verify mismatch、hold publish、target no-overwrite publish、每次 directory sync/close、disk-full、permission/lock/antivirus（适用平台）；
+- crash/recovery：每个 phase 前后崩溃，target publish 后 delete 前、delete 返回未知、partial delete、receipt 缺失/损坏、hold ownership 无法证明、external edit/restart；
+- compatibility/privacy：flat/scoped tolerant read、normal CRUD 不触发 relocation、analytics/Settings/IPC 的 aggregate-only shape，以及 UI/log/audit/receipt/错误序列化均不含 content/path/root/ID/hash/locator。
+
+C-6 只有在以下全部由当前证据证明时才可关闭：
+
+1. 第 9 节各已批准阶段的 owner 决策、platform capability profile、代码与 runbook 均已交付；
+2. 对每一项失败矩阵，public result、canonical authority、允许的唯一 recovery action 和人工责任均已定义并通过测试/演练；
+3. 所有 destructive delete 都有有效 confirmation、已证明的 hold/provenance、fresh authorization/revalidation 和 non-overwrite target publish 证据；
+4. 不支持/未知/冲突状态在所有平台均 fail closed，无 startup/background/automatic resume 或 pathname fallback；
+5. 兼容读取、scope 隔离、非泄露 diagnostics/audit 及 normal CRUD 回归均通过；
+6. 隐私、retention、legal hold、capacity、audit 和 partial-delete recovery 已由相应 owner 验收。
+
+在上述证据齐备前，C-6 保持未关闭；唯一已实施且可用的行为仍是 scope partition、legacy tolerant read 和 aggregate-only readonly preflight。
+
+## 11. 当前基线验证与实施后验证入口
+
+本文件不声称这些命令验证了未来迁移；它们只复核当前 C-6A preflight/兼容读取基线。实施真实迁移时，必须为第 10 节新增定向测试和运行环境证据。
+
+```sh
+pnpm exec vitest run --project unit \
+  tests/unit/teaching-memory-catalog.unit.test.ts \
+  tests/unit/teaching-memory-recall.unit.test.ts \
+  tests/unit/teaching-ipc-gateway.unit.test.ts
+
+pnpm exec vitest run --project integration \
+  tests/integration/teaching-analytics.integration.test.ts
+
+pnpm run typecheck
+```
+
+审阅时应同时核对：[ADR-0006](../adr/0006-scoped-memory-partition-and-readonly-migration-preflight.md) 的已实施/未包含边界、[ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 的“共享 durable primitive 不等于跨文件事务”限制、[ADR-0005](../adr/0005-main-owned-trace-correlation-and-safe-logs.md) 的 trace 安全边界，以及 [本地数据待办](../local-data-todo.md) 中 C-6 的未关闭前提。

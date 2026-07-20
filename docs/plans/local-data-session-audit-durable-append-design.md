@@ -1,142 +1,266 @@
-# C-4P9 Session-audit durable append：设计门（P9-S2 已实施；P9-S3/S4/S5 evidence 已完成；C-4P9 未关闭）
+# C-4P9 Session-audit durable append：可实施设计、边界与验收门
 
-> **状态：P9-S2 已实施，P9-S3/S4/S5 tests-only evidence slice 已完成；C-4P9 design gate 仍 pending。**`4b30220`（`feat(data): add durable session audit append`）与 `5f47382`（`test(data): cover durable session audit append`）完成最小切片 **P9-S2 audit 专用 framed、legacy-compatible、fixed-file durable append**；`c286a42`（`test(data): cover audit durable append recovery`）保留 P9-S2 partial-write 与 archive-level failure/retry 的实际历史 evidence；`ab723a6`（`test(data): cover audit pre-write short-circuit`）仅补齐首个 audit write `EIO`、0 bytes 的 archive-save short-circuit/retry evidence；`47393f9`（`test(data): cover audit directory capability symmetry`）仅修改测试，补齐 audit/parent directory `open`/`sync` 的 20 个 allowlist capability symmetry cases。本文保留各切片的受限 evidence 和 P9 后续风险；它**不宣称 C-4P9 已完成**，也不授权 generic JSONL migration、跨文件 transaction、ledger authority/save-order 变更、repair、rotation 或 IPC/UI。
+> **状态：未关闭；本文是后续切片的设计基线，不是实现授权，也不宣告 C-4P9 complete。**
+>
+> V1 wire、identity、exact-retry 与有限 authority 见 [ADR-0019](../adr/0019-session-audit-v1-wire-contract-and-limited-authority.md)。S2 生产 durable append 与 S3…S45 tests-only 证据见 [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) 和 [ADR 索引中的 P9 证据说明](../adr/README.md)。待办入口：[本地数据待办（P9）](../local-data-todo.md)。本文件不维护已关闭实现细节或测试台账。
 
-P9-S2 只替换 per-conversation 固定 `.agent-sessions/<conversation-id>.jsonl` 的 append boundary：不 rotation、不调用 generic `durable-jsonl`；per absolute audit path queue 在线性化的 same-descriptor 生命周期中完成 exact-byte read、validate/dedupe/conflict、framed append、file `fsync`/`close`，再按 audit directory、conversation parent directory 的顺序确认 durability。directory `open`/`sync` 仅 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 可降级为通用 warning；post-directory failure retry 先 dedupe exact rows，之后才允许既有 ledger flow 继续。
+## 1. 目标、非目标与当前事实
 
-P9-S3 是严格 tests-only historical evidence slice，P9-S4 与 P9-S5 同为严格 tests-only evidence slice；三者均不改变生产 contract。S4 仅覆盖首个 audit write `EIO`、0 bytes 的 short-circuit/retry。S5 覆盖 audit directory 与 conversation parent directory 的 `open`/`sync`：五个 allowlist code 各覆盖两层、两种操作，共 20 cases；每个成功且恰好一条固定通用 warning，warning 不泄露路径、内容、conversation/header/entry ID 或 trace；parent-directory `close` 的 `EINVAL` 仍 fatal。S5 无 production/API/schema/order 变化，也不是完整 capability matrix。
+### 1.1 目标
 
-C-4P1 `34c48f4` 的 JSON/Markdown durable replace 仍只提供既有有序 archive boundary。P9-S2 保持 JSON → Markdown → audit → existing ledger queue → final verify 的顺序，且不改变 audit JSONL schema/version、parser、raw historical bytes、trace write-once 规则、archive/ledger authority、IPC/UI 或任何 canonical bytes。不得以 C-4P1、C-5E trace、shared `replaceDurably()` 或其它 JSONL writer 的通过证明整个 C-4P9 已 durable。
+在不改变既有会话 archive 的事实来源、保存顺序或用户可见语义的前提下，为每个 conversation 的 session audit 定义一个可证明的 append 边界。该边界必须回答：**写了哪些审计事件、何时可称完成、失败后哪些字节可能已存在、如何安全重试、以及在什么平台/运行方式下该结论成立。**
 
-> 后续工作的统一入口见 [本地数据待办](../local-data-todo.md)；已实施决定见 [ADR 索引](../adr/README.md)。
+本设计的最终交付不是“调用过 `fsync`”，而是下列可验证的 contract：
 
-## 1. 固定 scope 与不变量
+1. 对同一 canonical audit row 的 retry 不重复写入，也不修改已有字节；
+2. 冲突、损坏、未知 I/O 结果和不支持的平台能力不会被报告为完整 durable success；
+3. archive JSON、Markdown、audit 与 learning-work ledger 的顺序、authority 和残留状态对调用方、运维和测试都明确；
+4. 留存、隐私、权限和诊断不因 durable append 被削弱；
+5. 声称支持的每个 host/filesystem profile 都有相应的 failure、restart 和 operations evidence。
 
-未来 scope **仅**是一个已解析 conversation 的固定 session-audit 文件 append：
+### 1.2 当前已实现的、可依赖的事实
 
-```text
-<conversation>/.agent-sessions/<conversation-id>.jsonl
-```
+已实施事实压缩为 ADR 链接，close-out 工作不得把它们扩大解读：
 
-当前 writer 为 `appendAgentConversationSessionAuditLog()`（`src/main/agent-conversation-session-audit.ts`），archive save 由 `saveAgentConversationArchive()`（`src/main/agent-conversation-archive.ts`）调用。future implementation 只能替换这个固定 audit-path 的 append boundary；不授权迁移其它 JSONL、artifact、checkpoint、archive、ledger 或 workspace writer。
+| 主题 | 权威记录 |
+|---|---|
+| V1 wire、identity、ordering、exact-retry、legacy-tolerant read、有限 authority | [ADR-0019](../adr/0019-session-audit-v1-wire-contract-and-limited-authority.md) |
+| S2 fixed-file durable append 生产边界；S3…S45 tests-only residual | [ADR-0004](../adr/0004-shared-durable-publish-and-partial-consumer-migration.md) |
+| main-owned trace correlation（audit 可选 `traceId`） | [ADR-0005](../adr/0005-main-owned-trace-correlation-and-safe-logs.md) |
+| 新持久化 history 脱敏 | [ADR-0007](../adr/0007-persisted-user-history-redaction.md) |
 
-必须保持以下不变量：
+**对本 close-out 仍重要的缺口摘要：**
 
-- **单文件、non-rotating。**不得使用 `durable-jsonl` 的默认月度/size sealing 或任何 rotation。audit header、entry-ID dedupe、archive verification、history/artifact protection 与 deletion lifecycle 都以此固定文件及其历史 bytes 为前提；拆成 sealed segments 会改变这些语义。
-- audit JSONL version/schema、header/entry ID、`parentId`、排序、现有 raw bytes、tolerant parser 与 legacy read 行为保持不变；不回填、不规范化、不 rewrite 历史行。
-- C-5E 的 trace 是可选、write-once correlation metadata：新 header/entry 只写经既有 normalize 的安全值；trace 不进入 audit ID/hash/parent/dedupe；legacy trace-free 或 malformed rows 保持 tolerant read 且不改写。C-4P9 **不是** C-5 trace、action identity、receipt、idempotency-model 或 schema rewrite。
-- 不引入 actionId、transaction、多文件原子性、rotation、retention、migration、repair UI/IPC、历史扫描或 deletion policy change。
+- 仅本进程同路径串行；无跨进程 multi-writer 承诺。
+- directory sync 降级 warning ≠ parent-directory / power-loss 证明。
+- archive save 顺序是 ordered best-effort，不是跨文件 transaction。
+- 定向 unit 覆盖 fixed-file / dedupe / conflict / torn-tail 等，不证明 generic JSONL、rotation、repair、Windows native durability 或真实断电恢复。
 
-## 2. Save 顺序、authority 与完成语义
+代码入口：`src/main/agent-conversation-session-audit.ts`、`src/main/agent-conversation-archive.ts`。
 
-future implementation 必须保留 `saveAgentConversationArchive()` 的有序边界：
+### 1.3 明确非目标
 
-1. canonical JSON durable replace；
-2. canonical Markdown durable replace；
-3. session audit durable append；
-4. learning-work ledger queue callback 内的 ledger append；
-5. final archive verify。
+除非先按第 9 节批准独立切片，P9 不得：
 
-这是有序 publish，**不是多文件 transaction**，不承诺跨 JSON、Markdown、audit 和 ledger 的共同原子性或 post-publish rollback。
+- 迁移其它 JSONL writer，或把 `src/main/durable-jsonl.ts` 的 ledger segmentation 自动施加给 session audit；
+- 更改 audit schema/version、header、entry ID、`parentId`、row ordering、legacy tolerant read，或 backfill / normalization / rewrite 旧 bytes；
+- 按月份、大小、年龄或容量自动 rotation、sealing、cleanup、retention、compaction、deletion、purge、quarantine、restore 或 repair；
+- 改变 JSON/Markdown/audit/ledger 的 archive save order，改变 ledger ownership，或把多个 rename、队列或锁描述为 transaction；
+- 新增 trace identity、action ID、receipt、通用 idempotency model、IPC、preload API、renderer UI 或 operator repair command；
+- 把 [ADR-0003](../adr/0003-critical-json-backups-and-verified-recovery.md) 的关键 JSON `.bak` 机制扩展到 audit JSONL，或将 audit 作为 SQLite projection 的输入而未单独审查。
 
-具体 authority/short-circuit 要求：
+## 2. 审计事件边界与数据契约
 
-- JSON durable failure：不得写 Markdown、audit 或 ledger。
-- Markdown durable failure：JSON 可以保留；不得写 audit 或 ledger。
-- audit append failure：JSON/Markdown 可以保留，但**不得**运行 ledger append；save 必须失败。
-- ledger append failure：JSON/Markdown/audit 都可留存，但 save 必须失败；不得把已存在 audit 当作此次 save 已确认成功。
-- retry 必须保持 archive 的 stable ledger-entry semantics：ledger 仍负责其既有 queue/identity verification/idempotency；audit repair 不能发明第二种 ledger identity、receipt 或 action protocol。
-- final verify 永远排在 ledger callback 成功之后；不得在 audit bytes 可读时跳过 ledger 或 final verification。
+### 2.1 何时生成、何时写入
 
-## 3. Audit append contract
+一个 `AgentConversationRecord` 在 archive durable boundary 已经过 `sanitizePersistedAgentConversationRecord()`；artifact promotion 完成后，才从该持久化 record 构建 audit header 与 entries。每次 archive save 以**该次 sanitized record 的完整可生成 row 集合**为 append 输入，而不是暴露给 renderer 的增量 audit API。
 
-future writer 必须引入 **per audit-path queue**。queue 覆盖同一路径的完整 read → validate → dedupe/conflict 判定 → append → file fsync/close → parent-directory sync/close 区间；不能只串行化最后一个 `appendFile()`。
+因此，audit 的事件边界是“一个已通过 archive preflight 的 conversation record 在保存时所代表的 session snapshot”。它不是 provider request log、原始工具 payload log、用户操作 receipt，也不是 learning-work ledger 的替代。audit append 成功仅说明该 audit row 集合经过本节 contract 处理；它不单独决定 JSON/Markdown archive 是否可见，更不覆盖 ledger 的 snapshot identity authority。
 
-### 3.1 读取、legacy rows 与 dedupe
+### 2.2 V1 wire contract（保持不变）
 
-- `ENOENT` 是唯一可视为“空 audit”的 read result；`EACCES`、I/O、unknown、directory/symlink/type error、close error 和其它 read failure 必须 reject/fail closed。
-- 必须在 queue 内读取并解析当前 bytes，再据同一 snapshot 建立 header/entry identity 与待追加 rows。
-- retry/continuation 若所有待追加 canonical rows 已存在且 canonical row identity/trace 均一致，可作为 no-op 成功；不得重写已有 bytes。
-- 同一 entry ID 或 header identity 但 canonical row/trace 不同，必须作为 conflict 失败；不得静默把它当作“已写成功”，不得覆盖、删除、合并或回填既有 row。
-- trace 比较必须沿用 C-5E 的 write-once/normalization 规则：legacy malformed/trace-free row 仍可 tolerant read，但不能被 durable migration rewrite 成新 trace，也不能借 dedupe 改写 row。
+V1 header/entry 类型、UTF-8 JSONL framing、legacy-tolerant read 与“不 rewrite/backfill/normalize 旧 bytes”已由 [ADR-0019](../adr/0019-session-audit-v1-wire-contract-and-limited-authority.md) 固定。后续 P9 切片默认**不得**改变该 wire；若确需 schema/version 变更，必须先完成第 7 节兼容矩阵与独立批准，不能静默附带 rewrite。
 
-### 3.2 Torn tail、non-newline 与 malformed legacy bytes
+### 2.3 身份、顺序和重复处理
 
-future implementation 必须在获批前选择并测试一个**保守、无 rewrite**的策略：
+Identity、ordering、exact-retry 与 conflict fail-closed 规则已由 [ADR-0019](../adr/0019-session-audit-v1-wire-contract-and-limited-authority.md) 固定，并仍是任何泛化前的回归基准。后续切片额外约束：
 
-- 对最后一段 non-newline / torn tail、以及任何 malformed legacy row，不能把新 JSON 直接拼到末尾，使两段 bytes 变成一条不可解析的 row；
-- 不得为了“修复”而 truncate、补换行、重序、格式化、删除或 rewrite 历史 bytes；
-- 若无法在不改写现有 bytes 的前提下证明安全 append，必须 reject 并让 save fail closed；
-- 若批准一种可追加策略，必须精确定义它只接受哪些 tail 形态、如何保持原 bytes、如何使 parser/reader compatibility 不变，以及如何避免将 malformed row 误当作可 dedupe 的 canonical row。
+- 不得排序、合并、重新编号或为“美化”无缺失 row 的文件写入换行/rewrite；
+- 不得把 tolerant read 扩大为接受任意字段增删；
+- 任何新 event type、字段、identity 规则或 sanitizer 输出变化，必须先有版本兼容矩阵（旧 reader × 新 writer、旧 writer × 新 reader、mixed retry），并以新增 version 或明确兼容 decode 实现；不能借用 V1 tolerant reader 静默改变 contract。
 
-不能将当前 tolerant parser 的“读取时忽略 malformed line”误用为 append authorization。
+## 3. 持久化、分区与 authority
 
-## 4. Durable publish 与失败边界
+### 3.1 当前分区决定
 
-C-4P9 需要 audit-specific durable append primitive 或获批准的 shared extension，最少顺序为：在已验证的 audit path 上 append complete newline-delimited batch → file fsync → file close → parent directory sync → parent directory close。
+session audit 的物理 partition 就是其 conversation placement：一个 conversation 对应一个 fixed `.jsonl` 文件，位于该 conversation 的目录下。conversation 的 UTC `YYYY/MM` placement 及 legacy flat read compatibility 已由 [ADR-0002](../adr/0002-utc-partitioned-segmented-jsonl-and-summary-projections.md) 决定；P9 不另建按月 audit partition，也不创建 active/sealed audit segments。
 
-- pre-append 的 write/file-sync/file-close failure：不得确认新的 audit row；不得运行 ledger append；旧 audit bytes 必须保留。任何临时/partial append 状态只能按批准的 append recovery contract 处理，不能虚报成功。
-- append 完成但 parent directory sync/close 失败：本次必须 reject/fail closed；新的 row **可能已存在**，但不得运行 ledger append，也不得 rollback、truncate、删除或覆盖 audit。该状态是 complete-but-unacknowledged 的 append 变体。
-- retry 必须重新进入同一路径 queue、读取当前 bytes、逐行验证 exact canonical rows；已经存在的完全相同 rows 不得重复追加，冲突 rows 必须失败。retry 不得仅凭内存 flag、旧 read snapshot 或“append 曾抛错”猜测结果。
-- 只有 shared directory-fsync capability allowlist 的五个 code 可允许明确降级：`EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR`。warning 必须通用，且不得含 path、content、entry/header ID、trace 或其它敏感/可关联数据。`EACCES`、`EPERM`、`EIO`、unknown 与任何 close failure 均 fatal。
-- 不承诺 rollback transaction。尤其不得在 post-directory failure 后删除已追加行，或为了让 ledger 重试“干净”而重写 audit。
+`learning-work.jsonl` 的 active/sealed segment discovery、50 MiB / UTC month rotation 是其 own logical-ledger contract，不能作为 audit rotation 的依据。`src/main/durable-jsonl.ts` 的存在不表示 audit 已迁移到 generic API。
 
-## 5. Concurrency、archive/ledger recovery 与 helper 边界
+### 3.2 authority 表
 
-- 同一 audit path 的 concurrent initial save、continuation、retry 必须由 per-path queue 线性化。不同 audit path 不获得不必要的全局 serialization。
-- queue 必须覆盖 audit dedupe 与 append，不得让两个 concurrent saves 用同一旧 snapshot 各自认为 header/entry 缺失。
-- archive/ledger recovery 必须遵守第 2 节顺序：audit 的 post-directory failure 后，下一次 retry 可以通过 exact-row no-op repair audit acknowledgement，但只能随后让既有 ledger queue 做其稳定 entry 判定；不得绕过 JSON/Markdown preconditions、ledger identity verification 或 final verify。
-- ledger 自身失败后的 retry 必须不重复 audit rows，也不得将 audit-only 结果误报为 archive save success。
-- artifact materialization/protection、history index protection、archive verification 和 deletion lifecycle 的既有固定-file assumptions 必须保持；不得以 rotation、segment discovery 或自动 cleanup 改变它们。
+有限 authority 已由 [ADR-0019](../adr/0019-session-audit-v1-wire-contract-and-limited-authority.md) 固定。P9 close-out 不得改变的结论：
 
-`appendDurableJsonlLine()` **不得直接用于 C-4P9**，除非先有经批准的 non-rotation option、audit-specific path/row contract 与可注入 I/O seam。其现有 month/size sealing model 不构成 audit append 的安全替代；把 audit path 接入默认 rotation 即为破坏性语义变更。
+| 参与者 | 作用 | 不得改变 |
+| --- | --- | --- |
+| artifact / archive JSON / Markdown | canonical 或 promotion 事实 | audit 成功不能修复、覆盖或替代它们 |
+| session audit JSONL | append-only session evidence | 不单独决定 archive 发布成功或 ledger authority |
+| learning-work ledger | snapshot identity / trace collision gate | audit 不得改变 ledger ID、trace conflict 或 ownership |
+| SQLite index / summary | 可重建 projection | 不能成为 audit 写入/留存/删除/恢复 authority |
 
-## 6. P9-S2 实施与 P9-S3/S4/S5 evidence 验证；仍未关闭的测试矩阵
+Archive save 返回前的 verification 是一致性检查，**不是**四者共同原子提交。
 
-`c286a42` 的 P9-S3 定向 unit 覆盖 2 个文件、**61 tests passed**；`ab723a6` 的 P9-S4 仅运行 archive durable 定向 unit：1 file、27 tests passed。当前 `47393f9` 的 P9-S5 单独运行 session-audit unit 为 **1 file、51 tests passed**，与 archive durable 共同运行是 **2 files、78 tests passed**；另通过 `pnpm run typecheck`、`pnpm run check:security`、`git diff --check`。这些都是定向 evidence，**不是完整 suite**：
+### 3.3 rotation、sealing、backup 与 repair 的决定门
 
-```sh
-# P9-S3 historical evidence
-pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
-pnpm run typecheck
-pnpm run check:security
-git diff --check
+当前设计选择**不为 P9 引入** rotation、sealing、segment discovery、`.bak`、自动 repair 或 migration rewrite。原因不是这些能力永远不需要，而是它们会改变 fixed-file discovery、history/artifact protection、verification、failure surface 与 deletion/lifecycle 边界。
 
-# P9-S4 pre-write short-circuit evidence
-pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts
+若未来产品明确需要它们，必须先由单独批准的 generic JSONL / audit compatibility proposal 定义：逻辑 source ID、active/segment 命名和严格 discovery、rotation trigger、seal 前 file/directory durability、reader ordering、mixed-version readers、segment checksum/manifest 是否存在、capacity stop behavior、repair 的唯一 authority、字节保留/损失政策、operator authorization 和审计记录。没有该决定，任何按文件大小/月份的 audit 分段都是越界。
 
-# P9-S5 current capability-symmetry evidence
-pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
-pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
-pnpm run typecheck
-pnpm run check:security
-git diff --check
-```
+`.bak` 同样不是默认 fallback：ADR-0003 只批准关键 JSON 的 verified recovery，不授权其它事实文件。对 audit bytes 的损坏，默认动作是停止自动写入并保留现场，不覆盖 canonical file，不从 archive/SQLite/ledger 自动重建，也不删除“坏尾部”。
 
-P9-S3 新补齐的定向 evidence gap 仅为：
+## 4. 并发、原子性与失败恢复
 
-- P9-S2 fixed-file durable append 的真实 partial-write 路径：partial prefix、torn-tail framing 与 dedupe；
-- archive-level failure/retry 矩阵：audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry。
+### 4.1 并发模型
 
-三个 evidence slice 都没有生产语义改动。**P9-S3 保留 partial-write 与 archive-level failure/retry 的实际历史证据；P9-S4 仅补齐首个 audit write `EIO`、0 audit bytes 的 archive-save short-circuit/retry evidence；P9-S5 仅补齐上述 20 个 directory capability symmetry cases；C-4P9 仍未关闭。**
+现状的同进程 per-path queue 是唯一已实现的 serialization。它保证同一规范绝对 path 的两个 save 不会并行执行 read/dedupe/append/sync/close；队列前一项失败后，后一项仍会运行。它**不**提供：跨路径顺序、跨进程/多 Electron instance exclusion、网络文件系统协调，或文件级 advisory/mandatory lock。
 
-下表仍是完整 C-4P9 后续切片/close-out 必须保留的 residual matrix；P9-S3/S4 只补齐上方明确列出的定向 evidence，不把其它项目、其它 JSONL writer 或跨文件 failure matrix 记为已关闭：
+完整 P9 在声称 cross-process support 前必须二选一并记录 profile：
 
-| 测试类别 | 最低验证 | P9-S3/S4/S5 evidence 状态 |
-|---|---|---|
-| non-rotation compatibility | 固定 `.agent-sessions/<conversation-id>.jsonl` 继续单文件；不产生 sealed/month/size segment；header、entry IDs、archive verification、history/artifact protection 与 deletion lifecycle compatibility 不变。 | 未由 P9-S3/S4 关闭；仍属 residual matrix。 |
-| C-4P1 save short-circuits | JSON failure 不触发 Markdown/audit/ledger；Markdown failure 不触发 audit/ledger；audit failure 不触发 ledger；ledger failure 可留 JSON/Markdown/audit 但 save reject；success 后才 final verify。 | P9-S4 仅补齐首个 audit write `EIO`、0 audit bytes 时 JSON/Markdown 保留、ledger 未执行及 clean retry；其它 short-circuit 仍属 residual matrix。 |
-| durable failpoints | append write、audit file fsync/close、audit directory 与 conversation parent directory open/sync/close；pre failures 无新 acknowledged row/no ledger；post-directory failure reject、不 rollback、无 ledger。 | P9-S3 仅补齐 archive-level audit file sync/close 及两层 directory open/sync/close failure+clean-retry；P9-S4 仅补齐首个 audit write `EIO`、0 audit bytes。完整 failpoint matrix 仍未关闭。 |
-| post-directory retry | 第一次 append 后 audit directory 或 conversation parent directory failure；第二次在同一 per-path queue 内 read/dedupe，确认 exact rows 后不重复追加，再允许既有 ledger/final-verify 路径继续。 | P9-S3 已补齐上述 archive-level directory failure/clean-retry 的定向 evidence；P9-S4 不扩大该范围；不等于 C-4P9 gate closure。 |
-| ledger-own failure retry | audit 成功、ledger 失败后 retry 不追加 duplicate audit rows；ledger 的 stable entry/idempotency/conflict 语义保持。 | 未由 P9-S3/S4 关闭；仍属 residual matrix。 |
-| concurrency | concurrent same save、initial+continuation、同 ID retry；一个 header、无 duplicate entry、正确 parent chain；不同 canonical rows 共享 ID 时 conflict fail closed。 | 未由 P9-S3/S4 关闭；仍属 residual matrix。 |
-| read/tail corruption | `ENOENT` 空文件；`EACCES` 与其它 read failure reject；malformed legacy row、torn tail、non-newline tail 不静默拼接/重写；批准策略外一律 fail closed。 | P9-S3 已补齐 partial prefix、torn-tail framing、dedupe 的定向 evidence；P9-S4 不扩大该范围；其余 read/tail residual matrix 仍保留。 |
-| trace/legacy compatibility | C-5E normalized write-once trace、legacy trace-free/malformed tolerant read、既有 raw bytes 不回填/不 rewrite；trace conflict 不得误作 dedupe success。 | 未由 P9-S3/S4 关闭；仍属 residual matrix。 |
-| capability downgrade | 仅五-code allowlist 可降级，warning 无 path/content/ID/trace；permission/I/O/unknown/close failure fatal。 | P9-S5 仅补齐 audit/parent directory `open`/`sync` 的 20 个 symmetry cases；完整 capability matrix 仍属 residual matrix。 |
-| existing suites | `tests/unit/agent-conversation-session-audit.unit.test.ts`、`tests/unit/agent-conversation-archive-durable.unit.test.ts` 及相关 archive/ledger compatibility tests 继续通过；新增或后续测试必须清楚标明归属哪个已批准的 P9 evidence 或 implementation slice，且不得把本 design gate 记为已关闭。 | P9-S3 历史记录为 2 个 unit 文件、**61 tests passed**；P9-S4 为 1 个 archive durable unit file、27 tests passed；当前 P9-S5 为 1 file、**51 tests passed**，与 archive durable 共同运行 **78 tests passed**；不是 full suite，残余矩阵仍保留。 |
+- **single-writer profile：**产品和启动模型能证明每 workspace 仅一个 main process writer；第二个 writer 被阻止或以稳定 `writer_unavailable` 失败。验收必须含两个真实进程的负面测试；或
+- **coordinated multi-process profile：**另行实现并审查可恢复的 OS-level lock / lease protocol，明确 lock identity、wait/cancel、owner crash、stale lease、NFS/SMB 不支持、retry 和 diagnostics。仅有 Node 内存 `Map` 不可作为该 profile 的证据。
 
-## 7. P9-S2/S3/S4/S5 后边界与仍待批准范围
+在作出选择前，文档和产品不得宣称 audit cross-process safe。
 
-P9-S2 只授权并实现本文件所述的固定 audit-file durable append；P9-S3/S4/S5 只提供上述 tests-only evidence，不改变生产语义。S5 的范围严格限于 20 个 directory capability symmetry cases，不能据此扩展为完整 capability matrix、并发、trace、generic JSONL、rotation、事务、ledger authority/save order 或 API 的 evidence。四者都不授权 generic JSONL migration 或调用 `appendDurableJsonlLine()`、跨文件 transaction、改变 audit parser、重写/修复 existing JSONL、rotation、schema/version 变化、trace/action identity 改造、ledger authority 或 archive save-order 调整、artifact/history/deletion lifecycle 变化或新的 IPC/UI。
+### 4.2 append 的原子性边界
 
-完整 C-4P9 仍须在本 design gate 中逐项保留并批准 non-rotation helper 边界以外的后续 scope、其余 failure coverage、其它 writer 是否可迁移，以及第 6 节尚未关闭的完整 residual matrix。路线图与 implementation plan 只能记录：**“P9-S3 保留 P9-S2 partial-write 与 archive-level failure/retry 的实际历史 evidence；P9-S4 仅补齐首个 audit write `EIO`、0 audit bytes 的 archive-save short-circuit/retry evidence；P9-S5 仅补齐 20 个 directory capability symmetry tests-only cases；C-4P9 仍未关闭。”**
+单一 append operation 不是“整批 row 原子提交”：它可能需要多次 `write()`，并可能在任意一次之后失败。当前安全属性是**append-only prefix preservation + framed retry dedupe**，而不是 all-or-nothing。`O_APPEND`、per-path queue、file `sync()` 和目录同步也不构成与 JSON、Markdown 或 ledger 的共同原子性。
+
+每个后续实现必须按下表暴露/记录内部 disposition；未批准 IPC/UI 前，这些是 main-internal contract 与 runbook 状态，不得新增公共 surface：
+
+| 阶段 | 成功后可知事实 | 失败时的 disposition | 唯一允许的自动动作 |
+| --- | --- | --- | --- |
+| `mkdir` / pre-open inspection | 可能仅创建了目录；尚未证明 audit row 写入 | `not_appended`（对 audit row）或 `precondition_failed` | 不重写；仅将失败返回调用者 |
+| `open`、post-open `stat`、exact read、identity check | 已取得 descriptor 或读取了 bytes；尚未写新 row | `not_appended`、`conflict` 或 `read_unknown` | conflict/read_unknown 停止；不可猜测或 repair |
+| 首次至最后一次 `write` | 已有任意 prefix 可能落盘 | `possibly_appended` | 不 rollback/delete/truncate；仅允许以**同一 canonical input**显式 retry，由 dedupe 检查恢复 |
+| file `sync` 或 `close` | 全部 bytes 可能已写，durability/descriptor release 未证实 | `possibly_appended` | 同上；不得报告 success |
+| audit / parent directory `open`、`sync`、`close` | file 已成功 `sync`/`close`；parent metadata durability 可能未知 | `file_synced_directory_unknown`；allowlist downgrade 为 `file_synced_directory_unsupported` | 返回受控失败或受控 degraded state；不得叫作 full durable success |
+| 所有要求的 file 与 directory 边界完成 | 仅在批准 profile 的语义内完成 durable append | `durably_appended` | 可继续下一个 ordered archive stage |
+
+当前 production API 尚未将上述 disposition typed 化；现状对 allowlisted directory downgrade 只发固定 warning 后 resolve。为了不误报，未来 close-out 必须把该现状明确映射为 profile-limited/degraded result，或提供经 host-native 验证的等价 durability primitive。不得把不支持行为标为 full durable success。
+
+### 4.3 archive crash/retry 状态机
+
+正常顺序仍是 `artifacts → JSON → Markdown → audit → ledger → verification`。可观察的 crash/residual 只可按 ordered best-effort 解释：
+
+| 已完成的最后一步 | restart 时可能存在 | 权威解释与允许动作 |
+| --- | --- | --- |
+| preflight / artifact promotion 前 | 无新 canonical archive；可能有受自身规则保护的 staged/artifact state | 不以 audit 判断；遵循 artifact/archive 既有流程 |
+| JSON | 新 JSON、旧/缺失 Markdown、无新 audit/ledger | 不自动 rollback JSON；同 record retry 继续既有顺序 |
+| Markdown | 新 JSON + Markdown、无新 audit/ledger | 不视为 archive+audit transaction；同 record retry |
+| audit write/sync/dir failure | JSON + Markdown；audit 可缺失、完整、或含 torn/partial tail；无新 ledger | 保留 audit bytes；只用相同 record retry 进行 dedupe/reconciliation |
+| audit completed、ledger 尚未完成 | JSON + Markdown + audit；ledger 可能缺失 | ledger 保持 own identity/trace checks；retry 不能生成新 trace 或新 audit identity |
+| ledger completed、verification failure | 四类文件可能均存在但调用结果失败 | 只做 read/verify；不得 rollback/delete；通过既有 identity/dedupe 重新运行后才能确认 |
+
+“same record retry”意味着传入的 canonical IDs、body、trace state 和 archive placement 必须仍满足第 2 节。body/trace conflict、未知 read、越界路径或损坏都不是 blind retry 的许可。任何要在 restart 时自动调度 reconcile 的方案，必须先单独定义触发者、输入认证、停止条件、operator approval、日志脱敏和不会跨越 C-2/C-3 lifecycle 边界的证明。
+
+## 5. 留存、隐私与安全
+
+### 5.1 留存与备份
+
+依据 ADR-0002，canonical local teaching data（包括 canonical JSONL）无限期保留；P9 不授予基于年龄、大小或磁盘压力的 audit 删除、截断、压缩或自动 cleanup。容量不足是受控写失败/运营告警条件，不是丢弃 audit bytes 的理由。
+
+audit 不自动获得 `.bak`、restore 或 quarantine。既有 critical-JSON backup 的 approved scope 不覆盖 audit；任何新的 audit backup/restore 设计必须另行说明 backup 是副本而非 authority、加密/访问、完整性验证、restore 是否追加还是替换、重复处理与用户/操作员授权。在此之前，损坏审计文件保留原样并停止自动修复。
+
+### 5.2 隐私数据契约
+
+audit 是持久化数据，不是安全日志。它包含 redacted title、content/arguments preview、source/child-run/compaction/context/usage/tool diagnostic 的受限元数据，因而仍可能包含个人或敏感业务信息。当前边界为：archive 和 audit 写入前使用 persisted-history sanitizer；secret text 经 agent secret redaction；trace ID 仅接受 normalized UUID；artifact 只记录受限 reference/preview，而不把大工具结果直接塞入 audit。该边界与 [ADR-0007](../adr/0007-persisted-user-history-redaction.md) 一致，但不能被解读为“audit 从不含敏感数据”。
+
+后续变更必须满足：
+
+- 不得新增 raw prompt、完整 turn/tool payload、secret、provider/request identifier、绝对路径、原始 artifact 内容、未脱敏 Memory 内容或可还原它们的 locator/hash 到 audit、metric、warning、error 或 support bundle；
+- 新字段先经过 typed sanitizer，并给出最大长度、字符/换行处理、redaction proof 和 legacy compatibility 测试；
+- `traceId` 仅作 correlation，不得成为用户输入或跨系统个人标识；
+- diagnostic 只能使用稳定 code、stage、host capability class 和计数；不得记录 conversation/header/entry ID、文件 path、title、payload、secret 或原始 errno message；
+- 后台 repair、backup、export、support collection 或 SQLite ingestion 均是新的 privacy surface，需单独批准。
+
+### 5.3 文件与路径安全
+
+现有 leaf protection 是 `lstat` regular-file check 加 `O_NOFOLLOW` open 后 `stat`；它能拒绝已知 non-file target 和 leaf symlink race，但不等于 descriptor-relative root containment 或跨平台 CAS。新设计不得将它宣传为 strict containment，尤其不得把它外推至 Windows、reparse point、parent replacement、跨进程竞争或 network filesystem。
+
+创建权限沿用 `0666` + `umask`，不得暗中改成更宽松的 mode；若产品要求更严格的 audit ACL/encryption/key management，需单独的平台安全设计和 migration plan。所有 repair/backup/operator 权限也必须最小化，并在 main process 中校验，不能从 renderer 传递任意路径。
+
+## 6. 平台 capability、观测与运营
+
+### 6.1 capability profile
+
+每一个被声明支持的 profile 至少要记录 OS 版本、Node/Electron runtime、filesystem、local/removable/network storage 类别以及以下矩阵的 supported/degraded/fatal 结果：`mkdir`、path inspection、file open/stat/read/write/fsync/close、audit-directory open/sync/close、parent-directory open/sync/close、rename/replace（若未来引入 rotation）、process crash 与 restart。
+
+- POSIX 目录同步只在实际 host/filesystem 测试后才可成为该 profile 的 durability evidence；allowlist errno 不等于所有 POSIX filesystem 支持。
+- 当前 Windows/Node profile 没有可据以宣称 directory `fsync` 或 power-loss durability 的证据。Windows 应明确为 unsupported/degraded，直到完成 host-native HANDLE/file flush/close/error 行为审计和 adversarial validation。
+- 普通 unit mock、一次 `fsync` 成功、或文件最终存在，都不足以推出 power-loss durability。任何此类声明要先有获批 fault model，并按目标平台执行 crash/restart 或真实 reboot/power-loss 测试。
+
+### 6.2 隐私安全的观测
+
+实现前先定义并批准一个低基数、无内容的 internal observability schema。例如仅允许记录：`audit_append_attempt_total{result,stage,profile}`、`audit_append_degraded_total{reason}`、`audit_append_conflict_total{kind}`、`audit_append_reconcile_total{result}`、`audit_append_duration_ms` 和 capacity threshold state。字段值必须是有限词表，且不得以 path/ID/trace/error message 作为 label。
+
+当前没有获批的 audit durability IPC/UI。若未来需要显示状态，renderer 只可接收稳定、可本地化的 state/code（例如 `completed`、`degraded`、`conflict`、`needs_review`、`writer_unavailable`），不能收到 raw filesystem error、绝对/相对路径、payload 或 audit identity。每个 state 都要说明是否可 retry、是否可能已写入、是否需要 operator review。
+
+### 6.3 runbook 与停止条件
+
+批准的切片必须指定 implementation owner、operations owner、support escalation 和 release owner，并随代码交付 runbook。runbook 至少包括：新安装、升级、downgrade refusal、磁盘满/permission denied、allowlisted directory downgrade、unknown I/O、partial/torn tail、identity conflict、双进程 writer、应用异常退出、backup/restore（如另行批准）和 capacity alarm。
+
+以下任一情况必须停止自动推进、保留原 bytes 并进入 review：canonical-body 或 trace conflict、read/parse identity 不可证明、file target 非 regular/symlink、unknown/stalled transfer、close failure、未声明 capability、跨进程 writer、任何 repair/restore 前置条件不满足。runbook 不得用 truncate、overwrite、delete、自动 backfill 或“再写一次不同 record”处理这些状态。
+
+## 7. 迁移与兼容计划
+
+当前没有 audit schema/path migration；因此第一条迁移规则是**不迁移**。legacy flat conversation placement、旧 trace-free/malformed row、legacy header/turn shape 都继续 read-tolerant，且不得因读取而写回新格式。
+
+若将来获批改变路径、version、segment layout、权限、encryption、backup 或 reader，则必须按以下顺序交付：
+
+1. **read-only inventory：**只扫描候选 audit 文件，输出脱敏 aggregate（file count、byte count、version/shape count、failure code count）；不修改 bytes、不把路径/ID 写日志。
+2. **兼容矩阵：**明确 old/new reader、old/new writer、mixed retry、legacy flat/UTC placement、missing trace/header field、torn tail、unsupported version 的结果。新 reader 必须在新 writer 之前发布；不支持版本 fail closed 并可诊断。
+3. **无损切换 protocol：**定义唯一 writer、cutover marker（若需要）、是否 dual-read、禁止 dual-write 的理由、停机/恢复、verify 和 rollback prohibition。不得把 copy+rename 当作 audit transaction。
+4. **dry-run 与 stop conditions：**先在 production-shaped copy 上验证 byte preservation、row identity、ordering 和 disk headroom；任一 conflict、unreadable source、capacity 不足或 profile 不支持都停止，不自动 repair。
+5. **受控 rollout 与 downgrade：**明确 feature flag/版本 gate、canary、成功/失败 telemetry、旧版本遇到新布局时的安全失败，以及已发布新格式不能以 silent rewrite 回退。
+
+任何 physical recovery、archive restore 或 byte-level repair 仍需独立 lifecycle/security approval；本节不提供该授权。
+
+## 8. 分阶段任务与依赖
+
+每阶段都应是独立 issue/PR；未完成前一阶段不得把后续阶段合入为“顺手修复”。
+
+| 阶段 | 交付物 | 前置依赖 | 明确不做 |
+| --- | --- | --- | --- |
+| P9-0：冻结事实 | 本设计经 owner/security/operations review；把当前 S2 和 tests-only evidence 与本文件对齐 | ADR-0004、ADR-0002、ADR-0003、ADR-0007 | 代码、schema、IPC 变更 |
+| P9-1：contract tests | V1 golden fixtures、identity/trace conflict、legacy/torn-tail、exact-byte/no-rewrite、archive residual state matrix；测试只补缺口 | P9-0 批准 | generic JSONL migration、rotation/repair |
+| P9-2：capability/result design | 逐 host profile 的 I/O matrix；typed main-internal result/disposition 和 privacy-safe diagnostic vocabulary；决定 single-writer 或提出 multi-process protocol | P9-1、平台/operations owner | 未批准的 UI/IPC；将 degraded 当 full durable |
+| P9-3：受控实现切片 | 只实现 P9-2 获批的最小 production delta，并保留 archive order/ledger ownership；必要时增加 host-native adapters | P9-2 设计批准 | 跨文件 transaction、rollback/delete、其它 writer 迁移 |
+| P9-4：operations validation | Linux/macOS/Windows（仅被声明支持者）真实 filesystem、restart/failure injection、two-process/negative tests、capacity/runbook/rollout evidence | P9-3 | 从 mock 结果宣称 power-loss |
+| P9-5：可选 generic JSONL proposal | 独立 ADR/design：audit 是否真的需要 segments/rotation/repair/backup；完成 migration/reader/operator protocol | P9-4 证明 fixed-file profile；单独产品需求 | 自动把 ledger `durable-jsonl` 套到 audit |
+| P9-6：close-out review | requirement-by-requirement evidence audit，更新 todo/ADR status 的批准 PR | P9-0…P9-4；P9-5 仅在其需求获批时 | 以提交数或定向 unit 绿灯替代 closure |
+
+P9-5 是条件阶段：若产品不批准 audit rotation/repair，它应保持“不实施”，而不是为了关闭 P9 人为引入 lifecycle 风险。若本地数据待办仍把 generic JSONL/rotation/repair 作为 complete 的必要输入，则 close-out reviewer 必须明确选择“批准并完成 P9-5”或“修订该成功定义”；不能静默忽略该要求。
+
+## 9. 精确验收标准与关闭门
+
+只有所有适用条目都具备当前工作树、测试/运行记录或批准文档的直接证据时，才可将 P9 标记为完成：
+
+### 9.1 数据与兼容
+
+- [ ] fixture 覆盖 V1 header 与全部九类当前 entry，并逐字节验证 first write 的 JSONL/order；每个 row 都有确定的 `id`/`parentId`/trace 规则。
+- [ ] retry 在正常、short-write、torn-tail、legacy header、legacy `metadataVersion` omission、trace-free row 下只 append 缺失 canonical row；exact retry 的完整原 bytes 不变。
+- [ ] 同 ID 的 canonical-body/type/trace-state conflict 失败且原 bytes 不变；malformed/unknown row 被保留而不获得 identity。
+- [ ] 任何 schema/path/version 改动都有已执行的兼容矩阵与新旧 reader/writer evidence；没有 silent backfill/rewrite。
+
+### 9.2 持久化与失败
+
+- [ ] 对每个声明支持的 capability profile，`mkdir`、inspection、open、stat、read、short/invalid/stalled transfer、write、file sync、file close、两级 directory open/sync/close 都有 expected result、stable diagnostic code、可能写入状态和唯一 recovery action。
+- [ ] 所有未知 errno、unknown error、zero/negative/stalled transfer、non-regular target、symlink、close failure 都 fail closed；没有 raw sensitive diagnostic。
+- [ ] 只有 file 和要求的 directory durability 均证明完成时才返回 full durable result；directory unsupported 明确为 profile-limited/degraded，而不是成功措辞。
+- [ ] restart matrix 覆盖第 4.3 节每一个 archive 边界，验证 JSON/Markdown/audit/ledger 的实际 residual、retry 行为和禁止 rollback/delete。
+- [ ] 同路径并发、不同路径不全局阻塞和 failure-after-queue 的行为有回归测试；cross-process 要么有真实两进程 exclusion/recovery evidence，要么由产品/runtime 明确拒绝且有负面测试。
+
+### 9.3 留存、隐私与安全
+
+- [ ] 所有自动路径均不删除、截断、压缩、rotation、repair、backup/restore audit bytes；任何例外都有独立批准的 lifecycle/security design。
+- [ ] sanitizer/redaction、preview limit、trace normalization 和日志/metric schema 有测试，证明不写 raw secret、payload、path、ID/trace 或原始 filesystem error 到 diagnostics。
+- [ ] 路径/leaf security claims 精确限定在实际 primitive；未把 `O_NOFOLLOW` + `lstat` 说成 strict containment/CAS/Windows reparse safety。创建 mode 与 `umask` contract 有测试。
+
+### 9.4 平台与运行
+
+- [ ] 每个支持 profile 记录 OS、filesystem、runtime、storage assumptions、host-native test command 和结果；未验证 profile 明确 unsupported/degraded。
+- [ ] 若任何文档或产品声称 crash/power-loss durability，已有该 profile 的获批 fault model 与对应 restart/reboot/power-loss evidence；否则相关措辞被移除。
+- [ ] runbook、capacity threshold、alert/metric owner、incident stop conditions、upgrade/downgrade 和 operations acceptance 已由指定 owner 演练或签署。
+- [ ] 如引入 IPC/UI，已审查权限、stable states、privacy-safe messages、caller retry semantics 与 renderer integration；未引入时验证其仍不存在。
+
+### 9.5 关闭证据
+
+- [ ] 执行并记录当前适用的 targeted unit、integration、host-native/restart 和 operations tests；报告命令、环境、通过数、跳过项与未覆盖 profile，而不是只引用历史提交。
+- [ ] 对照本文件第 1 至 9 节逐项审查，确认没有把 tests-only evidence、generic ledger behavior、`fsync` 调用或文件存在性扩大成 transaction/repair/rotation/power-loss 结论。
+- [ ] close-out PR 同步更新 [本地数据待办](../local-data-todo.md)、本文件状态和（若形成已采纳架构决定）对应 ADR；若任一门未满足，P9 保持未关闭。
+
+## 10. 当前阻塞与下一步批准输入
+
+截至本文更新，P9 仍缺少：完整 host/filesystem capability matrix、typed public/internal degraded/unknown semantics、跨进程 writer 选择、archive crash/reconcile protocol 的 operations evidence、Windows native/power-loss evidence，以及 generic JSONL/rotation/repair 是否应成为 audit scope 的独立决定。当前实现和历史定向测试不能补足这些项。
+
+任何下一切片在改代码前必须提交并获批以下最小输入：目标 platform/storage profile、single/multi-process writer choice、public result/retry contract、完整 failure/crash matrix、privacy/observability vocabulary、是否涉及 schema/path/IPC/lifecycle、测试层级与 operations owner。获批后只执行对应阶段；未获批项继续按本文件的禁止边界处理。

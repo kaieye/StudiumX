@@ -330,10 +330,15 @@ describe('Agent conversation archive durable canonical publication', () => {
     expect(await temporaryFiles(fixture.rootPath)).toEqual([])
   })
 
-  it('keeps the completed JSON publish when Markdown durable publication fails and does not append audit or ledger', async () => {
+  it.each([
+    ['write', (event: string, markdownPath: string) => event.startsWith('write:') && event.includes('.durable-conversation.md.')],
+    ['file sync', (event: string, markdownPath: string) => event.startsWith('sync:') && event.includes('.durable-conversation.md.')],
+    ['file close', (event: string, markdownPath: string) => event.startsWith('close:') && event.includes('.durable-conversation.md.')],
+    ['rename', (event: string, markdownPath: string) => event.startsWith('rename:') && event.endsWith(`->${markdownPath}`)]
+  ])('keeps the completed JSON publish when Markdown durable %s fails and does not append audit or ledger', async (_name, matches) => {
     const fixture = await archiveFixture()
     const durable = instrumentedDurableOperations({
-      fail: (event) => event.startsWith('write:') && event.includes('.durable-conversation.md.') ? errno('EIO') : undefined
+      fail: (event) => matches(event, fixture.markdownPath) ? errno('EIO') : undefined
     })
 
     await expect(saveAgentConversationArchive({
@@ -425,6 +430,114 @@ describe('Agent conversation archive durable canonical publication', () => {
     await expect(readFile(fixture.markdownPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expectNoAuditOrLedger(fixture)
     expect(await temporaryFiles(fixture.rootPath)).toEqual([])
+  })
+
+  it('does not report success when opening the JSON directory after rename fails', async () => {
+    const fixture = await archiveFixture()
+    const directoryPath = join(fixture.rootPath, 'conversation/2026/07')
+    let directoryOpenCount = 0
+    const durable = instrumentedDurableOperations({
+      fail: (event) => {
+        if (event === `open:r:${directoryPath}`) {
+          directoryOpenCount += 1
+          if (directoryOpenCount === 1) return errno('EIO')
+        }
+        return undefined
+      }
+    })
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      durableFileOperations: durable.operations
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    await expect(readFile(fixture.jsonPath, 'utf8')).resolves.toContain(fixture.record.id)
+    await expect(readFile(fixture.markdownPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expectNoAuditOrLedger(fixture)
+    expect(await temporaryFiles(fixture.rootPath)).toEqual([])
+    expect(directoryOpenCount).toBeGreaterThanOrEqual(1)
+  })
+
+  it('does not report success when closing the Markdown directory after both renames complete', async () => {
+    const fixture = await archiveFixture()
+    const directoryPath = join(fixture.rootPath, 'conversation/2026/07')
+    let directoryCloseCount = 0
+    const durable = instrumentedDurableOperations({
+      fail: (event) => {
+        if (event === `close:${directoryPath}`) {
+          directoryCloseCount += 1
+          if (directoryCloseCount >= 2) return errno('EIO')
+        }
+        return undefined
+      }
+    })
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      durableFileOperations: durable.operations
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    await expect(readFile(fixture.jsonPath, 'utf8')).resolves.toContain(fixture.record.id)
+    await expect(readFile(fixture.markdownPath, 'utf8')).resolves.toContain('OAuth archive notes')
+    await expectNoAuditOrLedger(fixture)
+    expect(await temporaryFiles(fixture.rootPath)).toEqual([])
+    expect(directoryCloseCount).toBeGreaterThanOrEqual(2)
+  })
+
+  it('does not report success when Markdown directory fsync fails after both renames complete', async () => {
+    const fixture = await archiveFixture()
+    const directoryPath = join(fixture.rootPath, 'conversation/2026/07')
+    let directorySyncCount = 0
+    const durable = instrumentedDurableOperations({
+      fail: (event) => {
+        if (event === `sync:${directoryPath}`) {
+          directorySyncCount += 1
+          if (directorySyncCount >= 2) return errno('EIO')
+        }
+        return undefined
+      }
+    })
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      durableFileOperations: durable.operations
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    await expect(readFile(fixture.jsonPath, 'utf8')).resolves.toContain(fixture.record.id)
+    await expect(readFile(fixture.markdownPath, 'utf8')).resolves.toContain('OAuth archive notes')
+    await expectNoAuditOrLedger(fixture)
+    expect(await temporaryFiles(fixture.rootPath)).toEqual([])
+    expect(directorySyncCount).toBeGreaterThanOrEqual(2)
+  })
+
+  it('does not report success when Markdown directory open fails after both renames complete', async () => {
+    const fixture = await archiveFixture()
+    const directoryPath = join(fixture.rootPath, 'conversation/2026/07')
+    let directoryOpenCount = 0
+    const durable = instrumentedDurableOperations({
+      fail: (event) => {
+        if (event === `open:r:${directoryPath}`) {
+          directoryOpenCount += 1
+          if (directoryOpenCount >= 2) return errno('EIO')
+        }
+        return undefined
+      }
+    })
+
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      durableFileOperations: durable.operations
+    })).rejects.toMatchObject({ code: 'EIO' })
+
+    await expect(readFile(fixture.jsonPath, 'utf8')).resolves.toContain(fixture.record.id)
+    await expect(readFile(fixture.markdownPath, 'utf8')).resolves.toContain('OAuth archive notes')
+    await expectNoAuditOrLedger(fixture)
+    expect(await temporaryFiles(fixture.rootPath)).toEqual([])
+    expect(directoryOpenCount).toBeGreaterThanOrEqual(2)
   })
 
   it.each([
@@ -616,8 +729,12 @@ describe('Agent conversation archive durable canonical publication', () => {
     await expect(readFile(fixture.ledgerPath, 'utf8')).resolves.toContain(fixture.record.id)
   })
 
-  it('does not duplicate a successful audit when the later ledger append fails and is retried', async () => {
+  it('does not duplicate a successful audit and preserves ledger idempotency when the later ledger append fails and is retried', async () => {
     const fixture = await archiveFixture()
+    const expectedAuditIds = [
+      fixture.record.id,
+      ...buildAgentConversationSessionAuditEntries(fixture.record).map((entry) => entry.id)
+    ]
     // The ledger's existing fixed-file validation rejects this target after
     // archive JSON, Markdown, and the durable audit append have completed.
     await mkdir(fixture.ledgerPath, { recursive: true })
@@ -631,6 +748,8 @@ describe('Agent conversation archive durable canonical publication', () => {
 
     const auditAfterLedgerFailure = await readFile(fixture.auditPath)
     expect(firstAudit.events).toContain(`write:${fixture.auditPath}`)
+    expect(parseAgentConversationSessionAuditLines(auditAfterLedgerFailure.toString('utf8')).map((line) => line.id))
+      .toEqual(expectedAuditIds)
 
     await rm(fixture.ledgerPath, { recursive: true, force: true })
     const retryAudit = instrumentedSessionAuditOperations()
@@ -642,7 +761,24 @@ describe('Agent conversation archive durable canonical publication', () => {
 
     expect(await readFile(fixture.auditPath)).toEqual(auditAfterLedgerFailure)
     expect(retryAudit.events).not.toContain(`write:${fixture.auditPath}`)
-    await expect(readFile(fixture.ledgerPath, 'utf8')).resolves.toContain(fixture.record.id)
+    const ledgerAfterRetry = await readFile(fixture.ledgerPath, 'utf8')
+    const ledgerLines = ledgerAfterRetry.trim().split('\n')
+    expect(ledgerLines).toHaveLength(1)
+    expect(JSON.parse(ledgerLines[0]!)).toMatchObject({
+      entryId: expect.any(String),
+      conversation: { id: fixture.record.id }
+    })
+
+    const idempotentAudit = instrumentedSessionAuditOperations()
+    await expect(saveAgentConversationArchive({
+      workspace: fixture.workspace,
+      record: fixture.record,
+      sessionAuditOperations: idempotentAudit.operations
+    })).resolves.toBeUndefined()
+
+    expect(await readFile(fixture.auditPath)).toEqual(auditAfterLedgerFailure)
+    expect(idempotentAudit.events).not.toContain(`write:${fixture.auditPath}`)
+    expect(await readFile(fixture.ledgerPath, 'utf8')).toBe(ledgerAfterRetry)
   })
 
 })

@@ -1,8 +1,12 @@
 # ADR-0004：共享 durable publish 原语，并只迁移已审查的部分 consumer
 
-- **状态：** 已实施（部分 consumer migration；包含 C-4P6-S1 的受限基础、C-4P6-S2/C-4P6-S3 tests-only evidence、C-4P8-S1/S2/S3 foundation、C-4P8-S4 受控 `write_workspace_file` 文本文件 create / restricted-overwrite closure、经明确批准的 Windows direct-path non-CAS profile，以及 C-4P9-S2 audit 专用 durable append、P9-S3/P9-S4/P9-S5 tests-only evidence）
-- **范围：** C-4、C-4P0、C-4P1、C-4P2A、C-4P2B、C-4P3、C-4P4、C-4P5、C-4P6-S1、C-4P6-S2（tests-only evidence）、C-4P6-S3（tests-only evidence）、C-4P7、C-4P8-S1、C-4P8-S2、C-4P8-S3、C-4P8-S4、Windows direct-path non-CAS profile、C-4P9-S2、C-4P9-S3（tests-only evidence）、C-4P9-S4（tests-only evidence）、C-4P9-S5（tests-only evidence）
-- **证据提交：** `ca73537`、`5c0dd96`、`34c48f4`、`b8eb3ab`、`70afe1d`、`99bf6fe`、`f8ad99c`、`278f141`、`7292bf4`、`e02a086`、`9847842`、`1334513`、`0d55fd8`、`80f2fd0`、`e2ce36c`、`b46c8b2`、`bdcd6cb`、`56eabe6`、`54506d5`、`ed8d88a`、`9c452f3`、`0bbfdef`、`e84c813`、`4b30220`、`5f47382`、`c286a42`、`ab723a6`、`47393f9`、`c97146e`
+- **状态：** 已实施（部分 consumer migration）。C-4P6 仅有 S1 的生产基础；S2…S194 是 tests-only evidence，**C-4P6 未关闭**。C-4P8-S1…S4 的受控 `write_workspace_file` scope 已关闭（含获批的 Windows direct-path non-CAS profile）；C-4P9 仅有 S2 的 audit 专用 durable append，S3…S45 为 tests-only evidence。
+- **范围：** C-4、C-4P0…P5、C-4P6-S1，以及 C-4P6-S2…S194（tests-only）；C-4P7；C-4P8-S1…S4 和 Windows direct-path non-CAS profile；C-4P9-S2，以及 C-4P9-S3…S45（tests-only）。
+- **历史证据：** 各已迁移 consumer 的实施提交和验证入口见下表。P6 生产基础为 `7292bf4` / `e02a086`；早期 tests-only 切片为 `9847842` / `1334513`；其后的 P6 tests-only historical range 为 `e821c69`…`c1fb162`。
+
+## 背景
+
+关键本地数据 writer 曾分别实现 publish、append、path containment 与失败处理，容易让局部成功被误解为统一 durability、跨文件 transaction 或所有平台同等保证。需要一个共享 capability，同时仍让每个 consumer 明确自己的 canonical authority、路径限制、平台 profile 与恢复语义；未被审查和验证的 writer 不能因共享实现存在而自动获得该保证。
 
 ## 决定
 
@@ -10,7 +14,13 @@
 
 `C-4P6-S1` 已实施的范围仅为 **严格有序发布与受控恢复基础**。它不是完整的 C-4P6；不提供跨文件事务或共同原子性，也不构成完整 durable closure。
 
-## 已迁移 consumer 与验证入口
+## 后果与实施边界
+
+- 新 consumer 必须逐项审查并单独迁移；共享原语、既有测试或某一 consumer 的 close-out 都不授权扩大到其它 writer。
+- 每个 consumer 继续拥有自身的 canonical authority、路径约束、错误结果与恢复顺序；失败、可能已发布或无法证明的状态不得被通用地自动 retry、rollback、delete 或报为成功。
+- 本 ADR 的 production 范围、tests-only historical evidence 与尚未关闭的设计门必须分开阅读。未完成的 P6、P8 strict profile、P9 及后续工作只维护在 [本地数据待办](../local-data-todo.md) 与对应 design gate，不能被视为本 ADR 的实施承诺。
+
+## 已迁移 consumer、实现范围与验证入口
 
 | 切片 | 已迁移范围 | 主要验证入口 |
 | --- | --- | --- |
@@ -22,38 +32,34 @@
 | C-4P4 `f8ad99c` | `.agent-sessions/session-open-state.v1.json` sidecar | `tests/unit/agent-conversation-session-tree-durable.unit.test.ts` |
 | C-4P5 `278f141` | `TeachingWorkspaceDocuments` allowlisted workspace Markdown | `tests/unit/teaching-workspace-documents-durable.unit.test.ts`、`tests/integration/teaching-workspace-documents.integration.test.ts` |
 | C-4P6-S1 `7292bf4`、`e02a086` | learning-outcome 的严格有序 publish、受控 reconcile 与失败关闭基础 | `tests/unit/learning-outcome-committer.unit.test.ts`、`tests/unit/teaching-workspace-outcome-commit.unit.test.ts`；相关提交覆盖 41 项单元检查和 14 项集成检查 |
-| C-4P6-S2 `9847842` | **tests-only evidence**：仅覆盖单一 `after_outcome_publish` crash window 的重启恢复；无 production/API/schema/path/order 变化 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；1 file、28 tests passed；另通过 typecheck、security check、diff check |
-| C-4P6-S3 `1334513` | **tests-only evidence**：现有 settlement-marker durable rename 返回 `EIO` 后，immutable record、`outcome.json` 与已 `completed` 的 manifest 存在而 marker 为 `ENOENT`；重启 reconcile 以 immutable record authority 仅发布 marker，evaluator / `createId` 不重跑，record/outcome/manifest 不重写；第二次 reconcile 与同 operation replay 的四份 canonical bytes 稳定。该提交只扩展同一个既有 unit `it`，不是新增 test count；无 production/API/schema/path/order 变化 | 同一 `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；仍为 1 file、28 tests passed；另通过 typecheck、security check、diff check |
+| C-4P6-S2…S194 `9847842`、`1334513`、`e821c69`…`c1fb162` | **tests-only historical evidence**：S2 覆盖单一 `after_outcome_publish` restart/reconcile，S3 覆盖 settlement-marker durable-rename `EIO` 后仅补 marker；S4…S194 在同一 learning-outcome unit suite 中累积 ordered-publish interruption、marker/record/manifest 的冲突或非安全输入、stage/publish/ledger failure，以及 commit 前 session/event validation 的 fail-closed residual。没有 production/API/schema/path/order 改动；这些测试不构成完整 P6 closure。 | `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`；历史定向基线为 1 file、219 tests passed |
 | C-4P7 `0d55fd8` | private `MusicCookieStore` cookie state | `tests/unit/music-cookie-store-durable.unit.test.ts` |
 | C-4P8-S1 `80f2fd0`、`e2ce36c` | workspace descriptor foundation：可信既有 workspace root 绑定、descriptor-bound parent traversal 与 final-leaf inspection | 下列 C-4P8 最终定向验证 |
 | C-4P8-S2 `b46c8b2`、`bdcd6cb` | internal descriptor-bound atomic `createNoOverwrite` foundation | 下列 C-4P8 最终定向验证 |
 | C-4P8-S3 `56eabe6`、`54506d5` | internal descriptor-bound restricted-overwrite foundation | 下列 C-4P8 最终定向验证 |
 | C-4P8-S4 `0bbfdef`、`e84c813` | 受控 `write_workspace_file` 文本文件 create / restricted-overwrite handler integration、稳定结果和同 toolCallId journal replay | `tests/unit/workspace-write-tool.unit.test.ts` 与下列最终定向验证 |
-| C-4P9-S2 `4b30220`、`5f47382` | 固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append；不 rotation、不迁移其它 JSONL | 下列 C-4P9-S2/S3/S4 验证命令 |
-| C-4P9-S3 `c286a42` | **tests-only historical evidence**：补齐 P9-S2 的 partial-write 与 archive-level failure/retry 定向证据：fixed-file non-rotating audit append 的 partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory `open`/`sync`/`close`、conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；无生产语义改动 | 2 个 unit 文件、61 tests passed；另有当时本主会话的 typecheck、security check、diff check |
-| C-4P9-S4 `ab723a6` | **tests-only evidence**：仅覆盖 archive save 层首个 audit write 注入 `EIO`、audit 0 bytes 时的 short-circuit/retry；JSON/Markdown 保留、ledger 未执行，clean retry 后每个 canonical audit row 恰一条、ledger 恰一条；无生产语义改动 | `tests/unit/agent-conversation-archive-durable.unit.test.ts`；1 file、27 tests passed |
-| C-4P9-S5 `47393f9` | **tests-only evidence**：仅修改测试，未修改 production code；Sol review approved。对 audit directory 与 conversation parent directory 的 `open`/`sync` 做 capability symmetry 定向证据：五个 allowlist code `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 各覆盖两层、两种操作，共 20 cases；每个成功且恰好一条固定通用 warning，warning 不泄露路径、内容、conversation/header/entry ID 或 trace；parent-directory `close` 返回 `EINVAL` 仍 fatal；无 production/API/schema/order 变化 | 单独：`tests/unit/agent-conversation-session-audit.unit.test.ts`，1 file、51 tests passed；与 archive durable 共同运行，2 files、78 tests passed；另通过 typecheck、security check、diff check |
+| C-4P9-S2 `4b30220`、`5f47382` | 固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit 专用 framed、legacy-compatible、fixed-file durable append；不 rotation、不迁移其它 JSONL | 下列 C-4P9 evidence summary |
+| C-4P9-S3…S45 `c286a42`…`33a914a` | **tests-only historical evidence**：覆盖 fixed-file audit append 的 partial/torn-tail/dedupe recovery、archive failure/retry、capability downgrade/fail-closed、ledger residual、concurrency/conflict、archive publish short-circuit，以及 audit I/O/transfer failure；无 production/API/schema/path/order 改动，不能扩大 S2 scope 或关闭 C-4P9。代表性提交见下列 summary。 | `tests/unit/agent-conversation-session-audit.unit.test.ts`、`tests/unit/agent-conversation-archive-durable.unit.test.ts`；可信历史定向基线为 S3 的 2 files、61 tests passed（非当前或累积计数） |
 
 共享原语和关键状态备份的验证也由 `tests/unit/durable-file.unit.test.ts` 覆盖。
 
-## C-4P6-S2：outcome publish crash-recovery tests-only evidence
+## C-4P6-S2…S194：tests-only historical evidence summary（完整 close-out 未关闭）
 
-`9847842`（`test(data): cover outcome publish crash recovery`）仅修改 `tests/unit/learning-outcome-committer.unit.test.ts`，且 Sol final review approved；没有 production/API/schema/path/order 变化。它只覆盖单一 `after_outcome_publish` crash window，不是 manifest capability-policy alignment、其它 crash windows / failure matrix、跨文件 transaction、rollback/delete/migration/API/operations validation 或完整 C-4P6 closure。
+`C-4P6-S1`（`7292bf4` / `e02a086`）是唯一已实施的 production foundation：learning-outcome 的严格有序 publish、受控 reconcile 与失败关闭。相关历史验证覆盖 41 项 unit 和 14 项 integration；该数字只说明 S1 的有限验证，不是完整 C-4P6 矩阵。
 
-- 初次 commit 返回 `retryable_failure/reconciliation_required`；record 与 matching outcome 存在，manifest 为 `active` / `outcomeRef: null`，marker 缺失，且未继续 manifest、marker 或 catalog-success。
-- 重启后的 reconcile 使用 immutable record authority，返回 `repaired`，不重新运行 evaluator、不重写 outcome，并按 manifest → marker 发布。第二次 reconcile 返回 `settled`，record/outcome/manifest/marker 四份 bytes 稳定；同一 operation 返回 `already_committed`，四份 bytes 仍稳定。
-- 实际验证：`pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`（1 file / 28 tests passed）；`pnpm run typecheck`、`pnpm run check:security`、`git diff --check` 均通过。
+`C-4P6-S2…S194` 均为**仅修改测试的历史证据切片**，不改变 production/API/schema/path/order。保留的关键历史锚点是：S2 `9847842` 的单一 `after_outcome_publish` restart/reconcile；S3 `1334513` 的 settlement-marker durable-rename `EIO` 后仅补 marker（不是泛化 `after_manifest_publish`）；以及 S4…S194 `e821c69`…`c1fb162` 对有序发布中断、marker/record/manifest 非安全或冲突状态、stage/publish/ledger failure、以及 commit 前 session/event 校验的 fail-closed residual 的累积覆盖。
 
-## C-4P6-S3：settlement-marker final rename EIO 的 tests-only evidence
+- **历史定向测试基线：**`pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`，1 file、**219 tests passed**。这是该定向 unit suite 的历史基线，不是 full suite，也不是完整 durability / failure-matrix 证明。
+- **已证实的边界：**这些 residual 证明特定注入点下的 fail-closed、受控 reconcile 或不重写行为；不新增 production contract。S3 不等同于泛化 `after_manifest_publish` 或完整 manifest failure matrix。
+- **Phase 0 已冻结（决策 only）：**[ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) 选定 `P6-macOS-local-APFS-strict-candidate` 为首个目标 profile，并冻结 participant inventory、public-result 不扩展、Windows non-strict 与 directory-sync 不对齐事实。
+- **Phase 1 已落地（实现 + unit，非 close-out）：**共享 directory-sync soft allowlist；committer outcome/marker 经 Session parent containment 后再 durable replace；ledger 不再 soft-downgrade `EPERM|EACCES`；immutable record 仍 strict。详见 ADR-0020 后果补充与 [P6 剩余计划](../plans/local-data-learning-outcome-durable-settlement-design.md)。
+- **实际仍阻塞 C-4P6 close-out：**
+  1. Phase 2：未覆盖的 crash / failure windows 与 fresh-process reconcile 证据；
+  2. 跨文件 transaction / common atomicity、rollback 与 delete 语义（明确不在范围，不得借 close-out 引入）；
+  3. Phase 4：migration（若有）、API 与 operations validation；
+  4. Phase 3：目标 profile 的 host-native 证据；Windows power-loss / strict 仍非本 close-out 默认范围（见 C-4P8 / ADR-0020 degraded profile）。
 
-`1334513`（`test(data): cover outcome marker recovery`）仅扩展 `tests/unit/learning-outcome-committer.unit.test.ts` 中同一个既有 unit `it`；没有 production/API/schema/path/order 变化，也没有新增 test count。它只记录 settlement-marker durable rename 返回 `EIO` 的单一 failure/restart/reconcile 场景：
-
-- 初次 commit 返回 `retryable_failure/reconciliation_required`；immutable record、`outcome.json` 与已 `completed` 的 manifest 存在，settlement marker 为 `ENOENT`，且 evaluator 只运行一次。
-- 重启后的 reconcile 以 immutable record authority 仅发布缺失 marker；不重新运行 evaluator 或 `createId`，不重写 record、outcome 或 manifest。
-- 第二次 reconcile 返回 `settled`；同 operation replay 返回 `already_committed`；record/outcome/manifest/marker 四份 canonical bytes 在两次检查中保持稳定。
-
-实际验证仍为 `pnpm exec vitest run --project unit tests/unit/learning-outcome-committer.unit.test.ts`（1 file / 28 tests passed，不是新增 test count）；`pnpm run typecheck`、`pnpm run check:security`、`git diff --check` 均通过。S3 不是泛化 `after_manifest_publish` 证据、完整 manifest failure matrix、生产功能或完整 C-4P6 closure。
-
+因此，C-4P6 **未关闭**；不得从 S1、S2…S194、Phase 0 决策或 Phase 1 unit residual 推断跨文件原子性、完整 host-native settlement，或 Windows power-loss closure。未完成范围见 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md)、[P6 剩余计划](../plans/local-data-learning-outcome-durable-settlement-design.md) 与[本地数据待办](../local-data-todo.md)。
 
 ## C-4P8：已关闭的受控 workspace-tool scope
 
@@ -126,38 +132,43 @@ C-4P8 的关闭不改变 C-4 的 global partial-writer limitation，也不授权
 
 C-4P5 的 allowlisted Markdown service 是不同 consumer；其 allowlist/service contract 不由 C-4P8 继承或替代。
 
-## C-4P9-S2 实施与 P9-S3/S4/S5 evidence 验证入口
+## C-4P9：生产范围、历史 evidence 与未关闭事项
 
-C-4P9 只实施了最小切片 S2；P9-S3、P9-S4 与 P9-S5 都是严格 tests-only evidence slice。S2 证据提交为 `4b30220`（`feat(data): add durable session audit append`）和 `5f47382`（`test(data): cover durable session audit append`）。S3 的 `c286a42`（`test(data): cover audit durable append recovery`）保留实际历史证据：partial prefix、torn-tail framing、dedupe recovery，以及 archive-level audit file `sync`/`close`、audit directory 与 conversation parent directory `open`/`sync`/`close` failure 后的 clean retry；无生产语义改动。S4 的 `ab723a6`（`test(data): cover audit pre-write short-circuit`）仅覆盖 archive save 层首个 audit write 注入 `EIO` 且 audit 0 bytes：JSON/Markdown 保留、ledger 未执行；clean retry 后每个 canonical audit row 恰一条、ledger 恰一条。S5 的 `47393f9`（`test(data): cover audit directory capability symmetry`）仅修改测试，未修改 production code；Sol review approved。它对 audit directory 与 conversation parent directory 的 `open`/`sync` 做 capability symmetry 定向证据：五个 allowlist code 各覆盖两层、两种操作，共 20 cases；每个成功且恰好一条固定通用 warning，warning 不泄露路径、内容、conversation/header/entry ID 或 trace；parent-directory `close` 的 `EINVAL` 仍 fatal。S5 无 production/API/schema/order 变化，不是完整 capability matrix，也不是生产功能。以下是受限 evidence 的实际验证命令和结果，不是完整 suite 的声明：
+**C-4P9 仍未关闭。** 生产实现仅为 P9-S2；P9-S3…S45 均为随后累积的 **tests-only historical evidence**，没有 production/API/schema/path/order 改动，也不应被解释为完整 migration 或 gate closure。
 
-**P9-S3 的历史 evidence 与 P9-S4 的单一 pre-write short-circuit/retry evidence 均已记录；C-4P9 仍未关闭。**
+### P9-S2 已实施的受限生产语义
+
+- 仅替换固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit append boundary：framed、legacy-compatible、fixed-file durable append；不 rotation，且不调用或迁移到 generic `durable-jsonl`。
+- 模块私有 queue 按规范化绝对 audit path 串行化；同一路径在一个 descriptor 生命周期内完成 exact-byte read、canonical/legacy validation、dedupe/conflict 判定、framed append、file `fsync` 与 `close`。
+- 仅追加缺失的 canonical rows：保留既有 raw bytes；仅在既有非空末字节不是 LF 时插入隔离 LF；legacy trace-free/malformed-trace rows 可读取，既有 trace write-once 行不回填或重写。
+- file close 后，按 audit directory、再 conversation parent directory 的子到父顺序确认 durability。directory `open`/`sync` 的 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 可降级为固定通用 warning；其它错误及任何 `close` failure 均 fatal。
+- post-directory failure 会使 save reject 而不回滚；retry 重新读取并 exact-row dedupe，之后才允许既有 ledger flow 继续。
+
+### P9-S3…S45 的压缩历史 evidence
+
+这些切片只为既有 S2 及 archive save 行为补充定向单元测试。代表性 evidence 为：
+
+- **`c286a42`（S3）与 `ab723a6`（S4）：** fixed-file non-rotating append 的 partial prefix、torn-tail framing、dedupe recovery，以及首个 audit write `EIO` 和 archive-level failure/retry 的 short-circuit；历史定向基线为下列两个 unit 文件 **2 files、61 tests passed**。这是切片当时的记录，并非当前或累积计数。
+- **`47393f9`（S5）：** audit directory 与 conversation parent directory 的 `open`/`sync` capability allowlist 对称性、通用 warning 不泄露敏感内容，以及 `close` 仍 fatal。
+- **`5f931c9`、`816e403`、`bee173f`、`dcb9bae`（S6…S9）：** ledger failure 后的 retry/idempotency、并发相同 append 的线性化，以及 divergent trace 或同 ID canonical-body conflict 的 fail-closed 行为。
+- **`9d54c5e`…`be460a4`（S10…S14）：** JSON/Markdown publish 后的 directory failure 与 audit/ledger short-circuit residual；这些是 archive-order 的定向回归测试，不是跨文件事务实现。
+- **`8779879`…`33a914a`（S15…S45）：** audit file/directory 操作的 fatal-error、unknown-error、non-file target、partial/negative transfer 和 read/write stall 的 fail-closed residual。
+
+历史验证入口：
 
 ```sh
-# P9-S3 historical evidence: 2 files, 61 tests passed
 pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
-pnpm run typecheck
-pnpm run check:security
-git diff --check
-
-# P9-S4: 1 file, 27 tests passed
-pnpm exec vitest run --project unit tests/unit/agent-conversation-archive-durable.unit.test.ts
-
-# P9-S5 current slice: 1 file, 51 tests passed
-pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts
-
-# P9-S5 current slice with archive durable: 2 files, 78 tests passed
-pnpm exec vitest run --project unit tests/unit/agent-conversation-session-audit.unit.test.ts tests/unit/agent-conversation-archive-durable.unit.test.ts
-pnpm run typecheck
-pnpm run check:security
-git diff --check
 ```
 
-## C-4P9-S2 已实施的受限语义
+### 实际仍阻塞 C-4P9 的工作
 
-- 仅替换固定 `.agent-sessions/<conversation-id>.jsonl` 的 audit append boundary；不 rotation，且不调用或迁移到 generic `durable-jsonl`。
-- 模块私有 queue 按**规范化绝对 audit path**串行化；同一路径在一个 descriptor 生命周期内完成 exact-byte read、canonical/legacy validate、dedupe/conflict 判定、framed append、file `fsync` 与 `close`。
-- 缺失 canonical rows 才追加：保留已有 raw bytes，并仅在既有非空末字节不是 LF 时添加一个隔离 LF；legacy trace-free/malformed-trace rows 可兼容读取，既有 trace write-once 行不回填、不重写。
-- file close 后按 audit directory、再 conversation parent directory 的子到父顺序确认 durability。directory `open`/`sync` 仅 `EINVAL`、`ENOSYS`、`ENOTSUP`、`EOPNOTSUPP`、`EISDIR` 可降级为通用 warning；其它错误及任何 close failure 均 fatal。
-- post-directory failure 会使 save reject 且不回滚；retry 先重新读取、dedupe exact rows，再允许既有 ledger flow 继续。
+历史 tests-only evidence 不会消除下列交付阻塞：
 
-这不关闭 C-4P9，也不表示完整 capability matrix、generic JSONL migration、跨文件 transaction、ledger authority/save-order 改造、repair、rotation 或 IPC/UI 已交付。P9-S3 的历史定向 unit 结果仍必须记为 **61 tests passed**；当前 P9-S5 本切片的结果是 **51 tests passed**，与 archive durable 共同运行是 **78 tests passed**，不要混用这些历史与当前数字。未完成工作仍见[本地数据待办](../local-data-todo.md)。
+1. **通用 JSONL、rotation 与 repair：** 将 audit 专用 fixed-file append 扩展为经审查的 generic JSONL capability，并定义 rotation、损坏恢复/repair 与迁移边界。
+2. **完整 capability matrix：** 为文件、目录和平台差异建立完整的 supported/degraded/fatal 能力矩阵，而非仅保留当前定向 errno evidence。
+3. **跨文件语义：** 明确并实现跨文件 transaction/恢复模型、ledger authority，以及 archive JSON、Markdown、audit 和 ledger 的权威性与顺序约束。
+4. **IPC/UI：** 交付调用方 IPC contract、UI 状态/错误呈现和端到端 consumer integration。
+5. **运维验证：** 制定并执行 observability、metrics/logging、rollout、backfill/repair runbook 和实际环境验证。
+6. **平台与断电限制：** 验证并记录目标平台、文件系统与 power-loss/crash 一致性限制；不能以当前 unit fault injection 代替该验证。
+
+未完成工作仍见[本地数据待办](../local-data-todo.md)。
