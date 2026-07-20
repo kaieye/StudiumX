@@ -7036,6 +7036,86 @@ describe('LearningOutcomeCommitter', () => {
     })
   })
 
+  it('fails closed before writes when the session events directory contains an unknown entry', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-unknown-event-entry-failure-unit'
+    const outcomeId = 'outcome-commit-unknown-event-entry-failure-1'
+    const operationId = 'commit-unknown-event-entry-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-unknown-event-entry-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const eventsRoot = join(directory, 'events')
+    const unknownEntry = join(eventsRoot, 'not-a-canonical-event.json')
+    // Keep the valid event intact; inject an extra unsafe/unknown entry.
+    await writeFile(unknownEntry, '{"schemaVersion":1}\n', 'utf8')
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(unknownEntry, 'utf8')).resolves.toBe('{"schemaVersion":1}\n')
+  })
+
+  it('fails closed before writes when a durable session event path is a directory', async () => {
+    const workspaceRoot = await workspace()
+    const sessionId = 'session-commit-event-path-directory-failure-unit'
+    const outcomeId = 'outcome-commit-event-path-directory-failure-1'
+    const operationId = 'commit-event-path-directory-failure-operation-1'
+    const evidenceEventId = 'evidence-commit-event-path-directory-failure-1'
+    const ledger = await openSession(workspaceRoot, sessionId)
+    await appendEvidence(ledger, sessionId, evidenceEventId)
+    const directory = sessionDirectory(workspaceRoot, sessionId)
+    const record = recordPath(workspaceRoot, sessionId)
+    const outcomePath = join(directory, 'outcome.json')
+    const markerPath = join(directory, 'outcome-settlement.json')
+    const eventsRoot = join(directory, 'events')
+    const eventPath = join(eventsRoot, `${createHash('sha256').update(evidenceEventId).digest('hex')}.json`)
+    await rm(eventPath)
+    await mkdir(eventPath)
+    let evaluationCalls = 0
+    const committer = createLearningOutcomeCommitter({
+      workspaceRoot,
+      ledger,
+      createId: () => outcomeId,
+      evaluate: async ({ session }) => {
+        evaluationCalls += 1
+        return decision(session.id, 'established', [evidenceEventId])
+      }
+    })
+
+    const result = await committer.commit({ sessionId, operationId })
+
+    expect(result).toEqual({
+      status: 'conflict',
+      reason: 'review_required'
+    })
+    expect(evaluationCalls).toBe(0)
+    await expect(readFile(record, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outcomePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(markerPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await lstat(eventPath)).isDirectory()).toBe(true)
+  })
+
   it('fails closed on restart when outcome.json conflicts with durable record authority', async () => {
     const workspaceRoot = await workspace()
     const sessionId = 'session-conflicting-outcome-projection-unit'
