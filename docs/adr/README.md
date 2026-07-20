@@ -53,6 +53,7 @@
 | mission_update 的 actionId / private receipt 与 exact retry | ADR-0036 |
 | Direct-UI lesson generation 的 actionId / receipt / exact-retry 边界 | ADR-0037 |
 | Memory readonly dry-run 与 destructive 延期边界 | ADR-0038 |
+| Codex Rust 教学化借鉴结项与信号触发 P2 边界 | ADR-0039 |
 ## 已实施决定
 
 | ADR | 主题 | 已实施范围 |
@@ -95,6 +96,7 @@
 | [ADR-0036](0036-mission-update-action-receipt-correlation.md) | C-5H mission_update action/receipt | renderer opaque actionId、workspace-private receipt、main-keyed requestTag、typed disposition 与 final-only exact retry；不含 style/agent/CAS UI。 |
 | [ADR-0037](0037-direct-ui-lesson-generation-action-correlation.md) | C-5I direct-UI lesson generation correlation | 仅 direct-UI `generateLesson` / `generateLessonStream`：caller UUID v4 `actionId`、private receipt、HMAC requestTag、status poll 与 fail-closed dispositions；agent path 隔离；不覆盖 mission、C-5H、全局 projection recovery 或 content dedupe。 |
 | [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md) | C-6 readonly dry-run + destructive deferral | 采纳 main-only readonly dry-run intent/receipt preview；readonly preflight/dry-run 不构成 destructive authorization；真实 copy/hold/publish/delete 延期且当前不可分派为实现。 |
+| [ADR-0039](0039-teaching-adoption-closeout-and-signal-triggered-p2.md) | Codex Rust 教学化借鉴结项 | 教学闭环优先、不扩张通用 coding agent；P0/P1/已实施 P2 不得重开；P2-6 MCP 与 P2-7 Helper Isolation 仅信号触发且默认不排期。 |
 
 ## C-4P6 历史 evidence 与受限结项边界
 

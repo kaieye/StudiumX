@@ -4,7 +4,7 @@
 >
 > **用途：** 此文件是后续实现、review、集成与发布的检查清单，不是生产完成声明。Git 中已推送的提交、独立 review 记录和可复现的自动化结果才是完成证据。
 >
-> **规划对齐：** `docs/plans/sx-p0-remaining-work-execution-plan.md` 的基线日期为 **2026-07-15**，其中较早的“尚未实施”表述不能覆盖当前已合入事实；同时，其领域不变量、TDD、全量 gate 与“缺失命令/测试即未证明”的规则仍然有效。`docs/plans/codex-rust-v0.144.4-teaching-adoption-plan.md` 是 P0/P1/P2 的架构与验收约束来源（已关闭项见 ADR，勿重开为 backlog）。
+> **规划对齐：** P0/P1/已实施 P2 与信号触发边界以 [ADR 索引](docs/adr/README.md) 与 [ADR-0039](docs/adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md) 为权威，勿重开为 backlog。领域不变量、TDD、全量 gate 与“缺失命令/测试即未证明”的规则见本文第 5 节。
 
 ---
 
@@ -139,7 +139,7 @@
               └─ M8：App/Reader snapshot + presentation 正式消费
                   └─ M9：restart/recovery reconstruction
                       └─ M10：真实 Electron Production App Golden + 全量发布审计
-                          └─ P1/P2 Codex 借鉴（仅在 M10 gate 后）
+                          └─ 仅信号触发的 P2-6/P2-7（见 ADR-0039；默认不排期）
 ```
 
 - 下游只依赖**已提交并已 push 的 hash**，不依赖任何 owner 的本地 worktree、未提交修复或口头承诺。
@@ -196,9 +196,9 @@
 
 ---
 
-## 7. `codex-rust-v0.144.4-teaching-adoption-plan.md` 完整逐项 crosswalk
+## 7. Codex Rust 教学化借鉴：P1/P2 逐项 crosswalk
 
-**判定规则：** 下表对应该规划的 P1/P2 项。**已实施** 以 `docs/adr/` 与 `main` 源码/门禁为准，不可因 M5–M10 生产 Electron 闭环未完成而重开为 backlog。M5–M10 只负责把已存在的教学事实深模块接成 production IPC/UI 闭环，不得借机复制第二套领域实现。
+**判定规则：** 下表对应已结项的教学化借鉴范围（权威见 [ADR-0039](docs/adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md)）。**已实施** 以 `docs/adr/` 与 `main` 源码/门禁为准，不可因 M5–M10 生产 Electron 闭环未完成而重开为 backlog。M5–M10 只负责把已存在的教学事实深模块接成 production IPC/UI 闭环，不得借机复制第二套领域实现。
 
 ### P1（领域模块已关闭；生产接线仍归 M5–M10）
 
@@ -227,15 +227,15 @@
 | **P2-3 高级技术 Inspector** | **已实施** | [ADR-0031](docs/adr/0031-advanced-tech-inspector.md)；`pnpm run check:tech-inspector` | 默认 learner_hidden；不进学习者主路径。 |
 | **P2-4 保守的并行只读工具** | **已实施** | [ADR-0032](docs/adr/0032-conservative-parallel-read-tools.md)；`pnpm run check:parallel-read-tools` | 不得为缩短 Golden 引入非确定性。 |
 | **P2-5 Watcher/Config 乐观并发** | **已实施** | [ADR-0033](docs/adr/0033-config-optimistic-concurrency.md)；`pnpm run check:config-optimistic-concurrency` | CAS 冲突必须可见，禁止静默覆盖。 |
-| **P2-6 MCP（仅在存在真实教学 Adapter 时）** | **触发式候选** | 必须同时具备真实教学场景、威胁模型与有限 typed adapter；无真实 Adapter 则永不实施。 | 不能作为 grounding/IPC 快捷替代。 |
-| **P2-7 Helper Isolation（仅执行不可信代码时）** | **触发式候选** | 仅当产品明确需要执行不可信学习代码时立项。 | 普通 Lesson/grounding 不经过 helper。 |
+| **P2-6 MCP（仅在存在真实教学 Adapter 时）** | **触发式候选** | [ADR-0039](docs/adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md)：必须同时具备真实教学场景、威胁模型与有限 typed adapter；无真实 Adapter 则永不实施；默认不排期。 | 不能作为 grounding/IPC 快捷替代。 |
+| **P2-7 Helper Isolation（仅执行不可信代码时）** | **触发式候选** | [ADR-0039](docs/adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md)：仅当产品明确需要执行不可信学习代码时立项；默认不排期。 | 普通 Lesson/grounding 不经过 helper。 |
 | **P2-8 脱敏 Support Bundle** | **已实施** | [ADR-0034](docs/adr/0034-redacted-support-bundle.md)；`pnpm run check:support-bundle` | 预览 + consent-gated；非 M5–M10 依赖。 |
 
 ### 与当前里程碑的范围结论
 
 - M5–M10 的目标是把**已存在的教学事实深模块**接成可审计、可恢复、learner-safe 的 production Electron 闭环；它们不是把已关闭 P1/P2 重开为 backlog 的容器。
 - P1-1…P1-13 与 P2-1…P2-5、P2-8 的领域实现已沉淀至 ADR；后续只允许窄接入、design gate 修订或新 ADR，不得写成“未完成 backlog”。
-- 剩余信号触发项仅 **P2-6 MCP** 与 **P2-7 Helper Isolation**；无真实 Adapter / 不可信代码执行需求则不排期。
+- 剩余信号触发项仅 **P2-6 MCP** 与 **P2-7 Helper Isolation**（[ADR-0039](docs/adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md)）；无真实 Adapter / 不可信代码执行需求则不排期。
 
 ## 8. 协作、分支事实与仓库卫生
 

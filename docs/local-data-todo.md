@@ -22,7 +22,7 @@
 
 ### 2.2 分派前的 Definition of Ready
 
-每一张实现任务必须先链接到本页某一工作流及对应 plan，并在任务中写清：
+每一张实现任务必须先链接到本页某一工作流及对应 design gate / ADR，并在任务中写清：
 
 - 单一问题、canonical authority、明确排除项，以及范围/产品/API/privacy/operations/实现 owner；
 - identity、public result enum、retry/conflict/unknown-state 语义；
@@ -42,7 +42,7 @@
 3. compatibility、privacy、sole-writer/authority 与 non-destructive/rollback 禁令被测试覆盖；
 4. 针对声明的平台完成 host-native 验证；若声称 crash/reboot/power-loss/directory durability，证据必须匹配该声明，普通 mock/unit tests 或“最终文件存在”不足；
 5. operations owner 接受 runbook、observability、rollout/upgrade/rollback、capacity/retention 与人工恢复责任；
-6. ADR、对应 plan 和本页状态一致，并明确保留未包含的范围。
+6. ADR、对应 design gate（若有）和本页状态一致，并明确保留未包含的范围。
 
 ## 3. 开放工作流
 
@@ -60,4 +60,4 @@
 
 - 新的长期有效、已采纳决定必须新增递增编号 ADR；已实施 scope、边界或验证入口变化必须更新对应 ADR；未关闭范围、blocker、依赖或实施顺序变化必须更新本页及对应 design gate。
 - 本页只维护未关闭工作的分派信息，不维护已关闭切片、测试编号、实现细节或提交台账。
-- 分派者关闭或拆分任务前，必须复查本页、对应 plan、相关 ADR 和实际代码；不得仅因测试绿色、最终文件存在或局部实现看似可用而关闭整个工作流。
+- 分派者关闭或拆分任务前，必须复查本页、对应 design gate（若有）、相关 ADR 和实际代码；不得仅因测试绿色、最终文件存在或局部实现看似可用而关闭整个工作流。
