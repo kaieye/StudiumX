@@ -71,6 +71,19 @@ describe('learning asset catalog', () => {
       })
   })
 
+  it('never projects durable outcome staging files as learner-visible records', async () => {
+    const rootPath = await createWorkspace({
+      'learning-records/.learning-outcome-committer-stage/interrupted-outcome.md': '# Learning outcome: misconception_corrected\n',
+      'learning-records/outcome-session-001.md': '# Learning outcome: misconception_corrected\n'
+    })
+
+    const catalog = await readLearningAssetCatalog(rootPath, 'Testing workspace')
+
+    expect(catalog.records.map((record) => record.relativePath)).toEqual([
+      'learning-records/outcome-session-001.md'
+    ])
+  })
+
   it('keeps marker-spoofed and unbound assessment-looking files as legacy Lessons', async () => {
     const rootPath = await createWorkspace({
       'lessons/0001-testing-basics.html': '<!doctype html><title>Lesson</title>',
