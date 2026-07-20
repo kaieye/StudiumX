@@ -4,6 +4,7 @@ import {
   FORBIDDEN_TEACHING_COMPOSER_COMMAND_TOKENS,
   discoverTeachingCommands,
   getTeachingCommand,
+  listTeachingCommandsForHelp,
   isForbiddenTechnicalComposerToken,
   parseTeachingCommandInput,
   resolveTeachingCommandSubmission,
@@ -25,6 +26,19 @@ describe('TeachingCommand catalog', () => {
       expect(FORBIDDEN_TEACHING_COMPOSER_COMMAND_TOKENS).not.toContain(command.kind)
       expect(isForbiddenTechnicalComposerToken(command.slash)).toBe(false)
     }
+  })
+
+  it('derives help metadata from the single command registry', () => {
+    expect(listTeachingCommandsForHelp()).toBe(TEACHING_COMMANDS)
+    expect(listTeachingCommandsForHelp().map((command) => ({
+      slash: command.slash,
+      label: command.label,
+      description: command.description
+    }))).toEqual(TEACHING_COMMANDS.map((command) => ({
+      slash: command.slash,
+      label: command.label,
+      description: command.description
+    })))
   })
 
   it('discovers slash commands only in teaching mode and never technical tokens', () => {

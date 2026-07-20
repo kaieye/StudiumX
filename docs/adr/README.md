@@ -55,6 +55,7 @@
 | Memory readonly dry-run 与 destructive 延期边界 | ADR-0038 |
 | Codex Rust 教学化借鉴结项与信号触发 P2 边界 | ADR-0039 |
 | 教学对话 prompt cache 稳定前缀与 turn-tail 合同 | ADR-0040 |
+| Teaching capability 如何按 Footprint Ladder 扩张、保持临时 chat 子集与 TeachingCommand 单源 | ADR-0042 |
 | 工具合同与纯 workspace-write Policy | ADR-0044 |
 ## 已实施决定
 
@@ -100,6 +101,7 @@
 | [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md) | C-6 readonly dry-run + destructive deferral | 采纳 main-only readonly dry-run intent/receipt preview；readonly preflight/dry-run 不构成 destructive authorization；真实 copy/hold/publish/delete 延期且当前不可分派为实现。 |
 | [ADR-0039](0039-teaching-adoption-closeout-and-signal-triggered-p2.md) | Codex Rust 教学化借鉴结项 | 教学闭环优先、不扩张通用 coding agent；P0/P1/已实施 P2 不得重开；P2-6 MCP 与 P2-7 Helper Isolation 仅信号触发且默认不排期。 |
 | [ADR-0040](0040-teaching-prompt-cache-contract.md) | Teaching prompt cache contract | 会话稳定 system prefix 与按轮次注入 user turn-tail；动态页面、记忆、画像和技能正文不进入稳定前缀。 |
+| [ADR-0042](0042-teaching-footprint-ladder.md) | Teaching Capability Footprint Ladder | 能力优先走 skill/host/受 gating tool，MCP 远期，core tool 最后；临时 chat schema 严格小于 teaching chat；TeachingCommand 由单一 registry 派生；用户 Markdown slash 不在范围内。 |
 | [ADR-0044](0044-tool-contract-and-write-policy.md) | Tool contract + pure write policy | Registered tool inventory is checked against the effect lattice; workspace write decisions are pure and advisory. |
 | [ADR-0043](0043-agent-runtime-wire-and-turn-orchestrator.md) | Agent runtime wire + teaching-turn orchestrator | Closed runtime event wire, pure status aggregation, and injectable build→loop→finalize skeleton; no ledger settlement authority. |
 ## C-4P6 历史 evidence 与受限结项边界

@@ -76,6 +76,11 @@ export type TeachingCommandResolveResult =
       reason: TeachingCommandAvailabilityReason | 'unknown_command' | 'not_a_command'
     }
 
+/**
+ * Single source of truth for every teaching slash command consumed by the
+ * composer menu, parser/resolver, and learner-facing help/docs projections.
+ * Keep consumers derived from this registry; do not create a parallel catalog.
+ */
 export const TEACHING_COMMANDS: readonly TeachingCommandDefinition[] = [
   {
     kind: 'continue',
@@ -110,6 +115,15 @@ export const TEACHING_COMMANDS: readonly TeachingCommandDefinition[] = [
     execution: 'session_control'
   }
 ] as const
+
+/**
+ * Returns the same closed registry used by composer discovery and parsing.
+ * Help and UI callers must consume this projection instead of maintaining
+ * labels/descriptions or a second command list of their own.
+ */
+export function listTeachingCommandsForHelp(): readonly TeachingCommandDefinition[] {
+  return TEACHING_COMMANDS
+}
 
 const BY_KIND = new Map(TEACHING_COMMANDS.map((command) => [command.kind, command]))
 
