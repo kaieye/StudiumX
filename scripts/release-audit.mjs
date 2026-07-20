@@ -9,7 +9,8 @@ import {
   isCleanCheckoutStatusCommand,
   isPathInside,
   parseAuditSkips,
-  releaseAuditCommands
+  releaseAuditCommands,
+  requiresWindowsCommandShell
 } from './release-audit-contract.mjs'
 
 const root = resolve(process.cwd())
@@ -39,8 +40,8 @@ function quoteWindowsCommandArgument(argument) {
 
 function run(argv, cwd) {
   const started = Date.now()
-  const [command, commandArguments] = process.platform === 'win32'
-    ? [process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', argv.map(quoteWindowsCommandArgument).join(' ')]]
+  const [command, commandArguments] = process.platform === 'win32' && requiresWindowsCommandShell(argv)
+    ? [process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', argv.map(quoteWindowsCommandArgument).join(' ')]]
     : [argv[0], argv.slice(1)]
   const result = spawnSync(command, commandArguments, {
     cwd,

@@ -30,6 +30,9 @@ export const releaseAuditCommands = [
   ['git', 'status', '--porcelain=v1']
 ]
 
+export function requiresWindowsCommandShell(argv) {
+  return argv[0] === 'pnpm'
+}
 export function parseAuditSkips(output) {
   return [...output.matchAll(/\b(?:skip(?:ped)?|todo)\b(?:[:\-]?[ \t]*([^\r\n]*))?/gi)].map((match) => match[1]?.trim() ?? '')
 }

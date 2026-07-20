@@ -4,7 +4,8 @@ import {
   classifyAuditCommandResult,
   isPathInside,
   parseAuditSkips,
-  releaseAuditCommands
+  releaseAuditCommands,
+  requiresWindowsCommandShell
 } from '../../scripts/release-audit-contract.mjs'
 
 describe('release audit contract', () => {
@@ -30,6 +31,11 @@ describe('release audit contract', () => {
     })
   })
 
+  it('uses the Windows command shell only for pnpm command shims', () => {
+    expect(requiresWindowsCommandShell(['pnpm', '--version'])).toBe(true)
+    expect(requiresWindowsCommandShell(['git', 'worktree', 'add'])).toBe(false)
+    expect(requiresWindowsCommandShell(['node', '--version'])).toBe(false)
+  })
   it('detects bare and summary skip markers in command output', () => {
     expect(parseAuditSkips('Tests 1 skipped\nTODO\nskip')).toEqual(['', '', ''])
   })
