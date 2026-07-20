@@ -82,6 +82,7 @@ export async function collectDoctorSnapshot(options = {}) {
       logPath: join(normalized.userDataPath, 'studiumx.log')
     },
     settings: summarizeSettings(settings, settingsInfo),
+    runtimePosture: summarizeRuntimePosture(settings, settingsInfo),
     diagnostics: {
       mode: 'local_snapshot',
       redaction: 'home paths, secret-shaped keys, bearer tokens, URL userinfo, and sensitive query parameters',
@@ -135,7 +136,8 @@ export function formatDoctorReport(snapshot, format = 'text') {
     `StudiumX doctor (${snapshot.generatedAt})`,
     `app: ${snapshot.app.name} ${snapshot.app.version}`,
     `userData: ${snapshot.paths.userDataPath}`,
-    `settings: ${snapshot.settings.exists ? 'found' : 'missing'} (${snapshot.settings.storage})`
+    `settings: ${snapshot.settings.exists ? 'found' : 'missing'} (${snapshot.settings.storage})`,
+    `runtime posture: approval=${snapshot.runtimePosture?.approvalMode ?? 'n/a'}; tools=${snapshot.runtimePosture?.toolsEnabled ? 'on' : 'off'}; proxy=${snapshot.runtimePosture?.proxyEnabled ? 'on' : 'off'}; keys=${snapshot.runtimePosture?.keyStorage ?? 'n/a'}; shell=${snapshot.runtimePosture?.shellExecution ?? 'n/a'}`
   ]
   if (snapshot.securityChecks.length === 0) {
     lines.push('security checks: skipped')
@@ -230,6 +232,28 @@ function classifyCheckResult(result) {
   return result.status === 0 ? 'passed' : 'failed'
 }
 
+
+function summarizeRuntimePosture(settings, info) {
+  const tools = settings?.tools ?? {}
+  const provider = settings?.provider ?? {}
+  const secret = summarizeSecretStorage(settings)
+  return {
+    approvalMode: stringValue(tools.approvalMode) ?? 'request_approval',
+    toolsEnabled: tools.enabled === true,
+    workspaceRead: tools.workspaceRead !== false,
+    webSearch: tools.webSearch !== false,
+    webFetch: tools.webFetch === true,
+    proxyEnabled: provider?.proxy?.enabled === true,
+    proxyHostOnly: Boolean(provider?.proxy?.enabled) && !Boolean(stringValue(provider?.proxy?.url)?.includes('@')),
+    keyStorage: secret.keyStorage,
+    safeStorage: secret.keyStorage === 'electron_safe_storage' ? 'available_or_in_use' : secret.keyStorage === 'no_stored_secrets' ? 'not_required' : 'see_keyStorage',
+    settingsFilePresent: Boolean(info),
+    nativeAddonNote: 'contained-durable-replace is platform-gated; availability is checked at write registration time (not claimed ready by doctor)',
+    shellExecution: 'not_productized',
+    mcpMarketplace: 'not_productized'
+  }
+}
+
 function summarizeSettings(settings, info) {
   if (!settings) {
     return {
@@ -279,6 +303,9 @@ function summarizeSettings(settings, info) {
 }
 
 function summarizeSecretStorage(settings) {
+  if (!settings || typeof settings !== "object") {
+    return { keyStorage: "no_stored_secrets", keychainMigration: "not_required" }
+  }
   const values = []
   const providers = Array.isArray(settings.provider?.providers) ? settings.provider.providers : []
   for (const provider of providers) values.push(stringValue(provider?.apiKey) ?? '')
@@ -371,7 +398,7 @@ function assertDoctorSnapshot(snapshot) {
   if (!Number.isFinite(snapshot.durationMs) || snapshot.durationMs < 0) {
     throw new TypeError('Doctor snapshot durationMs must be a non-negative number.')
   }
-  if (!isRecord(snapshot.app) || !isRecord(snapshot.paths) || !isRecord(snapshot.settings)) {
+  if (!isRecord(snapshot.app) || !isRecord(snapshot.paths) || !isRecord(snapshot.settings) || !isRecord(snapshot.runtimePosture)) {
     throw new TypeError('Doctor snapshot is missing required report sections.')
   }
   if (!Array.isArray(snapshot.learningWork) || !Array.isArray(snapshot.securityChecks)) {

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Optional local pre-push gate. Enable with: git config core.hooksPath .githooks
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm run check:prepush
+else
+  echo "pnpm not found; skipping check:prepush" >&2
+fi
