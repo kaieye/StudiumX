@@ -43,6 +43,12 @@
 | Course 如何持久化 Session 顺序而不以 SQLite 为真相 | ADR-0026 |
 | Doctor / Inspector 如何只读诊断且不自动修复 | ADR-0027 |
 | 教学审计如何用 ID correlation 与安全元数据 | ADR-0028 |
+| 学习路径如何只读投影分支而不改 outcome 历史 | ADR-0029 |
+| 长 Session 如何从 ledger 排名 resume 候选 | ADR-0030 |
+| 诊断模式如何查看 events/effects/projection | ADR-0031 |
+| 只读工具如何保守并行 | ADR-0032 |
+| 配置写如何用 fingerprint 乐观并发 | ADR-0033 |
+| 支持包如何预览并经同意后脱敏导出 | ADR-0034 |
 
 ## 已实施决定
 
@@ -76,6 +82,12 @@
 | [ADR-0026](0026-course-definition-durable-session-order.md) | P1 CourseDefinition store | per-Course durable 顺序与 status；文件系统仍为 Lesson 发现源；read 无副作用。 |
 | [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md) | P1 Doctor + Workspace Inspector | 只读结构化诊断；repair 仅推荐且 v1 不自动执行；不阻断只读打开。 |
 | [ADR-0028](0028-teaching-audit-correlation-safe-metadata.md) | P1 Audit correlation / privacy | session/turn/operation ID correlation；allowlist 安全元数据；纯函数导出脱敏。 |
+| [ADR-0029](0029-learning-branch-projection.md) | P2 Learning Branch Projection | 只读分支投影；primary + non-canonical alternate；不改 outcome 历史。 |
+| [ADR-0030](0030-session-resume-picker.md) | P2 Session Resume Picker | 对 ledger scan 的排名 resume 候选；无 learner content。 |
+| [ADR-0031](0031-advanced-tech-inspector.md) | P2 Advanced Tech Inspector | 默认 learner_hidden；diagnostic 模式组装脱敏 sections。 |
+| [ADR-0032](0032-conservative-parallel-read-tools.md) | P2 Parallel Read Tools | 仅 effect=read 有界并行；write/privileged denied。 |
+| [ADR-0033](0033-config-optimistic-concurrency.md) | P2 Config Optimistic Concurrency | expectedFingerprint CAS；冲突不静默覆盖。 |
+| [ADR-0034](0034-redacted-support-bundle.md) | P2 Redacted Support Bundle | 预览 + consent-gated 导出；无 raw prompt/secret/完整绝对路径。 |
 
 ## C-4P6 evidence 边界（完整 close-out 未关闭）
 
