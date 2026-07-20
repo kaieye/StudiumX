@@ -99,7 +99,14 @@ export async function launchElectronRuntime(
           await context.tracing.stop().catch(() => undefined)
         }
       }
-      await application.close().catch(() => undefined)
+      const child = application.process()
+      if (child.exitCode === null && child.signalCode === null) {
+        await Promise.race([application.close().catch(() => undefined), new Promise<void>((resolve) => setTimeout(resolve, 5_000))])
+        if (child.exitCode === null && child.signalCode === null && child.pid) {
+          const { execFile } = await import('node:child_process')
+          await new Promise<void>((resolve) => execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], () => resolve()))
+        }
+      }
     }
   }
 }
@@ -109,18 +116,23 @@ export async function forceKillElectronRuntime(runtime: LaunchedElectronRuntime)
   const pid = app.process?.().pid
   if (!pid) throw new Error('Electron process PID unavailable for force kill')
   const { execFile } = await import('node:child_process')
-  await new Promise<void>((resolve, reject) => {
-    if (process.platform === 'win32') {
+  const child = runtime.application.process()
+  const exited = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null || child.killed) return resolve()
+    child.once('exit', () => resolve())
+  })
+  if (process.platform === 'win32') {
+    await new Promise<void>((resolve, reject) => {
       execFile('taskkill', ['/PID', String(pid), '/T', '/F'], (error) => {
         if (error && !/not found|no running instance/i.test(error.message)) reject(error)
         else resolve()
       })
-    } else {
-      try { process.kill(pid, 'SIGKILL') } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        if (code !== 'ESRCH') return reject(error)
-      }
-      resolve()
+    })
+  } else {
+    try { process.kill(pid, 'SIGKILL') } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'ESRCH') throw error
     }
-  })
+  }
+  await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 10_000))])
 }

@@ -311,8 +311,9 @@ test.describe('P0 longitudinal Electron Golden — crash recovery', () => {
         runtime.env.STUDIUMX_E2E_CRASH_POINT = crashPoint
         launched = await launchElectronRuntime(runtime, testInfo); page = await firstWindow(launched.application)
         await refreshRendererFromMain(page, seeded.id); await openSeededLesson(page, { lessonTitle: seeded.lessonTitle, sessionName: seeded.sessionName }); const child = launched.application.process()
-        const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
-        await clickQuizChoice(page, 'b')
+        const exited = new Promise<void>((resolve) => { if (child.exitCode !== null || child.signalCode !== null) return resolve(); child.once('exit', () => resolve()) })
+        await clickQuizChoice(page, 'b').catch(() => undefined)
+        await expect.poll(() => child.exitCode !== null || child.signalCode !== null, { timeout: 30_000 }).toBe(true)
         await exited
         delete runtime.env.STUDIUMX_E2E_CRASH_POINT
         launched = await launchElectronRuntime(runtime, testInfo); page = await firstWindow(launched.application)
