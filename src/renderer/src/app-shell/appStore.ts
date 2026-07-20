@@ -344,7 +344,45 @@ function readPendingMissionAction(workspaceId: string): PendingMissionAction | n
     ) {
       return null
     }
-    return parsed// ================================================================
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function resolveMissionActionId(workspaceId: string, prompt: string): string {
+  const existing = readPendingMissionAction(workspaceId)
+  const now = Date.now()
+  if (
+    existing &&
+    existing.prompt === prompt &&
+    now - existing.createdAt < MISSION_ACTION_RETRY_WINDOW_MS &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(existing.actionId)
+  ) {
+    return existing.actionId.toLowerCase()
+  }
+  const actionId = crypto.randomUUID().toLowerCase()
+  try {
+    sessionStorage.setItem(
+      missionActionStorageKey(workspaceId),
+      JSON.stringify({ actionId, prompt, createdAt: now } satisfies PendingMissionAction)
+    )
+  } catch {
+    // sessionStorage may be unavailable; still proceed with a fresh in-memory id.
+  }
+  return actionId
+}
+
+function clearMissionActionId(workspaceId: string): void {
+  try {
+    sessionStorage.removeItem(missionActionStorageKey(workspaceId))
+  } catch {
+    // ignore
+  }
+}
+
+
+// ================================================================
 // Direct-UI lesson actionId lifecycle (ADR-0023)
 // ================================================================
 
@@ -436,37 +474,13 @@ function readPendingDirectLessonMarker(workspaceId: string): PendingDirectLesson
       actionId: parsed.actionId.toLowerCase(),
       operation: DIRECT_LESSON_OPERATION,
       createdAt: parsed.createdAt
-    }  } catch {
+    }
+  } catch {
     return null
   }
 }
 
-function resolveMissionActionId(workspaceId: string, prompt: string): string {
-  const existing = readPendingMissionAction(workspaceId)
-  const now = Date.now()
-  if (
-    existing &&
-    existing.prompt === prompt &&
-    now - existing.createdAt < MISSION_ACTION_RETRY_WINDOW_MS &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(existing.actionId)
-  ) {
-    return existing.actionId.toLowerCase()
-  }
-  const actionId = crypto.randomUUID().toLowerCase()
-  try {
-    sessionStorage.setItem(
-      missionActionStorageKey(workspaceId),
-      JSON.stringify({ actionId, prompt, createdAt: now } satisfies PendingMissionAction)
-    )
-  } catch {
-    // sessionStorage may be unavailable; still proceed with a fresh in-memory id.
-  }
-  return actionId
-}
-
-function clearMissionActionId(workspaceId: string): void {
-  try {
-    sessionStorage.removeItem(missionActionStorageKey(workspaceId))function writePendingDirectLessonMarker(marker: PendingDirectLessonActionMarker): void {
+function writePendingDirectLessonMarker(marker: PendingDirectLessonActionMarker): void {
   try {
     sessionStorage.setItem(
       directLessonActionStorageKey(marker.workspaceId),
@@ -485,7 +499,8 @@ function clearMissionActionId(workspaceId: string): void {
 export function clearDirectLessonActionId(workspaceId: string): void {
   pendingDirectLessonActions.delete(workspaceId)
   try {
-    sessionStorage.removeItem(directLessonActionStorageKey(workspaceId))  } catch {
+    sessionStorage.removeItem(directLessonActionStorageKey(workspaceId))
+  } catch {
     // ignore
   }
 }
@@ -571,6 +586,7 @@ function directLessonDispositionError(
     detail: i18n.t(`${key}.detail`, { code: code ?? disposition })
   }
 }
+
 export function toUserError(error: unknown): UserError {
   const feedback = operationFeedback({
     outcome: 'failure',
