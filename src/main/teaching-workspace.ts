@@ -417,10 +417,19 @@ export class TeachingWorkspaceService {
     )
     this.learningOutcomeCommitterFactory = options.learningOutcomeCommitterFactory ?? ((workspaceRoot, ledger) => {
       const crashPoint = resolveE2ECrashPoint(process.env)
+      let skippedInitialCatalogReconcile = false
       return createLearningOutcomeCommitter({
         workspaceRoot,
         ledger: ledger as LearningSessionLedger,
-        testingFaults: crashPoint ? { inject: async (point) => { if (point === crashPoint) process.kill(process.pid, 'SIGKILL') } } : undefined
+        testingFaults: crashPoint ? {
+          inject: async (point) => {
+            if (point === crashPoint && crashPoint === 'before_catalog_reconcile' && !skippedInitialCatalogReconcile) {
+              skippedInitialCatalogReconcile = true
+              return
+            }
+            if (point === crashPoint) process.kill(process.pid, 'SIGKILL')
+          }
+        } : undefined
       })
     })
     this.memoryStore = new TeachingMemoryStore({

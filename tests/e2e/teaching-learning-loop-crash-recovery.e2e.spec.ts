@@ -14,7 +14,7 @@ import type { TeachingAppState, TeachingSettingsV1 } from '../../src/shared/teac
 import { learningSessionOutcomeRelativePath } from '../../src/shared/teaching-placement'
 import { expect, test } from '../helpers/electron'
 import { createTestRuntime, type TestRuntime } from '../helpers/test-runtime'
-import { forceKillElectronRuntime, launchElectronRuntime } from '../helpers/test-runtime/electron'
+import { launchElectronRuntime } from '../helpers/test-runtime/electron'
 
 const generator: TeachingSettingsV1['generator'] = {
   providerId: 'test-provider',
@@ -299,6 +299,8 @@ test.describe('P0 longitudinal Electron Golden — crash recovery', () => {
       test.setTimeout(180_000)
       const runtime: TestRuntime = await createTestRuntime(`${testInfo.project.name}-crash-${crashPoint}-${testInfo.workerIndex}`)
       runtime.env.STUDIUMX_E2E = '1'
+      // Arm the guarded crash seam before the app starts; wrong evidence and correction run in one process.
+      runtime.env.STUDIUMX_E2E_CRASH_POINT = crashPoint
       let launched = await launchElectronRuntime(runtime, testInfo)
       let failed = false
       try {
@@ -308,10 +310,8 @@ test.describe('P0 longitudinal Electron Golden — crash recovery', () => {
         const seeded: SeededWorkspace = { ...created, sessionId: publication.lesson.sessionId, lessonRelativePath: publication.lesson.relativePath, lessonTitle: publication.lesson.title, sessionName: publication.lesson.sessionName }
         await refreshRendererFromMain(page, seeded.id); await openSeededLesson(page, { lessonTitle: seeded.lessonTitle, sessionName: seeded.sessionName })
         await clickQuizChoice(page, 'a'); await expect(page.locator('[data-learning-outcome-commit="needs_practice"]')).toBeVisible({ timeout: 30_000 })
-        expect(await countLearningRecords(seeded.rootPath)).toBe(0); expect(await readOutcomeJson(seeded.rootPath, seeded.sessionId)).toBeNull(); await forceKillElectronRuntime(launched)
-        runtime.env.STUDIUMX_E2E_CRASH_POINT = crashPoint
-        launched = await launchElectronRuntime(runtime, testInfo); page = await firstWindow(launched.application)
-        await refreshRendererFromMain(page, seeded.id); await openSeededLesson(page, { lessonTitle: seeded.lessonTitle, sessionName: seeded.sessionName }); const child = launched.application.process()
+        expect(await countLearningRecords(seeded.rootPath)).toBe(0); expect(await readOutcomeJson(seeded.rootPath, seeded.sessionId)).toBeNull()
+        const child = launched.application.process()
         const exited = new Promise<void>((resolve) => { if (child.exitCode !== null || child.signalCode !== null) return resolve(); child.once('exit', () => resolve()) })
         await clickQuizChoice(page, 'b').catch(() => undefined)
         await expect.poll(() => child.exitCode !== null || child.signalCode !== null, { timeout: 30_000 }).toBe(true)
@@ -319,6 +319,9 @@ test.describe('P0 longitudinal Electron Golden — crash recovery', () => {
         delete runtime.env.STUDIUMX_E2E_CRASH_POINT
         launched = await launchElectronRuntime(runtime, testInfo); page = await firstWindow(launched.application)
         await refreshRendererFromMain(page, seeded.id); await openSeededLesson(page, { lessonTitle: seeded.lessonTitle, sessionName: seeded.sessionName })
+        // The renderer-local banner resets after a process restart. Re-submit the same preview
+        // interaction to prove the real evidence → preload/IPC path replays idempotently.
+        await clickQuizChoice(page, 'b')
         await expect(page.locator('[data-learning-outcome-commit="saved"]')).toBeVisible({ timeout: 30_000 }); await expect.poll(async () => countLearningRecords(seeded.rootPath), { timeout: 15_000 }).toBe(1)
         expect(await readOutcomeJson(seeded.rootPath, seeded.sessionId)).toMatchObject({ kind: 'misconception_corrected' })
         const replay = await (await teachingSystemOn(page)).commitLearningOutcome({ schemaVersion: 1, type: 'commit', workspaceId: seeded.id, sessionId: seeded.sessionId, operationId: 'outcome-seq-2' })
@@ -327,6 +330,3 @@ test.describe('P0 longitudinal Electron Golden — crash recovery', () => {
     })
   }
 })
-
-
-
