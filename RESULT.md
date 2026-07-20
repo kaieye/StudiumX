@@ -1,42 +1,33 @@
-# P2-01 Learning Branch Projection — RESULT
+# P2-02 Session Resume Picker — RESULT
 
 ## Summary
-
-Read-only **Learning Branch Projection** that derives primary + alternate path views from durable session/planner facts without mutating canonical outcome history.
-
-- Primary path reuses `planNextTeachingStep` so it always mirrors current planner decisions.
-- Alternate branches are counterfactual projections only (`canonical: false`), e.g. needs_practice retry, not_evidenced clarification, resources not ready.
-- Legacy/read-only sessions stay clarification-only (no remediation alternates).
-- Optional `historySessions` summaries (id/status/outcomeKind only) become non-canonical `historical` nodes.
-- Fingerprint is `sha256:<hex>` over schema/nodes/paths (excludes `generatedAt`); no I/O, no writers, no random state.
+Read-only projection that ranks durable `LearningSessionLedger.scan()` results into long-session resume candidates. Pure builder is the primary surface; optional thin ledger adapter scans then builds.
 
 ## Files
-
 | Path | Role |
 |------|------|
-| `src/shared/teaching-types/learning-branch-projection.ts` | Shared types (`schemaVersion=1`, facts, nodes, projection) |
-| `src/main/learning-branch-projection.ts` | Pure `projectLearningBranch` / factory / fingerprint |
-| `tests/unit/learning-branch-projection.unit.test.ts` | Unit coverage |
-| `scripts/check-learning-branch-projection.mjs` | Static + unit gate |
+| `src/shared/teaching-types/session-resume-picker.ts` | Shared contracts: `ResumeCandidate`, `ResumePickerQuery`, `ResumePickerReport`, eligibility ladder, schemaVersion=1 |
+| `src/main/session-resume-picker.ts` | `buildSessionResumeCandidates` (pure), `listSessionResumeCandidates` (adapter) |
 | `src/shared/teaching-types.ts` | Barrel re-export |
-| `package.json` | `check:learning-branch-projection` script |
+| `tests/unit/session-resume-picker.unit.test.ts` | Unit coverage (ranking, filters, limits, redaction, adapter) |
+| `scripts/check-session-resume-picker.mjs` | Static + unit gate |
+| `package.json` | `check:session-resume-picker` script |
 
-## Out of scope (intentionally not done)
-
-- UI picker, IPC host wiring
-- Changing planner actions
-- Writing branch state to disk as truth
+## Behavior
+- **Ranking**: `ready` (active) + recent `updatedAt` first → `completed_read_only` (trusted outcome preferred) → `legacy_read_only` → `quarantined` → `corrupt`
+- **Filters**: `courseId`, `statusFilter`, `queryText` (courseName / lessonTitle only — never event payloads / learner answers)
+- **Limits**: default 20, hard max 100
+- **Privacy**: candidates never include `events`, payloads, learner answers, assessment/provider fields
+- **I/O**: builder is pure over `LearningSessionScanResult`; callers own scan
 
 ## Verify
-
 ```bash
-CI=true node ./node_modules/vitest/vitest.mjs run --project unit tests/unit/learning-branch-projection.unit.test.ts
-node scripts/check-learning-branch-projection.mjs
+CI=true node ./node_modules/vitest/vitest.mjs run --project unit tests/unit/session-resume-picker.unit.test.ts
+node scripts/check-session-resume-picker.mjs
 # or
-pnpm run check:learning-branch-projection
+pnpm run check:session-resume-picker
 ```
 
-## Test results
-
-- Unit: 9 passed
-- Gate: `learning branch projection gate ok`
+## Out of scope (as specified)
+- TeachingTurnCoordinator `resume_session` command semantics
+- UI

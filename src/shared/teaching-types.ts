@@ -12,4 +12,5 @@ export * from './teaching-types/system-api'
 export * from './teaching-types/analytics'
 export * from './teaching-types/teaching-doctor'
 export * from './teaching-types/learning-branch-projection'
+export * from './teaching-types/session-resume-picker'
 

@@ -130,7 +130,8 @@
     "pretest:unit": "pnpm run rebuild:better-sqlite3:node && pnpm run build:contained-durable-replace",
     "audit:release": "node scripts/release-audit.mjs",
     "check:teaching-capability-catalog": "node scripts/check-teaching-capability-catalog.mjs",
-    "check:blocking-ci": "node scripts/check-blocking-ci.mjs"
+    "check:blocking-ci": "node scripts/check-blocking-ci.mjs",
+    "check:session-resume-picker": "node scripts/check-session-resume-picker.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -213,4 +214,3 @@
   },
   "packageManager": "pnpm@11.9.0"
 }
-
