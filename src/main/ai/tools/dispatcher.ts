@@ -25,6 +25,7 @@ import {
   type ToolOutcomeCorrelation,
   type ToolOutcomeError
 } from './tool-outcome'
+import { enforceToolResultBudget } from './annotations'
 
 export type ToolDispatcherOptions = Readonly<{
   handlers: ToolHandlerMap
@@ -129,10 +130,11 @@ export class ToolDispatcher {
           })
         )
       }
+      const budgeted = enforceToolResultBudget(content)
       return finish({
         ...base,
         status: 'succeeded',
-        content,
+        content: budgeted.content,
         isError: false
       })
     } catch (error) {

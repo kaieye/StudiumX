@@ -54,6 +54,10 @@
 | Direct-UI lesson generation 的 actionId / receipt / exact-retry 边界 | ADR-0037 |
 | Memory readonly dry-run 与 destructive 延期边界 | ADR-0038 |
 | Codex Rust 教学化借鉴结项与信号触发 P2 边界 | ADR-0039 |
+| TeachingSessionProtocol 进程内会话门面 | ADR-0040 |
+| 工具 risk annotations 与结果字节预算 | ADR-0041 |
+| 最小 ExtensionManifest（本地安装优先） | ADR-0042 |
+| Doctor 配置定位路径与结构化修复建议 | ADR-0043 |
 ## 已实施决定
 
 | ADR | 主题 | 已实施范围 |
@@ -97,6 +101,10 @@
 | [ADR-0037](0037-direct-ui-lesson-generation-action-correlation.md) | C-5I direct-UI lesson generation correlation | 仅 direct-UI `generateLesson` / `generateLessonStream`：caller UUID v4 `actionId`、private receipt、HMAC requestTag、status poll 与 fail-closed dispositions；agent path 隔离；不覆盖 mission、C-5H、全局 projection recovery 或 content dedupe。 |
 | [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md) | C-6 readonly dry-run + destructive deferral | 采纳 main-only readonly dry-run intent/receipt preview；readonly preflight/dry-run 不构成 destructive authorization；真实 copy/hold/publish/delete 延期且当前不可分派为实现。 |
 | [ADR-0039](0039-teaching-adoption-closeout-and-signal-triggered-p2.md) | Codex Rust 教学化借鉴结项 | 教学闭环优先、不扩张通用 coding agent；P0/P1/已实施 P2 不得重开；P2-6 MCP 与 P2-7 Helper Isolation 仅信号触发且默认不排期。 |
+| [ADR-0040](0040-teaching-session-protocol-facade.md) | TeachingSessionProtocol 进程内会话门面 | 稳定 create/resume/send/cancel/compact/fork/steer/checkpoint/usage 内部协议 + runtime facade。 |
+| [ADR-0041](0041-tool-annotations-and-result-budget.md) | 工具 annotations 与 result budget | risk annotations + 默认 32KiB 硬字节预算；dispatcher/registry 成功路径强制截断。 |
+| [ADR-0042](0042-extension-manifest-minimal.md) | 最小 ExtensionManifest | 本地安装优先的声明式 manifest 类型；marketplace/auto-trust 未授权。 |
+| [ADR-0043](0043-doctor-config-locator-and-fix-suggestion.md) | Doctor 配置定位与 fix suggestion | configPath + 结构化 fixSuggestion；autoRepair 仍禁用。 |
 
 ## C-4P6 历史 evidence 与受限结项边界
 

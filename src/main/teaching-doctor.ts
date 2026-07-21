@@ -6,6 +6,7 @@ import {
   type TeachingDoctorCheckResult,
   type TeachingDoctorConfigFacts,
   type TeachingDoctorFacts,
+  type TeachingDoctorFixSuggestion,
   type TeachingDoctorOutcomeCrashWindowFacts,
   type TeachingDoctorReport,
   type TeachingDoctorRepairRecommendation,
@@ -91,6 +92,15 @@ export function formatTeachingDoctorReport(
   for (const check of safe.checks) {
     lines.push(`- ${check.checkId}: ${check.result} — ${check.summary}`)
     lines.push(`  action: ${check.recommendedAction}`)
+    if (check.configPath) {
+      lines.push(`  config: ${check.configPath}`)
+    }
+    if (check.fixSuggestion) {
+      lines.push(`  fix: ${check.fixSuggestion.code} — ${check.fixSuggestion.title}`)
+      for (const step of check.fixSuggestion.steps) {
+        lines.push(`    - ${step}`)
+      }
+    }
     if (check.repair.kind !== 'none') {
       lines.push(`  repair: ${check.repair.kind} (manual; auto=${check.repair.autoRepairAllowed})`)
     }
@@ -240,14 +250,30 @@ function checkConfigAvailability(
       kind: 'none',
       description: 'No repair; supply settings/provider facts for a full diagnosis.',
       autoRepairAllowed: false
-    }, 'Provide settings availability facts and re-run TeachingDoctor.')
+    }, 'Provide settings availability facts and re-run TeachingDoctor.', {
+      configPath: 'userData/studiumx-settings.json',
+      fixSuggestion: {
+        code: 'supply_config_facts',
+        title: 'Collect settings facts',
+        steps: [
+          'Locate studiumx-settings.json under the app userData directory.',
+          'Re-run TeachingDoctor with settingsAvailable/readable/parseable/providerConfigured facts.'
+        ],
+        configPath: 'userData/studiumx-settings.json',
+        docsRef: 'diagnosing-provider'
+      }
+    })
   }
 
+  const configPath = facts.configPath?.trim() || 'userData/studiumx-settings.json'
+  const configKey = facts.configKey?.trim() || null
   const evidence = safeEvidence({
     settingsAvailable: facts.settingsAvailable,
     settingsReadable: facts.settingsReadable,
     settingsParseable: facts.settingsParseable,
-    providerConfigured: facts.providerConfigured
+    providerConfigured: facts.providerConfigured,
+    configPath,
+    ...(configKey ? { configKey } : {})
   }, facts.reason ? [redactText(facts.reason)] : [])
 
   if (!facts.settingsAvailable || !facts.settingsReadable || !facts.settingsParseable) {
@@ -257,7 +283,22 @@ function checkConfigAvailability(
       'Teaching configuration is unavailable or unreadable.',
       evidence,
       repair('manual_review', 'Restore or replace studiumx-settings.json from a verified backup; do not invent provider secrets.'),
-      'Restore settings from backup or recreate defaults on next app launch. Workspace may still open read-only.'
+      'Restore settings from backup or recreate defaults on next app launch. Workspace may still open read-only.',
+      {
+        configPath,
+        fixSuggestion: {
+          code: 'restore_settings_file',
+          title: 'Restore teaching settings file',
+          steps: [
+            `Open or restore ${configPath} from a verified backup.`,
+            'Confirm the file is valid JSON matching TeachingSettingsV1.',
+            'Relaunch the app so defaults can be recreated if the file is missing.',
+            'Do not paste provider secrets into logs, doctor evidence, or support bundles.'
+          ],
+          configPath,
+          docsRef: 'diagnosing-provider'
+        }
+      }
     )
   }
 
@@ -268,7 +309,22 @@ function checkConfigAvailability(
       'Settings load, but no provider is configured for generation.',
       evidence,
       repair('none', 'Provider configuration is user-owned; doctor does not invent credentials.'),
-      'Configure a teaching provider in settings. Read-only workspace open remains allowed.'
+      'Configure a teaching provider in settings. Read-only workspace open remains allowed.',
+      {
+        configPath,
+        fixSuggestion: {
+          code: 'configure_provider',
+          title: 'Configure teaching provider',
+          steps: [
+            'Open Settings in StudiumX.',
+            `Set provider credentials under ${configKey ?? 'provider'} (values stay secret-storage protected).`,
+            `Locator: ${configPath}`,
+            'Re-run TeachingDoctor after saving.'
+          ],
+          configPath,
+          docsRef: 'diagnosing-provider'
+        }
+      }
     )
   }
 
@@ -278,7 +334,8 @@ function checkConfigAvailability(
     'Teaching configuration is available.',
     evidence,
     repair('none', 'No repair required.'),
-    'No action required.'
+    'No action required.',
+    { configPath }
   )
 }
 
@@ -415,8 +472,22 @@ function item(
   summary: string,
   evidence: TeachingDoctorSafeEvidence,
   repairRecommendation: TeachingDoctorRepairRecommendation,
-  recommendedAction: string
+  recommendedAction: string,
+  extras: { configPath?: string | null; fixSuggestion?: TeachingDoctorFixSuggestion | null } = {}
 ): TeachingDoctorCheckItem {
+  const fix = extras.fixSuggestion
+    ? {
+        code: extras.fixSuggestion.code,
+        title: redactText(extras.fixSuggestion.title),
+        steps: extras.fixSuggestion.steps.map(redactText),
+        configPath: extras.fixSuggestion.configPath != null
+          ? redactText(String(extras.fixSuggestion.configPath))
+          : extras.fixSuggestion.configPath,
+        docsRef: extras.fixSuggestion.docsRef != null
+          ? redactText(String(extras.fixSuggestion.docsRef))
+          : extras.fixSuggestion.docsRef
+      }
+    : extras.fixSuggestion
   return {
     checkId,
     result,
@@ -427,7 +498,11 @@ function item(
       kind: repairRecommendation.kind,
       description: redactText(repairRecommendation.description),
       autoRepairAllowed: false
-    }
+    },
+    ...(extras.configPath !== undefined
+      ? { configPath: extras.configPath != null ? redactText(String(extras.configPath)) : null }
+      : {}),
+    ...(fix !== undefined ? { fixSuggestion: fix } : {})
   }
 }
 
@@ -477,7 +552,27 @@ function redactReport(report: TeachingDoctorReport): TeachingDoctorReport {
         kind: check.repair.kind,
         description: redactText(check.repair.description),
         autoRepairAllowed: false
-      }
+      },
+      ...(check.configPath !== undefined
+        ? { configPath: check.configPath != null ? redactText(String(check.configPath)) : null }
+        : {}),
+      ...(check.fixSuggestion
+        ? {
+            fixSuggestion: {
+              code: check.fixSuggestion.code,
+              title: redactText(check.fixSuggestion.title),
+              steps: check.fixSuggestion.steps.map(redactText),
+              configPath:
+                check.fixSuggestion.configPath != null
+                  ? redactText(String(check.fixSuggestion.configPath))
+                  : check.fixSuggestion.configPath,
+              docsRef:
+                check.fixSuggestion.docsRef != null
+                  ? redactText(String(check.fixSuggestion.docsRef))
+                  : check.fixSuggestion.docsRef
+            }
+          }
+        : {})
     })),
     diagnostics: {
       redaction: redactText(report.diagnostics.redaction),
