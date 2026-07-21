@@ -5,7 +5,7 @@
 > - **Marvis** 本机数据：`~/Library/Application Support/com.tencent.mac.marvis/MarvisData/User/*/database/`  
 > - **ZCode** 本机数据：`~/.zcode/cli/db/db.sqlite`、`~/.zcode/v2/tasks-index.sqlite`  
 > - **ZCode** 解包：`ref_project/Zcode`（v3.3.3）  
-> 相关 ADR：0001 / 0002 / 0006 / 0038 / 0050（以及 usage/audit 邻近决策）  
+> 相关 ADR：0001 / 0002 / 0006 / 0038 / 0050 / 0051（以及 usage/audit 邻近决策）  
 > 日期：2026-07-21  
 > 状态：**改造建议清单**（本文件本身不构成实现授权；涉及 FTS/向量/物理删除等边界能力须先写新 ADR）
 
@@ -258,15 +258,18 @@ ZCode `tasks`：`pinned` / `archived` / `deleted` + partial index + `searchable_
 
 **方案**
 
-1. 写窄 ADR：`usage-ledger-as-canonical-observability`（名称待定）
-2. Canonical：append-only JSONL（UTC 分区可复用 0002 模式）
-3. Projection：SQLite 可选表，字段对齐 ZCode 子集
+1. **设计权威已落地：** [ADR-0051](../adr/0051-usage-ledger-as-canonical-observability.md)（`usage-ledger-as-canonical-observability`）
+2. Canonical：append-only JSONL（UTC 分区 / sealed segment 复用 ADR-0002 / `durable-jsonl`）
+3. Projection：SQLite 可选表，字段对齐 ZCode 子集；损坏不挡 turn 成功路径
 4. 与 learning-session ledger **正交**（usage ≠ learning outcome）
+5. Retention 默认：诊断级，跟随 logger 政策（**非** teaching permanent；见 ADR-0051 §5）
+6. Redaction：allowlisted 标量 + opaque correlation；renderer 仅聚合面板
+7. 与 **DB-P0-3** 分工：P0-3 = 最小 writer/projection 实现；P1-1 = 本 ADR 设计 gate（不争抢实现文件）
 
-**开放问题**
+**开放问题（已关闭于 ADR-0051）**
 
-- retention：usage 是否也“永久保留”还是可诊断级 purge（须单独决策，默认跟随 logger 政策而非 teaching canonical）
-- renderer 展示粒度与红action
+- ~~retention~~ → 诊断级 mtime purge，默认跟随 `settings.log.retentionDays`
+- ~~renderer 展示粒度与 redaction~~ → 聚合 only；无 raw payload
 
 ---
 
@@ -422,7 +425,7 @@ Wave 1（观测与审计）
   DB-P0-1 migration 元数据
   DB-P0-3 usage projection 最小集
   DB-P0-4 人批 receipt
-  → 视需要升级为 DB-P1-1 完整 usage ledger ADR
+  → DB-P1-1 完整 usage ledger ADR-0051（设计 gate 已完成）
 
 Wave 2（列表与记忆元数据）
   DB-P0-6 resume/list 索引
