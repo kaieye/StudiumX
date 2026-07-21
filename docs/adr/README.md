@@ -65,6 +65,7 @@
 | 工具合同与纯 workspace-write Policy | ADR-0048 |
 | write_workspace_file 本轮 pre-image 与「撤销本轮写入」 | ADR-0049 |
 | 词法记忆检索与教学合成记忆 remember/forget | ADR-0050 |
+| Token/tool/turn 细粒度 usage 观测账本与可选 SQLite 投影边界 | ADR-0051 |
 ## 已实施决定
 
 | ADR | 主题 | 已实施范围 |
@@ -119,6 +120,7 @@
 | [ADR-0048](0048-tool-contract-and-write-policy.md) | Tool contract + pure write policy | Registered tool inventory is checked against the effect lattice; workspace write decisions are pure and advisory. |
 | [ADR-0049](0049-write-rewind-journal.md) | Write rewind journal | `write_workspace_file` first-touch pre-image under `.studiumx/checkpoints/<runId>/`；IPC/UI「撤销本轮写入」与 conversation checkpoint 分离；不削弱 durable publish。 |
 | [ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md) | Lexical memory search + synthetic memory | main-only 词法检索（零 LLM、无 FTS）；`memory_search` / 人批 `remember`·`forget`；turn-tail 仅 title+scope 索引。 |
+| [ADR-0051](0051-usage-ledger-as-canonical-observability.md) | Usage ledger as canonical observability | 设计权威：append-only JSONL usage ledger（UTC 分段）、可选 SQLite projection、与 LearningSession 正交、诊断级 retention、redaction；DB-P0-3 为最小实现切片。 |
 ## C-4P6 历史 evidence 与受限结项边界
 
 > 本节保存 ADR-0004 的历史 evidence 范围；**当前工作线 close-out** 以 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 为准，不再作为开放实现 todo。
