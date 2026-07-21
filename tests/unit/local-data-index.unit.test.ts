@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentConversationRecord, AgentConversationSummary, TeachingMemoryRecord, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 import { TeachingMemoryCatalog } from '../../src/main/teaching-memory-catalog'
 import { LocalDataIndex, type LocalDataIndexTestHooks } from '../../src/main/local-data-index'
-import { LOCAL_DATA_INDEX_MIGRATIONS, migrateLocalDataIndex } from '../../src/main/local-data-index/schema-migration'
+import { LOCAL_DATA_INDEX_MIGRATIONS, SCHEMA_MIGRATION_APPLIED_BY, listAppliedSchemaMigrations, migrateLocalDataIndex } from '../../src/main/local-data-index/schema-migration'
 import { createIsolatedTestRuntime, type IsolatedTestRuntime } from '../helpers/runtime-isolation'
 
 let runtime: IsolatedTestRuntime
@@ -60,7 +60,58 @@ describe('local data SQLite index migrations', () => {
       migrateLocalDataIndex(db)
       migrateLocalDataIndex(db)
       expect(db.prepare('SELECT COUNT(*) count FROM schema_migration').get()).toEqual({ count: LOCAL_DATA_INDEX_MIGRATIONS.length })
+      const applied = listAppliedSchemaMigrations(db)
+      expect(applied).toHaveLength(LOCAL_DATA_INDEX_MIGRATIONS.length)
+      expect(applied.map((row) => row.id)).toEqual(LOCAL_DATA_INDEX_MIGRATIONS.map((row) => row.id))
+      expect(applied.every((row) => row.checksum.length === 64)).toBe(true)
+      expect(applied.every((row) => row.appliedBy === SCHEMA_MIGRATION_APPLIED_BY)).toBe(true)
+      expect(applied.every((row) => typeof row.sqlBytes === 'number' && row.sqlBytes > 0)).toBe(true)
+      expect(JSON.stringify(applied)).not.toMatch(/CREATE TABLE/i)
       db.prepare('UPDATE schema_migration SET checksum = ? WHERE id = ?').run('conflict', LOCAL_DATA_INDEX_MIGRATIONS[0]!.id)
+      expect(() => migrateLocalDataIndex(db)).toThrow(/checksum conflict/i)
+    } finally { db.close() }
+  })
+
+  it('upgrades legacy schema_migration columns without rewriting applied history', () => {
+    const db = new Database(join(runtime.userDataDir, 'legacy-migration.sqlite'))
+    try {
+      // Simulate a pre-metadata projection DB: old table shape + already-applied rows.
+      db.exec('CREATE TABLE schema_migration (id TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL)')
+      const insertLegacy = db.prepare('INSERT INTO schema_migration (id, checksum, applied_at) VALUES (?, ?, ?)')
+      for (const migration of LOCAL_DATA_INDEX_MIGRATIONS) {
+        insertLegacy.run(migration.id, migration.checksum, '2026-01-01T00:00:00.000Z')
+      }
+      // Create projection business tables so open/migrate does not need to re-run SQL bodies.
+      db.exec(LOCAL_DATA_INDEX_MIGRATIONS[0]!.sql)
+      db.exec(LOCAL_DATA_INDEX_MIGRATIONS[1]!.sql)
+
+      const before = db.prepare('SELECT id, checksum, applied_at FROM schema_migration ORDER BY id').all()
+      migrateLocalDataIndex(db)
+      const columns = (db.prepare('PRAGMA table_info(schema_migration)').all() as Array<{ name: string }>).map((row) => row.name)
+      expect(columns).toEqual(expect.arrayContaining(['id', 'checksum', 'applied_at', 'app_version', 'applied_by', 'sql_bytes']))
+
+      const after = db.prepare('SELECT id, checksum, applied_at, app_version, applied_by, sql_bytes FROM schema_migration ORDER BY id').all() as Array<{
+        id: string; checksum: string; applied_at: string; app_version: string | null; applied_by: string | null; sql_bytes: number | null
+      }>
+      expect(after.map((row) => ({ id: row.id, checksum: row.checksum, applied_at: row.applied_at }))).toEqual(before)
+      // Historical rows keep immutable applied_at and leave new metadata null (no destructive rewrite).
+      expect(after.every((row) => row.app_version === null && row.applied_by === null && row.sql_bytes === null)).toBe(true)
+
+      // Business projection columns remain unchanged by metadata upgrade.
+      const conversationColumns = (db.prepare('PRAGMA table_info(conversation_projection)').all() as Array<{ name: string }>).map((c) => c.name)
+      expect(conversationColumns).toEqual([
+        'source_key', 'workspace_id', 'conversation_id', 'scope', 'title', 'created_at', 'updated_at',
+        'relative_path', 'absolute_path', 'message_count', 'turn_projection_json', 'source_fingerprint', 'indexed_at'
+      ])
+      const memoryColumns = (db.prepare('PRAGMA table_info(memory_projection)').all() as Array<{ name: string }>).map((c) => c.name)
+      expect(memoryColumns).not.toContain('content')
+      expect(memoryColumns).toEqual([
+        'memory_id', 'scope', 'workspace_path', 'project_path', 'source_lesson_id', 'tags_json', 'confidence',
+        'created_at', 'updated_at', 'disabled_at', 'deleted_at', 'source_fingerprint', 'indexed_at'
+      ])
+
+      // Checksum mismatch on upgraded legacy DB still hard-fails.
+      db.prepare('UPDATE schema_migration SET checksum = ? WHERE id = ?').run('tampered', LOCAL_DATA_INDEX_MIGRATIONS[0]!.id)
       expect(() => migrateLocalDataIndex(db)).toThrow(/checksum conflict/i)
     } finally { db.close() }
   })
