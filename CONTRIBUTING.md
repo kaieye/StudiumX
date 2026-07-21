@@ -51,6 +51,17 @@ Do not burn real model API keys in default CI.
 - Keep typed effect lattice and fail-closed capability catalog.
 - Files remain SoT; do not weaken history redaction or secret-free resolved config.
 
+
+## Database PR gates
+
+When a PR touches LocalDataIndex / SQLite projection / usage or approval projections / database roadmap policy:
+
+1. Fill the living checklist in [`docs/improvements/database-acceptance-gates.md`](docs/improvements/database-acceptance-gates.md) (roadmap §8).
+2. Confirm P2 items stay out of scope unless a **new ADR** already landed — see [`docs/improvements/database-p2-boundaries.md`](docs/improvements/database-p2-boundaries.md) (DB-P2-1…4; DB-P2-3 is **won't do**).
+3. Keep file-truth inviolable: SQLite is disposable projection only; no FTS product surface; no secrets/prompts in projections.
+
+Doc-contract unit: `pnpm exec vitest run --project unit tests/unit/database-pr-gates.unit.test.ts`
+
 ## Architecture changes
 
 If you change settlement, tool effects, prompt-cache shape, or privacy boundaries, add or update an ADR under `docs/adr/` and link it from `docs/adr/README.md`.

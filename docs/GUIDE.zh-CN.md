@@ -40,6 +40,8 @@ StudiumX 是面向 **本地教学工作区** 的 Electron 应用。磁盘上的�
 | `docs/CONFIG_PATHS.md` | 配置与密钥路径 |
 | `docs/adr/README.md` | 架构决定（权威） |
 | `SECURITY.md` | 信任模型 |
+| `docs/improvements/database-acceptance-gates.md` | Database PR acceptance gates (roadmap §8) |
+| `docs/improvements/database-p2-boundaries.md` | Database P2 boundary / trigger gates |
 | `docs/testing.md` | 测试教义 / pre-push |
 | `docs/tools/TOOL_CONTRACT.md` | 工具合同 |
 | `CONTRIBUTING.md` | 贡献入口 |

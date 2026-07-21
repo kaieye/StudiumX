@@ -335,6 +335,10 @@ Marvis 3 会话 1.7 万 events → 体积与锁竞争风险。
 
 ## 5. P2 — 默认不排期 / 需新 ADR
 
+> **活文档：** 触发条件、won't-do、PR 拒绝信号见 [`database-p2-boundaries.md`](./database-p2-boundaries.md)。  
+> 本节省略为摘要；政策变更以活文档为准并回写本节。
+
+
 ### DB-P2-1：可选向量记忆 projection
 
 **借鉴**  
@@ -414,6 +418,7 @@ ZCode `workflow_run` / `activity` / `event` / `session_task_link`。
 
 ```text
 Wave 0（文档/护栏）
+  DB-P2-docs P2 边界 + §8 验收活清单（已文档化）
   DB-P0-2 doctor/support-bundle
   DB-P0-5 故障注入测试
   DB-P1-5 backup 说明
@@ -438,14 +443,20 @@ Wave 3（信号触发）
 
 ## 8. 验收总闸（任何 DB 相关 PR）
 
-合并前必须全部为真：
+> **活清单（权威勾选版）：** [`database-acceptance-gates.md`](./database-acceptance-gates.md)  
+> **P2 边界闸：** [`database-p2-boundaries.md`](./database-p2-boundaries.md)  
+> 贡献者入口：根目录 `CONTRIBUTING.md`「Database PR gates」。
+
+合并前必须全部为真（摘要；证据写法见活清单）：
 
 1. **Canonical 不变性**：测试证明 projection quarantine/rebuild 不修改 JSON/JSONL/Memory 源文件字节（除明确授权的业务写入）。
 2. **Drift 安全**：source 变更后 adapter 不得静默返回 stale ready 数据。
 3. **无秘密进索引**：usage/projection/receipt 无 API key、无 raw prompt 默认落库。
 4. **失败可降级**：native sqlite 不可用时产品主路径仍可用（文件扫描 / 跳过 analytics）。
-5. **政策对齐**：不引入 FTS 产品面、不引入 canonical 物理删除、不绕过工具 effect lattice。
+5. **政策对齐**：不引入 FTS 产品面、不引入 canonical 物理删除、不绕过工具 effect lattice；不把 SQLite 当会话 SoT；不实现未授权的 DB-P2-1…4。
 6. **测试**：unit + 必要 integration；迁移 checksum 冲突覆盖。
+
+与活清单冲突时以活清单为准，并在同一变更中回写本摘要。
 
 ---
 
@@ -461,6 +472,9 @@ Wave 3（信号触发）
 - `docs/adr/0002-utc-partitioned-segmented-jsonl-and-summary-projections.md`
 - `docs/adr/0050-lexical-memory-search-and-synthetic-memory.md`
 - `docs/improvements/Zcode.md`
+- `docs/improvements/database-p2-boundaries.md`（P2 触发/won't-do 活文档）
+- `docs/improvements/database-acceptance-gates.md`（§8 验收活清单）
+- `tests/unit/database-pr-gates.unit.test.ts`（文档闸契约测试）
 
 ### Marvis（本机）
 
@@ -483,3 +497,4 @@ Wave 3（信号触发）
 | 日期 | 说明 |
 | --- | --- |
 | 2026-07-21 | 初版：基于三方 database 实库/schema/源码对照产出 P0/P1/P2 改造清单 |
+| 2026-07-21 | DB-P2-docs：落地 P2 边界活文档 + §8 验收活清单；§5/§8/§9 增加交叉链接；无 forbidden 实现 |
