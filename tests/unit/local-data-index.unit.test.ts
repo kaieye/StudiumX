@@ -897,7 +897,7 @@ describe('local data conversation list fields and indexes (DB-P0-6)', () => {
         'conversation_projection_workspace_updated_idx'
       ]))
       expect(indexNames.some((name) => /fts/i.test(name))).toBe(false)
-      expect(LOCAL_DATA_INDEX_MIGRATIONS.map((m) => m.id)).toEqual(['0001', '0002', '0003', '0004'])
+      expect(LOCAL_DATA_INDEX_MIGRATIONS.map((m) => m.id)).toEqual(['0001', '0002', '0003', '0004', '0005'])
     } finally { db.close() }
   })
 

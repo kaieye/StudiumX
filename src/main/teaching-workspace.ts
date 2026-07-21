@@ -1106,6 +1106,7 @@ export class TeachingWorkspaceService {
     // run's staged transcript promotion allowance, including after a failed run.
     this.pendingAgentRunArchiveScopes.delete(stream.streamId)
     const result = await runTeachingConversationTurn(payload, stream, runtimeWorkspace, {
+      appDataRoot: this.appDataRoot,
       runStore: new AgentRunStore(runStorageRoot),
       loadSettings: () => this.loadSettings(),
       listMemories: (workspaceRoot, includeDeleted) => this.memoryStore.list(workspaceRoot, includeDeleted === true),
