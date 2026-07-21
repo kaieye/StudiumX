@@ -1,5 +1,34 @@
 export type TeachingMemoryScope = 'user' | 'workspace' | 'project'
 
+/**
+ * Stable teaching-memory kind taxonomy (DB-P1-2).
+ * Canonical file records may set optional `memoryKind`; tags remain the durable
+ * compatibility path. Projection/catalog resolve kind from `memoryKind` first,
+ * then stable tags, then an unspecified fallback.
+ */
+export type TeachingMemoryKind =
+  | 'learner-profile'
+  | 'teaching-experience'
+  | 'episodic-session'
+  | 'teaching-synthetic'
+
+export const TEACHING_MEMORY_KINDS: readonly TeachingMemoryKind[] = [
+  'learner-profile',
+  'teaching-experience',
+  'episodic-session',
+  'teaching-synthetic'
+] as const
+
+/** Stable tag strings that map 1:1 onto TeachingMemoryKind. */
+export const TEACHING_MEMORY_KIND_TAGS: Readonly<Record<TeachingMemoryKind, string>> = {
+  'learner-profile': 'learner-profile',
+  'teaching-experience': 'teaching-experience',
+  'episodic-session': 'episodic-session',
+  'teaching-synthetic': 'teaching-synthetic'
+}
+
+export type TeachingMemoryStatus = 'active' | 'disabled' | 'deleted'
+
 export type TeachingMemoryRecord = {
   id: string
   content: string
@@ -7,6 +36,12 @@ export type TeachingMemoryRecord = {
   workspace?: string
   project?: string
   sourceLessonId?: string
+  /**
+   * Optional explicit memory kind. When absent, consumers resolve from stable
+   * tags (`learner-profile` / `teaching-experience` / `episodic-session` /
+   * `teaching-synthetic`). File truth remains JSON; this field is metadata only.
+   */
+  memoryKind?: TeachingMemoryKind
   tags: string[]
   confidence: number
   createdAt: string
@@ -87,6 +122,8 @@ export type TeachingMemoryDiagnostics = {
 export type CreateTeachingMemoryPayload = {
   content: string
   scope: TeachingMemoryScope
+  /** Optional kind; also inferred from tags when omitted. */
+  memoryKind?: TeachingMemoryKind
   tags?: string[]
   confidence?: number
   workspaceRoot?: string
@@ -94,6 +131,7 @@ export type CreateTeachingMemoryPayload = {
 
 export type UpdateTeachingMemoryPayload = {
   content?: string
+  memoryKind?: TeachingMemoryKind
   tags?: string[]
   confidence?: number
   disabled?: boolean
