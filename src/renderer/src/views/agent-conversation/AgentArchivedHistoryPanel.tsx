@@ -1,10 +1,11 @@
-import { Archive, CheckCircle2, ChevronDown, CircleAlert, Database, Loader2, Save } from 'lucide-react'
+import { Archive, CheckCircle2, ChevronDown, CircleAlert, Database, Loader2, Save, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type {
   AgentArchivedHistoryItem,
   AgentArchivedHistoryItemType,
   AgentConversationCheckpoint,
-  QueryAgentArchivedHistoryResult
+  QueryAgentArchivedHistoryResult,
+  RestoreAgentWriteRewindResult
 } from '../../../../shared/teaching-types'
 
 const TYPE_LABELS: Record<AgentArchivedHistoryItemType, string> = {
@@ -17,17 +18,22 @@ const TYPE_LABELS: Record<AgentArchivedHistoryItemType, string> = {
 
 export function AgentArchivedHistoryPanel({
   workspaceId,
-  conversationId
+  conversationId,
+  lastAgentRunId
 }: {
   workspaceId: string
   conversationId: string
+  /** Optional last agent run/stream id used to rewind tool writes (not conversation checkpoints). */
+  lastAgentRunId?: string | null
 }) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [rewinding, setRewinding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<QueryAgentArchivedHistoryResult | null>(null)
   const [checkpoint, setCheckpoint] = useState<AgentConversationCheckpoint | null>(null)
+  const [writeRewind, setWriteRewind] = useState<RestoreAgentWriteRewindResult | null>(null)
 
   const load = useCallback(async (): Promise<void> => {
     const api = window.teachingSystem
@@ -62,6 +68,7 @@ export function AgentArchivedHistoryPanel({
     setOpen(false)
     setResult(null)
     setCheckpoint(null)
+    setWriteRewind(null)
     setError(null)
   }, [conversationId, workspaceId])
 
@@ -91,6 +98,24 @@ export function AgentArchivedHistoryPanel({
     }
   }
 
+  const rewindToolWrites = async (): Promise<void> => {
+    const api = window.teachingSystem
+    if (!api || !lastAgentRunId) return
+    setRewinding(true)
+    setError(null)
+    try {
+      const restored = await api.restoreAgentWriteRewind({
+        workspaceId,
+        runId: lastAgentRunId
+      })
+      setWriteRewind(restored)
+    } catch (rewindError) {
+      setError(rewindError instanceof Error ? rewindError.message : String(rewindError))
+    } finally {
+      setRewinding(false)
+    }
+  }
+
   return (
     <section className="agent-archived-history" aria-label="归档历史">
       <div className="agent-archived-history__header">
@@ -109,10 +134,23 @@ export function AgentArchivedHistoryPanel({
           className="agent-archived-history__checkpoint"
           type="button"
           disabled={creating}
+          title="保存会话前缀检查点（恢复对话轮次，不回滚工具写入）"
           onClick={() => void createCheckpoint()}
         >
           {creating ? <Loader2 className="spin" size={13} /> : <Save size={13} />}
           创建检查点
+        </button>
+        <button
+          className="agent-archived-history__checkpoint"
+          type="button"
+          disabled={rewinding || !lastAgentRunId}
+          title={lastAgentRunId
+            ? '撤销本轮工具写入（仅回滚 write_workspace_file 的 pre-image；不是会话检查点）'
+            : '需要最近一次 agent runId 才能撤销本轮写入'}
+          onClick={() => void rewindToolWrites()}
+        >
+          {rewinding ? <Loader2 className="spin" size={13} /> : <Undo2 size={13} />}
+          撤销本轮写入
         </button>
       </div>
 
@@ -121,7 +159,13 @@ export function AgentArchivedHistoryPanel({
           {checkpoint ? (
             <div className="agent-archived-history__notice is-success">
               <CheckCircle2 size={13} />
-              已创建 {checkpoint.label || checkpoint.checkpointId}，恢复不会重新执行工具。
+              已创建会话检查点 {checkpoint.label || checkpoint.checkpointId}（仅对话轮次；不会回滚工具写入）。
+            </div>
+          ) : null}
+          {writeRewind ? (
+            <div className="agent-archived-history__notice is-success">
+              <CheckCircle2 size={13} />
+              已撤销本轮工具写入（run {writeRewind.runId}）：恢复 {writeRewind.restored.length} 个文件，删除 {writeRewind.deleted.length} 个新建文件，跳过 {writeRewind.skipped.length} 项。此操作不是会话检查点。
             </div>
           ) : null}
           {loading ? (

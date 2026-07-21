@@ -18,6 +18,9 @@ describe('teaching capability policy', () => {
       'list_workspace',
       'read_workspace_file',
       'write_workspace_file',
+      'memory_search',
+      'remember_teaching_memory',
+      'forget_teaching_memory',
       'generate_lesson',
       'delegate_task',
       'read_only_task',
@@ -75,7 +78,10 @@ describe('teaching capability policy', () => {
       'read_workspace_file',
       'search_workspace',
       'glob_workspace',
+      'memory_search',
       'write_workspace_file',
+      'remember_teaching_memory',
+      'forget_teaching_memory',
       'delegate_task',
       'generate_lesson'
     ]))

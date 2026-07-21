@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "locale": "zh-CN",
+  "theme": "system",
+  "uiFontScale": 1,
+  "density": "comfortable",
+  "provider": {
+    "activeProviderId": "custom",
+    "providers": [
+      {
+        "id": "custom",
+        "name": "OpenAI Compatible",
+        "baseUrl": "https://api.example.com/v1",
+        "endpointFormat": "chat_completions",
+        "models": ["your-model-id"],
+        "apiKey": ""
+      }
+    ],
+    "proxy": {
+      "enabled": false,
+      "url": ""
+    }
+  },
+  "generator": {
+    "providerId": "custom",
+    "model": "your-model-id",
+    "endpointFormat": "chat_completions",
+    "temperature": 0.4,
+    "maxOutputTokens": 4096,
+    "lessonDurationMinutes": 15,
+    "includeRetrievalPractice": true,
+    "generateReference": true,
+    "structuredOutput": true,
+    "streaming": false,
+    "reasoningEffort": "auto",
+    "requestTimeoutMs": 60000
+  },
+  "workspace": {
+    "defaultRoot": "",
+    "confirmBeforeGenerating": false,
+    "autoOpenGeneratedLesson": false,
+    "showAllCourseFiles": false
+  },
+  "worktree": {
+    "rootPath": ""
+  },
+  "memory": {
+    "enabled": true,
+    "maxInjected": 4
+  },
+  "tools": {
+    "enabled": false,
+    "workspaceRead": true,
+    "approvalMode": "request_approval",
+    "webSearch": true,
+    "webFetch": false,
+    "maxIterations": 0
+  },
+  "webSearch": {
+    "backend": "auto",
+    "fallbackEnabled": true,
+    "maxResults": 5,
+    "searxngUrl": "",
+    "braveApiKey": "",
+    "firecrawlApiKey": "",
+    "firecrawlApiUrl": "",
+    "tavilyApiKey": "",
+    "exaApiKey": "",
+    "parallelApiKey": "",
+    "parallelSearchMode": "agentic",
+    "xaiApiKey": "",
+    "xaiModel": "grok-4.3"
+  },
+  "privacy": {
+    "maskApiKeys": true,
+    "allowExternalLinks": true
+  },
+  "log": {
+    "enabled": true,
+    "retentionDays": 14
+  },
+  "_comment": "Secret-free example only. Real API keys belong in the app secret store / empty here. See docs/CONFIG_PATHS.md."
+}

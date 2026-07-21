@@ -7,10 +7,12 @@ import type {
   ApplyLessonStylePayload,
   CreateAgentConversationCheckpointPayload,
   ForkAgentConversationBranchPayload,
+  ListAgentWriteRewindJournalPayload,
   OpenAgentConversationBranchPayload,
   QueryAgentArchivedHistoryPayload,
   RebuildAgentHistoryIndexPayload,
   ResolveAgentConversationCheckpointPayload,
+  RestoreAgentWriteRewindPayload,
   AskAnswer,
   CreateWorkspacePayload,
   CreateTeachingMemoryPayload,
@@ -426,6 +428,22 @@ export function parseResolveAgentConversationCheckpointPayload(payload: unknown)
     workspaceId: requireString(record.workspaceId, 'workspaceId'),
     conversationId: requireString(record.conversationId, 'conversationId'),
     checkpointId: requireString(record.checkpointId, 'checkpointId')
+  }
+}
+
+export function parseRestoreAgentWriteRewindPayload(payload: unknown): RestoreAgentWriteRewindPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    runId: requireString(record.runId, 'runId')
+  }
+}
+
+export function parseListAgentWriteRewindJournalPayload(payload: unknown): ListAgentWriteRewindJournalPayload {
+  const record = requireRecord(payload)
+  return {
+    workspaceId: requireString(record.workspaceId, 'workspaceId'),
+    runId: requireString(record.runId, 'runId')
   }
 }
 

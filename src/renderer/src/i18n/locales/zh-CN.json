@@ -125,14 +125,14 @@
       "triggerTitle": "Agent 权限模式：{{status}}",
       "title": "Agent 权限模式",
       "mode": {
-        "request_approval": "请求批准",
-        "based_on_approval": "基于审批",
-        "full_access": "完全访问权限"
+        "request_approval": "需批准",
+        "based_on_approval": "按风险",
+        "full_access": "本课放行"
       },
       "modeDetail": {
-        "request_approval": "Agent 创建或改写工作区文件前请求批准。",
-        "based_on_approval": "自动创建新文件；覆盖已有文件前请求批准。",
-        "full_access": "Agent 可不经批准创建或改写工作区文件。"
+        "request_approval": "创建或改写工作区文件前必须请求批准（不用 YOLO）。",
+        "based_on_approval": "按风险自动创建低风险新文件；覆盖已有文件前仍请求批准。",
+        "full_access": "本课放行：本会话可在已授权范围内创建或改写工作区文件（仍受路径拒绝与受控发布约束）。"
       }
     }
   },

@@ -135,7 +135,10 @@
     "check:session-resume-picker": "node scripts/check-session-resume-picker.mjs",
     "check:tech-inspector": "node scripts/check-tech-inspector.mjs",
     "check:config-optimistic-concurrency": "node scripts/check-config-optimistic-concurrency.mjs",
-    "check:support-bundle": "node scripts/check-support-bundle.mjs"
+    "check:support-bundle": "node scripts/check-support-bundle.mjs",
+    "check:tool-contract": "node scripts/check-tool-contract.mjs",
+    "check:prepush": "node scripts/check-prepush.mjs",
+    "check:teaching-impact": "node scripts/check-teaching-impact.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",

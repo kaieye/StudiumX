@@ -6,6 +6,7 @@ import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools
 import { createAskToolEntry } from './ai/tools/ask'
 import { createDelegationToolEntries } from './ai/tools/delegation'
 import { createReadSkillResourceTool } from './ai/tools/skill-resource'
+import { createMemoryTools } from './ai/tools/memory-tools'
 import { AgentRunStore, emptyAgentRunUsage, normalizeAgentRunBudget } from './ai/agent-run-store'
 import type { ContextCompactionOptions } from './ai/context-compactor'
 import { deriveConversationTurnContext } from './teaching-conversation-turn-context'
@@ -18,7 +19,7 @@ import {
   lessonGenerationRunBudget
 } from './teaching-conversation-lesson-tool'
 import { createConversationPermissionResolver } from './teaching-conversation-permissions'
-import { buildAgentChatSystemPrompt, type TemporaryChatContext } from './teaching-conversation-prompt'
+import { buildSessionStablePrefix, composeTeachingUserTurn, type TemporaryChatContext } from './teaching-conversation-prompt'
 import { collapseConsecutiveAssistantTurns, sanitizeAgentTurnContent } from '../shared/agent-conversation-turns'
 import { buildLearnerMemoryCandidate, planLearnerMemoryCapture } from '../shared/teaching-memory-capture'
 import type { LessonBrief } from '../shared/teaching-workflow'
@@ -51,7 +52,7 @@ export type TeachingConversationRuntimeWorkspace = {
 }
 
 export type { TemporaryChatContext } from './teaching-conversation-prompt'
-export { buildAgentChatSystemPrompt } from './teaching-conversation-prompt'
+export { buildAgentChatSystemPrompt, buildSessionStablePrefix, composeTeachingUserTurn } from './teaching-conversation-prompt'
 
 export type TeachingConversationRuntimeStream = {
   streamId: string
@@ -65,8 +66,9 @@ export type TeachingConversationRuntimeStream = {
 
 export type TeachingConversationRuntimeDeps = {
   loadSettings: () => Promise<TeachingSettingsV1>
-  listMemories: (workspaceRoot?: string) => Promise<TeachingMemoryRecord[]>
+  listMemories: (workspaceRoot?: string, includeDeleted?: boolean) => Promise<TeachingMemoryRecord[]>
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
+  deleteMemory?: (memoryId: string, workspaceRoot?: string) => Promise<void>
   loadSkillReferences: (skillIds: string[], userInput: string) => Promise<InstalledSkillReference[]>
   /**
    * Execute the lesson generation pipeline for a brief the conversation agent
@@ -285,6 +287,27 @@ async function runTeachingConversationTurnActive(
     : []
   const skillResourceTool = settings.tools.enabled ? createReadSkillResourceTool(skillReferences) : null
   if (skillResourceTool) baseRegistry.register(skillResourceTool)
+  // Slice F: memory search + human-approved synthetic teaching memory (no FTS).
+  if (
+    settings.tools.enabled &&
+    settings.memory.enabled &&
+    conversation.capabilityPolicy.workspaceToolsEnabled
+  ) {
+    for (const tool of createMemoryTools({
+      memoryStore: {
+        list: (workspaceRoot, includeDeleted) => deps.listMemories(workspaceRoot, includeDeleted),
+        create: (payload) => deps.createMemory(payload),
+        delete: async (id, workspaceRoot) => {
+          if (!deps.deleteMemory) {
+            throw new Error('Memory delete is not available for this turn.')
+          }
+          await deps.deleteMemory(id, workspaceRoot)
+        }
+      }
+    })) {
+      baseRegistry.register(tool)
+    }
+  }
   const registry = baseRegistry.project({
     allow: conversation.capabilityPolicy.allowedToolNames,
     deny: conversation.capabilityPolicy.deniedToolNames
@@ -313,23 +336,24 @@ async function runTeachingConversationTurnActive(
   const priorMessagesWithTurnIds = priorMessages
     .map((message, index) => ({ message, turnId: priorMessageTurnIds[index] }))
     .filter(({ message }) => message.role !== 'system')
+  const promptOptions = {
+    mode: conversation.mode,
+    lessonToolEnabled: lessonTool.enabled,
+    skillReferences,
+    memoryCapturePlan: capturePlan,
+    existingMemories,
+    settings,
+    provider,
+    temporaryContext,
+    visiblePageContext: payload.context
+  } as const
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: buildAgentChatSystemPrompt({
-        mode: conversation.mode,
-        lessonToolEnabled: lessonTool.enabled,
-        skillReferences,
-        memoryCapturePlan: capturePlan,
-        existingMemories,
-        settings,
-        provider,
-        temporaryContext,
-        visiblePageContext: payload.context
-      })
+      content: buildSessionStablePrefix(promptOptions)
     },
     ...priorMessagesWithTurnIds.map(({ message }) => message),
-    { role: 'user', content: userInput }
+    { role: 'user', content: [composeTeachingUserTurn(promptOptions), userInput].filter(Boolean).join('\n\n') }
   ]
   const messageTurnIds = [
     undefined,

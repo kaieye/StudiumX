@@ -1,5 +1,9 @@
 name: C-4P8 Linux host-native verification
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:

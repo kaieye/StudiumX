@@ -58,6 +58,13 @@
 | 工具 risk annotations 与结果字节预算 | ADR-0041 |
 | 最小 ExtensionManifest（本地安装优先） | ADR-0042 |
 | Doctor 配置定位路径与结构化修复建议 | ADR-0043 |
+| 教学对话 prompt cache 稳定前缀与 turn-tail 合同 | ADR-0044 |
+| 上下文投影阶梯、SECURITY 与 PR/pre-push 质量门 | ADR-0045 |
+| Teaching capability 如何按 Footprint Ladder 扩张、保持临时 chat 子集与 TeachingCommand 单源 | ADR-0046 |
+| Agent runtime wire 与 teaching-turn orchestrator | ADR-0047 |
+| 工具合同与纯 workspace-write Policy | ADR-0048 |
+| write_workspace_file 本轮 pre-image 与「撤销本轮写入」 | ADR-0049 |
+| 词法记忆检索与教学合成记忆 remember/forget | ADR-0050 |
 ## 已实施决定
 
 | ADR | 主题 | 已实施范围 |
@@ -105,7 +112,13 @@
 | [ADR-0041](0041-tool-annotations-and-result-budget.md) | 工具 annotations 与 result budget | risk annotations + 默认 32KiB 硬字节预算；dispatcher/registry 成功路径强制截断。 |
 | [ADR-0042](0042-extension-manifest-minimal.md) | 最小 ExtensionManifest | 本地安装优先的声明式 manifest 类型；marketplace/auto-trust 未授权。 |
 | [ADR-0043](0043-doctor-config-locator-and-fix-suggestion.md) | Doctor 配置定位与 fix suggestion | configPath + 结构化 fixSuggestion；autoRepair 仍禁用。 |
-
+| [ADR-0044](0044-teaching-prompt-cache-contract.md) | Teaching prompt cache contract | 会话稳定 system prefix 与按轮次注入 user turn-tail；动态页面、记忆、画像和技能正文不进入稳定前缀。 |
+| [ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md) | Context hygiene ladder + quality gates | 默认 provider 投影阶梯（hygiene → compact）与可选 durable boundary；SECURITY.md、PR impact 门、workflow concurrency、check:prepush。 |
+| [ADR-0046](0046-teaching-footprint-ladder.md) | Teaching Capability Footprint Ladder | 能力优先走 skill/host/受 gating tool，MCP 远期，core tool 最后；临时 chat schema 严格小于 teaching chat；TeachingCommand 由单一 registry 派生；用户 Markdown slash 不在范围内。 |
+| [ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md) | Agent runtime wire + teaching-turn orchestrator | Closed runtime event wire, pure status aggregation, and injectable build→loop→finalize skeleton; no ledger settlement authority. |
+| [ADR-0048](0048-tool-contract-and-write-policy.md) | Tool contract + pure write policy | Registered tool inventory is checked against the effect lattice; workspace write decisions are pure and advisory. |
+| [ADR-0049](0049-write-rewind-journal.md) | Write rewind journal | `write_workspace_file` first-touch pre-image under `.studiumx/checkpoints/<runId>/`；IPC/UI「撤销本轮写入」与 conversation checkpoint 分离；不削弱 durable publish。 |
+| [ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md) | Lexical memory search + synthetic memory | main-only 词法检索（零 LLM、无 FTS）；`memory_search` / 人批 `remember`·`forget`；turn-tail 仅 title+scope 索引。 |
 ## C-4P6 历史 evidence 与受限结项边界
 
 > 本节保存 ADR-0004 的历史 evidence 范围；**当前工作线 close-out** 以 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 为准，不再作为开放实现 todo。
@@ -149,6 +162,10 @@ P9-S5 `47393f9` 仅修改测试，未改 production code。它覆盖 audit direc
 - **明确非声明（out-of-scope，非当前可分派实现）：**crash/power-loss、all filesystems、cross-process multi-writer、all JSONL、跨文件 transaction、rotation、repair/migration、ledger authority/save-order 改造或 IPC/UI。产品若需要上述任一扩张，须**新建 ADR** 定义 profile 与 evidence，不得把 residual tests 或本结项解释为这些能力已实现。
 
 逐条历史证据见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0019](0019-session-audit-v1-wire-contract-and-limited-authority.md) 与 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)。当前无开放 P9 实现切片。
+
+## Hermes × Reasonix 结项（reason-hermes）
+
+`docs/improvements/` 中的 Hermes / Reasonix 合并借鉴清单（A–H 近端切片）已落地并沉淀为 ADR-0044–0050；Slice I 与「明确不借」项保持延期/不借，不进本冲刺。近端清单源文件在结项后删除，以本目录 ADR 与代码为准。
 
 ## 维护约定
 

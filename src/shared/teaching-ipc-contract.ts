@@ -62,6 +62,8 @@ export const teachingInvokeChannels = {
   updateAgentConversationBranchStatus: 'teach:update-agent-conversation-branch-status',
   createAgentConversationCheckpoint: 'teach:create-agent-conversation-checkpoint',
   resolveAgentConversationCheckpoint: 'teach:resolve-agent-conversation-checkpoint',
+  restoreAgentWriteRewind: 'teach:restore-agent-write-rewind',
+  listAgentWriteRewindJournal: 'teach:list-agent-write-rewind-journal',
   queryAgentArchivedHistory: 'teach:query-agent-archived-history',
   rebuildAgentHistoryIndex: 'teach:rebuild-agent-history-index',
   setWorkspaceItemMeta: 'teach:set-workspace-item-meta',

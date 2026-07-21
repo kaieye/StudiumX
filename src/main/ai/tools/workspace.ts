@@ -30,6 +30,7 @@ import {
   getWindowsDirectPathWorkspaceWriteCapability,
   overwriteExistingRestrictedAtWindowsDirectWorkspacePath
 } from './windows-direct-path-workspace-write'
+import { captureAndAppendWritePreImage } from './write-rewind-journal'
 
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_READ_CHARS = 24_000
@@ -748,6 +749,20 @@ export async function runWorkspaceWriteWithDurableDependenciesForTesting(
 
   if (publication !== 'created' && publication !== 'overwritten') {
     return stableWorkspaceWriteError(publication, target.relativePath)
+  }
+
+  // Slice D: capture first-touch pre-image after grant/validation, before publish.
+  if (ctx.runId && ctx.workspaceRoot) {
+    try {
+      await captureAndAppendWritePreImage({
+        workspaceRoot: ctx.workspaceRoot,
+        relativePath: target.relativePath,
+        runId: ctx.runId,
+        content: input.content
+      })
+    } catch {
+      // Journal failures must not block durable publication.
+    }
   }
 
   try {

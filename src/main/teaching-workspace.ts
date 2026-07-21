@@ -62,6 +62,10 @@ import { parentTurnStageSafeTextDigest } from './ai/agent-parent-turn-staging'
 import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
 import { createAgentConversationCheckpoint, resolveAgentConversationCheckpoint } from './agent-conversation-checkpoints'
 import {
+  readWriteRewindJournal,
+  restoreWriteRewindJournal
+} from './ai/tools/write-rewind-journal'
+import {
   forkAgentConversationBranchAtRoot,
   openAgentConversationBranchAtRoot,
   readAgentConversationSessionTreeAtRoot,
@@ -177,6 +181,10 @@ import type {
   AgentConversationSessionTree,
   AgentConversationStorageScope,
   CreateAgentConversationCheckpointPayload,
+  ListAgentWriteRewindJournalPayload,
+  ListAgentWriteRewindJournalResult,
+  RestoreAgentWriteRewindPayload,
+  RestoreAgentWriteRewindResult,
   ForkAgentConversationBranchPayload,
   ForkAgentConversationBranchResult,
   OpenAgentConversationBranchPayload,
@@ -1100,8 +1108,9 @@ export class TeachingWorkspaceService {
     const result = await runTeachingConversationTurn(payload, stream, runtimeWorkspace, {
       runStore: new AgentRunStore(runStorageRoot),
       loadSettings: () => this.loadSettings(),
-      listMemories: (workspaceRoot) => this.memoryStore.list(workspaceRoot),
+      listMemories: (workspaceRoot, includeDeleted) => this.memoryStore.list(workspaceRoot, includeDeleted === true),
       createMemory: (memoryPayload) => this.memoryStore.create(memoryPayload),
+      deleteMemory: (memoryId, workspaceRoot) => this.memoryStore.delete(memoryId, { workspaceRoot }),
       loadSkillReferences: (skillIds, userInput) =>
         this.skillLibraryService?.readInvokedSkillReferences(userInput, skillIds) ?? Promise.resolve([]),
       generateLessonFromBrief: runtimeWorkspace && isTeachingConversation
@@ -1542,6 +1551,49 @@ export class TeachingWorkspaceService {
       record,
       checkpointId: payload.checkpointId
     })
+  }
+
+  /**
+   * Restore tool write pre-images for one agent run.
+   * UI copy: 「撤销本轮写入」— distinct from conversation prefix checkpoint restore.
+   */
+  async restoreAgentWriteRewind(
+    payload: RestoreAgentWriteRewindPayload
+  ): Promise<RestoreAgentWriteRewindResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const result = await restoreWriteRewindJournal({
+      workspaceRoot: workspace.rootPath,
+      runId: payload.runId
+    })
+    return {
+      kind: 'tool_write_rewind',
+      runId: payload.runId.trim(),
+      restored: result.restored,
+      deleted: result.deleted,
+      skipped: result.skipped
+    }
+  }
+
+  async listAgentWriteRewindJournal(
+    payload: ListAgentWriteRewindJournalPayload
+  ): Promise<ListAgentWriteRewindJournalResult> {
+    const registry = await this.ensureRegistry()
+    const workspace = findWorkspace(registry, payload.workspaceId)
+    const entries = await readWriteRewindJournal({
+      workspaceRoot: workspace.rootPath,
+      runId: payload.runId
+    })
+    return {
+      kind: 'tool_write_rewind_journal',
+      runId: payload.runId.trim(),
+      entries: entries.map((entry) => ({
+        relativePath: entry.relativePath,
+        capturedAt: entry.capturedAt,
+        existed: entry.existed,
+        bytes: entry.bytes
+      }))
+    }
   }
 
   async rebuildAgentHistoryIndex(
