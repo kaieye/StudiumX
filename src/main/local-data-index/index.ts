@@ -39,6 +39,18 @@ export type LocalDataIndexDiagnostics = {
   disposable: true
   disposableNote: string
 }
+/** Constructable better-sqlite3 Database used by LocalDataIndex (overridable in tests). */
+export type LocalDataIndexSqliteConstructor = new (path: string) => Database.Database
+
+/** Named fault-injection points for LocalDataIndex open/rebuild boundary tests (test-only). */
+export type LocalDataIndexFaultPoint =
+  | 'sqlite_load'
+  | 'sqlite_open'
+  | 'busy_timeout_pragma'
+  | 'wal_pragma'
+  | 'migration'
+  | 'integrity_check'
+
 export type LocalDataIndexTestHooks = {
   /** Deterministic seams for C-1 source-currentness boundary tests. */
   beforeCurrentnessVerification?: () => void | Promise<void>
@@ -48,6 +60,17 @@ export type LocalDataIndexTestHooks = {
   afterFinalReadyVerification?: () => void | Promise<void>
   /** Runs after analytics receives adapters but before an adapter revalidates sources and executes SQL. */
   beforeAdapterQueryCurrentnessVerification?: () => void | Promise<void>
+  /**
+   * Optional fault injector for open/migrate/integrity/busy boundaries.
+   * Only intended for unit/integration tests — never wired from production call sites.
+   */
+  injectFault?: (point: LocalDataIndexFaultPoint) => void
+  /** Override SQLite constructor resolution (simulate missing native binding / open failure). */
+  loadSqlite?: () => LocalDataIndexSqliteConstructor
+  /** Override busy_timeout pragma milliseconds (default 3000). */
+  busyTimeoutMs?: number
+  /** Force integrity_check result instead of reading PRAGMA (e.g. 'disk image is malformed'). */
+  integrityCheckResult?: string | (() => string)
 }
 
 export type LocalDataIndexSources = {
@@ -64,7 +87,7 @@ type MemoryInput = { records: TeachingMemoryRecord[]; issues: LocalDataIndexIssu
 type BuildInput = { appDataRoot: string; workspaces: AnalyticsWorkspaceScanResult[]; temporaryConversations: AgentConversationSummary[]; memory: MemoryInput }
 type ProjectedConversation = { summary: AgentConversationSummary; workspaceId?: string; scope: 'workspace' | 'temporary'; record: AgentConversationRecord; path: string; fingerprint: string }
 type ProjectedLedger = LedgerSnapshot & { workspaceId: string; entryId: string; path: string; sourceKey: string; fingerprint: string }
-type SqliteConstructor = new (path: string) => ProjectionDb
+type SqliteConstructor = LocalDataIndexSqliteConstructor
 
 type LocalDataIndexConversationRead =
   | { state: 'readable'; record: AgentConversationRecord }
@@ -260,12 +283,27 @@ export class LocalDataIndex {
   close(): void { this.closeDbOnly(); this.readyInputFingerprint = null; this.statusValue = 'closed' }
 
   private openDatabase(): void {
-    const Sqlite = loadSqlite()
+    this.options.testHooks?.injectFault?.('sqlite_load')
+    const Sqlite = this.options.testHooks?.loadSqlite?.() ?? loadSqlite()
+    this.options.testHooks?.injectFault?.('sqlite_open')
     this.db = new Sqlite(this.path)
-    this.db.pragma('foreign_keys = ON'); this.db.pragma('busy_timeout = 3000')
-    try { this.db.pragma('journal_mode = WAL') } catch { /* rollback journal is still safe */ }
+    this.db.pragma('foreign_keys = ON')
+    const busyTimeoutMs = this.options.testHooks?.busyTimeoutMs ?? 3000
+    this.options.testHooks?.injectFault?.('busy_timeout_pragma')
+    this.db.pragma(`busy_timeout = ${Math.max(0, Math.floor(busyTimeoutMs))}`)
+    try {
+      this.options.testHooks?.injectFault?.('wal_pragma')
+      this.db.pragma('journal_mode = WAL')
+    } catch { /* rollback journal is still safe */ }
+    this.options.testHooks?.injectFault?.('migration')
     migrateLocalDataIndex(this.db)
-    const integrity = this.db.pragma('integrity_check', { simple: true })
+    this.options.testHooks?.injectFault?.('integrity_check')
+    const injected = this.options.testHooks?.integrityCheckResult
+    const integrity = typeof injected === 'function'
+      ? injected()
+      : typeof injected === 'string'
+        ? injected
+        : this.db.pragma('integrity_check', { simple: true })
     if (integrity !== 'ok') throw new Error(`SQLite integrity check failed: ${String(integrity)}`)
   }
   private async openAsync(): Promise<boolean> {

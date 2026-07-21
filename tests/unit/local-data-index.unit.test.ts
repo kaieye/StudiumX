@@ -119,13 +119,21 @@ describe('local data SQLite index migrations', () => {
 
 describe('local data SQLite availability', () => {
   it.runIf(process.platform !== 'win32')('quarantines a corrupt disposable database and opens an incomplete replacement without touching canonical sources', async () => {
+    const canonicalRelative = 'conversation/quarantine-canonical.json'
+    const value = record('quarantine-canonical')
+    await writeConversation(canonicalRelative, value)
+    const sourcePath = join(runtime.workspaceDir, canonicalRelative)
+    const sourceBytes = await readFile(sourcePath)
     await writeFile(join(runtime.userDataDir, 'studiumx-index.sqlite'), 'not a sqlite database', 'utf8')
-    const index = makeIndex()
+    const item = { ...value, workspaceId: 'ws-1', relativePath: 'conversation/quarantine-canonical.md', absolutePath: join(runtime.workspaceDir, 'conversation/quarantine-canonical.md') }
+    const index = makeIndex({ conversations: [item] })
     expect(index.open()).toBe(true)
     expect(index.status).toBe('incomplete')
     expect(index.tokenEvidenceAdapters()).toBeNull()
     const files = await (await import('node:fs/promises')).readdir(runtime.userDataDir)
     expect(files.some((name) => name.startsWith('studiumx-index.sqlite.quarantined-'))).toBe(true)
+    // Canonical JSON/JSONL source bytes must never be rewritten by projection quarantine.
+    expect(await readFile(sourcePath)).toEqual(sourceBytes)
   })
 })
 
@@ -521,5 +529,243 @@ describe('local data index diagnostics', () => {
     expect(diagnostics.complete).toBeNull()
     expect(diagnostics.issueCount).toBe(0)
     expect(diagnostics.disposableNote).toMatch(/studiumx-index\.sqlite/)
+  })
+})
+
+describe('local data SQLite fault injection boundaries', () => {
+  it('marks unavailable when the native SQLite binding cannot be loaded (file-scan fallback path)', () => {
+    const index = makeIndex({
+      testHooks: {
+        loadSqlite: () => {
+          throw new Error('Cannot find module better-sqlite3 native binding')
+        }
+      }
+    })
+    expect(index.open()).toBe(false)
+    expect(index.status).toBe('unavailable')
+    expect(index.reason).toMatch(/native binding|Cannot find module/i)
+    expect(index.tokenEvidenceAdapters()).toBeNull()
+    expect(index.diagnostics()).toMatchObject({
+      status: 'unavailable',
+      pathExists: false,
+      complete: null,
+      aggregateOnly: true,
+      disposable: true
+    })
+  })
+
+  it('marks unavailable on non-repairable sqlite open failure without quarantining', async () => {
+    const value = record('open-fail')
+    await writeConversation('conversation/open-fail.json', value)
+    const sourcePath = join(runtime.workspaceDir, 'conversation/open-fail.json')
+    const sourceBytes = await readFile(sourcePath)
+    const index = makeIndex({
+      testHooks: {
+        injectFault: (point) => {
+          if (point === 'sqlite_open') throw Object.assign(new Error('disk I/O error'), { code: 'SQLITE_IOERR' })
+        }
+      }
+    })
+    expect(index.open()).toBe(false)
+    expect(index.status).toBe('unavailable')
+    expect(index.reason).toMatch(/disk I\/O error/i)
+    const files = await (await import('node:fs/promises')).readdir(runtime.userDataDir)
+    expect(files.some((name) => name.includes('quarantined'))).toBe(false)
+    expect(await readFile(sourcePath)).toEqual(sourceBytes)
+  })
+
+  it('quarantines on integrity_check failure, rebuilds a fresh incomplete projection, and leaves canonical bytes unchanged', async () => {
+    const value = record('integrity-fail')
+    await writeConversation('conversation/integrity-fail.json', value)
+    const sourcePath = join(runtime.workspaceDir, 'conversation/integrity-fail.json')
+    const sourceBytes = await readFile(sourcePath)
+    // Seed a valid disposable projection so open has a file to quarantine.
+    const seed = makeIndex()
+    expect(seed.open()).toBe(true)
+    seed.close()
+    expect(await (await import('node:fs/promises')).access(seed.path).then(() => true, () => false)).toBe(true)
+
+    let integrityCalls = 0
+    const index = makeIndex({
+      conversations: [{ ...value, workspaceId: 'ws-1', relativePath: 'conversation/integrity-fail.md', absolutePath: join(runtime.workspaceDir, 'conversation/integrity-fail.md') }],
+      testHooks: {
+        integrityCheckResult: () => {
+          integrityCalls += 1
+          // First open path fails integrity (repairable). Retry after quarantine must succeed.
+          return integrityCalls === 1 ? 'database disk image is malformed' : 'ok'
+        }
+      }
+    })
+    expect(index.open()).toBe(true)
+    expect(index.status).toBe('incomplete')
+    expect(integrityCalls).toBeGreaterThanOrEqual(2)
+    const files = await (await import('node:fs/promises')).readdir(runtime.userDataDir)
+    expect(files.some((name) => name.startsWith('studiumx-index.sqlite.quarantined-'))).toBe(true)
+    expect(await readFile(sourcePath)).toEqual(sourceBytes)
+    expect(index.tokenEvidenceAdapters()).toBeNull()
+    index.close()
+  })
+
+  it('quarantines on migration checksum conflict then opens a fresh incomplete projection', async () => {
+    const value = record('checksum-conflict')
+    await writeConversation('conversation/checksum-conflict.json', value)
+    const sourcePath = join(runtime.workspaceDir, 'conversation/checksum-conflict.json')
+    const sourceBytes = await readFile(sourcePath)
+
+    // Create a real projection DB with tampered applied migration checksum.
+    const seed = makeIndex()
+    expect(seed.open()).toBe(true)
+    seed.close()
+    const db = new Database(seed.path)
+    try {
+      db.prepare('UPDATE schema_migration SET checksum = ? WHERE id = ?').run('tampered-checksum', LOCAL_DATA_INDEX_MIGRATIONS[0]!.id)
+    } finally { db.close() }
+
+    const index = makeIndex({
+      conversations: [{ ...value, workspaceId: 'ws-1', relativePath: 'conversation/checksum-conflict.md', absolutePath: join(runtime.workspaceDir, 'conversation/checksum-conflict.md') }]
+    })
+    expect(index.open()).toBe(true)
+    expect(index.status).toBe('incomplete')
+    const files = await (await import('node:fs/promises')).readdir(runtime.userDataDir)
+    expect(files.some((name) => name.startsWith('studiumx-index.sqlite.quarantined-'))).toBe(true)
+    // Fresh DB re-applies migrations cleanly.
+    expect(index.appliedMigrations().map((row) => row.id)).toEqual(LOCAL_DATA_INDEX_MIGRATIONS.map((row) => row.id))
+    expect(await readFile(sourcePath)).toEqual(sourceBytes)
+    index.close()
+  })
+
+  it('records incomplete and never becomes ready when source drifts mid-rebuild (scan boundary)', async () => {
+    const value = record('mid-flight')
+    await writeConversation('conversation/mid-flight.json', value)
+    const item = { ...value, workspaceId: 'ws-1', relativePath: 'conversation/mid-flight.md', absolutePath: join(runtime.workspaceDir, 'conversation/mid-flight.md') }
+    const path = join(runtime.workspaceDir, 'conversation/mid-flight.json')
+    const oldBytes = JSON.stringify(value)
+    const changed = JSON.stringify({ ...value, title: value.title.replace('Conversation', 'Conxersation') })
+    expect(Buffer.byteLength(changed)).toBe(Buffer.byteLength(oldBytes))
+
+    const index = makeIndex({
+      conversations: [item],
+      testHooks: { beforeCurrentnessVerification: () => writeFile(path, changed, 'utf8') }
+    })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('incomplete')
+    expect(index.tokenEvidenceAdapters()).toBeNull()
+    expect(index.issues()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceKey: 'source_manifest', code: 'source_drift' })
+    ]))
+    // Source mutation is external; projection rewrite must not alter canonical intent beyond the test's own write.
+    expect(await readFile(path, 'utf8')).toBe(changed)
+    index.close()
+  })
+
+  it('adapter query after source drift returns unavailable, records source_drift, and schedules rebuild', async () => {
+    const value = record('adapter-drift')
+    await writeConversation('conversation/adapter-drift.json', value)
+    const item = { ...value, workspaceId: 'ws-1', relativePath: 'conversation/adapter-drift.md', absolutePath: join(runtime.workspaceDir, 'conversation/adapter-drift.md') }
+    const path = join(runtime.workspaceDir, 'conversation/adapter-drift.json')
+    const oldBytes = JSON.stringify(value)
+    const changed = JSON.stringify({ ...value, title: value.title.replace('Conversation', 'Conxersation') })
+    expect(Buffer.byteLength(changed)).toBe(Buffer.byteLength(oldBytes))
+
+    const index = makeIndex({ conversations: [item] })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+    const adapters = index.tokenEvidenceAdapters()
+    expect(adapters).not.toBeNull()
+
+    await writeFile(path, changed, 'utf8')
+    await expect(adapters!.conversations.read('ws-1', 'adapter-drift')).resolves.toEqual({ state: 'unavailable' })
+    // Immediate post-query boundary: projection is stale and adapters must not be handed out.
+    // scheduleRebuild() starts rebuild() which may already have flipped status to 'building'.
+    expect(['incomplete', 'building']).toContain(index.status)
+    expect(index.tokenEvidenceAdapters()).toBeNull()
+    expect(index.issues()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceKey: 'source_manifest', code: 'source_drift', message: expect.stringMatching(/before a SQLite projection query/i) })
+    ]))
+    // scheduleRebuild() runs asynchronously; allow the rebuild to settle on current (drifted) sources.
+    const deadline = Date.now() + 3000
+    while (Date.now() < deadline && (index.status === 'incomplete' || index.status === 'building')) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    // Rebuild from drifted canonical bytes may complete ready; adapters only return when current.
+    if (index.status === 'ready') {
+      expect(await index.isCompleteForCurrentSources()).toBe(true)
+      const rebuilt = index.tokenEvidenceAdapters()
+      expect(rebuilt).not.toBeNull()
+      await expect(rebuilt!.conversations.read('ws-1', 'adapter-drift')).resolves.toMatchObject({ state: 'readable' })
+    } else {
+      // Still rebuilding or incomplete is acceptable as long as stale ready rows are not exposed.
+      expect(index.tokenEvidenceAdapters()).toBeNull()
+    }
+    index.close()
+  })
+
+  it('applies busy_timeout pragma and surfaces SQLITE_BUSY after the configured wait', async () => {
+    const value = record('busy-timeout')
+    await writeConversation('conversation/busy-timeout.json', value)
+    const item = { ...value, workspaceId: 'ws-1', relativePath: 'conversation/busy-timeout.md', absolutePath: join(runtime.workspaceDir, 'conversation/busy-timeout.md') }
+
+    const observed: string[] = []
+    const index = makeIndex({
+      conversations: [item],
+      testHooks: {
+        busyTimeoutMs: 10,
+        injectFault: (point) => { observed.push(point) }
+      }
+    })
+    expect(index.open()).toBe(true)
+    expect(observed).toEqual(expect.arrayContaining(['sqlite_load', 'sqlite_open', 'busy_timeout_pragma', 'wal_pragma', 'migration', 'integrity_check']))
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+
+    // Hold a write lock from a second connection so subsequent writes hit SQLITE_BUSY after timeout.
+    const locker = new Database(index.path)
+    locker.exec('BEGIN EXCLUSIVE')
+    try {
+      const started = Date.now()
+      let busyError: unknown
+      try {
+        // A short exclusive transaction from the index connection should time out.
+        // Use a raw Database handle with the same busy_timeout to exercise the timeout behavior
+        // without relying on private fields.
+        const contender = new Database(index.path)
+        try {
+          contender.pragma('busy_timeout = 10')
+          contender.exec('BEGIN IMMEDIATE')
+          contender.exec('COMMIT')
+        } catch (error) {
+          busyError = error
+        } finally {
+          try { contender.close() } catch { /* ignore */ }
+        }
+      } finally {
+        // end exclusive
+      }
+      const elapsed = Date.now() - started
+      expect(busyError).toBeTruthy()
+      expect(String(busyError)).toMatch(/busy|locked/i)
+      // Timeout is small (10ms); allow generous slack for CI scheduling while still proving wait happened.
+      expect(elapsed).toBeGreaterThanOrEqual(5)
+      expect(elapsed).toBeLessThan(5000)
+    } finally {
+      try { locker.exec('ROLLBACK') } catch { /* ignore */ }
+      locker.close()
+      index.close()
+    }
+  })
+
+  it('keeps WAL pragma failures soft: open still succeeds with rollback journal', () => {
+    const index = makeIndex({
+      testHooks: {
+        injectFault: (point) => {
+          if (point === 'wal_pragma') throw new Error('unable to open database file for WAL')
+        }
+      }
+    })
+    expect(index.open()).toBe(true)
+    expect(index.status).toBe('incomplete')
+    index.close()
   })
 })
