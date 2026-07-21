@@ -40,6 +40,8 @@ StudiumX is a **local teaching workspace** for Electron. Files on disk are the s
 | `docs/CONFIG_PATHS.md` | Where settings and secrets live |
 | `docs/adr/README.md` | Architecture decisions (authoritative) |
 | `SECURITY.md` | Trust model |
+| `docs/improvements/database-acceptance-gates.md` | Database PR acceptance gates (roadmap §8) |
+| `docs/improvements/database-p2-boundaries.md` | Database P2 boundary / trigger gates |
 | `docs/testing.md` | Testing doctrine / pre-push |
 | `docs/tools/TOOL_CONTRACT.md` | Registered tool contract |
 | `CONTRIBUTING.md` | Contributor entry |

@@ -11,6 +11,8 @@ Fill when the corresponding path is touched. Map to existing `check:*` scripts.
 - [ ] **Prompt-prefix-guard** — system prompt / tool schema / skill index stability (ADR-0044); note cache impact
 - [ ] **Settlement-guard** — ledger / evidence / outcome / coordinator sole-writer; did **not** add agent bypass writers
 
+- [ ] **Database-gates** — if touching `local-data-index` / projection / usage / database roadmap: filled [`docs/improvements/database-acceptance-gates.md`](docs/improvements/database-acceptance-gates.md); no unauthorized DB-P2-1…4 ([boundaries](docs/improvements/database-p2-boundaries.md))
+
 ## Test plan
 
 - [ ] `pnpm run typecheck` (or prepush)

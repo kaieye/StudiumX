@@ -31,3 +31,9 @@ Runs typecheck + security subset. It is intentionally smaller than release-audit
 - `pnpm run check:security`
 - ADR-0017 release audit policy
 - ADR-0045 context hygiene ladder + quality gates
+
+## Database PR gates
+
+- Living checklist: `docs/improvements/database-acceptance-gates.md` (roadmap §8)
+- P2 boundaries: `docs/improvements/database-p2-boundaries.md`
+- Doc contract: `tests/unit/database-pr-gates.unit.test.ts`
