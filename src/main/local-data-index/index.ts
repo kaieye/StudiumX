@@ -101,6 +101,33 @@ export type LocalDataIndexTokenEvidenceAdapters = {
   ledger: { read: (workspace: { workspaceId: string }) => Promise<LocalDataIndexLedgerRead> }
 }
 
+/** Metadata-only conversation list row for session/resume pickers (no snippets/highlights). */
+export type LocalDataIndexConversationListItem = {
+  conversationId: string
+  workspaceId: string | null
+  scope: 'workspace' | 'temporary'
+  /** Redacted title only — never raw secret-bearing titles. */
+  title: string
+  createdAt: string
+  updatedAt: string
+  messageCount: number
+  pinned: boolean
+  archived: boolean
+  relativePath: string
+}
+
+export type LocalDataIndexConversationListQuery = {
+  workspaceId?: string | null
+  scope?: 'workspace' | 'temporary'
+  /** When false (default), omit archived conversations from the list. */
+  includeArchived?: boolean
+  limit?: number
+}
+
+export type LocalDataIndexConversationListRead =
+  | { state: 'readable'; source: 'index'; items: LocalDataIndexConversationListItem[] }
+  | { state: 'unavailable' }
+
 const INDEX_FILE = 'studiumx-index.sqlite'
 const INDEX_VERSION = '2'
 
@@ -172,7 +199,7 @@ export class LocalDataIndex {
       db.transaction(() => {
         db.exec('DELETE FROM workspace_projection; DELETE FROM conversation_projection; DELETE FROM memory_projection; DELETE FROM learning_work_projection; DELETE FROM source_provenance; DELETE FROM index_issue;')
         const workspace = db.prepare('INSERT INTO workspace_projection VALUES (?, ?, ?, ?, ?)')
-        const conversation = db.prepare('INSERT INTO conversation_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        const conversation = db.prepare('INSERT INTO conversation_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         const memory = db.prepare('INSERT INTO memory_projection (memory_id, scope, workspace_path, project_path, source_lesson_id, tags_json, confidence, created_at, updated_at, disabled_at, deleted_at, source_fingerprint, indexed_at, kind, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         const ledger = db.prepare('INSERT INTO learning_work_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         const provenance = db.prepare('INSERT INTO source_provenance VALUES (?, ?, ?, ?, ?)')
@@ -180,7 +207,7 @@ export class LocalDataIndex {
         for (const item of projections.workspaces) workspace.run(item.workspaceId, item.workspaceName, item.rootPath, item.fingerprint, this.nowIso())
         for (const item of projections.conversations) {
           const sourceKey = `conversation:${item.scope}:${item.workspaceId ?? 'global'}:${item.summary.id}`
-          conversation.run(sourceKey, item.workspaceId ?? null, item.summary.id, item.scope, item.summary.title, item.summary.createdAt, item.summary.updatedAt, item.summary.relativePath, item.path, item.summary.messageCount, JSON.stringify(projectConversation(item.record)), item.fingerprint, this.nowIso())
+          conversation.run(sourceKey, item.workspaceId ?? null, item.summary.id, item.scope, item.summary.title, item.summary.createdAt, item.summary.updatedAt, item.summary.relativePath, item.path, item.summary.messageCount, JSON.stringify(projectConversation(item.record)), item.fingerprint, this.nowIso(), item.summary.pinned === true ? 1 : 0, item.record.branch?.status === 'archived' ? 1 : 0)
         }
         const memoryFingerprints = new Map(input.memory.recordFingerprints.map((item) => [item.memoryId, item.fingerprint]))
         for (const item of input.memory.records) memory.run(item.id, item.scope, item.workspace ?? null, item.project ?? null, item.sourceLessonId ?? null, JSON.stringify(item.tags), item.confidence, item.createdAt, item.updatedAt, item.disabledAt ?? null, item.deletedAt ?? null, memoryFingerprints.get(item.id) ?? fingerprintJson(memoryIdentity(item)), this.nowIso(), resolveTeachingMemoryKind(item) ?? null, resolveTeachingMemoryStatus(item))
@@ -229,6 +256,55 @@ export class LocalDataIndex {
       conversations: { read: async (workspaceId, conversationId) => this.readConversation(db, workspaceId, conversationId, 'workspace') },
       temporaryConversations: { read: async (_workspaceId, conversationId) => this.readConversation(db, null, conversationId, 'temporary') },
       ledger: { read: async (workspace) => this.readLedger(db, workspace.workspaceId) }
+    }
+  }
+
+  /**
+   * Metadata-first conversation list for session/resume UIs.
+   * Uses SQLite only when the projection is complete and current; otherwise returns
+   * unavailable so callers fall back to filesystem scan (listAgentConversations).
+   * Never returns snippets, highlights, or turn content.
+   */
+  async listConversations(query: LocalDataIndexConversationListQuery = {}): Promise<LocalDataIndexConversationListRead> {
+    if (!this.db || this.statusValue !== 'ready') return { state: 'unavailable' }
+    const db = this.db
+    if (!await this.canExecuteProjectionQuery(db)) return { state: 'unavailable' }
+    try {
+      const limit = normalizeConversationListLimit(query.limit)
+      const includeArchived = query.includeArchived === true
+      const clauses: string[] = []
+      const params: unknown[] = []
+      if (query.scope === 'workspace' || query.scope === 'temporary') {
+        clauses.push('scope = ?')
+        params.push(query.scope)
+      }
+      if (query.workspaceId !== undefined) {
+        if (query.workspaceId === null) {
+          clauses.push('workspace_id IS NULL')
+        } else {
+          clauses.push('workspace_id = ?')
+          params.push(query.workspaceId)
+        }
+      }
+      if (!includeArchived) {
+        clauses.push('archived = 0')
+      }
+      const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
+      // List indexes: conversation_projection_scope_updated_idx / conversation_projection_workspace_updated_idx
+      const sql = `SELECT conversation_id, workspace_id, scope, title, created_at, updated_at, message_count, pinned, archived, relative_path
+        FROM conversation_projection
+        ${where}
+        ORDER BY pinned DESC, updated_at DESC, conversation_id ASC
+        LIMIT ?`
+      params.push(limit)
+      const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>
+      return {
+        state: 'readable',
+        source: 'index',
+        items: rows.map(hydrateConversationListItem)
+      }
+    } catch {
+      return { state: 'unavailable' }
     }
   }
   issues(): LocalDataIndexIssue[] { return this.db ? this.db.prepare('SELECT source_key sourceKey, source_path sourcePath, code, message FROM index_issue ORDER BY id').all() as LocalDataIndexIssue[] : [] }
@@ -485,6 +561,90 @@ async function readLedgerEntries(rootPath: string): Promise<Array<{ path: string
 }
 function summaryFromRecord(record: AgentConversationRecord, workspaceId?: string): AgentConversationSummary { return { id: record.id, ...(workspaceId ? { workspaceId } : {}), title: record.title, createdAt: record.createdAt, updatedAt: record.updatedAt, relativePath: record.relativePath, absolutePath: record.absolutePath, messageCount: record.messageCount } }
 function projectConversation(record: AgentConversationRecord): object { return { turns: record.turns.map((turn) => ({ id: turn.id, role: turn.role, createdAt: turn.createdAt, ...(turn.toolCalls?.length ? { toolCalls: turn.toolCalls.map((tool) => ({ name: tool.name, ...(tool.isError ? { isError: true } : {}) })) } : {}), ...(turn.metadata ? { metadata: { version: turn.metadata.version, ...(turn.metadata.runUsage ? { runUsage: turn.metadata.runUsage } : {}), governance: { compactionEvents: turn.metadata.compactions?.length ?? 0, replacedTokens: sum(turn.metadata.compactions?.map((item) => item.replacedTokens) ?? []), hygieneSavedTokens: sum(turn.metadata.contextHygiene?.map((item) => item.savedTokens) ?? []) } } } : {}) })) } }
+/** Index-first list with filesystem fallback for resume/session pickers (metadata only). */
+export async function listConversationsWithFilesystemFallback(
+  index: Pick<LocalDataIndex, 'listConversations'> | null | undefined,
+  filesystemList: () => Promise<LocalDataIndexConversationListItem[]>,
+  query: LocalDataIndexConversationListQuery = {}
+): Promise<{ source: 'index' | 'filesystem'; items: LocalDataIndexConversationListItem[] }> {
+  if (index) {
+    try {
+      const indexed = await index.listConversations(query)
+      if (indexed.state === 'readable') return { source: 'index', items: indexed.items }
+    } catch {
+      // fall through to filesystem scan
+    }
+  }
+  const items = await filesystemList()
+  return { source: 'filesystem', items: applyConversationListQuery(items, query) }
+}
+
+/** Maps catalog summaries into the stable list-item shape (metadata-first, no snippets). */
+export function conversationListItemsFromSummaries(
+  summaries: readonly AgentConversationSummary[],
+  scope: 'workspace' | 'temporary' = 'workspace'
+): LocalDataIndexConversationListItem[] {
+  return summaries.map((summary) => ({
+    conversationId: summary.id,
+    workspaceId: summary.workspaceId ?? null,
+    scope,
+    title: sanitizePersistedConversationTitle(summary.title),
+    createdAt: summary.createdAt,
+    updatedAt: summary.updatedAt,
+    messageCount: summary.messageCount,
+    pinned: summary.pinned === true,
+    archived: summary.branch?.status === 'archived',
+    relativePath: summary.relativePath
+  }))
+}
+
+function applyConversationListQuery(
+  items: readonly LocalDataIndexConversationListItem[],
+  query: LocalDataIndexConversationListQuery
+): LocalDataIndexConversationListItem[] {
+  const limit = normalizeConversationListLimit(query.limit)
+  const includeArchived = query.includeArchived === true
+  return items
+    .filter((item) => {
+      if (query.scope && item.scope !== query.scope) return false
+      if (query.workspaceId !== undefined) {
+        if (query.workspaceId === null) {
+          if (item.workspaceId !== null) return false
+        } else if (item.workspaceId !== query.workspaceId) return false
+      }
+      if (!includeArchived && item.archived) return false
+      return true
+    })
+    .sort((left, right) => {
+      const leftPinned = left.pinned ? 1 : 0
+      const rightPinned = right.pinned ? 1 : 0
+      if (leftPinned !== rightPinned) return rightPinned - leftPinned
+      const updated = right.updatedAt.localeCompare(left.updatedAt)
+      if (updated !== 0) return updated
+      return left.conversationId.localeCompare(right.conversationId)
+    })
+    .slice(0, limit)
+}
+
+function hydrateConversationListItem(row: Record<string, unknown>): LocalDataIndexConversationListItem {
+  return {
+    conversationId: String(row.conversation_id),
+    workspaceId: row.workspace_id == null ? null : String(row.workspace_id),
+    scope: row.scope === 'temporary' ? 'temporary' : 'workspace',
+    title: String(row.title),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    messageCount: Number(row.message_count) || 0,
+    pinned: Number(row.pinned) === 1,
+    archived: Number(row.archived) === 1,
+    relativePath: String(row.relative_path)
+  }
+}
+function normalizeConversationListLimit(limit: number | undefined): number {
+  if (limit === undefined || limit === null) return 100
+  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 1) return 100
+  return Math.min(Math.floor(limit), 500)
+}
 function hydrateConversation(row: Record<string, unknown>): AgentConversationRecord { const projected = JSON.parse(String(row.turn_projection_json)) as { turns: Array<Record<string, unknown>> }; return { id: String(row.conversation_id), ...(row.workspace_id ? { workspaceId: String(row.workspace_id) } : {}), title: String(row.title), createdAt: String(row.created_at), updatedAt: String(row.updated_at), relativePath: String(row.relative_path), absolutePath: String(row.absolute_path), messageCount: Number(row.message_count), turns: projected.turns.map((turn) => ({ id: String(turn.id), role: turn.role as AgentConversationRecord['turns'][number]['role'], content: '', createdAt: String(turn.createdAt), ...(Array.isArray(turn.toolCalls) ? { toolCalls: turn.toolCalls.map((tool) => ({ id: `projected:${String((tool as { name?: unknown }).name ?? 'tool')}`, name: String((tool as { name?: unknown }).name ?? ''), arguments: '', ...((tool as { isError?: unknown }).isError ? { isError: true } : {}) })) } : {}), ...(turn.metadata ? { metadata: hydrateMetadata(turn.metadata as Record<string, unknown>) } : {}) })) } }
 function hydrateMetadata(value: Record<string, unknown>): AgentConversationRecord['turns'][number]['metadata'] { const governance = value.governance as Record<string, unknown> | undefined; return { version: 1, ...(value.runUsage ? { runUsage: value.runUsage as NonNullable<AgentConversationRecord['turns'][number]['metadata']>['runUsage'] } : {}), ...(governance ? { compactions: Array.from({ length: Number(governance.compactionEvents) || 0 }, () => ({ id: 'projected', createdAt: '1970-01-01T00:00:00.000Z', replacedTurnIds: [], sourceDigest: 'projected', reason: 'analytics', mode: 'normal', replacedTokens: Number(governance.replacedTokens) || 0 })), contextHygiene: Number(governance.hygieneSavedTokens) ? [{ changed: true, savedTokens: Number(governance.hygieneSavedTokens), compactedToolResults: 0, digestedToolResults: 0, compactedToolCallArgs: 0 }] : [] } : {}) } }
 function sum(values: Array<number | undefined>): number { return values.reduce<number>((total, value) => total + (typeof value === 'number' && Number.isFinite(value) ? value : 0), 0) }

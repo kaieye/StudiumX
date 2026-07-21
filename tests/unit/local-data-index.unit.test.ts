@@ -5,7 +5,7 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentConversationRecord, AgentConversationSummary, TeachingMemoryRecord, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 import { TeachingMemoryCatalog } from '../../src/main/teaching-memory-catalog'
-import { LocalDataIndex, type LocalDataIndexTestHooks } from '../../src/main/local-data-index'
+import { LocalDataIndex, conversationListItemsFromSummaries, listConversationsWithFilesystemFallback, type LocalDataIndexTestHooks } from '../../src/main/local-data-index'
 import { LOCAL_DATA_INDEX_MIGRATIONS, SCHEMA_MIGRATION_APPLIED_BY, listAppliedSchemaMigrations, migrateLocalDataIndex } from '../../src/main/local-data-index/schema-migration'
 import { createIsolatedTestRuntime, type IsolatedTestRuntime } from '../helpers/runtime-isolation'
 
@@ -122,8 +122,7 @@ describe('local data SQLite index migrations', () => {
         insertLegacy.run(migration.id, migration.checksum, '2026-01-01T00:00:00.000Z')
       }
       // Create projection business tables so open/migrate does not need to re-run SQL bodies.
-      db.exec(LOCAL_DATA_INDEX_MIGRATIONS[0]!.sql)
-      db.exec(LOCAL_DATA_INDEX_MIGRATIONS[1]!.sql)
+      for (const migration of LOCAL_DATA_INDEX_MIGRATIONS) db.exec(migration.sql)
 
       const before = db.prepare('SELECT id, checksum, applied_at FROM schema_migration ORDER BY id').all()
       migrateLocalDataIndex(db)
@@ -141,13 +140,15 @@ describe('local data SQLite index migrations', () => {
       const conversationColumns = (db.prepare('PRAGMA table_info(conversation_projection)').all() as Array<{ name: string }>).map((c) => c.name)
       expect(conversationColumns).toEqual([
         'source_key', 'workspace_id', 'conversation_id', 'scope', 'title', 'created_at', 'updated_at',
-        'relative_path', 'absolute_path', 'message_count', 'turn_projection_json', 'source_fingerprint', 'indexed_at'
+        'relative_path', 'absolute_path', 'message_count', 'turn_projection_json', 'source_fingerprint', 'indexed_at',
+        'pinned', 'archived'
       ])
       const memoryColumns = (db.prepare('PRAGMA table_info(memory_projection)').all() as Array<{ name: string }>).map((c) => c.name)
       expect(memoryColumns).not.toContain('content')
       expect(memoryColumns).toEqual([
         'memory_id', 'scope', 'workspace_path', 'project_path', 'source_lesson_id', 'tags_json', 'confidence',
-        'created_at', 'updated_at', 'disabled_at', 'deleted_at', 'source_fingerprint', 'indexed_at'
+        'created_at', 'updated_at', 'disabled_at', 'deleted_at', 'source_fingerprint', 'indexed_at',
+        'kind', 'status'
       ])
 
       // Checksum mismatch on upgraded legacy DB still hard-fails.
@@ -874,3 +875,253 @@ describe('local data SQLite fault injection boundaries', () => {
     index.close()
   })
 })
+describe('local data conversation list fields and indexes (DB-P0-6)', () => {
+  it('migrates list-friendly pinned/archived columns and scope/workspace updated_at indexes', () => {
+    const db = new Database(join(runtime.userDataDir, 'list-migration.sqlite'))
+    try {
+      migrateLocalDataIndex(db)
+      const conversationColumns = (db.prepare('PRAGMA table_info(conversation_projection)').all() as Array<{ name: string }>).map((c) => c.name)
+      expect(conversationColumns).toEqual(expect.arrayContaining([
+        'source_key', 'workspace_id', 'conversation_id', 'scope', 'title', 'created_at', 'updated_at',
+        'relative_path', 'absolute_path', 'message_count', 'turn_projection_json', 'source_fingerprint', 'indexed_at',
+        'pinned', 'archived'
+      ]))
+      expect(conversationColumns).not.toContain('content')
+      expect(conversationColumns).not.toContain('snippet')
+      expect(conversationColumns).not.toContain('highlight')
+
+      const indexNames = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'conversation_projection'").all() as Array<{ name: string }>).map((row) => row.name)
+      expect(indexNames).toEqual(expect.arrayContaining([
+        'conversation_projection_workspace_idx',
+        'conversation_projection_scope_updated_idx',
+        'conversation_projection_workspace_updated_idx'
+      ]))
+      expect(indexNames.some((name) => /fts/i.test(name))).toBe(false)
+      expect(LOCAL_DATA_INDEX_MIGRATIONS.map((m) => m.id)).toEqual(['0001', '0002', '0003', '0004'])
+    } finally { db.close() }
+  })
+
+  it('projects redacted title, message_count, updated_at, pinned, and archived list fields', async () => {
+    const secret = 'C7aQ9vL2xM8kR4pT7nW3yH6dF1sJ5bG0zX9uK2e'
+    const active = record('list-active')
+    active.title = `Resume title with credential ${secret}`
+    active.updatedAt = '2026-07-11T14:00:00.000Z'
+    active.messageCount = 4
+    active.pinned = true
+
+    const archived = record('list-archived')
+    archived.title = 'Archived conversation'
+    archived.updatedAt = '2026-07-11T13:00:00.000Z'
+    archived.messageCount = 2
+    archived.branch = {
+      schemaVersion: 1,
+      sessionId: 'list-archived',
+      branchId: 'list-archived',
+      revision: 1,
+      status: 'archived'
+    }
+
+    await writeConversation('conversation/list-active.json', active)
+    await writeConversation('conversation/list-archived.json', archived)
+
+    const index = makeIndex({
+      conversations: [
+        {
+          ...active,
+          workspaceId: 'ws-1',
+          title: active.title,
+          relativePath: 'conversation/list-active.md',
+          absolutePath: join(runtime.workspaceDir, 'conversation/list-active.md'),
+          pinned: true
+        },
+        {
+          ...archived,
+          workspaceId: 'ws-1',
+          relativePath: 'conversation/list-archived.md',
+          absolutePath: join(runtime.workspaceDir, 'conversation/list-archived.md')
+        }
+      ]
+    })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+
+    const listed = await index.listConversations({ workspaceId: 'ws-1', scope: 'workspace', includeArchived: true })
+    expect(listed.state).toBe('readable')
+    if (listed.state !== 'readable') throw new Error('expected readable list')
+    expect(listed.source).toBe('index')
+    expect(listed.items).toEqual([
+      expect.objectContaining({
+        conversationId: 'list-active',
+        workspaceId: 'ws-1',
+        scope: 'workspace',
+        title: 'Resume title with credential [redacted]',
+        updatedAt: '2026-07-11T14:00:00.000Z',
+        messageCount: 4,
+        pinned: true,
+        archived: false
+      }),
+      expect.objectContaining({
+        conversationId: 'list-archived',
+        title: 'Archived conversation',
+        updatedAt: '2026-07-11T13:00:00.000Z',
+        messageCount: 2,
+        pinned: false,
+        archived: true
+      })
+    ])
+    expect(JSON.stringify(listed.items)).not.toContain(secret)
+    expect(JSON.stringify(listed.items)).not.toMatch(/snippet|highlight|private answer/i)
+
+    const defaultListed = await index.listConversations({ workspaceId: 'ws-1' })
+    expect(defaultListed.state).toBe('readable')
+    if (defaultListed.state !== 'readable') throw new Error('expected readable list')
+    expect(defaultListed.items.map((item) => item.conversationId)).toEqual(['list-active'])
+
+    index.close()
+    const db = new Database(index.path, { readonly: true })
+    try {
+      const rows = db.prepare('SELECT conversation_id, title, message_count, pinned, archived, updated_at FROM conversation_projection ORDER BY conversation_id').all()
+      expect(rows).toEqual([
+        {
+          conversation_id: 'list-active',
+          title: 'Resume title with credential [redacted]',
+          message_count: 4,
+          pinned: 1,
+          archived: 0,
+          updated_at: '2026-07-11T14:00:00.000Z'
+        },
+        {
+          conversation_id: 'list-archived',
+          title: 'Archived conversation',
+          message_count: 2,
+          pinned: 0,
+          archived: 1,
+          updated_at: '2026-07-11T13:00:00.000Z'
+        }
+      ])
+      expect(JSON.stringify(rows)).not.toContain(secret)
+    } finally { db.close() }
+  })
+
+  it('falls back to filesystem scan when the index is incomplete or unavailable', async () => {
+    const value = record('fs-fallback')
+    value.updatedAt = '2026-07-11T15:00:00.000Z'
+    value.messageCount = 3
+    await writeConversation('conversation/fs-fallback.json', value)
+    const summaryItem = {
+      ...value,
+      workspaceId: 'ws-1',
+      relativePath: 'conversation/fs-fallback.md',
+      absolutePath: join(runtime.workspaceDir, 'conversation/fs-fallback.md'),
+      pinned: true
+    }
+
+    const incomplete = makeIndex({
+      conversations: [
+        summaryItem,
+        {
+          id: 'missing-for-incomplete',
+          workspaceId: 'ws-1',
+          title: 'missing',
+          createdAt: instant,
+          updatedAt: instant,
+          relativePath: 'conversation/missing-for-incomplete.md',
+          absolutePath: join(runtime.workspaceDir, 'conversation/missing-for-incomplete.md'),
+          messageCount: 1
+        }
+      ]
+    })
+    expect(incomplete.open()).toBe(true)
+    await incomplete.rebuild()
+    expect(incomplete.status).toBe('incomplete')
+    await expect(incomplete.listConversations({ workspaceId: 'ws-1' })).resolves.toEqual({ state: 'unavailable' })
+
+    const filesystemItems = conversationListItemsFromSummaries([summaryItem], 'workspace')
+    const fromIncomplete = await listConversationsWithFilesystemFallback(
+      incomplete,
+      async () => filesystemItems,
+      { workspaceId: 'ws-1', scope: 'workspace' }
+    )
+    expect(fromIncomplete).toEqual({
+      source: 'filesystem',
+      items: [
+        expect.objectContaining({
+          conversationId: 'fs-fallback',
+          title: 'Conversation fs-fallback',
+          updatedAt: '2026-07-11T15:00:00.000Z',
+          messageCount: 3,
+          pinned: true,
+          archived: false
+        })
+      ]
+    })
+    incomplete.close()
+
+    const unavailable = makeIndex({
+      conversations: [summaryItem],
+      testHooks: {
+        loadSqlite: () => {
+          throw new Error('better-sqlite3 native binding missing for list fallback test')
+        }
+      }
+    })
+    expect(unavailable.open()).toBe(false)
+    expect(unavailable.status).toBe('unavailable')
+    await expect(unavailable.listConversations()).resolves.toEqual({ state: 'unavailable' })
+    const fromUnavailable = await listConversationsWithFilesystemFallback(
+      unavailable,
+      async () => filesystemItems,
+      { workspaceId: 'ws-1' }
+    )
+    expect(fromUnavailable.source).toBe('filesystem')
+    expect(fromUnavailable.items.map((item) => item.conversationId)).toEqual(['fs-fallback'])
+
+    const fromNull = await listConversationsWithFilesystemFallback(
+      null,
+      async () => filesystemItems,
+      { workspaceId: 'ws-1' }
+    )
+    expect(fromNull.source).toBe('filesystem')
+    expect(fromNull.items).toHaveLength(1)
+  })
+
+  it('uses index list rows when the projection is ready and complete', async () => {
+    const value = record('index-list-ready')
+    value.updatedAt = '2026-07-11T16:00:00.000Z'
+    value.messageCount = 5
+    value.pinned = true
+    await writeConversation('conversation/index-list-ready.json', value)
+    const summaryItem = {
+      ...value,
+      workspaceId: 'ws-1',
+      relativePath: 'conversation/index-list-ready.md',
+      absolutePath: join(runtime.workspaceDir, 'conversation/index-list-ready.md'),
+      pinned: true
+    }
+    const index = makeIndex({ conversations: [summaryItem] })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+
+    const result = await listConversationsWithFilesystemFallback(
+      index,
+      async () => {
+        throw new Error('filesystem scan must not run when the index is ready')
+      },
+      { workspaceId: 'ws-1', scope: 'workspace' }
+    )
+    expect(result.source).toBe('index')
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        conversationId: 'index-list-ready',
+        messageCount: 5,
+        pinned: true,
+        archived: false,
+        updatedAt: '2026-07-11T16:00:00.000Z'
+      })
+    ])
+    index.close()
+  })
+})
+
