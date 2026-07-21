@@ -56,7 +56,8 @@ const SECTION_TITLES: Readonly<Record<SupportBundleSectionId, string>> = {
   config_fingerprint: 'Config Fingerprint',
   capability: 'Capability Snapshot',
   audit_correlation: 'Audit Correlation',
-  environment: 'Environment'
+  environment: 'Environment',
+  local_data_index: 'Local Data Index'
 }
 
 const ALL_SECTION_IDS: readonly SupportBundleSectionId[] = [
@@ -65,7 +66,8 @@ const ALL_SECTION_IDS: readonly SupportBundleSectionId[] = [
   'config_fingerprint',
   'capability',
   'audit_correlation',
-  'environment'
+  'environment',
+  'local_data_index'
 ]
 
 /** Optional inputs assembled by callers; missing sections are simply omitted. */
@@ -84,6 +86,36 @@ export type SupportBundleInput = {
     | readonly unknown[]
     | null
   environment?: SupportBundleEnvironmentInput | null
+  /** Aggregate-only LocalDataIndex diagnostics — never projection row bodies. */
+  localDataIndex?: SupportBundleLocalDataIndexInput | null
+}
+
+/**
+ * Aggregate-only index diagnostics for support bundles.
+ * Callers must not supply conversation/memory projection row bodies.
+ */
+export type SupportBundleLocalDataIndexInput = {
+  pathExists: boolean
+  /** Logical label only (e.g. userData/studiumx-index.sqlite). Absolute paths are redacted. */
+  indexPathLabel?: string | null
+  status: 'ready' | 'building' | 'incomplete' | 'unavailable' | 'closed'
+  reason?: string | null
+  complete?: boolean | null
+  rebuiltAt?: string | null
+  version?: string | null
+  migrationIds?: readonly string[]
+  appliedMigrations?: readonly {
+    id: string
+    checksum?: string
+    appliedAt?: string
+    appVersion?: string | null
+    appliedBy?: string | null
+    sqlBytes?: number | null
+  }[]
+  issueCountsByCode?: Readonly<Record<string, number>>
+  issueCount?: number
+  /** Optional row counts only — never full projection payloads. */
+  projectionRowCounts?: Readonly<Record<string, number>>
 }
 
 export type WorkspaceInspectionFindingsSummary = {
@@ -169,6 +201,9 @@ export function previewSupportBundle(input: SupportBundleInput = {}): SupportBun
   if (input.environment != null) {
     sections.push(buildEnvironmentSection(input.environment, workspaceRoot))
   }
+  if (input.localDataIndex != null) {
+    sections.push(buildLocalDataIndexSection(input.localDataIndex, workspaceRoot))
+  }
 
   if (sections.length === 0) {
     topWarnings.push('No diagnostic sections were supplied; preview is empty.')
@@ -178,7 +213,7 @@ export function previewSupportBundle(input: SupportBundleInput = {}): SupportBun
     schemaVersion: SUPPORT_BUNDLE_SCHEMA_VERSION,
     generatedAt: redactText(generatedAt),
     sections,
-    warnings: uniqueStrings(topWarnings.map(redactText)),
+    warnings: uniqueStrings(topWarnings.map((warning) => redactText(warning))),
     redactionPolicy: { ...DEFAULT_SUPPORT_BUNDLE_REDACTION_POLICY }
   }
 }
@@ -221,7 +256,7 @@ export function exportSupportBundle(
       id: section.id,
       title: section.title,
       payload: deepRedactJson(section.payload, options.workspaceRoot ?? null),
-      warnings: section.warnings.map(redactText)
+      warnings: section.warnings.map((warning) => redactText(warning))
     }))
 
   const exportedAt = (options.now ?? (() => new Date().toISOString()))()
@@ -282,20 +317,20 @@ function buildInspectorSection(
     }
   }))
 
-  const summary =
-    'summary' in report && report.summary
-      ? {
-          findingCount: Number(report.summary.findingCount ?? findings.length),
-          errorCount: Number(report.summary.errorCount ?? 0),
-          warningCount: Number(report.summary.warningCount ?? 0),
-          infoCount: Number(report.summary.infoCount ?? 0)
-        }
-      : {
-          findingCount: Number(report.findingCount ?? findings.length),
-          errorCount: Number(report.errorCount ?? 0),
-          warningCount: Number(report.warningCount ?? 0),
-          infoCount: Number(report.infoCount ?? 0)
-        }
+  const summarySource = report.summary
+  const summary = summarySource
+    ? {
+        findingCount: Number(summarySource.findingCount ?? findings.length),
+        errorCount: Number(summarySource.errorCount ?? 0),
+        warningCount: Number(summarySource.warningCount ?? 0),
+        infoCount: Number(summarySource.infoCount ?? 0)
+      }
+    : {
+        findingCount: 'findingCount' in report ? Number(report.findingCount ?? findings.length) : findings.length,
+        errorCount: 'errorCount' in report ? Number(report.errorCount ?? 0) : 0,
+        warningCount: 'warningCount' in report ? Number(report.warningCount ?? 0) : 0,
+        infoCount: 'infoCount' in report ? Number(report.infoCount ?? 0) : 0
+      }
 
   const payload = {
     schemaVersion: 'schemaVersion' in report ? report.schemaVersion ?? 1 : 1,
@@ -444,6 +479,69 @@ function buildAuditCorrelationSection(
   return section('audit_correlation', deepRedactJson(payload, workspaceRoot), warnings)
 }
 
+function buildLocalDataIndexSection(
+  input: SupportBundleLocalDataIndexInput,
+  workspaceRoot: string | null
+): SupportBundleSectionPreview {
+  const disposableNote =
+    'studiumx-index.sqlite can be safely deleted and rebuilt from canonical local files (JSON/JSONL).'
+  const pathLabel = redactPath(
+    String(input.indexPathLabel?.trim() || 'userData/studiumx-index.sqlite'),
+    workspaceRoot
+  )
+  const migrationIds = uniqueStrings((input.migrationIds ?? []).map(String)).slice(0, 32)
+  const appliedMigrations = (input.appliedMigrations ?? []).slice(0, 32).map((row) => ({
+    id: redactText(String(row.id ?? '')),
+    checksum: row.checksum != null ? redactText(String(row.checksum)) : null,
+    appliedAt: row.appliedAt != null ? redactText(String(row.appliedAt)) : null,
+    appVersion: row.appVersion != null ? redactText(String(row.appVersion)) : null,
+    appliedBy: row.appliedBy != null ? redactText(String(row.appliedBy)) : null,
+    sqlBytes: typeof row.sqlBytes === 'number' && Number.isFinite(row.sqlBytes) ? Math.max(0, Math.floor(row.sqlBytes)) : null
+  }))
+  const issueCountsByCode = sanitizeCountMap(input.issueCountsByCode)
+  const issueCount =
+    typeof input.issueCount === 'number' && Number.isFinite(input.issueCount)
+      ? Math.max(0, Math.floor(input.issueCount))
+      : Object.values(issueCountsByCode).reduce((sum, n) => sum + n, 0)
+  const projectionRowCounts = sanitizeCountMap(input.projectionRowCounts)
+
+  // Aggregate-only: explicitly omit any accidental row-body fields if callers smuggle them.
+  const payload = {
+    aggregateOnly: true as const,
+    disposable: true as const,
+    disposableNote,
+    pathExists: input.pathExists === true,
+    indexPathLabel: pathLabel,
+    status: redactText(String(input.status ?? 'unavailable')),
+    reason: input.reason != null ? redactText(String(input.reason), workspaceRoot) : null,
+    complete: typeof input.complete === 'boolean' ? input.complete : null,
+    rebuiltAt: input.rebuiltAt != null ? redactText(String(input.rebuiltAt)) : null,
+    version: input.version != null ? redactText(String(input.version)) : null,
+    migrationIds,
+    appliedMigrations,
+    issueCount,
+    issueCountsByCode,
+    projectionRowCounts: Object.keys(projectionRowCounts).length > 0 ? projectionRowCounts : null,
+    // Documented non-inclusion for support recipients / redaction audits.
+    includesProjectionRowBodies: false as const,
+    includesConversationBodies: false as const,
+    includesMemoryBodies: false as const
+  }
+
+  const warnings: string[] = [
+    disposableNote,
+    'Local data index section is aggregate-only; conversation/memory projection row bodies are never packed.'
+  ]
+  if (payload.status === 'unavailable' || payload.status === 'incomplete') {
+    warnings.push(`Index status is ${payload.status}; file-scan fallback may be active.`)
+  }
+  if ((input.appliedMigrations?.length ?? 0) > 32 || (input.migrationIds?.length ?? 0) > 32) {
+    warnings.push('Migration list truncated to 32 entries.')
+  }
+
+  return section('local_data_index', deepRedactJson(payload, workspaceRoot), warnings)
+}
+
 function buildEnvironmentSection(
   input: SupportBundleEnvironmentInput,
   workspaceRoot: string | null
@@ -474,7 +572,7 @@ function section(
     id,
     title: SECTION_TITLES[id],
     payload,
-    warnings: uniqueStrings(warnings.map(redactText))
+    warnings: uniqueStrings(warnings.map((warning) => redactText(warning)))
   }
 }
 
@@ -602,7 +700,23 @@ const DENIED_FIELD_NAMES = new Set(
     'clientsecret',
     'rawprompt',
     'systemprompt',
-    'userprompt'
+    'userprompt',
+    // LocalDataIndex projection row bodies must never ship in support bundles.
+    'turn_projection_json',
+    'turnprojectionjson',
+    'snapshot_json',
+    'snapshotjson',
+    'conversation_projection',
+    'conversationprojection',
+    'memory_projection',
+    'memoryprojection',
+    'learning_work_projection',
+    'learningworkprojection',
+    'projectionrows',
+    'projectionrowbodies',
+    'recordbodies',
+    'conversationbodies',
+    'memorybodies'
   ].map((name) => name.toLowerCase())
 )
 

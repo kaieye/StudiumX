@@ -1,5 +1,6 @@
 import type {
   TeachingMemoryDiagnostics,
+  TeachingMemoryKind,
   TeachingMemoryRecord,
   TeachingSettingsV1
 } from '../shared/teaching-types'
@@ -10,6 +11,8 @@ export type TeachingMemoryRecallInput = {
   query: string
   workspaceRoot?: string
   limit?: number
+  /** Optional kind filter (explicit memoryKind or stable kind tag resolution). */
+  memoryKind?: TeachingMemoryKind | TeachingMemoryKind[]
 }
 
 /**
@@ -36,7 +39,10 @@ export class TeachingMemoryRecall {
       return []
     }
     const limit = Math.max(1, input.limit ?? settings.memory.maxInjected)
-    const active = (await this.options.catalog.list(input.workspaceRoot)).filter((record) => !record.disabledAt)
+    const active = (await this.options.catalog.list({
+      ...(input.workspaceRoot ? { access: { workspaceRoot: input.workspaceRoot } } : {}),
+      ...(input.memoryKind !== undefined ? { memoryKind: input.memoryKind } : {})
+    })).filter((record) => !record.disabledAt)
     const userMemories = active.filter((record) => record.scope === 'user')
     const scored = active
       .filter((record) => record.scope !== 'user')

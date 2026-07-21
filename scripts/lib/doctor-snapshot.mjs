@@ -189,6 +189,9 @@ export function formatDoctorReport(snapshot, format = 'text') {
       lines.push('process crash marker: absent')
     }
   }
+  for (const line of formatBackupPolicyDoctorLines()) {
+    lines.push(line)
+  }
   return `${lines.join('\n')}\n`
 }
 
@@ -209,6 +212,15 @@ export function calculateDoctorExitCode(snapshot) {
 export function redactDoctorSnapshot(snapshot) {
   assertDoctorSnapshot(snapshot)
   return redactValue(snapshot)
+}
+
+/** Operator-facing backup vs disposable projection lines (DB-P1-5). */
+export function formatBackupPolicyDoctorLines() {
+  return [
+    'backup policy: must backup workspace files + Memory + learning-work JSONL + settings (desensitize secrets)',
+    'backup policy: disposable projections = studiumx-index.sqlite* / quarantined / caches / diagnostic logs (safe to delete; rebuild restores)',
+    'export default: exclude disposable projections; optional includeProjections is debug-only and untrusted'
+  ]
 }
 
 export function defaultDoctorUserDataPath() {

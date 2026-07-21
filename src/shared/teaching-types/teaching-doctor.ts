@@ -10,6 +10,7 @@ export type TeachingDoctorCheckId =
   | 'source_gap'
   | 'catalog_drift'
   | 'local_process_crash_marker'
+  | 'local_data_index'
 
 /**
  * Check result ladder. `error` means the check itself failed to execute; that
@@ -131,6 +132,33 @@ export type TeachingDoctorCatalogDriftFacts = {
   removedRelativePaths: readonly string[]
 }
 
+/**
+ * Aggregate-only LocalDataIndex diagnostics for TeachingDoctor.
+ * Absolute host paths must not appear in user-facing evidence; use logical labels.
+ */
+export type TeachingDoctorLocalDataIndexFacts = {
+  /** Whether the disposable projection file exists on disk. */
+  pathExists: boolean
+  /** Logical locator only (e.g. userData/studiumx-index.sqlite) — never absolute home path. */
+  indexPathLabel?: string | null
+  status: 'ready' | 'building' | 'incomplete' | 'unavailable' | 'closed'
+  reason: string | null
+  complete: boolean | null
+  rebuiltAt: string | null
+  /** Applied migration ids only (no SQL bodies). */
+  migrationIds: readonly string[]
+  /** Issue counts by stable code (source_drift / read_failed / …). */
+  issueCountsByCode: Readonly<Record<string, number>>
+  /** DB-OPT-4: usage ledger segment / invalid counters (aggregate-only). */
+  usage?: {
+    segmentFileCount: number
+    projectedEntryCount: number
+    invalidRowCount: number
+    invalidRowIssueCount?: number
+    readFailedIssueCount?: number
+  } | null
+}
+
 export type TeachingDoctorProcessCrashMarkerFacts = {
   /** True when a valid crash marker was found under appData observability. */
   present: boolean
@@ -148,12 +176,13 @@ export type TeachingDoctorFacts = {
   config?: TeachingDoctorConfigFacts | null
   sourceGap?: TeachingDoctorSourceGapFacts | null
   catalogDrift?: TeachingDoctorCatalogDriftFacts | null
+  localDataIndex?: TeachingDoctorLocalDataIndexFacts | null
   /** Local process crash marker from prior abnormal exit (collector I/O). */
   processCrashMarker?: TeachingDoctorProcessCrashMarkerFacts | null
 }
 
 /**
- * Product IPC payload for \unTeachingDoctor\ (ADR-0084).
+ * Product IPC payload for `runTeachingDoctor` (ADR-0084).
  * Fail-closed: only optional includeProcessCrashMarker; no free-form facts from renderer.
  */
 export type RunTeachingDoctorPayload = {

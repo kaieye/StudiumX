@@ -12,7 +12,8 @@ import {
   normalizeTeachingMemoryRecord,
   normalizeTeachingMemoryScope,
   type TeachingMemoryAccess,
-  type TeachingMemoryCatalogIndexScan
+  type TeachingMemoryCatalogIndexScan,
+  type TeachingMemoryListQuery
 } from './teaching-memory-catalog'
 import { TeachingMemoryLegacyMigrationDryRun } from './teaching-memory-catalog/migration-dry-run'
 import { TeachingMemoryRecall, type TeachingMemoryRecallInput } from './teaching-memory-recall'
@@ -68,6 +69,7 @@ export class TeachingMemoryStore {
       scope,
       workspace: scope !== 'user' ? workspaceRoot : undefined,
       project: scope === 'project' ? workspaceRoot : undefined,
+      ...(input.memoryKind ? { memoryKind: input.memoryKind } : {}),
       tags: input.tags ?? [],
       confidence: input.confidence ?? 1,
       ...normalizedMutationTrace(options),
@@ -84,6 +86,7 @@ export class TeachingMemoryStore {
     const next = normalizeTeachingMemoryRecord({
       ...current,
       ...(patch.content !== undefined ? { content: patch.content } : {}),
+      ...(patch.memoryKind !== undefined ? { memoryKind: patch.memoryKind } : {}),
       ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
       ...(patch.confidence !== undefined ? { confidence: patch.confidence } : {}),
       ...(patch.disabled === true ? { disabledAt: current.disabledAt ?? now } : {}),
@@ -107,8 +110,8 @@ export class TeachingMemoryStore {
     await this.catalog.write(next)
   }
 
-  async list(workspaceRoot?: string, includeDeleted = false): Promise<TeachingMemoryRecord[]> {
-    return this.catalog.list(workspaceRoot, includeDeleted)
+  async list(query?: TeachingMemoryListQuery | string, includeDeleted = false): Promise<TeachingMemoryRecord[]> {
+    return this.catalog.list(query, includeDeleted)
   }
 
   /** Main-process-only canonical scan for the disposable local SQLite projection. */

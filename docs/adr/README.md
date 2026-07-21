@@ -1,6 +1,6 @@
 # 架构 ADR 索引
 
-本目录记录已经实施、且有代码、测试和 Git 提交证据的架构决定。ADR（Architecture Decision Record，架构决策记录）说明系统为什么采用某项重要做法、已经落地到什么范围，以及它**没有**授权做什么。
+本目录主要记录已经实施、且有代码、测试和 Git 提交证据的架构决定。少数条目为 **Proposed / 设计 gate only**（正文与索引表会标明 **未实施**，例如 [ADR-0123](0123-runtime-session-store.md)），**不**表示生产 schema 或写路径已落地。ADR（Architecture Decision Record，架构决策记录）说明系统为什么采用某项重要做法、已经落地到什么范围，以及它**没有**授权做什么。
 
 ## 先从这里读
 
@@ -14,7 +14,7 @@
 
 | 你关心的问题 | 建议先读 |
 | --- | --- |
-| SQLite 分析索引损坏后能否隔离、重建或回退读取 | ADR-0001 |
+| SQLite 分析/列表投影损坏后能否隔离、重建或回退读取；分层写/读权威；PR 验收闸与 P2 边界 | ADR-0001、[ADR-0124](0124-database-layered-authority-and-pr-gates.md) |
 | canonical teaching data 的永久保留边界，以及 logical JSONL 如何分区、分段和生成会话摘要 | ADR-0002 |
 | 关键 JSON 不可读时如何从 `.bak` 验证恢复 | ADR-0003 |
 | 哪些 writer 已使用 durable publish，以及受控 `write_workspace_file` 的 P8 S1–S4 closure 到哪里 | ADR-0004、ADR-0035 |
@@ -134,11 +134,14 @@
 | 最近一次 teaching-turn review bundle 如何 durable 缓存（投影 only，无 auto-apply） | ADR-0113 |
 | 最近一次 review last-bundle 如何经闭集 product IPC 读写 + Settings 演示往返（无 auto-apply） | ADR-0114 |
 | finalize 后可选 durable save last-bundle（默认 off；source finalize_hook；无 auto-apply） | ADR-0116 |
+| Token/tool/turn 细粒度 usage 观测账本与可选 SQLite 投影边界 | ADR-0122 |
+| 可选 runtime session store（仅设计；非写权威） | ADR-0123 |
+| Database 分层权威、P2 边界、验收总闸、切片状态 | ADR-0124 |
 ## 已实施决定
 
 | ADR | 主题 | 已实施范围 |
 | --- | --- | --- |
-| [ADR-0001](0001-rebuildable-sqlite-projection.md) | C-1 可重建 SQLite projection 与 no-FTS 边界 | SQLite 仅作为可再建 analytics 投影并保留 canonical 文件回退；FTS、查询/搜索面与 query-facing corpus 均未获授权。 |
+| [ADR-0001](0001-rebuildable-sqlite-projection.md) | C-1 可重建 SQLite 投影、分层权威与 no-FTS 默认 | 写权威在文件；list/analytics 可为优选读路径；库可丢弃重建；analytics 库 FTS/query corpus 默认未获授权；含 rebuild 默认全量 + OPT-2 骨架 + backup/export 可丢弃声明（2026-07-21）。 |
 | [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md) | C-2 canonical 永久保留、分区、分段与摘要 projection | canonical teaching data 永久保留；UTC 月分区、无损 sealed JSONL 分段和显式会话摘要 projection 已实施。physical retention / recovery 未获批准；相邻 agent-artifact 年龄/大小删除路径已移除。 |
 | [ADR-0003](0003-critical-json-backups-and-verified-recovery.md) | C-3 关键 JSON 备份与恢复 | `.bak` 备份及 verified read recovery。 |
 | [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) | C-4 durable publish | 共享 durable publish 原语及已迁移的部分 consumer。C-4 始终是 **partial writer migration**。C-4P6 历史仅有 S1 生产基础 + S2…S194 tests-only residual；[ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 以受限 macOS internal APFS runtime-adjacent evidence 结项该工作线，**不**宣称跨文件 transaction / common atomicity、完整 manifest failure matrix 或 power-loss durability。P8-S1…S4 受控 `write_workspace_file` 文本文件 scope 已关闭（含获批 Windows direct-path non-CAS profile）；Windows strict 以 unsupported/no-go 结项（ADR-0035）。P9 以 fixed-file audit boundary（S2 生产 + S3…S45 tests-only residual + ADR-0019 V1）结项，ADR-0035 明确不扩张为 strict/generic/cross-process/transaction/public surface。不表示所有 writer、CAS/lost-update protection、fully cross-platform durable publish 或 metadata full preservation。 |
@@ -257,6 +260,9 @@
 | [ADR-0114](0114-teaching-turn-review-last-bundle-ipc.md) | Teaching-turn review last-bundle product IPC | 闭集 get/save last-bundle → ADR-0113 pure+FS；Settings Load/Save 演示往返；无 auto-apply / 非 settlement SoT。 |
 | [ADR-0116](0116-teaching-turn-review-last-bundle-finalize-save.md) | Teaching-turn review last-bundle finalize save | composition-edge factory；默认 off；source finalize_hook；fail-soft；无 auto-apply / 非 settlement SoT / 不改 IPC allowlist。 |
 | [ADR-0098](0098-agent-session-queue-renderer-consumer.md) | Agent session queue 只读 renderer consumer | Doctor 面板底部只读 queue diagnostics；`projectAgentSessionQueue`；无 free-text；无 drain/steer；autoDrain 展示期望 false；local FIFO 不变。 |
+| [ADR-0122](0122-usage-ledger-as-canonical-observability.md) | Usage ledger as canonical observability | 设计权威 + **DB-P0-3 最小实现已落地**（JSONL + optional SQLite projection）；与 LearningSession 正交、诊断级 retention、redaction；非「仅设计未实现」。 |
+| [ADR-0123](0123-runtime-session-store.md) | Runtime session store (design only) | **Proposed / 未实施**：可选 disposable runtime 缓存形状 + 硬门槛；export/resume 仍文件权威；不 override DB-P2-3；无生产 schema/writer。 |
+| [ADR-0124](0124-database-layered-authority-and-pr-gates.md) | Database 分层权威 + PR 验收闸 + P2 边界 | 写/读分层；六大 Gate；DB-P2-1…4 触发/won't-do；P0/P1/OPT 诚实状态；替代已删除的 `docs/improvements/database-*` 活草稿。 |
 ## C-4P6 历史 evidence 与受限结项边界
 
 > 本节保存 ADR-0004 的历史 evidence 范围；**当前工作线 close-out** 以 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 为准，不再作为开放实现 todo。
@@ -308,6 +314,8 @@ Hermes / Reasonix 合并借鉴清单（A–H 近端切片）已落地并沉淀�
 ## 四源改进借鉴 ADOPTION 结项（pi / codex / grok / hermes）
 
 原 `docs/improvements/{ADOPTION,pi,codex,grok,hermes}.md` 统一 backlog 已全部可实现切片落地（ADR-0051–0116、0118–0120；0117 为 study-planning 旁路）。长期边界、命名冻结、明确不采纳与信号触发 residual 见 **[ADR-0121](0121-improvements-adoption-closeout.md)**。`docs/improvements/` 目录已清空，不得重建为第二套 backlog。
+
+Database 子系统：event density / backup-export / multi-workspace rebuild 默认与 OPT-2 骨架 / OPT-7 词法证据表，已分别并入 [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0034](0034-redacted-support-bundle.md)、[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)。分层权威、P2 边界、六大验收闸与 P0/P1/OPT 诚实状态见 [ADR-0124](0124-database-layered-authority-and-pr-gates.md)（已删除 `docs/improvements/database-*` 活草稿；契约测试锁定 ADR-0124）。ZCode/Marvis 对照摘要见 ADR-0124 §6。
 
 ## 维护约定
 

@@ -7,6 +7,7 @@ import {
   type TeachingDoctorConfigFacts,
   type TeachingDoctorFacts,
   type TeachingDoctorFixSuggestion,
+  type TeachingDoctorLocalDataIndexFacts,
   type TeachingDoctorOutcomeCrashWindowFacts,
   type TeachingDoctorProcessCrashMarkerFacts,
   type TeachingDoctorReport,
@@ -50,6 +51,7 @@ export function runTeachingDoctor(facts: TeachingDoctorFacts, generatedAt: strin
     checkConfigAvailability(facts.config),
     checkSourceGap(facts.sourceGap),
     checkCatalogDrift(facts.catalogDrift),
+    checkLocalDataIndex(facts.localDataIndex),
     checkLocalProcessCrashMarker(facts.processCrashMarker)
   ]
 
@@ -459,6 +461,167 @@ function checkCatalogDrift(
   )
 }
 
+
+function checkLocalDataIndex(
+  facts: TeachingDoctorLocalDataIndexFacts | null | undefined
+): TeachingDoctorCheckItem {
+  const checkId: TeachingDoctorCheckId = 'local_data_index'
+  const disposableNote =
+    'studiumx-index.sqlite can be safely deleted and rebuilt from canonical local files (JSON/JSONL).'
+  const pathLabel = facts?.indexPathLabel?.trim() || 'userData/studiumx-index.sqlite'
+
+  if (facts == null) {
+    return item(checkId, 'skipped', 'Local data index diagnostics were not supplied.', emptyEvidence(), {
+      kind: 'none',
+      description: 'No repair; supply LocalDataIndex.diagnostics() facts for a full diagnosis.',
+      autoRepairAllowed: false
+    }, 'Provide LocalDataIndex aggregate diagnostics and re-run TeachingDoctor.', {
+      configPath: pathLabel,
+      fixSuggestion: {
+        code: 'supply_local_data_index_facts',
+        title: 'Collect local data index diagnostics',
+        steps: [
+          'Call LocalDataIndex.diagnostics() (aggregate-only; no projection row bodies).',
+          'Re-run TeachingDoctor with localDataIndex facts.',
+          disposableNote
+        ],
+        configPath: pathLabel,
+        docsRef: 'local-data-index'
+      }
+    })
+  }
+
+  const issueCounts = facts.issueCountsByCode ?? {}
+  const issueCount = Object.values(issueCounts).reduce((sum, n) => sum + Math.max(0, Number(n) || 0), 0)
+  const migrationIds = uniqueStrings(facts.migrationIds).slice(0, 24)
+  const topIssueCodes = Object.entries(issueCounts)
+    .filter(([, count]) => Number(count) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]) || a[0].localeCompare(b[0]))
+    .slice(0, 12)
+    .map(([code, count]) => `${code}=${Math.max(0, Math.floor(Number(count) || 0))}`)
+
+  const evidence = safeEvidence(
+    {
+      pathExists: facts.pathExists === true,
+      indexPathLabel: pathLabel,
+      status: facts.status,
+      complete: facts.complete,
+      rebuiltAt: facts.rebuiltAt,
+      migrationCount: migrationIds.length,
+      issueCount,
+      disposable: true,
+      ...(facts.usage
+        ? {
+            usageSegmentFileCount: Math.max(0, Math.floor(Number(facts.usage.segmentFileCount) || 0)),
+            usageProjectedEntryCount: Math.max(0, Math.floor(Number(facts.usage.projectedEntryCount) || 0)),
+            usageInvalidRowCount: Math.max(0, Math.floor(Number(facts.usage.invalidRowCount) || 0))
+          }
+        : {})
+    },
+    [
+      disposableNote,
+      ...(facts.reason ? [`reason=${redactText(facts.reason)}`] : []),
+      ...(migrationIds.length > 0 ? [`migration_ids=${migrationIds.join(',')}`] : []),
+      ...(topIssueCodes.length > 0 ? [`issue_counts=${topIssueCodes.join(',')}`] : []),
+      ...(facts.usage
+        ? [
+            `usage_segments=${Math.max(0, Math.floor(Number(facts.usage.segmentFileCount) || 0))}`,
+            `usage_projected_entries=${Math.max(0, Math.floor(Number(facts.usage.projectedEntryCount) || 0))}`,
+            `usage_invalid_rows=${Math.max(0, Math.floor(Number(facts.usage.invalidRowCount) || 0))}`
+          ]
+        : [])
+    ]
+  )
+
+  const fixSuggestion = {
+    code: 'rebuild_local_data_index',
+    title: 'Rebuild disposable local data index',
+    steps: [
+      disposableNote,
+      `If needed, delete ${pathLabel} (and -wal/-shm sidecars) while the app is stopped.`,
+      'Relaunch StudiumX so LocalDataIndex can open and scheduleRebuild() from canonical files.',
+      'Do not delete workspace JSON/JSONL sources; those remain the file-truth.'
+    ],
+    configPath: pathLabel,
+    docsRef: 'local-data-index'
+  }
+
+  if (facts.status === 'unavailable') {
+    return item(
+      checkId,
+      'warning',
+      'Local data index is unavailable; file-scan fallback remains active.',
+      evidence,
+      repair(
+        'deterministic_projection_rebuild',
+        'Delete studiumx-index.sqlite if corrupt, then reopen so the disposable projection can rebuild from canonical files.'
+      ),
+      'SQLite projection is optional. Prefer file-scan fallback; delete and rebuild studiumx-index.sqlite if native/open failures persist.',
+      { configPath: pathLabel, fixSuggestion }
+    )
+  }
+
+  if (facts.status === 'closed') {
+    return item(
+      checkId,
+      'warning',
+      'Local data index is closed.',
+      evidence,
+      repair('none', 'Re-open LocalDataIndex if analytics projections are needed.'),
+      'Re-open the local data index process service if projections are required; file-truth is unaffected.',
+      { configPath: pathLabel, fixSuggestion }
+    )
+  }
+
+  if (facts.status === 'building') {
+    return item(
+      checkId,
+      'warning',
+      'Local data index rebuild is in progress.',
+      evidence,
+      repair('none', 'Wait for rebuild to finish; do not treat the projection as ready yet.'),
+      'Wait for rebuild completion. studiumx-index.sqlite remains disposable if the rebuild stalls.',
+      { configPath: pathLabel, fixSuggestion }
+    )
+  }
+
+  if (facts.status === 'incomplete' || facts.complete === false || issueCount > 0) {
+    return item(
+      checkId,
+      'warning',
+      'Local data index is incomplete or has projection issues.',
+      evidence,
+      repair(
+        'deterministic_projection_rebuild',
+        'Schedule or force a LocalDataIndex rebuild; delete studiumx-index.sqlite if it remains stuck incomplete.'
+      ),
+      'Trigger LocalDataIndex.rebuild() / scheduleRebuild(), or delete the disposable SQLite file so it can be recreated from file-truth.',
+      { configPath: pathLabel, fixSuggestion }
+    )
+  }
+
+  if (facts.status === 'ready') {
+    return item(
+      checkId,
+      'ok',
+      'Local data index is ready (disposable projection of file-truth).',
+      evidence,
+      repair('none', 'No repair required.'),
+      'No action required. studiumx-index.sqlite can still be safely deleted and rebuilt if needed.',
+      { configPath: pathLabel }
+    )
+  }
+
+  return item(
+    checkId,
+    'warning',
+    `Local data index status is ${facts.status}.`,
+    evidence,
+    repair('manual_review', 'Inspect LocalDataIndex diagnostics and rebuild if needed.'),
+    'Review local data index diagnostics. Projection remains disposable.',
+    { configPath: pathLabel, fixSuggestion }
+  )
+}
 
 function checkLocalProcessCrashMarker(
   facts: TeachingDoctorProcessCrashMarkerFacts | null | undefined

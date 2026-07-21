@@ -4,10 +4,16 @@ import { resolve, win32 } from 'node:path'
 import { normalizeTraceId } from '../shared/trace-context'
 import { closeContainedDurableDirectory, readRegularFileAtContainedDirectory, type ContainedDurableDirectory } from './persistence/contained-durable-directory'
 import type {
+  TeachingMemoryKind,
   TeachingMemoryLegacyMigrationPreflight,
   TeachingMemoryRecord,
   TeachingMemoryScope
 } from '../shared/teaching-types'
+import {
+  normalizeTeachingMemoryKind,
+  resolveTeachingMemoryKind,
+  teachingMemoryMatchesKind
+} from '../shared/teaching-memory-kind'
 import {
   closeTeachingMemoryRecordFileDiscovery,
   discoverTeachingMemoryRecordFiles,
@@ -31,6 +37,8 @@ export type TeachingMemoryListQuery = {
   access?: TeachingMemoryAccess
   workspaceRoot?: string
   includeDeleted?: boolean
+  /** Optional kind filter (explicit memoryKind or stable kind tag resolution). */
+  memoryKind?: TeachingMemoryKind | TeachingMemoryKind[]
 }
 
 export type TeachingMemoryCatalogRecoveryIssue = {
@@ -153,6 +161,7 @@ export class TeachingMemoryCatalog {
     return records
       .filter((record) => resolvedQuery.includeDeleted || !record.deletedAt)
       .filter((record) => inTeachingMemoryScope(record, resolvedQuery.access))
+      .filter((record) => teachingMemoryMatchesKind(record, resolvedQuery.memoryKind))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
@@ -322,6 +331,11 @@ export function normalizeTeachingMemoryRecord(
   // Trace metadata is strictly opaque UUID correlation data. Invalid values are
   // intentionally omitted so durable records cannot carry diagnostic text.
   const traceId = normalizeTraceId(input.traceId)
+  const tags = normalizeTeachingMemoryTags(input.tags)
+  // Prefer explicit kind; otherwise keep a kind resolved from stable tags when present.
+  const memoryKind =
+    normalizeTeachingMemoryKind(input.memoryKind) ??
+    resolveTeachingMemoryKind({ tags, memoryKind: input.memoryKind })
   return {
     id,
     content: String(input.content ?? '').trim(),
@@ -329,7 +343,8 @@ export function normalizeTeachingMemoryRecord(
     ...(workspace ? { workspace } : {}),
     ...(project ? { project } : {}),
     ...(typeof input.sourceLessonId === 'string' ? { sourceLessonId: input.sourceLessonId } : {}),
-    tags: normalizeTeachingMemoryTags(input.tags),
+    ...(memoryKind ? { memoryKind } : {}),
+    tags,
     confidence: clampNumber(input.confidence, 0, 1, 1),
     createdAt,
     updatedAt,
@@ -408,11 +423,15 @@ function summarizeLegacyMigrationPreflight(
   }
 }
 
-function normalizeListQuery(query: TeachingMemoryListQuery | string | undefined, includeDeleted: boolean): Required<Pick<TeachingMemoryListQuery, 'includeDeleted'>> & Pick<TeachingMemoryListQuery, 'access'> {
+function normalizeListQuery(
+  query: TeachingMemoryListQuery | string | undefined,
+  includeDeleted: boolean
+): Required<Pick<TeachingMemoryListQuery, 'includeDeleted'>> & Pick<TeachingMemoryListQuery, 'access' | 'memoryKind'> {
   if (typeof query === 'string') return { access: { workspaceRoot: query }, includeDeleted }
   return {
     access: query?.access ?? (query?.workspaceRoot ? { workspaceRoot: query.workspaceRoot } : undefined),
-    includeDeleted: query?.includeDeleted ?? includeDeleted
+    includeDeleted: query?.includeDeleted ?? includeDeleted,
+    ...(query?.memoryKind !== undefined ? { memoryKind: query.memoryKind } : {})
   }
 }
 

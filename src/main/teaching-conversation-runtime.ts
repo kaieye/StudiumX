@@ -9,6 +9,7 @@ import { createDelegationToolEntries } from './ai/tools/delegation'
 import { createReadSkillResourceTool } from './ai/tools/skill-resource'
 import { createMemoryTools } from './ai/tools/memory-tools'
 import { AgentRunStore, emptyAgentRunUsage, normalizeAgentRunBudget } from './ai/agent-run-store'
+import { recordTurnUsageObservation, type UsageApprovalStatus, type UsageLedgerStatus } from './usage-ledger'
 import type { ContextCompactionOptions } from './ai/context-compactor'
 import { deriveConversationTurnContext } from './teaching-conversation-turn-context'
 import { finalizeLearnerMemoryCapture, resolveDirectMemoryConsent } from './teaching-conversation-memory'
@@ -82,6 +83,11 @@ export type TeachingConversationRuntimeDeps = {
     memories: TeachingMemoryRecord[]
   ) => Promise<TemporaryChatContext>
   runStore: AgentRunStore
+  /**
+   * Optional app-data root for the append-only usage ledger (DB-P0-3).
+   * When omitted, usage observation is skipped. Failures never fail the turn.
+   */
+  appDataRoot?: string
 }
 
 export async function runTeachingConversationTurn(
@@ -135,6 +141,15 @@ export async function runTeachingConversationTurn(
       stopReason: 'stopReason' in result ? result.stopReason : status
     })
     await deps.runStore.flush()
+    await observeTurnUsageBestEffort({
+      deps,
+      payload,
+      workspace,
+      streamId: stream.streamId,
+      result,
+      usage,
+      status: status === 'awaiting_conversation_save' ? 'completed' : status === 'canceled' ? 'canceled' : 'failed'
+    })
     return result
   } catch (error) {
     await deps.runStore.markParentTurnTerminal(
@@ -148,6 +163,15 @@ export async function runTeachingConversationTurn(
       stopReason: stream.signal?.aborted ? 'canceled' : 'error'
     }).catch(() => undefined)
     await deps.runStore.flush().catch(() => undefined)
+    await observeTurnUsageBestEffort({
+      deps,
+      payload,
+      workspace,
+      streamId: stream.streamId,
+      result: { error: true, message: error instanceof Error ? error.message : String(error), usage: emptyAgentRunUsage() },
+      usage: emptyAgentRunUsage(),
+      status: stream.signal?.aborted ? 'canceled' : 'failed'
+    })
     throw error
   }
 }
@@ -604,4 +628,61 @@ function shouldRequireFreshWebSearch(userInput: string, webSearchAvailable: bool
   const freshnessCue = /今年|最新|今天|近期|当前|现在|何时|什么时候|几时|哪天|何日|何月|出分|公布|发布|开售|上线|更新/iu
   const timeSensitiveFact = /(?:四|4)[六6]级|\bCET\b|成绩|考试|报名|录取|招生|政策|法规|价格|汇率|天气|新闻|比赛|赛程|股价|版本|发布会|日期|时间/iu
   return freshnessCue.test(input) && timeSensitiveFact.test(input)
+}
+
+type ObserveTurnUsageInput = {
+  deps: TeachingConversationRuntimeDeps
+  payload: AgentChatStreamPayload
+  workspace: TeachingConversationRuntimeWorkspace | null
+  streamId: string
+  result: AgentChatStreamResult
+  usage: import('../shared/teaching-types').AgentRunUsageAggregate
+  status: UsageLedgerStatus
+}
+
+/**
+ * Best-effort usage ledger write. Projection/ledger faults must never fail the turn.
+ */
+async function observeTurnUsageBestEffort(input: ObserveTurnUsageInput): Promise<void> {
+  const appDataRoot = input.deps.appDataRoot
+  if (!appDataRoot) return
+  try {
+    const settings = await input.deps.loadSettings().catch(() => null)
+    const provider = settings ? resolveActiveProvider(settings) : null
+    const tools = collectToolUsageFromResult(input.result)
+    await recordTurnUsageObservation({
+      appDataRoot,
+      workspaceRoot: input.workspace?.rootPath,
+      provider: provider?.id,
+      model: settings?.generator.model,
+      conversationId: input.payload.conversationId,
+      traceId: input.streamId,
+      turnId: input.streamId,
+      status: input.status,
+      usage: input.usage,
+      tools
+    })
+  } catch {
+    // Observability must never affect turn success.
+  }
+}
+
+function collectToolUsageFromResult(result: AgentChatStreamResult): Array<{
+  toolName: string
+  approvalStatus?: UsageApprovalStatus
+  isError?: boolean
+}> {
+  if (!('turns' in result) || !Array.isArray(result.turns)) return []
+  const tools: Array<{ toolName: string; approvalStatus?: UsageApprovalStatus; isError?: boolean }> = []
+  for (const turn of result.turns) {
+    for (const tool of turn.toolCalls ?? []) {
+      if (!tool?.name) continue
+      tools.push({
+        toolName: tool.name,
+        isError: tool.isError === true,
+        approvalStatus: 'not_required'
+      })
+    }
+  }
+  return tools
 }

@@ -155,6 +155,32 @@ function fullInput(overrides: Partial<SupportBundleInput> = {}): SupportBundleIn
       nodeVersion: '20.0.0',
       arch: 'x64'
     },
+    localDataIndex: {
+      pathExists: true,
+      indexPathLabel: 'userData/studiumx-index.sqlite',
+      status: 'ready',
+      reason: null,
+      complete: true,
+      rebuiltAt: NOW,
+      version: '2',
+      migrationIds: ['0001', '0002'],
+      appliedMigrations: [
+        {
+          id: '0001',
+          checksum: 'a' * 64,
+          appliedAt: NOW,
+          appVersion: '0.1.0',
+          appliedBy: 'local-data-index',
+          sqlBytes: 1200
+        }
+      ],
+      issueCountsByCode: {},
+      issueCount: 0,
+      projectionRowCounts: {
+        conversation_projection: 2,
+        memory_projection: 1
+      }
+    },
     ...overrides
   }
 }
@@ -173,7 +199,8 @@ describe('support bundle', () => {
       'config_fingerprint',
       'capability',
       'audit_correlation',
-      'environment'
+      'environment',
+      'local_data_index'
     ])
 
     expect(json).not.toMatch(/sk-live-should-not-leak/)
@@ -338,5 +365,96 @@ describe('support bundle', () => {
     expect(json).not.toContain('raw system prompt')
     expect(json).not.toContain('sk-live-smuggled-key')
   })
+  it('packs aggregate-only local data index diagnostics and redacts absolute paths', () => {
+    const preview = previewSupportBundle(
+      fullInput({
+        localDataIndex: {
+          pathExists: true,
+          indexPathLabel: `${WORKSPACE_ROOT}/userData/studiumx-index.sqlite`,
+          status: 'incomplete',
+          reason: `open failed at ${WORKSPACE_ROOT}/userData/studiumx-index.sqlite`,
+          complete: false,
+          rebuiltAt: NOW,
+          version: '2',
+          migrationIds: ['0001', '0002'],
+          appliedMigrations: [
+            {
+              id: '0001',
+              checksum: 'b' * 64,
+              appliedAt: NOW,
+              appVersion: '0.1.0',
+              appliedBy: 'local-data-index',
+              sqlBytes: 900
+            }
+          ],
+          issueCountsByCode: { source_drift: 2, read_failed: 1 },
+          issueCount: 3,
+          projectionRowCounts: { conversation_projection: 4, memory_projection: 2 }
+        }
+      })
+    )
+
+    const section = preview.sections.find((entry) => entry.id === 'local_data_index')
+    expect(section).toBeTruthy()
+    const payload = section?.payload as Record<string, unknown>
+    const json = JSON.stringify(section)
+
+    expect(payload?.aggregateOnly).toBe(true)
+    expect(payload?.disposable).toBe(true)
+    expect(payload?.includesProjectionRowBodies).toBe(false)
+    expect(payload?.includesConversationBodies).toBe(false)
+    expect(payload?.includesMemoryBodies).toBe(false)
+    expect(payload?.status).toBe('incomplete')
+    expect(payload?.issueCount).toBe(3)
+    expect(payload?.issueCountsByCode).toEqual({ source_drift: 2, read_failed: 1 })
+    expect(json).toMatch(/safely deleted and rebuilt/i)
+    expect(json).not.toContain(WORKSPACE_ROOT)
+    expect(json).not.toMatch(/C:\/Users\/alice/)
+    expect(section?.warnings.some((warning) => /aggregate-only/i.test(warning))).toBe(true)
+  })
+
+  it('never packs smuggled conversation/memory projection row bodies in local data index section', () => {
+    const preview = previewSupportBundle({
+      now: () => NOW,
+      workspaceRoot: WORKSPACE_ROOT,
+      localDataIndex: {
+        pathExists: true,
+        indexPathLabel: 'userData/studiumx-index.sqlite',
+        status: 'ready',
+        complete: true,
+        rebuiltAt: NOW,
+        migrationIds: ['0001'],
+        issueCountsByCode: {},
+        issueCount: 0,
+        // @ts-expect-error intentional smuggled projection bodies for redaction coverage
+        turn_projection_json: '{"turns":[{"content":"private learner answer must not export"}]}',
+        // @ts-expect-error intentional smuggled projection bodies for redaction coverage
+        snapshot_json: '{"conversation":{"title":"secret transcript"}}',
+        // @ts-expect-error intentional smuggled projection bodies for redaction coverage
+        conversationBodies: [{ id: 'c1', content: 'full conversation body' }],
+        // @ts-expect-error intentional smuggled projection bodies for redaction coverage
+        memoryBodies: [{ id: 'm1', content: 'full memory body' }],
+        // @ts-expect-error intentional smuggled projection bodies for redaction coverage
+        content: 'raw projection content body'
+      } as SupportBundleInput['localDataIndex']
+    })
+
+    const section = preview.sections.find((entry) => entry.id === 'local_data_index')
+    expect(section).toBeTruthy()
+    const json = JSON.stringify(section)
+    expect(json).not.toContain('private learner answer')
+    expect(json).not.toContain('secret transcript')
+    expect(json).not.toContain('full conversation body')
+    expect(json).not.toContain('full memory body')
+    expect(json).not.toContain('raw projection content body')
+    // Aggregate-only builder never copies smuggled row-body keys into the payload.
+    expect(json).not.toContain('turn_projection_json')
+    expect(json).not.toContain('snapshot_json')
+    expect(json).not.toContain('conversationBodies')
+    expect(json).not.toContain('memoryBodies')
+    expect((section?.payload as Record<string, unknown>)?.includesProjectionRowBodies).toBe(false)
+    expect((section?.payload as Record<string, unknown>)?.aggregateOnly).toBe(true)
+  })
+
 })
 

@@ -11,6 +11,8 @@ Fill when the corresponding path is touched. Map to existing `check:*` scripts.
 - [ ] **Prompt-prefix-guard** — system prompt / tool schema / skill index stability (ADR-0044); note cache impact
 - [ ] **Settlement-guard** — ledger / evidence / outcome / coordinator sole-writer; did **not** add agent bypass writers
 
+- [ ] **Database-gates** — if touching `local-data-index` / projection / usage / database policy: filled [ADR-0124](docs/adr/0124-database-layered-authority-and-pr-gates.md) §2 gates; no unauthorized DB-P2-1…4 (§3); layered authority (§1)
+
 ## Test plan
 
 - [ ] `pnpm run typecheck` (or prepush)
@@ -20,4 +22,4 @@ Fill when the corresponding path is touched. Map to existing `check:*` scripts.
 ## Non-goals / safety
 
 - [ ] No shell / MCP market expansion without independent ADR
-- [ ] No SQLite FTS product search (ADR-0001)
+- [ ] No analytics-DB SQLite FTS product search (ADR-0001); no teaching write-SoT in SQLite (DB-P2-3)

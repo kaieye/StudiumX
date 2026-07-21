@@ -25,6 +25,11 @@ import {
   workspaceReadTools,
   writeWorkspaceFileTool
 } from './workspace'
+import {
+  isForcedHumanMemoryApprovalTool,
+  recordForcedHumanApprovalReceipt,
+  shouldRecordForcedHumanApproval
+} from './approval-receipt'
 
 export type ToolPermissionKind =
   | 'workspace_write'
@@ -205,7 +210,7 @@ export class ToolRegistry {
               }
             }, null, 2)
           }
-          const resolved = await resolveToolPermission(request, ctx, callCtx)
+          const resolved = await resolveToolPermission(request, ctx, callCtx, args)
           // Journal audit slot only — never re-authorizes. Deny paths do not run capture.
           if (resolved.journalPermissionDecision !== undefined) {
             ctx.lastJournalPermissionDecision = resolved.journalPermissionDecision
@@ -330,7 +335,8 @@ type ResolvedToolPermission = {
 async function resolveToolPermission(
   request: ToolPermissionRequest,
   ctx: ToolContext,
-  callCtx?: ToolCallContext
+  callCtx?: ToolCallContext,
+  args?: unknown
 ): Promise<ResolvedToolPermission> {
   if (request.kind !== 'workspace_write') {
     return {
@@ -367,9 +373,7 @@ async function resolveToolPermission(
 
   // Synthetic teaching memory mutations always require human approval
   // (Slice F / ADR-0050). Prior run grants still apply after an explicit allow.
-  const requiresHumanMemoryApproval =
-    request.toolName === 'remember_teaching_memory' ||
-    request.toolName === 'forget_teaching_memory'
+  const requiresHumanMemoryApproval = isForcedHumanMemoryApprovalTool(request.toolName)
 
   if (!requiresHumanMemoryApproval && !forceInteractive) {
     switch (ctx.settings.tools.approvalMode) {
@@ -431,6 +435,24 @@ async function resolveToolPermission(
       ? { ...rawDecision, decision: 'allow_once' as const }
       : rawDecision
   if (decision.decision !== 'deny') await ctx.permissionGrants.remember(request, decision, ctx)
+
+  // Durable one-shot receipt for forced human decisions (high-risk + synthetic memory).
+  // Receipts are evidence only and are never read back as authorization grants.
+  if (shouldRecordForcedHumanApproval(request)) {
+    try {
+      await recordForcedHumanApprovalReceipt({
+        rootPath: ctx.workspaceRoot,
+        request,
+        decision,
+        args,
+        traceId: callCtx?.runId ?? ctx.runId ?? callCtx?.toolCallId ?? request.id,
+        toolCallId: callCtx?.toolCallId ?? request.id
+      })
+    } catch {
+      // Receipt durability failures must not change the interactive gate outcome.
+    }
+  }
+
   return {
     decision,
     journalPermissionDecision: journalPermissionDecisionFromGateAndResolution({

@@ -453,3 +453,68 @@ describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog legacy migra
     expect(JSON.stringify(snapshot)).not.toContain(legacy.content)
   })
 })
+
+describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog kind metadata (DB-P1-2)', () => {
+  it('persists optional memoryKind and resolves kind from stable tags on normalize/list', async () => {
+    const catalog = await createCatalog()
+    await catalog.commit(record('explicit-kind', {
+      memoryKind: 'learner-profile',
+      tags: ['custom']
+    }))
+    await catalog.commit(record('tag-kind', {
+      tags: ['teaching-experience'],
+      updatedAt: '2026-07-14T00:00:01.000Z'
+    }))
+    await catalog.commit(record('unspecified', {
+      tags: ['misc'],
+      updatedAt: '2026-07-14T00:00:02.000Z'
+    }))
+
+    const all = await catalog.list()
+    expect(all.map((item) => item.id)).toEqual(['unspecified', 'tag-kind', 'explicit-kind'])
+    expect(all.find((item) => item.id === 'explicit-kind')?.memoryKind).toBe('learner-profile')
+    // Tag-only durable records may surface resolved kind on normalize for catalog consumers.
+    expect(all.find((item) => item.id === 'tag-kind')?.memoryKind).toBe('teaching-experience')
+    expect(all.find((item) => item.id === 'unspecified')?.memoryKind).toBeUndefined()
+
+    await expect(catalog.list({ memoryKind: 'learner-profile' })).resolves.toEqual([
+      expect.objectContaining({ id: 'explicit-kind', memoryKind: 'learner-profile' })
+    ])
+    await expect(catalog.list({ memoryKind: 'teaching-experience' })).resolves.toEqual([
+      expect.objectContaining({ id: 'tag-kind', memoryKind: 'teaching-experience' })
+    ])
+    await expect(catalog.list({ memoryKind: ['learner-profile', 'teaching-experience'] })).resolves.toEqual([
+      expect.objectContaining({ id: 'tag-kind' }),
+      expect.objectContaining({ id: 'explicit-kind' })
+    ])
+    await expect(catalog.list({ memoryKind: 'episodic-session' })).resolves.toEqual([])
+  })
+
+  it('round-trips memoryKind through TeachingMemoryStore create/update without changing file-truth ownership', async () => {
+    const catalog = await createCatalog()
+    const store = new TeachingMemoryStore({
+      rootDir: catalog.rootDir,
+      settingsProvider: async () => defaultSettings()
+    })
+    const created = await store.create({
+      content: 'Profile fact',
+      scope: 'user',
+      memoryKind: 'learner-profile',
+      tags: ['from-create']
+    })
+    expect(created.memoryKind).toBe('learner-profile')
+
+    const listed = await store.list({ memoryKind: 'learner-profile' })
+    expect(listed.map((item) => item.id)).toEqual([created.id])
+
+    const updated = await store.update(created.id, {
+      memoryKind: 'teaching-experience',
+      tags: ['from-update']
+    })
+    expect(updated.memoryKind).toBe('teaching-experience')
+    await expect(store.list({ memoryKind: 'learner-profile' })).resolves.toEqual([])
+    await expect(store.list({ memoryKind: 'teaching-experience' })).resolves.toEqual([
+      expect.objectContaining({ id: created.id, memoryKind: 'teaching-experience' })
+    ])
+  })
+})
