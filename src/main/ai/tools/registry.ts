@@ -17,6 +17,11 @@ import {
   workspaceReadTools,
   writeWorkspaceFileTool
 } from './workspace'
+import {
+  isForcedHumanMemoryApprovalTool,
+  recordForcedHumanApprovalReceipt,
+  shouldRecordForcedHumanApproval
+} from './approval-receipt'
 
 export type ToolPermissionKind =
   | 'workspace_write'
@@ -176,7 +181,7 @@ export class ToolRegistry {
               }
             }, null, 2)
           }
-          const decision = await resolveToolPermission(request, ctx, callCtx)
+          const decision = await resolveToolPermission(request, ctx, callCtx, args)
           if (decision.decision === 'deny') {
             return JSON.stringify({
               tool: name,
@@ -285,15 +290,15 @@ export function buildDefaultRegistry(
 async function resolveToolPermission(
   request: ToolPermissionRequest,
   ctx: ToolContext,
-  callCtx?: ToolCallContext
+  callCtx?: ToolCallContext,
+  args?: unknown
 ): Promise<ToolPermissionDecision> {
   if (request.kind !== 'workspace_write') return { decision: 'allow_once' }
 
   // Synthetic teaching memory mutations always require human approval
   // (Slice F / ADR-0050). Prior run grants still apply after an explicit allow.
-  const requiresHumanMemoryApproval =
-    request.toolName === 'remember_teaching_memory' ||
-    request.toolName === 'forget_teaching_memory'
+  // Approval receipts (DB-P0-4) are never consulted as authorization tokens.
+  const requiresHumanMemoryApproval = isForcedHumanMemoryApprovalTool(request.toolName)
 
   if (!requiresHumanMemoryApproval) {
     switch (ctx.settings.tools.approvalMode) {
@@ -320,6 +325,23 @@ async function resolveToolPermission(
   const rawDecision = await ctx.requestToolPermission(request, callCtx)
   const decision = rawDecision.decision === 'allow' ? { ...rawDecision, decision: 'allow_once' as const } : rawDecision
   if (decision.decision !== 'deny') await ctx.permissionGrants.remember(request, decision, ctx)
+
+  // Durable one-shot receipt for forced human decisions (high-risk + synthetic memory).
+  // Never read back as an authorization grant (ADR-0048 / DB-P0-4).
+  if (shouldRecordForcedHumanApproval(request)) {
+    try {
+      await recordForcedHumanApprovalReceipt({
+        rootPath: ctx.workspaceRoot,
+        request,
+        decision,
+        args,
+        traceId: callCtx?.runId ?? ctx.runId ?? callCtx?.toolCallId ?? request.id,
+        toolCallId: callCtx?.toolCallId ?? request.id
+      })
+    } catch {
+      // Receipt durability failures must not block the interactive gate outcome.
+    }
+  }
   return decision
 }
 
