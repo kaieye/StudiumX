@@ -25,6 +25,11 @@ import {
   type OpenLearningSessionInput
 } from '../shared/teaching-types/learning-session'
 import {
+  CANONICAL_LEARNING_SESSION_EVENT_KINDS,
+  isCanonicalLearningSessionEventKind,
+  isDebugEventKind
+} from '../shared/event-density-policy'
+import {
   LEARNING_SESSIONS_ROOT_RELATIVE_PATH,
   LEARNING_SESSION_EVENTS_DIRECTORY_NAME,
   LEARNING_SESSION_MANIFEST_FILE_NAME,
@@ -49,14 +54,7 @@ const MAX_MANIFEST_BYTES = 1024 * 1024
 const MAX_EVENT_BYTES = 1024 * 1024
 const MAX_OUTCOME_BYTES = 256 * 1024
 const MAX_JSON_DEPTH = 64
-const EVENT_KINDS = new Set<LearningSessionEventKind>([
-  'lesson_opened',
-  'lesson_completed',
-  'retrieval_attempted',
-  'quiz_attempted',
-  'flashcard_reviewed',
-  'learner_response_recorded'
-])
+const EVENT_KINDS = new Set<LearningSessionEventKind>(CANONICAL_LEARNING_SESSION_EVENT_KINDS)
 const WRITER_LOCK_DIRECTORY = '.learning-session-ledger-writer.lock'
 const WRITER_LOCK_OWNER_FILE = 'owner.json'
 const RECOVERED_WRITER_LOCK_PREFIX = '.learning-session-ledger-recovered-lock-'
@@ -1147,7 +1145,13 @@ function normalizeEventInput(value: unknown, expectedSessionId: string, persiste
   if (value.schemaVersion !== LEARNING_SESSION_SCHEMA_VERSION) throw invalidInput('Session event schema version is unsupported.')
   const sessionId = requireSessionId(value.sessionId, 'Session event sessionId')
   if (sessionId !== expectedSessionId) throw invalidInput('Session event sessionId does not match append target.')
-  if (typeof value.kind !== 'string' || !EVENT_KINDS.has(value.kind as LearningSessionEventKind)) {
+  if (typeof value.kind !== 'string') {
+    throw invalidInput('Session event kind is unsupported.')
+  }
+  if (isDebugEventKind(value.kind)) {
+    throw invalidInput('Debug / stream event kinds must not be written to the LearningSession canonical ledger.')
+  }
+  if (!isCanonicalLearningSessionEventKind(value.kind) || !EVENT_KINDS.has(value.kind as LearningSessionEventKind)) {
     throw invalidInput('Session event kind is unsupported.')
   }
   if (!isRecord(value.payload)) throw invalidInput('Session event payload must be a JSON object.')

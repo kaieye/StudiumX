@@ -41,6 +41,19 @@ Chosen by the user when opening a workspace. Typical durable files (conventions 
 
 SQLite under analytics paths, if present, is a **rebuildable projection** only (ADR-0001). It is not a user search corpus.
 
+
+## Backup / export classification (DB-P1-5)
+
+| Class | Examples | Notes |
+| --- | --- | --- |
+| **Must backup** | Workspace `MISSION.md`, `courses/`, `learning-sessions/`, Memory files, `.studiumx/learning-work.jsonl` (+ sealed segments), approval receipts; user-data `studiumx-settings.json` / `workspaces.json` (desensitize secrets) | File-truth. Settings may hold encrypted secret refs — never paste raw API keys into shared backups. |
+| **Disposable projection** | `studiumx-index.sqlite`, `studiumx-index.sqlite-wal`, `studiumx-index.sqlite-shm`, `*.quarantined-*`, any analytics SQLite | Safe to delete. `LocalDataIndex.rebuild()` restores from canonical files. |
+| **Operational cache / logs** | Electron Cache / Code Cache / GPUCache, `studiumx.log` | Exclude from teaching backups; logs are not learning authority. |
+
+**Export default:** exclude disposable projections. Opt-in `includeProjections` is debug-only and marks paths `untrustedProjection: true`.
+
+See `src/shared/backup-export-policy.ts` and `docs/improvements/backup-export-policy.md`.
+
 ## Secret-free example
 
 See repository root `studiumx-settings.example.json`. Copy shapes only; leave all key fields empty.

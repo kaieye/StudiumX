@@ -25,6 +25,20 @@ StudiumX is a **local teaching workspace** for Electron. Files on disk are the s
 - **Support bundle**: export only after consent; contents are redacted (ADR-0034). Prefer `pnpm doctor` for paste-ready posture without workspace content.
 - **Doctor runtime posture** (approval mode, tools flags, proxy host-only signal, key storage shape, explicit non-productization of shell/MCP market) appears in doctor JSON/text.
 
+
+## Backup vs disposable projections
+
+StudiumX keeps **files on disk** as the source of truth. SQLite is never the authority.
+
+| Class | What | Operator action |
+| --- | --- | --- |
+| **Must backup** | Workspace teaching files (`MISSION.md`, `courses/`, `learning-sessions/`, Memory files), `.studiumx/learning-work.jsonl` (+ sealed segments), approval receipts; app settings/registry (**desensitize secrets**) | Include in any real backup |
+| **Disposable** | `studiumx-index.sqlite*` (including quarantined copies), Electron caches, diagnostic logs | Safe to delete; rebuild restores analytics projection |
+
+**Export default:** exclude disposable projections. Optional `includeProjections` is **debug-only** and marks included projection files as **untrusted** (never restore as authority).
+
+Policy module: `src/shared/backup-export-policy.ts`. Detail: `docs/improvements/backup-export-policy.md`.
+
 ## What not to expect
 
 - No default shell / arbitrary code execution.
