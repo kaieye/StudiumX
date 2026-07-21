@@ -67,7 +67,37 @@ CREATE INDEX IF NOT EXISTS memory_projection_status_idx ON memory_projection(sta
 ALTER TABLE conversation_projection ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE conversation_projection ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS conversation_projection_scope_updated_idx ON conversation_projection(scope, updated_at DESC);
-CREATE INDEX IF NOT EXISTS conversation_projection_workspace_updated_idx ON conversation_projection(workspace_id, updated_at DESC);`
+CREATE INDEX IF NOT EXISTS conversation_projection_workspace_updated_idx ON conversation_projection(workspace_id, updated_at DESC);`,
+  `
+-- DB-P0-3: optional disposable usage projection (no secrets/prompts).
+CREATE TABLE IF NOT EXISTS usage_projection (
+  entry_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  provider TEXT,
+  model TEXT,
+  status TEXT,
+  started_at TEXT,
+  completed_at TEXT,
+  duration_ms INTEGER,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  reasoning_tokens INTEGER,
+  cache_tokens INTEGER,
+  tool_name TEXT,
+  read_only INTEGER,
+  destructive INTEGER,
+  approval_status TEXT,
+  trace_id TEXT,
+  turn_id TEXT,
+  conversation_id TEXT,
+  source_path TEXT NOT NULL,
+  source_fingerprint TEXT NOT NULL,
+  indexed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_projection_timestamp_idx ON usage_projection(timestamp DESC, entry_id DESC);
+CREATE INDEX IF NOT EXISTS usage_projection_conversation_idx ON usage_projection(conversation_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS usage_projection_kind_idx ON usage_projection(kind, timestamp DESC);`
 ]
 
 export const LOCAL_DATA_INDEX_MIGRATIONS: readonly SchemaMigration[] = migrationSql.map((sql, index) => ({

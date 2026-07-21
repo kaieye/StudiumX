@@ -11,6 +11,15 @@ import type { TeachingMemoryCatalogIndexScan } from '../teaching-memory-catalog'
 import type { AnalyticsWorkspaceScanResult } from '../teaching/services/learning-analytics'
 import type { LedgerSnapshot, LearningWorkLedgerSnapshotsRead } from '../teaching/services/analytics/token-evidence'
 import { readDurableJsonlSources } from '../durable-jsonl'
+import {
+  parseUsageLedgerLine,
+  readUsageLedgerSources,
+  summarizeUsageEntries,
+  usageLedgerActivePath,
+  usageLedgerWorkspacePath,
+  type UsageAnalyticsSummary,
+  type UsageLedgerEntry
+} from '../usage-ledger'
 import { SchemaMigrationChecksumConflict, listAppliedSchemaMigrations, migrateLocalDataIndex, type AppliedSchemaMigration } from './schema-migration'
 
 export { LOCAL_DATA_INDEX_MIGRATIONS, SCHEMA_MIGRATION_APPLIED_BY, ensureSchemaMigrationMetadataColumns, listAppliedSchemaMigrations, migrateLocalDataIndex, type AppliedSchemaMigration } from './schema-migration'
@@ -88,6 +97,7 @@ type MemoryInput = { records: TeachingMemoryRecord[]; issues: LocalDataIndexIssu
 type BuildInput = { appDataRoot: string; workspaces: AnalyticsWorkspaceScanResult[]; temporaryConversations: AgentConversationSummary[]; memory: MemoryInput }
 type ProjectedConversation = { summary: AgentConversationSummary; workspaceId?: string; scope: 'workspace' | 'temporary'; record: AgentConversationRecord; path: string; fingerprint: string }
 type ProjectedLedger = LedgerSnapshot & { workspaceId: string; entryId: string; path: string; sourceKey: string; fingerprint: string }
+type ProjectedUsage = { entry: UsageLedgerEntry; path: string; fingerprint: string }
 type SqliteConstructor = LocalDataIndexSqliteConstructor
 
 type LocalDataIndexConversationRead =
@@ -95,10 +105,17 @@ type LocalDataIndexConversationRead =
   | { state: 'unreadable' }
   | { state: 'unavailable' }
 type LocalDataIndexLedgerRead = LearningWorkLedgerSnapshotsRead | { state: 'unavailable' }
+export type LocalDataIndexUsageAnalyticsRead =
+  | { state: 'readable'; summary: UsageAnalyticsSummary }
+  | { state: 'unavailable' }
 export type LocalDataIndexTokenEvidenceAdapters = {
   conversations: { read: (workspaceId: string, conversationId: string) => Promise<LocalDataIndexConversationRead> }
   temporaryConversations: { read: (workspaceId: string | undefined, conversationId: string) => Promise<LocalDataIndexConversationRead> }
   ledger: { read: (workspace: { workspaceId: string }) => Promise<LocalDataIndexLedgerRead> }
+}
+export type LocalDataIndexUsageAnalyticsAdapter = {
+  /** Aggregate-only usage view. Never returns raw JSONL lines or secret/prompt fields. */
+  summarize: () => Promise<LocalDataIndexUsageAnalyticsRead>
 }
 
 /** Metadata-only conversation list row for session/resume pickers (no snippets/highlights). */
@@ -197,11 +214,12 @@ export class LocalDataIndex {
       const db = this.db
       if (!db) return
       db.transaction(() => {
-        db.exec('DELETE FROM workspace_projection; DELETE FROM conversation_projection; DELETE FROM memory_projection; DELETE FROM learning_work_projection; DELETE FROM source_provenance; DELETE FROM index_issue;')
+        db.exec('DELETE FROM workspace_projection; DELETE FROM conversation_projection; DELETE FROM memory_projection; DELETE FROM learning_work_projection; DELETE FROM usage_projection; DELETE FROM source_provenance; DELETE FROM index_issue;')
         const workspace = db.prepare('INSERT INTO workspace_projection VALUES (?, ?, ?, ?, ?)')
         const conversation = db.prepare('INSERT INTO conversation_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         const memory = db.prepare('INSERT INTO memory_projection (memory_id, scope, workspace_path, project_path, source_lesson_id, tags_json, confidence, created_at, updated_at, disabled_at, deleted_at, source_fingerprint, indexed_at, kind, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         const ledger = db.prepare('INSERT INTO learning_work_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        const usage = db.prepare('INSERT INTO usage_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         const provenance = db.prepare('INSERT INTO source_provenance VALUES (?, ?, ?, ?, ?)')
         const issue = db.prepare('INSERT INTO index_issue (rebuild_id, source_key, source_path, code, message, created_at) VALUES (?, ?, ?, ?, ?, ?)')
         for (const item of projections.workspaces) workspace.run(item.workspaceId, item.workspaceName, item.rootPath, item.fingerprint, this.nowIso())
@@ -212,7 +230,36 @@ export class LocalDataIndex {
         const memoryFingerprints = new Map(input.memory.recordFingerprints.map((item) => [item.memoryId, item.fingerprint]))
         for (const item of input.memory.records) memory.run(item.id, item.scope, item.workspace ?? null, item.project ?? null, item.sourceLessonId ?? null, JSON.stringify(item.tags), item.confidence, item.createdAt, item.updatedAt, item.disabledAt ?? null, item.deletedAt ?? null, memoryFingerprints.get(item.id) ?? fingerprintJson(memoryIdentity(item)), this.nowIso(), resolveTeachingMemoryKind(item) ?? null, resolveTeachingMemoryStatus(item))
         for (const item of projections.ledgers) ledger.run(item.sourceKey, item.workspaceId, item.conversationId, item.entryId, item.occurredAt, item.ledgerCreatedAt, JSON.stringify(snapshotProjection(item)), item.path, item.fingerprint, this.nowIso())
+        for (const item of projections.usages) {
+          const entry = item.entry
+          usage.run(
+            entry.entryId,
+            entry.kind,
+            entry.timestamp,
+            entry.provider ?? null,
+            entry.model ?? null,
+            entry.status ?? null,
+            entry.startedAt ?? null,
+            entry.completedAt ?? null,
+            entry.durationMs ?? null,
+            entry.inputTokens ?? null,
+            entry.outputTokens ?? null,
+            entry.reasoningTokens ?? null,
+            entry.cacheTokens ?? null,
+            entry.toolName ?? null,
+            entry.readOnly === undefined ? null : entry.readOnly ? 1 : 0,
+            entry.destructive === undefined ? null : entry.destructive ? 1 : 0,
+            entry.approvalStatus ?? null,
+            entry.traceId ?? null,
+            entry.turnId ?? null,
+            entry.conversationId ?? null,
+            item.path,
+            item.fingerprint,
+            this.nowIso()
+          )
+        }
         for (const item of projections.provenance) provenance.run(item.sourceKey, item.kind, item.path, item.fingerprint, this.nowIso())
+        for (const item of projections.usageProvenance) provenance.run(item.sourceKey, item.kind, item.path, item.fingerprint, this.nowIso())
         for (const item of issues) issue.run(rebuildId, item.sourceKey, item.sourcePath ?? null, item.code, item.message, this.nowIso())
         putState(db, 'version', INDEX_VERSION); putState(db, 'input_fingerprint', inputFingerprint); putState(db, 'complete', '0'); putState(db, 'rebuilt_at', this.nowIso())
       })()
@@ -305,6 +352,14 @@ export class LocalDataIndex {
       }
     } catch {
       return { state: 'unavailable' }
+    }
+  }
+  /** Read-only aggregate usage analytics. Projection damage yields unavailable, never throws. */
+  usageAnalyticsAdapter(): LocalDataIndexUsageAnalyticsAdapter | null {
+    if (!this.db || this.statusValue !== 'ready') return null
+    const db = this.db
+    return {
+      summarize: async () => this.readUsageAnalytics(db)
     }
   }
   issues(): LocalDataIndexIssue[] { return this.db ? this.db.prepare('SELECT source_key sourceKey, source_path sourcePath, code, message FROM index_issue ORDER BY id').all() as LocalDataIndexIssue[] : [] }
@@ -465,7 +520,58 @@ export class LocalDataIndex {
       } catch (error) { issues.push({ sourceKey: `ledger:${workspace.workspaceId}`, sourcePath: join(workspace.rootPath, '.studiumx', 'learning-work.jsonl'), code: 'read_failed', message: messageOf(error) }) }
     }
     for (const source of input.memory.sourceFingerprints) provenance.push({ sourceKey: `memory:${source.path}`, kind: 'memory_json', path: source.path, fingerprint: source.fingerprint })
-    return { workspaces: usableWorkspaces.map((item) => ({ workspaceId: item.workspaceId, workspaceName: item.workspaceName, rootPath: item.rootPath, fingerprint: fingerprintJson(workspaceIdentity(item)) })), conversations, ledgers, provenance }
+    const usageProjection = await this.projectUsageSources(input, usableWorkspaces, issues)
+    return { workspaces: usableWorkspaces.map((item) => ({ workspaceId: item.workspaceId, workspaceName: item.workspaceName, rootPath: item.rootPath, fingerprint: fingerprintJson(workspaceIdentity(item)) })), conversations, ledgers, usages: usageProjection.usages, provenance, usageProvenance: usageProjection.provenance }
+  }
+  private async projectUsageSources(
+    input: BuildInput,
+    usableWorkspaces: AnalyticsWorkspaceScanResult[],
+    issues: LocalDataIndexIssue[]
+  ): Promise<{ usages: ProjectedUsage[]; provenance: Array<{ sourceKey: string; kind: string; path: string; fingerprint: string }> }> {
+    // Usage ledgers are rebuildable observability projections. They are intentionally
+    // excluded from the readiness fingerprint so frequent appends do not thrash
+    // conversation/memory currentness. source_provenance still records usage files.
+    const byEntryId = new Map<string, ProjectedUsage>()
+    const usageProvenance: Array<{ sourceKey: string; kind: string; path: string; fingerprint: string }> = []
+    const ingest = async (scopeKey: string, activePath: string, sourcePathHint: string) => {
+      try {
+        const sources = await readUsageLedgerSources(activePath)
+        for (const source of sources) {
+          usageProvenance.push({ sourceKey: `usage_file:${scopeKey}:${source.path}`, kind: 'usage_jsonl', path: source.path, fingerprint: source.fingerprint })
+          if (source.invalid > 0) {
+            issues.push({ sourceKey: `usage:${scopeKey}`, sourcePath: source.path, code: 'invalid_row', message: `${source.invalid} invalid usage JSONL row(s) were skipped.` })
+          }
+          for (const entry of source.entries) {
+            // Same entryId may appear in app + workspace mirrors; keep first projection.
+            if (!byEntryId.has(entry.entryId)) {
+              byEntryId.set(entry.entryId, { entry, path: source.path, fingerprint: source.fingerprint })
+            }
+          }
+        }
+      } catch (error) {
+        issues.push({ sourceKey: `usage:${scopeKey}`, sourcePath: sourcePathHint, code: 'read_failed', message: messageOf(error) })
+      }
+    }
+    await ingest('app', usageLedgerActivePath(input.appDataRoot), usageLedgerActivePath(input.appDataRoot))
+    for (const workspace of usableWorkspaces) {
+      await ingest(`workspace:${workspace.workspaceId}`, usageLedgerWorkspacePath(workspace.rootPath), usageLedgerWorkspacePath(workspace.rootPath))
+    }
+    const usages = [...byEntryId.values()].sort((left, right) => left.entry.timestamp.localeCompare(right.entry.timestamp) || left.entry.entryId.localeCompare(right.entry.entryId))
+    return { usages, provenance: usageProvenance }
+  }
+  private async readUsageAnalytics(db: ProjectionDb): Promise<LocalDataIndexUsageAnalyticsRead> {
+    if (!await this.canExecuteProjectionQuery(db)) return { state: 'unavailable' }
+    try {
+      const rows = db.prepare(`SELECT entry_id, kind, timestamp, provider, model, status, started_at, completed_at, duration_ms, input_tokens, output_tokens, reasoning_tokens, cache_tokens, tool_name, read_only, destructive, approval_status, trace_id, turn_id, conversation_id FROM usage_projection`).all() as Array<Record<string, unknown>>
+      const entries: UsageLedgerEntry[] = []
+      for (const row of rows) {
+        const entry = hydrateUsageProjectionRow(row)
+        if (entry) entries.push(entry)
+      }
+      return { state: 'readable', summary: summarizeUsageEntries(entries) }
+    } catch {
+      return { state: 'unavailable' }
+    }
   }
   private async readConversation(db: ProjectionDb, workspaceId: string | null, conversationId: string, scope: 'workspace' | 'temporary'): Promise<LocalDataIndexConversationRead> {
     if (!await this.canExecuteProjectionQuery(db)) return { state: 'unavailable' }
@@ -650,6 +756,32 @@ function hydrateMetadata(value: Record<string, unknown>): AgentConversationRecor
 function sum(values: Array<number | undefined>): number { return values.reduce<number>((total, value) => total + (typeof value === 'number' && Number.isFinite(value) ? value : 0), 0) }
 function parseLedgerSnapshot(line: string): (LedgerSnapshot & { entryId: string }) | null { try { const value = JSON.parse(line) as Record<string, unknown>; const conversation = object(value.conversation); const evidence = object(value.evidence); const usage = object(evidence?.runUsage); const entryId = text(value.entryId); if (value.version !== 1 || value.type !== 'conversation_snapshot' || !conversation || !usage || !entryId) return null; const conversationId = text(conversation.id), occurredAt = instant(conversation.updatedAt), ledgerCreatedAt = instant(value.createdAt), messageCount = number(conversation.messageCount), normalized = normalizeUsage(usage); if (!conversationId || !occurredAt || !ledgerCreatedAt || messageCount === null || !normalized) return null; return { entryId, conversationId, title: sanitizePersistedConversationTitle(text(conversation.title) ?? conversationId), courseRelativePath: text(conversation.courseRelativePath), occurredAt, ledgerCreatedAt, messageCount, ...normalized } } catch { return null } }
 function snapshotProjection(snapshot: ProjectedLedger): LedgerSnapshot { const { entryId: _entryId, workspaceId: _workspaceId, path: _path, sourceKey: _sourceKey, fingerprint: _fingerprint, ...value } = snapshot; return value }
+function hydrateUsageProjectionRow(row: Record<string, unknown>): UsageLedgerEntry | null {
+  // Rebuild through the ledger parser so projection rows stay secret-free and schema-stable.
+  return parseUsageLedgerLine(JSON.stringify({
+    version: 1,
+    entryId: row.entry_id,
+    kind: row.kind,
+    timestamp: row.timestamp,
+    ...(row.provider != null ? { provider: row.provider } : {}),
+    ...(row.model != null ? { model: row.model } : {}),
+    ...(row.status != null ? { status: row.status } : {}),
+    ...(row.started_at != null ? { startedAt: row.started_at } : {}),
+    ...(row.completed_at != null ? { completedAt: row.completed_at } : {}),
+    ...(row.duration_ms != null ? { durationMs: row.duration_ms } : {}),
+    ...(row.input_tokens != null ? { inputTokens: row.input_tokens } : {}),
+    ...(row.output_tokens != null ? { outputTokens: row.output_tokens } : {}),
+    ...(row.reasoning_tokens != null ? { reasoningTokens: row.reasoning_tokens } : {}),
+    ...(row.cache_tokens != null ? { cacheTokens: row.cache_tokens } : {}),
+    ...(row.tool_name != null ? { toolName: row.tool_name } : {}),
+    ...(row.read_only === 0 || row.read_only === 1 ? { readOnly: row.read_only === 1 } : {}),
+    ...(row.destructive === 0 || row.destructive === 1 ? { destructive: row.destructive === 1 } : {}),
+    ...(row.approval_status != null ? { approvalStatus: row.approval_status } : {}),
+    ...(row.trace_id != null ? { traceId: row.trace_id } : {}),
+    ...(row.turn_id != null ? { turnId: row.turn_id } : {}),
+    ...(row.conversation_id != null ? { conversationId: row.conversation_id } : {})
+  }))
+}
 function object(value: unknown): Record<string, unknown> | null { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null }
 function text(value: unknown): string | undefined { return typeof value === 'string' && value.trim() ? value.trim() : undefined }
 function instant(value: unknown): string | null { if (typeof value !== 'string' || Number.isNaN(new Date(value).getTime())) return null; return new Date(value).toISOString() }
