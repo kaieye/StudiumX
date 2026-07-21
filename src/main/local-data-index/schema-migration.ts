@@ -97,7 +97,106 @@ CREATE TABLE IF NOT EXISTS usage_projection (
 );
 CREATE INDEX IF NOT EXISTS usage_projection_timestamp_idx ON usage_projection(timestamp DESC, entry_id DESC);
 CREATE INDEX IF NOT EXISTS usage_projection_conversation_idx ON usage_projection(conversation_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS usage_projection_kind_idx ON usage_projection(kind, timestamp DESC);`
+CREATE INDEX IF NOT EXISTS usage_projection_kind_idx ON usage_projection(kind, timestamp DESC);`,
+  `
+-- DB-OPT-1: stop treating conversation absolute_path as durable projection authority.
+-- Clear legacy host absolute paths; new rebuilds write empty absolute_path and resolve via relative_path + workspace root when needed.
+UPDATE conversation_projection SET absolute_path = '' WHERE absolute_path IS NOT NULL AND absolute_path != '';
+`,
+  `
+-- DB-OPT-3: optional latency / retry / truncate / error classification (secret-free).
+ALTER TABLE usage_projection ADD COLUMN ttft_ms INTEGER;
+ALTER TABLE usage_projection ADD COLUMN retry_count INTEGER;
+ALTER TABLE usage_projection ADD COLUMN truncated INTEGER;
+ALTER TABLE usage_projection ADD COLUMN error_type TEXT;
+`,
+  `
+-- DB-OPT-5: CHECK constraints on stable enumerations (nullable columns still allow NULL for legacy/unknown).
+-- Conversation scope is a closed set used by list/hydrate paths.
+-- Usage kind/status and memory status are closed sets from the catalog/ledger writers.
+CREATE TABLE conversation_projection_opt5 (
+  source_key TEXT PRIMARY KEY,
+  workspace_id TEXT,
+  conversation_id TEXT NOT NULL,
+  scope TEXT NOT NULL CHECK (scope IN ('workspace', 'temporary')),
+  title TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  relative_path TEXT NOT NULL,
+  absolute_path TEXT NOT NULL,
+  message_count INTEGER NOT NULL,
+  turn_projection_json TEXT NOT NULL,
+  source_fingerprint TEXT NOT NULL,
+  indexed_at TEXT NOT NULL,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO conversation_projection_opt5 SELECT source_key, workspace_id, conversation_id, scope, title, created_at, updated_at, relative_path, absolute_path, message_count, turn_projection_json, source_fingerprint, indexed_at, pinned, archived FROM conversation_projection;
+DROP TABLE conversation_projection;
+ALTER TABLE conversation_projection_opt5 RENAME TO conversation_projection;
+CREATE INDEX IF NOT EXISTS conversation_projection_workspace_idx ON conversation_projection(workspace_id, conversation_id);
+CREATE INDEX IF NOT EXISTS conversation_projection_scope_updated_idx ON conversation_projection(scope, updated_at DESC);
+CREATE INDEX IF NOT EXISTS conversation_projection_workspace_updated_idx ON conversation_projection(workspace_id, updated_at DESC);
+
+CREATE TABLE usage_projection_opt5 (
+  entry_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('model_usage', 'tool_usage', 'turn_usage')),
+  timestamp TEXT NOT NULL,
+  provider TEXT,
+  model TEXT,
+  status TEXT CHECK (status IS NULL OR status IN ('started', 'completed', 'failed', 'canceled', 'unknown')),
+  started_at TEXT,
+  completed_at TEXT,
+  duration_ms INTEGER,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  reasoning_tokens INTEGER,
+  cache_tokens INTEGER,
+  tool_name TEXT,
+  read_only INTEGER,
+  destructive INTEGER,
+  approval_status TEXT,
+  trace_id TEXT,
+  turn_id TEXT,
+  conversation_id TEXT,
+  source_path TEXT NOT NULL,
+  source_fingerprint TEXT NOT NULL,
+  indexed_at TEXT NOT NULL,
+  ttft_ms INTEGER,
+  retry_count INTEGER,
+  truncated INTEGER,
+  error_type TEXT
+);
+INSERT INTO usage_projection_opt5 SELECT entry_id, kind, timestamp, provider, model, status, started_at, completed_at, duration_ms, input_tokens, output_tokens, reasoning_tokens, cache_tokens, tool_name, read_only, destructive, approval_status, trace_id, turn_id, conversation_id, source_path, source_fingerprint, indexed_at, ttft_ms, retry_count, truncated, error_type FROM usage_projection;
+DROP TABLE usage_projection;
+ALTER TABLE usage_projection_opt5 RENAME TO usage_projection;
+CREATE INDEX IF NOT EXISTS usage_projection_timestamp_idx ON usage_projection(timestamp DESC, entry_id DESC);
+CREATE INDEX IF NOT EXISTS usage_projection_conversation_idx ON usage_projection(conversation_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS usage_projection_kind_idx ON usage_projection(kind, timestamp DESC);
+
+CREATE TABLE memory_projection_opt5 (
+  memory_id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  workspace_path TEXT,
+  project_path TEXT,
+  source_lesson_id TEXT,
+  tags_json TEXT NOT NULL,
+  confidence REAL NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  disabled_at TEXT,
+  deleted_at TEXT,
+  source_fingerprint TEXT NOT NULL,
+  indexed_at TEXT NOT NULL,
+  kind TEXT,
+  status TEXT CHECK (status IS NULL OR status IN ('active', 'disabled', 'deleted'))
+);
+INSERT INTO memory_projection_opt5 SELECT memory_id, scope, workspace_path, project_path, source_lesson_id, tags_json, confidence, created_at, updated_at, disabled_at, deleted_at, source_fingerprint, indexed_at, kind, status FROM memory_projection;
+DROP TABLE memory_projection;
+ALTER TABLE memory_projection_opt5 RENAME TO memory_projection;
+CREATE INDEX IF NOT EXISTS memory_projection_kind_status_idx ON memory_projection(kind, status);
+CREATE INDEX IF NOT EXISTS memory_projection_status_idx ON memory_projection(status);
+`
 ]
 
 export const LOCAL_DATA_INDEX_MIGRATIONS: readonly SchemaMigration[] = migrationSql.map((sql, index) => ({

@@ -52,7 +52,7 @@ SQLite under analytics paths, if present, is a **rebuildable projection** only (
 
 **Export default:** exclude disposable projections. Opt-in `includeProjections` is debug-only and marks paths `untrustedProjection: true`.
 
-See `src/shared/backup-export-policy.ts` and `docs/improvements/backup-export-policy.md`.
+See `src/shared/backup-export-policy.ts` and [ADR-0001](adr/0001-rebuildable-sqlite-projection.md) (Backup / export section).
 
 ## Secret-free example
 

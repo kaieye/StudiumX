@@ -70,3 +70,40 @@ pnpm exec vitest run --project unit \
 - **不** 提供 `search_past_teaching_sessions` 独立工具名（本切片以 `memory_search` 覆盖记忆检索；会话归档检索可后续单独立项）。
 - **不** 允许 forget 非 `teaching-synthetic` 记忆或静默改 learner profile。
 - **不** 把记忆正文 bake 进 system prefix；索引仅 title+scope。
+
+## 词法失败证据与 FTS/向量触发（DB-OPT-7 沉淀）
+
+**状态：** 证据收集中；**默认不排期** FTS / Tantivy / sqlite-vec。  
+**本段不授权** analytics FTS 或向量实现（与 ADR-0001 no-FTS、DB-P2-1/2 一致）。
+
+### 如何记录失败用例
+
+| 字段 | 说明 |
+| --- | --- |
+| 任务 ID | 短 slug |
+| 教学场景 | 课程/课时/目标（无 PII） |
+| 复现步骤 | 最小步骤 / fixture |
+| 查询 | 实际检索串 |
+| 期望 vs 实际 | 应命中 memory id 或动作 vs 词法结果 |
+| 归因 | 同义 / 拼写 / 跨语言 / 长尾术语等 |
+| 严重度 | blocker / major / minor |
+| 日期 | ISO |
+
+**禁止**写入 raw learner 答案全文、API key、主机绝对路径。
+
+### 案例表（活）
+
+| ID | 场景 | 期望 vs 实际 | 归因 | 严重度 | 日期 |
+| --- | --- | --- | --- | --- | --- |
+| — | — | **暂无足够生产/教学复现失败用例** | — | — | 2026-07-21 |
+
+已知限制（**不足以**单独触发 FTS/向量）：词法为进程内 catalog 驱动；无同义词/拼写纠错/跨语言语义保证；`memory_projection` 不存 content。
+
+### 开启 DB-P2-1 / P2-2 审查的门槛
+
+1. **≥ 3** 条独立、可复现、**blocker** 级教学任务失败，且词法调优/标签/合成记忆无效。  
+2. 新 ADR：索引为 **独立 disposable 文件**；metadata-first；无 raw prompt 语料。  
+3. 覆盖 ADR-0001 no-FTS 段落 + Gate 1–6。  
+4. 证据不足 → **默认不开启**审查。
+
+**当前判定（2026-07-21）：** 暂无足够证据 → 默认不开启 FTS/向量审查。新案例应更新上表（或独立证据 PR 合并回本 ADR）。

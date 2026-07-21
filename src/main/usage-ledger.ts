@@ -34,6 +34,20 @@ export type UsageLedgerStatus =
   | 'unknown'
 
 /**
+ * Stable error classification labels for observability (not raw exception messages).
+ * Keep short and secret-free.
+ */
+export type UsageErrorType =
+  | 'provider_error'
+  | 'timeout'
+  | 'canceled'
+  | 'tool_error'
+  | 'rate_limit'
+  | 'auth_error'
+  | 'validation_error'
+  | 'unknown'
+
+/**
  * Minimal secret-free usage row. Field names stay stable for JSONL + projection.
  * Opaque correlation ids only — no titles, prompts, or args.
  */
@@ -60,6 +74,14 @@ export type UsageLedgerEntry = {
   traceId?: string
   turnId?: string
   conversationId?: string
+  /** Time-to-first-token in milliseconds (model streaming latency). */
+  ttftMs?: number
+  /** Provider / tool retry count for this observation (non-negative). */
+  retryCount?: number
+  /** Whether the response or tool result was truncated by budget. */
+  truncated?: boolean
+  /** Stable error class — never a raw exception stack or secret-bearing message. */
+  errorType?: UsageErrorType
 }
 
 export type UsageLedgerWriteInput = {
@@ -102,7 +124,11 @@ const ALLOWED_KEYS = new Set([
   'approvalStatus',
   'traceId',
   'turnId',
-  'conversationId'
+  'conversationId',
+  'ttftMs',
+  'retryCount',
+  'truncated',
+  'errorType'
 ])
 
 const pendingAppends = new Map<string, Promise<void>>()
@@ -146,6 +172,9 @@ export function buildUsageLedgerEntry(
   const traceId = safeId(input.traceId)
   const turnId = safeId(input.turnId)
   const conversationId = safeId(input.conversationId)
+  const ttftMs = nonNegInt(input.ttftMs)
+  const retryCount = nonNegInt(input.retryCount)
+  const errorType = normalizeErrorType(input.errorType)
 
   if (provider) entry.provider = provider
   if (model) entry.model = model
@@ -164,6 +193,10 @@ export function buildUsageLedgerEntry(
   if (traceId) entry.traceId = traceId
   if (turnId) entry.turnId = turnId
   if (conversationId) entry.conversationId = conversationId
+  if (ttftMs !== undefined) entry.ttftMs = ttftMs
+  if (retryCount !== undefined) entry.retryCount = retryCount
+  if (typeof input.truncated === 'boolean') entry.truncated = input.truncated
+  if (errorType) entry.errorType = errorType
 
   assertNoSecrets(entry)
   return entry
@@ -230,7 +263,11 @@ export function parseUsageLedgerLine(line: string): UsageLedgerEntry | null {
       approvalStatus: text(record.approvalStatus) as UsageApprovalStatus | undefined,
       traceId: text(record.traceId),
       turnId: text(record.turnId),
-      conversationId: text(record.conversationId)
+      conversationId: text(record.conversationId),
+      ttftMs: nonNegInt(record.ttftMs),
+      retryCount: nonNegInt(record.retryCount),
+      truncated: typeof record.truncated === 'boolean' ? record.truncated : undefined,
+      errorType: text(record.errorType) as UsageErrorType | undefined
     })
     assertNoSecrets(built)
     return built
@@ -495,6 +532,20 @@ function normalizeApproval(value: unknown): UsageApprovalStatus | undefined {
     value === 'pending' ||
     value === 'allowed' ||
     value === 'denied' ||
+    value === 'unknown'
+  ) return value
+  return undefined
+}
+
+function normalizeErrorType(value: unknown): UsageErrorType | undefined {
+  if (
+    value === 'provider_error' ||
+    value === 'timeout' ||
+    value === 'canceled' ||
+    value === 'tool_error' ||
+    value === 'rate_limit' ||
+    value === 'auth_error' ||
+    value === 'validation_error' ||
     value === 'unknown'
   ) return value
   return undefined

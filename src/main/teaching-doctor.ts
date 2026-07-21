@@ -506,13 +506,27 @@ function checkLocalDataIndex(
       rebuiltAt: facts.rebuiltAt,
       migrationCount: migrationIds.length,
       issueCount,
-      disposable: true
+      disposable: true,
+      ...(facts.usage
+        ? {
+            usageSegmentFileCount: Math.max(0, Math.floor(Number(facts.usage.segmentFileCount) || 0)),
+            usageProjectedEntryCount: Math.max(0, Math.floor(Number(facts.usage.projectedEntryCount) || 0)),
+            usageInvalidRowCount: Math.max(0, Math.floor(Number(facts.usage.invalidRowCount) || 0))
+          }
+        : {})
     },
     [
       disposableNote,
       ...(facts.reason ? [`reason=${redactText(facts.reason)}`] : []),
       ...(migrationIds.length > 0 ? [`migration_ids=${migrationIds.join(',')}`] : []),
-      ...(topIssueCodes.length > 0 ? [`issue_counts=${topIssueCodes.join(',')}`] : [])
+      ...(topIssueCodes.length > 0 ? [`issue_counts=${topIssueCodes.join(',')}`] : []),
+      ...(facts.usage
+        ? [
+            `usage_segments=${Math.max(0, Math.floor(Number(facts.usage.segmentFileCount) || 0))}`,
+            `usage_projected_entries=${Math.max(0, Math.floor(Number(facts.usage.projectedEntryCount) || 0))}`,
+            `usage_invalid_rows=${Math.max(0, Math.floor(Number(facts.usage.invalidRowCount) || 0))}`
+          ]
+        : [])
     ]
   )
 

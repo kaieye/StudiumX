@@ -7,10 +7,12 @@
 
 相关 ADR：
 
-- [ADR-0001](../adr/0001-rebuildable-sqlite-projection.md) — SQLite 仅 rebuildable projection；**no-FTS**
+- [ADR-0001](../adr/0001-rebuildable-sqlite-projection.md) — SQLite 可重建投影 + 分层权威；**no-FTS 默认**
+- [database-authority-model.md](./database-authority-model.md) — 写/读权威分层与 DB-OPT 优化锚点
 - [ADR-0002](../adr/0002-utc-partitioned-segmented-jsonl-and-summary-projections.md) — canonical 永久保留
 - [ADR-0006](../adr/0006-scoped-memory-partition-and-readonly-migration-preflight.md) / [ADR-0038](../adr/0038-memory-readonly-migration-dry-run-and-destructive-deferral.md) — Memory 破坏性迁移延期
-- [ADR-0050](../adr/0050-lexical-memory-search-and-synthetic-memory.md) — 词法记忆检索（零 LLM、无 FTS）
+- [ADR-0050](../adr/0050-lexical-memory-search-and-synthetic-memory.md) — 词法记忆检索（零 LLM、无 FTS）；DB-OPT-7 Evidence-only 锚点
+- [ADR-0052](../adr/0052-runtime-session-store.md) — 可选 runtime session store **设计 only**（DB-OPT-6；**非** DB-P2-3 写权威授权）
 - [ADR-0039](../adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md) — 信号触发 P2 先例（产品面）
 
 任何 Database 相关 PR 的合并验收见 [`database-acceptance-gates.md`](./database-acceptance-gates.md)（roadmap §8 活清单）。
@@ -22,10 +24,10 @@
 | 规则 | 说明 |
 | --- | --- |
 | **默认不排期** | DB-P2-1/2/3/4 不得出现在 sprint backlog 为「可分派实现」 |
-| **文件真相源** | SQLite / 向量 / FTS / workflow 表都不得取代 JSON/JSONL/Markdown/Memory 文件 |
+| **文件写权威** | 教学资产 / conversation 正文 / LearningSession / Memory 文件不得被 SQLite 取代为写权威；projection 可为优选读路径 |
 | **禁止静默上线** | 不得以「feature flag 默认关」绕过 ADR；flag 也不等于授权 |
-| **必须新 ADR** | 除 **DB-P2-3（拒绝项）** 外，任何重议都需要独立 design gate + 新 ADR + 用户任务证据 |
-| **禁止 forbidden 实现** | 本目录文档与脚本不得引入向量 embedding 写入、FTS schema、会话 SQLite SoT、workflow run 入库实现 |
+| **必须新 ADR** | DB-P2-3 **拒绝写权威迁库**仍成立；可选 runtime store / FTS / 向量等另案均需独立 design gate + 新 ADR + 证据 |
+| **禁止 forbidden 实现** | 不得引入向量 embedding 写入、analytics 库 FTS 语料、**会话正文/教学 ledger 的 SQLite 写权威**、workflow run 编排权威入库 |
 
 ---
 
@@ -35,7 +37,7 @@
 | --- | --- | --- | --- |
 | **DB-P2-1** | 可选向量记忆 projection | **信号触发；默认不排期** | 新 ADR + 全部硬条件 |
 | **DB-P2-2** | 可选 Tantivy/FTS 记忆索引 | **信号触发；默认不排期；冲突 ADR-0001** | 新 ADR 明确覆盖 no-FTS 重开 + 全部硬条件 |
-| **DB-P2-3** | 会话真相源迁入 SQLite | **won't do（明确拒绝）** | 仅当产品重定位（放弃文件工作区真相）后另起顶层 ADR |
+| **DB-P2-3** | 会话/**教学**写权威迁入 SQLite | **won't do（写权威）** | 写权威迁库仅当产品重定位；**可选 runtime store** 见 §4.5（须新 ADR，非本项默许） |
 | **DB-P2-4** | Workflow run 树入库 | **信号触发；默认不排期** | 教学编排产品需求证明 + 新 ADR |
 
 ---
@@ -108,35 +110,59 @@
 
 ---
 
-## 4. DB-P2-3 — 会话真相源迁入 SQLite — **won't do**
+## 4. DB-P2-3 — 会话/教学 **写权威** 迁入 SQLite — **won't do（写权威）**
+
+> 活模型：[`database-authority-model.md`](./database-authority-model.md)  
+> **拆分**：本项拒绝的是 **写权威迁库**；**不等于**拒绝「projection 优选读路径」或「未来可选 runtime cache（须新 ADR）」。
 
 ### 4.1 决定（拒绝项）
 
-**当前产品定位下明确拒绝**：不得将 conversation / session / message 的权威存储迁入 SQLite（或「SQLite 为主、文件为导出」）。
+**当前产品定位下明确拒绝**：
+
+1. 将 conversation **正文** / LearningSession / Evidence / Memory **文件写权威** 迁入 SQLite；
+2. 采用「SQLite 为唯一或主真相、文件仅为导出」；
+3. 删除 canonical 文件后，仍宣称可从 SQLite **完整恢复**教学/会话真相。
+
+**不在本项拒绝范围内（已允许或另案）：**
+
+- projection 作为 list metadata / analytics 的**优选读路径**（ADR-0001 修订 + authority model）；
+- usage / approval 的 JSONL 写权威 + 可选 SQLite 投影；
+- **可选 runtime session store**（仅性能缓存；export/resume 仍以文件为准）——见 §4.5，**须独立新 ADR**，本项 won't-do **不**默许实现。
 
 ### 4.2 原因
 
-- 与 ADR-0001 / 0002 **文件真相 + 永久保留 + 可审计 diff** 冲突
-- Marvis / ZCode 会话库优势服务「通用 agent 产品」，不是教学工作区文件 SoT
-- 会削弱 doctor / backup / git-friendly 审查路径
+- 教学工作区成功标准是 **可迁移文件**（`MISSION.md`），不是「打开 App 才能拿到会话」
+- Marvis 事件膨胀与 ZCode 双轨一致性证明：会话 SQLite SoT 有产品税
+- 削弱 doctor / backup / git-friendly 审查路径
 
-### 4.3 唯一可重议前提
+### 4.3 写权威迁库的唯一可重议前提
 
-仅当 **产品顶层重定位**（书面放弃「文件工作区为教学真相」）并经：
+仅当 **产品顶层重定位**（书面放弃「文件工作区为教学写权威」）并经：
 
 1. 产品 mission 修订（`MISSION.md` / 顶层产品 ADR）
-2. 替换 ADR-0001/0002 边界的独立顶层 ADR（不是本清单 P2 小补丁）
+2. 替换 ADR-0001/0002 **写权威**边界的独立顶层 ADR（不是本清单 P2 小补丁）
 3. 迁移/双写/回滚与审计方案完整评审
 
-否则 **永不实现**。Feature flag、实验分支或「先双写再切」**不构成**授权。
+否则对 **写权威迁库** **永不实现**。Feature flag、实验分支或「先双写再切主权威」**不构成**授权。
 
-### 4.4 PR / 实现拒绝信号
+### 4.4 PR / 实现拒绝信号（写权威）
 
-拒绝任何将下列对象改为 SQLite-authoritative 的 PR（无产品重定位 ADR）：
+无产品重定位 ADR 时拒绝：
 
-- conversation / message / part 主存储
-- LearningSessionLedger 权威迁库
+- conversation / message / part **主写存储**改为 SQLite-authoritative
+- LearningSessionLedger / Evidence / Outcome **权威**迁库
 - 「删除文件后仍以 SQLite 为可恢复真相」
+- 将 projection 行升级为 settlement / 授权 / 删除裁决依据
+
+### 4.5 可选 runtime session store（**不是** DB-P2-3 默许）
+
+| | |
+| --- | --- |
+| **状态** | **未授权实现**；**DB-OPT-6 Design-complete / unimplemented** — 设计见 [ADR-0052](../adr/0052-runtime-session-store.md) Proposed；**无生产 schema/writer** |
+| **允许讨论的形状** | 高 churn 运行时状态的 disposable SQLite **缓存**；turn 成功路径 durable 仍落文件；库可删并由文件重建 |
+| **硬门槛** | 实现须遵守 ADR-0052（export/resume **文件权威**；一致性/双写/故障矩阵）；通过验收总闸；**不得**用本项覆盖 won't-do 写权威迁库 |
+| **拒绝信号（无实现授权）** | 以 runtime 为名落地 message/part 主表并停止写会话文件；或删文件后仍从 runtime 库恢复正文 |
+
 
 ---
 
@@ -175,7 +201,7 @@
 
 | won't-borrow 项 | 对应闸 |
 | --- | --- |
-| SQLite 作为会话唯一真相 | DB-P2-3 won't do |
+| SQLite 作为会话/教学**写权威**（唯一或主真相） | DB-P2-3 won't do（写权威）；runtime store 另见 §4.5 |
 | 把 analytics 库改 FTS 语料 | DB-P2-2 |
 | 全量 AG-UI / token stream 落库 | DB-P2-4 非目标 + 验收闸「无秘密/无正文膨胀」 |
 | 基于 age/size 删 canonical | 验收闸 + ADR-0002（与 P2 无关，仍禁止） |
@@ -193,3 +219,6 @@
 | 日期 | 说明 |
 | --- | --- |
 | 2026-07-21 | 初版：固化 DB-P2-1…4 为 wont-do / 信号触发闸；无实现授权 |
+
+| 2026-07-21 | 修订：拆分 DB-P2-3「写权威迁库」与「可选 runtime store」；对齐分层权威模型 |
+| 2026-07-21 | §4.5 交叉链 [ADR-0052](../adr/0052-runtime-session-store.md) / DB-OPT-6 Design-complete；写权威 won't-do / 永不实现 / 优选读 不变 |

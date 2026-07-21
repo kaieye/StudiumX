@@ -26,6 +26,20 @@ export { LOCAL_DATA_INDEX_MIGRATIONS, SCHEMA_MIGRATION_APPLIED_BY, ensureSchemaM
 
 export type LocalDataIndexStatus = 'ready' | 'building' | 'incomplete' | 'unavailable' | 'closed'
 export type LocalDataIndexIssue = { sourceKey: string; sourcePath?: string; code: string; message: string }
+/** Aggregate-only usage ledger diagnostics for doctor (no paths, no row bodies). */
+export type LocalDataIndexUsageDiagnostics = {
+  /** Number of durable usage JSONL segment files scanned on last rebuild projection. */
+  segmentFileCount: number
+  /** Distinct entryId rows projected into usage_projection. */
+  projectedEntryCount: number
+  /** Invalid / skipped JSONL rows across all scanned segments. */
+  invalidRowCount: number
+  /** Issue rows with code invalid_row scoped to usage sources. */
+  invalidRowIssueCount: number
+  /** Issue rows with code read_failed scoped to usage sources. */
+  readFailedIssueCount: number
+}
+
 export type LocalDataIndexDiagnostics = {
   /** Projection file basename only — never an absolute host path. */
   indexFileName: typeof INDEX_FILE
@@ -43,6 +57,8 @@ export type LocalDataIndexDiagnostics = {
   /** Aggregate issue counts by stable issue code (source_drift / read_failed / …). */
   issueCountsByCode: Record<string, number>
   issueCount: number
+  /** DB-OPT-4: usage segment / invalid row counters (aggregate-only). */
+  usage: LocalDataIndexUsageDiagnostics
   /** True: support tooling must never pack conversation/memory projection row bodies. */
   aggregateOnly: true
   /** Explicit support copy: projection may be deleted and rebuilt. */
@@ -81,6 +97,14 @@ export type LocalDataIndexTestHooks = {
   busyTimeoutMs?: number
   /** Force integrity_check result instead of reading PRAGMA (e.g. 'disk image is malformed'). */
   integrityCheckResult?: string | (() => string)
+  /**
+   * DB-OPT-2: when true, rebuild attempts conversation per-source incremental upsert
+   * after a full baseline exists. Any failure falls back to full DELETE+INSERT.
+   * Production callers leave this unset (default full rebuild).
+   */
+  enableIncrementalConversationRebuild?: boolean
+  /** Test-only: throw during incremental path to force full fallback. */
+  failIncrementalRebuild?: boolean
 }
 
 export type LocalDataIndexSources = {
@@ -98,6 +122,12 @@ type BuildInput = { appDataRoot: string; workspaces: AnalyticsWorkspaceScanResul
 type ProjectedConversation = { summary: AgentConversationSummary; workspaceId?: string; scope: 'workspace' | 'temporary'; record: AgentConversationRecord; path: string; fingerprint: string }
 type ProjectedLedger = LedgerSnapshot & { workspaceId: string; entryId: string; path: string; sourceKey: string; fingerprint: string }
 type ProjectedUsage = { entry: UsageLedgerEntry; path: string; fingerprint: string }
+/** Last rebuild usage scan counters (in-memory; not durable authority). */
+type UsageScanStats = {
+  segmentFileCount: number
+  projectedEntryCount: number
+  invalidRowCount: number
+}
 type SqliteConstructor = LocalDataIndexSqliteConstructor
 
 type LocalDataIndexConversationRead =
@@ -152,6 +182,71 @@ const INDEX_VERSION = '2'
 export const LOCAL_DATA_INDEX_DISPOSABLE_NOTE =
   'studiumx-index.sqlite can be safely deleted and rebuilt from canonical local files (JSON/JSONL).'
 
+/**
+ * DB-OPT-2: pure planning helper for per-source incremental rebuild.
+ * Default production rebuild remains full DELETE+INSERT; this plan supports
+ * upserting only changed sources. Failure paths must fall back to full rebuild.
+ */
+export type ProjectionSourceFingerprint = { sourceKey: string; fingerprint: string }
+
+export type IncrementalRebuildPlan = {
+  mode: 'full' | 'incremental'
+  /** Sources whose fingerprint changed or are new — must be rewritten. */
+  upsertKeys: string[]
+  /** Sources present previously but absent now — must be deleted. */
+  deleteKeys: string[]
+  /** Sources with identical fingerprint — may be retained. */
+  unchangedKeys: string[]
+  /** Why incremental was rejected (when mode === 'full'). */
+  reason?: string
+}
+
+export function planIncrementalRebuild(input: {
+  previous: readonly ProjectionSourceFingerprint[]
+  next: readonly ProjectionSourceFingerprint[]
+  /** Force full rebuild (default production path). */
+  forceFull?: boolean
+}): IncrementalRebuildPlan {
+  if (input.forceFull) {
+    return {
+      mode: 'full',
+      upsertKeys: input.next.map((item) => item.sourceKey),
+      deleteKeys: input.previous.map((item) => item.sourceKey),
+      unchangedKeys: [],
+      reason: 'force_full'
+    }
+  }
+  const previous = new Map(input.previous.map((item) => [item.sourceKey, item.fingerprint]))
+  const next = new Map(input.next.map((item) => [item.sourceKey, item.fingerprint]))
+  const upsertKeys: string[] = []
+  const unchangedKeys: string[] = []
+  const deleteKeys: string[] = []
+  for (const [sourceKey, fingerprint] of next) {
+    const prior = previous.get(sourceKey)
+    if (prior === fingerprint) unchangedKeys.push(sourceKey)
+    else upsertKeys.push(sourceKey)
+  }
+  for (const sourceKey of previous.keys()) {
+    if (!next.has(sourceKey)) deleteKeys.push(sourceKey)
+  }
+  // If nothing can be retained, full rebuild is simpler and equivalent.
+  if (unchangedKeys.length === 0 && (upsertKeys.length > 0 || deleteKeys.length > 0)) {
+    return {
+      mode: 'full',
+      upsertKeys,
+      deleteKeys,
+      unchangedKeys: [],
+      reason: 'no_retained_rows'
+    }
+  }
+  return {
+    mode: 'incremental',
+    upsertKeys: upsertKeys.sort(),
+    deleteKeys: deleteKeys.sort(),
+    unchangedKeys: unchangedKeys.sort()
+  }
+}
+
 /** A disposable, main-process-only SQLite projection of canonical local files. */
 export class LocalDataIndex {
   private db: ProjectionDb | null = null
@@ -159,6 +254,8 @@ export class LocalDataIndex {
   private buildPromise: Promise<void> | null = null
   private unavailableReason: string | null = null
   private readyInputFingerprint: string | null = null
+  /** Last successful usage projection scan counters (DB-OPT-4). */
+  private lastUsageScan: UsageScanStats = { segmentFileCount: 0, projectedEntryCount: 0, invalidRowCount: 0 }
 
   constructor(private readonly options: {
     appDataRoot: string
@@ -213,56 +310,30 @@ export class LocalDataIndex {
       }
       const db = this.db
       if (!db) return
-      db.transaction(() => {
-        db.exec('DELETE FROM workspace_projection; DELETE FROM conversation_projection; DELETE FROM memory_projection; DELETE FROM learning_work_projection; DELETE FROM usage_projection; DELETE FROM source_provenance; DELETE FROM index_issue;')
-        const workspace = db.prepare('INSERT INTO workspace_projection VALUES (?, ?, ?, ?, ?)')
-        const conversation = db.prepare('INSERT INTO conversation_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        const memory = db.prepare('INSERT INTO memory_projection (memory_id, scope, workspace_path, project_path, source_lesson_id, tags_json, confidence, created_at, updated_at, disabled_at, deleted_at, source_fingerprint, indexed_at, kind, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        const ledger = db.prepare('INSERT INTO learning_work_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        const usage = db.prepare('INSERT INTO usage_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        const provenance = db.prepare('INSERT INTO source_provenance VALUES (?, ?, ?, ?, ?)')
-        const issue = db.prepare('INSERT INTO index_issue (rebuild_id, source_key, source_path, code, message, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-        for (const item of projections.workspaces) workspace.run(item.workspaceId, item.workspaceName, item.rootPath, item.fingerprint, this.nowIso())
-        for (const item of projections.conversations) {
-          const sourceKey = `conversation:${item.scope}:${item.workspaceId ?? 'global'}:${item.summary.id}`
-          conversation.run(sourceKey, item.workspaceId ?? null, item.summary.id, item.scope, item.summary.title, item.summary.createdAt, item.summary.updatedAt, item.summary.relativePath, item.path, item.summary.messageCount, JSON.stringify(projectConversation(item.record)), item.fingerprint, this.nowIso(), item.summary.pinned === true ? 1 : 0, item.record.branch?.status === 'archived' ? 1 : 0)
-        }
-        const memoryFingerprints = new Map(input.memory.recordFingerprints.map((item) => [item.memoryId, item.fingerprint]))
-        for (const item of input.memory.records) memory.run(item.id, item.scope, item.workspace ?? null, item.project ?? null, item.sourceLessonId ?? null, JSON.stringify(item.tags), item.confidence, item.createdAt, item.updatedAt, item.disabledAt ?? null, item.deletedAt ?? null, memoryFingerprints.get(item.id) ?? fingerprintJson(memoryIdentity(item)), this.nowIso(), resolveTeachingMemoryKind(item) ?? null, resolveTeachingMemoryStatus(item))
-        for (const item of projections.ledgers) ledger.run(item.sourceKey, item.workspaceId, item.conversationId, item.entryId, item.occurredAt, item.ledgerCreatedAt, JSON.stringify(snapshotProjection(item)), item.path, item.fingerprint, this.nowIso())
-        for (const item of projections.usages) {
-          const entry = item.entry
-          usage.run(
-            entry.entryId,
-            entry.kind,
-            entry.timestamp,
-            entry.provider ?? null,
-            entry.model ?? null,
-            entry.status ?? null,
-            entry.startedAt ?? null,
-            entry.completedAt ?? null,
-            entry.durationMs ?? null,
-            entry.inputTokens ?? null,
-            entry.outputTokens ?? null,
-            entry.reasoningTokens ?? null,
-            entry.cacheTokens ?? null,
-            entry.toolName ?? null,
-            entry.readOnly === undefined ? null : entry.readOnly ? 1 : 0,
-            entry.destructive === undefined ? null : entry.destructive ? 1 : 0,
-            entry.approvalStatus ?? null,
-            entry.traceId ?? null,
-            entry.turnId ?? null,
-            entry.conversationId ?? null,
-            item.path,
-            item.fingerprint,
-            this.nowIso()
+      let appliedIncrementalConversations = false
+      if (
+        this.options.testHooks?.enableIncrementalConversationRebuild === true &&
+        !issues.length
+      ) {
+        try {
+          if (this.options.testHooks?.failIncrementalRebuild) {
+            throw new Error('Incremental rebuild test fault')
+          }
+          appliedIncrementalConversations = this.tryIncrementalConversationReplace(
+            db,
+            input,
+            projections,
+            rebuildId,
+            issues,
+            inputFingerprint
           )
+        } catch {
+          appliedIncrementalConversations = false
         }
-        for (const item of projections.provenance) provenance.run(item.sourceKey, item.kind, item.path, item.fingerprint, this.nowIso())
-        for (const item of projections.usageProvenance) provenance.run(item.sourceKey, item.kind, item.path, item.fingerprint, this.nowIso())
-        for (const item of issues) issue.run(rebuildId, item.sourceKey, item.sourcePath ?? null, item.code, item.message, this.nowIso())
-        putState(db, 'version', INDEX_VERSION); putState(db, 'input_fingerprint', inputFingerprint); putState(db, 'complete', '0'); putState(db, 'rebuilt_at', this.nowIso())
-      })()
+      }
+      if (!appliedIncrementalConversations) {
+        this.applyFullProjectionReplace(db, input, projections, rebuildId, issues, inputFingerprint)
+      }
       if (issues.length) { this.statusValue = 'incomplete'; return }
       // Replacement commits with complete=0. The last controllable boundary is
       // immediately before complete=1, so verify a fresh exact-byte manifest there.
@@ -383,16 +454,26 @@ export class LocalDataIndex {
     let complete: boolean | null = null
     let rebuiltAt: string | null = null
     let version: string | null = null
+    let projectedEntryCount = this.lastUsageScan.projectedEntryCount
     if (this.db) {
       try {
         complete = getState(this.db, 'complete') === '1'
         rebuiltAt = getState(this.db, 'rebuilt_at')
         version = getState(this.db, 'version')
+        const countRow = this.db.prepare('SELECT COUNT(*) AS n FROM usage_projection').get() as { n?: number } | undefined
+        if (typeof countRow?.n === 'number') projectedEntryCount = countRow.n
       } catch {
         complete = null
         rebuiltAt = null
         version = null
       }
+    }
+    let invalidRowIssueCount = 0
+    let readFailedIssueCount = 0
+    for (const issue of issueRows) {
+      if (!issue.sourceKey.startsWith('usage:')) continue
+      if (issue.code === 'invalid_row') invalidRowIssueCount += 1
+      if (issue.code === 'read_failed') readFailedIssueCount += 1
     }
     return {
       indexFileName: INDEX_FILE,
@@ -406,6 +487,13 @@ export class LocalDataIndex {
       appliedMigrations,
       issueCountsByCode,
       issueCount: issueRows.length,
+      usage: {
+        segmentFileCount: this.lastUsageScan.segmentFileCount,
+        projectedEntryCount,
+        invalidRowCount: this.lastUsageScan.invalidRowCount,
+        invalidRowIssueCount,
+        readFailedIssueCount
+      },
       aggregateOnly: true,
       disposable: true,
       disposableNote: LOCAL_DATA_INDEX_DISPOSABLE_NOTE
@@ -521,24 +609,37 @@ export class LocalDataIndex {
     }
     for (const source of input.memory.sourceFingerprints) provenance.push({ sourceKey: `memory:${source.path}`, kind: 'memory_json', path: source.path, fingerprint: source.fingerprint })
     const usageProjection = await this.projectUsageSources(input, usableWorkspaces, issues)
-    return { workspaces: usableWorkspaces.map((item) => ({ workspaceId: item.workspaceId, workspaceName: item.workspaceName, rootPath: item.rootPath, fingerprint: fingerprintJson(workspaceIdentity(item)) })), conversations, ledgers, usages: usageProjection.usages, provenance, usageProvenance: usageProjection.provenance }
+    return {
+      workspaces: usableWorkspaces.map((item) => ({ workspaceId: item.workspaceId, workspaceName: item.workspaceName, rootPath: item.rootPath, fingerprint: fingerprintJson(workspaceIdentity(item)) })),
+      workspaceRoots: usableWorkspaces.map((item) => item.rootPath),
+      conversations,
+      ledgers,
+      usages: usageProjection.usages,
+      provenance,
+      usageProvenance: usageProjection.provenance,
+      usageScan: usageProjection.usageScan
+    }
   }
   private async projectUsageSources(
     input: BuildInput,
     usableWorkspaces: AnalyticsWorkspaceScanResult[],
     issues: LocalDataIndexIssue[]
-  ): Promise<{ usages: ProjectedUsage[]; provenance: Array<{ sourceKey: string; kind: string; path: string; fingerprint: string }> }> {
+  ): Promise<{ usages: ProjectedUsage[]; provenance: Array<{ sourceKey: string; kind: string; path: string; fingerprint: string }>; usageScan: UsageScanStats }> {
     // Usage ledgers are rebuildable observability projections. They are intentionally
     // excluded from the readiness fingerprint so frequent appends do not thrash
     // conversation/memory currentness. source_provenance still records usage files.
     const byEntryId = new Map<string, ProjectedUsage>()
     const usageProvenance: Array<{ sourceKey: string; kind: string; path: string; fingerprint: string }> = []
+    let segmentFileCount = 0
+    let invalidRowCount = 0
     const ingest = async (scopeKey: string, activePath: string, sourcePathHint: string) => {
       try {
         const sources = await readUsageLedgerSources(activePath)
         for (const source of sources) {
+          segmentFileCount += 1
           usageProvenance.push({ sourceKey: `usage_file:${scopeKey}:${source.path}`, kind: 'usage_jsonl', path: source.path, fingerprint: source.fingerprint })
           if (source.invalid > 0) {
+            invalidRowCount += source.invalid
             issues.push({ sourceKey: `usage:${scopeKey}`, sourcePath: source.path, code: 'invalid_row', message: `${source.invalid} invalid usage JSONL row(s) were skipped.` })
           }
           for (const entry of source.entries) {
@@ -557,12 +658,20 @@ export class LocalDataIndex {
       await ingest(`workspace:${workspace.workspaceId}`, usageLedgerWorkspacePath(workspace.rootPath), usageLedgerWorkspacePath(workspace.rootPath))
     }
     const usages = [...byEntryId.values()].sort((left, right) => left.entry.timestamp.localeCompare(right.entry.timestamp) || left.entry.entryId.localeCompare(right.entry.entryId))
-    return { usages, provenance: usageProvenance }
+    return {
+      usages,
+      provenance: usageProvenance,
+      usageScan: {
+        segmentFileCount,
+        projectedEntryCount: usages.length,
+        invalidRowCount
+      }
+    }
   }
   private async readUsageAnalytics(db: ProjectionDb): Promise<LocalDataIndexUsageAnalyticsRead> {
     if (!await this.canExecuteProjectionQuery(db)) return { state: 'unavailable' }
     try {
-      const rows = db.prepare(`SELECT entry_id, kind, timestamp, provider, model, status, started_at, completed_at, duration_ms, input_tokens, output_tokens, reasoning_tokens, cache_tokens, tool_name, read_only, destructive, approval_status, trace_id, turn_id, conversation_id FROM usage_projection`).all() as Array<Record<string, unknown>>
+      const rows = db.prepare(`SELECT entry_id, kind, timestamp, provider, model, status, started_at, completed_at, duration_ms, input_tokens, output_tokens, reasoning_tokens, cache_tokens, tool_name, read_only, destructive, approval_status, trace_id, turn_id, conversation_id, ttft_ms, retry_count, truncated, error_type FROM usage_projection`).all() as Array<Record<string, unknown>>
       const entries: UsageLedgerEntry[] = []
       for (const row of rows) {
         const entry = hydrateUsageProjectionRow(row)
@@ -626,6 +735,138 @@ export class LocalDataIndex {
     if (!this.db) return
     this.db.transaction(() => { this.db!.exec('DELETE FROM index_issue'); const insert = this.db!.prepare('INSERT INTO index_issue (rebuild_id, source_key, source_path, code, message, created_at) VALUES (?, ?, ?, ?, ?, ?)'); for (const item of issues) insert.run(rebuildId, item.sourceKey, item.sourcePath ?? null, item.code, item.message, this.nowIso()); putState(this.db!, 'complete', '0') })()
   }
+
+  /**
+   * DB-OPT-2: conversation-only incremental path. Returns true when applied.
+   * Non-conversation tables still full-refresh inside the same transaction so
+   * readiness/currentness stays consistent. Failure → false (caller does full).
+   */
+  private tryIncrementalConversationReplace(
+    db: ProjectionDb,
+    input: BuildInput,
+    projections: Awaited<ReturnType<LocalDataIndex['projectSources']>>,
+    rebuildId: string,
+    issues: LocalDataIndexIssue[],
+    inputFingerprint: string
+  ): boolean {
+    const previousRows = db.prepare(
+      `SELECT source_key AS sourceKey, source_fingerprint AS fingerprint FROM conversation_projection`
+    ).all() as Array<{ sourceKey: string; fingerprint: string }>
+    if (previousRows.length === 0) return false
+    const nextFingerprints = projections.conversations.map((item) => ({
+      sourceKey: `conversation:${item.scope}:${item.workspaceId ?? 'global'}:${item.summary.id}`,
+      fingerprint: item.fingerprint
+    }))
+    const plan = planIncrementalRebuild({ previous: previousRows, next: nextFingerprints })
+    if (plan.mode !== 'incremental') return false
+
+    const byKey = new Map<string, (typeof projections.conversations)[number]>()
+    for (const item of projections.conversations) {
+      byKey.set(`conversation:${item.scope}:${item.workspaceId ?? 'global'}:${item.summary.id}`, item)
+    }
+    db.transaction(() => {
+      // Full refresh non-conversation projections (safe fallback surface stays simple).
+      db.exec('DELETE FROM workspace_projection; DELETE FROM memory_projection; DELETE FROM learning_work_projection; DELETE FROM usage_projection; DELETE FROM source_provenance; DELETE FROM index_issue;')
+      const workspace = db.prepare('INSERT INTO workspace_projection VALUES (?, ?, ?, ?, ?)')
+      const memory = db.prepare('INSERT INTO memory_projection (memory_id, scope, workspace_path, project_path, source_lesson_id, tags_json, confidence, created_at, updated_at, disabled_at, deleted_at, source_fingerprint, indexed_at, kind, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const ledger = db.prepare('INSERT INTO learning_work_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const usage = db.prepare(`INSERT INTO usage_projection (
+          entry_id, kind, timestamp, provider, model, status, started_at, completed_at, duration_ms,
+          input_tokens, output_tokens, reasoning_tokens, cache_tokens, tool_name, read_only, destructive,
+          approval_status, trace_id, turn_id, conversation_id, source_path, source_fingerprint, indexed_at,
+          ttft_ms, retry_count, truncated, error_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      const conversation = db.prepare('INSERT INTO conversation_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const deleteConversation = db.prepare('DELETE FROM conversation_projection WHERE source_key = ?')
+      const provenance = db.prepare('INSERT INTO source_provenance VALUES (?, ?, ?, ?, ?)')
+      const issue = db.prepare('INSERT INTO index_issue (rebuild_id, source_key, source_path, code, message, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      for (const key of plan.deleteKeys) deleteConversation.run(key)
+      for (const key of plan.upsertKeys) {
+        const item = byKey.get(key)
+        if (!item) continue
+        deleteConversation.run(key)
+        conversation.run(key, item.workspaceId ?? null, item.summary.id, item.scope, item.summary.title, item.summary.createdAt, item.summary.updatedAt, item.summary.relativePath, '', item.summary.messageCount, JSON.stringify(projectConversation(item.record)), item.fingerprint, this.nowIso(), item.summary.pinned === true ? 1 : 0, item.record.branch?.status === 'archived' ? 1 : 0)
+      }
+      for (const item of projections.workspaces) workspace.run(item.workspaceId, item.workspaceName, item.rootPath, item.fingerprint, this.nowIso())
+      const memoryFingerprints = new Map(input.memory.recordFingerprints.map((item) => [item.memoryId, item.fingerprint]))
+      for (const item of input.memory.records) memory.run(item.id, item.scope, item.workspace ?? null, item.project ?? null, item.sourceLessonId ?? null, JSON.stringify(item.tags), item.confidence, item.createdAt, item.updatedAt, item.disabledAt ?? null, item.deletedAt ?? null, memoryFingerprints.get(item.id) ?? fingerprintJson(memoryIdentity(item)), this.nowIso(), resolveTeachingMemoryKind(item) ?? null, resolveTeachingMemoryStatus(item))
+      for (const item of projections.ledgers) ledger.run(item.sourceKey, item.workspaceId, item.conversationId, item.entryId, item.occurredAt, item.ledgerCreatedAt, JSON.stringify(snapshotProjection(item)), item.path, item.fingerprint, this.nowIso())
+      for (const item of projections.usages) {
+        const entry = item.entry
+        usage.run(
+          entry.entryId, entry.kind, entry.timestamp, entry.provider ?? null, entry.model ?? null, entry.status ?? null,
+          entry.startedAt ?? null, entry.completedAt ?? null, entry.durationMs ?? null, entry.inputTokens ?? null,
+          entry.outputTokens ?? null, entry.reasoningTokens ?? null, entry.cacheTokens ?? null, entry.toolName ?? null,
+          entry.readOnly === undefined ? null : entry.readOnly ? 1 : 0,
+          entry.destructive === undefined ? null : entry.destructive ? 1 : 0,
+          entry.approvalStatus ?? null, entry.traceId ?? null, entry.turnId ?? null, entry.conversationId ?? null,
+          relativeUsageSourcePath(item.path, input.appDataRoot, projections.workspaceRoots),
+          item.fingerprint, this.nowIso(), entry.ttftMs ?? null, entry.retryCount ?? null,
+          entry.truncated === undefined ? null : entry.truncated ? 1 : 0, entry.errorType ?? null
+        )
+      }
+      this.lastUsageScan = projections.usageScan
+      for (const item of projections.provenance) provenance.run(item.sourceKey, item.kind, item.path, item.fingerprint, this.nowIso())
+      for (const item of projections.usageProvenance) provenance.run(item.sourceKey, item.kind, item.path, item.fingerprint, this.nowIso())
+      for (const item of issues) issue.run(rebuildId, item.sourceKey, item.sourcePath ?? null, item.code, item.message, this.nowIso())
+      putState(db, 'version', INDEX_VERSION); putState(db, 'input_fingerprint', inputFingerprint); putState(db, 'complete', '0'); putState(db, 'rebuilt_at', this.nowIso())
+    })()
+    return true
+  }
+
+  /** Reliable full DELETE+INSERT rebuild (default production path). */
+  private applyFullProjectionReplace(
+    db: ProjectionDb,
+    input: BuildInput,
+    projections: Awaited<ReturnType<LocalDataIndex['projectSources']>>,
+    rebuildId: string,
+    issues: LocalDataIndexIssue[],
+    inputFingerprint: string
+  ): void {
+    db.transaction(() => {
+      db.exec('DELETE FROM workspace_projection; DELETE FROM conversation_projection; DELETE FROM memory_projection; DELETE FROM learning_work_projection; DELETE FROM usage_projection; DELETE FROM source_provenance; DELETE FROM index_issue;')
+      const workspace = db.prepare('INSERT INTO workspace_projection VALUES (?, ?, ?, ?, ?)')
+      const conversation = db.prepare('INSERT INTO conversation_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const memory = db.prepare('INSERT INTO memory_projection (memory_id, scope, workspace_path, project_path, source_lesson_id, tags_json, confidence, created_at, updated_at, disabled_at, deleted_at, source_fingerprint, indexed_at, kind, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const ledger = db.prepare('INSERT INTO learning_work_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const usage = db.prepare(`INSERT INTO usage_projection (
+          entry_id, kind, timestamp, provider, model, status, started_at, completed_at, duration_ms,
+          input_tokens, output_tokens, reasoning_tokens, cache_tokens, tool_name, read_only, destructive,
+          approval_status, trace_id, turn_id, conversation_id, source_path, source_fingerprint, indexed_at,
+          ttft_ms, retry_count, truncated, error_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      const provenance = db.prepare('INSERT INTO source_provenance VALUES (?, ?, ?, ?, ?)')
+      const issue = db.prepare('INSERT INTO index_issue (rebuild_id, source_key, source_path, code, message, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      for (const item of projections.workspaces) workspace.run(item.workspaceId, item.workspaceName, item.rootPath, item.fingerprint, this.nowIso())
+      for (const item of projections.conversations) {
+        const sourceKey = `conversation:${item.scope}:${item.workspaceId ?? 'global'}:${item.summary.id}`
+        conversation.run(sourceKey, item.workspaceId ?? null, item.summary.id, item.scope, item.summary.title, item.summary.createdAt, item.summary.updatedAt, item.summary.relativePath, '', item.summary.messageCount, JSON.stringify(projectConversation(item.record)), item.fingerprint, this.nowIso(), item.summary.pinned === true ? 1 : 0, item.record.branch?.status === 'archived' ? 1 : 0)
+      }
+      const memoryFingerprints = new Map(input.memory.recordFingerprints.map((item) => [item.memoryId, item.fingerprint]))
+      for (const item of input.memory.records) memory.run(item.id, item.scope, item.workspace ?? null, item.project ?? null, item.sourceLessonId ?? null, JSON.stringify(item.tags), item.confidence, item.createdAt, item.updatedAt, item.disabledAt ?? null, item.deletedAt ?? null, memoryFingerprints.get(item.id) ?? fingerprintJson(memoryIdentity(item)), this.nowIso(), resolveTeachingMemoryKind(item) ?? null, resolveTeachingMemoryStatus(item))
+      for (const item of projections.ledgers) ledger.run(item.sourceKey, item.workspaceId, item.conversationId, item.entryId, item.occurredAt, item.ledgerCreatedAt, JSON.stringify(snapshotProjection(item)), item.path, item.fingerprint, this.nowIso())
+      for (const item of projections.usages) {
+        const entry = item.entry
+        usage.run(
+          entry.entryId, entry.kind, entry.timestamp, entry.provider ?? null, entry.model ?? null, entry.status ?? null,
+          entry.startedAt ?? null, entry.completedAt ?? null, entry.durationMs ?? null, entry.inputTokens ?? null,
+          entry.outputTokens ?? null, entry.reasoningTokens ?? null, entry.cacheTokens ?? null, entry.toolName ?? null,
+          entry.readOnly === undefined ? null : entry.readOnly ? 1 : 0,
+          entry.destructive === undefined ? null : entry.destructive ? 1 : 0,
+          entry.approvalStatus ?? null, entry.traceId ?? null, entry.turnId ?? null, entry.conversationId ?? null,
+          relativeUsageSourcePath(item.path, input.appDataRoot, projections.workspaceRoots),
+          item.fingerprint, this.nowIso(), entry.ttftMs ?? null, entry.retryCount ?? null,
+          entry.truncated === undefined ? null : entry.truncated ? 1 : 0, entry.errorType ?? null
+        )
+      }
+      this.lastUsageScan = projections.usageScan
+      for (const item of projections.provenance) provenance.run(item.sourceKey, item.kind, item.path, item.fingerprint, this.nowIso())
+      for (const item of projections.usageProvenance) provenance.run(item.sourceKey, item.kind, item.path, item.fingerprint, this.nowIso())
+      for (const item of issues) issue.run(rebuildId, item.sourceKey, item.sourcePath ?? null, item.code, item.message, this.nowIso())
+      putState(db, 'version', INDEX_VERSION); putState(db, 'input_fingerprint', inputFingerprint); putState(db, 'complete', '0'); putState(db, 'rebuilt_at', this.nowIso())
+    })()
+  }
+
   private nowIso(): string { return (this.options.now ?? (() => new Date()))().toISOString() }
 }
 
@@ -751,7 +992,43 @@ function normalizeConversationListLimit(limit: number | undefined): number {
   if (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 1) return 100
   return Math.min(Math.floor(limit), 500)
 }
-function hydrateConversation(row: Record<string, unknown>): AgentConversationRecord { const projected = JSON.parse(String(row.turn_projection_json)) as { turns: Array<Record<string, unknown>> }; return { id: String(row.conversation_id), ...(row.workspace_id ? { workspaceId: String(row.workspace_id) } : {}), title: String(row.title), createdAt: String(row.created_at), updatedAt: String(row.updated_at), relativePath: String(row.relative_path), absolutePath: String(row.absolute_path), messageCount: Number(row.message_count), turns: projected.turns.map((turn) => ({ id: String(turn.id), role: turn.role as AgentConversationRecord['turns'][number]['role'], content: '', createdAt: String(turn.createdAt), ...(Array.isArray(turn.toolCalls) ? { toolCalls: turn.toolCalls.map((tool) => ({ id: `projected:${String((tool as { name?: unknown }).name ?? 'tool')}`, name: String((tool as { name?: unknown }).name ?? ''), arguments: '', ...((tool as { isError?: unknown }).isError ? { isError: true } : {}) })) } : {}), ...(turn.metadata ? { metadata: hydrateMetadata(turn.metadata as Record<string, unknown>) } : {}) })) } }
+function hydrateConversation(row: Record<string, unknown>): AgentConversationRecord {
+  const projected = JSON.parse(String(row.turn_projection_json)) as { turns: Array<Record<string, unknown>> }
+  const relativePath = String(row.relative_path)
+  // DB-OPT-1: absolute_path column is no longer durable authority. Prefer empty or
+  // relative_path-only; never require a host absolute path for hydrate/list.
+  const storedAbsolute = typeof row.absolute_path === 'string' ? row.absolute_path : ''
+  const absolutePath = storedAbsolute && !isProbablyHostAbsolutePath(storedAbsolute)
+    ? storedAbsolute
+    : relativePath
+  return {
+    id: String(row.conversation_id),
+    ...(row.workspace_id ? { workspaceId: String(row.workspace_id) } : {}),
+    title: String(row.title),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    relativePath,
+    absolutePath,
+    messageCount: Number(row.message_count),
+    turns: projected.turns.map((turn) => ({
+      id: String(turn.id),
+      role: turn.role as AgentConversationRecord['turns'][number]['role'],
+      content: '',
+      createdAt: String(turn.createdAt),
+      ...(Array.isArray(turn.toolCalls)
+        ? {
+            toolCalls: turn.toolCalls.map((tool) => ({
+              id: `projected:${String((tool as { name?: unknown }).name ?? 'tool')}`,
+              name: String((tool as { name?: unknown }).name ?? ''),
+              arguments: '',
+              ...((tool as { isError?: unknown }).isError ? { isError: true } : {})
+            }))
+          }
+        : {}),
+      ...(turn.metadata ? { metadata: hydrateMetadata(turn.metadata as Record<string, unknown>) } : {})
+    }))
+  }
+}
 function hydrateMetadata(value: Record<string, unknown>): AgentConversationRecord['turns'][number]['metadata'] { const governance = value.governance as Record<string, unknown> | undefined; return { version: 1, ...(value.runUsage ? { runUsage: value.runUsage as NonNullable<AgentConversationRecord['turns'][number]['metadata']>['runUsage'] } : {}), ...(governance ? { compactions: Array.from({ length: Number(governance.compactionEvents) || 0 }, () => ({ id: 'projected', createdAt: '1970-01-01T00:00:00.000Z', replacedTurnIds: [], sourceDigest: 'projected', reason: 'analytics', mode: 'normal', replacedTokens: Number(governance.replacedTokens) || 0 })), contextHygiene: Number(governance.hygieneSavedTokens) ? [{ changed: true, savedTokens: Number(governance.hygieneSavedTokens), compactedToolResults: 0, digestedToolResults: 0, compactedToolCallArgs: 0 }] : [] } : {}) } }
 function sum(values: Array<number | undefined>): number { return values.reduce<number>((total, value) => total + (typeof value === 'number' && Number.isFinite(value) ? value : 0), 0) }
 function parseLedgerSnapshot(line: string): (LedgerSnapshot & { entryId: string }) | null { try { const value = JSON.parse(line) as Record<string, unknown>; const conversation = object(value.conversation); const evidence = object(value.evidence); const usage = object(evidence?.runUsage); const entryId = text(value.entryId); if (value.version !== 1 || value.type !== 'conversation_snapshot' || !conversation || !usage || !entryId) return null; const conversationId = text(conversation.id), occurredAt = instant(conversation.updatedAt), ledgerCreatedAt = instant(value.createdAt), messageCount = number(conversation.messageCount), normalized = normalizeUsage(usage); if (!conversationId || !occurredAt || !ledgerCreatedAt || messageCount === null || !normalized) return null; return { entryId, conversationId, title: sanitizePersistedConversationTitle(text(conversation.title) ?? conversationId), courseRelativePath: text(conversation.courseRelativePath), occurredAt, ledgerCreatedAt, messageCount, ...normalized } } catch { return null } }
@@ -779,8 +1056,35 @@ function hydrateUsageProjectionRow(row: Record<string, unknown>): UsageLedgerEnt
     ...(row.approval_status != null ? { approvalStatus: row.approval_status } : {}),
     ...(row.trace_id != null ? { traceId: row.trace_id } : {}),
     ...(row.turn_id != null ? { turnId: row.turn_id } : {}),
-    ...(row.conversation_id != null ? { conversationId: row.conversation_id } : {})
+    ...(row.conversation_id != null ? { conversationId: row.conversation_id } : {}),
+    ...(row.ttft_ms != null ? { ttftMs: row.ttft_ms } : {}),
+    ...(row.retry_count != null ? { retryCount: row.retry_count } : {}),
+    ...(row.truncated === 0 || row.truncated === 1 ? { truncated: row.truncated === 1 } : {}),
+    ...(row.error_type != null ? { errorType: row.error_type } : {})
   }))
+}
+/** Prefer app/workspace-relative placement labels; never re-emit host home paths when a prefix match exists. */
+function relativeUsageSourcePath(absolutePath: string, appDataRoot: string, workspaceRoots: readonly string[]): string {
+  const normalize = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '')
+  const pathNorm = normalize(absolutePath)
+  const appNorm = normalize(appDataRoot)
+  if (pathNorm === appNorm || pathNorm.startsWith(`${appNorm}/`)) {
+    return pathNorm.slice(appNorm.length).replace(/^\//, '') || 'usage/usage.jsonl'
+  }
+  for (const root of workspaceRoots) {
+    const rootNorm = normalize(root)
+    if (pathNorm === rootNorm || pathNorm.startsWith(`${rootNorm}/`)) {
+      return pathNorm.slice(rootNorm.length).replace(/^\//, '') || '.studiumx/usage.jsonl'
+    }
+  }
+  // Last resort: basename only — still avoids full host path leakage in projection rows.
+  const parts = pathNorm.split('/')
+  return parts[parts.length - 1] || 'usage.jsonl'
+}
+function isProbablyHostAbsolutePath(value: string): boolean {
+  if (!value) return false
+  if (value.startsWith('/') || value.startsWith('\\')) return true
+  return /^[A-Za-z]:[\\/]/.test(value)
 }
 function object(value: unknown): Record<string, unknown> | null { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null }
 function text(value: unknown): string | undefined { return typeof value === 'string' && value.trim() ? value.trim() : undefined }

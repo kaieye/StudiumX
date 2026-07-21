@@ -270,3 +270,108 @@ describe('usage analytics aggregates', () => {
     expect(JSON.stringify(summary)).not.toContain('arguments')
   })
 })
+
+describe('DB-OPT-3 usage latency fields', () => {
+  it('round-trips ttftMs/retryCount/truncated/errorType through JSONL and projection', async () => {
+    await appendUsageLedgerEntry({
+      appDataRoot: runtime.userDataDir,
+      now,
+      entry: {
+        kind: 'model_usage',
+        provider: 'openai',
+        model: 'gpt-test',
+        status: 'failed',
+        entryId: 'opt3-1',
+        ttftMs: 120,
+        retryCount: 2,
+        truncated: true,
+        errorType: 'timeout',
+        inputTokens: 3,
+        outputTokens: 0
+      }
+    })
+    const appPath = usageLedgerActivePath(runtime.userDataDir)
+    const line = (await readFile(appPath, 'utf8')).trim().split('\n').at(-1)!
+    const parsed = parseUsageLedgerLine(line)
+    expect(parsed).toMatchObject({
+      entryId: 'opt3-1',
+      ttftMs: 120,
+      retryCount: 2,
+      truncated: true,
+      errorType: 'timeout'
+    })
+
+    // Unknown error type is dropped (not raw exception message).
+    expect(buildUsageLedgerEntry({
+      kind: 'turn_usage',
+      errorType: 'Error: secret stack at /Users/me/app.ts' as never
+    }).errorType).toBeUndefined()
+
+    const index = new LocalDataIndex({
+      appDataRoot: runtime.userDataDir,
+      sources: {
+        listWorkspaces: async () => [],
+        listTemporaryConversations: async () => [],
+        listMemory: async () => []
+      }
+    })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+    index.close()
+    const db = new Database(join(runtime.userDataDir, 'studiumx-index.sqlite'), { readonly: true })
+    try {
+      const row = db.prepare('SELECT ttft_ms, retry_count, truncated, error_type, source_path FROM usage_projection WHERE entry_id = ?').get('opt3-1') as {
+        ttft_ms: number
+        retry_count: number
+        truncated: number
+        error_type: string
+        source_path: string
+      }
+      expect(row).toMatchObject({ ttft_ms: 120, retry_count: 2, truncated: 1, error_type: 'timeout' })
+      expect(row.source_path).not.toContain(runtime.userDataDir)
+      expect(row.source_path).toMatch(/usage/)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('missing OPT-3 fields remain readable (legacy rows)', async () => {
+    await appendUsageLedgerEntry({
+      appDataRoot: runtime.userDataDir,
+      now,
+      entry: {
+        kind: 'tool_usage',
+        toolName: 'read_file',
+        status: 'completed',
+        entryId: 'legacy-opt3'
+      }
+    })
+    const index = new LocalDataIndex({
+      appDataRoot: runtime.userDataDir,
+      sources: {
+        listWorkspaces: async () => [],
+        listTemporaryConversations: async () => [],
+        listMemory: async () => []
+      }
+    })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    index.close()
+    const db = new Database(join(runtime.userDataDir, 'studiumx-index.sqlite'), { readonly: true })
+    try {
+      const row = db.prepare('SELECT ttft_ms, retry_count, truncated, error_type FROM usage_projection WHERE entry_id = ?').get('legacy-opt3') as {
+        ttft_ms: number | null
+        retry_count: number | null
+        truncated: number | null
+        error_type: string | null
+      }
+      expect(row.ttft_ms).toBeNull()
+      expect(row.retry_count).toBeNull()
+      expect(row.truncated).toBeNull()
+      expect(row.error_type).toBeNull()
+    } finally {
+      db.close()
+    }
+  })
+})

@@ -42,6 +42,43 @@ C-2 不批准下列能力，且不得将任何已实施的分区、sealing 或 s
 
 显式由用户选择的删除，以及事务、staging 或 lock 的清理，分别受其自身的授权和正确性边界约束，均不属于 C-2。
 
+## 教学 event 密度（DB-P1-3 沉淀）
+
+Marvis 式全量 stream/event 落库会导致体积与锁竞争。StudiumX **分离**：
+
+1. **Canonical teaching events**（影响 outcome / evidence 的写权威仍在文件 ledger）  
+2. **Operational debug**（仅 diagnostic logs；允许 mtime purge；**禁止**写入 learning-work / LearningSession events）
+
+### 硬规则
+
+| 规则 | 细节 |
+| --- | --- |
+| Token stream | **不得**为回放方便写入 durable ledger |
+| LearningSessionLedger | 关闭 kinds（`lesson_opened` / `lesson_completed` / `retrieval_attempted` / `quiz_attempted` / `flashcard_reviewed` / `learner_response_recorded` 等）；debug kinds 在 append 拒绝 |
+| learning-work.jsonl | 仅 `conversation_snapshot`；无 turn 正文 / 全量 tool dump / stream delta / raw prompt |
+| TeachingEventEnvelope（ADR-0015） | 运行时 bus 分 must-durable / must-ephemeral；ephemeral **不是**第二文件 ledger |
+
+### 预算（实现镜像）
+
+| Ledger | 预算示例 |
+| --- | --- |
+| LearningSession 事件文件 | max file 1 MiB；payload JSON 512 KiB；depth 64；软上限 500 events/session |
+| learning-work 行 | evidence/category 40；text field ≤500；active 旋转 50 MiB（本 ADR 分段）；硬上限 256 KiB/row |
+
+权威模块：`src/shared/event-density-policy.ts`（`assertLearningWorkCanonicalEntry` 等）。接缝：`LearningWorkLedger`、`LearningSessionLedger`。
+
+验证：
+
+```bash
+pnpm exec vitest run --project unit tests/unit/event-density-policy.unit.test.ts tests/unit/learning-work-ledger.unit.test.ts
+```
+
+### 非目标
+
+- 不自动静默 purge canonical events  
+- 不以 event 建 FTS 语料  
+- ledger 不进 secret / raw prompt  
+
 ## 重新开启条件
 
 只有新的、单独批准的产品与架构决定，明确授予一个具体且有限的 canonical physical lifecycle 或 recovery scope 时，才可重新开启 C-2。该决定必须至少定义 artifact class、授权主体与显式用户同意、删除/恢复语义、durability 与 failure/recovery 边界、审计要求，以及所需 API / IPC / UI 范围；在该批准和独立实施完成前，永久保留仍是有效政策。

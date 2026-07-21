@@ -28,7 +28,7 @@ StudiumX 是面向 **本地教学工作区** 的 Electron 应用。磁盘上的�
 
 ## 备份 vs 可丢弃 projection
 
-StudiumX 以**磁盘文件**为真相源。SQLite 永远不是权威。
+StudiumX 以**磁盘文件**为教学资产、会话正文与 ledger 的**写权威**。SQLite 是可丢弃 projection（list/analytics 在 ready 时可优选读），**不是**教学写权威。见[分层权威](improvements/database-authority-model.md)。
 
 | 类别 | 内容 | 运维动作 |
 | --- | --- | --- |
@@ -37,14 +37,14 @@ StudiumX 以**磁盘文件**为真相源。SQLite 永远不是权威。
 
 **导出默认**排除可丢弃 projection。可选 `includeProjections` 仅用于**调试**，且标记为 **untrusted**（不得作为权威恢复）。
 
-策略模块：`src/shared/backup-export-policy.ts`。详见：`docs/improvements/backup-export-policy.md`。
+策略模块：`src/shared/backup-export-policy.ts`。持久化规则见 [ADR-0001](adr/0001-rebuildable-sqlite-projection.md)（Backup / export 节）。
 
 ## 明确不做
 
 - 默认不提供 shell / 任意代码执行。
 - 默认不开放 MCP 插件市场。
 - 默认无自动遥测与 crash 上传。
-- 不做 SQLite FTS 产品搜索（ADR-0001）。
+- 不做 analytics 库上的 SQLite FTS 产品搜索（ADR-0001）。SQLite 为可重建投影，列表/分析在 ready 时可优选读取；教学写权威仍在文件（[分层权威](improvements/database-authority-model.md)）。
 
 ## 延伸阅读
 
@@ -56,6 +56,7 @@ StudiumX 以**磁盘文件**为真相源。SQLite 永远不是权威。
 | `SECURITY.md` | 信任模型 |
 | `docs/improvements/database-acceptance-gates.md` | Database PR acceptance gates (roadmap §8) |
 | `docs/improvements/database-p2-boundaries.md` | Database P2 boundary / trigger gates |
+| `docs/improvements/database-authority-model.md` | 分层写/读权威（文件 vs projection） |
 | `docs/testing.md` | 测试教义 / pre-push |
 | `docs/tools/TOOL_CONTRACT.md` | 工具合同 |
 | `CONTRIBUTING.md` | 贡献入口 |

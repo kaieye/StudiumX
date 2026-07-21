@@ -28,7 +28,7 @@ StudiumX is a **local teaching workspace** for Electron. Files on disk are the s
 
 ## Backup vs disposable projections
 
-StudiumX keeps **files on disk** as the source of truth. SQLite is never the authority.
+StudiumX keeps **files on disk** as the **write** source of truth for teaching assets, transcripts, and ledgers. SQLite is a disposable projection (preferred read for list/analytics when current); never teaching write-authority. See [authority model](improvements/database-authority-model.md).
 
 | Class | What | Operator action |
 | --- | --- | --- |
@@ -37,14 +37,14 @@ StudiumX keeps **files on disk** as the source of truth. SQLite is never the aut
 
 **Export default:** exclude disposable projections. Optional `includeProjections` is **debug-only** and marks included projection files as **untrusted** (never restore as authority).
 
-Policy module: `src/shared/backup-export-policy.ts`. Detail: `docs/improvements/backup-export-policy.md`.
+Policy module: `src/shared/backup-export-policy.ts`. Durable rules: [ADR-0001](adr/0001-rebuildable-sqlite-projection.md) (Backup / export section).
 
 ## What not to expect
 
 - No default shell / arbitrary code execution.
 - No MCP plugin marketplace by default.
 - No automatic telemetry or crash upload (opt-in support paths only).
-- No SQLite FTS product search — SQLite is rebuildable analytics projection only (ADR-0001).
+- No SQLite FTS product search on the analytics DB (ADR-0001). SQLite is a rebuildable projection; preferred read for list/analytics when current; files remain write-authority ([authority model](improvements/database-authority-model.md)).
 
 ## Deeper docs
 
@@ -56,6 +56,7 @@ Policy module: `src/shared/backup-export-policy.ts`. Detail: `docs/improvements/
 | `SECURITY.md` | Trust model |
 | `docs/improvements/database-acceptance-gates.md` | Database PR acceptance gates (roadmap §8) |
 | `docs/improvements/database-p2-boundaries.md` | Database P2 boundary / trigger gates |
+| `docs/improvements/database-authority-model.md` | Layered write/read authority (files vs projection) |
 | `docs/testing.md` | Testing doctrine / pre-push |
 | `docs/tools/TOOL_CONTRACT.md` | Registered tool contract |
 | `CONTRIBUTING.md` | Contributor entry |

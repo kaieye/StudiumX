@@ -9,7 +9,8 @@
 
 - 边界与 P2 触发：[`database-p2-boundaries.md`](./database-p2-boundaries.md)
 - 改造清单：[`database-roadmap.md`](./database-roadmap.md)
-- 基线 ADR：0001 / 0002 / 0006 / 0027 / 0034 / 0038 / 0048 / 0050
+- 基线 ADR：0001 / 0002 / 0006 / 0027 / 0034 / 0038 / 0048 / 0050 / 0051
+- 分层权威：[`database-authority-model.md`](./database-authority-model.md)
 - 贡献入口：[`CONTRIBUTING.md`](../../CONTRIBUTING.md)
 
 ---
@@ -59,7 +60,7 @@ PR 触及下列任一路径或主题时，作者与审查者须在 PR 描述中�
 
 ### Gate 5 — 政策对齐
 
-- [ ] **声明**：不引入 FTS 产品面；不引入 canonical 物理删除（age/size）；不绕过工具 effect lattice；不把 SQLite 当会话 SoT。
+- [ ] **声明**：不引入 analytics 库 FTS 产品面；不引入 canonical 物理删除（age/size）；不绕过工具 effect lattice；不把 SQLite 当教学/会话**写权威**（projection 优选读路径允许；见 authority model）。
 - [ ] **证明**：对照 [`database-p2-boundaries.md`](./database-p2-boundaries.md)；若触及 P2 能力，必须有 **已合并** 新 ADR 链接，否则标为 won't-do / out-of-scope。
 - [ ] **拒绝**：DB-P2-1/2/3/4 的 forbidden 实现（见边界文档拒绝信号）。
 
@@ -80,13 +81,13 @@ PR 触及下列任一路径或主题时，作者与审查者须在 PR 描述中�
 - [ ] Gate 2 Drift safety — evidence: …
 - [ ] Gate 3 No secrets in index — evidence: …
 - [ ] Gate 4 Degrade on failure — evidence: …
-- [ ] Gate 5 Policy alignment (no FTS / no canonical purge / no SQLite session SoT / effect lattice) — evidence: …
+- [ ] Gate 5 Policy alignment (no analytics FTS / no canonical purge / no SQLite teaching write-SoT / effect lattice / authority model) — evidence: …
 - [ ] Gate 6 Tests (unit + migration checksum if touched) — evidence: …
 
 P2 boundary check (see docs/improvements/database-p2-boundaries.md):
 - [ ] Does **not** implement DB-P2-1 vector memory without new ADR
 - [ ] Does **not** implement DB-P2-2 FTS/Tantivy without new ADR overriding ADR-0001
-- [ ] Does **not** implement DB-P2-3 SQLite session source-of-truth (won't do)
+- [ ] Does **not** implement DB-P2-3 SQLite teaching/session **write** source-of-truth (won't do; runtime store needs separate ADR)
 - [ ] Does **not** implement DB-P2-4 workflow-run tree store without trigger + new ADR
 ```
 
@@ -96,7 +97,7 @@ P2 boundary check (see docs/improvements/database-p2-boundaries.md):
 
 | 问题 | 期望答案 |
 | --- | --- |
-| 文件还是 SQLite 为真相？ | 文件 |
+| 写权威是文件还是 SQLite？ | **写权威=文件**（教学/正文/ledger）；list/analytics 可读 projection |
 | 损坏 index 怎么办？ | quarantine + rebuild；canonical 不动 |
 | native 挂了？ | 主路径仍可用 |
 | 有搜索/向量/workflow 入库吗？ | 默认否；有则要新 ADR + 本清单全绿 |
@@ -115,6 +116,10 @@ P2 boundary check (see docs/improvements/database-p2-boundaries.md):
 
 ---
 
+## 4.5 优化 backlog 指针
+
+下一波实现优化请引用 [`database-roadmap.md`](./database-roadmap.md) §6.5 / [`database-authority-model.md`](./database-authority-model.md) 的 **DB-OPT-***，仍须勾选本节六闸。
+
 ## 5. 维护规则
 
 1. roadmap §8 与本文件冲突时，**以本文件为活清单**，并在同一 PR 回写 roadmap §8 摘要与变更记录。
@@ -126,3 +131,4 @@ P2 boundary check (see docs/improvements/database-p2-boundaries.md):
 | 日期 | 说明 |
 | --- | --- |
 | 2026-07-21 | 初版：将 roadmap §8 落成可勾选活清单 + PR 复制块 |
+| 2026-07-21 | 修订：Gate 5/审查速查对齐分层权威；P2-3 明确为写权威拒绝 |

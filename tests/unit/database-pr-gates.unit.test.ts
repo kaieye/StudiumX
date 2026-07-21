@@ -27,10 +27,13 @@ describe('database PR gates documentation contract', () => {
     expect(boundaries).toContain('默认不排期')
     expect(boundaries).toContain('不构成实现授权')
 
-    // DB-P2-3 is an explicit rejection, not a backlog item.
-    expect(boundaries).toMatch(/DB-P2-3[\s\S]{0,400}won'?t do/i)
-    expect(boundaries).toContain('会话真相源迁入 SQLite')
+    // DB-P2-3 rejects write-authority migration only (preferred-read projection is allowed).
+    expect(boundaries).toMatch(/DB-P2-3[\s\S]{0,500}won'?t do/i)
+    expect(boundaries).toMatch(/写权威/)
     expect(boundaries).toContain('永不实现')
+    expect(boundaries).toContain('runtime session store')
+    // preferred-read is not banned by P2-3
+    expect(boundaries).toMatch(/优选读路径/)
 
     // Trigger / hard-condition language for re-openable P2 items.
     expect(boundaries).toContain('重新开启硬条件')
@@ -84,9 +87,11 @@ describe('database PR gates documentation contract', () => {
     expect(prTemplate).toContain('docs/improvements/database-p2-boundaries.md')
     expect(prTemplate).toContain('DB-P2-1')
 
-    // Hard red lines remain: no FTS product surface by default.
+    // Hard red lines remain: no FTS product surface by default; write-SoT stays on files.
     expect(contributing).toContain('SQLite FTS')
-    expect(prTemplate).toContain('No SQLite FTS product search')
+    expect(contributing).toMatch(/write-authority|write authority|写权威/i)
+    expect(prTemplate).toMatch(/No .*SQLite FTS product search/i)
+    expect(prTemplate).toMatch(/write-SoT|write source-of-truth|write-authority/i)
   })
 
   it('keeps forbidden P2 capabilities framed as refuse/default-off, not as authorized work', () => {
@@ -97,8 +102,13 @@ describe('database PR gates documentation contract', () => {
     expect(boundaries).toContain('不构成实现授权')
     expect(acceptance).toContain('Does **not** implement DB-P2-1')
     expect(acceptance).toContain('Does **not** implement DB-P2-2')
-    expect(acceptance).toContain("Does **not** implement DB-P2-3 SQLite session source-of-truth (won't do)")
+    expect(acceptance).toContain(
+      "Does **not** implement DB-P2-3 SQLite teaching/session **write** source-of-truth (won't do; runtime store needs separate ADR)",
+    )
     expect(acceptance).toContain('Does **not** implement DB-P2-4')
+    // Gate 5 must keep write-authority framing, not ban preferred-read projection
+    expect(acceptance).toMatch(/写权威/)
+    expect(acceptance).toContain('authority model')
     // Living docs must not claim P2 items are scheduled implementation work.
     expect(boundaries).not.toMatch(/可直接推进|现在实现 DB-P2/)
     expect(acceptance).not.toMatch(/authorized to implement DB-P2/i)

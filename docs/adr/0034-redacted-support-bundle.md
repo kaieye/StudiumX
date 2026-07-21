@@ -30,7 +30,12 @@ CI=true node ./node_modules/vitest/vitest.mjs run --project unit tests/unit/supp
 - 默认红acted；不得夹带 raw transcript / provider payload。
 - 导出失败码对用户可解释且不泄露 secret。
 
+## 与 backup / export 的关系（DB-P1-5 交叉）
+
+Support bundle **不是**完整教学备份。完整备份路径分类与 export 默认（排除 disposable projection）见 [ADR-0001](0001-rebuildable-sqlite-projection.md)「Backup / export 与可丢弃投影」与 `src/shared/backup-export-policy.ts`。Bundle 默认仍禁止夹带完整 conversation/memory 正文与 secret keys。
+
 ## 不包含
 
 - 不授权自动上传、邮件发送或完整 conversation transcript。
 - 不替代 C-4P9 audit wire（ADR-0019）或 Doctor/Inspector 诊断权威（ADR-0027）。
+- 不把 `studiumx-index.sqlite` 或其它 projection 当作可恢复权威。

@@ -6,8 +6,9 @@
 > - **ZCode** 本机数据：`~/.zcode/cli/db/db.sqlite`、`~/.zcode/v2/tasks-index.sqlite`  
 > - **ZCode** 解包：`ref_project/Zcode`（v3.3.3）  
 > 相关 ADR：0001 / 0002 / 0006 / 0038 / 0050 / 0051（以及 usage/audit 邻近决策）  
+> 分层权威活文档：[`database-authority-model.md`](./database-authority-model.md)  
 > 日期：2026-07-21  
-> 状态：**改造建议清单**（本文件本身不构成实现授权；涉及 FTS/向量/物理删除等边界能力须先写新 ADR）
+> 状态：**改造建议清单 + 已落地切片索引**（本文件本身不构成实现授权；涉及 FTS/向量/写权威迁库等边界能力须先写新 ADR）
 
 ---
 
@@ -15,19 +16,22 @@
 
 ### 0.1 一句话定位
 
-| 产品 | Database 角色 | 真相源 |
-| --- | --- | --- |
-| **StudiumX** | SQLite = 可丢弃 analytics projection | 文件系统（JSON / JSONL / Markdown / Memory） |
-| **Marvis** | SQLite = 会话 + 记忆 + 向量 + 事件主存储 | 多库 SQLite（+ Tantivy） |
-| **ZCode** | SQLite = 会话运行时 store + 任务索引 | CLI SQLite 为主；桌面任务 index + 会话 JSON 旁路 |
+| 产品 | Database 角色 | 写权威 | 读路径备注 |
+| --- | --- | --- | --- |
+| **StudiumX** | SQLite = 可丢弃 projection（list/analytics 优选读） | 文件系统（JSON / JSONL / Markdown / Memory） | projection ready 时列表/聚合可读库；详情正文读文件 |
+| **Marvis** | SQLite = 会话 + 记忆 + 向量 + 事件主存储 | 多库 SQLite（+ Tantivy） | 内容与 stream 事件均在库 |
+| **ZCode** | SQLite = 会话运行时 store + 任务索引 | CLI SQLite 为主；历史 JSON 旁路 | 双轨一致性有恢复技能 |
+
+分层细则见 [`database-authority-model.md`](./database-authority-model.md)。
 
 ### 0.2 不可退让的边界（改造前置）
 
-1. **文件真相源不可动摇**（ADR-0001 / 0002）：任何新 SQLite 表都只能是 projection、index、usage ledger 或 disposable cache。
-2. **no-FTS 产品面默认关闭**（ADR-0001）：不得把 analytics SQLite 扩成用户可见全文搜索语料。
-3. **canonical 永久保留**（ADR-0002）：不得借“索引优化”引入 age/size 物理删除 canonical 数据。
-4. **记忆破坏性迁移仍未批准**（ADR-0006 / 0038）：只允许 readonly dry-run / preflight。
-5. **教学定位优先**：不把产品拉向通用 coding agent 平台；ZCode MCP/SSH/远程、Marvis 云同步不在本清单。
+1. **教学写权威在文件**（ADR-0001 修订 / 0002）：教学资产、conversation 正文、LearningSession/Evidence/Memory 的**写权威**是文件或教学 JSONL；SQLite 不得成为其唯一/主写权威。
+2. **Projection 可为优选读路径**：list metadata / analytics 在 complete+current 时优先 SQLite；drift/损坏必须 unavailable + 文件回退；库可删可重建。
+3. **no-FTS 产品面默认关闭**（ADR-0001）：不得把 **analytics 同一库** 扩成用户可见全文搜索语料；独立检索索引须新 ADR（DB-P2-2）。
+4. **canonical 永久保留**（ADR-0002）：不得借“索引优化”引入 age/size 物理删除 teaching canonical 数据。
+5. **记忆破坏性迁移仍未批准**（ADR-0006 / 0038）：只允许 readonly dry-run / preflight。
+6. **教学定位优先**：不把产品拉向通用 coding agent 平台；ZCode MCP/SSH/远程、Marvis 云同步不在本清单。
 
 ### 0.3 优先级定义
 
@@ -89,7 +93,7 @@ User/{uid}/database/
 | DB-P1-5 | Backup/export 清单含 projection 可丢声明 | P1 | 自研+两边运维 | 否 |
 | DB-P2-1 | 可选向量记忆 projection | P2 | Marvis sqlite-vec | **必须新 ADR** |
 | DB-P2-2 | 可选 Tantivy/FTS 记忆索引 | P2 | Marvis Tantivy | **必须新 ADR；冲突 0001** |
-| DB-P2-3 | 会话真相源迁入 SQLite | P2 | Marvis/ZCode | **明确拒绝（除非产品重定位）** |
+| DB-P2-3 | 会话/教学**写权威**迁入 SQLite | P2 | Marvis/ZCode | **拒绝写权威迁库**；runtime store 另见 authority model |
 | DB-P2-4 | Workflow run 树入库 | P2 | ZCode workflow | 信号触发；教学编排未证明 |
 
 ---
@@ -294,7 +298,7 @@ Marvis 的 episodic / experience / semantic 分层对“教学经验 / 学习者
 ---
 
 
-> **DB-P1-3-5 合批交付（本 worktree）**：`docs/improvements/event-density-policy.md`、`docs/improvements/multi-workspace-projection-perf.md`、`docs/improvements/backup-export-policy.md`；策略模块 `src/shared/event-density-policy.ts` / `src/shared/backup-export-policy.ts`；learning-work / session ledger guards；export 默认排除 projection。增量 rebuild **未** 实现（测量门槛未过，见 multi-workspace-projection-perf.md）。
+> **DB-P1-3-5 合批交付（本 worktree）**：策略模块 `src/shared/event-density-policy.ts` / `src/shared/backup-export-policy.ts`；learning-work / session ledger guards；export 默认排除 projection。政策已沉淀：[ADR-0002](../adr/0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)（event density）、[ADR-0001](../adr/0001-rebuildable-sqlite-projection.md)（rebuild 默认 + backup/export）。**生产默认**仍为全量 DELETE+INSERT rebuild；**DB-OPT-2** 仅有 `planIncrementalRebuild` + test-hook 会话增量骨架（失败→全量；非多表生产默认；L fixture 门槛见 ADR-0001）。
 ### DB-P1-3：教学事件密度策略（从 Marvis 反例学习）
 
 **动机**  
@@ -376,14 +380,13 @@ ADR-0001 no-FTS 产品面。
 
 ---
 
-### DB-P2-3：会话真相源迁入 SQLite — **拒绝项**
+### DB-P2-3：会话/教学 **写权威** 迁入 SQLite — **拒绝项（写权威）**
 
-**原因**
+**拒绝**：conversation 正文 / LearningSession / Evidence / Memory 的唯一或主写权威迁入 SQLite（含「库为主、文件为导出」）。
 
-- 与 ADR-0001/0002 文件真相 + 永久保留 + 可审计 diff 冲突
-- Marvis/ZCode 的会话库优势服务于“通用 agent 产品”，不是教学工作区
+**不拒绝**：projection 优选读路径；usage/approval JSONL；**可选 runtime session store 设计**（须独立新 ADR，见 authority model §3.2 / DB-OPT-6）。
 
-**仅当产品重定位**（放弃文件工作区真相）时才可重议；当前列为 **won't do**。
+**写权威迁库**仅当产品顶层重定位（放弃文件教学写权威）后另起顶层 ADR。细节闸：[`database-p2-boundaries.md`](./database-p2-boundaries.md) §4。
 
 ---
 
@@ -409,7 +412,7 @@ ZCode `workflow_run` / `activity` / `event` / `session_task_link`。
 
 | 项 | 来源 | 原因 |
 | --- | --- | --- |
-| SQLite 作为会话唯一真相 | Marvis/ZCode | 违背文件真相与可恢复策略 |
+| SQLite 作为会话/教学**写权威**（唯一或主真相） | Marvis/ZCode | 违背可迁移文件工作区；runtime cache 另案 |
 | 全量 AG-UI / token stream 落库 | Marvis | 事件膨胀、隐私、IO |
 | AK/SK 明文表 | Marvis `aksks` | 安全模型不可接受 |
 | 把 analytics 库改 FTS 语料 | — | ADR-0001 |
@@ -418,6 +421,41 @@ ZCode `workflow_run` / `activity` / `event` / `session_task_link`。
 | 基于 age/size 删 canonical | 任何“运维便利” | ADR-0002 |
 
 ---
+
+
+---
+
+## 6.5 优化 backlog（DB-OPT，基于分层权威修订）
+
+> 完整说明见 [`database-authority-model.md`](./database-authority-model.md) §4。  
+> 下列项供**下一阶段项目优化**直接引用；实现 PR 仍须过验收闸。
+
+| ID | 项 | 优先级 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| **DB-OPT-1** | 去掉/降级 projection `absolute_path` | P0 | **Done**（2026-07-21） | 新 rebuild 写空 `absolute_path`；hydrate 用 relative；migration 清空旧绝对路径；Gate 3 |
+| **DB-OPT-2** | per-source 增量 rebuild 骨架 | P1 | **Done（骨架）**（2026-07-21） | [ADR-0001](../adr/0001-rebuildable-sqlite-projection.md)：`planIncrementalRebuild` + test-hook 会话增量；**默认仍全量**；失败降级全量；非多表生产默认 |
+| **DB-OPT-3** | usage 字段向 ZCode 再靠一档 | P1 | **Done**（2026-07-21） | `ttftMs` / `retryCount` / `truncated` / `errorType`；JSONL 写权威；无 secret |
+| **DB-OPT-4** | doctor 暴露 usage segment/invalid 计数 | P0 | **Done**（2026-07-21） | `LocalDataIndex.diagnostics().usage` + doctor evidence；无路径/行原文 |
+| **DB-OPT-5** | projection status/kind DB CHECK | P1 | **Done**（2026-07-21） | conversation scope / usage kind·status / memory status CHECK |
+| **DB-OPT-6** | runtime session store **设计 ADR** | P2 设计 | **Design-complete / unimplemented** | [ADR-0052](../adr/0052-runtime-session-store.md) Proposed；**无生产 schema/writer** |
+| **DB-OPT-7** | 词法失败用例 → FTS/向量审查 | 信号 | **Evidence-only** | [ADR-0050](../adr/0050-lexical-memory-search-and-synthetic-memory.md) 证据表；暂无触发信号 |
+
+**建议优化顺序（执行时）**
+
+```text
+OPT Wave A（正确性/隐私）
+  DB-OPT-1 absolute_path
+  DB-OPT-4 doctor usage diagnostics
+
+OPT Wave B（观测与约束）
+  DB-OPT-3 usage fields
+  DB-OPT-5 CHECK constraints
+
+OPT Wave C（性能与设计）
+  DB-OPT-2 incremental rebuild skeleton
+  DB-OPT-6 runtime store design ADR（仅文档）
+  DB-OPT-7 证据收集
+```
 
 ## 7. 建议实施顺序（当进入执行）
 
@@ -438,7 +476,7 @@ Wave 2（列表与记忆元数据）
   DB-P0-6 resume/list 索引
   DB-P1-2 memory kind 元数据
   DB-P1-3 event 密度策略
-  DB-P1-4 增量 rebuild（有性能证据再做）
+  DB-P1-4 多 workspace 性能（默认全量；OPT-2 骨架已有，生产增量须 L 证据）
 
 Wave 3（信号触发）
   DB-P2-1 / P2-2 / P2-4 仅在新 ADR + 用户任务证明后
@@ -458,7 +496,7 @@ Wave 3（信号触发）
 2. **Drift 安全**：source 变更后 adapter 不得静默返回 stale ready 数据。
 3. **无秘密进索引**：usage/projection/receipt 无 API key、无 raw prompt 默认落库。
 4. **失败可降级**：native sqlite 不可用时产品主路径仍可用（文件扫描 / 跳过 analytics）。
-5. **政策对齐**：不引入 FTS 产品面、不引入 canonical 物理删除、不绕过工具 effect lattice；不把 SQLite 当会话 SoT；不实现未授权的 DB-P2-1…4。
+5. **政策对齐**：不引入 analytics 库 FTS 产品面、不引入 canonical 物理删除、不绕过工具 effect lattice；不把 SQLite 当教学/会话**写权威**；不实现未授权的 DB-P2-1…4；分层权威见 database-authority-model.md。
 6. **测试**：unit + 必要 integration；迁移 checksum 冲突覆盖。
 
 与活清单冲突时以活清单为准，并在同一变更中回写本摘要。
@@ -473,13 +511,16 @@ Wave 3（信号触发）
 - `src/main/local-data-index/schema-migration.ts`
 - `src/main/teaching-memory.ts`
 - `src/main/ai/teaching-lexical-search.ts`
-- `docs/adr/0001-rebuildable-sqlite-projection.md`
-- `docs/adr/0002-utc-partitioned-segmented-jsonl-and-summary-projections.md`
-- `docs/adr/0050-lexical-memory-search-and-synthetic-memory.md`
-- `docs/improvements/Zcode.md`
+- `docs/adr/0001-rebuildable-sqlite-projection.md`（含 rebuild 默认/OPT-2 骨架 + backup/export）
+- `docs/adr/0002-utc-partitioned-segmented-jsonl-and-summary-projections.md`（含 event density）
+- `docs/adr/0050-lexical-memory-search-and-synthetic-memory.md`（含 OPT-7 证据表）
+- `docs/adr/0051-usage-ledger-as-canonical-observability.md`
+- `docs/adr/0052-runtime-session-store.md`（OPT-6 设计 only）
+- `docs/improvements/database-authority-model.md`（分层权威 + DB-OPT）
 - `docs/improvements/database-p2-boundaries.md`（P2 触发/won't-do 活文档）
 - `docs/improvements/database-acceptance-gates.md`（§8 验收活清单）
 - `tests/unit/database-pr-gates.unit.test.ts`（文档闸契约测试）
+- ZCode 对照笔记曾位于 `docs/improvements/Zcode.md`（2026-07-21 删除；证据摘要见本文件 §1.3 / §9）
 
 ### Marvis（本机）
 
@@ -503,3 +544,7 @@ Wave 3（信号触发）
 | --- | --- |
 | 2026-07-21 | 初版：基于三方 database 实库/schema/源码对照产出 P0/P1/P2 改造清单 |
 | 2026-07-21 | DB-P2-docs：落地 P2 边界活文档 + §8 验收活清单；§5/§8/§9 增加交叉链接；无 forbidden 实现 |
+| 2026-07-21 | 修订：分层权威模型；DB-P2-3 拆写权威 vs runtime store；新增 DB-OPT-1…7 优化 backlog |
+| 2026-07-21 | DB-OPT-1…7 闭环：absolute_path、doctor usage、usage 字段、CHECK、增量骨架、ADR-0052、词法证据文档 |
+| 2026-07-21 | improvements 收敛：已落实政策沉淀进 ADR-0001/0002/0034/0050；删除 event-density / backup-export / multi-workspace-perf / lexical-evidence / Zcode 草稿 |
+| 2026-07-21 | §6.5 OPT-2 证据链补 [ADR-0001](../adr/0001-rebuildable-sqlite-projection.md)；确认 OPT-6 Design-complete/unimplemented→0052、OPT-7 Evidence-only→0050、§8→acceptance-gates；无删除文档活跃链接 |

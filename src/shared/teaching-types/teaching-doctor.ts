@@ -148,6 +148,14 @@ export type TeachingDoctorLocalDataIndexFacts = {
   migrationIds: readonly string[]
   /** Issue counts by stable code (source_drift / read_failed / …). */
   issueCountsByCode: Readonly<Record<string, number>>
+  /** DB-OPT-4: usage ledger segment / invalid counters (aggregate-only). */
+  usage?: {
+    segmentFileCount: number
+    projectedEntryCount: number
+    invalidRowCount: number
+    invalidRowIssueCount?: number
+    readFailedIssueCount?: number
+  } | null
 }
 
 export type TeachingDoctorFacts = {

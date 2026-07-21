@@ -1,6 +1,6 @@
 # 架构 ADR 索引
 
-本目录记录已经实施、且有代码、测试和 Git 提交证据的架构决定。ADR（Architecture Decision Record，架构决策记录）说明系统为什么采用某项重要做法、已经落地到什么范围，以及它**没有**授权做什么。
+本目录主要记录已经实施、且有代码、测试和 Git 提交证据的架构决定。少数条目为 **Proposed / 设计 gate only**（正文与索引表会标明 **未实施**，例如 [ADR-0052](0052-runtime-session-store.md)），**不**表示生产 schema 或写路径已落地。ADR（Architecture Decision Record，架构决策记录）说明系统为什么采用某项重要做法、已经落地到什么范围，以及它**没有**授权做什么。
 
 ## 先从这里读
 
@@ -14,7 +14,7 @@
 
 | 你关心的问题 | 建议先读 |
 | --- | --- |
-| SQLite 分析索引损坏后能否隔离、重建或回退读取 | ADR-0001 |
+| SQLite 分析/列表投影损坏后能否隔离、重建或回退读取；分层写/读权威 | ADR-0001、[database-authority-model](../improvements/database-authority-model.md) |
 | canonical teaching data 的永久保留边界，以及 logical JSONL 如何分区、分段和生成会话摘要 | ADR-0002 |
 | 关键 JSON 不可读时如何从 `.bak` 验证恢复 | ADR-0003 |
 | 哪些 writer 已使用 durable publish，以及受控 `write_workspace_file` 的 P8 S1–S4 closure 到哪里 | ADR-0004、ADR-0035 |
@@ -66,11 +66,12 @@
 | write_workspace_file 本轮 pre-image 与「撤销本轮写入」 | ADR-0049 |
 | 词法记忆检索与教学合成记忆 remember/forget | ADR-0050 |
 | Token/tool/turn 细粒度 usage 观测账本与可选 SQLite 投影边界 | ADR-0051 |
+| 可选 runtime session store（仅设计；非写权威） | ADR-0052 |
 ## 已实施决定
 
 | ADR | 主题 | 已实施范围 |
 | --- | --- | --- |
-| [ADR-0001](0001-rebuildable-sqlite-projection.md) | C-1 可重建 SQLite projection 与 no-FTS 边界 | SQLite 仅作为可再建 analytics 投影并保留 canonical 文件回退；FTS、查询/搜索面与 query-facing corpus 均未获授权。 |
+| [ADR-0001](0001-rebuildable-sqlite-projection.md) | C-1 可重建 SQLite 投影、分层权威与 no-FTS 默认 | 写权威在文件；list/analytics 可为优选读路径；库可丢弃重建；analytics 库 FTS/query corpus 默认未获授权；含 rebuild 默认全量 + OPT-2 骨架 + backup/export 可丢弃声明（2026-07-21）。 |
 | [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md) | C-2 canonical 永久保留、分区、分段与摘要 projection | canonical teaching data 永久保留；UTC 月分区、无损 sealed JSONL 分段和显式会话摘要 projection 已实施。physical retention / recovery 未获批准；相邻 agent-artifact 年龄/大小删除路径已移除。 |
 | [ADR-0003](0003-critical-json-backups-and-verified-recovery.md) | C-3 关键 JSON 备份与恢复 | `.bak` 备份及 verified read recovery。 |
 | [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) | C-4 durable publish | 共享 durable publish 原语及已迁移的部分 consumer。C-4 始终是 **partial writer migration**。C-4P6 历史仅有 S1 生产基础 + S2…S194 tests-only residual；[ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 以受限 macOS internal APFS runtime-adjacent evidence 结项该工作线，**不**宣称跨文件 transaction / common atomicity、完整 manifest failure matrix 或 power-loss durability。P8-S1…S4 受控 `write_workspace_file` 文本文件 scope 已关闭（含获批 Windows direct-path non-CAS profile）；Windows strict 以 unsupported/no-go 结项（ADR-0035）。P9 以 fixed-file audit boundary（S2 生产 + S3…S45 tests-only residual + ADR-0019 V1）结项，ADR-0035 明确不扩张为 strict/generic/cross-process/transaction/public surface。不表示所有 writer、CAS/lost-update protection、fully cross-platform durable publish 或 metadata full preservation。 |
@@ -121,6 +122,7 @@
 | [ADR-0049](0049-write-rewind-journal.md) | Write rewind journal | `write_workspace_file` first-touch pre-image under `.studiumx/checkpoints/<runId>/`；IPC/UI「撤销本轮写入」与 conversation checkpoint 分离；不削弱 durable publish。 |
 | [ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md) | Lexical memory search + synthetic memory | main-only 词法检索（零 LLM、无 FTS）；`memory_search` / 人批 `remember`·`forget`；turn-tail 仅 title+scope 索引。 |
 | [ADR-0051](0051-usage-ledger-as-canonical-observability.md) | Usage ledger as canonical observability | 设计权威：append-only JSONL usage ledger（UTC 分段）、可选 SQLite projection、与 LearningSession 正交、诊断级 retention、redaction；DB-P0-3 为最小实现切片。 |
+| [ADR-0052](0052-runtime-session-store.md) | Runtime session store (design only) | **Proposed / 未实施**：可选 disposable runtime 缓存形状 + 硬门槛；export/resume 仍文件权威；不 override DB-P2-3；无生产 schema/writer。 |
 ## C-4P6 历史 evidence 与受限结项边界
 
 > 本节保存 ADR-0004 的历史 evidence 范围；**当前工作线 close-out** 以 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 为准，不再作为开放实现 todo。
@@ -168,6 +170,8 @@ P9-S5 `47393f9` 仅修改测试，未改 production code。它覆盖 audit direc
 ## Hermes × Reasonix 结项（reason-hermes）
 
 `docs/improvements/` 中的 Hermes / Reasonix 合并借鉴清单（A–H 近端切片）已落地并沉淀为 ADR-0044–0050；Slice I 与「明确不借」项保持延期/不借，不进本冲刺。近端清单源文件在结项后删除，以本目录 ADR 与代码为准。
+
+Database 子系统：已落实的 event density / backup-export / multi-workspace rebuild 默认与 OPT-2 骨架 / OPT-7 词法证据表，已分别并入 [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0034](0034-redacted-support-bundle.md)、[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)。**仍保留**在 `docs/improvements/` 的活护栏：`database-roadmap.md`、`database-authority-model.md`、`database-p2-boundaries.md`、`database-acceptance-gates.md`（契约测试锁定）。ZCode 对照草稿已删除；对照摘要以 roadmap §1 / §9 为准。
 
 ## 维护约定
 

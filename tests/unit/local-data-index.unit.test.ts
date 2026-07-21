@@ -5,7 +5,7 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentConversationRecord, AgentConversationSummary, TeachingMemoryRecord, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 import { TeachingMemoryCatalog } from '../../src/main/teaching-memory-catalog'
-import { LocalDataIndex, conversationListItemsFromSummaries, listConversationsWithFilesystemFallback, type LocalDataIndexTestHooks } from '../../src/main/local-data-index'
+import { LocalDataIndex, conversationListItemsFromSummaries, listConversationsWithFilesystemFallback, planIncrementalRebuild, type LocalDataIndexTestHooks } from '../../src/main/local-data-index'
 import { LOCAL_DATA_INDEX_MIGRATIONS, SCHEMA_MIGRATION_APPLIED_BY, listAppliedSchemaMigrations, migrateLocalDataIndex } from '../../src/main/local-data-index/schema-migration'
 import { createIsolatedTestRuntime, type IsolatedTestRuntime } from '../helpers/runtime-isolation'
 
@@ -897,7 +897,9 @@ describe('local data conversation list fields and indexes (DB-P0-6)', () => {
         'conversation_projection_workspace_updated_idx'
       ]))
       expect(indexNames.some((name) => /fts/i.test(name))).toBe(false)
-      expect(LOCAL_DATA_INDEX_MIGRATIONS.map((m) => m.id)).toEqual(['0001', '0002', '0003', '0004', '0005'])
+      expect(LOCAL_DATA_INDEX_MIGRATIONS.map((m) => m.id)).toEqual([
+        '0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008'
+      ])
     } finally { db.close() }
   })
 
@@ -1122,6 +1124,250 @@ describe('local data conversation list fields and indexes (DB-P0-6)', () => {
       })
     ])
     index.close()
+  })
+})
+
+describe('DB-OPT-1 absolute_path projection policy', () => {
+  it('rebuild writes empty absolute_path and still hydrates via relative_path', async () => {
+    const value = record('opt1-no-abs')
+    await writeConversation('conversation/opt1-no-abs.json', value)
+    const item = {
+      ...value,
+      workspaceId: 'ws-1',
+      relativePath: 'conversation/opt1-no-abs.md',
+      absolutePath: join(runtime.workspaceDir, 'conversation/opt1-no-abs.md')
+    }
+    const index = makeIndex({ conversations: [item] })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+    index.close()
+
+    const db = new Database(join(runtime.userDataDir, 'studiumx-index.sqlite'), { readonly: true })
+    try {
+      const row = db.prepare('SELECT absolute_path, relative_path FROM conversation_projection WHERE conversation_id = ?').get(value.id) as {
+        absolute_path: string
+        relative_path: string
+      }
+      expect(row.relative_path).toBe('conversation/opt1-no-abs.md')
+      expect(row.absolute_path).toBe('')
+      expect(row.absolute_path).not.toContain(runtime.workspaceDir)
+    } finally {
+      db.close()
+    }
+
+    const reopened = makeIndex({ conversations: [item] })
+    expect(reopened.open()).toBe(true)
+    await reopened.rebuild()
+    const adapters = reopened.tokenEvidenceAdapters()
+    expect(adapters).not.toBeNull()
+    const read = await adapters!.conversations.read('ws-1', value.id)
+    expect(read.state).toBe('readable')
+    if (read.state === 'readable') {
+      expect(read.record.relativePath).toBe('conversation/opt1-no-abs.md')
+      // absolutePath must not re-introduce host workspace path from projection
+      expect(read.record.absolutePath).not.toContain(runtime.workspaceDir)
+      expect(read.record.absolutePath).toBe('conversation/opt1-no-abs.md')
+    }
+    reopened.close()
+  })
+})
+
+describe('DB-OPT-4 usage diagnostics', () => {
+  it('exposes usage segment and invalid row counters without paths or row bodies', async () => {
+    await mkdir(join(runtime.userDataDir, 'usage'), { recursive: true })
+    await writeFile(
+      join(runtime.userDataDir, 'usage', 'usage.jsonl'),
+      [
+        JSON.stringify({
+          version: 1,
+          entryId: 'good-1',
+          kind: 'turn_usage',
+          timestamp: '2026-07-21T08:00:00.000Z',
+          status: 'completed'
+        }),
+        '{not-json',
+        JSON.stringify({ version: 1, entryId: 'bad-secret', kind: 'turn_usage', timestamp: '2026-07-21T08:00:01.000Z', prompt: 'secret prompt body' })
+      ].join('\n') + '\n',
+      'utf8'
+    )
+    const index = makeIndex()
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    const diagnostics = index.diagnostics()
+    expect(diagnostics.usage.segmentFileCount).toBeGreaterThanOrEqual(1)
+    expect(diagnostics.usage.projectedEntryCount).toBe(1)
+    expect(diagnostics.usage.invalidRowCount).toBeGreaterThanOrEqual(2)
+    expect(diagnostics.usage.invalidRowIssueCount).toBeGreaterThanOrEqual(1)
+    const payload = JSON.stringify(diagnostics)
+    expect(payload).not.toContain(runtime.userDataDir)
+    expect(payload).not.toContain('secret prompt body')
+    expect(payload).not.toContain('{not-json')
+    index.close()
+  })
+})
+
+describe('DB-OPT-2 incremental rebuild skeleton', () => {
+  it('planIncrementalRebuild retains unchanged sources and marks changed for upsert', () => {
+    const plan = planIncrementalRebuild({
+      previous: [
+        { sourceKey: 'conversation:workspace:ws:a', fingerprint: 'fp-a' },
+        { sourceKey: 'conversation:workspace:ws:b', fingerprint: 'fp-b' }
+      ],
+      next: [
+        { sourceKey: 'conversation:workspace:ws:a', fingerprint: 'fp-a' },
+        { sourceKey: 'conversation:workspace:ws:b', fingerprint: 'fp-b2' },
+        { sourceKey: 'conversation:workspace:ws:c', fingerprint: 'fp-c' }
+      ]
+    })
+    expect(plan.mode).toBe('incremental')
+    expect(plan.unchangedKeys).toEqual(['conversation:workspace:ws:a'])
+    expect(plan.upsertKeys).toEqual(['conversation:workspace:ws:b', 'conversation:workspace:ws:c'])
+    expect(plan.deleteKeys).toEqual([])
+  })
+
+  it('planIncrementalRebuild forceFull and delete paths work', () => {
+    const force = planIncrementalRebuild({
+      previous: [{ sourceKey: 'a', fingerprint: '1' }],
+      next: [{ sourceKey: 'a', fingerprint: '1' }],
+      forceFull: true
+    })
+    expect(force.mode).toBe('full')
+    expect(force.reason).toBe('force_full')
+
+    const deleted = planIncrementalRebuild({
+      previous: [
+        { sourceKey: 'keep', fingerprint: 'k' },
+        { sourceKey: 'gone', fingerprint: 'g' }
+      ],
+      next: [{ sourceKey: 'keep', fingerprint: 'k' }]
+    })
+    expect(deleted.mode).toBe('incremental')
+    expect(deleted.deleteKeys).toEqual(['gone'])
+    expect(deleted.unchangedKeys).toEqual(['keep'])
+  })
+
+  it('incremental conversation rebuild updates changed source and keeps unchanged fingerprint row', async () => {
+    const stable = record('inc-stable')
+    const changing = record('inc-change')
+    await writeConversation('conversation/inc-stable.json', stable)
+    await writeConversation('conversation/inc-change.json', changing)
+    const items = [
+      { ...stable, workspaceId: 'ws-1', relativePath: 'conversation/inc-stable.md', absolutePath: join(runtime.workspaceDir, 'conversation/inc-stable.md') },
+      { ...changing, workspaceId: 'ws-1', relativePath: 'conversation/inc-change.md', absolutePath: join(runtime.workspaceDir, 'conversation/inc-change.md') }
+    ]
+    const index = makeIndex({
+      conversations: items,
+      testHooks: { enableIncrementalConversationRebuild: true }
+    })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+    index.close()
+
+    const dbPath = join(runtime.userDataDir, 'studiumx-index.sqlite')
+    let stableFp: string
+    let changeFpBefore: string
+    {
+      const db = new Database(dbPath, { readonly: true })
+      try {
+        stableFp = (db.prepare('SELECT source_fingerprint AS f FROM conversation_projection WHERE conversation_id = ?').get('inc-stable') as { f: string }).f
+        changeFpBefore = (db.prepare('SELECT source_fingerprint AS f FROM conversation_projection WHERE conversation_id = ?').get('inc-change') as { f: string }).f
+      } finally {
+        db.close()
+      }
+    }
+
+    changing.title = 'Conversation inc-change updated'
+    changing.updatedAt = '2026-07-11T13:00:00.000Z'
+    await writeConversation('conversation/inc-change.json', changing)
+    const items2 = [
+      { ...stable, workspaceId: 'ws-1', relativePath: 'conversation/inc-stable.md', absolutePath: join(runtime.workspaceDir, 'conversation/inc-stable.md') },
+      { ...changing, workspaceId: 'ws-1', relativePath: 'conversation/inc-change.md', absolutePath: join(runtime.workspaceDir, 'conversation/inc-change.md') }
+    ]
+    const index2 = makeIndex({
+      conversations: items2,
+      testHooks: { enableIncrementalConversationRebuild: true }
+    })
+    expect(index2.open()).toBe(true)
+    await index2.rebuild()
+    expect(index2.status).toBe('ready')
+    index2.close()
+
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      const stableAfter = db.prepare('SELECT source_fingerprint AS f, title FROM conversation_projection WHERE conversation_id = ?').get('inc-stable') as { f: string; title: string }
+      const changeAfter = db.prepare('SELECT source_fingerprint AS f, title FROM conversation_projection WHERE conversation_id = ?').get('inc-change') as { f: string; title: string }
+      expect(stableAfter.f).toBe(stableFp)
+      expect(changeAfter.f).not.toBe(changeFpBefore)
+      expect(changeAfter.title).toMatch(/updated|inc-change/i)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('incremental failure falls back to full rebuild and still reaches ready', async () => {
+    const value = record('inc-fail-fallback')
+    await writeConversation('conversation/inc-fail-fallback.json', value)
+    const item = {
+      ...value,
+      workspaceId: 'ws-1',
+      relativePath: 'conversation/inc-fail-fallback.md',
+      absolutePath: join(runtime.workspaceDir, 'conversation/inc-fail-fallback.md')
+    }
+    const index = makeIndex({
+      conversations: [item],
+      testHooks: { enableIncrementalConversationRebuild: true, failIncrementalRebuild: true }
+    })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    // First rebuild has no previous rows → full path; seed then fail incremental.
+    expect(index.status).toBe('ready')
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+    const rows = new Database(join(runtime.userDataDir, 'studiumx-index.sqlite'), { readonly: true })
+    try {
+      expect((rows.prepare('SELECT COUNT(*) AS n FROM conversation_projection').get() as { n: number }).n).toBe(1)
+    } finally {
+      rows.close()
+    }
+    index.close()
+  })
+})
+
+describe('DB-OPT-5 CHECK constraints', () => {
+  it('rejects illegal usage kind and conversation scope under CHECK', async () => {
+    const index = makeIndex()
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    index.close()
+    const db = new Database(join(runtime.userDataDir, 'studiumx-index.sqlite'))
+    try {
+      expect(() => {
+        db.prepare(
+          `INSERT INTO usage_projection (entry_id, kind, timestamp, source_path, source_fingerprint, indexed_at)
+           VALUES ('bad-kind', 'not_a_kind', '2026-07-21T00:00:00.000Z', 'usage/usage.jsonl', 'fp', '2026-07-21T00:00:00.000Z')`
+        ).run()
+      }).toThrow()
+      expect(() => {
+        db.prepare(
+          `INSERT INTO conversation_projection (
+             source_key, workspace_id, conversation_id, scope, title, created_at, updated_at,
+             relative_path, absolute_path, message_count, turn_projection_json, source_fingerprint, indexed_at
+           ) VALUES ('k', 'ws', 'c1', 'invalid_scope', 't', '2026-07-21T00:00:00.000Z', '2026-07-21T00:00:00.000Z',
+             'r.md', '', 0, '{}', 'fp', '2026-07-21T00:00:00.000Z')`
+        ).run()
+      }).toThrow()
+      expect(() => {
+        db.prepare(
+          `INSERT INTO memory_projection (
+             memory_id, scope, tags_json, confidence, created_at, updated_at, source_fingerprint, indexed_at, status
+           ) VALUES ('m1', 'user', '[]', 1, '2026-07-21T00:00:00.000Z', '2026-07-21T00:00:00.000Z', 'fp', '2026-07-21T00:00:00.000Z', 'bogus')`
+        ).run()
+      }).toThrow()
+    } finally {
+      db.close()
+    }
   })
 })
 
