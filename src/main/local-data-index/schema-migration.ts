@@ -61,7 +61,13 @@ ALTER TABLE memory_projection ADD COLUMN kind TEXT;
 ALTER TABLE memory_projection ADD COLUMN status TEXT;
 CREATE INDEX IF NOT EXISTS memory_projection_kind_status_idx ON memory_projection(kind, status);
 CREATE INDEX IF NOT EXISTS memory_projection_status_idx ON memory_projection(status);
-`
+`,
+  `
+-- DB-P0-6: list-friendly conversation metadata + indexes (no FTS).
+ALTER TABLE conversation_projection ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE conversation_projection ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS conversation_projection_scope_updated_idx ON conversation_projection(scope, updated_at DESC);
+CREATE INDEX IF NOT EXISTS conversation_projection_workspace_updated_idx ON conversation_projection(workspace_id, updated_at DESC);`
 ]
 
 export const LOCAL_DATA_INDEX_MIGRATIONS: readonly SchemaMigration[] = migrationSql.map((sql, index) => ({
