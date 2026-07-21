@@ -480,3 +480,46 @@ describe('local data SQLite projections', () => {
   })
 
 })
+
+
+describe('local data index diagnostics', () => {
+  it('exposes aggregate-only diagnostics without projection row bodies', async () => {
+    const value = record('diag-1')
+    await writeConversation('conversation/diag-1.json', value)
+    const item = { ...value, workspaceId: 'ws-1', relativePath: 'conversation/diag-1.md', absolutePath: join(runtime.workspaceDir, 'conversation/diag-1.md') }
+    const index = makeIndex({ conversations: [item] })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+
+    const diagnostics = index.diagnostics()
+    expect(diagnostics.indexFileName).toBe('studiumx-index.sqlite')
+    expect(diagnostics.pathExists).toBe(true)
+    expect(diagnostics.status).toBe('ready')
+    expect(diagnostics.complete).toBe(true)
+    expect(diagnostics.migrationIds.length).toBeGreaterThan(0)
+    expect(diagnostics.appliedMigrations.every((row) => typeof row.checksum === 'string')).toBe(true)
+    expect(diagnostics.aggregateOnly).toBe(true)
+    expect(diagnostics.disposable).toBe(true)
+    expect(diagnostics.disposableNote).toMatch(/safely deleted and rebuilt/i)
+    expect(JSON.stringify(diagnostics)).not.toMatch(/private answer/)
+    expect(JSON.stringify(diagnostics)).not.toMatch(/CREATE TABLE/i)
+    // Absolute path may exist on diagnostics.path via class, but diagnostics() must not leak it.
+    expect((diagnostics as { path?: string }).path).toBeUndefined()
+    expect(JSON.stringify(diagnostics)).not.toContain(runtime.userDataDir)
+
+    index.close()
+    const closed = index.diagnostics()
+    expect(closed.status).toBe('closed')
+    expect(closed.migrationIds).toEqual([])
+  })
+
+  it('reports unavailable diagnostics when the index was never opened', () => {
+    const index = makeIndex()
+    const diagnostics = index.diagnostics()
+    expect(diagnostics.status).toBe('unavailable')
+    expect(diagnostics.pathExists).toBe(false)
+    expect(diagnostics.complete).toBeNull()
+    expect(diagnostics.issueCount).toBe(0)
+    expect(diagnostics.disposableNote).toMatch(/studiumx-index\.sqlite/)
+  })
+})

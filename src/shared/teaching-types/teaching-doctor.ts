@@ -9,6 +9,7 @@ export type TeachingDoctorCheckId =
   | 'config_availability'
   | 'source_gap'
   | 'catalog_drift'
+  | 'local_data_index'
 
 /**
  * Check result ladder. `error` means the check itself failed to execute; that
@@ -130,10 +131,30 @@ export type TeachingDoctorCatalogDriftFacts = {
   removedRelativePaths: readonly string[]
 }
 
+/**
+ * Aggregate-only LocalDataIndex diagnostics for TeachingDoctor.
+ * Absolute host paths must not appear in user-facing evidence; use logical labels.
+ */
+export type TeachingDoctorLocalDataIndexFacts = {
+  /** Whether the disposable projection file exists on disk. */
+  pathExists: boolean
+  /** Logical locator only (e.g. userData/studiumx-index.sqlite) — never absolute home path. */
+  indexPathLabel?: string | null
+  status: 'ready' | 'building' | 'incomplete' | 'unavailable' | 'closed'
+  reason: string | null
+  complete: boolean | null
+  rebuiltAt: string | null
+  /** Applied migration ids only (no SQL bodies). */
+  migrationIds: readonly string[]
+  /** Issue counts by stable code (source_drift / read_failed / …). */
+  issueCountsByCode: Readonly<Record<string, number>>
+}
+
 export type TeachingDoctorFacts = {
   sessionCrashWindow?: TeachingDoctorSessionCrashWindowFacts | null
   outcomeCrashWindow?: TeachingDoctorOutcomeCrashWindowFacts | null
   config?: TeachingDoctorConfigFacts | null
   sourceGap?: TeachingDoctorSourceGapFacts | null
   catalogDrift?: TeachingDoctorCatalogDriftFacts | null
+  localDataIndex?: TeachingDoctorLocalDataIndexFacts | null
 }
